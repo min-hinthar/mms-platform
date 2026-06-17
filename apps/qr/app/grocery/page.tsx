@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import posthog from "posthog-js";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
 import { scanAdd } from "@/lib/grocery";
 
@@ -17,6 +18,14 @@ export default function Grocery() {
     if (r.ok) {
       setLines((l) => [...l, { name: r.name, price: r.unitPrice, ebt: r.ebt }]);
       setToast(`Added ${r.name}${r.ebt ? " · EBT-eligible" : ""}`);
+      posthog.capture("grocery_item_scanned", {
+        barcode: code,
+        item_name: r.name,
+        unit_price: r.unitPrice,
+        ebt_eligible: r.ebt,
+        cart_id: cartId,
+        cart_size: lines.length + 1,
+      });
     } else {
       setToast(r.reason === "weighed_item" ? "Weighed item — see staff" : `Not found: ${code}`);
     }
@@ -42,7 +51,16 @@ export default function Grocery() {
       </ul>
       {toast && <div role="status" style={{ position: "fixed", left: "50%", bottom: 90, transform: "translateX(-50%)", background: "var(--tx)", color: "var(--pg)", padding: "10px 16px", borderRadius: 999, fontWeight: 700 }}>{toast}</div>}
       {lines.length > 0 && (
-        <a href={`/cart?cart=${cartId}`} className="card" style={{ position: "fixed", left: 12, right: 12, bottom: 16, maxWidth: 416, margin: "0 auto", background: "var(--ac)", color: "var(--oa)", padding: "14px 18px", display: "flex", justifyContent: "space-between", textDecoration: "none", fontWeight: 800 }}>
+        <a
+          href={`/cart?cart=${cartId}`}
+          className="card"
+          style={{ position: "fixed", left: 12, right: 12, bottom: 16, maxWidth: 416, margin: "0 auto", background: "var(--ac)", color: "var(--oa)", padding: "14px 18px", display: "flex", justifyContent: "space-between", textDecoration: "none", fontWeight: 800 }}
+          onClick={() => posthog.capture("grocery_checkout_clicked", {
+            cart_id: cartId,
+            item_count: lines.length,
+            total,
+          })}
+        >
           <span>Check out · {lines.length} items</span><span>${total.toFixed(2)}</span>
         </a>
       )}

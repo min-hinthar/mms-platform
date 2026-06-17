@@ -2,6 +2,7 @@
 import { serviceClient } from "@mms/db/server";
 import type { CartTotals, TaxCategory } from "@mms/db";
 import { lineTax, round, taxRate } from "./tax";
+import { getPostHogClient } from "./posthog-server";
 
 /**
  * SERVER-AUTHORITATIVE cart. The browser never sends a price — it sends an item id +
@@ -38,6 +39,20 @@ export async function addItem(cartId: string, menuItemId: string, modifierIds: s
     modifiers: opts, unit_price: unitPrice, tax, by_seat: bySeat ?? null,
   });
   await db.from("carts").update({ updated_at: new Date().toISOString() }).eq("id", cartId);
+
+  const posthog = getPostHogClient();
+  posthog.capture({
+    distinctId: bySeat ?? cartId,
+    event: "item_added_to_cart",
+    properties: {
+      cart_id: cartId,
+      menu_item_id: menuItemId,
+      item_name: name,
+      unit_price: unitPrice,
+      modifiers: opts,
+      dine_in: dineIn,
+    },
+  });
 }
 
 export async function setQty(cartItemId: string, qty: number) {
@@ -53,6 +68,18 @@ export async function applyPromo(cartId: string, code: string) {
   if (!promo || !promo.active || (promo.max_uses != null && promo.used >= promo.max_uses))
     throw new Error("Invalid code");
   await db.from("carts").update({ promo_code: promo.code }).eq("id", cartId);
+
+  const posthog = getPostHogClient();
+  posthog.capture({
+    distinctId: cartId,
+    event: "promo_applied",
+    properties: {
+      cart_id: cartId,
+      promo_code: promo.code,
+      promo_kind: promo.kind,
+      promo_value: promo.value,
+    },
+  });
 }
 
 export async function getCartTotals(cartId: string, tipRate = 0): Promise<CartTotals> {

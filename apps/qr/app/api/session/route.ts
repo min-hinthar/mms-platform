@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceClient } from "@mms/db/server";
+import { getPostHogClient } from "@/lib/posthog-server";
 // import jwt from "jsonwebtoken"; // pnpm add jsonwebtoken @types/jsonwebtoken
 
 /**
@@ -30,6 +31,18 @@ export async function POST(req: NextRequest) {
   const seat = crypto.randomUUID();
   await db.from("session_members").insert({ session_id: sess.id, seat_id: seat, display_name: name, role });
   if (role === "host") await db.from("carts").insert({ session_id: sess.id });
+
+  const posthog = getPostHogClient();
+  posthog.capture({
+    distinctId: seat,
+    event: role === "host" ? "session_created" : "session_joined",
+    properties: {
+      session_id: sess.id,
+      mode: sess.mode,
+      role,
+      qr_code: qrCode,
+    },
+  });
 
   // Sign a Supabase-compatible JWT so RLS + Realtime accept this seat. Use SUPABASE_JWT_SECRET.
   // const token = jwt.sign(
