@@ -4,17 +4,24 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — Theme-color viewport (2026-06-17)
+
+- `apps/qr/app/layout.tsx`: split `themeColor` out of `metadata` into a separate `viewport` export (Next 16 contract). Light/dark schemes set so the mobile address-bar matches Day and Night surfaces.
+
 ### Added — Claude config + CI (2026-06-16, learned from the delivery app)
+
 - **Claude Code config:** root `CLAUDE.md` (monorepo guide + developer profile), `.claude/settings.json` with hooks — SessionStart **learning-context**, SessionEnd **retro**, and a PostToolUse **auto-format** (Prettier + ESLint --fix on edited files, an improvement over the delivery app) — plus `.claude/LEARNINGS.md` + `.claude/ERROR_HISTORY.md` memory, and `.mcp.json` (Supabase / GitHub / Sentry MCP).
 - **Quality:** `@mms/config` shared preset (ESLint flat + Prettier) + root `eslint.config.mjs` / `prettier.config.mjs` / `.prettierignore` / `knip.json`; root scripts `lint`/`format`/`knip`.
 - **Reviews/CI:** ported the delivery app's richer `claude-review.yml` (Vercel-preview-grounded, ultrathink/Opus, fork-safe, OAuth token) + `.github/claude-review-prompt.md` spec, and `ensure-preview.yml` (webhook-drop safety net).
 
 ### Planned (M1 — walking pay path)
+
 - Sign the table-session JWT (`/api/session`); authz on every Server Action; Payment Element; webhook amount-reconcile; nonce CSP. See `ROADMAP.md`.
 
 ## [M0] — 2026-06-16 — Scaffold
 
 ### Added
+
 - Turborepo + pnpm monorepo (`apps/qr`, `packages/{ui,db}`); `@mms/*` aliases; root config.
 - `@mms/db`: Supabase browser/service/session clients, shared types, migrations.
   - `0001_qr_ordering.sql` — `table_sessions`, `session_members`, `carts`, `cart_items`, `orders`, `order_items`, `promo_codes`; RLS keyed to active-session membership (`is_member`/`is_host`); **private Realtime authorization**; **category-aware tax** (`mms_taxable`/`mms_line_tax`) replacing the flat 10.5%; menu seed; idempotent `mms_fulfill_order`.
@@ -25,6 +32,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 - Docs: `ARCHITECTURE.md`, `GROCERY_SCANGO.md`, `REVIEW.md`, `WORKFLOW.md`, `ROADMAP.md`.
 
 ### Fixed (post-scaffold red-team)
+
 - Tax computed on the **discounted taxable base** (not a pro-rata of the rounded aggregate).
 - Removed an over-broad host RLS `UPDATE` policy; all writes go through service-role Server Actions.
 - `is_host()` reads a custom `app_role` claim (Supabase reserves top-level `role`).
@@ -32,4 +40,5 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 - Stripe `create-intent` passes an idempotency key.
 
 ### Lineage
+
 Productionizes the **v7.2 prototype** (design ≈4.3/5 on a 10-dimension world-class rubric; hardened across four parallel red-teams). Prototype history lives in `../POS & Self-Serve 2026/02-design/` (`MMS_Design_Hub.html`).

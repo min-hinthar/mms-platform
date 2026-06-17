@@ -1,5 +1,6 @@
 import "./globals.css";
 import type { ReactNode } from "react";
+import type { Viewport } from "next";
 import { Fraunces, Hanken_Grotesk, Padauk } from "next/font/google";
 
 const fraunces = Fraunces({ subsets: ["latin"], variable: "--font-fraunces" });
@@ -9,6 +10,17 @@ const padauk = Padauk({ subsets: ["latin"], weight: ["400", "700"], variable: "-
 export const metadata = {
   title: "Mandalay Morning Star — Order",
   description: "Order at the teahouse: dine-in, scan & go, or pickup.",
+};
+
+// Next 16 split themeColor/viewport out of metadata into its own export. Set both
+// schemes so the address-bar/status-bar matches Day and Night surfaces.
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#fffaf2" },
+    { media: "(prefers-color-scheme: dark)", color: "#0f1115" },
+  ],
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
