@@ -1,0 +1,59 @@
+name: Adversarial PR Review
+# Per-PR adversarial pass — scoped to the diff, fast enough to gate merges.
+# The weekly whole-repo pass lives in adversarial.yml.
+# Auth: Claude Code OAuth token (Max-plan quota).
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  id-token: write
+
+concurrency:
+  group: adversarial-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  adversarial-pr:
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Claude adversarial pass (diff-scoped)
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: >
+            Adversarial review of THIS PR ONLY (the diff vs base). Four lenses:
+            accessibility, performance, security & privacy, product/UX correctness.
+            Verify by reading the code (cite file:line); zero reflexive praise. Pay
+            special attention to the money + auth paths: server-authoritative pricing,
+            Supabase RLS + the table-session JWT, Stripe webhook idempotency/PCI, no
+            PAN in our code. Cross-check `docs/REVIEW.md` "Still open" items and
+            `docs/ARCHITECTURE.md` invariants.
+
+            POST a single PR comment with a severity-ranked findings table
+            (Critical / High / Medium / Low · file:line · suggested fix). Then on
+            the last line write exactly: `ADVERSARIAL_VERDICT: PASS` if there are no
+            Critical findings, otherwise `ADVERSARIAL_VERDICT: BLOCK`.
+      - name: Gate on adversarial verdict
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -uo pipefail
+          # Pull the latest comment authored by the Claude bot and check the verdict line.
+          BODY="$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            --jq '[.[] | select(.user.type=="Bot") | .body] | last // ""')"
+          if echo "$BODY" | grep -q "ADVERSARIAL_VERDICT: PASS"; then
+            echo "::notice title=Adversarial::PASS"; exit 0
+          elif echo "$BODY" | grep -q "ADVERSARIAL_VERDICT: BLOCK"; then
+            echo "::error title=Adversarial::Critical findings — see the comment on this PR."; exit 1
+          else
+            echo "::error title=Adversarial::No verdict line found in the latest bot comment."; exit 1
+          fi

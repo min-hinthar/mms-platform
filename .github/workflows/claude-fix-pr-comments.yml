@@ -1,0 +1,85 @@
+name: Claude Fix PR Comments
+# Auto-address every unresolved review comment on a PR. Triggered when a review
+# is submitted, a new review comment is posted, or someone @mentions `/claude-fix`
+# in a PR comment. Edits the code on the PR branch, commits, and pushes.
+on:
+  pull_request_review:
+    types: [submitted]
+  pull_request_review_comment:
+    types: [created]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: read
+  id-token: write
+
+concurrency:
+  group: claude-fix-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  fix-comments:
+    # Run when:
+    #   - any review is submitted (pull_request_review)
+    #   - any inline review comment is created (pull_request_review_comment)
+    #   - someone types `/claude-fix` in a PR conversation (issue_comment on a PR)
+    # Skip when the trigger came from any bot (`<name>[bot]`) to prevent infinite loops.
+    if: >-
+      !endsWith(github.actor, '[bot]')
+      && (
+        github.event_name == 'pull_request_review'
+        || github.event_name == 'pull_request_review_comment'
+        || (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && contains(github.event.comment.body, '/claude-fix'))
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve PR head ref
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          NUM="${{ github.event.pull_request.number || github.event.issue.number }}"
+          REF="$(gh api "repos/${{ github.repository }}/pulls/${NUM}" --jq '.head.ref')"
+          echo "number=${NUM}"   >> "$GITHUB_OUTPUT"
+          echo "head_ref=${REF}" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr.outputs.head_ref }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Claude addresses every unresolved comment
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: >
+            You are addressing review feedback on PR #${{ steps.pr.outputs.number }}.
+
+            1. Use `gh api repos/${{ github.repository }}/pulls/${{ steps.pr.outputs.number }}/comments`
+               and `gh api repos/${{ github.repository }}/pulls/${{ steps.pr.outputs.number }}/reviews`
+               to fetch every comment and review. Skip ones already marked resolved
+               (`isResolved: true`) and ones authored by github-actions[bot].
+            2. For each remaining comment, edit the cited file:line to resolve the
+               feedback. If a comment proposes a tradeoff, choose the safer / more
+               correct option; do not introduce regressions.
+            3. After all edits, run `pnpm turbo run lint typecheck build` and fix
+               anything that breaks. Iterate until green.
+            4. Commit with conventional commits (one logical group per commit). Push
+               to the PR branch (`${{ steps.pr.outputs.head_ref }}`).
+            5. Post a single summary comment on the PR listing what you addressed
+               (one bullet per comment, with the original commenter handle if known)
+               and what you intentionally did NOT address (with a reason).
+
+            Never force-push. Never resolve a comment you did not address. Never
+            modify CI workflow secrets or branch protection.

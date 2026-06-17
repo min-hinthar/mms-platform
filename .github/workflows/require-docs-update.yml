@@ -1,0 +1,52 @@
+name: Require docs/progress update
+# Pre-merge gate: if a PR changes app or package source, it must also update
+# docs/**, CHANGELOG.md, or ROADMAP.md. Opt-out by labeling the PR `skip-docs`.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  require-docs:
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-docs') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check that docs/progress were updated
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # Files changed in this PR (vs the merge base).
+          MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
+          CHANGED="$(git diff --name-only "$MERGE_BASE" "$HEAD_SHA")"
+
+          # Did the PR touch source under apps/ or packages/?
+          touched_source=0
+          while IFS= read -r f; do
+            case "$f" in
+              apps/*|packages/*) touched_source=1; break ;;
+            esac
+          done <<< "$CHANGED"
+
+          # Did the PR touch docs / changelog / roadmap?
+          touched_docs=0
+          while IFS= read -r f; do
+            case "$f" in
+              docs/*|CHANGELOG.md|ROADMAP.md|README.md) touched_docs=1; break ;;
+            esac
+          done <<< "$CHANGED"
+
+          if [ "$touched_source" -eq 1 ] && [ "$touched_docs" -eq 0 ]; then
+            echo "::error title=Docs missing::This PR changes source under apps/ or packages/ but does not update docs/, CHANGELOG.md, ROADMAP.md, or README.md. Update progress notes, or add the 'skip-docs' label if this is genuinely doc-irrelevant."
+            echo "Changed files:"
+            echo "$CHANGED" | sed 's/^/  /'
+            exit 1
+          fi
+          echo "::notice title=Docs::PR touches docs/changelog/roadmap (or no source changed) — OK."
