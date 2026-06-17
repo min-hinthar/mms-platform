@@ -1,5 +1,8 @@
 {
   "extends": "../../tsconfig.base.json",
+  // Explicit node types: pnpm's symlinked store isn't reliably picked up by TS's automatic
+  // @types inclusion, so name it (the package uses `process` + `server-only`, both server-side).
+  "compilerOptions": { "types": ["node"] },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
 }

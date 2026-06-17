@@ -24,12 +24,18 @@ export async function POST(req: NextRequest) {
 
   let role: "host" | "guest" = "guest";
   if (!sess) {
-    const { data } = await db.from("table_sessions").insert({ qr_code: qrCode, mode }).select("id,mode").single();
+    const { data } = await db
+      .from("table_sessions")
+      .insert({ qr_code: qrCode, mode })
+      .select("id,mode")
+      .single();
     sess = data!;
     role = "host";
   }
   const seat = crypto.randomUUID();
-  await db.from("session_members").insert({ session_id: sess.id, seat_id: seat, display_name: name, role });
+  await db
+    .from("session_members")
+    .insert({ session_id: sess.id, seat_id: seat, display_name: name, role });
   if (role === "host") await db.from("carts").insert({ session_id: sess.id });
 
   const posthog = getPostHogClient();

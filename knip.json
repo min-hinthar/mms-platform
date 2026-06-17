@@ -1,18 +1,14 @@
 {
-  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignore": [".claude/**"],
+  "ignoreBinaries": ["supabase"],
   "workspaces": {
     "apps/qr": {
-      "entry": [
-        "app/**/{page,layout,route,not-found,error,loading}.{ts,tsx}",
-        "instrumentation-client.ts",
-        "next.config.ts",
-        "lib/*.ts"
-      ],
-      "project": ["**/*.{ts,tsx}"]
+      "entry": ["lib/*.ts"],
+      "ignoreDependencies": ["@stripe/react-stripe-js", "@stripe/stripe-js", "zustand"]
     },
-    "packages/ui": { "entry": ["src/index.ts"], "project": ["src/**/*.{ts,tsx}"] },
-    "packages/db": { "entry": ["src/index.ts", "src/server.ts"], "project": ["src/**/*.ts"] },
-    "packages/config": { "entry": ["eslint.config.mjs", "prettier.config.mjs"], "project": ["*.mjs"] }
-  },
-  "ignoreDependencies": ["@tailwindcss/postcss", "tailwindcss"]
+    "packages/ui": {
+      "ignoreDependencies": ["clsx"]
+    }
+  }
 }

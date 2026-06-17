@@ -1,10 +1,13 @@
 # Scaffold Red-Team + Fixes (M0)
+
 **June 16, 2026** — adversarial review of the M0 scaffold against the QA checklist, by an independent staff-engineer reviewer.
 
 ## Verdict
+
 The scaffold **encodes the right P0 architecture** — the Stripe amount is genuinely server-derived and un-spoofable, RLS keys off a `session_id` JWT claim, Realtime is private, and the Payment Element keeps PAN off-DOM (SAQ-A). But M0 is a **blueprint**: three load-bearing pieces are deferred to M1, and there was one real money bug. Go to keep building; **no real card until the M1 items below land.**
 
 ## Fixed in this pass
+
 - **Tax math (High)** — `getCartTotals` now computes tax on the **discounted taxable base** (per-line), not a pro-rata scale of the rounded aggregate. A flat promo across mixed taxable/exempt lines now stays CDTFA-correct. (`apps/qr/lib/cart.ts`)
 - **Over-broad host RLS (High)** — removed the client `cart UPDATE` policy (it allowed a host client to write `promo_code`/`session_id` directly). All writes now go through service-role Server Actions; clients are default-deny on writes. (`migrations/0001`)
 - **JWT claim collision** — `is_host()` reads a custom `app_role` claim (Supabase reserves top-level `role`). (`migrations/0001`)
@@ -14,6 +17,7 @@ The scaffold **encodes the right P0 architecture** — the Stripe amount is genu
 - **Session-mint route shape (C2)** — added `POST /api/session` that creates/joins the table session and returns the seat/role; JWT signing is the one remaining TODO (clearly marked). (`app/api/session/route.ts`)
 
 ## Still open — the M1 "walking pay path" gate (do not run real cards until done)
+
 1. **Sign the table-session JWT** in `/api/session` with `SUPABASE_JWT_SECRET` (claims: `session_id`, `seat`, `app_role`, `role:authenticated`) — until then RLS authorizes nothing and group cart is inert.
 2. **Build the Payment Element client component + a cart-create action** — the cart page is a stub; nothing mounts `<Elements>` yet.
 3. **Authz on every Server Action + `create-intent`** — `addItem`/`setQty`/`applyPromo`/create-intent are public POSTs; gate each on session membership + lock (IDOR otherwise). Merge identical cart lines (qty is hardcoded to 1).

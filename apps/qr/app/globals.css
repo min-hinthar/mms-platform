@@ -6,19 +6,94 @@
   --font-body: var(--font-hanken), system-ui, sans-serif;
   --font-my: var(--font-padauk), sans-serif;
 }
-html, body { margin: 0; background: var(--pg); color: var(--tx); font-family: var(--font-body); -webkit-font-smoothing: antialiased; }
-h1, h2, h3 { font-family: var(--font-display); letter-spacing: -.02em; }
-.eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--ac); }
-.card { background: var(--cd); border: 1px solid var(--bd); border-radius: var(--r-card); box-shadow: var(--sh); }
-:focus-visible { outline: 2.5px solid var(--ac); outline-offset: 2px; border-radius: 6px; }
+html,
+body {
+  margin: 0;
+  background: var(--pg);
+  color: var(--tx);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+}
+.eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ac);
+}
+.card {
+  background: var(--cd);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-card);
+  box-shadow: var(--sh);
+}
+:focus-visible {
+  outline: 2.5px solid var(--ac);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
 
 /* Radix Sheet skin (paired with @mms/ui Sheet) */
-.mms-scrim { position: fixed; inset: 0; background: rgba(15,10,5,.42); animation: fade .24s var(--ease-out); }
-.mms-sheet { position: fixed; left: 0; right: 0; bottom: 0; max-height: 90vh; overflow-y: auto;
-  background: var(--pg); border-radius: var(--r-sheet) var(--r-sheet) 0 0; box-shadow: var(--sh-xl);
-  padding: 8px 20px 24px; animation: up var(--dur-sheet) var(--spring); }
-.mms-grab { width: 38px; height: 5px; border-radius: 3px; background: var(--bd); margin: 9px auto 6px; }
-.mms-sheet-title { font-family: var(--font-display); font-size: 22px; margin: 4px 0 8px; }
-.mms-sheet-close { position: absolute; top: 12px; right: 16px; width: 32px; height: 32px; border-radius: 999px; background: var(--sf); border: none; }
-@keyframes fade { from { opacity: 0 } to { opacity: 1 } }
-@keyframes up { from { transform: translateY(100%) } to { transform: none } }
+.mms-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 10, 5, 0.42);
+  animation: fade 0.24s var(--ease-out);
+}
+.mms-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--pg);
+  border-radius: var(--r-sheet) var(--r-sheet) 0 0;
+  box-shadow: var(--sh-xl);
+  padding: 8px 20px 24px;
+  animation: up var(--dur-sheet) var(--spring);
+}
+.mms-grab {
+  width: 38px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--bd);
+  margin: 9px auto 6px;
+}
+.mms-sheet-title {
+  font-family: var(--font-display);
+  font-size: 22px;
+  margin: 4px 0 8px;
+}
+.mms-sheet-close {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: var(--sf);
+  border: none;
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}

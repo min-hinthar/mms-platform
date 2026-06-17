@@ -27,8 +27,18 @@ export async function scanAdd(cartId: string, barcode: string, bySeat?: string) 
   const unitPrice = round(Number(item.price));
   const tax = lineTax(unitPrice, item.tax_category as TaxCategory, false);
   await db.from("cart_items").insert({
-    cart_id: cartId, menu_item_id: item.barcode, qty: 1,
-    modifiers: [], unit_price: unitPrice, tax, by_seat: bySeat ?? null,
+    cart_id: cartId,
+    menu_item_id: item.barcode,
+    qty: 1,
+    modifiers: [],
+    unit_price: unitPrice,
+    tax,
+    by_seat: bySeat ?? null,
   });
-  return { ok: true as const, name: item.name as string, unitPrice, ebt: item.ebt_eligible as boolean };
+  return {
+    ok: true as const,
+    name: item.name as string,
+    unitPrice,
+    ebt: item.ebt_eligible as boolean,
+  };
 }

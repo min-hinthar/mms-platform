@@ -25,14 +25,17 @@ Monorepo + the risky architecture, designed in.
 - **P0.5 Pay scaffolding** — server cart actions, Stripe intent + webhook routes, Realtime group-cart hook, PostHog. ✅
 - **P0.6 Grocery** — `0002` UPC catalog, `scanAdd`, `BarcodeScanner`, `/grocery`. ✅
 - **P0.7 CI/Reviews** — CI, Claude PR review (Vercel-preview-grounded) + security + scheduled adversarial, `ensure-preview`, `setup.sh`. ✅
-- **P0.8 Claude config + quality** — `CLAUDE.md` + `.claude/` (settings, auto-format + memory hooks, LEARNINGS/ERROR_HISTORY) + `.mcp.json`; ESLint + Prettier + knip via `@mms/config`. ✅ &nbsp;·&nbsp; *deferred to a later phase:* Vitest + Playwright + Storybook + Chromatic + Lighthouse CI + Sentry (port from the delivery app once there's UI/tests to cover).
+- **P0.8 Claude config + quality** — `CLAUDE.md` + `.claude/` (settings, auto-format + memory hooks, LEARNINGS/ERROR*HISTORY) + `.mcp.json`; ESLint + Prettier + knip via `@mms/config`. ✅ &nbsp;·&nbsp; \_deferred to a later phase:* Vitest + Playwright + Storybook + Chromatic + Lighthouse CI + Sentry (port from the delivery app once there's UI/tests to cover).
 
 **Exit:** repo builds, scaffold reviewed (`docs/REVIEW.md`), grade ≈4.3/5. ✅
+
+- **P0.9 Toolchain refresh (2026-06-17)** — pnpm 9→11, turbo 2.3→2.9, TS 5.6→6.0, Next 16.1→16.2, React 19.2.7, Stripe 17→22, Supabase-js/ssr latest; `overrides`→`pnpm-workspace.yaml`, build-script `allowBuilds`; Turbopack font-fetch TLS fix; re-enabled Next `core-web-vitals` lint (ESLint pinned 9.x — its react plugin isn't ESLint-10 ready). Gate green. ✅
 
 ## 🟡 M1 — Walking pay path &nbsp;`milestone:M1`
 
 Smallest slice that takes one real test charge end-to-end (solo Scan & Go). **No real card until this milestone's gate passes.**
 
+- **P1.0 Schema reconciliation** — the QR `0001` `carts`/`orders`/`order_items`/`menu_items` collide with the **live delivery schema** (`create table if not exists` no-ops). Namespace the session tables `qr_*`, repoint pricing/menu at the real `menu_items` (cents · `name_en`/`name_my` · normalized modifiers), source `tax_category` via a `mms_menu_tax` map; run on a Supabase branch. See `docs/DATA_RECONCILIATION.md`. ⬜ **(blocks P1.2–P1.4)**
 - **P1.1 Session mint** — `POST /api/session` signs the table-session JWT (`session_id`/`seat`/`app_role`) with `SUPABASE_JWT_SECRET`; RLS + Realtime accept it. ⬜
 - **P1.2 Cart create + actions authz** — create-cart action; gate `addItem`/`setQty`/`applyPromo`/`create-intent` on session membership + lock; merge identical lines. ⬜
 - **P1.3 Payment Element** — cart page mounts `<Elements>` against `/api/stripe/create-intent`; Apple/Google Pay surface. ⬜
@@ -87,4 +90,5 @@ Smallest slice that takes one real test charge end-to-end (solo Scan & Go). **No
 ---
 
 ### How we work each phase
+
 Cowork/Claude Code remote → branch → PR → **Claude review + security + CI** gates → merge → Vercel preview → milestone-exit **adversarial pass** (Cowork) → tick the box here + a `CHANGELOG.md` entry. See [`docs/WORKFLOW.md`](docs/WORKFLOW.md).

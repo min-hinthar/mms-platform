@@ -1,5 +1,11 @@
 import type { NextConfig } from "next";
 
+// next/font/google fetches font CSS at build time through Turbopack's Rust fetcher, which
+// ignores the system CA store. Behind a TLS-intercepting proxy (CI / remote sandboxes) that
+// fetch fails; opt Turbopack into the system trust store. No-op where the default certs work
+// (Vercel), and set before the build reads it. Override per-environment if needed.
+process.env.NEXT_TURBOPACK_EXPERIMENTAL_USE_SYSTEM_TLS_CERTS ??= "1";
+
 // Security headers (QA checklist P1). Tighten CSP as you add origins.
 const csp = [
   "default-src 'self'",
@@ -34,8 +40,14 @@ const nextConfig: NextConfig = {
   async rewrites() {
     // PostHog reverse proxy — keeps analytics first-party, dodges blockers
     return [
-      { source: "/ingest/static/:path*", destination: "https://us-assets.i.posthog.com/static/:path*" },
-      { source: "/ingest/array/:path*", destination: "https://us-assets.i.posthog.com/array/:path*" },
+      {
+        source: "/ingest/static/:path*",
+        destination: "https://us-assets.i.posthog.com/static/:path*",
+      },
+      {
+        source: "/ingest/array/:path*",
+        destination: "https://us-assets.i.posthog.com/array/:path*",
+      },
       { source: "/ingest/:path*", destination: "https://us.i.posthog.com/:path*" },
     ];
   },

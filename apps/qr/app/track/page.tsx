@@ -4,7 +4,9 @@ export default function Track() {
   return (
     <main style={{ padding: 24, maxWidth: 440, margin: "0 auto" }}>
       <h1>Track</h1>
-      <p style={{ color: "var(--t2)" }}>Order timeline + ETA. Wire to the orders table via Realtime in M1.</p>
+      <p style={{ color: "var(--t2)" }}>
+        Order timeline + ETA. Wire to the orders table via Realtime in M1.
+      </p>
     </main>
   );
 }

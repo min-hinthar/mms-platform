@@ -4,3 +4,7 @@
 **/node_modules
 pnpm-lock.yaml
 **/*.gen.ts
+**/next-env.d.ts
+# Vendored / generated — not ours to reformat.
+.claude/skills/
+posthog-setup-report.md

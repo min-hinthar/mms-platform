@@ -9,7 +9,10 @@ import * as React from "react";
  * "every sheet announces 'Details'" finding). Decorative-only sheets pass `srTitle`.
  */
 export function Sheet({
-  open, onOpenChange, title, children,
+  open,
+  onOpenChange,
+  title,
+  children,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -24,7 +27,9 @@ export function Sheet({
           <div className="mms-grab" aria-hidden />
           <Dialog.Title className="mms-sheet-title">{title}</Dialog.Title>
           {children}
-          <Dialog.Close aria-label="Close" className="mms-sheet-close">✕</Dialog.Close>
+          <Dialog.Close aria-label="Close" className="mms-sheet-close">
+            ✕
+          </Dialog.Close>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

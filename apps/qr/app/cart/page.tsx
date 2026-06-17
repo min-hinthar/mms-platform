@@ -19,18 +19,29 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
           <Row k="Total" v={totals.total} strong />
         </dl>
       ) : (
-        <p style={{ color: "var(--t2)" }}>Pass <code>?cart=&lt;id&gt;</code>; M1 wires the Payment Element here.</p>
+        <p style={{ color: "var(--t2)" }}>
+          Pass <code>?cart=&lt;id&gt;</code>; M1 wires the Payment Element here.
+        </p>
       )}
       <p style={{ fontSize: 11, color: "var(--t3)", marginTop: 12 }}>
-        A 5% service charge supports fair kitchen wages and is shared with the team (CA SB-1524). Card fees are in menu prices; we never surcharge debit.
+        A 5% service charge supports fair kitchen wages and is shared with the team (CA SB-1524).
+        Card fees are in menu prices; we never surcharge debit.
       </p>
     </main>
   );
 }
 function Row({ k, v, strong }: { k: string; v: number; strong?: boolean }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontWeight: strong ? 800 : 400 }}>
-      <dt>{k}</dt><dd style={{ margin: 0, fontVariantNumeric: "tabular-nums" }}>${v.toFixed(2)}</dd>
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        padding: "5px 0",
+        fontWeight: strong ? 800 : 400,
+      }}
+    >
+      <dt>{k}</dt>
+      <dd style={{ margin: 0, fontVariantNumeric: "tabular-nums" }}>${v.toFixed(2)}</dd>
     </div>
   );
 }

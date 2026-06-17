@@ -1,5 +1,11 @@
 -- 0001_qr_ordering.sql — QR dine-in/Scan&Go/Pickup: tables, RLS, category-aware tax.
 -- Additive to the existing delivery schema. Server (service-role) writes prices/tax; clients never do.
+--
+-- ⚠️ DO NOT APPLY AS-IS to the shared delivery project. `carts`, `orders`, `order_items`, and
+-- `menu_items` ALREADY EXIST there with different shapes, so the `create table if not exists`
+-- statements below silently no-op and the QR code then runs against incompatible tables.
+-- Reconcile first (namespace the session tables to qr_*, read the real menu, source tax_category):
+-- see docs/DATA_RECONCILIATION.md. M1·P1.0. The session/tax/grocery objects here are collision-free.
 -- Diners are anonymous: a server endpoint mints a short-lived JWT with a `session_id` claim
 -- bound to the scanned table QR. RLS authorizes everything off that claim.
 

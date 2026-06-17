@@ -12,27 +12,27 @@
   "dependencies": {
     "@mms/db": "workspace:*",
     "@mms/ui": "workspace:*",
-    "@stripe/react-stripe-js": "^3.0.0",
-    "@stripe/stripe-js": "^4.10.0",
-    "@zxing/library": "^0.21.3",
-    "next": "16.1.2",
-    "posthog-js": "^1.190.0",
+    "@stripe/react-stripe-js": "^6.6.0",
+    "@stripe/stripe-js": "^9.8.0",
+    "@zxing/library": "^0.23.0",
+    "next": "16.2.9",
+    "posthog-js": "^1.387.0",
     "posthog-node": "^5.38.0",
-    "react": "19.2.3",
-    "react-dom": "19.2.3",
-    "stripe": "^17.4.0",
-    "zustand": "^5.0.1"
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "server-only": "^0.0.1",
+    "stripe": "^22.2.1",
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@mms/config": "workspace:*",
-    "@tailwindcss/postcss": "^4.0.0",
-    "@types/node": "^22.9.0",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "@eslint/eslintrc": "^3.2.0",
-    "eslint": "^9.15.0",
-    "eslint-config-next": "16.1.2",
-    "tailwindcss": "^4.0.0",
-    "typescript": "^5.6.3"
+    "@tailwindcss/postcss": "^4.3.1",
+    "@types/node": "^24.9.3",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "eslint": "^9.39.4",
+    "eslint-config-next": "16.2.9",
+    "tailwindcss": "^4.3.1",
+    "typescript": "^6.0.3"
   }
 }
