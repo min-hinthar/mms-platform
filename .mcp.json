@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "supabase": {
+      "command": "npx.cmd",
+      "args": ["-y", "@supabase/mcp-server-supabase@latest", "--read-only"],
+      "env": { "SUPABASE_ACCESS_TOKEN": "${SUPABASE_ACCESS_TOKEN}" }
+    },
+    "github": {
+      "command": "npx.cmd",
+      "args": ["-y", "@modelcontextprotocol/server-github@latest"],
+      "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "${GH_TOKEN}" }
+    },
+    "sentry": {
+      "command": "npx.cmd",
+      "args": ["-y", "@sentry/mcp-server@latest", "--access-token", "${SENTRY_AUTH_TOKEN}", "--organization-slug", "${SENTRY_ORG}", "--project-slug", "${SENTRY_PROJECT}"]
+    }
+  }
+}
