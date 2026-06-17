@@ -1,0 +1,47 @@
+name: Claude PR Review
+# Automated code review on every PR. PUBLIC repo → unlimited Actions minutes.
+# Setup (one-time): install the Claude GitHub App on the repo, then add the secret:
+#   gh secret set ANTHROPIC_API_KEY
+# Action inputs evolve — if a step errors, check anthropics/claude-code-action releases for the
+# current input names (anthropic_api_key / prompt) and pin a released tag instead of @v1.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Claude code review
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: >
+            Review this pull request against our standards. Focus on:
+            (1) server-authoritative pricing — no client-trusted amounts reach Stripe;
+            (2) Supabase RLS correctness + the table-session auth model;
+            (3) Stripe webhook idempotency + PCI (no PAN in our code);
+            (4) accessibility (focus, aria, labels);
+            (5) the items in docs/REVIEW.md and the QA checklist.
+            Leave inline comments on problems and a short summary. Be specific; cite file:line.
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Claude security review
+        uses: anthropics/claude-code-security-review@main
+        with:
+          claude-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          comment-pr: true

@@ -1,0 +1,27 @@
+/* MMS design tokens — light = editorial-forward · dark = v4 Night. WCAG AA verified.
+   (Mirror of MMS_QR_tokens.css from the design system; single source of truth.) */
+:root{
+  --font-display:"Fraunces",Georgia,serif;
+  --font-body:"Hanken Grotesk",system-ui,sans-serif;
+  --font-my:"Padauk",sans-serif;
+  --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:20px;--s6:24px;--s8:32px;
+  --r-sm:12px;--r-card:20px;--r-sheet:26px;--r-full:999px;
+  --spring:linear(0,.006,.025 2.8%,.101 6.1%,.539 18.9%,.721 25.3%,.849 31.5%,.937 38.1%,.968 41.8%,.991 45.7%,1.006 50.1%,1.013 55%,1.011 63.5%,1.001 100%);
+  --ease-out:cubic-bezier(.2,.8,.2,1);--dur-base:240ms;--dur-sheet:340ms;
+  /* light · editorial-forward */
+  --pg:#FAF9F5;--sf:#F2EFE7;--cd:#FFFDF8;--tx:#1B1714;--t2:#6E6358;--t3:#726859;
+  --ac:#A65F10;--ac2:#C8772A;--oa:#FFFDF8;--jade:#1F6E63;--gold:#E8A83C;
+  --bd:rgba(58,35,23,.10);--ok:#346E47;--okb:#EAF2EC;--warn:#A44B34;--warnb:#F6E9E4;
+  --grad:linear-gradient(135deg,#F1E7D6,#FBF4E8);
+  --sh:0 1px 3px rgba(35,24,16,.06),0 1px 2px rgba(35,24,16,.04);
+  --sh-md:0 8px 24px rgba(35,24,16,.09),0 3px 8px rgba(35,24,16,.05);
+  --sh-xl:0 24px 60px rgba(35,24,16,.16);
+}
+.dark{ /* v4 Night */
+  --pg:#171221;--sf:#201A2E;--cd:#271F38;--tx:#F3ECDF;--t2:#BCAFC8;--t3:#897E96;
+  --ac:#E7A53A;--ac2:#F4C879;--oa:#1A1326;--jade:#5FB07E;--gold:#F4C879;
+  --bd:rgba(243,236,223,.13);--ok:#5FB07E;--okb:#1f2e26;--warn:#E0855F;--warnb:#33231d;
+  --grad:linear-gradient(135deg,#3a2a4d,#241c34);
+  --sh:0 1px 3px rgba(0,0,0,.45);--sh-md:0 8px 22px rgba(0,0,0,.5);--sh-xl:0 26px 60px rgba(0,0,0,.65);
+}
+@media (prefers-reduced-motion:reduce){:root{--spring:linear(0,1);--dur-base:.01ms;--dur-sheet:.01ms}}
