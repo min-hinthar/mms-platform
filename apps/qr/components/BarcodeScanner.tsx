@@ -22,25 +22,37 @@ export function BarcodeScanner({ onScan }: { onScan: (code: string) => void }) {
 
     (async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-        if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" },
+        });
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
 
         // Native path
         if ("BarcodeDetector" in window) {
           // @ts-expect-error - BarcodeDetector is not in TS DOM lib yet
-          const detector = new window.BarcodeDetector({ formats: ["upc_a", "upc_e", "ean_13", "ean_8", "code_128"] });
+          const detector = new window.BarcodeDetector({
+            formats: ["upc_a", "upc_e", "ean_13", "ean_8", "code_128"],
+          });
           let raf = 0;
           const tick = async () => {
             if (videoRef.current) {
               try {
                 const codes = await detector.detect(videoRef.current);
                 if (codes[0]?.rawValue) emit(codes[0].rawValue);
-              } catch {}
+              } catch {
+                // detection can throw on a bad frame; keep scanning
+              }
             }
             raf = requestAnimationFrame(tick);
           };
           tick();
-          stop = () => { cancelAnimationFrame(raf); stream.getTracks().forEach((t) => t.stop()); };
+          stop = () => {
+            cancelAnimationFrame(raf);
+            stream.getTracks().forEach((t) => t.stop());
+          };
           return;
         }
 
@@ -50,8 +62,11 @@ export function BarcodeScanner({ onScan }: { onScan: (code: string) => void }) {
         reader.decodeFromVideoElementContinuously(videoRef.current!, (result) => {
           if (result) emit(result.getText());
         });
-        stop = () => { reader.reset(); stream.getTracks().forEach((t) => t.stop()); };
-      } catch (e) {
+        stop = () => {
+          reader.reset();
+          stream.getTracks().forEach((t) => t.stop());
+        };
+      } catch {
         setErr("Camera unavailable — allow camera access, or type the barcode.");
       }
     })();
@@ -61,9 +76,24 @@ export function BarcodeScanner({ onScan }: { onScan: (code: string) => void }) {
 
   return (
     <div>
-      <video ref={videoRef} muted playsInline aria-label="Barcode scanner viewfinder"
-        style={{ width: "100%", borderRadius: 16, background: "#000", aspectRatio: "4/3", objectFit: "cover" }} />
-      {err && <p role="alert" style={{ color: "var(--warn)", fontSize: 13 }}>{err}</p>}
+      <video
+        ref={videoRef}
+        muted
+        playsInline
+        aria-label="Barcode scanner viewfinder"
+        style={{
+          width: "100%",
+          borderRadius: 16,
+          background: "#000",
+          aspectRatio: "4/3",
+          objectFit: "cover",
+        }}
+      />
+      {err && (
+        <p role="alert" style={{ color: "var(--warn)", fontSize: 13 }}>
+          {err}
+        </p>
+      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { stripe } from "@/lib/stripe";
+import { getStripe } from "@/lib/stripe";
 import { getCartTotals } from "@/lib/cart";
 import { getPostHogClient } from "@/lib/posthog-server";
 
@@ -15,9 +15,14 @@ export async function POST(req: NextRequest) {
     if (amount <= 0) return NextResponse.json({ error: "Empty cart" }, { status: 400 });
 
     // TODO(C3): verify the caller's table-session JWT is a member of this cart before creating the intent.
-    const intent = await stripe.paymentIntents.create(
-      { amount, currency: "usd", automatic_payment_methods: { enabled: true }, metadata: { cartId } },
-      { idempotencyKey: `pi_${cartId}_${amount}` } // dedupe double-submits; a changed amount → a new intent
+    const intent = await getStripe().paymentIntents.create(
+      {
+        amount,
+        currency: "usd",
+        automatic_payment_methods: { enabled: true },
+        metadata: { cartId },
+      },
+      { idempotencyKey: `pi_${cartId}_${amount}` }, // dedupe double-submits; a changed amount → a new intent
     );
 
     const posthog = getPostHogClient();
