@@ -1,0 +1,7 @@
+# Default owner for everything — required reviewer on PRs once branch protection is on.
+*                       @min-hinthar
+
+# Money + auth paths: extra attention (still @min-hinthar solo, but called out explicitly).
+/apps/qr/lib/cart.ts            @min-hinthar
+/apps/qr/app/api/stripe/        @min-hinthar
+/packages/db/migrations/        @min-hinthar

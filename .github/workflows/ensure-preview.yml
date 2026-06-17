@@ -1,0 +1,55 @@
+name: Ensure Vercel preview
+# Safety net for a dropped GitHub→Vercel webhook (common for commits pushed from CI/cloud):
+# if no Preview exists for the PR's head commit after a grace period, force one via the Vercel API.
+# Requires VERCEL_TOKEN secret + VERCEL_PROJECT_ID/VERCEL_TEAM_ID/VERCEL_REPO_ID/VERCEL_PROJECT_NAME
+# repo vars. Without VERCEL_TOKEN it no-ops (stays green) and prints a setup notice.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ensure-preview-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  ensure-preview:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+      VERCEL_TEAM_ID: ${{ vars.VERCEL_TEAM_ID }}
+      VERCEL_REPO_ID: ${{ vars.VERCEL_REPO_ID }}
+      VERCEL_PROJECT_NAME: ${{ vars.VERCEL_PROJECT_NAME }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      HEAD_REF: ${{ github.event.pull_request.head.ref }}
+    steps:
+      - name: Ensure a preview exists for this commit
+        run: |
+          set -uo pipefail
+          if [ -z "${VERCEL_TOKEN:-}" ] || [ -z "${VERCEL_PROJECT_ID:-}" ]; then
+            echo "::notice title=Ensure Vercel preview::Set VERCEL_TOKEN secret + VERCEL_PROJECT_ID/TEAM_ID/REPO_ID/PROJECT_NAME vars to enable the preview safety net."
+            exit 0
+          fi
+          dep_for_sha() {
+            curl -fsS -H "Authorization: Bearer $VERCEL_TOKEN" \
+              "https://api.vercel.com/v6/deployments?projectId=$VERCEL_PROJECT_ID&teamId=$VERCEL_TEAM_ID&meta-githubCommitSha=$HEAD_SHA&limit=1" \
+              | jq -r '.deployments[0].uid // empty'
+          }
+          for i in $(seq 1 6); do
+            DEP_ID="$(dep_for_sha || true)"
+            if [ -n "$DEP_ID" ]; then echo "Vercel already built $HEAD_SHA ($DEP_ID)."; exit 0; fi
+            echo "  ...no deployment yet ($i/6); waiting 15s"; sleep 15
+          done
+          echo "Forcing a preview via the Vercel API for $HEAD_SHA ($HEAD_REF)."
+          BODY="$(jq -n --arg name "$VERCEL_PROJECT_NAME" --arg project "$VERCEL_PROJECT_ID" \
+            --argjson repoId "${VERCEL_REPO_ID:-0}" --arg ref "$HEAD_REF" --arg sha "$HEAD_SHA" \
+            '{name:$name, project:$project, gitSource:{type:"github", repoId:$repoId, ref:$ref, sha:$sha}}')"
+          RESP="$(curl -sS -X POST -H "Authorization: Bearer $VERCEL_TOKEN" -H 'Content-Type: application/json' \
+            "https://api.vercel.com/v13/deployments?teamId=$VERCEL_TEAM_ID&forceNew=1" -d "$BODY")"
+          ERR="$(echo "$RESP" | jq -r '.error.message // empty')"
+          if [ -n "$ERR" ]; then echo "::error::Vercel rejected the deploy: $ERR"; exit 1; fi
+          echo "Forced preview: $(echo "$RESP" | jq -r '.url // empty')"
