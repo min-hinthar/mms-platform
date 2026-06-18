@@ -7,9 +7,9 @@ QA gate, rubric, red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md),
 
 ## Where we are
 
-- **Milestone M1 (walking pay path).** Backend foundation **and P1.1 anonymous-auth wiring** are
-  done (+ the P1.0a leftovers: Zod input layer, DB-drift CI, `config.toml`). Next: \*\*P1.2 cart-create
-  - line-merge → Payment Element (P1.3) → fulfillment/Track\*\*.
+- **Milestone M1 (walking pay path).** Backend foundation and **P1.1 anonymous-auth wiring** are
+  done, plus the P1.0a leftovers (Zod input layer, DB-drift CI, `config.toml`). Shipped in **PR #4**.
+  Next up: P1.2 cart-create and line-merge → Payment Element (P1.3) → fulfillment/Track.
 - **P1.1 shipped (this session):** `AnonAuthGate` (`signInAnonymously` on load, SSR cookies) +
   `useAnonSession()`; `@mms/db/server` `serverClient(cookies)`; `POST /api/session` verifies the
   Bearer anon token → `seat_id = auth.uid()` (idempotent, sets `host_seat`); **one authz guard**
@@ -75,6 +75,21 @@ push` once linked) before the anon-auth flow works in Vercel preview/prod. **Lea
   Apple/Google Pay. **No real card until the M1 gate (`docs/REVIEW.md`) is fully green.**
 
 ### Then P1.4+ (see ROADMAP): fulfillment end-to-end → Track timeline.
+
+## CI / infra follow-ups (small, do alongside P1.2)
+
+- ⚠️ **Enable anonymous sign-ins on the LIVE project** (`fasnpdhtvqtzjlvruqcu`, dashboard → Auth or
+  `supabase config push`). This is a **runtime prerequisite for P1.2+** — without it the anon-auth
+  flow is dark in Vercel preview/prod even though CI/build are green.
+- **Create the `adversarial` + `adversarial-signed-off` labels** (run `setup.sh`'s label step).
+  Context: PR #4 fixed the `adversarial-pr` gate to read the verdict from the agent's **execution
+  log** (`$RUNNER_TEMP/claude-execution-output.json`) — so normal PRs now pass automatically. For a
+  PR that **edits a `claude-*`/`adversarial-*` workflow** (whose own review the action skips,
+  anti-tampering), sign off with either that label **or** a collaborator (OWNER/MEMBER/COLLABORATOR)
+  PR comment containing the marker `ADVERSARIAL_SIGNOFF` (the new label-free path).
+- **`pnpm format`** the 9 pre-existing prettier-flagged files from PR #3 (`CLAUDE.md`,
+  `docs/context/*`, `docs/prototype/v7.2.html`) — drift already on `main`, not in the CI gate; a
+  tiny standalone cleanup PR.
 
 ## Verify
 
