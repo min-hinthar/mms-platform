@@ -41,7 +41,7 @@
 
 ## 🌅 Overview
 
-One Turborepo monorepo for the whole Mandalay Morning Star ordering surface, all on **one Supabase project, one Stripe account, one design system, and one menu/loyalty ledger**:
+One Turborepo monorepo for the whole Mandalay Morning Star ordering surface — **one Stripe account, one design system**, with **each app on its own Supabase project** (QR owns its catalog on `fasnpdhtvqtzjlvruqcu`; the live delivery app stays on `ukuzkhuppqwtrdkjqrkv`):
 
 - **`apps/delivery`** — the existing multi-day delivery PWA (Next 16 · React 19 · Tailwind 4 · Supabase · Stripe · Burmese-gem loyalty · v1.9 launch-ready). Migrated in; reused, not rebuilt.
 - **`apps/qr`** — the new in-store app: **Dine-in / Pickup** restaurant ordering **and** **Grocery Scan & Go** (barcode self-checkout). Server-authoritative cart, category-aware CA tax, multi-device group cart, Stripe Payment Element.
@@ -120,11 +120,11 @@ Tracked in [`ROADMAP.md`](ROADMAP.md) (milestones → phases → tasks) and the 
 | **M5** Migrate delivery app          | bring `apps/delivery` into the monorepo                                                                       | ⬜      |
 | **M6** Kiosk + Terminal + EBT (2027) | Stripe Terminal · Forage EBT · handheld scanner                                                               | ⬜      |
 
-> **M1 gate before any real card:** see [`docs/REVIEW.md`](docs/REVIEW.md). Every milestone exits against [`MMS_QR_RealBuild_QA_Checklist`](../POS%20%26%20Self-Serve%202026/02-design/MMS_QR_RealBuild_QA_Checklist.md).
+> **M1 gate before any real card:** progress in [`docs/REVIEW.md`](docs/REVIEW.md); every milestone exits against the in-repo launch gate [`docs/context/QA-CHECKLIST.md`](docs/context/QA-CHECKLIST.md). Start any session with [`docs/context/INDEX.md`](docs/context/INDEX.md) (decisions · rubric · red-team · v7.2 prototype).
 
 ## 🧰 Tech stack
 
-Next.js 16 (App Router, RSC, Server Actions) · React 19 · TypeScript strict · Tailwind v4 · Turborepo + pnpm · Supabase (Postgres · RLS · Realtime · Auth) · Stripe (Payment Element + webhooks) · PostHog (free tier) · Radix UI · NumberFlow · `@zxing/library`. The **$0/month free stack** is documented in [`MMS_QR_Free_Kit_Map`](../POS%20%26%20Self-Serve%202026/02-design/MMS_QR_Free_Kit_Map.md).
+Next.js 16 (App Router, RSC, Server Actions) · React 19 · TypeScript strict · Tailwind v4 · Turborepo + pnpm · Supabase (Postgres · RLS · Realtime · Auth) · Stripe (Payment Element + webhooks) · PostHog (free tier) · Radix UI · NumberFlow · `@zxing/library`. The **$0/month free stack** is documented in [`docs/context/FREE-KIT-MAP.md`](docs/context/FREE-KIT-MAP.md).
 
 ## 🚀 Quick start
 
@@ -144,17 +144,17 @@ bash setup.sh
 
 ## 🔐 Environments (Supabase & Stripe)
 
-**Use the same Supabase project and the same Stripe account** as the delivery app — that's the point of the monorepo (shared menu, loyalty, customers). The new tables are _additive_ migrations. Manage the differences **per environment**, not per project:
+**QR runs on its own Supabase project** (`fasnpdhtvqtzjlvruqcu`) and **shares the Stripe account** with the delivery app. QR owns its catalog (menu, modifiers, grocery, `tax_category`) — it does **not** reach into the delivery DB. Manage keys **per environment**:
 
 |                                | Supabase                                                          | Stripe                                                                                    |
 | ------------------------------ | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | **Production** (Vercel `main`) | live project · service-role + `SUPABASE_JWT_SECRET` (server-only) | **live** keys `sk_live_…` · the QR app's **own** webhook endpoint → its **own** `whsec_…` |
 | **Preview / Dev** (PRs, local) | a **Supabase branch** or dev project — never migrate prod blindly | **test** keys `sk_test_…` · test webhook secret                                           |
 
-Two rules that keep the live delivery app safe:
+Two rules:
 
-1. **Apply migrations on a Supabase branch first**, review the RLS, then promote — don't run `0001/0002` straight at production.
-2. **Reuse the delivery app's existing menu & loyalty tables.** The scaffold's `menu_items`/`grocery_items` are placeholders so the QR app runs standalone; on the shared project, point `apps/qr/lib/cart.ts` + the menu page at the delivery app's real menu table and add only the new tables (`table_sessions`, `carts`, `grocery_items`, …).
+1. **Never DDL production directly.** Validate migrations on a **staging project** (Supabase branching needs Pro), review the RLS, then promote. Migrations live in `supabase/migrations/`.
+2. **QR owns its catalog.** The QR project holds its own `menu_categories`/`menu_items`/`modifier_*`/`grocery_items` (with `tax_category` as a column), seeded from `supabase/seed.sql`. Loyalty / account-link with the delivery side is an M4 concern, not a shared-DB dependency.
 
 Set values in **Vercel → Project → Settings → Environment Variables** (scoped Production/Preview/Development) and never commit them (`.gitignore` excludes `.env*`). Full list in [`.env.example`](.env.example).
 

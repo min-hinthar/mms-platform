@@ -1,8 +1,9 @@
 # Session Handoff — MMS Platform (2026-06-18)
 
 The originating chat context does not carry across sessions — **this file is the durable pickup
-point.** Read it alongside [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
-and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
+point.** Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (the research map — decisions,
+QA gate, rubric, red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md),
+[`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
 ## Where we are
 

@@ -4,7 +4,10 @@ name: Adversarial PR Review
 # Auth: Claude Code OAuth token (Max-plan quota).
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    # opened/synchronize/reopened/ready_for_review → runs on every push, so an
+    # adversarial pass always precedes merge. `labeled` → lets you re-prompt the
+    # gate before merging without a new commit (add the `adversarial` label).
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
 
 permissions:
   contents: read
@@ -18,7 +21,9 @@ concurrency:
 
 jobs:
   adversarial-pr:
-    if: ${{ !github.event.pull_request.draft }}
+    # Run on every push event; on a `labeled` event run ONLY for the `adversarial`
+    # label, so unrelated labels don't burn a review. Drafts are skipped.
+    if: ${{ !github.event.pull_request.draft && (github.event.action != 'labeled' || github.event.label.name == 'adversarial') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,17 +52,26 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -uo pipefail
-          # Aggregate all bot comment bodies on this PR; we only BLOCK on an explicit
-          # `ADVERSARIAL_VERDICT: BLOCK` line. Missing or PASS verdict = no Critical
-          # findings to gate on, so the check passes.
+          # Fail-CLOSED: the gate passes only on an explicit `ADVERSARIAL_VERDICT: PASS`.
+          # A missing verdict means the pass did NOT run (anti-tampering skip on a
+          # workflow-editing PR, API error, or rate-limit) — treat that as a failure,
+          # not a pass, so an unreviewed PR can't sail through.
           BODY="$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
             --jq '[.[] | select(.user.type=="Bot") | .body] | join("\n")')"
+          # Escape hatch: after a documented MANUAL adversarial pass (required for PRs
+          # that edit a claude-*/adversarial-* workflow), add the `adversarial-signed-off`
+          # label to satisfy the gate.
+          if gh pr view "$PR_NUMBER" --json labels --jq '.labels[].name' | grep -qx 'adversarial-signed-off'; then
+            echo "::notice title=Adversarial::Manual sign-off label present — gate satisfied."
+            exit 0
+          fi
           if echo "$BODY" | grep -q "ADVERSARIAL_VERDICT: BLOCK"; then
             echo "::error title=Adversarial::Critical findings — see the comment on this PR."
             exit 1
           fi
           if echo "$BODY" | grep -q "ADVERSARIAL_VERDICT: PASS"; then
-            echo "::notice title=Adversarial::PASS (verdict line found)."
-          else
-            echo "::notice title=Adversarial::PASS (no Critical findings reported)."
+            echo "::notice title=Adversarial::PASS."
+            exit 0
           fi
+          echo "::error title=Adversarial::No ADVERSARIAL_VERDICT found — the pass did not run (workflow edit, error, or rate-limit). Re-run it, or add the 'adversarial-signed-off' label after a manual review."
+          exit 1

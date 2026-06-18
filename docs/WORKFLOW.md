@@ -33,17 +33,17 @@ flowchart LR
 
 ## Branches & PRs
 
-- `main` is protected: every pre-merge gate (see below) must be PASS before merge. Force-push blocked; conversation resolution required.
-- Work on phase branches: `m<milestone>/p<phase>-<slug>` — e.g. `m1/p1-session-mint`.
-- **One phase = one PR** (small, reviewable). PR title: `M1·P1 session mint` + a body that links the ROADMAP phase and ticks the QA-checklist items it touches (the PR template prompts this).
+- `main` is protected: every pre-merge gate (see below) must be PASS before merge. Force-push blocked; conversation resolution required. Make the gates **required status checks** (Settings → Branches → `main`): `ci`, `claude-review` / `security`, `adversarial-pr`, `require-docs-update`. Until a check is marked required, a red run won't actually block the merge button.
+- **Branch naming — `claude/<type>/<slug>`.** `<type>` is the conventional-commit type (`feat`/`fix`/`docs`/`chore`/`refactor`/`ci`); `<slug>` is kebab-case and carries the milestone/phase context. e.g. `claude/feat/m1-p1-session-mint`, `claude/fix/webhook-idempotency`, `claude/docs/research-context`. The `claude/` prefix marks Claude-authored work and matches the GitHub action's default `branch_prefix`, so remote sessions, the action, and you all converge on one professional scheme.
+- **One phase = one PR** (small, reviewable). PR title is a conventional-commit summary with milestone context: `feat(qr): M1·P1 session mint` + a body that links the ROADMAP phase and ticks the QA-checklist items it touches (the PR template prompts this).
 - Conventional commits (`feat:`, `fix:`, `chore:`, `docs:`); CHANGELOG entry on merge.
 
 ## Pre-merge gates (all required; all run on every PR)
 
 1. **CI** — `ci.yml`: `pnpm turbo run lint typecheck build` across all workspaces. Node 24, frozen lockfile.
 2. **Claude PR review** — `claude-review.yml` → `review` job. Inline comments on the diff against `docs/REVIEW.md`'s QA checklist (server-authoritative pricing, RLS, Stripe idempotency/PCI, a11y).
-3. **Claude security review** — `claude-review.yml` → `security` job. `anthropics/claude-code-security-review` posts findings inline.
-4. **Adversarial PR pass** — `adversarial-pr.yml`. Diff-scoped red-team across a11y / perf / security / product/UX. Posts a severity-ranked findings table and ends with `ADVERSARIAL_VERDICT: PASS` or `BLOCK`. The gate step parses that line — any Critical finding fails the job.
+3. **Claude security review** — `claude-review.yml` → `security` job. Runs through `anthropics/claude-code-action@v1` on the same OAuth/Max-plan token (the dedicated `claude-code-security-review` action only accepts an `ANTHROPIC_API_KEY`, so it's not used here), attacking the money + auth paths. Posts findings inline.
+4. **Adversarial PR pass** — `adversarial-pr.yml`. Diff-scoped red-team across a11y / perf / security / product/UX. Runs automatically on every push, so a pass always precedes merge; **re-prompt it before merging** by adding the **`adversarial` label** (no new commit needed). Posts a severity-ranked findings table and ends with `ADVERSARIAL_VERDICT: PASS` or `BLOCK`. The gate is **fail-closed**: it passes only on an explicit `PASS`, so a skipped or errored pass (no verdict) fails the check rather than sailing through. Clear a no-verdict failure by re-running, or — after a manual review — with the **`adversarial-signed-off`** label.
 5. **Docs / progress updated** — `require-docs-update.yml`. If a PR changes `apps/**` or `packages/**`, it must also touch `docs/**`, `CHANGELOG.md`, `ROADMAP.md`, or `README.md`. Opt-out by labeling the PR `skip-docs` (use sparingly — only for truly doc-irrelevant changes like dependency bumps).
 6. **Vercel preview** — `ensure-preview.yml`. Forces a preview build via the Vercel API if the GitHub→Vercel webhook drops. Smoke-test the preview before approving.
 
@@ -58,6 +58,8 @@ When the per-PR review (Claude or human) posts comments, `claude-fix-pr-comments
 - Never force-pushes. Never modifies workflow secrets or branch protection.
 
 To manually retrigger: comment `/claude-fix` on the PR.
+
+> ⚠️ **Workflow-edit caveat (anti-tampering).** `claude-code-action@v1` refuses to run on a PR unless the triggering workflow file is **byte-identical to the copy on `main`**. So a PR that edits `.github/workflows/claude-review.yml` or `adversarial-pr.yml` gets **no auto review or adversarial pass of itself** — those jobs exit in ~2 s posting nothing, yet report "success." Don't read the fast green as a clean review. Such PRs need a **manual adversarial sign-off**: run the adversarial pass yourself (or in Cowork), then add the **`adversarial-signed-off`** label to satisfy the fail-closed gate. The automated loop resumes on the next PR after the workflow change lands on `main`.
 
 ## Weekly + per-milestone adversarial
 

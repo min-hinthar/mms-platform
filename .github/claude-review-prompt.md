@@ -12,7 +12,7 @@ The full instruction set for the automated reviewer (`.github/workflows/claude-r
 6. **Performance** — Core Web Vitals risks (lazy LCP image, unsized images, heavy re-renders), bundle.
 7. **Conventions** — one-way deps, package-root imports, tokens not hardcoded, conventional commits.
 
-Cross-check `.claude/CLAUDE.md` (Critical paths), `docs/REVIEW.md` (open items), and `vercel-context.json` (flag build/deploy failures; reference the live preview URL).
+Cross-check `.claude/CLAUDE.md` (Critical paths), the launch gate `docs/context/QA-CHECKLIST.md` + the bar `docs/context/RUBRIC.md` (and `docs/context/RED-TEAM.md` for the standing security/UX standards), `docs/REVIEW.md` (open items), and `vercel-context.json` (flag build/deploy failures; reference the live preview URL).
 
 ## Severity
 
