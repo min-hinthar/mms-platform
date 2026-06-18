@@ -1,14 +1,14 @@
 import Image from "next/image";
-import { serviceClient } from "@mms/db/server";
+import { publicClient } from "@mms/db/server";
 
-// WORKING RSC menu — reads the shared, delivery-owned catalog (`menu_items`) server-side:
-// uuid id, base_price_cents (money in cents), name_en/name_my, category via menu_categories.
-// Self-hosted images via next/image (no third-party hotlinking). Cached → fast TTFB.
+// RSC menu — reads the catalog (`menu_items`) server-side with the ANON/publishable key (gated by
+// public-read RLS, least privilege — no service-role on a public render): uuid id, base_price_cents
+// (cents), name_en/name_my, category via menu_categories. Images via next/image. Cached → fast TTFB.
 export const revalidate = 300;
 
 export default async function Menu({ searchParams }: { searchParams: Promise<{ mode?: string }> }) {
   const { mode = "scango" } = await searchParams;
-  const db = serviceClient();
+  const db = publicClient();
   const { data } = await db
     .from("menu_items")
     .select(
