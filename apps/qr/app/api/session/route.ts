@@ -5,10 +5,13 @@ import { getPostHogClient } from "@/lib/posthog-server";
 
 /**
  * Table-session mint (closes red-team C2). A scanned QR posts here; the server finds/creates
- * an active table_session bound to the physical `qrCode`, joins the diner as a member, and
- * returns a SHORT-LIVED Supabase-compatible JWT carrying `session_id` + `seat` + `app_role`.
- * RLS (is_member / is_host) and private Realtime authorize everything off that token — no
- * client-asserted identity is ever trusted.
+ * an active table_session bound to the physical `qrCode` and joins the diner as a member.
+ *
+ * AUTH MODEL (P1.1 — see docs/BACKEND_ARCHITECTURE.md §3): the client first calls
+ * `supabase.auth.signInAnonymously()`, then POSTs here with `Authorization: Bearer <anon token>`.
+ * The server VERIFIES that token to get `auth.uid()` and records it as `session_members.seat_id`.
+ * RLS (is_member/is_host) + private Realtime then authorize off `auth.uid()` joined against
+ * session_members — no client-asserted identity is trusted, and no custom JWT is minted.
  */
 export async function POST(req: NextRequest) {
   const { qrCode, mode = "dinein", name = "Guest" } = await req.json();
@@ -32,7 +35,10 @@ export async function POST(req: NextRequest) {
     sess = data!;
     role = "host";
   }
-  const seat = crypto.randomUUID();
+  // P1.1: derive `seat` from the verified anonymous-auth uid instead of a fresh UUID, e.g.
+  //   const { data: { user } } = await sessionClient(bearerToken).auth.getUser();
+  //   const seat = user!.id;  // == auth.uid(); becomes session_members.seat_id (RLS identity)
+  const seat = crypto.randomUUID(); // TODO(P1.1): replace with the verified anon uid
   await db
     .from("session_members")
     .insert({ session_id: sess.id, seat_id: seat, display_name: name, role });
@@ -50,13 +56,8 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  // Sign a Supabase-compatible JWT so RLS + Realtime accept this seat. Use SUPABASE_JWT_SECRET.
-  // const token = jwt.sign(
-  //   { role: "authenticated", session_id: sess.id, seat, app_role: role,
-  //     sub: seat, aud: "authenticated", exp: Math.floor(Date.now()/1000) + 4*3600 },
-  //   process.env.SUPABASE_JWT_SECRET!, { algorithm: "HS256" }
-  // );
-  const token = "TODO_SIGN_WITH_SUPABASE_JWT_SECRET"; // <-- wire signing (see comment) before group cart works
-
-  return NextResponse.json({ sessionId: sess.id, seat, role, token });
+  // No custom JWT is minted: the client already holds an anonymous-auth session (from
+  // supabase.auth.signInAnonymously()) whose access token RLS + Realtime accept directly.
+  // This route just records membership; the client keeps using its own anon session for reads.
+  return NextResponse.json({ sessionId: sess.id, seat, role });
 }

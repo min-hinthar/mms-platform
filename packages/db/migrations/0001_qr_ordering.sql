@@ -11,21 +11,26 @@
 --     (service-role) re-derives every amount and writes the snapshot.
 --   • Tax classification lives QR-side in `mms_menu_tax` / `mms_menu_category_tax`
 --     (resolved by `mms_menu_tax_category`) so the delivery `menu_items` is untouched.
--- See docs/DATA_RECONCILIATION.md. Run on a Supabase branch, merge after the M1 gate.
+--   • Functions pin `search_path` + revoke EXECUTE from anon/authenticated (advisor-clean);
+--     every FK has a covering index.
+-- See docs/DATA_RECONCILIATION.md + docs/BACKEND_ARCHITECTURE.md. Apply on the staging project.
 --
--- Diners are anonymous: a server endpoint mints a short-lived JWT with a `session_id`
--- claim bound to the scanned table QR. RLS authorizes everything off that claim.
+-- Diners are anonymous. NOTE: the is_member/is_host helpers below still read a custom `session_id`
+-- JWT claim — that's the M0 sketch. P1.1 swaps them to the **Supabase Anonymous Auth membership**
+-- model (seat_id = auth.uid(), joined against session_members) alongside the client/session wiring.
+-- See docs/BACKEND_ARCHITECTURE.md §3.
 
 -- ============ category-aware tax (replaces the flat 10.5% in the delivery app) ============
 -- CA CDTFA Reg 1603 / 80-80: hot & prepared always taxable; cold food taxable only dine-in;
 -- retail non-food always taxable; grocery staples exempt. Location rate is a single constant.
 -- Amounts are integer CENTS; mirror of apps/qr/lib/tax.ts — keep the two in sync.
-create or replace function mms_tax_rate() returns numeric language sql immutable as $$
+create or replace function mms_tax_rate() returns numeric language sql immutable
+set search_path = '' as $$
   select 0.0975::numeric;  -- Covina combined rate; update in this one place (+ lib/tax.ts)
 $$;
 
 create or replace function mms_taxable(category text, dine_in boolean) returns boolean
-language sql immutable as $$
+language sql immutable set search_path = '' as $$
   select case category
     when 'hot_prepared'  then true
     when 'cold_food'     then coalesce(dine_in, false)
@@ -39,8 +44,9 @@ $$;
 
 -- amount_cents → tax_cents (integer). Rounds to the nearest cent.
 create or replace function mms_line_tax(amount_cents integer, category text, dine_in boolean)
-returns integer language sql immutable as $$
-  select round(case when mms_taxable(category, dine_in) then amount_cents * mms_tax_rate() else 0 end)::integer;
+returns integer language sql immutable set search_path = '' as $$
+  select round(case when public.mms_taxable(category, dine_in)
+                    then amount_cents * public.mms_tax_rate() else 0 end)::integer;
 $$;
 
 -- ============ tables ============
@@ -139,15 +145,16 @@ create table if not exists mms_menu_tax (
 );
 
 -- plpgsql so name resolution is deferred to call time (robust to apply order).
+-- search_path pinned (advisor-safe); table refs schema-qualified accordingly.
 create or replace function mms_menu_tax_category(p_item uuid)
-returns text language plpgsql stable as $$
+returns text language plpgsql stable set search_path = '' as $$
 declare v text; v_cat uuid;
 begin
-  select tax_category into v from mms_menu_tax where menu_item_id = p_item;
+  select tax_category into v from public.mms_menu_tax where menu_item_id = p_item;
   if v is not null then return v; end if;
-  select category_id into v_cat from menu_items where id = p_item;
+  select category_id into v_cat from public.menu_items where id = p_item;
   if v_cat is not null then
-    select tax_category into v from mms_menu_category_tax where category_id = v_cat;
+    select tax_category into v from public.mms_menu_category_tax where category_id = v_cat;
     if v is not null then return v; end if;
   end if;
   return 'hot_prepared';                          -- safe default: taxable prepared food
@@ -239,11 +246,11 @@ create or replace function mms_fulfill_order(
   p_service_charge_cents integer,
   p_tax_cents integer,
   p_tip_cents integer default 0
-) returns uuid language plpgsql security definer as $$
+) returns uuid language plpgsql security definer set search_path = '' as $$
 declare v_order uuid; v_total integer;
 begin
   -- idempotent: a retry returns the already-created order
-  select id into v_order from qr_orders where stripe_payment_intent_id = p_payment_intent;
+  select id into v_order from public.qr_orders where stripe_payment_intent_id = p_payment_intent;
   if v_order is not null then return v_order; end if;
 
   v_total := p_subtotal_cents - p_discount_cents + p_service_charge_cents + p_tax_cents + p_tip_cents;
@@ -251,20 +258,40 @@ begin
     raise exception 'fulfillment amount mismatch: breakdown=% intent=%', v_total, p_amount_cents;
   end if;
 
-  insert into qr_orders (session_id, subtotal_cents, discount_cents, service_charge_cents,
+  insert into public.qr_orders (session_id, subtotal_cents, discount_cents, service_charge_cents,
                          tax_cents, tip_cents, total_cents, stripe_payment_intent_id, status)
     select c.session_id, p_subtotal_cents, p_discount_cents, p_service_charge_cents,
            p_tax_cents, p_tip_cents, v_total, p_payment_intent, 'paid'
-    from qr_carts c where c.id = p_cart_id
+    from public.qr_carts c where c.id = p_cart_id
     returning id into v_order;
 
-  insert into qr_order_items (order_id, menu_item_id, name, qty, modifiers, unit_price_cents, tax_cents)
+  insert into public.qr_order_items (order_id, menu_item_id, name, qty, modifiers, unit_price_cents, tax_cents)
     select v_order, ci.menu_item_id, ci.name, ci.qty, ci.modifiers, ci.unit_price_cents, ci.tax_cents
-    from qr_cart_items ci where ci.cart_id = p_cart_id;
+    from public.qr_cart_items ci where ci.cart_id = p_cart_id;
 
-  update qr_carts set status = 'paid' where id = p_cart_id;
+  update public.qr_carts set status = 'paid' where id = p_cart_id;
   -- TODO(M4): award Burmese-gems via the delivery loyalty ledger (loyalty_rewards).
   --   Blocked for anonymous QR diners: loyalty_rewards.user_id is NOT NULL — needs an account
   --   link (M4) before a QR order can earn gems. See docs/DATA_RECONCILIATION.md.
   return v_order;
 end; $$;
+
+-- ============ covering indexes on every FK (advisor 0001_unindexed_foreign_keys) ============
+create index if not exists qr_carts_session_idx      on qr_carts(session_id);
+create index if not exists qr_cart_items_cart_idx     on qr_cart_items(cart_id);
+create index if not exists qr_orders_session_idx      on qr_orders(session_id);
+create index if not exists qr_order_items_order_idx    on qr_order_items(order_id);
+-- session_members(session_id) is already covered by the unique (session_id, seat_id) index;
+-- seat_id alone backs the hot is_member lookup (= auth.uid()) added in P1.1.
+create index if not exists session_members_seat_idx    on session_members(seat_id);
+
+-- ============ EXECUTE lockdown (advisors 0028/0029) ============
+-- These functions are service-role only (PostgREST/service bypasses these grants). No client should
+-- be able to call them via /rest/v1/rpc. is_member/is_host are intentionally left executable by the
+-- `authenticated` role — RLS policy evaluation needs it (see docs/BACKEND_ARCHITECTURE.md §3).
+revoke all on function mms_tax_rate()                                          from anon, authenticated;
+revoke all on function mms_taxable(text, boolean)                             from anon, authenticated;
+revoke all on function mms_line_tax(integer, text, boolean)                   from anon, authenticated;
+revoke all on function mms_menu_tax_category(uuid)                            from anon, authenticated;
+revoke all on function mms_fulfill_order(uuid, text, integer, integer, integer, integer, integer, integer)
+  from anon, authenticated;

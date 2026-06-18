@@ -5,8 +5,10 @@ import { browserClient } from "@mms/db";
 /**
  * Multi-device group cart. Diners join the PRIVATE channel `table:{sessionId}`.
  * Authorization is enforced by RLS on realtime.messages (see migration) — only members
- * of an active session, proven by their table-session JWT, can read/send. No client-
- * asserted identity is trusted. Presence = who's at the table; broadcast = cart changes.
+ * of an active session, proven by their **anonymous-auth** access token (is_member joins
+ * session_members on auth.uid(); see docs/BACKEND_ARCHITECTURE.md §3), can read/send. No
+ * client-asserted identity is trusted. Presence = who's at the table; broadcast = cart changes.
+ * `accessToken` is the diner's Supabase anonymous-auth access token; `me.seat` == auth.uid().
  */
 export function useGroupCart(
   sessionId: string,
