@@ -1,3 +1,18 @@
 packages:
   - "apps/*"
   - "packages/*"
+
+# Install-script approval (pnpm 10+ blocks dependency build scripts by default).
+# sharp powers next/image optimization; unrs-resolver backs ESLint's import resolution.
+# core-js's postinstall is only a funding banner, so it stays off.
+allowBuilds:
+  sharp: true
+  unrs-resolver: true
+  core-js: false
+
+# Single-version policy (pnpm 10+ reads overrides here, not in package.json).
+# Keep the framework trio pinned exact so both apps resolve one copy.
+overrides:
+  next: 16.2.9
+  react: 19.2.7
+  react-dom: 19.2.7

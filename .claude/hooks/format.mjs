@@ -12,9 +12,13 @@ try {
   const file = JSON.parse(raw || "{}")?.tool_input?.file_path;
   if (file && FMT.test(file) && existsSync(file)) {
     const q = JSON.stringify(file);
-    try { execSync(`npx prettier --write ${q}`, { stdio: "ignore" }); } catch {}
+    try {
+      execSync(`npx prettier --write ${q}`, { stdio: "ignore" });
+    } catch {}
     if (/\.(ts|tsx|js|jsx|mjs|cjs)$/.test(file)) {
-      try { execSync(`npx eslint --fix ${q}`, { stdio: "ignore" }); } catch {}
+      try {
+        execSync(`npx eslint --fix ${q}`, { stdio: "ignore" });
+      } catch {}
     }
   }
 } catch {

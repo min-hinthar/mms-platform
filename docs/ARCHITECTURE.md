@@ -1,4 +1,5 @@
 # MMS Platform — Build Spec & Architecture
+
 **Mandalay Morning Star · monorepo for delivery + QR dine-in/kiosk ordering · June 16, 2026**
 
 The plan and architecture for turning the v7.2 QR prototype into a production app, alongside the existing delivery PWA, in one Turborepo monorepo. Grounded in the v7.1 red-team and its `RealBuild_QA_Checklist`.

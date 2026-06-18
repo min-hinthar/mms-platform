@@ -10,17 +10,19 @@ export async function POST(req: NextRequest) {
     const { cartId, tipRate = 0 } = await req.json();
     if (!cartId) return NextResponse.json({ error: "cartId required" }, { status: 400 });
 
-    const totals = await getCartTotals(cartId, Number(tipRate) || 0);
-    const amount = Math.round(totals.total * 100); // cents, server-derived
+    const tip = Number(tipRate) || 0;
+    const totals = await getCartTotals(cartId, tip);
+    const amount = totals.totalCents; // already cents, server-derived
     if (amount <= 0) return NextResponse.json({ error: "Empty cart" }, { status: 400 });
 
     // TODO(C3): verify the caller's table-session JWT is a member of this cart before creating the intent.
+    // tipRate rides in metadata so the webhook can recompute the identical breakdown to reconcile.
     const intent = await getStripe().paymentIntents.create(
       {
         amount,
         currency: "usd",
         automatic_payment_methods: { enabled: true },
-        metadata: { cartId },
+        metadata: { cartId, tipRate: String(tip) },
       },
       { idempotencyKey: `pi_${cartId}_${amount}` }, // dedupe double-submits; a changed amount → a new intent
     );
@@ -32,9 +34,9 @@ export async function POST(req: NextRequest) {
       properties: {
         cart_id: cartId,
         amount_cents: amount,
-        tip_rate: tipRate,
-        subtotal: totals.subtotal,
-        total: totals.total,
+        tip_rate: tip,
+        subtotal_cents: totals.subtotalCents,
+        total_cents: totals.totalCents,
       },
     });
 

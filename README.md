@@ -6,8 +6,8 @@
 
 [![CI](https://github.com/min-hinthar/mms-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/min-hinthar/mms-platform/actions/workflows/ci.yml)
 [![Claude PR Review](https://github.com/min-hinthar/mms-platform/actions/workflows/claude-review.yml/badge.svg)](https://github.com/min-hinthar/mms-platform/actions/workflows/claude-review.yml)
-[![Next.js](https://img.shields.io/badge/Next.js-16.1.2-black?logo=next.js)](https://nextjs.org)
-[![React](https://img.shields.io/badge/React-19.2.3-61DAFB?logo=react)](https://react.dev)
+[![Next.js](https://img.shields.io/badge/Next.js-16.2.9-black?logo=next.js)](https://nextjs.org)
+[![React](https://img.shields.io/badge/React-19.2.7-61DAFB?logo=react)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript)](https://www.typescriptlang.org)
 [![Tailwind](https://img.shields.io/badge/Tailwind-v4-06B6D4?logo=tailwindcss)](https://tailwindcss.com)
 [![Turborepo](https://img.shields.io/badge/Turborepo-2.x-EF4444?logo=turborepo)](https://turbo.build)
@@ -91,12 +91,12 @@ The client **never computes a price**; the server re-derives every amount from t
 
 ## 📦 Apps & packages
 
-| Workspace | What | Status |
-|---|---|---|
-| `apps/qr` | QR dine-in/pickup + grocery scan-and-go | 🟡 M0 scaffold (working menu RSC, server cart, Stripe routes, Realtime hook, grocery scan) |
-| `apps/delivery` | existing delivery PWA | ⬜ to migrate in (`git clone` → `apps/delivery`) |
-| `@mms/ui` | design tokens (editorial-forward + Night) · Radix Sheet · NumberFlow | ✅ scaffolded |
-| `@mms/db` | Supabase clients (browser/service/session) · types · SQL migrations (RLS, tax fn) | ✅ scaffolded |
+| Workspace       | What                                                                              | Status                                                                                     |
+| --------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `apps/qr`       | QR dine-in/pickup + grocery scan-and-go                                           | 🟡 M0 scaffold (working menu RSC, server cart, Stripe routes, Realtime hook, grocery scan) |
+| `apps/delivery` | existing delivery PWA                                                             | ⬜ to migrate in (`git clone` → `apps/delivery`)                                           |
+| `@mms/ui`       | design tokens (editorial-forward + Night) · Radix Sheet · NumberFlow              | ✅ scaffolded                                                                              |
+| `@mms/db`       | Supabase clients (browser/service/session) · types · SQL migrations (RLS, tax fn) | ✅ scaffolded                                                                              |
 
 ## ✨ Features
 
@@ -110,15 +110,15 @@ The client **never computes a price**; the server re-derives every amount from t
 
 Tracked in [`ROADMAP.md`](ROADMAP.md) (milestones → phases → tasks) and the [GitHub Project board](https://github.com/min-hinthar/mms-platform/projects). Changelog: [`CHANGELOG.md`](CHANGELOG.md).
 
-| Milestone | Scope | State |
-|---|---|---|
-| **M0** Scaffold | monorepo, RLS migration, tax fn, server cart, Stripe routes, Realtime hook, grocery scan, CI/reviews | ✅ done |
-| **M1** Walking pay path | sign table-session JWT · Payment Element + cart-create · authz Server Actions · webhook reconcile · nonce CSP | 🟡 next |
-| **M2** Tax + promos + scheduling | server promos · honest pickup slots · grocery sessions | ⬜ |
-| **M3** Group cart | table session + RLS + Realtime presence + host lock (multi-device) | ⬜ |
-| **M4** Rewards & account | reuse delivery gem ledger · history/reorder | ⬜ |
-| **M5** Migrate delivery app | bring `apps/delivery` into the monorepo | ⬜ |
-| **M6** Kiosk + Terminal + EBT (2027) | Stripe Terminal · Forage EBT · handheld scanner | ⬜ |
+| Milestone                            | Scope                                                                                                         | State   |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------- | ------- |
+| **M0** Scaffold                      | monorepo, RLS migration, tax fn, server cart, Stripe routes, Realtime hook, grocery scan, CI/reviews          | ✅ done |
+| **M1** Walking pay path              | sign table-session JWT · Payment Element + cart-create · authz Server Actions · webhook reconcile · nonce CSP | 🟡 next |
+| **M2** Tax + promos + scheduling     | server promos · honest pickup slots · grocery sessions                                                        | ⬜      |
+| **M3** Group cart                    | table session + RLS + Realtime presence + host lock (multi-device)                                            | ⬜      |
+| **M4** Rewards & account             | reuse delivery gem ledger · history/reorder                                                                   | ⬜      |
+| **M5** Migrate delivery app          | bring `apps/delivery` into the monorepo                                                                       | ⬜      |
+| **M6** Kiosk + Terminal + EBT (2027) | Stripe Terminal · Forage EBT · handheld scanner                                                               | ⬜      |
 
 > **M1 gate before any real card:** see [`docs/REVIEW.md`](docs/REVIEW.md). Every milestone exits against [`MMS_QR_RealBuild_QA_Checklist`](../POS%20%26%20Self-Serve%202026/02-design/MMS_QR_RealBuild_QA_Checklist.md).
 
@@ -129,7 +129,7 @@ Next.js 16 (App Router, RSC, Server Actions) · React 19 · TypeScript strict ·
 ## 🚀 Quick start
 
 ```bash
-corepack enable && corepack prepare pnpm@9.12.0 --activate
+corepack enable && corepack prepare pnpm@11.7.0 --activate
 pnpm install
 cp .env.example apps/qr/.env.local           # fill in Supabase / Stripe / PostHog (see below)
 supabase db push                              # or paste packages/db/migrations/*.sql in the SQL editor
@@ -144,12 +144,12 @@ bash setup.sh
 
 ## 🔐 Environments (Supabase & Stripe)
 
-**Use the same Supabase project and the same Stripe account** as the delivery app — that's the point of the monorepo (shared menu, loyalty, customers). The new tables are *additive* migrations. Manage the differences **per environment**, not per project:
+**Use the same Supabase project and the same Stripe account** as the delivery app — that's the point of the monorepo (shared menu, loyalty, customers). The new tables are _additive_ migrations. Manage the differences **per environment**, not per project:
 
-| | Supabase | Stripe |
-|---|---|---|
+|                                | Supabase                                                          | Stripe                                                                                    |
+| ------------------------------ | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | **Production** (Vercel `main`) | live project · service-role + `SUPABASE_JWT_SECRET` (server-only) | **live** keys `sk_live_…` · the QR app's **own** webhook endpoint → its **own** `whsec_…` |
-| **Preview / Dev** (PRs, local) | a **Supabase branch** or dev project — never migrate prod blindly | **test** keys `sk_test_…` · test webhook secret |
+| **Preview / Dev** (PRs, local) | a **Supabase branch** or dev project — never migrate prod blindly | **test** keys `sk_test_…` · test webhook secret                                           |
 
 Two rules that keep the live delivery app safe:
 
@@ -164,12 +164,12 @@ One Vercel **Project per app**. Import `mms-platform`, set **Root Directory = `a
 
 ## 🤖 CI, reviews & workflow
 
-| Workflow | Trigger | Does |
-|---|---|---|
-| [`ci.yml`](.github/workflows/ci.yml) | PR / push | `turbo lint typecheck build` (cached) |
-| [`claude-review.yml`](.github/workflows/claude-review.yml) | PR | **Claude PR review** grounded in the live Vercel preview (ultrathink/Opus) + **security review** — inline comments + summary |
-| [`ensure-preview.yml`](.github/workflows/ensure-preview.yml) | PR | safety net — force a Vercel preview if the GitHub→Vercel webhook drops the commit |
-| [`adversarial.yml`](.github/workflows/adversarial.yml) | weekly + manual | deep **adversarial pass** vs the QA checklist → opens an issue |
+| Workflow                                                     | Trigger         | Does                                                                                                                         |
+| ------------------------------------------------------------ | --------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| [`ci.yml`](.github/workflows/ci.yml)                         | PR / push       | `turbo lint typecheck build` (cached)                                                                                        |
+| [`claude-review.yml`](.github/workflows/claude-review.yml)   | PR              | **Claude PR review** grounded in the live Vercel preview (ultrathink/Opus) + **security review** — inline comments + summary |
+| [`ensure-preview.yml`](.github/workflows/ensure-preview.yml) | PR              | safety net — force a Vercel preview if the GitHub→Vercel webhook drops the commit                                            |
+| [`adversarial.yml`](.github/workflows/adversarial.yml)       | weekly + manual | deep **adversarial pass** vs the QA checklist → opens an issue                                                               |
 
 Reviews use a **Claude Code OAuth token** (Max-plan quota): `claude setup-token` → `gh secret set CLAUDE_CODE_OAUTH_TOKEN`; the review spec is [`.github/claude-review-prompt.md`](.github/claude-review-prompt.md). **Quality:** ESLint + Prettier + knip via a shared `@mms/config` preset (`pnpm lint` / `pnpm format` / `pnpm knip`). **Claude Code** in this repo is configured by [`CLAUDE.md`](CLAUDE.md) + [`.claude/`](.claude) (settings, a post-edit auto-format hook, session-memory hooks, `LEARNINGS`/`ERROR_HISTORY`) and [`.mcp.json`](.mcp.json) (Supabase / GitHub / Sentry MCP). Day-to-day loop: [`docs/WORKFLOW.md`](docs/WORKFLOW.md). Contributing + templates: [`.github/`](.github).
 

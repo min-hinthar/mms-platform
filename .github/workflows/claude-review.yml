@@ -43,7 +43,20 @@ jobs:
         with:
           fetch-depth: 0
       - name: Claude security review
-        uses: anthropics/claude-code-security-review@main
+        # claude-code-security-review only accepts an ANTHROPIC_API_KEY (per-token billing) and
+        # rejects claude-code-oauth-token, so it errored on every PR. Run the security pass through
+        # claude-code-action instead — same OAuth/Max-plan token as the review job, no API billing.
+        uses: anthropics/claude-code-action@v1
         with:
-          claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          comment-pr: true
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: >
+            Perform a SECURITY review of this pull request — think like an attacker and prioritise
+            our money + auth paths. Check: (1) server-authoritative pricing — the Stripe intent
+            amount must derive from getCartTotals, never the request body; (2) Supabase RLS + the
+            short-lived table-session JWT (is_member / is_host), private Realtime channels, and that
+            SUPABASE_SERVICE_ROLE_KEY never reaches the client; (3) Server Actions are public POST
+            endpoints — flag any that mutate without a session-membership + lock check (IDOR);
+            (4) Stripe webhook signature verification + idempotency, and no PAN anywhere in our code;
+            (5) injection, secret leakage, SSRF, unsafe deserialization, and risky dependencies.
+            Leave inline comments citing file:line with a concrete fix, plus a short risk summary.
+            If nothing material turns up, say so explicitly.

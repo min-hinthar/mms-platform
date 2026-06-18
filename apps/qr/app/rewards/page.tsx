@@ -4,7 +4,9 @@ export default function Rewards() {
   return (
     <main style={{ padding: 24, maxWidth: 440, margin: "0 auto" }}>
       <h1>Rewards</h1>
-      <p style={{ color: "var(--t2)" }}>Tier ring, gem balance, perks — read from the shared loyalty ledger in M5.</p>
+      <p style={{ color: "var(--t2)" }}>
+        Tier ring, gem balance, perks — read from the shared loyalty ledger in M5.
+      </p>
     </main>
   );
 }

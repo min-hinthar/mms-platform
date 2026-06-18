@@ -12,25 +12,36 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
       <h1>Your order</h1>
       {totals ? (
         <dl style={{ marginTop: 12 }}>
-          <Row k="Subtotal" v={totals.subtotal} />
-          {totals.discount > 0 && <Row k="Promo" v={-totals.discount} />}
-          <Row k="Service charge (5%)" v={totals.serviceCharge} />
-          <Row k="Sales tax" v={totals.tax} />
-          <Row k="Total" v={totals.total} strong />
+          <Row k="Subtotal" cents={totals.subtotalCents} />
+          {totals.discountCents > 0 && <Row k="Promo" cents={-totals.discountCents} />}
+          <Row k="Service charge (5%)" cents={totals.serviceChargeCents} />
+          <Row k="Sales tax" cents={totals.taxCents} />
+          <Row k="Total" cents={totals.totalCents} strong />
         </dl>
       ) : (
-        <p style={{ color: "var(--t2)" }}>Pass <code>?cart=&lt;id&gt;</code>; M1 wires the Payment Element here.</p>
+        <p style={{ color: "var(--t2)" }}>
+          Pass <code>?cart=&lt;id&gt;</code>; M1 wires the Payment Element here.
+        </p>
       )}
       <p style={{ fontSize: 11, color: "var(--t3)", marginTop: 12 }}>
-        A 5% service charge supports fair kitchen wages and is shared with the team (CA SB-1524). Card fees are in menu prices; we never surcharge debit.
+        A 5% service charge supports fair kitchen wages and is shared with the team (CA SB-1524).
+        Card fees are in menu prices; we never surcharge debit.
       </p>
     </main>
   );
 }
-function Row({ k, v, strong }: { k: string; v: number; strong?: boolean }) {
+function Row({ k, cents, strong }: { k: string; cents: number; strong?: boolean }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontWeight: strong ? 800 : 400 }}>
-      <dt>{k}</dt><dd style={{ margin: 0, fontVariantNumeric: "tabular-nums" }}>${v.toFixed(2)}</dd>
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        padding: "5px 0",
+        fontWeight: strong ? 800 : 400,
+      }}
+    >
+      <dt>{k}</dt>
+      <dd style={{ margin: 0, fontVariantNumeric: "tabular-nums" }}>${(cents / 100).toFixed(2)}</dd>
     </div>
   );
 }

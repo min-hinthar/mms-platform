@@ -25,15 +25,19 @@ Monorepo + the risky architecture, designed in.
 - **P0.5 Pay scaffolding** — server cart actions, Stripe intent + webhook routes, Realtime group-cart hook, PostHog. ✅
 - **P0.6 Grocery** — `0002` UPC catalog, `scanAdd`, `BarcodeScanner`, `/grocery`. ✅
 - **P0.7 CI/Reviews** — CI, Claude PR review (Vercel-preview-grounded) + security + scheduled adversarial, `ensure-preview`, `setup.sh`. ✅
-- **P0.8 Claude config + quality** — `CLAUDE.md` + `.claude/` (settings, auto-format + memory hooks, LEARNINGS/ERROR_HISTORY) + `.mcp.json`; ESLint + Prettier + knip via `@mms/config`. ✅ &nbsp;·&nbsp; *deferred to a later phase:* Vitest + Playwright + Storybook + Chromatic + Lighthouse CI + Sentry (port from the delivery app once there's UI/tests to cover).
+- **P0.8 Claude config + quality** — `CLAUDE.md` + `.claude/` (settings, auto-format + memory hooks, LEARNINGS/ERROR*HISTORY) + `.mcp.json`; ESLint + Prettier + knip via `@mms/config`. ✅ &nbsp;·&nbsp; \_deferred to a later phase:* Vitest + Playwright + Storybook + Chromatic + Lighthouse CI + Sentry (port from the delivery app once there's UI/tests to cover).
 
 **Exit:** repo builds, scaffold reviewed (`docs/REVIEW.md`), grade ≈4.3/5. ✅
+
+- **P0.9 Toolchain refresh (2026-06-17)** — pnpm 9→11, turbo 2.3→2.9, TS 5.6→6.0, Next 16.1→16.2, React 19.2.7, Stripe 17→22, Supabase-js/ssr latest; `overrides`→`pnpm-workspace.yaml`, build-script `allowBuilds`; Turbopack font-fetch TLS fix; re-enabled Next `core-web-vitals` lint (ESLint pinned 9.x — its react plugin isn't ESLint-10 ready). Gate green. ✅
 
 ## 🟡 M1 — Walking pay path &nbsp;`milestone:M1`
 
 Smallest slice that takes one real test charge end-to-end (solo Scan & Go). **No real card until this milestone's gate passes.**
 
-- **P1.1 Session mint** — `POST /api/session` signs the table-session JWT (`session_id`/`seat`/`app_role`) with `SUPABASE_JWT_SECRET`; RLS + Realtime accept it. ⬜
+- **P1.0 Schema reconciliation** — ✅ namespaced the session tables `qr_*` (was colliding with the **live delivery** `carts`/`orders`/`order_items`/`menu_items`); repointed pricing/menu at the real `menu_items` (**cents end-to-end** · `name_en`/`name_my` · normalized modifiers, intersected server-side); sourced `tax_category` via `mms_menu_category_tax`/`mms_menu_tax` (+ resolver); rewrote `mms_fulfill_order` to write `qr_*` in cents and reconcile vs `intent.amount`. Gems deferred (anon diner ↔ `loyalty_rewards.user_id NOT NULL`, M4). Apply on a Supabase branch (needs Pro). See `docs/DATA_RECONCILIATION.md`. ✅
+- **P1.0a Backend infra** — 🟡 **dedicated QR Supabase project** created (`fasnpdhtvqtzjlvruqcu`, own org); cleared its template tables; applied a clean init schema to `supabase/migrations/` (catalog **owned here**, `tax_category` as a column, membership RLS) + a grant-lockdown migration; seeded the real 60-item menu (`supabase/seed.sql`); generated types wired into `@mms/db` (dropped the `as unknown` casts); `get_advisors` clean (only intentional exceptions). _Remaining:_ **Zod** input layer, `migrations-check` + `types-fresh` CI, `supabase/config.toml` (enable anonymous sign-ins + leaked-password protection), env wiring (app → new project), a staging project for when QR goes live. See `docs/BACKEND_ARCHITECTURE.md`.
+- **P1.1 Anonymous-auth session** — enable **Supabase Anonymous Auth** in the project; client `signInAnonymously()` (SSR cookies); `POST /api/session` verifies the anon JWT and records `seat_id = auth.uid()`; client reads + private Realtime authorize off the anon token. (Membership `is_member`/`is_host` RLS already shipped in the init schema.) ⬜
 - **P1.2 Cart create + actions authz** — create-cart action; gate `addItem`/`setQty`/`applyPromo`/`create-intent` on session membership + lock; merge identical lines. ⬜
 - **P1.3 Payment Element** — cart page mounts `<Elements>` against `/api/stripe/create-intent`; Apple/Google Pay surface. ⬜
 - **P1.4 Fulfillment** — webhook reconciles `intent.amount` vs `getCartTotals`; `mms_fulfill_order` snapshots order + awards gems. ⬜
@@ -87,4 +91,5 @@ Smallest slice that takes one real test charge end-to-end (solo Scan & Go). **No
 ---
 
 ### How we work each phase
+
 Cowork/Claude Code remote → branch → PR → **Claude review + security + CI** gates → merge → Vercel preview → milestone-exit **adversarial pass** (Cowork) → tick the box here + a `CHANGELOG.md` entry. See [`docs/WORKFLOW.md`](docs/WORKFLOW.md).

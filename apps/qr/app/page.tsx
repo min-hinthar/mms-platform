@@ -11,7 +11,9 @@ export default function Entry() {
   return (
     <main style={{ padding: "60px 24px", maxWidth: 440, margin: "0 auto" }}>
       <div style={{ textAlign: "center" }}>
-        <div style={{ fontSize: 50 }} aria-hidden>☕</div>
+        <div style={{ fontSize: 50 }} aria-hidden>
+          ☕
+        </div>
         <p className="eyebrow">Mandalay Morning Star</p>
         <h1 style={{ fontSize: 30, margin: "6px 0 2px" }}>Good morning</h1>
         <p style={{ color: "var(--t2)", margin: 0 }}>How would you like to order?</p>
@@ -22,7 +24,13 @@ export default function Entry() {
         ))}
       </nav>
       <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--bd)" }}>
-        <ModeCard mode="grocery" href="/grocery" emoji="🛒" name="Grocery Scan & Go" description="Scan barcodes, pay, walk out" />
+        <ModeCard
+          mode="grocery"
+          href="/grocery"
+          emoji="🛒"
+          name="Grocery Scan & Go"
+          description="Scan barcodes, pay, walk out"
+        />
       </div>
     </main>
   );

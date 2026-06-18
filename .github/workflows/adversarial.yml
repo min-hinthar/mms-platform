@@ -4,8 +4,8 @@ name: Weekly Adversarial Review
 #   gh secret set CLAUDE_CODE_OAUTH_TOKEN
 on:
   schedule:
-    - cron: "0 16 * * 1"   # Mondays 16:00 UTC (~9am PT)
-  workflow_dispatch:        # run on demand from the Actions tab
+    - cron: "0 16 * * 1" # Mondays 16:00 UTC (~9am PT)
+  workflow_dispatch: # run on demand from the Actions tab
 
 permissions:
   contents: read

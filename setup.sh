@@ -4,7 +4,7 @@
 set -euo pipefail
 
 echo "==> pnpm + install"
-corepack enable && corepack prepare pnpm@9.12.0 --activate
+corepack enable && corepack prepare pnpm@11.7.0 --activate
 pnpm install
 
 echo "==> git init + commit"
