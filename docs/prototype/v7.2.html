@@ -1,0 +1,558 @@
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Mandalay Morning Star — QR v7 · Refined</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400..700&family=Hanken+Grotesk:wght@400;500;600;700;800;900&family=Padauk:wght@400;700&display=swap" rel="stylesheet">
+<!-- free libs · progressive enhancement (app works fully without them): canvas-confetti (MIT), focus-trap (MIT) -->
+<script defer src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/focus-trap@7.6.4/dist/focus-trap.umd.min.js"></script>
+<style>
+/* ===== TOKENS — light = editorial-forward · dark = v4 Night ===== */
+:root{
+ --fd:"Fraunces",Georgia,serif;--fb:"Hanken Grotesk",system-ui,sans-serif;--fm:"Padauk",sans-serif;
+ --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:20px;--s6:24px;--s8:32px;--rf:999px;
+ --spring:linear(0,.006,.025 2.8%,.101 6.1%,.539 18.9%,.721 25.3%,.849 31.5%,.937 38.1%,.968 41.8%,.991 45.7%,1.006 50.1%,1.013 55%,1.011 63.5%,1.001 100%);
+ --out:cubic-bezier(.2,.8,.2,1);--bounce:cubic-bezier(.34,1.56,.64,1);--df:130ms;--db:240ms;--dsh:340ms;
+ --pg:#FAF9F5;--sf:#F2EFE7;--cd:#FFFDF8;--tx:#1B1714;--t2:#6E6358;--t3:#726859;
+ --ac:#A65F10;--ac2:#C8772A;--oa:#FFFDF8;--jade:#1F6E63;--gold:#E8A83C;
+ --bd:rgba(58,35,23,.1);--dot:rgba(58,35,23,.04);--ok:#346E47;--okb:#EAF2EC;--warn:#A44B34;--warnb:#F6E9E4;
+ --gr:linear-gradient(135deg,#F1E7D6,#FBF4E8);--rcard:20px;--rsm:12px;--lt:34px;
+ --sh:0 1px 3px rgba(35,24,16,.06),0 1px 2px rgba(35,24,16,.04);--shm:0 8px 24px rgba(35,24,16,.09),0 3px 8px rgba(35,24,16,.05);--shx:0 24px 60px rgba(35,24,16,.16)}
+.dark{
+ --pg:#171221;--sf:#201A2E;--cd:#271F38;--tx:#F3ECDF;--t2:#BCAFC8;--t3:#897E96;
+ --ac:#E7A53A;--ac2:#F4C879;--oa:#1A1326;--jade:#5FB07E;--gold:#F4C879;
+ --bd:rgba(243,236,223,.13);--dot:rgba(243,236,223,.05);--ok:#5FB07E;--okb:#1f2e26;--warn:#E0855F;--warnb:#33231d;
+ --gr:linear-gradient(135deg,#3a2a4d,#241c34);
+ --sh:0 1px 3px rgba(0,0,0,.45);--shm:0 8px 22px rgba(0,0,0,.5);--shx:0 26px 60px rgba(0,0,0,.65)}
+*{box-sizing:border-box}html,body{margin:0;height:100%}
+body{font-family:var(--fb);background:#1a1a1d;color:var(--tx);-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;align-items:center;gap:14px;padding:18px 12px 40px}
+body.my{font-family:var(--fm)}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}img{display:block;max-width:100%}
+.sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+h1,h2,h3,.lt,.amt,.nm{font-family:var(--fd);font-weight:600;letter-spacing:-.02em;line-height:1.1}
+.my h1,.my h2,.my .lt,.my .amt,.my .nm{font-family:var(--fm);letter-spacing:0;line-height:1.4}
+.muted{color:var(--t2)}.tiny{font-size:12px}.eyebrow{font-size:11px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--ac)}
+:focus-visible{outline:2.5px solid var(--ac);outline-offset:2px;border-radius:6px}
+[inert]{pointer-events:none}
+.bar{display:flex;gap:8px;align-items:center;background:#fff;color:#111;padding:9px 13px;border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.28);max-width:440px;width:100%;flex-wrap:wrap;justify-content:center}
+.bar b{font-family:var(--fd);font-size:14px;margin-right:2px}.bar .seg{display:flex;gap:4px;background:#f0f0f3;padding:3px;border-radius:11px}
+.bar .seg button{padding:5px 11px;border-radius:8px;font-weight:700;font-size:12px;color:#666}.bar .seg button.on{background:#111;color:#fff}
+.bar .ic{width:30px;height:30px;border-radius:50%;background:#f0f0f3;display:grid;place-items:center;font-size:14px;color:#111}
+.device{width:100%;max-width:440px;height:860px;background:var(--pg);border-radius:42px;overflow:hidden;position:relative;box-shadow:0 40px 90px rgba(0,0,0,.5),0 0 0 11px #0d0d0f,0 0 0 12px #2a2a2e}
+.island{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:118px;height:30px;background:#000;border-radius:18px;z-index:80}
+#fx{position:absolute;inset:0;pointer-events:none;z-index:90}
+.scroll{position:absolute;inset:0;bottom:64px;overflow-y:auto;scroll-behavior:smooth;z-index:1}.scroll::-webkit-scrollbar{width:0}
+.device::before{content:"";position:absolute;inset:0;background-image:radial-gradient(var(--dot) 1px,transparent 1px);background-size:24px 24px;pointer-events:none;z-index:0}
+.screen{display:none;flex-direction:column;min-height:100%;animation:fade var(--dsh) var(--out)}.screen.on{display:flex}
+@keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes pop{from{transform:scale(.8);opacity:0}to{transform:scale(1);opacity:1}}
+@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
+.hdr{position:sticky;top:0;z-index:30;padding:44px var(--s5) 8px;background:color-mix(in oklab,var(--pg) 82%,transparent);backdrop-filter:blur(16px);transition:padding var(--db)}
+.hdr.compact{padding-top:40px;padding-bottom:8px}.hdr .lt{font-size:var(--lt);transition:font-size var(--db) var(--out)}.hdr.compact .lt{font-size:20px}
+.hdr .row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.chip{display:inline-flex;align-items:center;gap:6px;background:var(--sf);border:1px solid var(--bd);padding:6px 12px;border-radius:var(--rf);font-weight:700;font-size:12.5px;color:var(--t2)}
+.chip.acc{background:color-mix(in oklab,var(--ac) 14%,var(--cd));color:var(--ac);border-color:transparent}
+.ring{position:relative;width:42px;height:42px;flex:none}.ring svg{transform:rotate(-90deg)}.ring .ct{position:absolute;inset:0;display:grid;place-items:center;font-weight:800;font-size:11px;color:var(--ac)}
+.search{margin:6px var(--s5) 0;display:flex;align-items:center;gap:8px;background:var(--sf);border:1px solid var(--bd);border-radius:14px;padding:10px 13px;color:var(--t3);font-weight:600;font-size:14px}
+.search input{border:none;background:none;outline:none;flex:1;color:var(--tx);font-family:inherit;font-size:14px}
+.filters{display:flex;gap:7px;overflow-x:auto;padding:10px var(--s5) 2px;scrollbar-width:none}.filters::-webkit-scrollbar{display:none}
+.fl{flex:none;padding:7px 14px;border-radius:var(--rf);background:var(--sf);border:1px solid var(--bd);font-weight:700;font-size:12.5px;color:var(--t2);transition:all var(--df)}
+.fl.on{background:var(--ac);color:var(--oa);border-color:transparent}
+.diets{display:flex;gap:7px;overflow-x:auto;padding:6px var(--s5) 2px;scrollbar-width:none}.diets::-webkit-scrollbar{display:none}
+.dl{flex:none;padding:6px 12px;border-radius:var(--rf);background:transparent;border:1.5px solid var(--bd);font-weight:700;font-size:11.5px;color:var(--t2);display:flex;align-items:center;gap:4px}
+.dl.on{border-color:var(--jade);background:color-mix(in oklab,var(--jade) 12%,var(--cd));color:var(--jade)}
+.hero{margin:8px var(--s5) 4px;height:158px;border-radius:var(--rcard);overflow:hidden;position:relative;background:var(--gr);box-shadow:var(--shm);display:flex;align-items:flex-end}
+.hero .art{position:absolute;inset:0;font-size:120px;display:grid;place-items:center;opacity:.22;transition:transform .3s var(--out)}
+.hero img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .6s var(--out)}.hero img.on{opacity:.66}
+.hero .ct{position:relative;z-index:2;padding:16px}.hero h2{font-size:23px}.hero .eyebrow{color:var(--ac)}
+.dark .hero h2,.dark .hero .eyebrow{color:#fff}.dark .hero .ct .muted{color:rgba(255,255,255,.82)}
+.steam{position:absolute;z-index:1;font-size:22px;opacity:0;animation:rise 4.5s var(--out) infinite}
+@keyframes rise{0%{opacity:0;transform:translateY(6px) scale(.8)}25%{opacity:.55}100%{opacity:0;transform:translateY(-40px) scale(1.3)}}
+.sec{padding:14px var(--s5) 2px}.sec h3{font-size:18px}
+.menu{display:flex;flex-direction:column;gap:12px;padding:8px var(--s5) 0}
+.mi{display:flex;gap:13px;background:var(--cd);border:1px solid var(--bd);border-radius:var(--rcard);padding:11px;box-shadow:var(--sh);position:relative;transition:transform var(--df) var(--out),box-shadow var(--df)}
+.mi:active{transform:scale(.985)}
+.ph{width:88px;height:88px;border-radius:14px;flex:none;display:grid;place-items:center;font-size:38px;position:relative;overflow:hidden}
+.ph .phimg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .5s var(--out);filter:blur(8px);transform:scale(1.05)}
+.ph .phimg.on{opacity:1;filter:blur(0);transform:none}
+.mi .info{flex:1;min-width:0;display:flex;flex-direction:column}
+.mi .nm{font-size:15.5px;font-weight:600}.mi .my2{font-family:var(--fm);font-size:12px;color:var(--t2);margin-top:1px}
+.mi .desc{font-size:12.5px;color:var(--t2);line-height:1.4;margin-top:3px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.diet{display:flex;gap:4px;flex-wrap:wrap;margin-top:5px}
+.db{font-size:9px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;padding:2px 6px;border-radius:6px;background:var(--okb);color:var(--ok)}
+.db.warn{background:var(--warnb);color:var(--warn)}
+.mi .bot{display:flex;align-items:center;justify-content:space-between;margin-top:auto;padding-top:7px}
+.mi .pr{font-weight:800;font-size:14px;font-variant-numeric:tabular-nums}
+.tag{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:var(--rf);background:var(--okb);color:var(--ok);margin-right:5px}
+.tag.hot{background:color-mix(in oklab,var(--warn) 16%,var(--cd));color:var(--warn)}
+.soldout{opacity:.55;filter:grayscale(.4)}
+.add{min-width:38px;height:38px;padding:0 12px;border-radius:var(--rf);background:var(--ac);color:var(--oa);font-weight:800;font-size:18px;display:grid;place-items:center;box-shadow:0 2px 8px color-mix(in oklab,var(--ac) 40%,transparent);transition:transform var(--df) var(--bounce)}
+.add:active{transform:scale(.9)}.add[disabled]{opacity:.4}
+.stp{display:flex;align-items:center;background:var(--ac);color:var(--oa);border-radius:var(--rf);height:38px;animation:pop var(--df) var(--bounce)}
+.stp button{width:38px;height:38px;font-size:20px;font-weight:800;display:grid;place-items:center;color:var(--oa)}
+.stp .q{min-width:20px;text-align:center;font-weight:800;font-variant-numeric:tabular-nums;font-size:15px}
+.tabs{position:absolute;left:0;right:0;bottom:0;height:64px;z-index:40;display:flex;background:color-mix(in oklab,var(--pg) 86%,transparent);backdrop-filter:blur(18px);border-top:1px solid var(--bd)}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:var(--t3);font-weight:700;font-size:10.5px;position:relative}
+.tab .i{font-size:21px;line-height:1;transition:transform var(--df) var(--bounce)}.tab.on{color:var(--ac)}.tab.on .i{transform:translateY(-1px) scale(1.08)}
+.tab .badge{position:absolute;top:8px;left:50%;margin-left:4px;background:var(--warn);color:#fff;font-size:9px;font-weight:800;min-width:15px;height:15px;border-radius:9px;display:grid;place-items:center;padding:0 3px}
+.cartbar{position:absolute;left:12px;right:12px;bottom:74px;z-index:45;background:var(--ac);color:var(--oa);border-radius:16px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 12px 30px color-mix(in oklab,var(--ac) 45%,transparent);transform:translateY(140%);transition:transform var(--dsh) var(--spring)}
+.cartbar.show{transform:none}.cartbar .l{display:flex;align-items:center;gap:10px;font-weight:700}
+.cartbar .cnt{background:rgba(255,255,255,.25);min-width:24px;height:24px;border-radius:12px;display:grid;place-items:center;font-weight:800;font-size:13px}
+.cartbar .amt{font-weight:800;font-variant-numeric:tabular-nums}
+.sheetwrap{position:absolute;inset:0;z-index:70;display:none}.sheetwrap.on{display:block}
+.scrim{position:absolute;inset:0;background:rgba(15,10,5,.42);opacity:0;transition:opacity var(--db)}.sheetwrap.on .scrim{opacity:1}
+.sheet{position:absolute;left:0;right:0;bottom:0;max-height:90%;background:var(--pg);border-radius:26px 26px 0 0;overflow-y:auto;box-shadow:var(--shx);transform:translateY(100%);transition:transform var(--dsh) var(--spring)}
+.sheetwrap.on .sheet{transform:none}.sheet::-webkit-scrollbar{width:0}
+.grab{width:38px;height:5px;border-radius:3px;background:var(--bd);margin:9px auto 2px}
+.shpad{padding:6px var(--s5) calc(var(--s5) + 8px)}
+.shhero{height:184px;margin:0 0 4px;background:var(--gr);display:grid;place-items:center;font-size:78px;position:relative;overflow:hidden}
+.shhero img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .5s}.shhero img.on{opacity:1}
+.mod{margin-top:16px}.mod .h{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}.mod .h b{font-size:14px}.mod .h span{font-size:11px;color:var(--t3);font-weight:700}
+.opt{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border:1.5px solid var(--bd);border-radius:13px;margin-bottom:8px;font-weight:600;font-size:14px;transition:all var(--df)}
+.opt.sel{border-color:var(--ac);background:color-mix(in oklab,var(--ac) 8%,var(--cd))}
+.opt .rd{width:21px;height:21px;border-radius:50%;border:2px solid var(--bd);display:grid;place-items:center}.opt.sel .rd{border-color:var(--ac)}.opt.sel .rd::after{content:"";width:11px;height:11px;border-radius:50%;background:var(--ac)}
+.opt .pp{color:var(--t2);font-weight:700;font-size:12.5px;font-variant-numeric:tabular-nums}
+.upsell{margin:16px 0 0;padding:14px;background:linear-gradient(135deg,color-mix(in oklab,var(--jade) 12%,var(--cd)),var(--cd));border:1px solid var(--bd);border-radius:16px}
+.upsell .h{display:flex;align-items:center;gap:7px;font-weight:800;font-size:13px;color:var(--jade);margin-bottom:10px}
+.upsell .row{display:flex;gap:9px;overflow-x:auto;scrollbar-width:none}.upsell .row::-webkit-scrollbar{display:none}
+.us{flex:none;width:120px;background:var(--cd);border:1px solid var(--bd);border-radius:13px;padding:9px;text-align:left}
+.us .ph{width:100%;height:64px;border-radius:9px;margin-bottom:7px;font-size:30px}
+.us .n{font-size:12px;font-weight:700;line-height:1.2;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.us .p{font-size:11.5px;color:var(--ac);font-weight:800;margin-top:3px}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;height:54px;border-radius:15px;background:var(--ac);color:var(--oa);font-weight:800;font-size:16px;box-shadow:0 6px 18px color-mix(in oklab,var(--ac) 40%,transparent);transition:transform var(--df)}
+.btn:active{transform:scale(.97)}.btn.ghost{background:var(--sf);color:var(--tx);box-shadow:none;border:1px solid var(--bd)}
+.btn.dark{background:#111;color:#fff;box-shadow:0 6px 18px rgba(0,0,0,.3)}.dark .btn.dark{background:#000}.btn[disabled]{opacity:.5}
+.crow{display:flex;gap:11px;align-items:center;padding:12px 0;border-bottom:1px solid var(--bd)}
+.crow .ph{width:50px;height:50px;border-radius:11px;flex:none;font-size:24px}
+.crow .nm{font-size:14px;font-weight:700}.crow .who{font-size:11px;color:var(--t3);font-weight:700;display:flex;align-items:center;gap:4px;margin-top:2px}
+.crow .lp{margin-left:auto;font-weight:800;font-variant-numeric:tabular-nums;font-size:14px;text-align:right}
+.xbtn{width:24px;height:24px;border-radius:50%;background:var(--sf);color:var(--t2);font-size:13px;display:grid;place-items:center;margin-left:6px}
+.seg2{display:flex;background:var(--sf);border-radius:12px;padding:3px;margin:4px 0}.seg2 button{flex:1;padding:9px;border-radius:9px;font-weight:700;font-size:13px;color:var(--t2)}.seg2 button.on{background:var(--cd);color:var(--ac);box-shadow:var(--sh)}
+.assignrow{display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap}.aav{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:11px;color:#fff;border:2px solid transparent;opacity:.45}.aav.on{opacity:1;border-color:var(--tx)}
+.psum{background:var(--sf);border-radius:12px;padding:10px 13px;margin-top:8px}.psum .pr{display:flex;justify-content:space-between;font-size:13px;font-weight:700;padding:3px 0}
+.promo{display:flex;gap:8px;margin:6px 0}.promo input{flex:1;border:1.5px solid var(--bd);border-radius:11px;padding:11px 13px;background:var(--cd);color:var(--tx);font-family:inherit;font-size:14px;text-transform:uppercase}
+.promo button{padding:0 16px;border-radius:11px;background:var(--sf);border:1px solid var(--bd);font-weight:800;font-size:13px}
+.promook{display:flex;align-items:center;justify-content:space-between;background:var(--okb);color:var(--ok);border-radius:11px;padding:10px 13px;font-weight:700;font-size:13px;margin:6px 0}
+.tips{display:flex;gap:8px;margin:8px 0}.tip{flex:1;padding:12px 4px;border:1.5px solid var(--bd);border-radius:13px;text-align:center;font-weight:800;transition:all var(--df)}.tip.on{border-color:var(--ac);background:color-mix(in oklab,var(--ac) 9%,var(--cd));color:var(--ac)}.tip small{display:block;font-size:10px;font-weight:700;color:var(--t3)}.tip.on small{color:var(--ac)}
+.line{display:flex;justify-content:space-between;padding:5px 0;font-size:14px;color:var(--t2)}.line.tot{font-size:19px;font-weight:800;color:var(--tx);border-top:1px solid var(--bd);margin-top:6px;padding-top:11px}.line .v{font-variant-numeric:tabular-nums;font-weight:700}.line.save{color:var(--ok)}
+.disc{font-size:11px;color:var(--t3);line-height:1.5;margin:8px 0 0}
+.lockbar{display:flex;align-items:center;gap:8px;background:var(--warnb);color:var(--warn);border-radius:11px;padding:9px 13px;font-weight:700;font-size:12.5px;margin:8px 0}
+.track{padding:6px 4px}.tk{display:flex;gap:14px}.tk .dot{width:30px;flex:none;display:flex;flex-direction:column;align-items:center}
+.tk .c{width:18px;height:18px;border-radius:50%;border:2.5px solid var(--bd);background:var(--pg);z-index:1;transition:all var(--db)}
+.tk .ln{flex:1;width:2.5px;background:var(--bd);margin:2px 0}.tk.done .c{background:var(--ok);border-color:var(--ok)}.tk.done .ln{background:var(--ok)}
+.tk.now .c{border-color:var(--ac);background:var(--ac);animation:pulse 1.4s var(--out) infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 color-mix(in oklab,var(--ac) 55%,transparent)}50%{box-shadow:0 0 0 7px transparent}}
+.tk .tx{padding-bottom:18px}.tk .tt{font-weight:700;font-size:14.5px}.tk.pending .tt{color:var(--t3)}.tk .ts{font-size:12px;color:var(--t2);margin-top:1px}
+.bigring{width:148px;height:148px;margin:8px auto}.bigring svg{transform:rotate(-90deg)}
+.gemrow{display:flex;gap:10px;justify-content:center;margin:10px 0}.gembox{flex:1;background:var(--cd);border:1px solid var(--bd);border-radius:14px;padding:13px;text-align:center}.gembox .v{font-family:var(--fd);font-size:24px;font-weight:700;color:var(--ac)}.gembox .l{font-size:11px;color:var(--t2);font-weight:700;margin-top:2px}
+.perk{display:flex;gap:12px;align-items:center;padding:13px;background:var(--cd);border:1px solid var(--bd);border-radius:14px;margin-bottom:9px}.perk .e{font-size:24px}.perk .n{font-weight:700;font-size:14px}.perk .d{font-size:12px;color:var(--t2)}.perk .lock{margin-left:auto;font-size:12px;font-weight:800;color:var(--t3)}
+.prof{display:flex;gap:13px;align-items:center;padding:4px 0 14px}.av{width:58px;height:58px;border-radius:50%;background:var(--gr);display:grid;place-items:center;font-size:26px;font-family:var(--fd)}
+.arow{display:flex;align-items:center;gap:13px;padding:15px 14px;background:var(--cd);border:1px solid var(--bd);border-radius:14px;margin-bottom:9px;font-weight:600;font-size:14.5px;width:100%;text-align:left}.arow .e{font-size:19px}.arow .ch{margin-left:auto;color:var(--t3)}
+.ord{display:flex;gap:12px;align-items:center;padding:12px;background:var(--cd);border:1px solid var(--bd);border-radius:14px;margin-bottom:9px;width:100%;text-align:left}.ord .ph{width:46px;height:46px;border-radius:11px;font-size:22px;flex:none}
+.emos{display:flex;justify-content:space-between;gap:6px;margin:14px 0}.emo{flex:1;aspect-ratio:1;border-radius:14px;background:var(--sf);border:1.5px solid var(--bd);display:grid;place-items:center;font-size:30px;transition:all var(--df)}.emo:active{transform:scale(.92)}.emo.on{border-color:var(--ac);background:color-mix(in oklab,var(--ac) 10%,var(--cd));transform:scale(1.05)}
+.ta{width:100%;min-height:84px;border:1.5px solid var(--bd);border-radius:13px;padding:12px;font-family:inherit;font-size:14px;background:var(--cd);color:var(--tx);resize:none}
+.sk{background:var(--cd);border:1px solid var(--bd);border-radius:var(--rcard);padding:11px;display:flex;gap:13px}
+.shim{background:linear-gradient(100deg,var(--sf) 30%,color-mix(in oklab,var(--sf) 60%,var(--pg)) 50%,var(--sf) 70%);background-size:200% 100%;animation:shim 1.3s infinite;border-radius:8px}
+@keyframes shim{from{background-position:200% 0}to{background-position:-200% 0}}
+.toast{position:absolute;left:50%;bottom:140px;transform:translate(-50%,30px);z-index:85;background:var(--tx);color:var(--pg);padding:11px 18px;border-radius:var(--rf);font-weight:700;font-size:13.5px;box-shadow:var(--shx);opacity:0;transition:all var(--db) var(--spring);pointer-events:none;white-space:nowrap;max-width:88%}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:50px 30px;gap:6px}.empty .e{font-size:60px;opacity:.85}.empty h3{font-size:20px}.empty p{color:var(--t2);font-size:14px;margin:0 0 8px}
+.entry{padding:60px var(--s6) var(--s6);min-height:100%;display:flex;flex-direction:column}
+.modecard{display:flex;gap:14px;align-items:center;padding:18px;background:var(--cd);border:1px solid var(--bd);border-radius:18px;margin-bottom:13px;box-shadow:var(--sh);transition:transform var(--df) var(--out);width:100%;text-align:left}
+.modecard:active{transform:scale(.98)}.modecard .e{font-size:34px;width:54px;height:54px;border-radius:14px;background:var(--gr);display:grid;place-items:center;flex:none}
+.modecard .n{font-size:17px;font-weight:700}.modecard .d{font-size:12.5px;color:var(--t2);margin-top:2px}.modecard .ch{margin-left:auto;color:var(--ac);font-size:20px}
+.tele{position:absolute;left:0;right:0;bottom:64px;z-index:55;background:#0d0d12;color:#7CF2C0;font-family:ui-monospace,monospace;font-size:10.5px;max-height:0;overflow:hidden;transition:max-height var(--db)}
+.tele.on{max-height:148px;overflow-y:auto}.tele .e{padding:3px 12px;border-bottom:1px solid rgba(255,255,255,.06)}.tele .e b{color:#F4C879}
+.telebtn{position:absolute;right:10px;bottom:74px;z-index:56;width:38px;height:38px;border-radius:50%;background:#0d0d12;color:#7CF2C0;font-size:15px;display:grid;place-items:center;box-shadow:var(--shm);opacity:.85}
+.party{display:flex;align-items:center}.pav{width:30px;height:30px;border-radius:50%;border:2px solid var(--pg);display:grid;place-items:center;font-weight:800;font-size:12px;color:#fff;margin-left:-8px}.pav:first-child{margin-left:0}
+.tablebtns{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:10px 0}.tb{aspect-ratio:1;border:1.5px solid var(--bd);border-radius:13px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:800;background:var(--cd)}.tb small{font-size:9px;color:var(--t3);font-weight:700}.tb.sel{border-color:var(--ac);background:color-mix(in oklab,var(--ac) 9%,var(--cd));color:var(--ac)}.tb[disabled]{opacity:.4}
+.slot{display:inline-block;padding:10px 15px;border:1.5px solid var(--bd);border-radius:12px;font-weight:700;margin:0 8px 8px 0;font-size:13.5px}.slot.sel{border-color:var(--ac);background:color-mix(in oklab,var(--ac) 9%,var(--cd));color:var(--ac)}
+</style></head>
+<body>
+<div class="bar">
+ <b>MMS · QR v7</b>
+ <div class="seg"><button id="tL" class="on" onclick="setTheme('light')">Light</button><button id="tD" onclick="setTheme('night')">Night</button></div>
+ <div class="seg"><button id="lE" class="on" onclick="setLang('en')">EN</button><button id="lM" onclick="setLang('my')">MY</button></div>
+ <button class="ic" title="Reset demo" aria-label="Reset demo" onclick="resetApp()">↻</button>
+ <button class="ic" title="Dev events" aria-label="Toggle telemetry" onclick="toggleTele()">‹›</button>
+</div>
+
+<div class="device" id="device">
+ <div class="island"></div>
+ <canvas id="fx" aria-hidden="true"></canvas>
+ <div class="scroll" id="scroll"><div id="view"></div></div>
+ <div class="cartbar" id="cartbar" role="button" tabindex="0" aria-label="View order" onclick="openCart()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openCart()}">
+  <div class="l"><span class="cnt" id="cbCnt">0</span><span id="cbLbl">View order</span></div>
+  <div class="amt" id="cbAmt">$0.00</div>
+ </div>
+ <div class="tele" id="tele" aria-hidden="true"></div>
+ <button class="telebtn" id="telebtn" aria-label="Toggle telemetry" onclick="toggleTele()">‹›</button>
+ <nav class="tabs" id="tabs" aria-label="Primary">
+  <button class="tab on" data-tab="order" aria-label="Order" onclick="go('order')"><span class="i" aria-hidden="true">🍜</span>Order</button>
+  <button class="tab" data-tab="track" aria-label="Track order" onclick="go('track')"><span class="i" aria-hidden="true">📍</span>Track<span class="badge" id="trkBadge" style="display:none">1</span></button>
+  <button class="tab" data-tab="rewards" aria-label="Rewards" onclick="go('rewards')"><span class="i" aria-hidden="true">✦</span>Rewards</button>
+  <button class="tab" data-tab="account" aria-label="Account" onclick="go('account')"><span class="i" aria-hidden="true">☕</span>Account</button>
+ </nav>
+ <div class="sheetwrap" id="sheetwrap"><div class="scrim" onclick="closeSheet()"></div><div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Details" tabindex="-1"></div></div>
+ <div id="sr" class="sr" aria-live="polite" aria-atomic="true"></div>
+ <div class="toast" id="toast" role="status"></div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const money=n=>'$'+n.toFixed(2);
+const haptic=p=>{try{navigator.vibrate&&navigator.vibrate(p||8)}catch(e){}};
+const RM=()=>matchMedia('(prefers-reduced-motion:reduce)').matches;
+const IMG=id=>`https://images.unsplash.com/photo-${id}?w=320&q=70&auto=format&fit=crop`;
+
+/* ---------- DATA (photos + allergens) ---------- */
+const CAT=[['all','All'],['tea','Tea & Drinks'],['noodles','Noodles'],['rice','Rice & Curry'],['snacks','Snacks'],['sweets','Sweets']];
+const DIETS=[['veg','🌱 Vegetarian'],['vegan','🌿 Vegan'],['gf','🌾 Gluten-free'],['nonuts','🥜 No nuts'],['noshell','🦐 No shellfish']];
+const M=[
+ {id:'t1',n:'Burmese Milk Tea',my:'လက်ဖက်ရည်',p:3.75,c:'tea',e:'🍵',img:'1571934811356-5cc061b6821f',g:'linear-gradient(135deg,#E8C99A,#C8772A)',d:'Strong black tea pulled with condensed and evaporated milk — the teahouse staple.',tag:'Signature',diet:['veg','gf','dairy'],mods:['sweet','temp'],up:['s1','d2']},
+ {id:'t2',n:'Lime & Lemongrass Cooler',my:'သံပုရာ',p:4.25,c:'tea',e:'🥤',img:'1499638673689-79a0b5115d87',g:'linear-gradient(135deg,#CFE9C0,#5FA86E)',d:'Bright lime, bruised lemongrass, a little honey over crushed ice.',diet:['vegan','gf'],mods:['sweet'],up:['n1','s1']},
+ {id:'n1',n:'Mohinga',my:'မုန့်ဟင်းခါး',p:11.5,c:'noodles',e:'🍲',img:'1569718212165-3a8278d5f624',g:'linear-gradient(135deg,#E0B36A,#9A5B26)',d:'The national breakfast: catfish–lemongrass broth, rice vermicelli, crisp fritters.',tag:'Most loved',diet:['gf','shellfish'],mods:['spice','egg'],up:['t1','s1']},
+ {id:'n2',n:'Nan Gyi Thoke',my:'နန်းကြီးသုပ်',p:12.0,c:'noodles',e:'🍜',img:'1612929633738-8fe44f7ec841',g:'linear-gradient(135deg,#E8A83C,#A44B34)',d:'Thick rice noodles tossed in chicken curry, chickpea flour, crisp shallots.',diet:['gf','egg'],mods:['spice','egg'],up:['t1','d1']},
+ {id:'n3',n:'Ohn No Khao Swè',my:'အုန်းနို့ခေါက်ဆွဲ',p:12.5,c:'noodles',e:'🥥',img:'1455619452474-d2be8b1e70cd',g:'linear-gradient(135deg,#F0D89A,#C8772A)',d:'Coconut-chicken noodle, soft egg, lime, chili oil.',diet:['egg'],mods:['spice','egg'],up:['t1','d1']},
+ {id:'r1',n:'Chicken Curry & Rice',my:'ကြက်သားဟင်း',p:13.0,c:'rice',e:'🍛',img:'1631452180519-c014fe946bc7',g:'linear-gradient(135deg,#E5A636,#8E3B1E)',d:'Slow-simmered turmeric chicken curry, jasmine rice, balachaung crunch.',tag:'Signature',diet:['gf'],mods:['spice','rice','egg'],up:['t1','d1']},
+ {id:'r2',n:'Pork Belly Curry & Rice',my:'ဝက်သားဟင်း',p:13.5,c:'rice',e:'🍱',img:'1606491956689-2ea866880c84',g:'linear-gradient(135deg,#D98A4A,#6E2E1A)',d:'Wet-tamarind braised pork belly, jasmine rice, pickled mango.',diet:['gf'],mods:['spice','rice'],up:['t1','t2'],so:1},
+ {id:'s1',n:'Samosa Trio',my:'စမူဆာ',p:6.0,c:'snacks',e:'🥟',img:'1601050690597-df0568f70950',g:'linear-gradient(135deg,#EAC07A,#B26A28)',d:'Crisp pastry, spiced potato and pea, tamarind dip.',diet:['veg'],mods:['qty3'],up:['t1','t2']},
+ {id:'s2',n:'Laphet Thoke',my:'လက်ဖက်သုပ်',p:9.5,c:'snacks',e:'🥗',img:'1512621776951-a57141f2eefd',g:'linear-gradient(135deg,#A9C98A,#3F7A52)',d:'Fermented tea-leaf salad, crunchy beans, sesame, peanuts, tomato.',tag:'Vegan',diet:['vegan','gf','nuts'],mods:[],up:['t1','n1']},
+ {id:'d1',n:'Shwe Yin Aye',my:'ရွှေရင်အေး',p:6.5,c:'sweets',e:'🍧',img:'1551024601-bec78aea704b',g:'linear-gradient(135deg,#CDE7E4,#1F6E63)',d:'Coconut-milk cooler, agar jelly, sago, sweet bread, shaved ice.',tag:'Cold',diet:['veg'],mods:[],up:['t1']},
+ {id:'d2',n:'Sanwin Makin',my:'ဆနွင်းမကင်း',p:5.0,c:'sweets',e:'🟡',img:'1606313564200-e75d5e30476c',g:'linear-gradient(135deg,#F0CE72,#C8902A)',d:'Golden semolina cake, poppy seed, a whisper of coconut.',diet:['veg'],mods:[],up:['t1']}
+];
+const MAP=Object.fromEntries(M.map(x=>[x.id,x]));
+/* verified-stable photos (TheMealDB thumbs + Unsplash for drinks); blur-up + onerror fallback */
+const PHOTO={t1:IMG('1571934811356-5cc061b6821f'),t2:IMG('1499638673689-79a0b5115d87'),n1:'https://www.themealdb.com/images/media/meals/rvypwy1503069308.jpg',n2:'https://www.themealdb.com/images/media/meals/xquakq1619787532.jpg',n3:'https://www.themealdb.com/images/media/meals/wai9bw1619788844.jpg',r1:'https://www.themealdb.com/images/media/meals/020z181619788503.jpg',r2:'https://www.themealdb.com/images/media/meals/bc8v651619789840.jpg',s1:'https://www.themealdb.com/images/media/meals/hx335q1619789561.jpg',s2:'https://www.themealdb.com/images/media/meals/6ut2og1619790195.jpg',d1:'https://www.themealdb.com/images/media/meals/adxcbq1619787919.jpg',d2:'https://www.themealdb.com/images/media/meals/vrspxv1511722107.jpg'};
+const DLABEL={vegan:['Vegan',0],veg:['Veg',0],gf:['GF',0],nuts:['Contains nuts',1],shellfish:['Contains shellfish',1],egg:['Egg',0],dairy:['Dairy',0]};
+const MODS={
+ sweet:{t:'Sweetness',req:1,o:[['less','Less sweet',0],['normal','Normal',0],['extra','Extra sweet',0]]},
+ temp:{t:'Temperature',req:1,o:[['hot','Hot',0],['iced','Iced',0]]},
+ spice:{t:'Spice level',req:1,o:[['mild','Mild',0],['med','Medium',0],['hot','Burmese hot',0]]},
+ rice:{t:'Rice',req:1,o:[['jasmine','Jasmine rice',0],['turmeric','Turmeric rice',.5],['brown','Brown rice',.5]]},
+ egg:{t:'Add a soft egg',req:0,o:[['egg','Soft-boiled egg',1.5]]},
+ qty3:{t:'Make it a box',req:0,o:[['box','Box of 6 (+3 pcs)',4]]}
+};
+const PROMOS={TEA10:{t:'pct',v:.10,l:'10% off'},FAMILY5:{t:'flat',v:5,l:'$5 off'},WELCOME:{t:'pct',v:.15,l:'15% off first order'}};
+const MYL={'View order':'အမှာ ကြည့်','Add to order':'အမှာထဲ ထည့်','Pay & leave':'ရှင်းပြီး ထွက်','Add':'ထည့်'};
+const PCOL=['#A65F10','#1F6E63','#A44B34','#6E4070','#3F7A52'];
+
+/* ---------- STATE ---------- */
+let S={tab:'order',mode:null,table:null,slot:null,cart:[],party:[{n:'You',c:'#A65F10'}],filter:'all',diets:[],q:'',tip:0,split:'even',promo:null,locked:false,gems:140,tier:2,theme:'light',lang:'en',placed:false,trackStep:0,fbRating:0,events:[],loaded:false,_timers:[],presence:false};
+const HISTORY=[
+ {t:'Fri, Jun 13',mode:'dinein',items:[{id:'n2',q:1,opts:['Medium','Soft-boiled egg'],tot:13.5},{id:'d1',q:1,opts:[],tot:6.5},{id:'t1',q:2,opts:['Normal','Iced'],tot:3.75}],total:31.2},
+ {t:'Mon, Jun 9',mode:'pickup',items:[{id:'n1',q:1,opts:['Burmese hot'],tot:11.5},{id:'t1',q:1,opts:['Less sweet','Hot'],tot:3.75}],total:16.8}
+];
+const TIER=[0,100,250,500];const NEXT=()=>TIER[S.tier]||500;
+const after=(ms,fn)=>{const id=setTimeout(fn,ms);S._timers.push(id);return id};
+function clearTimers(){(S._timers||[]).forEach(clearTimeout);S._timers=[]}
+function announce(m){const s=$('#sr');if(s)s.textContent=m}
+
+/* ---------- telemetry ---------- */
+function track(ev,pr){S.events.unshift({t:new Date().toLocaleTimeString().slice(0,8),ev,pr:pr||''});renderTele()}
+function renderTele(){const t=$('#tele');if(!t.classList.contains('on'))return;t.innerHTML=S.events.slice(0,40).map(e=>`<div class="e"><b>${e.t}</b> ${e.ev} <span style="color:#6a9">${typeof e.pr==='object'?JSON.stringify(e.pr):e.pr}</span></div>`).join('')||'<div class="e">no events yet</div>'}
+function toggleTele(){$('#tele').classList.toggle('on');renderTele()}
+
+/* ---------- theme / lang ---------- */
+function setTheme(t){S.theme=t;document.documentElement.classList.toggle('dark',t==='night');$('#tL').classList.toggle('on',t==='light');$('#tD').classList.toggle('on',t==='night');$('#tL').setAttribute('aria-pressed',t==='light');$('#tD').setAttribute('aria-pressed',t==='night');track('theme_change',t)}
+function setLang(l){S.lang=l;document.documentElement.lang=l==='my'?'my':'en';document.body.classList.toggle('my',l==='my');$('#lE').classList.toggle('on',l==='en');$('#lM').classList.toggle('on',l==='my');track('lang_change',l);render()}
+const T=s=>S.lang==='my'&&MYL[s]?MYL[s]:s;
+
+/* ---------- cart math (with promo) ---------- */
+const cartCount=()=>S.cart.reduce((a,b)=>a+b.q,0);
+const qtyOf=id=>S.cart.filter(c=>c.id===id).reduce((a,b)=>a+b.q,0);
+const subRaw=()=>S.cart.reduce((a,b)=>a+b.tot*b.q,0);
+function discount(){if(!S.promo)return 0;const p=PROMOS[S.promo];if(!p)return 0;return +(p.t==='pct'?subRaw()*p.v:Math.min(p.v,subRaw())).toFixed(2)}
+const sub=()=>+(subRaw()-discount()).toFixed(2);
+const SVC=()=>+(sub()*0.05).toFixed(2);
+const TAX=()=>+((sub()+SVC())*0.0975).toFixed(2);
+const tipAmt=()=>+(sub()*S.tip).toFixed(2);
+const total=()=>+(sub()+SVC()+TAX()+tipAmt()).toFixed(2);
+
+function roll(el,to){if(!el)return;const from=parseFloat(el.dataset.v||'0');if(RM()||from===to){el.textContent=money(to);el.dataset.v=to;return}
+ const t0=performance.now(),dur=420;function f(t){let k=Math.min(1,(t-t0)/dur);k=1-Math.pow(1-k,3);el.textContent=money(from+(to-from)*k);if(k<1)requestAnimationFrame(f);else el.dataset.v=to}requestAnimationFrame(f)}
+function syncCart(){const n=cartCount();$('#cartbar').classList.toggle('show',n>0&&!S.placed&&S.tab==='order');$('#cbCnt').textContent=n;$('#cbLbl').textContent=T('View order');roll($('#cbAmt'),sub());if(S.tab==='order')paintSteppers()}
+
+/* ---------- nav ---------- */
+function go(tab){S.tab=tab;$$('.tab').forEach(t=>{const on=t.dataset.tab===tab;t.classList.toggle('on',on);t.setAttribute('aria-current',on?'page':'false')});track('tab',tab);render();$('#scroll').scrollTop=0;if(tab==='track')$('#trkBadge').style.display='none'}
+function render(){const v=$('#view');
+ if(!S.mode){v.innerHTML=entryHTML();$('#tabs').style.display='none';$('#cartbar').classList.remove('show');return}
+ $('#tabs').style.display='flex';
+ if(S.tab==='order')renderOrder();
+ else if(S.tab==='track')v.innerHTML=trackHTML();
+ else if(S.tab==='rewards')v.innerHTML=rewardsHTML();
+ else if(S.tab==='account')v.innerHTML=accountHTML();
+ syncCart()}
+
+/* ---------- entry ---------- */
+function entryHTML(){return `<div class="entry">
+ <div style="text-align:center;margin-bottom:6px"><div style="font-size:50px">☕</div>
+  <div class="eyebrow" style="justify-content:center">Mandalay Morning Star</div>
+  <h1 style="font-size:30px;margin:6px 0 2px">${S.lang==='my'?'မင်္ဂလာပါ':'Good morning'}</h1>
+  <p class="muted" style="font-size:14px;margin:0">${S.lang==='my'?'ဘယ်လို မှာယူမလဲ?':'How would you like to order?'}</p></div>
+ <div style="margin-top:22px">
+  <button class="modecard" onclick="pickMode('dinein')"><div class="e">🪑</div><div><div class="n">Dine-in</div><div class="d">Grab a table, invite friends, order together</div></div><div class="ch">›</div></button>
+  <button class="modecard" onclick="pickMode('scango')"><div class="e">🥡</div><div><div class="n">Scan & Go</div><div class="d">Order and pay now, we bring it out</div></div><div class="ch">›</div></button>
+  <button class="modecard" onclick="pickMode('pickup')"><div class="e">🛍️</div><div><div class="n">Pickup</div><div class="d">Order ahead, pick a time, skip the line</div></div><div class="ch">›</div></button>
+ </div>
+ <p class="tiny muted" style="text-align:center;margin-top:18px">Scanned a table QR? We auto-detect Dine-in.</p></div>`}
+function pickMode(m){S.mode=m;track('mode_select',m);haptic(10);if(m==='dinein')openTable();else if(m==='pickup')openSlot();else{S.tab='order';render()}}
+
+/* ---------- order / menu ---------- */
+function renderOrder(){$('#view').innerHTML=orderShell();bindScroll();
+ if(!S.loaded){skeleton();after(650,()=>{S.loaded=true;paintMenu()})}else paintMenu()}
+function modeChip(){const map={dinein:['🪑','Dine-in'+(S.table?' · Table '+S.table:'')],scango:['🥡','Scan & Go'],pickup:['🛍️','Pickup'+(S.slot?' · '+S.slot:'')]};const m=map[S.mode]||['🍜','Order'];return `<button class="chip" onclick="changeMode()">${m[0]} ${m[1]}</button>`}
+function orderShell(){const pct=Math.min(100,Math.round(S.gems/NEXT()*100));
+ return `<div class="hdr" id="hdr">
+   <div class="row"><div><div class="eyebrow">${modeChip()}</div><div class="lt" id="ltl">${S.lang==='my'?'မီနူး':'Menu'}</div></div>
+    <button class="ring" aria-label="Rewards: ${S.gems} gems" onclick="go('rewards')"><svg width="42" height="42" aria-hidden="true"><circle cx="21" cy="21" r="18" fill="none" stroke="var(--bd)" stroke-width="4"/><circle cx="21" cy="21" r="18" fill="none" stroke="var(--ac)" stroke-width="4" stroke-linecap="round" stroke-dasharray="${2*Math.PI*18}" stroke-dashoffset="${2*Math.PI*18*(1-pct/100)}"/></svg><span class="ct">✦${S.gems}</span></button>
+   </div>
+   <div class="search"><span aria-hidden="true">🔍</span><input id="q" aria-label="${S.lang==='my'?'မီနူး ရှာဖွေ':'Search the menu'}" placeholder="${S.lang==='my'?'ရှာဖွေ...':'Search dishes, drinks…'}" oninput="onSearch(this.value)" value="${S.q}"></div>
+   <div class="filters" role="tablist" aria-label="Categories">${CAT.map(c=>`<button role="tab" aria-selected="${S.filter===c[0]}" class="fl ${S.filter===c[0]?'on':''}" onclick="setFilter('${c[0]}')">${c[1]}</button>`).join('')}</div>
+   <div class="diets" aria-label="Dietary filters">${DIETS.map(d=>`<button class="dl ${S.diets.includes(d[0])?'on':''}" aria-pressed="${S.diets.includes(d[0])}" onclick="toggleDiet('${d[0]}')">${d[1]}</button>`).join('')}</div>
+  </div>
+  ${S.locked?`<div style="margin:8px var(--s5) 0"><div class="lockbar">🔒 ${S.lang==='my'?'အမှာ လော့ခ်ချထားသည်':'Host locked the order — no new items.'}</div></div>`:''}
+  <div class="hero"><div class="art" id="heroArt">🍵</div><img alt="" loading="lazy" src="https://www.themealdb.com/images/media/meals/rvypwy1503069308.jpg" onload="this.classList.add('on')" onerror="this.remove()"><span class="steam" style="left:24%;bottom:30px">☁</span><span class="steam" style="left:52%;bottom:20px;animation-delay:1.4s">☁</span><span class="steam" style="left:72%;bottom:34px;animation-delay:2.6s">☁</span>
+   <div class="ct"><div class="eyebrow">Teahouse kitchen · Covina</div><h2>${S.lang==='my'?'နံနက်ခင်း လက်ဖက်ရည်':'Slow mornings, warm cups'}</h2><div class="muted tiny" style="margin-top:3px">Family-made since 2023 · (626) 665-5317</div></div>
+  </div>
+  <div id="menu"></div>`}
+function skeleton(){$('#menu').innerHTML='<div class="menu">'+Array(4).fill(`<div class="sk"><div class="shim" style="width:88px;height:88px;border-radius:14px;flex:none"></div><div style="flex:1"><div class="shim" style="height:15px;width:56%"></div><div class="shim" style="height:11px;width:84%;margin-top:9px"></div><div class="shim" style="height:11px;width:70%;margin-top:6px"></div><div class="shim" style="height:13px;width:30%;margin-top:14px"></div></div></div>`).join('')+'</div>'}
+function passesDiet(x){return S.diets.every(f=>f==='nonuts'?!x.diet.includes('nuts'):f==='noshell'?!x.diet.includes('shellfish'):f==='veg'?(x.diet.includes('veg')||x.diet.includes('vegan')):x.diet.includes(f))}
+function visible(){return M.filter(x=>(S.filter==='all'||x.c===S.filter)&&passesDiet(x)&&(!S.q||(x.n+x.my+x.d).toLowerCase().includes(S.q.toLowerCase())))}
+function paintMenu(){const list=visible();
+ if(!list.length){$('#menu').innerHTML=`<div class="empty"><div class="e">🔎</div><h3>${S.lang==='my'?'ရှာမတွေ့ပါ':'Nothing matches'}</h3><p>${S.q?'No dishes match "'+S.q+'".':'Try fewer dietary filters.'}</p><button class="btn ghost" style="width:auto;padding:0 20px" onclick="clearFilters()">Clear filters</button></div>`;return}
+ const groups=S.filter==='all'?CAT.slice(1):[[S.filter,CAT.find(c=>c[0]===S.filter)[1]]];
+ $('#menu').innerHTML=groups.map(g=>{const items=list.filter(x=>x.c===g[0]);if(!items.length)return '';return `<div class="sec"><h3>${g[1]}</h3></div><div class="menu">${items.map(card).join('')}</div>`}).join('');
+ paintSteppers()}
+function dietBadges(x){const b=x.diet.filter(d=>DLABEL[d]).slice(0,3).map(d=>`<span class="db ${DLABEL[d][1]?'warn':''}">${DLABEL[d][0]}</span>`).join('');return b?`<div class="diet">${b}</div>`:''}
+function photo(x,cls){return `<span class="ph ${cls||''}" style="background:${x.g}"><img class="phimg" alt="" loading="lazy" src="${PHOTO[x.id]}" onload="this.classList.add('on')" onerror="this.remove()">${x.e}</span>`}
+function card(x){const so=x.so;
+ return `<div class="mi ${so?'soldout':''}" data-id="${x.id}">
+  <button style="padding:0;background:none;flex:none" aria-label="${x.n} details" onclick="openItem('${x.id}')">${photo(x)}</button>
+  <button class="info" style="text-align:left;align-items:flex-start" aria-label="${x.n}, ${money(x.p)}" onclick="openItem('${x.id}')">
+   <div class="nm">${x.n}</div><div class="my2">${x.my}</div><div class="desc">${x.d}</div>${dietBadges(x)}
+   <div class="bot"><div>${so?'<span class="tag hot">Sold out</span>':(x.tag?`<span class="tag ${x.tag==='Most loved'||x.tag==='Signature'?'hot':''}">${x.tag}</span>`:'')}<span class="pr">${money(x.p)}</span></div></div>
+  </button>
+  <div style="display:flex;align-items:flex-end" id="stp-${x.id}">${so?'<span class="tag" style="align-self:center;background:var(--sf);color:var(--t2)">86&rsquo;d</span>':stepper(x.id)}</div>
+ </div>`}
+function stepper(id){if(S.locked)return `<button class="add" style="opacity:.45" aria-disabled="true" aria-label="Order locked" onclick="toast(S.lang==='my'?'အမှာ လော့ခ်ချထား':'Host locked the order')">+</button>`;const q=qtyOf(id);if(!q)return `<button class="add" aria-label="Add ${MAP[id].n}" onclick="quickAdd('${id}')">+</button>`;
+ return `<div class="stp"><button onclick="bump('${id}',-1)" aria-label="Remove one ${MAP[id].n}">−</button><span class="q">${q}</span><button onclick="bump('${id}',1)" aria-label="Add one ${MAP[id].n}">+</button></div>`}
+function paintSteppers(){$$('.mi').forEach(el=>{const b=el.querySelector('[id^=stp-]');if(b&&!MAP[el.dataset.id].so)b.innerHTML=stepper(el.dataset.id)})}
+let tick=null;
+function bindScroll(){const sc=$('#scroll');sc.onscroll=()=>{if(tick)return;tick=requestAnimationFrame(()=>{tick=null;const h=$('#hdr');if(h)h.classList.toggle('compact',sc.scrollTop>42);const a=$('#heroArt');if(a&&!RM())a.style.transform=`translateY(${sc.scrollTop*0.12}px) scale(1.05)`})}}
+function onSearch(v){S.q=v;paintMenu()}
+function setFilter(f){S.filter=f;track('filter',f);render()}
+function toggleDiet(d){const i=S.diets.indexOf(d);if(i<0)S.diets.push(d);else S.diets.splice(i,1);track('diet_filter',S.diets.join(','));render()}
+function clearFilters(){S.q='';S.filter='all';S.diets=[];render()}
+function changeMode(){openSheet(`<div class="grab"></div><div class="shpad"><h2 style="margin:6px 0 2px">Change order type</h2><p class="muted tiny" style="margin-top:0">Your cart stays with you.</p>
+ <button class="modecard" onclick="S.mode='dinein';closeSheet();openTable()"><div class="e">🪑</div><div><div class="n">Dine-in</div><div class="d">Table + invite friends</div></div><div class="ch">›</div></button>
+ <button class="modecard" onclick="S.mode='scango';closeSheet();toast('Switched to Scan & Go');render()"><div class="e">🥡</div><div><div class="n">Scan & Go</div><div class="d">We bring it out</div></div><div class="ch">›</div></button>
+ <button class="modecard" onclick="S.mode='pickup';closeSheet();openSlot()"><div class="e">🛍️</div><div><div class="n">Pickup</div><div class="d">Pick a time</div></div><div class="ch">›</div></button></div>`)}
+function quickAdd(id){const x=MAP[id];if(x.so){toast('Sold out today');return}if(S.locked){toast('Host locked the order');return}
+ if((x.mods||[]).some(m=>MODS[m]&&MODS[m].req)){openItem(id);return}
+ S.cart.push({id,q:1,tot:x.p,opts:[],by:0});haptic(8);track('add_to_cart',{id,p:x.p});const el=$(`#stp-${id}`);if(el)el.innerHTML=stepper(id);microGems(el);announce(`${x.n} added, ${cartCount()} items`);syncCart()}
+function bump(id,d){if(MAP[id].so)return;let idx=-1;for(let i=S.cart.length-1;i>=0;i--)if(S.cart[i].id===id){idx=i;break}
+ if(idx<0){if(d>0)S.cart.push({id,q:1,tot:MAP[id].p,opts:[],by:0})}else{S.cart[idx].q+=d;if(S.cart[idx].q<=0)S.cart.splice(idx,1)}
+ haptic(6);track(d>0?'add_to_cart':'remove',{id});announce(`${MAP[id].n}, qty ${qtyOf(id)}`);const el=$(`#stp-${id}`);if(el)el.innerHTML=stepper(id);syncCart()}
+
+/* ---------- particles ---------- */
+const fx=$('#fx');let fctx,particles=[],raf=null;
+function fxsize(){fx.width=fx.offsetWidth;fx.height=fx.offsetHeight;fctx=fx.getContext('2d')}
+function elXY(el){const d=$('#device').getBoundingClientRect(),r=el.getBoundingClientRect();return [r.left-d.left+r.width/2,r.top-d.top+r.height/2]}
+function addP(x,y,n,rain){const cols=['#E8A83C','#1F6E63','#F4C879'];for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2,sp=(rain?2:3)+Math.random()*(rain?3:5);particles.push({x:rain?Math.random()*fx.width:x,y:rain?-12:y,vx:rain?(Math.random()-.5)*1.4:Math.cos(a)*sp,vy:rain?sp:Math.sin(a)*sp-2,g:.13,life:1,em:Math.random()<.5?'✦':'◆',sz:9+Math.random()*8,c:cols[i%3],rot:Math.random()*6,vr:(Math.random()-.5)*.34})}}
+function startFx(){if(raf)return;const step=()=>{fctx.clearRect(0,0,fx.width,fx.height);particles=particles.filter(p=>p.life>0&&p.y<fx.height+20);particles.forEach(p=>{p.vy+=p.g;p.x+=p.vx;p.y+=p.vy;p.rot+=p.vr;p.life-=.011;fctx.save();fctx.globalAlpha=Math.max(0,p.life);fctx.translate(p.x,p.y);fctx.rotate(p.rot);fctx.fillStyle=p.c;fctx.font=p.sz+'px serif';fctx.textAlign='center';fctx.fillText(p.em,0,0);fctx.restore()});if(particles.length)raf=requestAnimationFrame(step);else{raf=null;fctx&&fctx.clearRect(0,0,fx.width,fx.height)}};raf=requestAnimationFrame(step)}
+function microGems(el){if(RM()||!el)return;fxsize();const xy=elXY(el);addP(xy[0],xy[1],5,false);startFx()}
+function celebrate(){if(RM())return;
+ if(window.confetti){try{const mc=window.confetti.create(fx,{resize:true,useWorker:false}),cols=['#E8A83C','#1F6E63','#F4C879','#A65F10'];mc({particleCount:90,spread:75,origin:{y:.55},colors:cols});setTimeout(()=>{mc({particleCount:45,angle:60,spread:60,origin:{x:0,y:.65},colors:cols});mc({particleCount:45,angle:120,spread:60,origin:{x:1,y:.65},colors:cols})},130);return}catch(e){}}
+ fxsize();addP(0,0,80,true);addP(fx.width/2,fx.height*0.4,26,false);startFx()}
+
+/* ---------- sheet + focus-trap + toast ---------- */
+let lastFocus=null,curTrap=null;
+const FOCUSABLE='a[href],button:not([disabled]),input,textarea,select,[tabindex]:not([tabindex="-1"])';
+const BG=['scroll','tabs','cartbar','tele','telebtn'];
+function openSheet(html){lastFocus=document.activeElement;$('#sheet').innerHTML=html;$('#sheetwrap').classList.add('on');BG.forEach(id=>{const el=document.getElementById(id);if(el)el.setAttribute('inert','')});const bar=document.querySelector('.bar');if(bar)bar.setAttribute('inert','');const sh=$('#sheet');sh.scrollTop=0;
+ const hd=sh.querySelector('h2,h3');if(hd){if(!hd.id)hd.id='sheetTitle';sh.setAttribute('aria-labelledby','sheetTitle');sh.removeAttribute('aria-label')}else sh.setAttribute('aria-label','Details');
+ if(window.focusTrap){try{curTrap=window.focusTrap.createFocusTrap(sh,{escapeDeactivates:false,allowOutsideClick:true,initialFocus:()=>sh.querySelector(FOCUSABLE)||sh,fallbackFocus:sh});curTrap.activate()}catch(e){curTrap=null}}
+ if(!curTrap)after(40,()=>{const f=sh.querySelector(FOCUSABLE);(f||sh).focus()});
+ track('sheet_open')}
+function closeSheet(){if(curTrap){try{curTrap.deactivate()}catch(e){}curTrap=null}$('#sheetwrap').classList.remove('on');BG.forEach(id=>{const el=document.getElementById(id);if(el)el.removeAttribute('inert')});const bar=document.querySelector('.bar');if(bar)bar.removeAttribute('inert');if(lastFocus&&lastFocus.focus){try{lastFocus.focus()}catch(e){}}}
+function trapTab(e){const sh=$('#sheet');const f=[...sh.querySelectorAll(FOCUSABLE)].filter(el=>el.offsetParent!==null);if(!f.length){e.preventDefault();sh.focus();return}const first=f[0],last=f[f.length-1];if(!sh.contains(document.activeElement)){e.preventDefault();first.focus()}else if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}}
+let toastT;function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2000)}
+
+/* ---------- item sheet ---------- */
+let IT=null;
+function itemBadges(x){return x.diet.filter(d=>DLABEL[d]).map(d=>`<span class="db ${DLABEL[d][1]?'warn':''}">${DLABEL[d][0]}</span>`).join('')}
+function openItem(id){const x=MAP[id];if(x.so){toast('Sold out today');return}if(S.locked){toast('Host locked the order');return}IT={id,opts:{}};(x.mods||[]).forEach(m=>{const md=MODS[m];if(md&&md.req)IT.opts[m]=md.o[0][0]});track('view_item',id);haptic(5);openSheet(itemHTML(x))}
+function itemHTML(x){const mods=(x.mods||[]).map(m=>modBlock(x,m)).join('');const ups=(x.up||[]).map(u=>MAP[u]).filter(Boolean);
+ return `<div class="grab"></div><div class="shhero" style="background:${x.g}">${x.e}<img alt="" src="${PHOTO[x.id]}" onload="this.classList.add('on')" onerror="this.remove()"><span class="steam" style="left:46%;bottom:22px">☁</span></div>
+ <div class="shpad">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px"><div><h2 style="font-size:23px">${x.n}</h2><div class="my2" style="font-size:13px">${x.my}</div></div><div class="pr" style="font-size:18px">${money(x.p)}</div></div>
+  <p class="muted" style="font-size:14px;line-height:1.5;margin:8px 0 0">${x.d}</p>
+  <div class="diet" style="margin-top:10px">${itemBadges(x)}</div>
+  ${x.diet&&x.diet.length?`<p class="tiny muted" style="margin-top:6px">ⓘ ${S.lang==='my'?'ဓာတ်မတည့်မှု အချက်အလက်သည် လမ်းညွှန်သာဖြစ်ပြီး ဝန်ထမ်းကို မေးပါ။':'Allergen info is a guide — please tell our staff about any allergy.'}</p>`:''}
+  <div id="mods">${mods}</div>
+  ${ups.length?`<div class="upsell"><div class="h">✦ ${S.lang==='my'?'တွဲဖက်':'Goes well with'}</div><div class="row">${ups.map(u=>`<button class="us" aria-label="${u.n}" onclick="openItem('${u.id}')">${photo(u)}<div class="n">${u.n}</div><div class="p">${money(u.p)}</div></button>`).join('')}</div></div>`:''}
+  <div style="height:6px"></div>
+ </div>
+ <div style="position:sticky;bottom:0;background:var(--pg);padding:12px var(--s5) 16px;border-top:1px solid var(--bd)">
+  <button class="btn" onclick="addFromSheet('${x.id}')"${S.locked?' disabled':''}><span>${T('Add to order')}</span><span id="itPrice" style="font-variant-numeric:tabular-nums">${money(x.p)}</span></button>
+ </div>`}
+function modBlock(x,m){const md=MODS[m];if(!md)return '';
+ return `<div class="mod"><div class="h"><b>${md.t}</b><span>${md.req?'Required':'Optional'}</span></div>${md.o.map(o=>{const sel=IT.opts[m]===o[0];return `<button class="opt ${sel?'sel':''}" role="radio" aria-checked="${sel}" style="width:100%;text-align:left" onclick="selOpt('${m}','${o[0]}',${md.req})"><span>${o[1]}</span><span style="display:flex;align-items:center;gap:10px">${o[2]?`<span class="pp">+${money(o[2])}</span>`:''}<span class="rd"></span></span></button>`}).join('')}</div>`}
+function selOpt(m,o,req){if(!req&&IT.opts[m]===o)delete IT.opts[m];else IT.opts[m]=o;haptic(5);const x=MAP[IT.id];$('#mods').innerHTML=(x.mods||[]).map(mm=>modBlock(x,mm)).join('');const e=$('#itPrice');if(e)e.textContent=money(itPrice(x))}
+function itPrice(x){let p=x.p;(x.mods||[]).forEach(m=>{const o=IT.opts[m];if(o){const f=MODS[m].o.find(z=>z[0]===o);if(f)p+=f[2]}});return +p.toFixed(2)}
+function addFromSheet(id){if(S.locked){toast('Host locked the order');return}const x=MAP[id];const p=itPrice(x);const opts=Object.entries(IT.opts).map(([m,o])=>MODS[m].o.find(z=>z[0]===o)[1]);S.cart.push({id,q:1,tot:p,opts,by:0});haptic(12);track('add_to_cart',{id,p});closeSheet();const el=$(`#stp-${id}`);if(el){el.innerHTML=stepper(id);microGems(el)}else microGems($('#cartbar'));toast(`${x.n} ${S.lang==='my'?'ထည့်ပြီး':'added'}`);announce(`${x.n} added, ${cartCount()} items`);syncCart()}
+
+/* ---------- cart ---------- */
+function openCart(){if(S.placed)return;if(!S.cart.length){openSheet(emptyCart());return}track('view_cart',{total:total()});openSheet(cartHTML())}
+function emptyCart(){return `<div class="grab"></div><div class="empty" style="min-height:340px"><div class="e">🍵</div><h3>${S.lang==='my'?'အမှာ ဗလာ':'Your order is empty'}</h3><p>${S.lang==='my'?'နွေးတဲ့ လက်ဖက်ရည်တစ်ခွက်နဲ့ စပါ':'Start with a warm cup of tea.'}</p><button class="btn" style="width:auto;padding:0 22px" onclick="closeSheet()">Browse menu</button></div>`}
+function cartHTML(){const lines=S.cart;const group=S.party.length>1;
+ const ups=[...new Set(S.cart.flatMap(c=>MAP[c.id].up||[]))].filter(id=>!S.cart.some(c=>c.id===id)).slice(0,3).map(id=>MAP[id]);
+ return `<div class="grab"></div><div class="shpad">
+  <div style="display:flex;justify-content:space-between;align-items:baseline"><h2 style="font-size:23px">${S.lang==='my'?'အမှာ':'Your order'}</h2><span class="tiny muted">${({dinein:'Table '+(S.table||''),scango:'Scan & Go',pickup:'Pickup '+(S.slot||'')})[S.mode]}</span></div>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px">${group?`<div style="display:flex;align-items:center;gap:8px"><div class="party">${S.party.map(m=>`<span class="pav" style="background:${m.c}">${m.n[0]}</span>`).join('')}</div><span class="tiny muted">party of ${S.party.length}</span></div><button class="chip ${S.locked?'acc':''}" aria-pressed="${S.locked}" onclick="toggleLock()">${S.locked?'🔒 Locked':'🔓 Lock order'}</button>`:`<button class="chip acc" onclick="addPeople()">👥 ${S.lang==='my'?'လူထည့် · ဘေလ်ခွဲ':'Add people · split the bill'}</button>`}</div>
+  <div style="margin-top:6px">${lines.map((c,i)=>cartRow(c,i)).join('')}</div>
+  ${!S.locked&&ups.length?`<div class="upsell"><div class="h">✦ ${S.lang==='my'?'စုံအောင်':'Complete your meal'}</div><div class="row">${ups.map(u=>`<button class="us" aria-label="Add ${u.n}" onclick="quickAdd('${u.id}');refreshCart()">${photo(u)}<div class="n">${u.n}</div><div class="p">+${money(u.p)}</div></button>`).join('')}</div></div>`:''}
+  ${group?`<h3 style="font-size:15px;margin:16px 0 6px">${S.lang==='my'?'ဘေလ် ခွဲ':'Split the bill'}</h3><div class="seg2"><button class="${S.split==='even'?'on':''}" aria-pressed="${S.split==='even'}" onclick="setSplit('even')">Evenly</button><button class="${S.split==='mine'?'on':''}" aria-pressed="${S.split==='mine'}" onclick="setSplit('mine')">By person</button></div>${S.split==='even'?`<p class="tiny muted">${money(total()/S.party.length)} each.</p>`:`<div class="psum">${splitByPerson().map(p=>`<div class="pr"><span><span class="pav" style="width:18px;height:18px;font-size:10px;margin:0;background:${p.c}">${p.n[0]}</span> ${p.n}</span><span>${money(p.t)}</span></div>`).join('')}</div><p class="tiny muted" style="margin-top:5px">Tap a guest avatar on an item to reassign it.</p>`}`:''}
+  <h3 style="font-size:15px;margin:16px 0 6px">${S.lang==='my'?'ပရိုမို':'Promo code'}</h3>
+  ${S.promo?`<div class="promook"><span>✓ ${S.promo} — ${PROMOS[S.promo].l}</span><button onclick="clearPromo()" style="color:inherit;font-weight:800">Remove</button></div>`:`<div class="promo"><input id="promoInput" placeholder="${S.lang==='my'?'ကုဒ်':'Enter code'}" aria-label="Promo code"><button onclick="applyPromo()">Apply</button></div><p class="tiny muted">Try <b>TEA10</b> or <b>FAMILY5</b>.</p>`}
+  <h3 style="font-size:15px;margin:16px 0 6px">${S.lang==='my'?'အပိုပေး?':'Add a little extra?'}</h3>
+  <div class="tips">${[['No extra',0],['15%',.15],['18%',.18],['20%',.20]].map(t=>`<button class="tip ${S.tip===t[1]?'on':''}" aria-pressed="${S.tip===t[1]}" onclick="setTip(${t[1]})">${t[0]}<small>${t[1]?money(sub()*t[1]):'—'}</small></button>`).join('')}</div>
+  <div style="margin-top:10px">
+   <div class="line"><span>Subtotal</span><span class="v">${money(subRaw())}</span></div>
+   ${S.promo?`<div class="line save"><span>Promo · ${PROMOS[S.promo].l}</span><span class="v">−${money(discount())}</span></div>`:''}
+   <div class="line"><span>Service charge (5%)</span><span class="v">${money(SVC())}</span></div>
+   <div class="line"><span>Sales tax</span><span class="v">${money(TAX())}</span></div>
+   ${S.tip?`<div class="line"><span>Tip</span><span class="v">${money(tipAmt())}</span></div>`:''}
+   <div class="line tot"><span>Total</span><span class="v">${money(total())}</span></div>
+  </div>
+  <p class="disc">A 5% service charge supports fair kitchen wages and is shared with the team (CA SB-1524). It is not a tip — anything extra above is yours to give. Card fees are built into menu prices; we never add a surcharge on debit.</p>
+ </div>
+ <div style="position:sticky;bottom:0;background:var(--pg);padding:12px var(--s5) 16px;border-top:1px solid var(--bd)">
+  <button class="btn dark" onclick="pay()">${payLabel()} · <span style="font-variant-numeric:tabular-nums">${money(total())}</span></button>
+  <p class="disc" style="text-align:center;margin-top:8px"><a href="#" onclick="declineSheet();return false" style="color:var(--t3);font-weight:700">▸ Preview the declined-card state</a></p>
+ </div>`}
+function payLabel(){return S.mode==='pickup'?'Pay & schedule':S.mode==='dinein'?(S.lang==='my'?'အမှာ တင်':'Place order'):(S.lang==='my'?'ရှင်းပြီး ထွက်':'Pay & leave')}
+function cartRow(c,i){const x=MAP[c.id];const who=S.party[c.by||0]||S.party[0];const group=S.party.length>1;
+ return `<div class="crow"><span class="ph" style="background:${x.g};display:grid;place-items:center">${x.e}</span>
+  <div style="flex:1;min-width:0"><div class="nm">${x.n}</div>${c.opts&&c.opts.length?`<div class="who">${c.opts.join(' · ')}</div>`:''}
+   ${group?`<div class="who"><span class="pav" style="width:15px;height:15px;font-size:8px;margin:0;background:${who.c}">${who.n[0]}</span> ${who.n}</div>`:''}
+   <div style="display:flex;align-items:center;gap:8px;margin-top:6px"><div class="stp" style="height:30px"><button onclick="bumpLine(${i},-1)" aria-label="Remove one ${x.n}" style="width:30px;height:30px">−</button><span class="q">${c.q}</span><button onclick="bumpLine(${i},1)" aria-label="Add one ${x.n}" style="width:30px;height:30px"${S.locked?' disabled':''}>+</button></div>${group?`<button class="xbtn" aria-label="Remove ${x.n}" onclick="removeLine(${i})">✕</button>`:''}</div>
+   ${group&&S.split==='mine'?`<div class="assignrow" role="group" aria-label="Assign ${x.n}">${S.party.map((m,pi)=>`<button class="aav ${(c.by||0)===pi?'on':''}" style="background:${m.c}" aria-label="Assign to ${m.n}" aria-pressed="${(c.by||0)===pi}" onclick="assign(${i},${pi})">${m.n[0]}</button>`).join('')}</div>`:''}
+  </div>
+  <div class="lp">${money(c.tot*c.q)}</div></div>`}
+function canMutate(){if(S.locked){toast(S.lang==='my'?'ပြောင်းရန် အမှာကို လော့ခ်ဖွင့်ပါ':'Unlock the order to make changes');return false}return true}
+function bumpLine(i,d){if(!S.cart[i])return;if(!canMutate())return;S.cart[i].q+=d;if(S.cart[i].q<=0)S.cart.splice(i,1);haptic(6);track(d>0?'add_to_cart':'remove',{i});refreshCart()}
+function removeLine(i){if(!S.cart[i])return;if(!canMutate())return;const who=(S.party[Math.min(S.cart[i].by||0,S.party.length-1)]||S.party[0]).n;track('host_remove',{i,by:who});S.cart.splice(i,1);haptic(8);refreshCart()}
+function assign(i,pi){if(!S.cart[i])return;if(!canMutate())return;S.cart[i].by=pi;track('assign',{i,pi});haptic(5);$('#sheet').innerHTML=cartHTML()}
+function refreshCart(){if(!S.cart.length){closeSheet();render();return}$('#sheet').innerHTML=cartHTML();syncCart()}
+function setTip(t){S.tip=t;track('tip_set',t);haptic(6);$('#sheet').innerHTML=cartHTML()}
+function setSplit(s){S.split=s;track('split',s);$('#sheet').innerHTML=cartHTML()}
+function splitByPerson(){const tot=Math.round(total()*100),sr=subRaw()||1;const ppl=S.party.map(m=>({n:m.n,c:m.c,raw:0}));S.cart.forEach(c=>{ppl[Math.min(c.by||0,ppl.length-1)].raw+=c.tot*c.q});
+ const cents=ppl.map(p=>Math.round(p.raw/sr*tot));let diff=tot-cents.reduce((a,b)=>a+b,0);
+ const ord=[...cents.keys()].sort((a,b)=>cents[b]-cents[a]);for(let k=0;k<Math.abs(diff);k++)cents[ord[k%ord.length]]+=diff>0?1:-1;
+ ppl.forEach((p,i)=>p.t=cents[i]/100);return ppl}
+function applyPromo(){const v=($('#promoInput').value||'').trim().toUpperCase();if(PROMOS[v]){S.promo=v;track('promo_applied',v);haptic(10);toast(PROMOS[v].l+' applied');announce(PROMOS[v].l+' applied');$('#sheet').innerHTML=cartHTML()}else{toast('Code not recognized');track('promo_fail',v)}}
+function clearPromo(){S.promo=null;track('promo_clear');$('#sheet').innerHTML=cartHTML()}
+function toggleLock(){S.locked=!S.locked;track('lock',S.locked);haptic(10);toast(S.locked?'Order locked — only you can change it':'Order unlocked');$('#sheet').innerHTML=cartHTML();if(S.tab==='order')paintSteppers()}
+function startPresence(){if(S.mode!=='dinein'||S.presence||S.party.length<2)return;S.presence=true;
+ after(5200,()=>{if(S.placed||S.locked||S.mode!=='dinein')return;const fi=1;S.cart.push({id:'n2',q:1,tot:12,opts:['Medium'],by:fi});haptic(8);track('friend_add',{by:S.party[fi].n,id:'n2'});toast(S.party[fi].n+' added Nan Gyi Thoke');announce(S.party[fi].n+' added Nan Gyi Thoke');syncCart();if($('#sheetwrap').classList.contains('on')&&$('#sheet').querySelector('.tips')&&document.activeElement.tagName!=='INPUT')$('#sheet').innerHTML=cartHTML()});
+ if(S.party.length>2)after(11500,()=>{if(S.placed||S.locked||S.mode!=='dinein')return;const fi=2;S.cart.push({id:'d1',q:1,tot:6.5,opts:[],by:fi});haptic(8);track('friend_add',{by:S.party[fi].n,id:'d1'});toast(S.party[fi].n+' added Shwe Yin Aye');syncCart();if($('#sheetwrap').classList.contains('on')&&$('#sheet').querySelector('.tips')&&document.activeElement.tagName!=='INPUT')$('#sheet').innerHTML=cartHTML()})}
+
+/* ---------- pay ---------- */
+function declineSheet(){openSheet(`<div class="grab"></div><div class="shpad" style="text-align:center;padding-top:24px"><div style="font-size:58px">⚠️</div><h2 style="font-size:23px;margin:8px 0 2px">${S.lang==='my'?'ကတ် ငြင်းပယ်ခံရသည်':'Card declined'}</h2><p class="muted">Your bank didn’t approve it. Your order is still here — try another card or Apple Pay.</p><div style="height:14px"></div><button class="btn" onclick="openCart()">${S.lang==='my'?'ထပ်ကြိုးစား':'Try again'}</button><button class="btn ghost" style="margin-top:10px" onclick="closeSheet()">Back to order</button></div>`);track('payment_declined');haptic([20,60,20])}
+function pay(){track('checkout_start',{total:total(),mode:S.mode});
+ openSheet(`<div class="grab"></div><div class="empty" style="min-height:300px"><div class="e">⏳</div><h3>${S.lang==='my'?'ငွေချေနေသည်…':'Processing…'}</h3><p>${S.lang==='my'?'ကတ်ကို လုံခြုံစွာ ရှင်းနေသည်':'Securely charging your card.'}</p></div>`);
+ clearTimers();after(1250,()=>{const earned=Math.round(total());S.placed=true;S.gems+=earned;S.trackStep=1;$('#trkBadge').style.display='grid';track('purchase',{total:total(),gems:earned,mode:S.mode});announce('Payment successful, '+earned+' gems earned');successSheet(earned);celebrate();haptic([10,40,18]);startTracking()})}
+function successSheet(g){openSheet(`<div class="grab"></div><div class="shpad" style="text-align:center;padding-top:24px">
+ <div style="font-size:64px;animation:pop .5s var(--bounce)">✅</div>
+ <h2 style="font-size:26px;margin:8px 0 2px">${S.lang==='my'?'ရှင်းပြီး။ ကျေးဇူးပါ':'Paid — thank you!'}</h2>
+ <p class="muted">${modeDone()}</p>
+ <div style="display:inline-flex;gap:8px;align-items:center;background:color-mix(in oklab,var(--ac) 13%,var(--cd));color:var(--ac);padding:9px 16px;border-radius:99px;font-weight:800;margin-top:12px">✦ +${g} ${S.lang==='my'?'ဂျမ်':'gems earned'}</div>
+ <div style="height:18px"></div>
+ <button class="btn" onclick="closeSheet();go('track')">${S.lang==='my'?'အမှာ ခြေရာခံ':'Track my order'}</button>
+ <button class="btn ghost" style="margin-top:10px" onclick="closeSheet()">Done</button></div>`)}
+function modeDone(){return S.mode==='pickup'?('Ready around '+(S.slot||'soon')+' AM · we will text you'):S.mode==='dinein'?('Table '+(S.table||'—')+' · we are firing it now'):'We will bring it to your table'}
+const STEPS={dinein:[['Order placed','We have it'],['In the kitchen','Cooking your dishes'],['Plating up','Almost there'],['At your table','Enjoy! 🍵']],scango:[['Order placed','We have it'],['In the kitchen','Cooking'],['Ready','Bringing it out'],['Served','Enjoy! 🍵']],pickup:[['Order placed','We have it'],['In the kitchen','Cooking'],['Ready for pickup','Come on by'],['Picked up','Thank you!']]};
+function startTracking(){const steps=STEPS[S.mode]||STEPS.scango;[2,3,4].forEach((s,i)=>after((i+1)*4200,()=>{S.trackStep=s;if(s>=4)$('#trkBadge').style.display='none';announce((steps[s-1]||steps[steps.length-1])[0]);if(S.tab==='track')$('#view').innerHTML=trackHTML();if(s>=4&&S.tab==='track')toast(S.lang==='my'?'အမှာ အဆင်သင့်! 🎉':'Your order is ready 🎉')}))}
+
+/* ---------- track ---------- */
+function trackHTML(){if(!S.placed)return `<div class="hdr"><div class="lt">${S.lang==='my'?'ခြေရာခံ':'Track'}</div></div><div class="empty"><div class="e">📍</div><h3>${S.lang==='my'?'အမှာ မရှိသေး':'No active order'}</h3><p>${S.lang==='my'?'အမှာတင်ပြီးရင် ဒီမှာ ခြေရာခံနိုင်ပါတယ်':'Place an order and follow it here in real time.'}</p><button class="btn" style="width:auto;padding:0 22px" onclick="go('order')">${S.lang==='my'?'အမှာ စတင်':'Start an order'}</button></div>`;
+ const steps=STEPS[S.mode]||STEPS.scango,active=S.trackStep-1;
+ const eta=S.mode==='pickup'?('Ready ~'+(S.slot||'11:45')+' AM'):S.trackStep>=4?'Served':'~'+Math.max(2,(4-S.trackStep)*4)+' min';
+ return `<div class="hdr"><div class="row"><div><div class="eyebrow">${({dinein:'Dine-in · Table '+(S.table||''),scango:'Scan & Go',pickup:'Pickup · '+(S.slot||'')+' AM'})[S.mode]}</div><div class="lt">${S.lang==='my'?'အမှာ':'Your order'}</div></div><span class="chip acc">${eta}</span></div></div>
+ <div style="padding:8px var(--s5)">
+  <div class="track">${steps.map((s,i)=>{const cls=i<active?'done':i===active?'now':'pending';const last=i===steps.length-1;return `<div class="tk ${cls}"><div class="dot"><div class="c"></div>${last?'':'<div class="ln"></div>'}</div><div class="tx"><div class="tt">${s[0]}</div><div class="ts">${s[1]}</div></div></div>`}).join('')}</div>
+  ${S.mode==='dinein'?`<button class="btn ghost" onclick="waiterBell()">🔔 ${S.lang==='my'?'ဝန်ဆောင်မှု တောင်း':'Request service / refill'}</button>`:''}
+  ${S.mode==='pickup'&&S.trackStep>=3?`<button class="btn" onclick="imHere()">📍 ${S.lang==='my'?'ရောက်ပြီ':'I am here'}</button>`:''}
+  ${S.trackStep>=4?`<button class="btn" style="margin-top:10px" onclick="openFeedback()">⭐ ${S.lang==='my'?'အဆင့်ပေး':'Rate your order'}</button>`:''}
+  <div class="ord" style="margin-top:14px;cursor:default"><span class="ph" style="background:var(--gr);display:grid;place-items:center">🧾</span><div style="flex:1"><div style="font-weight:700;font-size:14px">${cartCount()} items · ${money(total())}</div><div class="tiny muted">${S.lang==='my'?'ဘောက်ချာ ဖုန်းသို့ ပို့ပြီး':'Receipt sent to your phone'}</div></div></div>
+  <div style="height:20px"></div>
+ </div>`}
+function waiterBell(){haptic(12);track('service_request','table_'+S.table);toast(S.lang==='my'?'ဝန်ထမ်း လာနေပါပြီ 🔔':'Server notified — on the way 🔔')}
+function imHere(){haptic(10);track('arrived','pickup');toast(S.lang==='my'?'ကျေးဇူးပါ! ချက်ချင်း ယူလာပေးမယ်':'Thanks! We will bring it right out')}
+
+/* ---------- dine-in table + invite ---------- */
+function openTable(){const taken=[3,7];openSheet(`<div class="grab"></div><div class="shpad"><h2 style="margin:6px 0 2px">${S.lang==='my'?'စားပွဲ ရွေး':'Pick your table'}</h2><p class="muted tiny" style="margin-top:0">Dine-in · invite friends to order together.</p>
+ <div class="tablebtns">${[1,2,3,4,5,6,7,8].map(i=>{const tk=taken.includes(i);return `<button class="tb ${S.table===i?'sel':''}" ${tk?'disabled':''} aria-label="Table ${i}${tk?' taken':''}" ${tk?'':`onclick="selTable(${i},this)"`}>${i}<small>${tk?'taken':'open'}</small></button>`}).join('')}</div>
+ <div style="margin-top:6px"><b style="font-size:14px">Your table</b><div style="display:flex;align-items:center;gap:8px;margin-top:8px"><div class="party" id="party"></div><button class="chip acc" onclick="inviteFriend()">+ Invite</button></div></div>
+ </div><div style="position:sticky;bottom:0;background:var(--pg);padding:12px var(--s5) 16px;border-top:1px solid var(--bd)"><button class="btn" onclick="confirmTable()">${S.lang==='my'?'မှာစ':'Start ordering'}</button></div>`);renderParty()}
+function renderParty(){const p=$('#party');if(p)p.innerHTML=S.party.map(m=>`<span class="pav" style="background:${m.c}">${m.n[0]}</span>`).join('')}
+function selTable(i,el){S.table=i;$$('.tb').forEach(b=>b.classList.remove('sel'));el.classList.add('sel');haptic(6)}
+function inviteFriend(){const names=['Mi','Ko','Su','Aung','Nila'];if(S.party.length>=5){toast('Table full for demo');return}const n=names[S.party.length-1]||'Guest';S.party.push({n,c:PCOL[(S.party.length-1)%PCOL.length]});haptic(8);track('invite_friend',n);renderParty();toast(n+' joined your order')}
+function confirmTable(){if(!S.table){toast(S.lang==='my'?'စားပွဲ ရွေးပါ':'Pick a table first');return}track('table_set',S.table);S.tab='order';closeSheet();render();toast('Table '+S.table+' · party of '+S.party.length);if(S.party.length>1)startPresence()}
+function addPeople(){if(S.party.length>=5){toast('Max 5 guests for the demo');return}inviteFriend();startPresence();track('add_people',{mode:S.mode,n:S.party.length});if($('#sheet')&&$('#sheet').querySelector('.tips'))$('#sheet').innerHTML=cartHTML()}
+
+/* ---------- pickup slot ---------- */
+function openSlot(){const slots=['11:15','11:30','11:45','12:00','12:15','12:30'];openSheet(`<div class="grab"></div><div class="shpad"><h2 style="margin:6px 0 2px">${S.lang==='my'?'အချိန် ရွေး':'Pick a pickup time'}</h2><p class="muted tiny" style="margin-top:0">Today · 750 Terrado Plaza, Covina</p>
+ <div style="margin-top:14px">${slots.map(s=>`<button class="slot ${S.slot===s?'sel':''}" onclick="S.slot='${s}';document.querySelectorAll('.slot').forEach(b=>b.classList.remove('sel'));this.classList.add('sel');haptic(6)">${s} AM</button>`).join('')}</div>
+ </div><div style="position:sticky;bottom:0;background:var(--pg);padding:12px var(--s5) 16px;border-top:1px solid var(--bd)"><button class="btn" onclick="confirmSlot()">${S.lang==='my'?'မှာစ':'Start ordering'}</button></div>`)}
+function confirmSlot(){if(!S.slot){toast(S.lang==='my'?'အချိန် ရွေးပါ':'Pick a time');return}track('slot_set',S.slot);S.tab='order';closeSheet();render();toast('Pickup at '+S.slot+' AM')}
+
+/* ---------- rewards ---------- */
+function rewardsHTML(){const pct=Math.min(100,Math.round(S.gems/NEXT()*100)),r=66,c=2*Math.PI*r;
+ return `<div class="hdr"><div class="lt">${S.lang==='my'?'ဆုလာဘ်':'Rewards'}</div></div>
+ <div style="padding:0 var(--s5)">
+  <div class="bigring"><svg width="148" height="148" aria-hidden="true"><circle cx="74" cy="74" r="${r}" fill="none" stroke="var(--bd)" stroke-width="11"/><circle cx="74" cy="74" r="${r}" fill="none" stroke="var(--ac)" stroke-width="11" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${c*(1-pct/100)}"/></svg></div>
+  <div style="text-align:center;margin-top:-100px;margin-bottom:62px"><div style="font-family:var(--fd);font-size:30px;font-weight:700;color:var(--ac)">✦${S.gems}</div><div class="tiny muted">${NEXT()-S.gems>0?(NEXT()-S.gems)+' to next perk':'Perk unlocked!'}</div></div>
+  <div class="gemrow"><div class="gembox"><div class="v">Tier ${S.tier}</div><div class="l">Teahouse regular</div></div><div class="gembox"><div class="v">✦${S.gems}</div><div class="l">Gem balance</div></div></div>
+  <h3 style="font-size:17px;margin:16px 0 10px">${S.lang==='my'?'အကျိုးခံစားခွင့်':'Perks'}</h3>
+  ${[['🍵','Free milk tea','Every 100 gems',100],['🥟','10% off snacks','Tier 2+',0],['🎂','Birthday sweet','Members',0],['⚡','Skip-the-line pickup','250 gems',250]].map(p=>`<div class="perk"><div class="e">${p[0]}</div><div><div class="n">${p[1]}</div><div class="d">${p[2]}</div></div><div class="lock">${p[3]&&S.gems<p[3]?'🔒':'✓'}</div></div>`).join('')}
+  <div style="height:20px"></div>
+ </div>`}
+
+/* ---------- account + history ---------- */
+function accountHTML(){return `<div class="hdr"><div class="lt">${S.lang==='my'?'အကောင့်':'Account'}</div></div>
+ <div style="padding:0 var(--s5)">
+  <div class="prof"><div class="av">M</div><div><div style="font-family:var(--fd);font-size:19px;font-weight:700">Min Kkhant</div><div class="tiny muted">Teahouse regular · ✦${S.gems} gems · since 2023</div></div></div>
+  <h3 style="font-size:16px;margin:6px 0 10px">${S.lang==='my'?'အမှာ မှတ်တမ်း':'Order history'}</h3>
+  ${HISTORY.map((o,i)=>`<button class="ord" aria-label="Reorder ${o.t}" onclick="openHistory(${i})">${photo(MAP[o.items[0].id])}<div style="flex:1"><div style="font-weight:700;font-size:14px">${o.t} · ${({dinein:'Dine-in',pickup:'Pickup',scango:'Scan & Go'})[o.mode]}</div><div class="tiny muted">${o.items.map(it=>MAP[it.id].n).join(', ')}</div></div><div style="text-align:right"><div style="font-weight:800;font-variant-numeric:tabular-nums">${money(o.total)}</div><div class="tiny" style="color:var(--ac);font-weight:700">Reorder ›</div></div></button>`).join('')}
+  <h3 style="font-size:16px;margin:16px 0 10px">${S.lang==='my'?'ဆက်တင်':'Settings'}</h3>
+  <button class="arow" onclick="setTheme(S.theme==='light'?'night':'light')"><span class="e">🌙</span><span>Appearance</span><span class="ch">${S.theme==='light'?'Light':'Night'} ›</span></button>
+  <button class="arow" onclick="setLang(S.lang==='en'?'my':'en')"><span class="e">🌐</span><span>Language</span><span class="ch">${S.lang==='en'?'English':'မြန်မာ'} ›</span></button>
+  <button class="arow" onclick="openFeedback()"><span class="e">⭐</span><span>Rate your last order</span><span class="ch">›</span></button>
+  <button class="arow"><span class="e">💳</span><span>Payment methods</span><span class="ch">Apple Pay ›</span></button>
+  <button class="btn ghost" style="margin-top:6px" onclick="resetApp()">Sign out / reset demo</button>
+  <div style="height:20px"></div>
+ </div>`}
+function openHistory(i){const o=HISTORY[i];openSheet(`<div class="grab"></div><div class="shpad"><h2 style="margin:6px 0 2px">${o.t}</h2><p class="muted tiny" style="margin-top:0">${({dinein:'Dine-in',pickup:'Pickup',scango:'Scan & Go'})[o.mode]} · receipt</p>
+ <div style="margin-top:10px">${o.items.map(it=>`<div class="crow"><span class="ph" style="background:${MAP[it.id].g};display:grid;place-items:center;width:44px;height:44px;font-size:20px">${MAP[it.id].e}</span><div style="flex:1"><div class="nm" style="font-size:13.5px">${it.q}× ${MAP[it.id].n}</div>${it.opts.length?`<div class="who">${it.opts.join(' · ')}</div>`:''}</div><div class="lp">${money(it.tot*it.q)}</div></div>`).join('')}</div>
+ <div class="line tot" style="margin-top:8px"><span>Total paid</span><span class="v">${money(o.total)}</span></div><div style="height:12px"></div>
+ <button class="btn" onclick="reorderFull(${i})">${S.lang==='my'?'ဒီအတိုင်း ပြန်မှာ':'Reorder these'}</button><p class="disc" style="text-align:center">Same items and options, in a fresh cart.</p></div>`)}
+function reorderFull(i){const o=HISTORY[i];clearTimers();S.cart=o.items.map(it=>({id:it.id,q:it.q,tot:it.tot,opts:it.opts.slice(),by:0}));S.placed=false;S.promo=null;S.locked=false;S.presence=false;S.party=[{n:'You',c:'#A65F10'}];haptic(10);track('reorder',{i});S.tab='order';go('order');openCart()}
+
+/* ---------- feedback + review triage ---------- */
+function openFeedback(){S.fbRating=0;openSheet(`<div class="grab"></div><div class="shpad"><h2 style="margin:6px 0 2px">${S.lang==='my'?'ဘယ်လိုလဲ?':'How was everything?'}</h2><p class="muted tiny" style="margin-top:0">${S.lang==='my'?'သင့် အကြံပြုချက်က မနက်ဖြန် အိုးကို ပုံဖော်ပါတယ်':'Your feedback shapes tomorrow’s pot.'}</p>
+ <div class="emos" role="radiogroup" aria-label="Rate 1 to 5">${['😖','😕','😐','🙂','🤩'].map((e,i)=>`<button class="emo" role="radio" aria-checked="false" data-r="${i+1}" aria-label="${['Very unhappy','Unhappy','Okay','Happy','Delighted'][i]}" onclick="setRating(${i+1})"><span aria-hidden="true">${e}</span></button>`).join('')}</div>
+ <div id="fbBody"></div></div>`)}
+function setRating(r){S.fbRating=r;$$('.emo').forEach(b=>{const on=+b.dataset.r===r;b.classList.toggle('on',on);b.setAttribute('aria-checked',on)});track('feedback_rating',r);haptic(8);const body=$('#fbBody');
+ if(r>=4){body.innerHTML=`<p style="font-weight:700">${S.lang==='my'?'ဝမ်းသာပါတယ်! ✨':'So glad it hit the spot! ✨'}</p><p class="muted tiny">Would you share it? It really helps our family shop.</p><button class="btn" onclick="extReview()">★ Rate us on Google</button><button class="btn ghost" style="margin-top:10px" onclick="closeSheet();toast('Thank you ☕')">No thanks</button>`}
+ else{body.innerHTML=`<p style="font-weight:700">Sorry it missed. What happened?</p><textarea class="ta" aria-label="What could we do better" placeholder="Tell us what we could do better…"></textarea><button class="btn" style="margin-top:10px" onclick="closeSheet();toast('Thank you — we will make it right')">Send privately</button><p class="disc">This goes straight to the owners, not a public review. <a href="#" onclick="extReview();return false" style="color:var(--ac);font-weight:700">Post publicly anyway</a></p>`}}
+function extReview(){track('review_redirect','google');closeSheet();toast('Opening Google reviews…')}
+
+
+/* ---------- INIT ---------- */
+function resetApp(){clearTimers();S={tab:'order',mode:null,table:null,slot:null,cart:[],party:[{n:'You',c:'#A65F10'}],filter:'all',diets:[],q:'',tip:0,split:'even',promo:null,locked:false,gems:140,tier:2,theme:S.theme,lang:S.lang,placed:false,trackStep:0,fbRating:0,events:[],loaded:false,_timers:[],presence:false};$('#trkBadge').style.display='none';track('session_start');render()}
+document.addEventListener('keydown',e=>{if($('#sheetwrap').classList.contains('on')){if(e.key==='Escape')closeSheet();else if(e.key==='Tab'&&!curTrap)trapTab(e)}});
+track('app_open');render();
+</script>
+</body></html>

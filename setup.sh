@@ -21,7 +21,7 @@ npx turbo link || true
 
 echo "==> Tracking: labels + milestones + Project board (safe to re-run)"
 for l in "milestone:M0" "milestone:M1" "milestone:M2" "milestone:M3" "milestone:M4" "milestone:M5" "milestone:M6" \
-         "phase" "adversarial" "type:feat" "type:fix" "type:chore" "type:docs" "type:security" \
+         "phase" "adversarial" "adversarial-signed-off" "type:feat" "type:fix" "type:chore" "type:docs" "type:security" \
          "prio:P0" "prio:P1" "prio:P2" "prio:P3"; do
   gh label create "$l" --force >/dev/null 2>&1 || true
 done

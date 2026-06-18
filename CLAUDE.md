@@ -12,7 +12,7 @@ Project guide for Claude Code working in this repo. Read this first. Memory of m
 
 ## What this is
 
-Turborepo monorepo: `apps/delivery` (existing PWA, to migrate) + `apps/qr` (dine-in/pickup + grocery scan-and-go), sharing `packages/ui`, `packages/db`, `packages/config`, one Supabase project, one Stripe account. Full spec: `docs/ARCHITECTURE.md`. Plan: `ROADMAP.md`. Loop: `docs/WORKFLOW.md`.
+Turborepo monorepo: `apps/delivery` (existing PWA, to migrate) + `apps/qr` (dine-in/pickup + grocery scan-and-go), sharing `packages/ui`, `packages/db`, `packages/config`, one Stripe account (QR and delivery each run on their **own** Supabase project — see `docs/BACKEND_ARCHITECTURE.md`; `docs/DATA_RECONCILIATION.md` is the superseded shared-project history). Full spec: `docs/ARCHITECTURE.md`. Plan: `ROADMAP.md`. Loop: `docs/WORKFLOW.md`. **Research context** (the *why* — decisions, QA gate, rubric, red-team standards, the v7.2 prototype): `docs/context/INDEX.md`.
 
 ## Commands
 
@@ -30,6 +30,7 @@ supabase db push         # apply packages/db/migrations
 - **TypeScript strict**, `noUncheckedIndexedAccess`. No `any` on money/DB rows without a guard.
 - **Server Components by default;** `"use client"` only when needed. Server Actions for mutations.
 - Conventional commits (`feat:`/`fix:`/`chore:`/`docs:`). One phase = one PR (see `ROADMAP.md`).
+- **Branches: `claude/<type>/<slug>`** (conventional-commit type + kebab slug with milestone/phase context) — e.g. `claude/feat/m1-p1-session-mint`, `claude/docs/research-context`. Every push runs Claude review + a diff-scoped adversarial gate; address the comments (auto-fix loops on `claude-fix-pr-comments.yml`) until green. **Re-prompt the adversarial gate before merge with the `adversarial` label** (the gate is fail-closed — no verdict fails). A PR that edits `.github/workflows/claude-*.yml`/`adversarial-*.yml` skips its own review (anti-tampering); run a manual adversarial pass and add the `adversarial-signed-off` label. Details: `docs/WORKFLOW.md`.
 - Tokens come from `@mms/ui/tokens.css`; don't hardcode colors. Light = editorial-forward, dark = Night.
 
 ## ⚠️ Critical / money + auth paths (extra care, CODEOWNERS-flagged)
@@ -43,4 +44,4 @@ supabase db push         # apply packages/db/migrations
 
 ## Gate before "done"
 
-CI green (`turbo lint typecheck build`) · Claude PR review + security review addressed · the QA-checklist items the change touches ticked (`docs/REVIEW.md`) · `ROADMAP.md` box checked · `CHANGELOG.md` line added · preview smoke-tested. If you learned something non-obvious or hit a sharp edge, append it to `.claude/LEARNINGS.md`.
+CI green (`turbo lint typecheck build`) · Claude PR review + security review addressed · the QA-checklist items the change touches ticked (`docs/context/QA-CHECKLIST.md`, progress tracked in `docs/REVIEW.md`) · `ROADMAP.md` box checked · `CHANGELOG.md` line added · preview smoke-tested. If you learned something non-obvious or hit a sharp edge, append it to `.claude/LEARNINGS.md`.
