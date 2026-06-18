@@ -12,7 +12,7 @@ Project guide for Claude Code working in this repo. Read this first. Memory of m
 
 ## What this is
 
-Turborepo monorepo: `apps/delivery` (existing PWA, to migrate) + `apps/qr` (dine-in/pickup + grocery scan-and-go), sharing `packages/ui`, `packages/db`, `packages/config`, one Stripe account (QR and delivery each run on their **own** Supabase project — see `docs/BACKEND_ARCHITECTURE.md`; `docs/DATA_RECONCILIATION.md` is the superseded shared-project history). Full spec: `docs/ARCHITECTURE.md`. Plan: `ROADMAP.md`. Loop: `docs/WORKFLOW.md`. **Research context** (the *why* — decisions, QA gate, rubric, red-team standards, the v7.2 prototype): `docs/context/INDEX.md`.
+Turborepo monorepo: `apps/delivery` (existing PWA, to migrate) + `apps/qr` (dine-in/pickup + grocery scan-and-go), sharing `packages/ui`, `packages/db`, `packages/config`, one Stripe account (QR and delivery each run on their **own** Supabase project — see `docs/BACKEND_ARCHITECTURE.md`; `docs/DATA_RECONCILIATION.md` is the superseded shared-project history). Full spec: `docs/ARCHITECTURE.md`. Plan: `ROADMAP.md`. Loop: `docs/WORKFLOW.md`. **Research context** (the _why_ — decisions, QA gate, rubric, red-team standards, the v7.2 prototype): `docs/context/INDEX.md`.
 
 ## Commands
 
