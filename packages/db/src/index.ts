@@ -1,8 +1,12 @@
 import { createBrowserClient } from "@supabase/ssr";
+import type { Database } from "./database.types";
+
+export type { Database } from "./database.types";
+export type { Tables, TablesInsert, TablesUpdate } from "./database.types";
 
 /** Browser client — anon/publishable key only. Reads via RLS; never writes prices. */
 export function browserClient() {
-  return createBrowserClient(
+  return createBrowserClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
   );

@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@supabase/supabase-js";
+import type { Database } from "./database.types";
 
 /**
  * Service-role client — SERVER ONLY. Bypasses RLS by design: the server is the
@@ -7,7 +8,7 @@ import { createClient } from "@supabase/supabase-js";
  * client component; never expose SUPABASE_SERVICE_ROLE_KEY to the browser.
  */
 export function serviceClient() {
-  return createClient(
+  return createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { persistSession: false } },
@@ -15,11 +16,11 @@ export function serviceClient() {
 }
 
 /**
- * Member client — scoped to a diner's short-lived table-session JWT. RLS applies,
+ * Member client — scoped to a diner's anonymous-auth access token. RLS applies,
  * so this can only ever read the session/cart it belongs to. Use for SELECTs.
  */
 export function sessionClient(accessToken: string) {
-  return createClient(
+  return createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {

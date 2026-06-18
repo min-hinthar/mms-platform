@@ -6,16 +6,6 @@ import { serviceClient } from "@mms/db/server";
 // Self-hosted images via next/image (no third-party hotlinking). Cached → fast TTFB.
 export const revalidate = 300;
 
-type MenuRow = {
-  id: string;
-  name_en: string;
-  name_my: string | null;
-  base_price_cents: number;
-  image_url: string | null;
-  is_sold_out: boolean;
-  menu_categories: { name: string; sort_order: number } | null;
-};
-
 export default async function Menu({ searchParams }: { searchParams: Promise<{ mode?: string }> }) {
   const { mode = "scango" } = await searchParams;
   const db = serviceClient();
@@ -26,9 +16,9 @@ export default async function Menu({ searchParams }: { searchParams: Promise<{ m
     )
     .eq("is_active", true)
     .order("name_en");
-  // supabase-js infers embeds as arrays without generated Database types; a category_id FK is
-  // to-one, so PostgREST returns a single object at runtime. Cast through unknown.
-  const items = (data ?? []) as unknown as MenuRow[];
+  // Typed via @mms/db generated types: the category_id FK is to-one, so `menu_categories` is a
+  // single object (or null) — no cast needed.
+  const items = data ?? [];
 
   // Group by category, ordered by the delivery menu's sort_order.
   const cats = [...new Map(items.map((i) => [i.menu_categories?.name ?? "Menu", i])).keys()].sort(

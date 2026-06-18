@@ -22,7 +22,7 @@ async function priceItem(menuItemId: string, modifierIds: string[]) {
   const db = serviceClient();
   const { data: item, error } = await db
     .from("menu_items")
-    .select("id,name_en,base_price_cents")
+    .select("id,name_en,base_price_cents,tax_category")
     .eq("id", menuItemId)
     .single();
   if (error || !item) throw new Error("Unknown menu item");
@@ -37,24 +37,22 @@ async function priceItem(menuItemId: string, modifierIds: string[]) {
       .from("item_modifier_groups")
       .select("group_id")
       .eq("item_id", menuItemId);
-    const allowedGroups = new Set((links ?? []).map((l) => l.group_id as string));
+    const allowedGroups = new Set((links ?? []).map((l) => l.group_id));
     const { data: opts } = await db
       .from("modifier_options")
       .select("id,name,price_delta_cents,group_id")
       .eq("is_active", true)
       .in("id", modifierIds);
-    const chosen = (
-      (opts ?? []) as { name: string; price_delta_cents: number; group_id: string }[]
-    ).filter((m) => allowedGroups.has(m.group_id));
-    addCents = chosen.reduce((a, m) => a + Number(m.price_delta_cents), 0);
+    const chosen = (opts ?? []).filter((m) => allowedGroups.has(m.group_id));
+    addCents = chosen.reduce((a, m) => a + m.price_delta_cents, 0);
     optLabels = chosen.map((m) => m.name);
   }
 
-  const { data: category } = await db.rpc("mms_menu_tax_category", { p_item: menuItemId });
+  // tax_category is a first-class column on menu_items (set per item/category in the seed).
   return {
-    name: item.name_en as string,
-    unitPriceCents: Number(item.base_price_cents) + addCents,
-    category: (category ?? "hot_prepared") as TaxCategory,
+    name: item.name_en,
+    unitPriceCents: item.base_price_cents + addCents,
+    category: item.tax_category as TaxCategory,
     opts: optLabels,
   };
 }

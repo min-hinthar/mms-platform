@@ -130,3 +130,13 @@ join menu_categories c on c.slug = m.slug
 where mi.category_id = c.id;
 
 update menu_items set tax_category = 'beverage_hot' where slug in ('coffee', 'burmese-milk-tea');
+
+-- ============ Grocery Scan & Go (representative SKUs; food staples EBT-eligible + exempt) ============
+insert into grocery_items (barcode, name, name_my, price_cents, tax_category, ebt_eligible) values
+ ('0011110001010','Shwe Bo Pawsan Rice 10lb','ရွှေဘို ပေါ်ဆန်း',2499,'grocery_food',true),
+ ('0011110002020','Pickled Tea Leaf (Laphet) 400g','လက်ဖက်စို',849,'grocery_food',true),
+ ('0011110003030','Fish Sauce 700ml','ငါးငံပြာရည်',599,'grocery_food',true),
+ ('0011110004040','Roasted Chickpea Flour 1kg','ပဲမှုန့်',649,'grocery_food',true),
+ ('0011110005050','Thanaka Balm 100g','သနပ်ခါး',799,'retail_nonfood',false),
+ ('0011110006060','Bamboo Umbrella','ထီး',1499,'retail_nonfood',false)
+on conflict (barcode) do nothing;

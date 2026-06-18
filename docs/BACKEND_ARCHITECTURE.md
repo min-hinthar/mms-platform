@@ -3,7 +3,19 @@
 **Status: design of record (2026-06-18).** Deep-think pass over DB architecture, backend routing, the
 migration/environment workflow, and full-stack typing for the Turborepo monorepo. Supersedes the
 auth/RLS sketch in `ARCHITECTURE.md §2–3` where they differ; `ARCHITECTURE.md` stays the product/spec
-overview. Companion: `docs/DATA_RECONCILIATION.md` (the QR↔delivery schema reconciliation, done in P1.0).
+overview. Companion: `docs/DATA_RECONCILIATION.md` (now historical — see banner below).
+
+> **UPDATE (2026-06-18): dedicated project, not shared.** QR now runs on its **own** Supabase
+> project — **`fasnpdhtvqtzjlvruqcu` ("MMS QR Platform")**, a different org from the live delivery
+> app. This **moots the §1 anon-auth blast radius** (no foreign app shares the DB) and replaces the
+> "delivery-owned menu" model: the catalog (`menu_categories`/`menu_items`/`modifier_*`/
+> `grocery_items`) is **owned here**, seeded from `supabase/seed.sql` (60 real items), and
+> `tax_category` is a **first-class column on `menu_items`** (the `mms_menu_tax*` side-tables +
+> resolver are gone). Schema = `supabase/migrations/20260618000000_qr_platform_init.sql` +
+> `..._lockdown_grants.sql`, applied + advisor-clean; types in `packages/db/src/database.types.ts`
+> wired into the clients. Delivery stays on its own project until a future migration. The §2
+> topology below now reads: local → this project (apply directly; it has no live traffic yet) →
+> a staging project added later when QR goes live.
 
 ## 0 · The four decisions (locked 2026-06-18)
 
