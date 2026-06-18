@@ -56,43 +56,46 @@ jobs:
         run: |
           set -uo pipefail
           # Fail-CLOSED: the gate passes only on an explicit `ADVERSARIAL_VERDICT: PASS`.
-          # Escape hatch: after a documented MANUAL adversarial pass (required for PRs that
-          # edit a claude-*/adversarial-* workflow — the action's anti-tampering guard skips
-          # such a PR's own review), add the `adversarial-signed-off` label to satisfy the gate.
-          if gh pr view "$PR_NUMBER" --json labels --jq '.labels[].name' | grep -qx 'adversarial-signed-off'; then
-            echo "::notice title=Adversarial::Manual sign-off label present — gate satisfied."
-            exit 0
-          fi
-          # ...OR a sign-off COMMENT from a repo collaborator (OWNER/MEMBER/COLLABORATOR) carrying the
-          # marker ADVERSARIAL_SIGNOFF — same collaborator-gated trust as the label (only people who
-          # could apply a label or merge can post it), and usable when label creation isn't available.
-          # External commenters (author_association NONE/CONTRIBUTOR) cannot sign off.
-          if gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
-               --jq '[.[] | select(.author_association=="OWNER" or .author_association=="MEMBER" or .author_association=="COLLABORATOR") | .body] | join("\n")' \
-             | grep -q "ADVERSARIAL_SIGNOFF"; then
-            echo "::notice title=Adversarial::Manual collaborator sign-off comment present — gate satisfied."
-            exit 0
-          fi
-          # Collect the verdict from every place it can land, most authoritative first:
-          #   1) the agent's execution log — WRITTEN BY THE ACTION, so the verdict is captured
-          #      even when the agent can't POST a PR comment (the prior silent-failure mode);
-          #   2) any bot-authored PR comment (kept for when comment-posting works).
-          # The prompt deliberately avoids the literal `ADVERSARIAL_VERDICT: PASS/BLOCK` tokens, so
-          # a raw grep matches only the agent's real emission, never the echoed instructions.
+          # All matching is done with bash `case` on a captured variable — NOT `echo "$x" | grep`,
+          # which broke the pipe for large input: grep -q exits on first match and closes the pipe,
+          # echo dies with EPIPE (141), and under `pipefail` that 141 became the pipeline status, so a
+          # MATCHED verdict read as "not found". `case` has no subprocess/pipe, so no EPIPE.
+          #
+          # Escape hatch (for PRs that edit a claude-*/adversarial-* workflow, whose own adversarial
+          # review the action skips, anti-tampering): the `adversarial-signed-off` LABEL, or a sign-off
+          # COMMENT from a repo collaborator (OWNER/MEMBER/COLLABORATOR) carrying ADVERSARIAL_SIGNOFF —
+          # same collaborator-gated trust; external commenters (NONE/CONTRIBUTOR) cannot sign off.
+          LABELS="$(gh pr view "$PR_NUMBER" --json labels --jq '.labels[].name' 2>/dev/null || true)"
+          case $'\n'"$LABELS"$'\n' in
+            *$'\n'adversarial-signed-off$'\n'*)
+              echo "::notice title=Adversarial::Manual sign-off label present — gate satisfied."
+              exit 0 ;;
+          esac
+          SIGNOFF="$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            --jq '[.[] | select(.author_association=="OWNER" or .author_association=="MEMBER" or .author_association=="COLLABORATOR") | .body] | join("\n")' 2>/dev/null || true)"
+          case "$SIGNOFF" in
+            *ADVERSARIAL_SIGNOFF*)
+              echo "::notice title=Adversarial::Manual collaborator sign-off comment present — gate satisfied."
+              exit 0 ;;
+          esac
+          # Verdict from the agent's execution log (authoritative — written by the action even when the
+          # agent can't POST a comment) + any bot comment. The prompt avoids the literal
+          # `ADVERSARIAL_VERDICT: PASS/BLOCK` tokens, so a match means the agent's real emission.
           SOURCES=""
           for f in "${EXEC_FILE:-}" "${RUNNER_TEMP:-/home/runner/work/_temp}/claude-execution-output.json"; do
             if [ -n "$f" ] && [ -f "$f" ]; then SOURCES="${SOURCES}"$'\n'"$(cat "$f")"; fi
           done
           SOURCES="${SOURCES}"$'\n'"$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
-            --jq '[.[] | select(.user.type=="Bot") | .body] | join("\n")' || true)"
-
-          if echo "$SOURCES" | grep -q "ADVERSARIAL_VERDICT: BLOCK"; then
-            echo "::error title=Adversarial::Critical findings — see the run log / PR comment."
-            exit 1
-          fi
-          if echo "$SOURCES" | grep -q "ADVERSARIAL_VERDICT: PASS"; then
-            echo "::notice title=Adversarial::PASS."
-            exit 0
-          fi
+            --jq '[.[] | select(.user.type=="Bot") | .body] | join("\n")' 2>/dev/null || true)"
+          case "$SOURCES" in
+            *"ADVERSARIAL_VERDICT: BLOCK"*)
+              echo "::error title=Adversarial::Critical findings — see the run log / PR comment."
+              exit 1 ;;
+          esac
+          case "$SOURCES" in
+            *"ADVERSARIAL_VERDICT: PASS"*)
+              echo "::notice title=Adversarial::PASS."
+              exit 0 ;;
+          esac
           echo "::error title=Adversarial::No ADVERSARIAL_VERDICT found — the pass did not run (workflow-edit anti-tampering skip, error, or rate-limit). Re-run it, or add the 'adversarial-signed-off' label after a manual review."
           exit 1
