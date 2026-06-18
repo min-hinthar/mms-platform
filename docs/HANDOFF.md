@@ -7,8 +7,15 @@ QA gate, rubric, red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md),
 
 ## Where we are
 
-- **Milestone M1 (walking pay path).** The backend foundation is done; the pay-path _wiring_
-  (P1.1 onward) is next.
+- **Milestone M1 (walking pay path).** Backend foundation **and P1.1 anonymous-auth wiring** are
+  done (+ the P1.0a leftovers: Zod input layer, DB-drift CI, `config.toml`). Next: \*\*P1.2 cart-create
+  - line-merge → Payment Element (P1.3) → fulfillment/Track\*\*.
+- **P1.1 shipped (this session):** `AnonAuthGate` (`signInAnonymously` on load, SSR cookies) +
+  `useAnonSession()`; `@mms/db/server` `serverClient(cookies)`; `POST /api/session` verifies the
+  Bearer anon token → `seat_id = auth.uid()` (idempotent, sets `host_seat`); **one authz guard**
+  (`apps/qr/lib/authz.ts`) gates every mutation (`addItem`/`setQty`/`applyPromo`/`scanAdd`/
+  `create-intent`) on membership + lock; `getCartTotals` moved to internal `lib/totals.ts` (the
+  webhook still calls it server-to-server). Zod = `@mms/db/schemas`. (Closes REVIEW.md gate #3.)
 - **QR runs on its OWN Supabase project** — `fasnpdhtvqtzjlvruqcu` ("MMS QR Platform", org
   `iqphcmcmbydhkssfhrdt`), separate from the live delivery app (`ukuzkhuppqwtrdkjqrkv`). No
   shared-project blast radius; the catalog is owned here.
@@ -40,35 +47,34 @@ QA gate, rubric, red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md),
   ```
 - **Supabase MCP** is scoped per `project_ref` — ensure it targets `fasnpdhtvqtzjlvruqcu`. Run
   `get_advisors` (security + performance) after every migration.
-- **Anonymous sign-ins must be enabled** in the project's Auth settings (dashboard) before P1.1
-  works. **Leaked-password protection is Pro-only** — accepted; that advisor warning is benign.
+- **Anonymous sign-ins**: enabled as code in `supabase/config.toml` (applies to the local stack /
+  CI). ⚠️ **Still must be toggled ON for the LIVE project** (dashboard → Auth, or `supabase config
+push` once linked) before the anon-auth flow works in Vercel preview/prod. **Leaked-password
+  protection is Pro-only** — accepted; that advisor warning is benign.
+- **Local Supabase stack** boots in the sandbox (Docker) with `supabase start -x edge-runtime`
+  (the edge-runtime container hits an rlimit/TLS wall here; we have no edge functions). That's how
+  to regenerate types: `pnpm db:types` (stack up) → commits `database.types.ts` (raw `--local
+--schema public`; prettier-ignored — CI's `types-fresh` diffs it raw).
 
 ## Next tasks (in order)
 
-### P1.1 — Anonymous-auth session wiring (the membership RLS already ships in the schema)
+### P1.2 — Cart create + line-merge (actions authz already landed in P1.1)
 
-1. Enable Anonymous sign-ins (dashboard → Auth, or `supabase/config.toml`).
-2. Client `supabase.auth.signInAnonymously()` on first load; persist via `@supabase/ssr` cookies
-   (add browser+server SSR clients to `@mms/db`).
-3. `apps/qr/app/api/session/route.ts`: read `Authorization: Bearer <anon token>`, verify with
-   `sessionClient(token).auth.getUser()`, set `session_members.seat_id = user.id` (today it's a
-   placeholder `crypto.randomUUID()` — see the `TODO(P1.1)` there).
-4. `apps/qr/lib/realtime.ts`: `channel.socket.setAuth(anonAccessToken)` so the private-channel
-   RLS (`is_member`) authorizes presence + broadcast.
-5. Server Actions (`apps/qr/lib/cart.ts`, `grocery.ts`): authz each — read the caller's uid from
-   the SSR cookie session + check `session_members` membership (and cart lock) before mutating.
-   They are IDOR by default (see LEARNINGS).
+1. **create-cart action** — a `"use server"` action (or extend `/api/session`) that returns the
+   cart id for a session so the client has a real `cartId` to drive `/cart`. (Today `/api/session`
+   creates the host cart but doesn't return its id; the grocery page still mints a demo
+   `crypto.randomUUID()` — now correctly **rejected** by the authz guard until this lands.)
+2. **Merge identical lines** in `addItem` (same `menu_item_id` + same `modifiers`) → bump `qty`
+   instead of inserting a duplicate row (QA §B perf; `qty` is currently hardcoded to 1).
+3. Wire the client: `useAnonSession()` → POST `/api/session` (Bearer) on a scanned table; pass the
+   anon `accessToken` + `seat` into `useGroupCart` so Realtime authorizes.
 
-### P1.0a leftovers — infra
+### P1.3 — Payment Element
 
-- **Zod** input layer: add the dep (mind pnpm 11 `minimumReleaseAge` — delete the lockfile and
-  reinstall so it auto-pins to a release older than the cutoff), create `packages/db/src/schemas.ts`,
-  validate every Server Action / route input (ids = `z.string().uuid()`, money = `z.number().int()`).
-- **CI**: `migrations-check` (apply `supabase/migrations` to an ephemeral Postgres) + `types-fresh`
-  (regenerate types and `git diff --exit-code` so committed types can't drift).
-- `supabase/config.toml` (anon sign-ins on; auth rate limits) — config-as-code.
+- Cart page mounts `<Elements>` against `/api/stripe/create-intent` (already member-gated); surface
+  Apple/Google Pay. **No real card until the M1 gate (`docs/REVIEW.md`) is fully green.**
 
-### Then P1.2+ (see ROADMAP): cart-create + action authz → Payment Element → fulfillment/Track.
+### Then P1.4+ (see ROADMAP): fulfillment end-to-end → Track timeline.
 
 ## Verify
 

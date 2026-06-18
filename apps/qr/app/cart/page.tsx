@@ -2,11 +2,23 @@
 // (never client math), the SB-1524 service-charge disclosure, per-person split (group),
 // promo input (server-validated via applyPromo), then mounts the Stripe Payment Element
 // against /api/stripe/create-intent. See lib/cart.ts + the Stripe routes.
-import { getCartTotals } from "@/lib/cart";
+import { getCartTotals } from "@/lib/totals";
+import { assertCartMember } from "@/lib/authz";
 
 export default async function Cart({ searchParams }: { searchParams: Promise<{ cart?: string }> }) {
   const { cart } = await searchParams;
-  const totals = cart ? await getCartTotals(cart) : null;
+  // Authorize the viewer against the cart before rendering its totals (the page reads `cart` from
+  // the URL — a non-member must not see another table's order). Non-member / no session → fall
+  // through to the placeholder. (Stub; P1.2 builds the real cart UI on top of this guard.)
+  const totals = await (async () => {
+    if (!cart) return null;
+    try {
+      await assertCartMember(cart);
+      return await getCartTotals(cart);
+    } catch {
+      return null;
+    }
+  })();
   return (
     <main style={{ padding: 24, maxWidth: 440, margin: "0 auto" }}>
       <h1>Your order</h1>

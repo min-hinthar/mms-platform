@@ -24,3 +24,28 @@ jobs:
       # Turborepo runs lint, typecheck, build across the affected workspaces (cached).
       - run: pnpm turbo run lint typecheck build
       # - run: pnpm turbo run test   # enable once tests exist
+
+  # Proves the DB layer can't drift: the migrations apply cleanly and the committed types match.
+  supabase:
+    name: migrations-check + types-fresh
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Pin to the CLI used to generate the committed types so `gen types --local` is byte-identical.
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.107.0
+      # migrations-check — boot the local stack, applying supabase/migrations + seed.sql in order.
+      # A migration or seed that doesn't apply cleanly fails the job (ubuntu-latest ships Docker).
+      - name: Apply migrations + seed (migrations-check)
+        run: supabase start
+      # types-fresh — regenerate types from the just-applied schema; any drift vs the committed
+      # file fails the job, so packages/db/src/database.types.ts can never lag the SQL.
+      - name: Types are fresh
+        run: |
+          supabase gen types typescript --local --schema public > packages/db/src/database.types.ts
+          git diff --exit-code -- packages/db/src/database.types.ts \
+            || { echo "::error::database.types.ts is stale vs supabase/migrations — run 'pnpm db:types' (with the local stack up) and commit."; exit 1; }
+      - name: Stop stack
+        if: always()
+        run: supabase stop || true

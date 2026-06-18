@@ -6,5 +6,6 @@ pnpm-lock.yaml
 **/*.gen.ts
 **/next-env.d.ts
 # Vendored / generated — not ours to reformat.
+packages/db/src/database.types.ts
 .claude/skills/
 posthog-setup-report.md

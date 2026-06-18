@@ -5,16 +5,26 @@ import { BarcodeScanner } from "@/components/BarcodeScanner";
 import { scanAdd } from "@/lib/grocery";
 
 // Grocery Scan & Go — scan shelf barcodes into a cart, then check out (reuses /cart + Stripe).
-// In M2 the cartId comes from a server-issued grocery session; here a demo id is fine.
+// NOTE (M1·P1.1): `scanAdd` is now membership-authorized, so it needs a REAL server-issued grocery
+// session/cart (ROADMAP M2·P2.3). Until that lands, the demo's client cart id is rejected by the
+// authz guard by design — we surface that honestly instead of crashing.
 type Line = { name: string; priceCents: number; ebt: boolean };
 
 export default function Grocery() {
-  const [cartId] = useState(() => crypto.randomUUID()); // TODO: server-issued grocery session/cart
+  const [cartId] = useState(() => crypto.randomUUID()); // TODO(M2·P2.3): server-issued grocery session/cart
   const [lines, setLines] = useState<Line[]>([]);
   const [toast, setToast] = useState<string | null>(null);
 
   async function onScan(code: string) {
-    const r = await scanAdd(cartId, code);
+    let r;
+    try {
+      r = await scanAdd(cartId, code);
+    } catch {
+      // No real grocery session yet (M2·P2.3) → the authz guard rejects the demo cart id.
+      setToast("Scan & Go opens with grocery sessions (M2)");
+      setTimeout(() => setToast(null), 1800);
+      return;
+    }
     if (r.ok) {
       setLines((l) => [...l, { name: r.name, priceCents: r.unitPriceCents, ebt: r.ebt }]);
       setToast(`Added ${r.name}${r.ebt ? " · EBT-eligible" : ""}`);

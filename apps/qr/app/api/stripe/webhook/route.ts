@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStripe } from "@/lib/stripe";
 import { serviceClient } from "@mms/db/server";
-import { getCartTotals } from "@/lib/cart";
+import { getCartTotals } from "@/lib/totals";
 import { getPostHogClient } from "@/lib/posthog-server";
 
 // Fulfillment is webhook-driven, signature-verified, idempotent (QA checklist).

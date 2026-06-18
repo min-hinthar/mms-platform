@@ -1,28 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createIntentInput } from "@mms/db/schemas";
 import { getStripe } from "@/lib/stripe";
-import { getCartTotals } from "@/lib/cart";
+import { getCartTotals } from "@/lib/totals";
+import { assertCartMember, AuthzError } from "@/lib/authz";
 import { getPostHogClient } from "@/lib/posthog-server";
 
 // Creates a PaymentIntent for the SERVER-COMPUTED total. The client sends only the
 // cartId + tip choice — never an amount. (Fixes client-authoritative pricing.)
 export async function POST(req: NextRequest) {
   try {
-    const { cartId, tipRate = 0 } = await req.json();
-    if (!cartId) return NextResponse.json({ error: "cartId required" }, { status: 400 });
+    const { cartId, tipRate } = createIntentInput.parse(await req.json());
 
-    const tip = Number(tipRate) || 0;
-    const totals = await getCartTotals(cartId, tip);
+    // C3: only a verified member of this cart's session may mint its PaymentIntent.
+    await assertCartMember(cartId);
+
+    const totals = await getCartTotals(cartId, tipRate);
     const amount = totals.totalCents; // already cents, server-derived
     if (amount <= 0) return NextResponse.json({ error: "Empty cart" }, { status: 400 });
 
-    // TODO(C3): verify the caller's table-session JWT is a member of this cart before creating the intent.
     // tipRate rides in metadata so the webhook can recompute the identical breakdown to reconcile.
     const intent = await getStripe().paymentIntents.create(
       {
         amount,
         currency: "usd",
         automatic_payment_methods: { enabled: true },
-        metadata: { cartId, tipRate: String(tip) },
+        metadata: { cartId, tipRate: String(tipRate) },
       },
       { idempotencyKey: `pi_${cartId}_${amount}` }, // dedupe double-submits; a changed amount → a new intent
     );
@@ -34,7 +36,7 @@ export async function POST(req: NextRequest) {
       properties: {
         cart_id: cartId,
         amount_cents: amount,
-        tip_rate: tip,
+        tip_rate: tipRate,
         subtotal_cents: totals.subtotalCents,
         total_cents: totals.totalCents,
       },
@@ -42,6 +44,12 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ clientSecret: intent.client_secret, totals });
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+    if (e instanceof AuthzError)
+      return NextResponse.json({ error: e.message }, { status: e.status });
+    const err = e as Error;
+    // ZodError (bad input shape) → 400; anything else → 500. (Avoid importing zod here so knip
+    // doesn't flag an unused dep in apps/qr; the schema lives in @mms/db.)
+    const status = err.name === "ZodError" ? 400 : 500;
+    return NextResponse.json({ error: err.message }, { status });
   }
 }

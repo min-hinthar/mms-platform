@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "ignore": [".claude/**"],
+  "ignore": [".claude/**", "packages/db/src/database.types.ts"],
   "ignoreBinaries": ["supabase"],
   "workspaces": {
     "apps/qr": {
