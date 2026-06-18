@@ -25,3 +25,22 @@ The scaffold **encodes the right P0 architecture** — the Stripe amount is genu
 5. **CSP + lint/types** — drop `script-src 'unsafe-inline'` for a nonce-based CSP (Next middleware); add the flat ESLint config + `packages/config`; let `next dev` generate `next-env.d.ts`.
 
 These are exactly the milestones in `ARCHITECTURE.md` §5 — the review confirms the design, and names the order to build it.
+
+## Progress — M1·P1.1 anonymous-auth wiring (2026-06-18)
+
+Maps to the open gate above (the dedicated-project + Anonymous-Auth architecture superseded the
+custom-JWT plan, so item 1 is reframed):
+
+- **Item 1 (session auth) — ✅ reframed.** No custom table-session JWT is signed. Diners use
+  **Supabase Anonymous Auth**: `AnonAuthGate` signs in on load, `POST /api/session` verifies the
+  `Bearer` anon token (`getUser(token)`) and records `session_members.seat_id = auth.uid()`. RLS
+  (`is_member`/`is_host`) + private Realtime authorize off that uid — no `SUPABASE_JWT_SECRET`.
+- **Item 3 (authz on every Server Action + `create-intent`) — ✅ done.** One guard
+  (`apps/qr/lib/authz.ts`, RED-TEAM #2) re-checks membership + cart-lock from the verified uid on
+  `addItem`/`setQty`/`applyPromo`/`scanAdd`/`create-intent`. `getCartTotals` is now an internal
+  (non-action) fn → no IDOR read. **Merge identical lines is still open → P1.2.**
+- **Items 2, 4, 5 — still open** (Payment Element + cart UI → P1.3; webhook amount-reconcile already
+  lands in the schema's `mms_fulfill_order`; nonce CSP → P1.6). No real cards until all are green.
+- **Also closes QA-CHECKLIST §C "group-cart auth"** (server-issued QR-bound session, server-
+  authoritative cart, per-action authz, RLS on order tables, private Realtime with verified
+  membership). Plus the P1.0a infra: **Zod** input layer + **`migrations-check`/`types-fresh`** CI.

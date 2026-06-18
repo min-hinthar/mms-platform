@@ -1,63 +1,84 @@
 import { NextRequest, NextResponse } from "next/server";
-import { serviceClient } from "@mms/db/server";
+import { serviceClient, sessionClient } from "@mms/db/server";
+import { sessionMintInput } from "@mms/db/schemas";
 import { getPostHogClient } from "@/lib/posthog-server";
-// import jwt from "jsonwebtoken"; // pnpm add jsonwebtoken @types/jsonwebtoken
 
 /**
- * Table-session mint (closes red-team C2). A scanned QR posts here; the server finds/creates
- * an active table_session bound to the physical `qrCode` and joins the diner as a member.
+ * Table-session mint (closes red-team C2). A scanned QR posts here; the server finds/creates an
+ * active table_session bound to the physical `qrCode` and joins the diner as a member.
  *
- * AUTH MODEL (P1.1 — see docs/BACKEND_ARCHITECTURE.md §3): the client first calls
+ * AUTH MODEL (P1.1 — docs/BACKEND_ARCHITECTURE.md §3): the client first calls
  * `supabase.auth.signInAnonymously()`, then POSTs here with `Authorization: Bearer <anon token>`.
- * The server VERIFIES that token to get `auth.uid()` and records it as `session_members.seat_id`.
- * RLS (is_member/is_host) + private Realtime then authorize off `auth.uid()` joined against
- * session_members — no client-asserted identity is trusted, and no custom JWT is minted.
+ * The server VERIFIES that token (`getUser(token)` is a network round-trip to the auth server) to
+ * get `auth.uid()`, and records it as `session_members.seat_id`. RLS (is_member/is_host) + private
+ * Realtime then authorize off `auth.uid()` joined against session_members — no client-asserted
+ * identity is trusted, and no custom JWT is minted (the diner keeps using its own anon session).
  */
 export async function POST(req: NextRequest) {
-  const { qrCode, mode = "dinein", name = "Guest" } = await req.json();
-  if (!qrCode) return NextResponse.json({ error: "qrCode required" }, { status: 400 });
-  const db = serviceClient();
+  let body;
+  try {
+    body = sessionMintInput.parse(await req.json());
+  } catch (e) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+  }
+  const { qrCode, mode, name } = body;
 
+  // Verify the caller actually holds a valid anonymous-auth session.
+  const token = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+  if (!token) return NextResponse.json({ error: "Missing bearer token" }, { status: 401 });
+  const {
+    data: { user },
+    error: authErr,
+  } = await sessionClient(token).auth.getUser(token);
+  if (authErr || !user) return NextResponse.json({ error: "Invalid session" }, { status: 401 });
+  const seat = user.id; // == auth.uid() → becomes session_members.seat_id (the RLS identity)
+
+  const db = serviceClient();
   let { data: sess } = await db
     .from("table_sessions")
-    .select("id,mode")
+    .select("id,mode,host_seat")
     .eq("qr_code", qrCode)
     .eq("status", "active")
     .maybeSingle();
 
-  let role: "host" | "guest" = "guest";
+  let created = false;
   if (!sess) {
-    const { data } = await db
+    const { data, error } = await db
       .from("table_sessions")
-      .insert({ qr_code: qrCode, mode })
-      .select("id,mode")
+      .insert({ qr_code: qrCode, mode, host_seat: seat })
+      .select("id,mode,host_seat")
       .single();
-    sess = data!;
-    role = "host";
+    if (error || !data)
+      return NextResponse.json({ error: "Could not create session" }, { status: 500 });
+    sess = data;
+    created = true;
   }
-  // P1.1: derive `seat` from the verified anonymous-auth uid instead of a fresh UUID, e.g.
-  //   const { data: { user } } = await sessionClient(bearerToken).auth.getUser();
-  //   const seat = user!.id;  // == auth.uid(); becomes session_members.seat_id (RLS identity)
-  const seat = crypto.randomUUID(); // TODO(P1.1): replace with the verified anon uid
-  await db
+
+  // Host identity is the seat that created the session — preserved across rejoins.
+  const role: "host" | "guest" = sess.host_seat === seat ? "host" : "guest";
+
+  // Idempotent membership: a refresh / rejoin must not trip unique(session_id, seat_id).
+  const { data: existing } = await db
     .from("session_members")
-    .insert({ session_id: sess.id, seat_id: seat, display_name: name, role });
-  if (role === "host") await db.from("qr_carts").insert({ session_id: sess.id });
+    .select("id")
+    .eq("session_id", sess.id)
+    .eq("seat_id", seat)
+    .maybeSingle();
+  if (!existing) {
+    await db
+      .from("session_members")
+      .insert({ session_id: sess.id, seat_id: seat, display_name: name, role });
+  }
+
+  // The host's brand-new session gets its single open cart.
+  if (created) await db.from("qr_carts").insert({ session_id: sess.id });
 
   const posthog = getPostHogClient();
   posthog.capture({
-    distinctId: seat,
-    event: role === "host" ? "session_created" : "session_joined",
-    properties: {
-      session_id: sess.id,
-      mode: sess.mode,
-      role,
-      qr_code: qrCode,
-    },
+    distinctId: seat, // opaque uid — no PII in event props (QA §C P2)
+    event: created ? "session_created" : "session_joined",
+    properties: { session_id: sess.id, mode: sess.mode, role, qr_code: qrCode },
   });
 
-  // No custom JWT is minted: the client already holds an anonymous-auth session (from
-  // supabase.auth.signInAnonymously()) whose access token RLS + Realtime accept directly.
-  // This route just records membership; the client keeps using its own anon session for reads.
   return NextResponse.json({ sessionId: sess.id, seat, role });
 }

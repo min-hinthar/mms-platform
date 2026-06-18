@@ -1,7 +1,9 @@
 "use server";
 import { serviceClient } from "@mms/db/server";
-import type { CartTotals, TaxCategory } from "@mms/db";
-import { lineTax, taxRate } from "./tax";
+import type { TaxCategory } from "@mms/db";
+import { addItemInput, applyPromoInput, setQtyInput } from "@mms/db/schemas";
+import { lineTax } from "./tax";
+import { assertCartItemMember, assertCartMember } from "./authz";
 import { getPostHogClient } from "./posthog-server";
 
 /**
@@ -57,47 +59,43 @@ async function priceItem(menuItemId: string, modifierIds: string[]) {
   };
 }
 
-export async function addItem(
-  cartId: string,
-  menuItemId: string,
-  modifierIds: string[],
-  bySeat?: string,
-) {
+export async function addItem(cartId: string, menuItemId: string, modifierIds: string[] = []) {
+  const input = addItemInput.parse({ cartId, menuItemId, modifierIds });
+  // AuthZ first: a verified member of this cart's active session, and the host hasn't locked it.
+  const { uid, sessionId, locked } = await assertCartMember(input.cartId);
+  if (locked) throw new Error("Order is locked by the host");
+
   const db = serviceClient();
-  const { data: cart } = await db
-    .from("qr_carts")
-    .select("id,locked,session_id")
-    .eq("id", cartId)
-    .single();
-  if (!cart) throw new Error("No cart");
-  if (cart.locked) throw new Error("Order is locked by the host");
   const { data: sess } = await db
     .from("table_sessions")
     .select("mode")
-    .eq("id", cart.session_id)
+    .eq("id", sessionId)
     .single();
   const dineIn = sess?.mode === "dinein";
-  const { name, unitPriceCents, category, opts } = await priceItem(menuItemId, modifierIds);
+  const { name, unitPriceCents, category, opts } = await priceItem(
+    input.menuItemId,
+    input.modifierIds,
+  );
   const taxCents = lineTax(unitPriceCents, category, dineIn);
   await db.from("qr_cart_items").insert({
-    cart_id: cartId,
-    menu_item_id: menuItemId,
+    cart_id: input.cartId,
+    menu_item_id: input.menuItemId,
     name,
     qty: 1,
     modifiers: opts,
     unit_price_cents: unitPriceCents,
     tax_cents: taxCents,
-    by_seat: bySeat ?? null,
+    by_seat: uid, // provenance from the VERIFIED uid, not a client-asserted seat
   });
-  await db.from("qr_carts").update({ updated_at: new Date().toISOString() }).eq("id", cartId);
+  await db.from("qr_carts").update({ updated_at: new Date().toISOString() }).eq("id", input.cartId);
 
   const posthog = getPostHogClient();
   posthog.capture({
-    distinctId: bySeat ?? cartId,
+    distinctId: uid,
     event: "item_added_to_cart",
     properties: {
-      cart_id: cartId,
-      menu_item_id: menuItemId,
+      cart_id: input.cartId,
+      menu_item_id: input.menuItemId,
       item_name: name,
       unit_price_cents: unitPriceCents,
       modifiers: opts,
@@ -107,76 +105,38 @@ export async function addItem(
 }
 
 export async function setQty(cartItemId: string, qty: number) {
+  const input = setQtyInput.parse({ cartItemId, qty });
+  const { cartId, locked } = await assertCartItemMember(input.cartItemId);
+  if (locked) throw new Error("Order is locked by the host");
   const db = serviceClient();
-  if (qty <= 0) await db.from("qr_cart_items").delete().eq("id", cartItemId);
-  else await db.from("qr_cart_items").update({ qty }).eq("id", cartItemId);
+  if (input.qty <= 0) await db.from("qr_cart_items").delete().eq("id", input.cartItemId);
+  else await db.from("qr_cart_items").update({ qty: input.qty }).eq("id", input.cartItemId);
+  await db.from("qr_carts").update({ updated_at: new Date().toISOString() }).eq("id", cartId);
 }
 
 export async function applyPromo(cartId: string, code: string) {
+  const input = applyPromoInput.parse({ cartId, code });
+  const { locked } = await assertCartMember(input.cartId);
+  if (locked) throw new Error("Order is locked by the host");
   const db = serviceClient();
   const { data: promo } = await db
     .from("promo_codes")
     .select("code,kind,value,max_uses,used,active")
-    .eq("code", code.toUpperCase())
-    .single();
+    .eq("code", input.code.toUpperCase())
+    .maybeSingle();
   if (!promo || !promo.active || (promo.max_uses != null && promo.used >= promo.max_uses))
     throw new Error("Invalid code");
-  await db.from("qr_carts").update({ promo_code: promo.code }).eq("id", cartId);
+  await db.from("qr_carts").update({ promo_code: promo.code }).eq("id", input.cartId);
 
   const posthog = getPostHogClient();
   posthog.capture({
-    distinctId: cartId,
+    distinctId: input.cartId,
     event: "promo_applied",
     properties: {
-      cart_id: cartId,
+      cart_id: input.cartId,
       promo_code: promo.code,
       promo_kind: promo.kind,
       promo_value: promo.value,
     },
   });
-}
-
-export async function getCartTotals(cartId: string, tipRate = 0): Promise<CartTotals> {
-  const db = serviceClient();
-  const { data: cart } = await db.from("qr_carts").select("promo_code").eq("id", cartId).single();
-  const { data: items } = await db
-    .from("qr_cart_items")
-    .select("qty,unit_price_cents,tax_cents")
-    .eq("cart_id", cartId);
-  // All integer cents — no float rounding on the base sums.
-  const subtotalCents = (items ?? []).reduce((a, i) => a + Number(i.unit_price_cents) * i.qty, 0);
-  // promo: kind='pct' → fraction; kind='flat' → cents off (see migration 0001 comment).
-  let discountCents = 0;
-  if (cart?.promo_code) {
-    const { data: p } = await db
-      .from("promo_codes")
-      .select("kind,value")
-      .eq("code", cart.promo_code)
-      .single();
-    if (p)
-      discountCents =
-        p.kind === "pct"
-          ? Math.round(subtotalCents * Number(p.value))
-          : Math.min(Math.round(Number(p.value)), subtotalCents);
-  }
-  const netCents = subtotalCents - discountCents;
-  // Tax on the discounted TAXABLE base only (CDTFA) — not a pro-rata of the rounded aggregate,
-  // so a flat promo across mixed taxable/exempt lines stays correct. Taxable lines have tax > 0.
-  const taxableBaseCents = (items ?? []).reduce(
-    (a, i) => a + (Number(i.tax_cents) > 0 ? Number(i.unit_price_cents) * i.qty : 0),
-    0,
-  );
-  const discOnTaxableCents =
-    subtotalCents > 0 ? Math.round(discountCents * (taxableBaseCents / subtotalCents)) : 0;
-  const taxCents = Math.round((taxableBaseCents - discOnTaxableCents) * taxRate());
-  const serviceChargeCents = Math.round(netCents * 0.05); // SB-1524, disclosed in UI
-  const tipCents = Math.round(netCents * tipRate);
-  return {
-    subtotalCents,
-    discountCents,
-    serviceChargeCents,
-    taxCents,
-    tipCents,
-    totalCents: netCents + serviceChargeCents + taxCents + tipCents,
-  };
 }
