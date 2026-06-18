@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStripe } from "@/lib/stripe";
 import { serviceClient } from "@mms/db/server";
+import { getCartTotals } from "@/lib/cart";
 import { getPostHogClient } from "@/lib/posthog-server";
 
 // Fulfillment is webhook-driven, signature-verified, idempotent (QA checklist).
@@ -20,16 +21,35 @@ export async function POST(req: NextRequest) {
   if (event.type === "payment_intent.succeeded") {
     const intent = event.data.object;
     const cartId = intent.metadata?.cartId;
+    const tipRate = Number(intent.metadata?.tipRate ?? 0) || 0;
     const db = serviceClient();
-    // idempotent: unique(stripe_payment_intent_id) means a retry is a no-op upsert
+    // idempotent: unique(stripe_payment_intent_id) means a retry is a no-op
     const { data: existing } = await db
-      .from("orders")
+      .from("qr_orders")
       .select("id")
       .eq("stripe_payment_intent_id", intent.id)
       .maybeSingle();
     if (!existing && cartId) {
-      // snapshot the server-priced cart into an order, mark cart paid, award gems, etc.
-      await db.rpc("mms_fulfill_order", { p_cart_id: cartId, p_payment_intent: intent.id });
+      // Re-derive the server-authoritative breakdown and reconcile it against the actual charge
+      // before fulfilling — the cart could have mutated between intent-create and this webhook.
+      // mms_fulfill_order re-checks the sum == intent.amount and snapshots the order (in cents).
+      const totals = await getCartTotals(cartId, tipRate);
+      if (totals.totalCents !== intent.amount) {
+        return NextResponse.json(
+          { error: `amount mismatch: cart=${totals.totalCents} intent=${intent.amount}` },
+          { status: 409 }, // non-2xx → Stripe retries; surfaces a tampered/stale cart
+        );
+      }
+      await db.rpc("mms_fulfill_order", {
+        p_cart_id: cartId,
+        p_payment_intent: intent.id,
+        p_amount_cents: intent.amount,
+        p_subtotal_cents: totals.subtotalCents,
+        p_discount_cents: totals.discountCents,
+        p_service_charge_cents: totals.serviceChargeCents,
+        p_tax_cents: totals.taxCents,
+        p_tip_cents: totals.tipCents,
+      });
     }
     posthog.capture({
       distinctId: cartId ?? intent.id,

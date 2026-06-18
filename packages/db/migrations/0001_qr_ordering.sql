@@ -1,19 +1,27 @@
--- 0001_qr_ordering.sql — QR dine-in/Scan&Go/Pickup: tables, RLS, category-aware tax.
--- Additive to the existing delivery schema. Server (service-role) writes prices/tax; clients never do.
+-- 0001_qr_ordering.sql — QR dine-in / Scan&Go / Pickup: tables, RLS, category-aware tax.
+-- Additive to the existing delivery schema and RECONCILED against it (M1·P1.0):
+--   • Session tables are namespaced `qr_*` so they can never shadow the delivery
+--     `carts`/`orders`/`order_items` (which already exist with different shapes).
+--   • The menu is OWNED BY THE DELIVERY APP. We do NOT create/seed `menu_items` here;
+--     QR reads the live `menu_items` (uuid id, `base_price_cents`, `name_en`/`name_my`,
+--     `category_id`) and its normalized modifiers (`item_modifier_groups` →
+--     `modifier_groups` → `modifier_options.price_delta_cents`) at runtime.
+--   • Money is integer CENTS end-to-end (parity with the delivery schema). The client
+--     never sends a price — it sends an item id + chosen modifier option ids; the server
+--     (service-role) re-derives every amount and writes the snapshot.
+--   • Tax classification lives QR-side in `mms_menu_tax` / `mms_menu_category_tax`
+--     (resolved by `mms_menu_tax_category`) so the delivery `menu_items` is untouched.
+-- See docs/DATA_RECONCILIATION.md. Run on a Supabase branch, merge after the M1 gate.
 --
--- ⚠️ DO NOT APPLY AS-IS to the shared delivery project. `carts`, `orders`, `order_items`, and
--- `menu_items` ALREADY EXIST there with different shapes, so the `create table if not exists`
--- statements below silently no-op and the QR code then runs against incompatible tables.
--- Reconcile first (namespace the session tables to qr_*, read the real menu, source tax_category):
--- see docs/DATA_RECONCILIATION.md. M1·P1.0. The session/tax/grocery objects here are collision-free.
--- Diners are anonymous: a server endpoint mints a short-lived JWT with a `session_id` claim
--- bound to the scanned table QR. RLS authorizes everything off that claim.
+-- Diners are anonymous: a server endpoint mints a short-lived JWT with a `session_id`
+-- claim bound to the scanned table QR. RLS authorizes everything off that claim.
 
 -- ============ category-aware tax (replaces the flat 10.5% in the delivery app) ============
 -- CA CDTFA Reg 1603 / 80-80: hot & prepared always taxable; cold food taxable only dine-in;
 -- retail non-food always taxable; grocery staples exempt. Location rate is a single constant.
+-- Amounts are integer CENTS; mirror of apps/qr/lib/tax.ts — keep the two in sync.
 create or replace function mms_tax_rate() returns numeric language sql immutable as $$
-  select 0.0975::numeric;  -- Covina combined rate; update via one place
+  select 0.0975::numeric;  -- Covina combined rate; update in this one place (+ lib/tax.ts)
 $$;
 
 create or replace function mms_taxable(category text, dine_in boolean) returns boolean
@@ -29,15 +37,16 @@ language sql immutable as $$
   end;
 $$;
 
-create or replace function mms_line_tax(amount numeric, category text, dine_in boolean)
-returns numeric language sql immutable as $$
-  select round(case when mms_taxable(category, dine_in) then amount * mms_tax_rate() else 0 end, 2);
+-- amount_cents → tax_cents (integer). Rounds to the nearest cent.
+create or replace function mms_line_tax(amount_cents integer, category text, dine_in boolean)
+returns integer language sql immutable as $$
+  select round(case when mms_taxable(category, dine_in) then amount_cents * mms_tax_rate() else 0 end)::integer;
 $$;
 
 -- ============ tables ============
 create table if not exists table_sessions (
   id uuid primary key default gen_random_uuid(),
-  qr_code text not null,                         -- physical table QR identifier
+  qr_code text not null,                          -- physical table QR identifier
   mode text not null check (mode in ('dinein','scango','pickup')),
   status text not null default 'active' check (status in ('active','locked','closed')),
   host_seat uuid,
@@ -56,27 +65,36 @@ create table if not exists session_members (
   unique (session_id, seat_id)
 );
 
-create table if not exists carts (
+create table if not exists qr_carts (
   id uuid primary key default gen_random_uuid(),
   session_id uuid not null references table_sessions(id) on delete cascade,
   locked boolean not null default false,
   promo_code text,
   status text not null default 'open' check (status in ('open','paid','cancelled')),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
 );
 
-create table if not exists cart_items (
+-- One line per added item. `menu_item_id` is a SOFT reference (text) to the shared catalog:
+-- a delivery `menu_items.id` (uuid, stored as text) for restaurant items, or a grocery UPC
+-- (`grocery_items.barcode`) for Scan & Go — heterogeneous, so no FK. The server snapshots the
+-- name + server-derived `unit_price_cents`/`tax_cents` so an order is faithful even if the
+-- catalog later changes.
+create table if not exists qr_cart_items (
   id uuid primary key default gen_random_uuid(),
-  cart_id uuid not null references carts(id) on delete cascade,
-  menu_item_id text not null,                     -- references the delivery app's menu
+  cart_id uuid not null references qr_carts(id) on delete cascade,
+  menu_item_id text not null,
+  name text not null,                             -- server-derived snapshot (name_en / grocery name)
   qty int not null check (qty > 0),
-  modifiers jsonb not null default '[]',
-  unit_price numeric not null,                    -- server-derived snapshot
-  tax numeric not null default 0,                 -- server-derived (mms_line_tax)
+  modifiers jsonb not null default '[]',          -- chosen option labels (display + snapshot)
+  unit_price_cents int not null,                  -- server-derived (base + chosen price_delta_cents)
+  tax_cents int not null default 0,               -- server-derived (mms_line_tax)
   by_seat uuid,                                   -- which guest added it (split)
   created_at timestamptz not null default now()
 );
 
+-- Promo value semantics: kind='pct' → `value` is a fraction (0.10 = 10% off);
+-- kind='flat' → `value` is CENTS off (500 = $5). Validated server-side (applyPromo / getCartTotals).
 create table if not exists promo_codes (
   code text primary key,
   kind text not null check (kind in ('pct','flat')),
@@ -86,31 +104,86 @@ create table if not exists promo_codes (
   active boolean not null default true
 );
 
-create table if not exists orders (
+create table if not exists qr_orders (
   id uuid primary key default gen_random_uuid(),
   session_id uuid references table_sessions(id),
-  subtotal numeric not null, discount numeric not null default 0,
-  service_charge numeric not null, tax numeric not null, tip numeric not null default 0,
-  total numeric not null,
+  subtotal_cents int not null,
+  discount_cents int not null default 0,
+  service_charge_cents int not null,
+  tax_cents int not null,
+  tip_cents int not null default 0,
+  total_cents int not null,
   stripe_payment_intent_id text unique,
   status text not null default 'pending' check (status in ('pending','paid','failed','refunded')),
   created_at timestamptz not null default now()
 );
 
-create table if not exists order_items (
+create table if not exists qr_order_items (
   id uuid primary key default gen_random_uuid(),
-  order_id uuid not null references orders(id) on delete cascade,
+  order_id uuid not null references qr_orders(id) on delete cascade,
   menu_item_id text not null, name text not null, qty int not null,
-  modifiers jsonb not null default '[]', unit_price numeric not null, tax numeric not null
+  modifiers jsonb not null default '[]', unit_price_cents int not null, tax_cents int not null
 );
+
+-- ============ QR-owned tax classification (delivery `menu_items` is untouched) ============
+-- The live `menu_items` carries no `tax_category`. Resolve it from a per-item override,
+-- else a per-category default, else a safe taxable fallback. uuid columns are SOFT refs
+-- (no FK) so this migration applies cleanly regardless of order vs the delivery baseline.
+create table if not exists mms_menu_category_tax (
+  category_id uuid primary key,
+  tax_category text not null
+);
+create table if not exists mms_menu_tax (
+  menu_item_id uuid primary key,
+  tax_category text not null
+);
+
+-- plpgsql so name resolution is deferred to call time (robust to apply order).
+create or replace function mms_menu_tax_category(p_item uuid)
+returns text language plpgsql stable as $$
+declare v text; v_cat uuid;
+begin
+  select tax_category into v from mms_menu_tax where menu_item_id = p_item;
+  if v is not null then return v; end if;
+  select category_id into v_cat from menu_items where id = p_item;
+  if v_cat is not null then
+    select tax_category into v from mms_menu_category_tax where category_id = v_cat;
+    if v is not null then return v; end if;
+  end if;
+  return 'hot_prepared';                          -- safe default: taxable prepared food
+end; $$;
+
+-- Seed per-category defaults from the live menu (guarded so a standalone QR DB still applies).
+do $$
+begin
+  if to_regclass('public.menu_categories') is not null then
+    insert into mms_menu_category_tax (category_id, tax_category)
+    select c.id, m.tax
+    from menu_categories c
+    join (values
+      ('all-day-breakfast','hot_prepared'),
+      ('rice-noodles-soups','hot_prepared'),
+      ('sides','hot_prepared'),
+      ('curries-a-la-carte','hot_prepared'),
+      ('vegetables','hot_prepared'),
+      ('seafood-curries','hot_prepared'),
+      ('appetizers-salads','cold_food'),
+      ('drinks','beverage_cold')
+    ) as m(slug, tax) on m.slug = c.slug
+    on conflict (category_id) do nothing;
+  end if;
+end $$;
 
 -- ============ RLS ============
 alter table table_sessions enable row level security;
 alter table session_members enable row level security;
-alter table carts enable row level security;
-alter table cart_items enable row level security;
-alter table orders enable row level security;
-alter table order_items enable row level security;
+alter table qr_carts enable row level security;
+alter table qr_cart_items enable row level security;
+alter table qr_orders enable row level security;
+alter table qr_order_items enable row level security;
+alter table mms_menu_category_tax enable row level security;
+alter table mms_menu_tax enable row level security;
+-- (No client policies on the tax maps: only the service-role reads them, via mms_menu_tax_category.)
 
 -- helper: is the JWT's session claim this session, and still active?
 create or replace function is_member(sess uuid) returns boolean language sql stable as $$
@@ -128,17 +201,16 @@ create or replace function is_host() returns boolean language sql stable as $$
 $$;
 
 -- members can read their own session + cart; only service-role writes prices.
-create policy sess_read   on table_sessions for select using (is_member(id));
-create policy mem_read    on session_members for select using (is_member(session_id));
-create policy cart_read   on carts        for select using (is_member(session_id));
-create policy citem_read  on cart_items   for select using (
-  exists (select 1 from carts c where c.id = cart_items.cart_id and is_member(c.session_id)));
-create policy order_read  on orders       for select using (is_member(session_id));
-create policy oitem_read  on order_items  for select using (
-  exists (select 1 from orders o where o.id = order_items.order_id and is_member(o.session_id)));
+create policy sess_read     on table_sessions for select using (is_member(id));
+create policy mem_read      on session_members for select using (is_member(session_id));
+create policy qr_cart_read  on qr_carts       for select using (is_member(session_id));
+create policy qr_citem_read on qr_cart_items  for select using (
+  exists (select 1 from qr_carts c where c.id = qr_cart_items.cart_id and is_member(c.session_id)));
+create policy qr_order_read on qr_orders      for select using (is_member(session_id));
+create policy qr_oitem_read on qr_order_items for select using (
+  exists (select 1 from qr_orders o where o.id = qr_order_items.order_id and is_member(o.session_id)));
 -- NO client write policies (default-deny): lock/unlock and every mutation flow through the
 -- service-role Server Actions (server is authoritative), so no column can be set from a browser.
--- (Removed the broad cart UPDATE policy — it would have let a host client write promo_code/session_id directly.)
 
 -- ============ Realtime private-channel authorization (group cart) ============
 -- Diners join `table:{session_id}` with { private: true }. RLS on realtime.messages gates
@@ -153,40 +225,46 @@ create policy rt_member_send on realtime.messages for insert
 -- NOTE: cart/price/tax mutations happen via Server Actions using the service-role key,
 -- which bypasses RLS by design (server is authoritative). Clients only ever SELECT.
 
--- ============ menu (shared w/ delivery app; created here so a standalone QR dev DB works) ============
-create table if not exists menu_items (
-  id text primary key, name text not null, name_my text, price numeric not null,
-  category text not null, tax_category text not null default 'hot_prepared',
-  modifiers jsonb not null default '[]', image_url text, diet text[] default '{}',
-  available boolean not null default true
-);
-alter table menu_items enable row level security;
-create policy menu_public_read on menu_items for select using (true);  -- public catalog
-insert into menu_items (id,name,name_my,price,category,tax_category) values
- ('t1','Burmese Milk Tea','လက်ဖက်ရည်',3.75,'Tea & Drinks','beverage_hot'),
- ('n1','Mohinga','မုန့်ဟင်းခါး',11.5,'Noodles','hot_prepared'),
- ('n2','Nan Gyi Thoke','နန်းကြီးသုပ်',12.0,'Noodles','hot_prepared'),
- ('r1','Chicken Curry & Rice','ကြက်သားဟင်း',13.0,'Rice & Curry','hot_prepared'),
- ('s2','Laphet Thoke','လက်ဖက်သုပ်',9.5,'Snacks','cold_food'),
- ('d1','Shwe Yin Aye','ရွှေရင်အေး',6.5,'Sweets','cold_food')
-on conflict (id) do nothing;
-
 -- ============ idempotent fulfillment (called by the Stripe webhook on payment_intent.succeeded) ============
-create or replace function mms_fulfill_order(p_cart_id uuid, p_payment_intent text)
-returns void language plpgsql security definer as $$
-declare v_order uuid; v_sub numeric; v_tax numeric;
+-- Snapshots the server-priced cart into a qr_order (+ items) in CENTS and reconciles the breakdown
+-- against the PaymentIntent amount. Totals are computed once, authoritatively, by getCartTotals
+-- (apps/qr/lib/cart.ts) and passed in — SQL only re-derives the sum so it can't drift from the
+-- charge. Idempotent on the PaymentIntent id; safe to run more than once (Stripe retries ≤72h).
+create or replace function mms_fulfill_order(
+  p_cart_id uuid,
+  p_payment_intent text,
+  p_amount_cents integer,              -- the actual PaymentIntent amount (reconcile target)
+  p_subtotal_cents integer,
+  p_discount_cents integer,
+  p_service_charge_cents integer,
+  p_tax_cents integer,
+  p_tip_cents integer default 0
+) returns uuid language plpgsql security definer as $$
+declare v_order uuid; v_total integer;
 begin
-  if exists (select 1 from orders where stripe_payment_intent_id = p_payment_intent) then return; end if;  -- idempotent
-  select coalesce(sum(ci.unit_price*ci.qty),0), coalesce(sum(ci.tax*ci.qty),0)
-    into v_sub, v_tax from cart_items ci where ci.cart_id = p_cart_id;
-  insert into orders (session_id, subtotal, service_charge, tax, total, stripe_payment_intent_id, status)
-    select c.session_id, v_sub, round(v_sub*0.05,2), v_tax, round(v_sub*1.05 + v_tax,2), p_payment_intent, 'paid'
-    from carts c where c.id = p_cart_id
+  -- idempotent: a retry returns the already-created order
+  select id into v_order from qr_orders where stripe_payment_intent_id = p_payment_intent;
+  if v_order is not null then return v_order; end if;
+
+  v_total := p_subtotal_cents - p_discount_cents + p_service_charge_cents + p_tax_cents + p_tip_cents;
+  if v_total <> p_amount_cents then
+    raise exception 'fulfillment amount mismatch: breakdown=% intent=%', v_total, p_amount_cents;
+  end if;
+
+  insert into qr_orders (session_id, subtotal_cents, discount_cents, service_charge_cents,
+                         tax_cents, tip_cents, total_cents, stripe_payment_intent_id, status)
+    select c.session_id, p_subtotal_cents, p_discount_cents, p_service_charge_cents,
+           p_tax_cents, p_tip_cents, v_total, p_payment_intent, 'paid'
+    from qr_carts c where c.id = p_cart_id
     returning id into v_order;
-  insert into order_items (order_id, menu_item_id, name, qty, modifiers, unit_price, tax)
-    select v_order, ci.menu_item_id, ci.menu_item_id, ci.qty, ci.modifiers, ci.unit_price, ci.tax
-    from cart_items ci where ci.cart_id = p_cart_id;
-  update carts set status='paid' where id = p_cart_id;
-  -- TODO(M5): award Burmese-gems via the delivery app's loyalty function.
-  -- TODO(L2): reconcile v total against the PaymentIntent amount before marking paid.
+
+  insert into qr_order_items (order_id, menu_item_id, name, qty, modifiers, unit_price_cents, tax_cents)
+    select v_order, ci.menu_item_id, ci.name, ci.qty, ci.modifiers, ci.unit_price_cents, ci.tax_cents
+    from qr_cart_items ci where ci.cart_id = p_cart_id;
+
+  update qr_carts set status = 'paid' where id = p_cart_id;
+  -- TODO(M4): award Burmese-gems via the delivery loyalty ledger (loyalty_rewards).
+  --   Blocked for anonymous QR diners: loyalty_rewards.user_id is NOT NULL — needs an account
+  --   link (M4) before a QR order can earn gems. See docs/DATA_RECONCILIATION.md.
+  return v_order;
 end; $$;

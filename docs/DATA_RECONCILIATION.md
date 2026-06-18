@@ -1,8 +1,11 @@
 # Data reconciliation — QR schema ↔ live delivery DB
 
-**Status: blocker for M1. Do not apply `0001` to the shared project as-written.**
+**Status: RECONCILED (M1·P1.0, 2026-06-18).** `0001`/`0002` are rewritten to coexist with the
+live delivery schema (namespaced `qr_*`, money in cents, real menu) and all QR code is repointed.
+Still **not applied to prod** — apply on a Supabase branch (blocked: branching needs the Pro plan)
+or via `supabase db push` against a branch, and merge after the M1 gate.
 Discovered 2026-06-17 by inspecting the shared Supabase project (`ukuzkhuppqwtrdkjqrkv`,
-`mandalay-morning-star-delivery-app`, ACTIVE_HEALTHY) read-only.
+`mandalay-morning-star-delivery-app`, ACTIVE_HEALTHY) read-only; reconciled 2026-06-18.
 
 ## The finding
 
@@ -25,34 +28,42 @@ not `numeric` dollars. Bilingual text is `name_en` / `name_my`.
 Safe (no collision, additive): `table_sessions`, `session_members`, `promo_codes`,
 `grocery_items`, and the tax functions (`mms_tax_rate` / `mms_taxable` / `mms_line_tax`).
 
-## Recommended plan (M1·P1.0 — do before the pay path)
+## Plan (M1·P1.0) — done ✅
 
-Run all of this on a **Supabase branch**, never prod (per `CLAUDE.md`); merge after the M1 gate.
+Decision: **namespace** (not a `channel`/`source` discriminator on the shared `orders`). The
+discriminator was rejected for M1 — it entangles the QR pay path with the delivery order
+lifecycle (`order_status` enum: `pending_approval…delivered`), `user_id NOT NULL`, and RLS.
+Revisit at M5 if a unified order history is wanted.
 
-1. **Namespace the QR session tables** so they can't shadow delivery tables: `carts → qr_carts`,
-   `cart_items → qr_cart_items`, `orders → qr_orders`, `order_items → qr_order_items`. Update
-   every reference: `lib/cart.ts`, `lib/grocery.ts`, `app/api/session/route.ts`,
-   `app/api/stripe/webhook/route.ts`, `app/cart/page.tsx`, and `mms_fulfill_order`.
-   (Alternative considered: add a `channel`/`source` discriminator to the shared `orders`. Rejected
-   for M1 — it entangles the QR pay path with the delivery order lifecycle/enum and RLS. Revisit at
-   M5 if a unified order history is wanted.)
-2. **Read the real menu.** Repoint `priceItem` + `menu/page.tsx` at the live `menu_items`
-   (`name_en`/`name_my`, `base_price_cents`/100, `category_id → menu_categories`) and derive
-   modifiers from `item_modifier_groups → modifier_groups → modifier_options.price_delta_cents`.
-   Money stays in **cents** end-to-end to match the delivery app; convert at the edge only.
-3. **Source `tax_category`.** The live `menu_items` has none. Add a `mms_menu_tax` mapping
-   (`menu_item_id uuid → tax_category text`, plus a per-`menu_categories` default) owned by the QR
-   side, so the category-aware tax engine has an input without altering the delivery table. Keep it
-   in sync with `lib/tax.ts` / `mms_line_tax`.
-4. **Fulfillment** writes to `qr_orders` / `qr_order_items` in cents; reconcile `intent.amount`
-   against `getCartTotals` before marking paid; award gems via the delivery loyalty path
-   (`loyalty_rewards`).
-5. Drop the placeholder `menu_items` seed from `0001` (delivery owns the catalog).
+1. ✅ **Namespaced the QR session tables** so they can't shadow delivery tables: `qr_carts`,
+   `qr_cart_items`, `qr_orders`, `qr_order_items`. Repointed every reference: `lib/cart.ts`,
+   `lib/grocery.ts`, `app/api/session/route.ts`, `app/api/stripe/webhook/route.ts`,
+   `app/cart/page.tsx`, and `mms_fulfill_order`.
+2. ✅ **Reads the real menu.** `priceItem` + `menu/page.tsx` hit the live `menu_items`
+   (`name_en`/`name_my`, `base_price_cents`, `category_id → menu_categories`); modifiers come from
+   `item_modifier_groups → modifier_groups → modifier_options.price_delta_cents`, intersected
+   server-side so a client can't smuggle a foreign option id. **Money is integer cents
+   end-to-end** (`CartTotals`/`CartItem`, `lib/tax.ts`, the migration, grocery `price_cents`);
+   convert to dollars at the UI edge only.
+3. ✅ **Sources `tax_category`** QR-side: `mms_menu_category_tax` (per-category default) +
+   `mms_menu_tax` (per-item override), resolved by `mms_menu_tax_category()`. Delivery `menu_items`
+   is untouched. Seed covers all 8 live categories (verified read-only); kept in sync with
+   `lib/tax.ts` / `mms_line_tax` (now cents).
+4. ✅ **Fulfillment** writes `qr_orders`/`qr_order_items` in cents and **reconciles** the breakdown
+   against `intent.amount` (webhook recomputes `getCartTotals` with the `tipRate` carried in intent
+   metadata; `mms_fulfill_order` re-checks the sum == the charge). ⚠️ **Gems deferred:**
+   `loyalty_rewards.user_id` is `NOT NULL`, so anonymous QR diners can't earn gems until an account
+   link exists (M4) — `TODO(M4)` left in `mms_fulfill_order`.
+5. ✅ Dropped the placeholder `menu_items` create + seed from `0001` (delivery owns the catalog).
 
 ## Current state
 
-- QR migrations `0001`/`0002` are **not** applied to the shared project (its migration history is
-  delivery-only: `baseline`, `rpc_rls_lockdown`, …). Nothing to roll back.
-- The delivery loyalty ledger exists (`loyalty_rewards`, 7 rows) — reuse it for M4/M5 rewards.
-- No code change here repoints the queries yet; that's the M1·P1.0 task above (needs the
-  namespace-vs-discriminator sign-off in step 1).
+- QR migrations `0001`/`0002` are reconciled but **not** applied to the shared project (its
+  migration history is delivery-only: `baseline`, `rpc_rls_lockdown`, …). Nothing to roll back.
+- **Branch validation blocked:** Supabase branching requires the **Pro plan** (org is not on it),
+  so the DDL was not applied/rolled-back on prod. Data-dependent parts validated read-only:
+  the category-tax seed covers all 8 live categories, and the cents tax math matches `lib/tax.ts`.
+  Apply on a branch (post-upgrade) before merge.
+- The delivery loyalty ledger exists (`loyalty_rewards`) — reuse it for M4 rewards once QR orders
+  can be tied to an account (see step 4 blocker).
+- The gate (`turbo lint typecheck build`) is green with all queries repointed.

@@ -35,7 +35,7 @@ Monorepo + the risky architecture, designed in.
 
 Smallest slice that takes one real test charge end-to-end (solo Scan & Go). **No real card until this milestone's gate passes.**
 
-- **P1.0 Schema reconciliation** — the QR `0001` `carts`/`orders`/`order_items`/`menu_items` collide with the **live delivery schema** (`create table if not exists` no-ops). Namespace the session tables `qr_*`, repoint pricing/menu at the real `menu_items` (cents · `name_en`/`name_my` · normalized modifiers), source `tax_category` via a `mms_menu_tax` map; run on a Supabase branch. See `docs/DATA_RECONCILIATION.md`. ⬜ **(blocks P1.2–P1.4)**
+- **P1.0 Schema reconciliation** — ✅ namespaced the session tables `qr_*` (was colliding with the **live delivery** `carts`/`orders`/`order_items`/`menu_items`); repointed pricing/menu at the real `menu_items` (**cents end-to-end** · `name_en`/`name_my` · normalized modifiers, intersected server-side); sourced `tax_category` via `mms_menu_category_tax`/`mms_menu_tax` (+ resolver); rewrote `mms_fulfill_order` to write `qr_*` in cents and reconcile vs `intent.amount`. Gems deferred (anon diner ↔ `loyalty_rewards.user_id NOT NULL`, M4). Apply on a Supabase branch (needs Pro). See `docs/DATA_RECONCILIATION.md`. ✅
 - **P1.1 Session mint** — `POST /api/session` signs the table-session JWT (`session_id`/`seat`/`app_role`) with `SUPABASE_JWT_SECRET`; RLS + Realtime accept it. ⬜
 - **P1.2 Cart create + actions authz** — create-cart action; gate `addItem`/`setQty`/`applyPromo`/`create-intent` on session membership + lock; merge identical lines. ⬜
 - **P1.3 Payment Element** — cart page mounts `<Elements>` against `/api/stripe/create-intent`; Apple/Google Pay surface. ⬜

@@ -12,11 +12,11 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
       <h1>Your order</h1>
       {totals ? (
         <dl style={{ marginTop: 12 }}>
-          <Row k="Subtotal" v={totals.subtotal} />
-          {totals.discount > 0 && <Row k="Promo" v={-totals.discount} />}
-          <Row k="Service charge (5%)" v={totals.serviceCharge} />
-          <Row k="Sales tax" v={totals.tax} />
-          <Row k="Total" v={totals.total} strong />
+          <Row k="Subtotal" cents={totals.subtotalCents} />
+          {totals.discountCents > 0 && <Row k="Promo" cents={-totals.discountCents} />}
+          <Row k="Service charge (5%)" cents={totals.serviceChargeCents} />
+          <Row k="Sales tax" cents={totals.taxCents} />
+          <Row k="Total" cents={totals.totalCents} strong />
         </dl>
       ) : (
         <p style={{ color: "var(--t2)" }}>
@@ -30,7 +30,7 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
     </main>
   );
 }
-function Row({ k, v, strong }: { k: string; v: number; strong?: boolean }) {
+function Row({ k, cents, strong }: { k: string; cents: number; strong?: boolean }) {
   return (
     <div
       style={{
@@ -41,7 +41,7 @@ function Row({ k, v, strong }: { k: string; v: number; strong?: boolean }) {
       }}
     >
       <dt>{k}</dt>
-      <dd style={{ margin: 0, fontVariantNumeric: "tabular-nums" }}>${v.toFixed(2)}</dd>
+      <dd style={{ margin: 0, fontVariantNumeric: "tabular-nums" }}>${(cents / 100).toFixed(2)}</dd>
     </div>
   );
 }

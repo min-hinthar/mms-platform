@@ -1,18 +1,19 @@
 import Image from "next/image";
 import { serviceClient } from "@mms/db/server";
 
-// WORKING RSC menu — reads the shared menu (the delivery app's menu_items) server-side.
-// Self-hosted images via next/image (no third-party hotlinking). Static data → fast TTFB.
+// WORKING RSC menu — reads the shared, delivery-owned catalog (`menu_items`) server-side:
+// uuid id, base_price_cents (money in cents), name_en/name_my, category via menu_categories.
+// Self-hosted images via next/image (no third-party hotlinking). Cached → fast TTFB.
 export const revalidate = 300;
 
 type MenuRow = {
   id: string;
-  name: string;
+  name_en: string;
   name_my: string | null;
-  price: number;
-  category: string;
+  base_price_cents: number;
   image_url: string | null;
-  diet: string[] | null;
+  is_sold_out: boolean;
+  menu_categories: { name: string; sort_order: number } | null;
 };
 
 export default async function Menu({ searchParams }: { searchParams: Promise<{ mode?: string }> }) {
@@ -20,11 +21,25 @@ export default async function Menu({ searchParams }: { searchParams: Promise<{ m
   const db = serviceClient();
   const { data } = await db
     .from("menu_items")
-    .select("id,name,name_my,price,category,image_url,diet")
-    .eq("available", true)
-    .order("category");
-  const items = (data ?? []) as MenuRow[];
-  const cats = [...new Set(items.map((i) => i.category))];
+    .select(
+      "id,name_en,name_my,base_price_cents,image_url,is_sold_out,menu_categories(name,sort_order)",
+    )
+    .eq("is_active", true)
+    .order("name_en");
+  // supabase-js infers embeds as arrays without generated Database types; a category_id FK is
+  // to-one, so PostgREST returns a single object at runtime. Cast through unknown.
+  const items = (data ?? []) as unknown as MenuRow[];
+
+  // Group by category, ordered by the delivery menu's sort_order.
+  const cats = [...new Map(items.map((i) => [i.menu_categories?.name ?? "Menu", i])).keys()].sort(
+    (a, b) => {
+      const sa = items.find((i) => (i.menu_categories?.name ?? "Menu") === a)?.menu_categories
+        ?.sort_order;
+      const sb = items.find((i) => (i.menu_categories?.name ?? "Menu") === b)?.menu_categories
+        ?.sort_order;
+      return (sa ?? 999) - (sb ?? 999);
+    },
+  );
 
   return (
     <main style={{ maxWidth: 440, margin: "0 auto", paddingBottom: 96 }}>
@@ -41,9 +56,18 @@ export default async function Menu({ searchParams }: { searchParams: Promise<{ m
           <h2 style={{ fontSize: 18 }}>{c}</h2>
           <ul style={{ listStyle: "none", padding: 0, display: "grid", gap: 12 }}>
             {items
-              .filter((i) => i.category === c)
+              .filter((i) => (i.menu_categories?.name ?? "Menu") === c)
               .map((i) => (
-                <li key={i.id} className="card" style={{ display: "flex", gap: 13, padding: 11 }}>
+                <li
+                  key={i.id}
+                  className="card"
+                  style={{
+                    display: "flex",
+                    gap: 13,
+                    padding: 11,
+                    opacity: i.is_sold_out ? 0.5 : 1,
+                  }}
+                >
                   <div
                     style={{
                       width: 88,
@@ -67,7 +91,12 @@ export default async function Menu({ searchParams }: { searchParams: Promise<{ m
                     )}
                   </div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600 }}>{i.name}</div>
+                    <div style={{ fontWeight: 600 }}>
+                      {i.name_en}
+                      {i.is_sold_out && (
+                        <span style={{ color: "var(--t3)", fontWeight: 400 }}> · Sold out</span>
+                      )}
+                    </div>
                     {i.name_my && (
                       <div
                         style={{ fontFamily: "var(--font-my)", fontSize: 12, color: "var(--t2)" }}
@@ -76,7 +105,9 @@ export default async function Menu({ searchParams }: { searchParams: Promise<{ m
                         {i.name_my}
                       </div>
                     )}
-                    <div style={{ fontWeight: 800, marginTop: 6 }}>${i.price.toFixed(2)}</div>
+                    <div style={{ fontWeight: 800, marginTop: 6 }}>
+                      ${(i.base_price_cents / 100).toFixed(2)}
+                    </div>
                   </div>
                 </li>
               ))}
@@ -85,7 +116,7 @@ export default async function Menu({ searchParams }: { searchParams: Promise<{ m
       ))}
       {!items.length && (
         <p style={{ padding: 24, color: "var(--t2)" }}>
-          No menu rows yet — apply the migration and seed <code>menu_items</code>.
+          No menu rows yet — the shared <code>menu_items</code> catalog is empty.
         </p>
       )}
     </main>

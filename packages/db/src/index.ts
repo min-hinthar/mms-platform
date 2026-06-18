@@ -16,22 +16,24 @@ export type TaxCategory =
   | "retail_nonfood"
   | "grocery_food";
 
+// Money is integer CENTS everywhere (parity with the delivery schema). Convert to dollars at the
+// UI edge only (cents / 100). The server is the sole authority for every amount below.
 export type CartItem = {
   id: string;
   menuItemId: string;
   name: string;
   qty: number;
   modifiers: string[];
-  unitPrice: number;
-  tax: number;
+  unitPriceCents: number;
+  taxCents: number;
   bySeat?: string;
 };
 
 export type CartTotals = {
-  subtotal: number;
-  discount: number;
-  serviceCharge: number;
-  tax: number;
-  tip: number;
-  total: number;
+  subtotalCents: number;
+  discountCents: number;
+  serviceChargeCents: number;
+  taxCents: number;
+  tipCents: number;
+  totalCents: number;
 };

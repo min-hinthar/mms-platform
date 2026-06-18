@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
   await db
     .from("session_members")
     .insert({ session_id: sess.id, seat_id: seat, display_name: name, role });
-  if (role === "host") await db.from("carts").insert({ session_id: sess.id });
+  if (role === "host") await db.from("qr_carts").insert({ session_id: sess.id });
 
   const posthog = getPostHogClient();
   posthog.capture({
