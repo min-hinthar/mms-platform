@@ -37,8 +37,10 @@ jobs:
           version: 2.107.0
       # migrations-check — boot the local stack, applying supabase/migrations + seed.sql in order.
       # A migration or seed that doesn't apply cleanly fails the job (ubuntu-latest ships Docker).
+      # Only the DB is needed (for migrations + `gen types`), so skip the auxiliary containers — it's
+      # faster and avoids edge-runtime's flaky `@supabase/pg-delta` npm fetch at boot.
       - name: Apply migrations + seed (migrations-check)
-        run: supabase start
+        run: supabase start -x edge-runtime,studio,imgproxy,logflare,vector,mailpit
       # types-fresh — regenerate types from the just-applied schema; any drift vs the committed
       # file fails the job, so packages/db/src/database.types.ts can never lag the SQL.
       - name: Types are fresh
