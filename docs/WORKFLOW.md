@@ -28,7 +28,7 @@ flowchart LR
 
 - **Cowork** — break a milestone into phases, write/refresh specs (`docs/`), update `ROADMAP.md`, and run **deep adversarial reviews** at each milestone exit.
 - **Claude Code (remote)** — do the implementation on a branch, open the PR, fix review comments via the auto-fix workflow.
-- **GitHub Actions** — automated **Claude PR review** + **security review** + **adversarial PR pass** + **docs gate** + **preview check** on every PR, plus a **weekly scheduled adversarial pass** over the whole repo.
+- **GitHub Actions** — **CI + docs gate + preview check** on every push; **Claude PR review + security** on PR open / `ready_for_review` (or the on-demand `review` label); the **adversarial PR pass** as a pre-merge gate (the `adversarial` label); plus a **weekly scheduled adversarial pass** over the whole repo. The token-metered Claude passes are deliberately not per-push (quota + signal-to-noise).
 - **Vercel** — preview per PR, production on `main`.
 
 ## Branches & PRs
@@ -38,14 +38,20 @@ flowchart LR
 - **One phase = one PR** (small, reviewable). PR title is a conventional-commit summary with milestone context: `feat(qr): M1·P1 session mint` + a body that links the ROADMAP phase and ticks the QA-checklist items it touches (the PR template prompts this).
 - Conventional commits (`feat:`, `fix:`, `chore:`, `docs:`); CHANGELOG entry on merge.
 
-## Pre-merge gates (all required; all run on every PR)
+## Pre-merge gates
 
-1. **CI** — `ci.yml`: `pnpm turbo run lint typecheck build` across all workspaces. Node 24, frozen lockfile.
-2. **Claude PR review** — `claude-review.yml` → `review` job. Inline comments on the diff against `docs/REVIEW.md`'s QA checklist (server-authoritative pricing, RLS, Stripe idempotency/PCI, a11y).
-3. **Claude security review** — `claude-review.yml` → `security` job. Runs through `anthropics/claude-code-action@v1` on the same OAuth/Max-plan token (the dedicated `claude-code-security-review` action only accepts an `ANTHROPIC_API_KEY`, so it's not used here), attacking the money + auth paths. Posts findings inline.
-4. **Adversarial PR pass** — `adversarial-pr.yml`. Diff-scoped red-team across a11y / perf / security / product/UX. Runs automatically on every push, so a pass always precedes merge; **re-prompt it before merging** by adding the **`adversarial` label** (no new commit needed). Posts a severity-ranked findings table and ends with `ADVERSARIAL_VERDICT: PASS` or `BLOCK`. The gate is **fail-closed**: it passes only on an explicit `PASS`, so a skipped or errored pass (no verdict) fails the check rather than sailing through. Clear a no-verdict failure by re-running, or — after a manual review — with the **`adversarial-signed-off`** label.
-5. **Docs / progress updated** — `require-docs-update.yml`. If a PR changes `apps/**` or `packages/**`, it must also touch `docs/**`, `CHANGELOG.md`, `ROADMAP.md`, or `README.md`. Opt-out by labeling the PR `skip-docs` (use sparingly — only for truly doc-irrelevant changes like dependency bumps).
-6. **Vercel preview** — `ensure-preview.yml`. Forces a preview build via the Vercel API if the GitHub→Vercel webhook drops. Smoke-test the preview before approving.
+**Token-metered passes (Claude review / security / adversarial) do NOT run on every push** — that
+burned Max-plan quota and re-surfaced the same findings round after round. The cheap checks (CI, docs,
+preview) run on every push; the Claude passes are on-demand / pre-merge:
+
+1. **CI** — `ci.yml`: `pnpm turbo run lint typecheck build` across all workspaces (+ `migrations-check` / `types-fresh`). Node 24, frozen lockfile. **Every push.**
+2. **Claude PR review** — `claude-review.yml` → `review` job. Runs on **`opened` / `ready_for_review`** (the first look) or when you add the **`review` label** (re-review after addressing comments). A plain push is a **no-op success**, so the required check stays green on the new head SHA without re-reviewing the whole diff. Inline comments against `docs/REVIEW.md`'s QA checklist (server-authoritative pricing, RLS, Stripe idempotency/PCI, a11y).
+3. **Claude security review** — `claude-review.yml` → `security` job. Same on-demand trigger as #2 (`opened`/`ready_for_review`/`review` label; no-op on plain push), through `anthropics/claude-code-action@v1` on the OAuth/Max-plan token, attacking the money + auth paths.
+4. **Adversarial PR pass** — `adversarial-pr.yml`. **PRE-MERGE gate, label-only:** it runs solely when you add the **`adversarial` label** (when the PR is ready to merge) — not on push. As a required check it stays **"expected" (merge blocked) until you label it and it reports `ADVERSARIAL_VERDICT: PASS`**. Diff-scoped red-team across a11y / perf / security / product/UX; posts a severity-ranked findings table. **Fail-closed**: passes only on an explicit `PASS` (a skipped/errored pass = no verdict = fail). Clear a no-verdict failure by re-running, or — after a manual review — with the **`adversarial-signed-off`** label.
+5. **Docs / progress updated** — `require-docs-update.yml`. If a PR changes `apps/**` or `packages/**`, it must also touch `docs/**`, `CHANGELOG.md`, `ROADMAP.md`, or `README.md`. Opt-out by labeling the PR `skip-docs` (use sparingly). **Every push.**
+6. **Vercel preview** — `ensure-preview.yml`. Forces a preview build via the Vercel API if the GitHub→Vercel webhook drops. Smoke-test the preview before approving. **Every push.**
+
+> **Merge ritual:** open PR → CI + the on-open Claude review run → address comments (push fixes; CI re-runs, the Claude passes don't) → re-review on demand with the **`review`** label if you want → when green and ready, add the **`adversarial`** label → it runs and must report PASS → merge. Branch-protection required checks are unchanged (`ci`, `claude-review`/`security`, `adversarial-pr`, `require-docs-update`); review/security report green on every push via the no-op, and `adversarial-pr` is the one that holds the merge until you label.
 
 ## Auto-fix review comments
 
