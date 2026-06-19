@@ -7,7 +7,7 @@ Project guide for Claude Code working in this repo. Read this first. Memory of m
 - **Terse, action-first.** Skip preamble; lead with the implementation. One- to two-sentence rationale max.
 - **Recommend, don't enumerate.** Lead with a pick; offer options only when they materially differ.
 - **Verify before "done."** Run the full check (`pnpm turbo lint typecheck build`) and confirm nothing else broke. **Never trade correctness for speed; flag regressions proactively** — regressions are the #1 frustration.
-- **UI/UX polish is a core requirement**, not a follow-up — build every screen to `docs/prototype/v7.2.html` + `docs/context/DESIGN-RESEARCH.md` and the `docs/context/RUBRIC.md` ≥4.3 bar in the **first commit** (tokens not hardcoded colors, animation timing, spacing, contrast, real semantics/44px/a11y per QA-CHECKLIST §A, brand-voice microcopy); self-check against the prototype before the PR — don't let the review surface craft gaps (the review/adversarial gates now cross-check fidelity).
+- **UI/UX polish is a core requirement**, not a follow-up — build every screen to `docs/prototype/v7.2.html` + `docs/context/DESIGN-RESEARCH.md` and the `docs/context/RUBRIC.md` ≥4.3 bar in the **first commit** (tokens not hardcoded colors, animation timing, spacing, contrast, real semantics/44px/a11y per QA-CHECKLIST §A, brand-voice microcopy); run the **Pre-PR self-review sweep** (below) on your diff before the PR — don't let the review surface craft gaps (the review/adversarial gates now cross-check fidelity).
 - **Vendor choices:** when proposing a lib, give the trade-off + evidence (bundle size, activity).
 
 ## What this is
@@ -30,7 +30,7 @@ supabase db push         # apply packages/db/migrations
 - **TypeScript strict**, `noUncheckedIndexedAccess`. No `any` on money/DB rows without a guard.
 - **Server Components by default;** `"use client"` only when needed. Server Actions for mutations.
 - Conventional commits (`feat:`/`fix:`/`chore:`/`docs:`). One phase = one PR (see `ROADMAP.md`).
-- **Branches: `claude/<type>/<slug>`** (conventional-commit type + kebab slug with milestone/phase context) — e.g. `claude/feat/m1-p1-session-mint`, `claude/docs/research-context`. CI runs every push; the **Claude review/security pass runs on PR open / ready (or the on-demand `review` label), NOT every push** (token-metered — a plain push is a no-op success). The **adversarial gate is pre-merge: add the `adversarial` label when ready to merge** (fail-closed — no verdict fails; merge stays blocked until it reports PASS). Address review comments and push fixes (CI re-runs; the Claude passes don't until you re-label). A PR that edits `.github/workflows/claude-*.yml`/`adversarial-*.yml` skips its own review (anti-tampering); run a manual adversarial pass and add the `adversarial-signed-off` label. **Don't front-load a happy-path build and let the adversarial gate tease out the hardening — see `.claude/LEARNINGS.md` (status-atomic mutations, EXECUTE lockdown, DB bounds, error wrapping, a11y up front).** Details: `docs/WORKFLOW.md`.
+- **Branches: `claude/<type>/<slug>`** (conventional-commit type + kebab slug with milestone/phase context) — e.g. `claude/feat/m1-p1-session-mint`, `claude/docs/research-context`. CI runs every push; the **Claude review/security pass runs on PR open / ready (or the on-demand `review` label), NOT every push** (token-metered — a plain push is a no-op success). The **adversarial gate is pre-merge: add the `adversarial` label when ready to merge** (fail-closed — no verdict fails; merge stays blocked until it reports PASS). Address review comments and push fixes (CI re-runs; the Claude passes don't until you re-label). A PR that edits `.github/workflows/claude-*.yml`/`adversarial-*.yml` skips its own review (anti-tampering); run a manual adversarial pass and add the `adversarial-signed-off` label. **Don't front-load a happy-path build and let the adversarial gate tease out the hardening — run the _Pre-PR self-review sweep_ (below) on your diff first; war stories in `.claude/LEARNINGS.md` #44/#47.** Details: `docs/WORKFLOW.md`.
 - Tokens come from `@mms/ui/tokens.css`; don't hardcode colors. Light = editorial-forward, dark = Night.
 
 ## ⚠️ Critical / money + auth paths (extra care, CODEOWNERS-flagged)
@@ -41,6 +41,17 @@ supabase db push         # apply packages/db/migrations
 - **Stripe = SAQ-A.** Card data lives only in the Payment Element iframe. Fulfillment is webhook-driven, signature-verified, idempotent on the PaymentIntent id (`mms_fulfill_order`).
 - **Secrets** only in Vercel + GitHub Actions secrets — never in git (`.gitignore` covers `.env*`). Per-environment: test keys in preview, live in prod; migrate on a Supabase **branch**, not prod.
 - Compliance: **SB-1524** service-charge disclosed; never surcharge debit; reviews ungated; **EBT/SNAP = 2027** (Forage/FNS).
+
+## Pre-PR self-review sweep (read your own diff _before_ opening the PR)
+
+The review/adversarial gates catch **escapes** — they are not your first pass. The recurring waste across M1 was shipping a correct-but-incomplete first commit and letting the gate tease out craft round-by-round (P1.2 took 5 passes; P1.5 took 3). The first commits were clean on the load-bearing parts (money/auth/RLS/tokens); the gate kept finding the same **three deferred categories** — so sweep the diff against them before opening, where a fix is one edit, not a fix-and-re-label cycle:
+
+- **Money / auth / RLS / DB** — every mutation authz'd with the status guard **in the SQL statement** (not just the client); inputs bounded at the DB (Zod `.max()` **+** column `CHECK`); new `SECURITY DEFINER` fns `revoke … from public` + `grant … to service_role`; amounts server-derived (never a client total); RLS on every new table **and** Realtime path; migrations guarded + idempotent, no `types-fresh` drift, never DDL prod.
+- **a11y — sweep _every_ interactive/region element, not just the layout** (QA-CHECKLIST §A): ≥44px touch targets; an accessible name on each control/list/region (`aria-label`/`-labelledby`); `role="list"` when `list-style:none`; **one** live region per view (no redundant `aria-live` on `role="status"`/`alert`); focus moved on remove / route / step change; decorative glyphs + emoji `aria-hidden`; a `prefers-reduced-motion` off-switch on any animation.
+- **Error / recovery paths** — every `await` / `{ error }` is handled or a **commented, deliberate** swallow (a silent one → a broken session or a stuck screen); every async UI has a **loading _and_ a failure/recovery** state (never strand the user); fail fast on unrecoverable errors instead of burning a full retry budget; on serverless, drain side-effects with `after()` (don't couple the response to them).
+- **Copy / fidelity** — strings **verbatim** from `docs/prototype/v7.2.html`; no promise the code doesn't keep ("live status here" only where it's wired); honest microcopy (no fabricated ETAs/counts); tokens, never hardcoded colors.
+
+Ten minutes here beats a metered gate round per finding. The gate is the backstop, not the author. See `.claude/LEARNINGS.md` #44/#47 for the war stories.
 
 ## Gate before "done"
 
