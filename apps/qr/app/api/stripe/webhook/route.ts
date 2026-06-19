@@ -33,7 +33,19 @@ export async function POST(req: NextRequest) {
       // Re-derive the server-authoritative breakdown and reconcile it against the actual charge
       // before fulfilling — the cart could have mutated between intent-create and this webhook.
       // mms_fulfill_order re-checks the sum == intent.amount and snapshots the order (in cents).
-      const totals = await getCartTotals(cartId, tipRate);
+      let totals;
+      try {
+        totals = await getCartTotals(cartId, tipRate);
+      } catch (e) {
+        // The cart row may be unreadable/deleted between intent-create and delivery. Don't let the
+        // bare throw 500 without context — log the cart + PI, then 500 so Stripe retries.
+        console.error("[stripe webhook] getCartTotals failed", {
+          cartId,
+          paymentIntent: intent.id,
+          error: e,
+        });
+        return NextResponse.json({ error: "Totals lookup failed; will retry" }, { status: 500 });
+      }
       if (totals.totalCents !== intent.amount) {
         return NextResponse.json(
           { error: `amount mismatch: cart=${totals.totalCents} intent=${intent.amount}` },
@@ -53,15 +65,27 @@ export async function POST(req: NextRequest) {
       // supabase-js returns the Postgres error in `error` — it does NOT throw. Swallowing it would
       // 200 the event, so Stripe marks it handled and never retries → a charged diner with no order.
       // Return 5xx so Stripe redelivers (up to 72h); fulfillment is idempotent on the PI id, so a
-      // later retry that succeeds is safe. Logged for Sentry/observability.
+      // later retry that succeeds is safe. Log the full error (code/details/hint) for triage.
       if (fulfillErr) {
         console.error("[stripe webhook] mms_fulfill_order failed", {
           cartId,
           paymentIntent: intent.id,
-          error: fulfillErr.message,
+          error: fulfillErr,
         });
         return NextResponse.json({ error: "Fulfillment failed; will retry" }, { status: 500 });
       }
+      // Capture exactly once — on the delivery that actually fulfills. A duplicate Stripe redelivery
+      // (existing != null) or a missing-cartId event no longer double-counts / mis-fires analytics.
+      posthog.capture({
+        distinctId: cartId,
+        event: "payment_succeeded",
+        properties: {
+          cart_id: cartId,
+          payment_intent_id: intent.id,
+          amount_cents: intent.amount,
+          currency: intent.currency,
+        },
+      });
     } else if (!existing && !cartId) {
       // Anomalous: a succeeded charge whose intent metadata has no cartId (our create-intent always
       // sets it). We can't fulfill and a retry won't help, so don't 5xx — but never let it vanish.
@@ -69,16 +93,6 @@ export async function POST(req: NextRequest) {
         paymentIntent: intent.id,
       });
     }
-    posthog.capture({
-      distinctId: cartId ?? intent.id,
-      event: "payment_succeeded",
-      properties: {
-        cart_id: cartId,
-        payment_intent_id: intent.id,
-        amount_cents: intent.amount,
-        currency: intent.currency,
-      },
-    });
   } else if (event.type === "payment_intent.payment_failed") {
     const intent = event.data.object;
     const cartId = intent.metadata?.cartId;

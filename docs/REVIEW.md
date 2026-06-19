@@ -181,3 +181,31 @@ self-adversarial + design-fidelity pass before the PR.
 - **Still deferred → P1.5 Realtime:** the `/track` `processing` state has no live polling/auto-refresh
   (the page renders from the URL `redirect_status`, which is static) — it lands with the
   Realtime order timeline. Per-reason promo messaging stays M2.
+
+## Progress — M1·P1.5 live order tracking + P1.4 follow-ups (2026-06-19)
+
+- **Closed the M1 exit "shows in Track" — ✅.** `/track` mounts `OrderTracker` (client) which subscribes
+  via `useOrderStatus` to **Realtime Postgres Changes** on the diner's own `qr_orders` row, keyed by the
+  `payment_intent` Stripe appends to the return_url. The order surfaces the instant the async webhook
+  fulfills — **no manual refresh** — which also **closes the deferred `processing`-state polling**.
+- **Authorization reuses existing RLS (no new surface):** `qr_order_read` (`is_member(session_id)`) gates
+  the subscription per-subscriber, so a guessed `payment_intent` returns nothing. Migration
+  `20260619000400` only adds `qr_orders` to the `supabase_realtime` publication (RLS already on; no
+  schema/type change → no `types-fresh` drift).
+- **Resilience:** a bounded fallback re-fetch (~30s, stops on arrival) covers the redirect→insert race and
+  a cold socket, so the order appears even if the live channel is slow — Realtime is the live path, not
+  the only path.
+- **Fidelity + a11y up front (RUBRIC ≥4.3):** timeline ported from the v7.2 `.tk` rail (tokens only,
+  accent pulse with `prefers-reduced-motion` off-switch); `<ol>` + `aria-current="step"`; one polite live
+  region for the phase change; decorative dots `aria-hidden`. **No fabricated ETA** (honest — real ETA
+  needs the KDS).
+- **Forward-compatible:** M1 has no kitchen actor so the active step rests at "Order placed"; **S2's
+  kitchen-status updates ride the same subscription** with no client change. Dine-in/pickup step variants
+  → S-track / M2.2.
+- **P1.4 adversarial findings (PR #12, all non-blocking) — addressed here:** `payment_succeeded` capture
+  moved inside the fulfilled branch (no analytics double-count on duplicate Stripe redelivery); full
+  `fulfillErr` logged (not just `.message`); `getCartTotals` wrapped in try/catch for context-rich 500s;
+  `.env.example` URL reverted to a `YOUR_QR_PROJECT` placeholder.
+- **Still deferred:** kitchen lifecycle (`fired → in-progress → served`) + KDS + real ETA → **S2 / M2.2**;
+  `/cart` distinct paid-cart message → later (diner is redirected to `/track` post-pay). Live end-to-end
+  smoke needs the Stripe test webhook + keys wired on the deploy env (dashboard task).
