@@ -41,7 +41,7 @@ Smallest slice that takes one real test charge end-to-end (solo Scan & Go). **No
 - **P1.1 Anonymous-auth session** — ✅ `AnonAuthGate` runs `signInAnonymously()` on load (SSR cookies via `@supabase/ssr`); `@mms/db/server` adds `serverClient(cookies)`; `POST /api/session` verifies the `Bearer` anon token (`getUser(token)`) and records `seat_id = auth.uid()` (idempotent, sets `host_seat`); `useAnonSession()` feeds the anon token to Realtime/Bearer callers. **Per-action authz landed here too** (RED-TEAM #2): one guard (`lib/authz.ts`) gates `addItem`/`setQty`/`applyPromo`/`scanAdd`/`create-intent` on membership + lock; `getCartTotals` moved to internal `lib/totals.ts` (no IDOR read). Closes REVIEW.md gate #3 + QA §C group-cart-auth. (Membership `is_member`/`is_host` RLS already shipped in the init schema.) ✅
 - **P1.2 Cart create + actions authz** — ✅ `POST /api/session` find-or-creates the session's open cart and returns `cartId` (server-issued; the client never invents one); `useTableSession` (per-device QR identity) drives it; menu gets per-item `AddButton` + sticky `CartBar` via `TableCartProvider`; `addItem` **merges identical lines** (same item + normalized modifier set → qty bump, not a dup row); `getCartView` (member-gated) feeds the cart page + steppers/promo with re-fetched server totals (never client math). Actions authz was done in P1.1. _Follow-up:_ modifier-customization sheet (add currently sends the base item). ✅
 - **P1.3 Payment Element** — ✅ two-step checkout (review + tip → pay): "Continue to payment" mints the intent via the member-gated `/api/stripe/create-intent`; `<Elements>` + `<PaymentElement>` mount on a stable `clientSecret` with appearance derived from `@mms/ui` tokens (light/Night); tip selector (v7.2 chips) → `tipRate`; `confirmPayment` → `/track` (renders the `redirect_status` confirmation). Apple/Google Pay via `automatic_payment_methods`. **Test mode only.** ✅
-- **P1.4 Fulfillment** — webhook reconciles `intent.amount` vs `getCartTotals`; `mms_fulfill_order` snapshots order + awards gems. ⬜
+- **P1.4 Fulfillment** — ✅ webhook is signature-verified, idempotent on the PI id, **reconciles** `intent.amount` vs `getCartTotals` (409 on mismatch), and `mms_fulfill_order` snapshots the order in cents (landed in P1.0). **Hardened (this phase):** a failed `mms_fulfill_order` now returns 5xx so Stripe **redelivers** (was swallowed → 200 → charged-but-no-order); a `succeeded` intent missing `cartId` is logged. _Gem awarding deferred → M4_ (anon diner ↔ `loyalty_rewards.user_id NOT NULL`). ✅
 - **P1.5 Track** — order-status timeline via Realtime. ⬜
 - **P1.6 Hardening** — nonce-based CSP, ESLint flat config + `packages/config`, env wired in Vercel preview. ⬜
 
@@ -93,9 +93,10 @@ Smallest slice that takes one real test charge end-to-end (solo Scan & Go). **No
 
 ## 🧩 Service-model track (dine-in full service) &nbsp;`milestone:S1…S4`
 
-The full-service layer over the guest self-serve core: **staff/floor, line authority, tabs, and the unified basket** from [`docs/context/ORDER-MODEL.md`](docs/context/ORDER-MODEL.md). The spine is shared — one **table-owned order ledger** (M1) — so these *extend* the app, they don't fork it. An `S` track (not `M7+`) so the existing numbering/labels stay put; **milestone number ≠ build order** (see the interleave at the end).
+The full-service layer over the guest self-serve core: **staff/floor, line authority, tabs, and the unified basket** from [`docs/context/ORDER-MODEL.md`](docs/context/ORDER-MODEL.md). The spine is shared — one **table-owned order ledger** (M1) — so these _extend_ the app, they don't fork it. An `S` track (not `M7+`) so the existing numbering/labels stay put; **milestone number ≠ build order** (see the interleave at the end).
 
 **Touch-points — build these M-phases with the S-track in mind:**
+
 - **M3.3 `canMutate`** — give the host-lock the **state × role** signature (`canMutate(line_state, actor_role)`) so S2's post-fire locks extend it rather than refactor it.
 - **M2.2 pickup fire-time** — make it the **same** fire/KDS mechanism S2 introduces; don't grow a second timer.
 - **M6.3 EBT** — consumes S4's **split-tender seam** (a payment over a line subset).
@@ -106,10 +107,10 @@ The door for humans; the single-source-of-truth across channels. **Dep:** M1 (le
 
 - **S1.1** Staff auth + **roles** (server / manager / owner), distinct from anon diners; RLS so staff read/write **any** table session, diners only their own. ⬜
 - **S1.2** **Floor view** — legible per-table state (live cart? seats? last activity?) on a staff device. ⬜
-- **S1.3** **Staff write** to a table order (order *for* a guest — "browse on phone, pay a human" closes here; cash is first-class). ⬜
+- **S1.3** **Staff write** to a table order (order _for_ a guest — "browse on phone, pay a human" closes here; cash is first-class). ⬜
 - **S1.4** **Soft convergence** — warn on divergence (new order on a table with a live cart) · **one-tap merge** of two table orders (role-gated, logged) · session **expiry** + staff **"clear table"** on turnover. ⬜
 
-**Exit:** a server can find any table, see/extend its cart, settle it (incl. cash), and a double-order is a one-tap merge. *Unlocks all four low-tech fallbacks.*
+**Exit:** a server can find any table, see/extend its cart, settle it (incl. cash), and a double-order is a one-tap merge. _Unlocks all four low-tech fallbacks._
 
 ### ⬜ S2 — Line lifecycle & authority &nbsp;`milestone:S2`
 
@@ -127,7 +128,7 @@ What lets the kitchen trust the screen + gives loss-controlled undo. **Dep:** S1
 "Keep the tab open" — the table order settled at close. **Dep:** S1 (staff close) · M1 (ledger) · reuses S2's approvals for after-hours closes.
 
 - **S3.1** **Trust tab** (default) — accumulate, settle at close with any tender; **tip on the final total**. ⬜
-- **S3.2** **Secure tab** — SetupIntent card at open *or attached mid-tab*, off-session charge at close; validate at open; handle close-decline. ⬜
+- **S3.2** **Secure tab** — SetupIntent card at open _or attached mid-tab_, off-session charge at close; validate at open; handle close-decline. ⬜
 - **S3.3** **Server-discretion** gating — courtesy framing + a light **nudge** on large/new tables + a **silent ceiling** on a ballooning trust tab; host-of-record on group tabs. ⬜
 
 **Exit:** a table runs a trust tab and settles once at close (any tender); a server can require/convert to a secure tab; tip lands on the final total.
