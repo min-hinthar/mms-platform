@@ -60,3 +60,29 @@ The first PR to run the (now-fixed) Claude review/adversarial gates with comment
   `used` but doesn't consume a redemption; the correct fix consumes on _fulfillment_, and no promo
   codes are seeded, so it's not exploitable now). Raw **`cartId` in the URL → later** (LOW; the
   membership auth gate, not the id, is the capability check).
+
+### Second pass — review + adversarial on the fix commit (2026-06-19)
+
+Both gates favorable on the P1.2 fix commit: **adversarial = PASS (zero Critical)**, **review = Approve
+with notes**. New findings triaged:
+
+- **Fixed** — migration `20260619000100_cart_item_qty_cap`: `mms_cart_item_inc_qty` is now bounded
+  (`qty < 99`) **and** status-atomic (JOINs the cart, requires `status='open'`) in one UPDATE, with a
+  `CHECK (qty between 1 and 99)` backstop — closes the qty-inflation vector (MEDIUM) and the
+  webhook-flips-`paid`-mid-flight RPC race (adversarial MEDIUM) together. `Checkout.refresh()`/
+  `changeQty` now swallow the post-payment 403 (MEDIUM — the read path would otherwise throw an
+  uncaught rejection once a cart is paid); Stepper `+` disables at 99; `applyPromo` PostHog
+  `distinctId` → verified `uid` (LOW); `TableCartProvider` announces a brief **success** message too
+  (adversarial a11y MEDIUM, WCAG 4.1.3) without making the rolling total live.
+- **Verified-and-dismissed** — `setQtyInput` "has no upper bound" is wrong: `packages/db/src/schemas.ts`
+  already caps `qty` at `.max(99)`. `mms_cart_item_inc_qty` "should be SECURITY DEFINER" — no: it's
+  service-role-only and revoked from `anon`/`authenticated`, so INVOKER is the _narrower_ (correct)
+  privilege; DEFINER would only widen the surface. (Advisors confirm: the function is not flagged.)
+- **Deferred (documented)** — `setQty` **last-write-wins** (absolute-value write) → the group-cart
+  **realtime** phase, alongside the **first-add double-insert** merge (both: not a charge error — rows
+  sum correctly; only matters once concurrent group editing is wired, which P1.2 does not do). The
+  clean fix for both is a delta/`ON CONFLICT` RPC with a normalized modifier key. **`modKey` keyed on
+  option labels vs ids** → when the modifier sheet ships (moot today: addItem sends no modifiers).
+  **Promo enumeration rate-limit → M2** (with the redemption work). Stepper **debounce** + paid-cart
+  **distinct message** + **`cartId`-in-URL** → later polish (Low; mitigated by `disabled`-while-pending
+  / the auth gate).

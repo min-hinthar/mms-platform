@@ -26,14 +26,23 @@ export function Checkout({
   const [pending, startTransition] = useTransition();
 
   async function refresh() {
-    const v = await getCartView(cartId);
-    setItems(v.items);
-    setTotals(v.totals);
+    try {
+      const v = await getCartView(cartId);
+      setItems(v.items);
+      setTotals(v.totals);
+    } catch {
+      // The cart is no longer open (paid/closed) — assertCartMember throws 403. Swallow it so the
+      // read path doesn't surface an uncaught rejection; P1.3 redirects to the receipt page here.
+    }
   }
 
   function changeQty(id: string, qty: number) {
     startTransition(async () => {
-      await setQtyAction(id, qty);
+      try {
+        await setQtyAction(id, qty);
+      } catch {
+        // Locked or no-longer-open — refresh() below re-syncs the UI to server truth.
+      }
       await refresh();
     });
   }
@@ -212,8 +221,8 @@ function Stepper({
       </output>
       <button
         type="button"
-        disabled={disabled}
-        aria-label={`Add another ${name}`}
+        disabled={disabled || qty >= 99}
+        aria-label={qty >= 99 ? `Maximum 99 ${name}` : `Add another ${name}`}
         onClick={() => onChange(qty + 1)}
         style={btn}
       >

@@ -91,8 +91,10 @@ export async function addItem(cartId: string, menuItemId: string, modifierIds: s
     .eq("menu_item_id", input.menuItemId);
   const dup = (siblings ?? []).find((s) => modKey(s.modifiers) === modKey(opts));
   if (dup) {
-    // ATOMIC increment (qty = qty + 1 in-DB) — not a read-modify-write, so two concurrent
-    // group-cart adds of the same line can't lose an increment (undercharge).
+    // ATOMIC increment — a single in-DB `qty = qty + 1` that also JOINs the parent cart and
+    // requires `status = 'open'` and `qty < 99` (migration 20260619000100). So it can't lose an
+    // increment under concurrency (undercharge), can't bump a paid/fulfilled line (a webhook
+    // status flip racing the app-layer guard), and can't be looped to inflate the Stripe amount.
     await db.rpc("mms_cart_item_inc_qty", { p_id: dup.id });
   } else {
     await db.from("qr_cart_items").insert({
@@ -135,7 +137,7 @@ export async function setQty(cartItemId: string, qty: number) {
 
 export async function applyPromo(cartId: string, code: string) {
   const input = applyPromoInput.parse({ cartId, code });
-  const { locked } = await assertCartMember(input.cartId);
+  const { uid, locked } = await assertCartMember(input.cartId);
   if (locked) throw new Error("Order is locked by the host");
   const db = serviceClient();
   const { data: promo } = await db
@@ -152,7 +154,7 @@ export async function applyPromo(cartId: string, code: string) {
 
   const posthog = getPostHogClient();
   posthog.capture({
-    distinctId: input.cartId,
+    distinctId: uid, // the verified diner uid (matches item_added_to_cart) — not the cart id
     event: "promo_applied",
     properties: {
       cart_id: input.cartId,

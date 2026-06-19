@@ -57,9 +57,10 @@ export function TableCartProvider({ mode, children }: { mode: string; children: 
     };
   }, [cartId]);
 
-  // One polite live region for transactional feedback (RED-TEAM/QA). We announce FAILURES only —
-  // not every add (the rolling total/CartBar deliberately aren't aria-live). Server Action errors
-  // are redacted in prod, so the message is generic rather than echoing the server's text.
+  // One polite live region for transactional feedback (RED-TEAM/QA). We announce a brief, STATIC
+  // confirmation on success and a generic message on failure (WCAG 4.1.3 status messages) — but
+  // never the rolling total itself (the CartBar/total deliberately aren't aria-live, so SR users
+  // don't hear the amount re-read on every tap). Server errors are redacted in prod → generic text.
   const [notice, setNotice] = useState<string | null>(null);
 
   const add = useCallback(
@@ -68,6 +69,8 @@ export function TableCartProvider({ mode, children }: { mode: string; children: 
       try {
         await addItemAction(cartId, menuItemId, []); // base item; modifier sheet is follow-up polish
         await refresh();
+        setNotice("Added to your order");
+        setTimeout(() => setNotice(null), 2000);
       } catch (e) {
         setNotice("Couldn’t add that — please try again.");
         setTimeout(() => setNotice(null), 3000);
