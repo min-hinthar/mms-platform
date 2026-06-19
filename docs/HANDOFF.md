@@ -47,14 +47,14 @@ QA gate, rubric, red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md),
   ```
 - **Supabase MCP** is scoped per `project_ref` — ensure it targets `fasnpdhtvqtzjlvruqcu`. Run
   `get_advisors` (security + performance) after every migration.
-- **Anonymous sign-ins**: enabled as code in `supabase/config.toml` (applies to the local stack /
-  CI). ⚠️ **Still must be toggled ON for the LIVE project** (dashboard → Auth, or `supabase config
-push` once linked) before the anon-auth flow works in Vercel preview/prod. **Leaked-password
-  protection is Pro-only** — accepted; that advisor warning is benign.
+- **Anonymous sign-ins**: **ENABLED on the live project** (`fasnpdhtvqtzjlvruqcu`) — verified
+  2026-06-18 against the auth endpoint (anonymous `signup` returns a session with
+  `is_anonymous: true`). Also set as code in `supabase/config.toml` for the local stack / CI.
+  **Leaked-password protection is Pro-only** — accepted; that advisor warning is benign.
 - **Local Supabase stack** boots in the sandbox (Docker) with `supabase start -x edge-runtime`
   (the edge-runtime container hits an rlimit/TLS wall here; we have no edge functions). That's how
-  to regenerate types: `pnpm db:types` (stack up) → commits `database.types.ts` (raw `--local
---schema public`; prettier-ignored — CI's `types-fresh` diffs it raw).
+  to regenerate types: `pnpm db:types` (stack up) → commits `database.types.ts`
+  (raw `--local --schema public`; prettier-ignored — CI's `types-fresh` diffs it raw).
 
 ## Next tasks (in order)
 
@@ -76,20 +76,19 @@ push` once linked) before the anon-auth flow works in Vercel preview/prod. **Lea
 
 ### Then P1.4+ (see ROADMAP): fulfillment end-to-end → Track timeline.
 
-## CI / infra follow-ups (small, do alongside P1.2)
+## CI / infra follow-ups — DONE (2026-06-18)
 
-- ⚠️ **Enable anonymous sign-ins on the LIVE project** (`fasnpdhtvqtzjlvruqcu`, dashboard → Auth or
-  `supabase config push`). This is a **runtime prerequisite for P1.2+** — without it the anon-auth
-  flow is dark in Vercel preview/prod even though CI/build are green.
-- **Create the `adversarial` + `adversarial-signed-off` labels** (run `setup.sh`'s label step).
-  Context: PR #4 fixed the `adversarial-pr` gate to read the verdict from the agent's **execution
-  log** (`$RUNNER_TEMP/claude-execution-output.json`) — so normal PRs now pass automatically. For a
-  PR that **edits a `claude-*`/`adversarial-*` workflow** (whose own review the action skips,
-  anti-tampering), sign off with either that label **or** a collaborator (OWNER/MEMBER/COLLABORATOR)
-  PR comment containing the marker `ADVERSARIAL_SIGNOFF` (the new label-free path).
-- **`pnpm format`** the 9 pre-existing prettier-flagged files from PR #3 (`CLAUDE.md`,
-  `docs/context/*`, `docs/prototype/v7.2.html`) — drift already on `main`, not in the CI gate; a
-  tiny standalone cleanup PR.
+- ✅ **Anonymous sign-ins enabled on the live project** (verified — see Environment facts).
+- ✅ **`adversarial` + `adversarial-signed-off` labels created.** The `adversarial-pr` gate reads the
+  verdict from the agent's execution log via an EPIPE-proof bash `case` match (see LEARNINGS), so
+  normal PRs pass automatically. A PR that edits a `claude-*`/`adversarial-*` workflow (its own
+  review is skipped, anti-tampering) is signed off with the `adversarial-signed-off` label **or** a
+  collaborator (OWNER/MEMBER/COLLABORATOR) PR comment containing `ADVERSARIAL_SIGNOFF`.
+- ✅ **Prettier doc drift fixed** (PR #5) — `pnpm format:check` is clean; `docs/prototype/v7.2.html`
+  is prettier-ignored as a vendored reference.
+- ✅ **Repo auto-merge enabled** — future PRs can `enable_pr_auto_merge` to merge on green.
+
+Nothing infra-blocking remains for P1.2.
 
 ## Verify
 
