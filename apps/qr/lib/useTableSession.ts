@@ -38,6 +38,8 @@ export function useTableSession(mode: string) {
   const minting = useRef(false);
 
   useEffect(() => {
+    // `mode` is fixed for a mounted page (each route passes a constant). Once a session exists we
+    // never re-mint, so a *runtime* mode change would no-op — remount the route to switch modes.
     if (!anon || session || minting.current) return;
     minting.current = true;
     const qrCode = deviceQrCode(mode);

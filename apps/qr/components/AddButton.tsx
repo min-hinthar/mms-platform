@@ -52,7 +52,7 @@ export function AddButton({
         opacity: !soldOut && disabled ? 0.6 : 1,
       }}
     >
-      {busy ? "…" : soldOut ? "86'd" : "Add"}
+      {busy ? "…" : soldOut ? "Sold out" : "Add"}
     </button>
   );
 }

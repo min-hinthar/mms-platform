@@ -86,3 +86,26 @@ with notes**. New findings triaged:
   **Promo enumeration rate-limit → M2** (with the redemption work). Stepper **debounce** + paid-cart
   **distinct message** + **`cartId`-in-URL** → later polish (Low; mitigated by `disabled`-while-pending
   / the auth gate).
+
+### Third pass — review + security + adversarial (2026-06-19)
+
+**adversarial = PASS**, **security review = clean except the findings below**, **code review = Approve**.
+The reviews probed the _whole_ cart-mutation surface (not just the increment fixed in pass 2):
+
+- **Fixed** — migration `20260619000200_cart_mutations_status_atomic`: `mms_cart_item_insert_if_open`
+  - `mms_cart_item_set_qty_if_open` carry the `status='open'` guard into the INSERT (new line) and
+    the setQty UPDATE/DELETE, so **every** cart write is status-atomic in one statement (closes the
+    two MEDIUM TOCTOUs symmetric to the increment). Same migration closes a **MEDIUM grant gap**: the
+    prior `revoke … from anon, authenticated` was a no-op (Postgres grants new fns to `PUBLIC`), so all
+    three cart RPCs now `revoke … from public` + `grant execute … to service_role` (the
+    `20260618000100_lockdown_grants` pattern). A11y/UX MEDIUM/LOWs: `TableCartProvider.refresh()` +
+    initial-load `.catch()` (no false-negative "Couldn't add"; no unhandled rejection); Stepper count
+    is a plain `<span>` not `<output>` (implicit `role=status`); pay-CTA `title` → visible
+    `aria-describedby`; "86'd" → "Sold out"; `CartBar` `encodeURIComponent(cartId)`.
+- **Deferred (documented)** — **lock-cart-at-`create-intent`** (the compound stuck-payment vector:
+  a concurrent add after intent-create → webhook amount mismatch → 409 retries) → **P1.3**: the
+  correct fix needs the unlock-on-failure/expiry lifecycle that lands with the payment flow, and the
+  DB-level status guards added here already harden the underlying race. **qrCode host-squatting**
+  (any anon can POST an arbitrary `qrCode` and become host) → **M3** QR provisioning (HMAC-signed
+  payloads); dine-in interim codes should be non-guessable. `useTableSession` runtime mode-change
+  no-op → documented invariant (remount to switch). The pass-2 deferrals stand.

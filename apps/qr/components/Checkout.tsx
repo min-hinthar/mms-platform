@@ -155,7 +155,7 @@ export function Checkout({
       <button
         type="button"
         disabled
-        title="Secure card checkout arrives next (P1.3)"
+        aria-describedby="pay-cta-note"
         style={{
           width: "100%",
           marginTop: 12,
@@ -170,6 +170,14 @@ export function Checkout({
       >
         Continue to payment — arriving next
       </button>
+      {/* Visible + programmatically-associated reason (aria-describedby) — `title` is invisible on
+          mobile and unreliable in screen readers. */}
+      <p
+        id="pay-cta-note"
+        style={{ fontSize: 11, color: "var(--t3)", marginTop: 6, textAlign: "center" }}
+      >
+        Secure card checkout arrives next (P1.3).
+      </p>
     </main>
   );
 }
@@ -207,8 +215,10 @@ function Stepper({
       >
         {qty <= 1 ? "🗑" : "−"}
       </button>
-      <output
-        aria-live="off"
+      {/* Plain <span> (not <output>): <output> has an implicit role="status"/aria-live="polite"
+          that NVDA + VoiceOver announce on every stepper press even with aria-live="off". The label
+          stays readable on navigation; the count must NOT be a live region (RED-TEAM/QA). */}
+      <span
         aria-label={`Quantity ${qty}`}
         style={{
           minWidth: 20,
@@ -218,7 +228,7 @@ function Stepper({
         }}
       >
         {qty}
-      </output>
+      </span>
       <button
         type="button"
         disabled={disabled || qty >= 99}

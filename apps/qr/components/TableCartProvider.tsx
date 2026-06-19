@@ -37,9 +37,14 @@ export function TableCartProvider({ mode, children }: { mode: string; children: 
 
   const refresh = useCallback(async () => {
     if (!cartId) return;
-    const v = await getCartView(cartId);
-    setItems(v.items);
-    setTotals(v.totals);
+    try {
+      const v = await getCartView(cartId);
+      setItems(v.items);
+      setTotals(v.totals);
+    } catch {
+      // Cart no longer open (paid/closed) → assertCartMember 403. Swallow so a stale read after a
+      // successful add can't surface as a false-negative "Couldn't add"; P1.3 redirects to a receipt.
+    }
   }, [cartId]);
 
   // Initial load when the cart id resolves — setState lives in the `.then` callback (the allowed
@@ -47,11 +52,15 @@ export function TableCartProvider({ mode, children }: { mode: string; children: 
   useEffect(() => {
     if (!cartId) return;
     let active = true;
-    void getCartView(cartId).then((v) => {
-      if (!active) return;
-      setItems(v.items);
-      setTotals(v.totals);
-    });
+    void getCartView(cartId)
+      .then((v) => {
+        if (!active) return;
+        setItems(v.items);
+        setTotals(v.totals);
+      })
+      .catch(() => {
+        // Cart paid/closed between session mint and first load — leave the view empty (no throw).
+      });
     return () => {
       active = false;
     };

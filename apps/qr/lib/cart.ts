@@ -97,16 +97,19 @@ export async function addItem(cartId: string, menuItemId: string, modifierIds: s
     // status flip racing the app-layer guard), and can't be looped to inflate the Stripe amount.
     await db.rpc("mms_cart_item_inc_qty", { p_id: dup.id });
   } else {
-    await db.from("qr_cart_items").insert({
-      cart_id: input.cartId,
-      menu_item_id: input.menuItemId,
-      name,
-      qty: 1,
-      modifiers: opts,
-      unit_price_cents: unitPriceCents,
-      tax_cents: taxCents,
-      by_seat: uid, // provenance from the VERIFIED uid, not a client-asserted seat
+    // Status-atomic insert — the new line is written only if the parent cart is still 'open', in one
+    // statement (migration 20260619000200), so a webhook status flip can't slip a post-payment row
+    // past the app-layer guard. A NULL id back ⇒ the cart is no longer open.
+    const { data: insertedId } = await db.rpc("mms_cart_item_insert_if_open", {
+      p_cart_id: input.cartId,
+      p_menu_item_id: input.menuItemId,
+      p_name: name,
+      p_modifiers: opts,
+      p_unit_price_cents: unitPriceCents,
+      p_tax_cents: taxCents,
+      p_by_seat: uid, // provenance from the VERIFIED uid, not a client-asserted seat
     });
+    if (!insertedId) throw new Error("Cart is no longer open");
   }
   await db.from("qr_carts").update({ updated_at: new Date().toISOString() }).eq("id", input.cartId);
 
@@ -130,8 +133,13 @@ export async function setQty(cartItemId: string, qty: number) {
   const { cartId, locked } = await assertCartItemMember(input.cartItemId);
   if (locked) throw new Error("Order is locked by the host");
   const db = serviceClient();
-  if (input.qty <= 0) await db.from("qr_cart_items").delete().eq("id", input.cartItemId);
-  else await db.from("qr_cart_items").update({ qty: input.qty }).eq("id", input.cartItemId);
+  // Status-atomic set/delete (qty<=0 removes) — applies only while the parent cart is 'open' in one
+  // statement (migration 20260619000200), matching the addItem paths. 0 rows ⇒ paid/closed (or gone).
+  const { data: affected } = await db.rpc("mms_cart_item_set_qty_if_open", {
+    p_id: input.cartItemId,
+    p_qty: input.qty,
+  });
+  if (!affected) throw new Error("Cart is no longer open");
   await db.from("qr_carts").update({ updated_at: new Date().toISOString() }).eq("id", cartId);
 }
 

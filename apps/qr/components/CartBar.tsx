@@ -18,7 +18,7 @@ export function CartBar() {
   return (
     <button
       type="button"
-      onClick={() => router.push(`/cart?cart=${cartId}`)}
+      onClick={() => router.push(`/cart?cart=${encodeURIComponent(cartId)}`)}
       aria-label={`View order — ${count} ${count === 1 ? "item" : "items"}, subtotal ${dollars}`}
       className="card"
       style={{
