@@ -59,7 +59,10 @@ export async function POST(req: NextRequest) {
     const err = e as Error;
     // ZodError (bad input shape) → 400; anything else → 500. (Avoid importing zod here so knip
     // doesn't flag an unused dep in apps/qr; the schema lives in @mms/db.)
-    const status = err.name === "ZodError" ? 400 : 500;
-    return NextResponse.json({ error: err.message }, { status });
+    if (err.name === "ZodError") return NextResponse.json({ error: err.message }, { status: 400 });
+    // Don't leak a raw SDK string (e.g. a Stripe config/PM message) in the response body — it aids
+    // recon. The client already shows a generic UX message; log the real one server-side only.
+    console.error("[create-intent] unexpected failure:", err);
+    return NextResponse.json({ error: "Payment service error" }, { status: 500 });
   }
 }

@@ -152,7 +152,7 @@ function PayForm({
           cursor: submitting ? "default" : "pointer",
         }}
       >
-        ← Edit order
+        <span aria-hidden>←</span> Edit order
       </button>
     </form>
   );

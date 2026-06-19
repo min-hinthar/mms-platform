@@ -172,3 +172,12 @@ self-adversarial + design-fidelity pass before the PR.
   amount-reconcile already prevents mis-fulfillment, which is sufficient for solo test-mode P1.3.
   Also still open: `/cart` distinct paid-cart message (the diner is redirected to `/track`, not
   `/cart`, post-pay) and the Stripe-error UX beyond `error.message`.
+- **Adversarial pass (zero Critical) — addressed in this PR.** A11y: focus → heading on every
+  review↔pay transition (WCAG 2.4.3); decorative `←` glyphs `aria-hidden`. UX/trust: review summary
+  previews the tip ("Tip" row + "Estimated total", exact-reconciling with the pay total); `/track`
+  processing state gets reassurance copy + a back link; `/track` sets a per-state tab title.
+  Security: `create-intent` 500 body is now generic (`"Payment service error"`), real message logged
+  server-side only.
+- **Still deferred → P1.5 Realtime:** the `/track` `processing` state has no live polling/auto-refresh
+  (the page renders from the URL `redirect_status`, which is static) — it lands with the
+  Realtime order timeline. Per-reason promo messaging stays M2.

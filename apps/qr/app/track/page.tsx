@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 
 // /track — P1.3 renders the post-payment confirmation from Stripe's `redirect_status` (appended to
@@ -7,11 +8,28 @@ import Link from "next/link";
 const wrap = { padding: 24, maxWidth: 440, margin: "0 auto" } as const;
 const back = { color: "var(--ac)", fontWeight: 700 } as const;
 
-export default async function Track({
+type SearchParams = Promise<{ redirect_status?: string; cart?: string }>;
+
+// Per-state tab title (brand hygiene): after the Stripe redirect the tab would otherwise keep the
+// Payment Element's title.
+export async function generateMetadata({
   searchParams,
 }: {
-  searchParams: Promise<{ redirect_status?: string; cart?: string }>;
-}) {
+  searchParams: SearchParams;
+}): Promise<Metadata> {
+  const { redirect_status: status } = await searchParams;
+  const title =
+    status === "succeeded"
+      ? "Order confirmed"
+      : status === "processing"
+        ? "Confirming payment"
+        : status
+          ? "Payment unsuccessful"
+          : "Track your order";
+  return { title };
+}
+
+export default async function Track({ searchParams }: { searchParams: SearchParams }) {
   const { redirect_status: status, cart } = await searchParams;
 
   if (status === "succeeded")
@@ -35,9 +53,13 @@ export default async function Track({
       <main style={wrap}>
         <h1 style={{ fontSize: 28 }}>Payment processing</h1>
         <p style={{ color: "var(--t2)" }}>
-          We’re confirming your payment — this can take a moment. Your order will appear here once
-          it clears.
+          We’re confirming your payment — this can take a moment (some bank methods settle slowly).
+          You can safely close this; your order goes to the kitchen the moment it clears, and live
+          status will appear here.
         </p>
+        <Link href="/menu" style={back}>
+          Back to menu
+        </Link>
       </main>
     );
 
@@ -49,7 +71,7 @@ export default async function Track({
           No charge was made — you can try again from your order.
         </p>
         <Link href={cart ? `/cart?cart=${encodeURIComponent(cart)}` : "/menu"} style={back}>
-          ← Back to your order
+          <span aria-hidden>←</span> Back to your order
         </Link>
       </main>
     );

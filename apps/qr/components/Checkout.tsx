@@ -51,6 +51,15 @@ export function Checkout({
     prevLen.current = items.length;
   }, [items.length]);
 
+  // On a review↔pay transition the button that triggered it (Continue / Edit order) unmounts while
+  // holding focus → focus would drop to <body> with no cue (WCAG 2.4.3). The heading is mounted in
+  // both steps, so move focus there after the commit. Skip the first mount (no transition yet).
+  const mounted = useRef(false);
+  useEffect(() => {
+    if (mounted.current) headingRef.current?.focus();
+    else mounted.current = true;
+  }, [step]);
+
   async function refresh() {
     try {
       const v = await getCartView(cartId);
@@ -139,12 +148,18 @@ export function Checkout({
         <h1 style={{ fontSize: 28 }}>Your order</h1>
         <p style={{ color: "var(--t2)" }}>Nothing here yet.</p>
         <Link href="/menu" style={{ color: "var(--ac)", fontWeight: 700 }}>
-          ← Back to menu
+          <span aria-hidden>←</span> Back to menu
         </Link>
       </main>
     );
 
   const onPay = step === "pay" && clientSecret && payTotals;
+  // Client tip PREVIEW (a hint, not the charge) — identical formula to the server's
+  // `Math.round(netCents * rate)` (lib/totals.ts), so the previewed "Estimated total" reconciles
+  // exactly with the tip-inclusive total create-intent returns on the pay step.
+  const tipPreview = (rate: number) =>
+    Math.round((totals.subtotalCents - totals.discountCents) * rate);
+  const tipPreviewCents = tipPreview(tipRate);
 
   return (
     <main style={{ padding: "24px 20px 40px", maxWidth: 440, margin: "0 auto" }}>
@@ -242,7 +257,7 @@ export function Checkout({
           >
             {TIPS.map(([label, rate]) => {
               const on = tipRate === rate;
-              const previewCents = Math.round((totals.subtotalCents - totals.discountCents) * rate);
+              const previewCents = tipPreview(rate);
               return (
                 <button
                   key={rate}
@@ -283,7 +298,14 @@ export function Checkout({
             {totals.discountCents > 0 && <Row k="Promo" cents={-totals.discountCents} />}
             <Row k="Service charge (5%)" cents={totals.serviceChargeCents} />
             <Row k="Sales tax" cents={totals.taxCents} />
-            <Row k="Total" cents={totals.totalCents} strong />
+            {/* Tip is previewed here so the review total matches the pay-step total — labeled
+                "Estimated" until create-intent confirms it server-side. */}
+            {tipPreviewCents > 0 && <Row k="Tip" cents={tipPreviewCents} />}
+            <Row
+              k={tipPreviewCents > 0 ? "Estimated total" : "Total"}
+              cents={totals.totalCents + tipPreviewCents}
+              strong
+            />
           </dl>
 
           <p style={{ fontSize: 11, color: "var(--t3)" }}>
