@@ -1,12 +1,64 @@
-// STUB — live order tracker. M1: subscribe to order status (Supabase Realtime) and render
-// the placed → kitchen → ready → served timeline. Dine-in: refill bell. Pickup: "I'm here".
-export default function Track() {
+import Link from "next/link";
+
+// /track — P1.3 renders the post-payment confirmation from Stripe's `redirect_status` (appended to
+// the Payment Element return_url). Fulfillment is asynchronous: the signature-verified webhook writes
+// qr_orders + flips the cart to paid. The live placed → kitchen → ready timeline + ETA (Supabase
+// Realtime on the orders table) is P1.5.
+const wrap = { padding: 24, maxWidth: 440, margin: "0 auto" } as const;
+const back = { color: "var(--ac)", fontWeight: 700 } as const;
+
+export default async function Track({
+  searchParams,
+}: {
+  searchParams: Promise<{ redirect_status?: string; cart?: string }>;
+}) {
+  const { redirect_status: status, cart } = await searchParams;
+
+  if (status === "succeeded")
+    return (
+      <main style={wrap}>
+        <div style={{ fontSize: 44, lineHeight: 1 }} aria-hidden>
+          ✓
+        </div>
+        <h1 style={{ fontSize: 28, margin: "8px 0" }}>Payment received</h1>
+        <p style={{ color: "var(--t2)" }}>
+          Your order’s in — the kitchen has it. Live status and your ETA will appear here.
+        </p>
+        <Link href="/menu" style={back}>
+          Back to menu
+        </Link>
+      </main>
+    );
+
+  if (status === "processing")
+    return (
+      <main style={wrap}>
+        <h1 style={{ fontSize: 28 }}>Payment processing</h1>
+        <p style={{ color: "var(--t2)" }}>
+          We’re confirming your payment — this can take a moment. Your order will appear here once
+          it clears.
+        </p>
+      </main>
+    );
+
+  if (status)
+    return (
+      <main style={wrap}>
+        <h1 style={{ fontSize: 28 }}>Payment didn’t go through</h1>
+        <p style={{ color: "var(--t2)" }}>
+          No charge was made — you can try again from your order.
+        </p>
+        <Link href={cart ? `/cart?cart=${encodeURIComponent(cart)}` : "/menu"} style={back}>
+          ← Back to your order
+        </Link>
+      </main>
+    );
+
+  // Direct visit (no payment redirect) — timeline stub (P1.5).
   return (
-    <main style={{ padding: 24, maxWidth: 440, margin: "0 auto" }}>
-      <h1>Track</h1>
-      <p style={{ color: "var(--t2)" }}>
-        Order timeline + ETA. Wire to the orders table via Realtime in M1.
-      </p>
+    <main style={wrap}>
+      <h1 style={{ fontSize: 28 }}>Track</h1>
+      <p style={{ color: "var(--t2)" }}>Your order timeline and ETA will appear here.</p>
     </main>
   );
 }

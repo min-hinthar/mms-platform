@@ -5,7 +5,7 @@
   "workspaces": {
     "apps/qr": {
       "entry": ["lib/*.ts"],
-      "ignoreDependencies": ["@stripe/react-stripe-js", "@stripe/stripe-js", "zustand"]
+      "ignoreDependencies": ["zustand"]
     },
     "packages/ui": {
       "ignoreDependencies": ["clsx"]

@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { sessionMintOutput } from "@mms/db/schemas";
 import { useAnonSession } from "./useAnonSession";
 
 export type TableSession = {
@@ -56,7 +57,9 @@ export function useTableSession(mode: string) {
           const j = (await r.json().catch(() => ({}))) as { error?: string };
           throw new Error(j.error ?? `HTTP ${r.status}`);
         }
-        return r.json() as Promise<{ sessionId: string; seat: string; cartId: string }>;
+        // Parse the response shape (not just trust the cast) — a missing/blank cartId from a deploy
+        // skew throws here instead of silently driving a cart-less UI.
+        return sessionMintOutput.parse(await r.json());
       })
       .then((d) =>
         setSession({

@@ -29,6 +29,13 @@ export async function POST(req: NextRequest) {
       { idempotencyKey: `pi_${cartId}_${amount}` }, // dedupe double-submits; a changed amount → a new intent
     );
 
+    // NOTE(realtime phase): we intentionally do NOT lock the cart here. A lock during the pay window
+    // only matters under CONCURRENT editing (group carts), which isn't wired yet — and locking at
+    // intent-create strands a cart if the diner abandons the pay screen (no auto-release). The
+    // signature-verified webhook already reconciles the live total vs intent.amount before fulfilling
+    // (a mutated cart 409s, never mis-fulfills). The lock + its unlock lifecycle land with the
+    // group-cart Realtime sync (where concurrent editors and a natural release point exist).
+
     const posthog = getPostHogClient();
     posthog.capture({
       distinctId: cartId,

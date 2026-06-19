@@ -59,7 +59,20 @@ export const scanInput = z.object({
 /** getCartView — a member-gated read of a cart's lines + server-authoritative totals. */
 export const cartViewInput = z.object({ cartId: uuid });
 
+/**
+ * Shape of the `POST /api/session` RESPONSE — parsed on the client so a contract drift (a deploy
+ * skew, a missing `cartId`) surfaces as a hard parse error instead of silently degrading to "no
+ * cart". "Parse at the trust boundary" cuts both ways: validate what we receive, not just what we send.
+ */
+export const sessionMintOutput = z.object({
+  sessionId: uuid,
+  seat: uuid,
+  role: z.enum(["host", "guest"]),
+  cartId: uuid,
+});
+
 export type SessionMintInput = z.infer<typeof sessionMintInput>;
+export type SessionMintOutput = z.infer<typeof sessionMintOutput>;
 export type AddItemInput = z.infer<typeof addItemInput>;
 export type SetQtyInput = z.infer<typeof setQtyInput>;
 export type ApplyPromoInput = z.infer<typeof applyPromoInput>;

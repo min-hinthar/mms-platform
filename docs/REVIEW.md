@@ -147,3 +147,28 @@ MEDIUM + two LOWs:
   per-reason promo messaging needs a **result-based return** from `applyPromo` → M2 promo phase.
 - **Deferred (documented)** — the double `assertCartMember` round-trip per mutation (action +
   `refresh`) → the Realtime subscription phase (acceptable at P1.2 load). All prior deferrals stand.
+
+## Progress — M1·P1.3 Stripe Payment Element (test mode) (2026-06-19)
+
+First phase built under both bars (money-path hardening + v7.2 fidelity) up front, with a
+self-adversarial + design-fidelity pass before the PR.
+
+- **Closed M1 gate item 2 (Payment Element + cart-create) — ✅.** Two-step checkout (review + tip →
+  pay): `Checkout.tsx` → member-gated `/api/stripe/create-intent` → `PaymentSection.tsx` mounts
+  `<Elements>`/`<PaymentElement>` on the returned `clientSecret`. PAN stays in the Stripe iframe
+  (SAQ-A); amount is server-authoritative (the chip `<small>` is a labeled preview, not the charge).
+  Element appearance derived from `@mms/ui` tokens (light/Night). `confirmPayment` → `/track`
+  (`redirect_status` confirmation; live timeline → P1.5).
+- **M1 gate item 4 (webhook amount-reconcile) — already present** and is the P1.3 money guard: the
+  signature-verified webhook recomputes `getCartTotals` and 409s a mismatch before `mms_fulfill_order`
+  (idempotent on the PI id). No real cards (test mode).
+- **Folded-in prior deferrals — ✅** `sessionMintOutput` Zod-parses the `/api/session` response;
+  promo live region `aria-atomic`; focus moves to the heading when a stepper removes the last unit.
+- **Deferred (documented, with rationale)** — **cart-lock-during-pay → the group-cart Realtime
+  phase.** A self-adversarial pass caught that locking at intent-create _strands_ a cart when the
+  diner abandons the pay screen (no auto-release; their next `addItem` throws "locked"). A lock only
+  has value under **concurrent** editing (group carts, not wired) and wants the realtime sync's
+  natural release point — so the earlier "lock-at-create-intent → P1.3" plan was revised. The webhook
+  amount-reconcile already prevents mis-fulfillment, which is sufficient for solo test-mode P1.3.
+  Also still open: `/cart` distinct paid-cart message (the diner is redirected to `/track`, not
+  `/cart`, post-pay) and the Stripe-error UX beyond `error.message`.
