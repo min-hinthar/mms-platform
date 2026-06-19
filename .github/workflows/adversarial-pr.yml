@@ -1,13 +1,16 @@
 name: Adversarial PR Review
-# Per-PR adversarial pass — scoped to the diff, fast enough to gate merges.
-# The weekly whole-repo pass lives in adversarial.yml.
+# Per-PR adversarial pass — scoped to the diff. This is a PRE-MERGE gate, NOT a per-push job:
+# it runs ONLY when the `adversarial` label is added (deliberately, when a PR is ready to merge).
+# Running it on every push burned Max-plan quota and re-surfaced the same findings round after round
+# (see .claude/LEARNINGS.md). The weekly whole-repo pass lives in adversarial.yml.
 # Auth: Claude Code OAuth token (Max-plan quota).
+#
+# FLOW: open PR → CI + the on-demand review run → when ready to merge, add the `adversarial` label →
+# this runs and must report `ADVERSARIAL_VERDICT: PASS`. As a required check it stays "expected"
+# (merge blocked) until that happens, which is the point.
 on:
   pull_request:
-    # opened/synchronize/reopened/ready_for_review → runs on every push, so an
-    # adversarial pass always precedes merge. `labeled` → lets you re-prompt the
-    # gate before merging without a new commit (add the `adversarial` label).
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
+    types: [labeled]
 
 permissions:
   contents: read
@@ -21,9 +24,8 @@ concurrency:
 
 jobs:
   adversarial-pr:
-    # Run on every push event; on a `labeled` event run ONLY for the `adversarial`
-    # label, so unrelated labels don't burn a review. Drafts are skipped.
-    if: ${{ !github.event.pull_request.draft && (github.event.action != 'labeled' || github.event.label.name == 'adversarial') }}
+    # Pre-merge only: run solely for the `adversarial` label (any other label is a no-op). Drafts skip.
+    if: ${{ !github.event.pull_request.draft && github.event.label.name == 'adversarial' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

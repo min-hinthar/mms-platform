@@ -1,14 +1,18 @@
 name: Claude PR Review
-# Automated code review on every PR. PUBLIC repo → unlimited Actions minutes.
-# Setup (one-time): install the Claude GitHub App on the repo, then add the OAuth token
-# (Max-plan subscription quota, no per-token API billing):
-#   claude setup-token            # run locally, copy the sk-ant-oat01-... token
-#   gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo min-hinthar/mms-platform
-# Action inputs evolve — if a step errors, check anthropics/claude-code-action releases for the
-# current input names and pin a released tag instead of @v1.
+# Automated review + security pass. The Claude step is token-metered (Max-plan quota), so it runs
+# ON DEMAND, not on every push: the actual review fires on `opened` / `ready_for_review` (the first
+# look) or when you add the `review` label (re-review after addressing comments). On a plain
+# `synchronize` (push) the job no-ops to SUCCESS — so if these are required status checks they still
+# report green on the new head SHA, but without burning quota re-reviewing the whole diff each push
+# (which previously re-surfaced the same findings round after round — see .claude/LEARNINGS.md).
+# The deep pre-merge pass is adversarial-pr.yml (the `adversarial` label).
+#
+# Setup (one-time): install the Claude GitHub App, then add the OAuth token (no per-token billing):
+#   claude setup-token  →  gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo min-hinthar/mms-platform
+# Action inputs evolve — if a step errors, check anthropics/claude-code-action releases and pin a tag.
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, reopened, ready_for_review, synchronize, labeled]
 
 permissions:
   contents: read
@@ -16,14 +20,25 @@ permissions:
   issues: write
   id-token: write
 
+# One pass per PR at a time — a newer event cancels an in-flight run (no stacked reviews).
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   review:
     runs-on: ubuntu-latest
+    # Run the actual review only on open / ready / the `review` label. On synchronize (push) or any
+    # other label the steps skip and the job succeeds — keeps a required check green without re-running.
+    env:
+      RUN_PASS: ${{ !github.event.pull_request.draft && (github.event.action == 'opened' || github.event.action == 'reopened' || github.event.action == 'ready_for_review' || (github.event.action == 'labeled' && github.event.label.name == 'review')) }}
     steps:
       - uses: actions/checkout@v4
+        if: ${{ env.RUN_PASS == 'true' }}
         with:
           fetch-depth: 0
       - name: Claude code review
+        if: ${{ env.RUN_PASS == 'true' }}
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -43,11 +58,16 @@ jobs:
 
   security:
     runs-on: ubuntu-latest
+    # Same on-demand gate as `review` (open / ready / `review` label); no-op success on plain pushes.
+    env:
+      RUN_PASS: ${{ !github.event.pull_request.draft && (github.event.action == 'opened' || github.event.action == 'reopened' || github.event.action == 'ready_for_review' || (github.event.action == 'labeled' && github.event.label.name == 'review')) }}
     steps:
       - uses: actions/checkout@v4
+        if: ${{ env.RUN_PASS == 'true' }}
         with:
           fetch-depth: 0
       - name: Claude security review
+        if: ${{ env.RUN_PASS == 'true' }}
         # claude-code-security-review only accepts an ANTHROPIC_API_KEY (per-token billing) and
         # rejects claude-code-oauth-token, so it errored on every PR. Run the security pass through
         # claude-code-action instead — same OAuth/Max-plan token as the review job, no API billing.
