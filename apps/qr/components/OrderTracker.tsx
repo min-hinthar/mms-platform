@@ -28,9 +28,10 @@ export function OrderTracker({
 }) {
   const { order, timedOut } = useOrderStatus(paymentIntent);
   const arrived = !!order;
-  // "processing" = payment not yet captured → keep every step pending (no pulse) so the timeline
-  // doesn't imply "placed" while the chip says "Confirming payment". S2: derive from kitchen status.
-  const activeStep = processing && !arrived ? -1 : 0;
+  // Advance step 0 ONLY once the order row actually lands (arrived) on a captured payment — until
+  // then keep every step pending (no pulse) so the timeline never implies "placed" while the chip
+  // still reads "Confirming". S2: derive the active index from the kitchen status.
+  const activeStep = !processing && arrived ? 0 : -1;
 
   return (
     <main style={{ padding: "24px 20px 40px", maxWidth: 440, margin: "0 auto" }}>

@@ -56,7 +56,8 @@ export function useOrderStatus(paymentIntent: string | null): OrderStatus {
       // maybeSingle treats "no rows yet" as data:null/error:null, so `error` here is a genuine fetch
       // failure (RLS denied / auth lost / network). Fail fast after a few CONSECUTIVE ones instead of
       // burning the full ~30s poll on an unrecoverable state (LEARNINGS: wrap every swallowed error);
-      // a transient blip resets `errs` and self-heals via the retry below.
+      // a transient blip resets `errs` and self-heals via the retry below. (An error also falls through
+      // to the `tries` retry, so a mixed error/empty run still hits the ~30s `tries` cap before errs≥3.)
       if (error) {
         errs += 1;
         console.error("[useOrderStatus] order fetch failed", {
@@ -98,7 +99,9 @@ export function useOrderStatus(paymentIntent: string | null): OrderStatus {
     // postgres_changes is RLS-gated by qr_order_read regardless of channel privacy, so this is safe
     // as-is for M1. NOTE(S2): if kitchen status is pushed via BROADCAST on this channel, make it
     // `{ config: { private: true } }` + add a realtime.messages policy for `order-status:*` (like
-    // rt_member_read) — broadcast is NOT covered by the table RLS.
+    // rt_member_read) — broadcast is NOT covered by the table RLS. NOTE(S2): a DELETE event won't
+    // match this filter under default REPLICA IDENTITY (old row carries PK only; see the migration) —
+    // add `replica identity full` if S2 adds a deletion/correction path.
     const channel = supa
       .channel(`order-status:${paymentIntent}`)
       .on(

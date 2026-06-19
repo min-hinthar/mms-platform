@@ -196,7 +196,7 @@ self-adversarial + design-fidelity pass before the PR.
   a cold socket, so the order appears even if the live channel is slow — Realtime is the live path, not
   the only path.
 - **Fidelity + a11y up front (RUBRIC ≥4.3):** timeline ported from the v7.2 `.tk` rail (tokens only,
-  accent pulse with `prefers-reduced-motion` off-switch); `<ol>` + `aria-current="step"`; one polite live
+  accent pulse with `prefers-reduced-motion` off-switch); `<ul role="list">` (WebKit semantics) + `aria-current="step"`; one polite live
   region for the phase change; decorative dots `aria-hidden`. **No fabricated ETA** (honest — real ETA
   needs the KDS).
 - **Forward-compatible:** M1 has no kitchen actor so the active step rests at "Order placed"; **S2's
