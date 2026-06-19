@@ -10,6 +10,13 @@ export type TrackedOrder = {
   itemCount: number;
 };
 
+export type OrderStatus = {
+  order: TrackedOrder | null;
+  /** Recoverable dead-end: the order never showed (poll exhausted) or the PI id is malformed —
+   *  OrderTracker surfaces a Refresh prompt rather than stranding the diner post-payment. */
+  timedOut: boolean;
+};
+
 /**
  * Live tracking of the diner's OWN order, keyed by the Stripe PaymentIntent id (Stripe appends
  * `payment_intent` to the Payment Element return_url). Fulfillment is async — the signature-verified
@@ -17,15 +24,21 @@ export type TrackedOrder = {
  * **Postgres Changes** with no manual refresh. Authorization is the existing `qr_order_read` RLS
  * (`is_member(session_id)`), enforced per-subscriber by Realtime, so a guessed `payment_intent`
  * reveals nothing. A bounded fallback re-fetch (≈30s) covers the redirect→insert race and a cold
- * socket, so the order reliably appears even if the live channel is slow. Returns `null` until the
- * order exists. Forward-compatible: S2's kitchen-status updates arrive on the same subscription.
+ * socket; if it still doesn't arrive, `timedOut` lets the UI offer a refresh. Forward-compatible:
+ * S2's kitchen-status updates arrive on the same subscription.
  */
-export function useOrderStatus(paymentIntent: string | null): TrackedOrder | null {
+export function useOrderStatus(paymentIntent: string | null): OrderStatus {
   const anon = useAnonSession();
   const [order, setOrder] = useState<TrackedOrder | null>(null);
+  const [exhausted, setExhausted] = useState(false);
+
+  // Render-time validation (no setState-in-effect): Stripe PI ids are `pi_[A-Za-z0-9_]+`. Anything
+  // else (a tampered/garbled return URL) never reaches the interpolated Realtime filter string —
+  // defense-in-depth; RLS is the primary gate and the `.eq()` REST call is already parameterized.
+  const validPi = paymentIntent != null && /^pi_[A-Za-z0-9_]+$/.test(paymentIntent);
 
   useEffect(() => {
-    if (!paymentIntent || !anon) return;
+    if (!paymentIntent || !validPi || !anon) return;
     const supa = browserClient();
     supa.realtime.setAuth(anon.accessToken); // anon-auth token → RLS authorizes the subscription
     let active = true;
@@ -56,6 +69,12 @@ export function useOrderStatus(paymentIntent: string | null): TrackedOrder | nul
         // for the redirect→webhook race / a cold socket. Stops once the order arrives or after ~30s.
         tries += 1;
         timer = setTimeout(load, 3000);
+      } else {
+        // Poll exhausted without the order — don't strand the diner on a post-payment screen with no
+        // feedback. `timedOut` (below) drives a Refresh prompt; the Realtime sub stays open, so a
+        // late INSERT still resolves `order` and clears it.
+        console.error("[useOrderStatus] polling exhausted without order", { paymentIntent });
+        setExhausted(true);
       }
     }
 
@@ -81,7 +100,10 @@ export function useOrderStatus(paymentIntent: string | null): TrackedOrder | nul
       if (timer) clearTimeout(timer);
       supa.removeChannel(channel);
     };
-  }, [paymentIntent, anon]);
+  }, [paymentIntent, validPi, anon]);
 
-  return order;
+  // Derived (so a late order always wins): a recoverable dead-end is "poll gave up OR the PI is
+  // malformed", but only while no order has arrived.
+  const timedOut = !order && (exhausted || (paymentIntent != null && !validPi));
+  return { order, timedOut };
 }

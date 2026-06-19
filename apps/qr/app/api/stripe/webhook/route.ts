@@ -109,5 +109,13 @@ export async function POST(req: NextRequest) {
   }
   // (handle charge.refunded, … as needed)
 
+  // posthog-node is fire-and-forget; on Vercel the function can be torn down before the send drains
+  // (even with flushAt:1). Await a flush on the way out so captured events aren't silently dropped.
+  try {
+    await posthog.flush();
+  } catch {
+    // never fail a verified, fulfilled webhook because analytics couldn't drain
+  }
+
   return NextResponse.json({ received: true });
 }

@@ -7,10 +7,10 @@ import { useOrderStatus } from "@/lib/useOrderStatus";
 // kitchen actor, so it rests at "Order placed" — the kitchen steps light up when S2's KDS lands
 // (same Realtime subscription). Dine-in / pickup variants arrive with the S-track / M2.2.
 const STEPS: [title: string, sub: string][] = [
-  ["Order placed", "We’ve got it"],
-  ["In the kitchen", "Cooking your dishes"],
-  ["Ready", "We’ll bring it out"],
-  ["Served", "Enjoy"], // the 🍵 is rendered decoratively (aria-hidden) so AT doesn't read it aloud
+  ["Order placed", "We have it"],
+  ["In the kitchen", "Cooking"],
+  ["Ready", "Bringing it out"],
+  ["Served", "Enjoy!"], // 🍵 appended decoratively (aria-hidden) → "Enjoy! 🍵", verbatim v7.2 scango
 ];
 
 /**
@@ -26,9 +26,11 @@ export function OrderTracker({
   paymentIntent: string | null;
   processing: boolean; // redirect_status === "processing" — payment not yet captured (e.g. bank debit)
 }) {
-  const order = useOrderStatus(paymentIntent);
+  const { order, timedOut } = useOrderStatus(paymentIntent);
   const arrived = !!order;
-  const activeStep = 0; // S2: derive from order's kitchen status
+  // "processing" = payment not yet captured → keep every step pending (no pulse) so the timeline
+  // doesn't imply "placed" while the chip says "Confirming payment". S2: derive from kitchen status.
+  const activeStep = processing && !arrived ? -1 : 0;
 
   return (
     <main style={{ padding: "24px 20px 40px", maxWidth: 440, margin: "0 auto" }}>
@@ -136,6 +138,42 @@ export function OrderTracker({
           );
         })}
       </ol>
+
+      {timedOut && !arrived && (
+        <div
+          role="alert"
+          style={{
+            padding: 14,
+            marginTop: 8,
+            borderRadius: "var(--r-card)",
+            border: "1px solid var(--warn)",
+            background: "var(--warnb)",
+          }}
+        >
+          <div style={{ fontWeight: 700, fontSize: 14 }}>This is taking longer than usual</div>
+          <div style={{ fontSize: 13, color: "var(--t2)", margin: "4px 0 10px" }}>
+            {processing
+              ? "We’re still confirming your payment — refresh to check, or come back shortly."
+              : "Your payment went through; your order just hasn’t appeared here yet. Refresh to check."}
+          </div>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            style={{
+              minHeight: 44,
+              padding: "0 18px",
+              borderRadius: 10,
+              border: "1px solid var(--bd)",
+              background: "var(--cd)",
+              color: "var(--tx)",
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            Refresh
+          </button>
+        </div>
+      )}
 
       {arrived && (
         <div
