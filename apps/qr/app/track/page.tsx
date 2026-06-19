@@ -7,7 +7,13 @@ import { OrderTracker } from "@/components/OrderTracker";
 // the moment the signature-verified webhook fulfills, no manual refresh). The kitchen lifecycle +
 // ETA arrive with S2's KDS / M2.2 — the same subscription carries them.
 const wrap = { padding: 24, maxWidth: 440, margin: "0 auto" } as const;
-const back = { color: "var(--ac)", fontWeight: 700 } as const;
+// inline-block + vertical padding → ≥44px touch target (QA §A P0)
+const back = {
+  color: "var(--ac)",
+  fontWeight: 700,
+  display: "inline-block",
+  padding: "12px 0",
+} as const;
 
 type SearchParams = Promise<{ redirect_status?: string; cart?: string; payment_intent?: string }>;
 

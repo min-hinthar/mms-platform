@@ -33,12 +33,16 @@ export function useOrderStatus(paymentIntent: string | null): TrackedOrder | nul
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     async function load() {
-      const { data } = await supa
+      const { data, error } = await supa
         .from("qr_orders")
         .select("id,status,total_cents,qr_order_items(qty)")
         .eq("stripe_payment_intent_id", paymentIntent!)
         .maybeSingle();
       if (!active) return;
+      // Surface a fetch failure (RLS/auth/network) instead of silently looping into "Confirming…"
+      // for ~30s with no signal (LEARNINGS: wrap every swallowed error). A transient error still
+      // self-heals via the retry below; a persistent one (e.g. RLS denied) is now visible in logs.
+      if (error) console.error("[useOrderStatus] order fetch failed", { paymentIntent, error });
       if (data) {
         const items = (data.qr_order_items ?? []) as { qty: number }[];
         setOrder({

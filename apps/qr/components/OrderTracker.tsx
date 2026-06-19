@@ -10,7 +10,7 @@ const STEPS: [title: string, sub: string][] = [
   ["Order placed", "We’ve got it"],
   ["In the kitchen", "Cooking your dishes"],
   ["Ready", "We’ll bring it out"],
-  ["Served", "Enjoy 🍵"],
+  ["Served", "Enjoy"], // the 🍵 is rendered decoratively (aria-hidden) so AT doesn't read it aloud
 ];
 
 /**
@@ -64,7 +64,8 @@ export function OrderTracker({
             : "Confirming your order."}
       </p>
 
-      <ol style={{ listStyle: "none", padding: "20px 4px 0", margin: 0 }}>
+      {/* role="list" — WebKit/VoiceOver drops list semantics from a list-style:none <ol> */}
+      <ol role="list" style={{ listStyle: "none", padding: "20px 4px 0", margin: 0 }}>
         {STEPS.map(([title, sub], i) => {
           const state = i < activeStep ? "done" : i === activeStep ? "now" : "pending";
           const last = i === STEPS.length - 1;
@@ -126,7 +127,10 @@ export function OrderTracker({
                 >
                   {title}
                 </div>
-                <div style={{ fontSize: 12, color: "var(--t2)", marginTop: 1 }}>{subtitle}</div>
+                <div style={{ fontSize: 12, color: "var(--t2)", marginTop: 1 }}>
+                  {subtitle}
+                  {last && <span aria-hidden> 🍵</span>}
+                </div>
               </div>
             </li>
           );
@@ -167,7 +171,13 @@ export function OrderTracker({
       </p>
       <Link
         href="/menu"
-        style={{ color: "var(--ac)", fontWeight: 700, display: "inline-block", marginTop: 10 }}
+        style={{
+          color: "var(--ac)",
+          fontWeight: 700,
+          display: "inline-block",
+          marginTop: 4,
+          padding: "12px 0", // ≥44px touch target (QA §A P0)
+        }}
       >
         <span aria-hidden>←</span> Back to menu
       </Link>
