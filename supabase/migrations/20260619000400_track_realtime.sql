@@ -23,3 +23,9 @@ begin
     alter publication supabase_realtime add table public.qr_orders;
   end if;
 end $$;
+
+-- NOTE(S2): M1 is INSERT-only (the webhook creates the row once), so the default REPLICA IDENTITY
+-- (primary key) is enough — INSERT/UPDATE changes carry the new row's stripe_payment_intent_id, which
+-- the client filter matches. When S2 adds kitchen-status UPDATEs (and any DELETE), verify the filter
+-- still matches on those events; DELETE old-row filtering needs `alter table public.qr_orders replica
+-- identity full;` — add it then if the filter misfires.

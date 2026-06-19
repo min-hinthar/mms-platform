@@ -83,6 +83,7 @@ export function useOrderStatus(paymentIntent: string | null): OrderStatus {
         // Not fulfilled yet — Realtime will deliver the INSERT, but poll a few times as a safety net
         // for the redirect→webhook race / a cold socket. Stops once the order arrives or after ~30s.
         tries += 1;
+        if (timer) clearTimeout(timer); // a Realtime-triggered load can race the poll — keep ONE timer
         timer = setTimeout(load, 3000);
       } else {
         // Poll exhausted without the order — don't strand the diner on a post-payment screen with no
@@ -108,7 +109,10 @@ export function useOrderStatus(paymentIntent: string | null): OrderStatus {
           table: "qr_orders",
           filter: `stripe_payment_intent_id=eq.${paymentIntent}`,
         },
-        () => load(),
+        () => {
+          if (timer) clearTimeout(timer); // a fresh event supersedes any pending poll
+          load();
+        },
       )
       .subscribe();
 

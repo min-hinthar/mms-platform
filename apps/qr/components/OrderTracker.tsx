@@ -69,8 +69,9 @@ export function OrderTracker({
               : "Confirming your order."}
       </p>
 
-      {/* role="list" — WebKit/VoiceOver drops list semantics from a list-style:none <ol> */}
-      <ol
+      {/* <ul>, not <ol>: the steps' order is conveyed visually + by aria-current, not a numeric
+          counter. role="list" restores semantics WebKit drops from a list-style:none list. */}
+      <ul
         role="list"
         aria-label="Order status"
         style={{ listStyle: "none", padding: "20px 4px 0", margin: 0 }}
@@ -144,7 +145,7 @@ export function OrderTracker({
             </li>
           );
         })}
-      </ol>
+      </ul>
 
       {/* Visual recovery affordance; the announcement comes from the role="status" region above
           (single source of truth — avoids a double announce / a first-paint role="alert" that AT skips). */}
@@ -232,7 +233,7 @@ export function OrderTracker({
 }
 
 const chip: CSSProperties = {
-  fontSize: 11,
+  fontSize: 12,
   fontWeight: 800,
   padding: "5px 10px",
   borderRadius: 999,
