@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
           { status: 409 }, // non-2xx → Stripe retries; surfaces a tampered/stale cart
         );
       }
-      await db.rpc("mms_fulfill_order", {
+      const { error: fulfillErr } = await db.rpc("mms_fulfill_order", {
         p_cart_id: cartId,
         p_payment_intent: intent.id,
         p_amount_cents: intent.amount,
@@ -49,6 +49,24 @@ export async function POST(req: NextRequest) {
         p_service_charge_cents: totals.serviceChargeCents,
         p_tax_cents: totals.taxCents,
         p_tip_cents: totals.tipCents,
+      });
+      // supabase-js returns the Postgres error in `error` — it does NOT throw. Swallowing it would
+      // 200 the event, so Stripe marks it handled and never retries → a charged diner with no order.
+      // Return 5xx so Stripe redelivers (up to 72h); fulfillment is idempotent on the PI id, so a
+      // later retry that succeeds is safe. Logged for Sentry/observability.
+      if (fulfillErr) {
+        console.error("[stripe webhook] mms_fulfill_order failed", {
+          cartId,
+          paymentIntent: intent.id,
+          error: fulfillErr.message,
+        });
+        return NextResponse.json({ error: "Fulfillment failed; will retry" }, { status: 500 });
+      }
+    } else if (!existing && !cartId) {
+      // Anomalous: a succeeded charge whose intent metadata has no cartId (our create-intent always
+      // sets it). We can't fulfill and a retry won't help, so don't 5xx — but never let it vanish.
+      console.error("[stripe webhook] succeeded intent missing cartId metadata", {
+        paymentIntent: intent.id,
       });
     }
     posthog.capture({
