@@ -57,13 +57,16 @@ export function OrderTracker({
         </span>
       </div>
 
-      {/* Single live region: role="status" already implies aria-live="polite" (ARIA 1.2). */}
+      {/* Single live region: role="status" already implies aria-live="polite" (ARIA 1.2). The
+          timedOut arm makes the text CHANGE when polling gives up, so AT announces the recovery. */}
       <p role="status" style={srOnly}>
         {arrived
           ? "Payment confirmed — your order is in."
-          : processing
-            ? "Confirming your payment."
-            : "Confirming your order."}
+          : timedOut
+            ? "Your order is taking longer than expected — use the Refresh button to check."
+            : processing
+              ? "Confirming your payment."
+              : "Confirming your order."}
       </p>
 
       {/* role="list" — WebKit/VoiceOver drops list semantics from a list-style:none <ol> */}
@@ -143,9 +146,10 @@ export function OrderTracker({
         })}
       </ol>
 
+      {/* Visual recovery affordance; the announcement comes from the role="status" region above
+          (single source of truth — avoids a double announce / a first-paint role="alert" that AT skips). */}
       {timedOut && !arrived && (
         <div
-          role="alert"
           style={{
             padding: 14,
             marginTop: 8,

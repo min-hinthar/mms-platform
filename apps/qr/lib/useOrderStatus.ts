@@ -94,6 +94,10 @@ export function useOrderStatus(paymentIntent: string | null): OrderStatus {
     }
 
     // Subscribe BEFORE the initial load so an INSERT landing between the two isn't missed.
+    // postgres_changes is RLS-gated by qr_order_read regardless of channel privacy, so this is safe
+    // as-is for M1. NOTE(S2): if kitchen status is pushed via BROADCAST on this channel, make it
+    // `{ config: { private: true } }` + add a realtime.messages policy for `order-status:*` (like
+    // rt_member_read) — broadcast is NOT covered by the table RLS.
     const channel = supa
       .channel(`order-status:${paymentIntent}`)
       .on(

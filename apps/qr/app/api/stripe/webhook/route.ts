@@ -103,7 +103,9 @@ export async function POST(req: NextRequest) {
         cart_id: cartId,
         payment_intent_id: intent.id,
         amount_cents: intent.amount,
-        failure_message: intent.last_payment_error?.message,
+        // `.code` (a fixed enum, e.g. card_declined / insufficient_funds), not the freeform `.message`
+        // which can carry bank-issued, PI-adjacent text ("card reported stolen").
+        failure_code: intent.last_payment_error?.code,
       },
     });
   }

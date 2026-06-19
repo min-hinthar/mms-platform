@@ -50,8 +50,8 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
         </h1>
         <p style={{ color: "var(--t2)" }}>
           {status === "processing"
-            ? "We’re confirming your payment — your order appears here once it clears."
-            : "Your order’s in — the kitchen has it. Live status will appear here."}
+            ? "We’re still confirming your payment — check back shortly for your order."
+            : "Your order’s in — the kitchen has it. Check back anytime for updates."}
         </p>
         <Link href="/menu" style={back}>
           Back to menu
