@@ -55,15 +55,12 @@ export function Checkout({
       try {
         await applyPromoAction(cartId, promo.trim());
         setStatus("Promo applied.");
-      } catch (e) {
-        // Only an actual rejected code says "not valid" — network/closed-cart errors get a
-        // retry-friendly message instead of wrongly blaming the code.
-        const msg = e instanceof Error ? e.message : "";
-        setStatus(
-          msg.includes("Invalid")
-            ? "That code isn’t valid."
-            : "Couldn’t apply that code — please try again.",
-        );
+      } catch {
+        // Server Action errors are redacted in production (generic message + digest), so the client
+        // can't reliably tell "invalid code" from a transient failure by inspecting the error here.
+        // A result-based return from applyPromo is the proper per-reason fix (M2 promo phase); for
+        // now, one honest, retry-safe message.
+        setStatus("Couldn’t apply that code — check it and try again.");
       }
       await refresh();
     });

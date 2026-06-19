@@ -112,7 +112,12 @@ export async function addItem(cartId: string, menuItemId: string, modifierIds: s
     });
     if (!insertedId) throw new Error("Cart is no longer open");
   }
-  await db.from("qr_carts").update({ updated_at: new Date().toISOString() }).eq("id", input.cartId);
+  const { error: touchErr } = await db
+    .from("qr_carts")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", input.cartId);
+  // Non-fatal (the line mutation already committed) but log it — a stale updated_at shouldn't vanish.
+  if (touchErr) console.error("[cart] updated_at touch failed (addItem)", touchErr.message);
 
   const posthog = getPostHogClient();
   posthog.capture({
@@ -141,7 +146,11 @@ export async function setQty(cartItemId: string, qty: number) {
     p_qty: input.qty,
   });
   if (!affected) throw new Error("Cart is no longer open");
-  await db.from("qr_carts").update({ updated_at: new Date().toISOString() }).eq("id", cartId);
+  const { error: touchErr } = await db
+    .from("qr_carts")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", cartId);
+  if (touchErr) console.error("[cart] updated_at touch failed (setQty)", touchErr.message);
 }
 
 export async function applyPromo(cartId: string, code: string) {

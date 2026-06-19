@@ -65,9 +65,14 @@ export async function POST(req: NextRequest) {
     .eq("seat_id", seat)
     .maybeSingle();
   if (!existing) {
-    await db
+    const { error: memErr } = await db
       .from("session_members")
       .insert({ session_id: sess.id, seat_id: seat, display_name: name, role });
+    // 23505 = unique_violation: a concurrent join already inserted this membership → fine, the row
+    // exists. Any other error means the diner is NOT actually a member, so fail loudly instead of
+    // returning a cartId that every later assertCartMember would 403 on (silently broken session).
+    if (memErr && memErr.code !== "23505")
+      return NextResponse.json({ error: "Could not join session" }, { status: 500 });
   }
 
   // Find-or-create the session's OPEN cart (P1.2 "create-cart"). Idempotent: returns the existing

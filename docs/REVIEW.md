@@ -130,3 +130,20 @@ hardening and flagged the last two symmetry gaps + LOW polish:
   PostHog** → **M3** (it's a per-device random id today, a real table id only at provisioning);
   the `0100` ineffective-`revoke` line → left as-is (append-only; `0200`/`0300` complete the lockdown
   and document it). All prior deferrals stand.
+
+### Fifth pass — review + adversarial (2026-06-19)
+
+**adversarial = PASS ("zero Critical … correct and complete")**, all required checks green. One real
+MEDIUM + two LOWs:
+
+- **Fixed** — `/api/session` now checks the `session_members` insert error and returns 500 on any
+  non-`23505` failure (MEDIUM: a swallowed error handed back a `cartId` that every later
+  `assertCartMember` 403s on — a silently broken session). `qr_carts.updated_at` touch errors are now
+  logged in `addItem`/`setQty` (non-fatal — the line mutation already committed).
+- **Reworked, not as suggested** — the promo-error LOW ("fragile `msg.includes('Invalid')`"): the
+  reviewer's typed-`code` discriminant wouldn't help either, because **Next redacts Server Action
+  errors in production** (generic message + digest), so the client can't read the reason off the
+  thrown error at all. Replaced the brittle match with one honest, retry-safe message; proper
+  per-reason promo messaging needs a **result-based return** from `applyPromo` → M2 promo phase.
+- **Deferred (documented)** — the double `assertCartMember` round-trip per mutation (action +
+  `refresh`) → the Realtime subscription phase (acceptable at P1.2 load). All prior deferrals stand.
