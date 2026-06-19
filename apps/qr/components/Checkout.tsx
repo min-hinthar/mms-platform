@@ -1,14 +1,25 @@
 "use client";
-import { useState, useTransition, type FormEvent } from "react";
+import { useEffect, useRef, useState, useTransition, type FormEvent } from "react";
 import Link from "next/link";
 import type { CartItem, CartTotals } from "@mms/db";
 import { applyPromo as applyPromoAction, getCartView, setQty as setQtyAction } from "@/lib/cart";
+import { PaymentSection } from "./PaymentSection";
+
+// Tip presets (v7.2 prototype). The <small> shows a client PREVIEW of the tip; the AUTHORITATIVE
+// tip + grand total come back from create-intent (server) on the pay step — never the charge.
+const TIPS: [label: string, rate: number][] = [
+  ["No extra", 0],
+  ["15%", 0.15],
+  ["18%", 0.18],
+  ["20%", 0.2],
+];
 
 /**
- * Cart + checkout (client). Renders the SERVER-AUTHORITATIVE totals/lines and re-fetches them after
- * every mutation via `getCartView` — it never does client money math. Quantity steppers and promo go
- * through the member-gated server actions. The pay CTA is a placeholder until P1.3 mounts the Stripe
- * Payment Element here (no card path until the M1 gate in docs/REVIEW.md is green).
+ * Cart + checkout (client), two steps: REVIEW (edit lines, promo, tip — cart open/editable) →
+ * "Continue to payment" mints the intent + LOCKS the cart → PAY (Stripe Payment Element on a stable
+ * clientSecret; "Edit order" unlocks and returns). Totals are always server-authoritative — the
+ * review breakdown from `getCartView`, the tip-inclusive grand total from create-intent. Never client
+ * money math (the tip chip preview is a hint, confirmed server-side).
  */
 export function Checkout({
   cartId,
@@ -24,6 +35,30 @@ export function Checkout({
   const [promo, setPromo] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [tipRate, setTipRate] = useState(0);
+  const [step, setStep] = useState<"review" | "pay">("review");
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [payTotals, setPayTotals] = useState<CartTotals | null>(null);
+  const [loadingPay, setLoadingPay] = useState(false);
+  const [payError, setPayError] = useState<string | null>(null);
+
+  // Focus management: when a stepper removes the last unit of a line, the <li> unmounts and focus
+  // would fall to <body>. Move it to the heading so keyboard/SR users keep their place.
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const prevLen = useRef(items.length);
+  useEffect(() => {
+    if (items.length > 0 && items.length < prevLen.current) headingRef.current?.focus();
+    prevLen.current = items.length;
+  }, [items.length]);
+
+  // On a review↔pay transition the button that triggered it (Continue / Edit order) unmounts while
+  // holding focus → focus would drop to <body> with no cue (WCAG 2.4.3). The heading is mounted in
+  // both steps, so move focus there after the commit. Skip the first mount (no transition yet).
+  const mounted = useRef(false);
+  useEffect(() => {
+    if (mounted.current) headingRef.current?.focus();
+    else mounted.current = true;
+  }, [step]);
 
   async function refresh() {
     try {
@@ -31,8 +66,11 @@ export function Checkout({
       setItems(v.items);
       setTotals(v.totals);
     } catch {
-      // The cart is no longer open (paid/closed) — assertCartMember throws 403. Swallow it so the
-      // read path doesn't surface an uncaught rejection; P1.3 redirects to the receipt page here.
+      // Swallow: the EXPECTED failure here is the post-payment 403 (the cart flipped to paid → the
+      // diner is being redirected to /track). We can't discriminate it from a transient error
+      // client-side — Server Action errors are redacted in prod, so no `.status` survives — and
+      // surfacing an error on the expected post-pay 403 would be a false alarm. A transient failure
+      // self-heals on the next interaction (every mutation re-fetches).
     }
   }
 
@@ -52,18 +90,56 @@ export function Checkout({
     if (!promo.trim()) return;
     startTransition(async () => {
       setStatus(null); // clear any stale result so it doesn't linger through the round-trip
+      setPayError(null); // single live region — don't let a prior pay error mask the promo result
       try {
         await applyPromoAction(cartId, promo.trim());
         setStatus("Promo applied.");
       } catch {
-        // Server Action errors are redacted in production (generic message + digest), so the client
-        // can't reliably tell "invalid code" from a transient failure by inspecting the error here.
-        // A result-based return from applyPromo is the proper per-reason fix (M2 promo phase); for
-        // now, one honest, retry-safe message.
+        // Server Action errors are redacted in production, so the client can't reliably tell
+        // "invalid code" from a transient failure — one honest, retry-safe message (per-reason
+        // messaging via a result-based return is the M2 promo phase).
         setStatus("Couldn’t apply that code — check it and try again.");
       }
       await refresh();
     });
+  }
+
+  async function continueToPayment() {
+    setPayError(null);
+    setStatus(null); // single live region — clear any prior promo result
+    setLoadingPay(true);
+    try {
+      // Member-gated (cookie session); the route re-derives the amount from getCartTotals and locks
+      // the cart for the pay window. Same-origin fetch carries the auth cookie.
+      const res = await fetch("/api/stripe/create-intent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cartId, tipRate }),
+      });
+      const data = (await res.json()) as {
+        clientSecret?: string;
+        totals?: CartTotals;
+        error?: string;
+      };
+      if (!res.ok || !data.clientSecret || !data.totals)
+        throw new Error(data.error ?? `HTTP ${res.status}`);
+      setClientSecret(data.clientSecret);
+      setPayTotals(data.totals);
+      setStep("pay");
+    } catch {
+      setPayError("Couldn’t start checkout — please try again.");
+    } finally {
+      setLoadingPay(false);
+    }
+  }
+
+  async function editOrder() {
+    // The cart was never locked (see create-intent NOTE), so going back is a pure UI step — just
+    // re-sync from the server in case anything changed while the pay step was open.
+    setStep("review");
+    setClientSecret(null);
+    setPayTotals(null);
+    await refresh();
   }
 
   if (items.length === 0)
@@ -72,116 +148,211 @@ export function Checkout({
         <h1 style={{ fontSize: 28 }}>Your order</h1>
         <p style={{ color: "var(--t2)" }}>Nothing here yet.</p>
         <Link href="/menu" style={{ color: "var(--ac)", fontWeight: 700 }}>
-          ← Back to menu
+          <span aria-hidden>←</span> Back to menu
         </Link>
       </main>
     );
 
+  const onPay = step === "pay" && clientSecret && payTotals;
+  // Client tip PREVIEW (a hint, not the charge) — identical formula to the server's
+  // `Math.round(netCents * rate)` (lib/totals.ts), so the previewed "Estimated total" reconciles
+  // exactly with the tip-inclusive total create-intent returns on the pay step.
+  const tipPreview = (rate: number) =>
+    Math.round((totals.subtotalCents - totals.discountCents) * rate);
+  const tipPreviewCents = tipPreview(tipRate);
+
   return (
     <main style={{ padding: "24px 20px 40px", maxWidth: 440, margin: "0 auto" }}>
-      <h1 style={{ fontSize: 28 }}>Your order</h1>
+      {/* tabIndex={-1} = programmatic focus target (focus moves here when a line is removed). No
+          outline override — the browser shows its :focus-visible ring (WCAG 2.4.7). */}
+      <h1 ref={headingRef} tabIndex={-1} style={{ fontSize: 28 }}>
+        Your order
+      </h1>
 
-      <ul style={{ listStyle: "none", padding: 0, margin: "12px 0", display: "grid", gap: 10 }}>
-        {items.map((i) => (
-          <li
-            key={i.id}
-            className="card"
-            style={{ padding: 12, display: "flex", gap: 10, alignItems: "center" }}
-          >
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 600 }}>{i.name}</div>
-              {i.modifiers.length > 0 && (
-                <div style={{ fontSize: 12, color: "var(--t2)" }}>{i.modifiers.join(", ")}</div>
-              )}
-              <div style={{ fontWeight: 700, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>
-                ${((i.unitPriceCents * i.qty) / 100).toFixed(2)}
-              </div>
-            </div>
-            <Stepper
-              qty={i.qty}
-              disabled={pending}
-              name={i.name}
-              onChange={(q) => changeQty(i.id, q)}
+      {onPay ? (
+        <>
+          <dl style={{ margin: "12px 0" }}>
+            <Row k="Subtotal" cents={payTotals.subtotalCents} />
+            {payTotals.discountCents > 0 && <Row k="Promo" cents={-payTotals.discountCents} />}
+            <Row k="Service charge (5%)" cents={payTotals.serviceChargeCents} />
+            <Row k="Sales tax" cents={payTotals.taxCents} />
+            {payTotals.tipCents > 0 && <Row k="Tip" cents={payTotals.tipCents} />}
+            <Row k="Total" cents={payTotals.totalCents} strong />
+          </dl>
+          <PaymentSection
+            cartId={cartId}
+            clientSecret={clientSecret}
+            totals={payTotals}
+            onEdit={editOrder}
+          />
+        </>
+      ) : (
+        <>
+          <ul style={{ listStyle: "none", padding: 0, margin: "12px 0", display: "grid", gap: 10 }}>
+            {items.map((i) => (
+              <li
+                key={i.id}
+                className="card"
+                style={{ padding: 12, display: "flex", gap: 10, alignItems: "center" }}
+              >
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600 }}>{i.name}</div>
+                  {i.modifiers.length > 0 && (
+                    <div style={{ fontSize: 12, color: "var(--t2)" }}>{i.modifiers.join(", ")}</div>
+                  )}
+                  <div
+                    style={{ fontWeight: 700, marginTop: 4, fontVariantNumeric: "tabular-nums" }}
+                  >
+                    ${((i.unitPriceCents * i.qty) / 100).toFixed(2)}
+                  </div>
+                </div>
+                <Stepper
+                  qty={i.qty}
+                  disabled={pending}
+                  name={i.name}
+                  onChange={(q) => changeQty(i.id, q)}
+                />
+              </li>
+            ))}
+          </ul>
+
+          <form onSubmit={onPromo} style={{ display: "flex", gap: 8, margin: "12px 0" }}>
+            <input
+              value={promo}
+              onChange={(e) => setPromo(e.target.value)}
+              placeholder="Promo code"
+              aria-label="Promo code"
+              autoCapitalize="characters"
+              maxLength={40}
+              style={{
+                flex: 1,
+                padding: "10px 12px",
+                borderRadius: 10,
+                border: "1px solid var(--bd)",
+                background: "var(--cd)",
+                color: "var(--tx)",
+              }}
             />
-          </li>
-        ))}
-      </ul>
+            <button
+              type="submit"
+              disabled={pending || !promo.trim()}
+              style={{
+                minHeight: 44,
+                padding: "0 16px",
+                borderRadius: 10,
+                border: "1px solid var(--bd)",
+                background: "var(--sf)",
+                fontWeight: 700,
+              }}
+            >
+              Apply
+            </button>
+          </form>
 
-      <form onSubmit={onPromo} style={{ display: "flex", gap: 8, margin: "12px 0" }}>
-        <input
-          value={promo}
-          onChange={(e) => setPromo(e.target.value)}
-          placeholder="Promo code"
-          aria-label="Promo code"
-          autoCapitalize="characters"
-          style={{
-            flex: 1,
-            padding: "10px 12px",
-            borderRadius: 10,
-            border: "1px solid var(--bd)",
-            background: "var(--cd)",
-            color: "var(--tx)",
-          }}
-        />
-        <button
-          type="submit"
-          disabled={pending || !promo.trim()}
-          style={{
-            minHeight: 44,
-            padding: "0 16px",
-            borderRadius: 10,
-            border: "1px solid var(--bd)",
-            background: "var(--sf)",
-            fontWeight: 700,
-          }}
-        >
-          Apply
-        </button>
-      </form>
-      {/* The one polite live region — promo result. The rolling totals below are NOT aria-live. */}
-      <p aria-live="polite" style={{ minHeight: 16, margin: 0, fontSize: 12, color: "var(--t2)" }}>
-        {status}
-      </p>
+          {/* Tip selector (server confirms the exact tip at create-intent) */}
+          <div
+            role="group"
+            aria-label="Add a tip"
+            style={{ display: "flex", gap: 8, margin: "14px 0 4px" }}
+          >
+            {TIPS.map(([label, rate]) => {
+              const on = tipRate === rate;
+              const previewCents = tipPreview(rate);
+              return (
+                <button
+                  key={rate}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => setTipRate(rate)}
+                  style={{
+                    flex: 1,
+                    minHeight: 44,
+                    padding: "10px 4px",
+                    borderRadius: 13,
+                    border: `1.5px solid ${on ? "var(--ac)" : "var(--bd)"}`,
+                    background: on ? "color-mix(in oklab, var(--ac) 9%, var(--cd))" : "var(--cd)",
+                    color: on ? "var(--ac)" : "var(--tx)",
+                    textAlign: "center",
+                    fontWeight: 800,
+                    cursor: "pointer",
+                  }}
+                >
+                  {label}
+                  <small
+                    style={{
+                      display: "block",
+                      fontSize: 10,
+                      fontWeight: 700,
+                      color: on ? "var(--ac)" : "var(--t3)",
+                    }}
+                  >
+                    {rate ? `$${(previewCents / 100).toFixed(2)}` : "—"}
+                  </small>
+                </button>
+              );
+            })}
+          </div>
 
-      <dl style={{ margin: "12px 0" }}>
-        <Row k="Subtotal" cents={totals.subtotalCents} />
-        {totals.discountCents > 0 && <Row k="Promo" cents={-totals.discountCents} />}
-        <Row k="Service charge (5%)" cents={totals.serviceChargeCents} />
-        <Row k="Sales tax" cents={totals.taxCents} />
-        <Row k="Total" cents={totals.totalCents} strong />
-      </dl>
+          <dl style={{ margin: "12px 0" }}>
+            <Row k="Subtotal" cents={totals.subtotalCents} />
+            {totals.discountCents > 0 && <Row k="Promo" cents={-totals.discountCents} />}
+            <Row k="Service charge (5%)" cents={totals.serviceChargeCents} />
+            <Row k="Sales tax" cents={totals.taxCents} />
+            {/* Tip is previewed here so the review total matches the pay-step total — labeled
+                "Estimated" until create-intent confirms it server-side. */}
+            {tipPreviewCents > 0 && <Row k="Tip" cents={tipPreviewCents} />}
+            <Row
+              k={tipPreviewCents > 0 ? "Estimated total" : "Total"}
+              cents={totals.totalCents + tipPreviewCents}
+              strong
+            />
+          </dl>
 
-      <p style={{ fontSize: 11, color: "var(--t3)" }}>
-        A 5% service charge supports fair kitchen wages and is shared with the team (CA SB-1524).
-        Card fees are in menu prices; we never surcharge debit.
-      </p>
+          <p style={{ fontSize: 11, color: "var(--t3)" }}>
+            A 5% service charge supports fair kitchen wages and is shared with the team (CA
+            SB-1524). It is not a tip — anything extra above is yours to give. Card fees are built
+            into menu prices; we never add a surcharge on debit.
+          </p>
 
-      <button
-        type="button"
-        disabled
-        aria-describedby="pay-cta-note"
-        style={{
-          width: "100%",
-          marginTop: 12,
-          minHeight: 50,
-          borderRadius: 12,
-          border: "none",
-          background: "var(--sf)",
-          color: "var(--t3)",
-          fontWeight: 800,
-          cursor: "default",
-        }}
-      >
-        Continue to payment — arriving next
-      </button>
-      {/* Visible + programmatically-associated reason (aria-describedby) — `title` is invisible on
-          mobile and unreliable in screen readers. */}
-      <p
-        id="pay-cta-note"
-        style={{ fontSize: 11, color: "var(--t3)", marginTop: 6, textAlign: "center" }}
-      >
-        Secure card checkout arrives next (P1.3).
-      </p>
+          <button
+            type="button"
+            onClick={continueToPayment}
+            disabled={loadingPay}
+            aria-busy={loadingPay}
+            style={{
+              width: "100%",
+              marginTop: 12,
+              minHeight: 50,
+              borderRadius: 12,
+              border: "none",
+              background: "var(--ac)",
+              color: "var(--oa)",
+              fontWeight: 800,
+              fontSize: 16,
+              cursor: loadingPay ? "default" : "pointer",
+              opacity: loadingPay ? 0.7 : 1,
+            }}
+          >
+            {loadingPay ? "Starting checkout…" : "Continue to payment"}
+          </button>
+          {/* The ONE polite live region for the review step (QA §A P1) — carries the pay-start
+              error OR the promo result, never both (each handler clears the other first). The pay
+              step has its own single region inside PaymentSection. */}
+          <p
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            style={{
+              minHeight: 16,
+              margin: "8px 0 0",
+              fontSize: 13,
+              color: payError ? "var(--warn)" : "var(--t2)",
+            }}
+          >
+            {payError ?? status}
+          </p>
+        </>
+      )}
     </main>
   );
 }
@@ -219,9 +390,8 @@ function Stepper({
       >
         {qty <= 1 ? "🗑" : "−"}
       </button>
-      {/* Plain <span> (not <output>): <output> has an implicit role="status"/aria-live="polite"
-          that NVDA + VoiceOver announce on every stepper press even with aria-live="off". The label
-          stays readable on navigation; the count must NOT be a live region (RED-TEAM/QA). */}
+      {/* Plain <span> (not <output>): <output> has an implicit role="status" some AT announces on
+          every press even with aria-live="off". The count must NOT be a live region (RED-TEAM/QA). */}
       <span
         aria-label={`Quantity ${qty}`}
         style={{

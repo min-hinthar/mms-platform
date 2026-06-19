@@ -7,9 +7,18 @@ QA gate, rubric, red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md),
 
 ## Where we are
 
-- **Milestone M1 (walking pay path).** Backend foundation, **P1.1 anonymous-auth wiring**, and now
-  **P1.2 cart-create + line-merge + the cart flow** are done. Next up: **P1.3 Payment Element** →
-  P1.4 fulfillment → P1.5 Track.
+- **Milestone M1 (walking pay path).** Backend foundation, **P1.1 anonymous-auth wiring**,
+  **P1.2 cart-create + line-merge + the cart flow**, and now **P1.3 Stripe Payment Element (test
+  mode)** are done. Next up: **P1.4 fulfillment** → **P1.5 Track timeline**.
+- **P1.3 shipped:** two-step checkout (review + tip → pay) — `Checkout.tsx` "Continue to payment"
+  POSTs the member-gated `/api/stripe/create-intent` `{cartId, tipRate}`; `PaymentSection.tsx` mounts
+  `<Elements>`/`<PaymentElement>` (appearance from `@mms/ui` tokens, light/Night) on the returned
+  `clientSecret`; `confirmPayment` → `/track` (renders Stripe's `redirect_status`). Tip chips (v7.2),
+  Apple/Google Pay via `automatic_payment_methods`, server-authoritative amount throughout.
+  **Cart-lock-during-pay is deferred to the Realtime phase** (locking at intent-create strands an
+  abandoned cart; the webhook amount-reconcile is the P1.3 guard — see `docs/REVIEW.md`). **Test mode
+  only.** Needs `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` + `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET`
+  in Vercel (test keys) for the preview to mount the Element.
 - **P1.2 shipped:** `POST /api/session` find-or-creates the session's open cart and returns `cartId`;
   `useTableSession` (per-device QR identity) + `TableCartProvider` drive the menu's `AddButton` +
   `CartBar`; `addItem` merges identical lines (item + normalized modifier set → qty bump);
@@ -65,20 +74,25 @@ QA gate, rubric, red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md),
 
 ## Next tasks (in order)
 
-### P1.3 — Payment Element (the cart UI from P1.2 is the mount point)
+### P1.4 — Fulfillment end-to-end (the webhook + order record already exist)
 
-- In `apps/qr/components/Checkout.tsx`, replace the disabled "Continue to payment" CTA with the
-  Stripe Payment Element: `loadStripe(NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)` → POST
-  `/api/stripe/create-intent` `{ cartId, tipRate }` (already member-gated, returns
-  `{ clientSecret, totals }`) → `<Elements options={{ clientSecret, appearance }}>` +
-  `<PaymentElement/>` → `stripe.confirmPayment({ return_url: /track?... })`.
-- **Tip selector** (e.g. 0/15/18/20%) → `tipRate`; a changed tip re-creates the intent (the
-  idempotency key `pi_{cart}_{amount}` already makes a new amount a new intent). Show the
-  tip-inclusive grand total from the intent response.
-- Apple/Google Pay surface via the Payment Element. **Test mode only** — no real card until the M1
-  gate (`docs/REVIEW.md`) is fully green. (`create-intent` + the webhook reconcile already exist.)
+- The webhook (`/api/stripe/webhook`) already signature-verifies, reconciles `getCartTotals` vs
+  `intent.amount`, and calls `mms_fulfill_order` (idempotent on the PI id; writes `qr_orders` +
+  `qr_order_items`, flips the cart to `paid`). P1.4 is the **end-to-end verification + polish**:
+  confirm a test-mode PaymentIntent drives a `qr_orders` row; surface the order to the diner.
+- **Gems stay deferred** — `loyalty_rewards.user_id` is `NOT NULL`; award on account-link (M4).
 
-### Then P1.4+ (see ROADMAP): fulfillment end-to-end → Track timeline.
+### P1.5 — Track timeline
+
+- Replace `/track`'s P1.3 `redirect_status` confirmation with the live **placed → kitchen → ready →
+  served** timeline + ETA via Supabase Realtime on `qr_orders` (member-gated read). Dine-in refill
+  bell; pickup "I'm here." (The confirmation screen is already on-brand; build the timeline under it.)
+
+### Deferred from P1.3 (track here)
+
+- **Cart-lock-during-pay → Realtime phase.** Don't lock at intent-create (strands an abandoned
+  cart); the lock only matters under concurrent group editing and wants the realtime sync's natural
+  release point. The webhook amount-reconcile is the interim guard. See `docs/REVIEW.md`.
 
 ### P1.2 follow-up (small)
 

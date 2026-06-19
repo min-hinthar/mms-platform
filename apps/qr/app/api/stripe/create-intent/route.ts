@@ -26,8 +26,18 @@ export async function POST(req: NextRequest) {
         automatic_payment_methods: { enabled: true },
         metadata: { cartId, tipRate: String(tipRate) },
       },
-      { idempotencyKey: `pi_${cartId}_${amount}` }, // dedupe double-submits; a changed amount → a new intent
+      // Include tipRate in the key so two different tip choices that happen to land on the same
+      // total (after a cart edit) can't collide onto one intent — Stripe would otherwise return the
+      // first PI (with the OLD tipRate in metadata), and the webhook would fulfill the wrong breakdown.
+      { idempotencyKey: `pi_${cartId}_${amount}_t${tipRate}` },
     );
+
+    // NOTE(realtime phase): we intentionally do NOT lock the cart here. A lock during the pay window
+    // only matters under CONCURRENT editing (group carts), which isn't wired yet — and locking at
+    // intent-create strands a cart if the diner abandons the pay screen (no auto-release). The
+    // signature-verified webhook already reconciles the live total vs intent.amount before fulfilling
+    // (a mutated cart 409s, never mis-fulfills). The lock + its unlock lifecycle land with the
+    // group-cart Realtime sync (where concurrent editors and a natural release point exist).
 
     const posthog = getPostHogClient();
     posthog.capture({
@@ -49,7 +59,10 @@ export async function POST(req: NextRequest) {
     const err = e as Error;
     // ZodError (bad input shape) → 400; anything else → 500. (Avoid importing zod here so knip
     // doesn't flag an unused dep in apps/qr; the schema lives in @mms/db.)
-    const status = err.name === "ZodError" ? 400 : 500;
-    return NextResponse.json({ error: err.message }, { status });
+    if (err.name === "ZodError") return NextResponse.json({ error: err.message }, { status: 400 });
+    // Don't leak a raw SDK string (e.g. a Stripe config/PM message) in the response body — it aids
+    // recon. The client already shows a generic UX message; log the real one server-side only.
+    console.error("[create-intent] unexpected failure:", err);
+    return NextResponse.json({ error: "Payment service error" }, { status: 500 });
   }
 }
