@@ -7,7 +7,7 @@ Project guide for Claude Code working in this repo. Read this first. Memory of m
 - **Terse, action-first.** Skip preamble; lead with the implementation. One- to two-sentence rationale max.
 - **Recommend, don't enumerate.** Lead with a pick; offer options only when they materially differ.
 - **Verify before "done."** Run the full check (`pnpm turbo lint typecheck build`) and confirm nothing else broke. **Never trade correctness for speed; flag regressions proactively** — regressions are the #1 frustration.
-- **UI/UX polish is a core requirement**, not a follow-up: animation timing, spacing, contrast, interaction.
+- **UI/UX polish is a core requirement**, not a follow-up — build every screen to `docs/prototype/v7.2.html` + `docs/context/DESIGN-RESEARCH.md` and the `docs/context/RUBRIC.md` ≥4.3 bar in the **first commit** (tokens not hardcoded colors, animation timing, spacing, contrast, real semantics/44px/a11y per QA-CHECKLIST §A, brand-voice microcopy); self-check against the prototype before the PR — don't let the review surface craft gaps (the review/adversarial gates now cross-check fidelity).
 - **Vendor choices:** when proposing a lib, give the trade-off + evidence (bundle size, activity).
 
 ## What this is

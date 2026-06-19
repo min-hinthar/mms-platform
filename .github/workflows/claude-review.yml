@@ -47,8 +47,13 @@ jobs:
             (1) server-authoritative pricing — no client-trusted amounts reach Stripe;
             (2) Supabase RLS correctness + the table-session auth model;
             (3) Stripe webhook idempotency + PCI (no PAN in our code);
-            (4) accessibility (focus, aria, labels);
-            (5) the items in docs/REVIEW.md and the QA checklist.
+            (4) accessibility (focus management, aria, labels, 44px targets, one polite live region);
+            (5) the items in docs/REVIEW.md and docs/context/QA-CHECKLIST.md;
+            (6) UI/UX fidelity for any changed screen — cross-check against docs/prototype/v7.2.html
+            (the graded ~4.3 reference) and docs/context/DESIGN-RESEARCH.md, graded to the
+            docs/context/RUBRIC.md >=4.3 bar: design tokens from @mms/ui/tokens.css (flag hardcoded
+            colors), motion timing, spacing, contrast, real semantics (button vs link), and
+            brand-voice microcopy. Flag craft drift, not just functional bugs.
             Leave inline comments on problems and a short summary. Be specific; cite file:line.
           # Grant the comment-posting tools (default tool set excludes them, so the agent ran but
           # couldn't post — reviews never appeared). Mirrors the delivery app's working config.
