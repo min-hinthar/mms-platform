@@ -56,9 +56,13 @@ export const scanInput = z.object({
   barcode: z.string().regex(/^\d{8,14}$/, "barcode must be 8–14 digits"),
 });
 
+/** getCartView — a member-gated read of a cart's lines + server-authoritative totals. */
+export const cartViewInput = z.object({ cartId: uuid });
+
 export type SessionMintInput = z.infer<typeof sessionMintInput>;
 export type AddItemInput = z.infer<typeof addItemInput>;
 export type SetQtyInput = z.infer<typeof setQtyInput>;
 export type ApplyPromoInput = z.infer<typeof applyPromoInput>;
 export type CreateIntentInput = z.infer<typeof createIntentInput>;
 export type ScanInput = z.infer<typeof scanInput>;
+export type CartViewInput = z.infer<typeof cartViewInput>;

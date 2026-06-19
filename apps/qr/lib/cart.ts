@@ -1,10 +1,15 @@
 "use server";
 import { serviceClient } from "@mms/db/server";
-import type { TaxCategory } from "@mms/db";
-import { addItemInput, applyPromoInput, setQtyInput } from "@mms/db/schemas";
+import type { CartItem, CartTotals, TaxCategory } from "@mms/db";
+import { addItemInput, applyPromoInput, cartViewInput, setQtyInput } from "@mms/db/schemas";
 import { lineTax } from "./tax";
+import { getCartTotals } from "./totals";
 import { assertCartItemMember, assertCartMember } from "./authz";
 import { getPostHogClient } from "./posthog-server";
+
+// Normalize a modifier set (label array) to a comparable key — order-independent — so "merge
+// identical lines" treats the same item with the same options as one line regardless of pick order.
+const modKey = (m: unknown): string => JSON.stringify(Array.isArray(m) ? [...m].sort() : []);
 
 /**
  * SERVER-AUTHORITATIVE cart. The browser never sends a price — it sends a menu item id +
@@ -77,16 +82,31 @@ export async function addItem(cartId: string, menuItemId: string, modifierIds: s
     input.modifierIds,
   );
   const taxCents = lineTax(unitPriceCents, category, dineIn);
-  await db.from("qr_cart_items").insert({
-    cart_id: input.cartId,
-    menu_item_id: input.menuItemId,
-    name,
-    qty: 1,
-    modifiers: opts,
-    unit_price_cents: unitPriceCents,
-    tax_cents: taxCents,
-    by_seat: uid, // provenance from the VERIFIED uid, not a client-asserted seat
-  });
+  // Merge identical lines (same menu item + same chosen modifiers) → bump qty instead of a duplicate
+  // row, so the cart stays bounded (QA §B perf). Match on the normalized modifier set.
+  const { data: siblings } = await db
+    .from("qr_cart_items")
+    .select("id,qty,modifiers")
+    .eq("cart_id", input.cartId)
+    .eq("menu_item_id", input.menuItemId);
+  const dup = (siblings ?? []).find((s) => modKey(s.modifiers) === modKey(opts));
+  if (dup) {
+    await db
+      .from("qr_cart_items")
+      .update({ qty: dup.qty + 1 })
+      .eq("id", dup.id);
+  } else {
+    await db.from("qr_cart_items").insert({
+      cart_id: input.cartId,
+      menu_item_id: input.menuItemId,
+      name,
+      qty: 1,
+      modifiers: opts,
+      unit_price_cents: unitPriceCents,
+      tax_cents: taxCents,
+      by_seat: uid, // provenance from the VERIFIED uid, not a client-asserted seat
+    });
+  }
   await db.from("qr_carts").update({ updated_at: new Date().toISOString() }).eq("id", input.cartId);
 
   const posthog = getPostHogClient();
@@ -139,4 +159,33 @@ export async function applyPromo(cartId: string, code: string) {
       promo_value: promo.value,
     },
   });
+}
+
+/**
+ * Member-gated read of a cart's lines + server-authoritative totals — the single source the cart
+ * UI renders and re-fetches after every mutation (never client math). Totals exclude tip (a
+ * pay-step choice). Authorized like every other path (RED-TEAM #2), so it's not an IDOR read.
+ */
+export async function getCartView(
+  cartId: string,
+): Promise<{ items: CartItem[]; totals: CartTotals }> {
+  const { cartId: id } = cartViewInput.parse({ cartId });
+  await assertCartMember(id);
+  const db = serviceClient();
+  const { data: rows } = await db
+    .from("qr_cart_items")
+    .select("id,menu_item_id,name,qty,modifiers,unit_price_cents,tax_cents,by_seat")
+    .eq("cart_id", id)
+    .order("created_at", { ascending: true });
+  const items: CartItem[] = (rows ?? []).map((r) => ({
+    id: r.id,
+    menuItemId: r.menu_item_id,
+    name: r.name,
+    qty: r.qty,
+    modifiers: Array.isArray(r.modifiers) ? (r.modifiers as string[]) : [],
+    unitPriceCents: r.unit_price_cents,
+    taxCents: r.tax_cents,
+    bySeat: r.by_seat ?? undefined,
+  }));
+  return { items, totals: await getCartTotals(id) };
 }

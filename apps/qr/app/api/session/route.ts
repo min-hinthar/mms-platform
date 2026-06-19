@@ -70,8 +70,27 @@ export async function POST(req: NextRequest) {
       .insert({ session_id: sess.id, seat_id: seat, display_name: name, role });
   }
 
-  // The host's brand-new session gets its single open cart.
-  if (created) await db.from("qr_carts").insert({ session_id: sess.id });
+  // Find-or-create the session's OPEN cart (P1.2 "create-cart"). Idempotent: returns the existing
+  // open cart, or a fresh one — so after a previous cart is paid (status≠'open') the next order
+  // starts clean. The client drives /cart off the returned cartId; it never invents one.
+  let { data: cart } = await db
+    .from("qr_carts")
+    .select("id")
+    .eq("session_id", sess.id)
+    .eq("status", "open")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!cart) {
+    const { data, error } = await db
+      .from("qr_carts")
+      .insert({ session_id: sess.id })
+      .select("id")
+      .single();
+    if (error || !data)
+      return NextResponse.json({ error: "Could not create cart" }, { status: 500 });
+    cart = data;
+  }
 
   const posthog = getPostHogClient();
   posthog.capture({
@@ -80,5 +99,5 @@ export async function POST(req: NextRequest) {
     properties: { session_id: sess.id, mode: sess.mode, role, qr_code: qrCode },
   });
 
-  return NextResponse.json({ sessionId: sess.id, seat, role });
+  return NextResponse.json({ sessionId: sess.id, seat, role, cartId: cart.id });
 }
