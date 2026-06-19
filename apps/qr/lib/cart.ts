@@ -91,11 +91,12 @@ export async function addItem(cartId: string, menuItemId: string, modifierIds: s
     .eq("menu_item_id", input.menuItemId);
   const dup = (siblings ?? []).find((s) => modKey(s.modifiers) === modKey(opts));
   if (dup) {
-    // ATOMIC increment — a single in-DB `qty = qty + 1` that also JOINs the parent cart and
-    // requires `status = 'open'` and `qty < 99` (migration 20260619000100). So it can't lose an
-    // increment under concurrency (undercharge), can't bump a paid/fulfilled line (a webhook
-    // status flip racing the app-layer guard), and can't be looped to inflate the Stripe amount.
-    await db.rpc("mms_cart_item_inc_qty", { p_id: dup.id });
+    // ATOMIC increment — a single in-DB `qty = qty + 1` that JOINs the parent cart and requires
+    // `status = 'open'` and `qty < 99` (migrations 20260619000100/000300). Can't lose an increment
+    // under concurrency (undercharge), can't bump a paid/fulfilled line, can't inflate the Stripe
+    // amount. RAISES on a closed cart (so we don't report a phantom add); a 99-cap is a silent no-op.
+    const { error: incErr } = await db.rpc("mms_cart_item_inc_qty", { p_id: dup.id });
+    if (incErr) throw new Error("Cart is no longer open");
   } else {
     // Status-atomic insert — the new line is written only if the parent cart is still 'open', in one
     // statement (migration 20260619000200), so a webhook status flip can't slip a post-payment row
@@ -158,7 +159,16 @@ export async function applyPromo(cartId: string, code: string) {
   // NOTE(M2·P2.1): this checks `used` but does NOT consume a redemption — full cap enforcement
   // (atomic, consumed on FULFILLMENT not on apply, + per-session rate-limit) is the M2 promo phase.
   // Not exploitable today: no promo codes are seeded, and applying only sets `qr_carts.promo_code`.
-  await db.from("qr_carts").update({ promo_code: promo.code }).eq("id", input.cartId);
+  // Status-atomic write — only sets the promo on a still-`open` cart (the `.eq("status","open")`
+  // makes it symmetric with the other mutation paths against a webhook flip between the authz check
+  // and this update). 0 rows back ⇒ the cart is no longer open.
+  const { data: updated } = await db
+    .from("qr_carts")
+    .update({ promo_code: promo.code })
+    .eq("id", input.cartId)
+    .eq("status", "open")
+    .select("id");
+  if (!updated || updated.length === 0) throw new Error("Cart is no longer open");
 
   const posthog = getPostHogClient();
   posthog.capture({

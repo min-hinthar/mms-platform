@@ -55,8 +55,15 @@ export function Checkout({
       try {
         await applyPromoAction(cartId, promo.trim());
         setStatus("Promo applied.");
-      } catch {
-        setStatus("That code isn’t valid.");
+      } catch (e) {
+        // Only an actual rejected code says "not valid" — network/closed-cart errors get a
+        // retry-friendly message instead of wrongly blaming the code.
+        const msg = e instanceof Error ? e.message : "";
+        setStatus(
+          msg.includes("Invalid")
+            ? "That code isn’t valid."
+            : "Couldn’t apply that code — please try again.",
+        );
       }
       await refresh();
     });

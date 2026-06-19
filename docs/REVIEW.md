@@ -109,3 +109,24 @@ The reviews probed the _whole_ cart-mutation surface (not just the increment fix
   (any anon can POST an arbitrary `qrCode` and become host) → **M3** QR provisioning (HMAC-signed
   payloads); dine-in interim codes should be non-guessable. `useTableSession` runtime mode-change
   no-op → documented invariant (remount to switch). The pass-2 deferrals stand.
+
+### Fourth pass — review + security + adversarial (2026-06-19)
+
+**adversarial = PASS (zero Critical)**, all required checks green. The reviews confirmed the pass-3
+hardening and flagged the last two symmetry gaps + LOW polish:
+
+- **Fixed** — migration `20260619000300_inc_qty_signal_closed`: `mms_cart_item_inc_qty` now **raises**
+  (`P0001`) on a closed cart rather than silently no-op'ing — it was the one path whose 0-row result
+  the caller couldn't see, so a webhook status flip would let `addItem` report a phantom "Added". The
+  99-cap remains a deliberate _silent_ no-op on an open cart (the two cases are distinguished in the
+  function; signature stays `void` so no type drift). `applyPromo` is now status-atomic too
+  (`.eq("status","open")` + 0-row check) — **all four** mutation paths are symmetric. UX/a11y LOWs:
+  the promo catch distinguishes a rejected code from a network/closed-cart error; the provider live
+  region is explicit `aria-atomic="true"`.
+- **Deferred (documented)** — `setQty`/qty-change **user-facing feedback** on locked/paid carts (the
+  catches are silent today) → **P1.3** with the receipt-redirect UX (carts can't be locked/paid in
+  P1.2); `set_qty_if_open` 0-row message imprecision (closed vs item-gone) → same; `/api/session`
+  **no in-app retry** after a network error (page reload recovers) → later polish; **qrCode logged to
+  PostHog** → **M3** (it's a per-device random id today, a real table id only at provisioning);
+  the `0100` ineffective-`revoke` line → left as-is (append-only; `0200`/`0300` complete the lockdown
+  and document it). All prior deferrals stand.

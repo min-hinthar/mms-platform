@@ -97,6 +97,7 @@ export function TableCartProvider({ mode, children }: { mode: string; children: 
       <div
         role="status"
         aria-live="polite"
+        aria-atomic="true"
         style={{
           position: "fixed",
           left: 0,
