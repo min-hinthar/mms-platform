@@ -57,11 +57,22 @@ export function TableCartProvider({ mode, children }: { mode: string; children: 
     };
   }, [cartId]);
 
+  // One polite live region for transactional feedback (RED-TEAM/QA). We announce FAILURES only —
+  // not every add (the rolling total/CartBar deliberately aren't aria-live). Server Action errors
+  // are redacted in prod, so the message is generic rather than echoing the server's text.
+  const [notice, setNotice] = useState<string | null>(null);
+
   const add = useCallback(
     async (menuItemId: string) => {
       if (!cartId) return;
-      await addItemAction(cartId, menuItemId, []); // base item; modifier sheet is follow-up polish
-      await refresh();
+      try {
+        await addItemAction(cartId, menuItemId, []); // base item; modifier sheet is follow-up polish
+        await refresh();
+      } catch (e) {
+        setNotice("Couldn’t add that — please try again.");
+        setTimeout(() => setNotice(null), 3000);
+        throw e;
+      }
     },
     [cartId, refresh],
   );
@@ -71,6 +82,35 @@ export function TableCartProvider({ mode, children }: { mode: string; children: 
   return (
     <Ctx.Provider value={{ cartId, loading, error, items, totals, count, add, refresh }}>
       {children}
+      <div
+        role="status"
+        aria-live="polite"
+        style={{
+          position: "fixed",
+          left: 0,
+          right: 0,
+          bottom: 84,
+          textAlign: "center",
+          pointerEvents: "none",
+          zIndex: 50,
+        }}
+      >
+        {notice && (
+          <span
+            style={{
+              display: "inline-block",
+              background: "var(--tx)",
+              color: "var(--pg)",
+              padding: "8px 14px",
+              borderRadius: 999,
+              fontSize: 13,
+              fontWeight: 700,
+            }}
+          >
+            {notice}
+          </span>
+        )}
+      </div>
     </Ctx.Provider>
   );
 }

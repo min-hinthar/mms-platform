@@ -42,6 +42,7 @@ export function Checkout({
     e.preventDefault();
     if (!promo.trim()) return;
     startTransition(async () => {
+      setStatus(null); // clear any stale result so it doesn't linger through the round-trip
       try {
         await applyPromoAction(cartId, promo.trim());
         setStatus("Promo applied.");
@@ -197,7 +198,8 @@ function Stepper({
       >
         {qty <= 1 ? "🗑" : "−"}
       </button>
-      <span
+      <output
+        aria-live="off"
         aria-label={`Quantity ${qty}`}
         style={{
           minWidth: 20,
@@ -207,7 +209,7 @@ function Stepper({
         }}
       >
         {qty}
-      </span>
+      </output>
       <button
         type="button"
         disabled={disabled}

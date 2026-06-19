@@ -25,6 +25,7 @@ export function AddButton({
     <button
       type="button"
       disabled={disabled}
+      aria-busy={busy}
       aria-label={soldOut ? `${name}, sold out` : `Add ${name} to your order`}
       onClick={async () => {
         setBusy(true);
@@ -32,7 +33,7 @@ export function AddButton({
           await add(menuItemId);
           posthog.capture("menu_item_add_clicked", { menu_item_id: menuItemId });
         } catch {
-          /* surfaced by the cart not updating; M1 keeps this quiet */
+          /* the provider announces the failure in its polite live region */
         } finally {
           setBusy(false);
         }

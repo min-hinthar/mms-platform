@@ -44,3 +44,19 @@ custom-JWT plan, so item 1 is reframed):
 - **Also closes QA-CHECKLIST §C "group-cart auth"** (server-issued QR-bound session, server-
   authoritative cart, per-action authz, RLS on order tables, private Realtime with verified
   membership). Plus the P1.0a infra: **Zod** input layer + **`migrations-check`/`types-fresh`** CI.
+
+## Progress — M1·P1.2 cart-create + line-merge + cart flow (2026-06-19)
+
+The first PR to run the (now-fixed) Claude review/adversarial gates with comments. Findings triaged:
+
+- **Fixed** — atomic `mms_cart_item_inc_qty` RPC (line-merge lost-update race); partial unique index
+  `qr_carts(session_id) WHERE status='open'` + `/api/session` conflict re-read (duplicate open carts);
+  `assertCartMember` rejects non-`open` carts (post-payment immutability); a11y (`aria-busy`, CartBar
+  real `<button>`, Stepper `<output>`, one polite notice region, promo-status clear-on-resubmit).
+  Migration `20260619000000_cart_concurrency` applied to the live project; advisors clean (no new).
+- **Verified-and-dismissed** — the reviewer claim that `mms_fulfill_order` "never sets status=paid" is
+  wrong; the init migration already does `update qr_carts set status='paid'`.
+- **Deferred (documented)** — **promo redemption caps/rate-limit → M2·P2.1** (`applyPromo` checks
+  `used` but doesn't consume a redemption; the correct fix consumes on _fulfillment_, and no promo
+  codes are seeded, so it's not exploitable now). Raw **`cartId` in the URL → later** (LOW; the
+  membership auth gate, not the id, is the capability check).

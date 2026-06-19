@@ -86,15 +86,14 @@ export async function addItem(cartId: string, menuItemId: string, modifierIds: s
   // row, so the cart stays bounded (QA §B perf). Match on the normalized modifier set.
   const { data: siblings } = await db
     .from("qr_cart_items")
-    .select("id,qty,modifiers")
+    .select("id,modifiers")
     .eq("cart_id", input.cartId)
     .eq("menu_item_id", input.menuItemId);
   const dup = (siblings ?? []).find((s) => modKey(s.modifiers) === modKey(opts));
   if (dup) {
-    await db
-      .from("qr_cart_items")
-      .update({ qty: dup.qty + 1 })
-      .eq("id", dup.id);
+    // ATOMIC increment (qty = qty + 1 in-DB) — not a read-modify-write, so two concurrent
+    // group-cart adds of the same line can't lose an increment (undercharge).
+    await db.rpc("mms_cart_item_inc_qty", { p_id: dup.id });
   } else {
     await db.from("qr_cart_items").insert({
       cart_id: input.cartId,
@@ -146,6 +145,9 @@ export async function applyPromo(cartId: string, code: string) {
     .maybeSingle();
   if (!promo || !promo.active || (promo.max_uses != null && promo.used >= promo.max_uses))
     throw new Error("Invalid code");
+  // NOTE(M2·P2.1): this checks `used` but does NOT consume a redemption — full cap enforcement
+  // (atomic, consumed on FULFILLMENT not on apply, + per-session rate-limit) is the M2 promo phase.
+  // Not exploitable today: no promo codes are seeded, and applying only sets `qr_carts.promo_code`.
   await db.from("qr_carts").update({ promo_code: promo.code }).eq("id", input.cartId);
 
   const posthog = getPostHogClient();

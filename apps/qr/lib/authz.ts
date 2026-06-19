@@ -49,10 +49,13 @@ export async function assertCartMember(cartId: string): Promise<CartAuthz> {
 
   const { data: cart } = await db
     .from("qr_carts")
-    .select("session_id,locked")
+    .select("session_id,locked,status")
     .eq("id", cartId)
     .maybeSingle();
   if (!cart) throw new AuthzError("No such cart", 404);
+  // A paid/cancelled cart is immutable — `mms_fulfill_order` flips status to 'paid', so this stops
+  // any post-payment addItem/setQty/applyPromo from desyncing the fulfilled order (defense in depth).
+  if (cart.status !== "open") throw new AuthzError("Cart is no longer open", 403);
 
   const { data: sess } = await db
     .from("table_sessions")

@@ -516,6 +516,7 @@ export type Database = {
     Functions: {
       is_host: { Args: { sess: string }; Returns: boolean }
       is_member: { Args: { sess: string }; Returns: boolean }
+      mms_cart_item_inc_qty: { Args: { p_id: string }; Returns: undefined }
       mms_fulfill_order: {
         Args: {
           p_amount_cents: number

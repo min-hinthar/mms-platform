@@ -1,20 +1,25 @@
 "use client";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCart } from "./TableCartProvider";
 
 /**
- * Sticky order bar — appears once the cart has items, linking to /cart with the server-issued
- * cartId. Shows the live count + subtotal (server-authoritative); not an `aria-live` region (the
- * rolling total must not be announced on every tap — RED-TEAM/QA).
+ * Sticky order bar — appears once the cart has items, navigating to /cart with the server-issued
+ * cartId. A real `<button>` (not an `<a>`) so it activates on both Enter AND Space (QA §A P1).
+ * Shows the live count + subtotal but is NOT an `aria-live` region — the rolling total must not be
+ * announced on every tap (RED-TEAM/QA); the static `aria-label` is read on focus only.
  */
 export function CartBar() {
+  const router = useRouter();
   const { count, totals, cartId } = useCart();
   if (!cartId || count === 0) return null;
   const subtotalCents = totals?.subtotalCents ?? 0;
+  const dollars = `$${(subtotalCents / 100).toFixed(2)}`;
 
   return (
-    <Link
-      href={`/cart?cart=${cartId}`}
+    <button
+      type="button"
+      onClick={() => router.push(`/cart?cart=${cartId}`)}
+      aria-label={`View order — ${count} ${count === 1 ? "item" : "items"}, subtotal ${dollars}`}
       className="card"
       style={{
         position: "fixed",
@@ -28,16 +33,17 @@ export function CartBar() {
         padding: "14px 18px",
         display: "flex",
         justifyContent: "space-between",
-        textDecoration: "none",
+        alignItems: "center",
+        border: "none",
+        font: "inherit",
         fontWeight: 800,
+        cursor: "pointer",
       }}
     >
       <span>
         View order · {count} {count === 1 ? "item" : "items"}
       </span>
-      <span style={{ fontVariantNumeric: "tabular-nums" }}>
-        ${(subtotalCents / 100).toFixed(2)}
-      </span>
-    </Link>
+      <span style={{ fontVariantNumeric: "tabular-nums" }}>{dollars}</span>
+    </button>
   );
 }

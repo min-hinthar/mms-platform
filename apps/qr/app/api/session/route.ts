@@ -82,14 +82,28 @@ export async function POST(req: NextRequest) {
     .limit(1)
     .maybeSingle();
   if (!cart) {
-    const { data, error } = await db
+    const { data } = await db
       .from("qr_carts")
       .insert({ session_id: sess.id })
       .select("id")
       .single();
-    if (error || !data)
-      return NextResponse.json({ error: "Could not create cart" }, { status: 500 });
-    cart = data;
+    if (data) {
+      cart = data;
+    } else {
+      // Lost an insert race (partial unique index qr_carts_one_open_per_session) — the winner's
+      // open cart exists now; re-read so concurrent joins converge on a single cart.
+      const reread = await db
+        .from("qr_carts")
+        .select("id")
+        .eq("session_id", sess.id)
+        .eq("status", "open")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!reread.data)
+        return NextResponse.json({ error: "Could not create cart" }, { status: 500 });
+      cart = reread.data;
+    }
   }
 
   const posthog = getPostHogClient();
