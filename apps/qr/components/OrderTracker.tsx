@@ -57,8 +57,8 @@ export function OrderTracker({
         </span>
       </div>
 
-      {/* Single polite live region: announces the phase change to screen-reader users. */}
-      <p role="status" aria-live="polite" style={srOnly}>
+      {/* Single live region: role="status" already implies aria-live="polite" (ARIA 1.2). */}
+      <p role="status" style={srOnly}>
         {arrived
           ? "Payment confirmed — your order is in."
           : processing
@@ -67,7 +67,11 @@ export function OrderTracker({
       </p>
 
       {/* role="list" — WebKit/VoiceOver drops list semantics from a list-style:none <ol> */}
-      <ol role="list" style={{ listStyle: "none", padding: "20px 4px 0", margin: 0 }}>
+      <ol
+        role="list"
+        aria-label="Order status"
+        style={{ listStyle: "none", padding: "20px 4px 0", margin: 0 }}
+      >
         {STEPS.map(([title, sub], i) => {
           const state = i < activeStep ? "done" : i === activeStep ? "now" : "pending";
           const last = i === STEPS.length - 1;

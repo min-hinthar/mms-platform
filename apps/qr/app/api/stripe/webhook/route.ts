@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { getStripe } from "@/lib/stripe";
 import { serviceClient } from "@mms/db/server";
 import { getCartTotals } from "@/lib/totals";
@@ -109,13 +109,16 @@ export async function POST(req: NextRequest) {
   }
   // (handle charge.refunded, … as needed)
 
-  // posthog-node is fire-and-forget; on Vercel the function can be torn down before the send drains
-  // (even with flushAt:1). Await a flush on the way out so captured events aren't silently dropped.
-  try {
-    await posthog.flush();
-  } catch {
-    // never fail a verified, fulfilled webhook because analytics couldn't drain
-  }
+  // Drain analytics AFTER the response is sent (Next `after`) — keeps the function alive for the
+  // flush without coupling the Stripe 200 ack latency to PostHog (a hung endpoint can't delay the
+  // ack). flushAt:1 already best-effort; this guarantees the drain attempt without blocking.
+  after(async () => {
+    try {
+      await posthog.flush();
+    } catch {
+      // fulfillment already succeeded — never surface an analytics-drain failure
+    }
+  });
 
   return NextResponse.json({ received: true });
 }

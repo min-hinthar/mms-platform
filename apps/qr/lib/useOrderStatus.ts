@@ -43,6 +43,7 @@ export function useOrderStatus(paymentIntent: string | null): OrderStatus {
     supa.realtime.setAuth(anon.accessToken); // anon-auth token → RLS authorizes the subscription
     let active = true;
     let tries = 0;
+    let errs = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     async function load() {
@@ -52,10 +53,24 @@ export function useOrderStatus(paymentIntent: string | null): OrderStatus {
         .eq("stripe_payment_intent_id", paymentIntent!)
         .maybeSingle();
       if (!active) return;
-      // Surface a fetch failure (RLS/auth/network) instead of silently looping into "Confirming…"
-      // for ~30s with no signal (LEARNINGS: wrap every swallowed error). A transient error still
-      // self-heals via the retry below; a persistent one (e.g. RLS denied) is now visible in logs.
-      if (error) console.error("[useOrderStatus] order fetch failed", { paymentIntent, error });
+      // maybeSingle treats "no rows yet" as data:null/error:null, so `error` here is a genuine fetch
+      // failure (RLS denied / auth lost / network). Fail fast after a few CONSECUTIVE ones instead of
+      // burning the full ~30s poll on an unrecoverable state (LEARNINGS: wrap every swallowed error);
+      // a transient blip resets `errs` and self-heals via the retry below.
+      if (error) {
+        errs += 1;
+        console.error("[useOrderStatus] order fetch failed", {
+          paymentIntent,
+          attempt: errs,
+          error,
+        });
+        if (errs >= 3) {
+          setExhausted(true);
+          return;
+        }
+      } else {
+        errs = 0;
+      }
       if (data) {
         const items = (data.qr_order_items ?? []) as { qty: number }[];
         setOrder({
