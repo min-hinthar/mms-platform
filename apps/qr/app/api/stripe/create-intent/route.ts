@@ -26,7 +26,10 @@ export async function POST(req: NextRequest) {
         automatic_payment_methods: { enabled: true },
         metadata: { cartId, tipRate: String(tipRate) },
       },
-      { idempotencyKey: `pi_${cartId}_${amount}` }, // dedupe double-submits; a changed amount → a new intent
+      // Include tipRate in the key so two different tip choices that happen to land on the same
+      // total (after a cart edit) can't collide onto one intent — Stripe would otherwise return the
+      // first PI (with the OLD tipRate in metadata), and the webhook would fulfill the wrong breakdown.
+      { idempotencyKey: `pi_${cartId}_${amount}_t${tipRate}` },
     );
 
     // NOTE(realtime phase): we intentionally do NOT lock the cart here. A lock during the pay window

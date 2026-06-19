@@ -57,8 +57,11 @@ export function Checkout({
       setItems(v.items);
       setTotals(v.totals);
     } catch {
-      // Cart no longer open (paid/closed) → assertCartMember 403. Swallow so the read path doesn't
-      // surface an uncaught rejection (the diner is redirected to /track after paying).
+      // Swallow: the EXPECTED failure here is the post-payment 403 (the cart flipped to paid → the
+      // diner is being redirected to /track). We can't discriminate it from a transient error
+      // client-side — Server Action errors are redacted in prod, so no `.status` survives — and
+      // surfacing an error on the expected post-pay 403 would be a false alarm. A transient failure
+      // self-heals on the next interaction (every mutation re-fetches).
     }
   }
 
@@ -78,6 +81,7 @@ export function Checkout({
     if (!promo.trim()) return;
     startTransition(async () => {
       setStatus(null); // clear any stale result so it doesn't linger through the round-trip
+      setPayError(null); // single live region — don't let a prior pay error mask the promo result
       try {
         await applyPromoAction(cartId, promo.trim());
         setStatus("Promo applied.");
@@ -93,6 +97,7 @@ export function Checkout({
 
   async function continueToPayment() {
     setPayError(null);
+    setStatus(null); // single live region — clear any prior promo result
     setLoadingPay(true);
     try {
       // Member-gated (cookie session); the route re-derives the amount from getCartTotals and locks
@@ -143,7 +148,9 @@ export function Checkout({
 
   return (
     <main style={{ padding: "24px 20px 40px", maxWidth: 440, margin: "0 auto" }}>
-      <h1 ref={headingRef} tabIndex={-1} style={{ fontSize: 28, outline: "none" }}>
+      {/* tabIndex={-1} = programmatic focus target (focus moves here when a line is removed). No
+          outline override — the browser shows its :focus-visible ring (WCAG 2.4.7). */}
+      <h1 ref={headingRef} tabIndex={-1} style={{ fontSize: 28 }}>
         Your order
       </h1>
 
@@ -226,14 +233,6 @@ export function Checkout({
               Apply
             </button>
           </form>
-          {/* The one polite live region — promo result. The rolling totals below are NOT aria-live. */}
-          <p
-            aria-live="polite"
-            aria-atomic="true"
-            style={{ minHeight: 16, margin: 0, fontSize: 12, color: "var(--t2)" }}
-          >
-            {status}
-          </p>
 
           {/* Tip selector (server confirms the exact tip at create-intent) */}
           <div
@@ -314,13 +313,21 @@ export function Checkout({
           >
             {loadingPay ? "Starting checkout…" : "Continue to payment"}
           </button>
+          {/* The ONE polite live region for the review step (QA §A P1) — carries the pay-start
+              error OR the promo result, never both (each handler clears the other first). The pay
+              step has its own single region inside PaymentSection. */}
           <p
             role="status"
             aria-live="polite"
             aria-atomic="true"
-            style={{ minHeight: 16, margin: "8px 0 0", fontSize: 13, color: "var(--warn)" }}
+            style={{
+              minHeight: 16,
+              margin: "8px 0 0",
+              fontSize: 13,
+              color: payError ? "var(--warn)" : "var(--t2)",
+            }}
           >
-            {payError}
+            {payError ?? status}
           </p>
         </>
       )}
