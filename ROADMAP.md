@@ -11,6 +11,7 @@ Milestones → phases → tasks (the delivery-app rhythm). Each **milestone** sh
 - **Now →** M1 · Walking pay path (the smallest end-to-end real charge).
 - **Next →** M2 tax/promos/scheduling · M3 group cart.
 - **Later →** M4 rewards · M5 migrate delivery app · M6 kiosk + Terminal + EBT (2027).
+- **Service-model arc →** S1 staff & floor · S2 line authority · S3 tabs · S4 unified basket — the dine-in/full-service layer from [`docs/context/ORDER-MODEL.md`](docs/context/ORDER-MODEL.md). Interleaves after M3 (see the track below; **build order ≠ milestone number**).
 
 ---
 
@@ -87,6 +88,65 @@ Smallest slice that takes one real test charge end-to-end (solo Scan & Go). **No
 - **P6.3** **EBT/SNAP** via Forage + FNS authorization (50%-rule → likely separate FNS firm); weighed-produce entry. ⏸ 2027
 
 **Exit:** in-person card at a kiosk; EBT eligible items checkout (post-authorization).
+
+---
+
+## 🧩 Service-model track (dine-in full service) &nbsp;`milestone:S1…S4`
+
+The full-service layer over the guest self-serve core: **staff/floor, line authority, tabs, and the unified basket** from [`docs/context/ORDER-MODEL.md`](docs/context/ORDER-MODEL.md). The spine is shared — one **table-owned order ledger** (M1) — so these *extend* the app, they don't fork it. An `S` track (not `M7+`) so the existing numbering/labels stay put; **milestone number ≠ build order** (see the interleave at the end).
+
+**Touch-points — build these M-phases with the S-track in mind:**
+- **M3.3 `canMutate`** — give the host-lock the **state × role** signature (`canMutate(line_state, actor_role)`) so S2's post-fire locks extend it rather than refactor it.
+- **M2.2 pickup fire-time** — make it the **same** fire/KDS mechanism S2 introduces; don't grow a second timer.
+- **M6.3 EBT** — consumes S4's **split-tender seam** (a payment over a line subset).
+
+### ⬜ S1 — Staff & floor &nbsp;`milestone:S1`
+
+The door for humans; the single-source-of-truth across channels. **Dep:** M1 (ledger) · M3 (table session/presence).
+
+- **S1.1** Staff auth + **roles** (server / manager / owner), distinct from anon diners; RLS so staff read/write **any** table session, diners only their own. ⬜
+- **S1.2** **Floor view** — legible per-table state (live cart? seats? last activity?) on a staff device. ⬜
+- **S1.3** **Staff write** to a table order (order *for* a guest — "browse on phone, pay a human" closes here; cash is first-class). ⬜
+- **S1.4** **Soft convergence** — warn on divergence (new order on a table with a live cart) · **one-tap merge** of two table orders (role-gated, logged) · session **expiry** + staff **"clear table"** on turnover. ⬜
+
+**Exit:** a server can find any table, see/extend its cart, settle it (incl. cash), and a double-order is a one-tap merge. *Unlocks all four low-tech fallbacks.*
+
+### ⬜ S2 — Line lifecycle & authority &nbsp;`milestone:S2`
+
+What lets the kitchen trust the screen + gives loss-controlled undo. **Dep:** S1 (staff roles) · a KDS fire signal.
+
+- **S2.1** Line-state machine **draft → fired → in-progress → served → settled** + KDS fire/bump; grocery lines lock at **payment**, not fire. ⬜
+- **S2.2** Post-fire edit rights — customer "Remove" becomes **"Ask server"**; ~5s **undo** grace before the ticket hits the KDS; enforced server-side via `canMutate(line_state, actor_role)`. ⬜
+- **S2.3** **Voids/comps — loss-gated:** uncooked = server-solo + reason; cooked / money-out refund = **manager-PIN step-up** (per-person, server-verified, rate-limited); two-party audit. ⬜
+- **S2.4** **Approvals primitive** (`request → notify → approve/deny → audit`) + **owner remote-approve** (async; safe-default on timeout; two approvers + SMS; one-glance push). Void is consumer #1. ⬜
+
+**Exit:** a fired ticket can't be silently mutated by a guest; a cooked-item comp needs manager-PIN or owner remote-approve; every void is two-party logged.
+
+### ⬜ S3 — Tabs (deferred settlement) &nbsp;`milestone:S3`
+
+"Keep the tab open" — the table order settled at close. **Dep:** S1 (staff close) · M1 (ledger) · reuses S2's approvals for after-hours closes.
+
+- **S3.1** **Trust tab** (default) — accumulate, settle at close with any tender; **tip on the final total**. ⬜
+- **S3.2** **Secure tab** — SetupIntent card at open *or attached mid-tab*, off-session charge at close; validate at open; handle close-decline. ⬜
+- **S3.3** **Server-discretion** gating — courtesy framing + a light **nudge** on large/new tables + a **silent ceiling** on a ballooning trust tab; host-of-record on group tabs. ⬜
+
+**Exit:** a table runs a trust tab and settles once at close (any tender); a server can require/convert to a secure tab; tip lands on the final total.
+
+### ⬜ S4 — Unified basket & fulfillment routing &nbsp;`milestone:S4`
+
+Dine-in + take-out + grocery in one cart, one payment, mixed fulfillment. **Dep:** S2 (line-state/KDS) · M2 (fire-time) · grocery (M2.3).
+
+- **S4.1** Per-line **fulfillment tag** (dine-in / to-go / grocery) → KDS-now / KDS-at-checkout / bag-only; cart **grouped by destination** for legibility. ⬜
+- **S4.2** To-go timing — **fire at checkout** (= tab-close, or the explicit **"make it now"** toggle on pay-now) + a **"ready in ~X"** departure-readiness signal. ⬜
+- **S4.3** **Split-tender seam** — a payment covers a **subset** of lines (single-tender at launch) + **line-level refunds**; lets M6 EBT be a tender-time branch, not a rewrite. ⬜
+
+**Exit:** one basket pays for served + to-go + grocery with correct per-line tax; to-go is fresh at departure; a payment can already target a line subset.
+
+### Recommended build order (number ≠ priority)
+
+`M1 → M2 → M3 → S1 → S2 → S3 → M4 → S4 → M5 → M6 (2027)`
+
+Staff/floor + line authority (S1/S2) land right after group cart since they're core to the room; tabs (S3) follow; rewards (M4) and the unified basket (S4) slot next; delivery-migration (M5) and the 2027 EBT/kiosk (M6) stay last. **Reorder by what's hurting most — but respect the deps:** S2 needs S1, S3 needs S1, S4 needs S2.
 
 ---
 

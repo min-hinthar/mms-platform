@@ -8,9 +8,10 @@
 2. **[QA-CHECKLIST.md](QA-CHECKLIST.md)** — the launch gate. Every milestone exits against it; the PR review + weekly adversarial Action enforce it.
 3. **[RUBRIC.md](RUBRIC.md)** — the 10-dimension world-class bar (target ≥ 4.3).
 4. **[RED-TEAM.md](RED-TEAM.md)** — the standards + the known traps that shaped the build.
-5. **[DESIGN-RESEARCH.md](DESIGN-RESEARCH.md)** — UX research + evidence, the Sunday north-star teardown, the **paid UI-kit buy-list**, and the component / motion / voice craft bar.
-6. **[FREE-KIT-MAP.md](FREE-KIT-MAP.md)** — the $0/mo stack (the free counterpart to the paid kits).
-7. **[../prototype/v7.2.html](../prototype/v7.2.html)** — the canonical **visual / interaction reference** (open in a browser). Graded ≈ 4.3/5; the real app should match its feel.
+5. **[ORDER-MODEL.md](ORDER-MODEL.md)** — how the order is owned (the table, not the phone), who may edit it (line-state × role), and how voids/refunds are authorized. Forward-looking decisions for the dine-in / tab / low-tech-fallback work.
+6. **[DESIGN-RESEARCH.md](DESIGN-RESEARCH.md)** — UX research + evidence, the Sunday north-star teardown, the **paid UI-kit buy-list**, and the component / motion / voice craft bar.
+7. **[FREE-KIT-MAP.md](FREE-KIT-MAP.md)** — the $0/mo stack (the free counterpart to the paid kits).
+8. **[../prototype/v7.2.html](../prototype/v7.2.html)** — the canonical **visual / interaction reference** (open in a browser). Graded ≈ 4.3/5; the real app should match its feel.
 
 ## The rest of the map
 
