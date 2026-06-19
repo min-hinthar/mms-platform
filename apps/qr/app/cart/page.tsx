@@ -1,59 +1,33 @@
-// STUB — cart + checkout. Renders the SERVER-AUTHORITATIVE totals from getCartTotals()
-// (never client math), the SB-1524 service-charge disclosure, per-person split (group),
-// promo input (server-validated via applyPromo), then mounts the Stripe Payment Element
-// against /api/stripe/create-intent. See lib/cart.ts + the Stripe routes.
-import { getCartTotals } from "@/lib/totals";
-import { assertCartMember } from "@/lib/authz";
+import Link from "next/link";
+import { getCartView } from "@/lib/cart";
+import { Checkout } from "@/components/Checkout";
 
+// Cart + checkout. The cartId comes from the URL (the cart bar links here with the server-issued
+// id); `getCartView` authorizes the viewer against the cart (member-gated — a non-member can't read
+// another table's order) and returns the SERVER-AUTHORITATIVE lines + totals for the initial render.
 export default async function Cart({ searchParams }: { searchParams: Promise<{ cart?: string }> }) {
   const { cart } = await searchParams;
-  // Authorize the viewer against the cart before rendering its totals (the page reads `cart` from
-  // the URL — a non-member must not see another table's order). Non-member / no session → fall
-  // through to the placeholder. (Stub; P1.2 builds the real cart UI on top of this guard.)
-  const totals = await (async () => {
-    if (!cart) return null;
+  let view: Awaited<ReturnType<typeof getCartView>> | null = null;
+  if (cart) {
     try {
-      await assertCartMember(cart);
-      return await getCartTotals(cart);
+      view = await getCartView(cart);
     } catch {
-      return null;
+      view = null; // not a member / no session / unknown cart → placeholder below
     }
-  })();
-  return (
-    <main style={{ padding: 24, maxWidth: 440, margin: "0 auto" }}>
-      <h1>Your order</h1>
-      {totals ? (
-        <dl style={{ marginTop: 12 }}>
-          <Row k="Subtotal" cents={totals.subtotalCents} />
-          {totals.discountCents > 0 && <Row k="Promo" cents={-totals.discountCents} />}
-          <Row k="Service charge (5%)" cents={totals.serviceChargeCents} />
-          <Row k="Sales tax" cents={totals.taxCents} />
-          <Row k="Total" cents={totals.totalCents} strong />
-        </dl>
-      ) : (
+  }
+
+  if (!cart || !view)
+    return (
+      <main style={{ padding: 24, maxWidth: 440, margin: "0 auto" }}>
+        <h1 style={{ fontSize: 28 }}>Your order</h1>
         <p style={{ color: "var(--t2)" }}>
-          Pass <code>?cart=&lt;id&gt;</code>; M1 wires the Payment Element here.
+          This order isn’t available on this device. Start from the menu.
         </p>
-      )}
-      <p style={{ fontSize: 11, color: "var(--t3)", marginTop: 12 }}>
-        A 5% service charge supports fair kitchen wages and is shared with the team (CA SB-1524).
-        Card fees are in menu prices; we never surcharge debit.
-      </p>
-    </main>
-  );
-}
-function Row({ k, cents, strong }: { k: string; cents: number; strong?: boolean }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "space-between",
-        padding: "5px 0",
-        fontWeight: strong ? 800 : 400,
-      }}
-    >
-      <dt>{k}</dt>
-      <dd style={{ margin: 0, fontVariantNumeric: "tabular-nums" }}>${(cents / 100).toFixed(2)}</dd>
-    </div>
-  );
+        <Link href="/menu" style={{ color: "var(--ac)", fontWeight: 700 }}>
+          ← Back to menu
+        </Link>
+      </main>
+    );
+
+  return <Checkout cartId={cart} initialItems={view.items} initialTotals={view.totals} />;
 }

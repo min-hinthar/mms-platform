@@ -65,13 +65,51 @@ export async function POST(req: NextRequest) {
     .eq("seat_id", seat)
     .maybeSingle();
   if (!existing) {
-    await db
+    const { error: memErr } = await db
       .from("session_members")
       .insert({ session_id: sess.id, seat_id: seat, display_name: name, role });
+    // 23505 = unique_violation: a concurrent join already inserted this membership → fine, the row
+    // exists. Any other error means the diner is NOT actually a member, so fail loudly instead of
+    // returning a cartId that every later assertCartMember would 403 on (silently broken session).
+    if (memErr && memErr.code !== "23505")
+      return NextResponse.json({ error: "Could not join session" }, { status: 500 });
   }
 
-  // The host's brand-new session gets its single open cart.
-  if (created) await db.from("qr_carts").insert({ session_id: sess.id });
+  // Find-or-create the session's OPEN cart (P1.2 "create-cart"). Idempotent: returns the existing
+  // open cart, or a fresh one — so after a previous cart is paid (status≠'open') the next order
+  // starts clean. The client drives /cart off the returned cartId; it never invents one.
+  let { data: cart } = await db
+    .from("qr_carts")
+    .select("id")
+    .eq("session_id", sess.id)
+    .eq("status", "open")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!cart) {
+    const { data } = await db
+      .from("qr_carts")
+      .insert({ session_id: sess.id })
+      .select("id")
+      .single();
+    if (data) {
+      cart = data;
+    } else {
+      // Lost an insert race (partial unique index qr_carts_one_open_per_session) — the winner's
+      // open cart exists now; re-read so concurrent joins converge on a single cart.
+      const reread = await db
+        .from("qr_carts")
+        .select("id")
+        .eq("session_id", sess.id)
+        .eq("status", "open")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!reread.data)
+        return NextResponse.json({ error: "Could not create cart" }, { status: 500 });
+      cart = reread.data;
+    }
+  }
 
   const posthog = getPostHogClient();
   posthog.capture({
@@ -80,5 +118,5 @@ export async function POST(req: NextRequest) {
     properties: { session_id: sess.id, mode: sess.mode, role, qr_code: qrCode },
   });
 
-  return NextResponse.json({ sessionId: sess.id, seat, role });
+  return NextResponse.json({ sessionId: sess.id, seat, role, cartId: cart.id });
 }

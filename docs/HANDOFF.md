@@ -7,9 +7,16 @@ QA gate, rubric, red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md),
 
 ## Where we are
 
-- **Milestone M1 (walking pay path).** Backend foundation and **P1.1 anonymous-auth wiring** are
-  done, plus the P1.0a leftovers (Zod input layer, DB-drift CI, `config.toml`). Shipped in **PR #4**.
-  Next up: P1.2 cart-create and line-merge → Payment Element (P1.3) → fulfillment/Track.
+- **Milestone M1 (walking pay path).** Backend foundation, **P1.1 anonymous-auth wiring**, and now
+  **P1.2 cart-create + line-merge + the cart flow** are done. Next up: **P1.3 Payment Element** →
+  P1.4 fulfillment → P1.5 Track.
+- **P1.2 shipped:** `POST /api/session` find-or-creates the session's open cart and returns `cartId`;
+  `useTableSession` (per-device QR identity) + `TableCartProvider` drive the menu's `AddButton` +
+  `CartBar`; `addItem` merges identical lines (item + normalized modifier set → qty bump);
+  `getCartView` (member-gated) feeds the cart page (`Checkout`: steppers/promo/server totals,
+  re-fetched, never client math). Pay CTA is a placeholder awaiting P1.3. _Follow-up:_ a
+  modifier-customization sheet (Add currently sends the base item; respect modifier_groups
+  min/max_select, `role="radiogroup"`).
 - **P1.1 shipped (this session):** `AnonAuthGate` (`signInAnonymously` on load, SSR cookies) +
   `useAnonSession()`; `@mms/db/server` `serverClient(cookies)`; `POST /api/session` verifies the
   Bearer anon token → `seat_id = auth.uid()` (idempotent, sets `host_seat`); **one authz guard**
@@ -58,23 +65,27 @@ QA gate, rubric, red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md),
 
 ## Next tasks (in order)
 
-### P1.2 — Cart create + line-merge (actions authz already landed in P1.1)
+### P1.3 — Payment Element (the cart UI from P1.2 is the mount point)
 
-1. **create-cart action** — a `"use server"` action (or extend `/api/session`) that returns the
-   cart id for a session so the client has a real `cartId` to drive `/cart`. (Today `/api/session`
-   creates the host cart but doesn't return its id; the grocery page still mints a demo
-   `crypto.randomUUID()` — now correctly **rejected** by the authz guard until this lands.)
-2. **Merge identical lines** in `addItem` (same `menu_item_id` + same `modifiers`) → bump `qty`
-   instead of inserting a duplicate row (QA §B perf; `qty` is currently hardcoded to 1).
-3. Wire the client: `useAnonSession()` → POST `/api/session` (Bearer) on a scanned table; pass the
-   anon `accessToken` + `seat` into `useGroupCart` so Realtime authorizes.
-
-### P1.3 — Payment Element
-
-- Cart page mounts `<Elements>` against `/api/stripe/create-intent` (already member-gated); surface
-  Apple/Google Pay. **No real card until the M1 gate (`docs/REVIEW.md`) is fully green.**
+- In `apps/qr/components/Checkout.tsx`, replace the disabled "Continue to payment" CTA with the
+  Stripe Payment Element: `loadStripe(NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)` → POST
+  `/api/stripe/create-intent` `{ cartId, tipRate }` (already member-gated, returns
+  `{ clientSecret, totals }`) → `<Elements options={{ clientSecret, appearance }}>` +
+  `<PaymentElement/>` → `stripe.confirmPayment({ return_url: /track?... })`.
+- **Tip selector** (e.g. 0/15/18/20%) → `tipRate`; a changed tip re-creates the intent (the
+  idempotency key `pi_{cart}_{amount}` already makes a new amount a new intent). Show the
+  tip-inclusive grand total from the intent response.
+- Apple/Google Pay surface via the Payment Element. **Test mode only** — no real card until the M1
+  gate (`docs/REVIEW.md`) is fully green. (`create-intent` + the webhook reconcile already exist.)
 
 ### Then P1.4+ (see ROADMAP): fulfillment end-to-end → Track timeline.
+
+### P1.2 follow-up (small)
+
+- **Modifier-customization sheet** — `AddButton` currently adds the base item with no modifiers. For
+  items with modifier groups, open a `Sheet` (Radix, from `@mms/ui`) with `role="radiogroup"` per
+  group, respecting `min_select`/`max_select`, then call `addItem(cartId, id, modifierOptionIds)`.
+  Line-merge already keys on the normalized modifier set, so customized variants stay distinct.
 
 ## CI / infra follow-ups — DONE (2026-06-18)
 

@@ -516,6 +516,23 @@ export type Database = {
     Functions: {
       is_host: { Args: { sess: string }; Returns: boolean }
       is_member: { Args: { sess: string }; Returns: boolean }
+      mms_cart_item_inc_qty: { Args: { p_id: string }; Returns: undefined }
+      mms_cart_item_insert_if_open: {
+        Args: {
+          p_by_seat: string
+          p_cart_id: string
+          p_menu_item_id: string
+          p_modifiers: Json
+          p_name: string
+          p_tax_cents: number
+          p_unit_price_cents: number
+        }
+        Returns: string
+      }
+      mms_cart_item_set_qty_if_open: {
+        Args: { p_id: string; p_qty: number }
+        Returns: number
+      }
       mms_fulfill_order: {
         Args: {
           p_amount_cents: number

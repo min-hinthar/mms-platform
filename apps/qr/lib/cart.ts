@@ -1,10 +1,15 @@
 "use server";
 import { serviceClient } from "@mms/db/server";
-import type { TaxCategory } from "@mms/db";
-import { addItemInput, applyPromoInput, setQtyInput } from "@mms/db/schemas";
+import type { CartItem, CartTotals, TaxCategory } from "@mms/db";
+import { addItemInput, applyPromoInput, cartViewInput, setQtyInput } from "@mms/db/schemas";
 import { lineTax } from "./tax";
+import { getCartTotals } from "./totals";
 import { assertCartItemMember, assertCartMember } from "./authz";
 import { getPostHogClient } from "./posthog-server";
+
+// Normalize a modifier set (label array) to a comparable key — order-independent — so "merge
+// identical lines" treats the same item with the same options as one line regardless of pick order.
+const modKey = (m: unknown): string => JSON.stringify(Array.isArray(m) ? [...m].sort() : []);
 
 /**
  * SERVER-AUTHORITATIVE cart. The browser never sends a price — it sends a menu item id +
@@ -77,17 +82,42 @@ export async function addItem(cartId: string, menuItemId: string, modifierIds: s
     input.modifierIds,
   );
   const taxCents = lineTax(unitPriceCents, category, dineIn);
-  await db.from("qr_cart_items").insert({
-    cart_id: input.cartId,
-    menu_item_id: input.menuItemId,
-    name,
-    qty: 1,
-    modifiers: opts,
-    unit_price_cents: unitPriceCents,
-    tax_cents: taxCents,
-    by_seat: uid, // provenance from the VERIFIED uid, not a client-asserted seat
-  });
-  await db.from("qr_carts").update({ updated_at: new Date().toISOString() }).eq("id", input.cartId);
+  // Merge identical lines (same menu item + same chosen modifiers) → bump qty instead of a duplicate
+  // row, so the cart stays bounded (QA §B perf). Match on the normalized modifier set.
+  const { data: siblings } = await db
+    .from("qr_cart_items")
+    .select("id,modifiers")
+    .eq("cart_id", input.cartId)
+    .eq("menu_item_id", input.menuItemId);
+  const dup = (siblings ?? []).find((s) => modKey(s.modifiers) === modKey(opts));
+  if (dup) {
+    // ATOMIC increment — a single in-DB `qty = qty + 1` that JOINs the parent cart and requires
+    // `status = 'open'` and `qty < 99` (migrations 20260619000100/000300). Can't lose an increment
+    // under concurrency (undercharge), can't bump a paid/fulfilled line, can't inflate the Stripe
+    // amount. RAISES on a closed cart (so we don't report a phantom add); a 99-cap is a silent no-op.
+    const { error: incErr } = await db.rpc("mms_cart_item_inc_qty", { p_id: dup.id });
+    if (incErr) throw new Error("Cart is no longer open");
+  } else {
+    // Status-atomic insert — the new line is written only if the parent cart is still 'open', in one
+    // statement (migration 20260619000200), so a webhook status flip can't slip a post-payment row
+    // past the app-layer guard. A NULL id back ⇒ the cart is no longer open.
+    const { data: insertedId } = await db.rpc("mms_cart_item_insert_if_open", {
+      p_cart_id: input.cartId,
+      p_menu_item_id: input.menuItemId,
+      p_name: name,
+      p_modifiers: opts,
+      p_unit_price_cents: unitPriceCents,
+      p_tax_cents: taxCents,
+      p_by_seat: uid, // provenance from the VERIFIED uid, not a client-asserted seat
+    });
+    if (!insertedId) throw new Error("Cart is no longer open");
+  }
+  const { error: touchErr } = await db
+    .from("qr_carts")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", input.cartId);
+  // Non-fatal (the line mutation already committed) but log it — a stale updated_at shouldn't vanish.
+  if (touchErr) console.error("[cart] updated_at touch failed (addItem)", touchErr.message);
 
   const posthog = getPostHogClient();
   posthog.capture({
@@ -109,14 +139,23 @@ export async function setQty(cartItemId: string, qty: number) {
   const { cartId, locked } = await assertCartItemMember(input.cartItemId);
   if (locked) throw new Error("Order is locked by the host");
   const db = serviceClient();
-  if (input.qty <= 0) await db.from("qr_cart_items").delete().eq("id", input.cartItemId);
-  else await db.from("qr_cart_items").update({ qty: input.qty }).eq("id", input.cartItemId);
-  await db.from("qr_carts").update({ updated_at: new Date().toISOString() }).eq("id", cartId);
+  // Status-atomic set/delete (qty<=0 removes) — applies only while the parent cart is 'open' in one
+  // statement (migration 20260619000200), matching the addItem paths. 0 rows ⇒ paid/closed (or gone).
+  const { data: affected } = await db.rpc("mms_cart_item_set_qty_if_open", {
+    p_id: input.cartItemId,
+    p_qty: input.qty,
+  });
+  if (!affected) throw new Error("Cart is no longer open");
+  const { error: touchErr } = await db
+    .from("qr_carts")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", cartId);
+  if (touchErr) console.error("[cart] updated_at touch failed (setQty)", touchErr.message);
 }
 
 export async function applyPromo(cartId: string, code: string) {
   const input = applyPromoInput.parse({ cartId, code });
-  const { locked } = await assertCartMember(input.cartId);
+  const { uid, locked } = await assertCartMember(input.cartId);
   if (locked) throw new Error("Order is locked by the host");
   const db = serviceClient();
   const { data: promo } = await db
@@ -126,11 +165,23 @@ export async function applyPromo(cartId: string, code: string) {
     .maybeSingle();
   if (!promo || !promo.active || (promo.max_uses != null && promo.used >= promo.max_uses))
     throw new Error("Invalid code");
-  await db.from("qr_carts").update({ promo_code: promo.code }).eq("id", input.cartId);
+  // NOTE(M2·P2.1): this checks `used` but does NOT consume a redemption — full cap enforcement
+  // (atomic, consumed on FULFILLMENT not on apply, + per-session rate-limit) is the M2 promo phase.
+  // Not exploitable today: no promo codes are seeded, and applying only sets `qr_carts.promo_code`.
+  // Status-atomic write — only sets the promo on a still-`open` cart (the `.eq("status","open")`
+  // makes it symmetric with the other mutation paths against a webhook flip between the authz check
+  // and this update). 0 rows back ⇒ the cart is no longer open.
+  const { data: updated } = await db
+    .from("qr_carts")
+    .update({ promo_code: promo.code })
+    .eq("id", input.cartId)
+    .eq("status", "open")
+    .select("id");
+  if (!updated || updated.length === 0) throw new Error("Cart is no longer open");
 
   const posthog = getPostHogClient();
   posthog.capture({
-    distinctId: input.cartId,
+    distinctId: uid, // the verified diner uid (matches item_added_to_cart) — not the cart id
     event: "promo_applied",
     properties: {
       cart_id: input.cartId,
@@ -139,4 +190,33 @@ export async function applyPromo(cartId: string, code: string) {
       promo_value: promo.value,
     },
   });
+}
+
+/**
+ * Member-gated read of a cart's lines + server-authoritative totals — the single source the cart
+ * UI renders and re-fetches after every mutation (never client math). Totals exclude tip (a
+ * pay-step choice). Authorized like every other path (RED-TEAM #2), so it's not an IDOR read.
+ */
+export async function getCartView(
+  cartId: string,
+): Promise<{ items: CartItem[]; totals: CartTotals }> {
+  const { cartId: id } = cartViewInput.parse({ cartId });
+  await assertCartMember(id);
+  const db = serviceClient();
+  const { data: rows } = await db
+    .from("qr_cart_items")
+    .select("id,menu_item_id,name,qty,modifiers,unit_price_cents,tax_cents,by_seat")
+    .eq("cart_id", id)
+    .order("created_at", { ascending: true });
+  const items: CartItem[] = (rows ?? []).map((r) => ({
+    id: r.id,
+    menuItemId: r.menu_item_id,
+    name: r.name,
+    qty: r.qty,
+    modifiers: Array.isArray(r.modifiers) ? (r.modifiers as string[]) : [],
+    unitPriceCents: r.unit_price_cents,
+    taxCents: r.tax_cents,
+    bySeat: r.by_seat ?? undefined,
+  }));
+  return { items, totals: await getCartTotals(id) };
 }

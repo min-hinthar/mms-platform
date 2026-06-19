@@ -44,3 +44,106 @@ custom-JWT plan, so item 1 is reframed):
 - **Also closes QA-CHECKLIST §C "group-cart auth"** (server-issued QR-bound session, server-
   authoritative cart, per-action authz, RLS on order tables, private Realtime with verified
   membership). Plus the P1.0a infra: **Zod** input layer + **`migrations-check`/`types-fresh`** CI.
+
+## Progress — M1·P1.2 cart-create + line-merge + cart flow (2026-06-19)
+
+The first PR to run the (now-fixed) Claude review/adversarial gates with comments. Findings triaged:
+
+- **Fixed** — atomic `mms_cart_item_inc_qty` RPC (line-merge lost-update race); partial unique index
+  `qr_carts(session_id) WHERE status='open'` + `/api/session` conflict re-read (duplicate open carts);
+  `assertCartMember` rejects non-`open` carts (post-payment immutability); a11y (`aria-busy`, CartBar
+  real `<button>`, Stepper `<output>`, one polite notice region, promo-status clear-on-resubmit).
+  Migration `20260619000000_cart_concurrency` applied to the live project; advisors clean (no new).
+- **Verified-and-dismissed** — the reviewer claim that `mms_fulfill_order` "never sets status=paid" is
+  wrong; the init migration already does `update qr_carts set status='paid'`.
+- **Deferred (documented)** — **promo redemption caps/rate-limit → M2·P2.1** (`applyPromo` checks
+  `used` but doesn't consume a redemption; the correct fix consumes on _fulfillment_, and no promo
+  codes are seeded, so it's not exploitable now). Raw **`cartId` in the URL → later** (LOW; the
+  membership auth gate, not the id, is the capability check).
+
+### Second pass — review + adversarial on the fix commit (2026-06-19)
+
+Both gates favorable on the P1.2 fix commit: **adversarial = PASS (zero Critical)**, **review = Approve
+with notes**. New findings triaged:
+
+- **Fixed** — migration `20260619000100_cart_item_qty_cap`: `mms_cart_item_inc_qty` is now bounded
+  (`qty < 99`) **and** status-atomic (JOINs the cart, requires `status='open'`) in one UPDATE, with a
+  `CHECK (qty between 1 and 99)` backstop — closes the qty-inflation vector (MEDIUM) and the
+  webhook-flips-`paid`-mid-flight RPC race (adversarial MEDIUM) together. `Checkout.refresh()`/
+  `changeQty` now swallow the post-payment 403 (MEDIUM — the read path would otherwise throw an
+  uncaught rejection once a cart is paid); Stepper `+` disables at 99; `applyPromo` PostHog
+  `distinctId` → verified `uid` (LOW); `TableCartProvider` announces a brief **success** message too
+  (adversarial a11y MEDIUM, WCAG 4.1.3) without making the rolling total live.
+- **Verified-and-dismissed** — `setQtyInput` "has no upper bound" is wrong: `packages/db/src/schemas.ts`
+  already caps `qty` at `.max(99)`. `mms_cart_item_inc_qty` "should be SECURITY DEFINER" — no: it's
+  service-role-only and revoked from `anon`/`authenticated`, so INVOKER is the _narrower_ (correct)
+  privilege; DEFINER would only widen the surface. (Advisors confirm: the function is not flagged.)
+- **Deferred (documented)** — `setQty` **last-write-wins** (absolute-value write) → the group-cart
+  **realtime** phase, alongside the **first-add double-insert** merge (both: not a charge error — rows
+  sum correctly; only matters once concurrent group editing is wired, which P1.2 does not do). The
+  clean fix for both is a delta/`ON CONFLICT` RPC with a normalized modifier key. **`modKey` keyed on
+  option labels vs ids** → when the modifier sheet ships (moot today: addItem sends no modifiers).
+  **Promo enumeration rate-limit → M2** (with the redemption work). Stepper **debounce** + paid-cart
+  **distinct message** + **`cartId`-in-URL** → later polish (Low; mitigated by `disabled`-while-pending
+  / the auth gate).
+
+### Third pass — review + security + adversarial (2026-06-19)
+
+**adversarial = PASS**, **security review = clean except the findings below**, **code review = Approve**.
+The reviews probed the _whole_ cart-mutation surface (not just the increment fixed in pass 2):
+
+- **Fixed** — migration `20260619000200_cart_mutations_status_atomic`: `mms_cart_item_insert_if_open`
+  - `mms_cart_item_set_qty_if_open` carry the `status='open'` guard into the INSERT (new line) and
+    the setQty UPDATE/DELETE, so **every** cart write is status-atomic in one statement (closes the
+    two MEDIUM TOCTOUs symmetric to the increment). Same migration closes a **MEDIUM grant gap**: the
+    prior `revoke … from anon, authenticated` was a no-op (Postgres grants new fns to `PUBLIC`), so all
+    three cart RPCs now `revoke … from public` + `grant execute … to service_role` (the
+    `20260618000100_lockdown_grants` pattern). A11y/UX MEDIUM/LOWs: `TableCartProvider.refresh()` +
+    initial-load `.catch()` (no false-negative "Couldn't add"; no unhandled rejection); Stepper count
+    is a plain `<span>` not `<output>` (implicit `role=status`); pay-CTA `title` → visible
+    `aria-describedby`; "86'd" → "Sold out"; `CartBar` `encodeURIComponent(cartId)`.
+- **Deferred (documented)** — **lock-cart-at-`create-intent`** (the compound stuck-payment vector:
+  a concurrent add after intent-create → webhook amount mismatch → 409 retries) → **P1.3**: the
+  correct fix needs the unlock-on-failure/expiry lifecycle that lands with the payment flow, and the
+  DB-level status guards added here already harden the underlying race. **qrCode host-squatting**
+  (any anon can POST an arbitrary `qrCode` and become host) → **M3** QR provisioning (HMAC-signed
+  payloads); dine-in interim codes should be non-guessable. `useTableSession` runtime mode-change
+  no-op → documented invariant (remount to switch). The pass-2 deferrals stand.
+
+### Fourth pass — review + security + adversarial (2026-06-19)
+
+**adversarial = PASS (zero Critical)**, all required checks green. The reviews confirmed the pass-3
+hardening and flagged the last two symmetry gaps + LOW polish:
+
+- **Fixed** — migration `20260619000300_inc_qty_signal_closed`: `mms_cart_item_inc_qty` now **raises**
+  (`P0001`) on a closed cart rather than silently no-op'ing — it was the one path whose 0-row result
+  the caller couldn't see, so a webhook status flip would let `addItem` report a phantom "Added". The
+  99-cap remains a deliberate _silent_ no-op on an open cart (the two cases are distinguished in the
+  function; signature stays `void` so no type drift). `applyPromo` is now status-atomic too
+  (`.eq("status","open")` + 0-row check) — **all four** mutation paths are symmetric. UX/a11y LOWs:
+  the promo catch distinguishes a rejected code from a network/closed-cart error; the provider live
+  region is explicit `aria-atomic="true"`.
+- **Deferred (documented)** — `setQty`/qty-change **user-facing feedback** on locked/paid carts (the
+  catches are silent today) → **P1.3** with the receipt-redirect UX (carts can't be locked/paid in
+  P1.2); `set_qty_if_open` 0-row message imprecision (closed vs item-gone) → same; `/api/session`
+  **no in-app retry** after a network error (page reload recovers) → later polish; **qrCode logged to
+  PostHog** → **M3** (it's a per-device random id today, a real table id only at provisioning);
+  the `0100` ineffective-`revoke` line → left as-is (append-only; `0200`/`0300` complete the lockdown
+  and document it). All prior deferrals stand.
+
+### Fifth pass — review + adversarial (2026-06-19)
+
+**adversarial = PASS ("zero Critical … correct and complete")**, all required checks green. One real
+MEDIUM + two LOWs:
+
+- **Fixed** — `/api/session` now checks the `session_members` insert error and returns 500 on any
+  non-`23505` failure (MEDIUM: a swallowed error handed back a `cartId` that every later
+  `assertCartMember` 403s on — a silently broken session). `qr_carts.updated_at` touch errors are now
+  logged in `addItem`/`setQty` (non-fatal — the line mutation already committed).
+- **Reworked, not as suggested** — the promo-error LOW ("fragile `msg.includes('Invalid')`"): the
+  reviewer's typed-`code` discriminant wouldn't help either, because **Next redacts Server Action
+  errors in production** (generic message + digest), so the client can't read the reason off the
+  thrown error at all. Replaced the brittle match with one honest, retry-safe message; proper
+  per-reason promo messaging needs a **result-based return** from `applyPromo` → M2 promo phase.
+- **Deferred (documented)** — the double `assertCartMember` round-trip per mutation (action +
+  `refresh`) → the Realtime subscription phase (acceptable at P1.2 load). All prior deferrals stand.
