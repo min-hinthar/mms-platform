@@ -42,8 +42,14 @@ jobs:
             Verify by reading the code (cite file:line); zero reflexive praise. Pay
             special attention to the money + auth paths: server-authoritative pricing,
             Supabase RLS + the table-session JWT, Stripe webhook idempotency/PCI, no
-            PAN in our code. Cross-check `docs/REVIEW.md` "Still open" items and
-            `docs/ARCHITECTURE.md` invariants.
+            PAN in our code. For the a11y + product/UX lenses, cross-check any changed
+            screen against `docs/prototype/v7.2.html` (the graded ~4.3 visual/interaction
+            reference) and `docs/context/DESIGN-RESEARCH.md`, graded to the
+            `docs/context/RUBRIC.md` >=4.3 bar — flag CRAFT drift (hardcoded colors vs
+            `@mms/ui/tokens.css` tokens, motion timing, spacing, contrast, semantics/44px
+            targets/live-region discipline, brand-voice microcopy), not just functional
+            a11y. Cross-check `docs/REVIEW.md` "Still open" items and
+            `docs/ARCHITECTURE.md` invariants + `docs/context/QA-CHECKLIST.md`.
 
             POST a single PR comment with a severity-ranked findings table
             (Critical / High / Medium / Low · file:line · suggested fix) if you can.
