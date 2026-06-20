@@ -2,7 +2,7 @@
 import { useEffect, useState, useTransition, type CSSProperties } from "react";
 import { Sheet } from "@mms/ui";
 import { getPickupSlots, setPickupSlot, type PickupSlot } from "@/lib/pickup";
-import { formatSlot } from "@/lib/pickupTime";
+import { dayLabel, formatSlot } from "@/lib/pickupTime";
 
 /**
  * Pickup time picker (v7.2 "Pick a pickup time" sheet). Lists the kitchen's currently-bookable slots
@@ -70,7 +70,7 @@ export function PickupSlotSheet({
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title="Pick a pickup time">
       <p style={{ color: "var(--t2)", fontSize: 13, margin: "0 0 12px" }}>
-        Today · 750 Terrado Plaza, Covina
+        750 Terrado Plaza, Covina
       </p>
       {slots === null ? (
         // Transient visual state only — no aria-live here, so it can't double-announce with the error
@@ -78,25 +78,37 @@ export function PickupSlotSheet({
         <p style={{ color: "var(--t2)", fontSize: 14 }}>Loading times…</p>
       ) : slots.length === 0 ? (
         <p style={{ color: "var(--t2)", fontSize: 14 }}>
-          No pickup times left today — please check back tomorrow.
+          No pickup times available right now — please check back soon.
         </p>
       ) : (
-        <div role="group" aria-label="Available pickup times">
-          {slots.map((s) => (
-            <button
-              key={s.slot}
-              type="button"
-              disabled={pending}
-              onClick={() => choose(s.slot)}
-              style={slotChip}
-            >
-              {formatSlot(s.slot)}
-              {s.remaining <= 2 && (
-                <span style={{ color: "var(--t3)", fontWeight: 600 }}> · {s.remaining} left</span>
-              )}
-            </button>
-          ))}
-        </div>
+        // Slots arrive sorted by time → already day-then-time order; group into day sections so an
+        // after-hours diner sees "Tomorrow"'s slots, not just an empty "Today".
+        groupByDay(slots).map((g) => (
+          <section key={g.label} style={{ marginBottom: 2 }}>
+            <h3 style={{ fontSize: 13, fontWeight: 800, color: "var(--t2)", margin: "12px 0 8px" }}>
+              {g.label}
+            </h3>
+            <div role="group" aria-label={`Pickup times — ${g.label}`}>
+              {g.slots.map((s) => (
+                <button
+                  key={s.slot}
+                  type="button"
+                  disabled={pending}
+                  onClick={() => choose(s.slot)}
+                  style={slotChip}
+                >
+                  {formatSlot(s.slot)}
+                  {s.remaining <= 2 && (
+                    <span style={{ color: "var(--t3)", fontWeight: 600 }}>
+                      {" "}
+                      · {s.remaining} left
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </section>
+        ))
       )}
       {error && (
         <p role="alert" style={{ color: "var(--warn)", fontSize: 13, marginTop: 10 }}>
@@ -105,6 +117,18 @@ export function PickupSlotSheet({
       )}
     </Sheet>
   );
+}
+
+// Collapse the time-sorted slots into consecutive day sections (Today / Tomorrow / weekday).
+function groupByDay(slots: PickupSlot[]): { label: string; slots: PickupSlot[] }[] {
+  const groups: { label: string; slots: PickupSlot[] }[] = [];
+  for (const s of slots) {
+    const label = dayLabel(s.slot);
+    const last = groups[groups.length - 1];
+    if (last && last.label === label) last.slots.push(s);
+    else groups.push({ label, slots: [s] });
+  }
+  return groups;
 }
 
 const slotChip: CSSProperties = {

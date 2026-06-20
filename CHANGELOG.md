@@ -25,6 +25,9 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   "we'll text you"** promise the code can't keep. create-intent re-validates the slot still has room at
   the pay boundary (excluding the cart's own hold) and requires a slot for pickup orders; the cart
   surfaces the reason ("Pick a pickup time first." / "That pickup time just filled — pick another.").
+- **Next-day rollover** (migration `20260620000200`): slots span today + `horizon_days` (default 2), so
+  an after-hours browser pre-orders for tomorrow instead of hitting an empty "today only" wall. The sheet
+  groups by day (Today / Tomorrow / weekday); the chip + `/track` ETA prefix the day when it isn't today.
 - **UI (v7.2):** the "Pick a pickup time" sheet (`PickupSlotSheet`, capacity-aware, auto-opens on first
   pickup load), a header chip showing/Changing the slot (`PickupSlotChip`), tz-correct time display.
 - **Validated** on a local Postgres stack (slot generation, fire-offset, hold-based capacity, exclude-self

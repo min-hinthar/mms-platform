@@ -243,6 +243,7 @@ export type Database = {
           capacity_per_slot: number
           close_time: string
           hold_minutes: number
+          horizon_days: number
           id: boolean
           lead_minutes: number
           open_time: string
@@ -254,6 +255,7 @@ export type Database = {
           capacity_per_slot?: number
           close_time?: string
           hold_minutes?: number
+          horizon_days?: number
           id?: boolean
           lead_minutes?: number
           open_time?: string
@@ -265,6 +267,7 @@ export type Database = {
           capacity_per_slot?: number
           close_time?: string
           hold_minutes?: number
+          horizon_days?: number
           id?: boolean
           lead_minutes?: number
           open_time?: string

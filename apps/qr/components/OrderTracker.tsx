@@ -2,7 +2,7 @@
 import type { CSSProperties } from "react";
 import Link from "next/link";
 import { useOrderStatus } from "@/lib/useOrderStatus";
-import { formatSlot } from "@/lib/pickupTime";
+import { formatSlotLong } from "@/lib/pickupTime";
 
 // Lifecycle steps (verbatim v7.2). The active step is server-driven; at M1/M2 there's no kitchen
 // actor, so it rests at "Order placed" — the kitchen steps light up when S2's KDS lands (same Realtime
@@ -39,7 +39,7 @@ export function OrderTracker({
   // fabricated countdown). Until the order lands we don't know the mode, so default to Scan & Go.
   const isPickup = !!order?.pickupSlot;
   const STEPS = isPickup ? PICKUP_STEPS : SCANGO_STEPS;
-  const eta = isPickup && order?.pickupSlot ? `Ready ~${formatSlot(order.pickupSlot)}` : null;
+  const eta = isPickup && order?.pickupSlot ? `Ready ${formatSlotLong(order.pickupSlot)}` : null;
   // `arrived` (the order row exists) is the ONE canonical signal: pulse step 0 once it lands, keep
   // every step pending until then. Don't gate on the URL `processing` param — it doesn't track
   // bank-settlement, so a debit that clears after the diner leaves (stale ?redirect_status=processing)

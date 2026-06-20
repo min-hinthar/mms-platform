@@ -1,6 +1,6 @@
 "use client";
 import { useCart } from "./TableCartProvider";
-import { formatSlot } from "@/lib/pickupTime";
+import { formatSlotLong } from "@/lib/pickupTime";
 
 /**
  * Menu-header pill for pickup mode: shows the chosen slot ("Pickup · 11:45 AM") and reopens the
@@ -14,7 +14,7 @@ export function PickupSlotChip() {
       type="button"
       onClick={openSlotSheet}
       aria-label={
-        pickupSlot ? `Pickup at ${formatSlot(pickupSlot)} — change time` : "Pick a pickup time"
+        pickupSlot ? `Pickup at ${formatSlotLong(pickupSlot)} — change time` : "Pick a pickup time"
       }
       style={{
         display: "inline-flex",
@@ -33,7 +33,7 @@ export function PickupSlotChip() {
       }}
     >
       <span aria-hidden>🛍️</span>
-      {pickupSlot ? `Pickup · ${formatSlot(pickupSlot)}` : "Pick a pickup time"}
+      {pickupSlot ? `Pickup · ${formatSlotLong(pickupSlot)}` : "Pick a pickup time"}
       <span aria-hidden style={{ color: "var(--ac)", fontWeight: 800 }}>
         {pickupSlot ? "Change" : "Choose ›"}
       </span>
