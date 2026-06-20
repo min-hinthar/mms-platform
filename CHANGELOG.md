@@ -4,6 +4,23 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — production error tracking (PostHog, client + server) (2026-06-20)
+
+- **Server-side capture** (`apps/qr/instrumentation.ts` `onRequestError`): every uncaught error in a
+  Server Component / Server Action / route handler now reports to PostHog via
+  `captureExceptionImmediate` (captures **and** flushes — serverless-safe). This closes the gap that
+  made the session-expiry bug hard to diagnose: a thrown Server Action error is **redacted in prod**,
+  so it never reached the client or any tool — diagnosis meant reading Supabase logs. Personless,
+  opaque non-PII context only (path / route / method — QA §C P2); Node-runtime-guarded so the Edge
+  middleware bundle never pulls in the Node client.
+- **Client-side** exception capture was already on (`posthog-js capture_exceptions: true`). Added
+  **branded error boundaries** — `app/error.tsx` (segment-level, recovers in place with the layout +
+  session mounted) and `app/global-error.tsx` (root crash) — that **explicitly** `captureException`
+  (React boundaries swallow errors before posthog-js's window.onerror auto-capture sees them) and
+  offer an accessible "Try again" reset instead of Next's default screen.
+- **No Sentry:** PostHog now covers both client and server exceptions with zero new deps/secrets;
+  a second vendor would be redundant here (+112 packages + client-bundle weight + secrets to provision).
+
 ### Fixed — dine-in session expiry stranded diners ("Couldn't add that") (2026-06-20)
 
 - **Root cause:** the table session's TTL is a hard **4h** (`table_sessions.expires_at default now() +
