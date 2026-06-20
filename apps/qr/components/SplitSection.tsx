@@ -1,54 +1,59 @@
 "use client";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import type { CartItem } from "@mms/db";
-import { getCartSplit, type SeatShare, type SplitContext } from "@/lib/split";
+import type { SplitContext } from "@/lib/split";
+import { computeShares } from "@/lib/split-math";
 import { assignLine } from "@/lib/cart";
 import { canMutateLine } from "@/lib/permissions";
 import { seatColor, seatInitial } from "@/lib/avatars";
 
 /**
- * Dine-in split-the-bill section on /cart (M3·P3.3a). Shows server-authoritative per-seat shares
- * (Even / By person) and, in by-person mode, lets a line be assigned to a seat (canMutate-gated:
- * host any line, a guest only their own). Honest scope: these shares are a REFERENCE breakdown — the
- * order is still paid in full at checkout; per-card tender is P3.3b. No promise the code can't keep.
+ * Dine-in split-the-bill section on /cart (M3·P3.3a). Per-seat shares are computed CLIENT-side from
+ * the server-authoritative grand total + lines (the same isomorphic split-math the server uses), so
+ * they render instantly with no round-trip / layout shift. Even / By-person; by-person lets a line be
+ * (re)assigned (canMutate-gated: host any line, a guest only their own). Honest scope: a REFERENCE
+ * breakdown — the order is paid in full at checkout; per-card tender is P3.3b. No promise the code can't keep.
  */
 export function SplitSection({
   cartId,
   items,
+  totalCents,
   ctx,
   onChanged,
+  onStatus,
 }: {
   cartId: string;
   items: CartItem[];
+  totalCents: number; // server-authoritative grand total (from getCartTotals via the cart view)
   ctx: SplitContext;
   onChanged: () => void; // re-sync the lines after an assignment (parent re-fetches the view)
+  onStatus: (msg: string) => void; // announce through the parent's single live region (a11y)
 }) {
   const [mode, setMode] = useState<"even" | "by_person">("even");
-  const [shares, setShares] = useState<SeatShare[]>([]);
   const [busyLine, setBusyLine] = useState<string | null>(null);
 
-  // Server-authoritative shares (cent-reconciled) — re-derived on mode change or a REAL line change.
-  // Key on a signature (id:qty:owner), not the `items` array ref, so a no-op realtime refresh (a
-  // peer's updated_at touch with no item delta) doesn't trigger a redundant split round-trip.
-  const linesSig = items.map((i) => `${i.id}:${i.qty}:${i.bySeat ?? ""}`).join("|");
-  useEffect(() => {
-    let active = true;
-    getCartSplit(cartId, mode)
-      .then((s) => active && setShares(s))
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, [cartId, mode, linesSig]);
+  // Instant, cent-reconciled shares from server-authoritative inputs (no fetch → no empty-then-pop).
+  const shares = computeShares(
+    totalCents,
+    ctx.members.map((m) => ({ seat: m.seat, name: m.name })),
+    items.map((i) => ({ bySeat: i.bySeat ?? null, qty: i.qty, unitPriceCents: i.unitPriceCents })),
+    mode,
+  );
 
-  async function reassign(lineId: string, seat: string) {
+  function switchMode(m: "even" | "by_person") {
+    if (m === mode) return;
+    setMode(m);
+    onStatus(m === "even" ? "Split evenly" : "Split by person");
+  }
+
+  async function reassign(lineId: string, seat: string, lineName: string, who: string) {
     setBusyLine(lineId);
     try {
       await assignLine(lineId, seat);
+      onStatus(`Assigned ${lineName} to ${who}`);
       onChanged();
     } catch {
-      // locked / not permitted — the parent's re-sync (onChanged isn't called) leaves state truthful;
-      // a failed assign is a no-op the server rejected.
+      // locked / not permitted — a no-op the server rejected; the parent stays truthful (no onChanged).
     } finally {
       setBusyLine(null);
     }
@@ -65,8 +70,9 @@ export function SplitSection({
           <button
             key={m}
             type="button"
+            className="mms-seg-btn"
             aria-pressed={mode === m}
-            onClick={() => setMode(m)}
+            onClick={() => switchMode(m)}
             style={segBtn(mode === m)}
           >
             {m === "even" ? "Evenly" : "By person"}
@@ -107,11 +113,12 @@ export function SplitSection({
                         <button
                           key={m.seat}
                           type="button"
+                          className="mms-aav"
                           aria-pressed={on}
                           aria-label={`Assign ${line.name} to ${who}`}
                           disabled={busyLine === line.id}
-                          onClick={() => reassign(line.id, m.seat)}
-                          style={aav(on, m.seat, true)}
+                          onClick={() => reassign(line.id, m.seat, line.name, who)}
+                          style={aav(on, m.seat)}
                         >
                           <span aria-hidden>{seatInitial(m.name)}</span>
                         </button>
@@ -184,7 +191,7 @@ const segBtn = (on: boolean): CSSProperties => ({
   fontSize: 14,
   cursor: "pointer",
 });
-const aav = (on: boolean, seat: string, enabled: boolean): CSSProperties => ({
+const aav = (on: boolean, seat: string): CSSProperties => ({
   width: 44,
   height: 44,
   borderRadius: "50%",
@@ -195,8 +202,8 @@ const aav = (on: boolean, seat: string, enabled: boolean): CSSProperties => ({
   fontSize: 14,
   display: "grid",
   placeItems: "center",
-  opacity: on ? 1 : enabled ? 0.5 : 0.35,
-  cursor: enabled ? "pointer" : "default",
+  opacity: on ? 1 : 0.5,
+  cursor: "pointer",
 });
 const avatarSm: CSSProperties = {
   width: 22,

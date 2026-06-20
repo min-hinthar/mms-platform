@@ -62,13 +62,6 @@ export const assignLineInput = z.object({
   seatId: uuid,
 });
 
-/** getCartSplit (M3·P3.3a) — per-seat shares for the chosen split mode (server-authoritative, cent-
- *  reconciled). The mode is the only client input; amounts are derived from getCartTotals + lines. */
-export const cartSplitInput = z.object({
-  cartId: uuid,
-  mode: z.enum(["even", "by_person"]),
-});
-
 /** applyPromo — the code is validated server-side against `promo_codes`; this only shapes it. */
 export const applyPromoInput = z.object({
   cartId: uuid,

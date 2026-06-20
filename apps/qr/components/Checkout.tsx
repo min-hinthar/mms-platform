@@ -313,7 +313,14 @@ export function Checkout({
           </ul>
 
           {isGroup && splitContext && (
-            <SplitSection cartId={cartId} items={items} ctx={splitContext} onChanged={refresh} />
+            <SplitSection
+              cartId={cartId}
+              items={items}
+              totalCents={totals.totalCents}
+              ctx={splitContext}
+              onChanged={refresh}
+              onStatus={setStatus}
+            />
           )}
 
           <form onSubmit={onPromo} style={{ display: "flex", gap: 8, margin: "12px 0" }}>
