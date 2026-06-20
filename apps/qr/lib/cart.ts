@@ -75,8 +75,9 @@ async function priceItem(menuItemId: string, modifierIds: string[]) {
 export async function addItem(cartId: string, menuItemId: string, modifierIds: string[] = []) {
   const input = addItemInput.parse({ cartId, menuItemId, modifierIds });
   // AuthZ first: a verified member of this cart's active session, and the host hasn't locked it.
-  const { uid, sessionId, locked } = await assertCartMember(input.cartId);
+  const { uid, sessionId, locked, settling } = await assertCartMember(input.cartId);
   if (locked) throw new Error("Order is locked while someone checks out");
+  if (settling) throw new Error("The table is settling up — you can’t edit while everyone pays");
 
   const db = serviceClient();
   const { data: sess } = await db
@@ -149,8 +150,11 @@ export async function addItem(cartId: string, menuItemId: string, modifierIds: s
 
 export async function setQty(cartItemId: string, qty: number) {
   const input = setQtyInput.parse({ cartItemId, qty });
-  const { cartId, locked, role, lineSeat, uid } = await assertCartItemMember(input.cartItemId);
+  const { cartId, locked, settling, role, lineSeat, uid } = await assertCartItemMember(
+    input.cartItemId,
+  );
   if (locked) throw new Error("Order is locked while someone checks out");
+  if (settling) throw new Error("The table is settling up — you can’t edit while everyone pays");
   // canMutate (M3·P3.3a): the host may change/remove any line; a guest only their own (cross-owner
   // guard). The UI disables the control too, but this is the server-side enforcement.
   if (!canMutateLine("draft", role, lineSeat === uid))
@@ -177,10 +181,11 @@ export async function setQty(cartItemId: string, qty: number) {
  */
 export async function assignLine(cartItemId: string, seatId: string) {
   const input = assignLineInput.parse({ cartItemId, seatId });
-  const { cartId, sessionId, locked, role, lineSeat, uid } = await assertCartItemMember(
+  const { cartId, sessionId, locked, settling, role, lineSeat, uid } = await assertCartItemMember(
     input.cartItemId,
   );
   if (locked) throw new Error("Order is locked while someone checks out");
+  if (settling) throw new Error("The table is settling up — you can’t edit while everyone pays");
   if (!canMutateLine("draft", role, lineSeat === uid))
     throw new Error("Only the host can reassign someone else’s item");
   const db = serviceClient();
@@ -235,8 +240,10 @@ export type ApplyPromoResult =
 
 export async function applyPromo(cartId: string, code: string): Promise<ApplyPromoResult> {
   const input = applyPromoInput.parse({ cartId, code });
-  const { uid, sessionId, locked } = await assertCartMember(input.cartId);
-  if (locked) return { ok: false, reason: "locked" };
+  const { uid, sessionId, locked, settling } = await assertCartMember(input.cartId);
+  // A settling cart is frozen like a locked one — reuse the "locked" reason (same "order frozen" UX);
+  // the promo field isn't even shown during split settlement, this is the server backstop.
+  if (locked || settling) return { ok: false, reason: "locked" };
   const db = serviceClient();
 
   // Rate-limit FIRST (anti-enumeration): the gate counts attempts per session in a trailing window
@@ -295,9 +302,13 @@ export async function getCartView(cartId: string): Promise<{
    *  read-only; `lockedBy` is that seat (map to a name via presence). null/false otherwise. */
   locked: boolean;
   lockedBy: string | null;
+  /** Effective split-tender settlement freeze (M3·P3.3b): true while the table pays its shares → the
+   *  cart goes read-only for everyone and the UI shows the split board; `settleBy` is the host. */
+  settling: boolean;
+  settleBy: string | null;
 }> {
   const { cartId: id } = cartViewInput.parse({ cartId });
-  const { locked, lockedBy } = await assertCartMember(id);
+  const { locked, lockedBy, settling, settleBy } = await assertCartMember(id);
   const db = serviceClient();
   const { data: cart } = await db.from("qr_carts").select("pickup_slot").eq("id", id).single();
   const { data: rows } = await db
@@ -321,6 +332,8 @@ export async function getCartView(cartId: string): Promise<{
     pickupSlot: cart?.pickup_slot ?? null,
     locked,
     lockedBy,
+    settling,
+    settleBy,
   };
 }
 

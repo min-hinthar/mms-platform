@@ -62,6 +62,12 @@ export const assignLineInput = z.object({
   seatId: uuid,
 });
 
+/** openSettlement (M3·P3.3b) — start a split-tender. `mode` mirrors the qr_cart_shares derivation +
+ *  the SplitSection toggle; bounded here AND by the derivation, never a free string. */
+export const splitModeInput = z.object({
+  mode: z.enum(["even", "by_person"]),
+});
+
 /** applyPromo — the code is validated server-side against `promo_codes`; this only shapes it. */
 export const applyPromoInput = z.object({
   cartId: uuid,

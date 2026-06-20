@@ -35,7 +35,11 @@ create table if not exists public.qr_cart_shares (
   -- per-payer tip + the resulting PaymentIntent target (base + tip); set at the payer's pay step
   tip_cents int not null default 0 check (tip_cents >= 0),
   tip_rate numeric not null default 0 check (tip_rate >= 0 and tip_rate <= 0.5),
-  amount_cents int not null check (amount_cents > 0),  -- the PI amount for this payer (base, then +tip)
+  -- The PI amount for this payer (base, then + tip). `>= 0` (not `> 0`): deriveShareBreakdowns can
+  -- legitimately produce a $0 base — more seats than lines, a seat who owns nothing in by-person, or a
+  -- tiny subtotal fully consumed by its pro-rata discount. A $0 share gets NO PaymentIntent; the
+  -- orchestration auto-settles it ('captured') so it never blocks the all-captured fulfillment gate.
+  amount_cents int not null check (amount_cents >= 0),
   stripe_payment_intent_id text unique,               -- set when the payer's PI is created
   order_id uuid references public.qr_orders(id),       -- stamped at fulfillment (links share → order)
   status text not null default 'pending'
@@ -45,6 +49,7 @@ create table if not exists public.qr_cart_shares (
   unique (cart_id, seat_id)                            -- one share per payer per cart
 );
 create index if not exists qr_cart_shares_cart_idx on public.qr_cart_shares(cart_id);
+create index if not exists qr_cart_shares_order_idx on public.qr_cart_shares(order_id); -- FK cover (advisor 0001)
 
 alter table public.qr_cart_shares enable row level security;
 -- Members of the cart's session may READ the shares (the live "X of $Y paid" board); ALL writes flow
@@ -77,6 +82,11 @@ alter table public.qr_cart_shares replica identity full;
 -- flip is the claim — a redelivery finds the cart already paid and returns the existing order. Refuses
 -- to fulfill a PARTIAL settlement (any share not 'captured') — defense in depth behind the webhook's
 -- all-authorized gate, so a bug can't snapshot a half-paid order.
+--
+-- INVARIANT the webhook MUST honor: `amount_cents` on each captured share equals the amount actually
+-- captured. Our flow captures the FULL authorized amount per PI (no partial capture), so target ==
+-- captured; if a partial-capture path is ever added, the webhook must update `amount_cents` to the
+-- captured value BEFORE calling this, or the order total/tax breakdown would reflect intent, not money.
 create function mms_fulfill_split_order(p_cart_id uuid, p_expected_total_cents integer)
   returns uuid language plpgsql security definer set search_path = '' as $$
 declare v_order uuid; v_session uuid; v_sum integer; v_open integer;
@@ -97,10 +107,19 @@ begin
   end if;
 
   -- Atomic idempotency claim: only the first call flips the cart; a redelivery returns the prior order.
+  -- (Race-safe: Postgres row-locks the cart, so a concurrent redelivery blocks then re-evaluates against
+  -- the committed 'paid' row, finds 0 rows, and takes the branch below.)
   update public.qr_carts set status = 'paid' where id = p_cart_id and status = 'open';
   if not found then
+    -- Couldn't claim the cart. Either already fulfilled (return the stamped order — idempotent) OR the
+    -- cart is in a non-payable state (e.g. 'cancelled' after an abandon). Returning NULL silently would
+    -- HIDE a captured-but-no-order (money taken, settlement aborted), so fail loudly when no order
+    -- exists. (The cancel/abandon chunk must make capture-after-cancel impossible in the first place.)
     select order_id into v_order from public.qr_cart_shares
       where cart_id = p_cart_id and order_id is not null limit 1;
+    if v_order is null then
+      raise exception 'split fulfillment: cart % not open and no order stamped (status conflict)', p_cart_id;
+    end if;
     return v_order;
   end if;
 

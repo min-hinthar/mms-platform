@@ -1,13 +1,26 @@
 "use server";
 import { serviceClient } from "@mms/db/server";
-import { cartViewInput } from "@mms/db/schemas";
+import { cartViewInput, splitModeInput } from "@mms/db/schemas";
 import { assertCartMember } from "./authz";
+import { getCartTotals } from "./totals";
+import { deriveShareBreakdowns } from "./split-math";
+import { acquireSettlement, releaseSettlement } from "./lock";
+import { getStripe } from "./stripe";
 
 export type SplitContext = {
   mode: string;
   mySeat: string;
   myRole: "host" | "guest";
   members: { seat: string; name: string; role: "host" | "guest" }[];
+};
+
+/** One payer's row on the live settlement board (M3·P3.3b). `amountCents` is the PI target (base, then
+ *  base + tip once they pick a tip). Status drives the board: pending → authorized → captured. */
+export type SettlementShare = {
+  seat: string;
+  amountCents: number;
+  tipCents: number;
+  status: "pending" | "authorized" | "captured" | "canceled" | "failed";
 };
 
 /**
@@ -45,4 +58,139 @@ export async function getSplitContext(cartId: string): Promise<SplitContext> {
       role: m.role === "host" ? "host" : "guest",
     })),
   };
+}
+
+/**
+ * Member-gated read of the live settlement board (M3·P3.3b) — every payer's share + status. The client
+ * also subscribes to qr_cart_shares via Realtime; this is the initial fetch + a re-sync after changes.
+ */
+export async function getSettlement(cartId: string): Promise<SettlementShare[]> {
+  const { cartId: id } = cartViewInput.parse({ cartId });
+  await assertCartMember(id); // authz only — any member may watch the board
+  const db = serviceClient();
+  const { data } = await db
+    .from("qr_cart_shares")
+    .select("seat_id,amount_cents,tip_cents,status,created_at")
+    .eq("cart_id", id)
+    .order("created_at", { ascending: true });
+  return (data ?? []).map((s) => ({
+    seat: s.seat_id,
+    amountCents: s.amount_cents,
+    tipCents: s.tip_cents,
+    status: s.status as SettlementShare["status"],
+  }));
+}
+
+/**
+ * Open a split-tender settlement (M3·P3.3b). HOST-gated. Freezes the cart table-wide (acquireSettlement —
+ * atomic, mutually exclusive with the single-pay lock), derives the SERVER-authoritative per-seat BASE
+ * breakdown (deriveShareBreakdowns: tax on each seat's own taxable base, every component largest-
+ * remainder so Σ == the cart total), and writes the share ledger. Tip is per-payer, added when each
+ * payer creates their PaymentIntent — so the stored `amount_cents` is the base (no tip) here.
+ *
+ * Re-openable BEFORE anyone authorizes (a host changing even ↔ by-person): the freeze is the mutex, so
+ * we acquire first; if any share is already authorized/captured we refuse (re-deriving would orphan a
+ * live PaymentIntent) WITHOUT clearing; otherwise we replace the pending set.
+ */
+export async function openSettlement(cartId: string, mode: "even" | "by_person"): Promise<void> {
+  const { cartId: id } = cartViewInput.parse({ cartId });
+  const { mode: m } = splitModeInput.parse({ mode });
+  const { uid, sessionId, role } = await assertCartMember(id);
+  if (role !== "host") throw new Error("Only the host can start the split");
+
+  // The freeze is the mutex — acquire FIRST so two opens can't race the derive/insert.
+  const acq = await acquireSettlement(id, uid);
+  if (acq === "locked") throw new Error("Someone’s checking out — try again in a moment");
+  if (acq === "settling_other") throw new Error("Another host is already splitting this order");
+  if (acq === "closed") throw new Error("This order is no longer open");
+
+  const db = serviceClient();
+  // Never re-derive once money is in flight — that would orphan an authorized PaymentIntent. (The
+  // freeze was just refreshed by acquire, which is harmless; we simply don't touch the shares.)
+  const { data: live } = await db
+    .from("qr_cart_shares")
+    .select("id")
+    .eq("cart_id", id)
+    .in("status", ["authorized", "captured"])
+    .limit(1);
+  if (live && live.length > 0) throw new Error("Payments are already in progress");
+
+  const grand = await getCartTotals(id); // grand breakdown, no tip
+  const { data: members } = await db
+    .from("session_members")
+    .select("seat_id,created_at")
+    .eq("session_id", sessionId)
+    .order("created_at", { ascending: true });
+  const { data: lines } = await db
+    .from("qr_cart_items")
+    .select("by_seat,qty,unit_price_cents,tax_cents")
+    .eq("cart_id", id);
+
+  const breakdowns = deriveShareBreakdowns(
+    {
+      subtotalCents: grand.subtotalCents,
+      discountCents: grand.discountCents,
+      serviceChargeCents: grand.serviceChargeCents,
+      taxCents: grand.taxCents,
+    },
+    (members ?? []).map((mm) => ({ seat: mm.seat_id })),
+    (lines ?? []).map((l) => ({
+      bySeat: l.by_seat ?? null,
+      qty: l.qty,
+      unitPriceCents: l.unit_price_cents,
+      taxCents: l.tax_cents,
+    })),
+    m,
+  );
+
+  // Replace any prior PENDING set (a re-open before anyone paid), then write the fresh shares.
+  await db.from("qr_cart_shares").delete().eq("cart_id", id);
+  const { error } = await db.from("qr_cart_shares").insert(
+    breakdowns.map((b) => ({
+      cart_id: id,
+      seat_id: b.seat,
+      subtotal_cents: b.subtotalCents,
+      discount_cents: b.discountCents,
+      service_charge_cents: b.serviceChargeCents,
+      tax_cents: b.taxCents,
+      amount_cents: b.baseCents, // base only; the payer's tip is added at their pay step
+      status: "pending" as const,
+    })),
+  );
+  if (error) {
+    await releaseSettlement(id); // don't strand a freeze with no shares behind it
+    throw new Error("Could not start the split");
+  }
+}
+
+/**
+ * Abort a split settlement (M3·P3.3b). HOST-gated. Cancels every payer's still-cancelable PaymentIntent
+ * so no authorization hold lingers on a card, clears the ledger, and lifts the freeze. Refuses once any
+ * share is captured (money has moved → the order is being fulfilled, not abortable).
+ */
+export async function abortSettlement(cartId: string): Promise<void> {
+  const { cartId: id } = cartViewInput.parse({ cartId });
+  const { role } = await assertCartMember(id);
+  if (role !== "host") throw new Error("Only the host can cancel the split");
+  const db = serviceClient();
+
+  const { data: shares } = await db
+    .from("qr_cart_shares")
+    .select("stripe_payment_intent_id,status")
+    .eq("cart_id", id);
+  if ((shares ?? []).some((s) => s.status === "captured"))
+    throw new Error("Payment already completed — can’t cancel the split");
+
+  // Release each authorized/pending hold so a payer isn't left with a lingering authorization.
+  for (const s of shares ?? []) {
+    if (s.stripe_payment_intent_id && (s.status === "authorized" || s.status === "pending")) {
+      try {
+        await getStripe().paymentIntents.cancel(s.stripe_payment_intent_id);
+      } catch {
+        // Already canceled / captured / gone — best-effort; never block the abort on Stripe.
+      }
+    }
+  }
+  await db.from("qr_cart_shares").delete().eq("cart_id", id);
+  await releaseSettlement(id);
 }
