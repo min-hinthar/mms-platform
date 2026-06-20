@@ -82,7 +82,10 @@ export async function POST(req: NextRequest) {
         amount,
         currency: "usd",
         capture_method: "manual", // authorize now; capture-all when the table is fully covered
-        automatic_payment_methods: { enabled: true },
+        // `allow_redirects: "never"` keeps the share to inline methods (card / Apple Pay / Google Pay /
+        // Link) so confirmPayment never navigates away — the payer stays on the live board (a
+        // redirect-based method would return to /cart with no result handler and re-mint a fresh PI).
+        automatic_payment_methods: { enabled: true, allow_redirects: "never" },
         metadata: { cartId, seatId: uid, shareId: share.id, kind: "split_share" },
       },
       // Amount in the key: a tip change (new amount) mints a fresh PI; an identical re-submit (double

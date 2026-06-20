@@ -27,6 +27,8 @@ export function SettlementBoard({
   onChanged: () => void; // re-sync the cart view (e.g. after an abort lifts the freeze)
 }) {
   const [shares, setShares] = useState<SettlementShare[]>([]);
+  const [loaded, setLoaded] = useState(false); // first getSettlement resolved → show the board
+  const [loadError, setLoadError] = useState(false); // first load failed → offer a retry
   const [aborting, startAbort] = useTransition();
   const redirected = useRef(false);
   const nameOf = useCallback(
@@ -38,6 +40,8 @@ export function SettlementBoard({
     void getSettlement(cartId)
       .then((rows) => {
         setShares(rows);
+        setLoaded(true);
+        setLoadError(false);
         // All shares captured → the order is being fulfilled; move everyone to the receipt (once).
         if (rows.length > 0 && rows.every((s) => s.status === "captured") && !redirected.current) {
           redirected.current = true;
@@ -45,8 +49,10 @@ export function SettlementBoard({
         }
       })
       .catch(() => {
-        // A post-fulfillment 403 (cart flipped to paid) is the expected end state — the redirect above
-        // (or the next realtime tick) carries the diner to /track. Don't surface a false error.
+        // A post-fulfillment 403 (cart flipped to paid) after we've loaded is the expected end state —
+        // the redirect / realtime carries the diner to /track, so swallow. A FIRST-load failure leaves
+        // no data to show, so flag it (the render offers a retry rather than a permanent empty board).
+        setLoadError(true);
       });
   }, [cartId]);
 
@@ -54,6 +60,14 @@ export function SettlementBoard({
     load();
   }, [load]);
   useSettlementRealtime(cartId, accessToken, true, load);
+
+  // Poll backstop (payment-critical screen): re-fetch every 5s while settling so progress shows even if
+  // Realtime is down or the anon token never arrives (the subscription no-ops on an empty token). Stops
+  // on unmount (the all-captured redirect / a host cancel returning to review both unmount this).
+  useEffect(() => {
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, [load]);
 
   const paidCents = shares
     .filter((s) => s.status === "authorized" || s.status === "captured")
@@ -81,42 +95,71 @@ export function SettlementBoard({
       <h2 id="settle-h" style={{ fontSize: 18, margin: "0 0 4px" }}>
         Everyone pays their share
       </h2>
-      <p style={{ fontSize: 13, color: "var(--t2)", margin: "0 0 4px" }}>
-        <strong style={{ fontVariantNumeric: "tabular-nums" }}>
-          ${(paidCents / 100).toFixed(2)}
-        </strong>{" "}
-        of ${(totalCents / 100).toFixed(2)} authorized
-        {allIn ? " — finishing up…" : ""}
-      </p>
       <p style={{ fontSize: 11.5, color: "var(--t3)", margin: "0 0 12px", lineHeight: 1.5 }}>
         No one’s card is charged until everyone has paid; then the whole order is captured together.
       </p>
 
-      <ul
-        role="list"
-        style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 10 }}
-      >
-        {shares.map((s) => {
-          const isMe = s.seat === ctx.mySeat;
-          const name = isMe ? "You" : nameOf(s.seat);
-          const canPay = isMe && (s.status === "pending" || s.status === "failed");
-          return (
-            <li key={s.seat} className="card" style={{ padding: 12 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span aria-hidden style={{ ...avatar, background: seatColor(s.seat) }}>
-                  {seatInitial(nameOf(s.seat))}
-                </span>
-                <span style={{ flex: 1, fontWeight: 700 }}>{name}</span>
-                <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>
-                  ${(s.amountCents / 100).toFixed(2)}
-                </span>
-                <StatusBadge status={s.status} />
-              </div>
-              {canPay && <SharePay cartId={cartId} onAuthorized={load} />}
-            </li>
-          );
-        })}
-      </ul>
+      {!loaded ? (
+        loadError ? (
+          <p role="alert" style={{ fontSize: 13, color: "var(--warn)" }}>
+            Couldn’t load the split.{" "}
+            <button
+              type="button"
+              onClick={load}
+              style={{
+                minHeight: 44,
+                padding: "0 4px",
+                background: "none",
+                border: "none",
+                color: "var(--warn)",
+                fontWeight: 800,
+                textDecoration: "underline",
+                cursor: "pointer",
+              }}
+            >
+              Try again
+            </button>
+          </p>
+        ) : (
+          <p style={{ fontSize: 13, color: "var(--t2)" }}>Loading the split…</p>
+        )
+      ) : (
+        <>
+          <p style={{ fontSize: 13, color: "var(--t2)", margin: "0 0 12px" }}>
+            <strong style={{ fontVariantNumeric: "tabular-nums" }}>
+              ${(paidCents / 100).toFixed(2)}
+            </strong>{" "}
+            of ${(totalCents / 100).toFixed(2)} authorized
+            {allIn ? " — finishing up…" : ""}
+          </p>
+
+          <ul
+            role="list"
+            style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 10 }}
+          >
+            {shares.map((s) => {
+              const isMe = s.seat === ctx.mySeat;
+              const name = isMe ? "You" : nameOf(s.seat);
+              const canPay = isMe && (s.status === "pending" || s.status === "failed");
+              return (
+                <li key={s.seat} className="card" style={{ padding: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span aria-hidden style={{ ...avatar, background: seatColor(s.seat) }}>
+                      {seatInitial(nameOf(s.seat))}
+                    </span>
+                    <span style={{ flex: 1, fontWeight: 700 }}>{name}</span>
+                    <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>
+                      ${(s.amountCents / 100).toFixed(2)}
+                    </span>
+                    <StatusBadge status={s.status} />
+                  </div>
+                  {canPay && <SharePay cartId={cartId} onAuthorized={load} />}
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
 
       {ctx.myRole === "host" && (
         <button

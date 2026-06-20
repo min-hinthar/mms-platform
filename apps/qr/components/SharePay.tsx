@@ -160,9 +160,9 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
           Card payment is temporarily unavailable. Please try again shortly.
         </p>
       ) : loading || !options ? (
-        <p style={{ fontSize: 13, color: "var(--t2)", marginTop: 12 }} aria-live="polite">
-          Preparing your payment…
-        </p>
+        // Plain text (not a live region): the disabled flow + visible label convey loading, and the
+        // settlement view already has its status region — no redundant aria-live (QA §A).
+        <p style={{ fontSize: 13, color: "var(--t2)", marginTop: 12 }}>Preparing your payment…</p>
       ) : (
         <Elements key={clientSecret} stripe={stripePromise} options={options}>
           <ShareForm amountCents={amountCents} onAuthorized={onAuthorized} />
@@ -212,6 +212,9 @@ function ShareForm({
       onAuthorized(); // re-sync the board; the webhook marks the share authorized
       return; // keep the spinner — the row flips to "Authorized" on the next board sync
     }
+    // Rare non-terminal status (e.g. still processing) with no error — re-enable + tell the diner
+    // honestly rather than leaving a dead button.
+    setError("Your payment is still processing — watch the board for your status.");
     setSubmitting(false);
   }
 
