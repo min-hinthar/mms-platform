@@ -19,9 +19,21 @@ const initial = (name: string) => (name.trim()[0] ?? "G").toUpperCase();
  * Solo modes return null (honesty — RED-TEAM #3).
  */
 export function GuestList() {
-  const { isGroup, members, me, error } = useCart();
+  const { isGroup, members, me, error, locked, lockedByName } = useCart();
   const [inviteOpen, setInviteOpen] = useState(false);
   if (!isGroup) return null;
+
+  // Pay-window lock (P3.2-lock): a member is checking out → the order's read-only for the moment
+  // (AddButtons disable in parallel). A PLAIN visual banner (v7.2 .lockbar) — NOT a second live
+  // region: the transition is announced through the provider's single live region, and the disabled
+  // Add buttons carry the locked state for SR users who tab to them.
+  if (locked)
+    return (
+      <p style={lockBar}>
+        <span aria-hidden>🔒</span> {lockedByName === "You" ? "You’re" : `${lockedByName} is`}{" "}
+        checking out — the order’s locked for a moment.
+      </p>
+    );
 
   // The dine-in join is the whole point of this screen — if the session mint failed, don't silently
   // drop the group UI; surface a retry (reload re-runs the mint) so the diner isn't stranded.
@@ -93,6 +105,18 @@ const avatar: CSSProperties = {
   color: "#fff",
   fontWeight: 800,
   fontSize: 12,
+};
+const lockBar: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  marginTop: 10,
+  padding: "9px 13px",
+  borderRadius: 11,
+  background: "var(--warnb)",
+  color: "var(--warn)",
+  fontWeight: 700,
+  fontSize: 12.5,
 };
 const retryBtn: CSSProperties = {
   minHeight: 44,

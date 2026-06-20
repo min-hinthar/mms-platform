@@ -5,6 +5,7 @@ import type { CartItem, CartTotals } from "@mms/db";
 import {
   applyPromo as applyPromoAction,
   getCartView,
+  releasePayLock,
   setQty as setQtyAction,
   type PromoReason,
 } from "@/lib/cart";
@@ -21,7 +22,7 @@ const PROMO_MESSAGES: Record<PromoReason, string> = {
   exhausted: "That code has reached its limit.",
   session_limit: "That code’s already been used at this table.",
   cart_closed: "This order is already being paid.",
-  locked: "The host has locked the order.",
+  locked: "Someone’s checking out — the order’s locked for a moment.",
   rate_limited: "Too many tries — wait a minute, then try again.",
   error: "Couldn’t apply that code — please try again.",
 };
@@ -161,8 +162,13 @@ export function Checkout({
   }
 
   async function editOrder() {
-    // The cart was never locked (see create-intent NOTE), so going back is a pure UI step — just
-    // re-sync from the server in case anything changed while the pay step was open.
+    // Release the pay-window lock we took at create-intent (P3.2-lock) so the table can edit again,
+    // then re-sync. Best-effort — the TTL is the backstop if the release call fails.
+    try {
+      await releasePayLock(cartId);
+    } catch {
+      // non-fatal; the lock auto-expires via its TTL
+    }
     setStep("review");
     setClientSecret(null);
     setPayTotals(null);

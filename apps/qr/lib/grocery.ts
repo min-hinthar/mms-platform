@@ -19,7 +19,7 @@ import { assertCartMember } from "./authz";
 export async function scanAdd(cartId: string, barcode: string) {
   const input = scanInput.parse({ cartId, barcode });
   const { uid, locked } = await assertCartMember(input.cartId);
-  if (locked) throw new Error("Order is locked");
+  if (locked) throw new Error("Order is locked while someone checks out");
 
   const db = serviceClient();
   const { data: item } = await db
@@ -33,6 +33,13 @@ export async function scanAdd(cartId: string, barcode: string) {
 
   const unitPriceCents = Number(item.price_cents);
   const taxCents = lineTax(unitPriceCents, item.tax_category as TaxCategory, false);
+  // Plain insert (NOT the status-atomic mms_cart_item_insert_if_open RPC addItem uses): that RPC's
+  // p_menu_item_id is `uuid`, but a grocery id is a BARCODE and qr_cart_items.menu_item_id is text
+  // (soft-ref: a menu_items uuid-as-text OR a barcode) — a 13-digit barcode can't cast to uuid. The
+  // app-layer `locked` + membership guard above still gates this. TODO(follow-up): widen the RPC's
+  // p_menu_item_id to text (drop+recreate + re-grant + types regen) so grocery gets the in-SQL
+  // status='open' guard too. Low urgency: grocery is SOLO (scan, THEN pay), so the post-payment-insert
+  // race that guard closes is near-unreachable here (no concurrent writer mid-checkout).
   await db.from("qr_cart_items").insert({
     cart_id: input.cartId,
     menu_item_id: item.barcode,

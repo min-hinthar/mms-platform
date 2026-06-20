@@ -2,6 +2,7 @@ import { NextRequest, NextResponse, after } from "next/server";
 import { getStripe } from "@/lib/stripe";
 import { serviceClient } from "@mms/db/server";
 import { getCartTotals } from "@/lib/totals";
+import { releaseCartLock } from "@/lib/lock";
 import { getPostHogClient } from "@/lib/posthog-server";
 import { enqueueQboSync, syncOrderToQbo } from "@/lib/qbo/client";
 
@@ -113,6 +114,10 @@ export async function POST(req: NextRequest) {
   } else if (event.type === "payment_intent.payment_failed") {
     const intent = event.data.object;
     const cartId = intent.metadata?.cartId;
+    // Free the pay-window lock (P3.2-lock): the charge failed, so the cart returns to editable for the
+    // whole table (the diner can retry or change the order). Unconditional release by cart — the payer
+    // is whoever held it. Idempotent + best-effort; the TTL is the backstop if this is missed.
+    if (cartId) await releaseCartLock(cartId, null).catch(() => {});
     posthog.capture({
       distinctId: cartId ?? intent.id,
       event: "payment_failed",

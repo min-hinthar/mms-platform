@@ -5,6 +5,7 @@ import { addItemInput, applyPromoInput, cartViewInput, setQtyInput } from "@mms/
 import { lineTax } from "./tax";
 import { getCartTotals } from "./totals";
 import { assertCartItemMember, assertCartMember } from "./authz";
+import { releaseCartLock } from "./lock";
 import { getPostHogClient } from "./posthog-server";
 
 // Normalize a modifier set (label array) to a comparable key — order-independent — so "merge
@@ -68,7 +69,7 @@ export async function addItem(cartId: string, menuItemId: string, modifierIds: s
   const input = addItemInput.parse({ cartId, menuItemId, modifierIds });
   // AuthZ first: a verified member of this cart's active session, and the host hasn't locked it.
   const { uid, sessionId, locked } = await assertCartMember(input.cartId);
-  if (locked) throw new Error("Order is locked by the host");
+  if (locked) throw new Error("Order is locked while someone checks out");
 
   const db = serviceClient();
   const { data: sess } = await db
@@ -142,7 +143,7 @@ export async function addItem(cartId: string, menuItemId: string, modifierIds: s
 export async function setQty(cartItemId: string, qty: number) {
   const input = setQtyInput.parse({ cartItemId, qty });
   const { cartId, locked } = await assertCartItemMember(input.cartItemId);
-  if (locked) throw new Error("Order is locked by the host");
+  if (locked) throw new Error("Order is locked while someone checks out");
   const db = serviceClient();
   // Status-atomic set/delete (qty<=0 removes) — applies only while the parent cart is 'open' in one
   // statement (migration 20260619000200), matching the addItem paths. 0 rows ⇒ paid/closed (or gone).
@@ -232,11 +233,17 @@ export async function applyPromo(cartId: string, code: string): Promise<ApplyPro
  * UI renders and re-fetches after every mutation (never client math). Totals exclude tip (a
  * pay-step choice). Authorized like every other path (RED-TEAM #2), so it's not an IDOR read.
  */
-export async function getCartView(
-  cartId: string,
-): Promise<{ items: CartItem[]; totals: CartTotals; pickupSlot: string | null }> {
+export async function getCartView(cartId: string): Promise<{
+  items: CartItem[];
+  totals: CartTotals;
+  pickupSlot: string | null;
+  /** Effective pay-window lock (P3.2-lock): true while a member is checking out → the UI goes
+   *  read-only; `lockedBy` is that seat (map to a name via presence). null/false otherwise. */
+  locked: boolean;
+  lockedBy: string | null;
+}> {
   const { cartId: id } = cartViewInput.parse({ cartId });
-  await assertCartMember(id);
+  const { locked, lockedBy } = await assertCartMember(id);
   const db = serviceClient();
   const { data: cart } = await db.from("qr_carts").select("pickup_slot").eq("id", id).single();
   const { data: rows } = await db
@@ -254,5 +261,23 @@ export async function getCartView(
     taxCents: r.tax_cents,
     bySeat: r.by_seat ?? undefined,
   }));
-  return { items, totals: await getCartTotals(id), pickupSlot: cart?.pickup_slot ?? null };
+  return {
+    items,
+    totals: await getCartTotals(id),
+    pickupSlot: cart?.pickup_slot ?? null,
+    locked,
+    lockedBy,
+  };
+}
+
+/**
+ * Release the pay-window lock the caller holds (the "Edit order" path). Authorized as a member, then
+ * scoped to the caller's own seat (lib/lock releaseCartLock with uid) — a member can only release
+ * THEIR lock, never unlock another diner mid-checkout. assertCartMember returns the lock (doesn't
+ * throw on it), so this is callable on a locked-but-open cart. Idempotent + safe to call when unlocked.
+ */
+export async function releasePayLock(cartId: string): Promise<void> {
+  const { cartId: id } = cartViewInput.parse({ cartId });
+  const { uid } = await assertCartMember(id);
+  await releaseCartLock(id, uid);
 }

@@ -4,16 +4,32 @@ import { createIntentInput } from "@mms/db/schemas";
 import { getStripe } from "@/lib/stripe";
 import { getCartTotals } from "@/lib/totals";
 import { assertCartMember, AuthzError } from "@/lib/authz";
+import { acquireCartLock, releaseCartLock } from "@/lib/lock";
 import { getPostHogClient } from "@/lib/posthog-server";
 
 // Creates a PaymentIntent for the SERVER-COMPUTED total. The client sends only the
 // cartId + tip choice — never an amount. (Fixes client-authoritative pricing.)
 export async function POST(req: NextRequest) {
+  let acquired: { cartId: string; uid: string } | null = null;
   try {
     const { cartId, tipRate } = createIntentInput.parse(await req.json());
 
     // C3: only a verified member of this cart's session may mint its PaymentIntent.
-    const { sessionId } = await assertCartMember(cartId);
+    const { sessionId, uid } = await assertCartMember(cartId);
+
+    // Lock the cart for the pay window (P3.2-lock) BEFORE deriving the amount, so a peer can't mutate
+    // it mid-checkout → the webhook reconcile 409s / charges with no order. Atomic; the SAME payer
+    // re-acquiring (refresh / retry) succeeds, a stale lock is taken over, a fresh lock by ANOTHER
+    // member is rejected. Released on decline (webhook), "Edit order" (releasePayLock), or the TTL.
+    const lock = await acquireCartLock(cartId, uid);
+    if (lock === "closed")
+      return NextResponse.json({ error: "This order is no longer open." }, { status: 400 });
+    if (lock === "held_by_other")
+      return NextResponse.json(
+        { error: "Someone at your table is checking out — try again in a moment." },
+        { status: 409 },
+      );
+    acquired = { cartId, uid }; // release on any post-acquire failure (below) so nothing strands
 
     // Pickup honesty (P2.2): a pickup order must hold a still-available slot. Re-check at the pay
     // boundary — a slot can fill between selection and checkout, and capacity is server-authoritative.
@@ -29,8 +45,10 @@ export async function POST(req: NextRequest) {
         .select("pickup_slot")
         .eq("id", cartId)
         .single();
-      if (!cart?.pickup_slot)
+      if (!cart?.pickup_slot) {
+        await releaseCartLock(cartId, uid);
         return NextResponse.json({ error: "Pick a pickup time first." }, { status: 400 });
+      }
       // Exclude THIS cart's own hold so we're asking "is there still room for me", not double-counting.
       // NOTE(soft-cap): this is a plain read, not advisory-locked like mms_set_pickup_slot — under a
       // last-seat race two carts can both pass here and both pay. That's the deliberate accepted soft-cap
@@ -39,16 +57,21 @@ export async function POST(req: NextRequest) {
       const { data: slots } = await db.rpc("mms_pickup_slots", { p_exclude_cart: cartId });
       const slotMs = new Date(cart.pickup_slot).getTime();
       const open = (slots ?? []).some((s) => new Date(s.slot_time).getTime() === slotMs);
-      if (!open)
+      if (!open) {
+        await releaseCartLock(cartId, uid);
         return NextResponse.json(
           { error: "That pickup time just filled — please pick another." },
           { status: 409 },
         );
+      }
     }
 
     const totals = await getCartTotals(cartId, tipRate);
     const amount = totals.totalCents; // already cents, server-derived
-    if (amount <= 0) return NextResponse.json({ error: "Empty cart" }, { status: 400 });
+    if (amount <= 0) {
+      await releaseCartLock(cartId, uid);
+      return NextResponse.json({ error: "Empty cart" }, { status: 400 });
+    }
 
     // tipRate rides in metadata so the webhook can recompute the identical breakdown to reconcile.
     const intent = await getStripe().paymentIntents.create(
@@ -63,13 +86,6 @@ export async function POST(req: NextRequest) {
       // first PI (with the OLD tipRate in metadata), and the webhook would fulfill the wrong breakdown.
       { idempotencyKey: `pi_${cartId}_${amount}_t${tipRate}` },
     );
-
-    // NOTE(realtime phase): we intentionally do NOT lock the cart here. A lock during the pay window
-    // only matters under CONCURRENT editing (group carts), which isn't wired yet — and locking at
-    // intent-create strands a cart if the diner abandons the pay screen (no auto-release). The
-    // signature-verified webhook already reconciles the live total vs intent.amount before fulfilling
-    // (a mutated cart 409s, never mis-fulfills). The lock + its unlock lifecycle land with the
-    // group-cart Realtime sync (where concurrent editors and a natural release point exist).
 
     const posthog = getPostHogClient();
     posthog.capture({
@@ -86,6 +102,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ clientSecret: intent.client_secret, totals });
   } catch (e) {
+    // A post-acquire failure (totals / Stripe / etc.) must not strand the lock — release now so the
+    // table isn't frozen on a transient error (the TTL is the backstop). Best-effort; never mask `e`.
+    if (acquired) await releaseCartLock(acquired.cartId, acquired.uid).catch(() => {});
     if (e instanceof AuthzError)
       return NextResponse.json({ error: e.message }, { status: e.status });
     const err = e as Error;

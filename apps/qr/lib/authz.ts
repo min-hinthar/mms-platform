@@ -1,6 +1,7 @@
 import "server-only";
 import { cookies } from "next/headers";
 import { serverClient, serviceClient } from "@mms/db/server";
+import { CART_LOCK_TTL_MS } from "./lock";
 
 /**
  * The ONE authorization guard (RED-TEAM standard #2: "every mutation authorizes itself").
@@ -36,12 +37,20 @@ export async function getCallerUid(): Promise<string> {
   return user.id;
 }
 
-export type CartAuthz = { uid: string; sessionId: string; locked: boolean };
+export type CartAuthz = {
+  uid: string;
+  sessionId: string;
+  /** The EFFECTIVE lock — true only while a pay-window lock is held AND still fresh (within the TTL),
+   *  so an abandoned pay-screen auto-releases and never permanently freezes the cart. */
+  locked: boolean;
+  /** The seat holding the lock (null when not effectively locked) — for "X is checking out" + scoping. */
+  lockedBy: string | null;
+};
 
 /**
  * Authorize the caller against a cart: they must be a verified member of the cart's *active*
- * session. Returns the uid (for `by_seat` provenance), the session id, and the lock state so the
- * caller can additionally reject writes while the host holds the lock.
+ * session. Returns the uid (for `by_seat` provenance), the session id, and the EFFECTIVE lock state
+ * so the caller can additionally reject writes while a member holds the pay-window lock.
  */
 export async function assertCartMember(cartId: string): Promise<CartAuthz> {
   const uid = await getCallerUid();
@@ -49,13 +58,20 @@ export async function assertCartMember(cartId: string): Promise<CartAuthz> {
 
   const { data: cart } = await db
     .from("qr_carts")
-    .select("session_id,locked,status")
+    .select("session_id,locked,locked_at,locked_by,status")
     .eq("id", cartId)
     .maybeSingle();
   if (!cart) throw new AuthzError("No such cart", 404);
   // A paid/cancelled cart is immutable — `mms_fulfill_order` flips status to 'paid', so this stops
   // any post-payment addItem/setQty/applyPromo from desyncing the fulfilled order (defense in depth).
   if (cart.status !== "open") throw new AuthzError("Cart is no longer open", 403);
+
+  // Effective lock: held AND fresh. A stale lock (a diner closed the pay tab) is ignored, so the
+  // cart frees itself after the TTL — the next acquire takes it over. Same cutoff as lib/lock.ts.
+  const lockedFresh =
+    cart.locked &&
+    cart.locked_at !== null &&
+    new Date(cart.locked_at).getTime() > Date.now() - CART_LOCK_TTL_MS;
 
   const { data: sess } = await db
     .from("table_sessions")
@@ -73,7 +89,12 @@ export async function assertCartMember(cartId: string): Promise<CartAuthz> {
     .maybeSingle();
   if (!member) throw new AuthzError("Not a member of this session", 403);
 
-  return { uid, sessionId: cart.session_id, locked: cart.locked };
+  return {
+    uid,
+    sessionId: cart.session_id,
+    locked: lockedFresh,
+    lockedBy: lockedFresh ? cart.locked_by : null,
+  };
 }
 
 /**
