@@ -8,6 +8,7 @@ export type TrackedOrder = {
   status: string; // payment status (paid | refunded | …); kitchen lifecycle is S2
   totalCents: number;
   itemCount: number;
+  pickupSlot: string | null; // set for pickup orders → /track echoes it as the honest ETA
 };
 
 export type OrderStatus = {
@@ -49,7 +50,7 @@ export function useOrderStatus(paymentIntent: string | null): OrderStatus {
     async function load() {
       const { data, error } = await supa
         .from("qr_orders")
-        .select("id,status,total_cents,qr_order_items(qty)")
+        .select("id,status,total_cents,pickup_slot,qr_order_items(qty)")
         .eq("stripe_payment_intent_id", paymentIntent!)
         .maybeSingle();
       if (!active) return;
@@ -79,6 +80,7 @@ export function useOrderStatus(paymentIntent: string | null): OrderStatus {
           status: data.status,
           totalCents: data.total_cents,
           itemCount: items.reduce((a, i) => a + i.qty, 0),
+          pickupSlot: data.pickup_slot ?? null,
         });
       } else if (tries < 10) {
         // Not fulfilled yet — Realtime will deliver the INSERT, but poll a few times as a safety net

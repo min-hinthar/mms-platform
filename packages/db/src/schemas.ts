@@ -59,6 +59,13 @@ export const scanInput = z.object({
 /** getCartView — a member-gated read of a cart's lines + server-authoritative totals. */
 export const cartViewInput = z.object({ cartId: uuid });
 
+/** setPickupSlot — the client asserts a cart id + a chosen slot (ISO instant). The server re-validates
+ *  it against live availability + capacity, so a stale/forged/full slot is rejected, never trusted. */
+export const setPickupSlotInput = z.object({
+  cartId: uuid,
+  slot: z.string().datetime({ offset: true }),
+});
+
 /**
  * Shape of the `POST /api/session` RESPONSE — parsed on the client so a contract drift (a deploy
  * skew, a missing `cartId`) surfaces as a hard parse error instead of silently degrading to "no
@@ -79,3 +86,4 @@ export type ApplyPromoInput = z.infer<typeof applyPromoInput>;
 export type CreateIntentInput = z.infer<typeof createIntentInput>;
 export type ScanInput = z.infer<typeof scanInput>;
 export type CartViewInput = z.infer<typeof cartViewInput>;
+export type SetPickupSlotInput = z.infer<typeof setPickupSlotInput>;

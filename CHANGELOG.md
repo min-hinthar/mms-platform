@@ -4,6 +4,62 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — M2·P2.2 honest pickup scheduling (2026-06-20)
+
+- **Capacity-limited pickup slots + a server fire-time.** Migration `20260620000100_pickup_scheduling`
+  adds a tunable single-row `pickup_config` (tz, hours, slot interval, **capacity per slot**, lead, prep,
+  hold TTL — seeded 10:30am–6:30pm · 15-min · 6/slot for Covina), `pickup_slot` + `fire_at` columns on
+  `qr_carts` → carried to `qr_orders`, and two service-role-only SECURITY DEFINER functions:
+  - **`mms_pickup_slots(p_exclude_cart)`** — tz-aware, returns today's bookable slots from
+    `max(open, now+lead)` to close with **remaining capacity = capacity − (paid orders + live holds)**.
+    A "hold" is an open cart that picked the slot and is still active (session unexpired, touched within
+    the hold TTL) — so **capacity is honest _during_ ordering, not only after payment** (without this,
+    N diners all see the last seat free before any has a paid row → overbook). `p_exclude_cart` drops
+    the caller's own hold so a diner sees their slot's true availability.
+  - **`mms_set_pickup_slot`** — race-safe (a per-slot `pg_advisory_xact_lock` serializes concurrent
+    picks of the same slot) + status-atomic; sets `pickup_slot` + `fire_at = slot − prep`.
+- **Fire-time = the S2 seam.** `fire_at` is computed + stored now for S2's KDS to consume; M2 has no
+  kitchen actor, so nothing fires yet — no second timer grown (per the roadmap touch-point).
+- **`/track` echoes the chosen slot as the ETA** ("Ready ~11:45 AM") with the pickup step variant
+  (`Order placed → In the kitchen → Ready for pickup → Picked up`) — **no fabricated countdown, no
+  "we'll text you"** promise the code can't keep. create-intent re-validates the slot still has room at
+  the pay boundary (excluding the cart's own hold) and requires a slot for pickup orders; the cart
+  surfaces the reason ("Pick a pickup time first." / "That pickup time just filled — pick another.").
+- **Snappier cart/slot interactions** (perceived latency): each Add was two sequential server
+  round-trips (mutate, then a full `getCartView` re-fetch) with no feedback until both landed —
+  `addItem` now **returns the fresh view** (one round-trip) and the cart count bumps **optimistically**
+  on tap; picking a slot drops the redundant post-set refetch and the tapped chip shows an immediate
+  "Setting…" state. (The SQL was never the bottleneck — `mms_pickup_slots` runs ~10ms; the cost was
+  round-trips + cold serverless starts on preview.)
+- **Next-day rollover** (migration `20260620000200`): slots span today + `horizon_days` (default 2), so
+  an after-hours browser pre-orders for tomorrow instead of hitting an empty "today only" wall. The sheet
+  groups by day (Today / Tomorrow / weekday); the chip + `/track` ETA prefix the day when it isn't today.
+- **UI (v7.2):** the "Pick a pickup time" sheet (`PickupSlotSheet`, capacity-aware, auto-opens on first
+  pickup load), a header chip showing/Changing the slot (`PickupSlotChip`), tz-correct time display.
+- **Validated** on a local Postgres stack (slot generation, fire-offset, hold-based capacity, exclude-self
+  re-pick, advisory-lock serialization, stale-hold freeing, fulfillment carry) and **applied to the live
+  QR project** (grant lockdown verified `anon=false`; advisors clean apart from the intentional
+  `pickup_config` default-deny). **Pre-PR adversarial subagent: FAIL → fixed → PASS** — it caught the
+  capacity-overbooking race (paid-only count); the holds + advisory lock + exclude-self close it.
+- _Deferred:_ an inline slot-picker on `/cart` (today a slot-less checkout shows a clear reason and the
+  diner picks via the menu chip); a hold/abandoned-cart sweep (holds self-expire via the TTL).
+
+### Fixed — M2·P2.2 same-day slot alignment (2026-06-20)
+
+- **Same-day pickup slots rendered off-grid and were false-rejected at checkout** — a regression from the
+  `20260620000200` multiday rewrite, which moved `now+lead` into today's `generate_series` lower bound,
+  anchoring the grid at a non-aligned instant that drifts every second. Two breakages across the whole
+  operating window (any time `now+lead > open`): (1) slots showed arbitrary times (e.g. 11:18, 11:33)
+  instead of the aligned :00/:15/:30/:45; (2) the grid shifted between a diner's pick and the
+  re-validation — and **both** `mms_set_pickup_slot` and the create-intent pay-boundary check re-call
+  `mms_pickup_slots` — so a valid same-day slot matched nothing on the fresh grid → set returned
+  `unavailable` and checkout 409'd "that pickup time just filled". Migration
+  `20260620000300_pickup_slots_align_fix` restores `…0100`'s pattern: anchor each day's series at the
+  day's **open** (aligned) and **filter** `slot ≥ now+lead`. Future days keep all slots; same-day drops
+  only past/too-soon ones, and the grid is now stable across the selection→checkout window. Caught by the
+  **pre-merge adversarial subagent** (the after-hours manual smoke test had only exercised the next-day
+  path); verified old-vs-new on the live stack (`12:31,12:46,…` → `12:45,13:00,…`).
+
 ### Added — M2·P2.1 server-validated promo codes (2026-06-20)
 
 - **Real promo enforcement, server-authoritative.** Migration `20260620000000_promo_validation` gives

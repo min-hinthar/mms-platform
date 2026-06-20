@@ -238,6 +238,45 @@ export type Database = {
           },
         ]
       }
+      pickup_config: {
+        Row: {
+          capacity_per_slot: number
+          close_time: string
+          hold_minutes: number
+          horizon_days: number
+          id: boolean
+          lead_minutes: number
+          open_time: string
+          prep_minutes: number
+          slot_minutes: number
+          tz: string
+        }
+        Insert: {
+          capacity_per_slot?: number
+          close_time?: string
+          hold_minutes?: number
+          horizon_days?: number
+          id?: boolean
+          lead_minutes?: number
+          open_time?: string
+          prep_minutes?: number
+          slot_minutes?: number
+          tz?: string
+        }
+        Update: {
+          capacity_per_slot?: number
+          close_time?: string
+          hold_minutes?: number
+          horizon_days?: number
+          id?: boolean
+          lead_minutes?: number
+          open_time?: string
+          prep_minutes?: number
+          slot_minutes?: number
+          tz?: string
+        }
+        Relationships: []
+      }
       promo_attempts: {
         Row: {
           attempted_at: string
@@ -399,8 +438,10 @@ export type Database = {
       qr_carts: {
         Row: {
           created_at: string
+          fire_at: string | null
           id: string
           locked: boolean
+          pickup_slot: string | null
           promo_code: string | null
           session_id: string
           status: string
@@ -408,8 +449,10 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          fire_at?: string | null
           id?: string
           locked?: boolean
+          pickup_slot?: string | null
           promo_code?: string | null
           session_id: string
           status?: string
@@ -417,8 +460,10 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          fire_at?: string | null
           id?: string
           locked?: boolean
+          pickup_slot?: string | null
           promo_code?: string | null
           session_id?: string
           status?: string
@@ -479,7 +524,9 @@ export type Database = {
         Row: {
           created_at: string
           discount_cents: number
+          fire_at: string | null
           id: string
+          pickup_slot: string | null
           service_charge_cents: number
           session_id: string | null
           status: string
@@ -492,7 +539,9 @@ export type Database = {
         Insert: {
           created_at?: string
           discount_cents?: number
+          fire_at?: string | null
           id?: string
+          pickup_slot?: string | null
           service_charge_cents: number
           session_id?: string | null
           status?: string
@@ -505,7 +554,9 @@ export type Database = {
         Update: {
           created_at?: string
           discount_cents?: number
+          fire_at?: string | null
           id?: string
+          pickup_slot?: string | null
           service_charge_cents?: number
           session_id?: string | null
           status?: string
@@ -634,6 +685,13 @@ export type Database = {
         Args: { amount_cents: number; category: string; dine_in: boolean }
         Returns: number
       }
+      mms_pickup_slots: {
+        Args: { p_exclude_cart?: string }
+        Returns: {
+          remaining: number
+          slot_time: string
+        }[]
+      }
       mms_promo_attempt: {
         Args: {
           p_max?: number
@@ -657,6 +715,13 @@ export type Database = {
         Returns: undefined
       }
       mms_promo_discount: { Args: { p_cart_id: string }; Returns: number }
+      mms_set_pickup_slot: {
+        Args: { p_cart_id: string; p_slot: string }
+        Returns: {
+          ok: boolean
+          reason: string
+        }[]
+      }
       mms_tax_rate: { Args: never; Returns: number }
       mms_taxable: {
         Args: { category: string; dine_in: boolean }

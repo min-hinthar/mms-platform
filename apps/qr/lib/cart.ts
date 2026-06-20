@@ -132,6 +132,11 @@ export async function addItem(cartId: string, menuItemId: string, modifierIds: s
       dine_in: dineIn,
     },
   });
+
+  // Return the fresh server-authoritative view so the caller renders in ONE round-trip (not a separate
+  // getCartView refresh afterward). Re-running assertCartMember here is a couple of indexed reads on the
+  // same warm function — cheap next to a second network round-trip.
+  return getCartView(input.cartId);
 }
 
 export async function setQty(cartItemId: string, qty: number) {
@@ -229,10 +234,11 @@ export async function applyPromo(cartId: string, code: string): Promise<ApplyPro
  */
 export async function getCartView(
   cartId: string,
-): Promise<{ items: CartItem[]; totals: CartTotals }> {
+): Promise<{ items: CartItem[]; totals: CartTotals; pickupSlot: string | null }> {
   const { cartId: id } = cartViewInput.parse({ cartId });
   await assertCartMember(id);
   const db = serviceClient();
+  const { data: cart } = await db.from("qr_carts").select("pickup_slot").eq("id", id).single();
   const { data: rows } = await db
     .from("qr_cart_items")
     .select("id,menu_item_id,name,qty,modifiers,unit_price_cents,tax_cents,by_seat")
@@ -248,5 +254,5 @@ export async function getCartView(
     taxCents: r.tax_cents,
     bySeat: r.by_seat ?? undefined,
   }));
-  return { items, totals: await getCartTotals(id) };
+  return { items, totals: await getCartTotals(id), pickupSlot: cart?.pickup_slot ?? null };
 }

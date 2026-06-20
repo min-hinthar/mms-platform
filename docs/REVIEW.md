@@ -259,3 +259,25 @@ rate-limiting are now server-authoritative in SECURITY DEFINER functions (`mms_p
   function migration — the adversarial pass is necessary but not sufficient for grant-surface bugs.**
 - **Applied to the live QR project** (also applied the **missing P1.5 `track_realtime`** — prod's
   `/track` realtime was silently off because nothing had applied that migration to live).
+
+## Progress — M2·P2.2 honest pickup scheduling (2026-06-20)
+
+Capacity-limited slots + a server fire-time; `/track` echoes the chosen slot (no fabricated countdown).
+DB-authoritative (`mms_pickup_slots` / `mms_set_pickup_slot`, service-role only); the v7.2 slot sheet +
+header chip; create-intent re-checks room at pay.
+
+- **Local-stack validation:** slot generation + fire-offset, hold-based capacity, exclude-self re-pick,
+  advisory-lock serialization, stale-hold freeing, fulfillment carry — all pass.
+- **Adversarial subagent — FAIL → fixed → PASS.** It caught a **real overbooking race**: capacity counted
+  only `paid` orders, which exist only post-webhook, so the whole order→pay window undercounted and N
+  diners could book the last seat. Fixed by counting **live holds** (active open carts within a TTL) +
+  a **per-slot advisory lock** + an **exclude-self** arg (so a diner sees their own slot's true
+  availability and create-intent doesn't reject their in-progress order). Chose this over a hard cap in
+  `mms_fulfill_order` (which would strand a charged diner — the P1.4 failure). Also folded: the
+  `mms_set_pickup_slot` config `if not found` guard, the sheet's double live region.
+- **`get_advisors` clean** apart from the intentional `pickup_config` default-deny (RLS-no-policy INFO);
+  the EXECUTE lockdown (`revoke from public, anon, authenticated`) verified `anon=false` — the P2.1
+  lesson applied correctly the first time.
+- **Applied to the live QR project.**
+- _Deferred (documented):_ inline `/cart` slot-picker (slot-less checkout recovers via the menu chip
+  today); a sweep for abandoned holds (they self-expire via the `hold_minutes` TTL).
