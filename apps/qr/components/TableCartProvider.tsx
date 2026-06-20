@@ -187,6 +187,14 @@ export function TableCartProvider({
     setNotice(msg);
     noticeTimer.current = window.setTimeout(() => setNotice(null), ms);
   }, []);
+  // Cancel a pending clear-timer on unmount so it can't fire setState on an unmounted component
+  // (same cancel-guard discipline as the load effects above).
+  useEffect(
+    () => () => {
+      if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
+    },
+    [],
+  );
 
   // Announce a NEW guest joining (diff by seat so we don't announce the first sync — self + already-
   // present members — or a self re-appear after a blip). Deferred into a callback (localStorage/presence
