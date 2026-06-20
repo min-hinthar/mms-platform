@@ -78,7 +78,7 @@ export function TableCartProvider({
   joinOnly?: boolean;
   children: ReactNode;
 }) {
-  const { session, loading, error } = useTableSession(mode, { code, joinOnly });
+  const { session, loading, error, revalidate } = useTableSession(mode, { code, joinOnly });
   const cartId = session?.cartId ?? null;
   const isGroup = mode === "dinein";
   const isPickup = mode === "pickup";
@@ -206,6 +206,26 @@ export function TableCartProvider({
     [],
   );
 
+  // Session-recovery messaging (bugfix: a silently-expired table session). When a cart op fails we
+  // re-mint (revalidate) instead of stranding the diner behind a hopeless "try again". This effect
+  // reads the OUTCOME of that re-mint by diffing the cartId: a NEW cart ⇒ the session had truly
+  // expired and was swept (honest "timed out, fresh order"); the SAME cart ⇒ renewed/transient
+  // (nudge a retry). Deferred (microtask) so it's not a synchronous setState in the effect body.
+  const recoveringRef = useRef(false);
+  const prevCartIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!cartId) return;
+    const prev = prevCartIdRef.current;
+    prevCartIdRef.current = cartId;
+    if (!recoveringRef.current) return;
+    recoveringRef.current = false;
+    const msg =
+      prev && prev !== cartId
+        ? "Your table session timed out — we started a fresh order."
+        : "Reconnected to your table — please try that again.";
+    void Promise.resolve().then(() => flash(msg, 3500));
+  }, [cartId, flash]);
+
   // Announce a NEW guest joining (diff by seat so we don't announce the first sync — self + already-
   // present members — or a self re-appear after a blip). Deferred into a callback (localStorage/presence
   // are external stores) so it's not a synchronous setState in the effect body.
@@ -259,14 +279,21 @@ export function TableCartProvider({
         setItems(view.items);
         setTotals(view.totals);
         setPickupSlot(view.pickupSlot);
-      } catch (e) {
-        flash("Couldn’t add that — please try again.", 3000);
-        throw e;
+      } catch {
+        // The add failed — most often a silently-EXPIRED table session (the mint had handed back a
+        // still-'active' but expired session that the server now 403s). Recover by re-minting rather
+        // than stranding the diner behind a "try again" that can never succeed; the cartId-diff effect
+        // above announces honestly whether the session was renewed or restarted. Works for a transient
+        // network blip too (re-mint returns the same cart → "reconnected, try again"). No rethrow:
+        // AddButton already swallows, and recovery is the handled outcome.
+        recoveringRef.current = true;
+        flash("Reconnecting to your table…", 2500);
+        revalidate();
       } finally {
         setPendingAdds((n) => n - 1);
       }
     },
-    [cartId, flash],
+    [cartId, flash, revalidate],
   );
 
   const openSlotSheet = useCallback(() => setSlotSheetOpen(true), []);
@@ -318,6 +345,54 @@ export function TableCartProvider({
       }}
     >
       {children}
+      {/* Recovery affordance for SOLO modes (scan-&-go / pickup). If a session mint — or a re-mint
+          after a failed cart op — fails, `cartId` is null and taps silently no-op; without this the
+          diner is stranded behind an auto-clearing toast. Dine-in surfaces the same recovery in
+          GuestList (group-aware copy); this fills the gap GuestList's `!isGroup → null` leaves. */}
+      {error && !isGroup && (
+        <p
+          role="alert"
+          style={{
+            position: "fixed",
+            top: 12,
+            left: 12,
+            right: 12,
+            margin: "0 auto",
+            maxWidth: 420,
+            zIndex: 60,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+            padding: "9px 13px",
+            borderRadius: 11,
+            background: "var(--warnb)",
+            color: "var(--warn)",
+            fontWeight: 700,
+            fontSize: 12.5,
+            boxShadow: "0 6px 20px rgb(0 0 0 / 0.12)",
+          }}
+        >
+          <span aria-hidden>⚠️</span> Couldn’t reach your order.{" "}
+          <button
+            type="button"
+            onClick={() => revalidate()}
+            style={{
+              minHeight: 44,
+              padding: "0 4px",
+              background: "none",
+              border: "none",
+              color: "var(--warn)",
+              fontWeight: 800,
+              fontSize: 13,
+              textDecoration: "underline",
+              cursor: "pointer",
+            }}
+          >
+            Try again
+          </button>
+        </p>
+      )}
       {isPickup && cartId && (
         <PickupSlotSheet
           open={slotSheetOpen}

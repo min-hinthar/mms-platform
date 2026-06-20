@@ -4,6 +4,24 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed — dine-in session expiry stranded diners ("Couldn't add that") (2026-06-20)
+
+- **Root cause:** the table session's TTL is a hard **4h** (`table_sessions.expires_at default now() +
+interval '4 hours'`). The mint route found a session by `status='active'` **only**, while
+  `assertCartMember` **and** the `is_member` RLS fn reject on `expires_at <= now()` — so an expired-but-
+  still-`active` session was handed back as "live", then every cart write `403`'d on it. The client
+  surfaced the generic **"Couldn't add that — please try again"**, a retry that could never succeed.
+- **Sliding renewal (server):** any authorized touch (`assertCartMember`) and every rejoin
+  (`/api/session`) now slides `expires_at` forward — throttled to the back half of the window so a
+  read-heavy path doesn't write each call. A table that's actually in use no longer expires mid-meal.
+- **Expiry-consistent mint + sweep (server):** `findActive` now also requires `expires_at > now()`
+  (matching authz + RLS); a stale expired session squatting on the `status='active'` partial unique
+  index is **swept to `closed`** before minting fresh (the sweep that index's comment anticipated).
+- **Graceful recovery (client):** a failed cart op now **re-mints** (`useTableSession.revalidate`)
+  instead of stranding — the diner recovers without a manual reload, with an honest message that
+  distinguishes a **renewed** session ("Reconnected — try that again") from a **timed-out** one
+  ("we started a fresh order"). Schema-free (no migration); `apps/qr/lib/session-ttl.ts` mirrors the DB TTL.
+
 ### Added — M3·P3.3a split-the-bill foundation (dine-in) (2026-06-20)
 
 - **Split the bill on `/cart`** (dine-in group): Even / By-person toggle, per-line avatar **assignment**

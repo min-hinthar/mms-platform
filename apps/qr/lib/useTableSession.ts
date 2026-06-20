@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { sessionMintOutput } from "@mms/db/schemas";
 import { useAnonSession } from "./useAnonSession";
 
@@ -58,10 +58,24 @@ export function useTableSession(mode: string, opts?: { code?: string; joinOnly?:
   const [session, setSession] = useState<TableSession | null>(null);
   const [error, setError] = useState<string | null>(null);
   const minting = useRef(false);
+  const [nonce, setNonce] = useState(0);
+
+  // Force a re-mint (client recovery from a silently-expired session): clear the cached session so the
+  // effect re-POSTs /api/session. With the expiry fix that re-mint either RENEWS the same session
+  // (transient blip → same cartId) or, if it had truly expired, sweeps it + mints a FRESH session+cart
+  // — so a stranded diner recovers without a manual reload. The nonce re-arms the effect even if the
+  // session was already null; failed re-mints set `error` (no session change) so there's no retry loop.
+  const revalidate = useCallback(() => {
+    minting.current = false;
+    setSession(null);
+    setError(null); // clear a prior failure so a successful retry dismisses the recovery banner
+    setNonce((n) => n + 1);
+  }, []);
 
   useEffect(() => {
-    // `mode` is fixed for a mounted page (each route passes a constant). Once a session exists we
-    // never re-mint, so a *runtime* mode change would no-op — remount the route to switch modes.
+    // `mode` is fixed for a mounted page (each route passes a constant). A re-mint is driven by
+    // `revalidate()` (clears session + bumps nonce); a *runtime* mode change still no-ops — remount
+    // the route to switch modes.
     if (!anon || session || minting.current) return;
     minting.current = true;
     const qrCode = resolveQrCode(mode, code); // may be undefined for a dine-in host-start
@@ -107,7 +121,7 @@ export function useTableSession(mode: string, opts?: { code?: string; joinOnly?:
       .finally(() => {
         minting.current = false;
       });
-  }, [anon, mode, session, code, joinOnly]);
+  }, [anon, mode, session, code, joinOnly, nonce]);
 
-  return { session, loading: !session && !error, error };
+  return { session, loading: !session && !error, error, revalidate };
 }

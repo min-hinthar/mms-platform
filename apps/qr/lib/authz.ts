@@ -2,6 +2,34 @@ import "server-only";
 import { cookies } from "next/headers";
 import { serverClient, serviceClient } from "@mms/db/server";
 import { CART_LOCK_TTL_MS } from "./lock";
+import {
+  SESSION_RENEW_THRESHOLD_MS,
+  sessionExpiryFromNow,
+  sessionRenewBeforeIso,
+} from "./session-ttl";
+
+/**
+ * Slide a still-active session's expiry forward once it's into the back half of its window — the
+ * shared renewal both the cart- and session-scoped guards call (bugfix: the hard 4h TTL stranded
+ * in-use dine-in tables behind a 403 the client showed as "Couldn't add that"). The JS pre-check
+ * skips the round-trip on the common plenty-of-window path; the WHERE `.lt("expires_at", cutoff)`
+ * makes concurrent renewals race-clean (once one commits the fresh expiry the others no-op, so a
+ * multi-phone realtime fan-out can't burst N redundant writes). Non-fatal — never blocks the request.
+ */
+async function maybeRenewSession(
+  db: ReturnType<typeof serviceClient>,
+  sessionId: string,
+  expiresAt: string,
+): Promise<void> {
+  if (new Date(expiresAt).getTime() - Date.now() >= SESSION_RENEW_THRESHOLD_MS) return;
+  const { error } = await db
+    .from("table_sessions")
+    .update({ expires_at: sessionExpiryFromNow() })
+    .eq("id", sessionId)
+    .eq("status", "active")
+    .lt("expires_at", sessionRenewBeforeIso());
+  if (error) console.error("[authz] session renewal failed", error.message);
+}
 
 /**
  * The ONE authorization guard (RED-TEAM standard #2: "every mutation authorizes itself").
@@ -91,6 +119,11 @@ export async function assertCartMember(cartId: string): Promise<CartAuthz> {
     .maybeSingle();
   if (!member) throw new AuthzError("Not a member of this session", 403);
 
+  // Sliding renewal (bugfix: the 4h hard TTL stranded in-use dine-in tables). The session passed the
+  // freshness check above, so any authorized touch slides expires_at forward — a table that's actually
+  // being used never reaches the TTL; only a truly-idle session expires (then the mint sweeps it).
+  await maybeRenewSession(db, cart.session_id, sess.expires_at);
+
   return {
     uid,
     sessionId: cart.session_id,
@@ -125,6 +158,10 @@ export async function assertSessionMember(sessionId: string): Promise<{ uid: str
     .eq("seat_id", uid)
     .maybeSingle();
   if (!member) throw new AuthzError("Not a member of this session", 403);
+
+  // Symmetric with assertCartMember: a table kept alive by presence/renames (not just cart writes)
+  // also slides its expiry forward, so a chatty-but-not-ordering table doesn't expire mid-meal.
+  await maybeRenewSession(db, sessionId, sess.expires_at);
 
   return { uid };
 }
