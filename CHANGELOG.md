@@ -4,6 +4,29 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — M3·P3.2 live group-cart sync (dine-in, multi-device) (2026-06-20)
+
+- **A peer's cart change now appears live on every phone at the table.** `qr_carts` + `qr_cart_items`
+  join the `supabase_realtime` publication (+ `replica identity full` on `qr_cart_items` so a line
+  removal/DELETE matches the `cart_id` filter); a new `useCartRealtime` hook subscribes to **Postgres
+  Changes** (door-agnostic, like `/track` — a future staff-POS write propagates too) and the consumer
+  re-fetches the **server-authoritative** `getCartView` into keyed React state (never client math).
+  Authorization is the existing member-gated SELECT RLS (`qr_cart_read`/`qr_citem_read`), enforced
+  per-subscriber by Realtime — a guessed `cart:{id}` channel reveals nothing. Migration `20260620000600`
+  (publication + replica identity only → no `types-fresh` drift).
+- **Honest peer announcements.** When a guest adds an item, the others hear "[name] added [item]" through
+  the **single** existing live region (the real, un-simulated version of the v7.2 friend-add toast);
+  `by_seat` is the verified adder, so attribution is trustworthy. Your own add is filtered (never
+  "you added your own item"); a peer's qty-change/remove just refreshes (the event doesn't carry the
+  actor, so no false attribution). All notices now flow through one `flash` helper with a single
+  clear-timer, so overlapping events replace deterministically. **Dine-in only** (solo modes have no
+  peers → no subscription).
+- **Degrades gracefully:** on `SUBSCRIBED` the hook re-fetches (self-heals changes missed while the
+  socket was down or before the subscription); a `CHANNEL_ERROR`/`TIMED_OUT` is logged (not silently
+  swallowed) and recovers on reconnect. Reviewed by a fresh-context adversarial subagent (0 blockers;
+  1 should-fix — the missing channel-error handling — + 2 nits, all addressed). _Cart-lock-at-pay (the
+  money-path race) is the next focused PR — it needs a schema change + its own review._
+
 ### Added — M3·P3.1 group cart join + presence (dine-in, multi-device) (2026-06-20)
 
 - **A second phone joins the SAME dine-in cart**, two ways: a scanned **table sticker** deep-link

@@ -15,11 +15,12 @@ function cleanPresence(v: unknown, max: number): string {
 }
 
 /**
- * Multi-device group cart (M3). Diners join the PRIVATE channel `table:{sessionId}`.
+ * Multi-device group cart presence (M3·P3.1). Diners join the PRIVATE channel `table:{sessionId}`.
  * Authorization is enforced by RLS on realtime.messages (see migration) — only members of an
  * active session, proven by their **anonymous-auth** access token (is_member joins session_members
  * on auth.uid(); see docs/BACKEND_ARCHITECTURE.md §3), can read/send. No client-asserted identity is
- * trusted. Presence = who's at the table (P3.1 guest list); broadcast = cart changes (P3.2 seam).
+ * trusted. Presence = who's at the table (the guest list). Live CART changes ride a separate
+ * Postgres-Changes subscription (useCartRealtime below), not this channel's broadcast.
  *
  * `accessToken` is the diner's Supabase anonymous-auth access token; `me.seat` == auth.uid() and is
  * STABLE (from the session) — it's the presence key, so re-renders don't churn presence into ghosts
@@ -68,10 +69,6 @@ export function useGroupCart(
         }
         setMembers(members);
       })
-      .on("broadcast", { event: "cart_changed" }, () => {
-        // P3.2 seam: a peer mutated the cart → re-fetch the server-authoritative view.
-        window.dispatchEvent(new CustomEvent("mms:cart-refresh"));
-      })
       .subscribe(async (status) => {
         if (status === "SUBSCRIBED") {
           subscribed.current = true;
@@ -90,8 +87,79 @@ export function useGroupCart(
     if (subscribed.current) void chanRef.current?.track({ seat, name });
   }, [seat, name]);
 
-  const announceChange = () =>
-    chanRef.current?.send({ type: "broadcast", event: "cart_changed", payload: {} });
+  return { members };
+}
 
-  return { members, announceChange };
+/** A cart-change event handed to the consumer: the kind + (for an INSERT) the new line's adder/name,
+ *  so the UI can announce "[peer] added [item]" honestly. We don't expose the full row — only the
+ *  fields the UI needs — and the consumer re-fetches the SERVER-authoritative view regardless. */
+export type CartChange = {
+  table: "qr_cart_items" | "qr_carts";
+  eventType: "INSERT" | "UPDATE" | "DELETE";
+  bySeat: string | null;
+  itemName: string | null;
+};
+
+/**
+ * Live group-cart sync (M3·P3.2). Subscribes to Postgres Changes on the cart + its lines (filtered to
+ * THIS cart) and calls `onChange` for each — the consumer re-fetches `getCartView` (server-authoritative
+ * merge into keyed React state; never client math). Authorization is the existing member-gated SELECT
+ * RLS on qr_carts/qr_cart_items, enforced per-subscriber by Realtime. Mirrors the /track pattern
+ * (lib/useOrderStatus). `onChange` is held in a ref so a new closure each render never resubscribes.
+ */
+export function useCartRealtime(
+  cartId: string,
+  accessToken: string,
+  enabled: boolean,
+  onChange: (c: CartChange) => void,
+) {
+  const cbRef = useRef(onChange);
+  useEffect(() => {
+    cbRef.current = onChange;
+  }, [onChange]);
+
+  useEffect(() => {
+    if (!enabled || !cartId || !accessToken) return;
+    // `browserClient()` is the memoized @supabase/ssr client — this hook + useGroupCart share ONE
+    // socket; setAuth(token) is idempotent with the same anon token (don't pass a different one).
+    const supa = browserClient();
+    supa.realtime.setAuth(accessToken); // RLS gates Postgres Changes per-subscriber
+    const emit = (table: CartChange["table"]) => (payload: { eventType: string; new: unknown }) => {
+      const row = (payload.new ?? {}) as { by_seat?: string | null; name?: string | null };
+      cbRef.current({
+        table,
+        eventType: payload.eventType as CartChange["eventType"],
+        bySeat: row.by_seat ?? null,
+        itemName: row.name ?? null,
+      });
+    };
+    const channel = supa
+      .channel(`cart:${cartId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "qr_cart_items", filter: `cart_id=eq.${cartId}` },
+        emit("qr_cart_items"),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "qr_carts", filter: `id=eq.${cartId}` },
+        emit("qr_carts"),
+      )
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          // Self-heal: re-fetch on every (re)subscribe so a change missed while the socket was down —
+          // or in the gap between the initial server render and this subscription — is caught. A
+          // benign qr_carts UPDATE signal triggers the consumer's refresh without an announce.
+          cbRef.current({ table: "qr_carts", eventType: "UPDATE", bySeat: null, itemName: null });
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          // Don't let cross-device sync degrade silently (parity with useOrderStatus). The cart still
+          // updates on the diner's OWN actions; this surfaces the dropped sync for triage, and the
+          // SUBSCRIBED self-heal above recovers missed changes once the socket reconnects.
+          console.error(`[useCartRealtime] channel ${status} for cart ${cartId}`);
+        }
+      });
+    return () => {
+      supa.removeChannel(channel);
+    };
+  }, [cartId, accessToken, enabled]);
 }
