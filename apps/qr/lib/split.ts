@@ -189,12 +189,21 @@ export async function abortSettlement(cartId: string): Promise<void> {
   if (role !== "host") throw new Error("Only the host can cancel the split");
   const db = serviceClient();
 
+  // CLAIM the abort FIRST by lifting the freeze: captureAllIfReady gates on a fresh settle_at, so any
+  // capture path that hasn't started yet now bails. (A capture already past its gate finishes + fulfills;
+  // we detect that below and defer to it — money taken must always become an order.)
+  await releaseSettlement(id);
+
   const { data: shares } = await db
     .from("qr_cart_shares")
     .select("stripe_payment_intent_id,status")
     .eq("cart_id", id);
-  if ((shares ?? []).some((s) => s.status === "captured"))
-    throw new Error("Payment already completed — can’t cancel the split");
+  // If a capture WON the race (any captured share), money is committing — re-freeze so the cart can't be
+  // edited before the succeeded webhook snapshots the order, and let fulfillment finish (don't delete).
+  if ((shares ?? []).some((s) => s.status === "captured")) {
+    await refreeze(db, id);
+    throw new Error("Payment already completed — the order will finish");
+  }
 
   // Release each authorized/pending hold so a payer isn't left with a lingering authorization.
   for (const s of shares ?? []) {
@@ -206,6 +215,26 @@ export async function abortSettlement(cartId: string): Promise<void> {
       }
     }
   }
-  await db.from("qr_cart_shares").delete().eq("cart_id", id);
-  await releaseSettlement(id);
+  // Conditional delete — NEVER remove a share captured in the race window (its money is taken and the
+  // succeeded webhook must still fulfill it). If one survived, re-freeze + surface it rather than strand.
+  await db.from("qr_cart_shares").delete().eq("cart_id", id).neq("status", "captured");
+  const { data: survivor } = await db
+    .from("qr_cart_shares")
+    .select("id")
+    .eq("cart_id", id)
+    .limit(1);
+  if (survivor && survivor.length > 0) {
+    await refreeze(db, id);
+    throw new Error("Payment completed during cancel — the order will finish");
+  }
+}
+
+/** Re-assert the settlement freeze on an open cart (used when an abort loses the race to a capture, so
+ *  the cart stays read-only until the in-flight fulfillment snapshots the order). */
+async function refreeze(db: ReturnType<typeof serviceClient>, cartId: string): Promise<void> {
+  await db
+    .from("qr_carts")
+    .update({ settle_at: new Date().toISOString() })
+    .eq("id", cartId)
+    .eq("status", "open");
 }

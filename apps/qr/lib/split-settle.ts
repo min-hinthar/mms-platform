@@ -1,7 +1,7 @@
 import "server-only";
 import { serviceClient } from "@mms/db/server";
 import { getStripe } from "./stripe";
-import { releaseSettlement } from "./lock";
+import { releaseSettlement, SETTLE_TTL_MS } from "./lock";
 
 /**
  * Split-tender settlement orchestration (M3·P3.3b, Option A: authorize-all → capture-together). Driven
@@ -47,35 +47,51 @@ async function captureAllIfReady(
   db: ReturnType<typeof serviceClient>,
   cartId: string,
 ): Promise<void> {
+  // Gate on a LIVE settlement before taking any money. If the cart isn't open (already paid/cancelled),
+  // or the freeze was lifted/expired (the host aborted, or a single payer took over a STALE settlement),
+  // do NOT capture — capturing a dead settlement is exactly the charged-with-no-order trap. This is the
+  // primary guard that keeps capture and abort/takeover from both acting on the cart.
+  const { data: cart } = await db
+    .from("qr_carts")
+    .select("status,settle_at")
+    .eq("id", cartId)
+    .maybeSingle();
+  const fresh =
+    cart?.settle_at != null && new Date(cart.settle_at).getTime() > Date.now() - SETTLE_TTL_MS;
+  if (cart?.status !== "open" || !fresh) return;
+
   const { data } = await db
     .from("qr_cart_shares")
     .select("stripe_payment_intent_id,status,amount_cents")
     .eq("cart_id", cartId);
   const shares = (data ?? []) as ShareRow[];
   if (shares.length === 0) return;
-  // Gate: NO share may still be pending/failed/canceled — every one authorized or already captured.
+  // NO share may still be pending/failed/canceled — every one authorized or already captured.
   if (!shares.every((s) => s.status === "authorized" || s.status === "captured")) return;
 
   const nowIso = new Date().toISOString();
   for (const s of shares) {
-    if (s.status === "authorized" && s.stripe_payment_intent_id) {
-      try {
-        await getStripe().paymentIntents.capture(s.stripe_payment_intent_id);
-      } catch (e) {
-        // A redelivery may re-capture an already-captured PI → Stripe returns
-        // `payment_intent_unexpected_state`; that's fine. Anything else is a real failure → rethrow so
-        // the webhook 5xx's and Stripe retries.
-        const code = (e as { code?: string }).code;
-        if (code !== "payment_intent_unexpected_state") throw e;
-      }
-      // Mark 'captured' IMMEDIATELY — not waiting for the succeeded webhook — so an abort in the
-      // capture→succeeded window can't see 'authorized' and delete a share whose money is already taken
-      // (abortSettlement refuses once any share is captured).
-      await db
-        .from("qr_cart_shares")
-        .update({ status: "captured", updated_at: nowIso })
-        .eq("stripe_payment_intent_id", s.stripe_payment_intent_id);
+    if (s.status !== "authorized" || !s.stripe_payment_intent_id) continue;
+    // Capture, then CONFIRM the PI actually took money before marking the share 'captured'. A concurrent
+    // abort may have canceled this PI — capture then throws `unexpected_state` and NO money moved;
+    // marking it captured would inflate the order total. So re-fetch the true state: 'succeeded' (money
+    // taken, incl. an already-captured redelivery) → captured; anything else (e.g. canceled) → canceled.
+    let succeeded = false;
+    try {
+      const pi = await getStripe().paymentIntents.capture(s.stripe_payment_intent_id);
+      succeeded = pi.status === "succeeded";
+    } catch (e) {
+      if ((e as { code?: string }).code !== "payment_intent_unexpected_state") throw e;
+      const pi = await getStripe().paymentIntents.retrieve(s.stripe_payment_intent_id);
+      succeeded = pi.status === "succeeded";
     }
+    // Mark immediately (don't wait for the succeeded webhook) so an abort in the capture→succeeded window
+    // can't see 'authorized' and delete a share whose money is already taken. Never downgrade a captured row.
+    await db
+      .from("qr_cart_shares")
+      .update({ status: succeeded ? "captured" : "canceled", updated_at: nowIso })
+      .eq("stripe_payment_intent_id", s.stripe_payment_intent_id)
+      .neq("status", "captured");
   }
   // Fulfillment + side-effects (QBO / analytics) run on the succeeded webhook (onShareCaptured) — the
   // single place, consistent with the single-pay path. Stripe reliably delivers succeeded after capture.
