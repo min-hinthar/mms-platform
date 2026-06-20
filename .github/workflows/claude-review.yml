@@ -1,84 +1,32 @@
-name: Claude PR Review
-# ONE consolidated review pass (correctness + security/money-auth + a11y + v7.2 fidelity) that posts a
-# SINGLE structured review comment — not a stream of separate inline comments, and not two metered jobs.
-# The PRIMARY deep pass is the in-session, fresh-context adversarial SUBAGENT the working session runs
-# pre-PR and pre-merge (independent eyes, no cold start, no re-label loop — see CLAUDE.md). This Action
-# is the on-demand confirmation + the audit trail on the PR. Token-metered (Max-plan quota): it fires on
-# `opened` / `ready_for_review` / the `review` label, and no-ops to SUCCESS on a plain `synchronize`
-# (push) so a required check stays green on the new head SHA without re-burning quota (re-reviewing every
-# push previously re-surfaced the same findings round after round — see .claude/LEARNINGS.md). The
-# pre-merge gate is adversarial-pr.yml (the `adversarial` label).
+name: PR checks (Claude review runs in-session, not in CI)
+# Claude review/security/adversarial are NO LONGER run in CI — they were token-metered and drove a
+# reactive loop (P1.5 took 6 adversarial rounds, each a metered run + a disable-auto-merge / fix /
+# remove-and-re-add-label / re-arm dance — see .claude/LEARNINGS.md). The REAL review is a fresh-context
+# adversarial SUBAGENT the working session runs IN-SESSION at pre-PR and pre-merge (the CLAUDE.md Pre-PR
+# sweep), which posts its verdict to the PR for the audit trail.
 #
-# Setup (one-time): install the Claude GitHub App, then add the OAuth token (no per-token billing):
-#   claude setup-token  →  gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo min-hinthar/mms-platform
-# Action inputs evolve — if a step errors, check anthropics/claude-code-action releases and pin a tag.
+# These jobs are ZERO-TOKEN, always-green STUBS. They exist only so the branch-protection required
+# checks named `review`, `security`, and `adversarial-pr` keep reporting green on each commit — without
+# them, removing the old workflows would leave those required checks permanently "expected" and block
+# every merge. Once those names are dropped from branch protection (Settings → Branches), delete this
+# file entirely. No Claude / no quota runs here.
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review, synchronize, labeled]
+    types: [opened, reopened, ready_for_review, synchronize]
 
 permissions:
   contents: read
-  pull-requests: write
-  issues: write
-  id-token: write
-
-# One pass per PR at a time — a newer event cancels an in-flight run (no stacked reviews).
-concurrency:
-  group: claude-review-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
 
 jobs:
   review:
     runs-on: ubuntu-latest
-    # Run the consolidated pass only on open / ready / the `review` label. On synchronize (push) or any
-    # other label the steps skip and the job succeeds — keeps a required check green without re-running.
-    env:
-      RUN_PASS: ${{ !github.event.pull_request.draft && (github.event.action == 'opened' || github.event.action == 'reopened' || github.event.action == 'ready_for_review' || (github.event.action == 'labeled' && github.event.label.name == 'review')) }}
     steps:
-      - uses: actions/checkout@v4
-        if: ${{ env.RUN_PASS == 'true' }}
-        with:
-          fetch-depth: 0
-      - name: Claude consolidated review (correctness · security · a11y · fidelity)
-        if: ${{ env.RUN_PASS == 'true' }}
-        uses: anthropics/claude-code-action@v1
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          prompt: >
-            Review THIS pull request thoroughly across four lenses in ONE pass, then post a SINGLE
-            consolidated review — do NOT drip separate inline comments. Lenses:
-            (1) SECURITY & money/auth (think like an attacker): server-authoritative pricing — the
-            Stripe intent amount derives from getCartTotals, never the request body; Supabase RLS +
-            the table-session model (is_member / is_host), private Realtime channels, and that
-            SUPABASE_SERVICE_ROLE_KEY never reaches the client; Server Actions are public POST
-            endpoints — flag any that mutate without a session-membership + lock check (IDOR); Stripe
-            webhook signature verification + idempotency, no PAN anywhere; injection, secret leakage,
-            SSRF, unsafe deserialization, risky dependencies.
-            (2) CORRECTNESS: logic, error/recovery paths (every await / { error } handled or a
-            commented deliberate swallow), races, and edge cases.
-            (3) ACCESSIBILITY (docs/context/QA-CHECKLIST.md §A): 44px targets, accessible names, one
-            polite live region, focus management on remove/route/step, reduced-motion, decorative
-            elements aria-hidden.
-            (4) UI/UX FIDELITY for any changed screen — cross-check docs/prototype/v7.2.html (the
-            graded ~4.3 reference) + docs/context/DESIGN-RESEARCH.md to the docs/context/RUBRIC.md
-            >=4.3 bar: design tokens from @mms/ui/tokens.css (flag hardcoded colors), motion timing,
-            spacing, contrast, real semantics (button vs link), brand-voice microcopy. Also cross-check
-            docs/REVIEW.md open items and docs/ARCHITECTURE.md invariants.
-            POST ONE PR comment: a severity-grouped findings table (Critical / High / Medium / Low ·
-            lens · file:line · suggested fix) plus a brief "verified clean" section. Cite file:line in
-            the table. If nothing material turns up, say so explicitly. Be specific; zero reflexive praise.
-          # One consolidated comment via `gh pr comment` — the inline-comment tool is intentionally NOT
-          # granted, so findings land as one structured review, not a stream of inline drips.
-          claude_args: |
-            --max-turns 40
-            --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(cat:*),Read,Grep,Glob"
-
-  # The security lens is folded into the consolidated `review` pass above (one pass, one comment, half
-  # the quota of the old split review+security jobs). This stub stays green so a branch-protection
-  # required check named `security` keeps passing without a second metered run. Remove this job once
-  # `security` is dropped from the required-checks list (it's a no-op, not a real pass).
+      - run: echo "Claude review runs in-session (fresh-context subagent, pre-PR + pre-merge) — see CLAUDE.md. Zero-token stub."
   security:
     runs-on: ubuntu-latest
     steps:
-      - name: Folded into the consolidated review
-        run: echo "Security lens runs inside the consolidated 'review' pass — see claude-review.yml."
+      - run: echo "Security lens runs inside the in-session adversarial subagent — see CLAUDE.md. Zero-token stub."
+  adversarial-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Adversarial pass runs in-session (fresh-context subagent, pre-merge) and posts its verdict to the PR — see CLAUDE.md. Zero-token stub."
