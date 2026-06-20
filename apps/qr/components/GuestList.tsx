@@ -1,0 +1,122 @@
+"use client";
+import { useState, type CSSProperties } from "react";
+import { useCart } from "./TableCartProvider";
+import { InviteSheet } from "./InviteSheet";
+
+// Party-avatar palette (parity with the v7.2 prototype PCOL) — a stable color per seat.
+const PCOL = ["#A65F10", "#1F6E63", "#A44B34", "#6E4070", "#3F7A52"];
+function seatColor(seat: string): string {
+  let h = 0;
+  for (let i = 0; i < seat.length; i++) h = (h * 31 + seat.charCodeAt(i)) >>> 0;
+  return PCOL[h % PCOL.length] ?? PCOL[0]!;
+}
+const initial = (name: string) => (name.trim()[0] ?? "G").toUpperCase();
+
+/**
+ * Dine-in group cart guest list (M3·P3.1). Renders the live presence party (real second phones —
+ * no simulation; presence is dine-in only) as overlapping avatars + a "party of N" label, and the
+ * invite affordance. Self is always shown (even before the channel syncs) and labelled "(you)".
+ * Solo modes return null (honesty — RED-TEAM #3).
+ */
+export function GuestList() {
+  const { isGroup, members, me, error } = useCart();
+  const [inviteOpen, setInviteOpen] = useState(false);
+  if (!isGroup) return null;
+
+  // The dine-in join is the whole point of this screen — if the session mint failed, don't silently
+  // drop the group UI; surface a retry (reload re-runs the mint) so the diner isn't stranded.
+  if (!me) {
+    if (!error) return null; // still establishing the session — the menu renders meanwhile
+    return (
+      <p role="alert" style={{ fontSize: 13, color: "var(--warn)", marginTop: 10 }}>
+        Couldn’t join this table.{" "}
+        <button type="button" onClick={() => window.location.reload()} style={retryBtn}>
+          Try again
+        </button>
+      </p>
+    );
+  }
+
+  // Always include self first (presence may not have synced yet); dedupe peers by seat.
+  const bySeat = new Map<string, { seat: string; name: string }>();
+  bySeat.set(me.seat, me);
+  for (const m of members) if (!bySeat.has(m.seat)) bySeat.set(m.seat, m);
+  const list = [...bySeat.values()];
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
+      <ul role="list" aria-label="Guests at your table" style={listReset}>
+        {list.map((m, i) => {
+          const isMe = m.seat === me.seat;
+          const label = isMe ? `${m.name} (you)` : m.name;
+          return (
+            <li
+              key={m.seat}
+              aria-label={label}
+              style={{ ...avatar, background: seatColor(m.seat), marginLeft: i === 0 ? 0 : -8 }}
+            >
+              <span aria-hidden>{initial(m.name)}</span>
+            </li>
+          );
+        })}
+      </ul>
+      <span style={{ fontSize: 13, color: "var(--t2)", fontWeight: 600 }}>
+        {list.length === 1 ? "Just you" : `Party of ${list.length}`}
+      </span>
+      <button
+        type="button"
+        onClick={() => setInviteOpen(true)}
+        aria-label="Invite people to your table"
+        style={inviteChip}
+      >
+        <span aria-hidden>👥</span> Invite
+      </button>
+      <InviteSheet open={inviteOpen} onOpenChange={setInviteOpen} />
+    </div>
+  );
+}
+
+const listReset: CSSProperties = {
+  display: "flex",
+  listStyle: "none",
+  margin: 0,
+  padding: 0,
+  alignItems: "center",
+};
+const avatar: CSSProperties = {
+  width: 30,
+  height: 30,
+  borderRadius: "50%",
+  border: "2px solid var(--pg)",
+  display: "grid",
+  placeItems: "center",
+  color: "#fff",
+  fontWeight: 800,
+  fontSize: 12,
+};
+const retryBtn: CSSProperties = {
+  minHeight: 44,
+  padding: "0 4px",
+  background: "none",
+  border: "none",
+  color: "var(--ac)",
+  fontWeight: 800,
+  fontSize: 13,
+  textDecoration: "underline",
+  cursor: "pointer",
+};
+const inviteChip: CSSProperties = {
+  marginLeft: "auto",
+  minHeight: 44,
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  padding: "0 14px",
+  borderRadius: 999,
+  border: "1.5px solid var(--ac)",
+  background: "color-mix(in oklab, var(--ac) 9%, var(--cd))",
+  color: "var(--ac)",
+  fontWeight: 800,
+  fontSize: 13,
+  cursor: "pointer",
+};

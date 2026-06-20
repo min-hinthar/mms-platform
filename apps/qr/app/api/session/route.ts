@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceClient, sessionClient } from "@mms/db/server";
 import { sessionMintInput } from "@mms/db/schemas";
+import { generateJoinCode } from "@/lib/session-code";
 import { getPostHogClient } from "@/lib/posthog-server";
 
+type Sess = { id: string; mode: string; host_seat: string | null; qr_code: string };
+
 /**
- * Table-session mint (closes red-team C2). A scanned QR posts here; the server finds/creates an
- * active table_session bound to the physical `qrCode` and joins the diner as a member.
+ * Table-session mint/join (closes red-team C2). A scanned QR — or, for the dine-in group cart
+ * (M3·P3.1), a second phone scanning the same sticker or entering the host's invite code — posts
+ * here; the server finds/creates ONE active table_session per code and joins the diner as a member.
  *
  * AUTH MODEL (P1.1 — docs/BACKEND_ARCHITECTURE.md §3): the client first calls
  * `supabase.auth.signInAnonymously()`, then POSTs here with `Authorization: Bearer <anon token>`.
@@ -13,6 +17,11 @@ import { getPostHogClient } from "@/lib/posthog-server";
  * get `auth.uid()`, and records it as `session_members.seat_id`. RLS (is_member/is_host) + private
  * Realtime then authorize off `auth.uid()` joined against session_members — no client-asserted
  * identity is trusted, and no custom JWT is minted (the diner keeps using its own anon session).
+ *
+ * GROUP JOIN (M3·P3.1): `qrCode` may be omitted — a host starting a fresh dine-in session with no
+ * sticker. The SERVER then mints an unguessable join code (generateJoinCode) and returns it, so the
+ * code is server-issued (QA §C). Find-or-create races safely: the table_sessions_active_qr_uniq
+ * partial index makes two phones joining the same code at once collide (23505) → re-read → converge.
  */
 export async function POST(req: NextRequest) {
   let body;
@@ -21,7 +30,7 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 400 });
   }
-  const { qrCode, mode, name } = body;
+  const { qrCode, mode, name, joinOnly } = body;
 
   // Verify the caller actually holds a valid anonymous-auth session.
   const token = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
@@ -34,25 +43,51 @@ export async function POST(req: NextRequest) {
   const seat = user.id; // == auth.uid() → becomes session_members.seat_id (the RLS identity)
 
   const db = serviceClient();
-  let { data: sess } = await db
-    .from("table_sessions")
-    .select("id,mode,host_seat")
-    .eq("qr_code", qrCode)
-    .eq("status", "active")
-    .maybeSingle();
+  const cols = "id,mode,host_seat,qr_code";
+  const findActive = async (code: string): Promise<Sess | null> =>
+    (
+      await db
+        .from("table_sessions")
+        .select(cols)
+        .eq("qr_code", code)
+        .eq("status", "active")
+        .maybeSingle()
+    ).data ?? null;
 
+  let sess: Sess | null = qrCode ? await findActive(qrCode) : null;
   let created = false;
-  if (!sess) {
+
+  // Invite-code join (`?j=`) that matched nothing → don't mint a phantom table; tell the guest the
+  // code is wrong. (A scanned sticker `?t=` or a host-start leaves joinOnly false → may provision.)
+  if (joinOnly && !sess)
+    return NextResponse.json({ error: "No table found for that code" }, { status: 404 });
+
+  // Create when no active session exists for the code (or when the host omitted one → mint a code).
+  // Up to a few attempts: a *generated* code that collides regenerates; a *provided* code that
+  // collides means a concurrent joiner won the insert, so we re-read and join theirs.
+  for (let attempt = 0; attempt < 6 && !sess; attempt++) {
+    const code = qrCode ?? generateJoinCode();
     const { data, error } = await db
       .from("table_sessions")
-      .insert({ qr_code: qrCode, mode, host_seat: seat })
-      .select("id,mode,host_seat")
+      .insert({ qr_code: code, mode, host_seat: seat })
+      .select(cols)
       .single();
-    if (error || !data)
-      return NextResponse.json({ error: "Could not create session" }, { status: 500 });
-    sess = data;
-    created = true;
+    if (data) {
+      sess = data;
+      created = true;
+      break;
+    }
+    if (error?.code === "23505") {
+      // Unique violation on table_sessions_active_qr_uniq.
+      if (qrCode) {
+        sess = await findActive(qrCode); // concurrent first-joiner won → converge on their session
+        break;
+      }
+      continue; // our generated code collided with a live session → try a fresh one
+    }
+    return NextResponse.json({ error: "Could not create session" }, { status: 500 });
   }
+  if (!sess) return NextResponse.json({ error: "Could not create session" }, { status: 500 });
 
   // Host identity is the seat that created the session — preserved across rejoins.
   const role: "host" | "guest" = sess.host_seat === seat ? "host" : "guest";
@@ -115,8 +150,15 @@ export async function POST(req: NextRequest) {
   posthog.capture({
     distinctId: seat, // opaque uid — no PII in event props (QA §C P2)
     event: created ? "session_created" : "session_joined",
-    properties: { session_id: sess.id, mode: sess.mode, role, qr_code: qrCode },
+    properties: { session_id: sess.id, mode: sess.mode, role },
   });
 
-  return NextResponse.json({ sessionId: sess.id, seat, role, cartId: cart.id });
+  // `joinCode` = the session's qr_code → the code other phones scan/enter to join (dine-in group).
+  return NextResponse.json({
+    sessionId: sess.id,
+    seat,
+    role,
+    cartId: cart.id,
+    joinCode: sess.qr_code,
+  });
 }

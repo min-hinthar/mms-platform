@@ -10,8 +10,12 @@ import {
 } from "react";
 import type { CartItem, CartTotals } from "@mms/db";
 import { addItem as addItemAction, getCartView } from "@/lib/cart";
+import { setDisplayName } from "@/lib/members";
 import { useTableSession } from "@/lib/useTableSession";
+import { useGroupCart, type PresenceMember } from "@/lib/realtime";
 import { PickupSlotSheet } from "./PickupSlotSheet";
+
+const NAME_KEY = "mms.name";
 
 type CartCtx = {
   cartId: string | null;
@@ -25,6 +29,15 @@ type CartCtx = {
   /** Pickup mode only: the chosen slot (ISO instant) + a way to (re)open the picker. */
   pickupSlot: string | null;
   openSlotSheet: () => void;
+  /** Group cart (dine-in, M3·P3.1). `isGroup` gates presence/invite to dine-in (honesty: solo
+   *  modes never show live presence). `members` is the live guest list; `me`/`role`/`joinCode`
+   *  drive the guest list + invite sheet; `setName` renames the diner's own seat. */
+  isGroup: boolean;
+  members: PresenceMember[];
+  me: { seat: string; name: string } | null;
+  role: "host" | "guest" | null;
+  joinCode: string | null;
+  setName: (name: string) => Promise<void>;
 };
 
 const Ctx = createContext<CartCtx | null>(null);
@@ -38,18 +51,75 @@ export function useCart(): CartCtx {
 /**
  * One source of truth for the menu's cart interactions: establishes the table session/cart once
  * (not per item) and exposes the live, server-authoritative cart view (re-fetched after each
- * mutation — never client math). For pickup mode it also owns the slot picker: it surfaces the
- * `PickupSlotSheet` on first load when no slot is set yet, and exposes the chosen slot.
+ * mutation — never client math). For pickup mode it owns the slot picker. For dine-in it also owns
+ * the GROUP layer (M3·P3.1): the realtime presence guest list + the diner's role/join code, so a
+ * second phone scanning the same table (or the host's invite code) appears live.
+ *
+ * `code` is the dine-in join key from the entry deep link (`/menu?mode=dinein&t=<sticker>` or
+ * `&j=<invite>`); the provider threads it into the session mint so every phone converges on one cart.
  */
-export function TableCartProvider({ mode, children }: { mode: string; children: ReactNode }) {
-  const { session, loading, error } = useTableSession(mode);
+export function TableCartProvider({
+  mode,
+  code,
+  joinOnly,
+  children,
+}: {
+  mode: string;
+  code?: string;
+  joinOnly?: boolean;
+  children: ReactNode;
+}) {
+  const { session, loading, error } = useTableSession(mode, { code, joinOnly });
   const cartId = session?.cartId ?? null;
+  const isGroup = mode === "dinein";
   const isPickup = mode === "pickup";
   const [items, setItems] = useState<CartItem[]>([]);
   const [totals, setTotals] = useState<CartTotals | null>(null);
   const [pickupSlot, setPickupSlot] = useState<string | null>(null);
   const [slotSheetOpen, setSlotSheetOpen] = useState(false);
   const autoOpened = useRef(false); // only auto-prompt for a slot once per mount
+
+  // The diner's own display name (presence). Default "Guest"; hydrate from localStorage AFTER mount
+  // (not in the initializer) so SSR and first client render agree — no hydration mismatch. The read
+  // is deferred into a microtask callback (localStorage is an external store) so it's the allowed
+  // "setState in a callback when external state changes" pattern, not a synchronous effect body.
+  const [name, setNameState] = useState("Guest");
+  useEffect(() => {
+    let active = true;
+    void Promise.resolve(window.localStorage.getItem(NAME_KEY)).then((stored) => {
+      if (active && stored) setNameState(stored);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Wire presence for DINE-IN ONLY (RED-TEAM #3 honesty): a non-empty sessionId subscribes the
+  // private `table:{sessionId}` channel; for solo modes we pass "" so the hook no-ops (no channel,
+  // no guest list). `me.seat` is the stable anon-auth uid → the presence key.
+  const groupSessionId = isGroup ? (session?.sessionId ?? "") : "";
+  const { members } = useGroupCart(groupSessionId, session?.accessToken ?? "", {
+    seat: session?.seat ?? "",
+    name,
+  });
+
+  const setName = useCallback(
+    async (next: string) => {
+      const trimmed = next.trim().slice(0, 40);
+      if (!trimmed || trimmed === name) return;
+      setNameState(trimmed); // optimistic — presence re-tracks the new name immediately
+      window.localStorage.setItem(NAME_KEY, trimmed);
+      if (session?.sessionId) {
+        try {
+          await setDisplayName(session.sessionId, trimmed);
+        } catch {
+          // Server update failed (offline / expired session). Presence still shows the local name;
+          // the durable display_name just stays stale — non-fatal, no need to strand the user.
+        }
+      }
+    },
+    [name, session],
+  );
 
   const refresh = useCallback(async () => {
     if (!cartId) return;
@@ -96,6 +166,27 @@ export function TableCartProvider({ mode, children }: { mode: string; children: 
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingAdds, setPendingAdds] = useState(0); // optimistic in-flight adds (instant count bump)
 
+  // Announce a NEW guest joining through the SAME single live region (not a second one — QA: one
+  // polite region per view). Diff by seat so we don't announce the first sync (self + already-present
+  // members) or a self re-appear after a blip. Routed through `notice` (deferred → not sync setState).
+  const seenSeats = useRef<Set<string>>(new Set());
+  const meSeat = session?.seat ?? "";
+  useEffect(() => {
+    const prev = seenSeats.current;
+    seenSeats.current = new Set(members.map((m) => m.seat));
+    if (prev.size === 0) return; // first sync — establish the baseline silently
+    const joined = members.filter((m) => m.seat !== meSeat && !prev.has(m.seat));
+    if (joined.length === 0) return;
+    const msg =
+      joined.length === 1
+        ? `${joined[0]?.name ?? "A guest"} joined your table`
+        : `${joined.length} guests joined your table`;
+    void Promise.resolve().then(() => {
+      setNotice(msg);
+      window.setTimeout(() => setNotice(null), 2600);
+    });
+  }, [members, meSeat]);
+
   const add = useCallback(
     async (menuItemId: string) => {
       if (!cartId) return;
@@ -123,6 +214,7 @@ export function TableCartProvider({ mode, children }: { mode: string; children: 
 
   const openSlotSheet = useCallback(() => setSlotSheetOpen(true), []);
   const count = items.reduce((a, i) => a + i.qty, 0) + pendingAdds;
+  const me = session ? { seat: session.seat, name } : null;
 
   return (
     <Ctx.Provider
@@ -137,6 +229,12 @@ export function TableCartProvider({ mode, children }: { mode: string; children: 
         refresh,
         pickupSlot,
         openSlotSheet,
+        isGroup,
+        members,
+        me,
+        role: session?.role ?? null,
+        joinCode: session?.joinCode ?? null,
+        setName,
       }}
     >
       {children}

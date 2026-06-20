@@ -4,6 +4,29 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — M3·P3.1 group cart join + presence (dine-in, multi-device) (2026-06-20)
+
+- **A second phone joins the SAME dine-in cart**, two ways: a scanned **table sticker** deep-link
+  (`/menu?mode=dinein&t=<token>`) or the host's **server-issued invite code** (an unguessable 8-char
+  code, shared as a code/link or entered via the entry "Join a table" sheet, `&j=<code>`). The
+  `qr_code` doubles as the join key, so `/api/session` find-or-join converges every phone on one
+  session + cart. **Schema-light:** one partial unique index (`table_sessions_active_qr_uniq`) makes
+  concurrent same-sticker joins race-safe (collide → re-read → converge, no split-brain) — indexes
+  don't touch the generated types, so no `types-fresh` drift. The host-start session code is minted
+  **server-side** (`apps/qr/lib/session-code.ts`); a wrong invite code is **join-only** (404, never
+  mints a phantom host-table); a guessable sticker token still requires anon-auth membership on top.
+- **Live presence guest list — dine-in ONLY** (RED-TEAM #3 honesty; solo Scan&Go/Pickup never show
+  presence). `useGroupCart` wires the existing private `table:{sessionId}` channel (RLS-gated on
+  `realtime.messages`); presence is keyed by the **stable seat** (no ghost-churn, LEARNINGS #4), the
+  client-asserted name is **sanitized on ingest** (strip control/RTL chars + clamp), and a new guest
+  joining is announced through the **single** existing live region. Avatars + "party of N" built to
+  the v7.2 party aesthetic; a failed mint surfaces an inline retry, not a silently missing strip.
+- **Name your own seat** (`setDisplayName`, `apps/qr/lib/members.ts`): member-authz'd, scoped to the
+  caller's own seat, Zod-capped **+** a new column CHECK; never sent to PostHog (opaque seat only).
+- Scope boundaries held: live cart-change sync is **P3.2**, split-the-bill / **split-tender** is
+  **P3.3** (pulls the S4.3 seam forward per the milestone decision) — neither is over-promised in the
+  P3.1 copy. Reviewed by a fresh-context adversarial subagent (0 blockers; 5 should-fix addressed).
+
 ### Added — M2·P2.4 QuickBooks Online sync of paid orders (2026-06-20)
 
 - **Paid orders post to QBO as Sales Receipts, two-ledger clearing.** Each paid `qr_order` becomes a

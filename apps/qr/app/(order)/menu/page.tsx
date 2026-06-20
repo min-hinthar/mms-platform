@@ -3,6 +3,7 @@ import { publicClient } from "@mms/db/server";
 import { TableCartProvider } from "@/components/TableCartProvider";
 import { AddButton } from "@/components/AddButton";
 import { CartBar } from "@/components/CartBar";
+import { GuestList } from "@/components/GuestList";
 import { PickupSlotChip } from "@/components/PickupSlotChip";
 
 // RSC menu — reads the catalog (`menu_items`) server-side with the ANON/publishable key (gated by
@@ -10,8 +11,17 @@ import { PickupSlotChip } from "@/components/PickupSlotChip";
 // (cents), name_en/name_my, category via menu_categories. Images via next/image. Cached → fast TTFB.
 export const revalidate = 300;
 
-export default async function Menu({ searchParams }: { searchParams: Promise<{ mode?: string }> }) {
-  const { mode = "scango" } = await searchParams;
+export default async function Menu({
+  searchParams,
+}: {
+  searchParams: Promise<{ mode?: string; t?: string; j?: string }>;
+}) {
+  // `t` = a scanned table-sticker token (may provision a new table); `j` = the host's invite code
+  // (join-only — a wrong code must NOT mint a phantom table). Both are the dine-in session key
+  // (M3·P3.1) — every phone with the same code converges on one shared cart.
+  const { mode = "scango", t, j } = await searchParams;
+  const code = t ?? j;
+  const joinOnly = !t && !!j;
   const db = publicClient();
   const { data } = await db
     .from("menu_items")
@@ -36,7 +46,7 @@ export default async function Menu({ searchParams }: { searchParams: Promise<{ m
   );
 
   return (
-    <TableCartProvider mode={mode}>
+    <TableCartProvider mode={mode} code={code} joinOnly={joinOnly}>
       <main style={{ maxWidth: 440, margin: "0 auto", paddingBottom: 96 }}>
         <header
           style={{ padding: "44px 20px 8px", position: "sticky", top: 0, background: "var(--pg)" }}
@@ -45,6 +55,7 @@ export default async function Menu({ searchParams }: { searchParams: Promise<{ m
             {mode === "dinein" ? "Dine-in" : mode === "pickup" ? "Pickup" : "Scan & Go"}
           </p>
           <h1 style={{ fontSize: 34 }}>Menu</h1>
+          {mode === "dinein" && <GuestList />}
           {mode === "pickup" && <PickupSlotChip />}
         </header>
         {cats.map((c) => (
