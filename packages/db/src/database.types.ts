@@ -479,6 +479,8 @@ export type Database = {
           fire_at: string | null
           id: string
           locked: boolean
+          locked_at: string | null
+          locked_by: string | null
           pickup_slot: string | null
           promo_code: string | null
           session_id: string
@@ -490,6 +492,8 @@ export type Database = {
           fire_at?: string | null
           id?: string
           locked?: boolean
+          locked_at?: string | null
+          locked_by?: string | null
           pickup_slot?: string | null
           promo_code?: string | null
           session_id: string
@@ -501,6 +505,8 @@ export type Database = {
           fire_at?: string | null
           id?: string
           locked?: boolean
+          locked_at?: string | null
+          locked_by?: string | null
           pickup_slot?: string | null
           promo_code?: string | null
           session_id?: string

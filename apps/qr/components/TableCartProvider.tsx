@@ -43,6 +43,10 @@ type CartCtx = {
   role: "host" | "guest" | null;
   joinCode: string | null;
   setName: (name: string) => Promise<void>;
+  /** Pay-window lock (M3·P3.2-lock): a member is checking out → the cart is read-only for everyone
+   *  else. `lockedByName` is who (resolved from presence; "You" if it's the viewer). */
+  locked: boolean;
+  lockedByName: string | null;
 };
 
 const Ctx = createContext<CartCtx | null>(null);
@@ -81,6 +85,8 @@ export function TableCartProvider({
   const [items, setItems] = useState<CartItem[]>([]);
   const [totals, setTotals] = useState<CartTotals | null>(null);
   const [pickupSlot, setPickupSlot] = useState<string | null>(null);
+  const [locked, setLocked] = useState(false); // pay-window lock (P3.2-lock)
+  const [lockedBy, setLockedBy] = useState<string | null>(null);
   const [slotSheetOpen, setSlotSheetOpen] = useState(false);
   const autoOpened = useRef(false); // only auto-prompt for a slot once per mount
 
@@ -139,6 +145,8 @@ export function TableCartProvider({
       setItems(v.items);
       setTotals(v.totals);
       setPickupSlot(v.pickupSlot);
+      setLocked(v.locked);
+      setLockedBy(v.lockedBy);
     } catch {
       // Cart no longer open (paid/closed) → assertCartMember 403. Swallow so a stale read after a
       // successful add can't surface as a false-negative "Couldn't add"; P1.3 redirects to a receipt.
@@ -156,6 +164,8 @@ export function TableCartProvider({
         setItems(v.items);
         setTotals(v.totals);
         setPickupSlot(v.pickupSlot);
+        setLocked(v.locked);
+        setLockedBy(v.lockedBy);
         // Pickup with no slot yet → prompt once (the diner schedules before ordering, per v7.2).
         if (isPickup && !v.pickupSlot && !autoOpened.current) {
           autoOpened.current = true;
@@ -262,6 +272,27 @@ export function TableCartProvider({
   const openSlotSheet = useCallback(() => setSlotSheetOpen(true), []);
   const count = items.reduce((a, i) => a + i.qty, 0) + pendingAdds;
   const me = session ? { seat: session.seat, name } : null;
+  // Who holds the pay lock, for the "checking out" banner: "You" if it's the viewer, else the peer's
+  // presence name (falls back to a neutral label until presence resolves the seat).
+  const lockedByName = !locked
+    ? null
+    : lockedBy && lockedBy === session?.seat
+      ? "You"
+      : (members.find((m) => m.seat === lockedBy)?.name ?? "Someone");
+
+  // Announce the pay-lock transition through the SINGLE live region (the lockbar banner is plain
+  // visual). Diff via a ref so it fires on the edge, not every render; deferred (not a sync effect set).
+  const prevLocked = useRef(false);
+  useEffect(() => {
+    if (locked === prevLocked.current) return;
+    prevLocked.current = locked;
+    const msg = !locked
+      ? "The order’s unlocked — you can edit again"
+      : lockedByName === "You"
+        ? "You’re checking out — the order’s locked"
+        : `${lockedByName ?? "Someone"} is checking out — the order’s locked`;
+    void Promise.resolve().then(() => flash(msg, 2600));
+  }, [locked, lockedByName, flash]);
 
   return (
     <Ctx.Provider
@@ -282,6 +313,8 @@ export function TableCartProvider({
         role: session?.role ?? null,
         joinCode: session?.joinCode ?? null,
         setName,
+        locked,
+        lockedByName,
       }}
     >
       {children}

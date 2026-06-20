@@ -17,16 +17,25 @@ export function AddButton({
   name: string;
   soldOut?: boolean;
 }) {
-  const { add, cartId } = useCart();
+  const { add, cartId, locked } = useCart();
   const [busy, setBusy] = useState(false);
-  const disabled = soldOut || !cartId || busy;
+  // While a member is checking out the cart is frozen (P3.2-lock) — disable adds for everyone else,
+  // a disabled control (not a missing one), matching the sold-out treatment. The server rejects a
+  // locked add regardless; this is the honest UI of it.
+  const disabled = soldOut || !cartId || busy || locked;
 
   return (
     <button
       type="button"
       disabled={disabled}
       aria-busy={busy}
-      aria-label={soldOut ? `${name}, sold out` : `Add ${name} to your order`}
+      aria-label={
+        soldOut
+          ? `${name}, sold out`
+          : locked
+            ? `${name} — order locked while someone checks out`
+            : `Add ${name} to your order`
+      }
       onClick={async () => {
         setBusy(true);
         try {
