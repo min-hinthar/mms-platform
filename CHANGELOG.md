@@ -4,6 +4,29 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — M3·P3.3b split-tender (dine-in, Option A: authorize-all → capture-together) (2026-06-20)
+
+- **Each diner pays their own card.** A host opens a split (`openSettlement`) → the cart freezes
+  table-wide (`settle_at`) and the server derives a per-seat **base** breakdown
+  (`deriveShareBreakdowns`): subtotal by assigned-line total, **tax on each seat's own taxable base**,
+  service on net, discount pro-rata — every component largest-remainder so **Σ shares == the cart total
+  to the cent**. Each payer authorizes their share on a `capture_method: manual` PaymentIntent
+  (`create-share-intent`, server-derived amount + their own tip; the client never sends a price).
+- **No money moves until the table is covered.** The webhook captures **all** shares together once the
+  last authorizes, then `mms_fulfill_split_order` snapshots the **one** order (idempotent on the cart
+  open→paid flip; reconciles Σ captured == the total) and lifts the freeze. **Abandon/decline cancels
+  the holds** — no one is charged for an incomplete order.
+- **Live settlement board** (`SettlementBoard` + `useSettlementRealtime` on `qr_cart_shares`): every
+  phone sees shares flip pending → authorized → captured live, with an "$X of $Y authorized" progress;
+  the viewer pays inline (`SharePay`), the host can cancel, and all-captured sends the table to the receipt.
+- **Money-safety hardening** (two adversarial passes): capture is gated on a **live** settlement
+  (cart open + fresh freeze) so a stale/aborted/taken-over settlement is never captured; abort claims
+  first + defers to an in-flight capture + never deletes a captured share; each capture is **verified**
+  (re-fetch on `unexpected_state`) so a canceled PI can't be mismarked captured. Residual sub-ms races
+  fail **loud** (the fulfill fn raises), never silent — the "never charged-with-no-order" promise.
+- **`qr_cart_shares` ledger** + `settle_at`/`settle_by` freeze; member-read RLS, realtime, service-role
+  fulfill fn. Single-pay and split are mutually exclusive at the lock/freeze acquire boundary.
+
 ### Added — production error tracking (PostHog, client + server) (2026-06-20)
 
 - **Server-side capture** (`apps/qr/instrumentation.ts` `onRequestError`): every uncaught error in a
