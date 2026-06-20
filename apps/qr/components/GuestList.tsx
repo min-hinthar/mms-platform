@@ -2,15 +2,7 @@
 import { useState, type CSSProperties } from "react";
 import { useCart } from "./TableCartProvider";
 import { InviteSheet } from "./InviteSheet";
-
-// Party-avatar palette (parity with the v7.2 prototype PCOL) — a stable color per seat.
-const PCOL = ["#A65F10", "#1F6E63", "#A44B34", "#6E4070", "#3F7A52"];
-function seatColor(seat: string): string {
-  let h = 0;
-  for (let i = 0; i < seat.length; i++) h = (h * 31 + seat.charCodeAt(i)) >>> 0;
-  return PCOL[h % PCOL.length] ?? PCOL[0]!;
-}
-const initial = (name: string) => (name.trim()[0] ?? "G").toUpperCase();
+import { seatColor, seatInitial } from "@/lib/avatars";
 
 /**
  * Dine-in group cart guest list (M3·P3.1). Renders the live presence party (real second phones —
@@ -67,7 +59,7 @@ export function GuestList() {
               aria-label={label}
               style={{ ...avatar, background: seatColor(m.seat), marginLeft: i === 0 ? 0 : -8 }}
             >
-              <span aria-hidden>{initial(m.name)}</span>
+              <span aria-hidden>{seatInitial(m.name)}</span>
             </li>
           );
         })}

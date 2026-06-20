@@ -1,10 +1,48 @@
 "use server";
 import { serviceClient } from "@mms/db/server";
-import { cartSplitInput } from "@mms/db/schemas";
+import { cartSplitInput, cartViewInput } from "@mms/db/schemas";
 import { assertCartMember } from "./authz";
 import { getCartTotals } from "./totals";
 
 export type SeatShare = { seat: string; name: string; shareCents: number };
+
+export type SplitContext = {
+  mode: string;
+  mySeat: string;
+  myRole: "host" | "guest";
+  members: { seat: string; name: string; role: "host" | "guest" }[];
+};
+
+/**
+ * Group context the /cart split UI needs (M3·P3.3a): the session mode (the split shows for dine-in
+ * groups only), the viewer's seat + role (drives canMutateLine in the UI), and the table's members
+ * (the people a line can be assigned to + whose shares to show). Member-gated.
+ */
+export async function getSplitContext(cartId: string): Promise<SplitContext> {
+  const { cartId: id } = cartViewInput.parse({ cartId });
+  const { sessionId, uid, role } = await assertCartMember(id);
+  const db = serviceClient();
+  const { data: sess } = await db
+    .from("table_sessions")
+    .select("mode")
+    .eq("id", sessionId)
+    .maybeSingle();
+  const { data: members } = await db
+    .from("session_members")
+    .select("seat_id,display_name,role,created_at")
+    .eq("session_id", sessionId)
+    .order("created_at", { ascending: true });
+  return {
+    mode: sess?.mode ?? "dinein",
+    mySeat: uid,
+    myRole: role,
+    members: (members ?? []).map((m) => ({
+      seat: m.seat_id,
+      name: m.display_name,
+      role: m.role === "host" ? "host" : "guest",
+    })),
+  };
+}
 
 /**
  * Server-authoritative per-seat shares for the dine-in split (M3·P3.3a). The grand total comes from
