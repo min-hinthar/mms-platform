@@ -97,3 +97,22 @@ h3 {
     transform: none;
   }
 }
+
+/* Active step on the /track timeline — a soft accent halo (ports the v7.2 `.tk.now` pulse). */
+.mms-track-now {
+  animation: mmsPulse 1.4s var(--ease-out) infinite;
+}
+@keyframes mmsPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--ac) 55%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 7px transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mms-track-now {
+    animation: none;
+  }
+}
