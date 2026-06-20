@@ -209,3 +209,31 @@ self-adversarial + design-fidelity pass before the PR.
 - **Still deferred:** kitchen lifecycle (`fired → in-progress → served`) + KDS + real ETA → **S2 / M2.2**;
   `/cart` distinct paid-cart message → later (diner is redirected to `/track` post-pay). Live end-to-end
   smoke needs the Stripe test webhook + keys wired on the deploy env (dashboard task).
+
+## Progress — M1·P1.6 hardening: nonce CSP + fail-fast env (2026-06-20)
+
+Closes **gate item 5** ("drop `script-src 'unsafe-inline'` for a nonce-based CSP; flat ESLint config +
+`packages/config`"):
+
+- **Nonce CSP — ✅ done.** `apps/qr/proxy.ts` (Next 16's `middleware` rename) sets a per-request nonce
+  CSP with `'strict-dynamic'` and **no `'unsafe-inline'`** on `script-src`. The CSP moved out of
+  `next.config.ts` (the nonce-free static headers stay there for API/static coverage). Root layout is
+  `force-dynamic` so the nonce reaches every page's framework scripts. **Empirically verified** (`next
+start`): the response CSP nonce matches the nonce on all 18 rendered `<script>` tags and rotates per
+  request; `/api/*` gets no CSP; Stripe.js + PostHog (`/ingest`) are covered via `'strict-dynamic'`
+  propagation. Tightened `object-src 'none'` + `form-action 'self'` + `worker-src 'self' blob:`.
+- **Flat ESLint + `packages/config` — ✅ already landed** (M0·P0.9); `@mms/config/eslint` base extended
+  by `apps/qr`. No change needed.
+- **Env wiring — code ✅, infra pending.** Fail-fast `requireEnv` guards on the server secrets
+  (`@mms/db/server.ts` + the Stripe webhook secret) replace silent `process.env.X!`; `docs/ENV.md`
+  documents the Vercel preview→prod matrix. _Remaining (Min):_ set the Preview env vars (test Stripe
+  keys + webhook secret) in Vercel — the only thing between here and a live PR-preview Payment Element.
+- **Fixed in passing:** `Permissions-Policy: camera=(self)` (was `camera=()`, which blocked the
+  grocery scanner's `getUserMedia` first-party).
+- **Adversarial subagent (fresh-context, four lenses): FAIL → fixed → PASS.** It caught two real Highs
+  my production-only smoke test had masked — (1) `frame-src` lacked `https://*.js.stripe.com`, the
+  per-origin shards the Payment Element mounts (`'strict-dynamic'` doesn't cover `frame-src`), a
+  money-path break; (2) `script-src` had no `'unsafe-eval'` in development, so `pnpm dev` (React/
+  Turbopack `eval`) was broken by its own CSP. Both fixed in `proxy.ts` and **re-verified in both
+  modes** (`'unsafe-eval'` present under `next dev`, absent under `next start`; `*.js.stripe.com` in
+  `frame-src`). Plus the L2 stale `middleware.ts`→`proxy.ts` comment. Verdict posted to the PR.

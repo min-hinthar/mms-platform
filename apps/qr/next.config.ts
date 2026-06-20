@@ -6,24 +6,15 @@ import type { NextConfig } from "next";
 // (Vercel), and set before the build reads it. Override per-environment if needed.
 process.env.NEXT_TURBOPACK_EXPERIMENTAL_USE_SYSTEM_TLS_CERTS ??= "1";
 
-// Security headers (QA checklist P1). Tighten CSP as you add origins.
-const csp = [
-  "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' https://js.stripe.com",
-  "frame-src https://js.stripe.com https://hooks.stripe.com",
-  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com",
-  "img-src 'self' data: blob: https://*.supabase.co",
-  "style-src 'self' 'unsafe-inline'",
-  "font-src 'self'",
-  "frame-ancestors 'none'",
-  "base-uri 'self'",
-].join("; ");
-
+// Static security headers (QA checklist P1). The nonce-based Content-Security-Policy is set
+// per-request in `proxy.ts` (a fresh nonce per response can't be a static header); these nonce-free
+// headers live here so they also cover the API + static responses the CSP matcher skips.
 const securityHeaders = [
-  { key: "Content-Security-Policy", value: csp },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "X-Content-Type-Options", value: "nosniff" },
-  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+  // camera=(self): the grocery Scan & Go viewfinder (getUserMedia) needs it first-party; an empty
+  // allowlist `camera=()` would block our own scanner. mic/geo stay fully off — no feature uses them.
+  { key: "Permissions-Policy", value: "camera=(self), microphone=(), geolocation=()" },
   { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
 ];
 
