@@ -1,0 +1,217 @@
+"use client";
+import { useState, type CSSProperties } from "react";
+import type { CartItem } from "@mms/db";
+import type { SplitContext } from "@/lib/split";
+import { computeShares } from "@/lib/split-math";
+import { assignLine } from "@/lib/cart";
+import { canMutateLine } from "@/lib/permissions";
+import { seatColor, seatInitial } from "@/lib/avatars";
+
+/**
+ * Dine-in split-the-bill section on /cart (M3·P3.3a). Per-seat shares are computed CLIENT-side from
+ * the server-authoritative grand total + lines (the same isomorphic split-math the server uses), so
+ * they render instantly with no round-trip / layout shift. Even / By-person; by-person lets a line be
+ * (re)assigned (canMutate-gated: host any line, a guest only their own). Honest scope: a REFERENCE
+ * breakdown — the order is paid in full at checkout; per-card tender is P3.3b. No promise the code can't keep.
+ */
+export function SplitSection({
+  cartId,
+  items,
+  totalCents,
+  ctx,
+  onChanged,
+  onStatus,
+}: {
+  cartId: string;
+  items: CartItem[];
+  totalCents: number; // server-authoritative grand total (from getCartTotals via the cart view)
+  ctx: SplitContext;
+  onChanged: () => void; // re-sync the lines after an assignment (parent re-fetches the view)
+  onStatus: (msg: string) => void; // announce through the parent's single live region (a11y)
+}) {
+  const [mode, setMode] = useState<"even" | "by_person">("even");
+  const [busyLine, setBusyLine] = useState<string | null>(null);
+
+  // Instant, cent-reconciled shares from server-authoritative inputs (no fetch → no empty-then-pop).
+  const shares = computeShares(
+    totalCents,
+    ctx.members.map((m) => ({ seat: m.seat, name: m.name })),
+    items.map((i) => ({ bySeat: i.bySeat ?? null, qty: i.qty, unitPriceCents: i.unitPriceCents })),
+    mode,
+  );
+
+  function switchMode(m: "even" | "by_person") {
+    if (m === mode) return;
+    setMode(m);
+    onStatus(m === "even" ? "Split evenly" : "Split by person");
+  }
+
+  async function reassign(lineId: string, seat: string, lineName: string, who: string) {
+    setBusyLine(lineId);
+    try {
+      await assignLine(lineId, seat);
+      onStatus(`Assigned ${lineName} to ${who}`);
+      onChanged();
+    } catch {
+      // locked / not permitted — a no-op the server rejected; the parent stays truthful (no onChanged).
+    } finally {
+      setBusyLine(null);
+    }
+  }
+
+  return (
+    <section aria-labelledby="split-h" style={{ marginTop: 18 }}>
+      <h2 id="split-h" style={{ fontSize: 16, margin: "0 0 8px" }}>
+        Split the bill
+      </h2>
+
+      <div role="group" aria-label="Split mode" style={seg}>
+        {(["even", "by_person"] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            className="mms-seg-btn"
+            aria-pressed={mode === m}
+            onClick={() => switchMode(m)}
+            style={segBtn(mode === m)}
+          >
+            {m === "even" ? "Evenly" : "By person"}
+          </button>
+        ))}
+      </div>
+
+      {mode === "by_person" && (
+        <ul
+          role="list"
+          style={{ listStyle: "none", padding: 0, margin: "12px 0 0", display: "grid", gap: 12 }}
+        >
+          {items.map((line) => {
+            const owner = line.bySeat ?? ctx.members[0]?.seat ?? ctx.mySeat;
+            const canAssign = canMutateLine("draft", ctx.myRole, line.bySeat === ctx.mySeat);
+            const ownerMember = ctx.members.find((m) => m.seat === owner);
+            const ownerName = !ownerMember
+              ? "Guest"
+              : ownerMember.seat === ctx.mySeat
+                ? "you"
+                : ownerMember.name;
+            return (
+              <li key={line.id}>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>
+                  {line.qty}× {line.name}
+                </div>
+                {canAssign ? (
+                  // Owner (or host) → tappable avatars to (re)assign.
+                  <div
+                    role="group"
+                    aria-label={`Assign ${line.name}`}
+                    style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}
+                  >
+                    {ctx.members.map((m) => {
+                      const on = owner === m.seat;
+                      const who = m.seat === ctx.mySeat ? "you" : m.name;
+                      return (
+                        <button
+                          key={m.seat}
+                          type="button"
+                          className="mms-aav"
+                          aria-pressed={on}
+                          aria-label={`Assign ${line.name} to ${who}`}
+                          disabled={busyLine === line.id}
+                          onClick={() => reassign(line.id, m.seat, line.name, who)}
+                          style={aav(on, m.seat)}
+                        >
+                          <span aria-hidden>{seatInitial(m.name)}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  // A guest viewing someone else's line → static attribution, no dead controls.
+                  <div
+                    style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 6 }}
+                  >
+                    <span aria-hidden style={{ ...avatarSm, background: seatColor(owner) }}>
+                      {seatInitial(ownerMember?.name ?? "Guest")}
+                    </span>
+                    <span style={{ fontSize: 12.5, color: "var(--t2)" }}>
+                      Assigned to {ownerName}
+                    </span>
+                  </div>
+                )}
+              </li>
+            );
+          })}
+          <li style={{ fontSize: 11.5, color: "var(--t3)" }}>
+            Tap a guest to assign your items; the host can assign any.
+          </li>
+        </ul>
+      )}
+
+      <dl style={{ margin: "14px 0 0", display: "grid", gap: 6 }}>
+        {shares.map((s) => (
+          <div
+            key={s.seat}
+            style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}
+          >
+            <dt style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 14 }}>
+              <span aria-hidden style={{ ...avatarSm, background: seatColor(s.seat) }}>
+                {seatInitial(s.name)}
+              </span>
+              {s.seat === ctx.mySeat ? `${s.name} (you)` : s.name}
+            </dt>
+            <dd style={{ margin: 0, fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>
+              ${(s.shareCents / 100).toFixed(2)}
+            </dd>
+          </div>
+        ))}
+      </dl>
+
+      <p style={{ fontSize: 11.5, color: "var(--t3)", marginTop: 8, lineHeight: 1.5 }}>
+        Each person’s share of the order, including tax &amp; service. The order is paid in full at
+        checkout; tip is added then.
+      </p>
+    </section>
+  );
+}
+
+const seg: CSSProperties = {
+  display: "flex",
+  gap: 0,
+  border: "1.5px solid var(--bd)",
+  borderRadius: 12,
+  overflow: "hidden",
+};
+const segBtn = (on: boolean): CSSProperties => ({
+  flex: 1,
+  minHeight: 44,
+  border: "none",
+  background: on ? "color-mix(in oklab, var(--ac) 10%, var(--cd))" : "var(--cd)",
+  color: on ? "var(--ac)" : "var(--t2)",
+  fontWeight: 800,
+  fontSize: 14,
+  cursor: "pointer",
+});
+const aav = (on: boolean, seat: string): CSSProperties => ({
+  width: 44,
+  height: 44,
+  borderRadius: "50%",
+  border: on ? "2px solid var(--tx)" : "2px solid transparent",
+  background: seatColor(seat),
+  color: "#fff",
+  fontWeight: 800,
+  fontSize: 14,
+  display: "grid",
+  placeItems: "center",
+  opacity: on ? 1 : 0.5,
+  cursor: "pointer",
+});
+const avatarSm: CSSProperties = {
+  width: 22,
+  height: 22,
+  borderRadius: "50%",
+  display: "grid",
+  placeItems: "center",
+  color: "#fff",
+  fontWeight: 800,
+  fontSize: 10,
+};

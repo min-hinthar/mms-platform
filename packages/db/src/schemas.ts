@@ -55,6 +55,13 @@ export const setQtyInput = z.object({
   qty: z.number().int().min(0).max(99),
 });
 
+/** assignLine (M3·P3.3a) — reassign a cart line to a seat for by-person split. The server verifies
+ *  the seat is a member of this session + canMutateLine; the client only asserts the two ids. */
+export const assignLineInput = z.object({
+  cartItemId: uuid,
+  seatId: uuid,
+});
+
 /** applyPromo — the code is validated server-side against `promo_codes`; this only shapes it. */
 export const applyPromoInput = z.object({
   cartId: uuid,

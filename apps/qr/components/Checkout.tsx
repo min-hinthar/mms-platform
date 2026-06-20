@@ -9,7 +9,13 @@ import {
   setQty as setQtyAction,
   type PromoReason,
 } from "@/lib/cart";
+import type { SplitContext } from "@/lib/split";
+import { canMutateLine } from "@/lib/permissions";
+import { seatColor, seatInitial } from "@/lib/avatars";
+import { useAnonSession } from "@/lib/useAnonSession";
+import { useCartRealtime } from "@/lib/realtime";
 import { PaymentSection } from "./PaymentSection";
+import { SplitSection } from "./SplitSection";
 
 // Per-reason promo copy (the action returns a reason; Next redacts thrown errors in prod). Honest +
 // on-brand: tell the diner exactly why, never a fabricated state.
@@ -47,13 +53,18 @@ export function Checkout({
   cartId,
   initialItems,
   initialTotals,
+  splitContext = null,
 }: {
   cartId: string;
   initialItems: CartItem[];
   initialTotals: CartTotals;
+  splitContext?: SplitContext | null;
 }) {
   const [items, setItems] = useState<CartItem[]>(initialItems);
   const [totals, setTotals] = useState<CartTotals>(initialTotals);
+  // Dine-in group → show per-line owner + split; solo/duo stays the plain cart.
+  const isGroup =
+    !!splitContext && splitContext.mode === "dinein" && splitContext.members.length > 1;
   const [promo, setPromo] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -62,6 +73,13 @@ export function Checkout({
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [payTotals, setPayTotals] = useState<CartTotals | null>(null);
   const [loadingPay, setLoadingPay] = useState(false);
+
+  // Live group sync (P3.2): a peer's add/qty/assignment on another phone re-fetches the server-
+  // authoritative view here too, so the cart + shares stay in step across the table. Dine-in only.
+  const anon = useAnonSession();
+  useCartRealtime(cartId, anon?.accessToken ?? "", isGroup, () => {
+    void refresh();
+  });
   const [payError, setPayError] = useState<string | null>(null);
 
   // Focus management: when a stepper removes the last unit of a line, the <li> unmounts and focus
@@ -221,33 +239,89 @@ export function Checkout({
         </>
       ) : (
         <>
-          <ul style={{ listStyle: "none", padding: 0, margin: "12px 0", display: "grid", gap: 10 }}>
-            {items.map((i) => (
-              <li
-                key={i.id}
-                className="card"
-                style={{ padding: 12, display: "flex", gap: 10, alignItems: "center" }}
-              >
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600 }}>{i.name}</div>
-                  {i.modifiers.length > 0 && (
-                    <div style={{ fontSize: 12, color: "var(--t2)" }}>{i.modifiers.join(", ")}</div>
-                  )}
-                  <div
-                    style={{ fontWeight: 700, marginTop: 4, fontVariantNumeric: "tabular-nums" }}
-                  >
-                    ${((i.unitPriceCents * i.qty) / 100).toFixed(2)}
+          <ul
+            role="list"
+            style={{ listStyle: "none", padding: 0, margin: "12px 0", display: "grid", gap: 10 }}
+          >
+            {items.map((i) => {
+              // canMutate (P3.3a): in a group, the host may edit any line, a guest only their own —
+              // so a guest's stepper on someone else's line is disabled (not a control that fails).
+              const canEdit =
+                !isGroup ||
+                canMutateLine("draft", splitContext!.myRole, i.bySeat === splitContext!.mySeat);
+              const owner = isGroup
+                ? splitContext!.members.find((m) => m.seat === i.bySeat)
+                : undefined;
+              return (
+                <li
+                  key={i.id}
+                  className="card"
+                  style={{ padding: 12, display: "flex", gap: 10, alignItems: "center" }}
+                >
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600 }}>{i.name}</div>
+                    {i.modifiers.length > 0 && (
+                      <div style={{ fontSize: 12, color: "var(--t2)" }}>
+                        {i.modifiers.join(", ")}
+                      </div>
+                    )}
+                    {owner && (
+                      <div
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                          marginTop: 4,
+                          fontSize: 12,
+                          color: "var(--t2)",
+                        }}
+                      >
+                        <span
+                          aria-hidden
+                          style={{
+                            width: 18,
+                            height: 18,
+                            borderRadius: "50%",
+                            background: seatColor(owner.seat),
+                            color: "#fff",
+                            display: "grid",
+                            placeItems: "center",
+                            fontSize: 9,
+                            fontWeight: 800,
+                          }}
+                        >
+                          {seatInitial(owner.name)}
+                        </span>
+                        {owner.seat === splitContext!.mySeat ? "You" : owner.name}
+                      </div>
+                    )}
+                    <div
+                      style={{ fontWeight: 700, marginTop: 4, fontVariantNumeric: "tabular-nums" }}
+                    >
+                      ${((i.unitPriceCents * i.qty) / 100).toFixed(2)}
+                    </div>
                   </div>
-                </div>
-                <Stepper
-                  qty={i.qty}
-                  disabled={pending}
-                  name={i.name}
-                  onChange={(q) => changeQty(i.id, q)}
-                />
-              </li>
-            ))}
+                  <Stepper
+                    qty={i.qty}
+                    disabled={pending || !canEdit}
+                    name={i.name}
+                    onChange={(q) => changeQty(i.id, q)}
+                  />
+                </li>
+              );
+            })}
           </ul>
+
+          {isGroup && splitContext && (
+            <SplitSection
+              cartId={cartId}
+              items={items}
+              totalCents={totals.totalCents}
+              ctx={splitContext}
+              onChanged={refresh}
+              onStatus={setStatus}
+            />
+          )}
 
           <form onSubmit={onPromo} style={{ display: "flex", gap: 8, margin: "12px 0" }}>
             <input
@@ -368,6 +442,17 @@ export function Checkout({
           >
             {loadingPay ? "Starting checkout…" : "Continue to payment"}
           </button>
+          {isGroup && (
+            // Honesty (P3.3a): the split above is a reference; this button pays the WHOLE order, so a
+            // guest who read "your share" isn't surprised. Per-card share payment is P3.3b — stated as
+            // a fact, not a promise.
+            <p
+              style={{ fontSize: 11.5, color: "var(--t3)", margin: "8px 0 0", textAlign: "center" }}
+            >
+              This pays the full order. The split above is a reference for settling among
+              yourselves.
+            </p>
+          )}
           {/* The ONE polite live region for the review step (QA §A P1) — carries the pay-start
               error OR the promo result, never both (each handler clears the other first). The pay
               step has its own single region inside PaymentSection. */}

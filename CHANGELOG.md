@@ -4,6 +4,31 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — M3·P3.3a split-the-bill foundation (dine-in) (2026-06-20)
+
+- **Split the bill on `/cart`** (dine-in group): Even / By-person toggle, per-line avatar **assignment**
+  (by-person), and a **cent-reconciled per-seat share** breakdown. Shares are computed **client-side
+  from the server-authoritative grand total + lines** via the isomorphic `lib/split-math` (instant — no
+  round-trip, no layout shift) — `largest-remainder so Σ shares == the total to the cent` (deterministic
+  leftover penny — QA §D). The server share-derivation lands with the tender in P3.3b (same math).
+- **`canMutate(line_state, actor_role, isOwner)`** (`lib/permissions.ts`, isomorphic) — the generalized
+  mutation gate the S-track extends. M3: the **host** may edit/remove **any** line, a **guest** only
+  their **own** (the cross-owner-delete guard). Enforced server-side in `setQty` + `assignLine`, and the
+  UI disables controls it would reject (a guest sees others' lines as read-only with the owner avatar,
+  never a control that just fails).
+- **Live across the table:** `assignLine` touches `updated_at` → the P3.2 realtime sub re-syncs every
+  phone's cart + shares. `assignLine` is member + canMutate gated, the target must be a session member,
+  and it re-checks `status='open'`.
+- **Honest scope:** the shares are a **reference** breakdown — the order is still **paid in full at
+  checkout** (per-card tender is **P3.3b**, Option A: authorize-all → capture-together). The pay button
+  carries an honest "this pays the full order" note in a group; no future-promise copy. Schema-free.
+- **Craft (deep pre-merge UI/UX pass → ≥4.3):** instant optimistic shares (no empty-then-pop layout
+  shift); share/assign/mode changes **announced through the cart's single live region** (a11y); a
+  reduced-motion-safe fade on the toggle + assignment avatars and a press "thunk" so the assign tap
+  registers with weight (RUBRIC #2/#5). _Deferred to P3.3b (tracked):_ folding the assign row onto the
+  cart line itself (v7.2 parity) and a lock banner on `/cart`. Reviewed by two fresh-context adversarial
+  subagents (pre-PR: 2 must-fix + 3 should-fix; pre-merge UI/UX: 4 should-fix) — all addressed/tracked.
+
 ### Added — M3·P3.2-lock cart-lock-at-pay (2026-06-20)
 
 - **Freezes the cart for the pay window** so a peer can't mutate it mid-checkout (which would drift the

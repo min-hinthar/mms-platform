@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getCartView } from "@/lib/cart";
+import { getSplitContext, type SplitContext } from "@/lib/split";
 import { Checkout } from "@/components/Checkout";
 
 // Cart + checkout. The cartId comes from the URL (the cart bar links here with the server-issued
@@ -29,5 +30,21 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
       </main>
     );
 
-  return <Checkout cartId={cart} initialItems={view.items} initialTotals={view.totals} />;
+  // Group context for the dine-in split (members + the viewer's role/seat). Best-effort — a solo
+  // cart or a transient failure just renders the plain checkout (Checkout no-ops when not a group).
+  let split: SplitContext | null = null;
+  try {
+    split = await getSplitContext(cart);
+  } catch {
+    split = null;
+  }
+
+  return (
+    <Checkout
+      cartId={cart}
+      initialItems={view.items}
+      initialTotals={view.totals}
+      splitContext={split}
+    />
+  );
 }
