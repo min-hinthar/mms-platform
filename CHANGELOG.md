@@ -4,6 +4,46 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — M2·P2.1 server-validated promo codes (2026-06-20)
+
+- **Real promo enforcement, server-authoritative.** Migration `20260620000000_promo_validation` gives
+  `promo_codes` real semantics (`valid_from`/`valid_until`, `min_subtotal_cents`, `per_session_limit`,
+  plus `CHECK`s: `value ≥ 0`, pct `≤ 1`, etc.), adds two RLS-default-deny ledgers
+  (`promo_redemptions` audit + per-session cap; `promo_attempts` rate-limit), and five service-role-only
+  SECURITY DEFINER functions:
+  - **`mms_promo_check`** — the single apply gate: active + window + `min_subtotal` + global `max_uses`
+    - per-session cap → returns a stable `reason` enum + the computed discount.
+  - **`mms_promo_discount`** — the single **pricing** source `getCartTotals` now calls (replacing the
+    inline TS), so the displayed/charged discount can't drift. Caps are a redemption budget (apply +
+    fulfillment), not a pricing gate, so the discount stays stable through checkout.
+  - **`mms_promo_attempt`** — per-session **rate-limit** (anti-enumeration): 10 / 5-min window,
+    count-first so a capped session is rejected without recording (the window can drain), self-GC'ing.
+  - **`mms_promo_consume`** — redemption at **fulfillment**: soft global cap (the charge already
+    reconciled the discount, so `used` may overrun by the count of concurrently-applied-but-unfulfilled
+    carts — accepted) + a **hard per-session cap re-checked under a row lock** (a DB invariant, not just
+    the app-layer apply gate). `mms_fulfill_order` now calls it (after its idempotency early-return, so
+    consumption is exactly-once under Stripe's ≤72h retries).
+- **`applyPromo` returns a discriminated result** (`{ok, discountCents} | {ok:false, reason}`) instead of
+  throwing — Next redacts thrown Server Action errors in prod, so the cart now shows the _specific_
+  reason (invalid / expired / min-not-met / exhausted / used-at-this-table / rate-limited …) via a
+  `Record<PromoReason, string>` map. Seeded test codes: `WELCOME10` (10% off) and `TEAHOUSE5` ($5 off
+  ≥ $20).
+- **Validated end-to-end on a local Postgres stack** (discount math, min-subtotal gate, rate-limit
+  10/window, consume + per-session backstop, global exhaustion) and **applied to the live QR project**;
+  `get_advisors` clean apart from documented/intentional lints.
+- **Pre-PR adversarial subagent: PASS** (zero Critical/High). Folded in its hardening (per-session cap as
+  a DB invariant; rate-limit window-drain + bound; honest soft-cap comment). **Advisors then caught a
+  real EXECUTE-grant gap the subagent missed:** `revoke … from public` alone left the promo functions
+  callable by `anon`/`authenticated` (Supabase explicitly grants them too) — `mms_promo_consume` was
+  directly callable to burn a code's budget. Fixed: `revoke … from public, anon, authenticated`
+  (verified `has_function_privilege('anon', …) = false`), plus a covering index on
+  `promo_redemptions.order_id` (advisor 0001).
+- **Fixed in passing — the live QR project was missing P1.5's `track_realtime`** (CI only tests a local
+  stack; nothing had applied it to prod), so `qr_orders` wasn't in the realtime publication and `/track`
+  live updates were silently broken in production. Applied it.
+- _Deferred:_ tell the diner the exact shortfall on `min_not_met` ("add $X more") — a UX assist, not a
+  correctness gap; a `promo_attempts` global retention job (today it self-GCs per active session).
+
 ### Added — M1·P1.6 hardening: nonce CSP + fail-fast env (2026-06-20)
 
 - **Nonce-based Content-Security-Policy.** New `apps/qr/proxy.ts` (Next 16's rename of the
