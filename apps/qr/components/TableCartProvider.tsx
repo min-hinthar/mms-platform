@@ -345,6 +345,47 @@ export function TableCartProvider({
       }}
     >
       {children}
+      {/* Recovery affordance for SOLO modes (scan-&-go / pickup). If a session mint — or a re-mint
+          after a failed cart op — fails, `cartId` is null and taps silently no-op; without this the
+          diner is stranded behind an auto-clearing toast. Dine-in surfaces the same recovery in
+          GuestList (group-aware copy); this fills the gap GuestList's `!isGroup → null` leaves. */}
+      {error && !isGroup && (
+        <p
+          role="alert"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+            margin: "10px 16px 0",
+            padding: "9px 13px",
+            borderRadius: 11,
+            background: "var(--warnb)",
+            color: "var(--warn)",
+            fontWeight: 700,
+            fontSize: 12.5,
+          }}
+        >
+          <span aria-hidden>⚠️</span> Couldn’t reach your order.{" "}
+          <button
+            type="button"
+            onClick={() => revalidate()}
+            style={{
+              minHeight: 44,
+              padding: "0 4px",
+              background: "none",
+              border: "none",
+              color: "var(--ac)",
+              fontWeight: 800,
+              fontSize: 13,
+              textDecoration: "underline",
+              cursor: "pointer",
+            }}
+          >
+            Try again
+          </button>
+        </p>
+      )}
       {isPickup && cartId && (
         <PickupSlotSheet
           open={slotSheetOpen}

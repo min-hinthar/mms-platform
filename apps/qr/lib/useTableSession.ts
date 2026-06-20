@@ -68,6 +68,7 @@ export function useTableSession(mode: string, opts?: { code?: string; joinOnly?:
   const revalidate = useCallback(() => {
     minting.current = false;
     setSession(null);
+    setError(null); // clear a prior failure so a successful retry dismisses the recovery banner
     setNonce((n) => n + 1);
   }, []);
 

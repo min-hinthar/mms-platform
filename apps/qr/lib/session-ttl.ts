@@ -18,3 +18,10 @@ export const sessionExpiryFromNow = (): string =>
 /** Renew only once LESS than half the window remains, so a read-heavy path (realtime → getCartView)
  *  doesn't UPDATE on every authorized call — the session still slides forward long before it expires. */
 export const SESSION_RENEW_THRESHOLD_MS = SESSION_TTL_MS / 2;
+
+/** The cutoff instant for the renewal WHERE: only a session whose `expires_at` is BEFORE this needs
+ *  renewing. Used both as the JS guard (skip the round-trip when not due) and the SQL filter
+ *  (`.lt("expires_at", …)`) so concurrent renewals race-clean — once one commits the fresh expiry,
+ *  the others' WHERE no longer matches and they no-op (no threshold-crossing write burst). */
+export const sessionRenewBeforeIso = (): string =>
+  new Date(Date.now() + SESSION_RENEW_THRESHOLD_MS).toISOString();

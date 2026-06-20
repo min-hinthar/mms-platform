@@ -71,6 +71,9 @@ export async function POST(req: NextRequest) {
   // EXPIRED yet still status='active' (there's no background sweeper) — squatting on the partial unique
   // index (table_sessions_active_qr_uniq WHERE status='active') so a fresh insert below would 23505.
   // Sweep it to 'closed' first (the sweep that index's comment anticipated), freeing the code to mint anew.
+  // Trust note: only an ALREADY-expired session is swept (its legit diners are already locked out by
+  // the expiry check), and whoever re-mints becomes host — the same "first scanner provisions" model
+  // the sticker flow already trusts, not a new takeover vector against a live table.
   if (!sess && qrCode && !joinOnly) {
     await db
       .from("table_sessions")
