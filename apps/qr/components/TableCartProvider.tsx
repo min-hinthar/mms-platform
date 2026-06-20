@@ -353,17 +353,24 @@ export function TableCartProvider({
         <p
           role="alert"
           style={{
+            position: "fixed",
+            top: 12,
+            left: 12,
+            right: 12,
+            margin: "0 auto",
+            maxWidth: 420,
+            zIndex: 60,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             gap: 8,
-            margin: "10px 16px 0",
             padding: "9px 13px",
             borderRadius: 11,
             background: "var(--warnb)",
             color: "var(--warn)",
             fontWeight: 700,
             fontSize: 12.5,
+            boxShadow: "0 6px 20px rgb(0 0 0 / 0.12)",
           }}
         >
           <span aria-hidden>⚠️</span> Couldn’t reach your order.{" "}
@@ -375,7 +382,7 @@ export function TableCartProvider({
               padding: "0 4px",
               background: "none",
               border: "none",
-              color: "var(--ac)",
+              color: "var(--warn)",
               fontWeight: 800,
               fontSize: 13,
               textDecoration: "underline",
