@@ -1,13 +1,16 @@
 "use client";
 import "./globals.css";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import posthog from "posthog-js";
 
 /**
  * Root crash boundary (App Router). A render error that escapes every nested boundary replaces the
  * ROOT layout, so this owns its own <html>/<body>. React error boundaries CATCH the error before it
  * reaches window.onerror, so posthog-js's auto-capture (capture_exceptions) never sees it — capture it
- * explicitly here. Branded recovery (tokens via globals.css) with a reset, not Next's default screen.
+ * explicitly here. Focus moves to the heading on mount (§A). Color TOKENS come from tokens.css on
+ * :root (via globals.css) so they apply; the next/font variables live on the root layout's <html>
+ * which this replaces, so the display font deliberately degrades to the serif fallback — acceptable
+ * for a rare full crash, not worth shipping a second next/font instance into the crash bundle.
  */
 export default function GlobalError({
   error,
@@ -16,8 +19,10 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     posthog.captureException(error);
+    headingRef.current?.focus();
   }, [error]);
 
   return (
@@ -32,11 +37,13 @@ export default function GlobalError({
           color: "var(--tx)",
         }}
       >
-        <main role="alert" style={{ maxWidth: 360, textAlign: "center" }}>
+        <main style={{ maxWidth: 360, textAlign: "center" }}>
           <p aria-hidden style={{ fontSize: 40, margin: 0 }}>
             🫖
           </p>
-          <h1 style={{ fontSize: 22, margin: "12px 0 6px" }}>Something went wrong</h1>
+          <h1 ref={headingRef} tabIndex={-1} style={{ fontSize: 22, margin: "12px 0 6px" }}>
+            Something went wrong
+          </h1>
           <p style={{ fontSize: 14, color: "var(--t2)", lineHeight: 1.5, margin: "0 0 20px" }}>
             We hit an unexpected error. Your order is safe — let’s try that again.
           </p>

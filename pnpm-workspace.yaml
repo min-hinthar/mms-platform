@@ -9,7 +9,6 @@ allowBuilds:
   sharp: true
   unrs-resolver: true
   core-js: false
-  '@sentry/cli': set this to true or false
 
 # Single-version policy (pnpm 10+ reads overrides here, not in package.json).
 # Keep the framework trio pinned exact so both apps resolve one copy.

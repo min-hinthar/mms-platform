@@ -15,7 +15,7 @@ type RequestErrorContext = {
 
 export async function onRequestError(
   error: unknown,
-  request: { path: string; method: string },
+  request: { method: string },
   context: RequestErrorContext,
 ): Promise<void> {
   // posthog-node is a Node client — only safe on the Node.js runtime, so the Edge bundle (proxy.ts
@@ -26,12 +26,13 @@ export async function onRequestError(
     const { getPostHogClient } = await import("@/lib/posthog-server");
     // captureExceptionImmediate captures AND flushes (awaited) — required on serverless, where the
     // function can freeze before a buffered event sends. Personless (no distinctId): a server fault
-    // isn't a user action, and we attach only opaque, non-PII context (path/route/method — QA §C P2).
+    // isn't a user action. Context is the TEMPLATED route only (e.g. "/menu") + method — never
+    // `request.path`, which carries the query string (the `?t=` table-session token / `?j=` join
+    // code → bearer-like secrets that must not land in analytics; QA §C P2 "opaque ids, no PII").
     await getPostHogClient().captureExceptionImmediate(
       error instanceof Error ? error : new Error(String(error)),
       undefined,
       {
-        path: request.path,
         method: request.method,
         route: context.routePath,
         route_type: context.routeType,
