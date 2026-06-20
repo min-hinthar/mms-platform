@@ -4,6 +4,28 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — M2·P2.4 QuickBooks Online sync of paid orders (2026-06-20)
+
+- **Paid orders post to QBO as Sales Receipts, two-ledger clearing.** Each paid `qr_order` becomes a
+  QuickBooks Sales Receipt **deposited to a Stripe _clearing_ account** (sales land in clearing on order;
+  the Stripe payout later clears it to the bank). Tax is posted as an **explicit line** with
+  `GlobalTaxCalculation:"NotApplicable"` so QBO's Automated Sales Tax can't recompute/override our
+  category-aware figure — the receipt total reconciles to the cent against the Stripe charge.
+- **Pure, self-checking mapper** (`apps/qr/lib/qbo/mapping.ts`): `buildSalesReceipt` **throws rather than
+  posts** if the line items don't reconcile to the stored subtotal, the parts don't sum to the total, or a
+  non-zero amount (service/tax/tip) has no configured item ref. Validated locally (balances to total;
+  throws on imbalance + missing ref).
+- **Fail-safe, idempotent, out-of-band client** (`apps/qr/lib/qbo/client.ts`): a no-op unless
+  `QBO_SYNC_ENABLED=true` (records `skipped`); OAuth2 refresh-token → cached access token; one Sales
+  Receipt per order guarded by the new `qbo_sync_queue` ledger (migration `20260620000400`, RLS
+  default-deny, **service-role only** — verified `anon`/`authenticated` denied + `service_role` r/w on the
+  live project, advisor-clean). The webhook enqueues on fulfillment then posts inside `after()`, so
+  QuickBooks latency/outage **never** blocks the Stripe ack or fulfillment; `processPendingQboSyncs` drains
+  stranded/errored rows on demand.
+- **Off by default.** Ships dark; activation (sandbox QBO company + refs/creds, then the first post) is a
+  documented step. See [`docs/QBO_SYNC.md`](docs/QBO_SYNC.md) + the QBO rows in `docs/ENV.md`. Deferred:
+  refresh-token rotation persistence, a cron drain, and refund mapping.
+
 ### Added — M2·P2.3 grocery Scan & Go session/cart (2026-06-20)
 
 - **Real server-issued Scan & Go session.** `/grocery` now mints its cart via `useTableSession("scango")`
