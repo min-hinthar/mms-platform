@@ -12,7 +12,12 @@ import type { CartItem, CartTotals } from "@mms/db";
 import { addItem as addItemAction, getCartView } from "@/lib/cart";
 import { setDisplayName } from "@/lib/members";
 import { useTableSession } from "@/lib/useTableSession";
-import { useGroupCart, type PresenceMember } from "@/lib/realtime";
+import {
+  useCartRealtime,
+  useGroupCart,
+  type CartChange,
+  type PresenceMember,
+} from "@/lib/realtime";
 import { PickupSlotSheet } from "./PickupSlotSheet";
 
 const NAME_KEY = "mms.name";
@@ -102,6 +107,12 @@ export function TableCartProvider({
     seat: session?.seat ?? "",
     name,
   });
+  // Latest members in a ref so the cart-change handler can map a peer's seat → name without the
+  // subscription resubscribing every time presence updates (ref updated in an effect, not render).
+  const membersRef = useRef<PresenceMember[]>([]);
+  useEffect(() => {
+    membersRef.current = members;
+  }, [members]);
 
   const setName = useCallback(
     async (next: string) => {
@@ -166,9 +177,20 @@ export function TableCartProvider({
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingAdds, setPendingAdds] = useState(0); // optimistic in-flight adds (instant count bump)
 
-  // Announce a NEW guest joining through the SAME single live region (not a second one — QA: one
-  // polite region per view). Diff by seat so we don't announce the first sync (self + already-present
-  // members) or a self re-appear after a blip. Routed through `notice` (deferred → not sync setState).
+  // All transactional feedback flows through ONE polite live region via `flash`, which keeps a SINGLE
+  // clear-timer (cancels the prior one) so overlapping events — a guest joining, a peer's add, your own
+  // add — replace deterministically instead of racing independent timers that could blank a fresh
+  // notice early. Never the rolling total itself (the CartBar isn't aria-live — no amount re-read).
+  const noticeTimer = useRef<number | null>(null);
+  const flash = useCallback((msg: string, ms = 2200) => {
+    if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
+    setNotice(msg);
+    noticeTimer.current = window.setTimeout(() => setNotice(null), ms);
+  }, []);
+
+  // Announce a NEW guest joining (diff by seat so we don't announce the first sync — self + already-
+  // present members — or a self re-appear after a blip). Deferred into a callback (localStorage/presence
+  // are external stores) so it's not a synchronous setState in the effect body.
   const seenSeats = useRef<Set<string>>(new Set());
   const meSeat = session?.seat ?? "";
   useEffect(() => {
@@ -181,11 +203,30 @@ export function TableCartProvider({
       joined.length === 1
         ? `${joined[0]?.name ?? "A guest"} joined your table`
         : `${joined.length} guests joined your table`;
-    void Promise.resolve().then(() => {
-      setNotice(msg);
-      window.setTimeout(() => setNotice(null), 2600);
-    });
-  }, [members, meSeat]);
+    void Promise.resolve().then(() => flash(msg, 2600));
+  }, [members, meSeat, flash]);
+
+  // Live group-cart sync (M3·P3.2): a peer's change on another phone → re-fetch the server-authoritative
+  // view (keyed React state, never client math) + announce a peer's ADD honestly (by_seat is the adder
+  // → a reliable "who" for INSERTs; qty/remove just refresh, since the event doesn't carry the actor).
+  // Dine-in only (isGroup) — solo modes have no peers, so no subscription. The actor's own INSERT is
+  // skipped (bySeat === my seat) so you're never told you added your own item.
+  const handleCartChange = useCallback(
+    (c: CartChange) => {
+      void refresh();
+      if (
+        c.table === "qr_cart_items" &&
+        c.eventType === "INSERT" &&
+        c.bySeat &&
+        c.bySeat !== session?.seat
+      ) {
+        const who = membersRef.current.find((m) => m.seat === c.bySeat)?.name ?? "A guest";
+        flash(`${who} added ${c.itemName ?? "an item"}`, 2600);
+      }
+    },
+    [refresh, session, flash],
+  );
+  useCartRealtime(cartId ?? "", session?.accessToken ?? "", isGroup, handleCartChange);
 
   const add = useCallback(
     async (menuItemId: string) => {
@@ -194,22 +235,20 @@ export function TableCartProvider({
       // instead of after the round-trip. The total stays server-authoritative (no client price math),
       // so it settles when the view returns — the count is the instant feedback.
       setPendingAdds((n) => n + 1);
-      setNotice("Added to your order");
-      setTimeout(() => setNotice(null), 2000);
+      flash("Added to your order", 2000);
       try {
         const view = await addItemAction(cartId, menuItemId, []); // ONE round-trip — returns the view
         setItems(view.items);
         setTotals(view.totals);
         setPickupSlot(view.pickupSlot);
       } catch (e) {
-        setNotice("Couldn’t add that — please try again.");
-        setTimeout(() => setNotice(null), 3000);
+        flash("Couldn’t add that — please try again.", 3000);
         throw e;
       } finally {
         setPendingAdds((n) => n - 1);
       }
     },
-    [cartId],
+    [cartId, flash],
   );
 
   const openSlotSheet = useCallback(() => setSlotSheetOpen(true), []);
