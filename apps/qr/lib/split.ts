@@ -116,6 +116,12 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
   if (live && live.length > 0) throw new Error("Payments are already in progress");
 
   const grand = await getCartTotals(id); // grand breakdown, no tip
+  // A $0 cart can't be paid (mirrors create-intent's "Empty cart") and would auto-settle every share
+  // to 'captured' with nothing to ever trigger fulfillment — refuse it (and lift the just-taken freeze).
+  if (grand.subtotalCents - grand.discountCents + grand.serviceChargeCents + grand.taxCents <= 0) {
+    await releaseSettlement(id);
+    throw new Error("Nothing to pay");
+  }
   const { data: members } = await db
     .from("session_members")
     .select("seat_id,created_at")
@@ -161,6 +167,15 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
     await releaseSettlement(id); // don't strand a freeze with no shares behind it
     throw new Error("Could not start the split");
   }
+  // A $0-base share (a seat owning nothing in by-person) has nothing to pay — auto-settle it to
+  // 'captured' so it never blocks the all-captured fulfillment gate and that payer is never shown a $0
+  // Payment Element. It contributes $0 to the summed order. (A non-zero grand total is guaranteed above,
+  // so not every share can be $0.)
+  await db
+    .from("qr_cart_shares")
+    .update({ status: "captured" })
+    .eq("cart_id", id)
+    .eq("amount_cents", 0);
 }
 
 /**
