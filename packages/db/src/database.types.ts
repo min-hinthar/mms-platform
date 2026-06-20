@@ -388,6 +388,44 @@ export type Database = {
           },
         ]
       }
+      qbo_sync_queue: {
+        Row: {
+          attempts: number
+          created_at: string
+          last_error: string | null
+          order_id: string
+          qbo_doc_id: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          last_error?: string | null
+          order_id: string
+          qbo_doc_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          last_error?: string | null
+          order_id?: string
+          qbo_doc_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "qbo_sync_queue_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "qr_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       qr_cart_items: {
         Row: {
           by_seat: string | null

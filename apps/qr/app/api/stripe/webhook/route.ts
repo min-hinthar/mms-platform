@@ -3,6 +3,7 @@ import { getStripe } from "@/lib/stripe";
 import { serviceClient } from "@mms/db/server";
 import { getCartTotals } from "@/lib/totals";
 import { getPostHogClient } from "@/lib/posthog-server";
+import { enqueueQboSync, syncOrderToQbo } from "@/lib/qbo/client";
 
 // Fulfillment is webhook-driven, signature-verified, idempotent (QA checklist).
 // Stripe retries non-200s for up to 72h, so this must be safe to run more than once.
@@ -60,7 +61,7 @@ export async function POST(req: NextRequest) {
           { status: 409 }, // non-2xx → Stripe retries; surfaces a tampered/stale cart
         );
       }
-      const { error: fulfillErr } = await db.rpc("mms_fulfill_order", {
+      const { data: orderId, error: fulfillErr } = await db.rpc("mms_fulfill_order", {
         p_cart_id: cartId,
         p_payment_intent: intent.id,
         p_amount_cents: intent.amount,
@@ -81,6 +82,14 @@ export async function POST(req: NextRequest) {
           error: fulfillErr,
         });
         return NextResponse.json({ error: "Fulfillment failed; will retry" }, { status: 500 });
+      }
+      // QBO accounting sync (M2·P2.4): enqueue the order durably, then post the Sales Receipt OUT OF
+      // BAND in after() — QuickBooks latency/outage must never delay the Stripe ack or block the money
+      // path. The sync is fail-safe (disabled/unconfigured → logged skip) and idempotent (one receipt
+      // per order); if after() never runs, the 'pending' queue row is drained by processPendingQboSyncs.
+      if (orderId) {
+        await enqueueQboSync(db, orderId);
+        after(() => syncOrderToQbo(orderId));
       }
       // Capture exactly once — on the delivery that actually fulfills. A duplicate Stripe redelivery
       // (existing != null) or a missing-cartId event no longer double-counts / mis-fires analytics.

@@ -11,17 +11,25 @@ run locally, copy [`.env.example`](../.env.example) → `apps/qr/.env.local` and
 
 ## The variables
 
-| Variable                             | Scope         | Secret? | Used by                                                    |
-| ------------------------------------ | ------------- | ------- | ---------------------------------------------------------- |
-| `NEXT_PUBLIC_SUPABASE_URL`           | client+server | no      | every Supabase client (`@mms/db`)                          |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY`¹     | client+server | no      | public/anon reads (RLS-gated), anon auth                   |
-| `SUPABASE_SERVICE_ROLE_KEY`          | **server**    | **yes** | `serviceClient()` — authoritative writes, **bypasses RLS** |
-| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | client        | no      | `getStripePromise()` — mounts the Payment Element          |
-| `STRIPE_SECRET_KEY`                  | **server**    | **yes** | `getStripe()` — create-intent                              |
-| `STRIPE_WEBHOOK_SECRET`              | **server**    | **yes** | `/api/stripe/webhook` signature verification               |
-| `STRIPE_API_VERSION`                 | server        | no      | optional override; defaults to the SDK's pinned version    |
-| `NEXT_PUBLIC_POSTHOG_KEY`            | client+server | no²     | analytics (client init + server capture)                   |
-| `NEXT_PUBLIC_POSTHOG_HOST`           | client+server | no      | PostHog UI host (events proxy first-party via `/ingest`)   |
+| Variable                                        | Scope         | Secret? | Used by                                                                |
+| ----------------------------------------------- | ------------- | ------- | ---------------------------------------------------------------------- |
+| `NEXT_PUBLIC_SUPABASE_URL`                      | client+server | no      | every Supabase client (`@mms/db`)                                      |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY`¹                | client+server | no      | public/anon reads (RLS-gated), anon auth                               |
+| `SUPABASE_SERVICE_ROLE_KEY`                     | **server**    | **yes** | `serviceClient()` — authoritative writes, **bypasses RLS**             |
+| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`            | client        | no      | `getStripePromise()` — mounts the Payment Element                      |
+| `STRIPE_SECRET_KEY`                             | **server**    | **yes** | `getStripe()` — create-intent                                          |
+| `STRIPE_WEBHOOK_SECRET`                         | **server**    | **yes** | `/api/stripe/webhook` signature verification                           |
+| `STRIPE_API_VERSION`                            | server        | no      | optional override; defaults to the SDK's pinned version                |
+| `NEXT_PUBLIC_POSTHOG_KEY`                       | client+server | no²     | analytics (client init + server capture)                               |
+| `NEXT_PUBLIC_POSTHOG_HOST`                      | client+server | no      | PostHog UI host (events proxy first-party via `/ingest`)               |
+| `QBO_SYNC_ENABLED`                              | **server**    | no      | `"true"` arms the QBO sync; unset/anything-else = no-op                |
+| `QBO_ENV`                                       | **server**    | no      | `sandbox` (default) or `production` — picks the QBO API host           |
+| `QBO_REALM_ID`                                  | **server**    | no      | the QBO company id                                                     |
+| `QBO_CLIENT_ID` / `QBO_CLIENT_SECRET`           | **server**    | **yes** | Intuit app OAuth2 credentials                                          |
+| `QBO_REFRESH_TOKEN`                             | **server**    | **yes** | OAuth2 refresh token → minted access tokens (rotates, see QBO_SYNC.md) |
+| `QBO_CUSTOMER_REF` / `QBO_CLEARING_ACCOUNT_REF` | **server**    | no      | generic-diner customer + Stripe **clearing** account ids               |
+| `QBO_ITEM_SALES_REF`                            | **server**    | no      | the product/service item paid-order lines map to                       |
+| `QBO_ITEM_{SERVICE,TAX,TIP}_REF`                | **server**    | no      | item ids for the service-charge / sales-tax / tip lines (only if used) |
 
 ¹ Either `NEXT_PUBLIC_SUPABASE_ANON_KEY` **or** `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` is accepted
 (new Supabase key naming); set one. ² A PostHog **project** key is a publishable write-only key — not
