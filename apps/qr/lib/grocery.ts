@@ -1,7 +1,7 @@
 "use server";
-import { serviceClient } from "@mms/db/server";
+import { serviceClient, publicClient } from "@mms/db/server";
 import type { TaxCategory } from "@mms/db";
-import { scanInput } from "@mms/db/schemas";
+import { scanInput, grocerySearchInput } from "@mms/db/schemas";
 import { lineTax } from "./tax";
 import { assertCartMember } from "./authz";
 
@@ -49,4 +49,40 @@ export async function scanAdd(cartId: string, barcode: string) {
     unitPriceCents,
     ebt: item.ebt_eligible as boolean,
   };
+}
+
+export type GroceryHit = { barcode: string; name: string; unitPriceCents: number; ebt: boolean };
+
+/**
+ * Name-search fallback for Scan & Go (M2·P2.3): when a barcode won't scan or isn't in the catalog,
+ * the diner finds the item by name. This is a PUBLIC catalog read — `grocery_items` has public-read
+ * RLS and no price/PII is asserted by the client — so it needs no membership (adding a hit still
+ * goes through the authorized `scanAdd`, which re-derives the price + tax server-side). Only
+ * available, non-weighed items are returned: a weighed item needs a scale, so it can't be added
+ * anyway (don't surface a dead-end result). Read-only failure → empty list (the UI says "no matches").
+ */
+export async function searchGroceryItems(query: string): Promise<GroceryHit[]> {
+  const { query: q } = grocerySearchInput.parse({ query });
+  // Escape LIKE metacharacters so a stray % / _ searches literally, not as a wildcard.
+  const safe = q.replace(/[\\%_]/g, "\\$&");
+  const { data, error } = await publicClient()
+    .from("grocery_items")
+    .select("barcode,name,price_cents,ebt_eligible")
+    .eq("available", true)
+    .eq("weighed", false)
+    .ilike("name", `%${safe}%`)
+    .order("name")
+    .limit(12);
+  if (error) {
+    // Throw (not return []) so the caller can tell a lookup FAILURE from a genuine zero-result search
+    // and say so honestly. Log the real cause server-side; Next redacts the thrown message in prod.
+    console.error("[grocery] searchGroceryItems failed", error);
+    throw new Error("grocery search failed");
+  }
+  return (data ?? []).map((i) => ({
+    barcode: i.barcode as string,
+    name: i.name as string,
+    unitPriceCents: Number(i.price_cents),
+    ebt: i.ebt_eligible as boolean,
+  }));
 }

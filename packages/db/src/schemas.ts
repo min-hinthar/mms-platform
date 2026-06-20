@@ -56,6 +56,12 @@ export const scanInput = z.object({
   barcode: z.string().regex(/^\d{8,14}$/, "barcode must be 8–14 digits"),
 });
 
+/** searchGroceryItems — the Scan & Go name-search fallback when a barcode won't scan / isn't known.
+ *  Catalog read only (never a price); length-capped so a hostile client can't drive a huge ILIKE. */
+export const grocerySearchInput = z.object({
+  query: z.string().trim().min(2).max(40),
+});
+
 /** getCartView — a member-gated read of a cart's lines + server-authoritative totals. */
 export const cartViewInput = z.object({ cartId: uuid });
 
@@ -85,5 +91,6 @@ export type SetQtyInput = z.infer<typeof setQtyInput>;
 export type ApplyPromoInput = z.infer<typeof applyPromoInput>;
 export type CreateIntentInput = z.infer<typeof createIntentInput>;
 export type ScanInput = z.infer<typeof scanInput>;
+export type GrocerySearchInput = z.infer<typeof grocerySearchInput>;
 export type CartViewInput = z.infer<typeof cartViewInput>;
 export type SetPickupSlotInput = z.infer<typeof setPickupSlotInput>;
