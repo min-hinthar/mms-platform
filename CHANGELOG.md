@@ -4,6 +4,37 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — M2·P2.2 honest pickup scheduling (2026-06-20)
+
+- **Capacity-limited pickup slots + a server fire-time.** Migration `20260620000100_pickup_scheduling`
+  adds a tunable single-row `pickup_config` (tz, hours, slot interval, **capacity per slot**, lead, prep,
+  hold TTL — seeded 10:30am–6:30pm · 15-min · 6/slot for Covina), `pickup_slot` + `fire_at` columns on
+  `qr_carts` → carried to `qr_orders`, and two service-role-only SECURITY DEFINER functions:
+  - **`mms_pickup_slots(p_exclude_cart)`** — tz-aware, returns today's bookable slots from
+    `max(open, now+lead)` to close with **remaining capacity = capacity − (paid orders + live holds)**.
+    A "hold" is an open cart that picked the slot and is still active (session unexpired, touched within
+    the hold TTL) — so **capacity is honest _during_ ordering, not only after payment** (without this,
+    N diners all see the last seat free before any has a paid row → overbook). `p_exclude_cart` drops
+    the caller's own hold so a diner sees their slot's true availability.
+  - **`mms_set_pickup_slot`** — race-safe (a per-slot `pg_advisory_xact_lock` serializes concurrent
+    picks of the same slot) + status-atomic; sets `pickup_slot` + `fire_at = slot − prep`.
+- **Fire-time = the S2 seam.** `fire_at` is computed + stored now for S2's KDS to consume; M2 has no
+  kitchen actor, so nothing fires yet — no second timer grown (per the roadmap touch-point).
+- **`/track` echoes the chosen slot as the ETA** ("Ready ~11:45 AM") with the pickup step variant
+  (`Order placed → In the kitchen → Ready for pickup → Picked up`) — **no fabricated countdown, no
+  "we'll text you"** promise the code can't keep. create-intent re-validates the slot still has room at
+  the pay boundary (excluding the cart's own hold) and requires a slot for pickup orders; the cart
+  surfaces the reason ("Pick a pickup time first." / "That pickup time just filled — pick another.").
+- **UI (v7.2):** the "Pick a pickup time" sheet (`PickupSlotSheet`, capacity-aware, auto-opens on first
+  pickup load), a header chip showing/Changing the slot (`PickupSlotChip`), tz-correct time display.
+- **Validated** on a local Postgres stack (slot generation, fire-offset, hold-based capacity, exclude-self
+  re-pick, advisory-lock serialization, stale-hold freeing, fulfillment carry) and **applied to the live
+  QR project** (grant lockdown verified `anon=false`; advisors clean apart from the intentional
+  `pickup_config` default-deny). **Pre-PR adversarial subagent: FAIL → fixed → PASS** — it caught the
+  capacity-overbooking race (paid-only count); the holds + advisory lock + exclude-self close it.
+- _Deferred:_ an inline slot-picker on `/cart` (today a slot-less checkout shows a clear reason and the
+  diner picks via the menu chip); a hold/abandoned-cart sweep (holds self-expire via the TTL).
+
 ### Added — M2·P2.1 server-validated promo codes (2026-06-20)
 
 - **Real promo enforcement, server-authoritative.** Migration `20260620000000_promo_validation` gives

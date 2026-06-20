@@ -140,8 +140,16 @@ export function Checkout({
         totals?: CartTotals;
         error?: string;
       };
-      if (!res.ok || !data.clientSecret || !data.totals)
-        throw new Error(data.error ?? `HTTP ${res.status}`);
+      if (!res.ok || !data.clientSecret || !data.totals) {
+        // A 4xx carries a safe, server-authored reason (e.g. "Pick a pickup time first.", a filled
+        // slot); 5xx stays generic so a raw SDK/config string never reaches the client (recon).
+        setPayError(
+          res.status < 500 && data.error
+            ? data.error
+            : "Couldn’t start checkout — please try again.",
+        );
+        return;
+      }
       setClientSecret(data.clientSecret);
       setPayTotals(data.totals);
       setStep("pay");

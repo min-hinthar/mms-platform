@@ -3,6 +3,7 @@ import { publicClient } from "@mms/db/server";
 import { TableCartProvider } from "@/components/TableCartProvider";
 import { AddButton } from "@/components/AddButton";
 import { CartBar } from "@/components/CartBar";
+import { PickupSlotChip } from "@/components/PickupSlotChip";
 
 // RSC menu — reads the catalog (`menu_items`) server-side with the ANON/publishable key (gated by
 // public-read RLS, least privilege — no service-role on a public render): uuid id, base_price_cents
@@ -44,6 +45,7 @@ export default async function Menu({ searchParams }: { searchParams: Promise<{ m
             {mode === "dinein" ? "Dine-in" : mode === "pickup" ? "Pickup" : "Scan & Go"}
           </p>
           <h1 style={{ fontSize: 34 }}>Menu</h1>
+          {mode === "pickup" && <PickupSlotChip />}
         </header>
         {cats.map((c) => (
           <section key={c} style={{ padding: "8px 20px" }}>

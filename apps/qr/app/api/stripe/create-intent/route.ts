@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { serviceClient } from "@mms/db/server";
 import { createIntentInput } from "@mms/db/schemas";
 import { getStripe } from "@/lib/stripe";
 import { getCartTotals } from "@/lib/totals";
@@ -12,7 +13,34 @@ export async function POST(req: NextRequest) {
     const { cartId, tipRate } = createIntentInput.parse(await req.json());
 
     // C3: only a verified member of this cart's session may mint its PaymentIntent.
-    await assertCartMember(cartId);
+    const { sessionId } = await assertCartMember(cartId);
+
+    // Pickup honesty (P2.2): a pickup order must hold a still-available slot. Re-check at the pay
+    // boundary — a slot can fill between selection and checkout, and capacity is server-authoritative.
+    const db = serviceClient();
+    const { data: sess } = await db
+      .from("table_sessions")
+      .select("mode")
+      .eq("id", sessionId)
+      .single();
+    if (sess?.mode === "pickup") {
+      const { data: cart } = await db
+        .from("qr_carts")
+        .select("pickup_slot")
+        .eq("id", cartId)
+        .single();
+      if (!cart?.pickup_slot)
+        return NextResponse.json({ error: "Pick a pickup time first." }, { status: 400 });
+      // Exclude THIS cart's own hold so we're asking "is there still room for me", not double-counting.
+      const { data: slots } = await db.rpc("mms_pickup_slots", { p_exclude_cart: cartId });
+      const slotMs = new Date(cart.pickup_slot).getTime();
+      const open = (slots ?? []).some((s) => new Date(s.slot_time).getTime() === slotMs);
+      if (!open)
+        return NextResponse.json(
+          { error: "That pickup time just filled — please pick another." },
+          { status: 409 },
+        );
+    }
 
     const totals = await getCartTotals(cartId, tipRate);
     const amount = totals.totalCents; // already cents, server-derived

@@ -13,15 +13,18 @@ QA gate, rubric, red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md),
   known test card"). For the M1 test-charge smoke, run prod on **test** keys (all three: publishable +
   secret + a **test**-mode `whsec_…`), then flip back to live for launch — or test locally via
   `stripe listen`. See `docs/ENV.md`.
-- **M2 started — P2.1 server-validated promo codes is done** (this session; PR on
-  `claude/feat/m2-p1-promo-codes`). Promo validation + caps + rate-limit live in SECURITY DEFINER fns
-  (`mms_promo_*`); `getCartTotals` derives the discount from one SQL source; `applyPromo` returns a
-  per-reason result. Migration `20260620000000` is **applied to the live QR project** (+ the
-  previously-unapplied P1.5 `track_realtime`). **Two durable lessons (in LEARNINGS):** (1) `revoke …
-from public` does NOT lock a fn from anon/authenticated — Supabase grants them too; revoke from all
-  three + verify with `has_function_privilege` + `get_advisors`. (2) CI green ≠ migration applied to
-  live — apply + verify after merge. **Next M2:** P2.2 pickup scheduling · P2.3 grocery session · P2.4
-  QBO sync.
+- **M2 in progress.** **P2.1 promo codes — done + merged** (`mms_promo_*` SECURITY DEFINER fns;
+  per-reason `applyPromo` result; migration `20260620000000`). **P2.2 pickup scheduling — done** (this
+  session; PR on `claude/feat/m2-p2-pickup-scheduling`): capacity-limited slots + server `fire_at` (the
+  S2 KDS seam) + `/track` echoes the chosen slot; `mms_pickup_slots`/`mms_set_pickup_slot` (migration
+  `20260620000100`). Both M2 migrations are **applied to the live QR project**. **Durable lessons (in
+  LEARNINGS):** (1) `revoke … from public` does NOT lock a fn from anon/authenticated — Supabase grants
+  them too; revoke all three + verify `has_function_privilege` + `get_advisors`. (2) CI green ≠
+  migration applied to live — apply + verify after merge. (3) Capacity-limited slots must count
+  in-progress **holds** (open carts), not just paid rows, + a per-slot advisory lock + an exclude-self
+  arg. **To regen types / test migrations locally:** download the pinned `supabase` CLI (2.107.0) from
+  GitHub releases, `sudo dockerd &`, `supabase start -x edge-runtime,…` (the pg-delta TLS error is
+  benign). **Next M2:** P2.3 grocery session · P2.4 QBO sync.
 - **P1.6 shipped (this session):** `apps/qr/proxy.ts` (Next 16's `middleware` rename) emits a
   **per-request nonce CSP** with `'strict-dynamic'` and **no `'unsafe-inline'`** on `script-src`; the
   static nonce-free headers stay in `next.config.ts`; the root layout is `force-dynamic` so the nonce

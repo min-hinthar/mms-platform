@@ -2,15 +2,22 @@
 import type { CSSProperties } from "react";
 import Link from "next/link";
 import { useOrderStatus } from "@/lib/useOrderStatus";
+import { formatSlot } from "@/lib/pickupTime";
 
-// Scan & Go lifecycle (ports v7.2 STEPS.scango). The active step is server-driven; at M1 there's no
-// kitchen actor, so it rests at "Order placed" — the kitchen steps light up when S2's KDS lands
-// (same Realtime subscription). Dine-in / pickup variants arrive with the S-track / M2.2.
-const STEPS: [title: string, sub: string][] = [
+// Lifecycle steps (verbatim v7.2). The active step is server-driven; at M1/M2 there's no kitchen
+// actor, so it rests at "Order placed" — the kitchen steps light up when S2's KDS lands (same Realtime
+// subscription). The pickup variant (P2.2) is chosen once the order carries a pickup_slot.
+const SCANGO_STEPS: [title: string, sub: string][] = [
   ["Order placed", "We have it"],
   ["In the kitchen", "Cooking"],
   ["Ready", "Bringing it out"],
   ["Served", "Enjoy!"], // 🍵 appended decoratively (aria-hidden) → "Enjoy! 🍵", verbatim v7.2 scango
+];
+const PICKUP_STEPS: [title: string, sub: string][] = [
+  ["Order placed", "We have it"],
+  ["In the kitchen", "Cooking"],
+  ["Ready for pickup", "Come on by"],
+  ["Picked up", "Thank you!"],
 ];
 
 /**
@@ -28,6 +35,11 @@ export function OrderTracker({
 }) {
   const { order, timedOut } = useOrderStatus(paymentIntent);
   const arrived = !!order;
+  // A pickup order carries a slot → use the pickup lifecycle + echo the slot as the honest ETA (no
+  // fabricated countdown). Until the order lands we don't know the mode, so default to Scan & Go.
+  const isPickup = !!order?.pickupSlot;
+  const STEPS = isPickup ? PICKUP_STEPS : SCANGO_STEPS;
+  const eta = isPickup && order?.pickupSlot ? `Ready ~${formatSlot(order.pickupSlot)}` : null;
   // `arrived` (the order row exists) is the ONE canonical signal: pulse step 0 once it lands, keep
   // every step pending until then. Don't gate on the URL `processing` param — it doesn't track
   // bank-settlement, so a debit that clears after the diner leaves (stale ?redirect_status=processing)
@@ -45,8 +57,13 @@ export function OrderTracker({
         }}
       >
         <div>
-          <div className="eyebrow">Scan &amp; Go</div>
+          <div className="eyebrow">{isPickup ? "Pickup" : "Scan & Go"}</div>
           <h1 style={{ fontSize: 28, margin: "2px 0 0" }}>Your order</h1>
+          {eta && (
+            <div style={{ marginTop: 6, fontWeight: 800, color: "var(--ac)", fontSize: 14 }}>
+              {eta}
+            </div>
+          )}
         </div>
         <span
           style={{
