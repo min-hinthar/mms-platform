@@ -80,6 +80,39 @@ has no item ref configured. The full Stripe PI id rides in `PrivateNote` (QBO's 
 `QBO_ITEM_SALES_REF`, and (only if those amounts ever appear) `QBO_ITEM_SERVICE_REF`,
 `QBO_ITEM_TAX_REF`, `QBO_ITEM_TIP_REF`.
 
+### Sandbox setup status — "Mandalay Morning Star" (done 2026-06-20)
+
+Connected via the Claude QuickBooks connector and created the entities the mapper references. (The
+connector can read/create customers + items but **cannot** create a company, a GL account, or the app's
+OAuth credentials — those stay manual, below.) These ids are non-secret QBO references = the env values:
+
+| Env var                | Entity (QBO)                     | Id  |
+| ---------------------- | -------------------------------- | --- |
+| `QBO_CUSTOMER_REF`     | Customer "QR Diner"              | 126 |
+| `QBO_ITEM_SALES_REF`   | Non-Inventory "QR Sales (Goods)" | 740 |
+| `QBO_ITEM_SERVICE_REF` | Service "QR Service Charge"      | 737 |
+| `QBO_ITEM_TAX_REF`     | Service "QR Sales Tax"           | 738 |
+| `QBO_ITEM_TIP_REF`     | Service "QR Tip"                 | 739 |
+
+- Order line items map to a **Non-Inventory product** ("QR Sales (Goods)", 740) — goods sold, stock tracked
+  in the MMS DB not QBO (so not INVENTORY, which would make QBO double-track quantities). The earlier
+  Service-typed "QR Sales" (736) is superseded — **deactivate it** in the QBO UI. Service charge / tax /
+  tip stay Service items (they're fees, not goods).
+- **Books note:** "QR Sales Tax" (738) + "QR Tip" (739) currently map to the default income account; for
+  real books remap them to **liability** accounts (sales-tax-payable, tips-payable) in the QBO UI.
+
+**Still needed before the first post (manual — the connector can't do these):**
+
+1. `QBO_CLEARING_ACCOUNT_REF` — create a **"Stripe Clearing"** account (Chart of Accounts → New → Bank or
+   Other Current Asset) and note its id.
+2. `QBO_REALM_ID` — the sandbox company id (Intuit developer dashboard).
+3. `QBO_CLIENT_ID` / `QBO_CLIENT_SECRET` / `QBO_REFRESH_TOKEN` — create an Intuit **Developer app**,
+   authorize it against this sandbox, and run the OAuth2 flow for a refresh token. (The connector's own
+   token is internal to it and can't be reused by the app.)
+
+Then set all of the above + the five refs in **Vercel (Production scope)**, `QBO_ENV=sandbox`,
+`QBO_SYNC_ENABLED=true`, redeploy, and run one test order (activation step 4).
+
 ## Deferred (follow-ups, tracked for activation — not in this slice)
 
 - **Refresh-token rotation.** Intuit rotates the refresh token on each exchange; production must persist
