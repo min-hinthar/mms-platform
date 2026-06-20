@@ -1,0 +1,65 @@
+import { NextResponse, type NextRequest } from "next/server";
+
+/**
+ * Per-request nonce CSP (M1·P1.6). A fresh nonce on every response lets us drop `script-src
+ * 'unsafe-inline'` — the one directive that made the old static CSP toothless against an injected
+ * <script>. `'strict-dynamic'` then trusts only the nonced framework bootstrap and whatever IT
+ * loads (Stripe.js via `loadStripe`, PostHog via the same-origin `/ingest` proxy), so the
+ * `https://js.stripe.com` host source is just a fallback for pre-CSP3 browsers. Next.js reads the
+ * nonce off the request CSP header and stamps it onto every framework <script> automatically.
+ *
+ * CSP lives here (not in next.config's static `headers()`) precisely because the nonce must change
+ * per request; the static, nonce-free headers (Referrer-Policy / nosniff / Permissions-Policy /
+ * HSTS) stay in next.config so they also cover API + static responses this matcher skips.
+ *
+ * `proxy` is Next 16's rename of the `middleware` convention (same Edge runtime + matcher API).
+ */
+export function proxy(request: NextRequest) {
+  const nonce = btoa(crypto.randomUUID());
+
+  const csp = [
+    "default-src 'self'",
+    // 'self' + js.stripe.com are the CSP2 fallback; CSP3 browsers honor 'strict-dynamic' and ignore
+    // them, trusting the nonce + scripts the nonced bundle loads (Stripe.js, the /ingest PostHog SDK).
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://js.stripe.com`,
+    // Inline styles stay allowed: React style props, next/font, and NumberFlow emit them, and CSS
+    // injection is a marginal risk next to script. Tighten to a nonce/hash if that calculus changes.
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob: https://*.supabase.co",
+    "font-src 'self'",
+    // Supabase REST + Realtime websocket; the Stripe API; PostHog is first-party via the /ingest rewrite.
+    "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com",
+    // Stripe's Payment Element mounts these iframes.
+    "frame-src https://js.stripe.com https://hooks.stripe.com",
+    "worker-src 'self' blob:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ].join("; ");
+
+  // Next reads the nonce from the CSP on the *request* to stamp its own <script> tags; the browser
+  // enforces the CSP on the *response*. `x-nonce` is exposed for any app-authored <Script nonce=…>.
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-nonce", nonce);
+  requestHeaders.set("content-security-policy", csp);
+
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
+  response.headers.set("content-security-policy", csp);
+  return response;
+}
+
+export const config = {
+  // Document routes only — skip API, the Next static/image pipelines, the PostHog /ingest proxy, and
+  // prefetches (an RSC-payload prefetch carries no inline bootstrap to nonce; the real navigation
+  // that follows hits this middleware).
+  matcher: [
+    {
+      source: "/((?!api|_next/static|_next/image|ingest|favicon.ico).*)",
+      missing: [
+        { type: "header", key: "next-router-prefetch" },
+        { type: "header", key: "purpose", value: "prefetch" },
+      ],
+    },
+  ],
+};

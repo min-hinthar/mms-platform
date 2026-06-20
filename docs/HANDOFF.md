@@ -1,4 +1,4 @@
-# Session Handoff — MMS Platform (2026-06-18)
+# Session Handoff — MMS Platform (2026-06-20)
 
 The originating chat context does not carry across sessions — **this file is the durable pickup
 point.** Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (the research map — decisions,
@@ -7,9 +7,19 @@ QA gate, rubric, red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md),
 
 ## Where we are
 
-- **Milestone M1 (walking pay path).** Backend foundation, **P1.1 anonymous-auth wiring**,
-  **P1.2 cart-create + line-merge + the cart flow**, and now **P1.3 Stripe Payment Element (test
-  mode)** are done. Next up: **P1.4 fulfillment** → **P1.5 Track timeline**.
+- **Milestone M1 (walking pay path) — code-complete.** P1.1 anon-auth, P1.2 cart, P1.3 Payment
+  Element, **P1.4 fulfillment** (retry-safe webhook), **P1.5 live Track** (Realtime), and **P1.6
+  hardening** (nonce CSP + fail-fast env) are all done. **The only thing left for the M1 exit is
+  infra:** wire the Vercel **Preview** env (test Stripe keys + `STRIPE_WEBHOOK_SECRET` + the QR
+  Supabase keys — see `docs/ENV.md`) so a PR preview can take a real **test** charge end-to-end.
+  After that, M1's gate is met → start **M2** (promos / scheduling / grocery session / QBO).
+- **P1.6 shipped (this session):** `apps/qr/proxy.ts` (Next 16's `middleware` rename) emits a
+  **per-request nonce CSP** with `'strict-dynamic'` and **no `'unsafe-inline'`** on `script-src`; the
+  static nonce-free headers stay in `next.config.ts`; the root layout is `force-dynamic` so the nonce
+  reaches every page's scripts (verified: nonce on all 18 `<script>`s, rotates per request, `/api`
+  skipped). Server secrets now fail fast via `requireEnv` (`@mms/db/server.ts` + the webhook secret).
+  `Permissions-Policy` fixed to `camera=(self)` (the grocery scanner needs it). `docs/ENV.md` is the
+  Vercel env map. **If you add an external origin, allow-list it in `proxy.ts`.**
 - **P1.3 shipped:** two-step checkout (review + tip → pay) — `Checkout.tsx` "Continue to payment"
   POSTs the member-gated `/api/stripe/create-intent` `{cartId, tipRate}`; `PaymentSection.tsx` mounts
   `<Elements>`/`<PaymentElement>` (appearance from `@mms/ui` tokens, light/Night) on the returned

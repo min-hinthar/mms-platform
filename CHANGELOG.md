@@ -4,6 +4,44 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — M1·P1.6 hardening: nonce CSP + fail-fast env (2026-06-20)
+
+- **Nonce-based Content-Security-Policy.** New `apps/qr/proxy.ts` (Next 16's rename of the
+  `middleware` convention) mints a **fresh nonce per request** and emits
+  `script-src 'self' 'nonce-…' 'strict-dynamic' https://js.stripe.com` — so we finally **drop
+  `script-src 'unsafe-inline'`**, the one directive that made the old static CSP toothless against an
+  injected `<script>`. `'strict-dynamic'` trusts the nonced framework bootstrap and whatever it loads
+  (Stripe.js via `loadStripe`; PostHog via the same-origin `/ingest` proxy), so the host allow-list is
+  just a pre-CSP3 fallback. The CSP **moved out of `next.config.ts`** (a per-request nonce can't be a
+  static header) into the proxy; the nonce-free headers (Referrer-Policy / `nosniff` /
+  Permissions-Policy / HSTS) stay in `next.config.ts` so they still cover the API + static responses
+  the proxy matcher skips. Also tightened: `object-src 'none'`, `form-action 'self'`,
+  `worker-src 'self' blob:`.
+- **All routes render dynamically** (`export const dynamic = "force-dynamic"` in the root layout):
+  Next can only stamp the per-request nonce onto its `<script>` tags during a per-request render, so a
+  statically prerendered shell would ship scripts with no nonce and `'strict-dynamic'` would block
+  them. The app is anon-auth + DB-driven, so the four otherwise-static shells lose no meaningful
+  optimization. Verified end-to-end: the response CSP nonce matches the nonce on **all 18** rendered
+  `<script>` tags, and rotates per request; `/api/*` correctly gets no CSP.
+- **Fixed in passing — `Permissions-Policy: camera=(self)`.** The header was `camera=()`, an empty
+  allow-list that blocks the camera for **all** origins including our own — which would silently break
+  the grocery Scan & Go viewfinder (`getUserMedia`). Now first-party only; mic/geo stay fully off.
+- **Fail-fast env reads (hardening).** `packages/db/src/server.ts` now reads
+  `NEXT_PUBLIC_SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` / the publishable key through a
+  `requireEnv` guard that throws `Missing required env var: …` instead of the old `process.env.X!`
+  feeding `undefined` to `createClient` (which resurfaced as a cryptic auth/network failure deeper in
+  the stack — and once masked the delivery-vs-QR project mix-up). The Stripe **webhook** now returns a
+  clear `500 "Webhook not configured"` when `STRIPE_WEBHOOK_SECRET` is unset (so Stripe redelivers once
+  it's wired) instead of feeding `undefined` to `constructEvent` and masquerading as a `400 "Bad
+  signature"`; a missing `stripe-signature` header is an explicit 400.
+- **`docs/ENV.md`** — the variable inventory (client/server, secret/not) + the Vercel **preview→prod**
+  matrix (test keys on Preview, live on Production; staging when QR gets traffic), and the steps to
+  wire the Preview env that unblock the Payment Element on PR previews. _Remaining (infra, Min):_ set
+  those Preview env vars in Vercel.
+- **ESLint flat config + `packages/config`** (the third P1.6 line item) already landed in M0·P0.9 —
+  `@mms/config/eslint` is the shared base and `apps/qr/eslint.config.mjs` extends it; verified, no
+  change needed.
+
 ### Added — M1·P1.5 live order tracking via Realtime (2026-06-19)
 
 - **`/track` is now live.** After the Payment Element redirect, `apps/qr/components/OrderTracker.tsx` subscribes (`apps/qr/lib/useOrderStatus.ts`) to **Realtime Postgres Changes** on the diner's own `qr_orders` row — keyed by the `payment_intent` Stripe appends to the `return_url` — so the order appears **the moment the async webhook fulfills, with no manual refresh** (closes the deferred processing-state polling). Authorization is the existing `qr_order_read` RLS (`is_member(session_id)`), enforced per-subscriber, so a guessed `payment_intent` reveals nothing. Migration `20260619000400_track_realtime` adds `qr_orders` to the `supabase_realtime` publication (guarded/idempotent; no schema/type change). A **bounded fallback re-fetch** (~30s) covers the redirect→insert race / a cold socket so the order reliably surfaces even if the live channel is slow.

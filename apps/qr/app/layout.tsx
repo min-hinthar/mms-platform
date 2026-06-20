@@ -13,6 +13,13 @@ export const metadata = {
   description: "Order at the teahouse: dine-in, scan & go, or pickup.",
 };
 
+// The nonce CSP (proxy.ts) mints a fresh nonce per request; Next can only stamp it onto its
+// <script> tags during a per-request render. A statically prerendered page bakes its scripts at
+// build time with no nonce, so 'strict-dynamic' would block them. Render every route dynamically
+// so the current request's nonce reaches the framework scripts. (The app is anon-auth + DB-driven,
+// so the four otherwise-static shells lose no meaningful optimization.)
+export const dynamic = "force-dynamic";
+
 // Next 16 split themeColor/viewport out of metadata into its own export. Set both
 // schemes so the address-bar/status-bar matches Day and Night surfaces.
 export const viewport: Viewport = {

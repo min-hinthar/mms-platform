@@ -3,9 +3,29 @@ import { createClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
 import type { Database } from "./database.types";
 
-// Accept either the legacy anon key or the new publishable key env name.
-const PUBLISHABLE_KEY =
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+/**
+ * Fail-fast env read (P1.6). A missing secret is a deploy/config error — surfacing it here, named,
+ * beats a silent `undefined` that the old `process.env.X!` handed to `createClient`, where it
+ * resurfaced as a cryptic auth/network failure several layers down (and once, in this sandbox,
+ * masked the delivery-vs-QR project mix-up). Read at call time, so a misconfig fails the request,
+ * not the build.
+ */
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`Missing required env var: ${name}`);
+  return value;
+}
+
+/** Accept either the legacy anon key or the new publishable key env name; require one. */
+function publishableKey(): string {
+  const value =
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  if (!value)
+    throw new Error(
+      "Missing required env var: NEXT_PUBLIC_SUPABASE_ANON_KEY (or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)",
+    );
+  return value;
+}
 
 /**
  * Service-role client — SERVER ONLY. Bypasses RLS by design: the server is the
@@ -14,8 +34,8 @@ const PUBLISHABLE_KEY =
  */
 export function serviceClient() {
   return createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    requireEnv("NEXT_PUBLIC_SUPABASE_URL"),
+    requireEnv("SUPABASE_SERVICE_ROLE_KEY"),
     { auth: { persistSession: false } },
   );
 }
@@ -26,7 +46,7 @@ export function serviceClient() {
  * hands the service-role key to a public render path.
  */
 export function publicClient() {
-  return createClient<Database>(process.env.NEXT_PUBLIC_SUPABASE_URL!, PUBLISHABLE_KEY!, {
+  return createClient<Database>(requireEnv("NEXT_PUBLIC_SUPABASE_URL"), publishableKey(), {
     auth: { persistSession: false },
   });
 }
@@ -38,7 +58,7 @@ export function publicClient() {
  * round-trip), so it's the trustworthy way to turn a Bearer token into `auth.uid()`.
  */
 export function sessionClient(accessToken: string) {
-  return createClient<Database>(process.env.NEXT_PUBLIC_SUPABASE_URL!, PUBLISHABLE_KEY!, {
+  return createClient<Database>(requireEnv("NEXT_PUBLIC_SUPABASE_URL"), publishableKey(), {
     global: { headers: { Authorization: `Bearer ${accessToken}` } },
     auth: { persistSession: false },
   });
@@ -61,7 +81,7 @@ export type CookieStore = {
  * a service-role mutation against `session_members`. RLS still applies to this client's own reads.
  */
 export function serverClient(cookieStore: CookieStore) {
-  return createServerClient<Database>(process.env.NEXT_PUBLIC_SUPABASE_URL!, PUBLISHABLE_KEY!, {
+  return createServerClient<Database>(requireEnv("NEXT_PUBLIC_SUPABASE_URL"), publishableKey(), {
     cookies: {
       getAll: () => cookieStore.getAll(),
       setAll: (cookiesToSet) => {

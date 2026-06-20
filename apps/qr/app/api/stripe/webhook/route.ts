@@ -7,11 +7,19 @@ import { getPostHogClient } from "@/lib/posthog-server";
 // Fulfillment is webhook-driven, signature-verified, idempotent (QA checklist).
 // Stripe retries non-200s for up to 72h, so this must be safe to run more than once.
 export async function POST(req: NextRequest) {
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    // Config error, not a bad request: 500 so Stripe redelivers once the secret is wired (vs. the
+    // old `!`, which fed `undefined` to constructEvent and masqueraded as a 400 "Bad signature").
+    console.error("[stripe webhook] STRIPE_WEBHOOK_SECRET is not set");
+    return NextResponse.json({ error: "Webhook not configured" }, { status: 500 });
+  }
   const sig = req.headers.get("stripe-signature");
+  if (!sig) return NextResponse.json({ error: "Missing stripe-signature" }, { status: 400 });
   const body = await req.text();
   let event;
   try {
-    event = getStripe().webhooks.constructEvent(body, sig!, process.env.STRIPE_WEBHOOK_SECRET!);
+    event = getStripe().webhooks.constructEvent(body, sig, webhookSecret);
   } catch (e) {
     return NextResponse.json({ error: `Bad signature: ${(e as Error).message}` }, { status: 400 });
   }
