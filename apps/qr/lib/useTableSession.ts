@@ -8,15 +8,31 @@ export type TableSession = {
   sessionId: string;
   seat: string;
   accessToken: string;
+  role: "host" | "guest";
+  /** The code other phones scan/enter to join this dine-in session (== the session's qr_code). */
+  joinCode: string;
 };
 
+const DINEIN_KEY = "mms.qr.dinein";
+const NAME_KEY = "mms.name";
+
 /**
- * A stable per-device QR identity per mode, so reloads reuse the SAME table session + cart instead
- * of minting a fresh one on every navigation. For dine-in this is the scanned physical table code;
- * for solo scan-&-go / pickup a per-device id is the honest stand-in until QR provisioning (M3+).
+ * Resolve the session key (== qr_code == join code) for this device + mode.
+ *
+ * - **dine-in (group, M3·P3.1):** the shared key comes from the deep link (`?t=`/`?j=` → `code`) or
+ *   a prior join persisted in localStorage, so every phone at the table converges on ONE session.
+ *   When a host starts fresh with neither, we return `undefined` → the server mints an unguessable
+ *   code and returns it (persisted below so a reload rejoins the same session).
+ * - **solo (scan-&-go / pickup):** a stable per-device id — each device is its own session.
  */
-function deviceQrCode(mode: string): string {
-  if (typeof window === "undefined") return `${mode}-ssr`;
+function resolveQrCode(mode: string, code: string | undefined): string | undefined {
+  if (mode === "dinein") {
+    if (code) {
+      window.localStorage.setItem(DINEIN_KEY, code);
+      return code;
+    }
+    return window.localStorage.getItem(DINEIN_KEY) ?? undefined; // undefined → server mints one
+  }
   const key = `mms.qr.${mode}`;
   let v = window.localStorage.getItem(key);
   if (!v) {
@@ -27,13 +43,18 @@ function deviceQrCode(mode: string): string {
 }
 
 /**
- * Establishes the diner's table session + open cart for `mode` and returns the `cartId`. Waits for
- * the anonymous-auth session (AnonAuthGate), then POSTs `/api/session` with the Bearer anon token;
- * the server verifies it, records membership, and find-or-creates the open cart (server-authoritative
- * — the client never invents a cart id). Idempotent: re-POSTing returns the same active session/cart.
+ * Establishes the diner's table session + open cart for `mode` and returns it. Waits for the
+ * anonymous-auth session (AnonAuthGate), then POSTs `/api/session` with the Bearer anon token; the
+ * server verifies it, records membership, and find-or-creates the open cart (server-authoritative —
+ * the client never invents a cart id). Idempotent: re-POSTing returns the same active session/cart.
+ *
+ * `opts.code` is the dine-in join key from the entry deep link (a scanned sticker token or the
+ * host's invite code). Group-cart presence/split build on the returned `role` + `joinCode`.
  */
-export function useTableSession(mode: string) {
+export function useTableSession(mode: string, opts?: { code?: string; joinOnly?: boolean }) {
   const anon = useAnonSession();
+  const code = opts?.code;
+  const joinOnly = opts?.joinOnly ?? false;
   const [session, setSession] = useState<TableSession | null>(null);
   const [error, setError] = useState<string | null>(null);
   const minting = useRef(false);
@@ -43,14 +64,22 @@ export function useTableSession(mode: string) {
     // never re-mint, so a *runtime* mode change would no-op — remount the route to switch modes.
     if (!anon || session || minting.current) return;
     minting.current = true;
-    const qrCode = deviceQrCode(mode);
+    const qrCode = resolveQrCode(mode, code); // may be undefined for a dine-in host-start
+    const storedName = window.localStorage.getItem(NAME_KEY);
     fetch("/api/session", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${anon.accessToken}`,
       },
-      body: JSON.stringify({ qrCode, mode }),
+      body: JSON.stringify({
+        ...(qrCode ? { qrCode } : {}),
+        mode,
+        ...(storedName ? { name: storedName } : {}),
+        // Only the invite-code path (a present `code` we didn't generate) is join-only; a host-start
+        // (no code → server mints one) must be allowed to create.
+        ...(joinOnly && qrCode ? { joinOnly: true } : {}),
+      }),
     })
       .then(async (r) => {
         if (!r.ok) {
@@ -61,19 +90,24 @@ export function useTableSession(mode: string) {
         // skew throws here instead of silently driving a cart-less UI.
         return sessionMintOutput.parse(await r.json());
       })
-      .then((d) =>
+      .then((d) => {
+        // Persist the resolved dine-in code so a reload (or a tab without the deep-link param)
+        // rejoins the SAME session instead of the host minting a second one.
+        if (mode === "dinein") window.localStorage.setItem(DINEIN_KEY, d.joinCode);
         setSession({
           cartId: d.cartId,
           sessionId: d.sessionId,
           seat: d.seat,
           accessToken: anon.accessToken,
-        }),
-      )
+          role: d.role,
+          joinCode: d.joinCode,
+        });
+      })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Could not start session"))
       .finally(() => {
         minting.current = false;
       });
-  }, [anon, mode, session]);
+  }, [anon, mode, session, code, joinOnly]);
 
   return { session, loading: !session && !error, error };
 }

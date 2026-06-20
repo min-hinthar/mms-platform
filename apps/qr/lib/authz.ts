@@ -76,6 +76,35 @@ export async function assertCartMember(cartId: string): Promise<CartAuthz> {
   return { uid, sessionId: cart.session_id, locked: cart.locked };
 }
 
+/**
+ * Authorize the caller against a *session* (not a cart) — for membership-scoped mutations that
+ * aren't a cart write (e.g. renaming your own seat for the presence guest list). Same rule as
+ * is_member: a verified uid with a row in this active session. Returns the uid (the seat to scope
+ * the write to — a member can only touch their OWN membership, never another seat's).
+ */
+export async function assertSessionMember(sessionId: string): Promise<{ uid: string }> {
+  const uid = await getCallerUid();
+  const db = serviceClient();
+
+  const { data: sess } = await db
+    .from("table_sessions")
+    .select("status,expires_at")
+    .eq("id", sessionId)
+    .maybeSingle();
+  if (!sess || sess.status === "closed" || new Date(sess.expires_at) <= new Date())
+    throw new AuthzError("Session is no longer active", 403);
+
+  const { data: member } = await db
+    .from("session_members")
+    .select("seat_id")
+    .eq("session_id", sessionId)
+    .eq("seat_id", uid)
+    .maybeSingle();
+  if (!member) throw new AuthzError("Not a member of this session", 403);
+
+  return { uid };
+}
+
 /** Same guard, keyed by a cart *line* id (resolves the owning cart first). */
 export async function assertCartItemMember(
   cartItemId: string,

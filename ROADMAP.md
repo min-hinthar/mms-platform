@@ -56,14 +56,14 @@ Smallest slice that takes one real test charge end-to-end (solo Scan & Go). **No
 
 **Exit:** mixed taxable/exempt carts reconcile to the cent; promos enforced server-side; pickup ETA truthful.
 
-## ⬜ M3 — Group cart (multi-device) &nbsp;`milestone:M3`
+## 🟡 M3 — Group cart (multi-device) &nbsp;`milestone:M3`
 
-- **P3.1** Join flow: scan → session → guest list (presence). ⬜
-- **P3.2** Realtime broadcast of cart changes; server-authoritative merge. ⬜
-- **P3.3** Per-person split + assignment; host lock/remove with `canMutate` parity to the prototype. ⬜
-- **P3.4** Abuse limits: rate limits, session expiry, RLS membership tests. ⬜
+- **P3.1** Join flow: scan → session → guest list (presence) — ✅ a 2nd phone joins one dine-in cart via a table **sticker** (`?t=`) or the host's **server-issued invite code** (`?j=`, join-only — a wrong code 404s, never mints a phantom host-table); the `qr_code` doubles as the join key, find-or-join converges every phone on one cart, race-safe via a partial unique index (no split-brain, no types drift). Live **presence guest list — dine-in only** (RED-TEAM #3): stable-seat key (no ghosts), name sanitized on ingest, a join announced through the single live region, v7.2 party avatars + "party of N", inline retry on a failed mint. `setDisplayName` (member-authz'd, own-seat, Zod + column CHECK, no PII to PostHog). Schema-light: migration `20260620000500`. ✅
+- **P3.2** Realtime broadcast of cart changes; server-authoritative merge (keyed React state, never an `innerHTML` rebuild). ⬜
+- **P3.3** Per-person split + assignment; host lock/remove with `canMutate(line_state, actor_role)` parity to the prototype — **split-tender** (each guest pays their own server-derived share; pulls the **S4.3** seam forward per the milestone decision), the **cart-lock-at-pay** lifecycle (deferred from P1.3), N PaymentIntents + a per-seat share ledger, fulfill-only-when-all-shares-clear, share/line refunds. ⬜
+- **P3.4** Abuse limits: join/mutation rate limits, session expiry/sweep, RLS membership tests, party-size caps. ⬜
 
-**Exit:** two phones at one table order together; only members read/mutate; host lock holds.
+**Exit:** two phones at one table order together; only members read/mutate; host lock holds; each guest can settle their own share.
 
 ## ⬜ M4 — Rewards & account &nbsp;`milestone:M4`
 
@@ -139,7 +139,7 @@ Dine-in + take-out + grocery in one cart, one payment, mixed fulfillment. **Dep:
 
 - **S4.1** Per-line **fulfillment tag** (dine-in / to-go / grocery) → KDS-now / KDS-at-checkout / bag-only; cart **grouped by destination** for legibility. ⬜
 - **S4.2** To-go timing — **fire at checkout** (= tab-close, or the explicit **"make it now"** toggle on pay-now) + a **"ready in ~X"** departure-readiness signal. ⬜
-- **S4.3** **Split-tender seam** — a payment covers a **subset** of lines (single-tender at launch) + **line-level refunds**; lets M6 EBT be a tender-time branch, not a rewrite. ⬜
+- **S4.3** **Split-tender seam** — a payment covers a **subset** of lines (single-tender at launch) + **line-level refunds**; lets M6 EBT be a tender-time branch, not a rewrite. 🟡 _pulled forward:_ **M3·P3.3** builds the per-seat split-tender (each guest pays their own share); S4.3 then generalizes it to arbitrary line subsets + mixed-basket fulfillment. ⬜
 
 **Exit:** one basket pays for served + to-go + grocery with correct per-line tax; to-go is fresh at departure; a payment can already target a line subset.
 

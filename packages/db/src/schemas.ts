@@ -15,11 +15,31 @@ const uuid = z.string().uuid();
 /** A guest's display name is user-controlled → cap length; JSX escapes it at render. */
 const displayName = z.string().trim().min(1).max(40);
 
-/** POST /api/session — mint/join a table session bound to a scanned physical QR. */
+/**
+ * POST /api/session — mint/join a table session.
+ *
+ * `qrCode` is the session key AND (for dine-in group cart, M3·P3.1) the shareable join code: a
+ * scanned sticker token, the host's invite code, or a solo per-device id. It is OPTIONAL — when a
+ * host starts a fresh dine-in session with no sticker, the omit signals the SERVER to mint an
+ * unguessable code (generateJoinCode) and return it for the host to share. Never trust a client
+ * price; this only shapes the join key + the optional display name.
+ */
 export const sessionMintInput = z.object({
-  qrCode: z.string().trim().min(1).max(100),
+  qrCode: z.string().trim().min(1).max(100).optional(),
   mode: z.enum(["dinein", "scango", "pickup"]).default("dinein"),
   name: displayName.default("Guest"),
+  // join-ONLY (M3·P3.1): set when joining via the host's invite code (`?j=`). The server must NOT
+  // create a session if the code has no active match — a fat-fingered code shouldn't mint a phantom
+  // table with the typer as host. A scanned sticker (`?t=`) leaves this false → first scanner may
+  // provision the table.
+  joinOnly: z.boolean().default(false),
+});
+
+/** setDisplayName — a member renames THEIR OWN seat (presence guest list). Server re-verifies the
+ *  caller is a member of `sessionId`; the name is length-capped + JSX-escaped at render (XSS). */
+export const setDisplayNameInput = z.object({
+  sessionId: uuid,
+  name: displayName,
 });
 
 /** addItem — the client asserts only an item id + chosen modifier OPTION ids (never a price). */
@@ -82,10 +102,14 @@ export const sessionMintOutput = z.object({
   seat: uuid,
   role: z.enum(["host", "guest"]),
   cartId: uuid,
+  // The resolved session key — the code other phones scan/enter to join this dine-in session.
+  // For solo modes it's the per-device id (the UI doesn't surface it).
+  joinCode: z.string().min(1),
 });
 
 export type SessionMintInput = z.infer<typeof sessionMintInput>;
 export type SessionMintOutput = z.infer<typeof sessionMintOutput>;
+export type SetDisplayNameInput = z.infer<typeof setDisplayNameInput>;
 export type AddItemInput = z.infer<typeof addItemInput>;
 export type SetQtyInput = z.infer<typeof setQtyInput>;
 export type ApplyPromoInput = z.infer<typeof applyPromoInput>;
