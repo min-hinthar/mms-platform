@@ -25,9 +25,9 @@ export function PickupSlotSheet({
   const [pendingSlot, setPendingSlot] = useState<string | null>(null); // the chip being set (instant feedback)
   const [pending, start] = useTransition();
 
-  // Re-fetch availability each time the sheet opens (capacity is live). setState lives only in the
-  // async callbacks (the allowed "sync from an external system" pattern — no synchronous setState in
-  // the effect body); a fresh load also clears any stale error from a prior failed pick.
+  // Re-fetch availability each time the sheet opens, or if the cart changes (capacity is live). setState
+  // lives only in the async callbacks (the allowed "sync from an external system" pattern — no synchronous
+  // setState in the effect body); a fresh load also clears any stale error from a prior failed pick.
   useEffect(() => {
     if (!open) return;
     let active = true;
@@ -41,7 +41,7 @@ export function PickupSlotSheet({
     return () => {
       active = false;
     };
-  }, [open]);
+  }, [open, cartId]);
 
   function choose(slot: string) {
     setPendingSlot(slot); // synchronous → the tapped chip shows "Setting…" on tap, before the round-trip

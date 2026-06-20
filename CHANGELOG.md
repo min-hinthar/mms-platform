@@ -44,6 +44,22 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 - _Deferred:_ an inline slot-picker on `/cart` (today a slot-less checkout shows a clear reason and the
   diner picks via the menu chip); a hold/abandoned-cart sweep (holds self-expire via the TTL).
 
+### Fixed — M2·P2.2 same-day slot alignment (2026-06-20)
+
+- **Same-day pickup slots rendered off-grid and were false-rejected at checkout** — a regression from the
+  `20260620000200` multiday rewrite, which moved `now+lead` into today's `generate_series` lower bound,
+  anchoring the grid at a non-aligned instant that drifts every second. Two breakages across the whole
+  operating window (any time `now+lead > open`): (1) slots showed arbitrary times (e.g. 11:18, 11:33)
+  instead of the aligned :00/:15/:30/:45; (2) the grid shifted between a diner's pick and the
+  re-validation — and **both** `mms_set_pickup_slot` and the create-intent pay-boundary check re-call
+  `mms_pickup_slots` — so a valid same-day slot matched nothing on the fresh grid → set returned
+  `unavailable` and checkout 409'd "that pickup time just filled". Migration
+  `20260620000300_pickup_slots_align_fix` restores `…0100`'s pattern: anchor each day's series at the
+  day's **open** (aligned) and **filter** `slot ≥ now+lead`. Future days keep all slots; same-day drops
+  only past/too-soon ones, and the grid is now stable across the selection→checkout window. Caught by the
+  **pre-merge adversarial subagent** (the after-hours manual smoke test had only exercised the next-day
+  path); verified old-vs-new on the live stack (`12:31,12:46,…` → `12:45,13:00,…`).
+
 ### Added — M2·P2.1 server-validated promo codes (2026-06-20)
 
 - **Real promo enforcement, server-authoritative.** Migration `20260620000000_promo_validation` gives
