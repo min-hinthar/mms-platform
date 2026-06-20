@@ -4,6 +4,25 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — M3·P3.3a split-the-bill foundation (dine-in) (2026-06-20)
+
+- **Split the bill on `/cart`** (dine-in group): Even / By-person toggle, per-line avatar **assignment**
+  (by-person), and a **server-authoritative per-seat share** breakdown. Shares come from `getCartSplit`
+  — allocated from `getCartTotals` (promo + service + tax; tip is a per-payer pay-step choice) via
+  **largest-remainder so Σ shares == the total to the cent** (deterministic leftover penny — QA §D).
+- **`canMutate(line_state, actor_role, isOwner)`** (`lib/permissions.ts`, isomorphic) — the generalized
+  mutation gate the S-track extends. M3: the **host** may edit/remove **any** line, a **guest** only
+  their **own** (the cross-owner-delete guard). Enforced server-side in `setQty` + `assignLine`, and the
+  UI disables controls it would reject (a guest sees others' lines as read-only with the owner avatar,
+  never a control that just fails).
+- **Live across the table:** `assignLine` touches `updated_at` → the P3.2 realtime sub re-syncs every
+  phone's cart + shares. `assignLine` is member + canMutate gated, the target must be a session member,
+  and it re-checks `status='open'`.
+- **Honest scope:** the shares are a **reference** breakdown — the order is still **paid in full at
+  checkout** (per-card tender is **P3.3b**, Option A: authorize-all → capture-together). The pay button
+  carries an honest "this pays the full order" note in a group; no future-promise copy. Schema-free.
+  Reviewed by a fresh-context adversarial subagent (2 must-fix + 3 should-fix addressed).
+
 ### Added — M3·P3.2-lock cart-lock-at-pay (2026-06-20)
 
 - **Freezes the cart for the pay window** so a peer can't mutate it mid-checkout (which would drift the

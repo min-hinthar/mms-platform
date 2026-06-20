@@ -192,6 +192,15 @@ export async function assignLine(cartItemId: string, seatId: string) {
     .eq("seat_id", input.seatId)
     .maybeSingle();
   if (!target) throw new Error("That guest isn’t at this table");
+  // Status guard, matching the sibling writes (assertCartItemMember verified 'open' at entry; re-check
+  // narrows the webhook-flip TOCTOU). by_seat is provenance-only — a post-paid reassign would be a
+  // harmless no-op since the order snapshot is already taken — but keep the invariant the others uphold.
+  const { data: openCart } = await db
+    .from("qr_carts")
+    .select("status")
+    .eq("id", cartId)
+    .maybeSingle();
+  if (openCart?.status !== "open") throw new Error("Cart is no longer open");
   const { error } = await db
     .from("qr_cart_items")
     .update({ by_seat: input.seatId })

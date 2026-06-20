@@ -33,7 +33,9 @@ export async function getSplitContext(cartId: string): Promise<SplitContext> {
     .eq("session_id", sessionId)
     .order("created_at", { ascending: true });
   return {
-    mode: sess?.mode ?? "dinein",
+    // Default to "" (not "dinein") on a missing session row, so a transient read miss can't switch
+    // on the group UI; a real dine-in session reports "dinein".
+    mode: sess?.mode ?? "",
     mySeat: uid,
     myRole: role,
     members: (members ?? []).map((m) => ({

@@ -435,6 +435,17 @@ export function Checkout({
           >
             {loadingPay ? "Starting checkout…" : "Continue to payment"}
           </button>
+          {isGroup && (
+            // Honesty (P3.3a): the split above is a reference; this button pays the WHOLE order, so a
+            // guest who read "your share" isn't surprised. Per-card share payment is P3.3b — stated as
+            // a fact, not a promise.
+            <p
+              style={{ fontSize: 11.5, color: "var(--t3)", margin: "8px 0 0", textAlign: "center" }}
+            >
+              This pays the full order. The split above is a reference for settling among
+              yourselves.
+            </p>
+          )}
           {/* The ONE polite live region for the review step (QA §A P1) — carries the pay-start
               error OR the promo result, never both (each handler clears the other first). The pay
               step has its own single region inside PaymentSection. */}

@@ -27,8 +27,10 @@ export function SplitSection({
   const [shares, setShares] = useState<SeatShare[]>([]);
   const [busyLine, setBusyLine] = useState<string | null>(null);
 
-  // Server-authoritative shares (cent-reconciled) — re-derived on mode change or when the lines
-  // change (a new ref arrives only when the parent's items state actually updates).
+  // Server-authoritative shares (cent-reconciled) — re-derived on mode change or a REAL line change.
+  // Key on a signature (id:qty:owner), not the `items` array ref, so a no-op realtime refresh (a
+  // peer's updated_at touch with no item delta) doesn't trigger a redundant split round-trip.
+  const linesSig = items.map((i) => `${i.id}:${i.qty}:${i.bySeat ?? ""}`).join("|");
   useEffect(() => {
     let active = true;
     getCartSplit(cartId, mode)
@@ -37,7 +39,7 @@ export function SplitSection({
     return () => {
       active = false;
     };
-  }, [cartId, mode, items]);
+  }, [cartId, mode, linesSig]);
 
   async function reassign(lineId: string, seat: string) {
     setBusyLine(lineId);
@@ -80,40 +82,61 @@ export function SplitSection({
           {items.map((line) => {
             const owner = line.bySeat ?? ctx.members[0]?.seat ?? ctx.mySeat;
             const canAssign = canMutateLine("draft", ctx.myRole, line.bySeat === ctx.mySeat);
+            const ownerMember = ctx.members.find((m) => m.seat === owner);
+            const ownerName = !ownerMember
+              ? "Guest"
+              : ownerMember.seat === ctx.mySeat
+                ? "you"
+                : ownerMember.name;
             return (
               <li key={line.id}>
                 <div style={{ fontWeight: 600, fontSize: 14 }}>
                   {line.qty}× {line.name}
                 </div>
-                <div
-                  role="group"
-                  aria-label={`Assign ${line.name}`}
-                  style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}
-                >
-                  {ctx.members.map((m) => {
-                    const on = owner === m.seat;
-                    const who = m.seat === ctx.mySeat ? "you" : m.name;
-                    return (
-                      <button
-                        key={m.seat}
-                        type="button"
-                        aria-pressed={on}
-                        aria-label={`Assign ${line.name} to ${who}`}
-                        disabled={!canAssign || busyLine === line.id}
-                        onClick={() => reassign(line.id, m.seat)}
-                        style={aav(on, m.seat, canAssign)}
-                      >
-                        <span aria-hidden>{seatInitial(m.name)}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+                {canAssign ? (
+                  // Owner (or host) → tappable avatars to (re)assign.
+                  <div
+                    role="group"
+                    aria-label={`Assign ${line.name}`}
+                    style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}
+                  >
+                    {ctx.members.map((m) => {
+                      const on = owner === m.seat;
+                      const who = m.seat === ctx.mySeat ? "you" : m.name;
+                      return (
+                        <button
+                          key={m.seat}
+                          type="button"
+                          aria-pressed={on}
+                          aria-label={`Assign ${line.name} to ${who}`}
+                          disabled={busyLine === line.id}
+                          onClick={() => reassign(line.id, m.seat)}
+                          style={aav(on, m.seat, true)}
+                        >
+                          <span aria-hidden>{seatInitial(m.name)}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  // A guest viewing someone else's line → static attribution, no dead controls.
+                  <div
+                    style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 6 }}
+                  >
+                    <span aria-hidden style={{ ...avatarSm, background: seatColor(owner) }}>
+                      {seatInitial(ownerMember?.name ?? "Guest")}
+                    </span>
+                    <span style={{ fontSize: 12.5, color: "var(--t2)" }}>
+                      Assigned to {ownerName}
+                    </span>
+                  </div>
+                )}
               </li>
             );
           })}
-          {!canMutateLine("draft", ctx.myRole, true) ? null : (
-            <li style={{ fontSize: 11.5, color: "var(--t3)" }}>Tap a guest to assign each item.</li>
-          )}
+          <li style={{ fontSize: 11.5, color: "var(--t3)" }}>
+            Tap a guest to assign your items; the host can assign any.
+          </li>
         </ul>
       )}
 
