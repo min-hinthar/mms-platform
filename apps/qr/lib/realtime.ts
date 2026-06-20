@@ -163,3 +163,47 @@ export function useCartRealtime(
     };
   }, [cartId, accessToken, enabled]);
 }
+
+/**
+ * Live split-settlement board (M3·P3.3b). Subscribes to Postgres Changes on `qr_cart_shares` for THIS
+ * cart and calls `onChange` for each — the consumer re-fetches `getSettlement` (server-authoritative;
+ * never client math), so every phone sees shares flip pending → authorized → captured live. Auth is the
+ * member-gated SELECT RLS on `qr_cart_shares`, enforced per-subscriber. Mirrors useCartRealtime; shares
+ * the one memoized socket. `onChange` is held in a ref so a fresh closure each render never resubscribes.
+ */
+export function useSettlementRealtime(
+  cartId: string,
+  accessToken: string,
+  enabled: boolean,
+  onChange: () => void,
+) {
+  const cbRef = useRef(onChange);
+  useEffect(() => {
+    cbRef.current = onChange;
+  }, [onChange]);
+
+  useEffect(() => {
+    if (!enabled || !cartId || !accessToken) return;
+    const supa = browserClient();
+    supa.realtime.setAuth(accessToken);
+    const channel = supa
+      .channel(`shares:${cartId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "qr_cart_shares", filter: `cart_id=eq.${cartId}` },
+        () => cbRef.current(),
+      )
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          // Self-heal: re-fetch on (re)subscribe so a change missed while the socket was down — or in
+          // the gap before this subscription — is caught (parity with useCartRealtime).
+          cbRef.current();
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.error(`[useSettlementRealtime] channel ${status} for cart ${cartId}`);
+        }
+      });
+    return () => {
+      supa.removeChannel(channel);
+    };
+  }, [cartId, accessToken, enabled]);
+}
