@@ -22,6 +22,7 @@ export function PickupSlotSheet({
 }) {
   const [slots, setSlots] = useState<PickupSlot[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pendingSlot, setPendingSlot] = useState<string | null>(null); // the chip being set (instant feedback)
   const [pending, start] = useTransition();
 
   // Re-fetch availability each time the sheet opens (capacity is live). setState lives only in the
@@ -43,6 +44,7 @@ export function PickupSlotSheet({
   }, [open]);
 
   function choose(slot: string) {
+    setPendingSlot(slot); // synchronous → the tapped chip shows "Setting…" on tap, before the round-trip
     start(async () => {
       setError(null);
       try {
@@ -63,6 +65,8 @@ export function PickupSlotSheet({
           .catch(() => {});
       } catch {
         setError("Couldn’t set that time — check your connection and try again.");
+      } finally {
+        setPendingSlot(null);
       }
     });
   }
@@ -94,15 +98,27 @@ export function PickupSlotSheet({
                   key={s.slot}
                   type="button"
                   disabled={pending}
+                  aria-busy={pendingSlot === s.slot}
                   onClick={() => choose(s.slot)}
-                  style={slotChip}
+                  style={{
+                    ...slotChip,
+                    ...(pendingSlot === s.slot
+                      ? { borderColor: "var(--ac)", color: "var(--ac)" }
+                      : null),
+                  }}
                 >
-                  {formatSlot(s.slot)}
-                  {s.remaining <= 2 && (
-                    <span style={{ color: "var(--t3)", fontWeight: 600 }}>
-                      {" "}
-                      · {s.remaining} left
-                    </span>
+                  {pendingSlot === s.slot ? (
+                    "Setting…"
+                  ) : (
+                    <>
+                      {formatSlot(s.slot)}
+                      {s.remaining <= 2 && (
+                        <span style={{ color: "var(--t3)", fontWeight: 600 }}>
+                          {" "}
+                          · {s.remaining} left
+                        </span>
+                      )}
+                    </>
                   )}
                 </button>
               ))}

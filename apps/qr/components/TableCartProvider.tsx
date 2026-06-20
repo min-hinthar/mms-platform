@@ -94,26 +94,35 @@ export function TableCartProvider({ mode, children }: { mode: string; children: 
   // never the rolling total itself (the CartBar/total deliberately aren't aria-live, so SR users
   // don't hear the amount re-read on every tap). Server errors are redacted in prod → generic text.
   const [notice, setNotice] = useState<string | null>(null);
+  const [pendingAdds, setPendingAdds] = useState(0); // optimistic in-flight adds (instant count bump)
 
   const add = useCallback(
     async (menuItemId: string) => {
       if (!cartId) return;
+      // Optimistic: bump the visible count + confirm on tap, so the cart bar responds immediately
+      // instead of after the round-trip. The total stays server-authoritative (no client price math),
+      // so it settles when the view returns — the count is the instant feedback.
+      setPendingAdds((n) => n + 1);
+      setNotice("Added to your order");
+      setTimeout(() => setNotice(null), 2000);
       try {
-        await addItemAction(cartId, menuItemId, []); // base item; modifier sheet is follow-up polish
-        await refresh();
-        setNotice("Added to your order");
-        setTimeout(() => setNotice(null), 2000);
+        const view = await addItemAction(cartId, menuItemId, []); // ONE round-trip — returns the view
+        setItems(view.items);
+        setTotals(view.totals);
+        setPickupSlot(view.pickupSlot);
       } catch (e) {
         setNotice("Couldn’t add that — please try again.");
         setTimeout(() => setNotice(null), 3000);
         throw e;
+      } finally {
+        setPendingAdds((n) => n - 1);
       }
     },
-    [cartId, refresh],
+    [cartId],
   );
 
   const openSlotSheet = useCallback(() => setSlotSheetOpen(true), []);
-  const count = items.reduce((a, i) => a + i.qty, 0);
+  const count = items.reduce((a, i) => a + i.qty, 0) + pendingAdds;
 
   return (
     <Ctx.Provider
@@ -136,10 +145,7 @@ export function TableCartProvider({ mode, children }: { mode: string; children: 
           open={slotSheetOpen}
           onOpenChange={setSlotSheetOpen}
           cartId={cartId}
-          onChosen={(slot) => {
-            setPickupSlot(slot);
-            void refresh();
-          }}
+          onChosen={(slot) => setPickupSlot(slot)} // slot is cart metadata — no items/totals refetch
         />
       )}
       <div

@@ -25,6 +25,12 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   "we'll text you"** promise the code can't keep. create-intent re-validates the slot still has room at
   the pay boundary (excluding the cart's own hold) and requires a slot for pickup orders; the cart
   surfaces the reason ("Pick a pickup time first." / "That pickup time just filled — pick another.").
+- **Snappier cart/slot interactions** (perceived latency): each Add was two sequential server
+  round-trips (mutate, then a full `getCartView` re-fetch) with no feedback until both landed —
+  `addItem` now **returns the fresh view** (one round-trip) and the cart count bumps **optimistically**
+  on tap; picking a slot drops the redundant post-set refetch and the tapped chip shows an immediate
+  "Setting…" state. (The SQL was never the bottleneck — `mms_pickup_slots` runs ~10ms; the cost was
+  round-trips + cold serverless starts on preview.)
 - **Next-day rollover** (migration `20260620000200`): slots span today + `horizon_days` (default 2), so
   an after-hours browser pre-orders for tomorrow instead of hitting an empty "today only" wall. The sheet
   groups by day (Today / Tomorrow / weekday); the chip + `/track` ETA prefix the day when it isn't today.

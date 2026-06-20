@@ -132,6 +132,11 @@ export async function addItem(cartId: string, menuItemId: string, modifierIds: s
       dine_in: dineIn,
     },
   });
+
+  // Return the fresh server-authoritative view so the caller renders in ONE round-trip (not a separate
+  // getCartView refresh afterward). Re-running assertCartMember here is a couple of indexed reads on the
+  // same warm function — cheap next to a second network round-trip.
+  return getCartView(input.cartId);
 }
 
 export async function setQty(cartItemId: string, qty: number) {
