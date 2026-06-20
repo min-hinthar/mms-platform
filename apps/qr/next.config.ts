@@ -7,8 +7,8 @@ import type { NextConfig } from "next";
 process.env.NEXT_TURBOPACK_EXPERIMENTAL_USE_SYSTEM_TLS_CERTS ??= "1";
 
 // Static security headers (QA checklist P1). The nonce-based Content-Security-Policy is set
-// per-request in `middleware.ts` (a fresh nonce per response can't be a static header); these
-// nonce-free headers live here so they also cover the API + static responses the CSP matcher skips.
+// per-request in `proxy.ts` (a fresh nonce per response can't be a static header); these nonce-free
+// headers live here so they also cover the API + static responses the CSP matcher skips.
 const securityHeaders = [
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "X-Content-Type-Options", value: "nosniff" },

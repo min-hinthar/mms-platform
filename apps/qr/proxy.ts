@@ -16,21 +16,30 @@ import { NextResponse, type NextRequest } from "next/server";
  */
 export function proxy(request: NextRequest) {
   const nonce = btoa(crypto.randomUUID());
+  // `next dev` (React's dev runtime + Turbopack HMR) evaluates code via eval(), which 'strict-dynamic'
+  // + a nonce can't authorize — only 'unsafe-eval' does. Add it in development ONLY; production never
+  // ships it. (NODE_ENV is inlined on the Edge runtime.)
+  const isDev = process.env.NODE_ENV === "development";
 
   const csp = [
     "default-src 'self'",
-    // 'self' + js.stripe.com are the CSP2 fallback; CSP3 browsers honor 'strict-dynamic' and ignore
-    // them, trusting the nonce + scripts the nonced bundle loads (Stripe.js, the /ingest PostHog SDK).
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://js.stripe.com`,
+    // 'self' + the js.stripe.com hosts are the CSP2 fallback; CSP3 browsers honor 'strict-dynamic' and
+    // ignore them, trusting the nonce + scripts the nonced bundle loads (Stripe.js, the /ingest SDK).
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://js.stripe.com https://*.js.stripe.com${
+      isDev ? " 'unsafe-eval'" : ""
+    }`,
     // Inline styles stay allowed: React style props, next/font, and NumberFlow emit them, and CSS
     // injection is a marginal risk next to script. Tighten to a nonce/hash if that calculus changes.
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https://*.supabase.co",
     "font-src 'self'",
-    // Supabase REST + Realtime websocket; the Stripe API; PostHog is first-party via the /ingest rewrite.
+    // Supabase REST + Realtime websocket; the Stripe API. PostHog stays first-party via the
+    // next.config `/ingest` rewrite (covered by 'self') — if api_host ever leaves /ingest, its host
+    // must be added here or analytics silently breaks under CSP.
     "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com",
-    // Stripe's Payment Element mounts these iframes.
-    "frame-src https://js.stripe.com https://hooks.stripe.com",
+    // Stripe's Payment Element mounts iframes on per-origin *.js.stripe.com shards (frame-src is a
+    // plain host allow-list — 'strict-dynamic' does NOT cover it), plus hooks.stripe.com for redirects.
+    "frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com",
     "worker-src 'self' blob:",
     "object-src 'none'",
     "base-uri 'self'",

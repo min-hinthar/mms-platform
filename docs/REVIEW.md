@@ -219,7 +219,7 @@ Closes **gate item 5** ("drop `script-src 'unsafe-inline'` for a nonce-based CSP
   CSP with `'strict-dynamic'` and **no `'unsafe-inline'`** on `script-src`. The CSP moved out of
   `next.config.ts` (the nonce-free static headers stay there for API/static coverage). Root layout is
   `force-dynamic` so the nonce reaches every page's framework scripts. **Empirically verified** (`next
-  start`): the response CSP nonce matches the nonce on all 18 rendered `<script>` tags and rotates per
+start`): the response CSP nonce matches the nonce on all 18 rendered `<script>` tags and rotates per
   request; `/api/*` gets no CSP; Stripe.js + PostHog (`/ingest`) are covered via `'strict-dynamic'`
   propagation. Tightened `object-src 'none'` + `form-action 'self'` + `worker-src 'self' blob:`.
 - **Flat ESLint + `packages/config` — ✅ already landed** (M0·P0.9); `@mms/config/eslint` base extended
@@ -230,5 +230,10 @@ Closes **gate item 5** ("drop `script-src 'unsafe-inline'` for a nonce-based CSP
   keys + webhook secret) in Vercel — the only thing between here and a live PR-preview Payment Element.
 - **Fixed in passing:** `Permissions-Policy: camera=(self)` (was `camera=()`, which blocked the
   grocery scanner's `getUserMedia` first-party).
-- **Adversarial subagent verdict** posted to the PR (fresh-context, four lenses) — findings addressed
-  pre-PR per the `CLAUDE.md` Pre-PR sweep.
+- **Adversarial subagent (fresh-context, four lenses): FAIL → fixed → PASS.** It caught two real Highs
+  my production-only smoke test had masked — (1) `frame-src` lacked `https://*.js.stripe.com`, the
+  per-origin shards the Payment Element mounts (`'strict-dynamic'` doesn't cover `frame-src`), a
+  money-path break; (2) `script-src` had no `'unsafe-eval'` in development, so `pnpm dev` (React/
+  Turbopack `eval`) was broken by its own CSP. Both fixed in `proxy.ts` and **re-verified in both
+  modes** (`'unsafe-eval'` present under `next dev`, absent under `next start`; `*.js.stripe.com` in
+  `frame-src`). Plus the L2 stale `middleware.ts`→`proxy.ts` comment. Verdict posted to the PR.

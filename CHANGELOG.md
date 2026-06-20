@@ -17,12 +17,21 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   Permissions-Policy / HSTS) stay in `next.config.ts` so they still cover the API + static responses
   the proxy matcher skips. Also tightened: `object-src 'none'`, `form-action 'self'`,
   `worker-src 'self' blob:`.
+- **`frame-src` includes `https://*.js.stripe.com`** (with `js.stripe.com` + `hooks.stripe.com`): the
+  Payment Element mounts iframes on per-origin `*.js.stripe.com` shards, and `frame-src` is a plain
+  host allow-list that `'strict-dynamic'` does **not** cover — without the wildcard the card field can
+  fail to render. `'unsafe-eval'` is added to `script-src` **in development only**
+  (`NODE_ENV === "development"`): React's dev runtime + Turbopack HMR evaluate via `eval()`, which a
+  nonce can't authorize, so `pnpm dev` would otherwise be broken by its own CSP; production never ships
+  `'unsafe-eval'`. (Both surfaced by the pre-PR adversarial subagent — production-mode smoke testing
+  alone had masked them.)
 - **All routes render dynamically** (`export const dynamic = "force-dynamic"` in the root layout):
   Next can only stamp the per-request nonce onto its `<script>` tags during a per-request render, so a
   statically prerendered shell would ship scripts with no nonce and `'strict-dynamic'` would block
   them. The app is anon-auth + DB-driven, so the four otherwise-static shells lose no meaningful
-  optimization. Verified end-to-end: the response CSP nonce matches the nonce on **all 18** rendered
-  `<script>` tags, and rotates per request; `/api/*` correctly gets no CSP.
+  optimization. Verified end-to-end in **both** modes: the response CSP nonce matches the nonce on
+  **all 18** rendered `<script>` tags and rotates per request; `/api/*` correctly gets no CSP;
+  `'unsafe-eval'` is present under `next dev` and absent under `next start`.
 - **Fixed in passing — `Permissions-Policy: camera=(self)`.** The header was `camera=()`, an empty
   allow-list that blocks the camera for **all** origins including our own — which would silently break
   the grocery Scan & Go viewfinder (`getUserMedia`). Now first-party only; mic/geo stay fully off.
@@ -33,7 +42,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   the stack — and once masked the delivery-vs-QR project mix-up). The Stripe **webhook** now returns a
   clear `500 "Webhook not configured"` when `STRIPE_WEBHOOK_SECRET` is unset (so Stripe redelivers once
   it's wired) instead of feeding `undefined` to `constructEvent` and masquerading as a `400 "Bad
-  signature"`; a missing `stripe-signature` header is an explicit 400.
+signature"`; a missing `stripe-signature` header is an explicit 400.
 - **`docs/ENV.md`** — the variable inventory (client/server, secret/not) + the Vercel **preview→prod**
   matrix (test keys on Preview, live on Production; staging when QR gets traffic), and the steps to
   wire the Preview env that unblock the Payment Element on PR previews. _Remaining (infra, Min):_ set
