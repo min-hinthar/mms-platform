@@ -58,6 +58,38 @@ localhost:3000/api/stripe/webhook` prints a temporary one.
 > Preview URLs are per-deployment; a wildcard test webhook (or `stripe listen` during manual smoke
 > tests) avoids re-registering an endpoint per PR.
 
+### Wiring Production (the live-mode cutover)
+
+Do this once, when QR goes live. **Live keys mean real charges** — keep them out of git and out of
+Preview; they belong only in Vercel **Production** scope + the Stripe **live** dashboard. The
+`whsec_…` and `sk_live_…` are per-environment _and_ per-mode — a preview/`stripe listen` secret will
+**not** verify live events.
+
+1. **Activate the Stripe account for live payments** (Stripe → Activate / complete the business
+   profile). Live keys (`pk_live_…`/`sk_live_…`) don't exist until then.
+2. Vercel → Project → **Settings → Environment Variables**, scope **Production** only:
+   - `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` = `pk_live_…`
+   - `STRIPE_SECRET_KEY` = `sk_live_…`
+   - the **prod** Supabase URL + anon/publishable key + `SUPABASE_SERVICE_ROLE_KEY`, and the PostHog
+     keys. (Leave `STRIPE_WEBHOOK_SECRET` until step 4.)
+3. **Create the LIVE webhook endpoint** — Stripe → Developers → **Webhooks** (toggle **live mode**) →
+   Add endpoint:
+   - URL `https://<prod-domain>/api/stripe/webhook`
+   - Events: **`payment_intent.succeeded`** _and_ **`payment_intent.payment_failed`** — the only two
+     the handler acts on (succeeded fulfills the order; failed is analytics-only).
+4. Copy that endpoint's **Signing secret** (`whsec_…`) → Vercel Production `STRIPE_WEBHOOK_SECRET`.
+5. **Redeploy Production** (env changes don't apply to an existing build).
+6. **Smoke-test live**: a real card for a small amount, then refund — confirm a `qr_orders` row
+   (`status='paid'`, `pickup_slot`/`fire_at` set) and a **200** on the delivery in Stripe → Webhooks.
+
+> Failure modes (all self-heal — Stripe retries non-2xx for up to 72h and `mms_fulfill_order` is
+> idempotent on the PI id, so fixing the secret drains the backlog): a **400 "Bad signature"** on
+> every live event ⇒ Production `STRIPE_WEBHOOK_SECRET` is still the test/preview secret (per-endpoint
+> AND per-mode); a **500 "Webhook not configured"** ⇒ it's unset in Production.
+
+> When QR gets a dedicated **staging** project (BACKEND_ARCHITECTURE §7), point **Production → prod
+> Supabase** and **Preview → staging** so a preview PR can never write the live ledger.
+
 ## CSP note (P1.6)
 
 No env var configures the Content-Security-Policy — it's emitted per-request in `apps/qr/proxy.ts`
