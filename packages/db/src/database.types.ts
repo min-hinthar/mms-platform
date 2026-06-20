@@ -238,13 +238,43 @@ export type Database = {
           },
         ]
       }
+      promo_attempts: {
+        Row: {
+          attempted_at: string
+          id: string
+          session_id: string
+        }
+        Insert: {
+          attempted_at?: string
+          id?: string
+          session_id: string
+        }
+        Update: {
+          attempted_at?: string
+          id?: string
+          session_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "promo_attempts_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "table_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       promo_codes: {
         Row: {
           active: boolean
           code: string
           kind: string
           max_uses: number | null
+          min_subtotal_cents: number
+          per_session_limit: number
           used: number
+          valid_from: string | null
+          valid_until: string | null
           value: number
         }
         Insert: {
@@ -252,7 +282,11 @@ export type Database = {
           code: string
           kind: string
           max_uses?: number | null
+          min_subtotal_cents?: number
+          per_session_limit?: number
           used?: number
+          valid_from?: string | null
+          valid_until?: string | null
           value: number
         }
         Update: {
@@ -260,10 +294,60 @@ export type Database = {
           code?: string
           kind?: string
           max_uses?: number | null
+          min_subtotal_cents?: number
+          per_session_limit?: number
           used?: number
+          valid_from?: string | null
+          valid_until?: string | null
           value?: number
         }
         Relationships: []
+      }
+      promo_redemptions: {
+        Row: {
+          code: string
+          id: string
+          order_id: string | null
+          redeemed_at: string
+          session_id: string
+        }
+        Insert: {
+          code: string
+          id?: string
+          order_id?: string | null
+          redeemed_at?: string
+          session_id: string
+        }
+        Update: {
+          code?: string
+          id?: string
+          order_id?: string | null
+          redeemed_at?: string
+          session_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "promo_redemptions_code_fkey"
+            columns: ["code"]
+            isOneToOne: false
+            referencedRelation: "promo_codes"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "promo_redemptions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "qr_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "promo_redemptions_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "table_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       qr_cart_items: {
         Row: {
@@ -550,6 +634,29 @@ export type Database = {
         Args: { amount_cents: number; category: string; dine_in: boolean }
         Returns: number
       }
+      mms_promo_attempt: {
+        Args: {
+          p_max?: number
+          p_session_id: string
+          p_window_seconds?: number
+        }
+        Returns: boolean
+      }
+      mms_promo_check: {
+        Args: { p_cart_id: string; p_code: string }
+        Returns: {
+          discount_cents: number
+          kind: string
+          reason: string
+          valid: boolean
+          value: number
+        }[]
+      }
+      mms_promo_consume: {
+        Args: { p_code: string; p_order_id: string; p_session_id: string }
+        Returns: undefined
+      }
+      mms_promo_discount: { Args: { p_cart_id: string }; Returns: number }
       mms_tax_rate: { Args: never; Returns: number }
       mms_taxable: {
         Args: { category: string; dine_in: boolean }

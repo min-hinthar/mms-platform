@@ -153,43 +153,73 @@ export async function setQty(cartItemId: string, qty: number) {
   if (touchErr) console.error("[cart] updated_at touch failed (setQty)", touchErr.message);
 }
 
-export async function applyPromo(cartId: string, code: string) {
+/** Reasons the cart UI maps to specific copy. SQL returns the validity reasons; the action adds the
+ *  pre-check ones (locked / rate_limited / error). Returned (not thrown) — Next redacts thrown Server
+ *  Action errors in prod, so a discriminated RESULT is the only way the client can branch per reason. */
+export type PromoReason =
+  | "invalid"
+  | "inactive"
+  | "not_started"
+  | "expired"
+  | "min_not_met"
+  | "exhausted"
+  | "session_limit"
+  | "cart_closed"
+  | "locked"
+  | "rate_limited"
+  | "error";
+
+export type ApplyPromoResult =
+  | { ok: true; discountCents: number }
+  | { ok: false; reason: PromoReason };
+
+export async function applyPromo(cartId: string, code: string): Promise<ApplyPromoResult> {
   const input = applyPromoInput.parse({ cartId, code });
-  const { uid, locked } = await assertCartMember(input.cartId);
-  if (locked) throw new Error("Order is locked by the host");
+  const { uid, sessionId, locked } = await assertCartMember(input.cartId);
+  if (locked) return { ok: false, reason: "locked" };
   const db = serviceClient();
-  const { data: promo } = await db
-    .from("promo_codes")
-    .select("code,kind,value,max_uses,used,active")
-    .eq("code", input.code.toUpperCase())
-    .maybeSingle();
-  if (!promo || !promo.active || (promo.max_uses != null && promo.used >= promo.max_uses))
-    throw new Error("Invalid code");
-  // NOTE(M2·P2.1): this checks `used` but does NOT consume a redemption — full cap enforcement
-  // (atomic, consumed on FULFILLMENT not on apply, + per-session rate-limit) is the M2 promo phase.
-  // Not exploitable today: no promo codes are seeded, and applying only sets `qr_carts.promo_code`.
-  // Status-atomic write — only sets the promo on a still-`open` cart (the `.eq("status","open")`
-  // makes it symmetric with the other mutation paths against a webhook flip between the authz check
-  // and this update). 0 rows back ⇒ the cart is no longer open.
-  const { data: updated } = await db
+
+  // Rate-limit FIRST (anti-enumeration): the gate counts attempts per session in a trailing window
+  // (10 / 5 min by default) and returns false once the cap is hit — without recording, so the window
+  // can drain — so a client can't brute-force the code space.
+  const { data: allowed, error: rlErr } = await db.rpc("mms_promo_attempt", {
+    p_session_id: sessionId,
+  });
+  if (rlErr) return { ok: false, reason: "error" };
+  if (!allowed) return { ok: false, reason: "rate_limited" };
+
+  // Single source of truth (active + window + min-subtotal + global cap + per-session cap). Pricing,
+  // caps, and reason all come from the DB — the client only asserts the code string.
+  const { data: rows, error: chkErr } = await db.rpc("mms_promo_check", {
+    p_code: input.code,
+    p_cart_id: input.cartId,
+  });
+  if (chkErr) return { ok: false, reason: "error" };
+  const check = rows?.[0];
+  if (!check?.valid) return { ok: false, reason: (check?.reason ?? "invalid") as PromoReason };
+
+  // Status-atomic write — only sets the promo on a still-`open` cart (symmetric with the other
+  // mutation paths against a webhook flip between the authz check and this update). 0 rows ⇒ closed.
+  const normalized = input.code.toUpperCase();
+  const { data: updated, error: updErr } = await db
     .from("qr_carts")
-    .update({ promo_code: promo.code })
+    .update({ promo_code: normalized })
     .eq("id", input.cartId)
     .eq("status", "open")
     .select("id");
-  if (!updated || updated.length === 0) throw new Error("Cart is no longer open");
+  if (updErr) return { ok: false, reason: "error" };
+  if (!updated || updated.length === 0) return { ok: false, reason: "cart_closed" };
 
-  const posthog = getPostHogClient();
-  posthog.capture({
-    distinctId: uid, // the verified diner uid (matches item_added_to_cart) — not the cart id
+  getPostHogClient().capture({
+    distinctId: uid, // the verified diner uid (matches add_to_cart) — not the cart id
     event: "promo_applied",
     properties: {
       cart_id: input.cartId,
-      promo_code: promo.code,
-      promo_kind: promo.kind,
-      promo_value: promo.value,
+      promo_code: normalized,
+      discount_cents: check.discount_cents,
     },
   });
+  return { ok: true, discountCents: check.discount_cents };
 }
 
 /**

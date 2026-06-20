@@ -14,27 +14,17 @@ import { taxRate } from "./tax";
  */
 export async function getCartTotals(cartId: string, tipRate = 0): Promise<CartTotals> {
   const db = serviceClient();
-  const { data: cart } = await db.from("qr_carts").select("promo_code").eq("id", cartId).single();
   const { data: items } = await db
     .from("qr_cart_items")
     .select("qty,unit_price_cents,tax_cents")
     .eq("cart_id", cartId);
   // All integer cents — no float rounding on the base sums.
   const subtotalCents = (items ?? []).reduce((a, i) => a + Number(i.unit_price_cents) * i.qty, 0);
-  // promo: kind='pct' → fraction; kind='flat' → cents off (see migration 0001 comment).
-  let discountCents = 0;
-  if (cart?.promo_code) {
-    const { data: p } = await db
-      .from("promo_codes")
-      .select("kind,value")
-      .eq("code", cart.promo_code)
-      .single();
-    if (p)
-      discountCents =
-        p.kind === "pct"
-          ? Math.round(subtotalCents * Number(p.value))
-          : Math.min(Math.round(Number(p.value)), subtotalCents);
-  }
+  // Promo discount is server-derived in ONE place — mms_promo_discount (active + window + min-subtotal;
+  // pct→round(subtotal·value), flat→min(value,subtotal)). Caps are a redemption budget enforced at
+  // apply + consumed at fulfillment, not a pricing gate. 0 when there's no code or it's no longer valid.
+  const { data: discount } = await db.rpc("mms_promo_discount", { p_cart_id: cartId });
+  const discountCents = discount ?? 0;
   const netCents = subtotalCents - discountCents;
   // Tax on the discounted TAXABLE base only (CDTFA) — not a pro-rata of the rounded aggregate,
   // so a flat promo across mixed taxable/exempt lines stays correct. Taxable lines have tax > 0.

@@ -237,3 +237,25 @@ start`): the response CSP nonce matches the nonce on all 18 rendered `<script>` 
   Turbopack `eval`) was broken by its own CSP. Both fixed in `proxy.ts` and **re-verified in both
   modes** (`'unsafe-eval'` present under `next dev`, absent under `next start`; `*.js.stripe.com` in
   `frame-src`). Plus the L2 stale `middleware.ts`→`proxy.ts` comment. Verdict posted to the PR.
+
+## Progress — M2·P2.1 server-validated promo codes (2026-06-20)
+
+First M2 phase. Promo validation, redemption caps (global soft + per-session hard), and apply
+rate-limiting are now server-authoritative in SECURITY DEFINER functions (`mms_promo_check` /
+`_discount` / `_attempt` / `_consume`); `getCartTotals` derives the discount from one SQL source;
+`applyPromo` returns a per-reason result (Next redacts thrown errors in prod).
+
+- **Local-stack validation** (booted the pinned `supabase` CLI in-sandbox): discount math, min-subtotal
+  gate, rate-limit (10/window, drains), consume + per-session backstop, global exhaustion — all pass.
+- **Adversarial subagent — PASS (zero Critical/High).** Folded in: per-session cap as a **DB invariant**
+  (re-checked under a row lock in `consume`, not just the app-layer apply gate); rate-limit \*\*count-first
+  - self-GC\*\* (window drains, ledger bounded); honest soft-cap comment (overrun ≈ concurrent unfulfilled
+    carts).
+- **`get_advisors` caught what the subagent missed — a real EXECUTE-grant gap.** `revoke … from public`
+  alone did **not** lock the promo fns (Supabase also explicitly grants `anon`/`authenticated`), so
+  `mms_promo_consume` was anon-callable via `/rest/v1/rpc` → burn a code's budget. Fixed with
+  `revoke … from public, anon, authenticated` (verified `has_function_privilege('anon', …) = false`) +
+  the `promo_redemptions.order_id` covering index. **Lesson: run advisors + verify grants after every
+  function migration — the adversarial pass is necessary but not sufficient for grant-surface bugs.**
+- **Applied to the live QR project** (also applied the **missing P1.5 `track_realtime`** — prod's
+  `/track` realtime was silently off because nothing had applied that migration to live).

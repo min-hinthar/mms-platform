@@ -2,8 +2,29 @@
 import { useEffect, useRef, useState, useTransition, type FormEvent } from "react";
 import Link from "next/link";
 import type { CartItem, CartTotals } from "@mms/db";
-import { applyPromo as applyPromoAction, getCartView, setQty as setQtyAction } from "@/lib/cart";
+import {
+  applyPromo as applyPromoAction,
+  getCartView,
+  setQty as setQtyAction,
+  type PromoReason,
+} from "@/lib/cart";
 import { PaymentSection } from "./PaymentSection";
+
+// Per-reason promo copy (the action returns a reason; Next redacts thrown errors in prod). Honest +
+// on-brand: tell the diner exactly why, never a fabricated state.
+const PROMO_MESSAGES: Record<PromoReason, string> = {
+  invalid: "That code isn’t valid.",
+  inactive: "That code is no longer active.",
+  not_started: "That code isn’t available yet.",
+  expired: "That code has expired.",
+  min_not_met: "Your order doesn’t meet this code’s minimum yet.",
+  exhausted: "That code has reached its limit.",
+  session_limit: "That code’s already been used at this table.",
+  cart_closed: "This order is already being paid.",
+  locked: "The host has locked the order.",
+  rate_limited: "Too many tries — wait a minute, then try again.",
+  error: "Couldn’t apply that code — please try again.",
+};
 
 // Tip presets (v7.2 prototype). The <small> shows a client PREVIEW of the tip; the AUTHORITATIVE
 // tip + grand total come back from create-intent (server) on the pay step — never the charge.
@@ -92,13 +113,11 @@ export function Checkout({
       setStatus(null); // clear any stale result so it doesn't linger through the round-trip
       setPayError(null); // single live region — don't let a prior pay error mask the promo result
       try {
-        await applyPromoAction(cartId, promo.trim());
-        setStatus("Promo applied.");
+        const result = await applyPromoAction(cartId, promo.trim());
+        setStatus(result.ok ? "Promo applied." : PROMO_MESSAGES[result.reason]);
       } catch {
-        // Server Action errors are redacted in production, so the client can't reliably tell
-        // "invalid code" from a transient failure — one honest, retry-safe message (per-reason
-        // messaging via a result-based return is the M2 promo phase).
-        setStatus("Couldn’t apply that code — check it and try again.");
+        // A thrown error here is a transport/redacted failure, not a known reason — one honest line.
+        setStatus("Couldn’t apply that code — check your connection and try again.");
       }
       await refresh();
     });

@@ -49,7 +49,7 @@ Smallest slice that takes one real test charge end-to-end (solo Scan & Go). **No
 
 ## ⬜ M2 — Tax, promos & scheduling &nbsp;`milestone:M2`
 
-- **P2.1** Server-validated promo codes (`promo_codes` + redemption caps/rate-limit). ⬜
+- **P2.1** Server-validated promo codes — ✅ `promo_codes` gains validity window + `min_subtotal_cents` + `per_session_limit` (+ `CHECK`s); `promo_redemptions`/`promo_attempts` ledgers (RLS default-deny); five service-role-only SECURITY DEFINER fns — `mms_promo_check` (apply gate: active + window + min + global/per-session caps → a stable reason enum), `mms_promo_discount` (single pricing source for `getCartTotals`), `mms_promo_attempt` (per-session rate-limit, anti-enumeration), `mms_promo_consume` (redemption at fulfillment, **soft cap**), and `mms_fulfill_order` now consuming the redemption. `applyPromo` returns a discriminated result (per-reason copy — Next redacts thrown errors in prod). Migration `20260620000000`. ✅
 - **P2.2** Honest pickup scheduling (slot capacity + fire-time; ETA echoes the slot). ⬜
 - **P2.3** Grocery session/cart (replace the demo `crypto.randomUUID()`); name-search fallback for unknown barcodes. ⬜
 - **P2.4** QBO sync of paid orders (two-ledger clearing). ⬜
