@@ -40,6 +40,8 @@ export async function getCallerUid(): Promise<string> {
 export type CartAuthz = {
   uid: string;
   sessionId: string;
+  /** The caller's role in this session (M3·P3.3a) — drives canMutateLine (host may edit any line). */
+  role: "host" | "guest";
   /** The EFFECTIVE lock — true only while a pay-window lock is held AND still fresh (within the TTL),
    *  so an abandoned pay-screen auto-releases and never permanently freezes the cart. */
   locked: boolean;
@@ -83,7 +85,7 @@ export async function assertCartMember(cartId: string): Promise<CartAuthz> {
 
   const { data: member } = await db
     .from("session_members")
-    .select("seat_id")
+    .select("seat_id,role")
     .eq("session_id", cart.session_id)
     .eq("seat_id", uid)
     .maybeSingle();
@@ -92,6 +94,7 @@ export async function assertCartMember(cartId: string): Promise<CartAuthz> {
   return {
     uid,
     sessionId: cart.session_id,
+    role: member.role === "host" ? "host" : "guest",
     locked: lockedFresh,
     lockedBy: lockedFresh ? cart.locked_by : null,
   };
@@ -126,15 +129,20 @@ export async function assertSessionMember(sessionId: string): Promise<{ uid: str
   return { uid };
 }
 
-/** Same guard, keyed by a cart *line* id (resolves the owning cart first). */
+/** Same guard, keyed by a cart *line* id (resolves the owning cart first). Also returns the line's
+ *  owner seat (`lineSeat`) so a caller can apply canMutateLine (host-any / guest-own-only). */
 export async function assertCartItemMember(
   cartItemId: string,
-): Promise<CartAuthz & { cartId: string }> {
+): Promise<CartAuthz & { cartId: string; lineSeat: string | null }> {
   const { data: item } = await serviceClient()
     .from("qr_cart_items")
-    .select("cart_id")
+    .select("cart_id,by_seat")
     .eq("id", cartItemId)
     .maybeSingle();
   if (!item) throw new AuthzError("No such cart item", 404);
-  return { ...(await assertCartMember(item.cart_id)), cartId: item.cart_id };
+  return {
+    ...(await assertCartMember(item.cart_id)),
+    cartId: item.cart_id,
+    lineSeat: item.by_seat ?? null,
+  };
 }

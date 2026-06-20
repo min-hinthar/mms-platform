@@ -1,10 +1,17 @@
 "use server";
 import { serviceClient } from "@mms/db/server";
 import type { CartItem, CartTotals, TaxCategory } from "@mms/db";
-import { addItemInput, applyPromoInput, cartViewInput, setQtyInput } from "@mms/db/schemas";
+import {
+  addItemInput,
+  applyPromoInput,
+  assignLineInput,
+  cartViewInput,
+  setQtyInput,
+} from "@mms/db/schemas";
 import { lineTax } from "./tax";
 import { getCartTotals } from "./totals";
 import { assertCartItemMember, assertCartMember } from "./authz";
+import { canMutateLine } from "./permissions";
 import { releaseCartLock } from "./lock";
 import { getPostHogClient } from "./posthog-server";
 
@@ -142,8 +149,12 @@ export async function addItem(cartId: string, menuItemId: string, modifierIds: s
 
 export async function setQty(cartItemId: string, qty: number) {
   const input = setQtyInput.parse({ cartItemId, qty });
-  const { cartId, locked } = await assertCartItemMember(input.cartItemId);
+  const { cartId, locked, role, lineSeat, uid } = await assertCartItemMember(input.cartItemId);
   if (locked) throw new Error("Order is locked while someone checks out");
+  // canMutate (M3·P3.3a): the host may change/remove any line; a guest only their own (cross-owner
+  // guard). The UI disables the control too, but this is the server-side enforcement.
+  if (!canMutateLine("draft", role, lineSeat === uid))
+    throw new Error("Only the host can change someone else’s item");
   const db = serviceClient();
   // Status-atomic set/delete (qty<=0 removes) — applies only while the parent cart is 'open' in one
   // statement (migration 20260619000200), matching the addItem paths. 0 rows ⇒ paid/closed (or gone).
@@ -157,6 +168,40 @@ export async function setQty(cartItemId: string, qty: number) {
     .update({ updated_at: new Date().toISOString() })
     .eq("id", cartId);
   if (touchErr) console.error("[cart] updated_at touch failed (setQty)", touchErr.message);
+}
+
+/**
+ * Reassign a cart line to a seat (M3·P3.3a, by-person split). Authorized as a member, canMutateLine
+ * (host-any / guest-own-only), and only while unlocked; the target seat must be a member of THIS
+ * session (you can't assign a line to a stranger). Touches updated_at so peers re-sync (P3.2).
+ */
+export async function assignLine(cartItemId: string, seatId: string) {
+  const input = assignLineInput.parse({ cartItemId, seatId });
+  const { cartId, sessionId, locked, role, lineSeat, uid } = await assertCartItemMember(
+    input.cartItemId,
+  );
+  if (locked) throw new Error("Order is locked while someone checks out");
+  if (!canMutateLine("draft", role, lineSeat === uid))
+    throw new Error("Only the host can reassign someone else’s item");
+  const db = serviceClient();
+  // The target must be at this table — never assign a line to a non-member seat.
+  const { data: target } = await db
+    .from("session_members")
+    .select("seat_id")
+    .eq("session_id", sessionId)
+    .eq("seat_id", input.seatId)
+    .maybeSingle();
+  if (!target) throw new Error("That guest isn’t at this table");
+  const { error } = await db
+    .from("qr_cart_items")
+    .update({ by_seat: input.seatId })
+    .eq("id", input.cartItemId);
+  if (error) throw new Error("Could not reassign that item");
+  const { error: touchErr } = await db
+    .from("qr_carts")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", cartId);
+  if (touchErr) console.error("[cart] updated_at touch failed (assignLine)", touchErr.message);
 }
 
 /** Reasons the cart UI maps to specific copy. SQL returns the validity reasons; the action adds the
