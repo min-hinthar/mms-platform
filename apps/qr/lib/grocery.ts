@@ -74,8 +74,10 @@ export async function searchGroceryItems(query: string): Promise<GroceryHit[]> {
     .order("name")
     .limit(12);
   if (error) {
+    // Throw (not return []) so the caller can tell a lookup FAILURE from a genuine zero-result search
+    // and say so honestly. Log the real cause server-side; Next redacts the thrown message in prod.
     console.error("[grocery] searchGroceryItems failed", error);
-    return [];
+    throw new Error("grocery search failed");
   }
   return (data ?? []).map((i) => ({
     barcode: i.barcode as string,

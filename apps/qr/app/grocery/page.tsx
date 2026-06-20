@@ -22,6 +22,8 @@ export default function Grocery() {
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<GroceryHit[] | null>(null);
   const [searching, setSearching] = useState(false);
+  const [searchFailed, setSearchFailed] = useState(false); // a failed search ≠ an empty one — say so
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const flash = useCallback((msg: string) => {
     setToast(msg);
@@ -76,13 +78,22 @@ export default function Grocery() {
       if (!active) return;
       if (q.length < 2) {
         setHits(null);
+        setSearchFailed(false);
         setSearching(false);
         return;
       }
       setSearching(true);
       searchGroceryItems(q)
-        .then((res) => active && setHits(res))
-        .catch(() => active && setHits([]))
+        .then((res) => {
+          if (!active) return;
+          setHits(res);
+          setSearchFailed(false);
+        })
+        .catch(() => {
+          if (!active) return;
+          setHits([]);
+          setSearchFailed(true); // distinguish a lookup failure from a genuine zero-result search
+        })
         .finally(() => active && setSearching(false));
     }, 220);
     return () => {
@@ -95,6 +106,9 @@ export default function Grocery() {
     await add(h.barcode, "search");
     setQuery("");
     setHits(null);
+    // Tapping a hit unmounts the result button that held focus — return focus to the search input
+    // (the natural place to keep going) so a keyboard / screen-reader diner isn't dropped to <body>.
+    searchRef.current?.focus();
   }
 
   const totalCents = lines.reduce((a, l) => a + l.priceCents, 0);
@@ -125,6 +139,7 @@ export default function Grocery() {
           <div className="card" role="search" style={searchWrap}>
             <span aria-hidden="true">🔍</span>
             <input
+              ref={searchRef}
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -138,6 +153,8 @@ export default function Grocery() {
             <ul role="list" aria-label="Search results" style={resultList}>
               {searching && hits.length === 0 ? (
                 <li style={hintRow}>Searching…</li>
+              ) : searchFailed ? (
+                <li style={hintRow}>Search unavailable — please try again.</li>
               ) : hits.length === 0 ? (
                 <li style={hintRow}>No matches — try fewer letters.</li>
               ) : (
