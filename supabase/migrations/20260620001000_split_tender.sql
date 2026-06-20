@@ -56,6 +56,11 @@ alter table public.qr_cart_shares enable row level security;
 -- through service-role Server Actions / the webhook (no client write policy — default-deny).
 create policy qr_share_read on public.qr_cart_shares for select to authenticated using (
   exists (select 1 from public.qr_carts c where c.id = qr_cart_shares.cart_id and public.is_member(c.session_id)));
+-- Match the sibling lockdown (qr_carts/qr_cart_items): keep the table out of the ANON GraphQL schema
+-- (advisor 0026). RLS already denies anon every row (the policy is `to authenticated`), but revoking the
+-- default anon SELECT also makes the table undiscoverable before sign-in — diners are `authenticated`
+-- (anonymous-auth), so the board read is unaffected.
+revoke select on public.qr_cart_shares from anon;
 
 -- ============ realtime (live settlement board) ============
 -- Members watch each share flip pending→authorized→captured live, like the cart lines (P3.2). Auth is
