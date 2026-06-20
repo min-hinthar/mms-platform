@@ -1,13 +1,15 @@
 name: Adversarial PR Review
-# Per-PR adversarial pass — scoped to the diff. This is a PRE-MERGE gate, NOT a per-push job:
-# it runs ONLY when the `adversarial` label is added (deliberately, when a PR is ready to merge).
-# Running it on every push burned Max-plan quota and re-surfaced the same findings round after round
-# (see .claude/LEARNINGS.md). The weekly whole-repo pass lives in adversarial.yml.
-# Auth: Claude Code OAuth token (Max-plan quota).
+# Pre-merge CONFIRMATION backstop — scoped to the diff. The PRIMARY deep adversarial pass is now run
+# IN-SESSION by the working session via a fresh-context subagent (independent eyes, reuses repo state,
+# no cold start, no re-label loop) at BOTH pre-PR and pre-merge — see CLAUDE.md. This Action confirms
+# that pass and is the fail-closed merge gate + the audit trail on the PR. It runs ONLY when the
+# `adversarial` label is added (deliberately, when a PR is ready to merge) — running it per-push burned
+# Max-plan quota and re-surfaced the same findings round after round (see .claude/LEARNINGS.md). The
+# weekly whole-repo pass lives in adversarial.yml. Auth: Claude Code OAuth token (Max-plan quota).
 #
-# FLOW: open PR → CI + the on-demand review run → when ready to merge, add the `adversarial` label →
-# this runs and must report `ADVERSARIAL_VERDICT: PASS`. As a required check it stays "expected"
-# (merge blocked) until that happens, which is the point.
+# FLOW: in-session subagent pass (pre-PR) → open PR → CI + the consolidated review run → fix → in-session
+# subagent pass (pre-merge) → add the `adversarial` label → this confirms `ADVERSARIAL_VERDICT: PASS`.
+# As a required check it stays "expected" (merge blocked) until that happens, which is the point.
 on:
   pull_request:
     types: [labeled]
