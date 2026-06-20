@@ -4,7 +4,22 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
-### Added — M2·P2.2 honest pickup scheduling (2026-06-20)
+### Added — M2·P2.3 grocery Scan & Go session/cart (2026-06-20)
+
+- **Real server-issued Scan & Go session.** `/grocery` now mints its cart via `useTableSession("scango")`
+  — the same anon-auth `table_sessions` / `session_members` / `qr_carts` + membership-authz the dine-in
+  and pickup flows use — replacing the demo client-minted `crypto.randomUUID()` that the `assertCartMember`
+  guard rightly rejected (a client-asserted session id was the very thing M1·P1.1 closes). So `scanAdd` is
+  now authorized like every other mutation, prices/taxes stay server-derived, and the cart carries to
+  `/cart` + Stripe checkout. The dishonest "Scan & Go opens with grocery sessions (M2)" placeholder is gone.
+- **Name-search fallback for unknown barcodes.** When a barcode won't scan or isn't in the catalog, a
+  debounced name search (`searchGroceryItems`, a public read of the public-RLS `grocery_items`, returning
+  only available + non-weighed items, LIKE-metacharacters escaped, length-bounded input) lets the diner
+  find the item by name; a tap adds it through the **same** authorized `scanAdd` (server re-derives price +
+  category-aware tax). EBT-eligible hits are tagged.
+- **Fixed in passing:** the barcode scanner tore down + restarted the camera on every render (a fresh
+  `onScan` each time) — now memoized so it starts once; and `/grocery` had two live regions (the scanned-
+  lines `aria-live` + the status toast) → collapsed to one (the toast announces each add).
 
 - **Capacity-limited pickup slots + a server fire-time.** Migration `20260620000100_pickup_scheduling`
   adds a tunable single-row `pickup_config` (tz, hours, slot interval, **capacity per slot**, lead, prep,
