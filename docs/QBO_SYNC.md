@@ -45,7 +45,14 @@ has no item ref configured. The full Stripe PI id rides in `PrivateNote` (QBO's 
 - **One Sales Receipt per order.** `qbo_sync_queue` (migration `20260620000400`) holds one row per order
   (`order_id` PK). The webhook enqueues `status='pending'` on fulfillment; the post flips it to `synced`
   (+ `qbo_doc_id`) / `error` (+ `last_error`) / `skipped` (disabled). A re-post is short-circuited once a
-  row is `synced` with a doc id.
+  row is `synced` with a doc id, and the create carries a stable `requestid` (the order id) so a retry
+  after a lost response returns the same receipt rather than duplicating. _(Today the only trigger is one
+  `after()` per fulfillment — Stripe retries skip the fulfill branch — so there's no live concurrent
+  poster; a per-order advisory lock around the check-and-post lands with the cron drain below, before two
+  posters can ever race.)_
+- **Trust-but-verify the total.** After posting, QBO's returned `TotalAmt` is compared to the Stripe
+  charge; a mismatch is recorded as `error` (not `synced`), so a line QBO interprets differently can't
+  silently drift the clearing account.
 - **Never blocks the money path.** The webhook posts to QBO inside Next's `after()` — QBO latency/outage
   can't delay the Stripe 200 ack or fulfillment. A failure is caught, recorded, and retryable; it never
   5xxs the webhook.
@@ -78,8 +85,13 @@ has no item ref configured. The full Stripe PI id rides in `PrivateNote` (QBO's 
 - **Refresh-token rotation.** Intuit rotates the refresh token on each exchange; production must persist
   the rotated token (a secrets row / scheduled re-auth), not rely forever on the env value. Today we mint
   an access token per cold start from the env refresh token (fine for sandbox/dev).
-- **Cron drain.** Wire `processPendingQboSyncs` to a schedule (or an admin endpoint) for retrying
-  `error`/stranded `pending` rows.
+- **Cron drain + concurrency lock.** Wire `processPendingQboSyncs` to a schedule (or an admin endpoint)
+  for retrying `error`/stranded `pending` rows; add a per-order `pg_advisory_xact_lock` (or `select … for
+update` on the queue row) around the synced-check-and-post so a cron run can't race the inline `after()`
+  poster (the `requestid` is a backstop, not a substitute).
+- **Mapper unit test.** Commit a `mapping.test.ts` (balanced total · throws on imbalance · throws on
+  missing ref · multi-qty · zero discount) once a test runner is added — today the invariant is checked
+  manually via a standalone balance script.
 - **Payout reconciliation.** A periodic check that the Stripe clearing account nets to ~zero against
   Stripe payouts (catches a mismatched fee/refund mapping).
 - **Refunds.** `charge.refunded` → a QBO Refund Receipt / credit (the webhook has the seam; not mapped yet).

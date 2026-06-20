@@ -192,8 +192,11 @@ export async function syncOrderToQbo(orderId: string): Promise<QboSyncResult> {
     const { order, items } = await loadOrder(db, orderId);
     const receipt = buildSalesReceipt(order, items, cfg.refs); // throws if it doesn't balance
     const token = await accessToken(cfg);
+    // `requestid` makes the create idempotent on QBO's side: a retry after a lost/timed-out response
+    // (the POST may have committed) returns the SAME receipt instead of a duplicate. The order id is a
+    // stable per-order token (≤ 50 chars).
     const res = await fetch(
-      `${cfg.baseUrl}/v3/company/${cfg.realmId}/salesreceipt?minorversion=73`,
+      `${cfg.baseUrl}/v3/company/${cfg.realmId}/salesreceipt?minorversion=73&requestid=${orderId}`,
       {
         method: "POST",
         headers: {
@@ -206,8 +209,17 @@ export async function syncOrderToQbo(orderId: string): Promise<QboSyncResult> {
     );
     if (!res.ok)
       throw new Error(`QBO salesreceipt ${res.status}: ${(await res.text()).slice(0, 400)}`);
-    const j = (await res.json()) as { SalesReceipt?: { Id?: string } };
+    const j = (await res.json()) as { SalesReceipt?: { Id?: string; TotalAmt?: number } };
     const docId = j.SalesReceipt?.Id ?? null;
+    // Trust-but-verify: buildSalesReceipt proved OUR Σ(lines) is consistent, but confirm QBO totaled the
+    // receipt the SAME as the Stripe charge — if it didn't (a line interpreted differently, AST partly
+    // engaging despite NotApplicable), the clearing account would silently drift. A mismatch is an error
+    // (flag for review), not a 'synced'; the requestid above means a re-run won't double-post.
+    const qboTotal = j.SalesReceipt?.TotalAmt;
+    if (typeof qboTotal === "number" && Math.round(qboTotal * 100) !== order.totalCents)
+      throw new Error(
+        `QBO TotalAmt ${qboTotal} ≠ order total ${order.totalCents}¢ (doc ${docId ?? "?"})`,
+      );
     await markQueue(db, orderId, { status: "synced", qbo_doc_id: docId, bumpAttempt: true });
     return { status: "synced", docId: docId ?? undefined };
   } catch (e) {
