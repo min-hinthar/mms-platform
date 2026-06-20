@@ -2,6 +2,7 @@ import "server-only";
 import { cookies } from "next/headers";
 import { serverClient, serviceClient } from "@mms/db/server";
 import { CART_LOCK_TTL_MS } from "./lock";
+import { SESSION_RENEW_THRESHOLD_MS, sessionExpiryFromNow } from "./session-ttl";
 
 /**
  * The ONE authorization guard (RED-TEAM standard #2: "every mutation authorizes itself").
@@ -90,6 +91,20 @@ export async function assertCartMember(cartId: string): Promise<CartAuthz> {
     .eq("seat_id", uid)
     .maybeSingle();
   if (!member) throw new AuthzError("Not a member of this session", 403);
+
+  // Sliding renewal (bugfix: the 4h hard TTL stranded in-use dine-in tables). The session passed the
+  // freshness check above, so any authorized touch slides expires_at forward — throttled to the back
+  // half of the window so a read-heavy path (realtime → getCartView) doesn't write on every call. A
+  // table that's actually being used never reaches the TTL; only a truly-idle session expires (then
+  // the mint sweeps + re-mints it). Non-fatal: a failed renewal never blocks this authorized request.
+  if (new Date(sess.expires_at).getTime() - Date.now() < SESSION_RENEW_THRESHOLD_MS) {
+    const { error: renewErr } = await db
+      .from("table_sessions")
+      .update({ expires_at: sessionExpiryFromNow() })
+      .eq("id", cart.session_id)
+      .eq("status", "active");
+    if (renewErr) console.error("[authz] session renewal failed", renewErr.message);
+  }
 
   return {
     uid,

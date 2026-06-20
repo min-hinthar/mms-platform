@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { serviceClient, sessionClient } from "@mms/db/server";
 import { sessionMintInput } from "@mms/db/schemas";
 import { generateJoinCode } from "@/lib/session-code";
+import { sessionExpiryFromNow } from "@/lib/session-ttl";
 import { getPostHogClient } from "@/lib/posthog-server";
 
 type Sess = { id: string; mode: string; host_seat: string | null; qr_code: string };
@@ -44,6 +45,9 @@ export async function POST(req: NextRequest) {
 
   const db = serviceClient();
   const cols = "id,mode,host_seat,qr_code";
+  // Find an active AND non-expired session for the code. The expiry filter MUST match assertCartMember
+  // + the is_member RLS fn (both reject `expires_at <= now()`): without it the mint would hand back a
+  // still-'active' but expired session that every later cart write then 403s on (the strand bug).
   const findActive = async (code: string): Promise<Sess | null> =>
     (
       await db
@@ -51,6 +55,7 @@ export async function POST(req: NextRequest) {
         .select(cols)
         .eq("qr_code", code)
         .eq("status", "active")
+        .gt("expires_at", new Date().toISOString())
         .maybeSingle()
     ).data ?? null;
 
@@ -61,6 +66,19 @@ export async function POST(req: NextRequest) {
   // code is wrong. (A scanned sticker `?t=` or a host-start leaves joinOnly false → may provision.)
   if (joinOnly && !sess)
     return NextResponse.json({ error: "No table found for that code" }, { status: 404 });
+
+  // Turned-over table: the same physical sticker code can be reused, but the prior session may be
+  // EXPIRED yet still status='active' (there's no background sweeper) — squatting on the partial unique
+  // index (table_sessions_active_qr_uniq WHERE status='active') so a fresh insert below would 23505.
+  // Sweep it to 'closed' first (the sweep that index's comment anticipated), freeing the code to mint anew.
+  if (!sess && qrCode && !joinOnly) {
+    await db
+      .from("table_sessions")
+      .update({ status: "closed" })
+      .eq("qr_code", qrCode)
+      .eq("status", "active")
+      .lte("expires_at", new Date().toISOString());
+  }
 
   // Create when no active session exists for the code (or when the host omitted one → mint a code).
   // Up to a few attempts: a *generated* code that collides regenerates; a *provided* code that
@@ -88,6 +106,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Could not create session" }, { status: 500 });
   }
   if (!sess) return NextResponse.json({ error: "Could not create session" }, { status: 500 });
+
+  // Slide an existing (fresh) session's expiry forward on rejoin — reopening the tab or a second phone
+  // joining keeps an in-use table alive well past the base 4h TTL (mirrors the per-touch renewal in
+  // assertCartMember). Only on a JOIN: a brand-new session already has a full window.
+  if (!created) {
+    await db
+      .from("table_sessions")
+      .update({ expires_at: sessionExpiryFromNow() })
+      .eq("id", sess.id)
+      .eq("status", "active");
+  }
 
   // Host identity is the seat that created the session — preserved across rejoins.
   const role: "host" | "guest" = sess.host_seat === seat ? "host" : "guest";
