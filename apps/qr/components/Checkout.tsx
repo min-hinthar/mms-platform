@@ -22,7 +22,7 @@ const PROMO_MESSAGES: Record<PromoReason, string> = {
   exhausted: "That code has reached its limit.",
   session_limit: "That code’s already been used at this table.",
   cart_closed: "This order is already being paid.",
-  locked: "The host has locked the order.",
+  locked: "Someone’s checking out — the order’s locked for a moment.",
   rate_limited: "Too many tries — wait a minute, then try again.",
   error: "Couldn’t apply that code — please try again.",
 };

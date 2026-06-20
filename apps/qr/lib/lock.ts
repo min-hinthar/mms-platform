@@ -23,10 +23,16 @@ export type LockResult = "acquired" | "held_by_other" | "closed";
  * STALE (TTL elapsed → take over an abandoned lock). Postgres re-evaluates the WHERE under the row lock,
  * so two members reaching checkout at once can't both win. The timestamp basis is the app clock (same
  * `Date.now()` the effective-lock check uses) so there's no DB/app skew at the boundary.
+ *
+ * PRECONDITION: the caller must have already `assertCartMember`'d — this UPDATE does not re-verify
+ * membership (create-intent asserts immediately before, with no await-gap that could change it).
  */
 export async function acquireCartLock(cartId: string, uid: string): Promise<LockResult> {
   const db = serviceClient();
   const cutoff = new Date(Date.now() - CART_LOCK_TTL_MS).toISOString();
+  // Both interpolated values are SERVER-derived (uid = verified auth.uid() from assertCartMember;
+  // cutoff = a server ISO timestamp) — never a client string — so this `.or()` carries no injection
+  // risk. Don't pipe a user-supplied value through here.
   const { data } = await db
     .from("qr_carts")
     .update({ locked: true, locked_at: new Date().toISOString(), locked_by: uid })

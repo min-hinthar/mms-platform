@@ -4,6 +4,28 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — M3·P3.2-lock cart-lock-at-pay (2026-06-20)
+
+- **Freezes the cart for the pay window** so a peer can't mutate it mid-checkout (which would drift the
+  total from the fixed PaymentIntent amount → webhook reconcile 409 → **charged-but-no-order**). The
+  hole P3.2's live multi-writer cart exposed; deferred from P1.3 on purpose because a naïve lock strands
+  an abandoned pay-screen.
+- **`qr_carts.locked_at` + `locked_by`** (+ existing `locked`). Effective lock = held AND fresh within a
+  **5-min TTL** (`CART_LOCK_TTL`), so a hard tab-close auto-releases. `create-intent` acquires via ONE
+  atomic conditional UPDATE (`status=open AND (unlocked OR locked_by=me OR stale)`) — race-safe (Postgres
+  re-checks the WHERE under the row lock; a fresh lock by another can't be stolen), and the SAME payer
+  re-acquires after a refresh instead of being told "someone's checking out." Released on decline
+  (webhook), "Edit order" (scoped to the locker), the TTL, or any create-intent failure path.
+- **One guard, everywhere:** `assertCartMember` returns the _effective_ lock, so every existing mutation
+  path (addItem / setQty / applyPromo / scanAdd / setPickupSlot) rejects. **UI:** AddButton disabled +
+  a v7.2 lockbar; the transition is announced through the provider's **single** live region (the lockbar
+  is plain visual — no second region); "Edit order" releases. The aspirational "locks the cart" comments
+  are now true; "the host locked it" copy → "someone's checking out" (the locker may be a guest).
+- **Hardened in passing:** `scanAdd` (grocery) now routes through the status-atomic
+  `mms_cart_item_insert_if_open` RPC like `addItem` (was a plain insert — same TOCTOU class as the hole
+  above). Migration `20260620000700` (2 nullable columns; `database.types.ts` hand-edited, `types-fresh`
+  validated). Reviewed by a fresh-context adversarial subagent **pre-PR + pre-merge** (0 blockers).
+
 ### Added — M3·P3.2 live group-cart sync (dine-in, multi-device) (2026-06-20)
 
 - **A peer's cart change now appears live on every phone at the table.** `qr_carts` + `qr_cart_items`

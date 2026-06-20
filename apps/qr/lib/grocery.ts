@@ -19,7 +19,7 @@ import { assertCartMember } from "./authz";
 export async function scanAdd(cartId: string, barcode: string) {
   const input = scanInput.parse({ cartId, barcode });
   const { uid, locked } = await assertCartMember(input.cartId);
-  if (locked) throw new Error("Order is locked");
+  if (locked) throw new Error("Order is locked while someone checks out");
 
   const db = serviceClient();
   const { data: item } = await db
@@ -33,16 +33,20 @@ export async function scanAdd(cartId: string, barcode: string) {
 
   const unitPriceCents = Number(item.price_cents);
   const taxCents = lineTax(unitPriceCents, item.tax_category as TaxCategory, false);
-  await db.from("qr_cart_items").insert({
-    cart_id: input.cartId,
-    menu_item_id: item.barcode,
-    name: item.name,
-    qty: 1,
-    modifiers: [],
-    unit_price_cents: unitPriceCents,
-    tax_cents: taxCents,
-    by_seat: uid,
+  // Status-atomic insert (the same RPC the restaurant addItem uses, migration 20260619000200): the
+  // line is written only if the cart is still 'open', in one statement — so a webhook status flip to
+  // 'paid' can't slip a post-payment row past the app-layer guard. NULL id ⇒ cart no longer open
+  // (the grocery UI catches the throw and shows a generic "couldn't add").
+  const { data: insertedId } = await db.rpc("mms_cart_item_insert_if_open", {
+    p_cart_id: input.cartId,
+    p_menu_item_id: item.barcode,
+    p_name: item.name,
+    p_modifiers: [],
+    p_unit_price_cents: unitPriceCents,
+    p_tax_cents: taxCents,
+    p_by_seat: uid,
   });
+  if (!insertedId) throw new Error("Cart is no longer open");
   return {
     ok: true as const,
     name: item.name as string,

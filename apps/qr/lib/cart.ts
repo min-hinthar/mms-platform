@@ -69,7 +69,7 @@ export async function addItem(cartId: string, menuItemId: string, modifierIds: s
   const input = addItemInput.parse({ cartId, menuItemId, modifierIds });
   // AuthZ first: a verified member of this cart's active session, and the host hasn't locked it.
   const { uid, sessionId, locked } = await assertCartMember(input.cartId);
-  if (locked) throw new Error("Order is locked by the host");
+  if (locked) throw new Error("Order is locked while someone checks out");
 
   const db = serviceClient();
   const { data: sess } = await db
@@ -143,7 +143,7 @@ export async function addItem(cartId: string, menuItemId: string, modifierIds: s
 export async function setQty(cartItemId: string, qty: number) {
   const input = setQtyInput.parse({ cartItemId, qty });
   const { cartId, locked } = await assertCartItemMember(input.cartItemId);
-  if (locked) throw new Error("Order is locked by the host");
+  if (locked) throw new Error("Order is locked while someone checks out");
   const db = serviceClient();
   // Status-atomic set/delete (qty<=0 removes) — applies only while the parent cart is 'open' in one
   // statement (migration 20260619000200), matching the addItem paths. 0 rows ⇒ paid/closed (or gone).
