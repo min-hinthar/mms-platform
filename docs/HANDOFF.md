@@ -1,141 +1,126 @@
 # Session Handoff — MMS Platform (2026-06-20)
 
-The originating chat context does not carry across sessions — **this file is the durable pickup
-point.** Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (the research map — decisions,
-QA gate, rubric, red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md),
-[`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
+The originating chat context does not carry across sessions — **this file is the durable pickup point.**
+Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — decisions, QA gate, rubric,
+red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
+[`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
+**Next up: M3 — group cart.**
 
-## Where we are
+## Where we are — M1 + M2 complete (merged)
 
-- **M1 (walking pay path) — code-complete + merged** (P1.1–P1.6). M1 infra is **sorted**: prod is
-  public (Vercel Auth → "Only Preview Deployments") and env is wired; the nonce CSP is verified live.
-  ⚠️ **Stripe key MODE:** prod currently has **live** keys, so a _test_ card is declined ("live mode,
-  known test card"). For the M1 test-charge smoke, run prod on **test** keys (all three: publishable +
-  secret + a **test**-mode `whsec_…`), then flip back to live for launch — or test locally via
-  `stripe listen`. See `docs/ENV.md`.
-- **M2 in progress.** **P2.1 promo codes — done + merged** (`mms_promo_*` SECURITY DEFINER fns;
-  per-reason `applyPromo` result; migration `20260620000000`). **P2.2 pickup scheduling — done** (this
-  session; PR on `claude/feat/m2-p2-pickup-scheduling`): capacity-limited slots + server `fire_at` (the
-  S2 KDS seam) + `/track` echoes the chosen slot; `mms_pickup_slots`/`mms_set_pickup_slot` (migration
-  `20260620000100`). Both M2 migrations are **applied to the live QR project**. **Durable lessons (in
-  LEARNINGS):** (1) `revoke … from public` does NOT lock a fn from anon/authenticated — Supabase grants
-  them too; revoke all three + verify `has_function_privilege` + `get_advisors`. (2) CI green ≠
-  migration applied to live — apply + verify after merge. (3) Capacity-limited slots must count
-  in-progress **holds** (open carts), not just paid rows, + a per-slot advisory lock + an exclude-self
-  arg. **To regen types / test migrations locally:** download the pinned `supabase` CLI (2.107.0) from
-  GitHub releases, `sudo dockerd &`, `supabase start -x edge-runtime,…` (the pg-delta TLS error is
-  benign). **Next M2:** P2.3 grocery session · P2.4 QBO sync.
-- **P1.6 shipped (this session):** `apps/qr/proxy.ts` (Next 16's `middleware` rename) emits a
-  **per-request nonce CSP** with `'strict-dynamic'` and **no `'unsafe-inline'`** on `script-src`; the
-  static nonce-free headers stay in `next.config.ts`; the root layout is `force-dynamic` so the nonce
-  reaches every page's scripts (verified: nonce on all 18 `<script>`s, rotates per request, `/api`
-  skipped). Server secrets now fail fast via `requireEnv` (`@mms/db/server.ts` + the webhook secret).
-  `Permissions-Policy` fixed to `camera=(self)` (the grocery scanner needs it). `docs/ENV.md` is the
-  Vercel env map. **If you add an external origin, allow-list it in `proxy.ts`.**
-- **P1.3 shipped:** two-step checkout (review + tip → pay) — `Checkout.tsx` "Continue to payment"
-  POSTs the member-gated `/api/stripe/create-intent` `{cartId, tipRate}`; `PaymentSection.tsx` mounts
-  `<Elements>`/`<PaymentElement>` (appearance from `@mms/ui` tokens, light/Night) on the returned
-  `clientSecret`; `confirmPayment` → `/track` (renders Stripe's `redirect_status`). Tip chips (v7.2),
-  Apple/Google Pay via `automatic_payment_methods`, server-authoritative amount throughout.
-  **Cart-lock-during-pay is deferred to the Realtime phase** (locking at intent-create strands an
-  abandoned cart; the webhook amount-reconcile is the P1.3 guard — see `docs/REVIEW.md`). **Test mode
-  only.** Needs `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` + `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET`
-  in Vercel (test keys) for the preview to mount the Element.
-- **P1.2 shipped:** `POST /api/session` find-or-creates the session's open cart and returns `cartId`;
-  `useTableSession` (per-device QR identity) + `TableCartProvider` drive the menu's `AddButton` +
-  `CartBar`; `addItem` merges identical lines (item + normalized modifier set → qty bump);
-  `getCartView` (member-gated) feeds the cart page (`Checkout`: steppers/promo/server totals,
-  re-fetched, never client math). Pay CTA is a placeholder awaiting P1.3. _Follow-up:_ a
-  modifier-customization sheet (Add currently sends the base item; respect modifier_groups
-  min/max_select, `role="radiogroup"`).
-- **P1.1 shipped (this session):** `AnonAuthGate` (`signInAnonymously` on load, SSR cookies) +
-  `useAnonSession()`; `@mms/db/server` `serverClient(cookies)`; `POST /api/session` verifies the
-  Bearer anon token → `seat_id = auth.uid()` (idempotent, sets `host_seat`); **one authz guard**
-  (`apps/qr/lib/authz.ts`) gates every mutation (`addItem`/`setQty`/`applyPromo`/`scanAdd`/
-  `create-intent`) on membership + lock; `getCartTotals` moved to internal `lib/totals.ts` (the
-  webhook still calls it server-to-server). Zod = `@mms/db/schemas`. (Closes REVIEW.md gate #3.)
-- **QR runs on its OWN Supabase project** — `fasnpdhtvqtzjlvruqcu` ("MMS QR Platform", org
-  `iqphcmcmbydhkssfhrdt`), separate from the live delivery app (`ukuzkhuppqwtrdkjqrkv`). No
-  shared-project blast radius; the catalog is owned here.
-- **Schema applied + advisor-clean** (`supabase/migrations/20260618000000_qr_platform_init.sql`
-  - `…000100_lockdown_grants.sql`): catalog owned here (`menu_categories`/`menu_items`/
-    `modifier_*`/`grocery_items`) with `tax_category` as a **column**; `qr_*` session/cart/order
-    tables; cents tax engine (`mms_tax_rate`/`mms_taxable`/`mms_line_tax`); **anonymous-auth
-    membership RLS** (`is_member`/`is_host` keyed on `session_members.seat_id = auth.uid()`);
-    realtime private-channel policies; idempotent `mms_fulfill_order`.
-- **Seeded** from `supabase/seed.sql` — 60 menu items + 6 grocery SKUs, real data, cents,
-  CA tax classified.
-- **Types** generated → `packages/db/src/database.types.ts`, wired into `createClient<Database>`.
-  Public catalog reads use `publicClient()` (anon key, RLS); writes use `serviceClient()`.
-- **Smoke-tested** end-to-end (DB: pricing/tax/modifier-intersection/fulfillment/idempotency/
-  reconcile-guard/grants; app: `/menu` renders all 60 items with cents→$ prices + Burmese names).
+The QR app is feature-complete through the solo pay path + tax/promos/scheduling/grocery + the QBO
+accounting seam. Per-phase detail is in `ROADMAP.md` + `CHANGELOG.md`; the load-bearing facts:
+
+- **M1 (walking pay path) ✅** — anon-auth session (`AnonAuthGate`/`useAnonSession`; `POST /api/session`
+  mints a `table_session` + member + open cart and returns `cartId`), **one authz guard**
+  (`apps/qr/lib/authz.ts`, `assertCartMember`) on every mutation, server-authoritative cart/tax/totals
+  (`lib/cart.ts`/`lib/tax.ts`/`lib/totals.ts`, **cents end-to-end**), two-step checkout → Payment Element
+  → signature-verified **idempotent** webhook (`mms_fulfill_order`) → `/track` live timeline via Realtime,
+  nonce CSP (`apps/qr/proxy.ts`), fail-fast env (`requireEnv`).
+- **M2 (tax · promos · scheduling · grocery · QBO) ✅ — all shipped THIS session:**
+  - **P2.1 promos** (#18): `mms_promo_*` SECURITY DEFINER fns, per-reason `applyPromo`, migration `…0000`.
+  - **P2.2 pickup** (#19): capacity slots counting **paid + live holds**, per-slot advisory lock,
+    `fire_at` (the S2 KDS seam), `/track` echoes the chosen slot, next-day rollover. Migrations
+    `…0100`/`0200` + the **same-day slot-alignment fix `…0300`** (anchor the grid at the _stable_ day-open,
+    filter by `now+lead`; never anchor the series at `now+lead` — LEARNINGS).
+  - **P2.3 grocery** (#21): Scan & Go now mints a real `useTableSession("scango")` session (not a client
+    uuid); name-search fallback (`searchGroceryItems`) over public-RLS `grocery_items`.
+  - **P2.4 QBO sync** (#22): paid order → QBO **Sales Receipt deposited to a Stripe clearing account**
+    (two-ledger). Pure total-preserving mapper (`lib/qbo/mapping.ts` — throws unless Σ(lines) == charge),
+    fail-safe idempotent client (`lib/qbo/client.ts`, a no-op unless `QBO_SYNC_ENABLED=true`),
+    `qbo_sync_queue` ledger (migration `…0400`, RLS default-deny), webhook posts in `after()` so QBO never
+    blocks the money path. **Off by default.** See `docs/QBO_SYNC.md`.
+- **All M2 migrations are applied to the live QR project** (`fasnpdhtvqtzjlvruqcu`) + advisor-clean (only
+  the intentional `rls_enabled_no_policy` INFO on the default-deny tables).
+
+## ⚠️ Pending activation — needs Min (config, not code; like the Stripe live cutover)
+
+1. **QBO sync ships dark.** Sandbox company **"Mandalay Morning Star"** is connected; the mapper's entities
+   exist (recorded in `docs/QBO_SYNC.md` → `QBO_CUSTOMER_REF=126`, sales `740` (Non-Inventory), service
+   `737`, tax `738`, tip `739`). Remaining (the connector can't do these): create a **Stripe Clearing** GL
+   account, get the **realm id**, create an Intuit **Developer app** (`QBO_CLIENT_ID`/`SECRET` +
+   `QBO_REFRESH_TOKEN`), set all in Vercel, `QBO_ENV=sandbox`, `QBO_SYNC_ENABLED=true`, run one test order.
+   QBO UI cleanups: **deactivate** the old Service-typed "QR Sales" (736); **remap** "QR Sales Tax"/"QR Tip"
+   to liability accounts.
+2. **Stripe live webhook + keys** at production cutover (`docs/ENV.md` "Wiring Production"). ⚠️ Prod
+   currently has **live** Stripe keys → a _test_ card is declined; for a test-charge smoke, run prod on
+   test keys (incl. a test-mode `whsec_…`) or use `stripe listen`.
+
+## Next: M3 — Group cart (multi-device) — what to build & what ALREADY exists
+
+**Exit (ROADMAP M3):** two phones at one table order together; only members read/mutate; host lock holds.
+
+- **P3.1** Join flow: scan → session → guest list (presence). ⬜
+- **P3.2** Realtime broadcast of cart changes; server-authoritative merge. ⬜
+- **P3.3** Per-person split + assignment; host lock/remove with `canMutate` parity to the prototype. ⬜
+- **P3.4** Abuse limits: rate limits, session expiry, RLS membership tests. ⬜
+
+**The foundation is already in place — M3 is mostly Realtime wiring + UX, not new auth/schema:**
+
+- **Sessions + membership already exist.** `/api/session` find-or-joins a `table_session` (sets
+  `host_seat`, idempotent membership, returns `role: host|guest`); `session_members` + the `is_member`/
+  `is_host` RLS helpers keyed on `seat_id = auth.uid()` shipped in the **init** migration. A second phone
+  POSTing the same `qrCode` already becomes a `guest` member of the same session + cart. So P3.1 is largely
+  the **guest-list UX + presence**, not new backend.
+- **Realtime is authorized by table RLS.** Private-channel policies on `realtime.messages` are in the init
+  schema; `qr_orders` is already in the `supabase_realtime` publication (P1.5 `track_realtime`). Postgres
+  Changes are gated by RLS when the client calls `supa.realtime.setAuth(accessToken)` (LEARNINGS #48). To
+  broadcast cart changes (P3.2), add `qr_carts`/`qr_cart_items` to the publication (guarded/idempotent `do
+  $$
+  … alter publication …`; not a schema change, so `types-fresh` won't drift). **Presence seat MUST be
+  the stable session JWT seat, not a fresh `crypto.randomUUID()` per subscribe** (LEARNINGS #4 — ghosts).
+  $$
+- **The cart is already session-scoped, member-authz'd, and status-atomic**, so multi-writer is safe at the
+  DB. What's missing is the realtime broadcast + an optimistic, server-authoritative **merge** (keyed React
+  state, never an innerHTML rebuild — RED-TEAM #7 / QA-CHECKLIST), and the join/guest-list/split/host-lock
+  **UX**.
+- **Cart-lock-during-pay lands HERE** (deferred from P1.3 on purpose — locking at intent-create strands an
+  abandoned cart; it wants the realtime sync's natural release point). `qr_carts.locked` + `is_host` already
+  exist; wire the lock/unlock lifecycle + a `canMutate` gate with prototype parity (host holds the lock;
+  guests see a read-only cart). See the deferred note in `docs/REVIEW.md`.
+- **Build to v7.2.** `docs/prototype/v7.2.html` has the join, guest-list/presence, per-person split +
+  assignment, and host-lock screens — match them (tokens, motion, a11y, brand voice) in the **first commit**
+  to the QA-CHECKLIST §A / RUBRIC ≥4.3 bar. **Split math** must reconcile to the cent incl. promo + tax +
+  service (QA-CHECKLIST).
 
 ## Environment facts (read before running anything)
 
-- **App env** (set in Vercel by Min) → all point at the **new** project:
-  `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` _or_ `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
-  (both accepted by `@mms/db`), `SUPABASE_SERVICE_ROLE_KEY`.
-- ⚠️ **This sandbox injects `NEXT_PUBLIC_SUPABASE_*` + `SUPABASE_SERVICE_ROLE_KEY` pointing at the
-  DELIVERY project**, and Next.js lets real shell env override `.env.local`. So local `pnpm dev`/
-  build here hits **delivery** unless you inline-override:
+- **QR runs on its OWN Supabase project** — `fasnpdhtvqtzjlvruqcu` ("MMS QR Platform", org
+  `iqphcmcmbydhkssfhrdt`), separate from the live **delivery** app (`ukuzkhuppqwtrdkjqrkv`). No
+  shared-project blast radius; the catalog is owned here (`tax_category` is a column).
+- **App env** (set in Vercel by Min): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` _or_
+  `…_PUBLISHABLE_KEY` (both accepted), `SUPABASE_SERVICE_ROLE_KEY`, the Stripe + PostHog keys, and the QBO
+  vars (`docs/ENV.md`).
+- ⚠️ **This sandbox injects `NEXT_PUBLIC_SUPABASE_*` + `SUPABASE_SERVICE_ROLE_KEY` pointing at the DELIVERY
+  project**, and Next lets real shell env override `.env.local` — so local `pnpm dev`/build hits **delivery**
+  unless you inline-override:
   ```bash
   NEXT_PUBLIC_SUPABASE_URL=https://fasnpdhtvqtzjlvruqcu.supabase.co \
   NEXT_PUBLIC_SUPABASE_ANON_KEY=<publishable key> \
   pnpm --filter @mms/qr dev
   ```
-- **Supabase MCP** is scoped per `project_ref` — ensure it targets `fasnpdhtvqtzjlvruqcu`. Run
-  `get_advisors` (security + performance) after every migration.
-- **Anonymous sign-ins**: **ENABLED on the live project** (`fasnpdhtvqtzjlvruqcu`) — verified
-  2026-06-18 against the auth endpoint (anonymous `signup` returns a session with
-  `is_anonymous: true`). Also set as code in `supabase/config.toml` for the local stack / CI.
-  **Leaked-password protection is Pro-only** — accepted; that advisor warning is benign.
-- **Local Supabase stack** boots in the sandbox (Docker) with `supabase start -x edge-runtime`
-  (the edge-runtime container hits an rlimit/TLS wall here; we have no edge functions). That's how
-  to regenerate types: `pnpm db:types` (stack up) → commits `database.types.ts`
-  (raw `--local --schema public`; prettier-ignored — CI's `types-fresh` diffs it raw).
+- **Supabase MCP** is scoped per `project_ref` — target `fasnpdhtvqtzjlvruqcu`. Run `get_advisors`
+  (security + performance) after every migration.
+- **Anonymous sign-ins ENABLED** on the live project (verified against the auth endpoint). Leaked-password
+  protection is Pro-only — that advisor WARN is accepted/benign.
+- **Regen types via the pinned local CLI** (CI's `types-fresh` diffs it byte-identical): `sudo dockerd &`,
+  download `supabase` **2.107.0** from GitHub releases, `supabase start -x
+edge-runtime,studio,imgproxy,logflare,vector,mailpit` (the pg-delta/edge-runtime TLS error at boot is
+  benign — migrations still apply), then `pnpm db:types`. The committed `database.types.ts` is the raw
+  `--local --schema public` output, prettier-ignored.
 
-## Next tasks (in order)
+## The loop (how every phase ships here)
 
-### P1.4 — Fulfillment end-to-end (the webhook + order record already exist)
-
-- The webhook (`/api/stripe/webhook`) already signature-verifies, reconciles `getCartTotals` vs
-  `intent.amount`, and calls `mms_fulfill_order` (idempotent on the PI id; writes `qr_orders` +
-  `qr_order_items`, flips the cart to `paid`). P1.4 is the **end-to-end verification + polish**:
-  confirm a test-mode PaymentIntent drives a `qr_orders` row; surface the order to the diner.
-- **Gems stay deferred** — `loyalty_rewards.user_id` is `NOT NULL`; award on account-link (M4).
-
-### P1.5 — Track timeline
-
-- Replace `/track`'s P1.3 `redirect_status` confirmation with the live **placed → kitchen → ready →
-  served** timeline + ETA via Supabase Realtime on `qr_orders` (member-gated read). Dine-in refill
-  bell; pickup "I'm here." (The confirmation screen is already on-brand; build the timeline under it.)
-
-### Deferred from P1.3 (track here)
-
-- **Cart-lock-during-pay → Realtime phase.** Don't lock at intent-create (strands an abandoned
-  cart); the lock only matters under concurrent group editing and wants the realtime sync's natural
-  release point. The webhook amount-reconcile is the interim guard. See `docs/REVIEW.md`.
-
-### P1.2 follow-up (small)
-
-- **Modifier-customization sheet** — `AddButton` currently adds the base item with no modifiers. For
-  items with modifier groups, open a `Sheet` (Radix, from `@mms/ui`) with `role="radiogroup"` per
-  group, respecting `min_select`/`max_select`, then call `addItem(cartId, id, modifierOptionIds)`.
-  Line-merge already keys on the normalized modifier set, so customized variants stay distinct.
-
-## CI / infra follow-ups — DONE (2026-06-18)
-
-- ✅ **Anonymous sign-ins enabled on the live project** (verified — see Environment facts).
-- ✅ **`adversarial` + `adversarial-signed-off` labels created.** The `adversarial-pr` gate reads the
-  verdict from the agent's execution log via an EPIPE-proof bash `case` match (see LEARNINGS), so
-  normal PRs pass automatically. A PR that edits a `claude-*`/`adversarial-*` workflow (its own
-  review is skipped, anti-tampering) is signed off with the `adversarial-signed-off` label **or** a
-  collaborator (OWNER/MEMBER/COLLABORATOR) PR comment containing `ADVERSARIAL_SIGNOFF`.
-- ✅ **Prettier doc drift fixed** (PR #5) — `pnpm format:check` is clean; `docs/prototype/v7.2.html`
-  is prettier-ignored as a vendored reference.
-- ✅ **Repo auto-merge enabled** — future PRs can `enable_pr_auto_merge` to merge on green.
-
-Nothing infra-blocking remains for P1.2.
+- Build to v7.2 + the research bar in the **FIRST commit** (money/auth/RLS/tokens/a11y/error-paths). Run the
+  **Pre-PR self-review sweep** (CLAUDE.md), ending with a **fresh-context adversarial subagent** (the Agent
+  tool) across a11y · perf · security/privacy · product-UX — fix its findings, then **post its verdict as a
+  PR comment**. CI runs only zero-token green stub checks; the in-session subagent **is** the review.
+- Gate: `pnpm turbo lint typecheck build`. One phase = one PR on `claude/<type>/<slug>`;
+  `enable_pr_auto_merge` (squash) lands it on green.
+- **After a migration merges, APPLY it to the live project + verify the object state** (LEARNINGS #59 — CI
+  green ≠ applied to live). New tables → RLS default-deny + `revoke select from anon, authenticated`; new
+  SECURITY DEFINER fns → `revoke … from public, anon, authenticated` + `grant to service_role` (LEARNINGS
+  #25/#58), then verify `has_function_privilege` + `get_advisors`.
 
 ## Verify
 
@@ -145,11 +130,15 @@ Nothing infra-blocking remains for P1.2.
 
 ## Open decisions / notes
 
-- **ESLint pinned 9.x** — ESLint 10 breaks `eslint-config-next`'s react plugin; flip when upstream
-  is ready.
-- **Staging project** — add one when QR has live traffic; the single project is dev+prod-in-one now.
-- **Tax nuance** — cold salads filed under the `sides` category inherit `hot_prepared`; confirm
-  per-item with the restaurant and override `menu_items.tax_category` where a cold item is exempt
-  to-go (e.g. `lemon-salad`).
-- `docs/DATA_RECONCILIATION.md` is **historical** (the delivery-owned-menu era); the catalog is
-  owned here now.
+- **ESLint pinned 9.x** — ESLint 10 breaks `eslint-config-next`'s react plugin; flip when upstream is ready.
+- **Staging project** — add one when QR has live traffic; today one project is dev+prod-in-one (so Preview
+  and Production share the QR project until then — `docs/ENV.md`).
+- **Tax nuance** — cold salads filed under `sides` inherit `hot_prepared`; confirm per-item and override
+  `menu_items.tax_category` where a cold item is exempt to-go (e.g. `lemon-salad`).
+- **`loyalty_rewards.user_id` is `NOT NULL`** — anon diners can't earn gems until an account link (M4); don't
+  wire gem awards into `mms_fulfill_order` before then.
+- `docs/DATA_RECONCILIATION.md` is **historical** (the delivery-owned-menu era); the catalog is owned here.
+- **P1.2 follow-up (small, still open):** a modifier-customization sheet — `AddButton` adds the base item;
+  for items with modifier groups, open a Radix `Sheet` with `role="radiogroup"` per group respecting
+  `min_select`/`max_select`, then `addItem(cartId, id, modifierOptionIds)` (line-merge already keys on the
+  normalized modifier set).
