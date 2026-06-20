@@ -33,20 +33,23 @@ export async function scanAdd(cartId: string, barcode: string) {
 
   const unitPriceCents = Number(item.price_cents);
   const taxCents = lineTax(unitPriceCents, item.tax_category as TaxCategory, false);
-  // Status-atomic insert (the same RPC the restaurant addItem uses, migration 20260619000200): the
-  // line is written only if the cart is still 'open', in one statement — so a webhook status flip to
-  // 'paid' can't slip a post-payment row past the app-layer guard. NULL id ⇒ cart no longer open
-  // (the grocery UI catches the throw and shows a generic "couldn't add").
-  const { data: insertedId } = await db.rpc("mms_cart_item_insert_if_open", {
-    p_cart_id: input.cartId,
-    p_menu_item_id: item.barcode,
-    p_name: item.name,
-    p_modifiers: [],
-    p_unit_price_cents: unitPriceCents,
-    p_tax_cents: taxCents,
-    p_by_seat: uid,
+  // Plain insert (NOT the status-atomic mms_cart_item_insert_if_open RPC addItem uses): that RPC's
+  // p_menu_item_id is `uuid`, but a grocery id is a BARCODE and qr_cart_items.menu_item_id is text
+  // (soft-ref: a menu_items uuid-as-text OR a barcode) — a 13-digit barcode can't cast to uuid. The
+  // app-layer `locked` + membership guard above still gates this. TODO(follow-up): widen the RPC's
+  // p_menu_item_id to text (drop+recreate + re-grant + types regen) so grocery gets the in-SQL
+  // status='open' guard too. Low urgency: grocery is SOLO (scan, THEN pay), so the post-payment-insert
+  // race that guard closes is near-unreachable here (no concurrent writer mid-checkout).
+  await db.from("qr_cart_items").insert({
+    cart_id: input.cartId,
+    menu_item_id: item.barcode,
+    name: item.name,
+    qty: 1,
+    modifiers: [],
+    unit_price_cents: unitPriceCents,
+    tax_cents: taxCents,
+    by_seat: uid,
   });
-  if (!insertedId) throw new Error("Cart is no longer open");
   return {
     ok: true as const,
     name: item.name as string,
