@@ -32,7 +32,8 @@ run locally, copy [`.env.example`](../.env.example) → `apps/qr/.env.local` and
 | `QBO_ITEM_{SERVICE,TAX,TIP}_REF`                | **server**    | no      | item ids for the service-charge / sales-tax / tip lines (only if used)              |
 | `RESEND_API_KEY`                                | **server**    | **yes** | `lib/email.ts` — transactional staff email (invite/deactivation) via the Resend SDK |
 | `RESEND_FROM`                                   | **server**    | no      | verified sender, e.g. `Mandalay Morning Star <no-reply@mandalaymorningstar.com>`    |
-| `NEXT_PUBLIC_SITE_URL`                          | client+server | no      | canonical prod URL for links in emails (falls back to the Vercel URL)               |
+| `RESEND_SIGNING_SECRET`                         | **server**    | **yes** | `/api/resend/webhook` — Svix signing secret (`whsec_…`) to verify Resend events     |
+| `NEXT_PUBLIC_SITE_URL`                          | client+server | no      | canonical prod URL for email links — `https://qr.mandalaymorningstar.com`           |
 
 ¹ Either `NEXT_PUBLIC_SUPABASE_ANON_KEY` **or** `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` is accepted
 (new Supabase key naming); set one. ² A PostHog **project** key is a publishable write-only key — not
@@ -116,6 +117,14 @@ Two channels, both on Resend (same account + verified domain as the delivery app
    the app via the **Resend SDK** (`RESEND_API_KEY` + `RESEND_FROM`). Best-effort + fired from `after()`
    so a Resend outage never fails provisioning; unset keys ⇒ the send is skipped (logged) and the action
    still succeeds. No CSP change — the SDK runs server-side only (no browser `connect-src`).
+3. **Email events webhook** (`/api/resend/webhook`) — in the Resend dashboard add a webhook pointing at
+   `https://qr.mandalaymorningstar.com/api/resend/webhook`, and paste its **Svix signing secret**
+   (`whsec_…`) as `RESEND_SIGNING_SECRET`. The route verifies the Svix signature + a ±5-min replay
+   window, then flags bounces/complaints in logs (masked recipient + opaque `email_id` — no PII, no
+   recipient to analytics) and captures PII-free deliverability events to PostHog. Like the Stripe
+   webhook it's a signed public endpoint (the middleware matcher skips `/api`). _Note: a `RESEND_WEBHOOK`
+   env was provisioned but isn't consumed by the code — the signing secret (`RESEND_SIGNING_SECRET`) is
+   all the handler needs; the endpoint URL lives in the Resend dashboard._
 
 ## CSP note (P1.6)
 

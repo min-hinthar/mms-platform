@@ -93,9 +93,13 @@ identity full` for DELETE filtering; announce a peer's ADD only (by_seat).
      (`smtp.resend.com`, user `resend`, pass = Resend API key, verified sender), raise the email
      rate-limit, **and** edit the **Magic Link** template to include `{{ .Token }}` (default ships only a
      link; `/staff/login` expects the 6-digit code).
-   - **App transactional:** set `RESEND_API_KEY` + `RESEND_FROM` (+ optional `NEXT_PUBLIC_SITE_URL`) in
-     Vercel → staff invite/deactivation emails send via the SDK (`lib/email.ts`, best-effort via
-     `after()`; unset keys = silently skipped, action still succeeds).
+   - **App transactional:** set `RESEND_API_KEY` + `RESEND_FROM` + `NEXT_PUBLIC_SITE_URL`
+     (`https://qr.mandalaymorningstar.com`) in Vercel → staff invite/deactivation emails send via the
+     SDK (`lib/email.ts`, best-effort via `after()`; unset keys = silently skipped, action still succeeds).
+   - **Events webhook:** in Resend add a webhook → `https://qr.mandalaymorningstar.com/api/resend/webhook`
+     and set its Svix signing secret as `RESEND_SIGNING_SECRET` → `/api/resend/webhook` verifies + flags
+     bounces/complaints (masked logs) + PII-free PostHog deliverability events. (`RESEND_WEBHOOK` was
+     provisioned but the code doesn't consume it — only the signing secret is needed.)
 
 ## Next: the service-model track — S1 (staff & floor) — S1.1a SHIPPED
 
