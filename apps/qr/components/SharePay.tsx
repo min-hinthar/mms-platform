@@ -123,7 +123,7 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
                 borderRadius: 12,
                 border: `1.5px solid ${on ? "var(--ac)" : "var(--bd)"}`,
                 background: on ? "color-mix(in oklab, var(--ac) 9%, var(--cd))" : "var(--cd)",
-                color: on ? "var(--ac)" : "var(--tx)",
+                color: on ? "var(--ac-strong)" : "var(--tx)",
                 fontWeight: 800,
                 fontSize: 13,
                 cursor: "pointer",

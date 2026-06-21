@@ -39,6 +39,26 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
     split = null;
   }
 
+  // A settling cart with NO split context is unwinnable in the plain flow: the cart is frozen
+  // table-wide, so "Continue to payment" 409s ("pay your share on the split screen") but the board
+  // can't render without the context. Rather than strand the payer in that loop on a transient read
+  // miss, surface an honest retry (reload re-runs getSplitContext server-side).
+  if (view.settling && !split)
+    return (
+      <main style={{ padding: 24, maxWidth: 440, margin: "0 auto" }}>
+        <h1 style={{ fontSize: 28 }}>Your order</h1>
+        <p style={{ color: "var(--t2)" }}>
+          Your table is splitting the bill — we couldn’t load the split just now.
+        </p>
+        <Link
+          href={`/cart?cart=${encodeURIComponent(cart)}`}
+          style={{ color: "var(--ac)", fontWeight: 700 }}
+        >
+          Reload the split
+        </Link>
+      </main>
+    );
+
   return (
     <Checkout
       cartId={cart}

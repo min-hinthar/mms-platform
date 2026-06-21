@@ -320,6 +320,22 @@ export async function getCartView(cartId: string): Promise<{
     .select("id,menu_item_id,name,qty,modifiers,unit_price_cents,tax_cents,by_seat")
     .eq("cart_id", id)
     .order("created_at", { ascending: true });
+  // Resolve which lines are now 86'd so the cart can disable their "+" (QA §D sold-out trap — a peer
+  // can 86 an item that's already in a cart). menu_item_id is a soft text ref: a menu_items uuid for
+  // restaurant lines, a barcode for grocery. Filter to UUID-shaped ids before the lookup — `id` is a
+  // uuid column, so a barcode in the IN-list would error (invalid uuid); grocery lines stay not-sold-out.
+  const uuidRe = /^[0-9a-f-]{36}$/i;
+  const menuIds = [
+    ...new Set((rows ?? []).map((r) => r.menu_item_id).filter((x) => uuidRe.test(x))),
+  ];
+  const soldOut = new Set<string>();
+  if (menuIds.length) {
+    // Deliberate swallow: sold-out is an advisory disable on the "+", not load-bearing. A failed
+    // lookup degrades to "nothing sold-out" (the worst case is an 86'd line stays incrementable —
+    // the server still re-prices on add) rather than blocking the whole cart view.
+    const { data: flags } = await db.from("menu_items").select("id,is_sold_out").in("id", menuIds);
+    for (const f of flags ?? []) if (f.is_sold_out) soldOut.add(f.id);
+  }
   const items: CartItem[] = (rows ?? []).map((r) => ({
     id: r.id,
     menuItemId: r.menu_item_id,
@@ -329,6 +345,7 @@ export async function getCartView(cartId: string): Promise<{
     unitPriceCents: r.unit_price_cents,
     taxCents: r.tax_cents,
     bySeat: r.by_seat ?? undefined,
+    soldOut: soldOut.has(r.menu_item_id),
   }));
   return {
     items,

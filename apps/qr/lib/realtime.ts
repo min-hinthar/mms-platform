@@ -133,6 +133,12 @@ export function useCartRealtime(
         itemName: row.name ?? null,
       });
     };
+    // NON-private channel by design: postgres_changes is RLS-gated per-subscriber on qr_carts/
+    // qr_cart_items, so row delivery is authorized regardless of channel privacy. NOTE(S2): broadcast
+    // is NOT covered by table RLS — if a future path (e.g. a KDS/staff push) adds `.send()` on this
+    // channel, it must become `{ config: { private: true } }` + a `realtime.messages` policy for
+    // `cart:*` (mirroring rt_member_read), or it ships unauthenticated to any subscriber. (Same guard
+    // as lib/useOrderStatus.)
     const channel = supa
       .channel(`cart:${cartId}`)
       .on(
@@ -186,6 +192,9 @@ export function useSettlementRealtime(
     if (!enabled || !cartId || !accessToken) return;
     const supa = browserClient();
     supa.realtime.setAuth(accessToken);
+    // NON-private channel by design (RLS-gated postgres_changes; see useCartRealtime). NOTE(S2): the
+    // same broadcast caveat applies — adding `.send()` here requires `{ config: { private: true } }` +
+    // a `realtime.messages` policy for `shares:*`, since table RLS doesn't cover broadcast.
     const channel = supa
       .channel(`shares:${cartId}`)
       .on(

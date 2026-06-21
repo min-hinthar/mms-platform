@@ -328,3 +328,27 @@ applied to live; `get_advisors` clean apart from the intentional `rate_events` d
   `TableCartProvider.add` surfaces the session-recovery copy (self-correcting; precise per-reason copy
   needs a result discriminant — the thrown message is redacted in prod); the sweeper piggybacks
   `promo_attempts` GC (harmless, bounded).
+
+## Milestone red-team — M3 (pre-S1) + hardening PR (2026-06-21)
+
+Before S1, a **four-lens fresh-context adversarial pass** (money · auth/RLS/abuse · realtime/product-UX ·
+a11y/perf) over the whole M3 surface (P3.1–P3.4). **Spine verdict: sound** — server-authoritative amounts,
+the split-tender capture/abort race (fail-loud), idempotent fulfillment, lock×settle mutual exclusion,
+IDOR coverage on every mutation, RLS default-deny + SECURITY-DEFINER lockdown, atomic party cap, anti-spoof
+presence. Escapes were at the edges; fixed in the M3-hardening PR:
+
+- **Critical** — split-tender completion redirected paid diners to the "no order placed" stub. Fixed:
+  `/track?cart=…&paid=1` + member-gated `getSplitOrderId` (`lib/order.ts`) + order-id-keyed
+  `useOrderStatus`/`OrderTracker` + honest "finalizing" fallback.
+- **High** — join code (`?t=`/`?j=`) leaked to PostHog `$current_url` (client pageview). Fixed: `before_send`
+  scrub + URL strip after consume. · SettlementBoard poll never terminated post-redirect. Fixed: `load()`
+  short-circuit. · Sheet close ✕ < 44 px → 44 px tap target. · Menu `<ul>` missing `role="list"` → added.
+- **Medium** — cart could increment a sold-out line (`getCartView` now carries `is_sold_out`); a
+  `getSplitContext` read-miss while settling dropped a payer into an unwinnable plain checkout (now a
+  retry); accent-on-tint contrast < 4.5 (`--ac-strong` token); sheet/scrim reduced-motion; non-private
+  realtime channels (S2 broadcast guard comment).
+- **Deferred (tracked):** split-fulfill reconcile tautology → fix WITH S4.3 partial-capture; P3.3a/P3.3b
+  share-math display divergence (label/align); cross-owner-delete confirm (product sign-off); the P3.4 Low
+  + P3.3b analytics double-fire. See `docs/HANDOFF.md`.
+- Gate green (`turbo lint typecheck build`); no schema change (no migration/types/live-apply). Hardening-PR
+  adversarial subagent re-review on the diff: see the PR.

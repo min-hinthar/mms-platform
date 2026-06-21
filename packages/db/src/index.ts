@@ -32,6 +32,9 @@ export type CartItem = {
   unitPriceCents: number;
   taxCents: number;
   bySeat?: string;
+  /** The item has since been 86'd (menu_items.is_sold_out) — the cart can't increment it (QA §D
+   *  sold-out trap), only decrement/remove. Server-derived in getCartView; grocery lines stay false. */
+  soldOut?: boolean;
 };
 
 export type CartTotals = {

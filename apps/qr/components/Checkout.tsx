@@ -331,6 +331,7 @@ export function Checkout({
                   <Stepper
                     qty={i.qty}
                     disabled={pending || !canEdit}
+                    soldOut={i.soldOut}
                     name={i.name}
                     onChange={(q) => changeQty(i.id, q)}
                   />
@@ -405,7 +406,7 @@ export function Checkout({
                     borderRadius: 13,
                     border: `1.5px solid ${on ? "var(--ac)" : "var(--bd)"}`,
                     background: on ? "color-mix(in oklab, var(--ac) 9%, var(--cd))" : "var(--cd)",
-                    color: on ? "var(--ac)" : "var(--tx)",
+                    color: on ? "var(--ac-strong)" : "var(--tx)",
                     textAlign: "center",
                     fontWeight: 800,
                     cursor: "pointer",
@@ -417,7 +418,7 @@ export function Checkout({
                       display: "block",
                       fontSize: 10,
                       fontWeight: 700,
-                      color: on ? "var(--ac)" : "var(--t3)",
+                      color: on ? "var(--ac-strong)" : "var(--t3)",
                     }}
                   >
                     {rate ? `$${(previewCents / 100).toFixed(2)}` : "—"}
@@ -506,11 +507,14 @@ function Stepper({
   qty,
   onChange,
   disabled,
+  soldOut,
   name,
 }: {
   qty: number;
   onChange: (q: number) => void;
   disabled?: boolean;
+  // 86'd after it was added → can't increment (QA §D), but "−"/remove stays enabled so it can be cleared.
+  soldOut?: boolean;
   name: string;
 }) {
   const btn = {
@@ -550,8 +554,10 @@ function Stepper({
       </span>
       <button
         type="button"
-        disabled={disabled || qty >= 99}
-        aria-label={qty >= 99 ? `Maximum 99 ${name}` : `Add another ${name}`}
+        disabled={disabled || qty >= 99 || soldOut}
+        aria-label={
+          soldOut ? `${name} is sold out` : qty >= 99 ? `Maximum 99 ${name}` : `Add another ${name}`
+        }
         onClick={() => onChange(qty + 1)}
         style={btn}
       >
