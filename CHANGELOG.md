@@ -4,6 +4,25 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — Polished auth emails via Supabase Send-Email Hook + React Email (2026-06-21)
+
+Makes magic-link/OTP work reliably with polished templates (delivery-app stack), and removes the SMTP
+pain entirely: auth emails now route through a **Supabase Send-Email Hook** to our app, which renders a
+**React Email** template and sends via the **Resend API** — no SMTP to misconfigure (this is what was
+causing the Gmail `534`/500) or rate-limit.
+
+- **`/api/auth/send-email`** — the Send-Email Hook endpoint. Verifies the Standard-Webhooks (Svix)
+  signature (`SEND_EMAIL_HOOK_SECRET`) + a ±5-min replay window via a shared `lib/standard-webhook.ts`,
+  then renders + sends. The **6-digit code is the hero** (typed on `/staff/login`, immune to email
+  link-prefetchers that consume a single-use magic link — the `otp_expired` we were hitting); the magic
+  link is a secondary button. A send failure returns 500 so GoTrue surfaces it (the user is waiting).
+- **React Email templates** (`apps/qr/emails/`, `@react-email/components` + `/render`, same as the
+  delivery app) — a shared brand `MmsEmailLayout` + `AuthCodeEmail`, and the staff **invite/deactivation**
+  emails migrated off inline HTML to React Email (`lib/email.ts` → `lib/email.tsx`). Brand-aligned
+  (literal palette — email's sanctioned token exception).
+- **Config** (you): enable the Send-Email Hook in Supabase + set `SEND_EMAIL_HOOK_SECRET` (`docs/ENV.md`
+  "Email"). No SMTP needed.
+
 ### Added — Staff Google OAuth + email allowlist (2026-06-21)
 
 Staff sign-in now supports **Google OAuth** alongside magic-link + OTP — and Google sidesteps the SMTP

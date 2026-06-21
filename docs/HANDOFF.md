@@ -95,13 +95,13 @@ identity full` for DELETE filtering; announce a peer's ADD only (by_seat).
    - **Bootstrap the first owner:** sign in once with Google (mints the auth user; bounced as non-staff),
      copy your UID from Auth → Users, then `insert into public.staff (user_id, email, role, display_name)
 values ('<uid>','you@…','owner','Min');` → refresh `/staff`.
-   - **Auth email fallback (magic-link/OTP):** the built-in Supabase sender is rate-limited (→ **429**)
-     and was misconfigured to **Gmail** (`534 app-specific password` 500s). To use it, point Supabase →
-     Auth → **SMTP Settings** at Resend (`smtp.resend.com`, user `resend`, pass = Resend API key, verified
-     sender), raise the rate-limit, **and** make the Magic Link template **code-only** (`{{ .Token }}`,
-     drop the `{{ .ConfirmationURL }}` link) — link + code share ONE single-use token, so an email
-     link-prefetcher/scanner consuming the link invalidates the code (the `otp_expired` we saw). Optional
-     if Google OAuth is used.
+   - **Magic-link/OTP — via the Supabase Send-Email Hook (preferred, NO SMTP):** Supabase → Auth →
+     **Hooks → Send Email Hook** → HTTPS, URL `https://qr.mandalaymorningstar.com/api/auth/send-email`,
+     put its secret (`v1,whsec_…`) in `SEND_EMAIL_HOOK_SECRET`. The app renders a **React Email**
+     template (code-prominent — dodges the link-prefetch `otp_expired` we saw) and sends via Resend, so
+     there's no SMTP to misconfigure (this replaces the Gmail-`534`/429 mess). Needs `RESEND_API_KEY` +
+     `RESEND_FROM`. _(SMTP→Resend + a code-only `{{ .Token }}` template is the only-if-you-skip-the-hook
+     fallback.)_
    - **Auth hardening (config):** ensure email **confirmations are ON** (or email/password signup
      disabled) so an unconfirmed address can't assert a staff email; restrict the Google provider to the
      workspace domain; disable automatic cross-provider linking. (App-side, `getStaffAuth` already
