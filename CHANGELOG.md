@@ -4,6 +4,15 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed — auth email is code-only (OTP `otp_expired`) (2026-06-21)
+
+The OTP code kept failing "doesn't match" (`otp_expired` in the auth logs) while the magic link
+sometimes worked: the 6-digit code and the magic link are **one single-use Supabase token**, and Gmail
+**pre-fetches the link** (observed as a Google-IP `GET /verify` consuming the token) before the code can
+be typed. The Send-Email Hook (`/api/auth/send-email`) now sends a **code-only** email — no magic link
+to pre-consume — so the typed code stays valid. One-click sign-in remains via Google OAuth. (A
+non-secret `tokenLen` is logged so any future mismatch is diagnosable.)
+
 ### Added — Polished auth emails via Supabase Send-Email Hook + React Email (2026-06-21)
 
 Makes magic-link/OTP work reliably with polished templates (delivery-app stack), and removes the SMTP
