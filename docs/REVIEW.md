@@ -349,7 +349,7 @@ presence. Escapes were at the edges; fixed in the M3-hardening PR:
   realtime channels (S2 broadcast guard comment).
 - **Deferred (tracked):** split-fulfill reconcile tautology → fix WITH S4.3 partial-capture; P3.3a/P3.3b
   share-math display divergence (label/align); cross-owner-delete confirm (product sign-off); the P3.4 Low
-  + P3.3b analytics double-fire. See `docs/HANDOFF.md`.
+  - P3.3b analytics double-fire. See `docs/HANDOFF.md`.
 - Gate green (`turbo lint typecheck build`); no schema change (no migration/types/live-apply). Hardening-PR
   adversarial subagent re-review on the diff: see the PR.
 
@@ -363,6 +363,7 @@ off-by-default + never-blocks-money-path + `server-only` secrets, nonce CSP + SA
 Per-lens: M1-sec PASS, M1-money PASS, M2-promo/pickup PASS, M2-grocery/QBO PASS, M0 CHANGES_REQUESTED.
 
 Edge/foundation fixes shipped (no migration; hardening-diff adversarial subagent **PASS**):
+
 - **High** — Padauk loaded `subsets:["latin"]` (a Myanmar face) → Burmese silently fell back to system sans.
   Now `["latin","myanmar"]`.
 - **Med** — dark `--t3` was 4.40/4.10 on `--sf`/`--cd` (< AA) → `#9d95a8` (5.84/5.45), math independently
@@ -396,7 +397,10 @@ reuses.
   length, so `000000`/`123456` are caught) instead of a fixed 4-digit list.
 - Gate green (`turbo lint typecheck build` 5/5). Migration `20260621130000_staff_pin.sql` is additive;
   **verified on the local CI stack** (functional lockout test: correct → 5× wrong → lock → lapsed-reset →
-  correct) + `gen types --local` byte-match. ⚠️ **Live apply to `fasnpdhtvqtzjlvruqcu` is PENDING** — the
-  in-session classifier blocked the direct write; the PR preview shares the live DB so `/staff/profile` +
-  `/staff/lock` 500 on preview until it lands (see HANDOFF). Post-apply: `get_advisors` (expect only the
-  intentional `rls_enabled_no_policy` INFO on `staff_pins`) + `has_function_privilege` service-role-only.
+  correct) + `gen types --local` byte-match. **✅ APPLIED to live `fasnpdhtvqtzjlvruqcu`** (Supabase MCP) +
+  verified: RLS-on/0-policies, `anon`/`authenticated` have no table SELECT and no EXECUTE on the three
+  `mms_staff_*` fns (service-role only), bcrypt resolves under `extensions`, `get_advisors` shows only the
+  intentional `rls_enabled_no_policy` INFO on `staff_pins` (absent from the 0026/0027 GraphQL WARNs).
+- **Pre-merge adversarial subagent (second pass, fresh context): MERGE** — both prior fixes verified
+  correct; no merge-blocking findings; 3 non-blocking nits (per-page lock gate is deliberate;
+  malformed-input `attemptsRemaining:0` commented; bcrypt cost 10 fine). Verdict posted to PR #44.

@@ -165,13 +165,13 @@ affordance, not a hard boundary** (the Supabase session + staff-row gate remain 
 "Forgot PIN? Sign out", lock refused without a PIN). Migration `20260621130000_staff_pin.sql` (additive),
 types regenerated, gate green, adversarial subagent **PASS**.
 
-**⚠️ Apply `20260621130000_staff_pin.sql` to live (`fasnpdhtvqtzjlvruqcu`)** — the in-session auto-mode
-classifier blocked the direct live-DB write this session, so it's **verified on the local CI stack only**.
-The migration is additive (new table + 3 fns) so CI (migrations-check/types-fresh) is green, but the PR
-**preview** shares the live DB → `/staff/profile` + `/staff/lock` will 500 on preview until the migration
-lands on live (LEARNINGS — "CI green ≠ applied to live"). After applying, run `get_advisors` (expect only
-the intentional `rls_enabled_no_policy` INFO on `staff_pins`) + confirm `has_function_privilege` is
-service-role-only on the three `mms_staff_*` fns.
+**✅ `20260621130000_staff_pin.sql` is APPLIED to live (`fasnpdhtvqtzjlvruqcu`)** — applied via the Supabase
+MCP after Min's go-ahead, then verified: `staff_pins` exists with RLS on + 0 policies (default-deny);
+`anon`/`authenticated` have **no** SELECT on the table and **no** EXECUTE on any of the three `mms_staff_*`
+fns (service-role only); bcrypt resolves at runtime under `extensions` (correct PIN matches, wrong
+rejected); `get_advisors(security)` shows only the intentional `rls_enabled_no_policy` INFO on `staff_pins`
+(it does NOT appear in the 0026/0027 GraphQL-exposure WARNs, confirming the anon/authenticated revoke took).
+No further DB action for S1.1b.
 
 **S1.2 next (floor view):** legible per-table state (live cart? seats? last activity?) on a staff device.
 Staff realtime needs an **`is_staff()` branch on the `realtime.messages` policies** (deferred from S1.1a;
