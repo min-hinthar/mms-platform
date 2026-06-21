@@ -116,7 +116,7 @@ values ('<uid>','you@…','owner','Min');` → refresh `/staff`.
      bounces/complaints (masked logs) + PII-free PostHog deliverability events. (`RESEND_WEBHOOK` was
      provisioned but the code doesn't consume it — only the signing secret is needed.)
 
-## Next: the service-model track — S1 (staff & floor) — S1.1a SHIPPED
+## Next: the service-model track — S1 (staff & floor) — S1.1a SHIPPED + auth preview-verified
 
 Per the build order (`M1 → M2 → M3 → S1 → S2 → S3 → M4 → S4 → M5 → M6`) the service-model layer is in
 progress. Read [`docs/context/ORDER-MODEL.md`](context/ORDER-MODEL.md) + the `ROADMAP.md` S-track for the
@@ -135,9 +135,23 @@ email, then run once (service-role / SQL editor):
 After that the owner signs in at `/staff/login` (OTP) and provisions everyone else from `/staff/team`. (If
 an over-deactivation ever locks owners out, recover the same way: `update public.staff set active=true …`.)
 
-**Needs live smoke** (couldn't E2E without a real inbox this session): the OTP send/verify round-trip and
-team provisioning (`createUser` + row, orphan-rollback). The build/RLS/advisors are green; the auth flow
-needs one manual pass on a preview once an owner is bootstrapped.
+**Smoke-tested on preview ✅** (this session, real inbox): Google OAuth round-trip and the email
+magic-link/OTP send + in-page verify both work end-to-end on the PR-43 preview. Team provisioning
+(`createUser` + row, orphan-rollback) still wants one live pass once an owner is bootstrapped, but the
+auth path itself is confirmed.
+
+**OTP resend-loop — FIXED (code, #43, preview-verified) + one config step left for Min.** The "Too many
+code requests" loop was NOT a hanging Send-Email Hook (auth logs show GoTrue's `/otp` durations are all
+sub-second). It's GoTrue's own **`over_email_send_rate_limit`** (429) — its email rate limit, which fires
+_before_ the hook, so it's unrelated to Resend's quota. Two parts: (a) **code fix (shipped #43):**
+`StaffLogin`'s resend cooldown was reset on _every keystroke_, so editing the email even one char wiped the
+60s gate → instant re-tap → trip the limit; the cooldown/block is now scoped to the address it was sent to,
+the honest 60s "Resend in Ns" countdown shows only after a _successful_ send, and a 429 blocks the address
+and steers to Google (no misleading "wait a minute" that re-enables into the hourly cap). (b) **config (Min
+must do):** raise Supabase → Auth → **Rate Limits → "Rate limit for sending emails"** (`docs/ENV.md` "Staff
+sign-in"); until then, **Google OAuth is the reliable path** (no email, never rate-limited). _Deferred (no
+evidence it's needed): a fail-fast timeout on the Resend send in the hook — a hung send WOULD hang the hook
+→ GoTrue retry storm, but the logs show sub-second sends, so it's hardening, not the bug._
 
 **S1.1b next (PIN):** per-person PIN on a shared floor tablet — server-verified hash, rate-limited with
 lockout, rotatable; it's the SAME PIN primitive S2's manager step-up reuses. Then **S1.2 floor view**

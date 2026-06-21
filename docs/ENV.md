@@ -119,6 +119,13 @@ Staff (`/staff/login`) can sign in three ways; all resolve to the same **email a
 2. **Magic-link + OTP code (email fallback).** Requires the SMTP→Resend setup below. `signInWithOtp`
    sends an email carrying **both** a magic link (→ `/staff/auth/callback`) and the `{{ .Token }}` code
    (entered in-page). Either works; the code is the cross-device-safe path.
+   - ⚠️ **Raise the Auth email rate limit.** Supabase → Authentication → **Rate Limits → "Rate limit for
+     sending emails"** defaults low; once tripped, GoTrue returns `429 over_email_send_rate_limit` to
+     **every** code request for the rest of the window — which surfaces as the "Too many code requests"
+     loop on `/staff/login` no matter how long you wait the local 60s. This is GoTrue's own limit (it
+     fires _before_ our Send-Email Hook, so it's unrelated to Resend's quota). Raise it for staff use, or
+     just use **Google** (no email path, never rate-limited). The login screen now scopes its resend
+     cooldown per-address and steers a 429 to Google so a frustrated re-tap can't keep feeding the limit.
 
 > **Bootstrap the first owner:** sign in once with Google (mints the auth user; you'll be bounced as
 > non-staff), copy your UID from Supabase → Auth → Users, then
