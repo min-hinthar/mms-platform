@@ -121,6 +121,28 @@ export const sessionMintOutput = z.object({
   joinCode: z.string().min(1),
 });
 
+/**
+ * provisionStaff (S1.1a) — an OWNER creates a staff account (server/manager/owner). The email is
+ * the magic-link / OTP login identity; the server (service-role) creates the auth user + the staff
+ * row. Owner-gated server-side (is_staff_at_least('owner')); this only shapes the input. `role` is
+ * bounded to the three roles (never a free string); `displayName` is length-capped (mirrors the
+ * column CHECK length 1..80) and JSX-escaped at render.
+ */
+export const provisionStaffInput = z.object({
+  email: z.string().trim().email().max(254),
+  role: z.enum(["server", "manager", "owner"]),
+  displayName: z.string().trim().min(1).max(80),
+});
+
+/** setStaffActive (S1.1a) — an owner offboards/reinstates a staff member (never deletes the audit
+ *  trail; flips `active`, which is_staff/is_staff_at_least gate on). Owner-gated server-side. */
+export const setStaffActiveInput = z.object({
+  userId: uuid,
+  active: z.boolean(),
+});
+
+export type ProvisionStaffInput = z.infer<typeof provisionStaffInput>;
+export type SetStaffActiveInput = z.infer<typeof setStaffActiveInput>;
 export type SessionMintInput = z.infer<typeof sessionMintInput>;
 export type SessionMintOutput = z.infer<typeof sessionMintOutput>;
 export type SetDisplayNameInput = z.infer<typeof setDisplayNameInput>;

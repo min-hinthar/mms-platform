@@ -751,6 +751,33 @@ export type Database = {
           },
         ]
       }
+      staff: {
+        Row: {
+          active: boolean
+          created_at: string
+          display_name: string
+          role: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          display_name: string
+          role: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          display_name?: string
+          role?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       table_sessions: {
         Row: {
           created_at: string
@@ -791,6 +818,8 @@ export type Database = {
     Functions: {
       is_host: { Args: { sess: string }; Returns: boolean }
       is_member: { Args: { sess: string }; Returns: boolean }
+      is_staff: { Args: never; Returns: boolean }
+      is_staff_at_least: { Args: { min_role: string }; Returns: boolean }
       mms_cart_item_inc_qty: { Args: { p_id: string }; Returns: undefined }
       mms_cart_item_insert_if_open: {
         Args: {

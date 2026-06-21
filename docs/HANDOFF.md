@@ -87,15 +87,32 @@ identity full` for DELETE filtering; announce a peer's ADD only (by_seat).
    currently has **live** Stripe keys → a _test_ card is declined; for a test-charge smoke, run prod on
    test keys (incl. a test-mode `whsec_…`) or use `stripe listen`.
 
-## Next: the service-model track — S1 (staff & floor)
+## Next: the service-model track — S1 (staff & floor) — S1.1a SHIPPED
 
-M3 is **done** and **hardened** (a pre-S1 four-lens adversarial pass closed the Critical/High/cheap-Med
-edge findings — see the M3-hardening PR + `CHANGELOG`/`REVIEW`), so per the build order
-(`M1 → M2 → M3 → S1 → S2 → S3 → M4 → S4 → M5 → M6`) the service-model layer interleaves next. Read
-[`docs/context/ORDER-MODEL.md`](context/ORDER-MODEL.md) and the `ROADMAP.md` S-track for the exit criteria
-before starting; **S1 = staff & floor** (the human-facing door: the single source of truth across
-channels, dep on M1's ledger + M3's table session/presence). Confirm scope/priority with Min if there's
-any doubt — S vs M ordering is a product call.
+Per the build order (`M1 → M2 → M3 → S1 → S2 → S3 → M4 → S4 → M5 → M6`) the service-model layer is in
+progress. Read [`docs/context/ORDER-MODEL.md`](context/ORDER-MODEL.md) + the `ROADMAP.md` S-track for the
+S1 exit criteria. **Staff auth = magic-link/OTP + a shared-tablet PIN** (Min's call): S1.1a builds the
+magic-link foundation; S1.1b adds the PIN.
+
+**S1.1a shipped (this session):** `staff` table + roles (server/manager/owner) + `is_staff()`/
+`is_staff_at_least()` additive RLS (staff read **any** table session; diners unchanged) + `/staff` console
+(OTP login, role-gated shell, owner-only `/staff/team` provisioning). Migration `20260621100000` applied to
+live + advisor-clean; RLS verified behaviorally; adversarial subagent run pre-PR (all fixes landed).
+
+**⚠️ Bootstrap the first owner (one-time, before `/staff` is usable):** there is deliberately NO self-serve
+first-owner path. In the Supabase dashboard → Authentication → **Add user** (auto-confirm) for the owner's
+email, then run once (service-role / SQL editor):
+`insert into public.staff (user_id, role, display_name) values ('<that-auth-user-id>', 'owner', 'Min');`
+After that the owner signs in at `/staff/login` (OTP) and provisions everyone else from `/staff/team`. (If
+an over-deactivation ever locks owners out, recover the same way: `update public.staff set active=true …`.)
+
+**Needs live smoke** (couldn't E2E without a real inbox this session): the OTP send/verify round-trip and
+team provisioning (`createUser` + row, orphan-rollback). The build/RLS/advisors are green; the auth flow
+needs one manual pass on a preview once an owner is bootstrapped.
+
+**S1.1b next (PIN):** per-person PIN on a shared floor tablet — server-verified hash, rate-limited with
+lockout, rotatable; it's the SAME PIN primitive S2's manager step-up reuses. Then **S1.2 floor view**
+(staff realtime needs an `is_staff()` branch on the `realtime.messages` policies — deferred from S1.1a).
 
 **Tracked / deferred (non-blocking, carry forward):**
 

@@ -4,6 +4,39 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — S1.1a Staff identity, roles & RLS (2026-06-21)
+
+The foundation of the **service-model track** ([`docs/context/ORDER-MODEL.md`](docs/context/ORDER-MODEL.md)):
+a staff console at `/staff`, distinct from anonymous diners. Staff are **real accounts** (magic-link /
+email-OTP) with a role (**server < manager < owner**) and a stable `auth.uid()` — the per-person identity
+the S2 two-party void audit will need. The order ledger stays shared: one table-owned cart that diners,
+and now staff, both read. Migration applied to the QR project + advisor-checked; RLS verified behaviorally
+(staff reads any table ✓, non-member diner blocked ✓, diner's own session unbroken ✓). Fresh-context
+adversarial subagent run pre-PR (verdict: ship with fixes — all landed).
+
+- **Migration `…100000_staff_identity`** — `staff` table (`user_id`→auth.users, role CHECK, name CHECK
+  1..80, `active`); `is_staff()` / `is_staff_at_least(min_role)` SECURITY DEFINER helpers mirroring
+  `is_member` (search_path pinned, `auth.uid()` wrapped, **revoked from public AND `anon` by name** —
+  Supabase default privileges grant `anon`/`authenticated` EXECUTE explicitly, so `from public` alone
+  leaves the anon grant; granted to `authenticated` for policy evaluation). RLS extended **additively** —
+  `or public.is_staff()` folded into the six session-scoped SELECT policies via `ALTER POLICY` (one
+  permissive policy per role/action; no advisor 0006). `staff` RLS = self-or-owner read; writes
+  service-role only.
+- **Auth surface** — `/staff/login` passwordless OTP (`signInWithOtp` `shouldCreateUser:false` → only
+  provisioned accounts; `verifyOtp`); `AnonAuthGate` now **skips `/staff`** and, on diner routes, **swaps
+  a stray non-anon (staff) session for a fresh anonymous one** so a staff uid can never back the diner
+  surface on a shared browser. `/staff` distinguishes anon / not-staff / staff so a wrong account
+  **recovers (sign out) instead of looping**.
+- **Roles** — owner-only `/staff/team`: provision staff by email (service-role creates the OTP identity +
+  staff row, rolls back the orphan auth user if the row insert fails), assign role, deactivate/reactivate
+  (keeps the row for audit; guards self-deactivation). Every action re-checks `requireStaff('owner')`
+  server-side — the client gating is cosmetic. a11y: per-member `aria-label`s, deliberate focus on step
+  change, alert on the denied state.
+- **Bootstrap** — there is deliberately **no self-serve first-owner path** (it would let any visitor seize
+  ownership); the first owner is created out-of-band. See [`docs/HANDOFF.md`](docs/HANDOFF.md).
+
+_Deferred to S1.1b: the shared-tablet **PIN** fast-path (the same PIN primitive S2's manager step-up reuses)._
+
 ### Fixed — M0/M1/M2 hardening (pre-S1 milestone red-team) (2026-06-21)
 
 Five fresh-context adversarial lenses over M0 (foundations), M1 (single-pay spine + security/infra) and
