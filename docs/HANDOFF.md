@@ -1,10 +1,10 @@
-# Session Handoff — MMS Platform (2026-06-20)
+# Session Handoff — MMS Platform (2026-06-21)
 
 The originating chat context does not carry across sessions — **this file is the durable pickup point.**
 Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — decisions, QA gate, rubric,
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
-**Next up: M3 — group cart.**
+**Next up: M3·P3.4 — abuse limits.** (M3 group cart P3.1–P3.3b is shipped + merged.)
 
 ## Where we are — M1 + M2 complete (merged)
 
@@ -30,8 +30,40 @@ accounting seam. Per-phase detail is in `ROADMAP.md` + `CHANGELOG.md`; the load-
     fail-safe idempotent client (`lib/qbo/client.ts`, a no-op unless `QBO_SYNC_ENABLED=true`),
     `qbo_sync_queue` ledger (migration `…0400`, RLS default-deny), webhook posts in `after()` so QBO never
     blocks the money path. **Off by default.** See `docs/QBO_SYNC.md`.
-- **All M2 migrations are applied to the live QR project** (`fasnpdhtvqtzjlvruqcu`) + advisor-clean (only
-  the intentional `rls_enabled_no_policy` INFO on the default-deny tables).
+- **M3 (group cart — multi-device) ✅ — P3.1–P3.3b shipped + merged this session:**
+  - **P3.1 multi-device join** (#25): `qrCode` doubles as the join key (scanned sticker `?t=` or a
+    server-minted 8-char invite `?j=`); partial unique index `table_sessions_active_qr_uniq` makes
+    concurrent joiners converge on ONE session; presence guest list (`useGroupCart`, sanitized on
+    ingest, keyed by the stable seat). Join model = **both (sticker primary)**.
+  - **P3.2 live group-cart sync** (#26): Postgres Changes on `qr_carts`/`qr_cart_items` → consumers
+    re-fetch the server-authoritative `getCartView` (keyed React state, never client math); `replica
+identity full` for DELETE filtering; announce a peer's ADD only (by_seat).
+  - **P3.2-lock cart-lock-at-pay** (#27): `locked`/`locked_at`/`locked_by` (TTL auto-release, re-acquire
+    by the same payer); one atomic conditional UPDATE; the existing `locked` guard in every mutation.
+  - **P3.3a split-the-bill foundation** (#28): Even/By-person UI on `/cart` + per-line assignment;
+    `canMutate(line_state, actor_role, isOwner)` (host any line / guest own-only); optimistic
+    cent-reconciled shares (`lib/split-math`). Schema-free.
+  - **P3.3b split-tender** (#31, **Option A: authorize-all → capture-together**): each diner authorizes
+    their server-derived share on a `capture_method:manual` PaymentIntent (`create-share-intent`,
+    per-payer tip); the webhook captures all when the last authorizes → `mms_fulfill_split_order` (one
+    order, idempotent) → release the freeze; abort/decline cancels the holds; `qr_cart_shares` ledger +
+    `settle_at` table-wide freeze (mutually exclusive with the single-pay lock); live `SettlementBoard`
+    (realtime + 5s poll backstop). Tax weighted by each seat's **taxable** base, service by **net**.
+    Hardened across **three** adversarial passes (foundation, server flow, pre-merge) — the
+    "never charged-with-no-order" invariant holds, fail-loud on the residual.
+- **Two fixes rode alongside M3 this session:**
+  - **Dine-in session-expiry recovery** (#29): the 4h TTL stranded in-use tables ("Couldn't add that")
+    because the mint found a session by `status='active'` only while authz/RLS reject on `expires_at`.
+    Fix: sliding renewal on any authorized touch + rejoin; mint sweeps a stale session + re-mints;
+    client re-mints on a failed op (honest renewed-vs-timed-out copy). Schema-free.
+  - **Production error tracking** (#30): PostHog server-side capture (`instrumentation.ts onRequestError`,
+    non-PII context) + branded `error.tsx`/`global-error.tsx` boundaries; client capture was already on.
+    PostHog-only (Sentry would be redundant).
+- **All M2 + M3 migrations are applied to the live QR project** (`fasnpdhtvqtzjlvruqcu`) + advisor-clean
+  (only the intentional `rls_enabled_no_policy` INFO on the default-deny tables). **P3.3b's
+  `20260620001000_split_tender` was applied to live mid-session** because the PR preview shares the live
+  DB — a migration-requiring branch is broken on its preview until the (additive) migration lands on live
+  (LEARNINGS — the inverse of "CI green ≠ applied").
 
 ## ⚠️ Pending activation — needs Min (config, not code; like the Stripe live cutover)
 
@@ -46,42 +78,32 @@ accounting seam. Per-phase detail is in `ROADMAP.md` + `CHANGELOG.md`; the load-
    currently has **live** Stripe keys → a _test_ card is declined; for a test-charge smoke, run prod on
    test keys (incl. a test-mode `whsec_…`) or use `stripe listen`.
 
-## Next: M3 — Group cart (multi-device) — what to build & what ALREADY exists
+## Next: M3·P3.4 — abuse limits (the last M3 phase)
 
-**Exit (ROADMAP M3):** two phones at one table order together; only members read/mutate; host lock holds.
+**Exit (ROADMAP M3·P3.4):** join/mutation rate limits, session expiry/sweep, RLS membership tests,
+party-size caps. The group-cart + split-tender surface (P3.1–P3.3b) is live, so P3.4 hardens its edges.
 
-- **P3.1** Join flow: scan → session → guest list (presence). ⬜
-- **P3.2** Realtime broadcast of cart changes; server-authoritative merge. ⬜
-- **P3.3** Per-person split + assignment; host lock/remove with `canMutate` parity to the prototype. ⬜
-- **P3.4** Abuse limits: rate limits, session expiry, RLS membership tests. ⬜
+- **Join/mutation rate limits.** `/api/session` mint/join + the cart mutations are public POSTs; bound
+  join attempts per device and mutations per session (mirror the promo `mms_promo_attempt` window
+  pattern — count-first, self-GC). Stops a hostile client from flooding joins/edits.
+- **Session expiry/sweep.** P3.3b added sliding renewal + an inline sweep at mint, but there's still no
+  BACKGROUND sweeper — a `pg_cron` job (or a renewal-on-write everywhere) to close expired
+  `status='active'` sessions keeps the `table_sessions_active_qr_uniq` slot clean and the table tidy.
+- **Party-size caps.** Bound `session_members` per session (a sticker is one table) so a code can't be
+  used to pile unbounded members onto one cart; a DB-level `CHECK`/trigger + a friendly UI cap.
+- **RLS membership tests.** Add the explicit negative tests (a non-member can't read/mutate another
+  table's cart/shares/order) to lock the surface — the policies exist; prove them.
+- **Two tracked P3.3b follow-ups (deferred, non-blocking):** (1) the `onShareCaptured` `wasOpen` TOCTOU
+  → a possible **duplicate analytics event** under a sub-ms double `succeeded` delivery (money
+  unaffected — QBO upsert idempotent); (2) the migration's `create policy`/`create function` aren't
+  per-statement re-runnable (matches the sibling forward-only convention; switch to `create or replace`
+  - `drop policy if exists` only if a `db reset` replay is ever expected).
+- **`charge.refunded` is unhandled platform-wide** (single-pay AND split) → owned by the **S4.3** seam
+  (line-level refunds), not P3.4.
 
-**The foundation is already in place — M3 is mostly Realtime wiring + UX, not new auth/schema:**
-
-- **Sessions + membership already exist.** `/api/session` find-or-joins a `table_session` (sets
-  `host_seat`, idempotent membership, returns `role: host|guest`); `session_members` + the `is_member`/
-  `is_host` RLS helpers keyed on `seat_id = auth.uid()` shipped in the **init** migration. A second phone
-  POSTing the same `qrCode` already becomes a `guest` member of the same session + cart. So P3.1 is largely
-  the **guest-list UX + presence**, not new backend.
-- **Realtime is authorized by table RLS.** Private-channel policies on `realtime.messages` are in the init
-  schema; `qr_orders` is already in the `supabase_realtime` publication (P1.5 `track_realtime`). Postgres
-  Changes are gated by RLS when the client calls `supa.realtime.setAuth(accessToken)` (LEARNINGS #48). To
-  broadcast cart changes (P3.2), add `qr_carts`/`qr_cart_items` to the publication (guarded/idempotent `do
-  $$
-  … alter publication …`; not a schema change, so `types-fresh` won't drift). **Presence seat MUST be
-  the stable session JWT seat, not a fresh `crypto.randomUUID()` per subscribe** (LEARNINGS #4 — ghosts).
-  $$
-- **The cart is already session-scoped, member-authz'd, and status-atomic**, so multi-writer is safe at the
-  DB. What's missing is the realtime broadcast + an optimistic, server-authoritative **merge** (keyed React
-  state, never an innerHTML rebuild — RED-TEAM #7 / QA-CHECKLIST), and the join/guest-list/split/host-lock
-  **UX**.
-- **Cart-lock-during-pay lands HERE** (deferred from P1.3 on purpose — locking at intent-create strands an
-  abandoned cart; it wants the realtime sync's natural release point). `qr_carts.locked` + `is_host` already
-  exist; wire the lock/unlock lifecycle + a `canMutate` gate with prototype parity (host holds the lock;
-  guests see a read-only cart). See the deferred note in `docs/REVIEW.md`.
-- **Build to v7.2.** `docs/prototype/v7.2.html` has the join, guest-list/presence, per-person split +
-  assignment, and host-lock screens — match them (tokens, motion, a11y, brand voice) in the **first commit**
-  to the QA-CHECKLIST §A / RUBRIC ≥4.3 bar. **Split math** must reconcile to the cent incl. promo + tax +
-  service (QA-CHECKLIST).
+**Build to v7.2 + the bars.** `docs/prototype/v7.2.html` is the design source; hold every screen to
+QA-CHECKLIST §A / RUBRIC ≥4.3 in the **first commit** (tokens, motion, a11y, brand voice). Read
+`docs/context/INDEX.md` (RUBRIC · DESIGN-RESEARCH · QA-CHECKLIST · RED-TEAM) at the START of the phase.
 
 ## Environment facts (read before running anything)
 
