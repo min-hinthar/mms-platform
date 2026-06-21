@@ -108,9 +108,9 @@ The full-service layer over the guest self-serve core: **staff/floor, line autho
 The door for humans; the single-source-of-truth across channels. **Dep:** M1 (ledger) · M3 (table session/presence).
 
 - **S1.1** Staff auth + **roles** (server / manager / owner), distinct from anon diners; RLS so staff read/write **any** table session, diners only their own. 🟡 _S1.1a shipped:_ magic-link/OTP auth + `staff` roles + `is_staff()` additive RLS (read-any) + owner provisioning at `/staff/team`. _S1.1b shipped:_ shared-tablet **PIN** fast-path — per-person bcrypt hash in a service-role-only `staff_pins` table, atomic `mms_staff_verify_pin` with 5-try/15-min lockout (the SAME primitive S2's manager step-up reuses), rotatable self-service at `/staff/profile`, and a "lock the console / unlock with PIN" affordance (`/staff/lock`).
-- **S1.2** **Floor view** — legible per-table state (live cart? seats? last activity?) on a staff device. ⬜
+- **S1.2** **Floor view** — legible per-table state (live cart? seats? last activity?) on a staff device. ✅ Live `/staff` floor (Postgres-Changes via the S1.1a `is_staff()` RLS — no `realtime.messages` change; that's S2 broadcast) of every active table — party, status (seated/ordering/paying/splitting/paid), running pre-tax subtotal or paid total, last activity; read-only per-table drill-down at `/staff/table/[id]` (the cart lines + party); and a guarded staff **"Clear table"** turnover (refuses mid-payment incl. a captured split share; logged). Migration `20260621140000` (publication add).
 - **S1.3** **Staff write** to a table order (order _for_ a guest — "browse on phone, pay a human" closes here; cash is first-class). ⬜
-- **S1.4** **Soft convergence** — warn on divergence (new order on a table with a live cart) · **one-tap merge** of two table orders (role-gated, logged) · session **expiry** + staff **"clear table"** on turnover. ⬜
+- **S1.4** **Soft convergence** — warn on divergence (new order on a table with a live cart) · **one-tap merge** of two table orders (role-gated, logged) · session **expiry**. ⬜ _(staff **"clear table"** on turnover shipped early in S1.2.)_
 
 **Exit:** a server can find any table, see/extend its cart, settle it (incl. cash), and a double-order is a one-tap merge. _Unlocks all four low-tech fallbacks._
 

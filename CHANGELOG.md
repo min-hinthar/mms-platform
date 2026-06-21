@@ -4,6 +4,38 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — S1.2 staff floor view (live per-table state + read-only drill-down + clear-table) (2026-06-21)
+
+The "legible table state" that makes soft multi-door convergence work (ORDER-MODEL): a server glances at
+`/staff` and sees the whole room, live.
+
+- **Live floor** (`/staff`, `FloorBoard`): every **active** table (status='active' AND not past its TTL —
+  the same liveness `is_member` uses) as a card — label (`qr_code`), mode, **status** (seated / ordering /
+  paying / splitting / paid), party + host, a **running pre-tax subtotal** (honest "so far" — NOT a charge;
+  the authoritative total/tax is derived at checkout, so we don't re-run the tax engine per table on the
+  hot path nor mirror the rule in SQL) or the authoritative `qr_orders.total_cents` once paid, and relative
+  last-activity. Kept live by **Postgres-Changes** (`useFloorRealtime`) authorized by the **existing
+  `is_staff()` SELECT RLS** S1.1a folded into the session/cart/order tables — Realtime enforces it
+  per-subscriber, so a staff socket sees every table and a diner sees none. Non-private channel (reads are
+  RLS-gated); a staff _broadcast_ push (S2 KDS→floor) is the only thing that would need a
+  `realtime.messages` is_staff() policy. 400ms-debounced re-fetch of the server-authoritative snapshot + a
+  5s poll backstop + subscribe-time self-heal (parity with the group-cart board).
+- **Read-only drill-down** (`/staff/table/[id]`, `FloorDetailLive`): the party and the actual cart lines
+  (with split attribution), kept live by watching the open cart's `qr_cart_items` by `cart_id` (nothing
+  bumps `qr_carts.updated_at`, so last-activity + the live refresh key off the latest line, not that
+  column).
+- **Clear table** (`clearTable`): staff turnover — closes the session + cancels the open cart so a ghost
+  cart never carries to the next party. Any active staff (routine turnover, **not** a loss action → no PIN,
+  unlike an S2 void); two-step confirm; **refuses while a payment is in flight** (a fresh single-pay lock /
+  split freeze) **and** if any split share is already `authorized`/`captured` (so a stale-but-committed
+  split can't be cancelled out from under a capture → no charge-with-no-order). Logged non-PII via PostHog
+  (`after()`-decoupled); the durable two-party audit table lands with S2's approvals primitive.
+- All three reads + the write are `requireStaff()` + service-role (the cross-table floor is staff-only by
+  design, so the gate is at the action, not RLS rows); inputs Zod/uuid-bounded. Migration
+  `20260621140000_floor_realtime.sql` adds `table_sessions` + `session_members` to the realtime publication
+  (publication membership only — no schema/type change). Adversarial subagent: PASS (F1 live-update
+  correctness + F2 split-share clear guard + F3 id validation fixed pre-PR).
+
 ### Added — S1.1b staff PIN (shared-tablet fast-path + the S2 step-up primitive) (2026-06-21)
 
 A per-person **PIN** for a shared floor tablet, built as "sudo on the existing role model" (ORDER-MODEL):

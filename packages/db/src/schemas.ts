@@ -183,10 +183,16 @@ export const verifyStaffPinInput = z.object({
   pin: z.string().regex(/^\d{4,8}$/, "PIN must be 4–8 digits"),
 });
 
+/** clearTable (S1.2) — a staff member clears a table on turnover (closes the session + cancels its
+ *  open cart). Shape only; the server (requireStaff + service-role) owns the close, refuses mid-payment,
+ *  and logs it. The client asserts only the session id. */
+export const clearTableInput = z.object({ sessionId: uuid });
+
 export type SetStaffPinInput = z.infer<typeof setStaffPinInput>;
 export type VerifyStaffPinInput = z.infer<typeof verifyStaffPinInput>;
-export type ProvisionStaffInput = z.infer<typeof provisionStaffInput>;
 export type SetStaffActiveInput = z.infer<typeof setStaffActiveInput>;
+export type ProvisionStaffInput = z.infer<typeof provisionStaffInput>;
+export type ClearTableInput = z.infer<typeof clearTableInput>;
 export type SessionMintInput = z.infer<typeof sessionMintInput>;
 export type SessionMintOutput = z.infer<typeof sessionMintOutput>;
 export type SetDisplayNameInput = z.infer<typeof setDisplayNameInput>;
