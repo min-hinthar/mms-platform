@@ -120,3 +120,17 @@ grant execute on function public.mms_sweep_expired_sessions()                 to
 -- rate_events: RLS on + revoke the default anon/authenticated SELECT (clears pg_graphql discoverability too,
 -- advisor 0026) — service-role only, matching the promo_attempts/promo_redemptions lockdown.
 revoke select on public.rate_events from anon, authenticated;
+
+-- ============ make the session-scoped `authenticated` SELECT grant EXPLICIT (portability) ============
+-- Diners are `authenticated` (anonymous-auth) and read their own rows via RLS (`is_member`); the policies
+-- are `to authenticated`, so the role needs base-table SELECT (RLS then gates ROWS, not the privilege).
+-- The hosted project has this grant (Supabase's default privileges apply it on table creation), but a
+-- FRESH local stack / new env doesn't reproduce it reliably — so the RLS membership tests (and a fresh
+-- deploy's real diner reads) hit a bare "permission denied" the live project never shows. Grant it
+-- explicitly so the schema is self-contained and CI's local stack matches live. Idempotent; `anon` stays
+-- revoked (the lockdown intent). No types impact (grants don't change generated types).
+grant select on
+  public.table_sessions, public.session_members,
+  public.qr_carts, public.qr_cart_items, public.qr_cart_shares,
+  public.qr_orders, public.qr_order_items
+  to authenticated;
