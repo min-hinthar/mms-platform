@@ -143,6 +143,48 @@ export const setStaffActiveInput = z.object({
   active: z.boolean(),
 });
 
+/**
+ * setStaffPin (S1.1b) — a staff member sets/rotates THEIR OWN shared-tablet PIN. 4–8 digits only
+ * (numeric, for a fast tablet keypad); bounded HERE and by the SQL `mms_staff_set_pin` CHECK (the
+ * project's "Zod + DB check" rule). A handful of trivial PINs (all-same / simple run) are rejected so
+ * a server can't pick `0000` or `1234`; everything else is allowed. Never a price — this only shapes
+ * the secret; the hash is computed server-side (bcrypt via pgcrypto).
+ */
+/** A PIN is "trivial" if every digit is the same (0000, 999999) or the digits run strictly
+ *  consecutively up or down (1234, 123456, 9876) — the most-guessed shapes, at ANY 4–8 length
+ *  (an algorithmic check, not a fixed list, so 6–8 digit `000000`/`123456` are caught too). */
+function isTrivialPin(p: string): boolean {
+  // charCodeAt avoids the `noUncheckedIndexedAccess` undefined on `digits[i]`; for a 4–8 char
+  // string every index is in range, and we only need adjacent deltas (=0 same, ±1 a run).
+  let allSame = true;
+  let asc = true;
+  let desc = true;
+  const firstCode = p.charCodeAt(0);
+  for (let i = 1; i < p.length; i++) {
+    const prev = p.charCodeAt(i - 1);
+    const cur = p.charCodeAt(i);
+    if (cur !== firstCode) allSame = false;
+    if (cur - prev !== 1) asc = false;
+    if (cur - prev !== -1) desc = false;
+  }
+  return allSame || asc || desc;
+}
+export const setStaffPinInput = z.object({
+  pin: z
+    .string()
+    .regex(/^\d{4,8}$/, "PIN must be 4–8 digits")
+    .refine((p) => !isTrivialPin(p), "Choose a less guessable PIN"),
+});
+
+/** verifyStaffPin (S1.1b) — unlock the shared tablet / S2 manager step-up. Shape only; the verify +
+ *  lockout are server-side in the SQL `mms_staff_verify_pin`. Bounded so a hostile client can't drive
+ *  an oversized comparison; the wrong-PIN path is rate-limited with lockout, not by this parse. */
+export const verifyStaffPinInput = z.object({
+  pin: z.string().regex(/^\d{4,8}$/, "PIN must be 4–8 digits"),
+});
+
+export type SetStaffPinInput = z.infer<typeof setStaffPinInput>;
+export type VerifyStaffPinInput = z.infer<typeof verifyStaffPinInput>;
 export type ProvisionStaffInput = z.infer<typeof provisionStaffInput>;
 export type SetStaffActiveInput = z.infer<typeof setStaffActiveInput>;
 export type SessionMintInput = z.infer<typeof sessionMintInput>;

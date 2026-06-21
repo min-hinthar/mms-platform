@@ -15,6 +15,12 @@ import { AuthzError } from "./authz";
 export type StaffRole = "server" | "manager" | "owner";
 export type StaffCaller = {
   uid: string;
+  /**
+   * The `staff.user_id` of the RESOLVED row — the row's PK, which can DIFFER from `uid` when the row
+   * was matched by the email allowlist (a Google/magic-link session mints a fresh uid the provisioned
+   * row doesn't carry). Anything keyed on the staff row itself (the PIN, S1.1b) must use THIS, not `uid`.
+   */
+  staffId: string;
   role: StaffRole;
   displayName: string;
   /** The session's verified email (lower-cased), used for the email-allowlist self-checks. */
@@ -58,17 +64,17 @@ export async function getStaffAuth(): Promise<StaffAuth> {
   // matches the provisioned row (mirrors the is_staff RLS: user_id OR email). Service-role read so the
   // authorization decision is ours, not RLS-hidden.
   const db = serviceClient();
-  let row: { role: string; display_name: string; active: boolean } | null = null;
+  let row: { user_id: string; role: string; display_name: string; active: boolean } | null = null;
   const byUid = await db
     .from("staff")
-    .select("role,display_name,active")
+    .select("user_id,role,display_name,active")
     .eq("user_id", user.id)
     .maybeSingle();
   row = byUid.data;
   if ((!row || !row.active) && email) {
     const byEmail = await db
       .from("staff")
-      .select("role,display_name,active")
+      .select("user_id,role,display_name,active")
       .eq("email", email)
       .maybeSingle();
     row = byEmail.data ?? row;
@@ -76,7 +82,13 @@ export async function getStaffAuth(): Promise<StaffAuth> {
   if (!row || !row.active) return { kind: "not_staff" };
   return {
     kind: "staff",
-    caller: { uid: user.id, role: row.role as StaffRole, displayName: row.display_name, email },
+    caller: {
+      uid: user.id,
+      staffId: row.user_id, // the row PK — may differ from uid (email-matched); PIN keys on this
+      role: row.role as StaffRole,
+      displayName: row.display_name,
+      email,
+    },
   };
 }
 

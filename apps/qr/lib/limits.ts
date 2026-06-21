@@ -25,3 +25,14 @@ export const JOIN_RATE = { max: 30, windowSeconds: 60 } as const;
  * exhaust the budget and DoS their co-diners' shared cart; per-seat bounds the bad actor to themselves.
  */
 export const MUTATE_RATE = { max: 120, windowSeconds: 60 } as const;
+
+/**
+ * Staff-PIN policy (S1.1b). A PIN is a low-entropy shared-tablet fast-path, so the brute-force defense
+ * is the lockout, enforced atomically in the SQL `mms_staff_verify_pin` (lib/staff-pin.ts is the app
+ * mirror). KEEP THESE IN SYNC with the `v_max` (5) / `v_lockout` (15 min) constants in
+ * supabase/migrations/20260621130000_staff_pin.sql — they're the authoritative backstop.
+ */
+export const PIN_MIN_LENGTH = 4;
+export const PIN_MAX_LENGTH = 8;
+export const PIN_MAX_ATTEMPTS = 5;
+export const PIN_LOCKOUT_MINUTES = 15;

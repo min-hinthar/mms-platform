@@ -781,6 +781,41 @@ export type Database = {
         }
         Relationships: []
       }
+      staff_pins: {
+        Row: {
+          failed_attempts: number
+          locked_until: string | null
+          pin_hash: string
+          set_at: string
+          staff_id: string
+          updated_at: string
+        }
+        Insert: {
+          failed_attempts?: number
+          locked_until?: string | null
+          pin_hash: string
+          set_at?: string
+          staff_id: string
+          updated_at?: string
+        }
+        Update: {
+          failed_attempts?: number
+          locked_until?: string | null
+          pin_hash?: string
+          set_at?: string
+          staff_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_pins_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: true
+            referencedRelation: "staff"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       table_sessions: {
         Row: {
           created_at: string
@@ -905,6 +940,19 @@ export type Database = {
         Returns: {
           ok: boolean
           reason: string
+        }[]
+      }
+      mms_staff_clear_pin: { Args: { p_staff_id: string }; Returns: undefined }
+      mms_staff_set_pin: {
+        Args: { p_pin: string; p_staff_id: string }
+        Returns: undefined
+      }
+      mms_staff_verify_pin: {
+        Args: { p_pin: string; p_staff_id: string }
+        Returns: {
+          attempts_remaining: number
+          locked_until: string
+          status: string
         }[]
       }
       mms_sweep_expired_sessions: { Args: never; Returns: number }

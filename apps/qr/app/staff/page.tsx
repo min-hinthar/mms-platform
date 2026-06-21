@@ -2,8 +2,11 @@ import { type CSSProperties } from "react";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getStaffAuth } from "@/lib/staff";
+import { staffHasPin } from "@/lib/staff-pin";
+import { isConsoleLocked } from "@/lib/staff-lock";
 import { RoleBadge } from "@/components/staff/RoleBadge";
 import { StaffSignOut } from "@/components/staff/StaffSignOut";
+import { LockButton } from "@/components/staff/LockButton";
 
 export const metadata = { title: "Floor — Mandalay Morning Star" };
 
@@ -17,7 +20,9 @@ export default async function StaffHome() {
   const auth = await getStaffAuth();
   if (auth.kind === "anon") redirect("/staff/login");
   if (auth.kind === "not_staff") redirect("/staff/login?denied=1");
+  if (await isConsoleLocked()) redirect("/staff/lock");
   const caller = auth.caller;
+  const hasPin = await staffHasPin(caller.staffId);
 
   return (
     <main style={wrap}>
@@ -30,7 +35,10 @@ export default async function StaffHome() {
             Hi, {caller.displayName} <RoleBadge role={caller.role} />
           </h1>
         </div>
-        <StaffSignOut />
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--s3)", flexWrap: "wrap" }}>
+          {hasPin && <LockButton />}
+          <StaffSignOut />
+        </div>
       </header>
 
       <section className="card" style={placeholder} aria-labelledby="floor-soon">
@@ -43,13 +51,19 @@ export default async function StaffHome() {
         </p>
       </section>
 
-      {caller.role === "owner" && (
-        <nav aria-label="Owner tools" style={{ marginTop: "var(--s4)" }}>
+      <nav
+        aria-label="Staff tools"
+        style={{ marginTop: "var(--s4)", display: "flex", gap: "var(--s3)", flexWrap: "wrap" }}
+      >
+        <Link href="/staff/profile" style={ownerLink}>
+          {hasPin ? "Your PIN →" : "Set a tablet PIN →"}
+        </Link>
+        {caller.role === "owner" && (
           <Link href="/staff/team" style={ownerLink}>
             Manage staff →
           </Link>
-        </nav>
-      )}
+        )}
+      </nav>
     </main>
   );
 }

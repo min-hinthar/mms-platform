@@ -116,7 +116,7 @@ values ('<uid>','you@…','owner','Min');` → refresh `/staff`.
      bounces/complaints (masked logs) + PII-free PostHog deliverability events. (`RESEND_WEBHOOK` was
      provisioned but the code doesn't consume it — only the signing secret is needed.)
 
-## Next: the service-model track — S1 (staff & floor) — S1.1a SHIPPED + auth preview-verified
+## Next: the service-model track — S1 (staff & floor) — S1.1a + S1.1b SHIPPED
 
 Per the build order (`M1 → M2 → M3 → S1 → S2 → S3 → M4 → S4 → M5 → M6`) the service-model layer is in
 progress. Read [`docs/context/ORDER-MODEL.md`](context/ORDER-MODEL.md) + the `ROADMAP.md` S-track for the
@@ -153,9 +153,31 @@ sign-in"); until then, **Google OAuth is the reliable path** (no email, never ra
 evidence it's needed): a fail-fast timeout on the Resend send in the hook — a hung send WOULD hang the hook
 → GoTrue retry storm, but the logs show sub-second sends, so it's hardening, not the bug._
 
-**S1.1b next (PIN):** per-person PIN on a shared floor tablet — server-verified hash, rate-limited with
-lockout, rotatable; it's the SAME PIN primitive S2's manager step-up reuses. Then **S1.2 floor view**
-(staff realtime needs an `is_staff()` branch on the `realtime.messages` policies — deferred from S1.1a).
+**S1.1b shipped (this session, PIN):** per-person shared-tablet **PIN** — bcrypt hash in a service-role-only
+`staff_pins` table (NOT a `staff` column: `staff` is client-readable, so a hash column would leak — separate
+default-deny table keeps it off every read surface); atomic `mms_staff_verify_pin` (advisory-locked,
+**5-try / 15-min lockout**, lapsed-lock grants fresh budget) — the SAME primitive S2's manager step-up
+reuses; **fail-CLOSED** app wrapper (`lib/staff-pin.ts`); keyed by the resolved staff-row PK
+(`StaffCaller.staffId`, not the session uid). Self-service set/rotate/remove at `/staff/profile`
+(`PinManager`, trivial-PIN rejection); a shared-tablet **lock** (`/staff/lock`, `LockButton`/`PinUnlock`) —
+an httpOnly, path-scoped cookie the shell pages redirect on, documented as an **attribution/privacy
+affordance, not a hard boundary** (the Supabase session + staff-row gate remain the real boundary; escapes:
+"Forgot PIN? Sign out", lock refused without a PIN). Migration `20260621130000_staff_pin.sql` (additive),
+types regenerated, gate green, adversarial subagent **PASS**.
+
+**⚠️ Apply `20260621130000_staff_pin.sql` to live (`fasnpdhtvqtzjlvruqcu`)** — the in-session auto-mode
+classifier blocked the direct live-DB write this session, so it's **verified on the local CI stack only**.
+The migration is additive (new table + 3 fns) so CI (migrations-check/types-fresh) is green, but the PR
+**preview** shares the live DB → `/staff/profile` + `/staff/lock` will 500 on preview until the migration
+lands on live (LEARNINGS — "CI green ≠ applied to live"). After applying, run `get_advisors` (expect only
+the intentional `rls_enabled_no_policy` INFO on `staff_pins`) + confirm `has_function_privilege` is
+service-role-only on the three `mms_staff_*` fns.
+
+**S1.2 next (floor view):** legible per-table state (live cart? seats? last activity?) on a staff device.
+Staff realtime needs an **`is_staff()` branch on the `realtime.messages` policies** (deferred from S1.1a;
+the postgres-changes reads already see staff via the `or public.is_staff()` folded into each table policy).
+Also fold the deferred **`email_verified` gate on the SQL `is_staff` read-surface** (HANDOFF "Auth
+hardening") in here once the live JWT claim path is confirmed.
 
 **Tracked / deferred (non-blocking, carry forward):**
 
