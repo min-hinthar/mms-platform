@@ -116,7 +116,7 @@ values ('<uid>','you@…','owner','Min');` → refresh `/staff`.
      bounces/complaints (masked logs) + PII-free PostHog deliverability events. (`RESEND_WEBHOOK` was
      provisioned but the code doesn't consume it — only the signing secret is needed.)
 
-## Next: the service-model track — S1 (staff & floor) — S1.1a + S1.1b SHIPPED
+## Next: the service-model track — S1 (staff & floor) — S1.1a + S1.1b + S1.2 SHIPPED
 
 Per the build order (`M1 → M2 → M3 → S1 → S2 → S3 → M4 → S4 → M5 → M6`) the service-model layer is in
 progress. Read [`docs/context/ORDER-MODEL.md`](context/ORDER-MODEL.md) + the `ROADMAP.md` S-track for the
@@ -173,11 +173,27 @@ rejected); `get_advisors(security)` shows only the intentional `rls_enabled_no_p
 (it does NOT appear in the 0026/0027 GraphQL-exposure WARNs, confirming the anon/authenticated revoke took).
 No further DB action for S1.1b.
 
-**S1.2 next (floor view):** legible per-table state (live cart? seats? last activity?) on a staff device.
-Staff realtime needs an **`is_staff()` branch on the `realtime.messages` policies** (deferred from S1.1a;
-the postgres-changes reads already see staff via the `or public.is_staff()` folded into each table policy).
-Also fold the deferred **`email_verified` gate on the SQL `is_staff` read-surface** (HANDOFF "Auth
-hardening") in here once the live JWT claim path is confirmed.
+**S1.2 shipped (this session, floor view):** live `/staff` floor (`FloorBoard`) of every active table —
+party/status/running-subtotal-or-paid/last-activity — over **Postgres-Changes authorized by the existing
+`is_staff()` SELECT RLS** (so NO `realtime.messages` change was needed; that's only for S2 staff
+_broadcast_ — the postgres-changes READ path already saw staff via the `or public.is_staff()` folded into
+each table policy). Read-only drill-down `/staff/table/[id]` (`FloorDetailLive`) shows the cart lines +
+party. Staff **"Clear table"** turnover (`clearTable`, pulled forward from S1.4) closes the session +
+cancels the cart, refusing mid-payment (fresh lock/settle **and** any `authorized`/`captured` split share);
+logged non-PII via PostHog. Server layer `lib/floor.ts` (`getFloorView`/`getTableDetail`/`clearTable`, all
+`requireStaff()`+service-role); `lib/useFloorRealtime.ts` (debounce + 5s poll backstop + self-heal).
+**`qr_carts.updated_at` is never bumped** (no trigger; the cart RPCs don't write it) — so last-activity +
+the detail live-refresh key off the latest `qr_cart_items` row, not that column (adversarial F1). Migration
+`20260621140000_floor_realtime.sql` (publication add — no types impact). Gate green; adversarial subagent
+PASS (F1/F2/F3 fixed pre-PR). **⚠️ Apply `20260621140000` to live + add `table_sessions`/`session_members`
+to the live `supabase_realtime` publication** (verified on the local stack; the live publication still
+lacks them — see the apply step below).
+
+**S1.3 next (staff write):** staff order/extend a table order _for_ a guest ("browse on phone, pay a
+human"; cash first-class). Reuses the floor drill-down as the entry point. Then **S1.4** (divergence warn +
+one-tap merge + session expiry; clear-table already shipped). Also still open: fold the deferred
+**`email_verified` gate on the SQL `is_staff` read-surface** (HANDOFF "Auth hardening") once the live JWT
+claim path is confirmed.
 
 **Tracked / deferred (non-blocking, carry forward):**
 

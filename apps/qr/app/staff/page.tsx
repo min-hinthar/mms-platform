@@ -4,17 +4,20 @@ import Link from "next/link";
 import { getStaffAuth } from "@/lib/staff";
 import { staffHasPin } from "@/lib/staff-pin";
 import { isConsoleLocked } from "@/lib/staff-lock";
+import { getFloorView } from "@/lib/floor";
 import { RoleBadge } from "@/components/staff/RoleBadge";
 import { StaffSignOut } from "@/components/staff/StaffSignOut";
 import { LockButton } from "@/components/staff/LockButton";
+import { FloorBoard } from "@/components/staff/FloorBoard";
 
 export const metadata = { title: "Floor — Mandalay Morning Star" };
+export const dynamic = "force-dynamic";
 
 /**
- * Staff console home (S1.1a) — the authed shell behind magic-link sign-in. Gates on a VERIFIED staff
- * identity (the staff row, not a client claim): an anon/no session goes to sign-in; a real account
- * that isn't staff goes to sign-in with a clear reason (?denied) so it can recover instead of looping.
- * The live floor view (per-table state) lands in S1.2 — the placeholder here is honest, not a fake.
+ * Staff console home + live floor (S1.1a shell · S1.2 floor). Gates on a VERIFIED staff identity (the
+ * staff row, not a client claim): an anon/no session goes to sign-in; a real account that isn't staff
+ * goes to sign-in with a clear reason (?denied) so it can recover instead of looping; a locked tablet
+ * goes to the PIN screen. The floor itself is the server-rendered initial snapshot, kept live client-side.
  */
 export default async function StaffHome() {
   const auth = await getStaffAuth();
@@ -22,7 +25,7 @@ export default async function StaffHome() {
   if (auth.kind === "not_staff") redirect("/staff/login?denied=1");
   if (await isConsoleLocked()) redirect("/staff/lock");
   const caller = auth.caller;
-  const hasPin = await staffHasPin(caller.staffId);
+  const [hasPin, floor] = await Promise.all([staffHasPin(caller.staffId), getFloorView()]);
 
   return (
     <main style={wrap}>
@@ -41,19 +44,11 @@ export default async function StaffHome() {
         </div>
       </header>
 
-      <section className="card" style={placeholder} aria-labelledby="floor-soon">
-        <h2 id="floor-soon" style={{ fontSize: 17, margin: "0 0 6px" }}>
-          The live floor view is next
-        </h2>
-        <p style={{ color: "var(--t2)", fontSize: 14, margin: 0, lineHeight: 1.5 }}>
-          Every table’s live cart, party, and last activity will land here (S1.2) — so you can find
-          a table, see what they’ve ordered, and settle it (cash included).
-        </p>
-      </section>
+      <FloorBoard initial={floor} />
 
       <nav
         aria-label="Staff tools"
-        style={{ marginTop: "var(--s4)", display: "flex", gap: "var(--s3)", flexWrap: "wrap" }}
+        style={{ marginTop: "var(--s6)", display: "flex", gap: "var(--s3)", flexWrap: "wrap" }}
       >
         <Link href="/staff/profile" style={ownerLink}>
           {hasPin ? "Your PIN →" : "Set a tablet PIN →"}
@@ -83,7 +78,6 @@ const h1: CSSProperties = {
   alignItems: "center",
   gap: 10,
 };
-const placeholder: CSSProperties = { padding: "var(--s6)" };
 const ownerLink: CSSProperties = {
   display: "inline-flex",
   minHeight: 44,

@@ -404,3 +404,32 @@ reuses.
 - **Pre-merge adversarial subagent (second pass, fresh context): MERGE** — both prior fixes verified
   correct; no merge-blocking findings; 3 non-blocking nits (per-page lock gate is deliberate;
   malformed-input `attemptsRemaining:0` commented; bcrypt cost 10 fine). Verdict posted to PR #44.
+
+## Progress — S1.2 staff floor view (live cards + read-only drill-down + clear-table) (2026-06-21)
+
+The "legible table state" that makes soft convergence work (ORDER-MODEL): a live `/staff` floor of every
+active table (party · status · running pre-tax subtotal or paid total · last activity), a read-only
+per-table drill-down (`/staff/table/[id]`, the cart lines), and a guarded staff **"Clear table"** turnover
+(pulled forward from S1.4). Live via **Postgres-Changes authorized by the S1.1a `is_staff()` SELECT RLS**
+(non-private channel — reads are RLS-gated; the `realtime.messages` is_staff() branch is only for S2 staff
+broadcast). All reads + the write are `requireStaff()` + service-role; migration `20260621140000` adds
+`table_sessions`/`session_members` to the realtime publication (no types impact).
+
+- **Adversarial subagent (fresh context, four lenses): PASS with required fixes (all fixed pre-PR).** Spine
+  sound — every export `requireStaff()`+service-role, realtime RLS-gated (staff see all, diners denied +
+  page-redirected), clear-table honors the fresh lock/settle guard, integer-cents subtotal, tokens/a11y
+  genuinely handled (44px, one live region/view, `role="list"`, hydration-safe `RelativeTime`, no animation).
+  - **F1 (High) FIXED** — `qr_carts.updated_at` is never bumped (no trigger; the cart RPCs don't write it),
+    so last-activity was frozen at cart creation AND the detail page's no-op on `qr_cart_items` events left
+    line changes refreshing only via the 5s poll. Fixed app-side (no money-path RPC change): last-activity
+    now derives from the latest `qr_cart_items.created_at`; the detail subscribes to `qr_cart_items` by
+    `cart_id` (added `cartId` to `TableDetail`); false comments corrected.
+  - **F2 (Med) FIXED** — clear-table could cancel a *stale* split that already had an `authorized`/`captured`
+    share → loud `status conflict` at fulfillment (charge, no order). Now also refuses clear if any share is
+    authorized/captured, independent of the freshness TTL.
+  - **F3 (Low) FIXED** — `getTableDetail` now uuid-validates its id (parity with clearTable's Zod parse).
+  - F4 (poll fan-out) / F5 (host-name nit) — accepted as the intentional backstop / non-issue.
+- Gate green (`turbo lint typecheck build` 5/5). Migration **verified on the local stack** (applies,
+  adds both tables to the publication, idempotent on re-apply). ⚠️ **Live apply PENDING** — the live
+  `supabase_realtime` publication still lacks `table_sessions`/`session_members`, so the floor won't
+  live-update on the preview/prod until applied (the snapshot + 5s poll still work).
