@@ -2,6 +2,7 @@ import { type CSSProperties } from "react";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getStaffCaller, listStaff } from "@/lib/staff";
+import { isConsoleLocked } from "@/lib/staff-lock";
 import { TeamManager } from "@/components/staff/TeamManager";
 
 export const metadata = { title: "Staff — Mandalay Morning Star" };
@@ -15,6 +16,7 @@ export const metadata = { title: "Staff — Mandalay Morning Star" };
 export default async function TeamPage() {
   const caller = await getStaffCaller();
   if (!caller) redirect("/staff/login");
+  if (await isConsoleLocked()) redirect("/staff/lock");
 
   if (caller.role !== "owner") {
     return (

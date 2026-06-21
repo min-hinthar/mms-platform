@@ -4,6 +4,36 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — S1.1b staff PIN (shared-tablet fast-path + the S2 step-up primitive) (2026-06-21)
+
+A per-person **PIN** for a shared floor tablet, built as "sudo on the existing role model" (ORDER-MODEL):
+a staff member signs in for real (S1.1a magic-link / OAuth / OTP) once, then sets a PIN so they can
+re-authorize on the shared device without another email round-trip. The verify-with-lockout function is
+the **same primitive S2's manager step-up** (cooked-item void / refund) will reuse.
+
+- **Secret isolation:** the bcrypt hash lives in its OWN service-role-only table `staff_pins` (RLS
+  default-deny, `revoke … from anon, authenticated`), NOT a column on `staff` — `staff` is
+  client-readable by self/owner, so a `pin_hash` column would be reachable; a separate table keeps it
+  off every client read surface (the `rate_events`/`promo_attempts` pattern). Hash is bcrypt via
+  pgcrypto (`extensions.crypt`/`gen_salt('bf',10)`).
+- **Atomic verify + lockout** (`mms_staff_verify_pin`, SECURITY DEFINER, `search_path=''`): an advisory
+  xact lock keyed by the staff id serializes concurrent attempts so the counter can't be raced; **5**
+  consecutive misses → a **15-minute** lockout; a lapsed lockout grants a fresh budget; a correct PIN
+  resets. Returns one of `ok | wrong | locked | no_pin` + remaining attempts / lock expiry. **Fail-CLOSED**
+  in the app wrapper (an RPC error reads as `error`, never a pass — it guards a privileged step-up).
+- **Keyed by the resolved staff-row PK** (`StaffCaller.staffId`), not the session uid — an email-matched
+  Google/magic-link session whose uid differs from the provisioned row still lands on the right PIN.
+- **Set / rotate / remove** self-service at `/staff/profile` (`PinManager`); 4–8 digits, trivial PINs
+  (all-same / consecutive runs, any length) rejected; bounded by Zod **and** the SQL `pin_format` CHECK.
+- **Shared-tablet lock** (`/staff/lock`): a "Lock" control sets an httpOnly, path-scoped cookie and the
+  staff shell (`/staff`, `/staff/team`, `/staff/profile`) redirects there until the SAME member re-enters
+  their PIN. Documented honestly as an **attribution / quick-privacy affordance, not a hard boundary**
+  (the Supabase session + staff-row gate remain the real boundary). Escapes: "Forgot PIN? Sign out", and
+  lock is refused unless a PIN is set (no stranding). Lockout shows a live countdown; one live region per
+  view, 44px targets, decorative glyphs `aria-hidden`.
+- All three fns locked down (`revoke … from public, anon, authenticated` + `grant … to service_role`).
+  Migration `20260621130000_staff_pin.sql` (additive); types regenerated. Adversarial subagent **PASS**.
+
 ### Fixed — staff OTP resend loop (per-address cooldown; 429 steers to Google) (2026-06-21)
 
 The "Too many code requests. Wait a minute…" loop on `/staff/login` was **not** a hanging Send-Email Hook

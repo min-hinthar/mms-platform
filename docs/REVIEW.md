@@ -349,7 +349,7 @@ presence. Escapes were at the edges; fixed in the M3-hardening PR:
   realtime channels (S2 broadcast guard comment).
 - **Deferred (tracked):** split-fulfill reconcile tautology → fix WITH S4.3 partial-capture; P3.3a/P3.3b
   share-math display divergence (label/align); cross-owner-delete confirm (product sign-off); the P3.4 Low
-  + P3.3b analytics double-fire. See `docs/HANDOFF.md`.
+  - P3.3b analytics double-fire. See `docs/HANDOFF.md`.
 - Gate green (`turbo lint typecheck build`); no schema change (no migration/types/live-apply). Hardening-PR
   adversarial subagent re-review on the diff: see the PR.
 
@@ -363,6 +363,7 @@ off-by-default + never-blocks-money-path + `server-only` secrets, nonce CSP + SA
 Per-lens: M1-sec PASS, M1-money PASS, M2-promo/pickup PASS, M2-grocery/QBO PASS, M0 CHANGES_REQUESTED.
 
 Edge/foundation fixes shipped (no migration; hardening-diff adversarial subagent **PASS**):
+
 - **High** — Padauk loaded `subsets:["latin"]` (a Myanmar face) → Burmese silently fell back to system sans.
   Now `["latin","myanmar"]`.
 - **Med** — dark `--t3` was 4.40/4.10 on `--sf`/`--cd` (< AA) → `#9d95a8` (5.84/5.45), math independently
@@ -374,3 +375,32 @@ Edge/foundation fixes shipped (no migration; hardening-diff adversarial subagent
   needs a small data-model change) + order-vs-line `tax_cents` snapshot (charge correct, receipt cosmetic);
   QBO production-activation items. M2 by-design soft-caps (global promo cap, create-intent overbook-by-one).
 - Gate green (`turbo lint typecheck build` 5/5); knip clean except the pre-existing QBO export.
+
+## Progress — S1.1b staff PIN (shared-tablet fast-path + S2 step-up primitive) (2026-06-21)
+
+Per-person PIN for a shared floor tablet — bcrypt hash in a **service-role-only `staff_pins`** table (NOT a
+`staff` column, which `authenticated` can SELECT), atomic advisory-locked `mms_staff_verify_pin`
+(**5-try / 15-min lockout**, lapsed-lock grants fresh budget), **fail-CLOSED** app wrapper; keyed by the
+resolved staff-row PK (`StaffCaller.staffId`, not the session uid). Self-service set/rotate/remove at
+`/staff/profile`; a shared-tablet **lock** (`/staff/lock`) on an httpOnly path-scoped cookie, documented as
+an attribution/privacy affordance (not a hard boundary). The verify fn is exactly what S2's manager step-up
+reuses.
+
+- **Adversarial subagent (fresh context, four lenses): PASS.** No blockers. Security strong (IDOR-closed —
+  every action `requireStaff` + operates on `caller.staffId`, never a body id; hash unreachable by any
+  client read; all 3 fns `revoke public/anon/authenticated` + `grant service_role`; lockout atomic +
+  un-bypassable; lock cookie honestly scoped). Recovery sound (fail-closed; no stranding — sign-out escape,
+  lock refused without a PIN, `no_pin` branch). a11y clean (44px, labels, one live region/view, focus mgmt,
+  glyphs `aria-hidden`, no animation). Fidelity good (tokens not hardcoded, honest microcopy).
+- **Findings addressed before PR:** (Low) `PinUnlock.signOut()` now handles a failed `auth.signOut()` with
+  honest copy; (Nit) trivial-PIN rejection made **algorithmic** (all-same / consecutive run at ANY 4–8
+  length, so `000000`/`123456` are caught) instead of a fixed 4-digit list.
+- Gate green (`turbo lint typecheck build` 5/5). Migration `20260621130000_staff_pin.sql` is additive;
+  **verified on the local CI stack** (functional lockout test: correct → 5× wrong → lock → lapsed-reset →
+  correct) + `gen types --local` byte-match. **✅ APPLIED to live `fasnpdhtvqtzjlvruqcu`** (Supabase MCP) +
+  verified: RLS-on/0-policies, `anon`/`authenticated` have no table SELECT and no EXECUTE on the three
+  `mms_staff_*` fns (service-role only), bcrypt resolves under `extensions`, `get_advisors` shows only the
+  intentional `rls_enabled_no_policy` INFO on `staff_pins` (absent from the 0026/0027 GraphQL WARNs).
+- **Pre-merge adversarial subagent (second pass, fresh context): MERGE** — both prior fixes verified
+  correct; no merge-blocking findings; 3 non-blocking nits (per-page lock gate is deliberate;
+  malformed-input `attemptsRemaining:0` commented; bcrypt cost 10 fine). Verdict posted to PR #44.
