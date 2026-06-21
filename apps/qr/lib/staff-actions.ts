@@ -53,6 +53,7 @@ export async function provisionStaff(raw: unknown): Promise<StaffActionResult> {
 
   const { error: rowErr } = await db.from("staff").insert({
     user_id: created.user.id,
+    email: parsed.data.email, // the allowlist key — matches a Google/magic-link sign-in by email
     role: parsed.data.role,
     display_name: parsed.data.displayName,
   });
@@ -90,31 +91,32 @@ export async function setStaffActive(raw: unknown): Promise<StaffActionResult> {
   // out-of-band `update public.staff set active=true …` documented in the bootstrap notes.
   const caller = await requireStaff("owner").catch(() => null);
   if (!caller) return { ok: false, error: "Owners only." };
-  if (parsed.data.userId === caller.uid)
-    return { ok: false, error: "You can’t deactivate your own account." };
 
   const db = serviceClient();
+  // Fetch the target row first: the self-check must compare by EMAIL (and uid), because a Google/
+  // magic-link owner's session uid can differ from the uid stamped on their staff row — comparing
+  // userId alone would miss "this is me" and let an owner lock themselves out.
+  const { data: target } = await db
+    .from("staff")
+    .select("user_id,email,active")
+    .eq("user_id", parsed.data.userId)
+    .maybeSingle();
+  if (!target) return { ok: false, error: "No such staff member." };
+  const isSelf =
+    target.user_id === caller.uid ||
+    (!!target.email && !!caller.email && target.email.toLowerCase() === caller.email);
+  if (isSelf) return { ok: false, error: "You can’t deactivate your own account." };
+
   const { error } = await db
     .from("staff")
     .update({ active: parsed.data.active, updated_at: new Date().toISOString() })
     .eq("user_id", parsed.data.userId);
   if (error) return { ok: false, error: "Couldn’t update that member. Try again." };
 
-  // On DEACTIVATION only, send an honest heads-up (best-effort, decoupled). The email isn't in the
-  // staff table (it lives on auth.users), so resolve it in after() — never blocking the response.
-  if (!parsed.data.active) {
-    const userId = parsed.data.userId;
-    after(async () => {
-      // getUserById is a raw await (it can throw, unlike sendEmail which never does) — keep the
-      // never-throw discipline so a lookup failure can't surface as an unhandled after() rejection.
-      try {
-        const { data } = await db.auth.admin.getUserById(userId);
-        const email = data?.user?.email;
-        if (email) await sendStaffDeactivatedEmail({ to: email });
-      } catch (e) {
-        console.error("[staff] deactivation email lookup failed", (e as Error).message);
-      }
-    });
+  // On DEACTIVATION only, send an honest heads-up (best-effort, decoupled) to the row's stored email.
+  if (!parsed.data.active && target.email) {
+    const to = target.email;
+    after(() => sendStaffDeactivatedEmail({ to }));
   }
   revalidatePath("/staff/team");
   return { ok: true };
