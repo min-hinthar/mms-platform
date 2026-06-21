@@ -18,6 +18,9 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Resend cooldown (seconds): Supabase throttles OTP sends (~60s per address + an hourly cap), so a
+  // 429 is easy to trip by re-tapping. Gate the button on a local countdown to stop users spamming it.
+  const [cooldown, setCooldown] = useState(0);
   const emailRef = useRef<HTMLInputElement>(null);
   const codeRef = useRef<HTMLInputElement>(null);
 
@@ -27,8 +30,19 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
     (step === "code" ? codeRef : emailRef).current?.focus();
   }, [step]);
 
+  // Tick the cooldown to zero. Keyed on the boolean (not the value) so the interval is created ONCE
+  // when the cooldown starts and torn down when it ends — not rebuilt every second; the functional
+  // updater self-stops at 0 (no stale closure on `cooldown`).
+  const cooling = cooldown > 0;
+  useEffect(() => {
+    if (!cooling) return;
+    const id = setInterval(() => setCooldown((s) => (s <= 1 ? 0 : s - 1)), 1000);
+    return () => clearInterval(id);
+  }, [cooling]);
+
   async function sendCode(e: FormEvent) {
     e.preventDefault();
+    if (cooldown > 0) return;
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -38,12 +52,20 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
     });
     setBusy(false);
     if (err) {
-      // Don't strand the user: a non-staff email, a typo, or rate-limit all land here.
+      // A 429 is the email rate limit (per-address cooldown + hourly cap), NOT a bad address — say so
+      // honestly and start the cooldown so they don't keep tripping it.
+      if (err.status === 429) {
+        setCooldown(60);
+        setError("Too many requests. Wait a minute, then request a new code.");
+        return;
+      }
+      // Otherwise: a non-staff email or a typo — let them fix it and retry (no cooldown).
       setError(
         "We couldn’t send a code to that email. Check it’s your staff address and try again.",
       );
       return;
     }
+    setCooldown(60);
     setStep("code");
     setNotice(`We sent a 6-digit code to ${email.trim()}.`);
   }
@@ -116,12 +138,22 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
               autoCapitalize="none"
               required
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                // Editing the address clears the cooldown: a 429 on the OLD (rate-limited) address
+                // must not block sending to a corrected/different one (the server still rate-limits
+                // per-address, so this can't be used to actually bypass the limit).
+                setCooldown(0);
+              }}
               placeholder="you@mandalaymorningstar.com"
               style={input}
             />
-            <button type="submit" disabled={busy || email.trim().length < 3} style={primaryBtn}>
-              {busy ? "Sending…" : "Send code"}
+            <button
+              type="submit"
+              disabled={busy || cooldown > 0 || email.trim().length < 3}
+              style={primaryBtn}
+            >
+              {busy ? "Sending…" : cooldown > 0 ? `Resend in ${cooldown}s` : "Send code"}
             </button>
           </form>
         ) : (

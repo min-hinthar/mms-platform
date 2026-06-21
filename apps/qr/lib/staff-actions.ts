@@ -1,8 +1,10 @@
 "use server";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { serviceClient } from "@mms/db/server";
 import { provisionStaffInput, setStaffActiveInput } from "@mms/db/schemas";
 import { requireStaff } from "./staff";
+import { sendStaffInviteEmail, sendStaffDeactivatedEmail } from "./email";
 
 /**
  * Owner-only staff provisioning (S1.1a). Server Actions are public POST endpoints (IDOR by default),
@@ -60,6 +62,15 @@ export async function provisionStaff(raw: unknown): Promise<StaffActionResult> {
     return { ok: false, error: "Couldn’t save the staff role. Try again." };
   }
 
+  // Welcome the new staff member (best-effort, decoupled): the account is already saved, so an email
+  // outage must not fail provisioning — after() runs it post-response and sendStaffInviteEmail never throws.
+  after(() =>
+    sendStaffInviteEmail({
+      to: parsed.data.email,
+      displayName: parsed.data.displayName,
+      role: parsed.data.role,
+    }),
+  );
   revalidatePath("/staff/team");
   return { ok: true };
 }
@@ -82,12 +93,29 @@ export async function setStaffActive(raw: unknown): Promise<StaffActionResult> {
   if (parsed.data.userId === caller.uid)
     return { ok: false, error: "You can’t deactivate your own account." };
 
-  const { error } = await serviceClient()
+  const db = serviceClient();
+  const { error } = await db
     .from("staff")
     .update({ active: parsed.data.active, updated_at: new Date().toISOString() })
     .eq("user_id", parsed.data.userId);
   if (error) return { ok: false, error: "Couldn’t update that member. Try again." };
 
+  // On DEACTIVATION only, send an honest heads-up (best-effort, decoupled). The email isn't in the
+  // staff table (it lives on auth.users), so resolve it in after() — never blocking the response.
+  if (!parsed.data.active) {
+    const userId = parsed.data.userId;
+    after(async () => {
+      // getUserById is a raw await (it can throw, unlike sendEmail which never does) — keep the
+      // never-throw discipline so a lookup failure can't surface as an unhandled after() rejection.
+      try {
+        const { data } = await db.auth.admin.getUserById(userId);
+        const email = data?.user?.email;
+        if (email) await sendStaffDeactivatedEmail({ to: email });
+      } catch (e) {
+        console.error("[staff] deactivation email lookup failed", (e as Error).message);
+      }
+    });
+  }
   revalidatePath("/staff/team");
   return { ok: true };
 }
