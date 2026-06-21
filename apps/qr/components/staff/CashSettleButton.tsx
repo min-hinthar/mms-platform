@@ -61,18 +61,23 @@ export function CashSettleButton({
         <button
           type="button"
           onClick={() => setConfirming(true)}
+          aria-describedby="settle-hint"
           style={{ ...payBtn, width: "100%" }}
         >
           Settle in cash · {fmt(totalCents)}
         </button>
       )}
-      <p role="status" aria-live="polite" style={hint}>
-        {error ? (
-          <span style={{ color: "var(--warn)" }}>{error}</span>
-        ) : (
-          "Includes the 5% service charge. A cash tip is handled separately."
-        )}
+      {/* Static helper text (a description, not a status) — linked to the button, never a live region.
+          The detail view's one polite live region is the line-edit status in FloorDetailLive; a settle
+          FAILURE is an assertive role="alert" instead (different concern, mutually exclusive action). */}
+      <p id="settle-hint" style={hint}>
+        Includes the 5% service charge. A cash tip is handled separately.
       </p>
+      {error && (
+        <p role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
+          {error}
+        </p>
+      )}
     </div>
   );
 }
