@@ -25,7 +25,7 @@ function siteUrl(): string {
   if (explicit) return explicit.replace(/\/+$/, "");
   const prod = process.env.VERCEL_PROJECT_PRODUCTION_URL;
   if (prod) return `https://${prod}`;
-  return "https://mandalaymorningstar.com";
+  return "https://qr.mandalaymorningstar.com";
 }
 
 export type EmailResult = { ok: boolean; error?: string };

@@ -4,6 +4,19 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — Resend email-events webhook (2026-06-21)
+
+- **`/api/resend/webhook`** — a signed, public endpoint for Resend email events (delivered / bounced /
+  complained / …). Verifies the **Svix** signature (`RESEND_SIGNING_SECRET`, via `node:crypto` — no new
+  dep) + a ±5-min replay window before trusting anything, then **flags bounces/complaints** in server
+  logs (the actionable "an invite didn't land" signal — masked recipient + opaque `email_id`, never the
+  raw address) and captures **PII-free** deliverability events to PostHog. Idempotent + fail-safe (200
+  after verify; a processing hiccup never triggers an endless retry); drains analytics via `after()`.
+  Mirrors the Stripe-webhook conventions; the middleware matcher already skips `/api`.
+- **Prod-domain fallback** — `siteUrl()` (email links) now falls back to `https://qr.mandalaymorningstar.com`
+  (the real prod domain) when `NEXT_PUBLIC_SITE_URL`/`VERCEL_PROJECT_PRODUCTION_URL` are unset. Docs
+  (`ENV.md`, `HANDOFF.md`) gain `RESEND_SIGNING_SECRET` + the webhook-setup step.
+
 ### Added — Staff email (Resend) + login hardening (2026-06-21)
 
 Follow-up to S1.1a after owner sign-in hit Supabase's built-in email rate limit (429) and the magic-link
