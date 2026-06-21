@@ -365,7 +365,7 @@ async function resolveOpenCart(db: ReturnType<typeof serviceClient>, sessionId: 
   if (!session || session.status === "closed") return { session: null, cart: null };
   const { data: cart } = await db
     .from("qr_carts")
-    .select("id,locked,locked_at,settle_at")
+    .select("id,locked,locked_at,settle_at,promo_code")
     .eq("session_id", sessionId)
     .eq("status", "open")
     .maybeSingle();
@@ -471,6 +471,17 @@ export async function mergeTables(raw: unknown): Promise<MergeResult> {
   if (!tgt.cart) return { ok: false, error: "The table you picked has no open order." };
   if (src.session.mode !== tgt.session.mode)
     return { ok: false, error: "Only tables of the same kind can be merged." };
+
+  // A promo code lives on the CART (qr_carts.promo_code), and the discount/tax are re-derived per cart at
+  // settle (lib/totals.ts → mms_promo_discount). Merging moves the lines but can't carry a promo cleanly
+  // (the source code is tied to the closing session + its per-session redemption cap; recomputing the
+  // target's discount off the larger subtotal silently swings the charge either way). So refuse when EITHER
+  // side has a promo — staff removes it, then merges — rather than silently change what a guest pays.
+  if (src.cart.promo_code || tgt.cart.promo_code)
+    return {
+      ok: false,
+      error: "One of these tables has a promo code applied — remove it before merging.",
+    };
 
   // Refuse if money is moving on EITHER side (shared mutex — lib/pay-guard.ts).
   const [srcFlight, tgtFlight] = await Promise.all([
