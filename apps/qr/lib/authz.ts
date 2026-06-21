@@ -1,7 +1,7 @@
 import "server-only";
 import { cookies } from "next/headers";
 import { serverClient, serviceClient } from "@mms/db/server";
-import { CART_LOCK_TTL_MS } from "./lock";
+import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock";
 import {
   SESSION_RENEW_THRESHOLD_MS,
   sessionExpiryFromNow,
@@ -75,6 +75,12 @@ export type CartAuthz = {
   locked: boolean;
   /** The seat holding the lock (null when not effectively locked) — for "X is checking out" + scoping. */
   lockedBy: string | null;
+  /** The EFFECTIVE split-tender settlement freeze (M3·P3.3b) — true while a split is in flight AND
+   *  fresh (within SETTLE_TTL). Like `locked` but TABLE-WIDE: every member's cart edit is frozen while
+   *  the table pays. Mutually exclusive with `locked` (one freeze mode at a time — see acquireCartLock). */
+  settling: boolean;
+  /** The host that opened the settlement (null when not effectively settling). */
+  settleBy: string | null;
 };
 
 /**
@@ -88,7 +94,7 @@ export async function assertCartMember(cartId: string): Promise<CartAuthz> {
 
   const { data: cart } = await db
     .from("qr_carts")
-    .select("session_id,locked,locked_at,locked_by,status")
+    .select("session_id,locked,locked_at,locked_by,settle_at,settle_by,status")
     .eq("id", cartId)
     .maybeSingle();
   if (!cart) throw new AuthzError("No such cart", 404);
@@ -102,6 +108,10 @@ export async function assertCartMember(cartId: string): Promise<CartAuthz> {
     cart.locked &&
     cart.locked_at !== null &&
     new Date(cart.locked_at).getTime() > Date.now() - CART_LOCK_TTL_MS;
+  // Effective settlement freeze (split-tender): a fresh settle_at means the table is paying — the
+  // whole cart is read-only until fulfillment or the TTL frees an abandoned settlement.
+  const settlingFresh =
+    cart.settle_at !== null && new Date(cart.settle_at).getTime() > Date.now() - SETTLE_TTL_MS;
 
   const { data: sess } = await db
     .from("table_sessions")
@@ -130,6 +140,8 @@ export async function assertCartMember(cartId: string): Promise<CartAuthz> {
     role: member.role === "host" ? "host" : "guest",
     locked: lockedFresh,
     lockedBy: lockedFresh ? cart.locked_by : null,
+    settling: settlingFresh,
+    settleBy: settlingFresh ? cart.settle_by : null,
   };
 }
 

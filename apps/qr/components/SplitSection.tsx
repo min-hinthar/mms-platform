@@ -1,8 +1,9 @@
 "use client";
-import { useState, type CSSProperties } from "react";
+import { useState, useTransition, type CSSProperties } from "react";
 import type { CartItem } from "@mms/db";
 import type { SplitContext } from "@/lib/split";
 import { computeShares } from "@/lib/split-math";
+import { openSettlement } from "@/lib/split";
 import { assignLine } from "@/lib/cart";
 import { canMutateLine } from "@/lib/permissions";
 import { seatColor, seatInitial } from "@/lib/avatars";
@@ -57,6 +58,25 @@ export function SplitSection({
     } finally {
       setBusyLine(null);
     }
+  }
+
+  // Host opens a real split-tender (M3·P3.3b): freeze the cart + derive server shares, then everyone
+  // pays their own card on the live board. onChanged re-syncs the cart view → the board renders.
+  const [splitting, startSplit] = useTransition();
+  function beginSettle() {
+    startSplit(async () => {
+      try {
+        await openSettlement(cartId, mode);
+        onStatus(
+          mode === "even"
+            ? "Splitting evenly — everyone pays their share"
+            : "Splitting by person — everyone pays their share",
+        );
+        onChanged();
+      } catch (e) {
+        onStatus(e instanceof Error ? e.message : "Couldn’t start the split.");
+      }
+    });
   }
 
   return (
@@ -167,9 +187,36 @@ export function SplitSection({
       </dl>
 
       <p style={{ fontSize: 11.5, color: "var(--t3)", marginTop: 8, lineHeight: 1.5 }}>
-        Each person’s share of the order, including tax &amp; service. The order is paid in full at
-        checkout; tip is added then.
+        Each person’s share of the order, including tax &amp; service. Tip is added per person at
+        their pay step.
       </p>
+
+      {ctx.myRole === "host" ? (
+        <button
+          type="button"
+          onClick={beginSettle}
+          disabled={splitting}
+          style={{
+            width: "100%",
+            marginTop: 12,
+            minHeight: 48,
+            borderRadius: 12,
+            border: "1.5px solid var(--ac)",
+            background: "color-mix(in oklab, var(--ac) 9%, var(--cd))",
+            color: "var(--ac)",
+            fontWeight: 800,
+            fontSize: 15,
+            cursor: splitting ? "default" : "pointer",
+            opacity: splitting ? 0.7 : 1,
+          }}
+        >
+          {splitting ? "Starting…" : "Split & pay separately"}
+        </button>
+      ) : (
+        <p style={{ fontSize: 12, color: "var(--t2)", marginTop: 12, lineHeight: 1.5 }}>
+          The host can start a split so everyone pays their own card — or pay as one bill below.
+        </p>
+      )}
     </section>
   );
 }

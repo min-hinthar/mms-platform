@@ -16,6 +16,7 @@ import { useAnonSession } from "@/lib/useAnonSession";
 import { useCartRealtime } from "@/lib/realtime";
 import { PaymentSection } from "./PaymentSection";
 import { SplitSection } from "./SplitSection";
+import { SettlementBoard } from "./SettlementBoard";
 
 // Per-reason promo copy (the action returns a reason; Next redacts thrown errors in prod). Honest +
 // on-brand: tell the diner exactly why, never a fabricated state.
@@ -54,14 +55,19 @@ export function Checkout({
   initialItems,
   initialTotals,
   splitContext = null,
+  initialSettling = false,
 }: {
   cartId: string;
   initialItems: CartItem[];
   initialTotals: CartTotals;
   splitContext?: SplitContext | null;
+  initialSettling?: boolean;
 }) {
   const [items, setItems] = useState<CartItem[]>(initialItems);
   const [totals, setTotals] = useState<CartTotals>(initialTotals);
+  // Split-tender settlement freeze (P3.3b): once the host opens a split, every member pays their share
+  // on the live board instead of the review/pay flow. Synced from getCartView (initial + realtime).
+  const [settling, setSettling] = useState(initialSettling);
   // Dine-in group → show per-line owner + split; solo/duo stays the plain cart.
   const isGroup =
     !!splitContext && splitContext.mode === "dinein" && splitContext.members.length > 1;
@@ -105,6 +111,7 @@ export function Checkout({
       const v = await getCartView(cartId);
       setItems(v.items);
       setTotals(v.totals);
+      setSettling(v.settling); // a peer (host) opening/canceling a split flips the whole table here
     } catch {
       // Swallow: the EXPECTED failure here is the post-payment 403 (the cart flipped to paid → the
       // diner is being redirected to /track). We can't discriminate it from a transient error
@@ -220,7 +227,27 @@ export function Checkout({
         Your order
       </h1>
 
-      {onPay ? (
+      {isGroup && settling && splitContext ? (
+        <>
+          <SettlementBoard
+            cartId={cartId}
+            accessToken={anon?.accessToken ?? ""}
+            ctx={splitContext}
+            onStatus={setStatus}
+            onChanged={refresh}
+          />
+          {/* The ONE polite live region for the settlement view (board announcements: split started,
+              canceled, abort errors). The board's own rows carry per-share status visually. */}
+          <p
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            style={{ minHeight: 16, margin: "12px 0 0", fontSize: 13, color: "var(--t2)" }}
+          >
+            {status}
+          </p>
+        </>
+      ) : onPay ? (
         <>
           <dl style={{ margin: "12px 0" }}>
             <Row k="Subtotal" cents={payTotals.subtotalCents} />

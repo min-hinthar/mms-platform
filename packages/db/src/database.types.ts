@@ -473,6 +473,75 @@ export type Database = {
           },
         ]
       }
+      qr_cart_shares: {
+        Row: {
+          amount_cents: number
+          cart_id: string
+          created_at: string
+          discount_cents: number
+          id: string
+          order_id: string | null
+          seat_id: string
+          service_charge_cents: number
+          status: string
+          stripe_payment_intent_id: string | null
+          subtotal_cents: number
+          tax_cents: number
+          tip_cents: number
+          tip_rate: number
+          updated_at: string
+        }
+        Insert: {
+          amount_cents: number
+          cart_id: string
+          created_at?: string
+          discount_cents?: number
+          id?: string
+          order_id?: string | null
+          seat_id: string
+          service_charge_cents?: number
+          status?: string
+          stripe_payment_intent_id?: string | null
+          subtotal_cents: number
+          tax_cents?: number
+          tip_cents?: number
+          tip_rate?: number
+          updated_at?: string
+        }
+        Update: {
+          amount_cents?: number
+          cart_id?: string
+          created_at?: string
+          discount_cents?: number
+          id?: string
+          order_id?: string | null
+          seat_id?: string
+          service_charge_cents?: number
+          status?: string
+          stripe_payment_intent_id?: string | null
+          subtotal_cents?: number
+          tax_cents?: number
+          tip_cents?: number
+          tip_rate?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "qr_cart_shares_cart_id_fkey"
+            columns: ["cart_id"]
+            isOneToOne: false
+            referencedRelation: "qr_carts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "qr_cart_shares_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "qr_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       qr_carts: {
         Row: {
           created_at: string
@@ -484,6 +553,8 @@ export type Database = {
           pickup_slot: string | null
           promo_code: string | null
           session_id: string
+          settle_at: string | null
+          settle_by: string | null
           status: string
           updated_at: string
         }
@@ -497,6 +568,8 @@ export type Database = {
           pickup_slot?: string | null
           promo_code?: string | null
           session_id: string
+          settle_at?: string | null
+          settle_by?: string | null
           status?: string
           updated_at?: string
         }
@@ -510,6 +583,8 @@ export type Database = {
           pickup_slot?: string | null
           promo_code?: string | null
           session_id?: string
+          settle_at?: string | null
+          settle_by?: string | null
           status?: string
           updated_at?: string
         }
@@ -723,6 +798,10 @@ export type Database = {
           p_tax_cents: number
           p_tip_cents?: number
         }
+        Returns: string
+      }
+      mms_fulfill_split_order: {
+        Args: { p_cart_id: string; p_expected_total_cents: number }
         Returns: string
       }
       mms_line_tax: {

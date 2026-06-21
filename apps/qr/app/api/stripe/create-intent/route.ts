@@ -15,7 +15,16 @@ export async function POST(req: NextRequest) {
     const { cartId, tipRate } = createIntentInput.parse(await req.json());
 
     // C3: only a verified member of this cart's session may mint its PaymentIntent.
-    const { sessionId, uid } = await assertCartMember(cartId);
+    const { sessionId, uid, settling } = await assertCartMember(cartId);
+
+    // Split-tender in flight (M3·P3.3b): single-pay and split are mutually exclusive (acquireCartLock
+    // also rejects a fresh settlement). Catch it here FIRST so the diner gets an honest, actionable
+    // message — pay your share on the split board — not the generic "someone's checking out" lock copy.
+    if (settling)
+      return NextResponse.json(
+        { error: "Your table is splitting the bill — pay your share on the split screen." },
+        { status: 409 },
+      );
 
     // Lock the cart for the pay window (P3.2-lock) BEFORE deriving the amount, so a peer can't mutate
     // it mid-checkout → the webhook reconcile 409s / charges with no order. Atomic; the SAME payer

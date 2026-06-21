@@ -45,6 +45,7 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
       initialItems={view.items}
       initialTotals={view.totals}
       splitContext={split}
+      initialSettling={view.settling}
     />
   );
 }

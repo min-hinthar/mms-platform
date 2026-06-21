@@ -5,6 +5,12 @@ import { getCartTotals } from "@/lib/totals";
 import { releaseCartLock } from "@/lib/lock";
 import { getPostHogClient } from "@/lib/posthog-server";
 import { enqueueQboSync, syncOrderToQbo } from "@/lib/qbo/client";
+import {
+  onShareAuthorized,
+  onShareCaptured,
+  onShareFailed,
+  onShareCanceled,
+} from "@/lib/split-settle";
 
 // Fulfillment is webhook-driven, signature-verified, idempotent (QA checklist).
 // Stripe retries non-200s for up to 72h, so this must be safe to run more than once.
@@ -30,94 +36,145 @@ export async function POST(req: NextRequest) {
 
   if (event.type === "payment_intent.succeeded") {
     const intent = event.data.object;
-    const cartId = intent.metadata?.cartId;
-    const tipRate = Number(intent.metadata?.tipRate ?? 0) || 0;
     const db = serviceClient();
-    // idempotent: unique(stripe_payment_intent_id) means a retry is a no-op
-    const { data: existing } = await db
-      .from("qr_orders")
-      .select("id")
-      .eq("stripe_payment_intent_id", intent.id)
-      .maybeSingle();
-    if (!existing && cartId) {
-      // Re-derive the server-authoritative breakdown and reconcile it against the actual charge
-      // before fulfilling — the cart could have mutated between intent-create and this webhook.
-      // mms_fulfill_order re-checks the sum == intent.amount and snapshots the order (in cents).
-      let totals;
+    if (intent.metadata?.kind === "split_share") {
+      // Split-tender (M3·P3.3b): a share's capture landed. Mark it captured; once EVERY share is
+      // captured, mms_fulfill_split_order snapshots the ONE order (idempotent) and the freeze lifts.
       try {
-        totals = await getCartTotals(cartId, tipRate);
+        const orderId = await onShareCaptured(intent.id);
+        if (orderId) {
+          await enqueueQboSync(db, orderId);
+          after(() => syncOrderToQbo(orderId));
+          posthog.capture({
+            distinctId: intent.metadata?.cartId ?? intent.id,
+            event: "payment_succeeded",
+            properties: { cart_id: intent.metadata?.cartId, order_id: orderId, split: true },
+          });
+        }
       } catch (e) {
-        // The cart row may be unreadable/deleted between intent-create and delivery. Don't let the
-        // bare throw 500 without context — log the cart + PI, then 500 so Stripe retries.
-        console.error("[stripe webhook] getCartTotals failed", {
-          cartId,
+        console.error("[stripe webhook] split capture/fulfill failed", {
           paymentIntent: intent.id,
           error: e,
         });
-        return NextResponse.json({ error: "Totals lookup failed; will retry" }, { status: 500 });
-      }
-      if (totals.totalCents !== intent.amount) {
         return NextResponse.json(
-          { error: `amount mismatch: cart=${totals.totalCents} intent=${intent.amount}` },
-          { status: 409 }, // non-2xx → Stripe retries; surfaces a tampered/stale cart
+          { error: "Split fulfillment failed; will retry" },
+          { status: 500 },
         );
       }
-      const { data: orderId, error: fulfillErr } = await db.rpc("mms_fulfill_order", {
-        p_cart_id: cartId,
-        p_payment_intent: intent.id,
-        p_amount_cents: intent.amount,
-        p_subtotal_cents: totals.subtotalCents,
-        p_discount_cents: totals.discountCents,
-        p_service_charge_cents: totals.serviceChargeCents,
-        p_tax_cents: totals.taxCents,
-        p_tip_cents: totals.tipCents,
-      });
-      // supabase-js returns the Postgres error in `error` — it does NOT throw. Swallowing it would
-      // 200 the event, so Stripe marks it handled and never retries → a charged diner with no order.
-      // Return 5xx so Stripe redelivers (up to 72h); fulfillment is idempotent on the PI id, so a
-      // later retry that succeeds is safe. Log the full error (code/details/hint) for triage.
-      if (fulfillErr) {
-        console.error("[stripe webhook] mms_fulfill_order failed", {
-          cartId,
-          paymentIntent: intent.id,
-          error: fulfillErr,
+    } else {
+      const cartId = intent.metadata?.cartId;
+      const tipRate = Number(intent.metadata?.tipRate ?? 0) || 0;
+      // idempotent: unique(stripe_payment_intent_id) means a retry is a no-op
+      const { data: existing } = await db
+        .from("qr_orders")
+        .select("id")
+        .eq("stripe_payment_intent_id", intent.id)
+        .maybeSingle();
+      if (!existing && cartId) {
+        // Re-derive the server-authoritative breakdown and reconcile it against the actual charge
+        // before fulfilling — the cart could have mutated between intent-create and this webhook.
+        // mms_fulfill_order re-checks the sum == intent.amount and snapshots the order (in cents).
+        let totals;
+        try {
+          totals = await getCartTotals(cartId, tipRate);
+        } catch (e) {
+          // The cart row may be unreadable/deleted between intent-create and delivery. Don't let the
+          // bare throw 500 without context — log the cart + PI, then 500 so Stripe retries.
+          console.error("[stripe webhook] getCartTotals failed", {
+            cartId,
+            paymentIntent: intent.id,
+            error: e,
+          });
+          return NextResponse.json({ error: "Totals lookup failed; will retry" }, { status: 500 });
+        }
+        if (totals.totalCents !== intent.amount) {
+          return NextResponse.json(
+            { error: `amount mismatch: cart=${totals.totalCents} intent=${intent.amount}` },
+            { status: 409 }, // non-2xx → Stripe retries; surfaces a tampered/stale cart
+          );
+        }
+        const { data: orderId, error: fulfillErr } = await db.rpc("mms_fulfill_order", {
+          p_cart_id: cartId,
+          p_payment_intent: intent.id,
+          p_amount_cents: intent.amount,
+          p_subtotal_cents: totals.subtotalCents,
+          p_discount_cents: totals.discountCents,
+          p_service_charge_cents: totals.serviceChargeCents,
+          p_tax_cents: totals.taxCents,
+          p_tip_cents: totals.tipCents,
         });
-        return NextResponse.json({ error: "Fulfillment failed; will retry" }, { status: 500 });
+        // supabase-js returns the Postgres error in `error` — it does NOT throw. Swallowing it would
+        // 200 the event, so Stripe marks it handled and never retries → a charged diner with no order.
+        // Return 5xx so Stripe redelivers (up to 72h); fulfillment is idempotent on the PI id, so a
+        // later retry that succeeds is safe. Log the full error (code/details/hint) for triage.
+        if (fulfillErr) {
+          console.error("[stripe webhook] mms_fulfill_order failed", {
+            cartId,
+            paymentIntent: intent.id,
+            error: fulfillErr,
+          });
+          return NextResponse.json({ error: "Fulfillment failed; will retry" }, { status: 500 });
+        }
+        // QBO accounting sync (M2·P2.4): enqueue the order durably, then post the Sales Receipt OUT OF
+        // BAND in after() — QuickBooks latency/outage must never delay the Stripe ack or block the money
+        // path. The sync is fail-safe (disabled/unconfigured → logged skip) and idempotent (one receipt
+        // per order); if after() never runs, the 'pending' queue row is drained by processPendingQboSyncs.
+        if (orderId) {
+          await enqueueQboSync(db, orderId);
+          after(() => syncOrderToQbo(orderId));
+        }
+        // Capture exactly once — on the delivery that actually fulfills. A duplicate Stripe redelivery
+        // (existing != null) or a missing-cartId event no longer double-counts / mis-fires analytics.
+        posthog.capture({
+          distinctId: cartId,
+          event: "payment_succeeded",
+          properties: {
+            cart_id: cartId,
+            payment_intent_id: intent.id,
+            amount_cents: intent.amount,
+            currency: intent.currency,
+          },
+        });
+      } else if (!existing && !cartId) {
+        // Anomalous: a succeeded charge whose intent metadata has no cartId (our create-intent always
+        // sets it). We can't fulfill and a retry won't help, so don't 5xx — but never let it vanish.
+        console.error("[stripe webhook] succeeded intent missing cartId metadata", {
+          paymentIntent: intent.id,
+        });
       }
-      // QBO accounting sync (M2·P2.4): enqueue the order durably, then post the Sales Receipt OUT OF
-      // BAND in after() — QuickBooks latency/outage must never delay the Stripe ack or block the money
-      // path. The sync is fail-safe (disabled/unconfigured → logged skip) and idempotent (one receipt
-      // per order); if after() never runs, the 'pending' queue row is drained by processPendingQboSyncs.
-      if (orderId) {
-        await enqueueQboSync(db, orderId);
-        after(() => syncOrderToQbo(orderId));
+    }
+  } else if (event.type === "payment_intent.amount_capturable_updated") {
+    // Split-tender: a share authorized (manual-capture confirmed). Mark it; capture-all once the whole
+    // table is authorized. (Single-pay PIs are automatic-capture and never fire this event.)
+    const intent = event.data.object;
+    if (intent.metadata?.kind === "split_share") {
+      try {
+        await onShareAuthorized(intent.id);
+      } catch (e) {
+        console.error("[stripe webhook] split authorize/capture failed", {
+          paymentIntent: intent.id,
+          error: e,
+        });
+        return NextResponse.json({ error: "Split capture failed; will retry" }, { status: 500 });
       }
-      // Capture exactly once — on the delivery that actually fulfills. A duplicate Stripe redelivery
-      // (existing != null) or a missing-cartId event no longer double-counts / mis-fires analytics.
-      posthog.capture({
-        distinctId: cartId,
-        event: "payment_succeeded",
-        properties: {
-          cart_id: cartId,
-          payment_intent_id: intent.id,
-          amount_cents: intent.amount,
-          currency: intent.currency,
-        },
-      });
-    } else if (!existing && !cartId) {
-      // Anomalous: a succeeded charge whose intent metadata has no cartId (our create-intent always
-      // sets it). We can't fulfill and a retry won't help, so don't 5xx — but never let it vanish.
-      console.error("[stripe webhook] succeeded intent missing cartId metadata", {
-        paymentIntent: intent.id,
-      });
     }
   } else if (event.type === "payment_intent.payment_failed") {
     const intent = event.data.object;
     const cartId = intent.metadata?.cartId;
-    // Free the pay-window lock (P3.2-lock): the charge failed, so the cart returns to editable for the
-    // whole table (the diner can retry or change the order). Unconditional release by cart — the payer
-    // is whoever held it. Idempotent + best-effort; the TTL is the backstop if this is missed.
-    if (cartId) await releaseCartLock(cartId, null).catch(() => {});
+    if (intent.metadata?.kind === "split_share") {
+      // A share's auth failed — mark it; the settlement stays frozen until the host aborts or the payer
+      // retries (split uses the table-wide freeze, not the single-pay lock — nothing to release here).
+      await onShareFailed(intent.id).catch((e) =>
+        console.error("[stripe webhook] onShareFailed failed", {
+          paymentIntent: intent.id,
+          error: e,
+        }),
+      );
+    } else if (cartId) {
+      // Single-pay: free the pay-window lock (P3.2-lock) so the cart returns to editable for the table.
+      // Unconditional release by cart; idempotent + best-effort; the TTL is the backstop.
+      await releaseCartLock(cartId, null).catch(() => {});
+    }
     posthog.capture({
       distinctId: cartId ?? intent.id,
       event: "payment_failed",
@@ -130,6 +187,17 @@ export async function POST(req: NextRequest) {
         failure_code: intent.last_payment_error?.code,
       },
     });
+  } else if (event.type === "payment_intent.canceled") {
+    // Split-tender: a share's hold was canceled (host abort, or a tip-change replacement). Record it.
+    const intent = event.data.object;
+    if (intent.metadata?.kind === "split_share") {
+      await onShareCanceled(intent.id).catch((e) =>
+        console.error("[stripe webhook] onShareCanceled failed", {
+          paymentIntent: intent.id,
+          error: e,
+        }),
+      );
+    }
   }
   // (handle charge.refunded, … as needed)
 
