@@ -214,22 +214,25 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
         ) : (
           <form onSubmit={verify} noValidate>
             <label htmlFor="staff-code" style={label}>
-              6-digit code
+              Sign-in code
             </label>
             <input
               ref={codeRef}
               id="staff-code"
               inputMode="numeric"
               autoComplete="one-time-code"
-              pattern="\d{6}"
-              maxLength={6}
+              autoCapitalize="none"
+              maxLength={12}
               required
               value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-              placeholder="123456"
-              style={{ ...input, letterSpacing: "0.4em", fontVariantNumeric: "tabular-nums" }}
+              // Accept the token AS ISSUED — only strip whitespace (autofill can paste "123 456").
+              // Do NOT strip non-digits or cap at 6: Supabase's OTP length is configurable, so assuming
+              // a 6-digit numeric code is what made a longer/other-format token never match.
+              onChange={(e) => setCode(e.target.value.replace(/\s/g, ""))}
+              placeholder="Code from your email"
+              style={{ ...input, letterSpacing: "0.18em", fontVariantNumeric: "tabular-nums" }}
             />
-            <button type="submit" disabled={busy || code.trim().length !== 6} style={primaryBtn}>
+            <button type="submit" disabled={busy || code.trim().length < 6} style={primaryBtn}>
               {busy ? "Verifying…" : "Sign in"}
             </button>
             <button
