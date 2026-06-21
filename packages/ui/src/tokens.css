@@ -1,4 +1,7 @@
-/* MMS design tokens — light = editorial-forward · dark = v4 Night. WCAG AA verified.
+/* MMS design tokens — light = editorial-forward · dark = v4 Night. WCAG AA verified across the
+   text×surface matrix (t2/t3/ac/ok/warn × pg/sf/cd, both themes): t3 ≥4.5:1 on every surface;
+   accent TEXT on a tinted/sf fill uses --ac-strong (plain --ac is ~4.3 on --sf — borders/solid
+   buttons only). Re-check this matrix when changing a text or surface token.
    (Mirror of MMS_QR_tokens.css from the design system; single source of truth.) */
 :root {
   --font-display: "Fraunces", Georgia, serif;
@@ -67,7 +70,7 @@
   --cd: #271f38;
   --tx: #f3ecdf;
   --t2: #bcafc8;
-  --t3: #897e96;
+  --t3: #9d95a8; /* AA on Night surfaces: 5.84:1 on --sf, 5.45:1 on --cd (was #897e96 → 4.40/4.10) */
   --ac: #e7a53a;
   --ac2: #f4c879;
   /* Dark accent already clears 4.5:1 on the tinted fills (~5.6–6.3), so the strong variant is the
