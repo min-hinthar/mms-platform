@@ -4,6 +4,35 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — M3·P3.4 abuse limits (2026-06-21)
+
+- **Per-device rate limits** on the public POST surface. A generic SQL limiter (`rate_events` ledger +
+  `mms_rate_limit(bucket, key, max, window)` — count-first / self-GC / reject-without-record, the proven
+  `mms_promo_attempt` pattern) gates **join/mint** (`/api/session`, 30/min → 429) and **cart mutations**
+  (addItem/setQty/assignLine/scanAdd/setDisplayName/openSettlement + both Stripe create-intent routes,
+  120/min). Keyed by the **verified seat** (one device) — not per-session — so a hostile member can't DoS
+  co-diners' shared cart. New-seat churn is bounded a layer down by GoTrue's anon sign-up limit.
+  **Fail-open** (`apps/qr/lib/rate.ts`): a limiter glitch never strands a paying diner; the DB caps + lock
+  - server-authoritative money remain the hard invariants.
+- **Party-size cap (12)** on `session_members` via an **advisory-locked `BEFORE INSERT` trigger**
+  (`mms_enforce_party_size`) — atomic under concurrent joins (count-then-insert can't overshoot). A
+  friendly route pre-check returns a 409 on the common path; the trigger is the backstop and its
+  `party_full` raise also maps to the 409. UI: cap-aware Invite (a "Table's full" note replaces the invite
+  affordance at the cap) + honest copy, no retry on the terminal full case (`GuestList`/`InviteSheet`).
+- **Background session sweeper** — `mms_sweep_expired_sessions()` on a **pg_cron** schedule (every 15 min)
+  closes idle expired sessions so the `table_sessions_active_qr_uniq` slot stays clean (the backstop the
+  index comment anticipated; renewal-on-write + the mint-time sweep already cover the in-use path). Also
+  bounds the ephemeral ledgers. The schedule is **guarded** so a local CI stack without pg_cron applies
+  the migration cleanly; the function works whether or not it's scheduled.
+- **RLS membership negative tests** (`supabase/tests/rls_membership_test.sql`, wired into CI) — prove a
+  non-member can't read another table's session/members/cart/items/shares/order under RLS (+ a positive
+  control). Plain-SQL `assert`s in a rolled-back transaction; **verified PASS against the live project**.
+- Migration `20260621000000_abuse_limits` (additive) applied to live + `get_advisors` clean (only the
+  intentional `rate_events` default-deny INFO); all three new fns verified service-role-only. Adversarial
+  subagent: **PASS** (zero Critical/High). _Deferred (Low, documented):_ a mutate-rate 429 in `add` shows
+  the session-recovery copy (self-correcting; precise per-reason copy needs a result discriminant — the
+  thrown message is redacted in prod).
+
 ### Added — M3·P3.3b split-tender (dine-in, Option A: authorize-all → capture-together) (2026-06-20)
 
 - **Each diner pays their own card.** A host opens a split (`openSettlement`) → the cart freezes

@@ -11,6 +11,7 @@ import {
 import { lineTax } from "./tax";
 import { getCartTotals } from "./totals";
 import { assertCartItemMember, assertCartMember } from "./authz";
+import { assertMutationRate } from "./rate";
 import { canMutateLine } from "./permissions";
 import { releaseCartLock } from "./lock";
 import { getPostHogClient } from "./posthog-server";
@@ -76,6 +77,7 @@ export async function addItem(cartId: string, menuItemId: string, modifierIds: s
   const input = addItemInput.parse({ cartId, menuItemId, modifierIds });
   // AuthZ first: a verified member of this cart's active session, and the host hasn't locked it.
   const { uid, sessionId, locked, settling } = await assertCartMember(input.cartId);
+  await assertMutationRate(uid); // per-device flood guard (P3.4) — after authz, before the write
   if (locked) throw new Error("Order is locked while someone checks out");
   if (settling) throw new Error("The table is settling up — you can’t edit while everyone pays");
 
@@ -153,6 +155,7 @@ export async function setQty(cartItemId: string, qty: number) {
   const { cartId, locked, settling, role, lineSeat, uid } = await assertCartItemMember(
     input.cartItemId,
   );
+  await assertMutationRate(uid); // per-device flood guard (P3.4)
   if (locked) throw new Error("Order is locked while someone checks out");
   if (settling) throw new Error("The table is settling up — you can’t edit while everyone pays");
   // canMutate (M3·P3.3a): the host may change/remove any line; a guest only their own (cross-owner
@@ -184,6 +187,7 @@ export async function assignLine(cartItemId: string, seatId: string) {
   const { cartId, sessionId, locked, settling, role, lineSeat, uid } = await assertCartItemMember(
     input.cartItemId,
   );
+  await assertMutationRate(uid); // per-device flood guard (P3.4)
   if (locked) throw new Error("Order is locked while someone checks out");
   if (settling) throw new Error("The table is settling up — you can’t edit while everyone pays");
   if (!canMutateLine("draft", role, lineSeat === uid))

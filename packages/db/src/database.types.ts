@@ -695,6 +695,27 @@ export type Database = {
           },
         ]
       }
+      rate_events: {
+        Row: {
+          bucket: string
+          created_at: string
+          id: string
+          key: string
+        }
+        Insert: {
+          bucket: string
+          created_at?: string
+          id?: string
+          key: string
+        }
+        Update: {
+          bucket?: string
+          created_at?: string
+          id?: string
+          key?: string
+        }
+        Relationships: []
+      }
       session_members: {
         Row: {
           created_at: string
@@ -838,6 +859,15 @@ export type Database = {
         Returns: undefined
       }
       mms_promo_discount: { Args: { p_cart_id: string }; Returns: number }
+      mms_rate_limit: {
+        Args: {
+          p_bucket: string
+          p_key: string
+          p_max: number
+          p_window_seconds: number
+        }
+        Returns: boolean
+      }
       mms_set_pickup_slot: {
         Args: { p_cart_id: string; p_slot: string }
         Returns: {
@@ -845,6 +875,7 @@ export type Database = {
           reason: string
         }[]
       }
+      mms_sweep_expired_sessions: { Args: never; Returns: number }
       mms_tax_rate: { Args: never; Returns: number }
       mms_taxable: {
         Args: { category: string; dine_in: boolean }

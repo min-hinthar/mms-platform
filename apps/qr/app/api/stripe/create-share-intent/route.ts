@@ -3,6 +3,7 @@ import { serviceClient } from "@mms/db/server";
 import { createIntentInput } from "@mms/db/schemas";
 import { getStripe } from "@/lib/stripe";
 import { assertCartMember, AuthzError } from "@/lib/authz";
+import { withinMutationRate } from "@/lib/rate";
 import { getPostHogClient } from "@/lib/posthog-server";
 
 /**
@@ -19,6 +20,15 @@ export async function POST(req: NextRequest) {
 
     // Only a verified member may pay, and only THEIR own seat's share (uid is the authorized seat).
     const { uid, settling } = await assertCartMember(cartId);
+
+    // Per-device flood guard (P3.4): bound share-PI minting per seat (a tip change mints a fresh PI, so
+    // the idempotency key doesn't bound distinct amounts). Fail-open. Before any Stripe call.
+    if (!(await withinMutationRate(uid)))
+      return NextResponse.json(
+        { error: "Too many attempts — wait a moment and try again." },
+        { status: 429 },
+      );
+
     if (!settling)
       return NextResponse.json(
         { error: "No split is in progress for this order." },

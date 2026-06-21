@@ -4,7 +4,9 @@ The originating chat context does not carry across sessions — **this file is t
 Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — decisions, QA gate, rubric,
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
-**Next up: M3·P3.4 — abuse limits.** (M3 group cart P3.1–P3.3b is shipped + merged.)
+**M1 + M2 + M3 are complete.** P3.4 abuse limits shipped this session (the migration is on live). **Next
+up: the service-model track — S1 (staff & floor)** — see the build order `M1 → M2 → M3 → S1 → S2 → S3 →
+M4 → S4 → M5 → M6` in `ROADMAP.md` and [`docs/context/ORDER-MODEL.md`](context/ORDER-MODEL.md).
 
 ## Where we are — M1 + M2 complete (merged)
 
@@ -30,7 +32,7 @@ accounting seam. Per-phase detail is in `ROADMAP.md` + `CHANGELOG.md`; the load-
     fail-safe idempotent client (`lib/qbo/client.ts`, a no-op unless `QBO_SYNC_ENABLED=true`),
     `qbo_sync_queue` ledger (migration `…0400`, RLS default-deny), webhook posts in `after()` so QBO never
     blocks the money path. **Off by default.** See `docs/QBO_SYNC.md`.
-- **M3 (group cart — multi-device) ✅ — P3.1–P3.3b shipped + merged this session:**
+- **M3 (group cart — multi-device) ✅ — P3.1–P3.4 shipped + merged:**
   - **P3.1 multi-device join** (#25): `qrCode` doubles as the join key (scanned sticker `?t=` or a
     server-minted 8-char invite `?j=`); partial unique index `table_sessions_active_qr_uniq` makes
     concurrent joiners converge on ONE session; presence guest list (`useGroupCart`, sanitized on
@@ -51,6 +53,13 @@ identity full` for DELETE filtering; announce a peer's ADD only (by_seat).
     (realtime + 5s poll backstop). Tax weighted by each seat's **taxable** base, service by **net**.
     Hardened across **three** adversarial passes (foundation, server flow, pre-merge) — the
     "never charged-with-no-order" invariant holds, fail-loud on the residual.
+  - **P3.4 abuse limits** (this session): generic per-**seat** rate limiter (`rate_events` +
+    `mms_rate_limit`, count-first/self-GC) on `/api/session` join (30/min) + every cart mutation incl.
+    both pay routes (120/min), **fail-open**; party cap **12** via an advisory-locked `session_members`
+    `BEFORE INSERT` trigger (`mms_enforce_party_size`) + friendly route 409 + cap-aware Invite UI;
+    background `mms_sweep_expired_sessions()` on **pg_cron** (15-min, guarded for local CI); RLS
+    membership **negative tests** (`supabase/tests/rls_membership_test.sql`, in CI + verified live).
+    Migration `20260621000000` applied to live, advisor-clean. Adversarial subagent **PASS**.
 - **Two fixes rode alongside M3 this session:**
   - **Dine-in session-expiry recovery** (#29): the 4h TTL stranded in-use tables ("Couldn't add that")
     because the mint found a session by `status='active'` only while authz/RLS reject on `expires_at`.
@@ -78,28 +87,27 @@ identity full` for DELETE filtering; announce a peer's ADD only (by_seat).
    currently has **live** Stripe keys → a _test_ card is declined; for a test-charge smoke, run prod on
    test keys (incl. a test-mode `whsec_…`) or use `stripe listen`.
 
-## Next: M3·P3.4 — abuse limits (the last M3 phase)
+## Next: the service-model track — S1 (staff & floor)
 
-**Exit (ROADMAP M3·P3.4):** join/mutation rate limits, session expiry/sweep, RLS membership tests,
-party-size caps. The group-cart + split-tender surface (P3.1–P3.3b) is live, so P3.4 hardens its edges.
+M3 is **done**, so per the build order (`M1 → M2 → M3 → S1 → S2 → S3 → M4 → S4 → M5 → M6`) the
+service-model layer interleaves next. Read [`docs/context/ORDER-MODEL.md`](context/ORDER-MODEL.md) and the
+`ROADMAP.md` S-track for the exit criteria before starting; **S1 = staff & floor** (the human-facing door:
+the single source of truth across channels, dep on M1's ledger + M3's table session/presence). Confirm
+scope/priority with Min if there's any doubt — S vs M ordering is a product call.
 
-- **Join/mutation rate limits.** `/api/session` mint/join + the cart mutations are public POSTs; bound
-  join attempts per device and mutations per session (mirror the promo `mms_promo_attempt` window
-  pattern — count-first, self-GC). Stops a hostile client from flooding joins/edits.
-- **Session expiry/sweep.** P3.3b added sliding renewal + an inline sweep at mint, but there's still no
-  BACKGROUND sweeper — a `pg_cron` job (or a renewal-on-write everywhere) to close expired
-  `status='active'` sessions keeps the `table_sessions_active_qr_uniq` slot clean and the table tidy.
-- **Party-size caps.** Bound `session_members` per session (a sticker is one table) so a code can't be
-  used to pile unbounded members onto one cart; a DB-level `CHECK`/trigger + a friendly UI cap.
-- **RLS membership tests.** Add the explicit negative tests (a non-member can't read/mutate another
-  table's cart/shares/order) to lock the surface — the policies exist; prove them.
-- **Two tracked P3.3b follow-ups (deferred, non-blocking):** (1) the `onShareCaptured` `wasOpen` TOCTOU
-  → a possible **duplicate analytics event** under a sub-ms double `succeeded` delivery (money
-  unaffected — QBO upsert idempotent); (2) the migration's `create policy`/`create function` aren't
-  per-statement re-runnable (matches the sibling forward-only convention; switch to `create or replace`
-  - `drop policy if exists` only if a `db reset` replay is ever expected).
+**Tracked / deferred (non-blocking, carry forward):**
+
+- **P3.4 Low (documented):** a mutate-rate 429 in `TableCartProvider.add` surfaces the session-recovery
+  copy ("Reconnecting…") rather than a throttle message — self-correcting (re-mint returns the same cart →
+  retry succeeds once the window drains), and precise per-reason copy needs a result discriminant (the
+  thrown Server Action message is redacted in prod). 120/min is far above human use, so a legit diner
+  won't hit it.
+- **P3.3b follow-ups:** (1) the `onShareCaptured` `wasOpen` TOCTOU → a possible **duplicate analytics
+  event** under a sub-ms double `succeeded` delivery (money unaffected — QBO upsert idempotent); (2) the
+  split-tender migration's `create policy`/`create function` aren't per-statement re-runnable (matches the
+  sibling forward-only convention).
 - **`charge.refunded` is unhandled platform-wide** (single-pay AND split) → owned by the **S4.3** seam
-  (line-level refunds), not P3.4.
+  (line-level refunds).
 
 **Build to v7.2 + the bars.** `docs/prototype/v7.2.html` is the design source; hold every screen to
 QA-CHECKLIST §A / RUBRIC ≥4.3 in the **first commit** (tokens, motion, a11y, brand voice). Read
