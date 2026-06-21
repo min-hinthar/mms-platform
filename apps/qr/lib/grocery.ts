@@ -4,6 +4,7 @@ import type { TaxCategory } from "@mms/db";
 import { scanInput, grocerySearchInput } from "@mms/db/schemas";
 import { lineTax } from "./tax";
 import { assertCartMember } from "./authz";
+import { assertMutationRate } from "./rate";
 
 /**
  * Grocery Scan & Go. The client sends a scanned BARCODE (never a price); the server looks it
@@ -19,6 +20,7 @@ import { assertCartMember } from "./authz";
 export async function scanAdd(cartId: string, barcode: string) {
   const input = scanInput.parse({ cartId, barcode });
   const { uid, locked } = await assertCartMember(input.cartId);
+  await assertMutationRate(uid); // per-device flood guard (P3.4)
   if (locked) throw new Error("Order is locked while someone checks out");
 
   const db = serviceClient();

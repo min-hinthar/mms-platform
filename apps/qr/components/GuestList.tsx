@@ -3,6 +3,7 @@ import { useState, type CSSProperties } from "react";
 import { useCart } from "./TableCartProvider";
 import { InviteSheet } from "./InviteSheet";
 import { seatColor, seatInitial } from "@/lib/avatars";
+import { MAX_PARTY_SIZE } from "@/lib/limits";
 
 /**
  * Dine-in group cart guest list (M3·P3.1). Renders the live presence party (real second phones —
@@ -28,15 +29,20 @@ export function GuestList() {
     );
 
   // The dine-in join is the whole point of this screen — if the session mint failed, don't silently
-  // drop the group UI; surface a retry (reload re-runs the mint) so the diner isn't stranded.
+  // drop the group UI; surface a retry (reload re-runs the mint) so the diner isn't stranded. A
+  // party-full 409 (P3.4) is terminal, though — retrying can't free a seat, so show the honest server
+  // copy WITHOUT a retry that would just re-fail.
   if (!me) {
     if (!error) return null; // still establishing the session — the menu renders meanwhile
+    const full = error.includes("table is full");
     return (
       <p role="alert" style={{ fontSize: 13, color: "var(--warn)", marginTop: 10 }}>
-        Couldn’t join this table.{" "}
-        <button type="button" onClick={() => window.location.reload()} style={retryBtn}>
-          Try again
-        </button>
+        {full ? error : "Couldn’t join this table."}{" "}
+        {!full && (
+          <button type="button" onClick={() => window.location.reload()} style={retryBtn}>
+            Try again
+          </button>
+        )}
       </p>
     );
   }
@@ -46,6 +52,9 @@ export function GuestList() {
   bySeat.set(me.seat, me);
   for (const m of members) if (!bySeat.has(m.seat)) bySeat.set(m.seat, m);
   const list = [...bySeat.values()];
+  // Party-size cap (P3.4): a sticker is one table. At the cap, the server rejects further joins, so
+  // hide the invite affordance and say so honestly rather than offering an invite that can't be honored.
+  const atCap = list.length >= MAX_PARTY_SIZE;
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
@@ -67,14 +76,20 @@ export function GuestList() {
       <span style={{ fontSize: 13, color: "var(--t2)", fontWeight: 600 }}>
         {list.length === 1 ? "Just you" : `Party of ${list.length}`}
       </span>
-      <button
-        type="button"
-        onClick={() => setInviteOpen(true)}
-        aria-label="Invite people to your table"
-        style={inviteChip}
-      >
-        <span aria-hidden>👥</span> Invite
-      </button>
+      {atCap ? (
+        <span aria-label={`Table is full, up to ${MAX_PARTY_SIZE} guests`} style={fullNote}>
+          <span aria-hidden>✓</span> Table’s full
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setInviteOpen(true)}
+          aria-label="Invite people to your table"
+          style={inviteChip}
+        >
+          <span aria-hidden>👥</span> Invite
+        </button>
+      )}
       <InviteSheet open={inviteOpen} onOpenChange={setInviteOpen} />
     </div>
   );
@@ -135,4 +150,13 @@ const inviteChip: CSSProperties = {
   fontWeight: 800,
   fontSize: 13,
   cursor: "pointer",
+};
+const fullNote: CSSProperties = {
+  marginLeft: "auto",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  fontSize: 12.5,
+  fontWeight: 700,
+  color: "var(--t2)",
 };

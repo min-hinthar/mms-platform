@@ -48,6 +48,12 @@ jobs:
           supabase gen types typescript --local --schema public > packages/db/src/database.types.ts
           git diff --exit-code -- packages/db/src/database.types.ts \
             || { echo "::error::database.types.ts is stale vs supabase/migrations — run 'pnpm db:types' (with the local stack up) and commit."; exit 1; }
+      # rls-tests — prove the session-scoped RLS holds (a non-member can't read another table's
+      # cart/shares/order). Plain-SQL asserts; ON_ERROR_STOP makes a failed assertion fail the job.
+      - name: RLS membership tests
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f supabase/tests/rls_membership_test.sql
       - name: Stop stack
         if: always()
         run: supabase stop || true

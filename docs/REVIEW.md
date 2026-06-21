@@ -299,4 +299,32 @@ Per-PR detail in `CHANGELOG.md` + each PR's posted adversarial verdict; the load
 - **Error tracking** (#30) — PostHog server `onRequestError` + branded error boundaries. **Pre-PR pass caught 2 BLOCKERS:** `request.path` leaked the `?t=`/`?j=` credentials to analytics → drop it; a stray `pnpm-workspace.yaml` placeholder → removed.
 - **P3.3b split-tender** (#31, Option A) — the per-payer authorize → capture-all → fulfill spine. **Three adversarial passes:** foundation (B1 `$0`-share CHECK, S2 fail-loud fulfill), server flow (2 should-fix money races: capture-vs-abort, stale-takeover — gated capture on a live settlement + per-PI capture verify + claim-first abort), pre-merge (ship; 2 deferred NITs). `qr_cart_shares` ledger + `settle_at` freeze applied to live; `get_advisors` → `revoke select from anon` (advisor 0026). Tax weighted by each seat's **taxable** base. **"Never charged-with-no-order" holds; residual sub-ms races fail loud.**
 
-**Deferred / tracked:** the P3.3b analytics double-fire NIT; `charge.refunded` handling (platform-wide → S4.3); a background session sweeper + party-size caps + rate limits → **M3·P3.4** (next).
+**Deferred / tracked:** the P3.3b analytics double-fire NIT; `charge.refunded` handling (platform-wide → S4.3).
+
+## Progress — M3·P3.4 abuse limits (2026-06-21) — **M3 complete**
+
+Hardens the live group-cart + split-tender surface against a hostile-but-verified client (membership authz
+stops a non-member; this bounds a member who FLOODS). Migration `20260621000000_abuse_limits` (additive)
+applied to live; `get_advisors` clean apart from the intentional `rate_events` default-deny INFO.
+
+- **Rate limits (per device).** Generic `mms_rate_limit(bucket, key, max, window)` over a `rate_events`
+  ledger — the proven count-first / self-GC / reject-without-record window (`mms_promo_attempt`). Wired
+  into `/api/session` join (30/min → 429) and every cart mutation (addItem/setQty/assignLine/scanAdd/
+  setDisplayName/openSettlement + create-intent/create-share-intent, 120/min). Keyed by the **verified
+  seat** (one device) not per-session, so one bad actor can't DoS co-diners' shared cart; **fail-open**
+  (`lib/rate.ts`) so a limiter glitch never strands a paying diner.
+- **Party-size cap (12).** Advisory-locked `session_members` `BEFORE INSERT` trigger (`mms_enforce_party_size`)
+  — atomic under concurrent joins. Friendly route pre-check 409 on the common path; the trigger's
+  `party_full` raise also maps to the 409. Cap-aware Invite UI (`GuestList`/`InviteSheet`) — honest copy,
+  no retry on the terminal full case.
+- **Session sweep.** `mms_sweep_expired_sessions()` on **pg_cron** (every 15 min) closes idle expired
+  sessions (the backstop the `table_sessions_active_qr_uniq` index comment anticipated) + bounds the
+  ephemeral ledgers. Schedule guarded so a local CI stack without pg_cron applies the migration cleanly.
+- **RLS membership tests** (QA-CHECKLIST §C / RED-TEAM #4 — "trust boundaries are real"): a non-member
+  can't read another table's session/members/cart/items/shares/order under RLS (+ a positive control).
+  `supabase/tests/rls_membership_test.sql` (plain-SQL `assert`s, rolled back), wired into CI and
+  **verified PASS against the live project**.
+- **Adversarial subagent — PASS** (zero Critical/High). Two acceptable Lows: a mutate-rate 429 in
+  `TableCartProvider.add` surfaces the session-recovery copy (self-correcting; precise per-reason copy
+  needs a result discriminant — the thrown message is redacted in prod); the sweeper piggybacks
+  `promo_attempts` GC (harmless, bounded).

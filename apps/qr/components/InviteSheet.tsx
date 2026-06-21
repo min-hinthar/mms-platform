@@ -2,6 +2,7 @@
 import { useId, useState, type CSSProperties, type FormEvent } from "react";
 import { Sheet } from "@mms/ui";
 import { useCart } from "./TableCartProvider";
+import { MAX_PARTY_SIZE } from "@/lib/limits";
 
 /**
  * Dine-in invite (M3·P3.1 host-invite fallback to the physical sticker). Surfaces the server-issued
@@ -71,7 +72,7 @@ export function InviteSheet({
     <Sheet open={open} onOpenChange={onOpenChange} title="Invite to your table">
       <p style={muted}>
         Everyone at the table orders together into one cart. Share this to add a phone — or just
-        scan the table’s QR sticker.
+        scan the table’s QR sticker. Up to {MAX_PARTY_SIZE} guests per table.
       </p>
 
       {joinCode && (

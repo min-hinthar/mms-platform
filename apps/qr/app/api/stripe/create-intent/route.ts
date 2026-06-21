@@ -4,6 +4,7 @@ import { createIntentInput } from "@mms/db/schemas";
 import { getStripe } from "@/lib/stripe";
 import { getCartTotals } from "@/lib/totals";
 import { assertCartMember, AuthzError } from "@/lib/authz";
+import { withinMutationRate } from "@/lib/rate";
 import { acquireCartLock, releaseCartLock } from "@/lib/lock";
 import { getPostHogClient } from "@/lib/posthog-server";
 
@@ -16,6 +17,14 @@ export async function POST(req: NextRequest) {
 
     // C3: only a verified member of this cart's session may mint its PaymentIntent.
     const { sessionId, uid, settling } = await assertCartMember(cartId);
+
+    // Per-device flood guard (P3.4): bound PaymentIntent minting per seat so a hostile client can't spam
+    // intent creation (distinct tip amounts dodge the idempotency key). Fail-open. Before any Stripe call.
+    if (!(await withinMutationRate(uid)))
+      return NextResponse.json(
+        { error: "Too many attempts — wait a moment and try again." },
+        { status: 429 },
+      );
 
     // Split-tender in flight (M3·P3.3b): single-pay and split are mutually exclusive (acquireCartLock
     // also rejects a fresh settlement). Catch it here FIRST so the diner gets an honest, actionable

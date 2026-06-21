@@ -2,6 +2,7 @@
 import { serviceClient } from "@mms/db/server";
 import { setDisplayNameInput } from "@mms/db/schemas";
 import { assertSessionMember } from "./authz";
+import { assertMutationRate } from "./rate";
 
 /**
  * Rename your OWN seat in the presence guest list (M3·P3.1). Server Actions are public POST
@@ -13,6 +14,7 @@ import { assertSessionMember } from "./authz";
 export async function setDisplayName(sessionId: string, name: string): Promise<{ ok: boolean }> {
   const input = setDisplayNameInput.parse({ sessionId, name });
   const { uid } = await assertSessionMember(input.sessionId);
+  await assertMutationRate(uid); // per-device flood guard (P3.4) — bound presence-rename spam
 
   const { error } = await serviceClient()
     .from("session_members")

@@ -3,6 +3,8 @@ import { serviceClient, sessionClient } from "@mms/db/server";
 import { sessionMintInput } from "@mms/db/schemas";
 import { generateJoinCode } from "@/lib/session-code";
 import { sessionExpiryFromNow } from "@/lib/session-ttl";
+import { withinJoinRate } from "@/lib/rate";
+import { MAX_PARTY_SIZE } from "@/lib/limits";
 import { getPostHogClient } from "@/lib/posthog-server";
 
 type Sess = { id: string; mode: string; host_seat: string | null; qr_code: string };
@@ -42,6 +44,16 @@ export async function POST(req: NextRequest) {
   } = await sessionClient(token).auth.getUser(token);
   if (authErr || !user) return NextResponse.json({ error: "Invalid session" }, { status: 401 });
   const seat = user.id; // == auth.uid() → becomes session_members.seat_id (the RLS identity)
+
+  // Rate-limit join/mint per device (P3.4): this is a public POST, so a verified-but-hostile client
+  // could flood it (find-or-create thrash, session spam). Bound attempts per verified seat. Fail-open
+  // (lib/rate) — a limiter glitch never blocks a legit diner. New-seat churn is bounded by GoTrue's
+  // anonymous sign-up rate limit a layer down (supabase/config.toml).
+  if (!(await withinJoinRate(seat)))
+    return NextResponse.json(
+      { error: "Too many attempts — wait a moment and try again." },
+      { status: 429 },
+    );
 
   const db = serviceClient();
   const cols = "id,mode,host_seat,qr_code";
@@ -132,14 +144,35 @@ export async function POST(req: NextRequest) {
     .eq("seat_id", seat)
     .maybeSingle();
   if (!existing) {
+    // Party-size cap (P3.4): a sticker is one table — bound members so a shared code can't pile
+    // unbounded diners onto one cart. Friendly pre-check on the common path; the mms_enforce_party_size
+    // trigger is the ATOMIC backstop under a concurrent-join race (count-then-insert can't overshoot).
+    // The host (member #1 of a just-created session) is always under the cap.
+    const { count } = await db
+      .from("session_members")
+      .select("id", { count: "exact", head: true })
+      .eq("session_id", sess.id);
+    if ((count ?? 0) >= MAX_PARTY_SIZE)
+      return NextResponse.json(
+        { error: `This table is full (up to ${MAX_PARTY_SIZE} guests).` },
+        { status: 409 },
+      );
     const { error: memErr } = await db
       .from("session_members")
       .insert({ session_id: sess.id, seat_id: seat, display_name: name, role });
     // 23505 = unique_violation: a concurrent join already inserted this membership → fine, the row
-    // exists. Any other error means the diner is NOT actually a member, so fail loudly instead of
-    // returning a cartId that every later assertCartMember would 403 on (silently broken session).
-    if (memErr && memErr.code !== "23505")
-      return NextResponse.json({ error: "Could not join session" }, { status: 500 });
+    // exists. A `party_full` raise = we lost the cap race to a concurrent joiner → the same friendly
+    // 409, not a 500. Any other error means the diner is NOT actually a member, so fail loudly instead
+    // of returning a cartId that every later assertCartMember would 403 on (silently broken session).
+    if (memErr) {
+      if (memErr.message?.includes("party_full"))
+        return NextResponse.json(
+          { error: `This table is full (up to ${MAX_PARTY_SIZE} guests).` },
+          { status: 409 },
+        );
+      if (memErr.code !== "23505")
+        return NextResponse.json({ error: "Could not join session" }, { status: 500 });
+    }
   }
 
   // Find-or-create the session's OPEN cart (P1.2 "create-cart"). Idempotent: returns the existing

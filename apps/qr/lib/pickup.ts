@@ -2,6 +2,7 @@
 import { serviceClient } from "@mms/db/server";
 import { setPickupSlotInput } from "@mms/db/schemas";
 import { assertCartMember } from "./authz";
+import { withinMutationRate } from "./rate";
 import { getPostHogClient } from "./posthog-server";
 
 // Honest pickup scheduling (M2·P2.2). Slots + capacity + the slot↔fire_at math are all in the DB
@@ -40,6 +41,9 @@ export type SetSlotResult =
 export async function setPickupSlot(cartId: string, slot: string): Promise<SetSlotResult> {
   const input = setPickupSlotInput.parse({ cartId, slot });
   const { uid, locked } = await assertCartMember(input.cartId);
+  // Per-device flood guard (P3.4). setPickupSlot returns a result discriminant (doesn't throw), so map
+  // a rate trip to the generic "error" reason rather than throwing — honoring its contract.
+  if (!(await withinMutationRate(uid))) return { ok: false, reason: "error" };
   if (locked) return { ok: false, reason: "locked" };
 
   const { data, error } = await serviceClient().rpc("mms_set_pickup_slot", {

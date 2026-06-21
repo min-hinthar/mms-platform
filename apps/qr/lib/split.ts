@@ -2,6 +2,7 @@
 import { serviceClient } from "@mms/db/server";
 import { cartViewInput, splitModeInput } from "@mms/db/schemas";
 import { assertCartMember } from "./authz";
+import { assertMutationRate } from "./rate";
 import { getCartTotals } from "./totals";
 import { deriveShareBreakdowns } from "./split-math";
 import { acquireSettlement, releaseSettlement } from "./lock";
@@ -97,6 +98,7 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
   const { mode: m } = splitModeInput.parse({ mode });
   const { uid, sessionId, role } = await assertCartMember(id);
   if (role !== "host") throw new Error("Only the host can start the split");
+  await assertMutationRate(uid); // per-device flood guard (P3.4) — bound settlement re-open churn
 
   // The freeze is the mutex — acquire FIRST so two opens can't race the derive/insert.
   const acq = await acquireSettlement(id, uid);
