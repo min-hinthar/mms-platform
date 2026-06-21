@@ -203,6 +203,15 @@ export const staffAddItemInput = z.object({
  *  cash order idempotently. The client asserts only the session id — never an amount. */
 export const settleCashInput = z.object({ sessionId: uuid });
 
+/** mergeTables (S1.4 soft convergence) — fold a SOURCE table's open order into a TARGET table, then close
+ *  the source (the one-tap recovery for a double-order). Shape only; the server (requireStaff + service-
+ *  role) re-resolves both open carts, refuses mid-payment on either side, requires a shared mode, and runs
+ *  the atomic mms_merge_table_orders. The client asserts only the two session ids — never a line or price. */
+export const mergeTablesInput = z.object({
+  sourceSessionId: uuid,
+  targetSessionId: uuid,
+});
+
 export type SetStaffPinInput = z.infer<typeof setStaffPinInput>;
 export type VerifyStaffPinInput = z.infer<typeof verifyStaffPinInput>;
 export type SetStaffActiveInput = z.infer<typeof setStaffActiveInput>;
@@ -210,6 +219,7 @@ export type ProvisionStaffInput = z.infer<typeof provisionStaffInput>;
 export type ClearTableInput = z.infer<typeof clearTableInput>;
 export type StaffAddItemInput = z.infer<typeof staffAddItemInput>;
 export type SettleCashInput = z.infer<typeof settleCashInput>;
+export type MergeTablesInput = z.infer<typeof mergeTablesInput>;
 export type SessionMintInput = z.infer<typeof sessionMintInput>;
 export type SessionMintOutput = z.infer<typeof sessionMintOutput>;
 export type SetDisplayNameInput = z.infer<typeof setDisplayNameInput>;

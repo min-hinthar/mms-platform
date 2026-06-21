@@ -75,3 +75,19 @@ export type TableDetail = {
 };
 
 export type ClearTableResult = { ok: true } | { ok: false; error: string };
+
+/** A table the current (source) table can be merged INTO (S1.4). Same mode, active, has an open cart, not
+ *  mid-payment — the legible candidates a server picks from in the explicit merge tool. */
+export type MergeCandidate = {
+  sessionId: string;
+  label: string;
+  mode: "dinein" | "scango" | "pickup";
+  itemCount: number;
+  partySize: number;
+};
+
+/** Result of a one-tap merge (S1.4). `movedCount` = units folded into the target (for the success toast);
+ *  the source table is now closed and the caller routes to the target. */
+export type MergeResult =
+  | { ok: true; movedCount: number; targetSessionId: string }
+  | { ok: false; error: string };

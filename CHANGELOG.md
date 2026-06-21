@@ -4,6 +4,34 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — S1.4 soft convergence (one-tap table merge) (2026-06-21)
+
+The recovery for a double-order (a guest scans **and** tells the server). The ORDER-MODEL convergence is
+**soft/advisory** — phones, the staff POS, and the kiosk all write the same table session, the floor shows
+table state, and the cleanup for the occasional parallel order is a **one-tap merge**, not a billing dispute.
+
+- **One-tap merge** (`MergeTableButton` on `FloorDetailLive` → `mergeTables`): from a table's drill-down a
+  server folds **this** table's open order into another, then this table closes. Pick a same-mode candidate
+  from a legible list (label · item count · party), confirm, and the lines move. **Any active staff** may
+  merge (a non-loss turnover cleanup, like clear-table — no manager-PIN; that step-up is reserved for S2's
+  loss-gated voids/comps/refunds); logged non-PII (`staff_merge_tables`: role, units moved, both sessions).
+- **Server-authoritative, atomic** (`mms_merge_table_orders`): re-parents **already-server-priced** lines
+  (never recomputes or trusts a client price) — bumps an identical target line (same item + normalized,
+  order-independent modifier set) when it stays within the 99-per-line cap, else re-parents it as its own
+  line so **no units are ever dropped**; moved lines lose seat attribution (`by_seat = null`). Both carts are
+  row-locked and must still be `open`, so a concurrent settle/clear loses the race cleanly. The action refuses
+  a closed/paid table, a cross-mode merge (per-line tax basis is dine-in vs to-go), or either side mid-payment
+  (shared `pay-guard` mutex). Source cart → `cancelled`, source session → `closed` (the diner-side guards
+  already honor both, so a racing source-diner write lands on a closed door).
+- **Honest scope:** the system can't auto-detect that two labels are one physical table (the sticker
+  `qr_code` is the only identity and it's unique per active session), so convergence is an **explicit** staff
+  tool over the floor's legibility (S1.2), not a fabricated divergence alarm. **Session expiry** is already
+  covered (`mms_sweep_expired_sessions` on pg_cron + the `expires_at` floor filter + sliding renewal, P3.4).
+- **DB:** migration `20260621160000_table_merge.sql` (one SECURITY DEFINER fn, `revoke … from public, anon,
+authenticated` + `grant … to service_role`); types regenerated. Money path verified on the local stack
+  (merge, identical-line bump across modifier order, 99-cap re-parent with no unit loss, non-open/same-cart
+  raises, grant lockdown). **Completes S1 (staff & floor).**
+
 ### Added — S1.3 staff write + cash settle ("order for a guest" · "pay a human") (2026-06-21)
 
 The door for humans (ORDER-MODEL): the cart belongs to the **table**, not the phone, so staff write the
