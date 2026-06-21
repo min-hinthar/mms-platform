@@ -5,6 +5,8 @@ import { serviceClient } from "@mms/db/server";
 import { clearTableInput } from "@mms/db/schemas";
 import { requireStaff } from "./staff";
 import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock";
+import { isFresh, paymentInFlightReason } from "./pay-guard";
+import { getCartTotals } from "./totals";
 import { getPostHogClient } from "./posthog-server";
 import type {
   ClearTableResult,
@@ -31,12 +33,6 @@ import type {
 
 const ACTIVE_SESSION_CAP = 200; // a teahouse has a handful of live tables; bound the query regardless.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/** Fresh = within the TTL window (same app-clock basis as lib/lock.ts), so a stale/abandoned lock or
- *  settlement doesn't read as "mid-payment". */
-function isFresh(ts: string | null, ttlMs: number): boolean {
-  return ts != null && Date.now() - new Date(ts).getTime() < ttlMs;
-}
 
 function deriveStatus(
   cart: { locked: boolean; locked_at: string | null; settle_at: string | null } | null,
@@ -241,6 +237,10 @@ export async function getTableDetail(sessionId: string): Promise<TableDetail | n
     !!cart &&
     (isFresh(cart.settle_at, SETTLE_TTL_MS) ||
       (cart.locked && isFresh(cart.locked_at, CART_LOCK_TTL_MS)));
+  // The authoritative all-in cash total (the single tax engine), so the Settle button shows the real
+  // charge. Only when there's an open cart with items — one extra read on the (non-hot) detail path.
+  const settleTotalCents =
+    cart && itemCount > 0 ? (await getCartTotals(cart.id, 0)).totalCents : null;
   let lastActivityAt = laterIso(session.created_at ?? nowIso, lastLineAt);
   if (paid) lastActivityAt = laterIso(lastActivityAt, paid.created_at);
 
@@ -254,6 +254,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetail | n
     lines,
     itemCount,
     runningSubtotalCents,
+    settleTotalCents,
     paidTotalCents: paid?.total_cents ?? null,
     lastActivityAt,
     paymentInFlight,
@@ -294,31 +295,15 @@ export async function clearTable(raw: unknown): Promise<ClearTableResult> {
     .eq("status", "open")
     .maybeSingle();
 
-  // Don't clear a table mid-checkout — a fresh single-pay lock or an open split freeze means money is
-  // moving. The TTLs auto-release an abandoned one, so this only blocks an ACTIVE payment.
-  if (
-    cart &&
-    (isFresh(cart.settle_at, SETTLE_TTL_MS) ||
-      (cart.locked && isFresh(cart.locked_at, CART_LOCK_TTL_MS)))
-  ) {
+  // Don't clear a table while money is moving (shared mutex with cash settle — lib/pay-guard.ts):
+  // cancelling the cart out from under a live single-pay lock / split freeze / captured share would
+  // strand a charge with no order. The TTLs auto-release an abandoned hold, so this only blocks an
+  // ACTIVE payment; the captured-share branch closes the abandoned-but-captured window explicitly.
+  const inFlight = await paymentInFlightReason(cart);
+  if (inFlight === "mid_payment")
     return { ok: false, error: "This table is mid-payment — clear it once they’ve finished." };
-  }
-
-  // Money-committed guard (independent of the freshness TTL): a split where any share is already
-  // authorized or captured must NOT be cancelled here — cancelling the cart would make
-  // mms_fulfill_split_order fail its open-cart claim and raise (charge taken, no order). The freshness
-  // check above misses a settlement abandoned > SETTLE_TTL with a captured share, so close that window
-  // explicitly. (Settling it / aborting the split is the diner-side path; turnover-clear shouldn't.)
-  if (cart) {
-    const { count: liveShares } = await db
-      .from("qr_cart_shares")
-      .select("id", { count: "exact", head: true })
-      .eq("cart_id", cart.id)
-      .in("status", ["authorized", "captured"]);
-    if ((liveShares ?? 0) > 0) {
-      return { ok: false, error: "This table has a split payment in progress — settle it first." };
-    }
-  }
+  if (inFlight === "split_in_progress")
+    return { ok: false, error: "This table has a split payment in progress — settle it first." };
 
   // Cancel the open cart FIRST, then close the session: each is a status flip the diner-side guards
   // already honor (a cancelled cart + a closed session both fail is_member / the mutation guards), so a

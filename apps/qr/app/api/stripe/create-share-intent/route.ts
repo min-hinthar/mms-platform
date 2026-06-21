@@ -46,6 +46,20 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
     if (!share)
       return NextResponse.json({ error: "You’re not part of this split." }, { status: 400 });
+    // Cart-open guard (S1.3): never authorize a share on a cart that's no longer open — a staff cash
+    // settle or a turnover clear-table may have settled/cancelled it out-of-band. Without this, a
+    // pending share could be authorized after the table was settled, stranding the charge when
+    // mms_fulfill_split_order finds a non-open cart. Closes the window at the root for every settle path.
+    const { data: shareCart } = await db
+      .from("qr_carts")
+      .select("status")
+      .eq("id", cartId)
+      .maybeSingle();
+    if (shareCart?.status !== "open")
+      return NextResponse.json(
+        { error: "This table’s order has already been settled." },
+        { status: 409 },
+      );
     if (share.status === "captured")
       return NextResponse.json({ error: "You’ve already paid your share." }, { status: 409 });
     if (share.status === "authorized")

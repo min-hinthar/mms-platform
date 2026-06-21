@@ -116,7 +116,7 @@ values ('<uid>','you@…','owner','Min');` → refresh `/staff`.
      bounces/complaints (masked logs) + PII-free PostHog deliverability events. (`RESEND_WEBHOOK` was
      provisioned but the code doesn't consume it — only the signing secret is needed.)
 
-## Next: the service-model track — S1 (staff & floor) — S1.1a + S1.1b + S1.2 SHIPPED
+## Next: the service-model track — S1 (staff & floor) — S1.1a + S1.1b + S1.2 + S1.3 SHIPPED
 
 Per the build order (`M1 → M2 → M3 → S1 → S2 → S3 → M4 → S4 → M5 → M6`) the service-model layer is in
 progress. Read [`docs/context/ORDER-MODEL.md`](context/ORDER-MODEL.md) + the `ROADMAP.md` S-track for the
@@ -185,15 +185,30 @@ logged non-PII via PostHog. Server layer `lib/floor.ts` (`getFloorView`/`getTabl
 **`qr_carts.updated_at` is never bumped** (no trigger; the cart RPCs don't write it) — so last-activity +
 the detail live-refresh key off the latest `qr_cart_items` row, not that column (adversarial F1). Migration
 `20260621140000_floor_realtime.sql` (publication add — no types impact). Gate green; adversarial subagent
-PASS (F1/F2/F3 fixed pre-PR). **⚠️ Apply `20260621140000` to live + add `table_sessions`/`session_members`
-to the live `supabase_realtime` publication** (verified on the local stack; the live publication still
-lacks them — see the apply step below).
+PASS (F1/F2/F3 fixed pre-PR). **✅ `20260621140000` is APPLIED to live** — `table_sessions` +
+`session_members` are on the live `supabase_realtime` publication (verified via MCP this session).
 
-**S1.3 next (staff write):** staff order/extend a table order _for_ a guest ("browse on phone, pay a
-human"; cash first-class). Reuses the floor drill-down as the entry point. Then **S1.4** (divergence warn +
-one-tap merge + session expiry; clear-table already shipped). Also still open: fold the deferred
-**`email_verified` gate on the SQL `is_staff` read-surface** (HANDOFF "Auth hardening") once the live JWT
-claim path is confirmed.
+**S1.3 shipped (this session, staff write + cash settle):** staff order/edit a table order _for_ a guest +
+**settle in cash** ("pay a human"), from the floor drill-down. The cart belongs to the **table**, not the
+phone (ORDER-MODEL), so staff write the **same** ledger via the **same** server-authoritative pricing —
+extracted to `lib/order-lines.ts` (`priceItem` + `insertOrIncLine`, shared with the diner `addItem` so
+they can't drift); staff lines carry `by_seat = null`. Cash settle: `getCartTotals` (single tax engine,
+`tip=0` off-system, SB-1524 service charge applied) → `mms_fulfill_cash_order` — **idempotent on `cart_id`**
+(partial-unique), **atomic `open→paid` flip**, **subtotal-reconcile** (Σ lines in SQL vs passed breakdown).
+A shared payment mutex (`lib/pay-guard.ts`, `paymentInFlightReason`; clear-table refactored onto it) refuses
+write/settle/clear while a card payment or split is in flight — and the card-lock requires `status='open'`,
+so card-after-cash can't start and cash-during-card is refused → no double-charge. UI: `StaffLineEditor`
+(qty steppers), `StaffAddButton` + `/staff/table/[id]/add` (menu browser), `CashSettleButton` (two-step
+confirm, all-in total). Migration `20260621150000` (`qr_orders.tender`/`cart_id`/`settled_by`; cash RPC
+`revoke from public` + `grant service_role`). Types regenerated; gate green; money path verified on the
+local stack (happy/idempotent/mismatch-raise/double-settle-raise); adversarial subagent run pre-PR.
+**⚠️ Apply `20260621150000` to live before merge** — the PR preview shares the live DB, so a
+migration-requiring branch is broken on its preview until the (additive) migration lands on live.
+
+**S1.4 next (soft convergence):** warn on divergence (a new order on a table with a live cart) + **one-tap
+merge** of two table orders (role-gated, logged) + session **expiry** (clear-table already shipped in S1.2).
+Also still open: fold the deferred **`email_verified` gate on the SQL `is_staff` read-surface** (HANDOFF
+"Auth hardening") once the live JWT claim path is confirmed.
 
 **Tracked / deferred (non-blocking, carry forward):**
 

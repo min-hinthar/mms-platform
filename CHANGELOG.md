@@ -4,6 +4,37 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — S1.3 staff write + cash settle ("order for a guest" · "pay a human") (2026-06-21)
+
+The door for humans (ORDER-MODEL): the cart belongs to the **table**, not the phone, so staff write the
+**same** order ledger a diner does — and "pay a human" / cash is a deferred-settlement of that one order.
+
+- **Staff order for a guest** (`/staff/table/[id]`, `FloorDetailLive` + `/staff/table/[id]/add`): from the
+  drill-down a server can **add items** (the same public catalog as the diner menu, base item — no modifier
+  tier, parity with `AddButton`), **bump qty / remove** lines (qty steppers; staff have authority over
+  **any** line — no `canMutateLine` restriction, unlike a guest). Pricing stays **100% server-authoritative**
+  — the client sends only item ids, never a price — via the shared `lib/order-lines.ts` (`priceItem` +
+  `insertOrIncLine`, extracted from `cart.ts` so the diner and staff paths can't drift). Staff-added lines
+  carry `by_seat = null` ("added by server", unassigned for the by-person split).
+- **Settle in cash** (`CashSettleButton` → `settleCash`): records the table order as paid with `tender='cash'`,
+  no Stripe. `getCartTotals` (the single tax engine) derives the authoritative total — `subtotal − discount
+  - service + tax`, **`tip=0`** (a cash tip is in-hand/off-system) — and `mms_fulfill_cash_order`snapshots it:
+**idempotent on`cart_id`** (partial-unique index), **atomic `open→paid` flip**, and a **subtotal reconcile**
+    (re-derives Σ lines in SQL vs the passed breakdown) so a diner racing the settle raises instead of recording
+    a stale total. The **SB-1524 5% service charge\*\* is applied + disclosed; the confirm shows the all-in amount.
+- **Shared payment mutex** (`lib/pay-guard.ts`, `paymentInFlightReason`): clear-table (refactored onto it),
+  staff write, and cash settle all refuse while a card payment / split settlement is in flight (fresh
+  single-pay lock, open split freeze, or any authorized/captured share) — so cash can't double-charge a table
+  and a write can't change a total a diner is paying. The card path (`acquireCartLock` requires `status='open'`)
+  can't start after a cash settle; cash is refused while the lock is held → no card-vs-cash double-charge.
+- **Logged, non-PII** (PostHog, decoupled via `after()`): `staff_added_item` / `staff_settle_cash` (role, not
+  name; total + item count) for the turnover/audit trail. The durable two-party audit table arrives with S2.
+- **Schema** (migration `20260621150000`, additive/guarded): `qr_orders.tender` (`card`|`cash`, default
+  `card` backfills existing), `cart_id` (cash idempotency + traceability), `settled_by` (→ `staff.user_id`);
+  the cash RPC is `revoke … from public` + `grant … to service_role`. RLS unchanged (diners read only their
+  own session's orders, cash included). Verified on the local stack: happy path, idempotent retry,
+  subtotal-mismatch raise, double-settle raise.
+
 ### Added — S1.2 staff floor view (live per-table state + read-only drill-down + clear-table) (2026-06-21)
 
 The "legible table state" that makes soft multi-door convergence work (ORDER-MODEL): a server glances at

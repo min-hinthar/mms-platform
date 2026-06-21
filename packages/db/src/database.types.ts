@@ -641,6 +641,7 @@ export type Database = {
       }
       qr_orders: {
         Row: {
+          cart_id: string | null
           created_at: string
           discount_cents: number
           fire_at: string | null
@@ -648,14 +649,17 @@ export type Database = {
           pickup_slot: string | null
           service_charge_cents: number
           session_id: string | null
+          settled_by: string | null
           status: string
           stripe_payment_intent_id: string | null
           subtotal_cents: number
           tax_cents: number
+          tender: string
           tip_cents: number
           total_cents: number
         }
         Insert: {
+          cart_id?: string | null
           created_at?: string
           discount_cents?: number
           fire_at?: string | null
@@ -663,14 +667,17 @@ export type Database = {
           pickup_slot?: string | null
           service_charge_cents: number
           session_id?: string | null
+          settled_by?: string | null
           status?: string
           stripe_payment_intent_id?: string | null
           subtotal_cents: number
           tax_cents: number
+          tender?: string
           tip_cents?: number
           total_cents: number
         }
         Update: {
+          cart_id?: string | null
           created_at?: string
           discount_cents?: number
           fire_at?: string | null
@@ -678,20 +685,36 @@ export type Database = {
           pickup_slot?: string | null
           service_charge_cents?: number
           session_id?: string | null
+          settled_by?: string | null
           status?: string
           stripe_payment_intent_id?: string | null
           subtotal_cents?: number
           tax_cents?: number
+          tender?: string
           tip_cents?: number
           total_cents?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "qr_orders_cart_id_fkey"
+            columns: ["cart_id"]
+            isOneToOne: false
+            referencedRelation: "qr_carts"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "qr_orders_session_id_fkey"
             columns: ["session_id"]
             isOneToOne: false
             referencedRelation: "table_sessions"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "qr_orders_settled_by_fkey"
+            columns: ["settled_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["user_id"]
           },
         ]
       }
@@ -874,6 +897,18 @@ export type Database = {
       mms_cart_item_set_qty_if_open: {
         Args: { p_id: string; p_qty: number }
         Returns: number
+      }
+      mms_fulfill_cash_order: {
+        Args: {
+          p_cart_id: string
+          p_discount_cents: number
+          p_service_charge_cents: number
+          p_settled_by: string
+          p_subtotal_cents: number
+          p_tax_cents: number
+          p_tip_cents?: number
+        }
+        Returns: string
       }
       mms_fulfill_order: {
         Args: {

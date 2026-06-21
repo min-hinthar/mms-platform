@@ -71,6 +71,29 @@ export async function POST(req: NextRequest) {
         .eq("stripe_payment_intent_id", intent.id)
         .maybeSingle();
       if (!existing && cartId) {
+        // Cross-tender guard (S1.3): if the cart was already settled by ANOTHER tender (a cash settle
+        // taken while this PI's pay-lock was stale), this card charge is a double-collection — do NOT
+        // record a duplicate order. Ack (200) so Stripe stops retrying, and alert (non-PII) for a manual
+        // refund of the orphan charge (S4.3 automates line-level refunds). mms_fulfill_order also raises
+        // on a non-open cart as the hard DB backstop; this is the graceful, no-retry-storm path.
+        const { data: cartRow } = await db
+          .from("qr_carts")
+          .select("status")
+          .eq("id", cartId)
+          .maybeSingle();
+        if (cartRow && cartRow.status !== "open") {
+          console.error("[stripe webhook] card PI for an already-settled cart — refund needed", {
+            cartId,
+            paymentIntent: intent.id,
+            cartStatus: cartRow.status,
+          });
+          posthog.capture({
+            distinctId: cartId,
+            event: "double_tender_card_after_settle",
+            properties: { cart_id: cartId, payment_intent: intent.id, cart_status: cartRow.status },
+          });
+          return NextResponse.json({ received: true, skipped: "cart already settled" });
+        }
         // Re-derive the server-authoritative breakdown and reconcile it against the actual charge
         // before fulfilling — the cart could have mutated between intent-create and this webhook.
         // mms_fulfill_order re-checks the sum == intent.amount and snapshots the order (in cents).
