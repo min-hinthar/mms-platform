@@ -281,3 +281,22 @@ header chip; create-intent re-checks room at pay.
 - **Applied to the live QR project.**
 - _Deferred (documented):_ inline `/cart` slot-picker (slot-less checkout recovers via the menu chip
   today); a sweep for abandoned holds (they self-expire via the `hold_minutes` TTL).
+
+## Progress — M2·P2.3 grocery + P2.4 QBO sync (2026-06-20)
+
+- **P2.3 Scan & Go** (#21): mints a real `useTableSession("scango")` session (not a client uuid); barcode + name-search fallback (`searchGroceryItems`) over public-RLS `grocery_items`. Adversarial pass clean.
+- **P2.4 QBO accounting sync** (#22): paid order → QBO Sales Receipt deposited to a Stripe clearing account (two-ledger); total-preserving mapper (throws unless Σlines == charge); fail-safe idempotent client (no-op unless `QBO_SYNC_ENABLED`); `qbo_sync_queue` ledger (migration `…0400`, RLS default-deny); webhook posts in `after()`. **Off by default.** See `docs/QBO_SYNC.md`.
+
+## Progress — M3 group cart (P3.1–P3.3b) (2026-06-20 → 06-21)
+
+Per-PR detail in `CHANGELOG.md` + each PR's posted adversarial verdict; the load-bearing QA record:
+
+- **P3.1 multi-device join** (#25) — `qrCode` doubles as the join key; partial unique index for race-safe convergence; sanitized presence guest list keyed by the stable seat. Pre-PR + pre-merge adversarial passes (caught: unbounded presence-name ingest → clamp on receive; join-vs-provision intent).
+- **P3.2 live group-cart sync** (#26) — Postgres Changes → re-fetch the server-authoritative view; `replica identity full` for DELETE; announce a peer's ADD only. Adversarial pass: missing `.subscribe(status)` self-heal handler → added.
+- **P3.2-lock cart-lock-at-pay** (#27) — atomic conditional UPDATE + TTL auto-release + scoped release; the existing `locked` guard enforces. **Pre-merge pass caught a BLOCKER:** routing grocery `scanAdd` through the uuid RPC broke text barcodes → reverted (CI's generated type masked it). Vindicated running both passes.
+- **P3.3a split-the-bill foundation** (#28) — Even/By-person + assignment; isomorphic `canMutateLine`; optimistic cent-reconciled shares (`lib/split-math`). Pre-PR (2 must-fix: pay-vs-share footgun, status-atomic `assignLine`) + pre-merge UI/UX (4 should-fix: optimistic compute, announce, motion) passes.
+- **Session-expiry recovery** (#29) — 4h TTL stranded in-use tables; sliding renewal + sweep-and-remint + client recovery. Adversarial pass: solo-mode recovery affordance + race-clean renewal + symmetric `assertSessionMember`. Pre-merge: AA-contrast on the recovery button.
+- **Error tracking** (#30) — PostHog server `onRequestError` + branded error boundaries. **Pre-PR pass caught 2 BLOCKERS:** `request.path` leaked the `?t=`/`?j=` credentials to analytics → drop it; a stray `pnpm-workspace.yaml` placeholder → removed.
+- **P3.3b split-tender** (#31, Option A) — the per-payer authorize → capture-all → fulfill spine. **Three adversarial passes:** foundation (B1 `$0`-share CHECK, S2 fail-loud fulfill), server flow (2 should-fix money races: capture-vs-abort, stale-takeover — gated capture on a live settlement + per-PI capture verify + claim-first abort), pre-merge (ship; 2 deferred NITs). `qr_cart_shares` ledger + `settle_at` freeze applied to live; `get_advisors` → `revoke select from anon` (advisor 0026). Tax weighted by each seat's **taxable** base. **"Never charged-with-no-order" holds; residual sub-ms races fail loud.**
+
+**Deferred / tracked:** the P3.3b analytics double-fire NIT; `charge.refunded` handling (platform-wide → S4.3); a background session sweeper + party-size caps + rate limits → **M3·P3.4** (next).
