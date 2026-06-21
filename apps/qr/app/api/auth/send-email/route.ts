@@ -101,17 +101,23 @@ export async function POST(req: NextRequest) {
   }
 
   const type = data.email_action_type ?? "magiclink";
-  // CODE-ONLY by design — no magic link. The 6-digit code and the magic link are ONE single-use
-  // Supabase token, and mail providers that pre-fetch links (Gmail does — observed as a Google-IP
-  // GET /verify consuming the token) then make the typed code fail `otp_expired`. Omitting the link
-  // keeps the code reliable; one-click sign-in is covered by Google OAuth. tokenLen is logged (not the
-  // value) so a future mismatch is diagnosable without leaking the secret.
+  // tokenLen is logged (not the value) so the OTP length is visible — the staff code input now accepts
+  // the token as-issued rather than assuming 6 numeric digits.
   console.log("[auth send-email hook] sending", { type, tokenLen: data.token.length });
+
+  // Magic link (secondary to the code). Code + link share one single-use token, so whichever is used
+  // first wins; both are offered.
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const magicLink =
+    supabaseUrl && data.token_hash && data.redirect_to
+      ? `${supabaseUrl}/auth/v1/verify?token=${encodeURIComponent(data.token_hash)}&type=${encodeURIComponent(type)}&redirect_to=${encodeURIComponent(data.redirect_to)}`
+      : undefined;
 
   const t = templateFor(type);
   const res = await sendAuthEmail({
     to,
     code: data.token,
+    magicLink,
     heading: t.heading,
     intro: t.intro,
     subject: t.subject,

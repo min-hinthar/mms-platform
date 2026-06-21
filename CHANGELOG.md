@@ -4,6 +4,15 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed — OTP code input accepts the token as-issued; magic link restored (2026-06-21)
+
+The real cause of "code doesn't match" was the **input**, not the link: `StaffLogin` stripped non-digits
+(`replace(/\D/g,"")`), capped at `maxLength={6}`, and required exactly 6 chars — so a token that's longer
+or not purely numeric (Supabase's OTP length is configurable) could never equal the issued token. The
+input now accepts the token as-issued (strips whitespace only, no digit-strip, no 6-cap, `length >= 6`).
+The **magic link is restored** in the auth email (it wasn't the problem — #41's code-only build still
+failed, which is what isolated this to the input). `tokenLen` is still logged for confirmation.
+
 ### Fixed — auth email is code-only (OTP `otp_expired`) (2026-06-21)
 
 The OTP code kept failing "doesn't match" (`otp_expired` in the auth logs) while the magic link
