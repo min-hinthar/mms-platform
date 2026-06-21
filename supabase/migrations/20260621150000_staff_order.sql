@@ -96,9 +96,12 @@ end; $$;
 -- tax_category mid-settle) is not a realistic in-flight event. Same posture as the card twin, which
 -- reconciles only the total against the external charge.
 
--- SECURITY DEFINER lockdown (parity with the other mms_* fns): never callable by anon/authenticated —
--- only the service-role server action (settleCash, after requireStaff) invokes it.
-revoke all on function mms_fulfill_cash_order(uuid, uuid, integer, integer, integer, integer, integer) from public;
+-- SECURITY DEFINER lockdown (parity with the other mms_* fns — e.g. mms_fulfill_order, the staff_pin
+-- fns): never callable by anon/authenticated. Postgres grants EXECUTE to PUBLIC and hosted Supabase
+-- ALSO grants anon+authenticated by name, so revoke all three explicitly (a `from public` alone leaves
+-- the named anon/authenticated grants on a hosted project — verified on live), then grant only
+-- service_role (the settleCash server action, after requireStaff).
+revoke all on function mms_fulfill_cash_order(uuid, uuid, integer, integer, integer, integer, integer) from public, anon, authenticated;
 grant execute on function mms_fulfill_cash_order(uuid, uuid, integer, integer, integer, integer, integer) to service_role;
 
 -- ── Cross-tender backstop on the CARD path (mms_fulfill_order) ────────────────────────────────────
