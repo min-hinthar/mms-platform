@@ -11,25 +11,28 @@ run locally, copy [`.env.example`](../.env.example) → `apps/qr/.env.local` and
 
 ## The variables
 
-| Variable                                        | Scope         | Secret? | Used by                                                                |
-| ----------------------------------------------- | ------------- | ------- | ---------------------------------------------------------------------- |
-| `NEXT_PUBLIC_SUPABASE_URL`                      | client+server | no      | every Supabase client (`@mms/db`)                                      |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY`¹                | client+server | no      | public/anon reads (RLS-gated), anon auth                               |
-| `SUPABASE_SERVICE_ROLE_KEY`                     | **server**    | **yes** | `serviceClient()` — authoritative writes, **bypasses RLS**             |
-| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`            | client        | no      | `getStripePromise()` — mounts the Payment Element                      |
-| `STRIPE_SECRET_KEY`                             | **server**    | **yes** | `getStripe()` — create-intent                                          |
-| `STRIPE_WEBHOOK_SECRET`                         | **server**    | **yes** | `/api/stripe/webhook` signature verification                           |
-| `STRIPE_API_VERSION`                            | server        | no      | optional override; defaults to the SDK's pinned version                |
-| `NEXT_PUBLIC_POSTHOG_KEY`                       | client+server | no²     | analytics (client init + server capture)                               |
-| `NEXT_PUBLIC_POSTHOG_HOST`                      | client+server | no      | PostHog UI host (events proxy first-party via `/ingest`)               |
-| `QBO_SYNC_ENABLED`                              | **server**    | no      | `"true"` arms the QBO sync; unset/anything-else = no-op                |
-| `QBO_ENV`                                       | **server**    | no      | `sandbox` (default) or `production` — picks the QBO API host           |
-| `QBO_REALM_ID`                                  | **server**    | no      | the QBO company id                                                     |
-| `QBO_CLIENT_ID` / `QBO_CLIENT_SECRET`           | **server**    | **yes** | Intuit app OAuth2 credentials                                          |
-| `QBO_REFRESH_TOKEN`                             | **server**    | **yes** | OAuth2 refresh token → minted access tokens (rotates, see QBO_SYNC.md) |
-| `QBO_CUSTOMER_REF` / `QBO_CLEARING_ACCOUNT_REF` | **server**    | no      | generic-diner customer + Stripe **clearing** account ids               |
-| `QBO_ITEM_SALES_REF`                            | **server**    | no      | the product/service item paid-order lines map to                       |
-| `QBO_ITEM_{SERVICE,TAX,TIP}_REF`                | **server**    | no      | item ids for the service-charge / sales-tax / tip lines (only if used) |
+| Variable                                        | Scope         | Secret? | Used by                                                                             |
+| ----------------------------------------------- | ------------- | ------- | ----------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_SUPABASE_URL`                      | client+server | no      | every Supabase client (`@mms/db`)                                                   |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY`¹                | client+server | no      | public/anon reads (RLS-gated), anon auth                                            |
+| `SUPABASE_SERVICE_ROLE_KEY`                     | **server**    | **yes** | `serviceClient()` — authoritative writes, **bypasses RLS**                          |
+| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`            | client        | no      | `getStripePromise()` — mounts the Payment Element                                   |
+| `STRIPE_SECRET_KEY`                             | **server**    | **yes** | `getStripe()` — create-intent                                                       |
+| `STRIPE_WEBHOOK_SECRET`                         | **server**    | **yes** | `/api/stripe/webhook` signature verification                                        |
+| `STRIPE_API_VERSION`                            | server        | no      | optional override; defaults to the SDK's pinned version                             |
+| `NEXT_PUBLIC_POSTHOG_KEY`                       | client+server | no²     | analytics (client init + server capture)                                            |
+| `NEXT_PUBLIC_POSTHOG_HOST`                      | client+server | no      | PostHog UI host (events proxy first-party via `/ingest`)                            |
+| `QBO_SYNC_ENABLED`                              | **server**    | no      | `"true"` arms the QBO sync; unset/anything-else = no-op                             |
+| `QBO_ENV`                                       | **server**    | no      | `sandbox` (default) or `production` — picks the QBO API host                        |
+| `QBO_REALM_ID`                                  | **server**    | no      | the QBO company id                                                                  |
+| `QBO_CLIENT_ID` / `QBO_CLIENT_SECRET`           | **server**    | **yes** | Intuit app OAuth2 credentials                                                       |
+| `QBO_REFRESH_TOKEN`                             | **server**    | **yes** | OAuth2 refresh token → minted access tokens (rotates, see QBO_SYNC.md)              |
+| `QBO_CUSTOMER_REF` / `QBO_CLEARING_ACCOUNT_REF` | **server**    | no      | generic-diner customer + Stripe **clearing** account ids                            |
+| `QBO_ITEM_SALES_REF`                            | **server**    | no      | the product/service item paid-order lines map to                                    |
+| `QBO_ITEM_{SERVICE,TAX,TIP}_REF`                | **server**    | no      | item ids for the service-charge / sales-tax / tip lines (only if used)              |
+| `RESEND_API_KEY`                                | **server**    | **yes** | `lib/email.ts` — transactional staff email (invite/deactivation) via the Resend SDK |
+| `RESEND_FROM`                                   | **server**    | no      | verified sender, e.g. `Mandalay Morning Star <no-reply@mandalaymorningstar.com>`    |
+| `NEXT_PUBLIC_SITE_URL`                          | client+server | no      | canonical prod URL for links in emails (falls back to the Vercel URL)               |
 
 ¹ Either `NEXT_PUBLIC_SUPABASE_ANON_KEY` **or** `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` is accepted
 (new Supabase key naming); set one. ² A PostHog **project** key is a publishable write-only key — not
@@ -97,6 +100,22 @@ Preview; they belong only in Vercel **Production** scope + the Stripe **live** d
 
 > When QR gets a dedicated **staging** project (BACKEND_ARCHITECTURE §7), point **Production → prod
 > Supabase** and **Preview → staging** so a preview PR can never write the live ledger.
+
+## Email — auth (Supabase SMTP) + transactional (Resend SDK)
+
+Two channels, both on Resend (same account + verified domain as the delivery app):
+
+1. **Magic-link / OTP (staff sign-in)** is sent by **Supabase Auth**, not the app. The built-in
+   Supabase sender is severely rate-limited (a few/hour, dev-only) → it returns **429** under real use.
+   Point Supabase Auth at Resend SMTP: Supabase → **Authentication → Emails → SMTP Settings** → enable
+   custom SMTP — Host `smtp.resend.com`, Port `465` (or `587`), Username `resend`, Password = a **Resend
+   API key**, Sender = the verified domain. Then raise Auth → **Rate Limits** → "emails per hour" as
+   needed, and edit the **Magic Link** template to include `{{ .Token }}` so the email carries the
+   6-digit code the `/staff/login` UI asks for (the default template ships only a link).
+2. **App transactional email** (staff invite + deactivation notice — `apps/qr/lib/email.ts`) is sent by
+   the app via the **Resend SDK** (`RESEND_API_KEY` + `RESEND_FROM`). Best-effort + fired from `after()`
+   so a Resend outage never fails provisioning; unset keys ⇒ the send is skipped (logged) and the action
+   still succeeds. No CSP change — the SDK runs server-side only (no browser `connect-src`).
 
 ## CSP note (P1.6)
 

@@ -4,6 +4,26 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — Staff email (Resend) + login hardening (2026-06-21)
+
+Follow-up to S1.1a after owner sign-in hit Supabase's built-in email rate limit (429) and the magic-link
+email shipped only a link, not the OTP code the UI expects.
+
+- **Resend transactional email** (`apps/qr/lib/email.ts`, same `resend` SDK as the delivery app) — a
+  fail-safe wrapper (never throws into the caller; unset keys = skipped + logged) sending two staff-
+  lifecycle emails, both fired from `after()` so a Resend outage never fails the mutation: an **invite**
+  on `provisionStaff` ("you've been added as {role}, sign in here") and a **deactivation notice** on
+  `setStaffActive(false)`. Owner-entered name is HTML-escaped; links use `NEXT_PUBLIC_SITE_URL`
+  (falls back to the Vercel URL). Email colors are literal brand values (clients can't use `@mms/ui`
+  tokens — the one sanctioned exception).
+- **Login hardening** (`StaffLogin`) — a **429 is now distinguished** from a bad address ("too many
+  requests, wait a minute" vs "check it's your staff address"), and a **60-second resend cooldown**
+  with a live countdown (`Resend in {n}s`) stops users re-tripping the rate limit.
+- **Docs** — `docs/ENV.md` gains the Resend/SMTP env (`RESEND_API_KEY`/`RESEND_FROM`/`NEXT_PUBLIC_SITE_URL`)
+  - an "Email" section: auth emails go via **Supabase Auth → SMTP pointed at Resend** (with the
+    `{{ .Token }}` template fix + rate-limit raise), app email via the SDK. Added to the HANDOFF activation
+    checklist (required for staff login to work at volume).
+
 ### Added — S1.1a Staff identity, roles & RLS (2026-06-21)
 
 The foundation of the **service-model track** ([`docs/context/ORDER-MODEL.md`](docs/context/ORDER-MODEL.md)):

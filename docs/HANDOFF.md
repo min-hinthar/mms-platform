@@ -86,6 +86,16 @@ identity full` for DELETE filtering; announce a peer's ADD only (by_seat).
 2. **Stripe live webhook + keys** at production cutover (`docs/ENV.md` "Wiring Production"). ⚠️ Prod
    currently has **live** Stripe keys → a _test_ card is declined; for a test-charge smoke, run prod on
    test keys (incl. a test-mode `whsec_…`) or use `stripe listen`.
+3. **Email — Resend (REQUIRED for staff login to work at all).** Two channels, both on Resend, same
+   account + verified domain as the delivery app (`docs/ENV.md` "Email"):
+   - **Auth (magic-link/OTP):** the built-in Supabase sender is rate-limited to a few/hour (→ **429**,
+     which is what blocked owner login). Point Supabase → Auth → **SMTP Settings** at Resend
+     (`smtp.resend.com`, user `resend`, pass = Resend API key, verified sender), raise the email
+     rate-limit, **and** edit the **Magic Link** template to include `{{ .Token }}` (default ships only a
+     link; `/staff/login` expects the 6-digit code).
+   - **App transactional:** set `RESEND_API_KEY` + `RESEND_FROM` (+ optional `NEXT_PUBLIC_SITE_URL`) in
+     Vercel → staff invite/deactivation emails send via the SDK (`lib/email.ts`, best-effort via
+     `after()`; unset keys = silently skipped, action still succeeds).
 
 ## Next: the service-model track — S1 (staff & floor) — S1.1a SHIPPED
 
