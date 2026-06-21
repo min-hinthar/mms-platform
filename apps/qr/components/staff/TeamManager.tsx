@@ -11,7 +11,15 @@ import { RoleBadge } from "./RoleBadge";
  * plus the add-staff form. Authority is server-side (requireStaff('owner') in every action); this is
  * the affordance + honest success/error feedback, never the gate.
  */
-export function TeamManager({ initial, selfUid }: { initial: StaffRow[]; selfUid: string }) {
+export function TeamManager({
+  initial,
+  selfUid,
+  selfEmail,
+}: {
+  initial: StaffRow[];
+  selfUid: string;
+  selfEmail: string | null;
+}) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
@@ -124,7 +132,11 @@ export function TeamManager({ initial, selfUid }: { initial: StaffRow[]; selfUid
 
       <ul role="list" aria-label="Staff" style={list}>
         {initial.map((row) => {
-          const isSelf = row.userId === selfUid;
+          // Match by uid OR email — a Google/magic-link session uid can differ from the uid stamped on
+          // the row, so email is the reliable "this is me" signal (mirrors the server self-guard).
+          const isSelf =
+            row.userId === selfUid ||
+            (!!row.email && !!selfEmail && row.email.toLowerCase() === selfEmail.toLowerCase());
           return (
             <li
               key={row.userId}
@@ -140,6 +152,20 @@ export function TeamManager({ initial, selfUid }: { initial: StaffRow[]; selfUid
                     <span style={{ fontSize: 12, color: "var(--warn)" }}>Inactive</span>
                   )}
                 </div>
+                {row.email && (
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: "var(--t2)",
+                      marginTop: 2,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {row.email}
+                  </div>
+                )}
               </div>
               {isSelf ? (
                 <span style={{ fontSize: 12, color: "var(--t3)" }} aria-hidden>

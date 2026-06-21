@@ -102,7 +102,29 @@ Preview; they belong only in Vercel **Production** scope + the Stripe **live** d
 > When QR gets a dedicated **staging** project (BACKEND_ARCHITECTURE §7), point **Production → prod
 > Supabase** and **Preview → staging** so a preview PR can never write the live ledger.
 
-## Email — auth (Supabase SMTP) + transactional (Resend SDK)
+## Staff sign-in — Google OAuth (primary) + magic-link + OTP
+
+Staff (`/staff/login`) can sign in three ways; all resolve to the same **email allowlist** (`staff.email`
+
+- the `is_staff` email/uid match), so a staff member is whoever an owner provisioned, regardless of method:
+
+1. **Google OAuth (primary, no email needed).** Configure once:
+   - **Google Cloud Console** → APIs & Services → Credentials → **OAuth 2.0 Client ID** (Web). Authorized
+     redirect URI: `https://fasnpdhtvqtzjlvruqcu.supabase.co/auth/v1/callback`. Copy the Client ID + Secret.
+   - **Supabase** → Authentication → **Providers → Google** → enable + paste ID/Secret.
+   - **Supabase** → Authentication → **URL Configuration → Redirect URLs** → add
+     `https://qr.mandalaymorningstar.com/staff/auth/callback` (+ preview/localhost URLs as needed).
+   - Flow: `signInWithOAuth` → Google → `/staff/auth/callback` (exchanges the code) → `/staff`.
+2. **Magic-link + OTP code (email fallback).** Requires the SMTP→Resend setup below. `signInWithOtp`
+   sends an email carrying **both** a magic link (→ `/staff/auth/callback`) and the `{{ .Token }}` code
+   (entered in-page). Either works; the code is the cross-device-safe path.
+
+> **Bootstrap the first owner:** sign in once with Google (mints the auth user; you'll be bounced as
+> non-staff), copy your UID from Supabase → Auth → Users, then
+> `insert into public.staff (user_id, email, role, display_name) values ('<uid>','you@…','owner','Min');`
+> Refresh `/staff` → owner. (Or dashboard **Add user**, then the same insert.)
+
+## Email — auth SMTP (magic-link/OTP) + transactional (Resend SDK)
 
 Two channels, both on Resend (same account + verified domain as the delivery app):
 

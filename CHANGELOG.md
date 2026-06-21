@@ -4,6 +4,27 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — Staff Google OAuth + email allowlist (2026-06-21)
+
+Staff sign-in now supports **Google OAuth** alongside magic-link + OTP — and Google sidesteps the SMTP
+issues entirely (the built-in Supabase sender was rate-limited, then misconfigured to Gmail → `534`/500).
+All three methods resolve to the same **email allowlist**, so identity is robust across auth methods.
+
+- **Migration `…120000_staff_oauth_email`** (additive, non-destructive) — `staff` gains an `email`
+  column (unique on `lower(email)`); `is_staff()` / `is_staff_at_least()` / `staff_read_self` now match
+  **`user_id` OR the verified email claim** (`auth.jwt()->>'email'`). So a Google/magic-link sign-in that
+  mints a fresh uid still resolves to the provisioned row by email; `user_id` stays the PK (provisioning
+  unchanged, OTP `shouldCreateUser:false` still works). Anon diners carry no email claim → no match.
+  Applied to live + advisor-clean (anon still can't execute the helpers).
+- **`StaffLogin`** — "Continue with Google" (`signInWithOAuth`) above the email path; `signInWithOtp` now
+  sets `emailRedirectTo` so the magic **link** lands on the new **`/staff/auth/callback`** route (PKCE
+  `exchangeCodeForSession` → `/staff`); the OTP **code** still verifies in-page (cross-device-safe).
+- **Provisioning** — `provisionStaff` stores the (lower-cased) `email` on the row; `getStaffAuth` and the
+  self-deactivation guard match by uid **or** email (a Google session uid can differ from the row's), and
+  the deactivation notice now reads the row's stored email (no `getUserById`). Team view shows the email.
+- **Config** (you): Google Cloud OAuth web client + Supabase Google provider + redirect URL — see
+  `docs/ENV.md` "Staff sign-in" + the simplified owner bootstrap.
+
 ### Added — Resend email-events webhook (2026-06-21)
 
 - **`/api/resend/webhook`** — a signed, public endpoint for Resend email events (delivered / bounced /

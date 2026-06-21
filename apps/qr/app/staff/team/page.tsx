@@ -41,7 +41,7 @@ export default async function TeamPage() {
         Add staff by email — they’ll sign in with a one-time code. Deactivate to offboard without
         losing history.
       </p>
-      <TeamManager initial={staff} selfUid={caller.uid} />
+      <TeamManager initial={staff} selfUid={caller.uid} selfEmail={caller.email} />
     </main>
   );
 }

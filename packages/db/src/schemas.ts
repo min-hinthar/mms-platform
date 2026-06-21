@@ -129,7 +129,9 @@ export const sessionMintOutput = z.object({
  * column CHECK length 1..80) and JSX-escaped at render.
  */
 export const provisionStaffInput = z.object({
-  email: z.string().trim().email().max(254),
+  // Lower-cased so the stored value matches the case-insensitive email-allowlist lookups
+  // (is_staff `lower(email)` + getStaffAuth `.eq("email", …toLowerCase())`).
+  email: z.string().trim().toLowerCase().email().max(254),
   role: z.enum(["server", "manager", "owner"]),
   displayName: z.string().trim().min(1).max(80),
 });

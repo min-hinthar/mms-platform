@@ -13,7 +13,13 @@ import { AuthzError } from "./authz";
  */
 
 export type StaffRole = "server" | "manager" | "owner";
-export type StaffCaller = { uid: string; role: StaffRole; displayName: string };
+export type StaffCaller = {
+  uid: string;
+  role: StaffRole;
+  displayName: string;
+  /** The session's verified email (lower-cased), used for the email-allowlist self-checks. */
+  email: string | null;
+};
 
 /** Role floor, mirroring the SQL CASE in is_staff_at_least (owner ≥ manager ≥ server). */
 const RANK: Record<StaffRole, number> = { server: 1, manager: 2, owner: 3 };
@@ -40,15 +46,32 @@ export async function getStaffAuth(): Promise<StaffAuth> {
   } = await supa.auth.getUser();
   // Anonymous diners have a uid too — treat them as `anon` here (they belong on the diner side).
   if (!user || user.is_anonymous) return { kind: "anon" };
-  const { data: row } = await serviceClient()
+  const email = user.email?.toLowerCase() ?? null;
+
+  // Resolve the staff row by uid first; fall back to the EMAIL allowlist — Google OAuth / magic-link
+  // can mint a fresh uid that isn't the one provisionStaff pre-created, but the verified email still
+  // matches the provisioned row (mirrors the is_staff RLS: user_id OR email). Service-role read so the
+  // authorization decision is ours, not RLS-hidden.
+  const db = serviceClient();
+  let row: { role: string; display_name: string; active: boolean } | null = null;
+  const byUid = await db
     .from("staff")
     .select("role,display_name,active")
     .eq("user_id", user.id)
     .maybeSingle();
+  row = byUid.data;
+  if ((!row || !row.active) && email) {
+    const byEmail = await db
+      .from("staff")
+      .select("role,display_name,active")
+      .eq("email", email)
+      .maybeSingle();
+    row = byEmail.data ?? row;
+  }
   if (!row || !row.active) return { kind: "not_staff" };
   return {
     kind: "staff",
-    caller: { uid: user.id, role: row.role as StaffRole, displayName: row.display_name },
+    caller: { uid: user.id, role: row.role as StaffRole, displayName: row.display_name, email },
   };
 }
 
@@ -75,6 +98,7 @@ export type StaffRow = {
   userId: string;
   role: StaffRole;
   displayName: string;
+  email: string | null;
   active: boolean;
   createdAt: string;
 };
@@ -90,12 +114,13 @@ export async function listStaff(): Promise<StaffRow[]> {
   // keeps the query bounded at the DB regardless, per the project's "bound every query" standard.
   const { data } = await serviceClient()
     .from("staff")
-    .select("user_id,role,display_name,active,created_at")
+    .select("user_id,role,display_name,email,active,created_at")
     .limit(500);
   const rows = (data ?? []).map((r) => ({
     userId: r.user_id,
     role: r.role as StaffRole,
     displayName: r.display_name,
+    email: r.email,
     active: r.active,
     createdAt: r.created_at,
   }));
