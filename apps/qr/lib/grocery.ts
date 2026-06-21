@@ -19,9 +19,13 @@ import { assertMutationRate } from "./rate";
  */
 export async function scanAdd(cartId: string, barcode: string) {
   const input = scanInput.parse({ cartId, barcode });
-  const { uid, locked } = await assertCartMember(input.cartId);
+  const { uid, locked, settling } = await assertCartMember(input.cartId);
   await assertMutationRate(uid); // per-device flood guard (P3.4)
   if (locked) throw new Error("Order is locked while someone checks out");
+  // Parity with the restaurant mutations (cart.ts) — never edit while the table settles a split.
+  // Unreachable in the solo grocery flow today (no split), but keep the guard so a future
+  // multi-device grocery cart can't slip an edit mid-settlement (defense-in-depth, LEARNINGS #72).
+  if (settling) throw new Error("The table is settling up — you can’t edit while everyone pays");
 
   const db = serviceClient();
   const { data: item } = await db

@@ -2,17 +2,24 @@
 // Privacy (QA checklist P2): no PII in event props; identified_only; first-party via /ingest.
 import posthog from "posthog-js";
 
-// The dine-in join key rides in the URL as `?t=` (sticker) / `?j=` (invite) — a LIVE, still-active
-// session credential. `capture_pageview` records `$current_url`/`$referrer`, so without this scrub the
-// code would land verbatim in analytics. Redact those params from any URL prop before send. (The server
-// onRequestError path was already scrubbed; this closes the client pageview path.)
-function scrubJoinCode(value: unknown): unknown {
+// `capture_pageview` records `$current_url`/`$referrer`, which carry URL params we don't want in
+// analytics: the dine-in join key `?t=`/`?j=` (a LIVE session credential) and the Stripe
+// `?payment_intent=…`/`redirect_status` on /track (an order-correlatable id — not a credential, but
+// "opaque ids only" per QA §C P2). Strip them before send. (The server onRequestError path is already
+// clean — it logs only the templated route, never the query string.)
+const REDACT_PARAMS = [
+  "t",
+  "j",
+  "payment_intent",
+  "payment_intent_client_secret",
+  "redirect_status",
+];
+function scrubUrlParams(value: unknown): unknown {
   if (typeof value !== "string") return value;
   try {
     const url = new URL(value);
-    if (!url.searchParams.has("t") && !url.searchParams.has("j")) return value;
-    url.searchParams.delete("t");
-    url.searchParams.delete("j");
+    if (!REDACT_PARAMS.some((p) => url.searchParams.has(p))) return value;
+    for (const p of REDACT_PARAMS) url.searchParams.delete(p);
     return url.toString();
   } catch {
     return value; // not a URL-shaped string → leave it
@@ -26,11 +33,14 @@ posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
   person_profiles: "identified_only",
   capture_pageview: "history_change",
   capture_exceptions: true,
+  // A Stripe Payment Element iframe lives on the pay screen — assert replay OFF in code (not just
+  // dashboard config) so an accidental project-side enable can't start recording around the card form.
+  disable_session_recording: true,
   persistence: "memory", // cookieless until consent
   before_send: (event) => {
     if (event?.properties) {
       for (const key of ["$current_url", "$referrer"] as const) {
-        if (event.properties[key]) event.properties[key] = scrubJoinCode(event.properties[key]);
+        if (event.properties[key]) event.properties[key] = scrubUrlParams(event.properties[key]);
       }
     }
     return event;

@@ -6,7 +6,14 @@ import { AnonAuthGate } from "@/components/AnonAuthGate";
 
 const fraunces = Fraunces({ subsets: ["latin"], variable: "--font-fraunces" });
 const hanken = Hanken_Grotesk({ subsets: ["latin"], variable: "--font-hanken" });
-const padauk = Padauk({ subsets: ["latin"], weight: ["400", "700"], variable: "--font-padauk" });
+// Padauk is the Burmese (Myanmar-script) face — request the `myanmar` subset, or next/font only
+// emits @font-face for `latin` and every `name_my` string silently falls back to the system sans
+// (defeats the bilingual moat). Keep `latin` too for any Latin chars inside a MY subtree.
+const padauk = Padauk({
+  subsets: ["latin", "myanmar"],
+  weight: ["400", "700"],
+  variable: "--font-padauk",
+});
 
 export const metadata = {
   title: "Mandalay Morning Star — Order",

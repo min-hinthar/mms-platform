@@ -5,8 +5,7 @@
   "type": "module",
   "exports": {
     "./eslint": "./eslint.config.mjs",
-    "./prettier": "./prettier.config.mjs",
-    "./tsconfig": "./tsconfig.base.json"
+    "./prettier": "./prettier.config.mjs"
   },
   "dependencies": {
     "@eslint/js": "^9.39.4",

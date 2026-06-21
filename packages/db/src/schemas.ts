@@ -83,7 +83,8 @@ export const createIntentInput = z.object({
   tipRate: z.number().min(0).max(0.5).default(0),
 });
 
-/** scanAdd (grocery) — a scanned UPC-A(12)/EAN-13(13)/EAN-8(8) barcode, never a price. */
+/** scanAdd (grocery) — a scanned EAN-8(8)/UPC-A(12)/EAN-13(13)/GTIN-14(14) barcode (8–14 digits),
+ *  never a price. An unknown-length match just misses the catalog lookup (handled honestly). */
 export const scanInput = z.object({
   cartId: uuid,
   barcode: z.string().regex(/^\d{8,14}$/, "barcode must be 8–14 digits"),

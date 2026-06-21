@@ -121,6 +121,15 @@ any doubt — S vs M ordering is a product call.
   under a sub-ms double `succeeded` delivery (money unaffected — QBO upsert idempotent).
 - **`charge.refunded` is unhandled platform-wide** (single-pay AND split) → owned by the **S4.3** seam
   (line-level refunds).
+- **M1-money (from the M0–M2 red-team):** `getCartTotals` infers a line's taxability from `tax_cents>0`,
+  so a sub-6¢ taxable SKU (where `round(price×0.0975)=0`) would be treated as exempt — no real MMS SKU is
+  that cheap, but the clean fix carries an `is_taxable`/category onto the cart line rather than the rounded
+  proxy (small data-model change). Also: order-level `qr_orders.tax_cents` (aggregate-rounded on the
+  discounted base) won't sum-match the per-unit-rounded line `tax_cents` snapshots — the **charge is
+  correct**; only a receipt that sums line tax disagrees by a cent or two. Both deferred (latent/cosmetic).
+- **QBO production-activation** (already on the `docs/QBO_SYNC.md` checklist): Intuit refresh-token rotation
+  on each exchange + a per-order advisory lock for the drain (`processPendingQboSyncs`) before
+  `QBO_ENV=production`. Off by default today; no action for S1.
 
 **Build to v7.2 + the bars.** `docs/prototype/v7.2.html` is the design source; hold every screen to
 QA-CHECKLIST §A / RUBRIC ≥4.3 in the **first commit** (tokens, motion, a11y, brand voice). Read

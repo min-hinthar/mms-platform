@@ -352,3 +352,25 @@ presence. Escapes were at the edges; fixed in the M3-hardening PR:
   + P3.3b analytics double-fire. See `docs/HANDOFF.md`.
 - Gate green (`turbo lint typecheck build`); no schema change (no migration/types/live-apply). Hardening-PR
   adversarial subagent re-review on the diff: see the PR.
+
+## Milestone red-team — M0/M1/M2 (pre-S1) + hardening PR (2026-06-21)
+
+Five fresh-context adversarial lenses across M0 (foundations), M1 (single-pay spine + security/infra), M2
+(promos · pickup · grocery · QBO). **Spine verdict: sound across all three** — tax-on-discounted-base with
+TS↔SQL parity, reconcile-before-write + double idempotency, server-authoritative amounts, promo
+enumeration/cap lockdown, pickup overbooking guards (#61/#62/#63/#64 all present), QBO total-preserving +
+off-by-default + never-blocks-money-path + `server-only` secrets, nonce CSP + SAQ-A + fail-fast env.
+Per-lens: M1-sec PASS, M1-money PASS, M2-promo/pickup PASS, M2-grocery/QBO PASS, M0 CHANGES_REQUESTED.
+
+Edge/foundation fixes shipped (no migration; hardening-diff adversarial subagent **PASS**):
+- **High** — Padauk loaded `subsets:["latin"]` (a Myanmar face) → Burmese silently fell back to system sans.
+  Now `["latin","myanmar"]`.
+- **Med** — dark `--t3` was 4.40/4.10 on `--sf`/`--cd` (< AA) → `#9d95a8` (5.84/5.45), math independently
+  reconfirmed; tokens.css "AA verified" comment corrected. Latent (no theme toggle until M5). · `scanAdd`
+  gained the `settling` guard (parity; unreachable today).
+- **Low** — analytics scrub widened to Stripe `payment_intent`/`redirect_status` + `disable_session_recording`;
+  barcode comment; removed the dead `@mms/config/tsconfig` export + orphan file.
+- **Deferred (tracked in HANDOFF):** M1-money sub-6¢ taxable-SKU inference (`tax_cents>0` proxy; no real SKU;
+  needs a small data-model change) + order-vs-line `tax_cents` snapshot (charge correct, receipt cosmetic);
+  QBO production-activation items. M2 by-design soft-caps (global promo cap, create-intent overbook-by-one).
+- Gate green (`turbo lint typecheck build` 5/5); knip clean except the pre-existing QBO export.

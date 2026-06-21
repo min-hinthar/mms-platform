@@ -4,6 +4,36 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed — M0/M1/M2 hardening (pre-S1 milestone red-team) (2026-06-21)
+
+Five fresh-context adversarial lenses over M0 (foundations), M1 (single-pay spine + security/infra) and
+M2 (promos · pickup · grocery · QBO). **The money/auth/RLS/secrets spine across all three is sound** —
+tax on the discounted taxable base with TS↔SQL parity, reconcile-before-write + double idempotency,
+server-authoritative amounts, promo enumeration/cap lockdown, pickup overbooking guards (holds + advisory
+lock + anchor stability), QBO total-preserving + off-by-default + never-blocks-the-money-path + `server-only`
+secrets, nonce CSP + SAQ-A card isolation + fail-fast env all verified. Edge/foundation fixes (no migration):
+
+- **Burmese now actually renders (High).** Padauk was loaded with `subsets: ["latin"]` — but it's a
+  Myanmar-script face, so `next/font` never fetched the Myanmar glyphs and every `name_my` string silently
+  fell back to the system sans, defeating the bilingual moat. Now `["latin","myanmar"]` (`app/layout.tsx`).
+- **Dark-mode token contrast to AA (Med).** `--t3` on Night surfaces was 4.40:1 (`--sf`) / 4.10:1 (`--cd`)
+  — under AA; raised to `#9d95a8` (5.84 / 5.45), still dimmer than `--t2`. Latent today (no theme toggle
+  until M5) but fixed before it ships. `tokens.css` header comment corrected (it overstated "AA verified")
+  and now records the text×surface matrix + the `--ac-strong`-for-accent-on-tint rule.
+- **`scanAdd` settling-guard parity (Med).** Grocery `scanAdd` now rejects edits during a split settlement
+  like its restaurant siblings — unreachable in the solo grocery flow today, defense-in-depth per LEARNINGS
+  #72 so a future multi-device grocery cart can't slip an edit mid-settle.
+- **Analytics URL scrub widened + replay off (Low).** `before_send` now also strips Stripe
+  `payment_intent`/`redirect_status` from `$current_url`/`$referrer` (order-correlatable ids — "opaque ids
+  only", QA §C P2), and `disable_session_recording: true` asserts replay OFF in code (a Stripe iframe is on
+  the pay screen). The scrub still covers the `?t=`/`?j=` join key.
+- **Nits:** barcode comment aligned to the 8–14-digit regex; removed the unused `@mms/config/tsconfig`
+  export + its orphan file (config drift).
+- _Deferred (tracked):_ the M1-money sub-6¢ taxable-SKU inference (taxability read from `tax_cents>0`; no
+  real SKU hits it; the clean fix needs a small data-model change) and the order-vs-line `tax_cents`
+  snapshot granularity (charge is correct, receipt-sum cosmetic); QBO production-activation items
+  (refresh-token rotation, drain advisory lock) — already on the activation checklist.
+
 ### Fixed — M3 hardening (pre-S1 milestone red-team) (2026-06-21)
 
 A four-lens fresh-context adversarial pass over the whole M3 surface (group cart + split-tender + abuse
