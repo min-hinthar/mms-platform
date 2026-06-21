@@ -4,6 +4,21 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed — staff OTP resend loop (per-address cooldown; 429 steers to Google) (2026-06-21)
+
+The "Too many code requests. Wait a minute…" loop on `/staff/login` was **not** a hanging Send-Email Hook
+(auth logs show GoTrue's `/otp` durations are all sub-second) — it's GoTrue's own
+**`over_email_send_rate_limit`** (429), the email rate limit that fires _before_ the hook (so unrelated to
+Resend). The code enabler: `StaffLogin`'s 60s resend cooldown was reset on **every keystroke**, so editing
+the email even one character wiped the gate → an instant re-tap → tripping the limit. The cooldown is now
+**scoped to the address it was sent to** (clearing-and-retyping the same address can't wipe it; a genuinely
+different address sends freely). The 60s "Resend in Ns" countdown now appears only after a **successful**
+send (where ~60s is the honest per-address window); a **429 instead blocks the address and steers to
+Google** (no email, never rate-limited) rather than arming a 60s countdown that would just re-enable into
+the same hourly cap. A send error also returns focus to the email field (it was stranded on the disabled
+button), and the status region is `aria-describedby`-linked so it's read on that focus. The real unblock is
+a config change — raise Supabase → Auth → **Rate Limits → "Rate limit for sending emails"** (`docs/ENV.md`).
+
 ### Fixed — OTP code input accepts the token as-issued; magic link restored (2026-06-21)
 
 The real cause of "code doesn't match" was the **input**, not the link: `StaffLogin` stripped non-digits

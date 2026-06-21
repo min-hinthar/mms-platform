@@ -139,6 +139,18 @@ an over-deactivation ever locks owners out, recover the same way: `update public
 team provisioning (`createUser` + row, orphan-rollback). The build/RLS/advisors are green; the auth flow
 needs one manual pass on a preview once an owner is bootstrapped.
 
+**OTP resend-loop — diagnosed + half-fixed (the other half is config).** The "Too many code requests"
+loop was NOT a hanging Send-Email Hook (auth logs show GoTrue's `/otp` durations are all sub-second). It's
+GoTrue's own **`over_email_send_rate_limit`** (429) — its email rate limit, which fires _before_ the hook,
+so it's unrelated to Resend's quota. Two parts: (a) **code fix (shipped):** `StaffLogin`'s resend cooldown
+was reset on _every keystroke_, so editing the email even one char wiped the 60s gate → instant re-tap →
+trip the limit; the cooldown is now scoped to the address it was sent to and a 429 steers to Google +
+honest copy (no false "wait a minute"). (b) **config (Min must do):** raise Supabase → Auth → **Rate
+Limits → "Rate limit for sending emails"** (`docs/ENV.md` "Staff sign-in"); until then, **Google OAuth is
+the reliable path** (no email, never rate-limited). _Deferred (no evidence it's needed): a fail-fast
+timeout on the Resend send in the hook — a hung send WOULD hang the hook → GoTrue retry storm, but the
+logs show sub-second sends, so it's hardening, not the bug._
+
 **S1.1b next (PIN):** per-person PIN on a shared floor tablet — server-verified hash, rate-limited with
 lockout, rotatable; it's the SAME PIN primitive S2's manager step-up reuses. Then **S1.2 floor view**
 (staff realtime needs an `is_staff()` branch on the `realtime.messages` policies — deferred from S1.1a).

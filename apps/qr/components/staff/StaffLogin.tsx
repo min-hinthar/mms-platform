@@ -18,9 +18,19 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  // Resend cooldown (seconds): Supabase throttles OTP sends (~60s per address + an hourly cap), so a
-  // 429 is easy to trip by re-tapping. Gate the button on a local countdown to stop users spamming it.
+  // Resend cooldown (seconds): after a SUCCESSFUL send, Supabase's per-address window is ~60s, so the
+  // "Resend in Ns" countdown is honest. A 429 is different — it's the hourly cap, which 60s won't
+  // clear, so we DON'T arm a countdown that re-enables straight into another 429 (see `emailBlocked`).
   const [cooldown, setCooldown] = useState(0);
+  // A 429 (`over_email_send_rate_limit`) hit for `sentTo`. Distinct from `cooldown`: there's no honest
+  // short timer to show (the cap is hourly), so the button stays disabled and points at Google rather
+  // than dangling a "Resend in 60s" that just trips the limit again.
+  const [emailBlocked, setEmailBlocked] = useState(false);
+  // The address the active cooldown/block belongs to. Both are scoped to THIS address: switching to a
+  // genuinely different email lifts them (a different address is a different server bucket), but
+  // clearing-and-retyping the SAME one can't — re-tapping the same address is exactly what tripped the
+  // rate limit and stranded the user in a "wait a minute" loop.
+  const [sentTo, setSentTo] = useState("");
   const emailRef = useRef<HTMLInputElement>(null);
   const codeRef = useRef<HTMLInputElement>(null);
 
@@ -40,6 +50,15 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
     return () => clearInterval(id);
   }, [cooling]);
 
+  // Gates only bite while the field still holds the address they were sent to — so they can't be wiped
+  // by editing the email, but a different address is free to send immediately. `blockedThis` (429) has
+  // no honest countdown → steer to Google; `coolingThis` (post-send) shows the real ~60s window.
+  const norm = (s: string) => s.trim().toLowerCase();
+  const sameAddr = norm(email) === sentTo;
+  const blockedThis = sameAddr && emailBlocked;
+  const coolingThis = sameAddr && cooldown > 0;
+  const rateLimited = blockedThis || coolingThis;
+
   // "Continue with Google" — OAuth redirect flow. On success the browser leaves for Google and comes
   // back to /staff/auth/callback (which exchanges the code → /staff); only an error stays on this page.
   async function google() {
@@ -58,12 +77,13 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
 
   async function sendCode(e: FormEvent) {
     e.preventDefault();
-    if (cooldown > 0) return;
+    if (rateLimited) return;
     setBusy(true);
     setError(null);
     setNotice(null);
+    const addr = norm(email); // send + verify + gate on ONE normalized form (matches the staff allowlist)
     const { error: err } = await browserClient().auth.signInWithOtp({
-      email: email.trim(),
+      email: addr,
       // emailRedirectTo makes the magic LINK in the email land on our callback (the email carries both
       // a link and the {{ .Token }} code — either works). shouldCreateUser:false: only a provisioned
       // staff account (provisionStaff pre-creates it) can request a code.
@@ -74,11 +94,17 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
     });
     setBusy(false);
     if (err) {
-      // A 429 is the email rate limit (per-address cooldown + hourly cap), NOT a bad address — say so
-      // honestly and start the cooldown so they don't keep tripping it.
+      // Move focus back to the editable field so a keyboard/SR user isn't stranded on the now-disabled
+      // submit button, and lands on the control the error (via aria-describedby) describes.
+      emailRef.current?.focus();
+      // A 429 is the email rate limit (per-address + an HOURLY cap), NOT a bad address. 60s won't clear
+      // the hourly cap, so block this address (no dangling countdown) and point at Google instead.
       if (err.status === 429) {
-        setCooldown(60);
-        setError("Too many requests. Wait a minute, then request a new code.");
+        setSentTo(addr);
+        setEmailBlocked(true);
+        setError(
+          "Too many code requests right now. Use “Continue with Google” above, or try again later.",
+        );
         return;
       }
       // Otherwise: a non-staff email or a typo — let them fix it and retry (no cooldown).
@@ -87,9 +113,11 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
       );
       return;
     }
+    setSentTo(addr);
+    setEmailBlocked(false);
     setCooldown(60);
     setStep("code");
-    setNotice(`We sent a 6-digit code to ${email.trim()}.`);
+    setNotice(`We sent a sign-in code to ${addr}.`);
   }
 
   async function verify(e: FormEvent) {
@@ -97,7 +125,7 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
     setBusy(true);
     setError(null);
     const { error: err } = await browserClient().auth.verifyOtp({
-      email: email.trim(),
+      email: norm(email), // same normalized form the code was requested under
       token: code.trim(),
       type: "email",
     });
@@ -128,7 +156,7 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
         <p style={sub}>
           {step === "email"
             ? "Enter your staff email and we’ll send a one-time code."
-            : "Enter the 6-digit code we emailed you."}
+            : "Enter the code we emailed you."}
         </p>
 
         {denied && (
@@ -193,22 +221,25 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
               autoCapitalize="none"
               required
               value={email}
-              onChange={(e) => {
-                setEmail(e.target.value);
-                // Editing the address clears the cooldown: a 429 on the OLD (rate-limited) address
-                // must not block sending to a corrected/different one (the server still rate-limits
-                // per-address, so this can't be used to actually bypass the limit).
-                setCooldown(0);
-              }}
+              onChange={(e) => setEmail(e.target.value)}
               placeholder="you@mandalaymorningstar.com"
+              // Tie the status/error region to the field so it's read when focus lands here on a send
+              // error (the error/notice still live-announces independently for non-focused users).
+              aria-describedby="staff-auth-msg"
               style={input}
             />
             <button
               type="submit"
-              disabled={busy || cooldown > 0 || email.trim().length < 3}
+              disabled={busy || rateLimited || email.trim().length < 3}
               style={primaryBtn}
             >
-              {busy ? "Sending…" : cooldown > 0 ? `Resend in ${cooldown}s` : "Send code"}
+              {busy
+                ? "Sending…"
+                : blockedThis
+                  ? "Use Google instead"
+                  : coolingThis
+                    ? `Resend in ${cooldown}s`
+                    : "Send code"}
             </button>
           </form>
         ) : (
@@ -250,8 +281,14 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
           </form>
         )}
 
-        {/* One live region for both the success notice and the error (QA §A: no redundant regions). */}
-        <p role="status" aria-live="polite" style={{ margin: 0, minHeight: 20 }}>
+        {/* One live region for both the success notice and the error (QA §A: no redundant regions).
+            Also the email field's aria-describedby target — read on focus after a send error. */}
+        <p
+          id="staff-auth-msg"
+          role="status"
+          aria-live="polite"
+          style={{ margin: 0, minHeight: 20 }}
+        >
           {error ? (
             <span style={{ color: "var(--warn)", fontSize: 13 }}>{error}</span>
           ) : notice ? (
