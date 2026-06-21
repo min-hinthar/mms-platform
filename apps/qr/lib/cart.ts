@@ -1,6 +1,6 @@
 "use server";
 import { serviceClient } from "@mms/db/server";
-import type { CartItem, CartTotals, TaxCategory } from "@mms/db";
+import type { CartItem, CartTotals } from "@mms/db";
 import {
   addItemInput,
   applyPromoInput,
@@ -15,63 +15,18 @@ import { assertMutationRate } from "./rate";
 import { canMutateLine } from "./permissions";
 import { releaseCartLock } from "./lock";
 import { getPostHogClient } from "./posthog-server";
-
-// Normalize a modifier set (label array) to a comparable key — order-independent — so "merge
-// identical lines" treats the same item with the same options as one line regardless of pick order.
-const modKey = (m: unknown): string => JSON.stringify(Array.isArray(m) ? [...m].sort() : []);
+import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
 
 /**
  * SERVER-AUTHORITATIVE cart. The browser never sends a price — it sends a menu item id +
- * chosen modifier OPTION ids. The server re-derives every amount from the live (delivery-owned)
- * menu and writes the snapshot. Fixes the v7.1 red-team C1/C2 (client-trusted prices/promos).
+ * chosen modifier OPTION ids. The server re-derives every amount (lib/order-lines.ts priceItem,
+ * shared with the staff order-for-a-guest path) and writes the snapshot. Fixes red-team C1/C2.
  *
  * Money is integer CENTS end-to-end (parity with the delivery schema). The menu lives in the
  * delivery app: `menu_items` (uuid id, base_price_cents, name_en/name_my) with normalized
  * modifiers (item_modifier_groups → modifier_groups → modifier_options.price_delta_cents).
  * Tax category is resolved QR-side via mms_menu_tax_category (delivery menu is untouched).
  */
-
-// Re-derive the price (in cents), name, tax category, and chosen option labels for a menu item.
-// Only modifier options that genuinely belong to one of THIS item's groups are honored, so a
-// client can't smuggle an arbitrary (cheaper/foreign) option id into the price.
-async function priceItem(menuItemId: string, modifierIds: string[]) {
-  const db = serviceClient();
-  const { data: item, error } = await db
-    .from("menu_items")
-    .select("id,name_en,base_price_cents,tax_category")
-    .eq("id", menuItemId)
-    .single();
-  if (error || !item) throw new Error("Unknown menu item");
-
-  let addCents = 0;
-  let optLabels: string[] = [];
-  if (modifierIds.length) {
-    // Which modifier groups are actually attached to this item — so a client can't smuggle in a
-    // foreign/cheaper option id. (modifier_options and item_modifier_groups are siblings joined
-    // through modifier_groups, so we intersect explicitly rather than rely on a nested embed.)
-    const { data: links } = await db
-      .from("item_modifier_groups")
-      .select("group_id")
-      .eq("item_id", menuItemId);
-    const allowedGroups = new Set((links ?? []).map((l) => l.group_id));
-    const { data: opts } = await db
-      .from("modifier_options")
-      .select("id,name,price_delta_cents,group_id")
-      .eq("is_active", true)
-      .in("id", modifierIds);
-    const chosen = (opts ?? []).filter((m) => allowedGroups.has(m.group_id));
-    addCents = chosen.reduce((a, m) => a + m.price_delta_cents, 0);
-    optLabels = chosen.map((m) => m.name);
-  }
-
-  // tax_category is a first-class column on menu_items (set per item/category in the seed).
-  return {
-    name: item.name_en,
-    unitPriceCents: item.base_price_cents + addCents,
-    category: item.tax_category as TaxCategory,
-    opts: optLabels,
-  };
-}
 
 export async function addItem(cartId: string, menuItemId: string, modifierIds: string[] = []) {
   const input = addItemInput.parse({ cartId, menuItemId, modifierIds });
@@ -93,42 +48,14 @@ export async function addItem(cartId: string, menuItemId: string, modifierIds: s
     input.modifierIds,
   );
   const taxCents = lineTax(unitPriceCents, category, dineIn);
-  // Merge identical lines (same menu item + same chosen modifiers) → bump qty instead of a duplicate
-  // row, so the cart stays bounded (QA §B perf). Match on the normalized modifier set.
-  const { data: siblings } = await db
-    .from("qr_cart_items")
-    .select("id,modifiers")
-    .eq("cart_id", input.cartId)
-    .eq("menu_item_id", input.menuItemId);
-  const dup = (siblings ?? []).find((s) => modKey(s.modifiers) === modKey(opts));
-  if (dup) {
-    // ATOMIC increment — a single in-DB `qty = qty + 1` that JOINs the parent cart and requires
-    // `status = 'open'` and `qty < 99` (migrations 20260619000100/000300). Can't lose an increment
-    // under concurrency (undercharge), can't bump a paid/fulfilled line, can't inflate the Stripe
-    // amount. RAISES on a closed cart (so we don't report a phantom add); a 99-cap is a silent no-op.
-    const { error: incErr } = await db.rpc("mms_cart_item_inc_qty", { p_id: dup.id });
-    if (incErr) throw new Error("Cart is no longer open");
-  } else {
-    // Status-atomic insert — the new line is written only if the parent cart is still 'open', in one
-    // statement (migration 20260619000200), so a webhook status flip can't slip a post-payment row
-    // past the app-layer guard. A NULL id back ⇒ the cart is no longer open.
-    const { data: insertedId } = await db.rpc("mms_cart_item_insert_if_open", {
-      p_cart_id: input.cartId,
-      p_menu_item_id: input.menuItemId,
-      p_name: name,
-      p_modifiers: opts,
-      p_unit_price_cents: unitPriceCents,
-      p_tax_cents: taxCents,
-      p_by_seat: uid, // provenance from the VERIFIED uid, not a client-asserted seat
-    });
-    if (!insertedId) throw new Error("Cart is no longer open");
-  }
-  const { error: touchErr } = await db
-    .from("qr_carts")
-    .update({ updated_at: new Date().toISOString() })
-    .eq("id", input.cartId);
-  // Non-fatal (the line mutation already committed) but log it — a stale updated_at shouldn't vanish.
-  if (touchErr) console.error("[cart] updated_at touch failed (addItem)", touchErr.message);
+  // Merge-or-insert via the shared status-atomic core. by_seat = the VERIFIED diner uid (provenance for
+  // the by-person split), never a client-asserted seat. Throws "Cart is no longer open" on a closed cart.
+  await insertOrIncLine(
+    input.cartId,
+    { menuItemId: input.menuItemId, name, opts, unitPriceCents, taxCents },
+    uid,
+  );
+  await touchCart(input.cartId, "addItem");
 
   const posthog = getPostHogClient();
   posthog.capture({

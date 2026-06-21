@@ -61,9 +61,15 @@ export type TableDetail = {
   lines: TableLineView[];
   itemCount: number;
   runningSubtotalCents: number;
+  /** Authoritative all-in total (subtotal − discount + service + tax, tip excluded) for a CASH settle,
+   *  in cents — the amount the "Settle in cash" action will record. null when there's no open cart with
+   *  items. Computed by getCartTotals (the single tax engine), so the staff sees the real charge, not a
+   *  pre-tax guess. Only on the detail (one table), never the floor hot path. */
+  settleTotalCents: number | null;
   paidTotalCents: number | null;
   lastActivityAt: string;
-  /** True while a single-payer lock or a split freeze is live — clear-table is refused mid-payment. */
+  /** True while a single-payer lock or a split freeze is live — clear-table / staff write / cash settle
+   *  are all refused mid-payment. */
   paymentInFlight: boolean;
   serverNow: string;
 };

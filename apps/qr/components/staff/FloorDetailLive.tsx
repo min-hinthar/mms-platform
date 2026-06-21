@@ -8,6 +8,8 @@ import type { TableDetail } from "@/lib/floor-types";
 import { FloorStatusChip } from "./FloorStatusChip";
 import { RelativeTime } from "./RelativeTime";
 import { ClearTableButton } from "./ClearTableButton";
+import { StaffLineEditor } from "./StaffLineEditor";
+import { CashSettleButton } from "./CashSettleButton";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const MODE_LABEL: Record<TableDetail["mode"], string> = {
@@ -17,10 +19,12 @@ const MODE_LABEL: Record<TableDetail["mode"], string> = {
 };
 
 /**
- * Read-only per-table drill-down (S1.2) — what they've ordered, who's at the table, and the turnover
- * clear-table. Kept live by the same Postgres-Changes hook scoped to this session; if the table is
- * cleared/closed (here or elsewhere) the re-fetch returns null and we return to the floor rather than
- * showing a stale order.
+ * Per-table drill-down (S1.2 read · S1.3 staff write). Shows the party + the table's order, and lets
+ * staff edit it FOR a guest (qty steppers, add items) and settle it in CASH. Kept live by the
+ * Postgres-Changes hook scoped to this session; if the table is cleared/closed (here or elsewhere) the
+ * re-fetch returns null and we return to the floor rather than showing a stale order. Writes are
+ * disabled while a payment is in flight (and the server refuses regardless); the cart goes read-only
+ * once settled (cartId null → paid total shown).
  */
 export function FloorDetailLive({
   initial,
@@ -31,8 +35,22 @@ export function FloorDetailLive({
 }) {
   const router = useRouter();
   const [detail, setDetail] = useState<TableDetail>(initial);
+  const [writeError, setWriteError] = useState<string | null>(null);
   const inFlight = useRef(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const orderHeadingRef = useRef<HTMLHeadingElement>(null);
+  const prevLineCount = useRef(initial.lines.length);
+
+  // Staff can write while there's an open cart and no payment in flight; once settled (cartId null) or
+  // mid-payment the order goes read-only. The server enforces this too — this is just the affordance.
+  const canWrite = detail.cartId != null && !detail.paymentInFlight;
+
+  // When a line is removed (the list shrinks), the editor row unmounts — move focus to the order
+  // heading so keyboard/SR focus isn't dropped to <body> (WCAG 2.4.3; parity with Checkout.tsx).
+  useEffect(() => {
+    if (detail.lines.length < prevLineCount.current) orderHeadingRef.current?.focus();
+    prevLineCount.current = detail.lines.length;
+  }, [detail.lines.length]);
 
   const refresh = useCallback(async () => {
     if (inFlight.current) return;
@@ -108,12 +126,45 @@ export function FloorDetailLive({
 
       {/* Order so far */}
       <section className="card" style={sectionCard} aria-labelledby="order-h">
-        <h2 id="order-h" style={sectionH}>
-          Order so far
-        </h2>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "baseline",
+            justifyContent: "space-between",
+            gap: "var(--s4)",
+          }}
+        >
+          <h2
+            id="order-h"
+            ref={orderHeadingRef}
+            tabIndex={-1}
+            style={{ ...sectionH, outline: "none" }}
+          >
+            Order so far
+          </h2>
+          {canWrite && (
+            <Link href={`/staff/table/${sessionId}/add`} style={addLink}>
+              + Add items
+            </Link>
+          )}
+        </div>
+
         {detail.lines.length === 0 ? (
           <p style={muted}>Nothing in the cart yet.</p>
+        ) : canWrite ? (
+          <ul role="list" style={{ listStyle: "none", margin: 0, padding: 0 }}>
+            {detail.lines.map((l) => (
+              <StaffLineEditor
+                key={l.id}
+                sessionId={sessionId}
+                line={l}
+                disabled={false}
+                onError={setWriteError}
+              />
+            ))}
+          </ul>
         ) : (
+          // Read-only (settled, or a payment in flight): show the lines without the steppers.
           <ul role="list" style={{ listStyle: "none", margin: 0, padding: 0 }}>
             {detail.lines.map((l) => (
               <li key={l.id} style={lineRow}>
@@ -130,6 +181,7 @@ export function FloorDetailLive({
             ))}
           </ul>
         )}
+
         <div style={totalRow}>
           {detail.itemCount > 0 && (
             <span>
@@ -146,9 +198,29 @@ export function FloorDetailLive({
           )}
         </div>
         <p style={{ ...muted, marginTop: 8, fontSize: 12 }}>
-          Running pre-tax subtotal — tax, service, and tip are added at checkout.
+          Running pre-tax subtotal — tax and the service charge are added at settle.
+        </p>
+        {/* One shared live region for staff line-edit feedback (the confirm flows below own theirs). */}
+        <p
+          role="status"
+          aria-live="polite"
+          style={{ ...muted, marginTop: 6, fontSize: 12.5, minHeight: writeError ? 16 : 0 }}
+        >
+          {writeError && <span style={{ color: "var(--warn)" }}>{writeError}</span>}
         </p>
       </section>
+
+      {/* Settle in cash — when there's an open order with items and no payment in flight. */}
+      {canWrite && detail.itemCount > 0 && detail.settleTotalCents != null && (
+        <section style={{ marginTop: "var(--s4)" }} aria-label="Settle this table">
+          <CashSettleButton sessionId={sessionId} totalCents={detail.settleTotalCents} />
+        </section>
+      )}
+      {detail.paymentInFlight && (
+        <p style={{ ...muted, marginTop: "var(--s4)", fontSize: 13 }}>
+          A guest is paying on their phone — editing and cash settle are paused until that finishes.
+        </p>
+      )}
 
       <section style={{ marginTop: "var(--s5)" }}>
         <ClearTableButton
@@ -160,6 +232,16 @@ export function FloorDetailLive({
     </main>
   );
 }
+
+const addLink: CSSProperties = {
+  display: "inline-flex",
+  minHeight: 44,
+  alignItems: "center",
+  color: "var(--ac)",
+  fontSize: 14,
+  fontWeight: 700,
+  textDecoration: "none",
+};
 
 const wrap: CSSProperties = { maxWidth: 640, margin: "0 auto", padding: "var(--s6)" };
 const back: CSSProperties = {

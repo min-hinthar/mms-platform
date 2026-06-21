@@ -188,11 +188,28 @@ export const verifyStaffPinInput = z.object({
  *  and logs it. The client asserts only the session id. */
 export const clearTableInput = z.object({ sessionId: uuid });
 
+/** staffAddItem (S1.3) — a staff member orders FOR a guest, adding to the table's open cart. Like the
+ *  diner addItem the client asserts only an item id + chosen modifier OPTION ids (never a price); the
+ *  server resolves the session's open cart, re-derives every amount, and attributes the line to no seat
+ *  (by_seat = null, "added by server"). menuItemId stays a uuid — staff order from the restaurant menu. */
+export const staffAddItemInput = z.object({
+  sessionId: uuid,
+  menuItemId: uuid,
+  modifierIds: z.array(uuid).max(20).default([]),
+});
+
+/** settleCash (S1.3) — a staff member settles the table order in cash ("pay a human"). Shape only; the
+ *  server re-derives the authoritative total (getCartTotals), refuses mid-card-payment, and records a
+ *  cash order idempotently. The client asserts only the session id — never an amount. */
+export const settleCashInput = z.object({ sessionId: uuid });
+
 export type SetStaffPinInput = z.infer<typeof setStaffPinInput>;
 export type VerifyStaffPinInput = z.infer<typeof verifyStaffPinInput>;
 export type SetStaffActiveInput = z.infer<typeof setStaffActiveInput>;
 export type ProvisionStaffInput = z.infer<typeof provisionStaffInput>;
 export type ClearTableInput = z.infer<typeof clearTableInput>;
+export type StaffAddItemInput = z.infer<typeof staffAddItemInput>;
+export type SettleCashInput = z.infer<typeof settleCashInput>;
 export type SessionMintInput = z.infer<typeof sessionMintInput>;
 export type SessionMintOutput = z.infer<typeof sessionMintOutput>;
 export type SetDisplayNameInput = z.infer<typeof setDisplayNameInput>;
