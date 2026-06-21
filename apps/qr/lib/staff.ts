@@ -46,7 +46,12 @@ export async function getStaffAuth(): Promise<StaffAuth> {
   } = await supa.auth.getUser();
   // Anonymous diners have a uid too — treat them as `anon` here (they belong on the diner side).
   if (!user || user.is_anonymous) return { kind: "anon" };
-  const email = user.email?.toLowerCase() ?? null;
+  // Only trust the email for the allowlist if it's CONFIRMED (email_confirmed_at is set for OTP /
+  // magic-link / Google — all verify the mailbox). This blocks the "unconfirmed email == staff email"
+  // path: were email/password signup ever enabled without confirmation, a session could assert a staff
+  // address the holder doesn't own — the verified gate denies it. The uid match below is inherently
+  // safe (provisionStaff creates the user with email_confirm:true).
+  const email = user.email_confirmed_at ? (user.email?.toLowerCase() ?? null) : null;
 
   // Resolve the staff row by uid first; fall back to the EMAIL allowlist — Google OAuth / magic-link
   // can mint a fresh uid that isn't the one provisionStaff pre-created, but the verified email still

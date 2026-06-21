@@ -98,8 +98,16 @@ values ('<uid>','you@…','owner','Min');` → refresh `/staff`.
    - **Auth email fallback (magic-link/OTP):** the built-in Supabase sender is rate-limited (→ **429**)
      and was misconfigured to **Gmail** (`534 app-specific password` 500s). To use it, point Supabase →
      Auth → **SMTP Settings** at Resend (`smtp.resend.com`, user `resend`, pass = Resend API key, verified
-     sender), raise the rate-limit, **and** add `{{ .Token }}` to the Magic Link template. Optional if
-     Google OAuth is used.
+     sender), raise the rate-limit, **and** make the Magic Link template **code-only** (`{{ .Token }}`,
+     drop the `{{ .ConfirmationURL }}` link) — link + code share ONE single-use token, so an email
+     link-prefetcher/scanner consuming the link invalidates the code (the `otp_expired` we saw). Optional
+     if Google OAuth is used.
+   - **Auth hardening (config):** ensure email **confirmations are ON** (or email/password signup
+     disabled) so an unconfirmed address can't assert a staff email; restrict the Google provider to the
+     workspace domain; disable automatic cross-provider linking. (App-side, `getStaffAuth` already
+     requires `email_confirmed_at` before the email-allowlist match; a matching `email_verified` gate on
+     the SQL `is_staff` read-surface is a follow-up for **S1.2** once the live JWT claim path is confirmed
+     — without it, only the not-yet-built floor-view RLS read is exposed, never a write.)
    - **App transactional:** set `RESEND_API_KEY` + `RESEND_FROM` + `NEXT_PUBLIC_SITE_URL`
      (`https://qr.mandalaymorningstar.com`) in Vercel → staff invite/deactivation emails send via the
      SDK (`lib/email.ts`, best-effort via `after()`; unset keys = silently skipped, action still succeeds).
