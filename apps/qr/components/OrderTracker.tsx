@@ -28,12 +28,16 @@ const PICKUP_STEPS: [title: string, sub: string][] = [
  */
 export function OrderTracker({
   paymentIntent,
+  orderId = null,
   processing,
 }: {
   paymentIntent: string | null;
+  // Split-tender (M3·P3.3b) orders have no PaymentIntent on the row, so /track keys them by the
+  // resolved order id instead (getSplitOrderId). Exactly one of paymentIntent/orderId is set.
+  orderId?: string | null;
   processing: boolean; // redirect_status === "processing" — payment not yet captured (e.g. bank debit)
 }) {
-  const { order, timedOut } = useOrderStatus(paymentIntent);
+  const { order, timedOut } = useOrderStatus(paymentIntent, orderId);
   const arrived = !!order;
   // A pickup order carries a slot → use the pickup lifecycle + echo the slot as the honest ETA (no
   // fabricated countdown). Until the order lands we don't know the mode, so default to Scan & Go.

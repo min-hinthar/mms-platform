@@ -43,6 +43,10 @@
   --t3: #726859;
   --ac: #a65f10;
   --ac2: #c8772a;
+  /* Accent text on a TINTED accent fill (chips/badges over color-mix(--ac …%, --cd)) needs to be
+     darker than --ac to clear 4.5:1 (plain --ac on the 9–14% tint measured ~4.0–4.3). Use for TEXT
+     on those fills; keep --ac for borders + solid-accent buttons (--oa on --ac passes). */
+  --ac-strong: #8f5009;
   --oa: #fffdf8;
   --jade: #1f6e63;
   --gold: #e8a83c;
@@ -66,6 +70,9 @@
   --t3: #897e96;
   --ac: #e7a53a;
   --ac2: #f4c879;
+  /* Dark accent already clears 4.5:1 on the tinted fills (~5.6–6.3), so the strong variant is the
+     same hue — defined for parity so components can use --ac-strong unconditionally. */
+  --ac-strong: var(--ac);
   --oa: #1a1326;
   --jade: #5fb07e;
   --gold: #f4c879;

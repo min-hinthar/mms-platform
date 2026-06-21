@@ -146,7 +146,7 @@ const inviteChip: CSSProperties = {
   borderRadius: 999,
   border: "1.5px solid var(--ac)",
   background: "color-mix(in oklab, var(--ac) 9%, var(--cd))",
-  color: "var(--ac)",
+  color: "var(--ac-strong)",
   fontWeight: 800,
   fontSize: 13,
   cursor: "pointer",

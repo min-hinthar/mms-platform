@@ -89,23 +89,36 @@ identity full` for DELETE filtering; announce a peer's ADD only (by_seat).
 
 ## Next: the service-model track — S1 (staff & floor)
 
-M3 is **done**, so per the build order (`M1 → M2 → M3 → S1 → S2 → S3 → M4 → S4 → M5 → M6`) the
-service-model layer interleaves next. Read [`docs/context/ORDER-MODEL.md`](context/ORDER-MODEL.md) and the
-`ROADMAP.md` S-track for the exit criteria before starting; **S1 = staff & floor** (the human-facing door:
-the single source of truth across channels, dep on M1's ledger + M3's table session/presence). Confirm
-scope/priority with Min if there's any doubt — S vs M ordering is a product call.
+M3 is **done** and **hardened** (a pre-S1 four-lens adversarial pass closed the Critical/High/cheap-Med
+edge findings — see the M3-hardening PR + `CHANGELOG`/`REVIEW`), so per the build order
+(`M1 → M2 → M3 → S1 → S2 → S3 → M4 → S4 → M5 → M6`) the service-model layer interleaves next. Read
+[`docs/context/ORDER-MODEL.md`](context/ORDER-MODEL.md) and the `ROADMAP.md` S-track for the exit criteria
+before starting; **S1 = staff & floor** (the human-facing door: the single source of truth across
+channels, dep on M1's ledger + M3's table session/presence). Confirm scope/priority with Min if there's
+any doubt — S vs M ordering is a product call.
 
 **Tracked / deferred (non-blocking, carry forward):**
 
-- **P3.4 Low (documented):** a mutate-rate 429 in `TableCartProvider.add` surfaces the session-recovery
-  copy ("Reconnecting…") rather than a throttle message — self-correcting (re-mint returns the same cart →
-  retry succeeds once the window drains), and precise per-reason copy needs a result discriminant (the
-  thrown Server Action message is redacted in prod). 120/min is far above human use, so a legit diner
-  won't hit it.
-- **P3.3b follow-ups:** (1) the `onShareCaptured` `wasOpen` TOCTOU → a possible **duplicate analytics
-  event** under a sub-ms double `succeeded` delivery (money unaffected — QBO upsert idempotent); (2) the
-  split-tender migration's `create policy`/`create function` aren't per-statement re-runnable (matches the
-  sibling forward-only convention).
+- **S2 must privatize the realtime cart/shares channels before adding broadcast.** The `cart:`/`shares:`
+  channels (`lib/realtime.ts`) are non-private — RLS-safe for postgres-changes today, but a `.send()`
+  (e.g. a KDS/staff push) requires `{ config: { private: true } }` + a `realtime.messages` policy for
+  `cart:*`/`shares:*` (mirroring `rt_member_read`), since table RLS doesn't cover broadcast. Load-bearing
+  comments are in place; this is the S2 to-do.
+- **Split-fulfill amount reconcile is tautological → fix WITH S4.3.** `mms_fulfill_split_order` compares
+  Σ(share amounts) against a value derived from the same rows; not exploitable today (each share's
+  `amount_cents` == its PI amount, client can't tamper), but it becomes load-bearing the moment S4.3 adds
+  **partial capture** — then reconcile against Stripe `amount_received`.
+- **Split share-math: P3.3a display vs P3.3b tender can diverge** (by-person + unassigned/mixed-tax) — the
+  `/cart` SplitSection reference number can differ by cents from the authorized amount. Compute the display
+  from `deriveShareBreakdowns`, or label it "approximate". (Tender is authoritative; the divergence is a
+  display-honesty polish.)
+- **Cross-owner line delete is host-only with no confirm** — QA §D accepts host-only as the alternative to
+  a confirm; revisit if product wants a confirmation step.
+- **P3.4 Low:** a mutate-rate 429 in `TableCartProvider.add` shows the session-recovery copy
+  ("Reconnecting…") rather than a throttle message — self-correcting; precise copy needs a result
+  discriminant (thrown Server Action errors are redacted in prod). 120/min is far above human use.
+- **P3.3b follow-up:** the `onShareCaptured` `wasOpen` TOCTOU → a possible **duplicate analytics event**
+  under a sub-ms double `succeeded` delivery (money unaffected — QBO upsert idempotent).
 - **`charge.refunded` is unhandled platform-wide** (single-pay AND split) → owned by the **S4.3** seam
   (line-level refunds).
 

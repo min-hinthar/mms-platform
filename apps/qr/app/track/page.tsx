@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { OrderTracker } from "@/components/OrderTracker";
+import { getSplitOrderId } from "@/lib/order";
 
 // /track — post-payment, live. Stripe appends `payment_intent` + `redirect_status` to the Payment
 // Element return_url; for succeeded/processing we mount the Realtime <OrderTracker> (the order shows
@@ -15,7 +16,12 @@ const back = {
   padding: "12px 0",
 } as const;
 
-type SearchParams = Promise<{ redirect_status?: string; cart?: string; payment_intent?: string }>;
+type SearchParams = Promise<{
+  redirect_status?: string;
+  cart?: string;
+  payment_intent?: string;
+  paid?: string; // set by the split-tender SettlementBoard redirect (no Stripe redirect params)
+}>;
 
 // Per-state tab title — after the Stripe redirect the tab would otherwise keep the Element's title.
 export async function generateMetadata({
@@ -36,7 +42,29 @@ export async function generateMetadata({
 }
 
 export default async function Track({ searchParams }: { searchParams: SearchParams }) {
-  const { redirect_status: status, cart, payment_intent: paymentIntent } = await searchParams;
+  const { redirect_status: status, cart, payment_intent: paymentIntent, paid } = await searchParams;
+
+  // Split-tender completion (M3·P3.3b): the SettlementBoard sends the whole table here with
+  // `?cart=…&paid=1` once every share is captured. There's no Stripe `redirect_status`/`payment_intent`
+  // (each payer has their own PI), so resolve the member-gated split order and render the SAME live
+  // tracker single-pay gets. Until the order row is stamped (a brief post-capture race) show an honest
+  // "payment received — finalizing" with a refresh, never the "no order yet" stub. The `paid` marker
+  // distinguishes this from a stray direct visit to `/track?cart=…`.
+  if (paid && cart) {
+    const orderId = await getSplitOrderId(cart).catch(() => null);
+    if (orderId) return <OrderTracker paymentIntent={null} orderId={orderId} processing={false} />;
+    return (
+      <main style={wrap}>
+        <h1 style={{ fontSize: 28, margin: "8px 0" }}>Payment received</h1>
+        <p style={{ color: "var(--t2)" }}>
+          Your share is in — we’re finalizing the table’s order. Check back in a moment.
+        </p>
+        <Link href={`/track?cart=${encodeURIComponent(cart)}&paid=1`} style={back}>
+          Refresh
+        </Link>
+      </main>
+    );
+  }
 
   if (status === "succeeded" || status === "processing") {
     // The PaymentIntent id keys the live subscription. Stripe always appends it; if it's somehow

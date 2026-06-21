@@ -4,6 +4,40 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed — M3 hardening (pre-S1 milestone red-team) (2026-06-21)
+
+A four-lens fresh-context adversarial pass over the whole M3 surface (group cart + split-tender + abuse
+limits) before S1 builds on it found the money/auth/RLS spine sound; the escapes were at the edges. Fixed:
+
+- **Split-tender completion no longer strands a paid diner (Critical).** The settlement board redirected
+  every payer to `/track?cart=…`, which — having no Stripe `redirect_status`/`payment_intent` (each share
+  has its own PI) — fell through to the "…once you've placed an order" stub. Now it redirects with
+  `&paid=1`; `/track` resolves the split order via a member-gated `getSplitOrderId` (`lib/order.ts`,
+  authorized on **session** membership since the cart is `paid`) and renders the live tracker — generalized
+  `useOrderStatus`/`OrderTracker` to key by **order id** (split orders carry no PaymentIntent). An
+  un-stamped order (brief post-capture race) shows an honest "payment received — finalizing", never a dead end.
+- **Join code no longer leaks to analytics (High, privacy).** `instrumentation-client.ts` adds a
+  `before_send` that scrubs `?t=`/`?j=` (the live session credential) from `$current_url`/`$referrer`, and
+  `useTableSession` strips them from the address bar after consumption (localStorage still rejoins on
+  reload). The server `onRequestError` path was already scrubbed; this closes the client pageview path.
+- **Settlement board poll terminates (High).** `load()` short-circuits once the all-captured redirect
+  fires, so the 5 s poll + realtime callbacks stop hitting a now-paid cart during navigation.
+- **Cart can't increment a sold-out line (Med, QA §D).** `getCartView` resolves `menu_items.is_sold_out`
+  (uuid-filtered so grocery barcodes are skipped) → `CartItem.soldOut`; the cart Stepper disables "+"
+  (remove stays enabled).
+- **A read-miss mid-split no longer drops a payer into an unwinnable plain checkout (Med).** `/cart` shows
+  a retry when the cart is settling but `getSplitContext` returned null.
+- **a11y (High/Med):** the sheet close ✕ is now a 44 px tap target (visible disc stays ~32 px via
+  padding + `background-clip`); the menu list gets `role="list"`; a new `--ac-strong` token raises
+  accent-text-on-tinted-fill to ≥4.5:1 (badges/chips/buttons across the split UI); the sheet/scrim honor
+  `prefers-reduced-motion`.
+- **Realtime broadcast guard (Med):** load-bearing comments on the non-private `cart:`/`shares:` channels
+  — RLS-safe for postgres-changes today, but S2 must make them private + add a `realtime.messages` policy
+  before adding any `.send()` broadcast.
+- _Deferred (tracked):_ the split-fulfill amount reconcile is DB-sum-vs-DB-sum (tautological — becomes
+  load-bearing at **S4.3** partial-capture); the P3.3a display vs P3.3b tender share-math divergence
+  (label/align in a follow-up); cross-owner delete is host-only without a confirm (product sign-off).
+
 ### Added — M3·P3.4 abuse limits (2026-06-21)
 
 - **Per-device rate limits** on the public POST surface. A generic SQL limiter (`rate_events` ledger +

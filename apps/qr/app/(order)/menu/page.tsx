@@ -61,7 +61,11 @@ export default async function Menu({
         {cats.map((c) => (
           <section key={c} style={{ padding: "8px 20px" }}>
             <h2 style={{ fontSize: 18 }}>{c}</h2>
-            <ul style={{ listStyle: "none", padding: 0, display: "grid", gap: 12 }}>
+            <ul
+              role="list"
+              aria-label={`${c} items`}
+              style={{ listStyle: "none", padding: 0, display: "grid", gap: 12 }}
+            >
               {items
                 .filter((i) => (i.menu_categories?.name ?? "Menu") === c)
                 .map((i) => (

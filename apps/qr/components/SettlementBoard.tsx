@@ -37,15 +37,21 @@ export function SettlementBoard({
   );
 
   const load = useCallback(() => {
+    // Once we've sent the table to the receipt, stop fetching: window.location.assign navigates but
+    // doesn't synchronously unmount, so without this the 5s poll + realtime callbacks keep calling
+    // getSettlement on a now-paid cart (swallowed 403s / dead work) until the navigation completes.
+    if (redirected.current) return;
     void getSettlement(cartId)
       .then((rows) => {
         setShares(rows);
         setLoaded(true);
         setLoadError(false);
         // All shares captured → the order is being fulfilled; move everyone to the receipt (once).
+        // `paid=1` tells /track this is a completed split (no Stripe redirect params) so it resolves
+        // the order by cart instead of falling through to the "no order yet" stub (the C1 fix).
         if (rows.length > 0 && rows.every((s) => s.status === "captured") && !redirected.current) {
           redirected.current = true;
-          window.location.assign(`/track?cart=${encodeURIComponent(cartId)}`);
+          window.location.assign(`/track?cart=${encodeURIComponent(cartId)}&paid=1`);
         }
       })
       .catch(() => {
@@ -190,12 +196,12 @@ function StatusBadge({ status }: { status: SettlementShare["status"] }) {
     pending: { label: "Waiting", color: "var(--t3)", bg: "var(--sf)" },
     authorized: {
       label: "Authorized",
-      color: "var(--ac)",
+      color: "var(--ac-strong)",
       bg: "color-mix(in oklab, var(--ac) 10%, var(--cd))",
     },
     captured: {
       label: "Paid",
-      color: "var(--ac)",
+      color: "var(--ac-strong)",
       bg: "color-mix(in oklab, var(--ac) 14%, var(--cd))",
     },
     failed: { label: "Failed", color: "var(--warn)", bg: "var(--warnb)" },

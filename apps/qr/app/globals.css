@@ -73,13 +73,21 @@ h3 {
 }
 .mms-sheet-close {
   position: absolute;
-  top: 12px;
-  right: 16px;
-  width: 32px;
-  height: 32px;
+  /* 44×44 tap target (QA §A P0 / WCAG 2.5.8) while the visible disc stays the v7.2 ~32px: 6px of
+     padding + background-clip:content-box paints the bg only on the inner 32px, and top/right are
+     nudged by 6px so that inner disc lands exactly where the old 32px button sat. */
+  top: 6px;
+  right: 10px;
+  width: 44px;
+  height: 44px;
+  padding: 6px;
   border-radius: 999px;
   background: var(--sf);
+  background-clip: content-box;
   border: none;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
 }
 @keyframes fade {
   from {
@@ -95,6 +103,15 @@ h3 {
   }
   to {
     transform: none;
+  }
+}
+/* Sheet + scrim honor reduced motion. The sheet's `up` slide uses --dur-sheet (collapses under the
+   token override) but the scrim's `fade` is a hardcoded 0.24s, so neither is actually disabled
+   without this — turn both off so an open is instant for users who ask for no motion (QA §A P1). */
+@media (prefers-reduced-motion: reduce) {
+  .mms-scrim,
+  .mms-sheet {
+    animation: none;
   }
 }
 

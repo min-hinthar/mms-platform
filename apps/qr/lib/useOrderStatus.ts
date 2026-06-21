@@ -28,20 +28,30 @@ export type OrderStatus = {
  * socket; if it still doesn't arrive, `timedOut` lets the UI offer a refresh. Forward-compatible:
  * S2's kitchen-status updates arrive on the same subscription.
  */
-export function useOrderStatus(paymentIntent: string | null): OrderStatus {
+export function useOrderStatus(
+  paymentIntent: string | null,
+  orderId: string | null = null,
+): OrderStatus {
   const anon = useAnonSession();
   const [order, setOrder] = useState<TrackedOrder | null>(null);
   const [exhausted, setExhausted] = useState(false);
 
-  // Render-time validation (no setState-in-effect): Stripe PI ids are `pi_[A-Za-z0-9_]+`. Anything
-  // else (a tampered/garbled return URL) never reaches the interpolated Realtime filter string —
-  // defense-in-depth; RLS is the primary gate and the `.eq()` REST call is already parameterized.
+  // Two keys: single-pay tracks by the Stripe PaymentIntent id (appended to the return_url); a
+  // split-tender order has NO PI (the N share PIs live on qr_cart_shares), so it tracks by the resolved
+  // order id (uuid). An explicit `orderId` takes precedence. Render-time validation (no setState-in-
+  // effect): a tampered/garbled value never reaches the interpolated Realtime filter — defense-in-depth;
+  // RLS is the primary gate and the `.eq()` REST call is parameterized.
   const validPi = paymentIntent != null && /^pi_[A-Za-z0-9_]+$/.test(paymentIntent);
+  const validOrderId = orderId != null && /^[0-9a-f-]{36}$/i.test(orderId);
+  const byOrderId = orderId != null;
+  const key = byOrderId ? orderId : paymentIntent;
+  const valid = byOrderId ? validOrderId : validPi;
 
   useEffect(() => {
-    if (!paymentIntent || !validPi || !anon) return;
+    if (!key || !valid || !anon) return;
     const supa = browserClient();
     supa.realtime.setAuth(anon.accessToken); // anon-auth token → RLS authorizes the subscription
+    const column = byOrderId ? "id" : "stripe_payment_intent_id";
     let active = true;
     let tries = 0;
     let errs = 0;
@@ -51,7 +61,7 @@ export function useOrderStatus(paymentIntent: string | null): OrderStatus {
       const { data, error } = await supa
         .from("qr_orders")
         .select("id,status,total_cents,pickup_slot,qr_order_items(qty)")
-        .eq("stripe_payment_intent_id", paymentIntent!)
+        .eq(column, key!)
         .maybeSingle();
       if (!active) return;
       // maybeSingle treats "no rows yet" as data:null/error:null, so `error` here is a genuine fetch
@@ -62,7 +72,7 @@ export function useOrderStatus(paymentIntent: string | null): OrderStatus {
       if (error) {
         errs += 1;
         console.error("[useOrderStatus] order fetch failed", {
-          paymentIntent,
+          key,
           attempt: errs,
           error,
         });
@@ -92,7 +102,7 @@ export function useOrderStatus(paymentIntent: string | null): OrderStatus {
         // Poll exhausted without the order — don't strand the diner on a post-payment screen with no
         // feedback. `timedOut` (below) drives a Refresh prompt; the Realtime sub stays open, so a
         // late INSERT still resolves `order` and clears it.
-        console.error("[useOrderStatus] polling exhausted without order", { paymentIntent });
+        console.error("[useOrderStatus] polling exhausted without order", { key });
         setExhausted(true);
       }
     }
@@ -105,14 +115,14 @@ export function useOrderStatus(paymentIntent: string | null): OrderStatus {
     // match this filter under default REPLICA IDENTITY (old row carries PK only; see the migration) —
     // add `replica identity full` if S2 adds a deletion/correction path.
     const channel = supa
-      .channel(`order-status:${paymentIntent}`)
+      .channel(`order-status:${key}`)
       .on(
         "postgres_changes",
         {
           event: "*",
           schema: "public",
           table: "qr_orders",
-          filter: `stripe_payment_intent_id=eq.${paymentIntent}`,
+          filter: `${column}=eq.${key}`,
         },
         () => {
           if (timer) clearTimeout(timer); // a fresh event supersedes any pending poll
@@ -128,10 +138,10 @@ export function useOrderStatus(paymentIntent: string | null): OrderStatus {
       if (timer) clearTimeout(timer);
       supa.removeChannel(channel);
     };
-  }, [paymentIntent, validPi, anon]);
+  }, [key, valid, byOrderId, anon]);
 
-  // Derived (so a late order always wins): a recoverable dead-end is "poll gave up OR the PI is
+  // Derived (so a late order always wins): a recoverable dead-end is "poll gave up OR the key is
   // malformed", but only while no order has arrived.
-  const timedOut = !order && (exhausted || (paymentIntent != null && !validPi));
+  const timedOut = !order && (exhausted || (key != null && !valid));
   return { order, timedOut };
 }

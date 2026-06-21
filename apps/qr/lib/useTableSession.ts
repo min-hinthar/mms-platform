@@ -72,6 +72,19 @@ export function useTableSession(mode: string, opts?: { code?: string; joinOnly?:
     setNonce((n) => n + 1);
   }, []);
 
+  // Strip the join code (`?t=`/`?j=`) from the address bar once mounted — it's already captured as the
+  // `code` prop and persisted to localStorage by resolveQrCode, so a reload still rejoins. Keeps the
+  // live session credential out of browser history + the Referer header on the next navigation
+  // (defense-in-depth alongside the PostHog before_send scrub).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("t") && !url.searchParams.has("j")) return;
+    url.searchParams.delete("t");
+    url.searchParams.delete("j");
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
   useEffect(() => {
     // `mode` is fixed for a mounted page (each route passes a constant). A re-mint is driven by
     // `revalidate()` (clears session + bumps nonce); a *runtime* mode change still no-ops — remount
