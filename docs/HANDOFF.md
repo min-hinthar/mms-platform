@@ -30,8 +30,10 @@ M5 → M6` in `ROADMAP.md`; full design + adversarial review in [`docs/S2_DESIGN
 > — getCartTotals + both promo RPCs + the cash reconcile + all three order-snapshot copies exclude
 > `state='voided' OR comped` (redefined in the migration); the diner cart shows a "Removed"/"Comped" chip,
 > split shares exclude them. Staff void/comp from the drill-down (`LossActionSheet`), refused mid-payment.
-> **`20260622060000` pending a live apply** (the PR preview shares the live DB — apply the additive migration
-> before merge). **S2 decisions confirmed** (in `S2_DESIGN.md`): manager taps-name→PIN · console-view KDS ·
+> `20260622060000` + the merge guard `20260622070000` (mms_merge_table_orders skips voided/comped lines on
+> both scans — a one-tap merge can't re-charge a voided line or give away an active one, a gap S2.3 made
+> reachable) are **applied to live** + verified (grants/RLS/advisors clean; SQL gate behaviorally tested).
+> **S2 decisions confirmed** (in `S2_DESIGN.md`): manager taps-name→PIN · console-view KDS ·
 > 20%/$20 loss ceiling · **10s** per-batch undo grace. **Next: S2.4** — generalize the `mms_approvals`
 > primitive to in-person approve/deny with default-safe `pending` states (owner-remote-approve / SMS deferred);
 > refund of an already-captured line stays the **S4.3** seam (`charge.refunded` unhandled today).

@@ -165,21 +165,34 @@ export function FloorDetailLive({
             ))}
           </ul>
         ) : (
-          // Read-only (settled, or a payment in flight): show the lines without the steppers.
+          // Read-only (settled, or a payment in flight): show the lines without the steppers. A
+          // voided/comped line is struck + badged so it reads honestly beside the (excluding) subtotal.
           <ul role="list" style={{ listStyle: "none", margin: 0, padding: 0 }}>
-            {detail.lines.map((l) => (
-              <li key={l.id} style={lineRow}>
-                <span style={{ minWidth: 0 }}>
-                  <span style={{ fontWeight: 600 }}>{l.qty}×</span> {l.name}
-                  {l.bySeatName && (
-                    <span style={{ color: "var(--t3)", fontSize: 12 }}> · {l.bySeatName}</span>
-                  )}
-                </span>
-                <span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-                  {fmt(l.unitPriceCents * l.qty)}
-                </span>
-              </li>
-            ))}
+            {detail.lines.map((l) => {
+              const off = l.state === "voided" || l.comped;
+              return (
+                <li key={l.id} style={lineRow}>
+                  <span style={{ minWidth: 0, opacity: l.state === "voided" ? 0.55 : 1 }}>
+                    <span style={{ fontWeight: 600 }}>{l.qty}×</span> {l.name}
+                    {l.state === "voided" && <span style={offBadge}> · Voided</span>}
+                    {l.comped && <span style={offBadge}> · Comped</span>}
+                    {l.bySeatName && (
+                      <span style={{ color: "var(--t3)", fontSize: 12 }}> · {l.bySeatName}</span>
+                    )}
+                  </span>
+                  <span
+                    style={{
+                      fontVariantNumeric: "tabular-nums",
+                      whiteSpace: "nowrap",
+                      textDecoration: off ? "line-through" : "none",
+                      color: off ? "var(--t3)" : "inherit",
+                    }}
+                  >
+                    {fmt(l.unitPriceCents * l.qty)}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         )}
 
@@ -297,6 +310,7 @@ const lineRow: CSSProperties = {
   borderTop: "1px solid var(--bd)",
   fontSize: 14,
 };
+const offBadge: CSSProperties = { color: "var(--t3)", fontSize: 12, fontWeight: 700 };
 const totalRow: CSSProperties = {
   display: "flex",
   alignItems: "center",

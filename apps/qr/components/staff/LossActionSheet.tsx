@@ -190,16 +190,16 @@ export function LossActionSheet({
           {cooked && <span style={{ color: "var(--t2)" }}> · already cooking</span>}
         </p>
 
-        {/* Action: void vs comp. A real radiogroup so SRs announce "Void/Comp, 1 of 2". */}
-        <div role="radiogroup" aria-label="Action" style={seg}>
+        {/* Action: void vs comp. role="group" + aria-pressed toggle buttons (the app's segmented-control
+            convention — not role="radio", which would promise arrow-key roving this doesn't implement). */}
+        <div role="group" aria-label="Action" style={seg}>
           {(["void", "comp"] as Action[]).map((a) => {
             const on = action === a;
             return (
               <button
                 key={a}
                 type="button"
-                role="radio"
-                aria-checked={on}
+                aria-pressed={on}
                 onClick={() => setAction(a)}
                 style={{ ...segBtn, ...(on ? segBtnOn : null) }}
               >
@@ -217,15 +217,14 @@ export function LossActionSheet({
         {/* Reason — required, server-audited. */}
         <fieldset style={fieldset}>
           <legend style={legend}>Reason</legend>
-          <div role="radiogroup" aria-label="Reason" style={{ display: "grid", gap: 6 }}>
+          <div role="group" aria-label="Reason" style={{ display: "grid", gap: 6 }}>
             {reasonOptions.map((r) => {
               const on = effectiveReason === r.value;
               return (
                 <button
                   key={r.value}
                   type="button"
-                  role="radio"
-                  aria-checked={on}
+                  aria-pressed={on}
                   onClick={() => setReason(r.value)}
                   style={{ ...reasonBtn, ...(on ? reasonBtnOn : null) }}
                 >
@@ -263,6 +262,12 @@ export function LossActionSheet({
                 </option>
               ))}
             </select>
+            {approvers !== null && managers.length === 0 && (
+              // Honest dead-end note: a cooked void / comp needs a manager and none are on shift.
+              <p style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--t2)" }}>
+                A manager has to approve this — none are signed in right now.
+              </p>
+            )}
             <label htmlFor="loss-pin" style={{ ...label, marginTop: 12 }}>
               PIN
             </label>

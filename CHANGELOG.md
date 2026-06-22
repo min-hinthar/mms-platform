@@ -27,8 +27,12 @@ gated by loss, with a two-party audit. Migration `20260622060000`.
 - **Staff UI:** post-fire lines on the table drill-down swap the qty stepper for a **Void / Comp** action
   (`LossActionSheet` — reason picker + manager name-picker + PIN, reusing the S1.1b PIN pattern); refused
   mid-payment (shared mutex). Refunding an **already-captured** line is out of scope here — it rides S4.3.
-- **a11y:** the sheet's action/reason are real `radiogroup`s, the manager is a labelled `<select>`, the PIN
-  reuses the numeric pattern, ≥44px targets, one live region (lockout countdown over transient msg).
+- **a11y:** the sheet's action/reason are `role="group"` + `aria-pressed` toggles (the app's segmented
+  convention), the manager is a labelled `<select>`, the PIN reuses the numeric pattern, ≥44px targets,
+  one live region; voided/comped lines are struck + badged on the staff drill-down too.
+- **Merge guard** (`20260622070000`): `mms_merge_table_orders` now skips voided/comped lines on both the
+  source and target scans, so a one-tap table merge can't fold a voided line's qty into an active target
+  (re-charge) or an active line into a comped/voided target (giveaway) — a gap S2.3 made reachable.
 
 ### Added — S2.2: post-fire "Ask server" + server-clocked undo grace (2026-06-22)
 
