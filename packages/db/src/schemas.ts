@@ -188,6 +188,22 @@ export const verifyStaffPinInput = z.object({
  *  and logs it. The client asserts only the session id. */
 export const clearTableInput = z.object({ sessionId: uuid });
 
+/** sendToKitchen (S2.1b) — fire the table's current draft batch to the kitchen. Shape only: the client
+ *  asserts which cart, never a price or a line set; the server re-derives membership + fires every still-
+ *  draft line server-side (mms_fire_cart, dine-in only). */
+export const sendToKitchenInput = z.object({ cartId: uuid });
+
+/** staffFireCart (S2.1b) — staff fire a table's draft batch from the console (keyed by session). */
+export const staffFireInput = z.object({ sessionId: uuid });
+
+/** bumpLine (S2.1b) — a cook advances ONE fired line on the KDS: 'in_progress' (Start) or 'served'
+ *  (Ready). The legal-edge graph is enforced in mms_line_transition; this only bounds the target shape so
+ *  a hostile client can't drive a line to 'draft'/'voided' through the bump path. */
+export const bumpLineInput = z.object({
+  lineId: uuid,
+  to: z.enum(["in_progress", "served"]),
+});
+
 /** staffAddItem (S1.3) — a staff member orders FOR a guest, adding to the table's open cart. Like the
  *  diner addItem the client asserts only an item id + chosen modifier OPTION ids (never a price); the
  *  server resolves the session's open cart, re-derives every amount, and attributes the line to no seat
@@ -217,6 +233,9 @@ export type VerifyStaffPinInput = z.infer<typeof verifyStaffPinInput>;
 export type SetStaffActiveInput = z.infer<typeof setStaffActiveInput>;
 export type ProvisionStaffInput = z.infer<typeof provisionStaffInput>;
 export type ClearTableInput = z.infer<typeof clearTableInput>;
+export type SendToKitchenInput = z.infer<typeof sendToKitchenInput>;
+export type StaffFireInput = z.infer<typeof staffFireInput>;
+export type BumpLineInput = z.infer<typeof bumpLineInput>;
 export type StaffAddItemInput = z.infer<typeof staffAddItemInput>;
 export type SettleCashInput = z.infer<typeof settleCashInput>;
 export type MergeTablesInput = z.infer<typeof mergeTablesInput>;

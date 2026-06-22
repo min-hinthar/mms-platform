@@ -4,6 +4,32 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — S2.1b: fire mechanism + KDS + bump (2026-06-22)
+
+The kitchen loop on the S2.1a spine: send-to-kitchen → live fire queue → two-stage bump.
+
+- **`qr_cart_items.fire_at`** — the ONE unified fire timer (S2_DESIGN spine #3). Dine-in stamps `now()`
+  on send (immediate); pickup's scheduled per-line fire is the S4.2 seam. Partial KDS index on
+  `(fire_at) where state in ('fired','in_progress')`. Migration `20260622040000`.
+- **`mms_fire_cart(cart)`** — one atomic statement: `draft→fired` + `fire_at=now()` for the cart's draft
+  batch, **only** while the parent cart is `open` **and** the session is **dine-in** — so a paid/cancelled
+  cart fires 0 (A3), grocery `scango` never fires (A5, locks at payment), pickup's scheduled fire is
+  excluded, and a re-send is a clean no-op (A2, no double-fire). INVOKER + service-role-only.
+- **KDS console** at `/staff/kitchen` (`lib/kitchen.ts` · `KdsBoard`) — the live cross-table fire queue
+  grouped into per-table tickets, oldest-first, on the proven S1.2 `postgres_changes` read path (no
+  broadcast/privatization). Cook bumps **Start** (`fired→in_progress`) → **Ready** (`in_progress→served`,
+  drops off) via the shipped `mms_line_transition`; a stale tap on an already-bumped line is a benign
+  "already updated". Only lines past their `fire_at` show (so the S2.2 undo grace keeps a just-sent line
+  off the line until it expires).
+- **Diner "Send to kitchen"** (dine-in **host**, `cart.ts` `sendToKitchen` + `SendToKitchenButton`) and a
+  staff **fire from the console** (`staffFireCart`) — both fire via `mms_fire_cart` (server re-enforces
+  host/dine-in/cart-open). Honest confirmation, no fabricated ETA; the ~10s "Sent! — Undo" grace lands in
+  S2.2.
+- Diner post-fire edit rejection is now **honest** ("Ask a server to change an item that's already gone to
+  the kitchen") — the full client-side disable + undo arrive in S2.2.
+- Verified on the local stack (fire dine-in/grocery/pickup/non-open/re-send + the bump chain + grants +
+  index); gate green; types regenerated. Migration **pending a live apply**.
+
 ### Added — S2.1a: line-state spine (2026-06-22)
 
 The pre-settlement line lifecycle the kitchen-trust layer (S2) is built on — spine only, no UI/firing yet.

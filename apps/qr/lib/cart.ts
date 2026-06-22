@@ -6,12 +6,13 @@ import {
   applyPromoInput,
   assignLineInput,
   cartViewInput,
+  sendToKitchenInput,
   setQtyInput,
 } from "@mms/db/schemas";
 import { lineTax } from "./tax";
 import { getCartTotals } from "./totals";
 import { assertCartItemMember, assertCartMember } from "./authz";
-import { assertMutationRate } from "./rate";
+import { assertMutationRate, withinMutationRate } from "./rate";
 import { canMutateLine } from "./permissions";
 import { releaseCartLock } from "./lock";
 import { getPostHogClient } from "./posthog-server";
@@ -86,9 +87,14 @@ export async function setQty(cartItemId: string, qty: number) {
   if (locked) throw new Error("Order is locked while someone checks out");
   if (settling) throw new Error("The table is settling up — you can’t edit while everyone pays");
   // canMutate (M3·P3.3a → S2.1a): a diner may change/remove only an OWN, still-'draft' line (host any
-  // draft; guest own). Once fired, editing is staff-only — server enforcement (the UI disables it too).
+  // draft; guest own). Once fired, editing is staff-only. Honest reason per case — a fired line isn't an
+  // ownership problem (S2.2 also disables the control client-side + adds the undo path).
   if (!canMutateLine(lineState, { kind: "diner", role, isOwner: lineSeat === uid }))
-    throw new Error("Only the host can change someone else’s item");
+    throw new Error(
+      lineState === "draft"
+        ? "Only the host can change someone else’s item"
+        : "Ask a server to change an item that’s already gone to the kitchen",
+    );
   const db = serviceClient();
   // Status-atomic set/delete (qty<=0 removes) — applies only while the parent cart is 'open' in one
   // statement (migration 20260619000200), matching the addItem paths. 0 rows ⇒ paid/closed (or gone).
@@ -117,7 +123,11 @@ export async function assignLine(cartItemId: string, seatId: string) {
   if (locked) throw new Error("Order is locked while someone checks out");
   if (settling) throw new Error("The table is settling up — you can’t edit while everyone pays");
   if (!canMutateLine(lineState, { kind: "diner", role, isOwner: lineSeat === uid }))
-    throw new Error("Only the host can reassign someone else’s item");
+    throw new Error(
+      lineState === "draft"
+        ? "Only the host can reassign someone else’s item"
+        : "Ask a server to change an item that’s already gone to the kitchen",
+    );
   const db = serviceClient();
   // The target must be at this table — never assign a line to a non-member seat.
   const { data: target } = await db
@@ -146,6 +156,48 @@ export async function assignLine(cartItemId: string, seatId: string) {
     .update({ updated_at: new Date().toISOString() })
     .eq("id", cartId);
   if (touchErr) console.error("[cart] updated_at touch failed (assignLine)", touchErr.message);
+}
+
+export type SendToKitchenResult =
+  | { ok: true; fired: number }
+  | {
+      ok: false;
+      reason: "not_host" | "locked" | "settling" | "nothing" | "rate_limited" | "error";
+    };
+
+/**
+ * Send the table's current draft batch to the kitchen (S2.1b, dine-in). "Send to kitchen" fires
+ * EVERYONE's draft lines — a table-level action — so it follows the host-authority model: a guest adds
+ * their own items, the HOST sends the batch (staff can always fire from the console via staffFireCart).
+ * The fire is the atomic, dine-in-only mms_fire_cart (draft→fired + fire_at=now(), cart-open guarded,
+ * grocery/pickup excluded — server-authoritative). Returns a RESULT (not a throw): Next redacts thrown
+ * Server Action errors in prod, so the discriminated reason is the only way the button can branch its
+ * copy. (S2.2 layers the undo grace on top by stamping fire_at = now() + grace.)
+ */
+export async function sendToKitchen(cartId: string): Promise<SendToKitchenResult> {
+  const input = sendToKitchenInput.parse({ cartId });
+  const { uid, role, locked, settling } = await assertCartMember(input.cartId);
+  if (!(await withinMutationRate(uid))) return { ok: false, reason: "rate_limited" };
+  if (locked) return { ok: false, reason: "locked" };
+  if (settling) return { ok: false, reason: "settling" };
+  if (role !== "host") return { ok: false, reason: "not_host" };
+
+  const { data: fired, error } = await serviceClient().rpc("mms_fire_cart", {
+    p_cart_id: input.cartId,
+  });
+  if (error) {
+    console.error("[cart] mms_fire_cart failed", { cartId: input.cartId, message: error.message });
+    return { ok: false, reason: "error" };
+  }
+  if (!fired) return { ok: false, reason: "nothing" }; // empty cart / nothing still draft / not dine-in
+  await touchCart(input.cartId, "sendToKitchen");
+
+  getPostHogClient().capture({
+    distinctId: uid,
+    event: "send_to_kitchen",
+    properties: { cart_id: input.cartId, lines: fired },
+  });
+  return { ok: true, fired };
 }
 
 /** Reasons the cart UI maps to specific copy. SQL returns the validity reasons; the action adds the
