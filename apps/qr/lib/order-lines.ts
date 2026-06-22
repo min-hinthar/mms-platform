@@ -72,11 +72,17 @@ export async function insertOrIncLine(
   bySeat: string | null,
 ): Promise<void> {
   const db = serviceClient();
+  // Merge ONLY into a still-'draft' sibling (S2.1b): an add must never fold into a line that's already
+  // gone to the kitchen ('fired'/'in_progress'/'served') — that would silently grow a quantity the cook
+  // may have started, through the state-blind inc_qty path (the one ungated diner→fired mutation). Per
+  // the ORDER-MODEL, an add post-fire is a FRESH draft that fires on the next send, so a non-draft
+  // sibling falls through to the insert below.
   const { data: siblings } = await db
     .from("qr_cart_items")
     .select("id,modifiers")
     .eq("cart_id", cartId)
-    .eq("menu_item_id", line.menuItemId);
+    .eq("menu_item_id", line.menuItemId)
+    .eq("state", "draft");
   const dup = (siblings ?? []).find((s) => modKey(s.modifiers) === modKey(line.opts));
   if (dup) {
     // ATOMIC `qty = qty + 1` requiring status='open' and qty<99 (can't lose an increment, can't bump a

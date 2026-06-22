@@ -431,6 +431,7 @@ export type Database = {
           by_seat: string | null
           cart_id: string
           created_at: string
+          fire_at: string | null
           id: string
           menu_item_id: string
           modifiers: Json
@@ -444,6 +445,7 @@ export type Database = {
           by_seat?: string | null
           cart_id: string
           created_at?: string
+          fire_at?: string | null
           id?: string
           menu_item_id: string
           modifiers?: Json
@@ -457,6 +459,7 @@ export type Database = {
           by_seat?: string | null
           cart_id?: string
           created_at?: string
+          fire_at?: string | null
           id?: string
           menu_item_id?: string
           modifiers?: Json
@@ -939,6 +942,7 @@ export type Database = {
         Args: { p_id: string; p_qty: number }
         Returns: number
       }
+      mms_fire_cart: { Args: { p_cart_id: string }; Returns: number }
       mms_fulfill_cash_order: {
         Args: {
           p_cart_id: string

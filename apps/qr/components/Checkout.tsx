@@ -17,6 +17,7 @@ import { useCartRealtime } from "@/lib/realtime";
 import { PaymentSection } from "./PaymentSection";
 import { SplitSection } from "./SplitSection";
 import { SettlementBoard } from "./SettlementBoard";
+import { SendToKitchenButton } from "./SendToKitchenButton";
 
 // Per-reason promo copy (the action returns a reason; Next redacts thrown errors in prod). Honest +
 // on-brand: tell the diner exactly why, never a fabricated state.
@@ -71,6 +72,9 @@ export function Checkout({
   // Dine-in group → show per-line owner + split; solo/duo stays the plain cart.
   const isGroup =
     !!splitContext && splitContext.mode === "dinein" && splitContext.members.length > 1;
+  // Dine-in "Send to kitchen" (S2.1b): a table-level fire, so the HOST sends the batch (solo dine-in is
+  // host too). Server re-enforces host + dine-in + cart-open; this is the affordance.
+  const canSendToKitchen = splitContext?.mode === "dinein" && splitContext.myRole === "host";
   const [promo, setPromo] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -454,6 +458,8 @@ export function Checkout({
             SB-1524). It is not a tip — anything extra above is yours to give. Card fees are built
             into menu prices; we never add a surcharge on debit.
           </p>
+
+          {canSendToKitchen && items.length > 0 && <SendToKitchenButton cartId={cartId} />}
 
           <button
             type="button"

@@ -50,6 +50,9 @@ export default async function StaffHome() {
         aria-label="Staff tools"
         style={{ marginTop: "var(--s6)", display: "flex", gap: "var(--s3)", flexWrap: "wrap" }}
       >
+        <Link href="/staff/kitchen" style={ownerLink}>
+          Kitchen →
+        </Link>
         <Link href="/staff/profile" style={ownerLink}>
           {hasPin ? "Your PIN →" : "Set a tablet PIN →"}
         </Link>
