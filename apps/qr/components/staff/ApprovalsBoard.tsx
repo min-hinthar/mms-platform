@@ -182,6 +182,9 @@ function RequestCard({
             "That table is no longer open — deny it (a settled refund is handled separately).",
           );
           break;
+        case "in_flight":
+          setMsg("That table is mid-payment — try again once they’ve finished.");
+          break;
         default:
           setMsg("Couldn’t resolve that just now — please try again.");
       }
@@ -267,7 +270,7 @@ function RequestCard({
             onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 8))}
             placeholder="••••"
             disabled={locked}
-            aria-describedby={`appr-msg-${request.id}`}
+            // S2-audit S10: not described-by the live region (avoids double-announce / mis-association).
             style={input}
           />
           <div style={btnRow}>

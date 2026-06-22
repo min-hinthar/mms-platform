@@ -184,10 +184,12 @@ export async function assertSessionMember(sessionId: string): Promise<{ uid: str
  *  guest-own-only, draft-only for diners — S2.1a). */
 export async function assertCartItemMember(
   cartItemId: string,
-): Promise<CartAuthz & { cartId: string; lineSeat: string | null; lineState: LineState }> {
+): Promise<
+  CartAuthz & { cartId: string; lineSeat: string | null; lineState: LineState; comped: boolean }
+> {
   const { data: item } = await serviceClient()
     .from("qr_cart_items")
-    .select("cart_id,by_seat,state")
+    .select("cart_id,by_seat,state,comped")
     .eq("id", cartItemId)
     .maybeSingle();
   if (!item) throw new AuthzError("No such cart item", 404);
@@ -196,5 +198,6 @@ export async function assertCartItemMember(
     cartId: item.cart_id,
     lineSeat: item.by_seat ?? null,
     lineState: (item.state ?? "draft") as LineState,
+    comped: item.comped ?? false,
   };
 }

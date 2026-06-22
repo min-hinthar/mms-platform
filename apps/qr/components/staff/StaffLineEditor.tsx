@@ -42,10 +42,17 @@ export function StaffLineEditor({
   function setQty(next: number) {
     setOptimisticQty(next);
     startTransition(async () => {
-      const res = await staffSetQty(sessionId, { cartItemId: line.id, qty: next });
-      if (!res.ok) {
+      try {
+        const res = await staffSetQty(sessionId, { cartItemId: line.id, qty: next });
+        if (!res.ok) {
+          setOptimisticQty(null); // roll back to the last server value
+          onError(res.error);
+        }
+      } catch {
+        // S2-audit B3: an unexpected throw (network/redacted server error) must not strand the optimistic
+        // qty silently — roll back + surface honest copy through the shared region.
         setOptimisticQty(null);
-        onError(res.error);
+        onError("Couldn’t update that — check the connection and try again.");
       }
     });
   }

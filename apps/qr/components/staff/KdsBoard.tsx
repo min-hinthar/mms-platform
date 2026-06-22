@@ -15,6 +15,7 @@ import { RelativeTime } from "./RelativeTime";
  */
 export function KdsBoard({ initial }: { initial: KitchenQueue }) {
   const [snap, setSnap] = useState(initial);
+  const [err, setErr] = useState<string | null>(null); // one board-level bump-error region (S8)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlight = useRef(false);
 
@@ -23,6 +24,7 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
     inFlight.current = true;
     try {
       setSnap(await getKitchenQueue());
+      setErr(null); // a fresh good snapshot clears a stale bump-error banner (no perma-stuck error)
     } catch (e) {
       // Don't blank the board on a transient fetch error — keep the last good queue; the poll + the
       // realtime self-heal recover. Surface for triage.
@@ -56,8 +58,15 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
         <h2 id="kds-h" style={{ fontSize: 16, margin: 0 }}>
           Fire queue
         </h2>
-        <p role="status" aria-live="polite" style={{ margin: 0, fontSize: 13, color: "var(--t2)" }}>
-          {count === 0 ? "All clear" : `${count} open ${count === 1 ? "ticket" : "tickets"}`}
+        {/* ONE board-level live region (S2-audit S8): the bump error takes precedence over the count, so
+            a flaky socket / failed bump surfaces here instead of N per-line alert regions flooding the SR. */}
+        <p
+          role="status"
+          aria-live="polite"
+          style={{ margin: 0, fontSize: 13, color: err ? "var(--warn)" : "var(--t2)" }}
+        >
+          {err ??
+            (count === 0 ? "All clear" : `${count} open ${count === 1 ? "ticket" : "tickets"}`)}
         </p>
       </div>
 
@@ -73,7 +82,12 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
         <ul role="list" aria-label="Open kitchen tickets" style={grid}>
           {tickets.map((t) => (
             <li key={t.sessionId}>
-              <TicketCard ticket={t} serverNow={snap.serverNow} onBumped={refresh} />
+              <TicketCard
+                ticket={t}
+                serverNow={snap.serverNow}
+                onBumped={refresh}
+                onError={setErr}
+              />
             </li>
           ))}
         </ul>
@@ -86,10 +100,12 @@ function TicketCard({
   ticket,
   serverNow,
   onBumped,
+  onError,
 }: {
   ticket: KitchenTicket;
   serverNow: string;
   onBumped: () => void;
+  onError: (msg: string | null) => void;
 }) {
   return (
     <article className="card" style={cardStyle} aria-label={`Table ${ticket.label}`}>
@@ -101,25 +117,37 @@ function TicketCard({
       </header>
       <ul role="list" style={lineList}>
         {ticket.lines.map((l) => (
-          <KdsLineRow key={l.id} line={l} onBumped={onBumped} />
+          <KdsLineRow key={l.id} line={l} onBumped={onBumped} onError={onError} />
         ))}
       </ul>
     </article>
   );
 }
 
-function KdsLineRow({ line, onBumped }: { line: KitchenLine; onBumped: () => void }) {
+function KdsLineRow({
+  line,
+  onBumped,
+  onError,
+}: {
+  line: KitchenLine;
+  onBumped: () => void;
+  onError: (msg: string | null) => void;
+}) {
   const [pending, startTransition] = useTransition();
-  const [err, setErr] = useState<string | null>(null);
   const to = line.state === "fired" ? "in_progress" : "served";
   const label = line.state === "fired" ? "Start" : "Ready";
 
   const bump = () => {
-    setErr(null);
+    onError(null); // clear any prior board-level error as we retry
     startTransition(async () => {
-      const res = await bumpLine({ lineId: line.id, to });
-      if (!res.ok) setErr(res.error);
-      else onBumped(); // realtime also refreshes; this makes the bump feel instant
+      try {
+        const res = await bumpLine({ lineId: line.id, to });
+        if (!res.ok) onError(res.error);
+        else onBumped(); // realtime also refreshes; this makes the bump feel instant
+      } catch {
+        // S2-audit B3: a thrown action must not silently no-op the bump — surface it on the board region.
+        onError(`Couldn’t update ${line.name} — try again.`);
+      }
     });
   };
 
@@ -131,19 +159,9 @@ function KdsLineRow({ line, onBumped }: { line: KitchenLine; onBumped: () => voi
             {line.qty}×
           </span>{" "}
           {line.name}
-          {line.state === "in_progress" && (
-            <span style={cookingTag} aria-label="being cooked">
-              {" "}
-              cooking
-            </span>
-          )}
+          {line.state === "in_progress" && <span style={cookingTag}> cooking</span>}
         </p>
         {line.modifiers.length > 0 && <p style={modLine}>{line.modifiers.join(" · ")}</p>}
-        {err && (
-          <p role="alert" style={{ margin: "4px 0 0", fontSize: 12, color: "var(--warn)" }}>
-            {err}
-          </p>
-        )}
       </div>
       <button
         type="button"

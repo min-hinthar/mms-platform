@@ -128,6 +128,7 @@ export async function voidLine(raw: unknown): Promise<VoidLineResult> {
   if (status === "self_approve" || status === "bad_approver")
     return { ok: false, reason: "bad_approver" };
   if (status === "not_open") return { ok: false, reason: "not_open" };
+  if (status === "in_flight") return { ok: false, reason: "in_flight" }; // RPC's atomic pay-lock guard (B2)
   if (status === "not_found") return { ok: false, reason: "not_found" };
   if (status === "already_done") return { ok: false, reason: "already" };
   if (status !== "ok") return { ok: false, reason: "error" };
