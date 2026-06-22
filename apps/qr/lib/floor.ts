@@ -219,15 +219,33 @@ export async function getTableDetail(sessionId: string): Promise<TableDetail | n
   if (cart) {
     const { data: items } = await db
       .from("qr_cart_items")
-      .select("id,name,qty,unit_price_cents,by_seat,created_at")
+      .select("id,name,qty,unit_price_cents,by_seat,created_at,menu_item_id")
       .eq("cart_id", cart.id)
       .order("created_at", { ascending: true });
+    // Resolve which lines are 86'd so the editor can hide the "+" (S1-audit S4). One extra read on the
+    // (non-hot) detail path. `menu_item_id` is a SOFT text ref — a UUID for restaurant lines but a
+    // BARCODE for grocery (scan-go) — so filter to UUIDs before the `.in()` against the uuid `id`
+    // column (a barcode poisons the whole query → uuid cast error); mirrors lib/cart.ts. A non-UUID
+    // (barcode/legacy/null) line is never sold-out here.
+    const uuidRe = /^[0-9a-f-]{36}$/i;
+    const menuIds = [
+      ...new Set(
+        (items ?? []).map((i) => i.menu_item_id).filter((x): x is string => uuidRe.test(x ?? "")),
+      ),
+    ];
+    const soldOutIds = new Set<string>();
+    if (menuIds.length) {
+      // Deliberate: an `{ error }` here is advisory — degrade to not-sold-out rather than fail the view.
+      const { data: mi } = await db.from("menu_items").select("id,is_sold_out").in("id", menuIds);
+      for (const m of mi ?? []) if (m.is_sold_out) soldOutIds.add(m.id);
+    }
     lines = (items ?? []).map((i) => ({
       id: i.id,
       name: i.name,
       qty: i.qty,
       unitPriceCents: i.unit_price_cents,
       bySeatName: i.by_seat ? (nameBySeat.get(i.by_seat) ?? null) : null,
+      soldOut: i.menu_item_id ? soldOutIds.has(i.menu_item_id) : false,
     }));
     itemCount = lines.reduce((a, l) => a + l.qty, 0);
     runningSubtotalCents = lines.reduce((a, l) => a + l.unitPriceCents * l.qty, 0);

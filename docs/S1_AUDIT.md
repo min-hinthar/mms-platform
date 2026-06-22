@@ -112,6 +112,10 @@ failure. (Folds in N1 — derive freshness in SQL, not the app clock.)
 
 ### B3 — `RoleBadge` "server" role fails AA contrast
 
+> **✅ FIXED** (`claude/fix/s1-audit-b3-a11y`, with **S4/S5/S6**). Text now uses `-strong` tokens (added
+> `--gold-strong`/`--jade-strong`); vivid hue kept on the decorative dot. Re-measured AA: owner 1.83→5.21,
+> server 4.04→5.19, manager 4.73→5.92. Owner gold was the worst offender (the audit under-called it).
+
 **Where:** `RoleBadge.tsx:20-24` — `server` role renders `fg: var(--ac)` on `bg: color-mix(--ac 14%,
 transparent)`. `tokens.css:49-52` documents that plain `--ac` on a ~9–14% accent tint is ~4.0–4.3:1
 (sub-AA) and that **`--ac-strong` exists precisely for text on these tints**. High-traffic surface (floor
@@ -135,14 +139,14 @@ table_sessions where id=v_session and status<>'closed')`; same for `mms_merge_ta
   acks 200 + logs + PostHog, but the customer **was charged** and there's no durable `refunds_needed` row,
   operator alert, or `charge.refunded` handler. Add a durable refund-needed ledger (or auto-refund via the
   Stripe API) on this branch — telemetry is not recovery. (Ties to S4.3, which owns line-level refunds.)
-- **S4 — sold-out increment** (`StaffLineEditor.tsx:82-90`, `floor-types.ts:42-48`): the `+` is gated only
+- **S4 — sold-out increment** ✅ **FIXED** (b3-a11y) — (`StaffLineEditor.tsx:82-90`, `floor-types.ts:42-48`): the `+` is gated only
   by `busy || qty>=99`; `TableLineView` has no sold-out flag, so an 86'd line still shows a live `+` (the
   add-page handles this; the editor doesn't). Thread `soldOut` onto `TableLineView`, disable with an
   accessible name.
-- **S5 — dual live regions** (`FloorDetailLive.tsx:205-211` shared status **+** `ClearTableButton.tsx:75`
+- **S5 — dual live regions** ✅ **FIXED** (b3-a11y) — (`FloorDetailLive.tsx:205-211` shared status **+** `ClearTableButton.tsx:75`
   own `role="status"`): two polite regions on one view (QA §A wants one). Route ClearTableButton's error
   through the parent shared region (as `StaffLineEditor` does); keep assertive `role="alert"`s (they're fine).
-- **S6 — dropped focus** (`MergeTableButton.tsx:74,110` step transitions; `CashSettleButton.tsx:41-59` &
+- **S6 — dropped focus** ✅ **FIXED** (b3-a11y) — (`MergeTableButton.tsx:74,110` step transitions; `CashSettleButton.tsx:41-59` &
   `ClearTableButton.tsx:53` confirm cards): focus falls to `<body>` when the trigger unmounts. Move focus to
   the new panel/group heading on each step; restore to the trigger on cancel (parity with `StaffLogin`/
   `FloorDetailLive`).

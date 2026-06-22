@@ -53,6 +53,11 @@
   --oa: #fffdf8;
   --jade: #1f6e63;
   --gold: #e8a83c;
+  /* Vivid --gold/--jade stay on the decorative dot; their TEXT on a 16% tint over --cd needs a darker
+     variant to clear 4.5:1 (bright gold-as-text on the light tint measures ~1.6 — a hard fail). Mirror
+     of --ac-strong: use *-strong for TEXT on those tints, the vivid hue for the dot/border. */
+  --gold-strong: #8a5a00;
+  --jade-strong: #1a5e54;
   --bd: rgba(58, 35, 23, 0.1);
   --ok: #346e47;
   --okb: #eaf2ec;
@@ -79,6 +84,10 @@
   --oa: #1a1326;
   --jade: #5fb07e;
   --gold: #f4c879;
+  /* Bright-on-dark text already clears AA on the tinted fills, so the strong variants are the same hue
+     (parity with --ac-strong, so components can use *-strong unconditionally). */
+  --gold-strong: var(--gold);
+  --jade-strong: var(--jade);
   --bd: rgba(243, 236, 223, 0.13);
   --ok: #5fb07e;
   --okb: #1f2e26;

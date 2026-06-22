@@ -1,5 +1,5 @@
 "use client";
-import { useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { getMergeCandidates, mergeTables } from "@/lib/floor";
 import type { MergeCandidate } from "@/lib/floor-types";
@@ -28,6 +28,21 @@ export function MergeTableButton({
   const [error, setError] = useState<string | null>(null);
   const [candidates, setCandidates] = useState<MergeCandidate[]>([]);
   const [target, setTarget] = useState<MergeCandidate | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const pickingRef = useRef<HTMLDivElement>(null);
+  const confirmRef = useRef<HTMLDivElement>(null);
+
+  // Follow focus across the step panels (S1-audit S6): into each panel as it opens, back to the trigger
+  // when we return to idle — so focus is never dropped to <body> when a step unmounts.
+  const prevStep = useRef(step);
+  useEffect(() => {
+    if (step !== prevStep.current) {
+      if (step === "picking") pickingRef.current?.focus();
+      else if (step === "confirm") confirmRef.current?.focus();
+      else if (step === "idle" && prevStep.current !== "idle") triggerRef.current?.focus();
+    }
+    prevStep.current = step;
+  }, [step]);
 
   async function open() {
     setStep("picking");
@@ -66,13 +81,19 @@ export function MergeTableButton({
   return (
     <div>
       {step === "idle" && (
-        <button type="button" onClick={open} style={mergeBtn}>
+        <button ref={triggerRef} type="button" onClick={open} style={mergeBtn}>
           Merge with another table
         </button>
       )}
 
       {step === "picking" && (
-        <div role="group" aria-label="Pick a table to merge into" style={panel}>
+        <div
+          ref={pickingRef}
+          tabIndex={-1}
+          role="group"
+          aria-label="Pick a table to merge into"
+          style={{ ...panel, outline: "none" }}
+        >
           <div style={panelHead}>
             <span style={{ fontSize: 14, fontWeight: 600 }}>Merge Table {sourceLabel} into…</span>
             <button type="button" onClick={reset} disabled={busy} style={linkBtn}>
@@ -108,7 +129,13 @@ export function MergeTableButton({
       )}
 
       {step === "confirm" && target && (
-        <div role="group" aria-label="Confirm merge" style={panel}>
+        <div
+          ref={confirmRef}
+          tabIndex={-1}
+          role="group"
+          aria-label="Confirm merge"
+          style={{ ...panel, outline: "none" }}
+        >
           <p style={{ margin: 0, fontSize: 14 }}>
             Move {sourceItemCount} {sourceItemCount === 1 ? "item" : "items"} from{" "}
             <strong>Table {sourceLabel}</strong> into <strong>Table {target.label}</strong>? This

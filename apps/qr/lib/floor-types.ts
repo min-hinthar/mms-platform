@@ -45,6 +45,8 @@ export type TableLineView = {
   qty: number;
   unitPriceCents: number;
   bySeatName: string | null;
+  /** The line's menu item is 86'd — staff can still decrease/remove it, but not add more (S1-audit S4). */
+  soldOut: boolean;
 };
 
 export type TableMemberView = { seatId: string; name: string; isHost: boolean };
