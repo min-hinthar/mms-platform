@@ -1049,6 +1049,7 @@ export type Database = {
         Args: { category: string; dine_in: boolean }
         Returns: boolean
       }
+      mms_undo_fire: { Args: { p_cart_id: string }; Returns: number }
       staff_session_email_match: { Args: { p_email: string }; Returns: boolean }
     }
     Enums: {

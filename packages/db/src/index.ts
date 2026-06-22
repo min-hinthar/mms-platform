@@ -21,6 +21,11 @@ export type TaxCategory =
   | "retail_nonfood"
   | "grocery_food";
 
+// The pre-settlement line lifecycle (S2.1a `qr_cart_items.state`, mirrors the SQL CHECK). Canonical
+// here so both the cart view (CartItem below) and the isomorphic gate (apps/qr/lib/permissions.ts)
+// import ONE definition — the gate's diner-vs-staff rule keys on this exact union.
+export type LineState = "draft" | "fired" | "in_progress" | "served" | "voided";
+
 // Money is integer CENTS everywhere (parity with the delivery schema). Convert to dollars at the
 // UI edge only (cents / 100). The server is the sole authority for every amount below.
 export type CartItem = {
@@ -35,6 +40,13 @@ export type CartItem = {
   /** The item has since been 86'd (menu_items.is_sold_out) — the cart can't increment it (QA §D
    *  sold-out trap), only decrement/remove. Server-derived in getCartView; grocery lines stay false. */
   soldOut?: boolean;
+  /** Where the line is in its kitchen life (S2.2). 'draft' = still editable by the diner; once
+   *  'fired'/'in_progress'/'served' the diner can't edit it (the UI shows its state + "Ask a server",
+   *  the server enforces via canMutateLine). Defaults 'draft' for any line that predates S2. */
+  lineState: LineState;
+  /** When this line's grace expires / it became visible to the kitchen (ISO), null while 'draft'.
+   *  S2.2 fires at now()+grace; a line is undoable only while `fireAt` is still in the future. */
+  fireAt?: string | null;
 };
 
 export type CartTotals = {

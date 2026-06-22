@@ -193,6 +193,11 @@ export const clearTableInput = z.object({ sessionId: uuid });
  *  draft line server-side (mms_fire_cart, dine-in only). */
 export const sendToKitchenInput = z.object({ cartId: uuid });
 
+/** undoFire (S2.2) — the host reverses the just-sent batch within the grace window (fired→draft for any
+ *  line still in grace). Shape only; the server re-derives membership + host + the grace gate
+ *  (mms_undo_fire, dine-in only, fire_at > now()). */
+export const undoFireInput = z.object({ cartId: uuid });
+
 /** staffFireCart (S2.1b) — staff fire a table's draft batch from the console (keyed by session). */
 export const staffFireInput = z.object({ sessionId: uuid });
 
@@ -234,6 +239,7 @@ export type SetStaffActiveInput = z.infer<typeof setStaffActiveInput>;
 export type ProvisionStaffInput = z.infer<typeof provisionStaffInput>;
 export type ClearTableInput = z.infer<typeof clearTableInput>;
 export type SendToKitchenInput = z.infer<typeof sendToKitchenInput>;
+export type UndoFireInput = z.infer<typeof undoFireInput>;
 export type StaffFireInput = z.infer<typeof staffFireInput>;
 export type BumpLineInput = z.infer<typeof bumpLineInput>;
 export type StaffAddItemInput = z.infer<typeof staffAddItemInput>;
