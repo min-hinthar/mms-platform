@@ -72,7 +72,12 @@ end $$;
 alter table public.qr_cart_items add column if not exists comped boolean not null default false;
 
 -- ── mms_void_line — the loss-gated void/comp, server-derived gate + in-txn audit ────────────────────────
-create function mms_void_line(
+-- create-OR-REPLACE so a branch replay / re-apply is idempotent (the revoke/grant below re-asserts the ACL).
+-- NOTE: the mid-payment guard (a single-pay lock / split freeze) is enforced APP-side in voidLine
+-- (paymentInFlightReason) — same posture as cash-settle / clear-table; this RPC only re-checks the cart is
+-- still 'open'. A pay/split opened in the app→RPC gap is fail-safe (the webhook re-derives getCartTotals and
+-- rejects on a mismatch; the split reconciles against captured shares), so no void can mischarge.
+create or replace function mms_void_line(
   p_line uuid,
   p_action text,                  -- 'void' | 'comp'
   p_reason text,                  -- a reason code (app enum + the audit CHECK bound it)
