@@ -41,6 +41,15 @@ data anywhere). The IDOR sweep found every S1 Server Action re-checks `requireSt
 
 ### B1 — `is_staff()` escalates on an unverified email claim (live PII read leak)
 
+> **✅ CODE FIXED** in `supabase/migrations/20260622000000_is_staff_email_verified.sql` — the RLS email
+> branch now matches via a `staff_session_email_match()` SECURITY DEFINER helper that reads `auth.users`
+> for the current `auth.uid()` and requires the email be **confirmed** _and_ from a **provider-verified
+> OAuth identity** (`provider <> 'email'`), never the spoofable JWT `email` claim. Verified on the local
+> stack (provisioned-uid ✓ · confirmed-Google email-match ✓ · email/password auto-confirm attacker ✗ ·
+> unconfirmed ✗ · stranger ✗). **⚠️ Still requires the Min config backstop** (below) — under
+> email-confirmations-OFF, GoTrue auto-confirms email/password signups, so `provider <> 'email'` is what
+> blocks them at the RLS layer; the binding control is disabling public email signup / confirmations ON.
+
 **Where:** `supabase/migrations/20260621120000_staff_oauth_email.sql:18-27` (`is_staff` / `is_staff_at_least`),
 folded into the SELECT RLS on `table_sessions`/`session_members`/`qr_carts`/`qr_cart_items`/`qr_orders`/
 `qr_order_items` (`20260621100000_staff_identity.sql:56-65`), the floor Realtime read (`20260621140000`),

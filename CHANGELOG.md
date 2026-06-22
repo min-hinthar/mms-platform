@@ -4,6 +4,25 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed — S1 audit B1: `is_staff()` unverified-email RLS escalation (2026-06-22)
+
+The S1 retrospective audit ([`docs/S1_AUDIT.md`](docs/S1_AUDIT.md)) found the SQL `is_staff()` /
+`is_staff_at_least()` email-allowlist branch trusted the **raw JWT `email` claim** with no verification —
+and because RLS/Realtime evaluate it **directly** (bypassing the app's `getStaffAuth` `email_confirmed_at`
+check), a session asserting a provisioned staff email could **read every active table's diner data + the
+staff roster**. Writes were never exposed (mutations go through `requireStaff`).
+
+- **Fix** (`20260622000000_is_staff_email_verified.sql`): the email branch now resolves through a
+  `staff_session_email_match()` SECURITY DEFINER helper that reads `auth.users` for the current
+  `auth.uid()` and requires the email be **confirmed** (`email_confirmed_at`) **and** from a
+  provider-verified **OAuth** identity (`provider <> 'email'`) — never the spoofable claim. Provisioned +
+  bootstrapped staff (and OTP sign-ins into their pre-created user) still match by `user_id = auth.uid()`,
+  unaffected. Verified on the local stack across five identity scenarios; types regenerated; gate green.
+- **⚠️ Binding backstop is live auth config (Min):** disable public email/password signup (staff are
+  admin-provisioned; diners use anonymous sign-in) **or** turn email confirmations ON, and restrict the
+  Google provider to the workspace domain with automatic cross-provider linking off. Under
+  confirmations-OFF auto-confirm, the `provider <> 'email'` guard is what holds the RLS layer.
+
 ### Added — S1.4 soft convergence (one-tap table merge) (2026-06-21)
 
 The recovery for a double-order (a guest scans **and** tells the server). The ORDER-MODEL convergence is
