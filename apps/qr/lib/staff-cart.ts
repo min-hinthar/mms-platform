@@ -184,54 +184,57 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
     };
   }
 
-  // Authoritative breakdown (cents), tip=0 for cash. The RPC re-derives the subtotal from the live
-  // lines and reconciles it against this — a diner racing the settle raises instead of recording stale.
-  const totals = await getCartTotals(cart.id, 0);
-  const { data: orderId, error } = await db.rpc("mms_fulfill_cash_order", {
-    p_cart_id: cart.id,
-    p_settled_by: caller.staffId,
-    p_subtotal_cents: totals.subtotalCents,
-    p_discount_cents: totals.discountCents,
-    p_service_charge_cents: totals.serviceChargeCents,
-    p_tax_cents: totals.taxCents,
-    p_tip_cents: 0,
-  });
-  if (error || !orderId) {
-    // Free the freeze so the table isn't stranded; the cart is still open (the RPC raised/flipped nothing).
-    await releaseSettlement(cart.id);
-    console.error("[staff-cart] mms_fulfill_cash_order failed", {
-      sessionId,
-      cartId: cart.id,
-      message: error?.message,
+  // Hold the freeze across totals + settle, and ALWAYS release it in `finally` — a throw from
+  // getCartTotals (or anywhere below) must never strand the table frozen for the 10-min TTL. Releasing
+  // on the success path too is harmless (the cart is already 'paid', which blocks pays regardless).
+  try {
+    // Authoritative breakdown (cents), tip=0 for cash. The RPC re-derives the subtotal from the live
+    // lines and reconciles it against this — a diner racing the settle raises instead of recording stale.
+    const totals = await getCartTotals(cart.id, 0);
+    const { data: orderId, error } = await db.rpc("mms_fulfill_cash_order", {
+      p_cart_id: cart.id,
+      p_settled_by: caller.staffId,
+      p_subtotal_cents: totals.subtotalCents,
+      p_discount_cents: totals.discountCents,
+      p_service_charge_cents: totals.serviceChargeCents,
+      p_tax_cents: totals.taxCents,
+      p_tip_cents: 0,
     });
-    // A subtotal-mismatch raise means the cart changed under the settle — steer staff to retry fresh.
-    return { ok: false, error: "Couldn’t settle — the order changed. Check it and try again." };
-  }
-  // Settled (cart is 'paid'); clear the now-moot freeze for cleanliness (a paid cart blocks pays anyway).
-  await releaseSettlement(cart.id);
+    if (error || !orderId) {
+      console.error("[staff-cart] mms_fulfill_cash_order failed", {
+        sessionId,
+        cartId: cart.id,
+        message: error?.message,
+      });
+      // A subtotal-mismatch raise means the cart changed under the settle — steer staff to retry fresh.
+      return { ok: false, error: "Couldn’t settle — the order changed. Check it and try again." };
+    }
 
-  if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
-    after(async () => {
-      try {
-        const ph = getPostHogClient();
-        ph.capture({
-          distinctId: `staff:${caller.staffId}`,
-          event: "staff_settle_cash",
-          properties: {
-            role: caller.role,
-            mode: session.mode,
-            sessionId,
-            total_cents: totals.totalCents,
-            item_count: count ?? 0,
-          },
-        });
-        await ph.flush();
-      } catch {
-        /* analytics best-effort — never fail a settled order on a capture error */
-      }
-    });
+    if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
+      after(async () => {
+        try {
+          const ph = getPostHogClient();
+          ph.capture({
+            distinctId: `staff:${caller.staffId}`,
+            event: "staff_settle_cash",
+            properties: {
+              role: caller.role,
+              mode: session.mode,
+              sessionId,
+              total_cents: totals.totalCents,
+              item_count: count ?? 0,
+            },
+          });
+          await ph.flush();
+        } catch {
+          /* analytics best-effort — never fail a settled order on a capture error */
+        }
+      });
+    }
+    revalidatePath("/staff");
+    revalidatePath(`/staff/table/${sessionId}`);
+    return { ok: true, orderId, totalCents: totals.totalCents };
+  } finally {
+    await releaseSettlement(cart.id);
   }
-  revalidatePath("/staff");
-  revalidatePath(`/staff/table/${sessionId}`);
-  return { ok: true, orderId, totalCents: totals.totalCents };
 }

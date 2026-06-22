@@ -94,7 +94,8 @@ export async function POST(req: NextRequest) {
             {
               payment_intent: intent.id,
               cart_id: cartId,
-              amount_cents: intent.amount ?? null,
+              // the literally-captured amount (== amount for a single-capture succeeded PI)
+              amount_cents: intent.amount_received ?? intent.amount ?? null,
               reason: "card_after_settle",
             },
             { onConflict: "payment_intent", ignoreDuplicates: true },
