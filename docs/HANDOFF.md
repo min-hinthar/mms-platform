@@ -255,8 +255,8 @@ and merged. **B3 + the a11y batch** (RoleBadge AA contrast, sold-out `+`, live-r
 migration). **S2** (cash/merge RPCs session-gated on `table_sessions.status`, `20260622020000`) and **S7**
 (staff-provisioning: generic create-failure message, per-owner `mms_rate_limit`, PostHog audit events)
 close out the audit. **The S1 retrospective audit is now FULLY remediated** — both blockers + all seven
-SHOULD-FIX done. Live migration state: `20260622000000` + `20260622010000` applied; **`20260622020000`
-pending a live apply**. B1's live-config backstop (disable public email signup, workspace-domain Google)
+SHOULD-FIX done. Live migration state: `20260622000000` + `20260622010000` + `20260622020000` all
+applied. B1's live-config backstop (disable public email signup, workspace-domain Google)
 is in "Auth hardening" above — still the binding control there.
 
 **Tracked / deferred (non-blocking, carry forward):**
