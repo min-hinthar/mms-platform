@@ -931,6 +931,10 @@ export type Database = {
         Args: { amount_cents: number; category: string; dine_in: boolean }
         Returns: number
       }
+      mms_merge_table_orders: {
+        Args: { p_source_cart: string; p_target_cart: string }
+        Returns: number
+      }
       mms_pickup_slots: {
         Args: { p_exclude_cart?: string }
         Returns: {

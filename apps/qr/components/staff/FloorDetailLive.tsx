@@ -10,6 +10,7 @@ import { RelativeTime } from "./RelativeTime";
 import { ClearTableButton } from "./ClearTableButton";
 import { StaffLineEditor } from "./StaffLineEditor";
 import { CashSettleButton } from "./CashSettleButton";
+import { MergeTableButton } from "./MergeTableButton";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const MODE_LABEL: Record<TableDetail["mode"], string> = {
@@ -220,6 +221,18 @@ export function FloorDetailLive({
         <p style={{ ...muted, marginTop: "var(--s4)", fontSize: 13 }}>
           A guest is paying on their phone — editing and cash settle are paused until that finishes.
         </p>
+      )}
+
+      {/* Soft convergence (S1.4): fold a double-order into another table. Same gate as a write (open cart,
+          not mid-payment) and only when there's something to move. */}
+      {canWrite && detail.itemCount > 0 && (
+        <section style={{ marginTop: "var(--s4)" }} aria-label="Merge this table">
+          <MergeTableButton
+            sourceSessionId={sessionId}
+            sourceLabel={detail.label}
+            sourceItemCount={detail.itemCount}
+          />
+        </section>
       )}
 
       <section style={{ marginTop: "var(--s5)" }}>

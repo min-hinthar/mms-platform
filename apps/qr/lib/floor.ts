@@ -2,7 +2,7 @@
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { serviceClient } from "@mms/db/server";
-import { clearTableInput } from "@mms/db/schemas";
+import { clearTableInput, mergeTablesInput } from "@mms/db/schemas";
 import { requireStaff } from "./staff";
 import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock";
 import { isFresh, paymentInFlightReason } from "./pay-guard";
@@ -13,6 +13,8 @@ import type {
   FloorSnapshot,
   FloorStatus,
   FloorTable,
+  MergeCandidate,
+  MergeResult,
   TableDetail,
   TableLineView,
   TableMemberView,
@@ -350,4 +352,185 @@ export async function clearTable(raw: unknown): Promise<ClearTableResult> {
   revalidatePath("/staff");
   revalidatePath(`/staff/table/${sessionId}`);
   return { ok: true };
+}
+
+/** Resolve a session's mode/status + its open cart's pay-state in two reads (shared by the merge path).
+ *  Returns nulls when the session is missing/closed or has no open cart. */
+async function resolveOpenCart(db: ReturnType<typeof serviceClient>, sessionId: string) {
+  const { data: session } = await db
+    .from("table_sessions")
+    .select("id,status,mode")
+    .eq("id", sessionId)
+    .maybeSingle();
+  if (!session || session.status === "closed") return { session: null, cart: null };
+  const { data: cart } = await db
+    .from("qr_carts")
+    .select("id,locked,locked_at,settle_at,promo_code")
+    .eq("session_id", sessionId)
+    .eq("status", "open")
+    .maybeSingle();
+  return { session, cart };
+}
+
+/**
+ * Candidate tables the SOURCE table can be merged INTO (S1.4 soft convergence). The system can't
+ * auto-detect that two labels are the same physical table (the sticker qr_code is the only identity and
+ * it's unique per active session), so convergence is an EXPLICIT staff tool over a legible candidate list,
+ * not a fabricated divergence alarm. A valid target: another ACTIVE, non-expired session of the SAME mode
+ * (a cross-mode merge would carry the wrong per-line tax basis — dine-in vs to-go), with an OPEN cart, not
+ * mid-payment (a target being paid can't safely receive lines). Sorted by label for a fast scan.
+ */
+export async function getMergeCandidates(sourceSessionId: string): Promise<MergeCandidate[]> {
+  await requireStaff();
+  if (!UUID_RE.test(sourceSessionId)) return [];
+  const db = serviceClient();
+  const nowIso = new Date().toISOString();
+
+  const { data: source } = await db
+    .from("table_sessions")
+    .select("mode,status")
+    .eq("id", sourceSessionId)
+    .maybeSingle();
+  if (!source || source.status !== "active") return [];
+
+  const { data: sessions } = await db
+    .from("table_sessions")
+    .select("id,qr_code,mode")
+    .eq("status", "active")
+    .eq("mode", source.mode)
+    .gt("expires_at", nowIso)
+    .neq("id", sourceSessionId)
+    .limit(ACTIVE_SESSION_CAP);
+  const sessionIds = (sessions ?? []).map((s) => s.id);
+  if (sessionIds.length === 0) return [];
+
+  const [{ data: carts }, { data: members }] = await Promise.all([
+    db
+      .from("qr_carts")
+      .select("id,session_id,locked,locked_at,settle_at")
+      .in("session_id", sessionIds)
+      .eq("status", "open"),
+    db.from("session_members").select("session_id").in("session_id", sessionIds),
+  ]);
+  const cartBySession = new Map((carts ?? []).map((c) => [c.session_id, c]));
+  const cartIds = (carts ?? []).map((c) => c.id);
+  const { data: lines } = cartIds.length
+    ? await db.from("qr_cart_items").select("cart_id,qty").in("cart_id", cartIds)
+    : { data: [] as { cart_id: string; qty: number }[] };
+  const qtyByCart = new Map<string, number>();
+  for (const l of lines ?? []) qtyByCart.set(l.cart_id, (qtyByCart.get(l.cart_id) ?? 0) + l.qty);
+  const partyBySession = new Map<string, number>();
+  for (const m of members ?? [])
+    partyBySession.set(m.session_id, (partyBySession.get(m.session_id) ?? 0) + 1);
+
+  const candidates: MergeCandidate[] = [];
+  for (const s of sessions ?? []) {
+    const cart = cartBySession.get(s.id);
+    if (!cart) continue; // a target needs an open cart to receive lines
+    // Don't offer a target that's mid-payment — folding lines into a cart being paid would change a
+    // total under the payer (the merge RPC also row-locks + requires 'open', this is the affordance).
+    if (await paymentInFlightReason(cart)) continue;
+    candidates.push({
+      sessionId: s.id,
+      label: s.qr_code,
+      mode: s.mode as MergeCandidate["mode"],
+      itemCount: qtyByCart.get(cart.id) ?? 0,
+      partySize: partyBySession.get(s.id) ?? 0,
+    });
+  }
+  candidates.sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+  return candidates;
+}
+
+/**
+ * One-tap merge of two table orders (S1.4) — the recovery for a double-order (a guest scans AND tells the
+ * server). Folds the SOURCE table's open cart into the TARGET, then closes the source. Any active staff may
+ * merge (a non-loss turnover cleanup, like clear-table — NOT a money-out action, so no manager-PIN; S2's
+ * step-up is reserved for voids/comps/refunds); logged non-PII for the audit. Refused when either side is
+ * closed, lacks an open cart, is a different mode (tax-basis safety), or is mid-payment. The actual move is
+ * the atomic, row-locked mms_merge_table_orders (re-parents server-priced lines — never recomputes a price).
+ */
+export async function mergeTables(raw: unknown): Promise<MergeResult> {
+  const caller = await requireStaff().catch(() => null);
+  if (!caller) return { ok: false, error: "Staff sign-in required." };
+
+  const parsed = mergeTablesInput.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "Invalid request." };
+  const { sourceSessionId, targetSessionId } = parsed.data;
+  if (sourceSessionId === targetSessionId)
+    return { ok: false, error: "Pick a different table to merge into." };
+
+  const db = serviceClient();
+  const [src, tgt] = await Promise.all([
+    resolveOpenCart(db, sourceSessionId),
+    resolveOpenCart(db, targetSessionId),
+  ]);
+  if (!src.session) return { ok: false, error: "That table is already cleared." };
+  if (!tgt.session) return { ok: false, error: "The table you picked is no longer open." };
+  if (!src.cart) return { ok: false, error: "This table has no open order to merge." };
+  if (!tgt.cart) return { ok: false, error: "The table you picked has no open order." };
+  if (src.session.mode !== tgt.session.mode)
+    return { ok: false, error: "Only tables of the same kind can be merged." };
+
+  // A promo code lives on the CART (qr_carts.promo_code), and the discount/tax are re-derived per cart at
+  // settle (lib/totals.ts → mms_promo_discount). Merging moves the lines but can't carry a promo cleanly
+  // (the source code is tied to the closing session + its per-session redemption cap; recomputing the
+  // target's discount off the larger subtotal silently swings the charge either way). So refuse when EITHER
+  // side has a promo — staff removes it, then merges — rather than silently change what a guest pays.
+  if (src.cart.promo_code || tgt.cart.promo_code)
+    return {
+      ok: false,
+      error: "One of these tables has a promo code applied — remove it before merging.",
+    };
+
+  // Refuse if money is moving on EITHER side (shared mutex — lib/pay-guard.ts).
+  const [srcFlight, tgtFlight] = await Promise.all([
+    paymentInFlightReason(src.cart),
+    paymentInFlightReason(tgt.cart),
+  ]);
+  if (srcFlight || tgtFlight)
+    return { ok: false, error: "One of these tables is mid-payment — finish that first." };
+
+  const { data: movedCount, error } = await db.rpc("mms_merge_table_orders", {
+    p_source_cart: src.cart.id,
+    p_target_cart: tgt.cart.id,
+  });
+  if (error || movedCount == null) {
+    console.error("[floor] mms_merge_table_orders failed", {
+      sourceSessionId,
+      targetSessionId,
+      message: error?.message,
+    });
+    // A raise here means a cart flipped out of 'open' under the merge (a race with settle/clear).
+    return { ok: false, error: "Couldn’t merge — a table changed. Check both and try again." };
+  }
+
+  // Logged (non-PII): who (role) merged which two tables and how many units moved. Best-effort via
+  // after() — an analytics outage must never fail a completed merge. Durable two-party audit = S2.
+  if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
+    after(async () => {
+      try {
+        const ph = getPostHogClient();
+        ph.capture({
+          distinctId: `staff:${caller.staffId}`,
+          event: "staff_merge_tables",
+          properties: {
+            role: caller.role,
+            mode: src.session.mode,
+            movedCount,
+            sourceSessionId,
+            targetSessionId,
+          },
+        });
+        await ph.flush();
+      } catch {
+        /* analytics best-effort — never fail the merge on a capture error */
+      }
+    });
+  }
+
+  revalidatePath("/staff");
+  revalidatePath(`/staff/table/${sourceSessionId}`);
+  revalidatePath(`/staff/table/${targetSessionId}`);
+  return { ok: true, movedCount, targetSessionId };
 }

@@ -4,9 +4,9 @@ The originating chat context does not carry across sessions — **this file is t
 Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — decisions, QA gate, rubric,
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
-**M1 + M2 + M3 are complete.** P3.4 abuse limits shipped this session (the migration is on live). **Next
-up: the service-model track — S1 (staff & floor)** — see the build order `M1 → M2 → M3 → S1 → S2 → S3 →
-M4 → S4 → M5 → M6` in `ROADMAP.md` and [`docs/context/ORDER-MODEL.md`](context/ORDER-MODEL.md).
+**M1 + M2 + M3 are complete, and S1 (staff & floor) is complete** (S1.1a/b · S1.2 · S1.3 · S1.4 all shipped).
+**Next up: S2 — line lifecycle & authority** — see the build order `M1 → M2 → M3 → S1 → S2 → S3 → M4 → S4 →
+M5 → M6` in `ROADMAP.md` and [`docs/context/ORDER-MODEL.md`](context/ORDER-MODEL.md).
 
 ## Where we are — M1 + M2 complete (merged)
 
@@ -116,7 +116,7 @@ values ('<uid>','you@…','owner','Min');` → refresh `/staff`.
      bounces/complaints (masked logs) + PII-free PostHog deliverability events. (`RESEND_WEBHOOK` was
      provisioned but the code doesn't consume it — only the signing secret is needed.)
 
-## Next: the service-model track — S1 (staff & floor) — S1.1a + S1.1b + S1.2 + S1.3 SHIPPED
+## S1 (staff & floor) COMPLETE — S1.1a + S1.1b + S1.2 + S1.3 + S1.4 SHIPPED · Next: S2
 
 Per the build order (`M1 → M2 → M3 → S1 → S2 → S3 → M4 → S4 → M5 → M6`) the service-model layer is in
 progress. Read [`docs/context/ORDER-MODEL.md`](context/ORDER-MODEL.md) + the `ROADMAP.md` S-track for the
@@ -205,10 +205,29 @@ local stack (happy/idempotent/mismatch-raise/double-settle-raise); adversarial s
 **⚠️ Apply `20260621150000` to live before merge** — the PR preview shares the live DB, so a
 migration-requiring branch is broken on its preview until the (additive) migration lands on live.
 
-**S1.4 next (soft convergence):** warn on divergence (a new order on a table with a live cart) + **one-tap
-merge** of two table orders (role-gated, logged) + session **expiry** (clear-table already shipped in S1.2).
-Also still open: fold the deferred **`email_verified` gate on the SQL `is_staff` read-surface** (HANDOFF
-"Auth hardening") once the live JWT claim path is confirmed.
+**S1.4 shipped (this session, soft convergence — completes S1):** **one-tap merge** of two table orders —
+`MergeTableButton` on the drill-down → `mergeTables` (lib/floor.ts, `requireStaff` + service-role) → atomic
+`mms_merge_table_orders`. Folds a source table's open order into another (re-parents the **already-server-
+priced** lines — bumps an identical target line, same item + normalized modifier set, when it stays ≤99 else
+re-parents it so **no units drop**; moved lines `by_seat=null`), then cancels the source cart + closes its
+session. **Any active staff** may merge (non-loss turnover cleanup, like clear-table — no manager-PIN; that's
+S2's loss-gate), logged non-PII (`staff_merge_tables`). Refuses a closed/paid table, a **cross-mode** target
+(per-line tax basis is dine-in vs to-go), or either side **mid-payment** (shared `pay-guard`); both carts
+row-locked + must be `open` so a concurrent settle/clear loses the race. **Divergence "warning" is the
+explicit pick-and-confirm tool** — the sticker `qr_code` is unique per active session, so two-labels-one-table
+isn't auto-detectable; no fabricated alarm (ORDER-MODEL §46–50). **Session expiry** already covered
+(`mms_sweep_expired_sessions` pg_cron + `expires_at` floor filter + sliding renewal, P3.4). Migration
+`20260621160000_table_merge.sql` (one SECURITY DEFINER fn, service-role-only); types regenerated; gate green;
+money path verified on the local stack (merge / identical-bump-across-modifier-order / 99-cap re-parent with
+no unit loss / non-open + same-cart raises / grant lockdown); adversarial subagent pre-PR.
+**⚠️ Apply `20260621160000` to live before merge** (the PR preview shares the live DB — same as S1.3).
+
+**Next: S2 — line lifecycle & authority** (per the build order `… S1 → S2 → S3 …`). Read
+[`docs/context/ORDER-MODEL.md`](context/ORDER-MODEL.md) §"edit rights" + §"voids/comps" + §"approvals
+primitive" and the `ROADMAP.md` S2 phases. **S2 must privatize the realtime cart/shares channels before
+adding broadcast** (the tracked KDS-push to-do below). Still open from S1: fold the deferred
+**`email_verified` gate on the SQL `is_staff` read-surface** (HANDOFF "Auth hardening") once the live JWT
+claim path is confirmed.
 
 **Tracked / deferred (non-blocking, carry forward):**
 
