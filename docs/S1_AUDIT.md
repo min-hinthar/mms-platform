@@ -84,6 +84,13 @@ guard, and the HANDOFF undersells it ("only the not-yet-built floor-view read") 
 
 ### B2 — Card-after-cash double-charge (the pay-guard mutex is one-directional)
 
+> **✅ FIXED** in `20260622010000_money_atomicity.sql` + `settleCash` (PR follow-up). `settleCash` now
+> atomically acquires the settlement freeze before deriving totals (bidirectional mutual-exclusion with the
+> card pay-lock); **S1** (`mms_fulfill_order` atomic claim) and **S3** (`qr_refunds_needed` durable
+> recovery ledger) landed in the same change. It also **restored two regressions** S1.3 had introduced when
+> it redefined `mms_fulfill_order`: the `pickup_slot`/`fire_at` copy and the `mms_promo_consume` call (and
+> added promo-consume to the cash twin). Verified on the local stack; live apply tracked.
+
 **Where:** `apps/qr/lib/staff-cart.ts:145-188` (`settleCash`), `apps/qr/app/api/stripe/create-intent/route.ts`,
 `apps/qr/lib/pay-guard.ts:35-52`.
 

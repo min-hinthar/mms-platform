@@ -8,6 +8,7 @@ import { lineTax } from "./tax";
 import { getCartTotals } from "./totals";
 import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
 import { paymentInFlightReason } from "./pay-guard";
+import { acquireSettlement, releaseSettlement } from "./lock";
 import { getPostHogClient } from "./posthog-server";
 
 /**
@@ -165,6 +166,24 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
     .eq("cart_id", cart.id);
   if ((count ?? 0) === 0) return { ok: false, error: "There’s nothing on this table to settle." };
 
+  // ATOMICALLY freeze the table before deriving totals (S1-audit B2). The early paymentInFlightReason
+  // check above is a fast read; this is the race-closing claim. acquireSettlement flips settle_at only
+  // when the cart is open AND `locked=false` — so a card pay already holding the single-pay lock makes
+  // this fail (refuse), and once WE hold the freeze a concurrent create-intent's acquireCartLock (which
+  // requires settle_at null/stale) can't start. Without this, a diner could begin + capture a card
+  // payment during the getCartTotals→RPC window and the late webhook would orphan that charge.
+  // Keyed by the staff session uid (provenance; re-acquire by the same staff is idempotent).
+  const freeze = await acquireSettlement(cart.id, caller.uid);
+  if (freeze !== "acquired") {
+    return {
+      ok: false,
+      error:
+        freeze === "closed"
+          ? "That table is no longer open."
+          : "Someone’s already paying on their phone — wait for that to finish.",
+    };
+  }
+
   // Authoritative breakdown (cents), tip=0 for cash. The RPC re-derives the subtotal from the live
   // lines and reconciles it against this — a diner racing the settle raises instead of recording stale.
   const totals = await getCartTotals(cart.id, 0);
@@ -178,6 +197,8 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
     p_tip_cents: 0,
   });
   if (error || !orderId) {
+    // Free the freeze so the table isn't stranded; the cart is still open (the RPC raised/flipped nothing).
+    await releaseSettlement(cart.id);
     console.error("[staff-cart] mms_fulfill_cash_order failed", {
       sessionId,
       cartId: cart.id,
@@ -186,6 +207,8 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
     // A subtotal-mismatch raise means the cart changed under the settle — steer staff to retry fresh.
     return { ok: false, error: "Couldn’t settle — the order changed. Check it and try again." };
   }
+  // Settled (cart is 'paid'); clear the now-moot freeze for cleanliness (a paid cart blocks pays anyway).
+  await releaseSettlement(cart.id);
 
   if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
     after(async () => {

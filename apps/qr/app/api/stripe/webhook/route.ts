@@ -87,6 +87,23 @@ export async function POST(req: NextRequest) {
             paymentIntent: intent.id,
             cartStatus: cartRow.status,
           });
+          // Durable recovery ledger (S1-audit S3): the card was CAPTURED but no order is recorded, so a
+          // log alone strands the customer's money. Record it for an operator / S4.3 auto-refund.
+          // Idempotent on the PI (the webhook may redeliver); best-effort — never fail the 200 ack on it.
+          const { error: refundErr } = await db.from("qr_refunds_needed").upsert(
+            {
+              payment_intent: intent.id,
+              cart_id: cartId,
+              amount_cents: intent.amount ?? null,
+              reason: "card_after_settle",
+            },
+            { onConflict: "payment_intent", ignoreDuplicates: true },
+          );
+          if (refundErr)
+            console.error("[stripe webhook] failed to record refund-needed", {
+              paymentIntent: intent.id,
+              message: refundErr.message,
+            });
           posthog.capture({
             distinctId: cartId,
             event: "double_tender_card_after_settle",

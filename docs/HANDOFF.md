@@ -244,10 +244,13 @@ reason; cooked/refund/over-ceiling = **manager-PIN step-up**, reusing `mms_staff
 **approvals primitive + in-person manager-PIN + durable audit** now, **defer owner-remote-approve/SMS**.
 **Still-open (in S2_DESIGN §Open decisions):** manager-PIN resolution model, KDS-as-console-view, ceiling
 values, undo-grace length. **A full S1 retrospective audit shipped — [`docs/S1_AUDIT.md`](S1_AUDIT.md)** (4
-parallel specialist agents): B1 (`is_staff()` unverified-email RLS escalation) is now **code-fixed**
-(`20260622000000`) — its live-config backstop is in "Auth hardening" above; **B2** (card-after-cash
-double-charge) + **B3** (RoleBadge contrast) and ~8 SHOULD-FIX remain open with a prioritized remediation
-order in the audit.
+parallel specialist agents): **B1** (`is_staff()` unverified-email RLS escalation, `20260622000000`) and
+**B2/S1/S3** (card-after-cash double-charge + atomic fulfill claim + `qr_refunds_needed` recovery ledger,
+`20260622010000` — which also restored two S1.3 regressions in `mms_fulfill_order`: the `pickup_slot`/
+`fire_at` copy + the `mms_promo_consume` call) are now **code-fixed**; B1's live-config backstop is in
+"Auth hardening" above. **Remaining open** (prioritized in the audit): **B3** (RoleBadge contrast) + the
+a11y batch (sold-out increment, dual live region, dropped focus) + auth hardening (provisioning oracle/
+rate-limit, send-email timeout). Both migrations need a **live apply** (B1 applied; `20260622010000` pending).
 
 **Tracked / deferred (non-blocking, carry forward):**
 
