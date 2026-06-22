@@ -718,6 +718,44 @@ export type Database = {
           },
         ]
       }
+      qr_refunds_needed: {
+        Row: {
+          amount_cents: number | null
+          cart_id: string | null
+          created_at: string
+          id: string
+          payment_intent: string
+          reason: string
+          resolved: boolean
+        }
+        Insert: {
+          amount_cents?: number | null
+          cart_id?: string | null
+          created_at?: string
+          id?: string
+          payment_intent: string
+          reason: string
+          resolved?: boolean
+        }
+        Update: {
+          amount_cents?: number | null
+          cart_id?: string | null
+          created_at?: string
+          id?: string
+          payment_intent?: string
+          reason?: string
+          resolved?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "qr_refunds_needed_cart_id_fkey"
+            columns: ["cart_id"]
+            isOneToOne: false
+            referencedRelation: "qr_carts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       rate_events: {
         Row: {
           bucket: string

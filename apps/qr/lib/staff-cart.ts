@@ -8,6 +8,7 @@ import { lineTax } from "./tax";
 import { getCartTotals } from "./totals";
 import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
 import { paymentInFlightReason } from "./pay-guard";
+import { acquireSettlement, releaseSettlement } from "./lock";
 import { getPostHogClient } from "./posthog-server";
 
 /**
@@ -165,50 +166,75 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
     .eq("cart_id", cart.id);
   if ((count ?? 0) === 0) return { ok: false, error: "There’s nothing on this table to settle." };
 
-  // Authoritative breakdown (cents), tip=0 for cash. The RPC re-derives the subtotal from the live
-  // lines and reconciles it against this — a diner racing the settle raises instead of recording stale.
-  const totals = await getCartTotals(cart.id, 0);
-  const { data: orderId, error } = await db.rpc("mms_fulfill_cash_order", {
-    p_cart_id: cart.id,
-    p_settled_by: caller.staffId,
-    p_subtotal_cents: totals.subtotalCents,
-    p_discount_cents: totals.discountCents,
-    p_service_charge_cents: totals.serviceChargeCents,
-    p_tax_cents: totals.taxCents,
-    p_tip_cents: 0,
-  });
-  if (error || !orderId) {
-    console.error("[staff-cart] mms_fulfill_cash_order failed", {
-      sessionId,
-      cartId: cart.id,
-      message: error?.message,
-    });
-    // A subtotal-mismatch raise means the cart changed under the settle — steer staff to retry fresh.
-    return { ok: false, error: "Couldn’t settle — the order changed. Check it and try again." };
+  // ATOMICALLY freeze the table before deriving totals (S1-audit B2). The early paymentInFlightReason
+  // check above is a fast read; this is the race-closing claim. acquireSettlement flips settle_at only
+  // when the cart is open AND `locked=false` — so a card pay already holding the single-pay lock makes
+  // this fail (refuse), and once WE hold the freeze a concurrent create-intent's acquireCartLock (which
+  // requires settle_at null/stale) can't start. Without this, a diner could begin + capture a card
+  // payment during the getCartTotals→RPC window and the late webhook would orphan that charge.
+  // Keyed by the staff session uid (provenance; re-acquire by the same staff is idempotent).
+  const freeze = await acquireSettlement(cart.id, caller.uid);
+  if (freeze !== "acquired") {
+    return {
+      ok: false,
+      error:
+        freeze === "closed"
+          ? "That table is no longer open."
+          : "Someone’s already paying on their phone — wait for that to finish.",
+    };
   }
 
-  if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
-    after(async () => {
-      try {
-        const ph = getPostHogClient();
-        ph.capture({
-          distinctId: `staff:${caller.staffId}`,
-          event: "staff_settle_cash",
-          properties: {
-            role: caller.role,
-            mode: session.mode,
-            sessionId,
-            total_cents: totals.totalCents,
-            item_count: count ?? 0,
-          },
-        });
-        await ph.flush();
-      } catch {
-        /* analytics best-effort — never fail a settled order on a capture error */
-      }
+  // Hold the freeze across totals + settle, and ALWAYS release it in `finally` — a throw from
+  // getCartTotals (or anywhere below) must never strand the table frozen for the 10-min TTL. Releasing
+  // on the success path too is harmless (the cart is already 'paid', which blocks pays regardless).
+  try {
+    // Authoritative breakdown (cents), tip=0 for cash. The RPC re-derives the subtotal from the live
+    // lines and reconciles it against this — a diner racing the settle raises instead of recording stale.
+    const totals = await getCartTotals(cart.id, 0);
+    const { data: orderId, error } = await db.rpc("mms_fulfill_cash_order", {
+      p_cart_id: cart.id,
+      p_settled_by: caller.staffId,
+      p_subtotal_cents: totals.subtotalCents,
+      p_discount_cents: totals.discountCents,
+      p_service_charge_cents: totals.serviceChargeCents,
+      p_tax_cents: totals.taxCents,
+      p_tip_cents: 0,
     });
+    if (error || !orderId) {
+      console.error("[staff-cart] mms_fulfill_cash_order failed", {
+        sessionId,
+        cartId: cart.id,
+        message: error?.message,
+      });
+      // A subtotal-mismatch raise means the cart changed under the settle — steer staff to retry fresh.
+      return { ok: false, error: "Couldn’t settle — the order changed. Check it and try again." };
+    }
+
+    if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
+      after(async () => {
+        try {
+          const ph = getPostHogClient();
+          ph.capture({
+            distinctId: `staff:${caller.staffId}`,
+            event: "staff_settle_cash",
+            properties: {
+              role: caller.role,
+              mode: session.mode,
+              sessionId,
+              total_cents: totals.totalCents,
+              item_count: count ?? 0,
+            },
+          });
+          await ph.flush();
+        } catch {
+          /* analytics best-effort — never fail a settled order on a capture error */
+        }
+      });
+    }
+    revalidatePath("/staff");
+    revalidatePath(`/staff/table/${sessionId}`);
+    return { ok: true, orderId, totalCents: totals.totalCents };
+  } finally {
+    await releaseSettlement(cart.id);
   }
-  revalidatePath("/staff");
-  revalidatePath(`/staff/table/${sessionId}`);
-  return { ok: true, orderId, totalCents: totals.totalCents };
 }

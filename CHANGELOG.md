@@ -4,6 +4,34 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed — S1 audit B2/S1/S3: money atomicity + fulfillment completeness (2026-06-22)
+
+Closes the audit's second blocker (the card-after-cash double-charge) plus the fulfill-claim TOCTOU and
+the stranded-charge recovery gap — and restores two behaviors a prior redefinition had silently dropped.
+
+- **B2 — card-after-cash double-charge** (`apps/qr/lib/staff-cart.ts`): `settleCash` now **atomically
+  acquires the settlement freeze** (`acquireSettlement`) before deriving totals, releasing it on every
+  exit. `acquireSettlement` flips `settle_at` only when the cart is open **and** `locked=false`, and
+  `acquireCartLock` already requires `settle_at` null/stale — so cash and card are now mutually exclusive
+  in **both** directions. Previously a diner could begin + capture a card payment during the
+  `getCartTotals→RPC` window, and the late webhook would orphan that charge.
+- **S1 — atomic fulfill claim** (`mms_fulfill_order`): replaced the non-atomic `exists(open)` check +
+  separate trailing `update` with a single `update … set status='paid' where status='open' returning
+session_id` claim (parity with the cash twin) — closing the TOCTOU where a concurrent cash settle
+  between the two statements could double-record.
+- **Regression fixes (introduced by S1.3's redefinition of `mms_fulfill_order`):** restored the cart's
+  **`pickup_slot`/`fire_at` copy** onto the order (broke `/track`'s pickup ETA + the S2 KDS `fire_at`
+  seam for card orders) and the **`mms_promo_consume` call** at fulfillment (promo redemptions weren't
+  recorded → per-session/global caps under-counted). Added promo-consume to the **cash** twin too, for
+  cap integrity on a cash-settled promo cart.
+- **S3 — durable refund-needed ledger** (`qr_refunds_needed`, migration `20260622010000`): on the
+  cross-tender branch the webhook now records the captured-but-orphaned PI (idempotent on the PI,
+  best-effort) so an operator / S4.3 auto-refund has a recovery surface — telemetry alone stranded the
+  charge. Service-role-only (default-deny RLS).
+- Money path verified on the local stack (atomic claim · idempotent-on-PI · cross-tender raise → 1 order ·
+  pickup_slot/fire_at copied · promo redemption recorded · ledger default-deny); types regenerated; gate
+  green. **Needs a live migration apply** (additive/idempotent).
+
 ### Fixed — S1 audit B1: `is_staff()` unverified-email RLS escalation (2026-06-22)
 
 The S1 retrospective audit ([`docs/S1_AUDIT.md`](docs/S1_AUDIT.md)) found the SQL `is_staff()` /
