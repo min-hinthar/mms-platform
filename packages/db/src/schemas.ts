@@ -233,6 +233,35 @@ export const mergeTablesInput = z.object({
   targetSessionId: uuid,
 });
 
+/**
+ * voidLine (S2.3) — a staff member voids (cancels) or comps (free, kitchen still makes it) a line on the
+ * table's open order. The loss gate (cooked? over-ceiling? comp?) is derived SERVER-side from the line's
+ * state + value — NEVER from the client — so this only shapes the request: which line, the action, a
+ * bounded reason code, and (for the gated path) the manager the server picked + that manager's PIN. The
+ * PIN is verified server-side (mms_staff_verify_pin, lockout-counted); a `server`-role approver is
+ * rejected even with a correct PIN. The client never asserts an amount or whether approval is needed.
+ */
+export const voidLineInput = z.object({
+  sessionId: uuid,
+  cartItemId: uuid,
+  action: z.enum(["void", "comp"]),
+  reason: z.enum([
+    "mistake", // wrong item / ordered by error
+    "kitchen_error", // kitchen made it wrong
+    "quality", // guest unhappy with the item
+    "guest_request", // guest changed their mind
+    "service_recovery", // comp to make good on a problem
+    "other",
+  ]),
+  // Present only for the manager-PIN step-up: the manager the initiating server tapped + their PIN.
+  approverStaffId: uuid.optional(),
+  pin: z
+    .string()
+    .regex(/^\d{4,8}$/)
+    .optional(),
+});
+
+export type VoidLineInput = z.infer<typeof voidLineInput>;
 export type SetStaffPinInput = z.infer<typeof setStaffPinInput>;
 export type VerifyStaffPinInput = z.infer<typeof verifyStaffPinInput>;
 export type SetStaffActiveInput = z.infer<typeof setStaffActiveInput>;

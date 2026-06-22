@@ -219,7 +219,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetail | n
   if (cart) {
     const { data: items } = await db
       .from("qr_cart_items")
-      .select("id,name,qty,unit_price_cents,by_seat,created_at,menu_item_id")
+      .select("id,name,qty,unit_price_cents,by_seat,created_at,menu_item_id,state,comped")
       .eq("cart_id", cart.id)
       .order("created_at", { ascending: true });
     // Resolve which lines are 86'd so the editor can hide the "+" (S1-audit S4). One extra read on the
@@ -246,9 +246,14 @@ export async function getTableDetail(sessionId: string): Promise<TableDetail | n
       unitPriceCents: i.unit_price_cents,
       bySeatName: i.by_seat ? (nameBySeat.get(i.by_seat) ?? null) : null,
       soldOut: i.menu_item_id ? soldOutIds.has(i.menu_item_id) : false,
+      state: (i.state ?? "draft") as TableLineView["state"],
+      comped: i.comped ?? false,
     }));
-    itemCount = lines.reduce((a, l) => a + l.qty, 0);
-    runningSubtotalCents = lines.reduce((a, l) => a + l.unitPriceCents * l.qty, 0);
+    // Count + running subtotal reflect what's CHARGEABLE — a voided/comped line shows on the drill-down
+    // (as a removed/comped row) but isn't part of the "so far" total or the settle amount.
+    const chargeable = lines.filter((l) => l.state !== "voided" && !l.comped);
+    itemCount = chargeable.reduce((a, l) => a + l.qty, 0);
+    runningSubtotalCents = chargeable.reduce((a, l) => a + l.unitPriceCents * l.qty, 0);
     // Latest line add = last activity (items are sorted ascending; qr_carts.updated_at isn't bumped).
     lastLineAt = items && items.length ? (items[items.length - 1]?.created_at ?? null) : null;
   }

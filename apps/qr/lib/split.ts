@@ -129,10 +129,13 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
     .select("seat_id,created_at")
     .eq("session_id", sessionId)
     .order("created_at", { ascending: true });
-  const { data: lines } = await db
+  const { data: lineRows } = await db
     .from("qr_cart_items")
-    .select("by_seat,qty,unit_price_cents,tax_cents")
+    .select("by_seat,qty,unit_price_cents,tax_cents,state,comped")
     .eq("cart_id", id);
+  // A voided/comped line is charged at $0 (S2.3) — exclude it so no seat pays a share of a removed/comped
+  // item. The grand total (getCartTotals) applies the same exclusion, so the shares still reconcile to it.
+  const lines = (lineRows ?? []).filter((l) => l.state !== "voided" && !l.comped);
 
   const breakdowns = deriveShareBreakdowns(
     {
@@ -142,7 +145,7 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
       taxCents: grand.taxCents,
     },
     (members ?? []).map((mm) => ({ seat: mm.seat_id })),
-    (lines ?? []).map((l) => ({
+    lines.map((l) => ({
       bySeat: l.by_seat ?? null,
       qty: l.qty,
       unitPriceCents: l.unit_price_cents,

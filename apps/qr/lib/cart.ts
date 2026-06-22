@@ -360,7 +360,9 @@ export async function getCartView(cartId: string): Promise<{
   const { data: cart } = await db.from("qr_carts").select("pickup_slot").eq("id", id).single();
   const { data: rows } = await db
     .from("qr_cart_items")
-    .select("id,menu_item_id,name,qty,modifiers,unit_price_cents,tax_cents,by_seat,state,fire_at")
+    .select(
+      "id,menu_item_id,name,qty,modifiers,unit_price_cents,tax_cents,by_seat,state,fire_at,comped",
+    )
     .eq("cart_id", id)
     .order("created_at", { ascending: true });
   // Resolve which lines are now 86'd so the cart can disable their "+" (QA §D sold-out trap — a peer
@@ -393,6 +395,9 @@ export async function getCartView(cartId: string): Promise<{
     // served line shows its state + "Ask a server" (the server enforces the same rule via canMutateLine).
     lineState: (r.state ?? "draft") as LineState,
     fireAt: r.fire_at ?? null,
+    // Comped (S2.3): the kitchen still makes it but the guest isn't charged — the cart shows a "Comped"
+    // chip and the totals (getCartTotals) exclude it. Distinct from 'voided' (removed entirely).
+    comped: r.comped ?? false,
   }));
   return {
     items,

@@ -167,6 +167,78 @@ export type Database = {
           },
         ]
       }
+      mms_approvals: {
+        Row: {
+          amount_cents: number
+          approver_staff_id: string | null
+          cart_id: string | null
+          cooked: boolean
+          created_at: string
+          id: string
+          initiator_staff_id: string
+          kind: string
+          line_id: string | null
+          line_name: string | null
+          qty: number | null
+          reason_code: string
+          session_id: string | null
+          status: string
+        }
+        Insert: {
+          amount_cents?: number
+          approver_staff_id?: string | null
+          cart_id?: string | null
+          cooked?: boolean
+          created_at?: string
+          id?: string
+          initiator_staff_id: string
+          kind: string
+          line_id?: string | null
+          line_name?: string | null
+          qty?: number | null
+          reason_code: string
+          session_id?: string | null
+          status?: string
+        }
+        Update: {
+          amount_cents?: number
+          approver_staff_id?: string | null
+          cart_id?: string | null
+          cooked?: boolean
+          created_at?: string
+          id?: string
+          initiator_staff_id?: string
+          kind?: string
+          line_id?: string | null
+          line_name?: string | null
+          qty?: number | null
+          reason_code?: string
+          session_id?: string | null
+          status?: string
+        }
+        Relationships: []
+      }
+      mms_loss_config: {
+        Row: {
+          id: boolean
+          max_loss_cents: number
+          max_loss_percent: number
+          updated_at: string
+        }
+        Insert: {
+          id?: boolean
+          max_loss_cents?: number
+          max_loss_percent?: number
+          updated_at?: string
+        }
+        Update: {
+          id?: boolean
+          max_loss_cents?: number
+          max_loss_percent?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       modifier_groups: {
         Row: {
           created_at: string
@@ -430,6 +502,7 @@ export type Database = {
         Row: {
           by_seat: string | null
           cart_id: string
+          comped: boolean
           created_at: string
           fire_at: string | null
           id: string
@@ -444,6 +517,7 @@ export type Database = {
         Insert: {
           by_seat?: string | null
           cart_id: string
+          comped?: boolean
           created_at?: string
           fire_at?: string | null
           id?: string
@@ -458,6 +532,7 @@ export type Database = {
         Update: {
           by_seat?: string | null
           cart_id?: string
+          comped?: boolean
           created_at?: string
           fire_at?: string | null
           id?: string
@@ -1050,6 +1125,16 @@ export type Database = {
         Returns: boolean
       }
       mms_undo_fire: { Args: { p_cart_id: string }; Returns: number }
+      mms_void_line: {
+        Args: {
+          p_action: string
+          p_approver?: string
+          p_initiator: string
+          p_line: string
+          p_reason: string
+        }
+        Returns: string
+      }
       staff_session_email_match: { Args: { p_email: string }; Returns: boolean }
     }
     Enums: {
