@@ -155,7 +155,7 @@ export async function setStaffActive(raw: unknown): Promise<StaffActionResult> {
     .eq("user_id", parsed.data.userId);
   if (error) return { ok: false, error: "Couldn’t update that member. Try again." };
 
-  auditStaffAction(parsed.data.active ? "staff_reactivated" : "staff_deactivated", caller.uid, {
+  auditStaffAction(parsed.data.active ? "staff_reactivated" : "staff_deactivated", caller.staffId, {
     target_user_id: parsed.data.userId,
   });
 
