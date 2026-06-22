@@ -222,12 +222,26 @@ money path verified on the local stack (merge / identical-bump-across-modifier-o
 no unit loss / non-open + same-cart raises / grant lockdown); adversarial subagent pre-PR.
 **⚠️ Apply `20260621160000` to live before merge** (the PR preview shares the live DB — same as S1.3).
 
-**Next: S2 — line lifecycle & authority** (per the build order `… S1 → S2 → S3 …`). Read
-[`docs/context/ORDER-MODEL.md`](context/ORDER-MODEL.md) §"edit rights" + §"voids/comps" + §"approvals
-primitive" and the `ROADMAP.md` S2 phases. **S2 must privatize the realtime cart/shares channels before
-adding broadcast** (the tracked KDS-push to-do below). Still open from S1: fold the deferred
-**`email_verified` gate on the SQL `is_staff` read-surface** (HANDOFF "Auth hardening") once the live JWT
-claim path is confirmed.
+**Next: S2 — line lifecycle & authority.** A full pre-build adversarial design review is in
+[`docs/S2_DESIGN.md`](S2_DESIGN.md) (threat model per phase, the new money/auth/RLS surface, the build-order
+PR slices). Read it + [`docs/context/ORDER-MODEL.md`](context/ORDER-MODEL.md) §"edit rights"/"voids"/"approvals"
+before building. **Three load-bearing seams it surfaces:**
+
+- **The line lifecycle is PRE-settlement** — it lives on `qr_cart_items` (the open cart _is_ the table order
+  until settle), NOT `qr_orders` (`/track` is post-pay). Dine-in fires food before payment.
+- **`canMutateLine` is diner-only today** (`"host"|"guest"`, `LineState="draft"`) and its post-draft branch is
+  a placeholder returning `actorRole==="host"` — **wrong for S2** (a diner host is not staff). Making **staff a
+  first-class actor** in that gate is the #1 thing to get right; post-fire editing is staff-only.
+- **KDS broadcast needs the `cart:*` channel privatized first** (`{private:true}` + a `realtime.messages`
+  policy); recommend shipping the **v1 KDS on `postgres_changes`** (no broadcast, no new policy) to avoid it.
+  And **unify the fire timer** — consume the existing `fire_at` (pickup) for dine-in immediate-fire too.
+
+**Confirmed decisions (Min):** loss gate = **cooked-vs-uncooked + a ceiling** (uncooked void = server-solo +
+reason; cooked/refund/over-ceiling = **manager-PIN step-up**, reusing `mms_staff_verify_pin`); S2.4 = build the
+**approvals primitive + in-person manager-PIN + durable audit** now, **defer owner-remote-approve/SMS**.
+**Still-open (in S2_DESIGN §Open decisions):** manager-PIN resolution model, KDS-as-console-view, ceiling
+values, undo-grace length. Also carry-over from S1: the deferred **`email_verified` gate on the SQL `is_staff`
+read-surface** (HANDOFF "Auth hardening").
 
 **Tracked / deferred (non-blocking, carry forward):**
 

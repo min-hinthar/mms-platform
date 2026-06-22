@@ -116,14 +116,14 @@ The door for humans; the single-source-of-truth across channels. **Dep:** M1 (le
 
 ### ⬜ S2 — Line lifecycle & authority &nbsp;`milestone:S2`
 
-What lets the kitchen trust the screen + gives loss-controlled undo. **Dep:** S1 (staff roles) · a KDS fire signal.
+What lets the kitchen trust the screen + gives loss-controlled undo. **Dep:** S1 (staff roles) · a KDS fire signal. **Pre-build adversarial design review + hardening + PR slices: [`docs/S2_DESIGN.md`](docs/S2_DESIGN.md).**
 
-- **S2.1** Line-state machine **draft → fired → in-progress → served → settled** + KDS fire/bump; grocery lines lock at **payment**, not fire. ⬜
-- **S2.2** Post-fire edit rights — customer "Remove" becomes **"Ask server"**; ~5s **undo** grace before the ticket hits the KDS; enforced server-side via `canMutate(line_state, actor_role)`. ⬜
-- **S2.3** **Voids/comps — loss-gated:** uncooked = server-solo + reason; cooked / money-out refund = **manager-PIN step-up** (per-person, server-verified, rate-limited); two-party audit. ⬜
-- **S2.4** **Approvals primitive** (`request → notify → approve/deny → audit`) + **owner remote-approve** (async; safe-default on timeout; two approvers + SMS; one-glance push). Void is consumer #1. ⬜
+- **S2.1** Line-state machine **draft → fired → in-progress → served → settled** + KDS fire/bump; grocery lines lock at **payment**, not fire. ⬜ _Lives on `qr_cart_items` (PRE-settlement — the open cart is the table order until settle), not `qr_orders`. Transitions = atomic status-guarded RPC (`mms_line_transition`, legal-edge graph in SQL, parent-cart-`open` guard); **`canMutateLine` gains staff as a first-class actor** (post-fire = staff-only — the current `"host"` placeholder is a diner role, not staff). KDS v1 on `postgres_changes` (no broadcast); **unify the existing `fire_at`** (dine-in fires now, pickup `slot−prep`)._
+- **S2.2** Post-fire edit rights — customer "Remove" becomes **"Ask server"**; ~5s **undo** grace before the ticket hits the KDS; enforced server-side via `canMutate(line_state, actor_role)`. ⬜ _Undo modeled as `fire_at = now()+grace` (server-clocked): the KDS only pulls `fire_at ≤ now`, so undo within grace is a clean `fired→draft` the kitchen never saw; after, removal routes through a void._
+- **S2.3** **Voids/comps — loss-gated:** uncooked = server-solo + reason; cooked / money-out refund = **manager-PIN step-up** (per-person, server-verified, rate-limited — reuses `mms_staff_verify_pin`); two-party audit. ⬜ _Decided: **cooked-vs-uncooked + a ceiling** (cooked derived server-side from line state; discount/override over a tunable ceiling also gated; a `server`-role PIN is rejected for a loss action). Refund of an already-captured line is **gated+audited here, executed in S4.3** (`charge.refunded` unhandled today). First **durable** audit table._
+- **S2.4** **Approvals primitive** (`request → notify → approve/deny → audit`), void as consumer #1. ⬜ _Decided: build the primitive + **in-person manager-PIN** approve/deny + durable two-party audit now; states default-safe (`void_pending`, never auto-approve on timeout). **Owner remote-approve (push/SMS, two approvers, fail-to-safe) DEFERRED** to a follow-up — needs an SMS/push provider (a Min config step)._
 
-**Exit:** a fired ticket can't be silently mutated by a guest; a cooked-item comp needs manager-PIN or owner remote-approve; every void is two-party logged.
+**Exit:** a fired ticket can't be silently mutated by a guest; a cooked-item comp needs manager-PIN (owner remote-approve is the deferred follow-up); every void is two-party logged in a durable audit.
 
 ### ⬜ S3 — Tabs (deferred settlement) &nbsp;`milestone:S3`
 
