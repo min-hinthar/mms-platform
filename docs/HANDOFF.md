@@ -8,18 +8,26 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 **S2 — line lifecycle & authority — is UNDERWAY.** Build order `M1 → M2 → M3 → S1 → S2 → S3 → M4 → S4 →
 M5 → M6` in `ROADMAP.md`; full design + adversarial review in [`docs/S2_DESIGN.md`](S2_DESIGN.md).
 
-> **S2 progress:** **S2.1 shipped (S2.1a + S2.1b).** S2.1a — line-state spine: `qr_cart_items.state`
+> **S2 progress:** **S2.1 + S2.2 shipped.** S2.1a — line-state spine: `qr_cart_items.state`
 > (`draft|fired|in_progress|served|voided`, backfilled `draft`), atomic legal-edge RPC `mms_line_transition`,
 > `canMutateLine` v2 (staff first-class; diner own-draft-only). S2.1b — the kitchen loop: `qr_cart_items.fire_at`
-> (the unified timer) + `mms_fire_cart` (atomic `draft→fired`+`fire_at=now()`, **dine-in only** — grocery
-> `scango`/pickup/non-open all fire 0) + the **KDS console** `/staff/kitchen` (live cross-table fire queue +
-> two-stage Start→Ready bump on the S1.2 `postgres_changes` path) + diner-host & staff **Send to kitchen**.
-> Migrations `20260622030000`, `20260622040000` — **`040000` pending a live apply**. **S2 decisions confirmed**
-> (in `S2_DESIGN.md`): manager taps-name→PIN · console-view KDS · 20%/$20 loss ceiling · **10s** per-batch undo
-> grace. **Next: S2.2** — post-fire "Ask server" (thread the real `line.state` into the diner cart UI to disable
-> the stepper; the server already rejects + gives honest copy) + the ~10s server-clocked undo grace
-> (`fire_at = now() + grace`; the KDS already only pulls `fire_at <= now()`, so undo within grace is a clean
-> `fired→draft` the kitchen never saw).
+> (the unified timer) + `mms_fire_cart` (atomic `draft→fired`, **dine-in only** — grocery `scango`/pickup/non-open
+> all fire 0) + the **KDS console** `/staff/kitchen` (live cross-table fire queue + two-stage Start→Ready bump on
+> the S1.2 `postgres_changes` path) + diner-host & staff **Send to kitchen**. **S2.2 — post-fire "Ask server" +
+> the server-clocked undo grace:** `mms_fire_cart` now stamps `fire_at = now() + 10s` (the grace; the KDS already
+> pulls only `fire_at <= now()`, so a just-sent line is `fired` to the table but invisible to the kitchen until
+> grace elapses); **`mms_undo_fire`** reverses only the **latest in-grace batch** (`fire_at = max(in-grace)`,
+> cart-open+dine-in guarded) — matches the "Undo (Ns)" countdown, never claws back an earlier send; `getCartView`
+> threads the real `state`/`fire_at` into `CartItem` so a fired line shows a state chip ("Ask a server") instead
+> of a stepper (`canMutateLine` keys on real state — fixes the solo-dine-in gap). Migrations `20260622030000`,
+> `20260622040000` applied to live; **`20260622050000` pending a live apply** (the PR preview shares the live
+> DB — apply the additive migration before merge). **S2 decisions
+> confirmed** (in `S2_DESIGN.md`): manager taps-name→PIN · console-view KDS · 20%/$20 loss ceiling · **10s**
+> per-batch undo grace. **Next: S2.3** — loss-gated voids/comps: uncooked (`draft`/in-grace) = server-solo +
+> reason; cooked (`in_progress`/`served`) or over-ceiling (20%/$20) or money-out refund = **manager-PIN step-up**
+> (manager taps name→PIN, `server`-role rejected; reuses `mms_staff_verify_pin`); the first **durable** audit
+> table (`mms_approvals`, append-only) written in-txn with the state flip. Refund of an already-captured line is
+> gated+audited here but **executed in S4.3** (`charge.refunded` unhandled today).
 
 ## Where we are — M1 + M2 complete (merged)
 

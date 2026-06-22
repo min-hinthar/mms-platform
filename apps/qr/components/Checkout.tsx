@@ -624,9 +624,6 @@ function LineStateChip({
   const label = COPY[state];
   return (
     <span
-      // The accessible name spells out the line + that it's no longer diner-editable, so a SR user
-      // reaching this control-slot hears why there's no stepper.
-      aria-label={`${qty > 1 ? `${qty} ` : ""}${name}: ${label}. Ask a server to make changes.`}
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -644,6 +641,24 @@ function LineStateChip({
     >
       <span aria-hidden>{state === "served" ? "✓" : "🔥"}</span>
       {label}
+      {/* The "ask a server" context is REAL (visually-hidden) text, not an aria-label on this
+          non-interactive span (which SRs may drop) — so a SR reaching this control-slot reliably hears
+          why there's no stepper. The visible chip stays compact. */}
+      <span
+        style={{
+          position: "absolute",
+          width: 1,
+          height: 1,
+          padding: 0,
+          margin: -1,
+          overflow: "hidden",
+          clip: "rect(0 0 0 0)",
+          whiteSpace: "nowrap",
+          border: 0,
+        }}
+      >
+        — ask a server to make changes
+      </span>
     </span>
   );
 }

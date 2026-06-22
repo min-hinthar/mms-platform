@@ -4,6 +4,29 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — S2.2: post-fire "Ask server" + server-clocked undo grace (2026-06-22)
+
+Thread the real line state into the diner cart and give the host a 10s undo on a send.
+
+- **`mms_fire_cart` now stamps `fire_at = now() + 10s`** (the undo grace; Min's S2 decision, ORDER-MODEL
+  default 5s). The KDS already reads only `fire_at <= now()` (S2.1b), so a just-sent line is visibly
+  **`fired`** to the table but **invisible to the kitchen** until its grace elapses. Migration
+  `20260622050000`.
+- **`mms_undo_fire(cart)`** — atomic, grace-gated batch `fired→draft` (+ `fire_at=null`): reverses only the
+  **latest in-grace batch** (`fire_at = max(in-grace fire_at)`, cart-`open` + dine-in guarded), so a rapid
+  fire-A-then-fire-B never lets one Undo silently claw back batch A; a line whose grace already passed is
+  left `fired` (the kitchen has it → removal routes to a void, S2.3). INVOKER + service-role-only.
+- **`canMutateLine` now keys on the real `line.state` everywhere** — `getCartView` threads `state` +
+  `fire_at` into `CartItem`; a `draft` line keeps its stepper, a fired/cooking/served line shows a state
+  chip (**"Ask a server"**) in its place. Fixes the solo-dine-in gap where a fired line stayed editable in
+  the UI. `LineState` is now canonical in `@mms/db` (cart + the isomorphic gate share one definition).
+- **"Sent ✓ — Undo (Ns)"** window on the host's send button — counts down to the **server's** deadline
+  (`undoUntil`); Undo re-checks the grace server-side (`expired` ⇒ honest "ask a server"), so a drifted
+  client clock can't extend it. Re-syncs the cart on send/undo (solo dine-in isn't on the realtime channel).
+- **a11y:** state chip ≥44px with a visually-hidden "ask a server" hint (real text, not an `aria-label` on
+  a bare span); the countdown lives in the button label, **not** the live region (no per-second SR flood);
+  focus moves to the heading only when a replaced stepper actually drops focus to `<body>` (B4).
+
 ### Added — S2.1b: fire mechanism + KDS + bump (2026-06-22)
 
 The kitchen loop on the S2.1a spine: send-to-kitchen → live fire queue → two-stage bump.

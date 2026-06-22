@@ -62,7 +62,10 @@ export function SendToKitchenButton({
             kind: "ok",
             text: `Sent to the kitchen — ${res.fired} ${res.fired === 1 ? "item" : "items"} on the way.`,
           });
-          // Open the undo window to the SERVER's deadline (null ⇒ no window shown, still sent).
+          // Open the undo window to the SERVER's deadline (null ⇒ no window shown, still sent). Re-seed
+          // `nowMs` to the same instant so the FIRST painted count is accurate — a long-open cart's
+          // mount-time `nowMs` would otherwise make `remaining` flash too large until the first tick.
+          setNowMs(Date.now());
           setUndoUntil(res.undoUntil ? Date.parse(res.undoUntil) : null);
           onChanged(); // steppers → "Sent to kitchen" chips
         } else {
