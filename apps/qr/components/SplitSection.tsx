@@ -107,7 +107,12 @@ export function SplitSection({
         >
           {items.map((line) => {
             const owner = line.bySeat ?? ctx.members[0]?.seat ?? ctx.mySeat;
-            const canAssign = canMutateLine("draft", ctx.myRole, line.bySeat === ctx.mySeat);
+            // UI hint only (server enforces real state); split lines are pre-fire 'draft' (S2.2 threads it).
+            const canAssign = canMutateLine("draft", {
+              kind: "diner",
+              role: ctx.myRole,
+              isOwner: line.bySeat === ctx.mySeat,
+            });
             const ownerMember = ctx.members.find((m) => m.seat === owner);
             const ownerName = !ownerMember
               ? "Guest"

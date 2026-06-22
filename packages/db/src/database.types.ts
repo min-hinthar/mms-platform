@@ -436,6 +436,7 @@ export type Database = {
           modifiers: Json
           name: string
           qty: number
+          state: string
           tax_cents: number
           unit_price_cents: number
         }
@@ -448,6 +449,7 @@ export type Database = {
           modifiers?: Json
           name: string
           qty: number
+          state?: string
           tax_cents?: number
           unit_price_cents: number
         }
@@ -460,6 +462,7 @@ export type Database = {
           modifiers?: Json
           name?: string
           qty?: number
+          state?: string
           tax_cents?: number
           unit_price_cents?: number
         }
@@ -967,6 +970,10 @@ export type Database = {
       }
       mms_line_tax: {
         Args: { amount_cents: number; category: string; dine_in: boolean }
+        Returns: number
+      }
+      mms_line_transition: {
+        Args: { p_line: string; p_to: string }
         Returns: number
       }
       mms_merge_table_orders: {

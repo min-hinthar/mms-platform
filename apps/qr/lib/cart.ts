@@ -79,15 +79,15 @@ export async function addItem(cartId: string, menuItemId: string, modifierIds: s
 
 export async function setQty(cartItemId: string, qty: number) {
   const input = setQtyInput.parse({ cartItemId, qty });
-  const { cartId, locked, settling, role, lineSeat, uid } = await assertCartItemMember(
+  const { cartId, locked, settling, role, lineSeat, lineState, uid } = await assertCartItemMember(
     input.cartItemId,
   );
   await assertMutationRate(uid); // per-device flood guard (P3.4)
   if (locked) throw new Error("Order is locked while someone checks out");
   if (settling) throw new Error("The table is settling up — you can’t edit while everyone pays");
-  // canMutate (M3·P3.3a): the host may change/remove any line; a guest only their own (cross-owner
-  // guard). The UI disables the control too, but this is the server-side enforcement.
-  if (!canMutateLine("draft", role, lineSeat === uid))
+  // canMutate (M3·P3.3a → S2.1a): a diner may change/remove only an OWN, still-'draft' line (host any
+  // draft; guest own). Once fired, editing is staff-only — server enforcement (the UI disables it too).
+  if (!canMutateLine(lineState, { kind: "diner", role, isOwner: lineSeat === uid }))
     throw new Error("Only the host can change someone else’s item");
   const db = serviceClient();
   // Status-atomic set/delete (qty<=0 removes) — applies only while the parent cart is 'open' in one
@@ -111,13 +111,12 @@ export async function setQty(cartItemId: string, qty: number) {
  */
 export async function assignLine(cartItemId: string, seatId: string) {
   const input = assignLineInput.parse({ cartItemId, seatId });
-  const { cartId, sessionId, locked, settling, role, lineSeat, uid } = await assertCartItemMember(
-    input.cartItemId,
-  );
+  const { cartId, sessionId, locked, settling, role, lineSeat, lineState, uid } =
+    await assertCartItemMember(input.cartItemId);
   await assertMutationRate(uid); // per-device flood guard (P3.4)
   if (locked) throw new Error("Order is locked while someone checks out");
   if (settling) throw new Error("The table is settling up — you can’t edit while everyone pays");
-  if (!canMutateLine("draft", role, lineSeat === uid))
+  if (!canMutateLine(lineState, { kind: "diner", role, isOwner: lineSeat === uid }))
     throw new Error("Only the host can reassign someone else’s item");
   const db = serviceClient();
   // The target must be at this table — never assign a line to a non-member seat.

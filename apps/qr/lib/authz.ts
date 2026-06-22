@@ -2,6 +2,7 @@ import "server-only";
 import { cookies } from "next/headers";
 import { serverClient, serviceClient } from "@mms/db/server";
 import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock";
+import type { LineState } from "./permissions";
 import {
   SESSION_RENEW_THRESHOLD_MS,
   sessionExpiryFromNow,
@@ -179,13 +180,14 @@ export async function assertSessionMember(sessionId: string): Promise<{ uid: str
 }
 
 /** Same guard, keyed by a cart *line* id (resolves the owning cart first). Also returns the line's
- *  owner seat (`lineSeat`) so a caller can apply canMutateLine (host-any / guest-own-only). */
+ *  owner seat (`lineSeat`) and its `lineState` so a caller can apply canMutateLine (host-any /
+ *  guest-own-only, draft-only for diners — S2.1a). */
 export async function assertCartItemMember(
   cartItemId: string,
-): Promise<CartAuthz & { cartId: string; lineSeat: string | null }> {
+): Promise<CartAuthz & { cartId: string; lineSeat: string | null; lineState: LineState }> {
   const { data: item } = await serviceClient()
     .from("qr_cart_items")
-    .select("cart_id,by_seat")
+    .select("cart_id,by_seat,state")
     .eq("id", cartItemId)
     .maybeSingle();
   if (!item) throw new AuthzError("No such cart item", 404);
@@ -193,5 +195,6 @@ export async function assertCartItemMember(
     ...(await assertCartMember(item.cart_id)),
     cartId: item.cart_id,
     lineSeat: item.by_seat ?? null,
+    lineState: (item.state ?? "draft") as LineState,
   };
 }

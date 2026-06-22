@@ -273,9 +273,15 @@ export function Checkout({
             {items.map((i) => {
               // canMutate (P3.3a): in a group, the host may edit any line, a guest only their own —
               // so a guest's stepper on someone else's line is disabled (not a control that fails).
+              // UI hint only (server is authoritative via cart.ts); split lines are pre-fire 'draft' —
+              // S2.2 threads the real line.state when post-fire "Ask server" lands on the diner UI.
               const canEdit =
                 !isGroup ||
-                canMutateLine("draft", splitContext!.myRole, i.bySeat === splitContext!.mySeat);
+                canMutateLine("draft", {
+                  kind: "diner",
+                  role: splitContext!.myRole,
+                  isOwner: i.bySeat === splitContext!.mySeat,
+                });
               const owner = isGroup
                 ? splitContext!.members.find((m) => m.seat === i.bySeat)
                 : undefined;

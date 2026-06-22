@@ -4,6 +4,27 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — S2.1a: line-state spine (2026-06-22)
+
+The pre-settlement line lifecycle the kitchen-trust layer (S2) is built on — spine only, no UI/firing yet.
+
+- **`qr_cart_items.state`** (`draft|fired|in_progress|served|voided`, default `draft`, DB `CHECK`) — the
+  line's kitchen-life lives on the open cart (which _is_ the table order until settle), not `qr_orders`.
+  Existing rows backfill to `draft` (nothing fired pre-S2). Migration `20260622030000`.
+- **`mms_line_transition(line, to_state)`** — the legal-edge graph in SQL (`draft→fired→in_progress→served`,
+  `fired→draft` undo, `→voided` from any non-settled state); a single atomic UPDATE that matches only a
+  legal from-state **and** a parent cart `status='open'`, so an illegal jump / terminal-state mutation /
+  non-open cart is a 0-row no-op (never a silent overwrite). INVOKER + service-role-only grant (the
+  cart-RPC precedent; avoids advisor 0029).
+- **`canMutateLine` v2** (`apps/qr/lib/permissions.ts`) — **staff are now a first-class actor**. A diner may
+  edit only an OWN, still-`draft` line; post-fire editing is staff-only (fixes the M3 placeholder that let a
+  diner "host" edit fired food). Threaded through the diner server path (`assertCartItemMember` now returns
+  `lineState`; `cart.ts` passes the real state) so firing (S2.1b) can never outpace the gate.
+- Verified on the local stack (all legal/illegal/terminal/non-open transitions + the backfill + grants);
+  types regenerated; gate green. Migration **pending a live apply**.
+- **S2 open decisions confirmed** (see `docs/S2_DESIGN.md`): manager taps-name→PIN · console-view KDS ·
+  20%/$20 loss ceiling · 10s per-batch undo grace.
+
 ### Fixed — S1 audit S2 + S7: session-gated settlement + staff-provisioning hardening (2026-06-22) — audit closeout
 
 Closes the last two audit SHOULD-FIX items.
