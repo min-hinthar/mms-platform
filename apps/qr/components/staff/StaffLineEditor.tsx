@@ -88,19 +88,27 @@ export function StaffLineEditor({
         </span>
         <span style={{ display: "flex", alignItems: "center", gap: "var(--s3)" }}>
           <span style={priceCell}>{fmt(line.unitPriceCents * line.qty)}</span>
-          <button
-            type="button"
-            onClick={() => setSheetOpen(true)}
-            disabled={disabled}
-            aria-label={`Void or comp ${line.name}`}
-            style={{ ...lossBtn, opacity: disabled ? 0.5 : 1 }}
-          >
-            Void / Comp
-          </button>
+          {line.pendingApproval ? (
+            // S2.4: a void/comp request is open for this line — a manager resolves it from the queue; don't
+            // offer a second request.
+            <span style={badge} aria-label={`Approval requested for ${line.name}`}>
+              Approval requested
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setSheetOpen(true)}
+              disabled={disabled}
+              aria-label={`Void or comp ${line.name}`}
+              style={{ ...lossBtn, opacity: disabled ? 0.5 : 1 }}
+            >
+              Void / Comp
+            </button>
+          )}
         </span>
         {/* Mounted only while open so each open is a fresh sheet (resets reason/PIN, refetches managers)
             without a setState-in-effect reset. */}
-        {sheetOpen && (
+        {sheetOpen && !line.pendingApproval && (
           <LossActionSheet
             open
             onOpenChange={setSheetOpen}

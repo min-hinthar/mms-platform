@@ -1,10 +1,11 @@
 import { type CSSProperties } from "react";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getStaffAuth } from "@/lib/staff";
+import { getStaffAuth, roleAtLeast } from "@/lib/staff";
 import { staffHasPin } from "@/lib/staff-pin";
 import { isConsoleLocked } from "@/lib/staff-lock";
 import { getFloorView } from "@/lib/floor";
+import { countPendingApprovals } from "@/lib/approvals";
 import { RoleBadge } from "@/components/staff/RoleBadge";
 import { StaffSignOut } from "@/components/staff/StaffSignOut";
 import { LockButton } from "@/components/staff/LockButton";
@@ -25,7 +26,12 @@ export default async function StaffHome() {
   if (auth.kind === "not_staff") redirect("/staff/login?denied=1");
   if (await isConsoleLocked()) redirect("/staff/lock");
   const caller = auth.caller;
-  const [hasPin, floor] = await Promise.all([staffHasPin(caller.staffId), getFloorView()]);
+  const isManager = roleAtLeast(caller.role, "manager");
+  const [hasPin, floor, pendingApprovals] = await Promise.all([
+    staffHasPin(caller.staffId),
+    getFloorView(),
+    isManager ? countPendingApprovals() : Promise.resolve(0),
+  ]);
 
   return (
     <main style={wrap}>
@@ -53,6 +59,11 @@ export default async function StaffHome() {
         <Link href="/staff/kitchen" style={ownerLink}>
           Kitchen →
         </Link>
+        {isManager && (
+          <Link href="/staff/approvals" style={ownerLink}>
+            Approvals{pendingApprovals > 0 ? ` (${pendingApprovals})` : ""} →
+          </Link>
+        )}
         <Link href="/staff/profile" style={ownerLink}>
           {hasPin ? "Your PIN →" : "Set a tablet PIN →"}
         </Link>

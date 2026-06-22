@@ -9,6 +9,7 @@ import {
 } from "react";
 import { Sheet } from "@mms/ui";
 import { listApprovers, voidLine, type Approver, type VoidLineResult } from "@/lib/voids";
+import { requestApproval } from "@/lib/approvals";
 import type { TableLineView } from "@/lib/floor-types";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -175,6 +176,45 @@ export function LossActionSheet({
     });
   }
 
+  // Deferred path (S2.4): no manager at hand → request approval (no PIN). The line stays live until a
+  // manager resolves it from the queue. Needs a reason (for the audit), not a manager/PIN.
+  function submitRequest() {
+    if (!effectiveReason || pending || locked) return;
+    setMsg(null);
+    startTransition(async () => {
+      const res = await requestApproval({
+        sessionId,
+        cartItemId: line.id,
+        action,
+        reason: effectiveReason,
+      });
+      if (res.ok) {
+        onDone(action);
+        onOpenChange(false);
+        return;
+      }
+      switch (res.reason) {
+        case "already_pending":
+          setMsg("A manager request is already open for this item.");
+          break;
+        case "no_approval_needed":
+          setMsg("This one doesn’t need a manager — use “Void item”.");
+          break;
+        case "in_flight":
+          setMsg("This table is mid-payment — wait until they’ve finished.");
+          break;
+        case "not_open":
+          setMsg("This table’s order is no longer open.");
+          break;
+        case "not_found":
+          setMsg("That item isn’t on this table anymore.");
+          break;
+        default:
+          setMsg("Couldn’t send that request — please try again.");
+      }
+    });
+  }
+
   const mins = Math.floor(lockLeft / 60);
   const secs = lockLeft % 60;
   const lockCopy = locked ? `Locked — try again in ${mins > 0 ? `${mins}m ` : ""}${secs}s.` : null;
@@ -295,6 +335,19 @@ export function LossActionSheet({
           {pending ? "Working…" : showStepUp ? `${verb} with approval` : `${verb} item`}
         </button>
 
+        {/* Deferred path (S2.4): only for gated actions — request a manager's approval without a PIN now.
+            Needs a reason; the line stays live until a manager resolves it from the queue. */}
+        {showStepUp && (
+          <button
+            type="button"
+            onClick={submitRequest}
+            disabled={!effectiveReason || pending || locked}
+            style={{ ...secondaryBtn, opacity: !effectiveReason || pending || locked ? 0.6 : 1 }}
+          >
+            No manager here? Request approval
+          </button>
+        )}
+
         {/* One live region (QA §A): the lockout countdown takes precedence over a transient message. */}
         <p
           id="loss-msg"
@@ -388,6 +441,18 @@ const primaryBtn: CSSProperties = {
   background: "var(--ac)",
   color: "var(--oa)",
   fontSize: 15,
+  fontWeight: 700,
+  cursor: "pointer",
+};
+const secondaryBtn: CSSProperties = {
+  width: "100%",
+  minHeight: 44,
+  marginTop: 8,
+  borderRadius: "var(--r-full)",
+  border: "1px solid var(--bd)",
+  background: "var(--cd)",
+  color: "var(--ac)",
+  fontSize: 14,
   fontWeight: 700,
   cursor: "pointer",
 };

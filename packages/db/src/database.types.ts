@@ -181,6 +181,7 @@ export type Database = {
           line_name: string | null
           qty: number | null
           reason_code: string
+          resolved_at: string | null
           session_id: string | null
           status: string
         }
@@ -197,6 +198,7 @@ export type Database = {
           line_name?: string | null
           qty?: number | null
           reason_code: string
+          resolved_at?: string | null
           session_id?: string | null
           status?: string
         }
@@ -213,6 +215,7 @@ export type Database = {
           line_name?: string | null
           qty?: number | null
           reason_code?: string
+          resolved_at?: string | null
           session_id?: string | null
           status?: string
         }
@@ -1097,6 +1100,19 @@ export type Database = {
           p_window_seconds: number
         }
         Returns: boolean
+      }
+      mms_request_approval: {
+        Args: {
+          p_action: string
+          p_initiator: string
+          p_line: string
+          p_reason: string
+        }
+        Returns: string
+      }
+      mms_resolve_approval: {
+        Args: { p_approver: string; p_decision: string; p_id: string }
+        Returns: string
       }
       mms_set_pickup_slot: {
         Args: { p_cart_id: string; p_slot: string }

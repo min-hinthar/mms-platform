@@ -34,9 +34,15 @@ M5 → M6` in `ROADMAP.md`; full design + adversarial review in [`docs/S2_DESIGN
 > both scans — a one-tap merge can't re-charge a voided line or give away an active one, a gap S2.3 made
 > reachable) are **applied to live** + verified (grants/RLS/advisors clean; SQL gate behaviorally tested).
 > **S2 decisions confirmed** (in `S2_DESIGN.md`): manager taps-name→PIN · console-view KDS ·
-> 20%/$20 loss ceiling · **10s** per-batch undo grace. **Next: S2.4** — generalize the `mms_approvals`
-> primitive to in-person approve/deny with default-safe `pending` states (owner-remote-approve / SMS deferred);
-> refund of an already-captured line stays the **S4.3** seam (`charge.refunded` unhandled today).
+> 20%/$20 loss ceiling · **10s** per-batch undo grace. **S2.4 — the approvals primitive (S2 COMPLETE):**
+> `mms_request_approval` records a **default-safe `pending`** request (line untouched — still charged, food
+> not un-fired); `mms_resolve_approval` is the manager's decision (approve applies the recorded void/comp +
+> `approved`; deny → `denied`, line live), resolves once (idempotent), approver = active `manager`/`owner` ≠
+> requester (SQL-checked). Manager-gated live `/staff/approvals` queue (polled — `mms_approvals` is owner-read
+> RLS, off the realtime publication) with Approve/Deny via the manager-PIN step-up; `LossActionSheet` gains a
+> "Request approval" path; the drill-down shows "Approval requested". `20260622080000` **pending a live apply**.
+> **Next: S3 (tabs / deferred settlement)** per the build order — reuses S2's approvals for after-hours closes.
+> Owner-remote-approve (push/SMS) + refund-of-captured-line (S4.3) stay deferred.
 
 ## Where we are — M1 + M2 complete (merged)
 
