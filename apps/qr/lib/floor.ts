@@ -219,15 +219,27 @@ export async function getTableDetail(sessionId: string): Promise<TableDetail | n
   if (cart) {
     const { data: items } = await db
       .from("qr_cart_items")
-      .select("id,name,qty,unit_price_cents,by_seat,created_at")
+      .select("id,name,qty,unit_price_cents,by_seat,created_at,menu_item_id")
       .eq("cart_id", cart.id)
       .order("created_at", { ascending: true });
+    // Resolve which lines are 86'd so the editor can hide the "+" (S1-audit S4). One extra read on the
+    // (non-hot) detail path; a line with no menu_item_id (legacy/free) is never sold-out.
+    const menuIds = [...new Set((items ?? []).map((i) => i.menu_item_id).filter(Boolean))];
+    const soldOutIds = new Set<string>();
+    if (menuIds.length) {
+      const { data: mi } = await db
+        .from("menu_items")
+        .select("id,is_sold_out")
+        .in("id", menuIds as string[]);
+      for (const m of mi ?? []) if (m.is_sold_out) soldOutIds.add(m.id);
+    }
     lines = (items ?? []).map((i) => ({
       id: i.id,
       name: i.name,
       qty: i.qty,
       unitPriceCents: i.unit_price_cents,
       bySeatName: i.by_seat ? (nameBySeat.get(i.by_seat) ?? null) : null,
+      soldOut: i.menu_item_id ? soldOutIds.has(i.menu_item_id) : false,
     }));
     itemCount = lines.reduce((a, l) => a + l.qty, 0);
     runningSubtotalCents = lines.reduce((a, l) => a + l.unitPriceCents * l.qty, 0);

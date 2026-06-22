@@ -1,5 +1,5 @@
 "use client";
-import { useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { settleCash } from "@/lib/staff-cart";
 
@@ -22,6 +22,17 @@ export function CashSettleButton({
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const confirmRef = useRef<HTMLDivElement>(null);
+
+  // Move focus into the confirm group when it opens and back to the trigger when it closes, so it's
+  // never dropped to <body> as the step unmounts (S1-audit S6). The guard skips first mount.
+  const wasConfirming = useRef(false);
+  useEffect(() => {
+    if (confirming && !wasConfirming.current) confirmRef.current?.focus();
+    else if (!confirming && wasConfirming.current) triggerRef.current?.focus();
+    wasConfirming.current = confirming;
+  }, [confirming]);
 
   async function confirm() {
     setBusy(true);
@@ -39,7 +50,13 @@ export function CashSettleButton({
   return (
     <div>
       {confirming ? (
-        <div role="group" aria-label="Confirm cash settlement" style={confirmCard}>
+        <div
+          ref={confirmRef}
+          tabIndex={-1}
+          role="group"
+          aria-label="Confirm cash settlement"
+          style={{ ...confirmCard, outline: "none" }}
+        >
           <p style={{ margin: 0, fontSize: 14 }}>
             Take <strong>{fmt(totalCents)}</strong> in cash? This closes the order.
           </p>
@@ -59,6 +76,7 @@ export function CashSettleButton({
         </div>
       ) : (
         <button
+          ref={triggerRef}
           type="button"
           onClick={() => setConfirming(true)}
           aria-describedby="settle-hint"

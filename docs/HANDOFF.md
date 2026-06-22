@@ -248,9 +248,13 @@ parallel specialist agents): **B1** (`is_staff()` unverified-email RLS escalatio
 **B2/S1/S3** (card-after-cash double-charge + atomic fulfill claim + `qr_refunds_needed` recovery ledger,
 `20260622010000` — which also restored two S1.3 regressions in `mms_fulfill_order`: the `pickup_slot`/
 `fire_at` copy + the `mms_promo_consume` call) are now **code-fixed**; B1's live-config backstop is in
-"Auth hardening" above. **Remaining open** (prioritized in the audit): **B3** (RoleBadge contrast) + the
-a11y batch (sold-out increment, dual live region, dropped focus) + auth hardening (provisioning oracle/
-rate-limit, send-email timeout). Both migrations need a **live apply** (B1 applied; `20260622010000` pending).
+"Auth hardening" above. **B3 + the a11y batch** (RoleBadge AA contrast via `-strong` tokens, sold-out
+`+` gate, dual-live-region → assertive alert, dropped-focus on confirm/step panels) are now **code-fixed**
+too (no migration). Both money/auth migrations are **applied to live** (`20260622000000`, `20260622010000`)
+and merged. **Remaining open** (prioritized in the audit): **S2** (cash/merge RPCs not session-gated —
+needs a small migration) + **S7** auth hardening (provisioning existence-oracle / no audit row / no rate
+limit). B1's live-config backstop (disable public email signup, workspace-domain Google) is in "Auth
+hardening" above — still the binding control there.
 
 **Tracked / deferred (non-blocking, carry forward):**
 

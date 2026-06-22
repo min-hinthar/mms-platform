@@ -4,6 +4,27 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed — S1 audit B3 + a11y batch: staff floor accessibility (2026-06-22)
+
+No-migration accessibility/UX pass over the staff floor drill-down.
+
+- **B3 — `RoleBadge` contrast** (`RoleBadge.tsx`, `tokens.css`): role-chip text used the vivid
+  `--gold`/`--jade`/`--ac` on their own 14–16% tint — measured **1.83:1** (owner gold), 4.04 (server),
+  4.73 (manager): two sub-AA. Text now uses the `-strong` token (added `--gold-strong`/`--jade-strong`
+  alongside the existing `--ac-strong`); the vivid hue stays on the decorative (aria-hidden) dot for the
+  color identity. Re-measured: **5.21 / 5.19 / 5.92** — all clear AA.
+- **S4 — sold-out `+`** (`StaffLineEditor.tsx`, `floor.ts`, `floor-types.ts`): an 86'd line still showed a
+  live increment. `TableLineView` now carries `soldOut` (resolved from `menu_items.is_sold_out` via the
+  line's `menu_item_id`); the `+` is disabled with an honest accessible name ("… is sold out — can't add
+  more") and a visible "· Sold out" tag. Decrease/remove stay available.
+- **S5 — dual live regions** (`ClearTableButton.tsx`): its error was a second `aria-live="polite"` region
+  on a view that already has one (the shared line-edit status). Switched to an assertive `role="alert"`
+  rendered only on error — parity with its siblings (CashSettle/Merge), leaving exactly one polite region.
+- **S6 — dropped focus** (`ClearTableButton.tsx`, `CashSettleButton.tsx`, `MergeTableButton.tsx`): focus
+  fell to `<body>` when a confirm/step panel mounted/unmounted. Focus now moves into each panel as it
+  opens and returns to the trigger on cancel/close (first-mount guarded) — WCAG 2.4.3, parity with
+  `FloorDetailLive`'s line-remove focus move.
+
 ### Fixed — S1 audit B2/S1/S3: money atomicity + fulfillment completeness (2026-06-22)
 
 Closes the audit's second blocker (the card-after-cash double-charge) plus the fulfill-claim TOCTOU and

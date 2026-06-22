@@ -54,6 +54,9 @@ export function StaffLineEditor({
     <li style={{ ...row, opacity: disabled ? 0.55 : 1 }}>
       <span style={{ minWidth: 0, flex: 1 }}>
         <span style={{ fontWeight: 600 }}>{qty}×</span> {line.name}
+        {line.soldOut && (
+          <span style={{ color: "var(--t3)", fontSize: 12, fontWeight: 400 }}> · Sold out</span>
+        )}
         {line.bySeatName && (
           <span style={{ color: "var(--t3)", fontSize: 12 }}> · {line.bySeatName}</span>
         )}
@@ -82,9 +85,13 @@ export function StaffLineEditor({
           <button
             type="button"
             onClick={() => setQty(qty + 1)}
-            disabled={busy || qty >= 99}
-            aria-label={`Increase ${line.name} quantity`}
-            style={step}
+            disabled={busy || qty >= 99 || line.soldOut}
+            aria-label={
+              line.soldOut
+                ? `${line.name} is sold out — can’t add more`
+                : `Increase ${line.name} quantity`
+            }
+            style={{ ...step, ...(line.soldOut ? { opacity: 0.4, cursor: "not-allowed" } : null) }}
           >
             +
           </button>
