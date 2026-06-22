@@ -101,6 +101,18 @@ export function Checkout({
     prevLen.current = items.length;
   }, [items.length]);
 
+  // S2.2 (B4): when a line the diner could edit gets fired (its stepper unmounts in favour of a state
+  // chip), focus would fall to <body>. Move it to the heading — BUT only if focus actually dropped
+  // there, so we never yank focus off a control the user moved to (e.g. SendToKitchenButton focuses its
+  // own "Undo" button when the window opens; for a host on this device, that's where focus lands).
+  const prevDraftCount = useRef(items.filter((i) => i.lineState === "draft").length);
+  useEffect(() => {
+    const draftCount = items.filter((i) => i.lineState === "draft").length;
+    if (draftCount < prevDraftCount.current && document.activeElement === document.body)
+      headingRef.current?.focus();
+    prevDraftCount.current = draftCount;
+  }, [items]);
+
   // On a review↔pay transition the button that triggered it (Continue / Edit order) unmounts while
   // holding focus → focus would drop to <body> with no cue (WCAG 2.4.3). The heading is mounted in
   // both steps, so move focus there after the commit. Skip the first mount (no transition yet).
@@ -275,17 +287,16 @@ export function Checkout({
             style={{ listStyle: "none", padding: 0, margin: "12px 0", display: "grid", gap: 10 }}
           >
             {items.map((i) => {
-              // canMutate (P3.3a): in a group, the host may edit any line, a guest only their own —
-              // so a guest's stepper on someone else's line is disabled (not a control that fails).
-              // UI hint only (server is authoritative via cart.ts); split lines are pre-fire 'draft' —
-              // S2.2 threads the real line.state when post-fire "Ask server" lands on the diner UI.
-              const canEdit =
-                !isGroup ||
-                canMutateLine("draft", {
-                  kind: "diner",
-                  role: splitContext!.myRole,
-                  isOwner: i.bySeat === splitContext!.mySeat,
-                });
+              // canMutate (P3.3a → S2.2): keys on the line's REAL state. A 'draft' line is editable by
+              // its owner (host any line, guest own only); once fired/cooking/served the diner can't edit
+              // it — the stepper is replaced by a state chip ("Ask a server"). UI hint only; the server
+              // re-enforces the same rule (cart.ts setQty/assignLine via canMutateLine). Solo & non-group
+              // default to host (their own cart); for non-dine-in modes every line stays 'draft' (no fire).
+              const canEdit = canMutateLine(i.lineState, {
+                kind: "diner",
+                role: splitContext?.myRole ?? "host",
+                isOwner: i.bySeat === splitContext?.mySeat,
+              });
               const owner = isGroup
                 ? splitContext!.members.find((m) => m.seat === i.bySeat)
                 : undefined;
@@ -338,13 +349,19 @@ export function Checkout({
                       ${((i.unitPriceCents * i.qty) / 100).toFixed(2)}
                     </div>
                   </div>
-                  <Stepper
-                    qty={i.qty}
-                    disabled={pending || !canEdit}
-                    soldOut={i.soldOut}
-                    name={i.name}
-                    onChange={(q) => changeQty(i.id, q)}
-                  />
+                  {i.lineState === "draft" ? (
+                    <Stepper
+                      qty={i.qty}
+                      disabled={pending || !canEdit}
+                      soldOut={i.soldOut}
+                      name={i.name}
+                      onChange={(q) => changeQty(i.id, q)}
+                    />
+                  ) : (
+                    // Fired/cooking/served: no stepper — the diner can't edit it ("Ask a server", S2.2).
+                    // The chip is the honest replacement for the control, not a disabled control.
+                    <LineStateChip state={i.lineState} />
+                  )}
                 </li>
               );
             })}
@@ -459,7 +476,15 @@ export function Checkout({
             into menu prices; we never add a surcharge on debit.
           </p>
 
-          {canSendToKitchen && items.length > 0 && <SendToKitchenButton cartId={cartId} />}
+          {canSendToKitchen && items.length > 0 && (
+            // onChanged re-syncs the cart after a send (steppers → chips) or an undo (chips → steppers),
+            // since solo dine-in isn't on the group realtime channel.
+            <SendToKitchenButton
+              cartId={cartId}
+              hasDraft={items.some((i) => i.lineState === "draft")}
+              onChanged={refresh}
+            />
+          )}
 
           <button
             type="button"
@@ -576,6 +601,58 @@ function Stepper({
         +
       </button>
     </div>
+  );
+}
+
+// The honest replacement for a stepper once a line has gone to the kitchen (S2.2). Shows the line's
+// kitchen-life state in place of the (now-forbidden) edit control. Static text — NOT a live region (the
+// state arrives via a cart refresh, announced once by SendToKitchenButton's status, not per line).
+function LineStateChip({ state }: { state: Exclude<CartItem["lineState"], "draft"> }) {
+  const COPY: Record<typeof state, string> = {
+    fired: "Sent to kitchen",
+    in_progress: "Cooking",
+    served: "Served",
+    voided: "Removed",
+  };
+  const label = COPY[state];
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "8px 12px",
+        minHeight: 44,
+        borderRadius: 999,
+        border: "1px solid var(--bd)",
+        background: "color-mix(in oklab, var(--ac) 8%, var(--cd))",
+        color: "var(--ac-strong)",
+        fontSize: 12.5,
+        fontWeight: 800,
+        whiteSpace: "nowrap",
+      }}
+    >
+      <span aria-hidden>{state === "served" ? "✓" : "🔥"}</span>
+      {label}
+      {/* The "ask a server" context is REAL (visually-hidden) text, not an aria-label on this
+          non-interactive span (which SRs may drop) — so a SR reaching this control-slot reliably hears
+          why there's no stepper. The visible chip stays compact. */}
+      <span
+        style={{
+          position: "absolute",
+          width: 1,
+          height: 1,
+          padding: 0,
+          margin: -1,
+          overflow: "hidden",
+          clip: "rect(0 0 0 0)",
+          whiteSpace: "nowrap",
+          border: 0,
+        }}
+      >
+        — ask a server to make changes
+      </span>
+    </span>
   );
 }
 

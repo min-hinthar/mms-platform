@@ -8,7 +8,9 @@ import {
   cartViewInput,
   sendToKitchenInput,
   setQtyInput,
+  undoFireInput,
 } from "@mms/db/schemas";
+import type { LineState } from "@mms/db";
 import { lineTax } from "./tax";
 import { getCartTotals } from "./totals";
 import { assertCartItemMember, assertCartMember } from "./authz";
@@ -159,7 +161,7 @@ export async function assignLine(cartItemId: string, seatId: string) {
 }
 
 export type SendToKitchenResult =
-  | { ok: true; fired: number }
+  | { ok: true; fired: number; undoUntil: string | null; serverNow: string }
   | {
       ok: false;
       reason: "not_host" | "locked" | "settling" | "nothing" | "rate_limited" | "error";
@@ -169,10 +171,11 @@ export type SendToKitchenResult =
  * Send the table's current draft batch to the kitchen (S2.1b, dine-in). "Send to kitchen" fires
  * EVERYONE's draft lines — a table-level action — so it follows the host-authority model: a guest adds
  * their own items, the HOST sends the batch (staff can always fire from the console via staffFireCart).
- * The fire is the atomic, dine-in-only mms_fire_cart (draft→fired + fire_at=now(), cart-open guarded,
- * grocery/pickup excluded — server-authoritative). Returns a RESULT (not a throw): Next redacts thrown
- * Server Action errors in prod, so the discriminated reason is the only way the button can branch its
- * copy. (S2.2 layers the undo grace on top by stamping fire_at = now() + grace.)
+ * The fire is the atomic, dine-in-only mms_fire_cart (draft→fired + fire_at=now()+grace, cart-open
+ * guarded, grocery/pickup excluded — server-authoritative). Returns a RESULT (not a throw): Next redacts
+ * thrown Server Action errors in prod, so the discriminated reason is the only way the button can branch
+ * its copy. S2.2: the lines are fired at now()+10s grace (invisible to the KDS until then), so we hand
+ * back `undoUntil` — the SERVER-clocked deadline of the batch — for the "Sent! — Undo (Ns)" window.
  */
 export async function sendToKitchen(cartId: string): Promise<SendToKitchenResult> {
   const input = sendToKitchenInput.parse({ cartId });
@@ -182,7 +185,8 @@ export async function sendToKitchen(cartId: string): Promise<SendToKitchenResult
   if (settling) return { ok: false, reason: "settling" };
   if (role !== "host") return { ok: false, reason: "not_host" };
 
-  const { data: fired, error } = await serviceClient().rpc("mms_fire_cart", {
+  const db = serviceClient();
+  const { data: fired, error } = await db.rpc("mms_fire_cart", {
     p_cart_id: input.cartId,
   });
   if (error) {
@@ -192,12 +196,73 @@ export async function sendToKitchen(cartId: string): Promise<SendToKitchenResult
   if (!fired) return { ok: false, reason: "nothing" }; // empty cart / nothing still draft / not dine-in
   await touchCart(input.cartId, "sendToKitchen");
 
+  // The batch's grace deadline = the latest fire_at among the lines just fired (all share now()+grace
+  // from the single UPDATE; an earlier elapsed batch has a smaller fire_at, so DESC picks this one).
+  // We return it WITH `serverNow` so the client counts down the server-MEASURED grace duration
+  // (`undoUntil − serverNow`) from its own receipt — immune to absolute client-clock skew (a slow phone
+  // can't show a longer window). A miss → no undo window shown (the line is still server-side undoable;
+  // the button just won't offer it) rather than a fake one.
+  const { data: deadline } = await db
+    .from("qr_cart_items")
+    .select("fire_at")
+    .eq("cart_id", input.cartId)
+    .eq("state", "fired")
+    .order("fire_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
   getPostHogClient().capture({
     distinctId: uid,
     event: "send_to_kitchen",
     properties: { cart_id: input.cartId, lines: fired },
   });
-  return { ok: true, fired };
+  return {
+    ok: true,
+    fired,
+    undoUntil: deadline?.fire_at ?? null,
+    serverNow: new Date().toISOString(),
+  };
+}
+
+export type UndoFireResult =
+  | { ok: true; unfired: number }
+  | {
+      ok: false;
+      reason: "not_host" | "expired" | "locked" | "settling" | "rate_limited" | "error";
+    };
+
+/**
+ * Undo the just-sent batch within the grace window (S2.2). The symmetric inverse of sendToKitchen — same
+ * host-authority + dine-in model — driving the grace-gated, atomic mms_undo_fire (fired→draft + fire_at
+ * null for every line on the cart still in grace; a line whose grace already passed is left fired, so
+ * undo can't un-send food the kitchen already has). `expired` (0 rows un-fired) is the honest signal that
+ * the window closed / nothing was undoable → the UI steers to "ask a server", never a silent success.
+ * Returned (not thrown) for the same prod-redaction reason as sendToKitchen.
+ */
+export async function undoFire(cartId: string): Promise<UndoFireResult> {
+  const input = undoFireInput.parse({ cartId });
+  const { uid, role, locked, settling } = await assertCartMember(input.cartId);
+  if (!(await withinMutationRate(uid))) return { ok: false, reason: "rate_limited" };
+  if (locked) return { ok: false, reason: "locked" };
+  if (settling) return { ok: false, reason: "settling" };
+  if (role !== "host") return { ok: false, reason: "not_host" };
+
+  const { data: unfired, error } = await serviceClient().rpc("mms_undo_fire", {
+    p_cart_id: input.cartId,
+  });
+  if (error) {
+    console.error("[cart] mms_undo_fire failed", { cartId: input.cartId, message: error.message });
+    return { ok: false, reason: "error" };
+  }
+  if (!unfired) return { ok: false, reason: "expired" }; // grace passed / nothing in grace to undo
+  await touchCart(input.cartId, "undoFire");
+
+  getPostHogClient().capture({
+    distinctId: uid,
+    event: "undo_fire",
+    properties: { cart_id: input.cartId, lines: unfired },
+  });
+  return { ok: true, unfired };
 }
 
 /** Reasons the cart UI maps to specific copy. SQL returns the validity reasons; the action adds the
@@ -295,7 +360,7 @@ export async function getCartView(cartId: string): Promise<{
   const { data: cart } = await db.from("qr_carts").select("pickup_slot").eq("id", id).single();
   const { data: rows } = await db
     .from("qr_cart_items")
-    .select("id,menu_item_id,name,qty,modifiers,unit_price_cents,tax_cents,by_seat")
+    .select("id,menu_item_id,name,qty,modifiers,unit_price_cents,tax_cents,by_seat,state,fire_at")
     .eq("cart_id", id)
     .order("created_at", { ascending: true });
   // Resolve which lines are now 86'd so the cart can disable their "+" (QA §D sold-out trap — a peer
@@ -324,6 +389,10 @@ export async function getCartView(cartId: string): Promise<{
     taxCents: r.tax_cents,
     bySeat: r.by_seat ?? undefined,
     soldOut: soldOut.has(r.menu_item_id),
+    // Kitchen-life state (S2.2): drives the diner UI — a 'draft' line keeps its stepper, a fired/cooking/
+    // served line shows its state + "Ask a server" (the server enforces the same rule via canMutateLine).
+    lineState: (r.state ?? "draft") as LineState,
+    fireAt: r.fire_at ?? null,
   }));
   return {
     items,

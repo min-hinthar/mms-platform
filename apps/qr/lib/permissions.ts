@@ -14,7 +14,9 @@
  * The pay-window lock / settle freeze are checked SEPARATELY (they freeze the whole cart); this is the
  * ownership/role × line-state layer on top of them.
  */
-export type LineState = "draft" | "fired" | "in_progress" | "served" | "voided";
+import type { LineState } from "@mms/db";
+
+export type { LineState };
 
 export type LineActor =
   | { kind: "staff" }
