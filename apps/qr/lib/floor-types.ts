@@ -3,6 +3,7 @@
  * data layer (lib/floor.ts) and the client components (FloorBoard, FloorDetailLive) can import them.
  * Money is integer CENTS end-to-end (format /100 only at the UI edge), parity with the rest of the app.
  */
+import type { LineState } from "@mms/db";
 
 /** A table's at-a-glance state on the floor. Payment-level only — kitchen statuses (fired/served)
  *  arrive with S2's line lifecycle; until then a paid order rests at "paid". */
@@ -38,7 +39,7 @@ export type FloorSnapshot = {
   serverNow: string;
 };
 
-/** One line on the per-table read-only drill-down. by_seat → which guest added it (split attribution). */
+/** One line on the per-table drill-down. by_seat → which guest added it (split attribution). */
 export type TableLineView = {
   id: string;
   name: string;
@@ -47,6 +48,11 @@ export type TableLineView = {
   bySeatName: string | null;
   /** The line's menu item is 86'd — staff can still decrease/remove it, but not add more (S1-audit S4). */
   soldOut: boolean;
+  /** Kitchen-life state (S2.1) — drives the staff line controls: a 'draft' line edits via the stepper; a
+   *  fired/cooking/served line is post-fire (the void/comp loss path, S2.3); 'voided' is terminal. */
+  state: LineState;
+  /** Comped (S2.3) — given away free; the kitchen still makes it, the charge excludes it. */
+  comped: boolean;
 };
 
 export type TableMemberView = { seatId: string; name: string; isHost: boolean };

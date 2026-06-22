@@ -47,6 +47,9 @@ export type CartItem = {
   /** When this line's grace expires / it became visible to the kitchen (ISO), null while 'draft'.
    *  S2.2 fires at now()+grace; a line is undoable only while `fireAt` is still in the future. */
   fireAt?: string | null;
+  /** Comped (S2.3): a manager gave this line away — the kitchen still makes it (state unchanged) but it's
+   *  charged at $0 (excluded from getCartTotals). The cart shows a "Comped" chip. Defaults false. */
+  comped?: boolean;
 };
 
 export type CartTotals = {

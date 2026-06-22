@@ -20,14 +20,23 @@ M5 → M6` in `ROADMAP.md`; full design + adversarial review in [`docs/S2_DESIGN
 > cart-open+dine-in guarded) — matches the "Undo (Ns)" countdown, never claws back an earlier send; `getCartView`
 > threads the real `state`/`fire_at` into `CartItem` so a fired line shows a state chip ("Ask a server") instead
 > of a stepper (`canMutateLine` keys on real state — fixes the solo-dine-in gap). Migrations `20260622030000`,
-> `20260622040000` applied to live; **`20260622050000` pending a live apply** (the PR preview shares the live
-> DB — apply the additive migration before merge). **S2 decisions
-> confirmed** (in `S2_DESIGN.md`): manager taps-name→PIN · console-view KDS · 20%/$20 loss ceiling · **10s**
-> per-batch undo grace. **Next: S2.3** — loss-gated voids/comps: uncooked (`draft`/in-grace) = server-solo +
-> reason; cooked (`in_progress`/`served`) or over-ceiling (20%/$20) or money-out refund = **manager-PIN step-up**
-> (manager taps name→PIN, `server`-role rejected; reuses `mms_staff_verify_pin`); the first **durable** audit
-> table (`mms_approvals`, append-only) written in-txn with the state flip. Refund of an already-captured line is
-> gated+audited here but **executed in S4.3** (`charge.refunded` unhandled today).
+> `20260622040000`, `20260622050000` applied to live. **S2.3 — loss-gated voids/comps:** `mms_void_line`
+> derives the gate SERVER-side — a `fired`-but-uncooked under-ceiling void is server-solo + reason; a cooked
+> (`in_progress`/`served`) line, any **comp** (giveaway, kitchen still makes it → a `comped` flag), or a value
+> over the **$20** ceiling (`mms_loss_config`) needs a **manager-PIN step-up** (the server taps the manager's
+> name → PIN via `mms_staff_verify_pin`; a `server`-role or self approver is rejected — re-checked in SQL). The
+> first **durable, append-only `mms_approvals` ledger** (initiator + approver + line + reason + amount + cooked)
+> is written in the SAME txn as the flip (no audit ⇒ no void). A voided/comped line is charged **$0 everywhere**
+> — getCartTotals + both promo RPCs + the cash reconcile + all three order-snapshot copies exclude
+> `state='voided' OR comped` (redefined in the migration); the diner cart shows a "Removed"/"Comped" chip,
+> split shares exclude them. Staff void/comp from the drill-down (`LossActionSheet`), refused mid-payment.
+> `20260622060000` + the merge guard `20260622070000` (mms_merge_table_orders skips voided/comped lines on
+> both scans — a one-tap merge can't re-charge a voided line or give away an active one, a gap S2.3 made
+> reachable) are **applied to live** + verified (grants/RLS/advisors clean; SQL gate behaviorally tested).
+> **S2 decisions confirmed** (in `S2_DESIGN.md`): manager taps-name→PIN · console-view KDS ·
+> 20%/$20 loss ceiling · **10s** per-batch undo grace. **Next: S2.4** — generalize the `mms_approvals`
+> primitive to in-person approve/deny with default-safe `pending` states (owner-remote-approve / SMS deferred);
+> refund of an already-captured line stays the **S4.3** seam (`charge.refunded` unhandled today).
 
 ## Where we are — M1 + M2 complete (merged)
 

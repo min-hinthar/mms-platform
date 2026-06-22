@@ -4,6 +4,36 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — S2.3: loss-gated voids/comps + the first durable audit ledger (2026-06-22)
+
+Server-initiated **void** (cancel + remove) and **comp** (free, kitchen still makes it) on a fired line,
+gated by loss, with a two-party audit. Migration `20260622060000`.
+
+- **The loss gate is SERVER-derived** (never client-asserted): a void of a `fired`-but-uncooked line under
+  the ceiling → **server-solo + reason** (~zero loss, no PIN — avoids PIN-fatigue). A **cooked** line
+  (`in_progress`/`served`), any **comp** (a giveaway), or any value **over the ceiling** (`$20` absolute,
+  tunable in `mms_loss_config`) → **manager-PIN step-up**. `cooked?`/`loss` come from the line's state +
+  value in `mms_void_line`, never the request body.
+- **Manager step-up reuses `mms_staff_verify_pin`** (lockout-counted): the server taps the manager's name →
+  the manager enters their PIN. A `server`-role PIN is **rejected even when correct**, and the approver
+  **can't be the initiator** (no self-approval) — both re-checked in SQL.
+- **`mms_approvals`** — the first **durable, append-only** audit ledger (the S2.4 approvals primitive,
+  void as consumer #1): initiating server + authorizing manager + line + reason + amount + cooked flag,
+  written **in the same transaction** as the state flip (no audit ⇒ no void). RLS default-deny, owner-read.
+- **A voided/comped line is charged $0 everywhere** — `getCartTotals`, both promo RPCs, the cash-settle
+  reconcile, and all three order-snapshot copies exclude `state='voided' OR comped`, so a void can't be
+  silently charged and a comp re-derives the total correctly. The diner cart shows a **"Removed"** /
+  **"Comped"** chip with a struck price; split shares exclude them so no one pays a removed item's share.
+- **Staff UI:** post-fire lines on the table drill-down swap the qty stepper for a **Void / Comp** action
+  (`LossActionSheet` — reason picker + manager name-picker + PIN, reusing the S1.1b PIN pattern); refused
+  mid-payment (shared mutex). Refunding an **already-captured** line is out of scope here — it rides S4.3.
+- **a11y:** the sheet's action/reason are `role="group"` + `aria-pressed` toggles (the app's segmented
+  convention), the manager is a labelled `<select>`, the PIN reuses the numeric pattern, ≥44px targets,
+  one live region; voided/comped lines are struck + badged on the staff drill-down too.
+- **Merge guard** (`20260622070000`): `mms_merge_table_orders` now skips voided/comped lines on both the
+  source and target scans, so a one-tap table merge can't fold a voided line's qty into an active target
+  (re-charge) or an active line into a comped/voided target (giveaway) — a gap S2.3 made reachable.
+
 ### Added — S2.2: post-fire "Ask server" + server-clocked undo grace (2026-06-22)
 
 Thread the real line state into the diner cart and give the host a 10s undo on a send.

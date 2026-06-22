@@ -344,12 +344,24 @@ export function Checkout({
                       </div>
                     )}
                     <div
-                      style={{ fontWeight: 700, marginTop: 4, fontVariantNumeric: "tabular-nums" }}
+                      style={{
+                        fontWeight: 700,
+                        marginTop: 4,
+                        fontVariantNumeric: "tabular-nums",
+                        // A comped/voided line isn't charged (S2.3) — strike its price so the running
+                        // total (which excludes it) reads honestly against the line.
+                        textDecoration:
+                          i.comped || i.lineState === "voided" ? "line-through" : "none",
+                        color: i.comped || i.lineState === "voided" ? "var(--t3)" : "inherit",
+                      }}
                     >
                       ${((i.unitPriceCents * i.qty) / 100).toFixed(2)}
                     </div>
                   </div>
-                  {i.lineState === "draft" ? (
+                  {i.comped ? (
+                    // Comped (S2.3): a server made it free — the kitchen still makes it, but it's $0.
+                    <LineStateChip state={i.lineState} comped />
+                  ) : i.lineState === "draft" ? (
                     <Stepper
                       qty={i.qty}
                       disabled={pending || !canEdit}
@@ -358,9 +370,9 @@ export function Checkout({
                       onChange={(q) => changeQty(i.id, q)}
                     />
                   ) : (
-                    // Fired/cooking/served: no stepper — the diner can't edit it ("Ask a server", S2.2).
-                    // The chip is the honest replacement for the control, not a disabled control.
-                    <LineStateChip state={i.lineState} />
+                    // Fired/cooking/served/voided: no stepper — the diner can't edit it ("Ask a server",
+                    // S2.2). The chip is the honest replacement for the control, not a disabled control.
+                    <LineStateChip state={i.lineState} comped={false} />
                   )}
                 </li>
               );
@@ -604,17 +616,28 @@ function Stepper({
   );
 }
 
-// The honest replacement for a stepper once a line has gone to the kitchen (S2.2). Shows the line's
-// kitchen-life state in place of the (now-forbidden) edit control. Static text — NOT a live region (the
-// state arrives via a cart refresh, announced once by SendToKitchenButton's status, not per line).
-function LineStateChip({ state }: { state: Exclude<CartItem["lineState"], "draft"> }) {
-  const COPY: Record<typeof state, string> = {
+// The honest replacement for a stepper once a line has gone to the kitchen (S2.2) or been comped/voided
+// by a server (S2.3). Shows the line's state in place of the (now-forbidden) edit control. Static text —
+// NOT a live region (the state arrives via a cart refresh, announced once by SendToKitchenButton, not
+// per line). `comped` takes precedence over `state` (a comped line keeps its kitchen state but reads
+// "Comped" to the diner).
+function LineStateChip({ state, comped }: { state: CartItem["lineState"]; comped: boolean }) {
+  const STATE_COPY: Record<CartItem["lineState"], string> = {
+    draft: "In your cart",
     fired: "Sent to kitchen",
     in_progress: "Cooking",
     served: "Served",
     voided: "Removed",
   };
-  const label = COPY[state];
+  const label = comped ? "Comped" : STATE_COPY[state];
+  const glyph = comped ? "🎁" : state === "served" ? "✓" : state === "voided" ? "✕" : "🔥";
+  // The context is REAL (visually-hidden) text, not an aria-label on this non-interactive span (which
+  // SRs may drop) — so a SR reaching this control-slot reliably hears WHY there's no stepper.
+  const hint = comped
+    ? " — on the house, no charge"
+    : state === "voided"
+      ? " — removed by a server"
+      : " — ask a server to make changes";
   return (
     <span
       style={{
@@ -632,11 +655,8 @@ function LineStateChip({ state }: { state: Exclude<CartItem["lineState"], "draft
         whiteSpace: "nowrap",
       }}
     >
-      <span aria-hidden>{state === "served" ? "✓" : "🔥"}</span>
+      <span aria-hidden>{glyph}</span>
       {label}
-      {/* The "ask a server" context is REAL (visually-hidden) text, not an aria-label on this
-          non-interactive span (which SRs may drop) — so a SR reaching this control-slot reliably hears
-          why there's no stepper. The visible chip stays compact. */}
       <span
         style={{
           position: "absolute",
@@ -650,7 +670,7 @@ function LineStateChip({ state }: { state: Exclude<CartItem["lineState"], "draft
           border: 0,
         }}
       >
-        — ask a server to make changes
+        {hint}
       </span>
     </span>
   );
