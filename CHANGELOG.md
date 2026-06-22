@@ -20,9 +20,10 @@ Thread the real line state into the diner cart and give the host a 10s undo on a
   `fire_at` into `CartItem`; a `draft` line keeps its stepper, a fired/cooking/served line shows a state
   chip (**"Ask a server"**) in its place. Fixes the solo-dine-in gap where a fired line stayed editable in
   the UI. `LineState` is now canonical in `@mms/db` (cart + the isomorphic gate share one definition).
-- **"Sent ✓ — Undo (Ns)"** window on the host's send button — counts down to the **server's** deadline
-  (`undoUntil`); Undo re-checks the grace server-side (`expired` ⇒ honest "ask a server"), so a drifted
-  client clock can't extend it. Re-syncs the cart on send/undo (solo dine-in isn't on the realtime channel).
+- **"Sent ✓ — Undo (Ns)"** window on the host's send button — counts down the **server-measured** grace
+  (`undoUntil − serverNow`, from this client's receipt, so client-clock skew can't lengthen it); Undo
+  re-checks the grace server-side (`expired` ⇒ honest "ask a server"), so a drifted client clock can't
+  extend it either. Re-syncs the cart on send/undo (solo dine-in isn't on the realtime channel).
 - **a11y:** state chip ≥44px with a visually-hidden "ask a server" hint (real text, not an `aria-label` on
   a bare span); the countdown lives in the button label, **not** the live region (no per-second SR flood);
   focus moves to the heading only when a replaced stepper actually drops focus to `<body>` (B4).

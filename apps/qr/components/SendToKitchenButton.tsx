@@ -29,16 +29,21 @@ export function SendToKitchenButton({
 }) {
   const [pending, startTransition] = useTransition();
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
-  // Server-clocked undo deadline (epoch ms) + a tick so the countdown re-renders each second.
+  // Client-local undo deadline (epoch ms, = receipt + server-measured grace) + a tick so the countdown
+  // re-renders each second.
   const [undoUntil, setUndoUntil] = useState<number | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const undoBtnRef = useRef<HTMLButtonElement>(null);
 
   // Drive the countdown while an undo window is open, and close it (drop the Undo affordance — the lines
   // are now truly with the kitchen) the moment it elapses. The clear happens inside the interval
   // callback, not the effect body, so it doesn't trigger a synchronous mid-render setState.
   useEffect(() => {
     if (undoUntil === null) return;
+    // The Send button just unmounted in favour of the Undo button — land focus on Undo so a keyboard/SR
+    // host can reverse the send without hunting for it (B4: move focus predictably on the state change).
+    undoBtnRef.current?.focus();
     timer.current = setInterval(() => {
       const now = Date.now();
       setNowMs(now);
@@ -62,11 +67,16 @@ export function SendToKitchenButton({
             kind: "ok",
             text: `Sent to the kitchen — ${res.fired} ${res.fired === 1 ? "item" : "items"} on the way.`,
           });
-          // Open the undo window to the SERVER's deadline (null ⇒ no window shown, still sent). Re-seed
-          // `nowMs` to the same instant so the FIRST painted count is accurate — a long-open cart's
-          // mount-time `nowMs` would otherwise make `remaining` flash too large until the first tick.
-          setNowMs(Date.now());
-          setUndoUntil(res.undoUntil ? Date.parse(res.undoUntil) : null);
+          // Open the undo window for the server-MEASURED grace, counted from THIS client's receipt:
+          // graceMs = undoUntil(server) − serverNow(server), then a client-local deadline of
+          // now()+graceMs. Using the measured DURATION (not the absolute server timestamp) keeps the
+          // count immune to client-clock skew, and re-seeding `nowMs` to the same instant avoids a
+          // first-paint flash. null undoUntil ⇒ no window shown (still sent). The server re-checks
+          // fire_at on undo regardless, so the countdown is advisory.
+          const graceMs = res.undoUntil ? Date.parse(res.undoUntil) - Date.parse(res.serverNow) : 0;
+          const startNow = Date.now();
+          setNowMs(startNow);
+          setUndoUntil(graceMs > 0 ? startNow + graceMs : null);
           onChanged(); // steppers → "Sent to kitchen" chips
         } else {
           setMsg({ kind: "err", text: reasonCopy[res.reason] });
@@ -85,22 +95,24 @@ export function SendToKitchenButton({
         const res = await undoFire(cartId);
         if (res.ok) {
           setMsg({ kind: "ok", text: "Brought back to your cart — edit and send again." });
-        } else {
-          // `expired` is the common close: the grace passed mid-tap. Honest steer to a server; the other
-          // reasons reuse the send copy. Either way the lines may have changed → re-sync below.
+          setUndoUntil(null); // the batch is back in draft → close the window
+        } else if (res.reason === "expired") {
+          // The grace passed mid-tap — honest steer to a server, and the window is genuinely over.
           setMsg({
-            kind: res.reason === "expired" ? "ok" : "err",
-            text:
-              res.reason === "expired"
-                ? "That’s already with the kitchen — ask a server to change it."
-                : reasonCopy[res.reason],
+            kind: "ok",
+            text: "That’s already with the kitchen — ask a server to change it.",
           });
+          setUndoUntil(null);
+        } else {
+          // locked / settling / rate_limited / error: NOTHING was un-fired and the lines may still be in
+          // grace — keep the window open so the host can retry; it expires on its own when the grace ends.
+          setMsg({ kind: "err", text: reasonCopy[res.reason] });
         }
       } catch {
+        // Uncertain outcome — leave the window to expire naturally; the re-sync shows the true state.
         setMsg({ kind: "err", text: "Couldn’t undo that just now — please try again." });
       } finally {
-        setUndoUntil(null); // close the window regardless — re-sync reveals the true state
-        onChanged();
+        onChanged(); // re-sync regardless — reveals the true state after a send/undo
       }
     });
   };
@@ -108,9 +120,10 @@ export function SendToKitchenButton({
   return (
     <div style={{ marginTop: 12 }}>
       {remaining > 0 ? (
-        // The undo window: confirmation + a server-clocked "Undo (Ns)". The changing count lives in the
-        // BUTTON label (not the live region), so it isn't re-announced every second.
+        // The undo window: "Undo — Ns" counting down the server-measured grace. The changing count lives
+        // in the BUTTON label (not the live region), so it isn't re-announced every second.
         <button
+          ref={undoBtnRef}
           type="button"
           onClick={undo}
           disabled={pending}

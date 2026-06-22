@@ -161,7 +161,7 @@ export async function assignLine(cartItemId: string, seatId: string) {
 }
 
 export type SendToKitchenResult =
-  | { ok: true; fired: number; undoUntil: string | null }
+  | { ok: true; fired: number; undoUntil: string | null; serverNow: string }
   | {
       ok: false;
       reason: "not_host" | "locked" | "settling" | "nothing" | "rate_limited" | "error";
@@ -198,8 +198,10 @@ export async function sendToKitchen(cartId: string): Promise<SendToKitchenResult
 
   // The batch's grace deadline = the latest fire_at among the lines just fired (all share now()+grace
   // from the single UPDATE; an earlier elapsed batch has a smaller fire_at, so DESC picks this one).
-  // Server-clocked so the client counts down to DB truth, not its own clock. A miss → no undo window
-  // shown (the line is still server-side undoable; the button just won't offer it) rather than a fake one.
+  // We return it WITH `serverNow` so the client counts down the server-MEASURED grace duration
+  // (`undoUntil − serverNow`) from its own receipt — immune to absolute client-clock skew (a slow phone
+  // can't show a longer window). A miss → no undo window shown (the line is still server-side undoable;
+  // the button just won't offer it) rather than a fake one.
   const { data: deadline } = await db
     .from("qr_cart_items")
     .select("fire_at")
@@ -214,7 +216,12 @@ export async function sendToKitchen(cartId: string): Promise<SendToKitchenResult
     event: "send_to_kitchen",
     properties: { cart_id: input.cartId, lines: fired },
   });
-  return { ok: true, fired, undoUntil: deadline?.fire_at ?? null };
+  return {
+    ok: true,
+    fired,
+    undoUntil: deadline?.fire_at ?? null,
+    serverNow: new Date().toISOString(),
+  };
 }
 
 export type UndoFireResult =

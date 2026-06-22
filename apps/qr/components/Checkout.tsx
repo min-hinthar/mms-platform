@@ -103,7 +103,8 @@ export function Checkout({
 
   // S2.2 (B4): when a line the diner could edit gets fired (its stepper unmounts in favour of a state
   // chip), focus would fall to <body>. Move it to the heading — BUT only if focus actually dropped
-  // there, so we never yank focus off the host's "Undo" button (it stays mounted after they send).
+  // there, so we never yank focus off a control the user moved to (e.g. SendToKitchenButton focuses its
+  // own "Undo" button when the window opens; for a host on this device, that's where focus lands).
   const prevDraftCount = useRef(items.filter((i) => i.lineState === "draft").length);
   useEffect(() => {
     const draftCount = items.filter((i) => i.lineState === "draft").length;
@@ -359,7 +360,7 @@ export function Checkout({
                   ) : (
                     // Fired/cooking/served: no stepper — the diner can't edit it ("Ask a server", S2.2).
                     // The chip is the honest replacement for the control, not a disabled control.
-                    <LineStateChip state={i.lineState} qty={i.qty} name={i.name} />
+                    <LineStateChip state={i.lineState} />
                   )}
                 </li>
               );
@@ -606,15 +607,7 @@ function Stepper({
 // The honest replacement for a stepper once a line has gone to the kitchen (S2.2). Shows the line's
 // kitchen-life state in place of the (now-forbidden) edit control. Static text — NOT a live region (the
 // state arrives via a cart refresh, announced once by SendToKitchenButton's status, not per line).
-function LineStateChip({
-  state,
-  qty,
-  name,
-}: {
-  state: Exclude<CartItem["lineState"], "draft">;
-  qty: number;
-  name: string;
-}) {
+function LineStateChip({ state }: { state: Exclude<CartItem["lineState"], "draft"> }) {
   const COPY: Record<typeof state, string> = {
     fired: "Sent to kitchen",
     in_progress: "Cooking",
