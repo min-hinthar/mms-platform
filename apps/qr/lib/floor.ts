@@ -102,7 +102,7 @@ export async function getFloorView(): Promise<FloorSnapshot> {
   const { data: lines } = cartIds.length
     ? await db
         .from("qr_cart_items")
-        .select("cart_id,qty,unit_price_cents,created_at")
+        .select("cart_id,qty,unit_price_cents,created_at,state,comped")
         .in("cart_id", cartIds)
     : {
         data: [] as {
@@ -110,6 +110,8 @@ export async function getFloorView(): Promise<FloorSnapshot> {
           qty: number;
           unit_price_cents: number;
           created_at: string;
+          state: string;
+          comped: boolean;
         }[],
       };
 
@@ -121,8 +123,12 @@ export async function getFloorView(): Promise<FloorSnapshot> {
   >();
   for (const l of lines ?? []) {
     const a = aggByCart.get(l.cart_id) ?? { count: 0, subtotal: 0, lastLineAt: null };
-    a.count += l.qty;
-    a.subtotal += Number(l.unit_price_cents) * l.qty;
+    // S2-audit S2: count/subtotal reflect the CHARGEABLE base — a voided/comped line still bumps
+    // last-activity but isn't part of the "so far" total (parity with getTableDetail + the settle).
+    if (l.state !== "voided" && !l.comped) {
+      a.count += l.qty;
+      a.subtotal += Number(l.unit_price_cents) * l.qty;
+    }
     a.lastLineAt = laterIso(a.lastLineAt ?? l.created_at, l.created_at);
     aggByCart.set(l.cart_id, a);
   }

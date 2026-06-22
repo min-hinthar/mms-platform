@@ -110,6 +110,7 @@ export type ResolveApprovalResult =
         | "already"
         | "stale"
         | "not_open"
+        | "in_flight"
         | "not_found"
         | "error";
     };
@@ -136,6 +137,19 @@ export async function resolveApproval(raw: unknown): Promise<ResolveApprovalResu
   if (!appr) return { ok: false, reason: "not_found" };
   if (appr.status !== "pending") return { ok: false, reason: "already" };
 
+  // S2-audit B2: refuse an APPROVE while the table's card pay / split settle is in flight — applying the
+  // void/comp would drop a line from the base a PaymentIntent is capturing against → stranded charge. The
+  // RPC re-checks this atomically too; this is the app-layer parity with voidLine (and covers the
+  // captured-share edge paymentInFlightReason adds beyond the SQL freshness check). Deny is always safe.
+  if (decision === "approve" && appr.cart_id) {
+    const { data: cart } = await db
+      .from("qr_carts")
+      .select("id,locked,locked_at,settle_at")
+      .eq("id", appr.cart_id)
+      .maybeSingle();
+    if (cart && (await paymentInFlightReason(cart))) return { ok: false, reason: "in_flight" };
+  }
+
   // Verify the manager's PIN server-side (lockout-counted) BEFORE the RPC. mms_resolve_approval re-checks
   // the approver's role + self + that the row is still pending.
   const v = await verifyStaffPin(approverStaffId, pin);
@@ -159,6 +173,7 @@ export async function resolveApproval(raw: unknown): Promise<ResolveApprovalResu
   if (status === "already_resolved") return { ok: false, reason: "already" };
   if (status === "stale") return { ok: false, reason: "stale" };
   if (status === "not_open") return { ok: false, reason: "not_open" };
+  if (status === "in_flight") return { ok: false, reason: "in_flight" };
   if (status === "not_found") return { ok: false, reason: "not_found" };
   if (status !== "ok") return { ok: false, reason: "error" };
 

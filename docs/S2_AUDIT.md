@@ -180,9 +180,38 @@ would complete the audit. Tracked with S1.
 
 ## Remediation plan
 
-**Blockers + the SQL-clustered should-fixes ride one migration `20260622090000_s2_audit_fixes.sql` + the
-paired app fixes** (B1 gate, B2 resolve re-check, B3 try/catch, S2 floor, S3 KDS clock, S8/S9/S10/S11/S14 UI).
-**Deferred to tracked follow-ups** (refactors / near-impossible): S7 (fire-batch id), S12 (shared copy map),
-S13 (shared `<ManagerPinStepUp>`), the gate-reason column, the accepted nits. Apply the migration to live +
-re-verify (advisors, grants), re-run the local SQL behavioral matrix, and run a fresh-context adversarial
-pass on the remediation diff before merge.
+**✅ Remediated** in migration `20260622090000_s2_audit_fixes.sql` + paired app fixes (this PR):
+
+- **B1** — `and not comped` on `mms_cart_item_set_qty_if_open`/`inc_qty` (DB, load-bearing) **+**
+  `canMutateLine(comped)` (gate, threaded via `assertCartItemMember`/`cart.ts`).
+- **B2** — atomic in-SQL pay-lock freshness guard (`locked` 5m / `settle_at` 10m, DB-clocked → `'in_flight'`)
+  in `mms_void_line` **and** the APPROVE branch of `mms_resolve_approval`; app-side `paymentInFlightReason`
+  re-check added to `resolveApproval`; the `in_flight` status mapped + copy'd in `voids.ts`/`approvals.ts`/
+  `ApprovalsBoard`.
+- **B3** — try/catch on `StaffLineEditor.setQty` + `KdsBoard` bump (roll back optimistic / honest copy).
+- **S1** — `mms_resolve_approval` re-derives `amount_cents` from the locked line at approve.
+- **S2** — `getFloorView` excludes voided/comped from count + running subtotal.
+- **S4** — `mms_undo_fire` excludes comped (UPDATE + latest-batch subquery).
+- **S5** — merge supersedes pending approvals **before** the item loop (consistent lock order).
+- **S6** — merge fold matches on `state` (no fired↔draft coalescing).
+- **S8** — one board-level live region in `KdsBoard` (no per-line `alert` flood) + **N6** (redundant
+  `aria-label` removed).
+- **S10** — PIN inputs no longer `aria-describedby` the live region (LossActionSheet + ApprovalsBoard).
+- **S15** — `mms_approvals_owner_read` scoped `to authenticated`.
+
+**⏭ Deferred to a tracked S2-polish follow-up** (lower-severity / refactors / near-impossible):
+
+- **S3** — KDS grace cutoff on DB `now()` (needs a `mms_now()` helper + a round-trip; sub-second window on a
+  10s grace — low probability).
+- **S7** — per-batch `fire_batch` id instead of `max(fire_at)` (sub-ms window across separate transactions —
+  near-impossible today).
+- **S9** — "Reconnecting — last known state" signal after N poll failures (KDS/Approvals/Detail).
+- **S11** — "no managers signed in" → make Request-approval the primary affordance + relabel.
+- **S12** — shared `LINE_STATE_COPY` (diner vs staff vocabulary).
+- **S13** — shared `<ManagerPinStepUp>` (de-duplicate the LossActionSheet/ApprovalsBoard PIN flow).
+- **S14** — inline "pick a reason" validation + real radiogroup semantics for the single-select Reason.
+- **gate-reason** column on `mms_approvals` (S1 audit-completeness extension).
+- **Nits** N1 (ceiling read outside lock), N2 (comped not on receipt), N3 (roster), N5/N7 (informational).
+
+The migration is applied to live + re-verified (advisors, grants), the local SQL behavioral matrix re-run,
+and a fresh-context adversarial pass run on the remediation diff before merge.

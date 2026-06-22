@@ -22,7 +22,11 @@ export type LineActor =
   | { kind: "staff" }
   | { kind: "diner"; role: "host" | "guest"; isOwner: boolean };
 
-export function canMutateLine(lineState: LineState, actor: LineActor): boolean {
+export function canMutateLine(lineState: LineState, actor: LineActor, comped = false): boolean {
+  // A comped line is a committed $0 decision (S2.3) — immutable via the qty path for everyone (the kitchen
+  // still makes it; changing the qty would give away more / desync the loss audit). S2-audit B1: a comped
+  // line can reach 'draft' (comp-in-grace → undo), so the gate must key on `comped`, not just `state`.
+  if (comped) return false;
   if (actor.kind === "staff") return lineState !== "voided"; // staff edit any non-terminal line
   if (lineState !== "draft") return false; // post-fire = staff-only ("Ask server", S2.2)
   return actor.role === "host" || actor.isOwner; // diner: host-any / guest-own, draft only

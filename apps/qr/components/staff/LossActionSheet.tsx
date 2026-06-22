@@ -321,7 +321,8 @@ export function LossActionSheet({
               onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 8))}
               placeholder="••••"
               disabled={locked}
-              aria-describedby="loss-msg"
+              // S2-audit S10: NOT described-by the live region (a node can't be both a field description and
+              // a transactional live region without double-announcing); the label + placeholder suffice.
               style={input}
             />
           </fieldset>
