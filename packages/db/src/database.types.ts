@@ -1000,6 +1000,7 @@ export type Database = {
         Args: { category: string; dine_in: boolean }
         Returns: boolean
       }
+      staff_session_email_match: { Args: { p_email: string }; Returns: boolean }
     }
     Enums: {
       [_ in never]: never

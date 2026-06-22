@@ -102,12 +102,15 @@ values ('<uid>','you@…','owner','Min');` → refresh `/staff`.
      there's no SMTP to misconfigure (this replaces the Gmail-`534`/429 mess). Needs `RESEND_API_KEY` +
      `RESEND_FROM`. _(SMTP→Resend + a code-only `{{ .Token }}` template is the only-if-you-skip-the-hook
      fallback.)_
-   - **Auth hardening (config):** ensure email **confirmations are ON** (or email/password signup
-     disabled) so an unconfirmed address can't assert a staff email; restrict the Google provider to the
-     workspace domain; disable automatic cross-provider linking. (App-side, `getStaffAuth` already
-     requires `email_confirmed_at` before the email-allowlist match; a matching `email_verified` gate on
-     the SQL `is_staff` read-surface is a follow-up for **S1.2** once the live JWT claim path is confirmed
-     — without it, only the not-yet-built floor-view RLS read is exposed, never a write.)
+   - **Auth hardening — ⚠️ STILL REQUIRED (S1-audit B1 binding backstop):** on the **live** project,
+     **disable public email/password signup** (staff are admin-provisioned; diners use anonymous sign-in —
+     neither needs it) **or** turn email **confirmations ON**; restrict the Google provider to the workspace
+     domain; disable automatic cross-provider linking. The SQL side is now **CODE-FIXED** (migration
+     `20260622000000`): `is_staff()`/`is_staff_at_least()` no longer trust the raw JWT `email` claim — the
+     email branch resolves via `staff_session_email_match()` (reads `auth.users`, requires
+     `email_confirmed_at` + a provider-verified OAuth identity, never `provider='email'`). **But** under
+     confirmations-OFF auto-confirm, the `provider <> 'email'` guard is what holds the RLS layer, so the
+     config above is the durable control — do it before the live cutover. (See `docs/S1_AUDIT.md` §B1.)
    - **App transactional:** set `RESEND_API_KEY` + `RESEND_FROM` + `NEXT_PUBLIC_SITE_URL`
      (`https://qr.mandalaymorningstar.com`) in Vercel → staff invite/deactivation emails send via the
      SDK (`lib/email.ts`, best-effort via `after()`; unset keys = silently skipped, action still succeeds).
@@ -240,8 +243,11 @@ before building. **Three load-bearing seams it surfaces:**
 reason; cooked/refund/over-ceiling = **manager-PIN step-up**, reusing `mms_staff_verify_pin`); S2.4 = build the
 **approvals primitive + in-person manager-PIN + durable audit** now, **defer owner-remote-approve/SMS**.
 **Still-open (in S2_DESIGN §Open decisions):** manager-PIN resolution model, KDS-as-console-view, ceiling
-values, undo-grace length. Also carry-over from S1: the deferred **`email_verified` gate on the SQL `is_staff`
-read-surface** (HANDOFF "Auth hardening").
+values, undo-grace length. **A full S1 retrospective audit shipped — [`docs/S1_AUDIT.md`](S1_AUDIT.md)** (4
+parallel specialist agents): B1 (`is_staff()` unverified-email RLS escalation) is now **code-fixed**
+(`20260622000000`) — its live-config backstop is in "Auth hardening" above; **B2** (card-after-cash
+double-charge) + **B3** (RoleBadge contrast) and ~8 SHOULD-FIX remain open with a prioritized remediation
+order in the audit.
 
 **Tracked / deferred (non-blocking, carry forward):**
 

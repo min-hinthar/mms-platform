@@ -71,7 +71,13 @@ export async function getStaffAuth(): Promise<StaffAuth> {
     .eq("user_id", user.id)
     .maybeSingle();
   row = byUid.data;
-  if ((!row || !row.active) && email) {
+  // Mirror the SQL `staff_session_email_match` gate (S1-audit B1): the email-allowlist FALLBACK only
+  // trusts a provider-verified OAuth identity (Google), NEVER a public email/password signup — GoTrue
+  // auto-confirms those when confirmations are off, so `email_confirmed_at` alone is spoofable. Keeps
+  // TS ↔ RLS in sync (else the app could admit a row RLS denies). uid-matched staff (provisioned / OTP
+  // into the pre-created user / bootstrapped owner) never reach this branch, so they're unaffected.
+  const providerVerified = !!user.app_metadata?.provider && user.app_metadata.provider !== "email";
+  if ((!row || !row.active) && email && providerVerified) {
     const byEmail = await db
       .from("staff")
       .select("user_id,role,display_name,active")
