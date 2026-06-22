@@ -24,6 +24,7 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
     inFlight.current = true;
     try {
       setSnap(await getKitchenQueue());
+      setErr(null); // a fresh good snapshot clears a stale bump-error banner (no perma-stuck error)
     } catch (e) {
       // Don't blank the board on a transient fetch error — keep the last good queue; the poll + the
       // realtime self-heal recover. Surface for triage.
