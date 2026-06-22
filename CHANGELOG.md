@@ -4,6 +4,27 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed — S1 audit S2 + S7: session-gated settlement + staff-provisioning hardening (2026-06-22) — audit closeout
+
+Closes the last two audit SHOULD-FIX items.
+
+- **S2 — session-gate cash settle + merge** (migration `20260622020000`): `mms_fulfill_cash_order` and
+  `mms_merge_table_orders` only checked the cart was `open`, not that its `table_sessions` row was still
+  open. The background sweeper (`mms_sweep_expired_sessions`) closes an idle session **without** cancelling
+  its cart, so an `open` cart can outlive its session — letting a cash settle or a merge record against a
+  closed table (the invariant previously lived in `clearTable`'s ordering, which the sweeper bypasses).
+  Both RPCs now fold `exists(table_sessions … status <> 'closed')` into the atomic claim / open-count
+  check. The **card** path (`mms_fulfill_order`) is intentionally left ungated — a captured Stripe charge
+  must fulfill regardless of session state (its guard is the cart-status claim). Verified on the local
+  stack: open-session settle succeeds; closed-session settle/merge refuse, cart left untouched.
+- **S7 — staff-provisioning hardening** (`staff-actions.ts`): owner provisioning (a) leaked account
+  existence ("that email already has an account") — now a **generic** "couldn't create" message (no
+  existence oracle); (b) had **no rate limit** — now a coarse per-owner `mms_rate_limit` (20/hour, the
+  existing generic limiter); (c) wrote **no audit trail** — now emits PostHog audit events
+  (`staff_provisioned` / `staff_deactivated` / `staff_reactivated`), parity with clear/merge/settle.
+- **S1 retrospective audit fully remediated** — both blockers (B1, B2) and all seven SHOULD-FIX (S1–S7)
+  closed; see `docs/S1_AUDIT.md`.
+
 ### Fixed — S1 audit B3 + a11y batch: staff floor accessibility (2026-06-22)
 
 No-migration accessibility/UX pass over the staff floor drill-down.

@@ -131,7 +131,9 @@ home, profile, every team row). **Fix:** `fg: var(--ac-strong)` for `server`; re
   `FOR UPDATE`. Its **cash twin** (`:71-73`) and `mms_fulfill_split_order` both use a single atomic `update
 … where status='open' returning` as the claim. Make the card path match: claim atomically, drive the
   insert from the returned `session_id`, drop the separate check. (Closes the same race family as B2.)
-- **S2 — cash RPC not session-gated** (`staff_order.sql:42-90`): flips cart `open→paid` but never checks
+- **S2 — cash RPC not session-gated** ✅ **FIXED** (`20260622020000` — cash + merge gated on
+  `table_sessions.status <> 'closed'`; card path intentionally ungated; verified the sweeper scenario)
+  — (`staff_order.sql:42-90`): flips cart `open→paid` but never checks
   `table_sessions.status`. Safe _today_ only because `clearTable` cancels the cart before closing the
   session — an invariant living in caller ordering, not the RPC. Add `and exists(select 1 from
 table_sessions where id=v_session and status<>'closed')`; same for `mms_merge_table_orders`.
@@ -150,7 +152,9 @@ table_sessions where id=v_session and status<>'closed')`; same for `mms_merge_ta
   `ClearTableButton.tsx:53` confirm cards): focus falls to `<body>` when the trigger unmounts. Move focus to
   the new panel/group heading on each step; restore to the trigger on cancel (parity with `StaffLogin`/
   `FloorDetailLive`).
-- **S7 — provisioning oracle + no audit** (`staff-actions.ts:27-77`): `createUser` after `requireStaff
+- **S7 — provisioning oracle + no audit** ✅ **FIXED** (generic create-failure message, per-owner
+  `mms_rate_limit` 20/h, PostHog audit events on provision/activate) — (`staff-actions.ts:27-77`):
+  `createUser` after `requireStaff
 ('owner')` is correctly gated, but surfaces "email already has an account" project-wide (existence
   oracle), writes **no** audit row (only clear/merge/settle log to PostHog), and has no rate limit. Add a
   generic "couldn't create" message, an audit event, and a coarse `mms_rate_limit` keyed by `staffId`.
