@@ -5,6 +5,31 @@ import { serviceClient } from "@mms/db/server";
 import { provisionStaffInput, setStaffActiveInput } from "@mms/db/schemas";
 import { requireStaff } from "./staff";
 import { sendStaffInviteEmail, sendStaffDeactivatedEmail } from "./email";
+import { getPostHogClient } from "./posthog-server";
+
+// Owner provisioning is rare + bursty (onboarding a few at once); 20/hour per owner bounds an
+// email-enumeration probe (S1-audit S7) without blocking legitimate team setup.
+const PROVISION_MAX = 20;
+const PROVISION_WINDOW_S = 3600;
+
+/** Best-effort audit of an owner staff-management mutation (parity with clear/merge/settle telemetry —
+ *  S1-audit S7). Decoupled via after(); never fails the action on a capture error. */
+function auditStaffAction(
+  event: string,
+  byStaffId: string,
+  props: Record<string, string | number | boolean>,
+) {
+  if (!process.env.NEXT_PUBLIC_POSTHOG_KEY) return;
+  after(async () => {
+    try {
+      const ph = getPostHogClient();
+      ph.capture({ distinctId: `staff:${byStaffId}`, event, properties: props });
+      await ph.flush();
+    } catch {
+      /* analytics best-effort */
+    }
+  });
+}
 
 /**
  * Owner-only staff provisioning (S1.1a). Server Actions are public POST endpoints (IDOR by default),
@@ -35,20 +60,32 @@ export async function provisionStaff(raw: unknown): Promise<StaffActionResult> {
   if (!caller) return { ok: false, error: "Owners only." };
 
   const db = serviceClient();
+  // Coarse per-owner rate limit (S1-audit S7) — bounds repeated createUser probes. Fail-open on an RPC
+  // error (this is an owner-only path + defense-in-depth; don't block legit onboarding on a hiccup), but
+  // a hard `false` (over the cap) refuses without leaking why.
+  const { data: allowed, error: rlErr } = await db.rpc("mms_rate_limit", {
+    p_bucket: "staff_provision",
+    p_key: caller.staffId,
+    p_max: PROVISION_MAX,
+    p_window_seconds: PROVISION_WINDOW_S,
+  });
+  if (rlErr) console.error("[staff-actions] rate-limit check failed (allowing)", rlErr.message);
+  if (allowed === false)
+    return { ok: false, error: "Too many attempts just now — wait a minute and try again." };
+
   // Email-only identity, pre-confirmed: no password is set — staff sign in with a one-time code.
   // Two-system write (auth user + staff row) isn't transactional: the rowErr branch below rolls back
   // the orphan auth user, but a process crash BETWEEN the two leaves an orphan auth user with no staff
-  // row — harmless (it can't sign in to anything staff-gated) and re-provisioning surfaces "already has
-  // an account". Acceptable for an owner-only admin path; the bootstrap doc notes the manual cleanup.
+  // row — harmless (it can't sign in to anything staff-gated). Re-provisioning that email then fails on
+  // the generic message below; the bootstrap doc notes the manual cleanup.
   const { data: created, error: createErr } = await db.auth.admin.createUser({
     email: parsed.data.email,
     email_confirm: true,
   });
   if (createErr || !created?.user) {
-    const msg = createErr?.message ?? "";
-    if (/registered|already|exists/i.test(msg))
-      return { ok: false, error: "That email already has an account." };
-    return { ok: false, error: "Couldn’t create that account. Try again." };
+    // GENERIC message (S1-audit S7): do NOT reveal whether the email already exists — that's an account-
+    // existence oracle (even owner-only, it's needless disclosure). One message for every create failure.
+    return { ok: false, error: "Couldn’t create that account. Check the email and try again." };
   }
 
   const { error: rowErr } = await db.from("staff").insert({
@@ -62,6 +99,11 @@ export async function provisionStaff(raw: unknown): Promise<StaffActionResult> {
     await db.auth.admin.deleteUser(created.user.id).catch(() => {});
     return { ok: false, error: "Couldn’t save the staff role. Try again." };
   }
+
+  auditStaffAction("staff_provisioned", caller.staffId, {
+    role: parsed.data.role,
+    new_user_id: created.user.id,
+  });
 
   // Welcome the new staff member (best-effort, decoupled): the account is already saved, so an email
   // outage must not fail provisioning — after() runs it post-response and sendStaffInviteEmail never throws.
@@ -112,6 +154,10 @@ export async function setStaffActive(raw: unknown): Promise<StaffActionResult> {
     .update({ active: parsed.data.active, updated_at: new Date().toISOString() })
     .eq("user_id", parsed.data.userId);
   if (error) return { ok: false, error: "Couldn’t update that member. Try again." };
+
+  auditStaffAction(parsed.data.active ? "staff_reactivated" : "staff_deactivated", caller.uid, {
+    target_user_id: parsed.data.userId,
+  });
 
   // On DEACTIVATION only, send an honest heads-up (best-effort, decoupled) to the row's stored email.
   if (!parsed.data.active && target.email) {

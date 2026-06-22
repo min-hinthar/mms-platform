@@ -251,10 +251,13 @@ parallel specialist agents): **B1** (`is_staff()` unverified-email RLS escalatio
 "Auth hardening" above. **B3 + the a11y batch** (RoleBadge AA contrast via `-strong` tokens, sold-out
 `+` gate, dual-live-region → assertive alert, dropped-focus on confirm/step panels) are now **code-fixed**
 too (no migration). Both money/auth migrations are **applied to live** (`20260622000000`, `20260622010000`)
-and merged. **Remaining open** (prioritized in the audit): **S2** (cash/merge RPCs not session-gated —
-needs a small migration) + **S7** auth hardening (provisioning existence-oracle / no audit row / no rate
-limit). B1's live-config backstop (disable public email signup, workspace-domain Google) is in "Auth
-hardening" above — still the binding control there.
+and merged. **B3 + the a11y batch** (RoleBadge AA contrast, sold-out `+`, live-region, focus) merged (no
+migration). **S2** (cash/merge RPCs session-gated on `table_sessions.status`, `20260622020000`) and **S7**
+(staff-provisioning: generic create-failure message, per-owner `mms_rate_limit`, PostHog audit events)
+close out the audit. **The S1 retrospective audit is now FULLY remediated** — both blockers + all seven
+SHOULD-FIX done. Live migration state: `20260622000000` + `20260622010000` applied; **`20260622020000`
+pending a live apply**. B1's live-config backstop (disable public email signup, workspace-domain Google)
+is in "Auth hardening" above — still the binding control there.
 
 **Tracked / deferred (non-blocking, carry forward):**
 
