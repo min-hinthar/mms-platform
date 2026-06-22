@@ -5,8 +5,17 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 **M1 + M2 + M3 are complete, and S1 (staff & floor) is complete** (S1.1a/b · S1.2 · S1.3 · S1.4 all shipped).
-**Next up: S2 — line lifecycle & authority** — see the build order `M1 → M2 → M3 → S1 → S2 → S3 → M4 → S4 →
-M5 → M6` in `ROADMAP.md` and [`docs/context/ORDER-MODEL.md`](context/ORDER-MODEL.md).
+**S2 — line lifecycle & authority — is UNDERWAY.** Build order `M1 → M2 → M3 → S1 → S2 → S3 → M4 → S4 →
+M5 → M6` in `ROADMAP.md`; full design + adversarial review in [`docs/S2_DESIGN.md`](S2_DESIGN.md).
+
+> **S2 progress:** **S2.1a shipped** — the line-state spine: `qr_cart_items.state`
+> (`draft|fired|in_progress|served|voided`, backfilled `draft`), atomic legal-edge RPC `mms_line_transition`
+> (parent-cart-`open` guarded, service-role-only), and `canMutateLine` v2 (staff a first-class actor; diner =
+> own-draft-only, threaded through the diner server path). Migration `20260622030000` — **pending a live
+> apply**. **S2 decisions confirmed** (in `S2_DESIGN.md`): manager taps-name→PIN · console-view KDS ·
+> 20%/$20 loss ceiling · **10s** per-batch undo grace. **Next: S2.1b** — KDS console view (fire queue + bump
+> on `postgres_changes`), dine-in immediate-fire, unify the existing `fire_at` (pickup `slot−prep`), grocery
+> excluded (derive from cart `mode='scango'` until S4.1's per-line fulfillment tag).
 
 ## Where we are — M1 + M2 complete (merged)
 

@@ -1,24 +1,27 @@
 /**
- * The generalized line-mutation gate (M3·P3.3a) — the state×role signature the S-track will extend
- * (ORDER-MODEL: `canMutate(line_state, actor_role)`). ISOMORPHIC (no secrets, no I/O): the server
- * enforces it in the cart actions, and the client imports the SAME rule to disable controls it would
- * reject — so the UI never offers an action the server forbids.
+ * The generalized line-mutation gate (M3·P3.3a → S2.1a). The state×role rule (ORDER-MODEL:
+ * `canMutate(line_state, actor)`). ISOMORPHIC (no secrets, no I/O): the server enforces it in the cart
+ * actions, and the client imports the SAME rule to disable controls it would reject — so the UI never
+ * offers an action the server forbids.
  *
- * M3: every line is 'draft' (nothing fires to a kitchen yet). The HOST may mutate any line; a guest
- * only their OWN line (the cross-owner-delete guard — QA §D). The pay-window lock is checked
- * SEPARATELY (it freezes the cart for everyone); this is the ownership/role layer on top of it.
+ * S2.1a makes STAFF a first-class actor and adds the post-'draft' states. The rule:
+ *   • a DINER may mutate only an OWN, still-'draft' line (host may mutate any draft line; a guest only
+ *     their own — the cross-owner guard). Once a line is fired/in-progress/served, a diner CANNOT edit it
+ *     ("Ask server" — S2.2); this fixes the M3 placeholder that wrongly let a diner "host" edit fired food.
+ *   • STAFF own every non-terminal line (draft through served) — they edit FOR a guest post-fire. A
+ *     'voided' line is terminal: nobody mutates it.
  *
- * S2 will add post-'draft' states (fired / in-progress / served) where editing a committed line
- * becomes staff-only — hence the `lineState` parameter now, so that change extends this, not refactors it.
+ * The pay-window lock / settle freeze are checked SEPARATELY (they freeze the whole cart); this is the
+ * ownership/role × line-state layer on top of them.
  */
-export type LineState = "draft";
-export type ActorRole = "host" | "guest";
+export type LineState = "draft" | "fired" | "in_progress" | "served" | "voided";
 
-export function canMutateLine(
-  lineState: LineState,
-  actorRole: ActorRole,
-  isOwner: boolean,
-): boolean {
-  if (lineState !== "draft") return actorRole === "host"; // post-fire = staff-only (S2 placeholder)
-  return actorRole === "host" || isOwner;
+export type LineActor =
+  | { kind: "staff" }
+  | { kind: "diner"; role: "host" | "guest"; isOwner: boolean };
+
+export function canMutateLine(lineState: LineState, actor: LineActor): boolean {
+  if (actor.kind === "staff") return lineState !== "voided"; // staff edit any non-terminal line
+  if (lineState !== "draft") return false; // post-fire = staff-only ("Ask server", S2.2)
+  return actor.role === "host" || actor.isOwner; // diner: host-any / guest-own, draft only
 }

@@ -196,18 +196,17 @@ service_role`.
   the single engine — same as a diner remove). A comp needs a **0-priced or fully-discounted** line that
   still re-derives correctly (don't hand-edit a total). Keep `lib/totals.ts` the one source.
 
-## Open decisions — confirm before building S2.x
+## Open decisions — ✅ CONFIRMED (Min, S2 kickoff)
 
-1. **Manager-PIN resolution model (S2.3/C2):** _whose_ PIN unlocks a loss action?
-   **(a)** the manager **taps their name** → enters their PIN (clean attribution, one extra tap); **(b)** **any
-   `manager`/`owner` PIN** verifies (faster, but attribution needs the PIN→staff*id match the verify already
-   returns). **Recommend (a)** for unambiguous two-party audit. \_Either way a `server`-role PIN is rejected.*
-2. **KDS v1 surface:** a **view on the staff console** (fire queue + bump on the same tablet) vs a separate
-   KDS device. **Recommend the console view** (no new hardware; M6 kiosk is later); the bump path is the same
-   RPC regardless.
-3. **Ceiling values:** the discount/override threshold that trips manager-PIN — **default 20% or $20**,
-   tunable in a config row (parity with `pickup_config`). Confirm the numbers with Min before launch.
-4. **Undo grace length:** **default 5s** (ORDER-MODEL); confirm, and whether it's per-line or per-send-batch.
+1. **Manager-PIN resolution model (S2.3/C2):** ✅ **(a) the manager taps their name → enters their PIN** —
+   unambiguous two-party attribution (initiating server + named manager). A `server`-role PIN is rejected
+   for a loss action even if correct.
+2. **KDS v1 surface:** ✅ **console view on the staff tablet** (fire queue + bump on the same device) — on
+   the proven `postgres_changes` read path, no new hardware, no realtime-broadcast privatization needed yet.
+3. **Ceiling values:** ✅ **20% of the line OR $20 absolute, whichever trips first** — above ⇒ manager-PIN;
+   tunable in a config row (parity with `pickup_config`).
+4. **Undo grace length:** ✅ **10s, per send-batch** (Min chose longer than the 5s ORDER-MODEL default) —
+   one "Sent! — Undo" window per fire action, server-clocked (`fire_at = now() + 10s`).
 
 ## Recommended build order (PR slices)
 
