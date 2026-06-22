@@ -296,8 +296,8 @@ function RequestCard({
 
       <p
         id={`appr-msg-${request.id}`}
-        role="alert"
-        aria-live="assertive"
+        role="status"
+        aria-live="polite"
         style={{ margin: "8px 0 0", minHeight: 16 }}
       >
         {(lockCopy ?? msg) && (

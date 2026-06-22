@@ -17,8 +17,15 @@
 -- owners). The approvals queue polls (low-frequency manager surface) — no RLS broadening.
 -- Additive/idempotent: a new column, a guarded unique index, two new fns. (mms_void_line is unchanged.)
 
--- When the request was decided (approved/denied); null while pending. Completes the two-party audit.
+-- When the request was decided (approved/denied/superseded); null while pending. Completes the audit.
 alter table public.mms_approvals add column if not exists resolved_at timestamptz;
+
+-- 'superseded' = a pending request auto-closed because the table MERGED out from under it (the line moved
+-- to another cart, so the original request can't honestly resolve — re-request on the merged table). A
+-- distinct terminal status keeps the audit honest (it was NOT a manager's denial). Re-add the named CHECK.
+alter table public.mms_approvals drop constraint if exists mms_approvals_status_check;
+alter table public.mms_approvals add constraint mms_approvals_status_check
+  check (status in ('pending','approved','denied','superseded'));
 
 -- At most ONE open request per line (D4 — a double-tap / two servers can't stack pending voids on a line).
 -- Partial: only 'pending' rows are constrained; the many historical 'approved'/'denied' rows are free.
@@ -128,7 +135,8 @@ begin
     into v_line_state, v_line_comped, v_cart_status
     from public.qr_cart_items ci join public.qr_carts c on c.id = ci.cart_id
     where ci.id = v_line for update of ci;
-  if v_line_state is null then return 'stale'; end if;        -- line gone (e.g. merged away)
+  if v_line_state is null then return 'stale'; end if;        -- line genuinely gone (defensive; merge
+                                                              -- supersedes pending rows, so this is rare)
   if v_cart_status <> 'open' then return 'not_open'; end if;  -- settled/closed → S4.3 refund, not here
 
   if v_kind = 'void' then
@@ -149,3 +157,77 @@ end $$;
 
 revoke all on function public.mms_resolve_approval(uuid, uuid, text) from public, anon, authenticated;
 grant execute on function public.mms_resolve_approval(uuid, uuid, text) to service_role;
+
+-- ── mms_merge_table_orders — supersede the SOURCE cart's pending approval requests on merge ──────────────
+-- S2.4 interaction (caught in pre-PR review): a one-tap merge re-parents the source cart's still-active
+-- lines to the target (and the source session closes). A void/comp request that was PENDING on a source
+-- line is default-safe (the line wasn't changed), so without this the line would move and a later approve
+-- would apply the loss to the WRONG (target) table + write a misleading audit. Fix: terminally
+-- 'superseded' every pending request on the source cart, IN THE SAME TRANSACTION as the re-parent, so the
+-- queue clears and the loss can be cleanly re-requested on the merged table. Body otherwise identical to
+-- 20260622070000 (the void/comp-skip guards on both scans are preserved). Re-runnable; grant reasserted.
+create or replace function public.mms_merge_table_orders(p_source_cart uuid, p_target_cart uuid)
+returns integer language plpgsql security definer set search_path = '' as $$
+declare
+  v_src_session uuid;
+  v_moved integer := 0;
+  r record;
+  v_match uuid;
+  v_match_qty integer;
+begin
+  if p_source_cart = p_target_cart then
+    raise exception 'merge requires two different carts';
+  end if;
+
+  perform 1 from public.qr_carts where id in (p_source_cart, p_target_cart) and status = 'open'
+    order by id for update;
+  if (select count(*) from public.qr_carts c
+        where c.id in (p_source_cart, p_target_cart) and c.status = 'open'
+          and exists (select 1 from public.table_sessions s
+                        where s.id = c.session_id and s.status <> 'closed')) <> 2 then
+    raise exception 'both carts must be open and their tables active to merge (source=% target=%)',
+      p_source_cart, p_target_cart;
+  end if;
+
+  select session_id into v_src_session from public.qr_carts where id = p_source_cart;
+
+  for r in
+    select id, menu_item_id, qty,
+           coalesce((select jsonb_agg(e order by e) from jsonb_array_elements_text(modifiers) e),
+                    '[]'::jsonb) as modkey
+    from public.qr_cart_items
+    where cart_id = p_source_cart and state <> 'voided' and not comped
+  loop
+    select t.id, t.qty into v_match, v_match_qty
+    from public.qr_cart_items t
+    where t.cart_id = p_target_cart
+      and t.menu_item_id = r.menu_item_id
+      and t.state <> 'voided' and not t.comped
+      and coalesce((select jsonb_agg(e order by e) from jsonb_array_elements_text(t.modifiers) e),
+                   '[]'::jsonb) = r.modkey
+    limit 1;
+
+    if v_match is not null and v_match_qty + r.qty <= 99 then
+      update public.qr_cart_items set qty = v_match_qty + r.qty where id = v_match;
+      delete from public.qr_cart_items where id = r.id;
+    else
+      update public.qr_cart_items set cart_id = p_target_cart, by_seat = null where id = r.id;
+    end if;
+    v_moved := v_moved + r.qty;
+  end loop;
+
+  -- S2.4: close any pending approval request on the source cart — its line just moved tables, so the
+  -- request can't honestly resolve here. 'superseded' (not 'denied') keeps the audit truthful.
+  update public.mms_approvals
+    set status = 'superseded', resolved_at = now()
+    where cart_id = p_source_cart and status = 'pending';
+
+  update public.qr_carts set updated_at = now() where id = p_target_cart;
+  update public.qr_carts set status = 'cancelled' where id = p_source_cart;
+  update public.table_sessions set status = 'closed' where id = v_src_session and status <> 'closed';
+
+  return v_moved;
+end; $$;
+
+revoke all on function public.mms_merge_table_orders(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.mms_merge_table_orders(uuid, uuid) to service_role;

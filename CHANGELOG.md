@@ -25,6 +25,10 @@ Generalizes S2.3's manager-present void/comp into a full **request → approve/d
 - **`LossActionSheet`** gains a **"Request approval"** path for gated actions (no PIN — the deferred sibling
   of "approve now"). The staff drill-down shows **"Approval requested"** on a line with an open request, so a
   second request can't stack. Owner-remote/SMS stays deferred — the `pending` states make it a notify-add.
+- **Merge ↔ pending guard** (caught in pre-PR review): a one-tap table merge now **supersedes** any pending
+  request on the source cart in the same transaction — so a merged-away line can't have its void/comp later
+  applied to the wrong (target) table with a misleading audit. A `superseded` terminal status keeps the
+  ledger honest (it wasn't a manager's denial); the loss can be cleanly re-requested on the merged table.
 
 ### Added — S2.3: loss-gated voids/comps + the first durable audit ledger (2026-06-22)
 
