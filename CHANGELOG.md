@@ -4,6 +4,32 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — S2.4: the approvals primitive (request → approve/deny → audit) (2026-06-22)
+
+Generalizes S2.3's manager-present void/comp into a full **request → approve/deny → audit** flow with
+**default-safe `pending` states** (D1–D4). Migration `20260622080000`. **Completes S2.**
+
+- **`mms_request_approval`** — when no manager is at hand, a server requests a gated void/comp. Creates a
+  **`pending`** `mms_approvals` row and **does not touch the line** (still charged, food not un-fired — the
+  default-safe state, D2). Refuses if the action is server-solo (`no_approval_needed`) or the line is
+  already voided/comped. A **partial unique index** (`line_id WHERE status='pending'`) blocks a second open
+  request per line (`already_pending`, D4).
+- **`mms_resolve_approval`** — a manager's decision: **approve** applies the recorded action (void→`voided`
+  / comp→`comped`) + flips the row `approved`; **deny** flips `denied` and leaves the line live. Resolves a
+  row **only once** (idempotent on `pending`, D4); the approver must be an **active `manager`/`owner` ≠ the
+  requester** (D3, re-checked in SQL). Approve requires the line still on an open cart (a settled-line refund
+  stays the S4.3 seam); an already-applied line is a benign idempotent close.
+- **`/staff/approvals`** — a manager-gated live queue (`ApprovalsBoard`, **polled** every 5s since the audit
+  table is owner-read RLS and off the realtime publication) with per-request Approve/Deny via the manager-PIN
+  step-up. A manager+ nav link on the floor with a pending count.
+- **`LossActionSheet`** gains a **"Request approval"** path for gated actions (no PIN — the deferred sibling
+  of "approve now"). The staff drill-down shows **"Approval requested"** on a line with an open request, so a
+  second request can't stack. Owner-remote/SMS stays deferred — the `pending` states make it a notify-add.
+- **Merge ↔ pending guard** (caught in pre-PR review): a one-tap table merge now **supersedes** any pending
+  request on the source cart in the same transaction — so a merged-away line can't have its void/comp later
+  applied to the wrong (target) table with a misleading audit. A `superseded` terminal status keeps the
+  ledger honest (it wasn't a manager's denial); the loss can be cleanly re-requested on the merged table.
+
 ### Added — S2.3: loss-gated voids/comps + the first durable audit ledger (2026-06-22)
 
 Server-initiated **void** (cancel + remove) and **comp** (free, kitchen still makes it) on a fired line,

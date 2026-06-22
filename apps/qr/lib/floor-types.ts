@@ -53,6 +53,10 @@ export type TableLineView = {
   state: LineState;
   /** Comped (S2.3) — given away free; the kitchen still makes it, the charge excludes it. */
   comped: boolean;
+  /** An open void/comp approval request is pending for this line (S2.4) — a manager resolves it from the
+   *  queue; the line is unchanged until then, and the staff editor shows "approval requested" not a new
+   *  Void/Comp button (so a second request can't stack). */
+  pendingApproval: boolean;
 };
 
 export type TableMemberView = { seatId: string; name: string; isHost: boolean };

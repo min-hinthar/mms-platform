@@ -262,6 +262,42 @@ export const voidLineInput = z.object({
 });
 
 export type VoidLineInput = z.infer<typeof voidLineInput>;
+
+/**
+ * requestApproval (S2.4) — a server REQUESTS a manager's approval for a gated void/comp when no manager
+ * is at hand. Same shape as the void action minus the inline PIN: the loss gate is still SERVER-derived
+ * (mms_request_approval refuses if the action wouldn't need a manager). Creates a default-safe `pending`
+ * row; the line is untouched until a manager resolves it.
+ */
+export const requestApprovalInput = z.object({
+  sessionId: uuid,
+  cartItemId: uuid,
+  action: z.enum(["void", "comp"]),
+  reason: z.enum([
+    "mistake",
+    "kitchen_error",
+    "quality",
+    "guest_request",
+    "service_recovery",
+    "other",
+  ]),
+});
+
+/**
+ * resolveApproval (S2.4) — a manager approves or denies a pending request from the queue. The manager is
+ * proven by the PIN step-up (verified server-side, lockout-counted) so it works on a shared tablet
+ * regardless of who's signed in; mms_resolve_approval re-checks the approver is an active manager/owner
+ * and not the requester (D3), and resolves a row only once (D4).
+ */
+export const resolveApprovalInput = z.object({
+  approvalId: uuid,
+  decision: z.enum(["approve", "deny"]),
+  approverStaffId: uuid,
+  pin: z.string().regex(/^\d{4,8}$/),
+});
+
+export type RequestApprovalInput = z.infer<typeof requestApprovalInput>;
+export type ResolveApprovalInput = z.infer<typeof resolveApprovalInput>;
 export type SetStaffPinInput = z.infer<typeof setStaffPinInput>;
 export type VerifyStaffPinInput = z.infer<typeof verifyStaffPinInput>;
 export type SetStaffActiveInput = z.infer<typeof setStaffActiveInput>;

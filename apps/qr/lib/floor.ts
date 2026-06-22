@@ -239,6 +239,17 @@ export async function getTableDetail(sessionId: string): Promise<TableDetail | n
       const { data: mi } = await db.from("menu_items").select("id,is_sold_out").in("id", menuIds);
       for (const m of mi ?? []) if (m.is_sold_out) soldOutIds.add(m.id);
     }
+    // Lines with an OPEN approval request (S2.4) — so the editor shows "approval requested" instead of a
+    // second Void/Comp button. One bounded read on the (non-hot) detail path.
+    const pendingLineIds = new Set<string>();
+    {
+      const { data: pend } = await db
+        .from("mms_approvals")
+        .select("line_id")
+        .eq("cart_id", cart.id)
+        .eq("status", "pending");
+      for (const p of pend ?? []) if (p.line_id) pendingLineIds.add(p.line_id);
+    }
     lines = (items ?? []).map((i) => ({
       id: i.id,
       name: i.name,
@@ -248,6 +259,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetail | n
       soldOut: i.menu_item_id ? soldOutIds.has(i.menu_item_id) : false,
       state: (i.state ?? "draft") as TableLineView["state"],
       comped: i.comped ?? false,
+      pendingApproval: pendingLineIds.has(i.id),
     }));
     // Count + running subtotal reflect what's CHARGEABLE — a voided/comped line shows on the drill-down
     // (as a removed/comped row) but isn't part of the "so far" total or the settle amount.
