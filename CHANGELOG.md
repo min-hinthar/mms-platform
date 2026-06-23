@@ -4,6 +4,16 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — M4 P4.2: order history (2026-06-23)
+
+The diner's own past orders on `/account` (read-only). `getOrderHistory` reads their PAID orders
+(`earned_by` = the SSR-verified uid — anon or upgraded), newest first, with a short item summary; a
+service-role read scoped to the uid, so a diner only sees their own. Cash/staff-closed orders (no earner)
+don't appear — honest "orders you placed", not the whole table's. No new schema. Reorder + settings are
+deferred to their own slices (see `docs/M4_DESIGN.md`): reorder needs an active table-bound cart; settings
+(theme/lang) is blocked on a theme-override provider + an i18n layer (today the theme is pure
+`prefers-color-scheme` and there's no diner i18n framework — shipping the toggles now would be hollow).
+
 ### Added — M4 P4.2: reward redemption at checkout (2026-06-23)
 
 A diner redeems an earned Morning Star reward coupon on their order — completing the earn→see→**use** loop

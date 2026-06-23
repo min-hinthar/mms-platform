@@ -1,16 +1,17 @@
 import type { Metadata } from "next";
-import { getRewardsState, ensureProfile } from "@/lib/rewards";
+import { getRewardsState, getOrderHistory, ensureProfile } from "@/lib/rewards";
 import { RewardsHub } from "@/components/RewardsHub";
+import { OrderHistory } from "@/components/OrderHistory";
 import { AccountUpgrade } from "@/components/AccountUpgrade";
 
 export const metadata: Metadata = { title: "Rewards & account · Morning Star" };
 
-// /account — Morning Star Rewards hub + the anon→account upgrade (M4 P4.1). Server-rendered from the
-// server-derived summary; the diner reads only their OWN rewards (auth.uid()). ensureProfile() finalizes
-// the profile row when an upgrade has just confirmed (e.g. the Google redirect returns here).
+// /account — Morning Star Rewards hub + order history + the anon→account upgrade (M4 P4.1/P4.2). Server-
+// rendered; the diner reads only their OWN rewards + orders (auth.uid()). ensureProfile() finalizes the
+// profile row when an upgrade has just confirmed (e.g. the Google redirect returns here).
 export default async function Account() {
   await ensureProfile();
-  const state = await getRewardsState();
+  const [state, history] = await Promise.all([getRewardsState(), getOrderHistory()]);
 
   return (
     <main style={{ padding: 24, maxWidth: 480, margin: "0 auto" }}>
@@ -33,6 +34,7 @@ export default async function Account() {
             </div>
           )}
           <RewardsHub state={state} />
+          {history.length > 0 && <OrderHistory entries={history} />}
           {state.isUpgraded && (
             <p style={{ margin: "4px 2px 0", fontSize: 12.5, color: "var(--t3)" }}>
               Signed in as {state.email}. Your rewards are saved to your account.
