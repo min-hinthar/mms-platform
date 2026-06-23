@@ -4,6 +4,27 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — S4.1: unified basket — per-line fulfillment tag + mixed-destination cart (2026-06-23)
+
+One basket, one payment, lines that route to different destinations. Design of record:
+`docs/S4_DESIGN.md` (threat model U1–U4 + the EBT split-tender seam). Migration `20260623100000`.
+
+- **Per-line fulfillment tag drives per-line tax** — every cart line carries a `fulfillment`
+  (`dinein`/`togo`/`grocery`) that **supersedes the session mode** for routing _and_ tax. Food
+  defaults from context (dine-in→`dinein`, pickup/scan→`togo`); grocery auto-tags `grocery` and is
+  never guest-flippable (routing + exemption are fixed). The tag flows into `mms_line_tax`, so a
+  cold-food line taxed at the dine-in/to-go boundary recomputes correctly when its tag flips
+  (cold_food/beverage_cold are taxable dine-in, exempt to-go). `tax_cents` is stored per line and is
+  the taxable base `getCartTotals` already sums — no new total/charge path.
+- **Cart grouped by destination** — `Checkout` renders the basket in `<section aria-label>` blocks
+  (Here · To go · Grocery), headings shown only when 2+ destinations are present. Single-destination
+  carts read exactly as before.
+- **Food For-here/To-go toggle** — a per-line, draft-only, member-gated toggle
+  (`mms_set_line_fulfillment`: open-cart + draft-state + not-grocery guard **in SQL**, server-recomputed
+  tax). `role="group"`, `aria-pressed`, 44px targets. Grocery lines show no toggle.
+
+Fire-routing / KDS subset / ready signal land in S4.2; bagging/expo + split-tender + line-level refunds in S4.3.
+
 ### Added — M4 P4.3: feedback + ungated review triage (2026-06-23) — M4 COMPLETE
 
 Post-order feedback at peak goodwill, the **ungated** way (`docs/M4_DESIGN.md` R9/R10; `DESIGN-RESEARCH.md`

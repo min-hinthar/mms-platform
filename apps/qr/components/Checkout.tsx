@@ -13,6 +13,7 @@ import {
   applyPromo as applyPromoAction,
   getCartView,
   releasePayLock,
+  setLineFulfillment,
   setQty as setQtyAction,
   type PromoReason,
 } from "@/lib/cart";
@@ -169,6 +170,20 @@ export function Checkout({
         await setQtyAction(id, qty);
       } catch {
         // Locked or no-longer-open — refresh() below re-syncs the UI to server truth.
+      }
+      await refresh();
+    });
+  }
+
+  // S4: re-route a food line for-here↔to-go. The server recomputes the line's tax (cold food flips
+  // taxability); refresh() re-syncs the grouped basket + the breakdown. A refused toggle (busy/fired)
+  // just no-ops back to server truth on refresh — no client error needed (the control is draft-only).
+  function toggleFulfillment(id: string, ful: "dinein" | "togo") {
+    startTransition(async () => {
+      try {
+        await setLineFulfillment(id, ful);
+      } catch {
+        /* transient/redacted — refresh re-syncs */
       }
       await refresh();
     });
@@ -333,16 +348,18 @@ export function Checkout({
         </>
       ) : (
         <>
-          <ul
-            role="list"
-            style={{ listStyle: "none", padding: 0, margin: "12px 0", display: "grid", gap: 10 }}
-          >
-            {items.map((i) => {
-              // canMutate (P3.3a → S2.2): keys on the line's REAL state. A 'draft' line is editable by
-              // its owner (host any line, guest own only); once fired/cooking/served the diner can't edit
-              // it — the stepper is replaced by a state chip ("Ask a server"). UI hint only; the server
-              // re-enforces the same rule (cart.ts setQty/assignLine via canMutateLine). Solo & non-group
-              // default to host (their own cart); for non-dine-in modes every line stays 'draft' (no fire).
+          {/* S4 unified basket: group lines by destination (At your table / To-go / Grocery). Headings
+              show only when the basket actually spans 2+ destinations, so a plain dine-in cart stays clean.
+              The renderLine body is the S2 per-line card + an S4 for-here/to-go toggle on editable food. */}
+          {(() => {
+            const GROUPS: [label: string, key: CartItem["fulfillment"]][] = [
+              ["At your table", "dinein"],
+              ["To-go", "togo"],
+              ["Grocery", "grocery"],
+            ];
+            const present = GROUPS.filter(([, k]) => items.some((i) => i.fulfillment === k));
+            const showHeadings = present.length > 1;
+            const renderLine = (i: CartItem) => {
               const canEdit = canMutateLine(i.lineState, {
                 kind: "diner",
                 role: splitContext?.myRole ?? "host",
@@ -399,8 +416,6 @@ export function Checkout({
                         fontWeight: 700,
                         marginTop: 4,
                         fontVariantNumeric: "tabular-nums",
-                        // A comped/voided line isn't charged (S2.3) — strike its price so the running
-                        // total (which excludes it) reads honestly against the line.
                         textDecoration:
                           i.comped || i.lineState === "voided" ? "line-through" : "none",
                         color: i.comped || i.lineState === "voided" ? "var(--t3)" : "inherit",
@@ -408,9 +423,43 @@ export function Checkout({
                     >
                       ${((i.unitPriceCents * i.qty) / 100).toFixed(2)}
                     </div>
+                    {/* For-here / To-go (S4): food only, draft + editable. Grocery routing is fixed. The
+                        server recomputes per-line tax (cold food flips taxability) — never a client guess. */}
+                    {i.fulfillment !== "grocery" && i.lineState === "draft" && canEdit && (
+                      <div
+                        role="group"
+                        aria-label={`Where ${i.name} goes`}
+                        style={{ display: "inline-flex", gap: 6, marginTop: 8 }}
+                      >
+                        {(["dinein", "togo"] as const).map((f) => {
+                          const on = i.fulfillment === f;
+                          return (
+                            <button
+                              key={f}
+                              type="button"
+                              aria-pressed={on}
+                              disabled={pending}
+                              onClick={() => toggleFulfillment(i.id, f)}
+                              style={{
+                                minHeight: 44,
+                                padding: "0 14px",
+                                borderRadius: 999,
+                                border: "1px solid var(--bd)",
+                                background: on ? "var(--ac)" : "transparent",
+                                color: on ? "var(--oa)" : "var(--t2)",
+                                fontSize: 12.5,
+                                fontWeight: 700,
+                                cursor: pending ? "default" : "pointer",
+                              }}
+                            >
+                              {f === "dinein" ? "For here" : "To go"}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                   {i.comped ? (
-                    // Comped (S2.3): a server made it free — the kitchen still makes it, but it's $0.
                     <LineStateChip state={i.lineState} comped />
                   ) : i.lineState === "draft" ? (
                     <Stepper
@@ -421,14 +470,36 @@ export function Checkout({
                       onChange={(q) => changeQty(i.id, q)}
                     />
                   ) : (
-                    // Fired/cooking/served/voided: no stepper — the diner can't edit it ("Ask a server",
-                    // S2.2). The chip is the honest replacement for the control, not a disabled control.
                     <LineStateChip state={i.lineState} comped={false} />
                   )}
                 </li>
               );
-            })}
-          </ul>
+            };
+            return present.map(([label, key]) => (
+              <section key={key} aria-label={label} style={{ margin: "12px 0" }}>
+                {showHeadings && (
+                  <h3
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 800,
+                      letterSpacing: 0.3,
+                      textTransform: "uppercase",
+                      color: "var(--t2)",
+                      margin: "0 0 8px",
+                    }}
+                  >
+                    {label}
+                  </h3>
+                )}
+                <ul
+                  role="list"
+                  style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 10 }}
+                >
+                  {items.filter((i) => i.fulfillment === key).map(renderLine)}
+                </ul>
+              </section>
+            ));
+          })()}
 
           {isGroup && splitContext && (
             <SplitSection

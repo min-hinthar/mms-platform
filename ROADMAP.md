@@ -139,9 +139,9 @@ What lets the kitchen trust the screen + gives loss-controlled undo. **Dep:** S1
 
 Dine-in + take-out + grocery in one cart, one payment, mixed fulfillment. **Dep:** S2 (line-state/KDS) · M2 (fire-time) · grocery (M2.3).
 
-- **S4.1** Per-line **fulfillment tag** (dine-in / to-go / grocery) → KDS-now / KDS-at-checkout / bag-only; cart **grouped by destination** for legibility. ⬜
-- **S4.2** To-go timing — **fire at checkout** (= tab-close, or the explicit **"make it now"** toggle on pay-now) + a **"ready in ~X"** departure-readiness signal. ⬜
-- **S4.3** **Split-tender seam** — a payment covers a **subset** of lines (single-tender at launch) + **line-level refunds**; lets M6 EBT be a tender-time branch, not a rewrite. 🟡 _pulled forward:_ **M3·P3.3** builds the per-seat split-tender (each guest pays their own share); S4.3 then generalizes it to arbitrary line subsets + mixed-basket fulfillment. ⬜
+- **S4.1** Per-line **fulfillment tag** (dine-in / to-go / grocery) + the cart **grouped by destination**; the tag drives **per-line tax** (cold food taxable only dine-in) + a food **for-here/to-go toggle**; the tag supersedes session mode. ✅ (`docs/S4_DESIGN.md`; fire/KDS routing → S4.2)
+- **S4.2** Per-line **fire routing** (dine-in → kitchen now · to-go → **fire at checkout** = tab-close or the explicit **"make it now"** toggle on pay-now · grocery never) + **KDS subset** + a **"ready in ~X"** departure-readiness signal. ⬜
+- **S4.3** Bagging/expo station + the **split-tender seam** — a payment covers a **subset** of lines (single-tender at launch) + **line-level refunds**; lets M6 EBT be a tender-time branch, not a rewrite. 🟡 _pulled forward:_ **M3·P3.3** builds the per-seat split-tender; S4.3 generalizes it to arbitrary line subsets + mixed-basket fulfillment. ⬜
 
 **Exit:** one basket pays for served + to-go + grocery with correct per-line tax; to-go is fresh at departure; a payment can already target a line subset.
 

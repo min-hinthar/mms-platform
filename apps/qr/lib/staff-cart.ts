@@ -71,7 +71,12 @@ export async function staffAddItem(raw: unknown): Promise<StaffWriteResult> {
     const taxCents = lineTax(unitPriceCents, category, dineIn);
     // by_seat = null: a staff-added line isn't pre-attributed to a guest's split (the host can assign it
     // later via the existing by-person flow). The status-atomic insert throws if the cart isn't open.
-    await insertOrIncLine(cart.id, { menuItemId, name, opts, unitPriceCents, taxCents }, null);
+    // S4: fulfillment defaults from the session mode (staff can re-route via the same toggle later).
+    await insertOrIncLine(
+      cart.id,
+      { menuItemId, name, opts, unitPriceCents, taxCents, fulfillment: dineIn ? "dinein" : "togo" },
+      null,
+    );
     await touchCart(cart.id, "staffAddItem");
   } catch {
     // priceItem (unknown item) or a closed-cart race — honest, non-leaking copy.

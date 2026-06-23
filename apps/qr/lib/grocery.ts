@@ -55,6 +55,7 @@ export async function scanAdd(cartId: string, barcode: string) {
     unit_price_cents: unitPriceCents,
     tax_cents: taxCents,
     by_seat: uid,
+    fulfillment: "grocery", // S4: grocery is auto-tagged + never guest-flippable (routing + exemption fixed)
   });
   return {
     ok: true as const,

@@ -206,6 +206,14 @@ export const applyRewardInput = z.object({
   rewardCode: z.string().trim().min(1).max(40),
 });
 
+/** setLineFulfillment (S4) — toggle a FOOD line's destination for-here↔to-go. Shape only; the server
+ *  re-derives membership + own/host-draft authority and refuses a grocery line; the RPC recomputes the
+ *  line's tax (cold food is taxable only dine-in). Grocery is never client-flippable. */
+export const setLineFulfillmentInput = z.object({
+  cartItemId: uuid,
+  fulfillment: z.enum(["dinein", "togo"]),
+});
+
 /** submitFeedback (M4 P4.3) — leave feedback on an order. Shape + bounds only; mms_submit_feedback
  *  re-derives that the caller is the order's EARNER + the order is paid (one per order). Rating bounded
  *  1..5; comment length-capped (mirrors the column CHECK). UNGATED — any rating is accepted. */

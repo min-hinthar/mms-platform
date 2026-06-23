@@ -1,6 +1,6 @@
 import "server-only";
 import { serviceClient } from "@mms/db/server";
-import type { TaxCategory } from "@mms/db";
+import type { TaxCategory, LineFulfillment } from "@mms/db";
 
 /**
  * Server-authoritative line pricing + insert, shared by the diner cart (lib/cart.ts addItem) and the
@@ -58,6 +58,8 @@ export type PricedLine = {
   opts: string[];
   unitPriceCents: number;
   taxCents: number;
+  /** S4 routing tag — set by the caller from context (food: dinein/togo; grocery: 'grocery'). */
+  fulfillment: LineFulfillment;
 };
 
 /**
@@ -82,6 +84,7 @@ export async function insertOrIncLine(
     .select("id,modifiers")
     .eq("cart_id", cartId)
     .eq("menu_item_id", line.menuItemId)
+    .eq("fulfillment", line.fulfillment) // S4: a for-here add must NOT merge into a to-go line (different routing/tax)
     .eq("state", "draft");
   const dup = (siblings ?? []).find((s) => modKey(s.modifiers) === modKey(line.opts));
   if (dup) {
@@ -100,6 +103,7 @@ export async function insertOrIncLine(
       // The SQL param `p_by_seat uuid` is nullable (added-by-server lines pass null); Supabase's
       // type-gen marks it non-null, so cast. NULL is a valid provenance ("no seat").
       p_by_seat: bySeat as string,
+      p_fulfillment: line.fulfillment,
     });
     if (!insertedId) throw new Error("Cart is no longer open");
   }
