@@ -7,6 +7,7 @@ import {
   applyRewardInput,
   assignLineInput,
   cartViewInput,
+  makeItNowInput,
   sendToKitchenInput,
   setLineFulfillmentInput,
   setQtyInput,
@@ -423,6 +424,33 @@ export async function setLineFulfillment(
     return { ok: false, reason: "error" };
   }
   if (data !== "ok") return { ok: false, reason: data ?? "error" };
+  return { ok: true };
+}
+
+/**
+ * "Make it now" (S4.2): fire ONE to-go food line to the kitchen early (draft→fired, +10s grace), instead
+ * of waiting for checkout. Member-gated + canMutateLine (host-any / guest-own, draft only); mms_fire_line
+ * re-derives in SQL that it's an open-cart, draft, `togo` line (a dine-in line uses sendToKitchen's batch;
+ * grocery never fires). Returns a Result so the UI shows an honest reason; the RPC's row write touches the
+ * line so the KDS + peers re-sync via realtime.
+ */
+export async function makeItNow(cartItemId: string): Promise<SetFulfillmentResult> {
+  const input = makeItNowInput.parse({ cartItemId });
+  const { locked, settling, role, lineSeat, lineState, comped, uid } = await assertCartItemMember(
+    input.cartItemId,
+  );
+  await assertMutationRate(uid);
+  if (locked || settling) return { ok: false, reason: "busy" };
+  if (!canMutateLine(lineState, { kind: "diner", role, isOwner: lineSeat === uid }, comped))
+    return { ok: false, reason: "not_yours" };
+  const { data, error } = await serviceClient().rpc("mms_fire_line", { p_line: input.cartItemId });
+  if (error) {
+    console.error("[cart] mms_fire_line failed", error.message);
+    return { ok: false, reason: "error" };
+  }
+  if (data !== "ok") return { ok: false, reason: data ?? "error" };
+  // No touchCart: mms_fire_line's write to qr_cart_items (state→fired) is itself the realtime trigger the
+  // KDS + cart peers subscribe to (same as setLineFulfillment). The grace window is the fire_at stamp.
   return { ok: true };
 }
 

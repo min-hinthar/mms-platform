@@ -29,6 +29,21 @@ export async function getPickupSlots(excludeCart?: string): Promise<PickupSlot[]
   return (data ?? []).map((r) => ({ slot: r.slot_time, remaining: r.remaining }));
 }
 
+/**
+ * The configured kitchen prep estimate (minutes) — the single honest basis for the S4.2 "ready in ~X"
+ * to-go signal (same value that drives the pickup ETA: fire_at = slot − prep). NOT a live countdown — an
+ * estimate the owner tunes in `pickup_config`. Falls back to the column default (12) on a read miss so the
+ * UI always has an honest-ish number rather than a blank.
+ */
+export async function getPrepMinutes(): Promise<number> {
+  const { data, error } = await serviceClient()
+    .from("pickup_config")
+    .select("prep_minutes")
+    .maybeSingle();
+  if (error || !data) return 12; // matches the pickup_config.prep_minutes column default
+  return data.prep_minutes;
+}
+
 export type SetSlotResult =
   | { ok: true }
   | { ok: false; reason: "unavailable" | "cart_closed" | "locked" | "error" };

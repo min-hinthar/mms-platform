@@ -1314,6 +1314,8 @@ export type Database = {
       }
       mms_clear_reward: { Args: { p_cart: string }; Returns: undefined }
       mms_fire_cart: { Args: { p_cart_id: string }; Returns: number }
+      mms_fire_line: { Args: { p_line: string }; Returns: string }
+      mms_fire_pending_food: { Args: { p_cart_id: string }; Returns: number }
       mms_fulfill_cash_order: {
         Args: {
           p_cart_id: string

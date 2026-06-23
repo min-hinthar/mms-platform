@@ -170,6 +170,14 @@ function KdsLineRow({
             {line.qty}×
           </span>{" "}
           {line.name}
+          {line.fulfillment === "togo" && (
+            // S4.2: tells the cook/expo to bag it, not run it to the table. Text (not colour-only) for a11y;
+            // the bag glyph is decorative (aria-hidden) so SRs read just "To-go".
+            <span style={togoTag}>
+              {" · To-go "}
+              <span aria-hidden="true">🥡</span>
+            </span>
+          )}
           {line.state === "in_progress" && <span style={cookingTag}> cooking</span>}
         </p>
         {line.modifiers.length > 0 && <p style={modLine}>{line.modifiers.join(" · ")}</p>}
@@ -234,6 +242,13 @@ const cookingTag: CSSProperties = {
   textTransform: "uppercase",
   letterSpacing: "0.04em",
   color: "var(--ac-strong)",
+};
+const togoTag: CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  textTransform: "uppercase",
+  letterSpacing: "0.04em",
+  color: "var(--t2)",
 };
 const modLine: CSSProperties = {
   margin: "2px 0 0",

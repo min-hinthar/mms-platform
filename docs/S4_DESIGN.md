@@ -67,10 +67,45 @@ The model is **already decided** in `ORDER-MODEL.md`; the only "open" items ther
   Grocery"); each group a `role`/`aria`-named section; the toggle a ≥44px, properly-labelled control;
   reduced-motion safe; tokens, honest microcopy.
 
-### S4.2 — per-line fire routing + KDS subset (planned)
+### S4.2 — per-line fire routing + KDS subset + ready signal (built 2026-06-23)
 
-- Per-line fire: `dinein` fires now (the S2 batch), `togo` fires at checkout / "make it now", `grocery`
-  never fires. KDS shows kitchen lines (`dinein` + fired `togo`) only. No charge-with-no-fire regressions.
+**Scope: the dine-in unified basket.** A dine-in session's mixed cart fires per line by tag; pickup/scango
+keep their existing M2 **scheduled** fire (`qr_orders.fire_at = slot − prep`, kitchen-actor consumption
+still deferred) — S4.2 does **not** touch that path. The two fire mechanisms stay distinct:
+**per-line `qr_cart_items.fire_at`** (this slice) vs **order-level scheduled `fire_at`** (pickup, untouched).
+
+- **F1 — fire routing (the core).** `mms_fire_cart` ("Send to kitchen") now fires **only `fulfillment='dinein'`**
+  draft lines (was: every draft line of a dine-in session — the S4.1→S4.2 seam U3). A `togo` line **waits**;
+  a `grocery` line **never** fires. Undo (`mms_undo_fire`) is unchanged (latest in-grace batch, mode-gated).
+- **F2 — "make it now" (early to-go fire).** `mms_fire_line(p_line)` fires **one `togo` food line** early
+  (draft→fired, `fire_at = now()+10s` grace, its own `fire_batch`). Guards re-derived **in SQL**: open cart,
+  draft state, **`fulfillment='togo'`** (a `dinein` line uses the batch send; `grocery` is refused). The
+  diner action is member + `canMutateLine` gated (own/host draft) — same authority surface as the S4.1 toggle.
+- **F3 — fire-at-checkout = the "no charge-with-no-fire" safety net (load-bearing).** At settlement, any
+  still-**draft food** line (`fulfillment in ('dinein','togo')`, **never `grocery`**) of the **paid** dine-in
+  cart fires via `mms_fire_pending_food(p_cart_id)` (`fire_at = now()`, immediately due — you've paid, no
+  undo). This is called **best-effort _after_** the money RPCs (`mms_fulfill_order` card-webhook /
+  `mms_fulfill_cash_order` cash), **drained via `after()`** — a kitchen-fire bug must **never** roll back a
+  captured payment or NACK a Stripe webhook (CLAUDE.md side-effect rule; the money RPCs are left untouched).
+  Gated to `mode='dinein'` so pickup/scango keep their scheduled fire. Idempotent: re-running fires nothing
+  (no draft food left). A line already fired/served during the meal is skipped (not re-fired).
+- **F4 — KDS subset + visibility.** Fire routing makes the subset correct **for free**: only `dinein` +
+  fired `togo` lines ever reach `state='fired'`, so the existing KDS (reads `state in ('fired','in_progress')`)
+  shows exactly the kitchen subset; grocery (never fired) is implicitly excluded. **One required change:** the
+  KDS read must include lines on a **`paid`** cart, not just `open` — a `togo` line fired at checkout lives on
+  the just-paid cart, and the old `status='open'` filter would hide it (the cook would never see paid-for
+  to-go food). Now reads carts `status in ('open','paid')` (still `cancelled`-excluded; the line-state gate
+  keeps served/voided off). A per-ticket **destination badge** ("To-go") tells the cook/expo where it goes.
+- **F5 — "ready in ~X" signal (honest, lightweight).** When a to-go line is made-now or fires at checkout,
+  the diner sees "made fresh — ready in about **X** min", where **X = `pickup_config.prep_minutes`** (a real
+  configured value, same honesty basis as the pickup ETA — **never** a fabricated live countdown). The full
+  persistent "to-go ready, don't walk out without it" departure status + bagging/expo station is **S4.3**.
+- **F6 — a11y / legibility.** The "Make it now" control is a ≥44px labelled button (draft + food + `togo`
+  only); the KDS badge is text (not color-only); tokens, honest microcopy, reduced-motion safe.
+
+**Deferred to S4.3 (documented):** the bagging/expo station, the persistent diner "to-go ready" departure
+signal (realtime ready-state on `/track`), line-level refunds, and the split-tender seam generalization.
+Pickup/scango **scheduled-fire → KDS** consumption stays the M2 seam (no kitchen actor for it yet).
 
 ### S4.3 — bagging/expo station + departure signal (planned)
 

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getCartView } from "@/lib/cart";
+import { getPrepMinutes } from "@/lib/pickup";
 import { getSplitContext, type SplitContext } from "@/lib/split";
 import { Checkout } from "@/components/Checkout";
 
@@ -39,6 +40,10 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
     split = null;
   }
 
+  // S4.2: the configured prep estimate for the to-go "ready in ~X min" copy (honest config value, not a
+  // live countdown). Best-effort with a sane fallback so the cart always renders.
+  const prepMinutes = await getPrepMinutes().catch(() => 12);
+
   // A settling cart with NO split context is unwinnable in the plain flow: the cart is frozen
   // table-wide, so "Continue to payment" 409s ("pay your share on the split screen") but the board
   // can't render without the context. Rather than strand the payer in that loop on a transient read
@@ -68,6 +73,7 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
       initialSettling={view.settling}
       initialTabType={view.tabType}
       canTab={split?.mode === "dinein"}
+      prepMinutes={prepMinutes}
     />
   );
 }

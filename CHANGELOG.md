@@ -4,6 +4,31 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — S4.2: per-line fire routing + KDS subset + ready signal (2026-06-23)
+
+The fulfillment tag now drives **when** a line fires. Design of record: `docs/S4_DESIGN.md` S4.2 (F1–F6).
+Migration `20260623220000`. Scoped to the **dine-in unified basket**; pickup/scango keep their M2 scheduled
+order-level fire (untouched).
+
+- **Fire routing** — `mms_fire_cart` ("Send to kitchen") now fires **only `dinein`** draft lines (was: every
+  draft line of a dine-in session). A `togo` line waits for checkout / "make it now"; a `grocery` line never
+  fires. The KDS subset (`dinein` + fired `togo`) falls out for free — grocery never reaches `state='fired'`.
+- **"Make it now"** — `makeItNow` + `mms_fire_line` fire a single `togo` food line early (draft→fired, +10s
+  grace). Member + `canMutateLine` gated; the RPC re-derives open-cart + draft + `togo` **in SQL** (a `dinein`
+  line uses the batch send, `grocery` refused). A per-line button in the cart's To-go group.
+- **Fire-at-checkout (no charge-with-no-fire)** — at settlement, `mms_fire_pending_food` fires every still-draft
+  **food** line (dinein+togo, never grocery) of the **paid** dine-in cart, so the kitchen makes everything the
+  guest paid for. Called **best-effort after** the (untouched) money RPCs — card webhook, cash settle, and the
+  split-tender close — drained via `after()` so a kitchen-fire hiccup can never roll back a captured payment or
+  NACK a Stripe webhook. Idempotent; dine-in-gated.
+- **KDS** — now reads kitchen lines on **open _or paid_** carts (a to-go line fired at checkout lives on the
+  just-paid cart; the old open-only filter hid it). `cancelled` excluded; the line-state gate keeps served/
+  voided off. Each ticket line shows a **"To-go" badge** (text + decorative glyph, `aria-hidden`) so the
+  cook/expo bags it instead of running it to the table.
+- **"Ready in ~X"** — the To-go group + the "Make it now" button surface an honest estimate from
+  `pickup_config.prep_minutes` (a configured value, **not** a fabricated live countdown). The persistent diner
+  "to-go ready" departure status + bagging/expo station remain **S4.3**.
+
 ### Added — S4.1: unified basket — per-line fulfillment tag + mixed-destination cart (2026-06-23)
 
 One basket, one payment, lines that route to different destinations. Design of record:

@@ -57,6 +57,18 @@ export async function POST(req: NextRequest) {
           // Actor 'diner' — the table split the bill. Best-effort, out of band.
           const splitCartId = intent.metadata?.cartId;
           if (splitCartId) {
+            // Fire-at-checkout (S4.2): the split is fully settled (cart paid) → fire any still-draft FOOD
+            // so the kitchen makes it ("no charge-with-no-fire"). Drained, idempotent, dine-in/food-gated.
+            after(async () => {
+              const { error: fireErr } = await db.rpc("mms_fire_pending_food", {
+                p_cart_id: splitCartId,
+              });
+              if (fireErr)
+                console.error("[stripe webhook] split fire-at-checkout failed", {
+                  cartId: splitCartId,
+                  error: fireErr,
+                });
+            });
             // Redeem any applied reward (M4 P4.2) — single-use, exactly-once on the open→paid transition.
             const { error: redErr } = await db.rpc("mms_redeem_cart_reward", {
               p_cart: splitCartId,
@@ -249,6 +261,20 @@ export async function POST(req: NextRequest) {
         if (orderId) {
           await enqueueQboSync(db, orderId);
           after(() => syncOrderToQbo(orderId));
+          // Fire-at-checkout (S4.2): the cart is paid → fire any still-draft FOOD (mms_fire_pending_food
+          // gates to a paid dine-in cart + food, never grocery) so the kitchen makes everything the guest
+          // paid for ("no charge-with-no-fire"). Drained in after(): a kitchen-fire hiccup must NEVER block
+          // the Stripe ack or fail the money path. Idempotent (no draft food ⇒ fires 0); covers a secure-tab
+          // off-session close too (it rides this same succeeded→fulfill path). KDS sees it via realtime.
+          after(async () => {
+            const { error: fireErr } = await db.rpc("mms_fire_pending_food", { p_cart_id: cartId });
+            if (fireErr)
+              console.error("[stripe webhook] fire-at-checkout failed", {
+                cartId,
+                paymentIntent: intent.id,
+                error: fireErr,
+              });
+          });
           // Morning Star Rewards (M4): stamp the earner + award Stars. Only a known diner PAYER earns
           // (earnerUid set by create-intent); a cash/staff close has none → earns nothing. Server-
           // authoritative + idempotent (mms_reward_on_fulfill keys the coupon per milestone index).
