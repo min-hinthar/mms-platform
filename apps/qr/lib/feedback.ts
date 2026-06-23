@@ -39,7 +39,13 @@ export async function getFeedbackState(orderId: string): Promise<FeedbackState> 
   };
 }
 
-export type SubmitFeedbackReason = "not_yours" | "not_paid" | "bad_rating" | "exists" | "error";
+export type SubmitFeedbackReason =
+  | "not_found"
+  | "not_yours"
+  | "not_paid"
+  | "bad_rating"
+  | "exists"
+  | "error";
 export type SubmitFeedbackResult = { ok: true } | { ok: false; reason: SubmitFeedbackReason };
 
 export async function submitFeedback(
