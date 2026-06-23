@@ -266,6 +266,38 @@ export type Database = {
         }
         Relationships: []
       }
+      mms_tab_secure: {
+        Row: {
+          cart_id: string
+          created_at: string
+          secured_at: string | null
+          stripe_customer_id: string
+          stripe_payment_method_id: string | null
+        }
+        Insert: {
+          cart_id: string
+          created_at?: string
+          secured_at?: string | null
+          stripe_customer_id: string
+          stripe_payment_method_id?: string | null
+        }
+        Update: {
+          cart_id?: string
+          created_at?: string
+          secured_at?: string | null
+          stripe_customer_id?: string
+          stripe_payment_method_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mms_tab_secure_cart_id_fkey"
+            columns: ["cart_id"]
+            isOneToOne: true
+            referencedRelation: "qr_carts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       modifier_groups: {
         Row: {
           created_at: string
@@ -1147,6 +1179,10 @@ export type Database = {
       }
       mms_resolve_approval: {
         Args: { p_approver: string; p_decision: string; p_id: string }
+        Returns: string
+      }
+      mms_secure_tab: {
+        Args: { p_cart: string; p_customer: string; p_payment_method: string }
         Returns: string
       }
       mms_set_pickup_slot: {

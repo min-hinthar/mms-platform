@@ -239,6 +239,51 @@ export async function POST(req: NextRequest) {
         }),
       );
     }
+  } else if (event.type === "setup_intent.succeeded") {
+    // Secure tab (S3.2): the diner's card-save confirmed. Record the saved PaymentMethod token + flip the
+    // tab to 'secure' (mms_secure_tab — service-role, idempotent, never charges). This is the server-
+    // authoritative record; the route never reports "secured" eagerly (T7). The off-session close later
+    // reuses the SAME payment_intent.succeeded → reconcile → mms_fulfill_order path above (cartId metadata).
+    const si = event.data.object;
+    const cartId = si.metadata?.cartId;
+    const customer = typeof si.customer === "string" ? si.customer : (si.customer?.id ?? null);
+    const pm =
+      typeof si.payment_method === "string" ? si.payment_method : (si.payment_method?.id ?? null);
+    if (cartId && customer && pm) {
+      const db = serviceClient();
+      const { error: secureErr } = await db.rpc("mms_secure_tab", {
+        p_cart: cartId,
+        p_customer: customer,
+        p_payment_method: pm,
+      });
+      // supabase-js returns the PG error in `error` (no throw); swallowing would 200 the event and Stripe
+      // would never retry → a saved card the tab never recorded. 5xx so Stripe redelivers (idempotent RPC).
+      if (secureErr) {
+        console.error("[stripe webhook] mms_secure_tab failed", {
+          cartId,
+          setupIntent: si.id,
+          error: secureErr,
+        });
+        return NextResponse.json(
+          { error: "Secure-tab record failed; will retry" },
+          { status: 500 },
+        );
+      }
+      posthog.capture({
+        distinctId: cartId,
+        event: "tab_secured",
+        properties: { cart_id: cartId, setup_intent_id: si.id },
+      });
+    } else {
+      // Our setup-intent route always sets cartId metadata + a customer; a confirmed SI missing any of
+      // these can't be recorded and a retry won't help. Don't 5xx into a retry storm, but never vanish.
+      console.error(
+        "[stripe webhook] setup_intent.succeeded missing cartId/customer/payment_method",
+        {
+          setupIntent: si.id,
+        },
+      );
+    }
   }
   // (handle charge.refunded, … as needed)
 
