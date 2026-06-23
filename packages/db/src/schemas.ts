@@ -214,6 +214,11 @@ export const setLineFulfillmentInput = z.object({
   fulfillment: z.enum(["dinein", "togo"]),
 });
 
+/** makeItNow (S4.2) — fire ONE to-go food line to the kitchen early. Shape only; the server re-derives
+ *  membership + own/host-draft authority, and mms_fire_line refuses anything that isn't an open-cart,
+ *  draft, `togo` line (a dine-in line uses the batch send; grocery never fires). */
+export const makeItNowInput = z.object({ cartItemId: uuid });
+
 /** submitFeedback (M4 P4.3) — leave feedback on an order. Shape + bounds only; mms_submit_feedback
  *  re-derives that the caller is the order's EARNER + the order is paid (one per order). Rating bounded
  *  1..5; comment length-capped (mirrors the column CHECK). UNGATED — any rating is accepted. */

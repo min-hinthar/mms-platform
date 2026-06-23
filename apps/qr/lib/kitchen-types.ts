@@ -16,6 +16,9 @@ export type KitchenLine = {
   state: "fired" | "in_progress";
   /** When the line fired (ISO) — the board shows its age so the expo can spot a stalled ticket. */
   firedAt: string;
+  /** S4.2 destination routing: `togo` lines (fired early or at checkout) get a "To-go" badge so the
+   *  cook/expo bags them instead of running them to the table. `dinein` is the default (no badge). */
+  fulfillment: "dinein" | "togo" | "grocery";
 };
 
 /** One table's worth of live kitchen lines — a ticket. Ordered oldest-fire-first so the kitchen works

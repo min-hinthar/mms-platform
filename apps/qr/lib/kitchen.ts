@@ -15,10 +15,11 @@ import type { KitchenLine, KitchenQueue, KitchenTicket } from "./kitchen-types";
  * exactly why the staff gate lives here and not on RLS rows.
  *
  * ONE unified fire timer (S2_DESIGN spine #3): the queue is the single read
- * `state IN ('fired','in_progress') AND fire_at <= now()` — dine-in stamps fire_at=now() (immediate);
- * pickup's scheduled per-line fire is the S4.2 seam. Bump reuses the shipped mms_line_transition
- * (legal-edge graph, atomic, cart-open guarded). Grocery never enters the queue (mms_fire_cart is
- * dine-in-only).
+ * `state IN ('fired','in_progress') AND fire_at <= now()`. S4.2 routes by the per-line fulfillment tag —
+ * dine-in fires now (the batch send), to-go fires at checkout / "make it now", grocery never fires — so
+ * the queue is the kitchen subset for free. Lines on a paid cart still show (to-go fired at checkout)
+ * until the cook bumps them served. Pickup/scango keep their separate M2 order-level scheduled fire
+ * (no kitchen actor yet). Bump reuses mms_line_transition (legal-edge graph, atomic, cart-open guarded).
  */
 
 const QUEUE_LINE_CAP = 500; // a teahouse kitchen has tens of live lines; bound the read regardless.
@@ -40,22 +41,23 @@ export async function getKitchenQueue(): Promise<KitchenQueue> {
   // Live kitchen lines: fired/in_progress AND actually due (fire_at <= now — past any undo grace).
   const { data: lines } = await db
     .from("qr_cart_items")
-    .select("id,name,qty,modifiers,state,fire_at,cart_id")
+    .select("id,name,qty,modifiers,state,fire_at,cart_id,fulfillment")
     .in("state", ["fired", "in_progress"])
     .lte("fire_at", nowIso)
     .order("fire_at", { ascending: true })
     .limit(QUEUE_LINE_CAP);
   if (!lines || lines.length === 0) return { tickets: [], serverNow: nowIso };
 
-  // Resolve each line's table via its OPEN cart → active dine-in session. Filtering to open carts +
-  // active sessions drops lines on a cleared (cancelled/closed) table — the kitchen never works a table
-  // that's been cleared out from under it. A settled (paid) cart's lines are already 'served' by then.
+  // Resolve each line's table via its cart → active dine-in session. S4.2: carts in ('open','paid') —
+  // a to-go line fired at checkout lives on the just-PAID cart, so an open-only filter would hide paid-for
+  // to-go food from the cook. 'cancelled' is excluded (a cleared table); the line-state gate (fired/
+  // in_progress) keeps served/voided off, so only live, not-yet-bumped kitchen work shows.
   const cartIds = [...new Set(lines.map((l) => l.cart_id))];
   const { data: carts } = await db
     .from("qr_carts")
     .select("id,session_id,status")
     .in("id", cartIds)
-    .eq("status", "open");
+    .in("status", ["open", "paid"]);
   const sessionByCart = new Map((carts ?? []).map((c) => [c.id, c.session_id]));
   const sessionIds = [...new Set([...sessionByCart.values()])];
   if (sessionIds.length === 0) return { tickets: [], serverNow: nowIso };
@@ -72,7 +74,7 @@ export async function getKitchenQueue(): Promise<KitchenQueue> {
   const ticketBySession = new Map<string, KitchenTicket>();
   for (const l of lines) {
     const sessionId = sessionByCart.get(l.cart_id);
-    if (!sessionId) continue; // line's cart isn't open (settled/cleared) — not a live kitchen line
+    if (!sessionId) continue; // line's cart is cancelled/cleared — not a live kitchen line
     const label = labelBySession.get(sessionId);
     if (label === undefined) continue; // session not an active dine-in table — skip
     const line: KitchenLine = {
@@ -82,6 +84,9 @@ export async function getKitchenQueue(): Promise<KitchenQueue> {
       modifiers: Array.isArray(l.modifiers) ? (l.modifiers as string[]) : [],
       state: l.state === "in_progress" ? "in_progress" : "fired",
       firedAt: l.fire_at ?? nowIso,
+      // S4.2: only dinein + fired togo ever reach the kitchen (grocery never fires). The badge tells the
+      // cook/expo where a line goes; 'grocery' is defensive (it can't be here) but typed for completeness.
+      fulfillment: (l.fulfillment ?? "dinein") as KitchenLine["fulfillment"],
     };
     const existing = ticketBySession.get(sessionId);
     if (existing) existing.lines.push(line);

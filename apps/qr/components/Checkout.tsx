@@ -12,6 +12,7 @@ import type { CartItem, CartTotals } from "@mms/db";
 import {
   applyPromo as applyPromoAction,
   getCartView,
+  makeItNow,
   releasePayLock,
   setLineFulfillment,
   setQty as setQtyAction,
@@ -71,6 +72,7 @@ export function Checkout({
   initialSettling = false,
   initialTabType = "none",
   canTab = false,
+  prepMinutes = 12,
 }: {
   cartId: string;
   initialItems: CartItem[];
@@ -82,6 +84,8 @@ export function Checkout({
   initialTabType?: "none" | "trust" | "secure";
   /** Dine-in only: a tab is a dine-in concept (pickup/grocery pay at checkout). Gates the affordance. */
   canTab?: boolean;
+  /** S4.2: configured kitchen prep estimate (min) for the to-go "ready in ~X" copy. Honest config value. */
+  prepMinutes?: number;
 }) {
   const [items, setItems] = useState<CartItem[]>(initialItems);
   const [totals, setTotals] = useState<CartTotals>(initialTotals);
@@ -197,6 +201,21 @@ export function Checkout({
       try {
         const res = await setLineFulfillment(id, ful);
         if (res.ok) refocusToggle.current = { id, ful }; // keep keyboard/SR place when the line re-groups
+      } catch {
+        /* transient/redacted — refresh re-syncs */
+      }
+      await refresh();
+    });
+  }
+
+  // S4.2 "Make it now": fire a to-go line to the kitchen early (instead of waiting for checkout). The
+  // server recomputes nothing about money — it only flips the line to 'fired'; refresh() re-syncs so the
+  // line shows its state chip (the toggle + this button drop away once fired). A refused fire (busy/raced)
+  // just no-ops back to server truth on refresh — the control is draft-only, so no error UI is needed.
+  function makeNow(id: string) {
+    startTransition(async () => {
+      try {
+        await makeItNow(id);
       } catch {
         /* transient/redacted — refresh re-syncs */
       }
@@ -475,6 +494,31 @@ export function Checkout({
                         })}
                       </div>
                     )}
+                    {/* Make it now (S4.2): a to-go food line waits for checkout by default; this fires it to
+                        the kitchen early. Draft + editable + togo only (a dinein line fires via Send to
+                        kitchen; grocery never fires). The server gates it; refused → no-ops on refresh. */}
+                    {i.fulfillment === "togo" && i.lineState === "draft" && canEdit && (
+                      <button
+                        type="button"
+                        disabled={pending}
+                        onClick={() => makeNow(i.id)}
+                        style={{
+                          display: "block",
+                          minHeight: 44,
+                          marginTop: 8,
+                          padding: "0 14px",
+                          borderRadius: 999,
+                          border: "1px solid var(--ac)",
+                          background: "transparent",
+                          color: "var(--ac)",
+                          fontSize: 12.5,
+                          fontWeight: 700,
+                          cursor: pending ? "default" : "pointer",
+                        }}
+                      >
+                        Make it now · ready in ~{prepMinutes} min
+                      </button>
+                    )}
                   </div>
                   {i.comped ? (
                     <LineStateChip state={i.lineState} comped />
@@ -508,6 +552,15 @@ export function Checkout({
                     {label}
                   </h3>
                 )}
+                {/* S4.2: to-go food is made fresh at checkout (not fired with the dine-in batch). Honest,
+                    config-driven estimate — shown only while a to-go line is still waiting (draft). */}
+                {key === "togo" &&
+                  items.some((i) => i.fulfillment === "togo" && i.lineState === "draft") && (
+                    <p style={{ fontSize: 12, color: "var(--t2)", margin: "0 0 8px" }}>
+                      Made fresh when you check out — ready in about {prepMinutes} min. Want it
+                      sooner? Tap “Make it now.”
+                    </p>
+                  )}
                 <ul
                   role="list"
                   style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 10 }}

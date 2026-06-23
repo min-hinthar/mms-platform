@@ -230,6 +230,19 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
         message: redErr.message,
       });
 
+    // Fire-at-checkout (S4.2): the table paid in cash → fire any still-draft FOOD (mms_fire_pending_food
+    // gates to dine-in + food, never grocery) so the kitchen makes everything they paid for ("no charge-
+    // with-no-fire"). Drained out of band: a kitchen-fire hiccup must NEVER fail a settled cash order.
+    // Idempotent (no draft food left ⇒ fires 0); the KDS picks up the now-fired lines via realtime.
+    after(async () => {
+      const { error: fireErr } = await db.rpc("mms_fire_pending_food", { p_cart_id: cart.id });
+      if (fireErr)
+        console.error("[staff-cart] fire-at-checkout failed", {
+          cartId: cart.id,
+          message: fireErr.message,
+        });
+    });
+
     if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
       after(async () => {
         try {
