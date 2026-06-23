@@ -174,16 +174,25 @@ next_milestone, orders_to_next }`; service-role (called by a member-gated server
 
 - Cross-project gem unification with the delivery ledger → **M5**.
 - Referrals / lifecycle marketing crons (win-back, anniversary, abandoned-cart) → post-M4 / delivery-owned.
-- ✅ Reward redemption at checkout (P4.2) · ✅ **order history** (P4.2 — the diner's own paid orders). Feedback/reviews → **P4.3**.
-- **Reorder-with-modifiers** → next P4.2 slice. Deferred deliberately: the QR cart is **table-session-bound**,
-  so reorder needs an ACTIVE open cart to add into (a diner viewing history at `/account` usually isn't in a
-  session). The honest model is "re-add to your current table's cart, re-priced server-side (`priceItem`),
-  unavailable items surfaced" — gated/guided when there's no active cart. Plus a modifiers-Json → modifierIds
-  round-trip to re-price. Real UX + re-price work; its own slice.
-- **Account settings (theme / language)** → deferred until the infra exists. Today the theme is pure
-  `prefers-color-scheme` (no `.dark` class / theme provider to override) and there is **no diner i18n
-  framework** (bilingual = menu `name_en`/`name_my` only). A stored `mms_profiles.theme`/`locale` has nothing
-  to apply to yet — shipping the toggles now would be a hollow promise (honest-microcopy bar). Needs a
-  theme-override provider + an i18n layer first (their own slice); the `mms_profiles` columns already exist.
-- **Split-tender earn attribution** (who earns the Star on a split order — host-of-record vs per-share) → **P4.2+**.
-- **Refund-aware tier recede** (a `qr_orders` refund signal so a refunded order stops counting) → **P4.2+**.
+- ✅ Reward redemption at checkout (P4.2) · ✅ **order history** (P4.2) · ✅ **split-tender earn** (P4.2). Feedback/reviews → **P4.3**.
+- ✅ **Split-tender earn attribution** — the **host-of-record** earns the table's split order (the order-count
+  model: one order = one Star; net spend credited to the organizer, parity with the S3 host-of-record). The
+  webhook split-fulfill resolves the host uid (`table_sessions.host_seat`), stamps `qr_orders.earned_by`, and
+  awards exactly-once. **Per-share attribution** (each payer earns for their share) is a future refinement —
+  it needs a per-payer earn ledger (today `earned_by` is one uid per order); noted, not blocking.
+- **Reorder-with-modifiers** → **blocked, own slice.** Two real blockers, not just UX: (1) the QR cart is
+  **table-session-bound**, so reorder needs an ACTIVE open cart to add into (a diner at `/account` usually
+  isn't in a session); and decisively (2) cart/order lines persist modifier **labels**, not option **ids**
+  (`insertOrIncLine` stores `optLabels`; the order snapshot copies them) — so `priceItem` (which needs option
+  ids) **cannot faithfully re-price** a reorder without first persisting `modifier_option_ids` on the lines
+  (a schema + write-path change). A label→id reverse match would be lossy/ambiguous (breaks R8 + honesty).
+  Prereq: capture option ids at order time; then reorder into the active cart, re-priced, unavailable surfaced.
+- **Account settings (theme / language)** → deferred (marginal / needs infra). Today the theme is pure
+  `prefers-color-scheme` (no `.dark` class / theme provider to override) — every diner already gets their OS
+  theme — and there is **no diner i18n framework** (bilingual = menu `name_en`/`name_my` only). A stored
+  `mms_profiles.theme`/`locale` has nothing to apply to yet; shipping toggles now would be a hollow promise.
+  Real value needs a theme-override provider + a full i18n layer (its own initiative). Low value/effort for a
+  transient-diner app — revisit with the i18n initiative. The `mms_profiles` columns already exist for it.
+- **Refund-aware tier recede** → **blocked on refund infra (S4.3).** `qr_orders.status` has no `refunded`
+  state (refunds are out-of-band in `qr_refunds_needed`; line-level auto-refund is S4.3), so there is no
+  signal to recede against. Build once S4.3 lands a refund-state on the order.

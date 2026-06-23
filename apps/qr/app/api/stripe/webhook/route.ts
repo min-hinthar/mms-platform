@@ -69,9 +69,36 @@ export async function POST(req: NextRequest) {
               });
             const { data: closedCart } = await db
               .from("qr_carts")
-              .select("tab_type")
+              .select("tab_type,session_id")
               .eq("id", splitCartId)
               .maybeSingle();
+            // Split-earn (M4 P4.2): a split order earns ONE Star for the HOST-of-record (the order count
+            // model — one order = one Star; net spend credited to the table's organizer, parity with the
+            // S3 host-of-record). Per-share attribution is a future refinement (needs a per-payer earn
+            // ledger). Resolve the host uid from the session, stamp earned_by, award. Exactly-once (this
+            // block only runs on the open→paid transition); best-effort — never fail the money ack.
+            if (closedCart?.session_id) {
+              const { data: sess } = await db
+                .from("table_sessions")
+                .select("host_seat")
+                .eq("id", closedCart.session_id)
+                .maybeSingle();
+              const hostUid = sess?.host_seat ?? null;
+              if (hostUid) {
+                const { error: earnErr } = await db
+                  .from("qr_orders")
+                  .update({ earned_by: hostUid })
+                  .eq("id", orderId);
+                const { error: rewardErr } = earnErr
+                  ? { error: earnErr }
+                  : await db.rpc("mms_reward_on_fulfill", { p_user: hostUid });
+                if (earnErr || rewardErr)
+                  console.error("[stripe webhook] split rewards earn failed", {
+                    orderId,
+                    error: earnErr ?? rewardErr,
+                  });
+              }
+            }
             if (closedCart?.tab_type && closedCart.tab_type !== "none") {
               const { data: ord } = await db
                 .from("qr_orders")
