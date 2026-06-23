@@ -126,9 +126,9 @@ function SetupForm({ cartId, onDone }: { cartId: string; onDone: () => void }) {
   return (
     <form onSubmit={onSubmit}>
       <PaymentElement options={{ layout: "tabs" }} />
+      {/* role="status" already implies aria-live="polite" — don't double it (CLAUDE.md a11y). */}
       <p
         role="status"
-        aria-live="polite"
         aria-atomic="true"
         style={{ minHeight: 16, margin: "10px 0 0", fontSize: 13, color: "var(--warn)" }}
       >

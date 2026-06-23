@@ -320,7 +320,12 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
         // getCartTotals(cart, 0) and snapshots the order idempotently on the PI id.
         metadata: { cartId: cart.id, tipRate: "0" },
       },
-      { idempotencyKey: `pi_${cart.id}_${amount}_t0` },
+      // Per-ATTEMPT idempotency key (covers the SDK's network retries WITHIN this one create call). It is
+      // deliberately NOT stable across attempts: a STABLE key caches a Stripe decline for 24h, so a soft
+      // decline (insufficient_funds → the guest funds the card) could never be re-charged. The concurrent
+      // double-charge guard here is the FREEZE (paymentInFlightReason + acquireSettlement serialize
+      // attempts), not this key; the rare freeze-TTL-expiry orphan is caught by the qr_refunds_needed ledger.
+      { idempotencyKey: `pi_${cart.id}_close_${crypto.randomUUID()}` },
     );
     if (intent.status === "succeeded" || intent.status === "processing") {
       // Leave the freeze HELD — unlike cash (paid in-RPC), the off-session charge is fulfilled
