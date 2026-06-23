@@ -388,9 +388,12 @@ export async function applyReward(cartId: string, rewardCode: string): Promise<A
   }
 }
 
-/** Remove the applied reward (member-gated; open cart only — never a paying cart). */
+/** Remove the applied reward (member-gated; open + unlocked cart only). Refused mid-pay so it can't drop
+ *  the discount the create-intent PI already priced in → a webhook 409 reconcile strand (mms_clear_reward
+ *  re-guards locked/settle_at in the statement as the backstop for a direct call). */
 export async function clearReward(cartId: string): Promise<{ ok: boolean }> {
-  await assertCartMember(cartId);
+  const { locked, settling } = await assertCartMember(cartId);
+  if (locked || settling) return { ok: false };
   const { error } = await serviceClient().rpc("mms_clear_reward", { p_cart: cartId });
   if (error) {
     console.error("[cart] mms_clear_reward failed", error.message);
