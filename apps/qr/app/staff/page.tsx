@@ -64,6 +64,11 @@ export default async function StaffHome() {
             Approvals{pendingApprovals > 0 ? ` (${pendingApprovals})` : ""} →
           </Link>
         )}
+        {isManager && (
+          <Link href="/staff/feedback" style={ownerLink}>
+            Feedback →
+          </Link>
+        )}
         <Link href="/staff/profile" style={ownerLink}>
           {hasPin ? "Your PIN →" : "Set a tablet PIN →"}
         </Link>
