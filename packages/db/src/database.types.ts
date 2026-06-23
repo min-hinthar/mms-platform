@@ -771,6 +771,7 @@ export type Database = {
           created_at: string
           fire_at: string | null
           fire_batch: string | null
+          fulfillment: string
           id: string
           menu_item_id: string
           modifiers: Json
@@ -787,6 +788,7 @@ export type Database = {
           created_at?: string
           fire_at?: string | null
           fire_batch?: string | null
+          fulfillment?: string
           id?: string
           menu_item_id: string
           modifiers?: Json
@@ -803,6 +805,7 @@ export type Database = {
           created_at?: string
           fire_at?: string | null
           fire_batch?: string | null
+          fulfillment?: string
           id?: string
           menu_item_id?: string
           modifiers?: Json
@@ -1296,6 +1299,7 @@ export type Database = {
         Args: {
           p_by_seat: string
           p_cart_id: string
+          p_fulfillment: string
           p_menu_item_id: string
           p_modifiers: Json
           p_name: string
@@ -1414,6 +1418,10 @@ export type Database = {
       mms_rewards_summary: { Args: { p_user: string }; Returns: Json }
       mms_secure_tab: {
         Args: { p_cart: string; p_customer: string; p_payment_method: string }
+        Returns: string
+      }
+      mms_set_line_fulfillment: {
+        Args: { p_fulfillment: string; p_line: string }
         Returns: string
       }
       mms_set_pickup_slot: {

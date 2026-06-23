@@ -50,7 +50,14 @@ export type CartItem = {
   /** Comped (S2.3): a manager gave this line away — the kitchen still makes it (state unchanged) but it's
    *  charged at $0 (excluded from getCartTotals). The cart shows a "Comped" chip. Defaults false. */
   comped?: boolean;
+  /** Where the line goes (S4 unified basket): `dinein` (kitchen now, to the table) · `togo` (kitchen at
+   *  checkout) · `grocery` (no kitchen, bagged). Drives routing + per-line tax (cold food is taxable only
+   *  dine-in). The diner groups the cart by this; a food line can toggle dinein↔togo. */
+  fulfillment: LineFulfillment;
 };
+
+/** A cart line's destination/routing tag (S4). Grocery is auto-tagged; food toggles dinein↔togo. */
+export type LineFulfillment = "dinein" | "togo" | "grocery";
 
 export type CartTotals = {
   subtotalCents: number;

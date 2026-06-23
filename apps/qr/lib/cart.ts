@@ -8,6 +8,7 @@ import {
   assignLineInput,
   cartViewInput,
   sendToKitchenInput,
+  setLineFulfillmentInput,
   setQtyInput,
   undoFireInput,
 } from "@mms/db/schemas";
@@ -52,11 +53,15 @@ export async function addItem(cartId: string, menuItemId: string, modifierIds: s
     input.modifierIds,
   );
   const taxCents = lineTax(unitPriceCents, category, dineIn);
+  // S4 unified basket: a food line's fulfillment defaults from context — a dine-in table → 'dinein', any
+  // other entry (pickup/scan) → 'togo'. The diner can toggle it per line; the tag (not the session mode)
+  // then drives routing + per-line tax. taxCents above already matches this default (same dineIn).
+  const fulfillment = dineIn ? "dinein" : "togo";
   // Merge-or-insert via the shared status-atomic core. by_seat = the VERIFIED diner uid (provenance for
   // the by-person split), never a client-asserted seat. Throws "Cart is no longer open" on a closed cart.
   await insertOrIncLine(
     input.cartId,
-    { menuItemId: input.menuItemId, name, opts, unitPriceCents, taxCents },
+    { menuItemId: input.menuItemId, name, opts, unitPriceCents, taxCents, fulfillment },
     uid,
   );
   await touchCart(input.cartId, "addItem");
@@ -388,6 +393,39 @@ export async function applyReward(cartId: string, rewardCode: string): Promise<A
   }
 }
 
+export type SetFulfillmentResult = { ok: true } | { ok: false; reason: string };
+
+/**
+ * Toggle a FOOD line's destination for-here↔to-go (S4 unified basket). Member-gated + canMutateLine
+ * (host-any / guest-own, draft only — a fired line can't be re-routed); the RPC refuses a grocery line and
+ * RECOMPUTES the line's tax (cold food is taxable only dine-in). The tag, not the session mode, drives
+ * routing + tax. Returns a Result so the toggle UI can show an honest reason; touches updated_at via the
+ * RPC's row write so peers re-sync.
+ */
+export async function setLineFulfillment(
+  cartItemId: string,
+  fulfillment: "dinein" | "togo",
+): Promise<SetFulfillmentResult> {
+  const input = setLineFulfillmentInput.parse({ cartItemId, fulfillment });
+  const { locked, settling, role, lineSeat, lineState, comped, uid } = await assertCartItemMember(
+    input.cartItemId,
+  );
+  await assertMutationRate(uid);
+  if (locked || settling) return { ok: false, reason: "busy" };
+  if (!canMutateLine(lineState, { kind: "diner", role, isOwner: lineSeat === uid }, comped))
+    return { ok: false, reason: "not_yours" };
+  const { data, error } = await serviceClient().rpc("mms_set_line_fulfillment", {
+    p_line: input.cartItemId,
+    p_fulfillment: input.fulfillment,
+  });
+  if (error) {
+    console.error("[cart] mms_set_line_fulfillment failed", error.message);
+    return { ok: false, reason: "error" };
+  }
+  if (data !== "ok") return { ok: false, reason: data ?? "error" };
+  return { ok: true };
+}
+
 /** Remove the applied reward (member-gated; open + unlocked cart only). Refused mid-pay so it can't drop
  *  the discount the create-intent PI already priced in → a webhook 409 reconcile strand (mms_clear_reward
  *  re-guards locked/settle_at in the statement as the backstop for a direct call). */
@@ -434,7 +472,7 @@ export async function getCartView(cartId: string): Promise<{
   const { data: rows } = await db
     .from("qr_cart_items")
     .select(
-      "id,menu_item_id,name,qty,modifiers,unit_price_cents,tax_cents,by_seat,state,fire_at,comped",
+      "id,menu_item_id,name,qty,modifiers,unit_price_cents,tax_cents,by_seat,state,fire_at,comped,fulfillment",
     )
     .eq("cart_id", id)
     .order("created_at", { ascending: true });
@@ -471,6 +509,8 @@ export async function getCartView(cartId: string): Promise<{
     // Comped (S2.3): the kitchen still makes it but the guest isn't charged — the cart shows a "Comped"
     // chip and the totals (getCartTotals) exclude it. Distinct from 'voided' (removed entirely).
     comped: r.comped ?? false,
+    // S4 routing tag — drives the cart's destination grouping + the per-food-line for-here/to-go toggle.
+    fulfillment: (r.fulfillment ?? "dinein") as CartItem["fulfillment"],
   }));
   return {
     items,
