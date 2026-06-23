@@ -7,7 +7,7 @@ const dollars = (c: number) => `$${(c / 100).toFixed(c % 100 === 0 ? 0 : 2)}`;
 /**
  * Morning Star Rewards hub (M4 P4.1) — read-only, server-rendered from the server-derived summary. Tier
  * ladder + Stars progress + the earned-reward wallet. Every number is truthful (derived from paid orders);
- * the wallet copy does NOT promise in-app redemption yet (that's P4.2) — it says the reward is saved.
+ * rewards are redeemable at checkout (M4 P4.2 — the "Use a reward" field on the order).
  */
 export function RewardsHub({ state }: { state: RewardsState }) {
   const current = tierMeta(state.tierId);
@@ -122,7 +122,7 @@ export function RewardsHub({ state }: { state: RewardsState }) {
             ))}
           </ul>
           <p style={{ margin: "10px 0 0", fontSize: 12, color: "var(--t3)" }}>
-            Saved to your account — you’ll apply rewards at checkout in an upcoming update.
+            Apply a reward at checkout — tap “Use a reward” on your order.
           </p>
         </section>
       )}

@@ -31,7 +31,14 @@ export async function getCartTotals(cartId: string, tipRate = 0): Promise<CartTo
   // Clamp to the (voided/comped-excluded) subtotal as belt-and-suspenders: mms_promo_discount already
   // excludes the same lines, so this only bites if the two ever drift — never letting a discount exceed
   // the chargeable base (which would drive a negative total).
-  const discountCents = Math.min(discount ?? 0, subtotalCents);
+  const promoCents = Math.min(discount ?? 0, subtotalCents);
+  // Reward coupon (M4 P4.2) — a server-derived flat discount on the applied reward (mms_reward_discount;
+  // 0 when none). Clamped to the subtotal REMAINING after the promo so the combined discount never exceeds
+  // the chargeable base (no negative total). discountCents folds both → tax base, total, the order
+  // snapshot, and the loyalty net-spend all treat the reward as a discount uniformly.
+  const { data: reward } = await db.rpc("mms_reward_discount", { p_cart_id: cartId });
+  const rewardCents = Math.min(reward ?? 0, Math.max(subtotalCents - promoCents, 0));
+  const discountCents = promoCents + rewardCents;
   const netCents = subtotalCents - discountCents;
   // Tax on the discounted TAXABLE base only (CDTFA) — not a pro-rata of the rounded aggregate,
   // so a flat promo across mixed taxable/exempt lines stays correct. Taxable lines have tax > 0.
@@ -47,6 +54,7 @@ export async function getCartTotals(cartId: string, tipRate = 0): Promise<CartTo
   return {
     subtotalCents,
     discountCents,
+    rewardCents,
     serviceChargeCents,
     taxCents,
     tipCents,

@@ -57,6 +57,16 @@ export async function POST(req: NextRequest) {
           // Actor 'diner' — the table split the bill. Best-effort, out of band.
           const splitCartId = intent.metadata?.cartId;
           if (splitCartId) {
+            // Redeem any applied reward (M4 P4.2) — single-use, exactly-once on the open→paid transition.
+            const { error: redErr } = await db.rpc("mms_redeem_cart_reward", {
+              p_cart: splitCartId,
+              p_order: orderId,
+            });
+            if (redErr)
+              console.error("[stripe webhook] split reward redeem failed", {
+                orderId,
+                error: redErr,
+              });
             const { data: closedCart } = await db
               .from("qr_carts")
               .select("tab_type")
@@ -212,6 +222,15 @@ export async function POST(req: NextRequest) {
                 error: earnErr ?? rewardErr,
               });
           }
+          // Redeem any applied reward coupon (M4 P4.2) — flip it to redeemed AFTER the order is snapshotted
+          // (the reconcile already counted its discount). Atomic + conditional → idempotent on redelivery,
+          // single-use. Best-effort: never fail the money ack on it.
+          const { error: redErr } = await db.rpc("mms_redeem_cart_reward", {
+            p_cart: cartId,
+            p_order: orderId,
+          });
+          if (redErr)
+            console.error("[stripe webhook] reward redeem failed", { orderId, error: redErr });
         }
         // Tab-close audit (S3.3 / T13): a card settle that closed a tab. The actor comes from the PI
         // metadata — a staff off-session close (closeSecureTab) stamps closedBy='staff'; a diner paying

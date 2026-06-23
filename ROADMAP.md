@@ -70,7 +70,7 @@ Smallest slice that takes one real test charge end-to-end (solo Scan & Go). **No
 ## ⬜ M4 — Rewards & account &nbsp;`milestone:M4`
 
 - **P4.1** Morning Star Rewards (QR-local; mirrors delivery's tiers/Stars so M5 unifies without a rename) — account upgrade (email OTP / Google, same anon uid), earn-on-fulfillment, tier ladder + Stars + reward wallet. ✅ (`docs/M4_DESIGN.md`; redemption + history → P4.2)
-- **P4.2** Account: order history, reorder-with-modifiers, settings (theme/lang). ⬜
+- **P4.2** Reward **redemption at checkout** ✅ (rides the discount rail — server-authoritative, single-use, atomic at fulfillment across card/cash/split) · order history, reorder-with-modifiers, settings (theme/lang) ⬜ · split-earn attribution + refund-recede ⬜
 - **P4.3** Feedback + ungated review triage. ⬜
 
 **Exit:** gems earned on QR orders appear in the shared ledger; reorder preserves modifiers.

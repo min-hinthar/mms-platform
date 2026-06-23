@@ -840,6 +840,7 @@ export type Database = {
       }
       qr_carts: {
         Row: {
+          applied_reward_id: string | null
           created_at: string
           fire_at: string | null
           id: string
@@ -857,6 +858,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          applied_reward_id?: string | null
           created_at?: string
           fire_at?: string | null
           id?: string
@@ -874,6 +876,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          applied_reward_id?: string | null
           created_at?: string
           fire_at?: string | null
           id?: string
@@ -891,6 +894,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "qr_carts_applied_reward_id_fkey"
+            columns: ["applied_reward_id"]
+            isOneToOne: false
+            referencedRelation: "mms_rewards"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "qr_carts_session_id_fkey"
             columns: ["session_id"]
@@ -1224,6 +1234,10 @@ export type Database = {
       is_member: { Args: { sess: string }; Returns: boolean }
       is_staff: { Args: never; Returns: boolean }
       is_staff_at_least: { Args: { min_role: string }; Returns: boolean }
+      mms_apply_reward: {
+        Args: { p_cart: string; p_code: string; p_user: string }
+        Returns: string
+      }
       mms_cart_item_inc_qty: { Args: { p_id: string }; Returns: undefined }
       mms_cart_item_insert_if_open: {
         Args: {
@@ -1241,6 +1255,7 @@ export type Database = {
         Args: { p_id: string; p_qty: number }
         Returns: number
       }
+      mms_clear_reward: { Args: { p_cart: string }; Returns: undefined }
       mms_fire_cart: { Args: { p_cart_id: string }; Returns: number }
       mms_fulfill_cash_order: {
         Args: {
@@ -1324,6 +1339,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      mms_redeem_cart_reward: {
+        Args: { p_cart: string; p_order: string }
+        Returns: undefined
+      }
       mms_request_approval: {
         Args: {
           p_action: string
@@ -1337,6 +1356,7 @@ export type Database = {
         Args: { p_approver: string; p_decision: string; p_id: string }
         Returns: string
       }
+      mms_reward_discount: { Args: { p_cart_id: string }; Returns: number }
       mms_reward_on_fulfill: { Args: { p_user: string }; Returns: undefined }
       mms_rewards_summary: { Args: { p_user: string }; Returns: Json }
       mms_secure_tab: {

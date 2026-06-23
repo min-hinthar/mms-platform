@@ -4,6 +4,26 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — M4 P4.2: reward redemption at checkout (2026-06-23)
+
+A diner redeems an earned Morning Star reward coupon on their order — completing the earn→see→**use** loop
+(P4.1 issued + showed them; this spends them). Migration `20260623070000`.
+
+- **Rides the existing discount rail** — a reward is held by `qr_carts.applied_reward_id` and surfaces via
+  `mms_reward_discount` (parallel to `mms_promo_discount`), folded into `getCartTotals().discountCents`
+  (new `rewardCents` sub-field for display). So the create-intent amount, the **webhook reconcile**, the
+  cash subtotal-reconcile, and every order snapshot stay server-authoritative — no new money math.
+- **Stable across the pay window** — expiry is gated at **apply** time (not totals time), so the discount
+  can't shift between intent-create and the webhook and break the reconcile.
+- **Single-use, atomic** — `mms_apply_reward` validates ownership (the reward's `user_id` = the caller's
+  uid, so a guessed code is just "invalid" — no enumeration), unredeemed/unexpired, the redemption minimum,
+  open+unlocked cart, and that it isn't held by another open cart. `mms_redeem_cart_reward` flips it to
+  redeemed at fulfillment (conditional → idempotent on Stripe redelivery) across **card, cash, and split**.
+  Refused mid-pay so a reward never changes a total a peer is settling.
+- **UI** — `RewardField` on the cart ("Use a reward") lists the diner's coupons + applies/removes one; the
+  breakdown shows a distinct "Reward −$X" line. Rewards-hub wallet copy is now truthful. Member-gated
+  `applyReward`/`clearReward`/`getMyRewardCoupons`; honest per-reason copy.
+
 ### Added — M4 P4.1: Morning Star Rewards + account (QR-local) (2026-06-23)
 
 Design of record: `docs/M4_DESIGN.md`. A diner earns rewards and can upgrade their anonymous session to a

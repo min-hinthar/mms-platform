@@ -93,6 +93,31 @@ export async function getRewardsState(): Promise<RewardsState | null> {
 }
 
 /**
+ * The caller's active (unredeemed, unexpired) reward coupons — for the checkout redeem field (M4 P4.2).
+ * Resolves the SSR-verified uid (anon or upgraded — the same uid that earned them) and reads service-role,
+ * so a diner only ever sees their OWN coupons. Returns [] when there are none / no session.
+ */
+export async function getMyRewardCoupons(): Promise<RewardCoupon[]> {
+  const supa = serverClient(await cookies());
+  const {
+    data: { user },
+  } = await supa.auth.getUser();
+  if (!user) return [];
+  const { data: rows } = await serviceClient()
+    .from("mms_rewards")
+    .select("reward_code,amount_cents,expires_at")
+    .eq("user_id", user.id)
+    .is("redeemed_at", null)
+    .gt("expires_at", new Date().toISOString())
+    .order("issued_at", { ascending: false });
+  return (rows ?? []).map((r) => ({
+    code: r.reward_code,
+    amountCents: r.amount_cents,
+    expiresAt: r.expires_at,
+  }));
+}
+
+/**
  * Create the diner's profile row once their account upgrade has CONFIRMED (is_anonymous=false). Idempotent;
  * service-role write (mms_profiles is owner-read, service-role-write). No-op for an anonymous session — a
  * profile implies a real account (docs/M4_DESIGN R5). Called on the account page after an upgrade lands.

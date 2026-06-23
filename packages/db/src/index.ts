@@ -55,6 +55,9 @@ export type CartItem = {
 export type CartTotals = {
   subtotalCents: number;
   discountCents: number;
+  /** The reward-coupon portion of discountCents (M4 P4.2) — surfaced so the UI can show it as a distinct
+   *  line; discountCents already includes it. 0 when no reward is applied. */
+  rewardCents: number;
   serviceChargeCents: number;
   taxCents: number;
   tipCents: number;
