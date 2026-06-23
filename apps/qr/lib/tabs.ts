@@ -4,13 +4,15 @@ import { serviceClient } from "@mms/db/server";
 import { openTabInput } from "@mms/db/schemas";
 import { getStaffAuth } from "./staff";
 import { assertCartMember, AuthzError } from "./authz";
+import { paymentInFlightReason } from "./pay-guard";
 
 /**
  * Tab actions (S3.1 — trust tab / deferred settlement; docs/S3_DESIGN.md). A tab is the table-owned
  * cart with settlement deferred — NOT a new ledger. Opening one marks the cart so the floor reads
  * "Tab open · $X" and the S3.3 ceiling/nudge have something to gate; the cart already accumulates and
- * fires in rounds (S2). CLOSE reuses the existing settle paths (cash → settleCash + a close-tip; card
- * → the M1 Payment Element), so there's no fourth fulfill path here.
+ * fires in rounds (S2). CLOSE reuses the existing settle paths (cash → settleCash; card → the M1
+ * Payment Element, which already carries the tip-on-final-total selector), so there's no fourth fulfill
+ * path here.
  *
  * Authority is DUAL (T3, confirmed): a staff member (real account) OR a diner member of the cart may
  * open — both write the one table-owned cart. Server Actions are public POSTs (IDOR by default), so we
@@ -44,6 +46,20 @@ export async function openTab(raw: unknown): Promise<OpenTabResult> {
   }
 
   const db = serviceClient();
+  // Refuse while money's in flight on this cart — a single-pay lock, a split-settle freeze, or an
+  // authorized share (paymentInFlightReason, the canonical mutex settleCash/clearTable use). Opening a
+  // tab is a cart mutation, so it waits like every other one: the staff floor already hides Open-tab
+  // mid-payment (canWrite), and this is the server backstop that also covers the diner /cart path
+  // (whose review screen stays mounted under a single-pay lock).
+  const { data: payCart } = await db
+    .from("qr_carts")
+    .select("id,locked,locked_at,settle_at")
+    .eq("id", cartId)
+    .maybeSingle();
+  if (await paymentInFlightReason(payCart)) {
+    return { ok: false, error: "Someone’s paying right now — try the tab again in a moment." };
+  }
+
   const { data, error } = await db.rpc("mms_open_tab", { p_cart: cartId, p_by: openerUid });
   if (error) {
     console.error("[tabs] mms_open_tab failed", error.message);
