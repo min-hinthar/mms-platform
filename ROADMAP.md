@@ -70,7 +70,7 @@ Smallest slice that takes one real test charge end-to-end (solo Scan & Go). **No
 ## ⬜ M4 — Rewards & account &nbsp;`milestone:M4`
 
 - **P4.1** Morning Star Rewards (QR-local; mirrors delivery's tiers/Stars so M5 unifies without a rename) — account upgrade (email OTP / Google, same anon uid), earn-on-fulfillment, tier ladder + Stars + reward wallet. ✅ (`docs/M4_DESIGN.md`; redemption + history → P4.2)
-- **P4.2** Reward **redemption at checkout** ✅ (rides the discount rail — server-authoritative, single-use, atomic across card/cash/split) · **order history** ✅ (the diner's own paid orders) · reorder-with-modifiers ⬜ (needs an active table cart) · settings (theme/lang) ⬜ (blocked on theme-override + i18n infra) · split-earn + refund-recede ⬜
+- **P4.2** Reward **redemption** ✅ · **order history** ✅ · **split-tender earn** ✅ (host-of-record earns the split order). Deferred w/ documented blockers (`docs/M4_DESIGN.md`): reorder ⬜ (lines store modifier _labels_ not _ids_ → can't re-price faithfully; needs option-id capture first) · settings theme/lang ⬜ (OS theme + bilingual menu already cover it; real lang = i18n initiative) · refund-recede ⬜ (blocked on S4.3 refund infra)
 - **P4.3** Feedback + ungated review triage. ⬜
 
 **Exit:** gems earned on QR orders appear in the shared ledger; reorder preserves modifiers.

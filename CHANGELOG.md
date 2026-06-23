@@ -4,6 +4,18 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — M4 P4.2: split-tender earn attribution (2026-06-23)
+
+A split-tender order now earns — previously the split fulfill stamped no earner, so a table that split the
+bill earned nothing. The **host-of-record** (the cart's `session.host_seat`) earns the one Star (order-count
+model: one order = one Star; net spend credited to the organizer, parity with the S3 host-of-record). The
+webhook split-fulfill resolves the host uid, stamps `qr_orders.earned_by`, and awards via
+`mms_reward_on_fulfill` — exactly-once (only on the open→paid transition), best-effort (never fails the
+money ack). Per-share attribution is a noted future refinement (needs a per-payer earn ledger). No schema
+change. This **finishes the buildable M4 P4.2 remainder**; reorder (lines store modifier labels not option
+ids → can't faithfully re-price), settings (theme/lang — OS + bilingual menu already cover it; real lang =
+i18n initiative), and refund-recede (blocked on S4.3 refund infra) stay deferred with documented blockers.
+
 ### Added — M4 P4.2: order history (2026-06-23)
 
 The diner's own past orders on `/account` (read-only). `getOrderHistory` reads their PAID orders
