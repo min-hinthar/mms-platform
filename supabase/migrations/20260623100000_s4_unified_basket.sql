@@ -62,10 +62,18 @@ begin
   -- Per-line tax from the food item's category + the new fulfillment (the taxable-base flag getCartTotals
   -- reads). menu_item_id is a uuid for food (grocery is filtered out above).
   select tax_category into v_cat from public.menu_items where id = v_mid::uuid;
-  update public.qr_cart_items
+  -- Re-assert open + draft + food IN THE WRITE (not just the if-checks above): a concurrent mms_fire_cart
+  -- (draft→fired) or webhook open→paid flip landing between the SELECT and this UPDATE must NOT re-route +
+  -- re-tax a line the kitchen/payment already owns — that would diverge tax_cents from the priced snapshot.
+  -- Matches the in-statement status guard every other cart mutation uses (CLAUDE.md money/authz invariant).
+  update public.qr_cart_items ci
     set fulfillment = p_fulfillment,
         tax_cents = public.mms_line_tax(v_price, coalesce(v_cat, 'hot_prepared'), p_fulfillment = 'dinein')
-    where id = p_line;
+    where ci.id = p_line
+      and ci.state = 'draft'
+      and ci.fulfillment <> 'grocery'
+      and exists (select 1 from public.qr_carts c where c.id = ci.cart_id and c.status = 'open');
+  if not found then return 'stale'; end if;   -- raced a fire / pay between the read and the write
   return 'ok';
 end $$;
 revoke all on function public.mms_set_line_fulfillment(uuid, text) from public, anon, authenticated;

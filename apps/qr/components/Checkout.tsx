@@ -178,10 +178,25 @@ export function Checkout({
   // S4: re-route a food line for-here↔to-go. The server recomputes the line's tax (cold food flips
   // taxability); refresh() re-syncs the grouped basket + the breakdown. A refused toggle (busy/fired)
   // just no-ops back to server truth on refresh — no client error needed (the control is draft-only).
+  // When the cart spans 2+ destinations the line's <li> moves to another <section> on re-route, so the
+  // clicked button unmounts and focus would drop to <body> (WCAG 2.4.3). Re-focus the now-pressed button
+  // for that line after the re-render — its accessible name + aria-pressed announces the new destination.
+  const refocusToggle = useRef<{ id: string; ful: string } | null>(null);
+  useEffect(() => {
+    const target = refocusToggle.current;
+    if (!target) return;
+    refocusToggle.current = null;
+    document
+      .querySelector<HTMLButtonElement>(
+        `[data-ful-line="${target.id}"][data-ful-val="${target.ful}"]`,
+      )
+      ?.focus();
+  }, [items]);
   function toggleFulfillment(id: string, ful: "dinein" | "togo") {
     startTransition(async () => {
       try {
-        await setLineFulfillment(id, ful);
+        const res = await setLineFulfillment(id, ful);
+        if (res.ok) refocusToggle.current = { id, ful }; // keep keyboard/SR place when the line re-groups
       } catch {
         /* transient/redacted — refresh re-syncs */
       }
@@ -437,6 +452,8 @@ export function Checkout({
                             <button
                               key={f}
                               type="button"
+                              data-ful-line={i.id}
+                              data-ful-val={f}
                               aria-pressed={on}
                               disabled={pending}
                               onClick={() => toggleFulfillment(i.id, f)}
