@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 import Link from "next/link";
 import { useOrderStatus } from "@/lib/useOrderStatus";
 import { formatSlotLong } from "@/lib/pickupTime";
+import { FeedbackPrompt } from "./FeedbackPrompt";
 
 // Lifecycle steps (verbatim v7.2). The active step is server-driven; at M1/M2 there's no kitchen
 // actor, so it rests at "Order placed" — the kitchen steps light up when S2's KDS lands (same Realtime
@@ -235,6 +236,10 @@ export function OrderTracker({
           </div>
         </div>
       )}
+
+      {/* Post-order feedback (M4 P4.3) — only once the order has landed (its id is known). Renders
+          nothing unless the caller is the earner + hasn't reviewed; ungated public-review link inside. */}
+      {arrived && <FeedbackPrompt orderId={order.id} />}
 
       <p style={{ fontSize: 12, color: "var(--t3)", margin: "14px 0 0" }}>
         Status updates here as the kitchen works on it — keep this open, or check back anytime.

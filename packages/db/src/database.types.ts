@@ -224,6 +224,59 @@ export type Database = {
         }
         Relationships: []
       }
+      mms_feedback: {
+        Row: {
+          comment: string | null
+          created_at: string
+          id: string
+          order_id: string
+          rating: number
+          user_id: string
+        }
+        Insert: {
+          comment?: string | null
+          created_at?: string
+          id?: string
+          order_id: string
+          rating: number
+          user_id: string
+        }
+        Update: {
+          comment?: string | null
+          created_at?: string
+          id?: string
+          order_id?: string
+          rating?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mms_feedback_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "qr_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mms_feedback_config: {
+        Row: {
+          google_review_url: string | null
+          id: boolean
+          updated_at: string
+        }
+        Insert: {
+          google_review_url?: string | null
+          id?: boolean
+          updated_at?: string
+        }
+        Update: {
+          google_review_url?: string | null
+          id?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
       mms_loss_config: {
         Row: {
           id: boolean
@@ -1382,6 +1435,15 @@ export type Database = {
           locked_until: string
           status: string
         }[]
+      }
+      mms_submit_feedback: {
+        Args: {
+          p_comment: string
+          p_order: string
+          p_rating: number
+          p_user: string
+        }
+        Returns: string
       }
       mms_sweep_expired_sessions: { Args: never; Returns: number }
       mms_tax_rate: { Args: never; Returns: number }

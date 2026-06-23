@@ -206,6 +206,15 @@ export const applyRewardInput = z.object({
   rewardCode: z.string().trim().min(1).max(40),
 });
 
+/** submitFeedback (M4 P4.3) — leave feedback on an order. Shape + bounds only; mms_submit_feedback
+ *  re-derives that the caller is the order's EARNER + the order is paid (one per order). Rating bounded
+ *  1..5; comment length-capped (mirrors the column CHECK). UNGATED — any rating is accepted. */
+export const submitFeedbackInput = z.object({
+  orderId: uuid,
+  rating: z.number().int().min(1).max(5),
+  comment: z.string().trim().max(1000).optional(),
+});
+
 /** sendToKitchen (S2.1b) — fire the table's current draft batch to the kitchen. Shape only: the client
  *  asserts which cart, never a price or a line set; the server re-derives membership + fires every still-
  *  draft line server-side (mms_fire_cart, dine-in only). */

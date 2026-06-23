@@ -127,10 +127,31 @@ diner pays (create-intent, uid in PI metadata)
   (`priceItem`) — never replays a stale snapshot price; a since-86'd item is surfaced, not silently
   dropped or charged.
 
-### P4.3 — feedback + reviews (planned)
+### P4.3 — feedback + ungated review triage
 
-- **R9 — reviews ungated** (SB-1524 / the compliance bar in `CLAUDE.md`): never gate a review on a rating;
-  triage is internal routing, not suppression.
+The canonical **ungated** pattern (`docs/context/DESIGN-RESEARCH.md` §"Review-gating is the trap"): ask
+**everyone** for honest feedback, offer the public Google link to **all** raters, and surface **low**
+ratings to staff for recovery — never block an unhappy guest from the public link (routing only happy
+raters → Google-policy + FTC violation).
+
+- **R9 — reviews ungated (load-bearing compliance).** The public-review link is shown to **every** rater
+  regardless of score; the rating never gates the link or suppresses the review. "Triage" = internal
+  routing only: a low rating (≤3) is flagged for staff recovery (a signal + an owner-read row), it never
+  changes what the diner can do.
+- **R10 — feedback authz / integrity.** One feedback per order, by the order's **earner** (`earned_by` =
+  the SSR-verified uid — the single-pay payer or the split host-of-record). Rating bounded `1..5` (Zod +
+  `CHECK`), comment length-bounded (Zod + `CHECK`); a re-submit is a no-op (`unique(order_id)`). A
+  non-earner is refused (`not_yours`) and the prompt isn't shown to them. Owner/manager-read RLS for the
+  triage surface; the diner never reads another's feedback. PII = an optional free-text comment (bounded);
+  no new sensitive data.
+
+**Surface:** `mms_feedback` (order_id unique, user_id, rating, comment, created_at; owner-read RLS, partial
+index on `rating ≤ 3` for triage) + `mms_feedback_config` (singleton `google_review_url`, owner-tunable;
+null → no public link shown, graceful) + `mms_submit_feedback` RPC (earner-gated, one-per-order). A diner
+`FeedbackPrompt` on `/track` (post-order, peak goodwill — rating + optional comment; on submit a thank-you +
+the Google link **to all**; a low rating adds "we'll make it right" recovery copy **and still** offers the
+link). A manager-gated `/staff/feedback` triage list (mirrors the approvals queue) with low ratings
+highlighted. Low-rating PostHog signal for immediate awareness.
 
 ## New money / auth / RLS / PII surface (review checklist for the build)
 

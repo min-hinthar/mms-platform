@@ -4,6 +4,27 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — M4 P4.3: feedback + ungated review triage (2026-06-23) — M4 COMPLETE
+
+Post-order feedback at peak goodwill, the **ungated** way (`docs/M4_DESIGN.md` R9/R10; `DESIGN-RESEARCH.md`
+"review-gating is the trap"). Migration `20260623090000`.
+
+- **Ask everyone, gate nothing** — a `FeedbackPrompt` on `/track` collects a 1–5 rating + optional comment;
+  after **any** rating the public **Google review link is offered to all** (never routed by score — that
+  would breach Google policy + the FTC). A low rating adds a "we'll make it right" recovery line **and
+  still** shows the link.
+- **Triage = internal routing, never suppression** — a low rating (≤3) pings staff (PostHog signal) and
+  surfaces on a **manager-gated `/staff/feedback`** queue (owner-read RLS, low ratings highlighted) for
+  recovery; it never changes what the diner can do.
+- **Integrity** — one feedback per order (`unique(order_id)`), by the order's **earner** (`mms_submit_feedback`
+  re-derives `earned_by` = the SSR uid + paid order; a non-earner is refused and never sees the prompt).
+  Rating bounded 1–5 (Zod + `CHECK`), comment ≤1000 (Zod + `CHECK`). `mms_feedback` owner-read RLS, off
+  realtime; `mms_feedback_config.google_review_url` owner-tunable (null → no link, graceful).
+
+**M4 is complete** — rewards earn + account upgrade + hub (P4.1) · redemption · order history · split-earn
+(P4.2) · feedback + ungated reviews (P4.3). Documented-blocker deferrals (reorder, settings, refund-recede)
+remain noted in `docs/M4_DESIGN.md`.
+
 ### Added — M4 P4.2: split-tender earn attribution (2026-06-23)
 
 A split-tender order now earns — previously the split fulfill stamped no earner, so a table that split the
