@@ -88,17 +88,25 @@ diner pays (create-intent, uid in PI metadata)
 - **R1 — rewards are server-authoritative + derived.** Stars/spend/tier come from a SECURITY-DEFINER read
   over the uid's **paid** `qr_orders`; the client never sends a balance, tier, or star count. Mirrors the
   delivery rule "tier is server-computed, never client-set."
-- **R2 — earn integrity.** Only `status='paid'` orders earn; net spend excludes tax/tip and the already-
-  excluded voided/comped lines (S2.3). One Star per paid order. Coupons are issued **only** by the
-  service-role fulfillment path, **idempotent on `(user_id, milestone_index)`** so a Stripe redelivery (or
-  a recompute) can't mint a second coupon. A future refund/void lowers net spend (tier can recede) — the
-  derived read reflects it automatically; an already-issued coupon is not clawed back (honest, matches
-  delivery).
-- **R3 — identity-upgrade safety.** `updateUser(email)`/`linkIdentity` keep the **same uid**; the email is
-  only "real" after OTP/magic-link **verification** (Supabase-enforced) — we never report an account
-  before the gateway confirms it (honest-microcopy parity with S3.2 T7). A failed/abandoned upgrade leaves
-  the anon session fully intact (still ordering). Email uniqueness/verification + provider linking are
-  Supabase-native; we never let the client claim another uid's rewards.
+- **R2 — earn integrity.** Only `status='paid'` orders earn; net spend excludes tax/tip and the
+  voided/comped lines **already excluded from the order snapshot at settle time** (S2.3 — a line voided
+  before settlement is never in `subtotal_cents`). One Star per single-pay paid order. Coupons are issued
+  **only** by the service-role fulfillment path, **idempotent on `(user_id, milestone_index)`** so a Stripe
+  redelivery (or a recompute) can't mint a second coupon. **Post-settlement refunds do NOT currently claw
+  back Stars or spend** — `qr_orders.status` has no `refunded` state (refunds are tracked out-of-band in
+  `qr_refunds_needed`), so a refunded order keeps its Star/spend; an issued coupon is likewise never clawed
+  back. Refund-aware recede needs a refund signal on `qr_orders` → **deferred** (note it, don't pretend the
+  derived read reflects it). **Split-tender orders don't earn in P4.1** (the split fulfill stamps no
+  earner) — single-pay is the P4.1 earn path; split-earn attribution (host-of-record vs per-share) is P4.2.
+- **R3 — identity-upgrade safety + session hygiene.** `updateUser(email)`/`linkIdentity` keep the **same
+  uid**; the email is only "real" after OTP/magic-link **verification** (Supabase-enforced) — we never
+  report an account before the gateway confirms it (honest-microcopy parity with S3.2 T7). A failed/
+  abandoned upgrade leaves the anon session fully intact. **The AnonAuthGate seam (caught in P4.1 build):**
+  the gate signs out any non-anonymous session on a diner route (it assumed non-anon = staff) — after M4 an
+  upgraded diner is non-anon and would be orphaned. The gate now distinguishes via a **server-side** check
+  (`getSessionKind` → `getStaffAuth`): keep a diner (anon or upgraded), swap only **confirmed staff** — never
+  a client-writable marker a staff user could forge to dodge the swap. On resolver error it keeps the
+  session (a stray staff uid on a diner route is still server-side authz-safe — not a session member).
 - **R5 — anon→PII boundary + orphan-cleanup safety.** `mms_profiles` (email/display_name/locale/theme) is
   **owner-RLS** (`auth.uid() = id`), **not** on the realtime publication, never fanned to a table session.
   When the anon-orphan cleanup lands (BACKEND §1.5, not yet built), it **must** exclude
@@ -167,3 +175,5 @@ next_milestone, orders_to_next }`; service-role (called by a member-gated server
 - Cross-project gem unification with the delivery ledger → **M5**.
 - Referrals / lifecycle marketing crons (win-back, anniversary, abandoned-cart) → post-M4 / delivery-owned.
 - Reward redemption at checkout + order history/reorder → **P4.2**. Feedback/reviews → **P4.3**.
+- **Split-tender earn attribution** (who earns the Star on a split order — host-of-record vs per-share) → **P4.2**.
+- **Refund-aware tier recede** (a `qr_orders` refund signal so a refunded order stops counting) → **P4.2+**.

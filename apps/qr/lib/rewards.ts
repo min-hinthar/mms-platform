@@ -1,6 +1,21 @@
 "use server";
 import { cookies } from "next/headers";
 import { serverClient, serviceClient } from "@mms/db/server";
+import { getStaffAuth } from "./staff";
+
+/**
+ * Server-authoritative session kind for AnonAuthGate (M4): is the caller an anonymous diner, an UPGRADED
+ * diner, or STAFF? The gate keeps a diner (anon or upgraded) and swaps only staff on a diner route — and
+ * it must NOT trust a client-writable signal for that (a staff user could otherwise self-mark to dodge the
+ * swap). getStaffAuth resolves the SSR-verified uid + the service-role staff lookup, so this is the real
+ * authority: 'anon' (anonymous / no session) · 'staff' (active staff row) · 'diner' (any other real user).
+ */
+export async function getSessionKind(): Promise<"anon" | "diner" | "staff"> {
+  const staff = await getStaffAuth();
+  if (staff.kind === "staff") return "staff";
+  if (staff.kind === "anon") return "anon";
+  return "diner"; // not_staff = a confirmed (non-anonymous) user that isn't staff → an upgraded diner
+}
 
 // Morning Star Rewards — diner-facing reads (M4 P4.1). Server-authoritative + DERIVED: stars/spend/tier
 // come from mms_rewards_summary over the caller's PAID orders (docs/M4_DESIGN R1); the client never sends

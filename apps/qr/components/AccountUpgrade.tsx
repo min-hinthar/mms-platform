@@ -9,9 +9,9 @@ import { ensureProfile } from "@/lib/rewards";
  * diner's past paid orders + earned Stars carry over with no migration (docs/M4_DESIGN R3). Honest: we only
  * report the account once the gateway CONFIRMS it (verifyOtp / the Google redirect) — never eagerly.
  *
- * Race-safety: we set the `mms_account` marker (user_metadata) WHILE STILL ANONYMOUS, before the
- * is_anonymous flip — so AnonAuthGate (which keeps a marked session) can never sign the new account out
- * between the flip and the next render.
+ * The upgraded session is kept by AnonAuthGate via a SERVER-SIDE staff check (getSessionKind) — it swaps
+ * only confirmed staff, never an upgraded diner — so there's no client marker to set (and no marker-write
+ * that could fail before the Google redirect and orphan the account).
  */
 export function AccountUpgrade() {
   const router = useRouter();
@@ -28,12 +28,10 @@ export function AccountUpgrade() {
     setBusy(true);
     setError(null);
     const supa = browserClient();
-    // Attach the email to the anonymous user + mark it a diner account (marker set while anon → race-safe).
+    // Attach the email to the SAME anonymous user — keeps the uid, so past orders + Stars carry over.
     // Supabase sends a confirmation (6-digit code + link) to the address; is_anonymous flips on verify.
-    const { error: e1 } = await supa.auth.updateUser({
-      email: email.trim(),
-      data: { mms_account: true },
-    });
+    // (AnonAuthGate keeps the upgraded session via a server-side staff check — no client marker needed.)
+    const { error: e1 } = await supa.auth.updateUser({ email: email.trim() });
     if (e1) {
       setError(e1.message || "Couldn’t send the code — try again.");
       setBusy(false);
@@ -67,8 +65,8 @@ export function AccountUpgrade() {
     setBusy(true);
     setError(null);
     const supa = browserClient();
-    // Marker first (while anon), THEN link — so the post-redirect non-anon session is already kept.
-    await supa.auth.updateUser({ data: { mms_account: true } });
+    // Link Google to the SAME anonymous user (keeps the uid). AnonAuthGate keeps the post-redirect upgraded
+    // session via a server-side staff check, so there's no pre-redirect marker write to fail (no orphan path).
     const { error: e3 } = await supa.auth.linkIdentity({
       provider: "google",
       options: { redirectTo: `${window.location.origin}/account` },

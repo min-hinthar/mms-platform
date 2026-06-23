@@ -2,6 +2,7 @@
 import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { browserClient } from "@mms/db";
+import { getSessionKind } from "@/lib/rewards";
 
 /**
  * Establishes the diner's anonymous-auth session on first load (Supabase Anonymous Auth, decision
@@ -31,15 +32,24 @@ export function AnonAuthGate() {
       try {
         const { data } = await supa.auth.getSession();
         const user = data.session?.user;
-        // Steady states to KEEP: an anonymous diner, OR an UPGRADED diner account (M4 — marked
-        // `mms_account` in user_metadata at upgrade; same uid that earned the rewards, so signing it out
-        // would orphan the account on the next page load). Both belong on the diner side.
-        if (user && (user.is_anonymous !== false || user.user_metadata?.mms_account === true))
-          return;
-        // A real (staff) session on a diner route: clear it first so the diner surface can't run under
-        // a staff uid. (No session at all also falls through to the sign-in below.) Upgraded diners are
-        // kept above; only a staff / stray non-anon session reaches here.
-        if (user) await supa.auth.signOut();
+        // An anonymous diner is the steady state — keep it.
+        if (user && user.is_anonymous !== false) return;
+        // A non-anonymous session on a diner route is EITHER an upgraded diner (M4 — same uid that earned
+        // the rewards; signing it out would orphan the account) OR staff who navigated here. Distinguish
+        // SERVER-SIDE (getSessionKind → getStaffAuth) — never a client-writable marker a staff user could
+        // forge to dodge the swap. Keep a diner; swap only confirmed staff. On any resolver error, KEEP
+        // (don't risk orphaning a real account — a staff uid left on a diner route is still server-side
+        // authz-safe: it's not a session member, so diner mutations fail regardless).
+        if (user) {
+          let kind: "anon" | "diner" | "staff" = "diner";
+          try {
+            kind = await getSessionKind();
+          } catch {
+            return; // resolver unavailable → keep the session rather than orphan it
+          }
+          if (kind !== "staff") return; // upgraded diner (or anon) → keep
+          await supa.auth.signOut(); // staff on a diner route → swap to an anonymous diner session
+        }
         // Establish the anonymous session, with one retry — signInAnonymously can transiently fail
         // (network, or GoTrue's anon-signup rate limit, see app/api/session). Don't strand the diner
         // with NO session after a signOut: retry once, and the downstream session UI surfaces a manual

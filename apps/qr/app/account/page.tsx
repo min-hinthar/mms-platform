@@ -18,7 +18,7 @@ export default async function Account() {
         Morning Star Rewards
       </h1>
       <p style={{ margin: "0 0 20px", fontSize: 14, color: "var(--t2)" }}>
-        Earn a Star with every order — climb the gem tiers, unlock Kyay-Zu-Par! rewards.
+        Earn Stars as you order — climb the gem tiers and unlock Kyay-Zu-Par! rewards.
       </p>
 
       {!state ? (
