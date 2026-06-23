@@ -103,6 +103,16 @@ still deferred) — S4.2 does **not** touch that path. The two fire mechanisms s
 - **F6 — a11y / legibility.** The "Make it now" control is a ≥44px labelled button (draft + food + `togo`
   only); the KDS badge is text (not color-only); tokens, honest microcopy, reduced-motion safe.
 
+**Known behavioral edges (reviewed, accepted — no money/safety impact):**
+
+- **Undo × make-it-now.** `mms_fire_line` stamps the same `now()+10s` grace + its own `fire_batch`, so the
+  host's grace-window "Undo" (`mms_undo_fire`, newest in-grace batch) _can_ reverse a guest's just-fired
+  to-go line. Accepted: nothing is cooked within grace, and un-fire → draft is non-destructive. Fire-at-
+  checkout is immune (`fire_at = now()`, no grace, so `undo_fire`'s `fire_at > now()` excludes it).
+- **Lingering paid to-go on the KDS.** A to-go line fired at checkout sits `fired` on a `paid` cart until a
+  cook bumps it `served` — the intended bagging cue. If never bumped it lingers (same as any un-bumped line);
+  the `state` gate keeps served/voided off and grocery can never appear (never fired). Ops awareness, not a bug.
+
 **Deferred to S4.3 (documented):** the bagging/expo station, the persistent diner "to-go ready" departure
 signal (realtime ready-state on `/track`), line-level refunds, and the split-tender seam generalization.
 Pickup/scango **scheduled-fire → KDS** consumption stays the M2 seam (no kitchen actor for it yet).
