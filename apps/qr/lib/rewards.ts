@@ -138,14 +138,17 @@ export async function getOrderHistory(limit = 20): Promise<OrderHistoryEntry[]> 
     data: { user },
   } = await supa.auth.getUser();
   if (!user) return [];
+  const lim = Math.min(Math.max(Math.trunc(limit), 1), 50); // bound a server-action arg (own data only)
   const db = serviceClient();
+  // Deliberate read-only swallow ({ data } only): a transient read error degrades to "no orders" rather
+  // than stranding /account — the page stays renderable and the empty/"—" fallbacks read honestly.
   const { data: orders } = await db
     .from("qr_orders")
     .select("id,created_at,total_cents,tender")
     .eq("earned_by", user.id)
     .eq("status", "paid")
     .order("created_at", { ascending: false })
-    .limit(limit);
+    .limit(lim);
   if (!orders || orders.length === 0) return [];
 
   const ids = orders.map((o) => o.id);
