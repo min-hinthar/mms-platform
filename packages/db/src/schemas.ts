@@ -193,6 +193,11 @@ export const clearTableInput = z.object({ sessionId: uuid });
  *  (mms_open_tab). The client asserts which cart, never the tab state. */
 export const openTabInput = z.object({ cartId: uuid });
 
+/** secureTab (S3.2) — mint/reuse the ephemeral Stripe Customer + a SetupIntent to save a card on the
+ *  tab (at open or mid-tab convert). Shape only; the route re-derives membership/staff authority and the
+ *  cart's dine-in/open state. No PAN ever touches the server (SAQ-A) — the card is in the Element. */
+export const secureTabInput = z.object({ cartId: uuid });
+
 /** sendToKitchen (S2.1b) — fire the table's current draft batch to the kitchen. Shape only: the client
  *  asserts which cart, never a price or a line set; the server re-derives membership + fires every still-
  *  draft line server-side (mms_fire_cart, dine-in only). */

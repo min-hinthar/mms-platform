@@ -2,7 +2,7 @@ import { NextRequest, NextResponse, after } from "next/server";
 import { getStripe } from "@/lib/stripe";
 import { serviceClient } from "@mms/db/server";
 import { getCartTotals } from "@/lib/totals";
-import { releaseCartLock } from "@/lib/lock";
+import { releaseCartLock, releaseSettlement } from "@/lib/lock";
 import { getPostHogClient } from "@/lib/posthog-server";
 import { enqueueQboSync, syncOrderToQbo } from "@/lib/qbo/client";
 import {
@@ -213,8 +213,11 @@ export async function POST(req: NextRequest) {
       );
     } else if (cartId) {
       // Single-pay: free the pay-window lock (P3.2-lock) so the cart returns to editable for the table.
-      // Unconditional release by cart; idempotent + best-effort; the TTL is the backstop.
+      // Unconditional release by cart; idempotent + best-effort; the TTL is the backstop. ALSO release the
+      // settle freeze: a secure-tab off-session close (S3.2) holds settle_at (not the single-pay lock), so
+      // an async processing→failed decline would otherwise strand the table frozen for the full SETTLE_TTL.
       await releaseCartLock(cartId, null).catch(() => {});
+      await releaseSettlement(cartId).catch(() => {});
     }
     posthog.capture({
       distinctId: cartId ?? intent.id,
@@ -237,6 +240,51 @@ export async function POST(req: NextRequest) {
           paymentIntent: intent.id,
           error: e,
         }),
+      );
+    }
+  } else if (event.type === "setup_intent.succeeded") {
+    // Secure tab (S3.2): the diner's card-save confirmed. Record the saved PaymentMethod token + flip the
+    // tab to 'secure' (mms_secure_tab — service-role, idempotent, never charges). This is the server-
+    // authoritative record; the route never reports "secured" eagerly (T7). The off-session close later
+    // reuses the SAME payment_intent.succeeded → reconcile → mms_fulfill_order path above (cartId metadata).
+    const si = event.data.object;
+    const cartId = si.metadata?.cartId;
+    const customer = typeof si.customer === "string" ? si.customer : (si.customer?.id ?? null);
+    const pm =
+      typeof si.payment_method === "string" ? si.payment_method : (si.payment_method?.id ?? null);
+    if (cartId && customer && pm) {
+      const db = serviceClient();
+      const { error: secureErr } = await db.rpc("mms_secure_tab", {
+        p_cart: cartId,
+        p_customer: customer,
+        p_payment_method: pm,
+      });
+      // supabase-js returns the PG error in `error` (no throw); swallowing would 200 the event and Stripe
+      // would never retry → a saved card the tab never recorded. 5xx so Stripe redelivers (idempotent RPC).
+      if (secureErr) {
+        console.error("[stripe webhook] mms_secure_tab failed", {
+          cartId,
+          setupIntent: si.id,
+          error: secureErr,
+        });
+        return NextResponse.json(
+          { error: "Secure-tab record failed; will retry" },
+          { status: 500 },
+        );
+      }
+      posthog.capture({
+        distinctId: cartId,
+        event: "tab_secured",
+        properties: { cart_id: cartId, setup_intent_id: si.id },
+      });
+    } else {
+      // Our setup-intent route always sets cartId metadata + a customer; a confirmed SI missing any of
+      // these can't be recorded and a retry won't help. Don't 5xx into a retry storm, but never vanish.
+      console.error(
+        "[stripe webhook] setup_intent.succeeded missing cartId/customer/payment_method",
+        {
+          setupIntent: si.id,
+        },
       );
     }
   }

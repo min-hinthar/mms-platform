@@ -4,6 +4,26 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — S3.2: secure tab (SetupIntent → off-session close) (2026-06-23)
+
+A diner saves a card (SetupIntent, `usage:'off_session'`) at open or mid-tab; the tab settles off-session
+on the card at close. SAQ-A throughout — only Stripe tokens, never PAN. Migration `20260623020000`.
+
+- **Tokens off the realtime row** — the Customer + PaymentMethod tokens live in a service-role-only
+  `mms_tab_secure` sidecar (default-deny RLS, **not** on the realtime publication), since `qr_carts` fans
+  its full row to anonymous table members. The cart signals only `tab_type='secure'`.
+- **Card-save** — `/api/stripe/setup-intent` (member-gated) mints/reuses one ephemeral Customer per tab +
+  a SetupIntent; the diner saves a card via a setup-mode Payment Element on `/cart` ("Secure your tab").
+  The webhook `setup_intent.succeeded` → `mms_secure_tab` records the token + flips `tab_type='secure'`
+  (server-authoritative — never reports "secured" the gateway didn't accept).
+- **Off-session close** — `closeSecureTab` (staff) charges the card on file for the final total via an
+  `off_session`+`confirm` PI that flows through the **existing** `payment_intent.succeeded` →
+  reconcile → `mms_fulfill_order` path (no fourth fulfill path); holds the settle mutex; a decline /
+  authentication_required surfaces an honest cash/fresh-card fallback and never strands the tab paid. **No
+  tip is added off-session** (an off-session charge must not invent a tip the guest didn't authorize).
+- **Staff** — "Tab secured · card on file" on the drill-down + a "Close tab · card on file" action (cash
+  stays a fallback).
+
 ### Fixed — S3.1 trust-tab: post-merge deep-adversarial follow-ups (2026-06-23)
 
 Two fresh-context deep reviewers (concurrency/data-integrity + UX/a11y) over the merged S3.1 diff.

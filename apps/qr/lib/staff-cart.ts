@@ -10,6 +10,7 @@ import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
 import { paymentInFlightReason } from "./pay-guard";
 import { acquireSettlement, releaseSettlement } from "./lock";
 import { getPostHogClient } from "./posthog-server";
+import { getStripe } from "./stripe";
 
 /**
  * Staff write to a table order (S1.3) — "order for a guest" + cash settle ("pay a human"). The cart
@@ -236,5 +237,142 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
     return { ok: true, orderId, totalCents: totals.totalCents };
   } finally {
     await releaseSettlement(cart.id);
+  }
+}
+
+export type CloseSecureTabResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * Close a SECURE tab off-session (S3.2): charge the saved card-on-file for the final total. Staff-
+ * initiated (the guest may have left). Mirrors settleCash's mutex (acquireSettlement) so a concurrent
+ * cash settle / diner card-pay can't double-collect; the PI is minted off_session+confirm and FULFILLED
+ * by the EXISTING payment_intent.succeeded webhook (reconcile → mms_fulfill_order) — no fourth fulfill
+ * path. Charges the final total with NO added tip: an off-session charge must not invent a tip the guest
+ * didn't authorize (ORDER-MODEL's "never walk a customer into a charge") — a tip stays cash/interactive.
+ * A decline / authentication_required is surfaced and the freeze released — the cart stays open, never
+ * stranded as paid (the fulfill only flips the cart on a succeeded webhook).
+ */
+export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult> {
+  const caller = await requireStaff().catch(() => null);
+  if (!caller) return { ok: false, error: "Staff sign-in required." };
+  const parsed = settleCashInput.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "Invalid request." };
+  const { sessionId } = parsed.data;
+
+  const { session, cart } = await openCartFor(sessionId);
+  if (!session) return { ok: false, error: "That table is closed." };
+  if (!cart) return { ok: false, error: "This table has no open order to settle." };
+
+  const db = serviceClient();
+  // Re-derive the tab state server-side (not just the sidecar PM): only a still-secure tab is closed on
+  // file. Guards the cancelled/merged-source edge where a stale sidecar PM could otherwise be charged.
+  const { data: cartTab } = await db
+    .from("qr_carts")
+    .select("tab_type")
+    .eq("id", cart.id)
+    .maybeSingle();
+  if (cartTab?.tab_type !== "secure")
+    return { ok: false, error: "This tab has no card on file — settle by cash or card instead." };
+  // The saved card lives in the service-role-only sidecar (never the realtime-fanned cart row).
+  const { data: secure } = await db
+    .from("mms_tab_secure")
+    .select("stripe_customer_id,stripe_payment_method_id")
+    .eq("cart_id", cart.id)
+    .maybeSingle();
+  if (!secure?.stripe_payment_method_id)
+    return { ok: false, error: "No card on file for this tab — settle by cash or card instead." };
+
+  if (await paymentInFlightReason(cart))
+    return {
+      ok: false,
+      error: "Someone’s already paying on their phone — wait for that to finish.",
+    };
+
+  // Atomically freeze the table before charging (parity with settleCash's B2 race-closer): blocks a
+  // concurrent cash settle / a diner's create-intent for the mint window.
+  const freeze = await acquireSettlement(cart.id, caller.uid);
+  if (freeze !== "acquired")
+    return {
+      ok: false,
+      error:
+        freeze === "closed"
+          ? "That table is no longer open."
+          : "Someone’s already paying on their phone — wait for that to finish.",
+    };
+
+  const totals = await getCartTotals(cart.id, 0); // final total, NO added tip (see the doc-comment)
+  const amount = totals.totalCents;
+  if (amount <= 0) {
+    await releaseSettlement(cart.id);
+    return { ok: false, error: "There’s nothing on this table to settle." };
+  }
+
+  try {
+    const intent = await getStripe().paymentIntents.create(
+      {
+        amount,
+        currency: "usd",
+        customer: secure.stripe_customer_id,
+        payment_method: secure.stripe_payment_method_id,
+        off_session: true,
+        confirm: true,
+        // Same metadata shape the webhook fulfill path expects (cartId + tipRate) — it reconciles against
+        // getCartTotals(cart, 0) and snapshots the order idempotently on the PI id.
+        metadata: { cartId: cart.id, tipRate: "0" },
+      },
+      // Per-ATTEMPT idempotency key (covers the SDK's network retries WITHIN this one create call). It is
+      // deliberately NOT stable across attempts: a STABLE key caches a Stripe decline for 24h, so a soft
+      // decline (insufficient_funds → the guest funds the card) could never be re-charged. The concurrent
+      // double-charge guard here is the FREEZE (paymentInFlightReason + acquireSettlement serialize
+      // attempts), not this key; the rare freeze-TTL-expiry orphan is caught by the qr_refunds_needed ledger.
+      { idempotencyKey: `pi_${cart.id}_close_${crypto.randomUUID()}` },
+    );
+    if (intent.status === "succeeded" || intent.status === "processing") {
+      // Leave the freeze HELD — unlike cash (paid in-RPC), the off-session charge is fulfilled
+      // asynchronously by the webhook; releasing now would reopen a double-collect window. The fulfill
+      // flips the cart to paid; the SETTLE_TTL is the backstop if the webhook is delayed.
+      if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
+        after(async () => {
+          try {
+            const ph = getPostHogClient();
+            ph.capture({
+              distinctId: `staff:${caller.staffId}`,
+              event: "staff_close_secure_tab",
+              properties: { role: caller.role, sessionId, total_cents: amount },
+            });
+            await ph.flush();
+          } catch {
+            /* analytics best-effort — never fail a settled tab on a capture error */
+          }
+        });
+      }
+      revalidatePath("/staff");
+      revalidatePath(`/staff/table/${sessionId}`);
+      return { ok: true };
+    }
+    // requires_action / requires_payment_method / etc. — not captured. Free the table; surface honestly.
+    await releaseSettlement(cart.id);
+    return {
+      ok: false,
+      error: "That card needs the guest to confirm — settle by cash or a fresh card.",
+    };
+  } catch (e) {
+    // An off_session decline throws a StripeCardError (code card_declined / authentication_required / …).
+    // Release the freeze so the table isn't stranded frozen, and surface a tender-fallback message — the
+    // tab is never marked paid (the fulfill only flips on a succeeded webhook).
+    await releaseSettlement(cart.id);
+    const code = (e as { code?: string }).code;
+    console.error("[staff-cart] closeSecureTab off-session charge failed", {
+      sessionId,
+      cartId: cart.id,
+      code,
+    });
+    return {
+      ok: false,
+      error:
+        code === "authentication_required"
+          ? "That card needs the guest to confirm — settle by cash or a fresh card."
+          : "The card on file was declined — settle by cash or a fresh card.",
+    };
   }
 }

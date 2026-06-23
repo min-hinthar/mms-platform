@@ -26,6 +26,7 @@ import { PaymentSection } from "./PaymentSection";
 import { SplitSection } from "./SplitSection";
 import { SettlementBoard } from "./SettlementBoard";
 import { SendToKitchenButton } from "./SendToKitchenButton";
+import { SecureTabButton } from "./SecureTabButton";
 import { openTab } from "@/lib/tabs";
 
 // Per-reason promo copy (the action returns a reason; Next redacts thrown errors in prod). Honest +
@@ -596,20 +597,25 @@ export function Checkout({
               </p>
             </>
           )}
-          {tabType !== "none" && (
-            <p
-              style={{
-                fontSize: 12.5,
-                color: "var(--t2)",
-                margin: "10px 0 0",
-                textAlign: "center",
-                lineHeight: 1.5,
-              }}
-            >
+          {tabType === "secure" ? (
+            <p style={tabNote}>
+              <span aria-hidden>✓ </span>
+              Tab secured · card on file — settle anytime, or just leave and we’ll close it.
+            </p>
+          ) : tabType === "trust" ? (
+            <p style={tabNote}>
               <span aria-hidden>● </span>
               Tab open — add anything you like and settle when you’re ready.
             </p>
+          ) : null}
+
+          {/* Secure with a card (S3.2) — offered for a none/trust tab (card-first open, or convert a
+              trust tab). Saves a card so the tab settles off-session at close; SAQ-A (the card lives only
+              in the Element); the webhook records it + flips to 'secure'. Hidden once secured. */}
+          {canTab && tabType !== "secure" && (
+            <SecureTabButton cartId={cartId} onSecured={refresh} />
           )}
+
           {isGroup && (
             // Honesty (P3.3a): the split above is a reference; this button pays the WHOLE order, so a
             // guest who read "your share" isn't surprised. Per-card share payment is P3.3b — stated as
@@ -643,6 +649,13 @@ export function Checkout({
   );
 }
 
+const tabNote: CSSProperties = {
+  fontSize: 12.5,
+  color: "var(--t2)",
+  margin: "10px 0 0",
+  textAlign: "center",
+  lineHeight: 1.5,
+};
 const keepTabBtn: CSSProperties = {
   width: "100%",
   marginTop: 10,

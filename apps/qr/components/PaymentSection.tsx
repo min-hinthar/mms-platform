@@ -3,7 +3,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import type { Appearance, StripeElementsOptions } from "@stripe/stripe-js";
 import type { CartTotals } from "@mms/db";
-import { getStripePromise } from "@/lib/stripe-client";
+import { getStripePromise, stripeAppearance } from "@/lib/stripe-client";
 
 /**
  * The pay step (P1.3). PAN never touches our code — it lives only inside the Payment Element iframe
@@ -25,27 +25,9 @@ export function PaymentSection({
 }) {
   const stripePromise = getStripePromise();
 
-  // Build the Element appearance from the document's resolved tokens (light = editorial, .dark =
-  // Night) — the iframe can't read our CSS vars, so we pass the resolved values. Computed once on
-  // mount (client only); fall back to the light-theme token literals for safety.
-  const appearance = useMemo<Appearance>(() => {
-    if (typeof window === "undefined") return { theme: "stripe" };
-    const cs = getComputedStyle(document.documentElement);
-    const v = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback;
-    return {
-      theme: document.documentElement.classList.contains("dark") ? "night" : "stripe",
-      variables: {
-        colorPrimary: v("--ac", "#a65f10"),
-        colorBackground: v("--cd", "#fffdf8"),
-        colorText: v("--tx", "#1b1714"),
-        colorTextSecondary: v("--t2", "#6e6358"),
-        colorDanger: v("--warn", "#a44b34"),
-        fontFamily: v("--font-body", "system-ui, sans-serif"),
-        borderRadius: v("--r-sm", "12px"),
-        spacingUnit: "4px",
-      },
-    };
-  }, []);
+  // Element appearance from the document's resolved tokens (shared helper; light = editorial, .dark =
+  // Night). Computed once on mount (client only).
+  const appearance = useMemo<Appearance>(() => stripeAppearance(), []);
 
   const options = useMemo<StripeElementsOptions>(
     () => ({ clientSecret, appearance }),
