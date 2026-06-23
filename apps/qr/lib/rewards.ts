@@ -118,6 +118,57 @@ export async function getMyRewardCoupons(): Promise<RewardCoupon[]> {
 }
 
 /**
+ * The caller's own order history (M4 P4.2) — their PAID orders (the ones they paid for: earned_by = the
+ * SSR-verified uid, anon or upgraded), newest first, with a short line summary. Service-role read scoped
+ * to the uid, so a diner only ever sees their OWN orders. Cash/staff-closed orders have no earner, so they
+ * don't appear here (honest — "orders you placed", not the whole table's).
+ */
+export type OrderHistoryLine = { name: string; qty: number };
+export type OrderHistoryEntry = {
+  id: string;
+  createdAt: string;
+  totalCents: number;
+  tender: string;
+  lines: OrderHistoryLine[];
+};
+
+export async function getOrderHistory(limit = 20): Promise<OrderHistoryEntry[]> {
+  const supa = serverClient(await cookies());
+  const {
+    data: { user },
+  } = await supa.auth.getUser();
+  if (!user) return [];
+  const db = serviceClient();
+  const { data: orders } = await db
+    .from("qr_orders")
+    .select("id,created_at,total_cents,tender")
+    .eq("earned_by", user.id)
+    .eq("status", "paid")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (!orders || orders.length === 0) return [];
+
+  const ids = orders.map((o) => o.id);
+  const { data: items } = await db
+    .from("qr_order_items")
+    .select("order_id,name,qty")
+    .in("order_id", ids);
+  const byOrder = new Map<string, OrderHistoryLine[]>();
+  for (const it of items ?? []) {
+    const arr = byOrder.get(it.order_id) ?? [];
+    arr.push({ name: it.name, qty: it.qty });
+    byOrder.set(it.order_id, arr);
+  }
+  return orders.map((o) => ({
+    id: o.id,
+    createdAt: o.created_at,
+    totalCents: o.total_cents,
+    tender: o.tender,
+    lines: byOrder.get(o.id) ?? [],
+  }));
+}
+
+/**
  * Create the diner's profile row once their account upgrade has CONFIRMED (is_anonymous=false). Idempotent;
  * service-role write (mms_profiles is owner-read, service-role-write). No-op for an anonymous session — a
  * profile implies a real account (docs/M4_DESIGN R5). Called on the account page after an upgrade lands.

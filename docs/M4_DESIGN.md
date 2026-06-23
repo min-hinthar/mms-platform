@@ -174,6 +174,16 @@ next_milestone, orders_to_next }`; service-role (called by a member-gated server
 
 - Cross-project gem unification with the delivery ledger → **M5**.
 - Referrals / lifecycle marketing crons (win-back, anniversary, abandoned-cart) → post-M4 / delivery-owned.
-- Reward redemption at checkout + order history/reorder → **P4.2**. Feedback/reviews → **P4.3**.
-- **Split-tender earn attribution** (who earns the Star on a split order — host-of-record vs per-share) → **P4.2**.
+- ✅ Reward redemption at checkout (P4.2) · ✅ **order history** (P4.2 — the diner's own paid orders). Feedback/reviews → **P4.3**.
+- **Reorder-with-modifiers** → next P4.2 slice. Deferred deliberately: the QR cart is **table-session-bound**,
+  so reorder needs an ACTIVE open cart to add into (a diner viewing history at `/account` usually isn't in a
+  session). The honest model is "re-add to your current table's cart, re-priced server-side (`priceItem`),
+  unavailable items surfaced" — gated/guided when there's no active cart. Plus a modifiers-Json → modifierIds
+  round-trip to re-price. Real UX + re-price work; its own slice.
+- **Account settings (theme / language)** → deferred until the infra exists. Today the theme is pure
+  `prefers-color-scheme` (no `.dark` class / theme provider to override) and there is **no diner i18n
+  framework** (bilingual = menu `name_en`/`name_my` only). A stored `mms_profiles.theme`/`locale` has nothing
+  to apply to yet — shipping the toggles now would be a hollow promise (honest-microcopy bar). Needs a
+  theme-override provider + an i18n layer first (their own slice); the `mms_profiles` columns already exist.
+- **Split-tender earn attribution** (who earns the Star on a split order — host-of-record vs per-share) → **P4.2+**.
 - **Refund-aware tier recede** (a `qr_orders` refund signal so a refunded order stops counting) → **P4.2+**.
