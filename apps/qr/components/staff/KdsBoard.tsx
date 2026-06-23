@@ -16,6 +16,8 @@ import { RelativeTime } from "./RelativeTime";
 export function KdsBoard({ initial }: { initial: KitchenQueue }) {
   const [snap, setSnap] = useState(initial);
   const [err, setErr] = useState<string | null>(null); // one board-level bump-error region (S8)
+  const [stale, setStale] = useState(false); // shown after repeated poll failures (S9)
+  const fails = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlight = useRef(false);
 
@@ -25,9 +27,14 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
     try {
       setSnap(await getKitchenQueue());
       setErr(null); // a fresh good snapshot clears a stale bump-error banner (no perma-stuck error)
+      fails.current = 0;
+      setStale(false);
     } catch (e) {
       // Don't blank the board on a transient fetch error — keep the last good queue; the poll + the
-      // realtime self-heal recover. Surface for triage.
+      // realtime self-heal recover. After 2 consecutive failures, tell the line it's working a stale
+      // board (S2-audit S9 — a frozen queue mustn't look live).
+      fails.current += 1;
+      if (fails.current >= 2) setStale(true);
       console.error("[KdsBoard] refresh failed", e);
     } finally {
       inFlight.current = false;
@@ -63,10 +70,14 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
         <p
           role="status"
           aria-live="polite"
-          style={{ margin: 0, fontSize: 13, color: err ? "var(--warn)" : "var(--t2)" }}
+          style={{ margin: 0, fontSize: 13, color: err || stale ? "var(--warn)" : "var(--t2)" }}
         >
           {err ??
-            (count === 0 ? "All clear" : `${count} open ${count === 1 ? "ticket" : "tickets"}`)}
+            (stale
+              ? "Reconnecting — showing the last known queue"
+              : count === 0
+                ? "All clear"
+                : `${count} open ${count === 1 ? "ticket" : "tickets"}`)}
         </p>
       </div>
 

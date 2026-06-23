@@ -11,6 +11,7 @@ import {
 } from "@/lib/cart";
 import type { SplitContext } from "@/lib/split";
 import { canMutateLine } from "@/lib/permissions";
+import { DINER_STATE_COPY } from "@/lib/line-state-copy";
 import { seatColor, seatInitial } from "@/lib/avatars";
 import { useAnonSession } from "@/lib/useAnonSession";
 import { useCartRealtime } from "@/lib/realtime";
@@ -622,14 +623,7 @@ function Stepper({
 // per line). `comped` takes precedence over `state` (a comped line keeps its kitchen state but reads
 // "Comped" to the diner).
 function LineStateChip({ state, comped }: { state: CartItem["lineState"]; comped: boolean }) {
-  const STATE_COPY: Record<CartItem["lineState"], string> = {
-    draft: "In your cart",
-    fired: "Sent to kitchen",
-    in_progress: "Cooking",
-    served: "Served",
-    voided: "Removed",
-  };
-  const label = comped ? "Comped" : STATE_COPY[state];
+  const label = comped ? "Comped" : DINER_STATE_COPY[state]; // S12: one shared vocabulary
   const glyph = comped ? "🎁" : state === "served" ? "✓" : state === "voided" ? "✕" : "🔥";
   // The context is REAL (visually-hidden) text, not an aria-label on this non-interactive span (which
   // SRs may drop) — so a SR reaching this control-slot reliably hears WHY there's no stepper.

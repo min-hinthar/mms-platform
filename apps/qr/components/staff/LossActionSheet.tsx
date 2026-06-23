@@ -1,16 +1,10 @@
 "use client";
-import {
-  useEffect,
-  useMemo,
-  useState,
-  useTransition,
-  type CSSProperties,
-  type FormEvent,
-} from "react";
+import { useEffect, useState, useTransition, type CSSProperties, type FormEvent } from "react";
 import { Sheet } from "@mms/ui";
 import { listApprovers, voidLine, type Approver, type VoidLineResult } from "@/lib/voids";
 import { requestApproval } from "@/lib/approvals";
 import type { TableLineView } from "@/lib/floor-types";
+import { ManagerPinFields, PIN_NO_PIN_COPY, pinFailureCopy, useLockout } from "./ManagerPinStepUp";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -62,12 +56,13 @@ export function LossActionSheet({
 }) {
   const [action, setAction] = useState<Action>("void");
   const [reason, setReason] = useState<Reason | "">("");
+  const [reasonInvalid, setReasonInvalid] = useState(false); // S14: inline "pick a reason" validation
   const [approvers, setApprovers] = useState<Approver[] | null>(null);
   const [approverStaffId, setApproverStaffId] = useState("");
   const [pin, setPin] = useState("");
   const [stepUp, setStepUp] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const [lockLeft, setLockLeft] = useState(0);
+  const { setLockLeft, locked, lockCopy } = useLockout();
   const [pending, startTransition] = useTransition();
 
   // The kitchen has started/finished this line → a void of it (and any comp) is a loss → manager-gated.
@@ -90,22 +85,22 @@ export function LossActionSheet({
     };
   }, []);
 
-  // Lockout countdown (server-clocked `lockedUntil` → a local tick), self-stops at 0.
-  const locked = lockLeft > 0;
-  useEffect(() => {
-    if (!locked) return;
-    const id = setInterval(() => setLockLeft((s) => (s <= 1 ? 0 : s - 1)), 1000);
-    return () => clearInterval(id);
-  }, [locked]);
-
   const reasonOptions = REASONS[action];
   // The reason DERIVED-valid for the current action: when the action toggles, a reason that doesn't apply
   // to it simply reads as unselected (no effect / setState-in-effect needed — it forces a fresh choice).
   const effectiveReason = reason && reasonOptions.some((r) => r.value === reason) ? reason : "";
 
   const pinOk = pin.length >= 4 && pin.length <= 8;
-  const canSubmit =
-    !!effectiveReason && !locked && !pending && (!showStepUp || (!!approverStaffId && pinOk));
+  // The reason is validated inline on submit (S14), not folded into the disabled gate — a silently-dimmed
+  // CTA leaves the server with no idea why. The PIN/manager completeness still gates the button visibly.
+  const canSubmit = !locked && !pending && (!showStepUp || (!!approverStaffId && pinOk));
+  // S11: no manager is signed in → the PIN path is a dead end; the deferred request becomes the primary.
+  const noManagers = approvers !== null && approvers.length === 0;
+
+  function pickReason(r: Reason) {
+    setReason(r);
+    setReasonInvalid(false);
+  }
 
   function handleResult(res: VoidLineResult) {
     if (res.ok) {
@@ -120,23 +115,11 @@ export function LossActionSheet({
         setMsg("A manager needs to approve this — tap your name and enter your PIN.");
         break;
       case "pin_wrong":
-        setMsg(
-          res.attemptsRemaining > 0
-            ? `Wrong PIN — ${res.attemptsRemaining} ${res.attemptsRemaining === 1 ? "try" : "tries"} left.`
-            : "Wrong PIN.",
-        );
+      case "pin_locked":
+        setMsg(pinFailureCopy(res, setLockLeft)); // S2-audit S13: shared PIN-failure copy
         break;
-      case "pin_locked": {
-        const left = Math.max(
-          0,
-          Math.ceil((new Date(res.lockedUntil).getTime() - Date.now()) / 1000),
-        );
-        setLockLeft(left);
-        setMsg("Too many tries on that PIN.");
-        break;
-      }
       case "pin_no_pin":
-        setMsg("That manager hasn’t set a PIN yet.");
+        setMsg(PIN_NO_PIN_COPY);
         break;
       case "bad_approver":
         setMsg("Pick a manager other than yourself to approve.");
@@ -162,6 +145,11 @@ export function LossActionSheet({
 
   function submit(e: FormEvent) {
     e.preventDefault();
+    if (!effectiveReason) {
+      setReasonInvalid(true); // S14: tell them what's missing instead of a dead, dimmed button
+      setMsg("Pick a reason first.");
+      return;
+    }
     if (!canSubmit) return;
     setMsg(null);
     startTransition(async () => {
@@ -179,7 +167,12 @@ export function LossActionSheet({
   // Deferred path (S2.4): no manager at hand → request approval (no PIN). The line stays live until a
   // manager resolves it from the queue. Needs a reason (for the audit), not a manager/PIN.
   function submitRequest() {
-    if (!effectiveReason || pending || locked) return;
+    if (pending || locked) return;
+    if (!effectiveReason) {
+      setReasonInvalid(true); // S14: same inline validation on the deferred path
+      setMsg("Pick a reason first.");
+      return;
+    }
     setMsg(null);
     startTransition(async () => {
       const res = await requestApproval({
@@ -215,12 +208,7 @@ export function LossActionSheet({
     });
   }
 
-  const mins = Math.floor(lockLeft / 60);
-  const secs = lockLeft % 60;
-  const lockCopy = locked ? `Locked — try again in ${mins > 0 ? `${mins}m ` : ""}${secs}s.` : null;
   const verb = action === "comp" ? "Comp" : "Void";
-
-  const managers = useMemo(() => approvers ?? [], [approvers]);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title={`${verb} “${line.name}”`}>
@@ -254,10 +242,16 @@ export function LossActionSheet({
             : "The guest isn’t charged, but the kitchen still makes it."}
         </p>
 
-        {/* Reason — required, server-audited. */}
+        {/* Reason — required, server-audited. Inline-validated on submit (S14): aria-invalid + a visible
+            note when they try to confirm without picking one, rather than a silently-dimmed CTA. */}
         <fieldset style={fieldset}>
           <legend style={legend}>Reason</legend>
-          <div role="group" aria-label="Reason" style={{ display: "grid", gap: 6 }}>
+          <div
+            role="group"
+            aria-label="Reason"
+            aria-describedby={reasonInvalid ? "loss-reason-err" : undefined}
+            style={{ display: "grid", gap: 6 }}
+          >
             {reasonOptions.map((r) => {
               const on = effectiveReason === r.value;
               return (
@@ -265,88 +259,79 @@ export function LossActionSheet({
                   key={r.value}
                   type="button"
                   aria-pressed={on}
-                  onClick={() => setReason(r.value)}
-                  style={{ ...reasonBtn, ...(on ? reasonBtnOn : null) }}
+                  onClick={() => pickReason(r.value)}
+                  style={{
+                    ...reasonBtn,
+                    ...(on ? reasonBtnOn : null),
+                    ...(reasonInvalid ? { borderColor: "var(--warn)" } : null),
+                  }}
                 >
                   {r.label}
                 </button>
               );
             })}
           </div>
+          {reasonInvalid && (
+            <p
+              id="loss-reason-err"
+              style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--warn)" }}
+            >
+              Pick a reason to continue.
+            </p>
+          )}
         </fieldset>
 
-        {/* Manager step-up — shown for a comp / cooked void up-front, or after the server asks for it. */}
+        {/* Manager step-up — shown for a comp / cooked void up-front, or after the server asks for it.
+            The select/PIN + the empty-roster note live in the shared <ManagerPinFields> (S13). */}
         {showStepUp && (
           <fieldset style={fieldset}>
             <legend style={legend}>Manager approval</legend>
-            <label htmlFor="loss-mgr" style={label}>
-              Manager
-            </label>
-            <select
-              id="loss-mgr"
-              value={approverStaffId}
-              onChange={(e) => setApproverStaffId(e.target.value)}
-              disabled={locked || managers.length === 0}
-              style={select}
-            >
-              <option value="">
-                {approvers === null
-                  ? "Loading…"
-                  : managers.length === 0
-                    ? "No managers available"
-                    : "Tap your name"}
-              </option>
-              {managers.map((m) => (
-                <option key={m.staffId} value={m.staffId}>
-                  {m.displayName}
-                </option>
-              ))}
-            </select>
-            {approvers !== null && managers.length === 0 && (
-              // Honest dead-end note: a cooked void / comp needs a manager and none are on shift.
-              <p style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--t2)" }}>
-                A manager has to approve this — none are signed in right now.
-              </p>
-            )}
-            <label htmlFor="loss-pin" style={{ ...label, marginTop: 12 }}>
-              PIN
-            </label>
-            <input
-              id="loss-pin"
-              type="password"
-              inputMode="numeric"
-              autoComplete="off"
-              maxLength={8}
-              value={pin}
-              onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 8))}
-              placeholder="••••"
-              disabled={locked}
-              // S2-audit S10: NOT described-by the live region (a node can't be both a field description and
-              // a transactional live region without double-announcing); the label + placeholder suffice.
-              style={input}
+            <ManagerPinFields
+              idPrefix="loss"
+              approvers={approvers}
+              approverStaffId={approverStaffId}
+              onApproverChange={setApproverStaffId}
+              pin={pin}
+              onPinChange={setPin}
+              locked={locked}
             />
           </fieldset>
         )}
 
-        <button
-          type="submit"
-          disabled={!canSubmit}
-          style={{ ...primaryBtn, opacity: canSubmit ? 1 : 0.6 }}
-        >
-          {pending ? "Working…" : showStepUp ? `${verb} with approval` : `${verb} item`}
-        </button>
-
-        {/* Deferred path (S2.4): only for gated actions — request a manager's approval without a PIN now.
-            Needs a reason; the line stays live until a manager resolves it from the queue. */}
-        {showStepUp && (
+        {/* S11: with no manager signed in the PIN path can't complete, so the deferred request becomes the
+            primary action; otherwise the PIN confirm leads and the request is the secondary "no manager?" out. */}
+        {showStepUp && noManagers ? (
           <button
             type="button"
             onClick={submitRequest}
-            disabled={!effectiveReason || pending || locked}
-            style={{ ...secondaryBtn, opacity: !effectiveReason || pending || locked ? 0.6 : 1 }}
+            disabled={pending || locked}
+            style={{ ...primaryBtn, opacity: pending || locked ? 0.6 : 1 }}
           >
-            No manager here? Request approval
+            {pending ? "Sending…" : `Request a manager’s approval to ${action}`}
           </button>
+        ) : (
+          <>
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              style={{ ...primaryBtn, opacity: canSubmit ? 1 : 0.6 }}
+            >
+              {pending ? "Working…" : showStepUp ? `${verb} with approval` : `${verb} item`}
+            </button>
+
+            {/* Deferred path (S2.4): for gated actions — request a manager's approval without a PIN now.
+                The line stays live until a manager resolves it from the queue. */}
+            {showStepUp && (
+              <button
+                type="button"
+                onClick={submitRequest}
+                disabled={pending || locked}
+                style={{ ...secondaryBtn, opacity: pending || locked ? 0.6 : 1 }}
+              >
+                No manager here? Request approval
+              </button>
+            )}
+          </>
         )}
 
         {/* One live region (QA §A): the lockout countdown takes precedence over a transient message. */}
@@ -402,36 +387,6 @@ const reasonBtnOn: CSSProperties = {
   borderColor: "var(--ac)",
   background: "color-mix(in oklab, var(--ac) 10%, var(--cd))",
   fontWeight: 700,
-};
-const label: CSSProperties = {
-  display: "block",
-  fontSize: 13,
-  fontWeight: 600,
-  marginBottom: 6,
-  color: "var(--tx)",
-};
-const select: CSSProperties = {
-  width: "100%",
-  minHeight: 48,
-  boxSizing: "border-box",
-  padding: "0 12px",
-  fontSize: 16,
-  borderRadius: "var(--r-sm)",
-  border: "1px solid var(--bd)",
-  background: "var(--cd)",
-  color: "var(--tx)",
-};
-const input: CSSProperties = {
-  width: "100%",
-  minHeight: 48,
-  boxSizing: "border-box",
-  padding: "0 14px",
-  fontSize: 16,
-  letterSpacing: "0.3em",
-  borderRadius: "var(--r-sm)",
-  border: "1px solid var(--bd)",
-  background: "var(--cd)",
-  color: "var(--tx)",
 };
 const primaryBtn: CSSProperties = {
   width: "100%",
