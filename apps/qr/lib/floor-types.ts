@@ -32,6 +32,10 @@ export type FloorTable = {
    *  (settle-late, any tender) or `secure` (card-on-file, S3.2). Drives the floor "Tab" badge so a
    *  server reads at a glance which tables are running a tab vs. settling each round. */
   tab: "none" | "trust" | "secure";
+  /** Silent ceiling flag (S3.3 / T11): a TRUST tab whose running subtotal has crossed the configured
+   *  ceiling. A FLAG only — surfaced for a check-in, never an auto-convert or auto-charge. A secure tab
+   *  (card on file) is never flagged. */
+  tabOverCeiling: boolean;
   /** Most recent activity (cart mutation, order, or session open) as an ISO instant. */
   lastActivityAt: string;
 };
@@ -88,6 +92,15 @@ export type TableDetail = {
   tab: "none" | "trust" | "secure";
   /** When the tab was opened (ISO), for the "open since" line; null when `tab === "none"`. */
   tabOpenedAt: string | null;
+  /** Server-discretion gating (S3.3). The configured silent ceiling (cents) for the "Tab at $X" copy. */
+  ceilingCents: number;
+  /** T11: a TRUST tab's running subtotal has crossed the ceiling — surface "convert or check in?", never
+   *  auto-act. False for a secure tab (already card-backed) or below the ceiling. */
+  tabOverCeiling: boolean;
+  /** T12: a config-driven courtesy hint to consider a secure tab — `'party'` (≥ nudge_party_size) or
+   *  `'age'` (an open tab past nudge_tab_age_min), else null. Suppressed once the tab is secure. A system
+   *  hint paired with courtesy scripting, never unaided per-customer judgment. */
+  nudgeSecure: "party" | "age" | null;
   lastActivityAt: string;
   /** True while a single-payer lock or a split freeze is live — clear-table / staff write / cash settle
    *  are all refused mid-payment. */

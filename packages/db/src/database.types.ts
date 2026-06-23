@@ -250,19 +250,58 @@ export type Database = {
           ceiling_cents: number
           id: boolean
           nudge_party_size: number
+          nudge_tab_age_min: number
           updated_at: string
         }
         Insert: {
           ceiling_cents?: number
           id?: boolean
           nudge_party_size?: number
+          nudge_tab_age_min?: number
           updated_at?: string
         }
         Update: {
           ceiling_cents?: number
           id?: boolean
           nudge_party_size?: number
+          nudge_tab_age_min?: number
           updated_at?: string
+        }
+        Relationships: []
+      }
+      mms_tab_events: {
+        Row: {
+          actor_kind: string
+          actor_staff_id: string | null
+          amount_cents: number | null
+          cart_id: string
+          created_at: string
+          event: string
+          id: string
+          session_id: string | null
+          tab_type: string
+        }
+        Insert: {
+          actor_kind: string
+          actor_staff_id?: string | null
+          amount_cents?: number | null
+          cart_id: string
+          created_at?: string
+          event: string
+          id?: string
+          session_id?: string | null
+          tab_type: string
+        }
+        Update: {
+          actor_kind?: string
+          actor_staff_id?: string | null
+          amount_cents?: number | null
+          cart_id?: string
+          created_at?: string
+          event?: string
+          id?: string
+          session_id?: string | null
+          tab_type?: string
         }
         Relationships: []
       }

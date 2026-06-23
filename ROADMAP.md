@@ -125,13 +125,13 @@ What lets the kitchen trust the screen + gives loss-controlled undo. **Dep:** S1
 
 **Exit:** a fired ticket can't be silently mutated by a guest; a cooked-item comp needs manager-PIN (owner remote-approve is the deferred follow-up); every void is two-party logged in a durable audit.
 
-### ⬜ S3 — Tabs (deferred settlement) &nbsp;`milestone:S3`
+### ✅ S3 — Tabs (deferred settlement) &nbsp;`milestone:S3`
 
 "Keep the tab open" — the table order settled at close. **Dep:** S1 (staff close) · M1 (ledger) · reuses S2's approvals for after-hours closes.
 
 - **S3.1** **Trust tab** (default) — accumulate, settle at close with any tender; **tip on the final total**. ✅ (staff + diner open · floor legibility · close reuses the existing cash/card tenders)
 - **S3.2** **Secure tab** — SetupIntent card at open _or attached mid-tab_, off-session charge at close; validate at open; handle close-decline. ✅ (tokens in a service-role sidecar off realtime · off-session close reuses the M1 fulfill webhook · no added tip off-session)
-- **S3.3** **Server-discretion** gating — courtesy framing + a light **nudge** on large/new tables + a **silent ceiling** on a ballooning trust tab; host-of-record on group tabs. ⬜
+- **S3.3** **Server-discretion** gating — courtesy framing + a light **nudge** on large/new tables + a **silent ceiling** on a ballooning trust tab; host-of-record on group tabs. ✅ (durable `mms_tab_events` audit log · ceiling/nudge are flags-not-actions · config-driven thresholds)
 
 **Exit:** a table runs a trust tab and settles once at close (any tender); a server can require/convert to a secure tab; tip lands on the final total.
 

@@ -4,6 +4,25 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — S3.3: server-discretion gating (nudge · ceiling · audit log) — wraps the S3 tabs milestone (2026-06-23)
+
+The discretion layer over the tab lifecycle, courtesy-framed and config-driven — never an auto-charge.
+Migration `20260623040000`.
+
+- **T13 — durable tab-action audit log** (`mms_tab_events`): append-only, **non-PII** (the staff uid only;
+  never the anonymous diner's), service-role write, **owner-read RLS** (mirrors `mms_approvals`), off
+  realtime. Logged on **open** (`logTabEvent` from `openTab`), **secure** (the `setup_intent.succeeded`
+  webhook), and **close** (cash via `settleCash`; card/secure via the `payment_intent.succeeded` fulfill,
+  attributed by PI metadata). This is the opener attribution S3.1-A3 deliberately pulled off the
+  diner-readable cart row. `mms_open_tab` now returns `opened`/`exists` so a fresh open logs exactly once.
+- **T11 — silent ceiling**: the floor flags a **trust** tab whose running subtotal crosses `ceiling_cents`
+  ($400) — a "Tab at $X" banner + a warn-tinted floor-card chip. A flag only; never auto-converts or
+  auto-charges (the conversion to secure stays the diner's choice on `/cart`).
+- **T12 — courtesy nudge**: a config-driven hint to consider a secure tab — `party` (≥ `nudge_party_size`)
+  or `age` (open past the new `nudge_tab_age_min`, 90 min). A system hint with scripting, not per-customer
+  judgment; suppressed once secure.
+- **T14 — host-of-record**: the secure-tab drill-down names the host whose card is on file.
+
 ### Added — S3.2: secure tab (SetupIntent → off-session close) (2026-06-23)
 
 A diner saves a card (SetupIntent, `usage:'off_session'`) at open or mid-tab; the tab settles off-session

@@ -5,6 +5,7 @@ import { openTabInput } from "@mms/db/schemas";
 import { getStaffAuth } from "./staff";
 import { assertCartMember, AuthzError } from "./authz";
 import { paymentInFlightReason } from "./pay-guard";
+import { logTabEvent } from "./tab-events";
 
 /**
  * Tab actions (S3.1 — trust tab / deferred settlement; docs/S3_DESIGN.md). A tab is the table-owned
@@ -31,8 +32,11 @@ export async function openTab(raw: unknown): Promise<OpenTabResult> {
 
   // Resolve authority. Staff first: a real (non-anon) account isn't a session_member, so assertCartMember
   // would wrongly reject them — branch before it. A diner (anon) falls through to the membership IDOR
-  // guard, which also rejects a non-member or a closed cart.
+  // guard, which also rejects a non-member or a closed cart. We also capture the actor (kind + staff uid)
+  // for the audit log — the attribution A3 pulled off the cart row now lives only in mms_tab_events (T13).
   const staff = await getStaffAuth();
+  const actorKind: "staff" | "diner" = staff.kind === "staff" ? "staff" : "diner";
+  const actorStaffId = staff.kind === "staff" ? staff.caller.staffId : null;
   if (staff.kind !== "staff") {
     try {
       await assertCartMember(cartId);
@@ -51,7 +55,7 @@ export async function openTab(raw: unknown): Promise<OpenTabResult> {
   // (whose review screen stays mounted under a single-pay lock).
   const { data: payCart } = await db
     .from("qr_carts")
-    .select("id,locked,locked_at,settle_at")
+    .select("id,session_id,locked,locked_at,settle_at")
     .eq("id", cartId)
     .maybeSingle();
   if (await paymentInFlightReason(payCart)) {
@@ -64,12 +68,24 @@ export async function openTab(raw: unknown): Promise<OpenTabResult> {
     return { ok: false, error: "Couldn’t open the tab — try again." };
   }
   switch (data) {
-    case "ok":
-      // The cart row change also fans out over postgres_changes (qr_carts is on the publication) to the
-      // floor + other diners; these revalidations cover the server-rendered shells.
+    case "opened": // a fresh none→trust open
+    case "exists": {
+      // Record a FRESH open in the durable audit trail (T13; best-effort, never blocks); a benign re-open
+      // ('exists') isn't a new event. Either way the cart row change fans out over postgres_changes
+      // (qr_carts is on the publication) to the floor + other diners — revalidate the server shells.
+      if (data === "opened")
+        await logTabEvent({
+          cartId,
+          sessionId: payCart?.session_id ?? null,
+          event: "opened",
+          actorKind,
+          actorStaffId,
+          tabType: "trust",
+        });
       revalidatePath("/staff");
       revalidatePath("/cart");
       return { ok: true };
+    }
     case "not_open":
       return { ok: false, error: "This order is no longer open." };
     case "not_dinein":

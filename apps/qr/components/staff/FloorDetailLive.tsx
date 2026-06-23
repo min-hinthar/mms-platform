@@ -144,6 +144,30 @@ export function FloorDetailLive({
         </div>
       </header>
 
+      {/* Server-discretion gating (S3.3). Advisory only — never an auto-charge/auto-convert (T11), never
+          per-customer judgment (T12). The path to secure is the diner's "Secure your tab" on /cart; staff
+          check in or suggest it. Plain banners (not live regions — one view already owns aria-live). */}
+      {detail.tabOverCeiling && (
+        <div style={ceilingBanner}>
+          <span aria-hidden>⚠ </span>
+          <span>
+            <strong>Tab at {fmt(detail.runningSubtotalCents)}</strong> — past the{" "}
+            {fmt(detail.ceilingCents)} mark. Check in with the table, or ask them to secure the tab
+            with a card on file.
+          </span>
+        </div>
+      )}
+      {detail.nudgeSecure && detail.tab !== "secure" && (
+        <div style={nudgeBanner}>
+          <span aria-hidden>☆ </span>
+          <span>
+            {detail.nudgeSecure === "party"
+              ? "Large party — consider suggesting a secure tab (a card on file) so they can order freely and settle once."
+              : "This tab's been open a while — consider suggesting they secure it with a card on file."}
+          </span>
+        </div>
+      )}
+
       {/* Party */}
       <section className="card" style={sectionCard} aria-labelledby="party-h">
         <h2 id="party-h" style={sectionH}>
@@ -160,6 +184,17 @@ export function FloorDetailLive({
               </li>
             ))}
           </ul>
+        )}
+        {/* Host-of-record (S3.3 / T14): on a secure tab, the host who opened it is cardholder-of-record —
+            the off-session close charges their saved card (or the table splits). */}
+        {detail.tab === "secure" && detail.members.some((m) => m.isHost) && (
+          <p style={{ ...muted, marginTop: 8, fontSize: 12.5 }}>
+            Card on file — host of record:{" "}
+            <strong style={{ color: "var(--tx)" }}>
+              {detail.members.find((m) => m.isHost)?.name}
+            </strong>
+            .
+          </p>
         )}
       </section>
 
@@ -355,6 +390,32 @@ const back: CSSProperties = {
 const header: CSSProperties = { marginBottom: "var(--s5)" };
 const h1: CSSProperties = { fontSize: 24, margin: 0 };
 const sub: CSSProperties = { color: "var(--t2)", fontSize: 14, margin: "6px 0 0" };
+const ceilingBanner: CSSProperties = {
+  display: "flex",
+  gap: "var(--s2)",
+  alignItems: "baseline",
+  padding: "var(--s3) var(--s4)",
+  marginBottom: "var(--s4)",
+  borderRadius: "var(--r-card)",
+  border: "1px solid color-mix(in oklab, var(--warn) 35%, transparent)",
+  background: "color-mix(in oklab, var(--warn) 9%, var(--cd))",
+  color: "var(--tx)",
+  fontSize: 13.5,
+  lineHeight: 1.5,
+};
+const nudgeBanner: CSSProperties = {
+  display: "flex",
+  gap: "var(--s2)",
+  alignItems: "baseline",
+  padding: "var(--s3) var(--s4)",
+  marginBottom: "var(--s4)",
+  borderRadius: "var(--r-card)",
+  border: "1px solid var(--bd)",
+  background: "color-mix(in oklab, var(--ac) 7%, var(--cd))",
+  color: "var(--t2)",
+  fontSize: 13,
+  lineHeight: 1.5,
+};
 const sectionCard: CSSProperties = { padding: "var(--s5)", marginBottom: "var(--s4)" };
 const sectionH: CSSProperties = { fontSize: 13, margin: "0 0 var(--s3)", color: "var(--t2)" };
 const muted: CSSProperties = { margin: 0, color: "var(--t3)", fontSize: 14 };
