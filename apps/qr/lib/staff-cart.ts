@@ -264,6 +264,15 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
   if (!cart) return { ok: false, error: "This table has no open order to settle." };
 
   const db = serviceClient();
+  // Re-derive the tab state server-side (not just the sidecar PM): only a still-secure tab is closed on
+  // file. Guards the cancelled/merged-source edge where a stale sidecar PM could otherwise be charged.
+  const { data: cartTab } = await db
+    .from("qr_carts")
+    .select("tab_type")
+    .eq("id", cart.id)
+    .maybeSingle();
+  if (cartTab?.tab_type !== "secure")
+    return { ok: false, error: "This tab has no card on file — settle by cash or card instead." };
   // The saved card lives in the service-role-only sidecar (never the realtime-fanned cart row).
   const { data: secure } = await db
     .from("mms_tab_secure")

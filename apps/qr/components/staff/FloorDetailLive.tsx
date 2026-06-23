@@ -310,7 +310,7 @@ export function FloorDetailLive({
 
       {/* Soft convergence (S1.4): fold a double-order into another table. Same gate as a write (open cart,
           not mid-payment) and only when there's something to move. */}
-      {canWrite && detail.itemCount > 0 && (
+      {canWrite && detail.itemCount > 0 && detail.tab !== "secure" && (
         <section style={{ marginTop: "var(--s4)" }} aria-label="Merge this table">
           <MergeTableButton
             sourceSessionId={sessionId}

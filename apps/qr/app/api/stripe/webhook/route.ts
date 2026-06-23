@@ -2,7 +2,7 @@ import { NextRequest, NextResponse, after } from "next/server";
 import { getStripe } from "@/lib/stripe";
 import { serviceClient } from "@mms/db/server";
 import { getCartTotals } from "@/lib/totals";
-import { releaseCartLock } from "@/lib/lock";
+import { releaseCartLock, releaseSettlement } from "@/lib/lock";
 import { getPostHogClient } from "@/lib/posthog-server";
 import { enqueueQboSync, syncOrderToQbo } from "@/lib/qbo/client";
 import {
@@ -213,8 +213,11 @@ export async function POST(req: NextRequest) {
       );
     } else if (cartId) {
       // Single-pay: free the pay-window lock (P3.2-lock) so the cart returns to editable for the table.
-      // Unconditional release by cart; idempotent + best-effort; the TTL is the backstop.
+      // Unconditional release by cart; idempotent + best-effort; the TTL is the backstop. ALSO release the
+      // settle freeze: a secure-tab off-session close (S3.2) holds settle_at (not the single-pay lock), so
+      // an async processing→failed decline would otherwise strand the table frozen for the full SETTLE_TTL.
       await releaseCartLock(cartId, null).catch(() => {});
+      await releaseSettlement(cartId).catch(() => {});
     }
     posthog.capture({
       distinctId: cartId ?? intent.id,

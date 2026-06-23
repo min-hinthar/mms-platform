@@ -452,7 +452,7 @@ export async function getMergeCandidates(sourceSessionId: string): Promise<Merge
   const [{ data: carts }, { data: members }] = await Promise.all([
     db
       .from("qr_carts")
-      .select("id,session_id,locked,locked_at,settle_at")
+      .select("id,session_id,locked,locked_at,settle_at,tab_type")
       .in("session_id", sessionIds)
       .eq("status", "open"),
     db.from("session_members").select("session_id").in("session_id", sessionIds),
@@ -472,6 +472,9 @@ export async function getMergeCandidates(sourceSessionId: string): Promise<Merge
   for (const s of sessions ?? []) {
     const cart = cartBySession.get(s.id);
     if (!cart) continue; // a target needs an open cart to receive lines
+    // Don't offer a SECURE target — a secured tab can't be merged (S3.2; the card-on-file sidecar can't
+    // follow the fold). The SQL refuses it regardless; this keeps it off the picker.
+    if (cart.tab_type === "secure") continue;
     // Don't offer a target that's mid-payment — folding lines into a cart being paid would change a
     // total under the payer (the merge RPC also row-locks + requires 'open', this is the affordance).
     if (await paymentInFlightReason(cart)) continue;
@@ -546,7 +549,14 @@ export async function mergeTables(raw: unknown): Promise<MergeResult> {
       targetSessionId,
       message: error?.message,
     });
-    // A raise here means a cart flipped out of 'open' under the merge (a race with settle/clear).
+    // A secured tab can't be folded (S3.2 — its card-on-file sidecar can't follow a cancelled cart). The
+    // SQL raises on it as the backstop; surface a clear, actionable message rather than the generic race one.
+    if (error?.message?.includes("secured tab"))
+      return {
+        ok: false,
+        error: "A secured tab can’t be merged — close it on the card on file first.",
+      };
+    // Otherwise a raise means a cart flipped out of 'open' under the merge (a race with settle/clear).
     return { ok: false, error: "Couldn’t merge — a table changed. Check both and try again." };
   }
 
