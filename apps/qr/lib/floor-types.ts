@@ -28,6 +28,10 @@ export type FloorTable = {
   runningSubtotalCents: number;
   /** The authoritative total of a settled order on this table, when one exists (cents). */
   paidTotalCents: number | null;
+  /** Tab lifecycle (S3.1): `none` until a server/diner formally opens a tab on this table; `trust`
+   *  (settle-late, any tender) or `secure` (card-on-file, S3.2). Drives the floor "Tab" badge so a
+   *  server reads at a glance which tables are running a tab vs. settling each round. */
+  tab: "none" | "trust" | "secure";
   /** Most recent activity (cart mutation, order, or session open) as an ISO instant. */
   lastActivityAt: string;
 };
@@ -79,6 +83,11 @@ export type TableDetail = {
    *  pre-tax guess. Only on the detail (one table), never the floor hot path. */
   settleTotalCents: number | null;
   paidTotalCents: number | null;
+  /** Tab lifecycle (S3.1) — `none`/`trust`/`secure`. When not `none`, the drill-down shows a "Tab
+   *  open" badge + the open-since time, and the settle action reads "Close tab". */
+  tab: "none" | "trust" | "secure";
+  /** When the tab was opened (ISO), for the "open since" line; null when `tab === "none"`. */
+  tabOpenedAt: string | null;
   lastActivityAt: string;
   /** True while a single-payer lock or a split freeze is live — clear-table / staff write / cash settle
    *  are all refused mid-payment. */

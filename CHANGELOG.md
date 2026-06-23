@@ -4,6 +4,24 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — S3.1: trust tab (deferred settlement) (2026-06-23)
+
+"Keep the tab open" — the table order accumulates across the night and settles once at close. A trust tab
+is the existing `qr_carts` order with settlement deferred (not a new ledger), so close reuses the existing
+tenders (cash settle; the diner's card via the Payment Element, which already carries tip-on-final-total) —
+no fourth fulfill path. Migration `20260623000000`.
+
+- **Spine (SQL)** — `qr_carts` tab columns (`tab_type`/`tab_opened_at`/`tab_opened_by`, CHECK-guarded);
+  `mms_open_tab` (dine-in + open + session-not-closed guards, idempotent, never downgrades a secure tab,
+  `SECURITY DEFINER`, service-role-only); `mms_tab_config` singleton ($400 ceiling · nudge ≥10, for S3.3),
+  service-role-only RLS.
+- **Open — dual authority (T3)** — a server opens a tab from the floor drill-down; a diner opens one from
+  `/cart` ("Keep tab open · settle later", dine-in only). Both write the one table-owned cart, each gated in
+  SQL (staff via `getStaffAuth`; diner via `assertCartMember`).
+- **Floor legibility** — a "Tab" badge on the floor board card + the drill-down header, the "tab opened …"
+  time, and the cash settle re-framed as "Close tab · cash" once a tab is open.
+- **Diner** — a calm "Tab open — settle when you're ready" state and a "Settle tab" CTA on `/cart`.
+
 ### Changed — S2-polish: the deferred S2-audit sweep (2026-06-23)
 
 The remaining `docs/S2_AUDIT.md` should-fixes, landed in one pass. Migration `20260622100000`.

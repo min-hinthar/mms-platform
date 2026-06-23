@@ -66,6 +66,8 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
       initialTotals={view.totals}
       splitContext={split}
       initialSettling={view.settling}
+      initialTabType={view.tabType}
+      canTab={split?.mode === "dinein"}
     />
   );
 }

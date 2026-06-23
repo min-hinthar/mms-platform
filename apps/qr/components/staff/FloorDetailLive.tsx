@@ -11,6 +11,7 @@ import { ClearTableButton } from "./ClearTableButton";
 import { StaffLineEditor } from "./StaffLineEditor";
 import { CashSettleButton } from "./CashSettleButton";
 import { MergeTableButton } from "./MergeTableButton";
+import { OpenTabButton } from "./OpenTabButton";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const MODE_LABEL: Record<TableDetail["mode"], string> = {
@@ -103,11 +104,25 @@ export function FloorDetailLive({
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <h1 style={h1}>Table {detail.label}</h1>
             <FloorStatusChip status={detail.status} />
+            {detail.tab !== "none" && (
+              <span style={tabChip}>
+                <span aria-hidden>●</span> Tab open
+              </span>
+            )}
           </div>
           <p style={sub}>
             {MODE_LABEL[detail.mode]} · {detail.members.length}{" "}
-            {detail.members.length === 1 ? "guest" : "guests"} · last activity{" "}
-            <RelativeTime iso={detail.lastActivityAt} serverNow={detail.serverNow} />
+            {detail.members.length === 1 ? "guest" : "guests"} ·{" "}
+            {detail.tab !== "none" && detail.tabOpenedAt ? (
+              <>
+                tab opened <RelativeTime iso={detail.tabOpenedAt} serverNow={detail.serverNow} />
+              </>
+            ) : (
+              <>
+                last activity{" "}
+                <RelativeTime iso={detail.lastActivityAt} serverNow={detail.serverNow} />
+              </>
+            )}
           </p>
         </div>
       </header>
@@ -237,15 +252,35 @@ export function FloorDetailLive({
         </p>
       </section>
 
-      {/* Settle in cash — when there's an open order with items and no payment in flight. */}
+      {/* Open a tab (S3.1) — when there's an open cart, no tab yet, and no payment in flight. Marks the
+          table so it settles once at close; moves no money. The diner can also open one from /cart. */}
+      {canWrite && detail.tab === "none" && (
+        <section style={{ marginTop: "var(--s4)" }} aria-label="Open a tab for this table">
+          <OpenTabButton cartId={detail.cartId!} />
+        </section>
+      )}
+
+      {/* Settle in cash — when there's an open order with items and no payment in flight. On a trust
+          tab this IS the tab close (re-framed copy); the money path is the same cash reconcile. */}
       {canWrite && detail.itemCount > 0 && detail.settleTotalCents != null && (
         <section style={{ marginTop: "var(--s4)" }} aria-label="Settle this table">
-          <CashSettleButton sessionId={sessionId} totalCents={detail.settleTotalCents} />
+          <CashSettleButton
+            sessionId={sessionId}
+            totalCents={detail.settleTotalCents}
+            isTab={detail.tab !== "none"}
+          />
+          {detail.tab !== "none" && (
+            <p style={{ ...muted, marginTop: 8, fontSize: 12.5 }}>
+              Paying by card? The guest closes the tab from their phone — it settles when that
+              payment lands.
+            </p>
+          )}
         </section>
       )}
       {detail.paymentInFlight && (
         <p style={{ ...muted, marginTop: "var(--s4)", fontSize: 13 }}>
-          A guest is paying on their phone — editing and cash settle are paused until that finishes.
+          A guest is paying on their phone — editing and{" "}
+          {detail.tab !== "none" ? "tab close" : "cash settle"} are paused until that finishes.
         </p>
       )}
 
@@ -306,6 +341,18 @@ const chipList: CSSProperties = {
   display: "flex",
   flexWrap: "wrap",
   gap: "var(--s3)",
+};
+const tabChip: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  padding: "4px 12px",
+  borderRadius: "var(--r-full)",
+  border: "1px solid color-mix(in oklab, var(--ac) 35%, var(--bd))",
+  background: "color-mix(in oklab, var(--ac) 10%, var(--cd))",
+  color: "var(--ac-strong)",
+  fontSize: 12.5,
+  fontWeight: 800,
 };
 const guestChip: CSSProperties = {
   padding: "4px 12px",

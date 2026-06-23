@@ -245,6 +245,27 @@ export type Database = {
         }
         Relationships: []
       }
+      mms_tab_config: {
+        Row: {
+          ceiling_cents: number
+          id: boolean
+          nudge_party_size: number
+          updated_at: string
+        }
+        Insert: {
+          ceiling_cents?: number
+          id?: boolean
+          nudge_party_size?: number
+          updated_at?: string
+        }
+        Update: {
+          ceiling_cents?: number
+          id?: boolean
+          nudge_party_size?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       modifier_groups: {
         Row: {
           created_at: string
@@ -646,6 +667,9 @@ export type Database = {
           settle_at: string | null
           settle_by: string | null
           status: string
+          tab_opened_at: string | null
+          tab_opened_by: string | null
+          tab_type: string
           updated_at: string
         }
         Insert: {
@@ -661,6 +685,9 @@ export type Database = {
           settle_at?: string | null
           settle_by?: string | null
           status?: string
+          tab_opened_at?: string | null
+          tab_opened_by?: string | null
+          tab_type?: string
           updated_at?: string
         }
         Update: {
@@ -676,6 +703,9 @@ export type Database = {
           settle_at?: string | null
           settle_by?: string | null
           status?: string
+          tab_opened_at?: string | null
+          tab_opened_by?: string | null
+          tab_type?: string
           updated_at?: string
         }
         Relationships: [
@@ -1069,6 +1099,7 @@ export type Database = {
         Returns: number
       }
       mms_now: { Args: never; Returns: string }
+      mms_open_tab: { Args: { p_by: string; p_cart: string }; Returns: string }
       mms_pickup_slots: {
         Args: { p_exclude_cart?: string }
         Returns: {

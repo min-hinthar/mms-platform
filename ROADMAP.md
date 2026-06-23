@@ -129,7 +129,7 @@ What lets the kitchen trust the screen + gives loss-controlled undo. **Dep:** S1
 
 "Keep the tab open" — the table order settled at close. **Dep:** S1 (staff close) · M1 (ledger) · reuses S2's approvals for after-hours closes.
 
-- **S3.1** **Trust tab** (default) — accumulate, settle at close with any tender; **tip on the final total**. ⬜
+- **S3.1** **Trust tab** (default) — accumulate, settle at close with any tender; **tip on the final total**. ✅ (staff + diner open · floor legibility · close reuses the existing cash/card tenders)
 - **S3.2** **Secure tab** — SetupIntent card at open _or attached mid-tab_, off-session charge at close; validate at open; handle close-decline. ⬜
 - **S3.3** **Server-discretion** gating — courtesy framing + a light **nudge** on large/new tables + a **silent ceiling** on a ballooning trust tab; host-of-record on group tabs. ⬜
 

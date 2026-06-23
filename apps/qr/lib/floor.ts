@@ -84,7 +84,7 @@ export async function getFloorView(): Promise<FloorSnapshot> {
       .in("session_id", sessionIds),
     db
       .from("qr_carts")
-      .select("id,session_id,locked,locked_at,settle_at,created_at")
+      .select("id,session_id,locked,locked_at,settle_at,created_at,tab_type")
       .in("session_id", sessionIds)
       .eq("status", "open"),
     db
@@ -164,6 +164,7 @@ export async function getFloorView(): Promise<FloorSnapshot> {
       itemCount: agg.count,
       runningSubtotalCents: agg.subtotal,
       paidTotalCents: paid?.total ?? null,
+      tab: (cart?.tab_type ?? "none") as FloorTable["tab"],
       lastActivityAt: lastActivity,
     };
   });
@@ -197,7 +198,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetail | n
     db.from("session_members").select("seat_id,display_name,role").eq("session_id", sessionId),
     db
       .from("qr_carts")
-      .select("id,locked,locked_at,settle_at")
+      .select("id,locked,locked_at,settle_at,tab_type,tab_opened_at")
       .eq("session_id", sessionId)
       .eq("status", "open")
       .maybeSingle(),
@@ -299,6 +300,9 @@ export async function getTableDetail(sessionId: string): Promise<TableDetail | n
     runningSubtotalCents,
     settleTotalCents,
     paidTotalCents: paid?.total_cents ?? null,
+    // Tab lifecycle (S3.1) — only meaningful while a cart is open; a settled/absent cart reads 'none'.
+    tab: (cart?.tab_type ?? "none") as TableDetail["tab"],
+    tabOpenedAt: cart?.tab_opened_at ?? null,
     lastActivityAt,
     paymentInFlight,
     serverNow: nowIso,

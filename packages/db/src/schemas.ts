@@ -188,6 +188,11 @@ export const verifyStaffPinInput = z.object({
  *  and logs it. The client asserts only the session id. */
 export const clearTableInput = z.object({ sessionId: uuid });
 
+/** openTab (S3.1) — mark a dine-in cart as a trust tab (deferred settlement). Shape only; the server
+ *  resolves the opener's authority (staff OR diner member) + the open/dine-in/idempotency guards
+ *  (mms_open_tab). The client asserts which cart, never the tab state. */
+export const openTabInput = z.object({ cartId: uuid });
+
 /** sendToKitchen (S2.1b) — fire the table's current draft batch to the kitchen. Shape only: the client
  *  asserts which cart, never a price or a line set; the server re-derives membership + fires every still-
  *  draft line server-side (mms_fire_cart, dine-in only). */
@@ -303,6 +308,7 @@ export type VerifyStaffPinInput = z.infer<typeof verifyStaffPinInput>;
 export type SetStaffActiveInput = z.infer<typeof setStaffActiveInput>;
 export type ProvisionStaffInput = z.infer<typeof provisionStaffInput>;
 export type ClearTableInput = z.infer<typeof clearTableInput>;
+export type OpenTabInput = z.infer<typeof openTabInput>;
 export type SendToKitchenInput = z.infer<typeof sendToKitchenInput>;
 export type UndoFireInput = z.infer<typeof undoFireInput>;
 export type StaffFireInput = z.infer<typeof staffFireInput>;

@@ -1,5 +1,12 @@
 "use client";
-import { useEffect, useRef, useState, useTransition, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+  type CSSProperties,
+  type FormEvent,
+} from "react";
 import Link from "next/link";
 import type { CartItem, CartTotals } from "@mms/db";
 import {
@@ -19,6 +26,7 @@ import { PaymentSection } from "./PaymentSection";
 import { SplitSection } from "./SplitSection";
 import { SettlementBoard } from "./SettlementBoard";
 import { SendToKitchenButton } from "./SendToKitchenButton";
+import { openTab } from "@/lib/tabs";
 
 // Per-reason promo copy (the action returns a reason; Next redacts thrown errors in prod). Honest +
 // on-brand: tell the diner exactly why, never a fabricated state.
@@ -58,12 +66,19 @@ export function Checkout({
   initialTotals,
   splitContext = null,
   initialSettling = false,
+  initialTabType = "none",
+  canTab = false,
 }: {
   cartId: string;
   initialItems: CartItem[];
   initialTotals: CartTotals;
   splitContext?: SplitContext | null;
   initialSettling?: boolean;
+  /** Tab lifecycle (S3.1): `none` until someone opens a tab on this table. When open, the cart reads
+   *  "Tab open" and the pay CTA settles/closes the tab. Synced from getCartView (initial + realtime). */
+  initialTabType?: "none" | "trust" | "secure";
+  /** Dine-in only: a tab is a dine-in concept (pickup/grocery pay at checkout). Gates the affordance. */
+  canTab?: boolean;
 }) {
   const [items, setItems] = useState<CartItem[]>(initialItems);
   const [totals, setTotals] = useState<CartTotals>(initialTotals);
@@ -81,6 +96,11 @@ export function Checkout({
   const [pending, startTransition] = useTransition();
   const [tipRate, setTipRate] = useState(0);
   const [step, setStep] = useState<"review" | "pay">("review");
+  // Tab lifecycle (S3.1) — seeded from the server view, kept in step by refresh() (a peer or a server
+  // opening the tab flips it here too). `tabBusy`/`tabError` drive the "Keep tab open" affordance.
+  const [tabType, setTabType] = useState(initialTabType);
+  const [tabBusy, setTabBusy] = useState(false);
+  const [tabError, setTabError] = useState<string | null>(null);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [payTotals, setPayTotals] = useState<CartTotals | null>(null);
   const [loadingPay, setLoadingPay] = useState(false);
@@ -129,6 +149,7 @@ export function Checkout({
       setItems(v.items);
       setTotals(v.totals);
       setSettling(v.settling); // a peer (host) opening/canceling a split flips the whole table here
+      setTabType(v.tabType); // a server (or a peer) opening the tab reflects here too
     } catch {
       // Swallow: the EXPECTED failure here is the post-payment 403 (the cart flipped to paid → the
       // diner is being redirected to /track). We can't discriminate it from a transient error
@@ -155,6 +176,7 @@ export function Checkout({
     startTransition(async () => {
       setStatus(null); // clear any stale result so it doesn't linger through the round-trip
       setPayError(null); // single live region — don't let a prior pay error mask the promo result
+      setTabError(null);
       try {
         const result = await applyPromoAction(cartId, promo.trim());
         setStatus(result.ok ? "Promo applied." : PROMO_MESSAGES[result.reason]);
@@ -169,6 +191,7 @@ export function Checkout({
   async function continueToPayment() {
     setPayError(null);
     setStatus(null); // single live region — clear any prior promo result
+    setTabError(null);
     setLoadingPay(true);
     try {
       // Member-gated (cookie session); the route re-derives the amount from getCartTotals and locks
@@ -200,6 +223,26 @@ export function Checkout({
       setPayError("Couldn’t start checkout — please try again.");
     } finally {
       setLoadingPay(false);
+    }
+  }
+
+  async function keepTabOpen() {
+    setTabBusy(true);
+    setTabError(null);
+    setStatus(null); // single live region — don't let a stale promo/pay message mask the tab result
+    setPayError(null);
+    try {
+      const res = await openTab({ cartId });
+      if (!res.ok) {
+        setTabError(res.error);
+        return;
+      }
+      setTabType("trust"); // optimistic; refresh() reconciles with server truth
+      await refresh();
+    } catch {
+      setTabError("Couldn’t open the tab — please try again.");
+    } finally {
+      setTabBusy(false);
     }
   }
 
@@ -518,8 +561,53 @@ export function Checkout({
               opacity: loadingPay ? 0.7 : 1,
             }}
           >
-            {loadingPay ? "Starting checkout…" : "Continue to payment"}
+            {loadingPay
+              ? "Starting checkout…"
+              : tabType !== "none"
+                ? "Settle tab"
+                : "Continue to payment"}
           </button>
+
+          {/* Tab affordance (S3.1) — dine-in only. Before a tab is open, a calm secondary action to
+              keep it open and settle later; once open, an honest note that ordering continues and the
+              CTA above settles it. Opening moves no money (openTab → mms_open_tab, member-gated). */}
+          {canTab && tabType === "none" && (
+            <>
+              <button
+                type="button"
+                onClick={keepTabOpen}
+                disabled={tabBusy}
+                aria-busy={tabBusy}
+                style={keepTabBtn}
+              >
+                {tabBusy ? "Opening tab…" : "Keep tab open · settle later"}
+              </button>
+              <p
+                style={{
+                  fontSize: 11.5,
+                  color: "var(--t3)",
+                  margin: "6px 0 0",
+                  textAlign: "center",
+                }}
+              >
+                Order all night and pay once when you’re ready — by card here or with a server.
+              </p>
+            </>
+          )}
+          {tabType !== "none" && (
+            <p
+              style={{
+                fontSize: 12.5,
+                color: "var(--t2)",
+                margin: "10px 0 0",
+                textAlign: "center",
+                lineHeight: 1.5,
+              }}
+            >
+              <span aria-hidden>● </span>
+              Tab open — add anything you like and settle when you’re ready.
+            </p>
+          )}
           {isGroup && (
             // Honesty (P3.3a): the split above is a reference; this button pays the WHOLE order, so a
             // guest who read "your share" isn't surprised. Per-card share payment is P3.3b — stated as
@@ -532,8 +620,8 @@ export function Checkout({
             </p>
           )}
           {/* The ONE polite live region for the review step (QA §A P1) — carries the pay-start
-              error OR the promo result, never both (each handler clears the other first). The pay
-              step has its own single region inside PaymentSection. */}
+              error, a tab-action error, OR the promo result — never more than one (each handler
+              clears the others first). The pay step has its own single region inside PaymentSection. */}
           <p
             role="status"
             aria-live="polite"
@@ -542,16 +630,29 @@ export function Checkout({
               minHeight: 16,
               margin: "8px 0 0",
               fontSize: 13,
-              color: payError ? "var(--warn)" : "var(--t2)",
+              color: payError || tabError ? "var(--warn)" : "var(--t2)",
             }}
           >
-            {payError ?? status}
+            {payError ?? tabError ?? status}
           </p>
         </>
       )}
     </main>
   );
 }
+
+const keepTabBtn: CSSProperties = {
+  width: "100%",
+  marginTop: 10,
+  minHeight: 48,
+  borderRadius: 12,
+  border: "1px solid var(--bd)",
+  background: "var(--cd)",
+  color: "var(--tx)",
+  fontWeight: 700,
+  fontSize: 15,
+  cursor: "pointer",
+};
 
 function Stepper({
   qty,
