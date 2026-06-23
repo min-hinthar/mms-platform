@@ -69,7 +69,7 @@ Smallest slice that takes one real test charge end-to-end (solo Scan & Go). **No
 
 ## ⬜ M4 — Rewards & account &nbsp;`milestone:M4`
 
-- **P4.1** Reuse the delivery app's gem ledger (tier ring, balance, perks). ⬜
+- **P4.1** Morning Star Rewards (QR-local; mirrors delivery's tiers/Stars so M5 unifies without a rename) — account upgrade (email OTP / Google, same anon uid), earn-on-fulfillment, tier ladder + Stars + reward wallet. ✅ (`docs/M4_DESIGN.md`; redemption + history → P4.2)
 - **P4.2** Account: order history, reorder-with-modifiers, settings (theme/lang). ⬜
 - **P4.3** Feedback + ungated review triage. ⬜
 

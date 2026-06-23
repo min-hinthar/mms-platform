@@ -245,6 +245,120 @@ export type Database = {
         }
         Relationships: []
       }
+      mms_profiles: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          email: string | null
+          id: string
+          locale: string
+          theme: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          id: string
+          locale?: string
+          theme?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          id?: string
+          locale?: string
+          theme?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      mms_reward_tiers: {
+        Row: {
+          id: string
+          min_spend_cents: number
+          sort: number
+        }
+        Insert: {
+          id: string
+          min_spend_cents: number
+          sort: number
+        }
+        Update: {
+          id?: string
+          min_spend_cents?: number
+          sort?: number
+        }
+        Relationships: []
+      }
+      mms_rewards: {
+        Row: {
+          amount_cents: number
+          expires_at: string
+          id: string
+          issued_at: string
+          kind: string
+          milestone_index: number
+          redeemed_at: string | null
+          redeemed_order_id: string | null
+          reward_code: string
+          user_id: string
+        }
+        Insert: {
+          amount_cents: number
+          expires_at: string
+          id?: string
+          issued_at?: string
+          kind?: string
+          milestone_index: number
+          redeemed_at?: string | null
+          redeemed_order_id?: string | null
+          reward_code: string
+          user_id: string
+        }
+        Update: {
+          amount_cents?: number
+          expires_at?: string
+          id?: string
+          issued_at?: string
+          kind?: string
+          milestone_index?: number
+          redeemed_at?: string | null
+          redeemed_order_id?: string | null
+          reward_code?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mms_rewards_config: {
+        Row: {
+          id: boolean
+          milestone_step: number
+          reward_base_cents: number
+          reward_expiry_days: number
+          reward_min_redeem_cents: number
+          updated_at: string
+        }
+        Insert: {
+          id?: boolean
+          milestone_step?: number
+          reward_base_cents?: number
+          reward_expiry_days?: number
+          reward_min_redeem_cents?: number
+          updated_at?: string
+        }
+        Update: {
+          id?: boolean
+          milestone_step?: number
+          reward_base_cents?: number
+          reward_expiry_days?: number
+          reward_min_redeem_cents?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       mms_tab_config: {
         Row: {
           ceiling_cents: number
@@ -832,6 +946,7 @@ export type Database = {
           cart_id: string | null
           created_at: string
           discount_cents: number
+          earned_by: string | null
           fire_at: string | null
           id: string
           pickup_slot: string | null
@@ -850,6 +965,7 @@ export type Database = {
           cart_id?: string | null
           created_at?: string
           discount_cents?: number
+          earned_by?: string | null
           fire_at?: string | null
           id?: string
           pickup_slot?: string | null
@@ -868,6 +984,7 @@ export type Database = {
           cart_id?: string | null
           created_at?: string
           discount_cents?: number
+          earned_by?: string | null
           fire_at?: string | null
           id?: string
           pickup_slot?: string | null
@@ -1220,6 +1337,8 @@ export type Database = {
         Args: { p_approver: string; p_decision: string; p_id: string }
         Returns: string
       }
+      mms_reward_on_fulfill: { Args: { p_user: string }; Returns: undefined }
+      mms_rewards_summary: { Args: { p_user: string }; Returns: Json }
       mms_secure_tab: {
         Args: { p_cart: string; p_customer: string; p_payment_method: string }
         Returns: string

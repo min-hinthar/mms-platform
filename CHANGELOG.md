@@ -4,6 +4,29 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — M4 P4.1: Morning Star Rewards + account (QR-local) (2026-06-23)
+
+Design of record: `docs/M4_DESIGN.md`. A diner earns rewards and can upgrade their anonymous session to a
+durable account. **QR-local** ledger (unify with the delivery app at M5); earn rules **mirror** delivery
+(Stars = paid-order count; tiers `new`/`jade`/`ruby`/`gold` by lifetime net spend; milestone-step reward
+coupons) so M5 is a data merge, not a rename. Migration `20260623060000`.
+
+- **Server-authoritative, derived rewards** — `mms_rewards_summary` derives Stars/spend/tier from the
+  caller's **paid** `qr_orders` (never a client-held balance). `qr_orders.earned_by` is stamped at
+  fulfillment from `create-intent`'s PI metadata; `mms_reward_on_fulfill` issues a reward coupon when Stars
+  cross a milestone (idempotent per milestone index). Rewards are **best-effort** in the webhook — a hiccup
+  never fails the money ack. Cash/staff closes earn nothing (no diner payer).
+- **Account upgrade in place** — `updateUser({ email })` + `verifyOtp` (email OTP) or `linkIdentity`
+  (Google), keeping the **same uid** so past orders + Stars carry over. The `mms_account` marker is set
+  **while still anonymous** so `AnonAuthGate` (which previously signed out any non-anon session on a diner
+  route — a P0 for upgraded accounts) keeps the upgraded session.
+- **Rewards hub** at `/account` (was a stub; `/rewards` now redirects there) — tier ladder, Stars progress,
+  earned-reward wallet. Bilingual gem names; tokens, 44px, `role`/`aria` on every control; honest copy
+  (the wallet says rewards are _saved_, not yet redeemable in-app — redemption is P4.2).
+- `mms_profiles` (owner-RLS account), `mms_rewards` (coupons), `mms_rewards_config`/`mms_reward_tiers`
+  (tunable, seeded to delivery values) — all service-role-write, owner-read where a diner reads their own;
+  off realtime. `config.toml`: manual linking on + the Google provider (disabled until creds wired).
+
 ### Added — S3.3: server-discretion gating (nudge · ceiling · audit log) — wraps the S3 tabs milestone (2026-06-23)
 
 The discretion layer over the tab lifecycle, courtesy-framed and config-driven — never an auto-charge.
