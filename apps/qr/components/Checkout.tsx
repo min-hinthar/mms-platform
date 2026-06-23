@@ -27,6 +27,7 @@ import { SplitSection } from "./SplitSection";
 import { SettlementBoard } from "./SettlementBoard";
 import { SendToKitchenButton } from "./SendToKitchenButton";
 import { SecureTabButton } from "./SecureTabButton";
+import { RewardField } from "./RewardField";
 import { openTab } from "@/lib/tabs";
 
 // Per-reason promo copy (the action returns a reason; Next redacts thrown errors in prod). Honest +
@@ -314,7 +315,10 @@ export function Checkout({
         <>
           <dl style={{ margin: "12px 0" }}>
             <Row k="Subtotal" cents={payTotals.subtotalCents} />
-            {payTotals.discountCents > 0 && <Row k="Promo" cents={-payTotals.discountCents} />}
+            {payTotals.discountCents - payTotals.rewardCents > 0 && (
+              <Row k="Promo" cents={-(payTotals.discountCents - payTotals.rewardCents)} />
+            )}
+            {payTotals.rewardCents > 0 && <Row k="Reward" cents={-payTotals.rewardCents} />}
             <Row k="Service charge (5%)" cents={payTotals.serviceChargeCents} />
             <Row k="Sales tax" cents={payTotals.taxCents} />
             {payTotals.tipCents > 0 && <Row k="Tip" cents={payTotals.tipCents} />}
@@ -470,6 +474,14 @@ export function Checkout({
             </button>
           </form>
 
+          {/* Redeem a Morning Star reward (M4 P4.2) — renders only if the diner has coupons; the discount
+              is server-authoritative (rides getCartTotals). Refreshes the breakdown on apply/remove. */}
+          <RewardField
+            cartId={cartId}
+            appliedRewardCents={totals.rewardCents}
+            onChanged={() => void refresh()}
+          />
+
           {/* Tip selector (server confirms the exact tip at create-intent) */}
           <div
             role="group"
@@ -516,7 +528,10 @@ export function Checkout({
 
           <dl style={{ margin: "12px 0" }}>
             <Row k="Subtotal" cents={totals.subtotalCents} />
-            {totals.discountCents > 0 && <Row k="Promo" cents={-totals.discountCents} />}
+            {totals.discountCents - totals.rewardCents > 0 && (
+              <Row k="Promo" cents={-(totals.discountCents - totals.rewardCents)} />
+            )}
+            {totals.rewardCents > 0 && <Row k="Reward" cents={-totals.rewardCents} />}
             <Row k="Service charge (5%)" cents={totals.serviceChargeCents} />
             <Row k="Sales tax" cents={totals.taxCents} />
             {/* Tip is previewed here so the review total matches the pay-step total — labeled

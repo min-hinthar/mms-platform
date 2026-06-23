@@ -4,6 +4,7 @@ import type { CartItem, CartTotals } from "@mms/db";
 import {
   addItemInput,
   applyPromoInput,
+  applyRewardInput,
   assignLineInput,
   cartViewInput,
   sendToKitchenInput,
@@ -333,6 +334,72 @@ export async function applyPromo(cartId: string, code: string): Promise<ApplyPro
     },
   });
   return { ok: true, discountCents: check.discount_cents };
+}
+
+export type ApplyRewardReason =
+  | "invalid"
+  | "min_not_met"
+  | "in_use"
+  | "busy"
+  | "cart_closed"
+  | "error";
+export type ApplyRewardResult = { ok: true } | { ok: false; reason: ApplyRewardReason };
+
+/**
+ * Redeem a Morning Star reward coupon on the cart (M4 P4.2). Member-gated; mms_apply_reward re-derives
+ * OWNERSHIP (the reward's user_id must equal the caller's uid — so a guessed code that isn't yours is just
+ * 'invalid', no enumeration), unredeemed/unexpired, the redemption minimum, and the open+unlocked cart.
+ * The reward then rides the discount rail (getCartTotals → mms_reward_discount); it flips to redeemed at
+ * fulfillment. Refused mid-pay so it never changes a total a peer is settling.
+ */
+export async function applyReward(cartId: string, rewardCode: string): Promise<ApplyRewardResult> {
+  const input = applyRewardInput.parse({ cartId, rewardCode });
+  const { uid, locked, settling } = await assertCartMember(input.cartId);
+  if (locked || settling) return { ok: false, reason: "busy" };
+  const db = serviceClient();
+  const { data, error } = await db.rpc("mms_apply_reward", {
+    p_cart: input.cartId,
+    p_code: input.rewardCode.toUpperCase(),
+    p_user: uid,
+  });
+  if (error) {
+    console.error("[cart] mms_apply_reward failed", error.message);
+    return { ok: false, reason: "error" };
+  }
+  switch (data) {
+    case "ok":
+      getPostHogClient().capture({
+        distinctId: uid,
+        event: "reward_applied",
+        properties: { cart_id: input.cartId },
+      });
+      return { ok: true };
+    case "min_not_met":
+      return { ok: false, reason: "min_not_met" };
+    case "in_use":
+      return { ok: false, reason: "in_use" };
+    case "busy":
+      return { ok: false, reason: "busy" };
+    case "not_open":
+    case "not_found":
+      return { ok: false, reason: "cart_closed" };
+    default:
+      return { ok: false, reason: "invalid" };
+  }
+}
+
+/** Remove the applied reward (member-gated; open + unlocked cart only). Refused mid-pay so it can't drop
+ *  the discount the create-intent PI already priced in → a webhook 409 reconcile strand (mms_clear_reward
+ *  re-guards locked/settle_at in the statement as the backstop for a direct call). */
+export async function clearReward(cartId: string): Promise<{ ok: boolean }> {
+  const { locked, settling } = await assertCartMember(cartId);
+  if (locked || settling) return { ok: false };
+  const { error } = await serviceClient().rpc("mms_clear_reward", { p_cart: cartId });
+  if (error) {
+    console.error("[cart] mms_clear_reward failed", error.message);
+    return { ok: false };
+  }
+  return { ok: true };
 }
 
 /**

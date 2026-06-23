@@ -212,6 +212,18 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
       return { ok: false, error: "Couldn’t settle — the order changed. Check it and try again." };
     }
 
+    // Redeem any applied reward coupon (M4 P4.2) — flip it to redeemed now the cash order is snapshotted
+    // (the cash subtotal-reconcile already counted its discount). Idempotent; best-effort.
+    const { error: redErr } = await db.rpc("mms_redeem_cart_reward", {
+      p_cart: cart.id,
+      p_order: orderId,
+    });
+    if (redErr)
+      console.error("[staff-cart] reward redeem failed", {
+        cartId: cart.id,
+        message: redErr.message,
+      });
+
     if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
       after(async () => {
         try {

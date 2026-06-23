@@ -198,6 +198,14 @@ export const openTabInput = z.object({ cartId: uuid });
  *  cart's dine-in/open state. No PAN ever touches the server (SAQ-A) — the card is in the Element. */
 export const secureTabInput = z.object({ cartId: uuid });
 
+/** applyReward (M4 P4.2) — redeem a Morning Star reward coupon on the cart. Shape only; mms_apply_reward
+ *  re-derives ownership (the reward must belong to the caller's uid), unredeemed/unexpired, the redemption
+ *  minimum, and the open+unlocked cart — the client only asserts which code. */
+export const applyRewardInput = z.object({
+  cartId: uuid,
+  rewardCode: z.string().trim().min(1).max(40),
+});
+
 /** sendToKitchen (S2.1b) — fire the table's current draft batch to the kitchen. Shape only: the client
  *  asserts which cart, never a price or a line set; the server re-derives membership + fires every still-
  *  draft line server-side (mms_fire_cart, dine-in only). */

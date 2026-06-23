@@ -57,6 +57,16 @@ export async function POST(req: NextRequest) {
           // Actor 'diner' — the table split the bill. Best-effort, out of band.
           const splitCartId = intent.metadata?.cartId;
           if (splitCartId) {
+            // Redeem any applied reward (M4 P4.2) — single-use, exactly-once on the open→paid transition.
+            const { error: redErr } = await db.rpc("mms_redeem_cart_reward", {
+              p_cart: splitCartId,
+              p_order: orderId,
+            });
+            if (redErr)
+              console.error("[stripe webhook] split reward redeem failed", {
+                orderId,
+                error: redErr,
+              });
             const { data: closedCart } = await db
               .from("qr_carts")
               .select("tab_type")
@@ -158,6 +168,26 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: "Totals lookup failed; will retry" }, { status: 500 });
         }
         if (totals.totalCents !== intent.amount) {
+          // The PI succeeded (the diner WAS charged) but the re-derived total no longer matches — a
+          // tampered/stale cart, or a discount that changed under the pay lock. For a locked cart this
+          // won't self-heal, so the 72h of retries below would otherwise strand a charged diner with no
+          // order AND no operator signal. Record a durable refund-needed entry (idempotent on the PI, like
+          // the card-after-settle branch) so it's recoverable, then still 409 (Stripe keeps trying in case
+          // it does resolve; the upsert no-ops on each retry).
+          const { error: refundErr } = await db.from("qr_refunds_needed").upsert(
+            {
+              payment_intent: intent.id,
+              cart_id: cartId,
+              amount_cents: intent.amount_received ?? intent.amount ?? null,
+              reason: "reconcile_mismatch",
+            },
+            { onConflict: "payment_intent", ignoreDuplicates: true },
+          );
+          if (refundErr)
+            console.error("[stripe webhook] failed to record reconcile-mismatch refund-needed", {
+              paymentIntent: intent.id,
+              message: refundErr.message,
+            });
           return NextResponse.json(
             { error: `amount mismatch: cart=${totals.totalCents} intent=${intent.amount}` },
             { status: 409 }, // non-2xx → Stripe retries; surfaces a tampered/stale cart
@@ -212,6 +242,15 @@ export async function POST(req: NextRequest) {
                 error: earnErr ?? rewardErr,
               });
           }
+          // Redeem any applied reward coupon (M4 P4.2) — flip it to redeemed AFTER the order is snapshotted
+          // (the reconcile already counted its discount). Atomic + conditional → idempotent on redelivery,
+          // single-use. Best-effort: never fail the money ack on it.
+          const { error: redErr } = await db.rpc("mms_redeem_cart_reward", {
+            p_cart: cartId,
+            p_order: orderId,
+          });
+          if (redErr)
+            console.error("[stripe webhook] reward redeem failed", { orderId, error: redErr });
         }
         // Tab-close audit (S3.3 / T13): a card settle that closed a tab. The actor comes from the PI
         // metadata — a staff off-session close (closeSecureTab) stamps closedBy='staff'; a diner paying
