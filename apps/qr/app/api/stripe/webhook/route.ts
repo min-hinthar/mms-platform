@@ -192,6 +192,26 @@ export async function POST(req: NextRequest) {
         if (orderId) {
           await enqueueQboSync(db, orderId);
           after(() => syncOrderToQbo(orderId));
+          // Morning Star Rewards (M4): stamp the earner + award Stars. Only a known diner PAYER earns
+          // (earnerUid set by create-intent); a cash/staff close has none → earns nothing. Server-
+          // authoritative + idempotent (mms_reward_on_fulfill keys the coupon per milestone index).
+          // Best-effort: a rewards hiccup must NEVER fail the money ack — log and move on (the next paid
+          // order recomputes Stars from the orders table, the single source of truth).
+          const earnerUid = intent.metadata?.earnerUid;
+          if (earnerUid) {
+            const { error: earnErr } = await db
+              .from("qr_orders")
+              .update({ earned_by: earnerUid })
+              .eq("id", orderId);
+            const { error: rewardErr } = earnErr
+              ? { error: earnErr }
+              : await db.rpc("mms_reward_on_fulfill", { p_user: earnerUid });
+            if (earnErr || rewardErr)
+              console.error("[stripe webhook] rewards earn failed", {
+                orderId,
+                error: earnErr ?? rewardErr,
+              });
+          }
         }
         // Tab-close audit (S3.3 / T13): a card settle that closed a tab. The actor comes from the PI
         // metadata — a staff off-session close (closeSecureTab) stamps closedBy='staff'; a diner paying

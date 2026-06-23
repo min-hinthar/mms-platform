@@ -97,7 +97,9 @@ export async function POST(req: NextRequest) {
         amount,
         currency: "usd",
         automatic_payment_methods: { enabled: true },
-        metadata: { cartId, tipRate: String(tipRate) },
+        // tipRate rides in metadata so the webhook recomputes the identical breakdown to reconcile.
+        // earnerUid (M4) = the authenticated payer; the webhook stamps qr_orders.earned_by + awards Stars.
+        metadata: { cartId, tipRate: String(tipRate), earnerUid: uid },
       },
       // Include tipRate in the key so two different tip choices that happen to land on the same
       // total (after a cart edit) can't collide onto one intent — Stripe would otherwise return the
