@@ -12,6 +12,7 @@ import { StaffLineEditor } from "./StaffLineEditor";
 import { CashSettleButton } from "./CashSettleButton";
 import { MergeTableButton } from "./MergeTableButton";
 import { OpenTabButton } from "./OpenTabButton";
+import { CloseSecureTabButton } from "./CloseSecureTabButton";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const MODE_LABEL: Record<TableDetail["mode"], string> = {
@@ -121,7 +122,8 @@ export function FloorDetailLive({
             <FloorStatusChip status={detail.status} />
             {detail.tab !== "none" && (
               <span style={tabChip}>
-                <span aria-hidden>●</span> Tab open
+                <span aria-hidden>{detail.tab === "secure" ? "✓" : "●"}</span>{" "}
+                {detail.tab === "secure" ? "Tab secured · card on file" : "Tab open"}
               </span>
             )}
           </div>
@@ -279,12 +281,19 @@ export function FloorDetailLive({
           tab this IS the tab close (re-framed copy); the money path is the same cash reconcile. */}
       {canWrite && detail.itemCount > 0 && detail.settleTotalCents != null && (
         <section style={{ marginTop: "var(--s4)" }} aria-label="Settle this table">
+          {/* Secure tab (S3.2): the off-session charge on the card on file is the primary close; cash
+              stays available as a fallback below. */}
+          {detail.tab === "secure" && (
+            <div style={{ marginBottom: "var(--s3)" }}>
+              <CloseSecureTabButton sessionId={sessionId} totalCents={detail.settleTotalCents} />
+            </div>
+          )}
           <CashSettleButton
             sessionId={sessionId}
             totalCents={detail.settleTotalCents}
             isTab={detail.tab !== "none"}
           />
-          {detail.tab !== "none" && (
+          {detail.tab === "trust" && (
             <p style={{ ...muted, marginTop: 8, fontSize: 12.5 }}>
               Paying by card? The guest closes the tab from their phone — it settles when that
               payment lands.
