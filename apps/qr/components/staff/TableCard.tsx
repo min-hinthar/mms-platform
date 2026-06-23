@@ -20,7 +20,7 @@ const MODE_LABEL: Record<FloorTable["mode"], string> = {
 export function TableCard({ table, serverNow }: { table: FloorTable; serverNow: string }) {
   const showRunning = table.itemCount > 0;
   const a11yName =
-    `Table ${table.label}, ${table.status}${table.tab !== "none" ? ", tab open" : ""}, party of ${table.partySize}` +
+    `Table ${table.label}, ${table.status}${table.tab !== "none" ? ", tab open" : ""}${table.tabOverCeiling ? ", over tab limit" : ""}, party of ${table.partySize}` +
     (showRunning ? `, ${table.itemCount} items, ${fmt(table.runningSubtotalCents)} so far` : "") +
     (table.paidTotalCents != null ? `, ${fmt(table.paidTotalCents)} paid` : "");
 
@@ -30,8 +30,11 @@ export function TableCard({ table, serverNow }: { table: FloorTable; serverNow: 
         <span style={label}>{table.label}</span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
           {table.tab !== "none" && (
-            <span style={tabChip} aria-hidden>
-              ● Tab
+            <span
+              style={table.tabOverCeiling ? { ...tabChip, ...tabChipWarn } : tabChip}
+              aria-hidden
+            >
+              {table.tabOverCeiling ? "⚠ Tab" : "● Tab"}
             </span>
           )}
           <FloorStatusChip status={table.status} />
@@ -111,6 +114,12 @@ const tabChip: CSSProperties = {
   color: "var(--ac-strong)",
   fontSize: 11.5,
   fontWeight: 800,
+};
+// T11: a trust tab past the silent ceiling — warn tint on the floor card (a flag, never an action).
+const tabChipWarn: CSSProperties = {
+  border: "1px solid color-mix(in oklab, var(--warn) 45%, var(--bd))",
+  background: "color-mix(in oklab, var(--warn) 12%, var(--cd))",
+  color: "var(--warn)",
 };
 const metaRow: CSSProperties = {
   display: "flex",

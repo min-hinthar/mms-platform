@@ -11,6 +11,7 @@ import { paymentInFlightReason } from "./pay-guard";
 import { acquireSettlement, releaseSettlement } from "./lock";
 import { getPostHogClient } from "./posthog-server";
 import { getStripe } from "./stripe";
+import { logTabEvent } from "./tab-events";
 
 /**
  * Staff write to a table order (S1.3) — "order for a guest" + cash settle ("pay a human"). The cart
@@ -39,7 +40,7 @@ async function openCartFor(sessionId: string) {
   if (!session || session.status === "closed") return { session: null, cart: null };
   const { data: cart } = await db
     .from("qr_carts")
-    .select("id,locked,locked_at,settle_at")
+    .select("id,locked,locked_at,settle_at,tab_type")
     .eq("session_id", sessionId)
     .eq("status", "open")
     .maybeSingle();
@@ -232,6 +233,22 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
         }
       });
     }
+    // Tab-close audit (S3.3 / T13): a cash settle that closed a tab. Card closes are logged in the
+    // webhook fulfill; cash never touches it, so log here. Best-effort, drained out of band.
+    if (cart.tab_type && cart.tab_type !== "none") {
+      const tabType = cart.tab_type as "trust" | "secure";
+      after(() =>
+        logTabEvent({
+          cartId: cart.id,
+          sessionId,
+          event: "closed",
+          actorKind: "staff",
+          actorStaffId: caller.staffId,
+          tabType,
+          amountCents: totals.totalCents,
+        }),
+      );
+    }
     revalidatePath("/staff");
     revalidatePath(`/staff/table/${sessionId}`);
     return { ok: true, orderId, totalCents: totals.totalCents };
@@ -263,16 +280,13 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
   if (!session) return { ok: false, error: "That table is closed." };
   if (!cart) return { ok: false, error: "This table has no open order to settle." };
 
-  const db = serviceClient();
   // Re-derive the tab state server-side (not just the sidecar PM): only a still-secure tab is closed on
   // file. Guards the cancelled/merged-source edge where a stale sidecar PM could otherwise be charged.
-  const { data: cartTab } = await db
-    .from("qr_carts")
-    .select("tab_type")
-    .eq("id", cart.id)
-    .maybeSingle();
-  if (cartTab?.tab_type !== "secure")
+  // tab_type comes from openCartFor (the live open cart), not the client.
+  if (cart.tab_type !== "secure")
     return { ok: false, error: "This tab has no card on file — settle by cash or card instead." };
+
+  const db = serviceClient();
   // The saved card lives in the service-role-only sidecar (never the realtime-fanned cart row).
   const { data: secure } = await db
     .from("mms_tab_secure")
@@ -317,8 +331,14 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
         off_session: true,
         confirm: true,
         // Same metadata shape the webhook fulfill path expects (cartId + tipRate) — it reconciles against
-        // getCartTotals(cart, 0) and snapshots the order idempotently on the PI id.
-        metadata: { cartId: cart.id, tipRate: "0" },
+        // getCartTotals(cart, 0) and snapshots the order idempotently on the PI id. closedBy/closedByStaffId
+        // attribute the close in the T13 audit log (the webhook logs 'closed' from this metadata).
+        metadata: {
+          cartId: cart.id,
+          tipRate: "0",
+          closedBy: "staff",
+          closedByStaffId: caller.staffId,
+        },
       },
       // Per-ATTEMPT idempotency key (covers the SDK's network retries WITHIN this one create call). It is
       // deliberately NOT stable across attempts: a STABLE key caches a Stripe decline for 24h, so a soft

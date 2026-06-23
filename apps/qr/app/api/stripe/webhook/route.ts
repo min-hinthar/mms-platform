@@ -3,6 +3,7 @@ import { getStripe } from "@/lib/stripe";
 import { serviceClient } from "@mms/db/server";
 import { getCartTotals } from "@/lib/totals";
 import { releaseCartLock, releaseSettlement } from "@/lib/lock";
+import { logTabEvent } from "@/lib/tab-events";
 import { getPostHogClient } from "@/lib/posthog-server";
 import { enqueueQboSync, syncOrderToQbo } from "@/lib/qbo/client";
 import {
@@ -78,7 +79,7 @@ export async function POST(req: NextRequest) {
         // on a non-open cart as the hard DB backstop; this is the graceful, no-retry-storm path.
         const { data: cartRow } = await db
           .from("qr_carts")
-          .select("status")
+          .select("status,tab_type")
           .eq("id", cartId)
           .maybeSingle();
         if (cartRow && cartRow.status !== "open") {
@@ -163,6 +164,23 @@ export async function POST(req: NextRequest) {
         if (orderId) {
           await enqueueQboSync(db, orderId);
           after(() => syncOrderToQbo(orderId));
+        }
+        // Tab-close audit (S3.3 / T13): a card settle that closed a tab. The actor comes from the PI
+        // metadata — a staff off-session close (closeSecureTab) stamps closedBy='staff'; a diner paying
+        // on their phone leaves it unset → 'diner'. Captures BOTH card close paths in one place; cash
+        // closes are logged in settleCash. Best-effort, drained out of band (never delays the ack).
+        if (orderId && cartRow?.tab_type && cartRow.tab_type !== "none") {
+          const closedByStaff = intent.metadata?.closedBy === "staff";
+          after(() =>
+            logTabEvent({
+              cartId,
+              event: "closed",
+              actorKind: closedByStaff ? "staff" : "diner",
+              actorStaffId: closedByStaff ? (intent.metadata?.closedByStaffId ?? null) : null,
+              tabType: cartRow.tab_type as "trust" | "secure",
+              amountCents: intent.amount,
+            }),
+          );
         }
         // Capture exactly once — on the delivery that actually fulfills. A duplicate Stripe redelivery
         // (existing != null) or a missing-cartId event no longer double-counts / mis-fires analytics.
@@ -277,6 +295,9 @@ export async function POST(req: NextRequest) {
         event: "tab_secured",
         properties: { cart_id: cartId, setup_intent_id: si.id },
       });
+      // Durable audit (S3.3 / T13): the diner secured the tab (saved a card). Non-PII — actor_kind='diner'
+      // with no staff id. Best-effort, drained out of band.
+      after(() => logTabEvent({ cartId, event: "secured", actorKind: "diner", tabType: "secure" }));
     } else {
       // Our setup-intent route always sets cartId metadata + a customer; a confirmed SI missing any of
       // these can't be recorded and a retry won't help. Don't 5xx into a retry storm, but never vanish.

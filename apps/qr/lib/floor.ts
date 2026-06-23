@@ -76,23 +76,27 @@ export async function getFloorView(): Promise<FloorSnapshot> {
   const sessionIds = (sessions ?? []).map((s) => s.id);
   if (sessionIds.length === 0) return { tables: [], serverNow: nowIso };
 
-  // Members (party size + host name), open carts, and paid orders for exactly these sessions.
-  const [{ data: members }, { data: carts }, { data: orders }] = await Promise.all([
-    db
-      .from("session_members")
-      .select("session_id,seat_id,display_name,role")
-      .in("session_id", sessionIds),
-    db
-      .from("qr_carts")
-      .select("id,session_id,locked,locked_at,settle_at,created_at,tab_type")
-      .in("session_id", sessionIds)
-      .eq("status", "open"),
-    db
-      .from("qr_orders")
-      .select("session_id,total_cents,created_at")
-      .in("session_id", sessionIds)
-      .eq("status", "paid"),
-  ]);
+  // Members (party size + host name), open carts, paid orders, and the tab policy (the silent ceiling) for
+  // exactly these sessions. One singleton config read on the floor refresh (cached well enough; tiny row).
+  const [{ data: members }, { data: carts }, { data: orders }, { data: tabConfig }] =
+    await Promise.all([
+      db
+        .from("session_members")
+        .select("session_id,seat_id,display_name,role")
+        .in("session_id", sessionIds),
+      db
+        .from("qr_carts")
+        .select("id,session_id,locked,locked_at,settle_at,created_at,tab_type")
+        .in("session_id", sessionIds)
+        .eq("status", "open"),
+      db
+        .from("qr_orders")
+        .select("session_id,total_cents,created_at")
+        .in("session_id", sessionIds)
+        .eq("status", "paid"),
+      db.from("mms_tab_config").select("ceiling_cents").maybeSingle(),
+    ]);
+  const ceilingCents = tabConfig?.ceiling_cents ?? 40000;
 
   const cartRows = carts ?? [];
   const cartIds = cartRows.map((c) => c.id);
@@ -154,6 +158,7 @@ export async function getFloorView(): Promise<FloorSnapshot> {
     const paid = paidBySession.get(s.id) ?? null;
     let lastActivity = laterIso(s.created_at ?? nowIso, agg.lastLineAt);
     if (paid) lastActivity = laterIso(lastActivity, paid.latest);
+    const tab = (cart?.tab_type ?? "none") as FloorTable["tab"];
     return {
       sessionId: s.id,
       label: s.qr_code,
@@ -164,7 +169,9 @@ export async function getFloorView(): Promise<FloorSnapshot> {
       itemCount: agg.count,
       runningSubtotalCents: agg.subtotal,
       paidTotalCents: paid?.total ?? null,
-      tab: (cart?.tab_type ?? "none") as FloorTable["tab"],
+      tab,
+      // T11: flag only a TRUST tab over the ceiling (a secure tab is card-backed). A flag, never an action.
+      tabOverCeiling: tab === "trust" && agg.subtotal >= ceilingCents,
       lastActivityAt: lastActivity,
     };
   });
@@ -194,23 +201,28 @@ export async function getTableDetail(sessionId: string): Promise<TableDetail | n
     .maybeSingle();
   if (!session || session.status === "closed") return null;
 
-  const [{ data: members }, { data: cart }, { data: paid }] = await Promise.all([
-    db.from("session_members").select("seat_id,display_name,role").eq("session_id", sessionId),
-    db
-      .from("qr_carts")
-      .select("id,locked,locked_at,settle_at,tab_type,tab_opened_at")
-      .eq("session_id", sessionId)
-      .eq("status", "open")
-      .maybeSingle(),
-    db
-      .from("qr_orders")
-      .select("total_cents,created_at")
-      .eq("session_id", sessionId)
-      .eq("status", "paid")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-  ]);
+  const [{ data: members }, { data: cart }, { data: paid }, { data: tabConfig }] =
+    await Promise.all([
+      db.from("session_members").select("seat_id,display_name,role").eq("session_id", sessionId),
+      db
+        .from("qr_carts")
+        .select("id,locked,locked_at,settle_at,tab_type,tab_opened_at")
+        .eq("session_id", sessionId)
+        .eq("status", "open")
+        .maybeSingle(),
+      db
+        .from("qr_orders")
+        .select("total_cents,created_at")
+        .eq("session_id", sessionId)
+        .eq("status", "paid")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      db
+        .from("mms_tab_config")
+        .select("ceiling_cents,nudge_party_size,nudge_tab_age_min")
+        .maybeSingle(),
+    ]);
 
   const nameBySeat = new Map((members ?? []).map((m) => [m.seat_id, m.display_name]));
   const memberViews: TableMemberView[] = (members ?? []).map((m) => ({
@@ -288,6 +300,23 @@ export async function getTableDetail(sessionId: string): Promise<TableDetail | n
   let lastActivityAt = laterIso(session.created_at ?? nowIso, lastLineAt);
   if (paid) lastActivityAt = laterIso(lastActivityAt, paid.created_at);
 
+  // Server-discretion gating (S3.3). Config-driven, never per-customer judgment (T12); a FLAG/HINT only,
+  // never an auto-convert or auto-charge (T11).
+  const tab = (cart?.tab_type ?? "none") as TableDetail["tab"];
+  const ceilingCents = tabConfig?.ceiling_cents ?? 40000;
+  const nudgePartySize = tabConfig?.nudge_party_size ?? 10;
+  const nudgeTabAgeMin = tabConfig?.nudge_tab_age_min ?? 90;
+  const tabOverCeiling = tab === "trust" && runningSubtotalCents >= ceilingCents;
+  // Nudge to secure only while there's a live order and the tab isn't already secure. Party-size applies
+  // to a none/trust table (suggest opening/converting to secure); tab-age applies once a tab is open.
+  let nudgeSecure: TableDetail["nudgeSecure"] = null;
+  if (cart && tab !== "secure") {
+    const tabAgeMs = cart.tab_opened_at ? Date.now() - new Date(cart.tab_opened_at).getTime() : 0;
+    if (memberViews.length >= nudgePartySize) nudgeSecure = "party";
+    else if (tab !== "none" && cart.tab_opened_at && tabAgeMs >= nudgeTabAgeMin * 60_000)
+      nudgeSecure = "age";
+  }
+
   return {
     sessionId: session.id,
     cartId: cart?.id ?? null,
@@ -301,8 +330,11 @@ export async function getTableDetail(sessionId: string): Promise<TableDetail | n
     settleTotalCents,
     paidTotalCents: paid?.total_cents ?? null,
     // Tab lifecycle (S3.1) — only meaningful while a cart is open; a settled/absent cart reads 'none'.
-    tab: (cart?.tab_type ?? "none") as TableDetail["tab"],
+    tab,
     tabOpenedAt: cart?.tab_opened_at ?? null,
+    ceilingCents,
+    tabOverCeiling,
+    nudgeSecure,
     lastActivityAt,
     paymentInFlight,
     serverNow: nowIso,
