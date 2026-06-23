@@ -181,7 +181,10 @@ enable_signup = true
 # dashboard or `supabase config push` once linked.
 enable_anonymous_sign_ins = true
 # Allow/disallow testing manual linking of accounts
-enable_manual_linking = false
+# Allow/disallow testing manual linking of accounts
+# MMS M4 (P4.1): a diner upgrades their ANONYMOUS account in place via linkIdentity(Google) — needs
+# manual linking on. Email upgrade uses updateUser({email}) + verifyOtp (no manual-linking dep).
+enable_manual_linking = true
 # Passwords shorter than this value will be rejected as weak. Minimum 6, recommended 8 or more.
 minimum_password_length = 6
 # Passwords that do not meet the following requirements will be rejected as weak. Supported values
@@ -337,6 +340,16 @@ url = ""
 skip_nonce_check = false
 # If enabled, it will allow the user to successfully authenticate when the provider does not return an email address.
 email_optional = false
+
+# MMS M4 (P4.1): "Continue with Google" for the diner anon→account upgrade (linkIdentity). Creds live in
+# env (never git); the live project also needs the OAuth client configured in the dashboard. skip_nonce_check
+# is required for LOCAL Google sign-in only. Disabled until creds are wired so CI/local don't fail on it.
+[auth.external.google]
+enabled = false
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
+redirect_uri = ""
+skip_nonce_check = true
 
 # Allow Solana wallet holders to sign in to your project via the Sign in with Solana (SIWS, EIP-4361) standard.
 # You can configure "web3" rate limit in the [auth.rate_limit] section and set up [auth.captcha] if self-hosting.

@@ -31,10 +31,14 @@ export function AnonAuthGate() {
       try {
         const { data } = await supa.auth.getSession();
         const user = data.session?.user;
-        // An existing ANONYMOUS diner session is the steady state — nothing to do.
-        if (user && user.is_anonymous !== false) return;
+        // Steady states to KEEP: an anonymous diner, OR an UPGRADED diner account (M4 — marked
+        // `mms_account` in user_metadata at upgrade; same uid that earned the rewards, so signing it out
+        // would orphan the account on the next page load). Both belong on the diner side.
+        if (user && (user.is_anonymous !== false || user.user_metadata?.mms_account === true))
+          return;
         // A real (staff) session on a diner route: clear it first so the diner surface can't run under
-        // a staff uid. (No session at all also falls through to the sign-in below.)
+        // a staff uid. (No session at all also falls through to the sign-in below.) Upgraded diners are
+        // kept above; only a staff / stray non-anon session reaches here.
         if (user) await supa.auth.signOut();
         // Establish the anonymous session, with one retry — signInAnonymously can transiently fail
         // (network, or GoTrue's anon-signup rate limit, see app/api/session). Don't strand the diner
