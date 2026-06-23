@@ -16,8 +16,10 @@ import { paymentInFlightReason } from "./pay-guard";
  *
  * Authority is DUAL (T3, confirmed): a staff member (real account) OR a diner member of the cart may
  * open — both write the one table-owned cart. Server Actions are public POSTs (IDOR by default), so we
- * resolve identity here and never trust the client: staff via getStaffAuth(), a diner via
- * assertCartMember() (which also enforces the cart is open + the session active).
+ * resolve authority here and never trust the client: staff via getStaffAuth(), a diner via
+ * assertCartMember() (which also enforces the cart is open + the session active). We gate WHO may open
+ * but no longer persist the opener's uid (A3: it would fan out to anon diners over the qr_carts realtime
+ * row — a staff uid for staff opens; attribution returns in S3.3's service-role-only audit log).
  */
 
 export type OpenTabResult = { ok: true } | { ok: false; error: string };
@@ -27,17 +29,13 @@ export async function openTab(raw: unknown): Promise<OpenTabResult> {
   if (!parsed.success) return { ok: false, error: "Invalid request." };
   const { cartId } = parsed.data;
 
-  // Identity → the opener's uid (for attribution). Staff first: a real (non-anon) account isn't a
-  // session_member, so assertCartMember would wrongly reject them — branch before it. A diner (anon)
-  // falls through to the membership IDOR guard, which also rejects a non-member or a closed cart.
-  let openerUid: string;
+  // Resolve authority. Staff first: a real (non-anon) account isn't a session_member, so assertCartMember
+  // would wrongly reject them — branch before it. A diner (anon) falls through to the membership IDOR
+  // guard, which also rejects a non-member or a closed cart.
   const staff = await getStaffAuth();
-  if (staff.kind === "staff") {
-    openerUid = staff.caller.uid;
-  } else {
+  if (staff.kind !== "staff") {
     try {
-      const { uid } = await assertCartMember(cartId);
-      openerUid = uid;
+      await assertCartMember(cartId);
     } catch (e) {
       if (e instanceof AuthzError)
         return { ok: false, error: "You can’t open a tab on this table." };
@@ -60,7 +58,7 @@ export async function openTab(raw: unknown): Promise<OpenTabResult> {
     return { ok: false, error: "Someone’s paying right now — try the tab again in a moment." };
   }
 
-  const { data, error } = await db.rpc("mms_open_tab", { p_cart: cartId, p_by: openerUid });
+  const { data, error } = await db.rpc("mms_open_tab", { p_cart: cartId });
   if (error) {
     console.error("[tabs] mms_open_tab failed", error.message);
     return { ok: false, error: "Couldn’t open the tab — try again." };

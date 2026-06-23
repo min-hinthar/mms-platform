@@ -668,7 +668,6 @@ export type Database = {
           settle_by: string | null
           status: string
           tab_opened_at: string | null
-          tab_opened_by: string | null
           tab_type: string
           updated_at: string
         }
@@ -686,7 +685,6 @@ export type Database = {
           settle_by?: string | null
           status?: string
           tab_opened_at?: string | null
-          tab_opened_by?: string | null
           tab_type?: string
           updated_at?: string
         }
@@ -704,7 +702,6 @@ export type Database = {
           settle_by?: string | null
           status?: string
           tab_opened_at?: string | null
-          tab_opened_by?: string | null
           tab_type?: string
           updated_at?: string
         }
@@ -1099,7 +1096,7 @@ export type Database = {
         Returns: number
       }
       mms_now: { Args: never; Returns: string }
-      mms_open_tab: { Args: { p_by: string; p_cart: string }; Returns: string }
+      mms_open_tab: { Args: { p_cart: string }; Returns: string }
       mms_pickup_slots: {
         Args: { p_exclude_cart?: string }
         Returns: {

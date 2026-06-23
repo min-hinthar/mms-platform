@@ -20,6 +20,9 @@ Migration `20260623010000`.
   realtime was gated on `isGroup`), so the screen flips to "Tab open / Settle tab" without a manual reload.
 - **B2 (a11y)** — focus moves to the order heading when the staff Open-tab control unmounts on open (was
   dropping to `<body>`, WCAG 2.4.3).
+- **A3 (privacy)** — dropped `tab_opened_by` (it stored the opener's `auth.uid()` on the diner-readable
+  `qr_carts` row, fanning a **staff** uid out to anonymous diners over realtime); `mms_open_tab` loses its
+  `p_by` arg. Opener attribution returns in S3.3 via the service-role-only `mms_tab_events` audit log.
 
 ### Added — S3.1: trust tab (deferred settlement) (2026-06-23)
 
