@@ -352,11 +352,18 @@ export async function getCartView(cartId: string): Promise<{
    *  cart goes read-only for everyone and the UI shows the split board; `settleBy` is the host. */
   settling: boolean;
   settleBy: string | null;
+  /** Tab lifecycle (S3.1): `none` until someone opens a tab on this table; `trust`/`secure` once open.
+   *  Drives the diner "Keep tab open / settle later" affordance vs. the "Tab open" state on /cart. */
+  tabType: "none" | "trust" | "secure";
 }> {
   const { cartId: id } = cartViewInput.parse({ cartId });
   const { locked, lockedBy, settling, settleBy } = await assertCartMember(id);
   const db = serviceClient();
-  const { data: cart } = await db.from("qr_carts").select("pickup_slot").eq("id", id).single();
+  const { data: cart } = await db
+    .from("qr_carts")
+    .select("pickup_slot,tab_type")
+    .eq("id", id)
+    .single();
   const { data: rows } = await db
     .from("qr_cart_items")
     .select(
@@ -406,6 +413,7 @@ export async function getCartView(cartId: string): Promise<{
     lockedBy,
     settling,
     settleBy,
+    tabType: (cart?.tab_type ?? "none") as "none" | "trust" | "secure",
   };
 }
 

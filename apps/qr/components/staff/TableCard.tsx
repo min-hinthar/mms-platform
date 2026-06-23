@@ -20,7 +20,7 @@ const MODE_LABEL: Record<FloorTable["mode"], string> = {
 export function TableCard({ table, serverNow }: { table: FloorTable; serverNow: string }) {
   const showRunning = table.itemCount > 0;
   const a11yName =
-    `Table ${table.label}, ${table.status}, party of ${table.partySize}` +
+    `Table ${table.label}, ${table.status}${table.tab !== "none" ? ", tab open" : ""}, party of ${table.partySize}` +
     (showRunning ? `, ${table.itemCount} items, ${fmt(table.runningSubtotalCents)} so far` : "") +
     (table.paidTotalCents != null ? `, ${fmt(table.paidTotalCents)} paid` : "");
 
@@ -28,7 +28,14 @@ export function TableCard({ table, serverNow }: { table: FloorTable; serverNow: 
     <Link href={`/staff/table/${table.sessionId}`} style={card} aria-label={a11yName}>
       <div style={topRow}>
         <span style={label}>{table.label}</span>
-        <FloorStatusChip status={table.status} />
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          {table.tab !== "none" && (
+            <span style={tabChip} aria-hidden>
+              ● Tab
+            </span>
+          )}
+          <FloorStatusChip status={table.status} />
+        </span>
       </div>
 
       <div style={metaRow}>
@@ -93,6 +100,18 @@ const topRow: CSSProperties = {
   gap: 10,
 };
 const label: CSSProperties = { fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 700 };
+const tabChip: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 4,
+  padding: "2px 9px",
+  borderRadius: "var(--r-full)",
+  border: "1px solid color-mix(in oklab, var(--ac) 35%, var(--bd))",
+  background: "color-mix(in oklab, var(--ac) 10%, var(--cd))",
+  color: "var(--ac-strong)",
+  fontSize: 11.5,
+  fontWeight: 800,
+};
 const metaRow: CSSProperties = {
   display: "flex",
   alignItems: "center",

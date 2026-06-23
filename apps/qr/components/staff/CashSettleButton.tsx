@@ -14,9 +14,14 @@ const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 export function CashSettleButton({
   sessionId,
   totalCents,
+  isTab = false,
 }: {
   sessionId: string;
   totalCents: number;
+  /** When this table is running a trust tab (S3.1), the cash settle IS the tab close — re-frame the
+   *  copy ("Close tab" / "closes this tab") so the action reads as the deliberate end-of-night close,
+   *  not a mid-meal settle. The money path is identical (mms_fulfill_cash_order, server-reconciled). */
+  isTab?: boolean;
 }) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
@@ -58,7 +63,8 @@ export function CashSettleButton({
           style={{ ...confirmCard, outline: "none" }}
         >
           <p style={{ margin: 0, fontSize: 14 }}>
-            Take <strong>{fmt(totalCents)}</strong> in cash? This closes the order.
+            Take <strong>{fmt(totalCents)}</strong> in cash?{" "}
+            {isTab ? "This closes the tab." : "This closes the order."}
           </p>
           <div style={{ display: "flex", gap: "var(--s3)" }}>
             <button
@@ -82,7 +88,7 @@ export function CashSettleButton({
           aria-describedby="settle-hint"
           style={{ ...payBtn, width: "100%" }}
         >
-          Settle in cash · {fmt(totalCents)}
+          {isTab ? "Close tab · cash" : "Settle in cash"} · {fmt(totalCents)}
         </button>
       )}
       {/* Static helper text (a description, not a status) — linked to the button, never a live region.
