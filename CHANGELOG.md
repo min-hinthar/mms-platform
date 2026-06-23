@@ -4,6 +4,26 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed — S3.1 trust-tab: post-merge deep-adversarial follow-ups (2026-06-23)
+
+Two fresh-context deep reviewers (concurrency/data-integrity + UX/a11y) over the merged S3.1 diff.
+Migration `20260623010000`.
+
+- **A1 (data-integrity)** — `mms_merge_table_orders` ignored the tab columns, so folding a table with an
+  open trust tab into another silently dropped the tab (floor stopped showing "Tab"; S3.3 ceiling/nudge
+  wouldn't gate). The merge now carries the tab forward — inherit up, never downgrade a target secure tab,
+  earliest open time.
+- **A2 (concurrency)** — `openTab` now refuses while money's in flight (single-pay lock / split freeze /
+  authorized share), reusing the canonical `paymentInFlightReason` mutex — the server backstop for the
+  diner `/cart` path (the staff floor already hid Open-tab mid-payment).
+- **B1 (UX)** — diner `/cart` now live-syncs a server-opened tab for **solo/duo** dine-in too (cart
+  realtime was gated on `isGroup`), so the screen flips to "Tab open / Settle tab" without a manual reload.
+- **B2 (a11y)** — focus moves to the order heading when the staff Open-tab control unmounts on open (was
+  dropping to `<body>`, WCAG 2.4.3).
+- **A3 (privacy)** — dropped `tab_opened_by` (it stored the opener's `auth.uid()` on the diner-readable
+  `qr_carts` row, fanning a **staff** uid out to anonymous diners over realtime); `mms_open_tab` loses its
+  `p_by` arg. Opener attribution returns in S3.3 via the service-role-only `mms_tab_events` audit log.
+
 ### Added — S3.1: trust tab (deferred settlement) (2026-06-23)
 
 "Keep the tab open" — the table order accumulates across the night and settles once at close. A trust tab

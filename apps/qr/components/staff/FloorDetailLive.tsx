@@ -44,6 +44,7 @@ export function FloorDetailLive({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const orderHeadingRef = useRef<HTMLHeadingElement>(null);
   const prevLineCount = useRef(initial.lines.length);
+  const prevTab = useRef(initial.tab);
 
   // Staff can write while there's an open cart and no payment in flight; once settled (cartId null) or
   // mid-payment the order goes read-only. The server enforces this too — this is just the affordance.
@@ -55,6 +56,20 @@ export function FloorDetailLive({
     if (detail.lines.length < prevLineCount.current) orderHeadingRef.current?.focus();
     prevLineCount.current = detail.lines.length;
   }, [detail.lines.length]);
+
+  // When a tab is opened here, the OpenTabButton (which held focus) unmounts as `detail.tab` flips —
+  // move focus to the order heading so it isn't dropped to <body> (WCAG 2.4.3; parity with the line-
+  // removal handler above). Only on none→tab, and only if focus actually fell to <body>, so a tab
+  // opened elsewhere (the diner's phone, another staff device) doesn't yank this user's focus.
+  useEffect(() => {
+    if (
+      prevTab.current === "none" &&
+      detail.tab !== "none" &&
+      document.activeElement === document.body
+    )
+      orderHeadingRef.current?.focus();
+    prevTab.current = detail.tab;
+  }, [detail.tab]);
 
   const refresh = useCallback(async () => {
     if (inFlight.current) return;

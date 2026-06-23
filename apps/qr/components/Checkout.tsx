@@ -105,10 +105,12 @@ export function Checkout({
   const [payTotals, setPayTotals] = useState<CartTotals | null>(null);
   const [loadingPay, setLoadingPay] = useState(false);
 
-  // Live group sync (P3.2): a peer's add/qty/assignment on another phone re-fetches the server-
-  // authoritative view here too, so the cart + shares stay in step across the table. Dine-in only.
+  // Live cart sync: a peer's add/qty/assignment (P3.2) OR a server opening the tab / editing the order
+  // (S1.3/S3.1) re-fetches the server-authoritative view here, so the cart + shares + tab state stay in
+  // step. Enabled for ANY dine-in cart (not just groups) — a solo diner must still see a server-opened
+  // tab flip to "Tab open / Settle tab" live (the qr_carts UPDATE drives refresh → getCartView.tabType).
   const anon = useAnonSession();
-  useCartRealtime(cartId, anon?.accessToken ?? "", isGroup, () => {
+  useCartRealtime(cartId, anon?.accessToken ?? "", canTab || isGroup, () => {
     void refresh();
   });
   const [payError, setPayError] = useState<string | null>(null);
