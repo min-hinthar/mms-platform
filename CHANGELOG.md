@@ -4,6 +4,26 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Changed — S2-polish: the deferred S2-audit sweep (2026-06-23)
+
+The remaining `docs/S2_AUDIT.md` should-fixes, landed in one pass. Migration `20260622100000`.
+
+- **S3 / S7 (SQL)** — `mms_now()` gives the KDS a DB-clock grace cutoff (no app/DB skew double-pull); a new
+  `fire_batch uuid` makes "one Undo = one Send" **structural** — `mms_fire_cart` stamps one id per send and
+  `mms_undo_fire` reverses exactly the latest in-grace batch (not a `max(fire_at)` tie). Comped lines stay
+  excluded from undo.
+- **gate-reason (SQL)** — `mms_void_line` / `mms_request_approval` snapshot why they gated
+  (`comp`/`cooked`/`ceiling`/`solo`) into `mms_approvals.gate_reason`, so the audit ledger is reconstructable
+  even if `mms_loss_config` later changes.
+- **S9** — the polled staff boards (KDS, Approvals, table Detail) surface a "Reconnecting — showing the last
+  known …" signal after 2 consecutive poll failures, so a frozen board can't masquerade as live.
+- **S11 / S14 (LossActionSheet)** — with no manager signed in, "Request a manager's approval" becomes the
+  primary action (the PIN path can't complete); a missing reason now shows an inline "Pick a reason to
+  continue" validation instead of a silently-disabled CTA.
+- **S12 / S13 (refactors)** — a shared `DINER_STATE_COPY`/`STAFF_STATE_COPY` line-state vocabulary, and a
+  shared `<ManagerPinStepUp>` (manager select + PIN + lockout + PIN-failure copy) de-duplicating the
+  LossActionSheet/ApprovalsBoard step-up.
+
 ### Added — S2.4: the approvals primitive (request → approve/deny → audit) (2026-06-22)
 
 Generalizes S2.3's manager-present void/comp into a full **request → approve/deny → audit** flow with

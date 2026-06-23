@@ -174,6 +174,7 @@ export type Database = {
           cart_id: string | null
           cooked: boolean
           created_at: string
+          gate_reason: string | null
           id: string
           initiator_staff_id: string
           kind: string
@@ -191,6 +192,7 @@ export type Database = {
           cart_id?: string | null
           cooked?: boolean
           created_at?: string
+          gate_reason?: string | null
           id?: string
           initiator_staff_id: string
           kind: string
@@ -208,6 +210,7 @@ export type Database = {
           cart_id?: string | null
           cooked?: boolean
           created_at?: string
+          gate_reason?: string | null
           id?: string
           initiator_staff_id?: string
           kind?: string
@@ -508,6 +511,7 @@ export type Database = {
           comped: boolean
           created_at: string
           fire_at: string | null
+          fire_batch: string | null
           id: string
           menu_item_id: string
           modifiers: Json
@@ -523,6 +527,7 @@ export type Database = {
           comped?: boolean
           created_at?: string
           fire_at?: string | null
+          fire_batch?: string | null
           id?: string
           menu_item_id: string
           modifiers?: Json
@@ -538,6 +543,7 @@ export type Database = {
           comped?: boolean
           created_at?: string
           fire_at?: string | null
+          fire_batch?: string | null
           id?: string
           menu_item_id?: string
           modifiers?: Json
@@ -1062,6 +1068,7 @@ export type Database = {
         Args: { p_source_cart: string; p_target_cart: string }
         Returns: number
       }
+      mms_now: { Args: never; Returns: string }
       mms_pickup_slots: {
         Args: { p_exclude_cart?: string }
         Returns: {

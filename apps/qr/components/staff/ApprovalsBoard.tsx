@@ -11,6 +11,7 @@ import {
 import { listPendingApprovals, resolveApproval, type PendingApproval } from "@/lib/approvals";
 import type { Approver } from "@/lib/voids";
 import { RelativeTime } from "./RelativeTime";
+import { ManagerPinFields, PIN_NO_PIN_COPY, pinFailureCopy, useLockout } from "./ManagerPinStepUp";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const REASON_LABEL: Record<string, string> = {
@@ -37,6 +38,8 @@ export function ApprovalsBoard({
 }) {
   const [snap, setSnap] = useState(initial);
   const [serverNow] = useState(() => new Date().toISOString());
+  const [stale, setStale] = useState(false); // shown after repeated poll failures (S9)
+  const fails = useRef(0);
   const inFlight = useRef(false);
 
   const refresh = useCallback(async () => {
@@ -44,8 +47,12 @@ export function ApprovalsBoard({
     inFlight.current = true;
     try {
       setSnap(await listPendingApprovals());
+      fails.current = 0;
+      setStale(false);
     } catch (e) {
-      // Keep the last good queue on a transient error; the next poll recovers.
+      // Keep the last good queue on a transient error; flag stale after 2 misses (S2-audit S9).
+      fails.current += 1;
+      if (fails.current >= 2) setStale(true);
       console.error("[ApprovalsBoard] refresh failed", e);
     } finally {
       inFlight.current = false;
@@ -65,8 +72,16 @@ export function ApprovalsBoard({
         <h2 id="appr-h" style={{ fontSize: 16, margin: 0 }}>
           Open requests
         </h2>
-        <p role="status" aria-live="polite" style={{ margin: 0, fontSize: 13, color: "var(--t2)" }}>
-          {count === 0 ? "All clear" : `${count} waiting`}
+        <p
+          role="status"
+          aria-live="polite"
+          style={{ margin: 0, fontSize: 13, color: stale ? "var(--warn)" : "var(--t2)" }}
+        >
+          {stale
+            ? "Reconnecting — showing the last known list"
+            : count === 0
+              ? "All clear"
+              : `${count} waiting`}
         </p>
       </div>
 
@@ -111,15 +126,8 @@ function RequestCard({
   const [approverStaffId, setApproverStaffId] = useState("");
   const [pin, setPin] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
-  const [lockLeft, setLockLeft] = useState(0);
+  const { setLockLeft, locked, lockCopy } = useLockout();
   const [pending, startTransition] = useTransition();
-
-  const locked = lockLeft > 0;
-  useEffect(() => {
-    if (!locked) return;
-    const id = setInterval(() => setLockLeft((s) => (s <= 1 ? 0 : s - 1)), 1000);
-    return () => clearInterval(id);
-  }, [locked]);
 
   const verb = request.kind === "comp" ? "Comp" : "Void";
   const pinOk = pin.length >= 4 && pin.length <= 8;
@@ -148,23 +156,11 @@ function RequestCard({
       setPin("");
       switch (res.reason) {
         case "pin_wrong":
-          setMsg(
-            res.attemptsRemaining > 0
-              ? `Wrong PIN — ${res.attemptsRemaining} ${res.attemptsRemaining === 1 ? "try" : "tries"} left.`
-              : "Wrong PIN.",
-          );
+        case "pin_locked":
+          setMsg(pinFailureCopy(res, setLockLeft)); // S2-audit S13: shared PIN-failure copy
           break;
-        case "pin_locked": {
-          const left = Math.max(
-            0,
-            Math.ceil((new Date(res.lockedUntil).getTime() - Date.now()) / 1000),
-          );
-          setLockLeft(left);
-          setMsg("Too many tries on that PIN.");
-          break;
-        }
         case "pin_no_pin":
-          setMsg("That manager hasn’t set a PIN yet.");
+          setMsg(PIN_NO_PIN_COPY);
           break;
         case "bad_approver":
           setMsg("Pick a manager other than whoever requested this.");
@@ -190,10 +186,6 @@ function RequestCard({
       }
     });
   }
-
-  const mins = Math.floor(lockLeft / 60);
-  const secs = lockLeft % 60;
-  const lockCopy = locked ? `Locked — try again in ${mins > 0 ? `${mins}m ` : ""}${secs}s.` : null;
 
   return (
     <article
@@ -238,40 +230,14 @@ function RequestCard({
             {decision === "approve" ? `Approve this ${request.kind}` : "Deny this request"} —
             confirm with your PIN
           </p>
-          <label htmlFor={`appr-mgr-${request.id}`} style={label}>
-            Manager
-          </label>
-          <select
-            id={`appr-mgr-${request.id}`}
-            value={approverStaffId}
-            onChange={(e) => setApproverStaffId(e.target.value)}
-            disabled={locked || approvers.length === 0}
-            style={select}
-          >
-            <option value="">
-              {approvers.length === 0 ? "No managers available" : "Tap your name"}
-            </option>
-            {approvers.map((m) => (
-              <option key={m.staffId} value={m.staffId}>
-                {m.displayName}
-              </option>
-            ))}
-          </select>
-          <label htmlFor={`appr-pin-${request.id}`} style={{ ...label, marginTop: 10 }}>
-            PIN
-          </label>
-          <input
-            id={`appr-pin-${request.id}`}
-            type="password"
-            inputMode="numeric"
-            autoComplete="off"
-            maxLength={8}
-            value={pin}
-            onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 8))}
-            placeholder="••••"
-            disabled={locked}
-            // S2-audit S10: not described-by the live region (avoids double-announce / mis-association).
-            style={input}
+          <ManagerPinFields
+            idPrefix={`appr-${request.id}`}
+            approvers={approvers}
+            approverStaffId={approverStaffId}
+            onApproverChange={setApproverStaffId}
+            pin={pin}
+            onPinChange={setPin}
+            locked={locked}
           />
           <div style={btnRow}>
             <button
@@ -358,33 +324,3 @@ const approveBtn: CSSProperties = {
 };
 const denyBtn: CSSProperties = { background: "var(--cd)", color: "var(--warn)" };
 const cancelBtn: CSSProperties = { background: "var(--cd)", color: "var(--tx)" };
-const label: CSSProperties = {
-  display: "block",
-  fontSize: 13,
-  fontWeight: 600,
-  marginBottom: 6,
-  color: "var(--tx)",
-};
-const select: CSSProperties = {
-  width: "100%",
-  minHeight: 48,
-  boxSizing: "border-box",
-  padding: "0 12px",
-  fontSize: 16,
-  borderRadius: "var(--r-sm)",
-  border: "1px solid var(--bd)",
-  background: "var(--cd)",
-  color: "var(--tx)",
-};
-const input: CSSProperties = {
-  width: "100%",
-  minHeight: 48,
-  boxSizing: "border-box",
-  padding: "0 14px",
-  fontSize: 16,
-  letterSpacing: "0.3em",
-  borderRadius: "var(--r-sm)",
-  border: "1px solid var(--bd)",
-  background: "var(--cd)",
-  color: "var(--tx)",
-};

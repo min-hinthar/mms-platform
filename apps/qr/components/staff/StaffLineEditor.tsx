@@ -1,6 +1,7 @@
 "use client";
 import { useState, useTransition, type CSSProperties } from "react";
 import { staffSetQty } from "@/lib/staff-cart";
+import { STAFF_STATE_COPY } from "@/lib/line-state-copy";
 import type { TableLineView } from "@/lib/floor-types";
 import { LossActionSheet } from "./LossActionSheet";
 
@@ -85,8 +86,7 @@ export function StaffLineEditor({
   // ── Post-fire (fired / in_progress / served): Void / Comp instead of a silent stepper ────────────────
   const postFire = line.state !== "draft";
   if (postFire) {
-    const stateLabel =
-      line.state === "served" ? "Served" : line.state === "in_progress" ? "Cooking" : "Sent";
+    const stateLabel = STAFF_STATE_COPY[line.state]; // S12: one shared vocabulary
     return (
       <li style={row}>
         <span style={{ minWidth: 0, flex: 1 }}>

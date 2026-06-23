@@ -37,6 +37,8 @@ export function FloorDetailLive({
   const router = useRouter();
   const [detail, setDetail] = useState<TableDetail>(initial);
   const [writeError, setWriteError] = useState<string | null>(null);
+  const [stale, setStale] = useState(false); // shown after repeated poll failures (S9)
+  const fails = useRef(0);
   const inFlight = useRef(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const orderHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -64,7 +66,11 @@ export function FloorDetailLive({
         router.replace("/staff");
         router.refresh();
       }
+      fails.current = 0;
+      setStale(false);
     } catch (e) {
+      fails.current += 1;
+      if (fails.current >= 2) setStale(true); // S2-audit S9: signal a frozen detail view
       console.error("[FloorDetailLive] refresh failed", e);
     } finally {
       inFlight.current = false;
@@ -214,13 +220,20 @@ export function FloorDetailLive({
         <p style={{ ...muted, marginTop: 8, fontSize: 12 }}>
           Running pre-tax subtotal — tax and the service charge are added at settle.
         </p>
-        {/* One shared live region for staff line-edit feedback (the confirm flows below own theirs). */}
+        {/* One shared live region for staff line-edit feedback + the stale-poll signal (S2-audit S9): a
+            frozen detail view mustn't look live. The write error takes precedence over the reconnect note. */}
         <p
           role="status"
           aria-live="polite"
-          style={{ ...muted, marginTop: 6, fontSize: 12.5, minHeight: writeError ? 16 : 0 }}
+          style={{
+            ...muted,
+            marginTop: 6,
+            fontSize: 12.5,
+            minHeight: writeError || stale ? 16 : 0,
+            color: writeError || stale ? "var(--warn)" : "var(--t3)",
+          }}
         >
-          {writeError && <span style={{ color: "var(--warn)" }}>{writeError}</span>}
+          {writeError ?? (stale ? "Reconnecting — showing the last known order" : null)}
         </p>
       </section>
 

@@ -199,19 +199,30 @@ would complete the audit. Tracked with S1.
 - **S10** — PIN inputs no longer `aria-describedby` the live region (LossActionSheet + ApprovalsBoard).
 - **S15** — `mms_approvals_owner_read` scoped `to authenticated`.
 
-**⏭ Deferred to a tracked S2-polish follow-up** (lower-severity / refactors / near-impossible):
+**✅ Remediated in the S2-polish follow-up** (migration `20260622100000_s2_polish.sql` + the `claude/feat/s2-polish` diff):
 
-- **S3** — KDS grace cutoff on DB `now()` (needs a `mms_now()` helper + a round-trip; sub-second window on a
-  10s grace — low probability).
-- **S7** — per-batch `fire_batch` id instead of `max(fire_at)` (sub-ms window across separate transactions —
-  near-impossible today).
-- **S9** — "Reconnecting — last known state" signal after N poll failures (KDS/Approvals/Detail).
-- **S11** — "no managers signed in" → make Request-approval the primary affordance + relabel.
-- **S12** — shared `LINE_STATE_COPY` (diner vs staff vocabulary).
-- **S13** — shared `<ManagerPinStepUp>` (de-duplicate the LossActionSheet/ApprovalsBoard PIN flow).
-- **S14** — inline "pick a reason" validation + real radiogroup semantics for the single-select Reason.
-- **gate-reason** column on `mms_approvals` (S1 audit-completeness extension).
-- **Nits** N1 (ceiling read outside lock), N2 (comped not on receipt), N3 (roster), N5/N7 (informational).
+- **S3** — KDS grace cutoff now reads DB `now()` via a new `mms_now()` helper (`kitchen.ts` round-trips it,
+  app-clock fallback only if the rpc fails).
+- **S7** — `mms_fire_cart` stamps one `fire_batch uuid` per send; `mms_undo_fire` reverses exactly the latest
+  in-grace batch (by id), not a `max(fire_at)` tie — one Undo = one Send is now structural.
+- **S9** — "Reconnecting — showing the last known …" signal after 2 consecutive poll failures, in
+  `KdsBoard` / `ApprovalsBoard` / `FloorDetailLive` (a frozen polled board no longer reads as live).
+- **S11** — when no manager is signed in, `LossActionSheet` promotes "Request a manager's approval" to the
+  **primary** affordance (the PIN path can't complete) instead of a disabled "Void with approval".
+- **S12** — shared `DINER_STATE_COPY` / `STAFF_STATE_COPY` vocabulary (`lib/line-state-copy.ts`), wired into
+  Checkout + StaffLineEditor.
+- **S13** — shared `<ManagerPinStepUp>` (`ManagerPinFields` + `useLockout` + `pinFailureCopy`) de-duplicates
+  the LossActionSheet/ApprovalsBoard PIN flow.
+- **S14** — inline "Pick a reason to continue" validation (aria-describedby + a visible/announced note)
+  instead of a silently-disabled CTA. (Radiogroup semantics intentionally NOT changed — kept the app's
+  `role="group"`+`aria-pressed` segmented-control convention to avoid promising arrow-key roving.)
+- **gate-reason** — `mms_void_line` / `mms_request_approval` snapshot the gate (`comp`/`cooked`/`ceiling`/
+  `solo`) into `mms_approvals.gate_reason`, so the ledger is reconstructable even if `mms_loss_config` changes.
 
-The migration is applied to live + re-verified (advisors, grants), the local SQL behavioral matrix re-run,
+The migration is applied to live + re-verified (columns nullable, all 5 fns `search_path=""` + service_role
+-only execute, advisors clean), the SQL behavioral matrix re-run (batch-discrimination + gate precedence),
 and a fresh-context adversarial pass run on the remediation diff before merge.
+
+**⏭ Still deferred** (informational / out of this scope):
+
+- **Nits** N1 (ceiling read outside lock), N2 (comped not on receipt), N3 (roster), N5/N7 (informational).

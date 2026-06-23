@@ -32,7 +32,10 @@ const QUEUE_LINE_CAP = 500; // a teahouse kitchen has tens of live lines; bound 
 export async function getKitchenQueue(): Promise<KitchenQueue> {
   await requireStaff();
   const db = serviceClient();
-  const nowIso = new Date().toISOString();
+  // S2-audit S3: the grace cutoff is the DB clock (mms_now), not the Next process clock — a skew between
+  // the app instance and Postgres must not let the KDS surface a line the DB still considers undoable.
+  const { data: dbNow } = await db.rpc("mms_now");
+  const nowIso = dbNow ?? new Date().toISOString(); // app-clock fallback only if the rpc fails
 
   // Live kitchen lines: fired/in_progress AND actually due (fire_at <= now — past any undo grace).
   const { data: lines } = await db
