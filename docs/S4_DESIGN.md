@@ -117,10 +117,77 @@ still deferred) — S4.2 does **not** touch that path. The two fire mechanisms s
 signal (realtime ready-state on `/track`), line-level refunds, and the split-tender seam generalization.
 Pickup/scango **scheduled-fire → KDS** consumption stays the M2 seam (no kitchen actor for it yet).
 
-### S4.3 — bagging/expo station + departure signal (planned)
+### S4.3 — close out S4: to-go fulfillment loop · line-level refunds · split-tender seam (built 2026-06-24)
 
-- A staff bagging view (grocery + ready to-go subset) + a diner "to-go ready" status so a guest doesn't pay
-  and walk out without it.
+S4.3 is **three slices, one PR each** (Min's "Everything" scope). Each carries its own threat model below.
+
+#### S4.3a — to-go fulfillment loop (bagging/expo station + "to-go ready" departure signal)
+
+Completes the unified-basket loop: order → route → fire → cook → **bag → ready → hand off**, with a diner
+signal so nobody pays and walks out without their bag. The fulfillment lifecycle today ends at the kitchen
+(`qr_cart_items.state` → `served`); there's no order-level "ready" and no bagging actor. S4.3a adds both.
+
+- **A1 — the ready signal lives on the order (`qr_orders.togo_status`), so `/track` reads it for free.**
+  `togo_status text check in ('preparing','ready','picked_up')`, **nullable** (null = pure dine-in eat-in, no
+  bag). `/track` already subscribes to `qr_orders` by PI/order-id (`useOrderStatus`) — the status rides that
+  existing Realtime path; no new channel. Set to `'preparing'` at settlement (see A3); the expo bumps it
+  `ready` → `picked_up`.
+- **A2 — the expo reads only the takeaway subset (snapshot `fulfillment` onto `qr_order_items`).** Today the
+  order-item snapshot drops the per-line `fulfillment` tag, so a paid order can't say which lines are the bag.
+  Add `qr_order_items.fulfillment` (default `'dinein'`, backfilled) and copy `ci.fulfillment` in the snapshot
+  `insert…select` of all three fulfill RPCs (`mms_fulfill_order` · `mms_fulfill_cash_order` ·
+  `mms_fulfill_split_order`) — a purely **additive column copy**, no money logic changed. The expo lists
+  orders with `togo_status in ('preparing','ready')` joined to their `togo`/`grocery` order-items. (Slice C
+  inherits this per-line categorization on the order.)
+- **A3 — init `preparing` best-effort, off the money path.** `mms_init_togo_status(p_order, p_cart)` sets
+  `togo_status='preparing'` iff the cart has a non-voided `togo`/`grocery` line (idempotent: only when
+  currently null). Called in the **same settlement `after()` side-effects** that S4.2 already wired
+  (card webhook · cash · split close) — never inside the money RPCs. A kitchen/expo hiccup can't roll back a
+  payment. Pickup/scango orders (all-takeaway) get `preparing` too — the expo is the takeaway station for all
+  channels.
+- **A4 — expo bump is staff-gated + legal-edge in SQL.** `mms_set_togo_status(p_order, p_to)` allows only
+  `preparing→ready` and `ready→picked_up` (re-asserted in the UPDATE `WHERE`; `'stale'` on a raced/illegal
+  edge). `SECURITY DEFINER`, `search_path=''`, revoke public/anon/authenticated + grant service_role. The
+  `lib/expo.ts` actions re-check `requireStaff()` (the KDS pattern — the client is the affordance, never the gate).
+- **A5 — `/track` shows real progression.** Map `togo_status` → the existing pickup/scango step rail
+  (`preparing`→"In the kitchen", `ready`→"Ready for pickup"/"Ready", `picked_up`→"Picked up"/"Served"). Honest:
+  steps light only from the server signal (no fake countdown); a dine-in order with no bag keeps `togo_status`
+  null and the tracker rests as today. One live region (the existing `role="status"`), focus/SR-safe.
+- **A6 — a11y/legibility.** Expo station mirrors the KDS (≥44px bump buttons, labelled, realtime + poll
+  backstop); destination grouping is text-labelled; tokens, reduced-motion safe.
+
+#### S4.3b — line-level refunds (`charge.refunded` webhook + per-line refund)
+
+S2.3 already **gates + audits** a money-leaving refund (`mms_void_line` → manager-PIN → `mms_approvals`); the
+missing piece is **executing the Stripe refund** + reconciling it. `charge.refunded` is unhandled platform-wide.
+
+- **B1 — execute a per-line refund, manager-gated, audited.** A staff action refunds a specific paid
+  `qr_order_items` line: re-derive the refund amount **server-side** (`unit_price_cents*qty + tax_cents`, never
+  a client figure), require the S2.3 manager-PIN step-up (reuse `mms_void_line`'s gate / `mms_approvals`), then
+  call the Stripe Refund API on the order's PaymentIntent for that amount. Idempotent on a refund key.
+- **B2 — `charge.refunded` webhook reconciles state.** Handle the event (signature-verified, idempotent):
+  record the refund against the order, and when an order is **fully** refunded flip `qr_orders.status` →
+  `'refunded'` (the state M4 refund-recede was blocked on). Partial refunds tracked per-line. Drained
+  side-effects (rewards recede best-effort) — never NACK the webhook.
+- **B3 — money safety.** Refund only an amount ≤ the line's captured share; never refund a line twice
+  (idempotency + a refunded-marker); a split-tender line refunds against the right payer's PI. Refunds flow
+  **only** after the charge is known ours (post-capture). Threat model detailed when B is built.
+
+#### S4.3c — split-tender seam (data model only; build the EBT tender in the 2027 track)
+
+Today's split (M3·P3.3b) is **per-seat** (each payer covers a share of _all_ lines, one order). The EBT seam
+is **per-line-subset** (one tender — an EBT card — pays only eligible grocery lines). S4.3c lays the data
+model so 2027 is a tender-time branch, not a rewrite — it builds **no** tender split now (EBT = 2027, Forage/FNS).
+
+- **C1 — per-line payment association + eligibility on the order.** With `qr_order_items.fulfillment` already
+  snapshotted (A2), add the seam: a way to associate a payment with a **subset** of order lines (a
+  `payment_lines` join or `qr_order_items.paid_by_intent`) + snapshot/derive EBT-eligibility per line
+  (`grocery_items.ebt_eligible`). Documented + minimally migrated; no 2027 tender logic. Detailed when C is built.
+
+#### Out of scope / deferred (unchanged)
+
+- Pickup/scango **scheduled-fire → KDS** consumption stays the M2 seam (no kitchen actor for it yet).
+- The **EBT tender split execution** is the 2027 EBT track (Forage/FNS); S4.3c only readies the data model.
 
 ## EBT split-tender seam (design now, build 2027)
 

@@ -68,6 +68,16 @@ export async function POST(req: NextRequest) {
                   cartId: splitCartId,
                   error: fireErr,
                 });
+              // To-go fulfillment loop (S4.3a): flag 'preparing' if the split order has a takeaway line.
+              const { error: togoErr } = await db.rpc("mms_init_togo_status", {
+                p_order: orderId,
+                p_cart: splitCartId,
+              });
+              if (togoErr)
+                console.error("[stripe webhook] split init togo_status failed", {
+                  cartId: splitCartId,
+                  error: togoErr,
+                });
             });
             // Redeem any applied reward (M4 P4.2) — single-use, exactly-once on the open→paid transition.
             const { error: redErr } = await db.rpc("mms_redeem_cart_reward", {
@@ -273,6 +283,19 @@ export async function POST(req: NextRequest) {
                 cartId,
                 paymentIntent: intent.id,
                 error: fireErr,
+              });
+            // To-go fulfillment loop (S4.3a): flag the order 'preparing' iff it has a takeaway (togo/
+            // grocery) line, so the expo station picks it up + /track shows progress. Same after() drain
+            // (off the money path); idempotent (only sets when null + a bag exists; null for pure dine-in).
+            const { error: togoErr } = await db.rpc("mms_init_togo_status", {
+              p_order: orderId,
+              p_cart: cartId,
+            });
+            if (togoErr)
+              console.error("[stripe webhook] init togo_status failed", {
+                cartId,
+                paymentIntent: intent.id,
+                error: togoErr,
               });
           });
           // Morning Star Rewards (M4): stamp the earner + award Stars. Only a known diner PAYER earns

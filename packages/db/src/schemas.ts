@@ -219,6 +219,14 @@ export const setLineFulfillmentInput = z.object({
  *  draft, `togo` line (a dine-in line uses the batch send; grocery never fires). */
 export const makeItNowInput = z.object({ cartItemId: uuid });
 
+/** setTogoStatus (S4.3a) — the expo bumps a paid order's takeaway bag forward. Shape only; the action
+ *  re-checks requireStaff() and mms_set_togo_status re-asserts the legal edge (preparing→ready→picked_up)
+ *  in the write. `to` excludes 'preparing' (that's set at settlement, never by the bump). */
+export const setTogoStatusInput = z.object({
+  orderId: uuid,
+  to: z.enum(["ready", "picked_up"]),
+});
+
 /** submitFeedback (M4 P4.3) — leave feedback on an order. Shape + bounds only; mms_submit_feedback
  *  re-derives that the caller is the order's EARNER + the order is paid (one per order). Rating bounded
  *  1..5; comment length-capped (mirrors the column CHECK). UNGATED — any rating is accepted. */

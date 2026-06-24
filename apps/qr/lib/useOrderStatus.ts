@@ -9,6 +9,9 @@ export type TrackedOrder = {
   totalCents: number;
   itemCount: number;
   pickupSlot: string | null; // set for pickup orders → /track echoes it as the honest ETA
+  /** S4.3a takeaway fulfillment: null (no bag — pure dine-in) | 'preparing' | 'ready' | 'picked_up'.
+   *  The expo sets it; /track lights the pickup/scango step rail from it. */
+  togoStatus: string | null;
 };
 
 export type OrderStatus = {
@@ -60,7 +63,7 @@ export function useOrderStatus(
     async function load() {
       const { data, error } = await supa
         .from("qr_orders")
-        .select("id,status,total_cents,pickup_slot,qr_order_items(qty)")
+        .select("id,status,total_cents,pickup_slot,togo_status,qr_order_items(qty)")
         .eq(column, key!)
         .maybeSingle();
       if (!active) return;
@@ -91,6 +94,7 @@ export function useOrderStatus(
           totalCents: data.total_cents,
           itemCount: items.reduce((a, i) => a + i.qty, 0),
           pickupSlot: data.pickup_slot ?? null,
+          togoStatus: data.togo_status ?? null,
         });
       } else if (tries < 10) {
         // Not fulfilled yet — Realtime will deliver the INSERT, but poll a few times as a safety net

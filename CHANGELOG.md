@@ -4,6 +4,31 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — S4.3a: to-go fulfillment loop (bagging/expo station + "to-go ready" signal) (2026-06-24)
+
+Closes the unified-basket loop end-to-end: order → route → fire → cook → **bag → ready → hand off**, with a
+diner signal so nobody pays and walks out without their bag. Design: `docs/S4_DESIGN.md` S4.3a (A1–A6).
+Migration `20260624000000`. First of three S4.3 slices (then line refunds, then the split-tender seam).
+
+- **`qr_orders.togo_status`** (`preparing`/`ready`/`picked_up`, nullable — null = pure dine-in, no bag) is the
+  ready signal. `/track` already subscribes to `qr_orders`, so it rides that existing Realtime path — no new
+  channel. Set to `preparing` at settlement (best-effort, off the money path).
+- **Expo / bagging station** (`/staff/expo`) — the takeaway counterpart to the KDS. Lists paid orders with a
+  takeaway portion + their **to-go/grocery lines only**, with a two-stage bump: **Bagged & ready**
+  (`preparing→ready`, lights the diner's `/track`) then **Picked up** (`ready→picked_up`, drops off). Staff-
+  gated (`requireStaff`), realtime + 5s poll backstop, mirrors the KDS.
+- **Snapshot `qr_order_items.fulfillment`** — the order-item snapshot now carries the per-line fulfillment tag
+  (additive column copy in all three fulfill RPCs; no money logic changed), so a paid order knows which lines
+  are the bag. Slice C (split-tender seam) inherits this per-line categorization.
+- **`/track` shows real progression** — `togo_status` lights the pickup/scango step rail
+  (`preparing`→In the kitchen, `ready`→Ready for pickup, `picked_up`→Picked up) + a prominent **"your order's
+  ready — grab it before you head out"** banner. Honest (server-signal only, no fabricated countdown); a
+  dine-in order with no bag rests as before. One live region, SR-announced.
+- **Hardening** — `mms_set_togo_status` re-asserts the legal edge (`preparing→ready→picked_up`) **in the SQL
+  write** (`'stale'` on a raced/illegal edge); `mms_init_togo_status` is idempotent + takeaway-gated; both
+  revoked from public/anon/authenticated + granted service_role. Init drained via `after()` (a hiccup can't
+  roll back a payment). Advisors baseline-only.
+
 ### Added — S4.2: per-line fire routing + KDS subset + ready signal (2026-06-23)
 
 The fulfillment tag now drives **when** a line fires. Design of record: `docs/S4_DESIGN.md` S4.2 (F1–F6).

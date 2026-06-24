@@ -45,11 +45,22 @@ export function OrderTracker({
   const isPickup = !!order?.pickupSlot;
   const STEPS = isPickup ? PICKUP_STEPS : SCANGO_STEPS;
   const eta = isPickup && order?.pickupSlot ? `Ready ${formatSlotLong(order.pickupSlot)}` : null;
-  // `arrived` (the order row exists) is the ONE canonical signal: pulse step 0 once it lands, keep
-  // every step pending until then. Don't gate on the URL `processing` param — it doesn't track
-  // bank-settlement, so a debit that clears after the diner leaves (stale ?redirect_status=processing)
-  // still shows the order correctly on return. S2: derive the active index from the kitchen status.
-  const activeStep = arrived ? 0 : -1;
+  // Active step: until the order lands, nothing pulses (-1). Once it lands, the takeaway fulfillment
+  // status (S4.3a, expo-driven) lights the rail — preparing→"In the kitchen", ready→"Ready (for pickup)",
+  // picked_up→done. An order with NO takeaway portion (pure dine-in, togoStatus null) rests at "Order
+  // placed" (the diner's at the table; the rail isn't their surface). Don't gate on the URL `processing`
+  // param — it doesn't track bank-settlement, so a stale ?redirect_status=processing still renders right.
+  const togo = order?.togoStatus ?? null;
+  const activeStep = !arrived
+    ? -1
+    : togo === "picked_up"
+      ? 3
+      : togo === "ready"
+        ? 2
+        : togo === "preparing"
+          ? 1
+          : 0;
+  const ready = arrived && togo === "ready";
 
   return (
     <main style={{ padding: "24px 20px 40px", maxWidth: 440, margin: "0 auto" }}>
@@ -77,20 +88,34 @@ export function OrderTracker({
             color: arrived ? "var(--ok)" : "var(--t2)",
           }}
         >
-          {arrived ? "Order received" : processing ? "Confirming payment" : "Confirming order"}
+          {ready
+            ? "Ready for pickup"
+            : arrived
+              ? togo === "picked_up"
+                ? "Picked up"
+                : "Order received"
+              : processing
+                ? "Confirming payment"
+                : "Confirming order"}
         </span>
       </div>
 
       {/* Single live region: role="status" already implies aria-live="polite" (ARIA 1.2). The
           timedOut arm makes the text CHANGE when polling gives up, so AT announces the recovery. */}
       <p role="status" style={srOnly}>
-        {arrived
-          ? "Payment confirmed — your order is in."
-          : timedOut
-            ? "Your order is taking longer than expected — use the Refresh button to check."
-            : processing
-              ? "Confirming your payment."
-              : "Confirming your order."}
+        {ready
+          ? "Your order is ready for pickup — grab it before you go."
+          : arrived
+            ? togo === "picked_up"
+              ? "Order picked up — enjoy!"
+              : togo === "preparing"
+                ? "Your order is being prepared."
+                : "Payment confirmed — your order is in."
+            : timedOut
+              ? "Your order is taking longer than expected — use the Refresh button to check."
+              : processing
+                ? "Confirming your payment."
+                : "Confirming your order."}
       </p>
 
       {/* <ul>, not <ol>: the steps' order is conveyed visually + by aria-current, not a numeric
@@ -170,6 +195,29 @@ export function OrderTracker({
           );
         })}
       </ul>
+
+      {/* To-go ready departure signal (S4.3a): the whole point — don't let a guest pay and walk out
+          without their bag. Visual only; the role="status" region above carries the announcement (one
+          source of truth, no double-announce). */}
+      {ready && (
+        <div
+          style={{
+            padding: 14,
+            marginTop: 8,
+            borderRadius: "var(--r-card)",
+            border: "1px solid var(--ok)",
+            background: "var(--okb)",
+          }}
+        >
+          <div style={{ fontWeight: 800, fontSize: 15 }}>
+            <span aria-hidden>🥡 </span>
+            {isPickup ? "Ready for pickup" : "Your order’s ready"}
+          </div>
+          <div style={{ fontSize: 13, color: "var(--t2)", marginTop: 4 }}>
+            Grab it from the counter before you head out.
+          </div>
+        </div>
+      )}
 
       {/* Visual recovery affordance; the announcement comes from the role="status" region above
           (single source of truth — avoids a double announce / a first-paint role="alert" that AT skips). */}
