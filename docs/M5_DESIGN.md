@@ -1,160 +1,103 @@
-# M5 design — migrate the delivery app into the monorepo
+# M5 design — QR learns from delivery (repos stay separate)
 
-**Status: pre-build design of record (2026-06-24).** Read before building M5. Companion to `ROADMAP.md` §M5,
-[`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md) (the locked topology), [`docs/M4_DESIGN.md`](M4_DESIGN.md)
-(the rewards ledger), and [`docs/DATA_RECONCILIATION.md`](DATA_RECONCILIATION.md) (the delivery schema, historical).
-This doc is the M5 equivalent of `S2_DESIGN.md`/`S4_DESIGN.md`: the threat-model + slice plan + the open
-decisions, surfaced **before** the first commit so M5 doesn't discover its load-bearing seams mid-build.
+**Status: design of record (2026-06-24, reshaped).** Supersedes the original "migrate delivery into the
+monorepo" plan (kept below for history). Companion to `ROADMAP.md` §M5, the transfer backlog
+[`docs/QR_FROM_DELIVERY.md`](QR_FROM_DELIVERY.md), [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md)
+(the locked topology), and [`docs/M4_DESIGN.md`](M4_DESIGN.md) (the rewards ledger).
 
-## What M5 is — and is NOT
+## The decision (2026-06-24)
 
-**M5 brings the existing live delivery PWA into this Turborepo as `apps/delivery`, so both apps build/deploy
-from one monorepo, share UI/config/tooling + the one Stripe account, and stop drifting.** It is a **code
-co-location**, not a database merge.
+M5 was scoped as a **code co-location**: clone the live delivery PWA into `apps/delivery`. On review with Min,
+we **changed direction**: **keep the two apps as separate repos and instead have the younger QR app learn from
+the mature, live delivery app.** Rationale:
 
-**Locked topology (resolves the S4-audit P0-2 contradiction):**
+1. **The headline monorepo win — a shared `@mms/ui` — is unrealized today.** Two grounded audits found the apps
+   run **different design lineages**: QR's `@mms/ui/tokens.css` is a tight, WCAG-AA-verified 107-line system;
+   delivery's is a 34 KB accreted "Pepper + warm-paper" system. Sharing UI requires *converging the design
+   languages first* — itself a project — so co-location buys little now.
+2. **The real asset delivery offers QR is craft + scars, not code to import wholesale** — 599 components, 81
+   hooks, and an enormous production-learnings list (iOS WebKit OOM, Serwist update flow, sheet sizing, RLS FK
+   traps, offline-queue idempotency). That is a **knowledge/pattern transfer**, which does not need a repo merge.
+3. **Delivery is live, and the migration's dep-dedup would force-bump it** (next 16.1→16.2, react 19.2.3→.7,
+   eslint-config-next 15→16, one TS version) — a real **regression surface on production**, which is the owner's
+   stated #1 frustration. Not worth it for organizational tidiness.
 
-- **Two databases, never merged.** QR keeps `fasnpdhtvqtzjlvruqcu`; delivery keeps `ukuzkhuppqwtrdkjqrkv`.
-  There is **no shared schema** — merging would re-arm the `qr_*`-vs-delivery `create table` collision the M1
-  reconciliation defused (`docs/DATA_RECONCILIATION.md:12-29`).
-- **One Stripe account, shared** (CLAUDE.md:15) — both apps' webhooks/keys point at the same account; test vs
-  live per environment as today.
-- **Shared packages:** `@mms/ui` (tokens + Radix primitives), `@mms/config` (eslint/prettier), the root
-  tooling (turbo, pnpm single-version), and — to the extent below — `@mms/db`.
+**So M5 is now a transfer workstream**, not a migration. Full-repo co-location is **reconsidered at M6**, only
+if Terminal/kiosk create a concrete shared-runtime need — and even then via a small extracted package, not a
+monolith merge.
 
-**Explicit non-goals for M5:** no diner-data migration; no unified rewards wallet (see §5 — a separate
-post-M5 design); no rewrite of delivery's order model onto QR's `qr_*` schema. Delivery ships as-is, just
-_inside_ the repo and sharing the design system.
+## Locked topology (unchanged, and now even cleaner)
 
-## The real work: `@mms/db` is the only QR-coupled package
+- **Two databases, never merged.** QR `fasnpdhtvqtzjlvruqcu`; delivery `ukuzkhuppqwtrdkjqrkv`. No shared schema.
+- **Two repos, two deploys, two CIs.** Each app keeps its own Vercel project, its own `ci.yml`, its own
+  Supabase env. (The migration's per-app CI matrix problem **disappears** — each repo guards its own stack.)
+- **One Stripe account, shared** (config, not code — works fine across separate repos; each webhook filters to
+  its own PaymentIntents by metadata).
+- **`@mms/ui` / `@mms/db` / `@mms/config`** remain the QR monorepo's internal packages. They are **not**
+  consumed by delivery (separate repo). If a *truly* shared component layer is ever wanted, publish `@mms/ui` as
+  a versioned package then — out of scope for M5.
 
-The recon is unambiguous on where M5's effort lives:
+## Scope
 
-- **`@mms/ui` + `@mms/config` are already app-agnostic** (`packages/ui/src/index.ts:1-3` — `Sheet`,
-  `NumberFlow`; `packages/config` — eslint/prettier only). **No change needed.** Delivery adopts tokens by
-  importing `@mms/ui/tokens.css`.
-- **QR imports only from package roots** (`@mms/db/server`, `@mms/db/schemas`, `@mms/db`, `@mms/ui`) — no deep
-  paths, so the package boundary is clean to extend.
-- **`@mms/db` is QR-only and the hinge of M5:**
-  - **Clients are bound to one project's env** — `packages/db/src/server.ts` reads a single
-    `NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` at module load, returning
-    `SupabaseClient<Database>` where `Database` is **QR's generated type** (`database.types.ts` =
-    `qr_*`/`table_sessions`/`mms_*` only).
-  - **Types are QR's schema** — delivery's tables (`loyalty_rewards`, `profiles`, its order/address/courier
-    fields) are absent, so a delivery query typed against `@mms/db`'s `Database` would mis-type and its RLS
-    would fail at runtime.
+**In scope:** QR adopts delivery's production-hardened **mobile/iOS + a11y patterns**, a **motion/perf
+discipline layer**, a **reusable primitive component library** in `@mms/ui` (built to **QR's** tokens), and a
+**contrast-audit test** (QR has AA tokens but no automated tests today). Plus folding QR-relevant delivery
+learnings into `.claude/LEARNINGS.md`.
 
-### The recommended `@mms/db` shape (the P5.0 prep slice)
+**Explicit non-goals:** no repo merge; no `apps/delivery` clone; **no fork of delivery's design tokens** (QR's
+are the cleaner base — keep them); no change to delivery (it stays as-is); no rewards-wallet unification
+(remains post-M5 "M5a" — and with two DBs in two repos it is squarely a cross-project data problem, not a code
+move). M5 ships with **two reward ledgers**, surfaced honestly.
 
-Make `@mms/db` a **generic, project-parameterized** client toolkit, with each app binding its own schema type
+## Slice plan (one slice = one gated PR; full backlog in `docs/QR_FROM_DELIVERY.md`)
 
-- env — rather than forcing delivery onto QR's types (wrong) or duplicating client boilerplate per app (drift):
+- **P5.0 · `@mms/db` generic client factory** _(already merged, #79)_ ✅ — kept as a clean internal QR refactor
+  (zero behavior change). Its original "multi-app prep" rationale is moot now, but reverting is pure churn for no
+  gain, so it stays.
+- **P5.1 · Reshape M5 + transfer audit** _(docs)_ — **this slice.** Rewrite M5 to the separate-repos transfer
+  direction; land the prioritized backlog (`docs/QR_FROM_DELIVERY.md`) synthesized from the two audits.
+- **P5.2 · iOS / mobile hardening sweep** — safe-area **position** insets, `--sheet-max-h` dvh sheet sizing,
+  16px input-zoom audit, nested-scroll wheel-block, breakpoint-coupled overlay anchors. Highest value:effort.
+- **P5.3 · Motion discipline + perf budget** — `useAnimationPreference` JS gate, `useInView` offscreen-pause,
+  the mobile GPU/blur budget rules, `useDeviceTier`, and `useRipple`/`useTilt` as QR-token primitives.
+- **P5.4 · Primitive library in `@mms/ui`** — Skeleton, Toast, EmptyState, Stepper, Card variants, Drawer,
+  Badge, Avatar, Tooltip (built to QR tokens; delivery APIs as reference). Ship incrementally, most-used first.
+- **P5.5 · Contrast-audit test + QR test infra** — wire Vitest into QR + uncomment the turbo `test` gate; port
+  delivery's contrast-audit with QR token fixtures (refresh fixtures in the same PR as any token change).
+- **P5.6 · PWA / offline** _(deferred / optional)_ — Serwist SW + manifest + offline cart + chunk-load reload
+  boundary. Low priority for dine-in (on-site, ~4h session); revisit only if pickup/home-install demand grows.
 
-1. **Extract a generic factory (DONE in P5.0).** `@mms/db/factory` exports `createServiceRoleClient<DB>` /
-   `createPublicClient<DB>` / `createSessionClient<DB>` / `createSsrClient<DB>` / `createBrowserSupabaseClient<DB>`
-   — the construction + cookie/auth wiring, GENERIC over `Database` and INJECTED with `url`/`key` (no env read).
-   QR's existing `serviceClient()`/`publicClient()`/`sessionClient()`/`serverClient()`/`browserClient()`
-   **keep their exact signatures and delegate** to the factory with QR env + QR `Database` — so all ~20 QR call
-   sites are byte-unchanged (zero behavior change) while delivery gets a typed client the same way in P5.2.
-   The `server-only` boundary for the service-role key stays on QR's `./server.ts` wrapper.
-2. **Per-app types — DEFERRED to P5.2 (deliberately).** Renaming `database.types.ts` → `database.types.qr.ts`
-   touches the CI-critical `types-fresh` path (`ci.yml` + the `db:types` script both hardcode the name) and
-   enables nothing until delivery's parallel file + the per-app CI matrix exist. So P5.2 adds
-   `database.types.delivery.ts` alongside (rename-or-keep then, when the matrix lands). The factory is already
-   generic over `DB`, so the type binding is a one-liner per app — the rename is cosmetic, not load-bearing.
-3. **Namespace the QR-only Zod surface — DEFERRED to P5.2 (deliberately).** `@mms/db/schemas` is a QR subpath
-   (not the root `.`); moving it to `@mms/db/qr` churns ~15 QR import sites for no enablement until delivery
-   adds its own validation. Fold it into P5.2 when delivery's parallel makes the namespacing meaningful. The
-   QR domain types on the root (`CartItem`/`CartTotals`/`TaxCategory`/`LineState`/`LineFulfillment`) stay
-   QR-scoped (commented as such); delivery never imports them.
+**Exit (M5):** QR has absorbed delivery's mobile/a11y/motion hardening + a reusable primitive layer + a
+contrast-regression guard; both apps remain independent repos sharing only the Stripe account; co-location
+reconsidered at M6.
 
-This keeps QR working unchanged (its wrappers delegate to the factory) and gives delivery a typed client the
-same way, each against its own project. **P5.0 ships as its own gated PR _before_ the delivery clone** so QR's
-full gate proves the factory in isolation (no delivery noise). The deferrals above are churn-without-enablement
-until delivery actually lands — doing them now would risk the byte-exact `types-fresh` gate for cosmetic gain.
+## Risks (reshaped)
 
-## CI & tooling: the second-stack problem
+1. **Pattern drift over time (P2).** A one-time transfer decays — delivery and QR can re-diverge. Mitigation:
+   fold the *learnings* into `.claude/LEARNINGS.md` (durable), and prefer promoting shared primitives into
+   `@mms/ui` (a real artifact) over copy-paste.
+2. **Over-porting / aesthetic mismatch (P1).** Delivery's catalog over-indexes on "copy our design system."
+   Mitigation: every transfer is rebuilt to **QR's** tokens; reject wholesale CSS/token imports.
+3. **Regressing QR while "improving" it (P1).** The owner's #1 frustration is regressions. Mitigation: each
+   slice is a small gated PR with the pre-PR sweep + adversarial subagent; P5.5 (the contrast test + test infra)
+   exists partly to make later visual changes safe.
+4. **Two repos, no single dep/CI policy (accepted).** The explicit trade for not risking the live app. Revisit
+   at M6.
 
-`.github/workflows/ci.yml` `migrations-check` + `types-fresh` boot **one** local Supabase stack, apply
-`supabase/migrations/**` + `seed.sql`, and diff `packages/db/src/database.types.ts` byte-for-byte. Adding
-delivery breaks this assumption (its migrations aren't QR's; its types are a second file). Options:
+## Open question answered by the audit
 
-- **(Recommended) Per-app matrix.** Split migrations into `supabase/qr/migrations/**` +
-  `supabase/delivery/migrations/**`; the CI job runs a matrix over apps (changed-path-aware), each booting
-  its own stack and diffing its own `database.types.<app>.ts`. Cleanest long-term; mirrors the
-  two-project reality.
-- **(Bridge) Keep delivery migrations external** until P5 is stable, validating only QR in CI, then fold
-  delivery's migration history in via a dedicated PR. Lower upfront churn; leaves delivery DDL unguarded in
-  the monorepo meanwhile.
+- **Does delivery use file-based migrations?** Yes — `supabase/migrations/**` (baseline + 4), file-based. (This
+  mattered for the now-abandoned per-app CI matrix; recorded for completeness.)
 
-Vercel: delivery gets its **own** project (Root Directory `apps/delivery`) + `apps/delivery/vercel.json` with
-`ignoreCommand: "npx turbo-ignore @mms/delivery"`, mirroring `apps/qr/vercel.json:3`. Each Vercel project
-carries its **own** Supabase env (so the shared `NEXT_PUBLIC_SUPABASE_*` names resolve per-app — no collision
-in prod; the only collision is **local dev**, where the existing inline-env-override pattern from
-`docs/HANDOFF.md` "Environment facts" applies per app).
+---
 
-## Rewards unification is a separate, post-M5 design (not an M5 blocker)
+## Superseded — the original co-location plan (history)
 
-M4 built a **QR-local** ledger (`mms_rewards`/`mms_reward_tiers`/`mms_rewards_config`, earn via
-`qr_orders.earned_by` + `mms_reward_on_fulfill`) deliberately mirroring delivery's live `loyalty_rewards`
-"so M5 unifies without a rename" (`docs/M4_DESIGN.md:19-44`). But with **two separate databases**, a single
-shared wallet is a **cross-project data problem, not a code move** — and the M5 roadmap is code-only. So:
-
-> **M5 ships with two reward ledgers.** A person earns QR Stars on QR and delivery Stars on delivery; they do
-> not yet sum. This is a known, documented limitation — surface it honestly, do not promise a unified wallet.
-
-Unification is **"M5a"** (a follow-up design call), with at least three shapes to weigh: a scheduled
-cross-project ETL keyed on a reconciled identity; a small rewards aggregation service both apps read; or a
-shared/replicated rewards store (a tier-cost + identity-reconciliation question). Pick when M5 lands — it
-needs its own threat model (identity matching across two anon/account spaces is the hard part).
-
-## Slice plan (one slice = one gated PR)
-
-- **P5.0 · `@mms/db` generic client factory** _(prep; QR-only gate)_ ✅ **DONE** — extracted `@mms/db/factory`
-  (generic over `DB`, env-injected); QR's `serviceClient()`/`publicClient()`/`sessionClient()`/`serverClient()`/
-  `browserClient()` delegate to it with **identical signatures** (zero QR churn). Type-file rename + Zod-schema
-  namespacing **deferred to P5.2** (churn-without-enablement until delivery lands — see the §`@mms/db` shape).
-  **Exit met:** QR builds/typechecks/`types-fresh`/knip green, zero behavior change; `@mms/db/factory` is the
-  shared multi-app contract delivery imports.
-- **P5.1 · Clone delivery → `apps/delivery`** — `git clone` the delivery repo into `apps/delivery`, drop its
-  `.git`, dedupe deps to root (pnpm single-version), wire its scripts into turbo. No behavior change; it builds
-  standalone in the monorepo against its own env.
-- **P5.2 · Wire delivery to the shared layer** — point delivery's Supabase client at the `@mms/db/factory`
-  bound to a new `database.types.delivery.ts` + delivery env; adopt `@mms/ui` tokens (`tokens.css`) +
-  `@mms/config`; share the Stripe account wiring. **Land the deferred P5.0 cleanups here** (per-app type-file
-  rename + Zod namespacing, now load-bearing). Fold delivery migrations into the CI matrix (per §CI).
-- **P5.3 · Second Vercel project + CI** — `apps/delivery/vercel.json` + a second Vercel project (Root
-  Directory `apps/delivery`, turbo-ignore); confirm the per-app CI matrix is green for both.
-
-**Exit (M5):** both apps build/deploy from the monorepo, sharing packages + the one Stripe account, each on
-its own Supabase project (no DB merge); `types-fresh`/migrations-check green per app.
-
-## Threat model & risks (rank-ordered)
-
-1. **Env/project cross-wiring (P0).** A delivery deploy reading QR's env (or vice versa) = one app writing the
-   other's DB. Mitigation: per-app bound clients + per-Vercel-project env; never a shared module-load env read.
-   Verify each app's client resolves its own `project_ref` in a smoke test before prod.
-2. **Type/schema mismatch (P0).** Forcing delivery onto QR's `Database` type mis-types every query + breaks
-   RLS at runtime. Mitigation: per-app generated types; `@mms/db` root never re-exports QR's `Database` as
-   "the" Database.
-3. **CI single-stack assumption (P1).** `types-fresh`/migrations-check silently validate only one schema.
-   Mitigation: per-app matrix (above) — otherwise delivery DDL ships unguarded.
-4. **Dep-version skew on the clone (P1).** Delivery's pinned next/react vs the root single-version overrides
-   (`pnpm-workspace.yaml`) — a mismatch breaks the shared install. Mitigation: dedupe to root pins in P5.1;
-   expect a few peer-dep fixups.
-5. **Rewards-wallet honesty (P2).** Don't let copy imply a unified wallet pre-M5a (§5).
-6. **Stripe webhook routing.** Two apps, one account → ensure each app's webhook endpoint filters to its own
-   PaymentIntents (metadata/`cartId` shape) so a delivery event can't reach QR's `mms_fulfill_order` and vice
-   versa. Audit both webhook handlers' event-ownership guards in P5.2.
-
-## Open decisions for Min (surface before P5.0)
-
-1. **`@mms/db` scope** — the recommended generic-factory + per-app-types restructure (more unification, one
-   client idiom) vs. the minimal "delivery keeps its own DB layer; share only UI/config/tooling/Stripe" (less
-   refactor, faster, but two client idioms). _Recommendation: the generic factory — it's a contained P5.0 and
-   pays off at M6 (Terminal/kiosk touch both apps)._
-2. **CI** — per-app matrix now (recommended) vs. bridge (delivery migrations external until stable).
-3. **Rewards unification timing** — confirm it's **post-M5 (M5a)**, shipping M5 with two ledgers + honest copy.
-4. **Delivery migration history** — does the live delivery project even use file-based migrations we can fold
-   in, or is it dashboard-managed? Determines whether `supabase/delivery/migrations/**` is a real import or a
-   baseline snapshot. _Needs a look at the delivery repo at P5.1._
+The original M5 was a **code co-location**: clone `min-hinthar/mandalay-morning-star-delivery-app` into
+`apps/delivery`, drop its `.git`, dedupe deps to the root single-version pins (next/react/react-dom), wire its
+scripts into turbo, and stand up a second Vercel project + a per-app CI matrix booting two Supabase stacks. The
+real work was identified as `@mms/db` (the only QR-coupled package); `@mms/ui`/`@mms/config` were already
+app-agnostic. P5.0 (the generic `@mms/db/factory`) shipped as that plan's prep slice and is retained. The
+co-location plan was set aside for the three reasons in **The decision** above — chiefly that it would
+force-bump a live production app for a shared-UI payoff that isn't realizable until the design languages
+converge anyway.
