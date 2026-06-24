@@ -252,6 +252,13 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
           cartId: cart.id,
           message: togoErr.message,
         });
+      // Split-tender SEAM (S4.3c): record eligibility-at-sale on the order's grocery lines (2027 EBT key).
+      const { error: ebtErr } = await db.rpc("mms_snapshot_ebt_eligibility", { p_order: orderId });
+      if (ebtErr)
+        console.error("[staff-cart] snapshot ebt eligibility failed", {
+          cartId: cart.id,
+          message: ebtErr.message,
+        });
     });
 
     if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {

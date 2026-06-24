@@ -199,16 +199,36 @@ amount}, {idempotencyKey: 'refundline_<lineId>'})` — concurrent double-submits
   S4.3c/split-refund problem). **No coupon claw-back** in v1 (the Star _count_ recedes via the status flip; a
   minted milestone coupon isn't rescinded — documented).
 
-#### S4.3c — split-tender seam (data model only; build the EBT tender in the 2027 track)
+#### S4.3c — split-tender seam (data model only; build the EBT tender in the 2027 track) — built 2026-06-24
 
 Today's split (M3·P3.3b) is **per-seat** (each payer covers a share of _all_ lines, one order). The EBT seam
-is **per-line-subset** (one tender — an EBT card — pays only eligible grocery lines). S4.3c lays the data
-model so 2027 is a tender-time branch, not a rewrite — it builds **no** tender split now (EBT = 2027, Forage/FNS).
+is **per-line-subset** (one tender — an EBT/SNAP card — pays only eligible grocery lines; a second tender pays
+the rest). S4.3c lays the data model so 2027 is a **tender-time branch, not a rewrite** — it builds **no**
+tender split now (EBT = 2027, gated on Forage/USDA-TPP + FNS retailer authorization; `RESEARCH-DIGEST.md`).
 
-- **C1 — per-line payment association + eligibility on the order.** With `qr_order_items.fulfillment` already
-  snapshotted (A2), add the seam: a way to associate a payment with a **subset** of order lines (a
-  `payment_lines` join or `qr_order_items.paid_by_intent`) + snapshot/derive EBT-eligibility per line
-  (`grocery_items.ebt_eligible`). Documented + minimally migrated; no 2027 tender logic. Detailed when C is built.
+**The 2027 EBT tender-split flow (specified now, built then):** at checkout, partition the basket into the
+**EBT-eligible subset** (lines where `fulfillment='grocery'` AND the catalog item is `ebt_eligible`) and the
+**rest**; the EBT card (via Forage) authorizes/captures the eligible subtotal, a second tender (card/Apple Pay)
+covers the remainder + tax + any service/tip; fulfillment stamps which tender paid which lines. CDTFA: SNAP
+purchases are tax-exempt on otherwise-taxable items — a 2027 tax wrinkle, out of scope here.
+
+- **C1 — the line-categorization seam is already in place; S4.3c makes eligibility self-contained + audited.**
+  `qr_order_items.fulfillment` (S4.3a) already identifies grocery lines on the order. S4.3c adds
+  **`qr_order_items.ebt_eligible`** (default false) — the **eligibility-at-sale** record, snapshotted from the
+  catalog (`grocery_items.ebt_eligible`) by **`mms_snapshot_ebt_eligibility(order)`**, called **best-effort in
+  the settlement `after()` side-effects** (the same drain as fire-at-checkout / togo-init — **off the money
+  path**, no fulfill-RPC change). This is a permanent audit record (what was EBT-eligible when sold, immune to
+  later catalog drift) **and** the 2027 partition key. Idempotent; food/prepared lines stay false (never
+  SNAP-eligible); a snapshot hiccup just leaves false (the catalog is still derivable as a fallback).
+- **C2 — the payment↔line-subset association SHAPE is deferred to the 2027 build (with rationale).** Two
+  candidate shapes: a `qr_payment_lines` join (PI ↔ order_item, N:M-ready) **or** a per-line
+  `qr_order_items.paid_by_intent`. The choice depends on the Forage integration's PI model (one EBT PI +
+  one card PI? partial captures?) — committing a shape now would be a guess that risks a 2027 rewrite of a
+  money table. So S4.3c **does not** add it; the eligibility partition (C1) + the existing per-payer PI ledger
+  (`qr_cart_shares`, generalizable) are the seam. Documented here so 2027 is a branch, not a discovery.
+- **C3 — split-order line refunds (the S4.3b deferral) resolve on the same 2027 seam.** S4.3b's
+  `split_unsupported` (a per-line refund needs the payer's PI, which for split orders lives on `qr_cart_shares`)
+  is the same "associate a payment with a line subset" problem; whichever C2 shape 2027 picks closes both.
 
 #### Out of scope / deferred (unchanged)
 
