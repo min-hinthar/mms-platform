@@ -488,6 +488,30 @@ export async function POST(req: NextRequest) {
         : (charge.payment_intent?.id ?? null);
     if (pi) {
       const db = serviceClient();
+      // Backstop-record each of OUR line refunds from the refund metadata (set by refundLine), idempotent
+      // on the refund id. This closes the gap where refundLine's ledger write failed AFTER Stripe succeeded
+      // (money out, no row): the webhook re-records it here, restoring the mms_refunds row + mms_approvals
+      // audit, so authorize's already-refunded guard holds (no >24h re-refund). Dashboard refunds carry no
+      // orderItemId metadata → status-only (can't attribute to a line). Best-effort per refund.
+      for (const r of charge.refunds?.data ?? []) {
+        const oi = r.metadata?.orderItemId;
+        const init = r.metadata?.initiator;
+        const rc = r.metadata?.reasonCode;
+        if (oi && init && rc) {
+          const { error: recErr } = await db.rpc("mms_record_refund", {
+            p_order_item: oi,
+            p_amount: r.amount,
+            p_stripe_refund_id: r.id,
+            p_reason: rc,
+            p_initiator: init,
+          });
+          if (recErr)
+            console.error("[stripe webhook] refund ledger backstop failed", {
+              refundId: r.id,
+              error: recErr,
+            });
+        }
+      }
       const { error: reconErr } = await db.rpc("mms_apply_refund_reconcile", {
         p_payment_intent: pi,
         p_amount_refunded: charge.amount_refunded,

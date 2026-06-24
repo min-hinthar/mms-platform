@@ -178,19 +178,26 @@ amount}, {idempotencyKey: 'refundline_<lineId>'})` — concurrent double-submits
   `stripe_refund_id` + a unique-per-line index — the DB backstop) + a `mms_approvals` audit row (`kind='refund'`,
   initiator = approver = the manager). Idempotent (`on conflict (stripe_refund_id) do nothing`; audit only on
   first record).
-- **B3 — `charge.refunded` = the status truth (+ dashboard refunds).** The webhook (signature-verified) calls
-  `mms_apply_refund_reconcile(pi, charge.amount_refunded)`: flips `qr_orders.status='refunded'` **iff**
-  `amount_refunded >= total_cents` (Stripe-authoritative — works even for a refund issued from the Stripe
-  dashboard; this is the state **M4 refund-recede** was blocked on — the rewards summary counts only
-  `status='paid'`, so a full refund recedes the Star automatically). A partial (single-line) refund leaves
-  `status='paid'` (the order is mostly settled; the `mms_refunds` ledger carries the line detail). Idempotent
-  (only flips from `paid`); a non-order PI → `no_order` (no-op). A genuine DB error → 5xx so Stripe redelivers.
-- **B4 — money safety.** Amount + PI are **server-derived** (never client); the Stripe idempotency key + the
-  unique-per-line index make a double-refund unreachable; refunds flow only on a `paid` (post-capture) order;
-  the ledger + audit are written only after Stripe confirms. **Split-tender line refunds are deferred** (a
-  share refunds against the _payer's_ PI, not the order — that's the S4.3c/split-refund problem;
-  `split_unsupported` surfaces it honestly). **No coupon claw-back** in v1 (a minted milestone reward isn't
-  rescinded on refund — documented; the Star _count_ recedes via the status flip).
+- **B3 — `charge.refunded` = the status truth + the ledger backstop.** The webhook (signature-verified)
+  (1) **backstop-records** each of our line refunds from the refund's metadata (`orderItemId`/`reasonCode`/
+  `initiator`, set on `refunds.create`) via `mms_record_refund` — idempotent on the refund id, so if the
+  action's ledger write failed _after_ Stripe succeeded (money out, no row), the webhook restores the
+  `mms_refunds` row + `mms_approvals` audit (closing the "no durable audit" + ">24h re-refund" gap the
+  adversarial pass flagged); then (2) calls `mms_apply_refund_reconcile(pi, charge.amount_refunded)` to flip
+  `qr_orders.status='refunded'` **iff** `amount_refunded >= total_cents` (Stripe-authoritative — works for a
+  dashboard refund too; the state **M4 refund-recede** was blocked on — the rewards summary counts only
+  `status='paid'`, so a full refund recedes the Star). A partial (single-line) refund leaves `status='paid'`
+  (the ledger carries the line detail). Idempotent (only flips from `paid`); a non-order PI → `no_order`; a DB
+  error → 5xx so Stripe redelivers.
+- **B4 — money safety.** Amount + PI are **server-derived** (never client); the Stripe idempotency key
+  (`refundline_<lineId>`) collapses a same-line double-submit to ONE refund + the unique-per-line index is the
+  DB backstop + the webhook re-records from metadata, so a double-refund is unreachable and every executed
+  refund leaves a durable audit trail; refunds flow only on a `paid` (post-capture) order. **Voided/comped
+  lines are never in `qr_order_items`** — the fulfill snapshots filter `state <> 'voided' and not comped`
+  (S4.3a/S2.3), so a refund can never pay out a line that was never charged (no extra guard needed). **Split-
+  tender line refunds are deferred** (`split_unsupported` — a share refunds against the _payer's_ PI;
+  S4.3c/split-refund problem). **No coupon claw-back** in v1 (the Star _count_ recedes via the status flip; a
+  minted milestone coupon isn't rescinded — documented).
 
 #### S4.3c — split-tender seam (data model only; build the EBT tender in the 2027 track)
 

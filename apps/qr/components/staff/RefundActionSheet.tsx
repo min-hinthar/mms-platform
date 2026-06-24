@@ -1,5 +1,5 @@
 "use client";
-import { useState, useTransition, type CSSProperties } from "react";
+import { useEffect, useRef, useState, useTransition, type CSSProperties } from "react";
 import { refundLine, type StaffOrderLine } from "@/lib/refunds";
 
 const REASONS: [value: string, label: string][] = [
@@ -32,6 +32,16 @@ export function RefundActionSheet({
   const [pending, startTransition] = useTransition();
   const amount = (line.unitPriceCents * line.qty + line.taxCents) / 100;
 
+  // Money-out modal: move focus into the dialog on open + restore it to the trigger on close (WCAG 2.4.3 /
+  // QA §A). Escape closes. (A full focus trap is overkill for a 4-control sheet; focus-in + restore covers
+  // the keyboard/SR concern.)
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const prev = document.activeElement as HTMLElement | null;
+    dialogRef.current?.querySelector<HTMLElement>("select, input, button")?.focus();
+    return () => prev?.focus?.();
+  }, []);
+
   const submit = () => {
     setError(null);
     startTransition(async () => {
@@ -54,7 +64,8 @@ export function RefundActionSheet({
             setError("You don’t have a PIN set. Set one in your profile first.");
             break;
           case "already_refunded":
-            setError("That line was already refunded.");
+            // It's already refunded — refresh the board (the line will show "Refunded") + close. No dead
+            // error text (the sheet unmounts on onDone, so a message here would never be seen).
             onDone();
             break;
           case "not_paid":
@@ -85,8 +96,11 @@ export function RefundActionSheet({
       aria-label={`Refund ${line.name}`}
       style={overlay}
       onClick={onClose}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onClose();
+      }}
     >
-      <div className="card" style={sheet} onClick={(e) => e.stopPropagation()}>
+      <div ref={dialogRef} className="card" style={sheet} onClick={(e) => e.stopPropagation()}>
         <h2 style={{ margin: 0, fontSize: 18 }}>Refund a line</h2>
         <p style={{ margin: "4px 0 0", fontSize: 14, color: "var(--t2)" }}>
           {orderLabel} · {line.qty}× {line.name}
@@ -165,7 +179,7 @@ export function RefundActionSheet({
 const overlay: CSSProperties = {
   position: "fixed",
   inset: 0,
-  background: "rgba(0,0,0,0.45)",
+  background: "var(--scrim, rgba(0,0,0,0.45))",
   display: "grid",
   placeItems: "end center",
   padding: 16,

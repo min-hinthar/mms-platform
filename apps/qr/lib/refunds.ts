@@ -185,13 +185,18 @@ export async function refundLine(raw: unknown): Promise<RefundResult> {
     p_initiator: caller.staffId,
   });
   if (recErr)
-    // The refund SUCCEEDED at Stripe; only our ledger write failed. Don't surface an error (the money
-    // moved correctly) — charge.refunded will reconcile the order status + the ledger is recoverable.
-    console.error("[refunds] mms_record_refund failed (refund issued; webhook will reconcile)", {
-      orderItemId,
-      refundId,
-      message: recErr.message,
-    });
+    // The refund SUCCEEDED at Stripe; only our ledger write failed. Don't surface an error (the money moved
+    // correctly). The charge.refunded webhook BACKSTOPS this: it re-records the mms_refunds ledger row +
+    // mms_approvals audit from the refund's metadata (orderItemId/reasonCode/initiator we set above),
+    // idempotent on the refund id — so the audit trail + the already-refunded guard are restored.
+    console.error(
+      "[refunds] mms_record_refund failed (refund issued; charge.refunded will re-record)",
+      {
+        orderItemId,
+        refundId,
+        message: recErr.message,
+      },
+    );
 
   revalidatePath("/staff/orders");
 
