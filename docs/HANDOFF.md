@@ -5,8 +5,11 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 **M1 + M2 + M3 + S1 + S2 + S3 + M4 + S4 are all complete and merged.** Build order `M1 → M2 → M3 → S1 → S2 →
-S3 → M4 → S4 → M5 → M6` in `ROADMAP.md`. **Next: M5 (migrate apps/delivery onto the shared packages) — but
-M5 is BLOCKED on a project-topology decision (audit P0-2 below), a doc contradiction, not code.**
+S3 → M4 → S4 → M5 → M6` in `ROADMAP.md`. **Next: M5 (migrate apps/delivery into the monorepo) — now
+UNBLOCKED** (the topology contradiction is resolved: apps share **packages + the one Stripe account**, each
+on its **own** Supabase project — no DB merge; see `ROADMAP.md` M5 + `BACKEND_ARCHITECTURE.md`). **Read
+[`docs/M5_DESIGN.md`](M5_DESIGN.md) first** — the full M5 plan (the package restructure, the migration order,
+the open decisions).
 
 > **S4 — unified basket & fulfillment routing — COMPLETE (PRs #71–75, all merged + applied to live).**
 > **S4.1** (#71, `20260623100000`) — per-line `qr_cart_items.fulfillment` (dinein/togo/grocery) drives BOTH
@@ -30,32 +33,24 @@ M5 is BLOCKED on a project-topology decision (audit P0-2 below), a doc contradic
 
 > **⚠️ S4 deep audit shipped — [`docs/S4_AUDIT.md`](S4_AUDIT.md)** (6 parallel adversarial auditors; money/tax,
 > auth/RLS/IDOR, concurrency, M5/M6 seams, a11y/UX, schema/debt). **Verdict: structurally sound, security a
-> clean PASS — but the fast build left real defects.** The remediation set, prioritized, is the **first work
-> of any M5-prep session** (none are started — they warrant their own gated, dual-adversarial PRs):
+> clean PASS — but the fast build left real defects.** **Remediation SHIPPED (PR #77, `20260624030000`,
+> applied to live + advisor-clean + dual-adversarial):**
 >
-> - **P0-1 · BLOCKER (money-out, live):** `mms_refund_authorize` (`20260624010000:49`) computes refund as
->   `unit_price_cents*qty + tax_cents`, but `tax_cents` is stored **per unit** → a qty>1 taxable line refunds
->   only 1 unit of tax, **shorting the diner** `(qty−1)×per-unit-tax`. Fix: `… + oi.tax_cents * oi.qty`. Also
->   audit live `mms_refunds` for any qty>1 refund already issued (likely none — refunds are days old).
-> - **P0-2 · BLOCKER (doc, blocks M5):** project-topology contradiction — `BACKEND_ARCHITECTURE.md:8-18`
->   says QR runs on its **own** project (`fasnpdhtvqtzjlvruqcu`), but `:62-66` + `ROADMAP.md:84` say M5's exit
->   is "**one** Supabase + Stripe, **shared** by delivery + qr." Both can't hold; M5's whole plan turns on
->   which is true (shared → the un-prefixed `create table menu_items/grocery_items` in
->   `20260618000000:51-115` collides with delivery's live tables; own → M5's "clone + repoint, one project"
->   needs a data migration). **Reconcile to one design-of-record before M5 — a decision, not code.**
-> - **P1 (should fix before M6):** (1) no order-level over-refund cap + refunds undiscounted goods/tax while
->   the diner paid the **discounted** net → over-refunds promo orders; close WITH P0-1. (2) fire-at-checkout
->   has **no durable backstop** — if `after()` cold-stops post-200, paid draft food is never fired and nothing
->   reconciles (silent charge-with-no-fire); give it the QBO-style needs-fire marker + reconciler and split the
->   3 RPCs into independent after()/try-catch. (3) `mms_undo_fire` keys on `max(fire_at)` not `fire_batch`, so
->   a host's grace-Undo can claw back a guest's make-it-now togo line. (4) `charge.refunded` backstop logs (not
->   5xx) on list/record failure → a transient Stripe hiccup loses the ledger row → >24h re-refund double-pays.
->   (5) `RefundActionSheet` hand-rolls a `role="dialog"` (no focus trap on a money-out modal) + uses an
->   undefined `--scrim` token — port to the canonical `Sheet`, define `--scrim` (light+dark) in `tokens.css`
->   before M5 so the 2nd app inherits one dialog primitive. (6) refunded orders vanish from `/account` history.
-> - **P2 (debt):** missing `mms_refunds(order_id)` + partial `qr_orders(togo_status)` indexes; 2–3 live regions
->   on Checkout review; `docs/REVIEW.md` dead since S1.2; no S4 LEARNINGS entries; `@mms/db/schemas.ts` is
->   QR-only but root-exported (namespace before M5's delivery import); S4.1 bare `create function` (not replay-safe).
+> - **P0-1 (money BLOCKER) ✅** — `mms_refund_authorize` under-refunded qty>1 taxable lines (per-unit tax
+>   added once); now the line's **pro-rata share of order tax** (scales with qty). **P1-1 ✅** — refund is
+>   **discount-aware** (discounted goods + tax on the discounted base, mirrors `totals.ts`) + an **order-level
+>   over-refund cap** (Σ refunds ≤ net+tax). UI shows the server-derived `refundableCents`.
+> - **P1-2 ✅** — fire-at-checkout durable backstop: `mms_reconcile_settled_fulfillment` pg-cron (5-min) +
+>   the 3 settlement `after()` paths split into independent try/catch.
+> - **P1-3 ✅** — `mms_undo_fire` keys on a `fire_batch` (threaded send→client→undo), race-free; never claws
+>   back a guest's make-it-now line. (`mms_fire_cart` now returns `(fired, batch, fire_deadline)`.)
+> - **P1-4 ✅** — `charge.refunded` backstop 5xxs on a list/record failure (Stripe redelivers) instead of
+>   swallowing → no >24h re-refund double-pay.
+> - **P0-2 (M5 doc blocker) ✅** — topology reconciled (own project; shared packages + one Stripe account).
+> - **Still open (deferred, NOT blockers):** **P1-5** (`RefundActionSheet` → canonical `Sheet` + a `--scrim`
+>   token, a11y) · **P1-6** (refunded orders in `/account` history) · the **P2 debt** (indexes; Checkout live
+>   regions; dead `docs/REVIEW.md`; no S4 LEARNINGS; `@mms/db/schemas.ts` QR-only but root-exported — **fold
+>   the namespace into the M5 package restructure**; S4.1 bare `create function`).
 > - **M6 carry-forward (not S4 defects):** EBT is the deferred split-refund's twin (2027 needs a Forage tender
 >   column + a tender↔line-subset association on `qr_cart_shares`); SNAP tax exemption is a tender-time fact the
 >   single per-line snapshot can't represent (needs an adjustment entry + scan-time eligibility); `/track` needs
