@@ -85,11 +85,19 @@ Smallest slice that takes one real test charge end-to-end (solo Scan & Go). **No
 > This matches CLAUDE.md ("one Stripe account; QR and delivery each run on their **own** Supabase project")
 > and `BACKEND_ARCHITECTURE.md`'s 2026-06-18 dedicated-project banner. Cross-app rewards unification (M4's
 > "shared ledger") therefore needs a cross-project mechanism (a future design call), not one shared DB.
+>
+> **Full plan: [`docs/M5_DESIGN.md`](docs/M5_DESIGN.md)** (package restructure · CI matrix · slice order ·
+> open decisions). The real work is `@mms/db` (the only QR-coupled package); `@mms/ui`/`@mms/config` are
+> already app-agnostic. **Rewards unification is post-M5 ("M5a") — M5 ships with two ledgers, honestly.**
 
+- **P5.0** `@mms/db` multi-project restructure (prep, QR-only gate): a generic `createServiceClient<DB>`
+  factory + per-app types (`database.types.{qr,delivery}.ts`) + namespace QR-only schemas off the `@mms/db`
+  root (closes audit P2). QR rewired to its bound client, zero behavior change. ⬜
 - **P5.1** `git clone` delivery app → `apps/delivery`, drop its `.git`, dedupe deps to root. ⬜
 - **P5.2** Point its Supabase/Stripe wiring at the shared `@mms/db` client factory + `@mms/ui` tokens —
-  each app keeps its **own** Supabase project env + the shared Stripe account keys. ⬜
-- **P5.3** Second Vercel project (Root Directory `apps/delivery`); turbo-ignore. ⬜
+  each app keeps its **own** Supabase project env + the shared Stripe account keys; fold delivery migrations
+  into the per-app CI matrix. ⬜
+- **P5.3** Second Vercel project (Root Directory `apps/delivery`); turbo-ignore; per-app CI matrix green. ⬜
 
 **Exit:** both apps build/deploy from the monorepo, **sharing packages (`@mms/db`/`@mms/ui`) + the one
 Stripe account** — each on its **own** Supabase project (no DB merge).

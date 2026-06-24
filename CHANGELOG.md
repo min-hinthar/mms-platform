@@ -4,6 +4,20 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — M5 prep: design-of-record for the delivery-app migration (2026-06-24)
+
+Pre-build design for M5 (bring the live delivery PWA into the monorepo), grounded in a structural recon of
+the packages. `docs/M5_DESIGN.md` + a HANDOFF refresh (S4 audit remediation shipped → M5 unblocked) +
+`ROADMAP.md` M5 (a P5.0 prep slice + the design pointer).
+
+- **Locked scope:** code co-location, **not** a database merge — apps share `@mms/ui`/`@mms/config`/tooling +
+  the one Stripe account; each keeps its own Supabase project. `@mms/db` is the only QR-coupled package and
+  the focus of the prep slice (a generic project-parameterized client factory + per-app generated types +
+  namespacing the QR-only Zod schemas off the shared root, closing audit P2).
+- **CI:** a per-app matrix (two stacks) replaces the single-Supabase `types-fresh`/migrations-check assumption.
+- **Rewards unification is explicitly post-M5 ("M5a"):** with two databases, a unified wallet is a
+  cross-project data problem, not a code move — M5 ships two ledgers + honest copy, not a false promise.
+
 ### Fixed — S4 audit remediation: refund correctness + fire-at-checkout durability (2026-06-24)
 
 The money/kitchen defects the S4 audit (`docs/S4_AUDIT.md`) surfaced. Migration `20260624030000`.
