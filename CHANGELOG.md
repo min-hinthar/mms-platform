@@ -4,6 +4,29 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — S4.3b: line-level refunds (`charge.refunded` + manager-gated per-line refund) (2026-06-24)
+
+Money-OUT: the captured-line counterpart to S2.3's open-cart void. Design: `docs/S4_DESIGN.md` S4.3b
+(B1–B4). Migration `20260624010000`. Second of three S4.3 slices.
+
+- **`/staff/orders`** (manager-gated) — recent paid orders, expand to lines, **Refund** a line. The
+  RefundActionSheet collects a reason + the manager's **own PIN** (money-out re-auth at action time;
+  lockout-counted). Split-tender orders flag "refund via dashboard" (per-payer-PI allocation deferred).
+- **Server-derived, idempotent, audited** — `mms_refund_authorize` re-derives the amount
+  (`unit_price_cents*qty + tax_cents` — goods + that line's tax; service/tip are order-level, not per-line)
+  - the PaymentIntent and validates paid / single-PI / not-already-refunded / manager. The Stripe refund is
+    **idempotency-keyed on the line** (a double-submit returns the same refund — no double money out);
+    `mms_record_refund` writes the **`mms_refunds` ledger** (unique `stripe_refund_id` + unique-per-line) + a
+    `mms_approvals` audit row (`kind='refund'`). Amount + PI are never client-supplied.
+- **`charge.refunded` webhook** — Stripe-authoritative reconcile: flips `qr_orders.status='refunded'` once
+  `amount_refunded >= total_cents` (idempotent; also catches **dashboard-issued** refunds). This is the
+  state **M4 refund-recede** was blocked on — the rewards summary counts only `status='paid'`, so a full
+  refund recedes the Star. A partial (single-line) refund leaves `status='paid'` (the ledger has the detail).
+- **Hardening** — all three RPCs `SECURITY DEFINER`, `search_path=''`, revoked from public/anon/authenticated
+  - service_role only; `mms_refunds` RLS-on (manager-read). A ledger-write failure _after_ a successful Stripe
+    refund is logged, not surfaced — the webhook reconciles regardless (money moved correctly). Split-line
+    refunds + coupon claw-back are documented deferrals.
+
 ### Added — S4.3a: to-go fulfillment loop (bagging/expo station + "to-go ready" signal) (2026-06-24)
 
 Closes the unified-basket loop end-to-end: order → route → fire → cook → **bag → ready → hand off**, with a

@@ -328,6 +328,57 @@ export type Database = {
         }
         Relationships: []
       }
+      mms_refunds: {
+        Row: {
+          amount_cents: number
+          approver_staff_id: string | null
+          created_at: string
+          id: string
+          initiator_staff_id: string | null
+          order_id: string
+          order_item_id: string | null
+          reason_code: string
+          stripe_refund_id: string
+        }
+        Insert: {
+          amount_cents: number
+          approver_staff_id?: string | null
+          created_at?: string
+          id?: string
+          initiator_staff_id?: string | null
+          order_id: string
+          order_item_id?: string | null
+          reason_code: string
+          stripe_refund_id: string
+        }
+        Update: {
+          amount_cents?: number
+          approver_staff_id?: string | null
+          created_at?: string
+          id?: string
+          initiator_staff_id?: string | null
+          order_id?: string
+          order_item_id?: string | null
+          reason_code?: string
+          stripe_refund_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mms_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "qr_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mms_refunds_order_item_id_fkey"
+            columns: ["order_item_id"]
+            isOneToOne: false
+            referencedRelation: "qr_order_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       mms_reward_tiers: {
         Row: {
           id: string
@@ -1296,6 +1347,10 @@ export type Database = {
       is_member: { Args: { sess: string }; Returns: boolean }
       is_staff: { Args: never; Returns: boolean }
       is_staff_at_least: { Args: { min_role: string }; Returns: boolean }
+      mms_apply_refund_reconcile: {
+        Args: { p_amount_refunded: number; p_payment_intent: string }
+        Returns: string
+      }
       mms_apply_reward: {
         Args: { p_cart: string; p_code: string; p_user: string }
         Returns: string
@@ -1408,9 +1463,27 @@ export type Database = {
         }
         Returns: boolean
       }
+      mms_record_refund: {
+        Args: {
+          p_amount: number
+          p_initiator: string
+          p_order_item: string
+          p_reason: string
+          p_stripe_refund_id: string
+        }
+        Returns: string
+      }
       mms_redeem_cart_reward: {
         Args: { p_cart: string; p_order: string }
         Returns: undefined
+      }
+      mms_refund_authorize: {
+        Args: { p_initiator: string; p_line_item: string }
+        Returns: {
+          amount_cents: number
+          payment_intent: string
+          reason: string
+        }[]
       }
       mms_request_approval: {
         Args: {

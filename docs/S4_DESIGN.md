@@ -156,22 +156,48 @@ signal so nobody pays and walks out without their bag. The fulfillment lifecycle
 - **A6 — a11y/legibility.** Expo station mirrors the KDS (≥44px bump buttons, labelled, realtime + poll
   backstop); destination grouping is text-labelled; tokens, reduced-motion safe.
 
-#### S4.3b — line-level refunds (`charge.refunded` webhook + per-line refund)
+#### S4.3b — line-level refunds (`charge.refunded` webhook + per-line refund) — built 2026-06-24
 
-S2.3 already **gates + audits** a money-leaving refund (`mms_void_line` → manager-PIN → `mms_approvals`); the
-missing piece is **executing the Stripe refund** + reconciling it. `charge.refunded` is unhandled platform-wide.
+S2.3 already **gates + audits** a money-leaving void on an OPEN cart; a _captured-line_ refund on a PAID order
+was the explicit seam (`mms_void_line` refuses a non-open cart). S4.3b adds the **money-out execution**: a
+manager-facing **`/staff/orders`** surface (Min's "build a staff orders surface" scope) lists recent paid
+orders; a manager refunds a specific line. `charge.refunded` (unhandled platform-wide) becomes the
+Stripe-authoritative reconcile.
 
-- **B1 — execute a per-line refund, manager-gated, audited.** A staff action refunds a specific paid
-  `qr_order_items` line: re-derive the refund amount **server-side** (`unit_price_cents*qty + tax_cents`, never
-  a client figure), require the S2.3 manager-PIN step-up (reuse `mms_void_line`'s gate / `mms_approvals`), then
-  call the Stripe Refund API on the order's PaymentIntent for that amount. Idempotent on a refund key.
-- **B2 — `charge.refunded` webhook reconciles state.** Handle the event (signature-verified, idempotent):
-  record the refund against the order, and when an order is **fully** refunded flip `qr_orders.status` →
-  `'refunded'` (the state M4 refund-recede was blocked on). Partial refunds tracked per-line. Drained
-  side-effects (rewards recede best-effort) — never NACK the webhook.
-- **B3 — money safety.** Refund only an amount ≤ the line's captured share; never refund a line twice
-  (idempotency + a refunded-marker); a split-tender line refunds against the right payer's PI. Refunds flow
-  **only** after the charge is known ours (post-capture). Threat model detailed when B is built.
+- **B1 — per-line refund, server-derived, manager-gated.** `/staff/orders` is `requireStaff('manager')`. The
+  `refundLine` action re-checks manager + a **self-PIN confirmation** (`verifyStaffPin(caller, pin)` — the
+  money-out step-up at the moment of action; the surface is already manager-gated, so it's a re-auth, not a
+  second person). `mms_refund_authorize(line, initiator)` **server-derives** the amount
+  (`unit_price_cents*qty + tax_cents` — goods + that line's tax; service/tip are order-level, **not** per-line
+  refunded in v1) + the PaymentIntent, and validates: order `paid`, **single-PI** (`stripe_payment_intent_id`
+  not null — split orders return `split_unsupported`, deferred), line not already refunded, initiator an active
+  manager/owner. Never a client amount.
+- **B2 — execute then record; Stripe idempotency-keyed.** The action calls `stripe.refunds.create({payment_intent,
+amount}, {idempotencyKey: 'refundline_<lineId>'})` — concurrent double-submits return the SAME refund (no
+  double money out). On success `mms_record_refund` writes the **`mms_refunds` ledger** (unique
+  `stripe_refund_id` + a unique-per-line index — the DB backstop) + a `mms_approvals` audit row (`kind='refund'`,
+  initiator = approver = the manager). Idempotent (`on conflict (stripe_refund_id) do nothing`; audit only on
+  first record).
+- **B3 — `charge.refunded` = the status truth + the ledger backstop.** The webhook (signature-verified)
+  (1) **backstop-records** each of our line refunds from the refund's metadata (`orderItemId`/`reasonCode`/
+  `initiator`, set on `refunds.create`) via `mms_record_refund` — idempotent on the refund id, so if the
+  action's ledger write failed _after_ Stripe succeeded (money out, no row), the webhook restores the
+  `mms_refunds` row + `mms_approvals` audit (closing the "no durable audit" + ">24h re-refund" gap the
+  adversarial pass flagged); then (2) calls `mms_apply_refund_reconcile(pi, charge.amount_refunded)` to flip
+  `qr_orders.status='refunded'` **iff** `amount_refunded >= total_cents` (Stripe-authoritative — works for a
+  dashboard refund too; the state **M4 refund-recede** was blocked on — the rewards summary counts only
+  `status='paid'`, so a full refund recedes the Star). A partial (single-line) refund leaves `status='paid'`
+  (the ledger carries the line detail). Idempotent (only flips from `paid`); a non-order PI → `no_order`; a DB
+  error → 5xx so Stripe redelivers.
+- **B4 — money safety.** Amount + PI are **server-derived** (never client); the Stripe idempotency key
+  (`refundline_<lineId>`) collapses a same-line double-submit to ONE refund + the unique-per-line index is the
+  DB backstop + the webhook re-records from metadata, so a double-refund is unreachable and every executed
+  refund leaves a durable audit trail; refunds flow only on a `paid` (post-capture) order. **Voided/comped
+  lines are never in `qr_order_items`** — the fulfill snapshots filter `state <> 'voided' and not comped`
+  (S4.3a/S2.3), so a refund can never pay out a line that was never charged (no extra guard needed). **Split-
+  tender line refunds are deferred** (`split_unsupported` — a share refunds against the _payer's_ PI;
+  S4.3c/split-refund problem). **No coupon claw-back** in v1 (the Star _count_ recedes via the status flip; a
+  minted milestone coupon isn't rescinded — documented).
 
 #### S4.3c — split-tender seam (data model only; build the EBT tender in the 2027 track)
 
