@@ -10,7 +10,7 @@ Milestones → phases → tasks (the delivery-app rhythm). Each **milestone** sh
 
 - **Now →** M1 · Walking pay path (the smallest end-to-end real charge).
 - **Next →** M2 tax/promos/scheduling · M3 group cart.
-- **Later →** M4 rewards · M5 migrate delivery app · M6 kiosk + Terminal + EBT (2027).
+- **Later →** M4 rewards · M5 QR learns from delivery (separate repos) · M6 kiosk + Terminal + EBT (2027).
 - **Service-model arc →** S1 staff & floor · S2 line authority · S3 tabs · S4 unified basket — the dine-in/full-service layer from [`docs/context/ORDER-MODEL.md`](docs/context/ORDER-MODEL.md). Interleaves after M3 (see the track below; **build order ≠ milestone number**).
 
 ---
@@ -75,33 +75,41 @@ Smallest slice that takes one real test charge end-to-end (solo Scan & Go). **No
 
 **Exit:** gems earned on QR orders appear in the shared ledger; reorder preserves modifiers.
 
-## ⬜ M5 — Migrate delivery app &nbsp;`milestone:M5`
+## ⬜ M5 — QR learns from delivery (repos stay separate) &nbsp;`milestone:M5`
 
-> **Topology (locked — resolves the S4-audit P0-2 contradiction):** the two apps **share monorepo
-> _packages_ and the one Stripe account, NOT a database.** QR keeps its **own** Supabase project
-> (`fasnpdhtvqtzjlvruqcu`); delivery keeps **its** own (`ukuzkhuppqwtrdkjqrkv`). M5 is a _code_ unification
-> (the `@mms/db` client factory/types, `@mms/ui` tokens, root config), each app wiring its own project env —
-> **no DB/data merge, no shared schema** (which would re-arm the `qr_*`-vs-delivery `create table` collision).
-> This matches CLAUDE.md ("one Stripe account; QR and delivery each run on their **own** Supabase project")
-> and `BACKEND_ARCHITECTURE.md`'s 2026-06-18 dedicated-project banner. Cross-app rewards unification (M4's
-> "shared ledger") therefore needs a cross-project mechanism (a future design call), not one shared DB.
+> **Reshaped 2026-06-24 (was "migrate delivery into the monorepo").** On review with Min we **changed
+> direction**: the two apps stay **separate repos** (own deploys, own CI, own Supabase projects, the shared
+> Stripe account) and the younger **QR** app instead **learns from** the mature, live **delivery** PWA —
+> adopting its production-hardened mobile/iOS + a11y patterns, a motion/perf discipline layer, a reusable
+> primitive component library (built to **QR's** tokens), and a contrast-audit test. Why: the monorepo's
+> headline win (a shared `@mms/ui`) is unrealized while the apps run **different design lineages** (QR's tokens
+> are the cleaner, AA-verified base — keep them); delivery's real value to QR is **craft + learnings**, a
+> transfer that needs no repo merge; and the migration would **force-bump a live production app** (next/react/
+> eslint/TS) — a regression surface not worth it. Full-repo co-location is **reconsidered at M6** if
+> Terminal/kiosk need a shared runtime.
 >
-> **Full plan: [`docs/M5_DESIGN.md`](docs/M5_DESIGN.md)** (package restructure · CI matrix · slice order ·
-> open decisions). The real work is `@mms/db` (the only QR-coupled package); `@mms/ui`/`@mms/config` are
-> already app-agnostic. **Rewards unification is post-M5 ("M5a") — M5 ships with two ledgers, honestly.**
+> **Full plan: [`docs/M5_DESIGN.md`](docs/M5_DESIGN.md)** + the transfer backlog
+> [`docs/QR_FROM_DELIVERY.md`](docs/QR_FROM_DELIVERY.md). Topology unchanged: two DBs, **two repos**, one Stripe
+> account. **Rewards unification stays post-M5 ("M5a") — two ledgers, surfaced honestly.**
 
-- **P5.0** `@mms/db` generic client factory (prep, QR-only gate): `@mms/db/factory` (generic over `DB`,
-  env-injected) — QR's `serviceClient`/`publicClient`/`sessionClient`/`serverClient`/`browserClient` delegate
-  to it with identical signatures (zero churn). Per-app type-file rename + Zod-schema namespacing deferred to
-  P5.2 (churn-without-enablement until delivery lands). ✅
-- **P5.1** `git clone` delivery app → `apps/delivery`, drop its `.git`, dedupe deps to root. ⬜
-- **P5.2** Point its Supabase/Stripe wiring at the shared `@mms/db` client factory + `@mms/ui` tokens —
-  each app keeps its **own** Supabase project env + the shared Stripe account keys; fold delivery migrations
-  into the per-app CI matrix. ⬜
-- **P5.3** Second Vercel project (Root Directory `apps/delivery`); turbo-ignore; per-app CI matrix green. ⬜
+- **P5.0** `@mms/db` generic client factory (#79) — retained as a clean internal QR refactor (zero behavior
+  change); its "multi-app prep" rationale is moot now, but reverting is pure churn. ✅
+- **P5.1** Reshape M5 → transfer workstream + land the prioritized backlog (`docs/QR_FROM_DELIVERY.md`),
+  synthesized from two grounded audits (delivery wisdom · QR posture/gaps). _(docs)_ ⬜
+- **P5.2** iOS / mobile hardening sweep — safe-area **position** insets, `--sheet-max-h` dvh sheets, 16px
+  input-zoom audit, nested-scroll wheel-block, breakpoint-coupled overlay anchors. ⬜
+- **P5.3** Motion discipline + perf budget — `useAnimationPreference` JS gate, `useInView` offscreen-pause, the
+  mobile GPU/blur budget rules, `useDeviceTier`, `useRipple`/`useTilt` as QR-token primitives. ⬜
+- **P5.4** Primitive library in `@mms/ui` — Skeleton, Toast, EmptyState, Stepper, Card variants, Drawer, Badge,
+  Avatar, Tooltip (QR tokens; delivery APIs as reference). Ship incrementally, most-used first. ⬜
+- **P5.5** Contrast-audit test + QR test infra — wire Vitest + uncomment the turbo `test` gate; port delivery's
+  contrast-audit with QR token fixtures. ⬜
+- **P5.6** PWA / offline _(deferred / optional)_ — Serwist SW + manifest + offline cart + chunk-load reload
+  boundary. Low priority for dine-in. ⬜
 
-**Exit:** both apps build/deploy from the monorepo, **sharing packages (`@mms/db`/`@mms/ui`) + the one
-Stripe account** — each on its **own** Supabase project (no DB merge).
+**Exit:** QR has absorbed delivery's mobile/a11y/motion hardening + a reusable primitive layer + a
+contrast-regression guard; both apps remain **independent repos** sharing only the Stripe account; co-location
+reconsidered at M6.
 
 ## ⏸ M6 — Kiosk · Terminal · EBT (2027) &nbsp;`milestone:M6`
 

@@ -5,11 +5,16 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 **M1 + M2 + M3 + S1 + S2 + S3 + M4 + S4 are all complete and merged.** Build order `M1 → M2 → M3 → S1 → S2 →
-S3 → M4 → S4 → M5 → M6` in `ROADMAP.md`. **Next: M5 (migrate apps/delivery into the monorepo) — now
-UNBLOCKED** (the topology contradiction is resolved: apps share **packages + the one Stripe account**, each
-on its **own** Supabase project — no DB merge; see `ROADMAP.md` M5 + `BACKEND_ARCHITECTURE.md`). **Read
-[`docs/M5_DESIGN.md`](M5_DESIGN.md) first** — the full M5 plan (the package restructure, the migration order,
-the open decisions).
+S3 → M4 → S4 → M5 → M6` in `ROADMAP.md`. **Next: M5 — RESHAPED 2026-06-24.** M5 is **no longer a migration**:
+the two apps stay **separate repos** and the younger **QR** app **learns from** the live **delivery** PWA
+(adopts its hardened mobile/iOS + a11y patterns, a motion/perf discipline layer, a reusable primitive library
+built to QR's tokens, and a contrast-audit test). Why the change: the shared-`@mms/ui` payoff is unrealized
+while the apps run different design lineages (QR's tokens are the cleaner base — keep them); delivery's real
+value is **craft + learnings** (a transfer, not a repo merge); and the migration would **force-bump a live
+production app** (regression risk — the #1 frustration). Full-repo co-location is **reconsidered at M6**. **Read
+[`docs/M5_DESIGN.md`](M5_DESIGN.md)** (the reshaped design-of-record) + **[`docs/QR_FROM_DELIVERY.md`](QR_FROM_DELIVERY.md)**
+(the prioritized transfer backlog from two grounded audits). P5.0 (the `@mms/db` factory, #79) is retained as a
+clean internal refactor. P5.1 = this reshape + the backlog (docs). Slices P5.2–P5.6 are the actual transfers.
 
 > **S4 — unified basket & fulfillment routing — COMPLETE (PRs #71–75, all merged + applied to live).**
 > **S4.1** (#71, `20260623100000`) — per-line `qr_cart_items.fulfillment` (dinein/togo/grocery) drives BOTH

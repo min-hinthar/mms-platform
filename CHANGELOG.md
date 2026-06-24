@@ -4,9 +4,30 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Changed — M5 · P5.1: reshaped from migration → "QR learns from delivery" (repos stay separate) (2026-06-24)
+
+**M5 is no longer a repo migration.** On review with Min we changed direction: the two apps stay **separate
+repos** (own deploys, own CI, own Supabase projects, the shared Stripe account) and the younger **QR** app
+**learns from** the mature, live **delivery** PWA instead. Drivers: the shared-`@mms/ui` payoff is unrealized
+while the apps run **different design lineages** (QR's `@mms/ui/tokens.css` is the tighter, WCAG-AA-verified
+base — keep it, don't fork delivery's 34 KB accreted set); delivery's real value to QR is **craft + production
+learnings** (a transfer, not a repo merge); and the migration's dep-dedup would **force-bump a live production
+app** (next/react/eslint/TS — a regression surface, the owner's #1 frustration). Full-repo co-location is
+**reconsidered at M6** if Terminal/kiosk need a shared runtime.
+
+- **Docs reshaped:** `docs/M5_DESIGN.md` rewritten as the transfer design-of-record (with the superseded
+  co-location plan kept for history); `ROADMAP.md` §M5, `docs/HANDOFF.md`, and `CLAUDE.md` ("What this is")
+  updated; **new `docs/QR_FROM_DELIVERY.md`** — the prioritized transfer backlog synthesized from two grounded
+  adversarial audits (delivery's app-agnostic wisdom · QR's posture/gaps).
+- **New slice plan:** P5.0 (the `@mms/db` factory, #79) retained as a clean internal refactor → **P5.2** iOS/
+  mobile hardening sweep → **P5.3** motion discipline + perf budget → **P5.4** primitive library in `@mms/ui`
+  (built to QR tokens) → **P5.5** contrast-audit test + QR test infra → **P5.6** PWA/offline (deferred).
+- **Key correction over the delivery catalog's instinct:** transfer *behavior + craft + primitives*, never the
+  design tokens — QR keeps its own. **Audit fact recorded:** delivery uses file-based migrations.
+
 ### Changed — M5 · P5.0: `@mms/db` generic client factory (multi-app prep) (2026-06-24)
 
-The first M5 build slice: make `@mms/db` reusable by a second app without merging databases. New
+**(Superseded by the P5.1 reshape above — repos stay separate; retained as a clean internal refactor.)** The first M5 build slice: make `@mms/db` reusable by a second app without merging databases. New
 `@mms/db/factory` exports `createServiceRoleClient<DB>` / `createPublicClient<DB>` / `createSessionClient<DB>`
 / `createSsrClient<DB>` / `createBrowserSupabaseClient<DB>` — the client construction + cookie/auth wiring,
 **generic over the project's `Database` type and injected with `url`/`key`** (no `process.env` read). QR's
@@ -19,7 +40,7 @@ delivery lands; would needlessly risk the byte-exact `types-fresh` gate now). Pl
 
 ### Added — M5 prep: design-of-record for the delivery-app migration (2026-06-24)
 
-Pre-build design for M5 (bring the live delivery PWA into the monorepo), grounded in a structural recon of
+**(Superseded by the P5.1 reshape above — M5 is now a transfer, not a migration.)** Pre-build design for M5 (bring the live delivery PWA into the monorepo), grounded in a structural recon of
 the packages. `docs/M5_DESIGN.md` + a HANDOFF refresh (S4 audit remediation shipped → M5 unblocked) +
 `ROADMAP.md` M5 (a P5.0 prep slice + the design pointer).
 
