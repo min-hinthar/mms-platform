@@ -15,14 +15,32 @@ production app** (regression risk — the #1 frustration). Full-repo co-location
 [`docs/M5_DESIGN.md`](M5_DESIGN.md)** (the reshaped design-of-record) + **[`docs/QR_FROM_DELIVERY.md`](QR_FROM_DELIVERY.md)**
 (the prioritized transfer backlog from two grounded audits). P5.0 (the `@mms/db` factory, #79) is retained as a
 clean internal refactor. P5.1 = this reshape + the backlog (docs). Slices P5.2–P5.6 are the actual transfers.
-**P5.2 SHIPPED (2026-06-24): iOS / mobile hardening sweep** — `--sheet-max-h` (dvh) token + safe-area in the
-shared `.mms-sheet` (with a `90vh` fallback for iOS <15.4); `viewportFit:"cover"` so the insets resolve;
-position-based `env(safe-area-inset-*)` on CartBar / grocery CTA / recovery alert / RefundActionSheet / the
-staff add-items sticky header; a single mobile-16px form-control base rule (fixed the inputs QR had missed).
-Nested-scroll +
-breakpoint-overlay items audited clean; swipe-to-close deferred to P5.4 (needs the `@mms/ui` Drawer). Gate green,
-built-CSS verified. **Next: P5.3 — motion discipline + perf budget** (`useAnimationPreference` JS gate,
-`useInView` offscreen-pause, the mobile GPU/blur budget rules, `useDeviceTier`, `useRipple`/`useTilt`).
+**P5.2 COMPLETE & ON PR [#81](https://github.com/min-hinthar/mms-platform/pull/81) — ⚠️ READY TO MERGE BUT
+NOT YET MERGED.** The github MCP dropped in the session right as the "merge go" was given, so the squash-merge
+couldn't be issued. **NEXT SESSION, STEP 1: merge #81** (it is CI-green, `mergeable_state: clean`, both the
+pre-PR and pre-merge adversarial reviews PASS-WITH-FIXES and their verdicts are posted on the PR — just
+squash-merge it), then `git fetch origin main && git reset --hard origin/main` before starting P5.3.
+
+**P5.2 — iOS / mobile hardening sweep (what shipped on #81, QR ← delivery, built to QR's tokens; no
+money/auth/data change):** `--sheet-max-h` dvh token + safe-area in the shared `.mms-sheet` (with a `90vh`
+fallback for iOS <15.4 — one fix covers every `@mms/ui` Sheet); `viewportFit:"cover"` in `app/layout.tsx` (the
+linchpin that makes `env()` insets resolve); position-based `env(safe-area-inset-*,0px)` on CartBar / grocery
+CTA / TableCartProvider recovery alert / RefundActionSheet overlay / staff add-items header / diner menu
+header; a single `@media (max-width:639.98px)` rule pinning `input/textarea/select` to 16px (closes the iOS
+input-zoom class app-wide — QR had fixed some inputs ad hoc but missed grocery/InviteSheet/Refund). Audited
+clean: nested-scroll wheel-traps + breakpoint-coupled overlays. Gate green, built-CSS verified. **Deferred:**
+swipe-to-close → P5.4 (needs the `@mms/ui` Drawer); page-flow top insets → P5.6/PWA (cosmetic in
+browser-portrait; a global body pad would risk the `100dvh` pages). Learnings captured in `.claude/LEARNINGS.md`.
+
+**NEXT: P5.3 — motion discipline + perf budget** (its own branch + PR, after #81 is merged). Build, per the
+`docs/QR_FROM_DELIVERY.md` P5.3 table: `useAnimationPreference()` JS gate (`shouldAnimate`) — QR honors
+reduced-motion in CSS but has no JS gate; `useInView` offscreen-pause for any infinite loop; the mobile
+GPU/blur budget rules (the iOS-OOM discipline) + `useDeviceTier` (SSR-safe); `useRipple`/`useTilt` interaction
+hooks re-skinned to QR tokens. Carry the caveats verbatim: no 3D tilt on a card whose body holds the primary
+CTA, and disable tilt on keyboard focus. Reference implementations live in the delivery repo
+(`src/lib/hooks/useAnimationPreference.ts`, `useDeviceCapability.ts`, `src/components/ui/.../interactions.ts`).
+Then P5.4 (primitive library), P5.5 (contrast-audit test + QR test infra — QR has zero tests today,
+`turbo test` is commented out in `ci.yml`), P5.6 (PWA/offline, deferred).
 
 > **S4 — unified basket & fulfillment routing — COMPLETE (PRs #71–75, all merged + applied to live).**
 > **S4.1** (#71, `20260623100000`) — per-line `qr_cart_items.fulfillment` (dinein/togo/grocery) drives BOTH
