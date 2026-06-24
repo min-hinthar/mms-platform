@@ -25,7 +25,36 @@ export type StaffOrderLine = {
   taxCents: number;
   fulfillment: string;
   refunded: boolean;
+  /** The server-derived refundable amount (cents) — discounted goods + the line's share of order tax. The
+   *  display echo of mms_refund_authorize so the sheet shows exactly what will be refunded (S4-audit P0-1/P1-1). */
+  refundableCents: number;
 };
+
+/**
+ * The refundable amount for one paid line, in cents — MIRRORS mms_refund_authorize (the SQL is the
+ * authority; this is the display echo, like lib/tax.ts mirrors mms_line_tax). Discounted goods (line gross
+ * minus its pro-rata share of the order discount) + the line's share of the order's discounted tax (pro-rata
+ * by taxable gross). Service/tip are order-level → excluded. Does NOT apply the over-refund cap — the display
+ * shows the normal single-refund amount; the server clamps and returns the authoritative figure on submit.
+ * KEEP IN LOCKSTEP with the SQL: any change to the refund formula must land in both.
+ */
+function lineRefundableCents(
+  line: { unitPriceCents: number; qty: number; taxCents: number },
+  order: { subtotalCents: number; discountCents: number; taxCents: number },
+  taxableBaseCents: number,
+): number {
+  const lineGross = line.unitPriceCents * line.qty;
+  const lineDiscount =
+    order.subtotalCents > 0
+      ? Math.round((order.discountCents * lineGross) / order.subtotalCents)
+      : 0;
+  const goods = lineGross - lineDiscount;
+  const lineTax =
+    line.taxCents > 0 && taxableBaseCents > 0
+      ? Math.round((order.taxCents * lineGross) / taxableBaseCents)
+      : 0;
+  return goods + lineTax;
+}
 
 export type StaffOrder = {
   id: string;
@@ -51,7 +80,7 @@ export async function getStaffOrders(): Promise<StaffOrder[]> {
   const { data: orders } = await db
     .from("qr_orders")
     .select(
-      "id,created_at,total_cents,status,tender,stripe_payment_intent_id,session_id,qr_order_items(id,name,qty,unit_price_cents,tax_cents,fulfillment)",
+      "id,created_at,subtotal_cents,discount_cents,tax_cents,service_charge_cents,tip_cents,total_cents,status,tender,stripe_payment_intent_id,session_id,qr_order_items(id,name,qty,unit_price_cents,tax_cents,fulfillment)",
     )
     .in("status", ["paid", "refunded"])
     .order("created_at", { ascending: false })
@@ -73,24 +102,42 @@ export async function getStaffOrders(): Promise<StaffOrder[]> {
     : { data: [] as { id: string; qr_code: string }[] };
   const labelBy = new Map((sessions ?? []).map((s) => [s.id, s.qr_code]));
 
-  return orders.map((o) => ({
-    id: o.id,
-    createdAt: o.created_at,
-    totalCents: o.total_cents,
-    status: o.status,
-    tender: o.tender,
-    isSplit: o.stripe_payment_intent_id == null,
-    label: (o.session_id ? labelBy.get(o.session_id) : null) ?? "Order",
-    lines: (o.qr_order_items ?? []).map((li) => ({
-      id: li.id,
-      name: li.name,
-      qty: li.qty,
-      unitPriceCents: li.unit_price_cents,
-      taxCents: li.tax_cents,
-      fulfillment: li.fulfillment,
-      refunded: refundedLines.has(li.id),
-    })),
-  }));
+  return orders.map((o) => {
+    const items = o.qr_order_items ?? [];
+    // The taxable subtotal base for this order (taxable lines have a stored per-unit tax > 0) — the
+    // denominator for each line's pro-rata share of the order tax, matching mms_refund_authorize.
+    const taxableBaseCents = items.reduce(
+      (a, li) => a + (li.tax_cents > 0 ? li.unit_price_cents * li.qty : 0),
+      0,
+    );
+    return {
+      id: o.id,
+      createdAt: o.created_at,
+      totalCents: o.total_cents,
+      status: o.status,
+      tender: o.tender,
+      isSplit: o.stripe_payment_intent_id == null,
+      label: (o.session_id ? labelBy.get(o.session_id) : null) ?? "Order",
+      lines: items.map((li) => ({
+        id: li.id,
+        name: li.name,
+        qty: li.qty,
+        unitPriceCents: li.unit_price_cents,
+        taxCents: li.tax_cents,
+        fulfillment: li.fulfillment,
+        refunded: refundedLines.has(li.id),
+        refundableCents: lineRefundableCents(
+          { unitPriceCents: li.unit_price_cents, qty: li.qty, taxCents: li.tax_cents },
+          {
+            subtotalCents: o.subtotal_cents,
+            discountCents: o.discount_cents,
+            taxCents: o.tax_cents,
+          },
+          taxableBaseCents,
+        ),
+      })),
+    };
+  });
 }
 
 export type RefundResult =
@@ -106,6 +153,7 @@ export type RefundResult =
         | "not_paid"
         | "split_unsupported"
         | "already_refunded"
+        | "fully_refunded"
         | "stripe_error"
         | "error";
     };
@@ -155,7 +203,8 @@ export async function refundLine(raw: unknown): Promise<RefundResult> {
         | "not_found"
         | "not_paid"
         | "split_unsupported"
-        | "already_refunded",
+        | "already_refunded"
+        | "fully_refunded",
     };
 
   // Execute the Stripe refund — server-derived amount + PI, idempotency-keyed on the line so a double

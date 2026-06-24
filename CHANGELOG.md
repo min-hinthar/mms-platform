@@ -4,6 +4,33 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed — S4 audit remediation: refund correctness + fire-at-checkout durability (2026-06-24)
+
+The money/kitchen defects the S4 audit (`docs/S4_AUDIT.md`) surfaced. Migration `20260624030000`.
+
+- **P0-1 (money-out BLOCKER):** `mms_refund_authorize` under-refunded any qty>1 taxable line — `tax_cents`
+  is stored **per-unit** but the refund added it once, not `×qty`. Now the line's tax is its pro-rata share
+  of the order's tax (scales with qty). **P1-1:** the refund is also **discount-aware** (refunds the
+  discounted goods + share of tax on the discounted base, mirroring `getCartTotals`, not the undiscounted
+  list price) and carries an **order-level over-refund cap** (Σ refunds ≤ net + tax = total − service − tip),
+  so cumulative line refunds can never exceed what was collected. `RefundActionSheet` now shows the
+  server-derived `refundableCents` (a `lib/refunds.ts` mirror of the SQL) so the figure shown IS what refunds.
+- **P1-2 (silent charge-with-no-fire):** the settlement `after()` drain (fire pending food · init togo ·
+  snapshot EBT) had no backstop if `after()` cold-stopped after the 200 ack. Added a **pg_cron reconciler**
+  (`mms_reconcile_settled_fulfillment`, every 5 min, the QBO-drain pattern) that re-runs the idempotent
+  side-effects for recently-paid orders with un-done work, and **split the three RPCs into independent
+  try/catch** in all three settlement paths (card webhook single + split; cash) so a throw on one can't
+  starve the others.
+- **P1-3 (wrong-batch undo):** `mms_undo_fire` keyed on `max(fire_at)`, so a host's grace-Undo could claw
+  back a guest's S4.2 "make it now" line. It now takes a `fire_batch` (the send hands the client its batch
+  id) and reverses **only that batch** — never another actor's line sharing the grace window.
+- **P1-4 (>24h re-refund double-pay):** the `charge.refunded` ledger backstop **5xx**s on a list/record
+  failure (was: logged + swallowed), so Stripe redelivers within its 72h window instead of permanently
+  losing the row and risking a second real refund once the idempotency key expires.
+- **P0-2 (M5 blocker, doc):** reconciled the project-topology contradiction — `ROADMAP.md` M5 +
+  `BACKEND_ARCHITECTURE.md` now state the locked design: apps share **packages + the one Stripe account**,
+  each on its **own** Supabase project (no DB merge). M5 is a code unification, not a database merge.
+
 ### Added — S4.3c: split-tender seam (EBT eligibility-at-sale; tender split = 2027) — **S4 COMPLETE** (2026-06-24)
 
 The data-model seam so the **2027 EBT tender split** (one tender pays the eligible grocery subset, another

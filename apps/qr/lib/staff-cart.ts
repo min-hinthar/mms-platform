@@ -234,31 +234,47 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
     // gates to dine-in + food, never grocery) so the kitchen makes everything they paid for ("no charge-
     // with-no-fire"). Drained out of band: a kitchen-fire hiccup must NEVER fail a settled cash order.
     // Idempotent (no draft food left ⇒ fires 0); the KDS picks up the now-fired lines via realtime.
+    // S4-audit P1-2: each side-effect is independent — a thrown await on one must not starve the next two;
+    // the pg_cron reconciler (mms_reconcile_settled_fulfillment) is the durable backstop if after() never runs.
     after(async () => {
-      const { error: fireErr } = await db.rpc("mms_fire_pending_food", { p_cart_id: cart.id });
-      if (fireErr)
-        console.error("[staff-cart] fire-at-checkout failed", {
-          cartId: cart.id,
-          message: fireErr.message,
-        });
+      try {
+        const { error: fireErr } = await db.rpc("mms_fire_pending_food", { p_cart_id: cart.id });
+        if (fireErr)
+          console.error("[staff-cart] fire-at-checkout failed", {
+            cartId: cart.id,
+            message: fireErr.message,
+          });
+      } catch (e) {
+        console.error("[staff-cart] fire-at-checkout threw", { cartId: cart.id, error: e });
+      }
       // To-go fulfillment loop (S4.3a): flag 'preparing' if the order has a takeaway (togo/grocery) line,
-      // so the expo station + /track reflect it. Same drain; idempotent; null for a pure dine-in order.
-      const { error: togoErr } = await db.rpc("mms_init_togo_status", {
-        p_order: orderId,
-        p_cart: cart.id,
-      });
-      if (togoErr)
-        console.error("[staff-cart] init togo_status failed", {
-          cartId: cart.id,
-          message: togoErr.message,
+      // so the expo station + /track reflect it. Idempotent; null for a pure dine-in order.
+      try {
+        const { error: togoErr } = await db.rpc("mms_init_togo_status", {
+          p_order: orderId,
+          p_cart: cart.id,
         });
+        if (togoErr)
+          console.error("[staff-cart] init togo_status failed", {
+            cartId: cart.id,
+            message: togoErr.message,
+          });
+      } catch (e) {
+        console.error("[staff-cart] init togo_status threw", { cartId: cart.id, error: e });
+      }
       // Split-tender SEAM (S4.3c): record eligibility-at-sale on the order's grocery lines (2027 EBT key).
-      const { error: ebtErr } = await db.rpc("mms_snapshot_ebt_eligibility", { p_order: orderId });
-      if (ebtErr)
-        console.error("[staff-cart] snapshot ebt eligibility failed", {
-          cartId: cart.id,
-          message: ebtErr.message,
+      try {
+        const { error: ebtErr } = await db.rpc("mms_snapshot_ebt_eligibility", {
+          p_order: orderId,
         });
+        if (ebtErr)
+          console.error("[staff-cart] snapshot ebt eligibility failed", {
+            cartId: cart.id,
+            message: ebtErr.message,
+          });
+      } catch (e) {
+        console.error("[staff-cart] snapshot ebt eligibility threw", { cartId: cart.id, error: e });
+      }
     });
 
     if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {

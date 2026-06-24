@@ -1377,7 +1377,14 @@ export type Database = {
         Returns: number
       }
       mms_clear_reward: { Args: { p_cart: string }; Returns: undefined }
-      mms_fire_cart: { Args: { p_cart_id: string }; Returns: number }
+      mms_fire_cart: {
+        Args: { p_cart_id: string }
+        Returns: {
+          batch: string
+          fire_deadline: string
+          fired: number
+        }[]
+      }
       mms_fire_line: { Args: { p_line: string }; Returns: string }
       mms_fire_pending_food: { Args: { p_cart_id: string }; Returns: number }
       mms_fulfill_cash_order: {
@@ -1466,6 +1473,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      mms_reconcile_settled_fulfillment: { Args: never; Returns: number }
       mms_record_refund: {
         Args: {
           p_amount: number
@@ -1555,7 +1563,10 @@ export type Database = {
         Args: { category: string; dine_in: boolean }
         Returns: boolean
       }
-      mms_undo_fire: { Args: { p_cart_id: string }; Returns: number }
+      mms_undo_fire: {
+        Args: { p_batch: string; p_cart_id: string }
+        Returns: number
+      }
       mms_void_line: {
         Args: {
           p_action: string

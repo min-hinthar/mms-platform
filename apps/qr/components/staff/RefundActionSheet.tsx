@@ -24,13 +24,17 @@ export function RefundActionSheet({
   line: StaffOrderLine;
   orderLabel: string;
   onClose: () => void;
-  onDone: () => void;
+  /** Called on success/no-op. The amount (cents) is passed on a real refund so the board can confirm the
+   *  ACTUAL figure (the over-refund cap may clamp it below the displayed estimate); omitted on a no-op. */
+  onDone: (refundedCents?: number) => void;
 }) {
   const [reason, setReason] = useState<string>("unhappy");
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const amount = (line.unitPriceCents * line.qty + line.taxCents) / 100;
+  // The server-derived refundable amount (discounted goods + the line's share of order tax) — computed in
+  // getStaffOrders to mirror mms_refund_authorize, so the figure shown IS what the server will refund.
+  const amount = line.refundableCents / 100;
 
   // Money-out modal: move focus into the dialog on open + restore it to the trigger on close (WCAG 2.4.3 /
   // QA §A). Escape closes. (A full focus trap is overkill for a 4-control sheet; focus-in + restore covers
@@ -48,7 +52,7 @@ export function RefundActionSheet({
       try {
         const res = await refundLine({ orderItemId: line.id, reason, pin });
         if (res.ok) {
-          onDone();
+          onDone(res.amountCents); // the SERVER-authorized amount (may be clamped below the estimate)
           return;
         }
         switch (res.reason) {
@@ -66,6 +70,11 @@ export function RefundActionSheet({
           case "already_refunded":
             // It's already refunded — refresh the board (the line will show "Refunded") + close. No dead
             // error text (the sheet unmounts on onDone, so a message here would never be seen).
+            onDone();
+            break;
+          case "fully_refunded":
+            // The order's refundable pool (goods + tax) is exhausted by prior refunds — nothing left to
+            // give back on this line. Refresh + close; the board reflects the order's refunded state.
             onDone();
             break;
           case "not_paid":

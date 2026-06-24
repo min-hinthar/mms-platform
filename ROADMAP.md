@@ -77,11 +77,22 @@ Smallest slice that takes one real test charge end-to-end (solo Scan & Go). **No
 
 ## ⬜ M5 — Migrate delivery app &nbsp;`milestone:M5`
 
+> **Topology (locked — resolves the S4-audit P0-2 contradiction):** the two apps **share monorepo
+> _packages_ and the one Stripe account, NOT a database.** QR keeps its **own** Supabase project
+> (`fasnpdhtvqtzjlvruqcu`); delivery keeps **its** own (`ukuzkhuppqwtrdkjqrkv`). M5 is a _code_ unification
+> (the `@mms/db` client factory/types, `@mms/ui` tokens, root config), each app wiring its own project env —
+> **no DB/data merge, no shared schema** (which would re-arm the `qr_*`-vs-delivery `create table` collision).
+> This matches CLAUDE.md ("one Stripe account; QR and delivery each run on their **own** Supabase project")
+> and `BACKEND_ARCHITECTURE.md`'s 2026-06-18 dedicated-project banner. Cross-app rewards unification (M4's
+> "shared ledger") therefore needs a cross-project mechanism (a future design call), not one shared DB.
+
 - **P5.1** `git clone` delivery app → `apps/delivery`, drop its `.git`, dedupe deps to root. ⬜
-- **P5.2** Point its Supabase/Stripe imports at `@mms/db`; share `@mms/ui` tokens. ⬜
+- **P5.2** Point its Supabase/Stripe wiring at the shared `@mms/db` client factory + `@mms/ui` tokens —
+  each app keeps its **own** Supabase project env + the shared Stripe account keys. ⬜
 - **P5.3** Second Vercel project (Root Directory `apps/delivery`); turbo-ignore. ⬜
 
-**Exit:** both apps build/deploy from the monorepo on one Supabase + Stripe.
+**Exit:** both apps build/deploy from the monorepo, **sharing packages (`@mms/db`/`@mms/ui`) + the one
+Stripe account** — each on its **own** Supabase project (no DB merge).
 
 ## ⏸ M6 — Kiosk · Terminal · EBT (2027) &nbsp;`milestone:M6`
 
