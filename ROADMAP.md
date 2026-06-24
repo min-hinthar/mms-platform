@@ -135,7 +135,7 @@ What lets the kitchen trust the screen + gives loss-controlled undo. **Dep:** S1
 
 **Exit:** a table runs a trust tab and settles once at close (any tender); a server can require/convert to a secure tab; tip lands on the final total.
 
-### ⬜ S4 — Unified basket & fulfillment routing &nbsp;`milestone:S4`
+### ✅ S4 — Unified basket & fulfillment routing &nbsp;`milestone:S4`
 
 Dine-in + take-out + grocery in one cart, one payment, mixed fulfillment. **Dep:** S2 (line-state/KDS) · M2 (fire-time) · grocery (M2.3).
 
@@ -144,7 +144,7 @@ Dine-in + take-out + grocery in one cart, one payment, mixed fulfillment. **Dep:
 - **S4.3** Bagging/expo station + the **split-tender seam** — a payment covers a **subset** of lines (single-tender at launch) + **line-level refunds**; lets M6 EBT be a tender-time branch, not a rewrite. 🟡 _pulled forward:_ **M3·P3.3** builds the per-seat split-tender; S4.3 generalizes it to arbitrary line subsets + mixed-basket fulfillment. **Three slices** (Min's "Everything" scope; `docs/S4_DESIGN.md` S4.3):
   - **S4.3a** To-go fulfillment loop — `/staff/expo` bagging station + `qr_orders.togo_status` + the diner "to-go ready" departure signal on `/track`; snapshots `qr_order_items.fulfillment`. ✅ (migration `20260624000000`)
   - **S4.3b** Line-level refunds — manager-gated `/staff/orders` surface + per-line refund (money-OUT): `mms_refund_authorize` (server-derived amount + PI) → Stripe refund (idempotency-keyed) → `mms_refunds` ledger + `mms_approvals` audit; `charge.refunded` webhook flips `qr_orders.status='refunded'` when fully refunded (unblocks M4 refund-recede; catches dashboard refunds). ✅ (migration `20260624010000`; split-tender line refunds deferred to the split path)
-  - **S4.3c** Split-tender seam — per-line payment association + EBT-eligibility on the order so 2027 EBT is a tender-time branch; no 2027 tender build. ⬜
+  - **S4.3c** Split-tender seam — `qr_order_items.ebt_eligible` (eligibility-at-sale, the 2027 EBT partition key) snapshotted off the money path via `mms_snapshot_ebt_eligibility` in the settlement `after()` drain; the payment↔line-subset association shape is deferred to the 2027 Forage build (documented, not guessed). ✅ (migration `20260624020000`) — **S4 COMPLETE**
 
 **Exit:** one basket pays for served + to-go + grocery with correct per-line tax; to-go is fresh at departure; a payment can already target a line subset.
 

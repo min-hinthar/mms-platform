@@ -78,6 +78,15 @@ export async function POST(req: NextRequest) {
                   cartId: splitCartId,
                   error: togoErr,
                 });
+              // Split-tender SEAM (S4.3c): eligibility-at-sale on the split order's grocery lines.
+              const { error: ebtErr } = await db.rpc("mms_snapshot_ebt_eligibility", {
+                p_order: orderId,
+              });
+              if (ebtErr)
+                console.error("[stripe webhook] split snapshot ebt eligibility failed", {
+                  cartId: splitCartId,
+                  error: ebtErr,
+                });
             });
             // Redeem any applied reward (M4 P4.2) — single-use, exactly-once on the open→paid transition.
             const { error: redErr } = await db.rpc("mms_redeem_cart_reward", {
@@ -296,6 +305,17 @@ export async function POST(req: NextRequest) {
                 cartId,
                 paymentIntent: intent.id,
                 error: togoErr,
+              });
+            // Split-tender SEAM (S4.3c): record eligibility-at-sale on the order's grocery lines (the 2027
+            // EBT partition key). Off the money path; idempotent; false if it hiccups (catalog stays derivable).
+            const { error: ebtErr } = await db.rpc("mms_snapshot_ebt_eligibility", {
+              p_order: orderId,
+            });
+            if (ebtErr)
+              console.error("[stripe webhook] snapshot ebt eligibility failed", {
+                cartId,
+                paymentIntent: intent.id,
+                error: ebtErr,
               });
           });
           // Morning Star Rewards (M4): stamp the earner + award Stars. Only a known diner PAYER earns

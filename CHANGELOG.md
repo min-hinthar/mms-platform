@@ -4,6 +4,29 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — S4.3c: split-tender seam (EBT eligibility-at-sale; tender split = 2027) — **S4 COMPLETE** (2026-06-24)
+
+The data-model seam so the **2027 EBT tender split** (one tender pays the eligible grocery subset, another
+pays the rest) is a tender-time branch, not a rewrite. Design: `docs/S4_DESIGN.md` S4.3c (C1–C3). Migration
+`20260624020000`. **No tender logic built** (EBT = 2027, gated on Forage/USDA-TPP + FNS authorization).
+
+- **`qr_order_items.ebt_eligible`** (default false) — the **eligibility-at-sale** record + the 2027 partition
+  key. `mms_snapshot_ebt_eligibility(order)` marks the order's grocery lines whose catalog item is
+  `ebt_eligible`, called **best-effort in the settlement `after()` side-effects** (card · cash · split) — **off
+  the money path**, no fulfill-RPC change. Idempotent; food/prepared lines stay false; a hiccup leaves false
+  (the catalog stays derivable). A permanent audit record, immune to later catalog drift.
+- **The line-categorization seam is otherwise already in place** — `qr_order_items.fulfillment` (S4.3a)
+  identifies grocery lines; the per-payer PI ledger (`qr_cart_shares`) generalizes to per-tender. The
+  payment↔line-subset **association shape** (a `qr_payment_lines` join vs `paid_by_intent`) is **deliberately
+  deferred** to the 2027 Forage build (committing it now would guess the PI model and risk a money-table
+  rewrite) — documented so 2027 is a branch, not a discovery. The S4.3b `split_unsupported` line-refund
+  deferral resolves on this same seam.
+- Function `SECURITY DEFINER`, `search_path=''`, revoked from public/anon/authenticated + service_role only.
+
+**S4 (unified basket & fulfillment routing) is complete** — S4.1 per-line tag + mixed cart · S4.2 fire
+routing + KDS subset · S4.3a to-go fulfillment loop · S4.3b line-level refunds · S4.3c EBT seam. The 2027 EBT
+tender + split-order line refunds ride the documented seam.
+
 ### Added — S4.3b: line-level refunds (`charge.refunded` + manager-gated per-line refund) (2026-06-24)
 
 Money-OUT: the captured-line counterpart to S2.3's open-cart void. Design: `docs/S4_DESIGN.md` S4.3b
@@ -23,7 +46,7 @@ Money-OUT: the captured-line counterpart to S2.3's open-cart void. Design: `docs
   state **M4 refund-recede** was blocked on — the rewards summary counts only `status='paid'`, so a full
   refund recedes the Star. A partial (single-line) refund leaves `status='paid'` (the ledger has the detail).
 - **Hardening** — all three RPCs `SECURITY DEFINER`, `search_path=''`, revoked from public/anon/authenticated
-  - service_role only; `mms_refunds` RLS-on (manager-read). A ledger-write failure _after_ a successful Stripe
+  - service*role only; `mms_refunds` RLS-on (manager-read). A ledger-write failure \_after* a successful Stripe
     refund is logged, not surfaced — the webhook reconciles regardless (money moved correctly). Split-line
     refunds + coupon claw-back are documented deferrals.
 
