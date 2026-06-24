@@ -475,8 +475,39 @@ export async function POST(req: NextRequest) {
         },
       );
     }
+  } else if (event.type === "charge.refunded") {
+    // S4.3b: a refund settled — our in-app per-line refund (recorded by refundLine) OR a refund issued from
+    // the Stripe dashboard. Stripe-AUTHORITATIVE status reconcile: flip qr_orders.status='refunded' once
+    // amount_refunded >= total_cents. Idempotent (only from 'paid'); a PI we don't own — incl. split orders,
+    // whose shares carry their own PIs — returns 'no_order' (a no-op). This is the state M4 refund-recede
+    // consumes (the rewards summary counts only status='paid', so a full refund recedes the Star).
+    const charge = event.data.object;
+    const pi =
+      typeof charge.payment_intent === "string"
+        ? charge.payment_intent
+        : (charge.payment_intent?.id ?? null);
+    if (pi) {
+      const db = serviceClient();
+      const { error: reconErr } = await db.rpc("mms_apply_refund_reconcile", {
+        p_payment_intent: pi,
+        p_amount_refunded: charge.amount_refunded,
+      });
+      // supabase-js returns the PG error in `error` (no throw); a genuine DB failure must redeliver, not
+      // 200-and-vanish (else a full refund never flips status → M4 recede stays stale). 5xx (idempotent RPC).
+      if (reconErr) {
+        console.error("[stripe webhook] mms_apply_refund_reconcile failed", {
+          paymentIntent: pi,
+          error: reconErr,
+        });
+        return NextResponse.json({ error: "Refund reconcile failed; will retry" }, { status: 500 });
+      }
+      posthog.capture({
+        distinctId: pi,
+        event: "charge_refunded",
+        properties: { amount_refunded: charge.amount_refunded },
+      });
+    }
   }
-  // (handle charge.refunded, … as needed)
 
   // Drain analytics AFTER the response is sent (Next `after`) — keeps the function alive for the
   // flush without coupling the Stripe 200 ack latency to PostHog (a hung endpoint can't delay the

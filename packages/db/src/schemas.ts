@@ -227,6 +227,15 @@ export const setTogoStatusInput = z.object({
   to: z.enum(["ready", "picked_up"]),
 });
 
+/** refundLine (S4.3b) — a manager refunds ONE paid order line (money-OUT). Shape only; the amount + PI are
+ *  SERVER-derived (mms_refund_authorize), never sent by the client. `pin` is the money-out step-up
+ *  (verifyStaffPin on the manager's own identity); `reason` is an audit code. */
+export const refundLineInput = z.object({
+  orderItemId: uuid,
+  reason: z.enum(["unhappy", "wrong_item", "too_slow", "duplicate", "other"]),
+  pin: z.string().regex(/^\d{4,8}$/),
+});
+
 /** submitFeedback (M4 P4.3) — leave feedback on an order. Shape + bounds only; mms_submit_feedback
  *  re-derives that the caller is the order's EARNER + the order is paid (one per order). Rating bounded
  *  1..5; comment length-capped (mirrors the column CHECK). UNGATED — any rating is accepted. */

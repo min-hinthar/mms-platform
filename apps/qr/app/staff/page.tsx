@@ -72,6 +72,11 @@ export default async function StaffHome() {
             Feedback →
           </Link>
         )}
+        {isManager && (
+          <Link href="/staff/orders" style={ownerLink}>
+            Orders & refunds →
+          </Link>
+        )}
         <Link href="/staff/profile" style={ownerLink}>
           {hasPin ? "Your PIN →" : "Set a tablet PIN →"}
         </Link>
