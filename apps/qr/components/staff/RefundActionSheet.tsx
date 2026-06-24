@@ -24,7 +24,9 @@ export function RefundActionSheet({
   line: StaffOrderLine;
   orderLabel: string;
   onClose: () => void;
-  onDone: () => void;
+  /** Called on success/no-op. The amount (cents) is passed on a real refund so the board can confirm the
+   *  ACTUAL figure (the over-refund cap may clamp it below the displayed estimate); omitted on a no-op. */
+  onDone: (refundedCents?: number) => void;
 }) {
   const [reason, setReason] = useState<string>("unhappy");
   const [pin, setPin] = useState("");
@@ -50,7 +52,7 @@ export function RefundActionSheet({
       try {
         const res = await refundLine({ orderItemId: line.id, reason, pin });
         if (res.ok) {
-          onDone();
+          onDone(res.amountCents); // the SERVER-authorized amount (may be clamped below the estimate)
           return;
         }
         switch (res.reason) {

@@ -198,33 +198,24 @@ export async function sendToKitchen(cartId: string): Promise<SendToKitchenResult
   if (role !== "host") return { ok: false, reason: "not_host" };
 
   const db = serviceClient();
-  const { data: fired, error } = await db.rpc("mms_fire_cart", {
+  const { data: rows, error } = await db.rpc("mms_fire_cart", {
     p_cart_id: input.cartId,
   });
   if (error) {
     console.error("[cart] mms_fire_cart failed", { cartId: input.cartId, message: error.message });
     return { ok: false, reason: "error" };
   }
+  const row = rows?.[0];
+  const fired = row?.fired ?? 0;
   if (!fired) return { ok: false, reason: "nothing" }; // empty cart / nothing still draft / not dine-in
   await touchCart(input.cartId, "sendToKitchen");
 
-  // The batch's grace deadline = the latest fire_at among the lines just fired (all share now()+grace
-  // from the single UPDATE; an earlier elapsed batch has a smaller fire_at, so DESC picks this one). We
-  // read its `fire_batch` too and hand it back as `undoBatch`: the client binds its Undo to THIS batch, so
-  // mms_undo_fire reverses exactly the send the button represents — never a guest's later make-it-now line
-  // that happens to share the grace window (S4-audit P1-3). We return the deadline WITH `serverNow` so the
-  // client counts down the server-MEASURED grace duration (`undoUntil − serverNow`) from its own receipt —
-  // immune to absolute client-clock skew (a slow phone can't show a longer window). A miss → no undo window
-  // shown (the line is still server-side undoable; the button just won't offer it) rather than a fake one.
-  const { data: deadline } = await db
-    .from("qr_cart_items")
-    .select("fire_at,fire_batch")
-    .eq("cart_id", input.cartId)
-    .eq("state", "fired")
-    .order("fire_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
+  // S4-audit P1-3: mms_fire_cart RETURNS the fire_batch + the shared grace deadline it stamped, so we hand
+  // the client `undoBatch` directly (race-free — no read-back that a concurrent make-it-now could win) and
+  // its Undo reverses exactly THIS send's batch, never a guest's make-it-now line sharing the grace window.
+  // We return the deadline WITH `serverNow` so the client counts down the server-MEASURED grace duration
+  // (`undoUntil − serverNow`) from its own receipt — immune to absolute client-clock skew. fire_deadline ==
+  // the lines' fire_at exactly (captured once in the RPC).
   getPostHogClient().capture({
     distinctId: uid,
     event: "send_to_kitchen",
@@ -233,9 +224,9 @@ export async function sendToKitchen(cartId: string): Promise<SendToKitchenResult
   return {
     ok: true,
     fired,
-    undoUntil: deadline?.fire_at ?? null,
+    undoUntil: row?.fire_deadline ?? null,
     serverNow: new Date().toISOString(),
-    undoBatch: deadline?.fire_batch ?? null,
+    undoBatch: row?.batch ?? null,
   };
 }
 

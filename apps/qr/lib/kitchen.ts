@@ -171,11 +171,12 @@ export async function staffFireCart(raw: unknown): Promise<KitchenActionResult> 
     .maybeSingle();
   if (!cart) return { ok: false, error: "This table has no open order." };
 
-  const { data: fired, error } = await db.rpc("mms_fire_cart", { p_cart_id: cart.id });
+  const { data: fireRows, error } = await db.rpc("mms_fire_cart", { p_cart_id: cart.id });
   if (error) {
     console.error("[kitchen] mms_fire_cart failed", { sessionId, message: error.message });
     return { ok: false, error: "Couldn’t send that order. Try again." };
   }
+  const fired = fireRows?.[0]?.fired ?? 0; // mms_fire_cart returns (fired, batch, fire_deadline) (S4-audit P1-3)
   if (!fired) return { ok: false, error: "Nothing new to send — it’s all in the kitchen already." };
 
   if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {

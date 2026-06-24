@@ -76,20 +76,49 @@ end $$;
 revoke all on function public.mms_refund_authorize(uuid, uuid) from public, anon, authenticated;
 grant execute on function public.mms_refund_authorize(uuid, uuid) to service_role;
 
--- ── P1-3: mms_undo_fire now keys on a specific fire_batch (not max(fire_at)) ─────────────────────────────
+-- ── P1-3: per-batch fire identity — mms_fire_cart RETURNS its batch; mms_undo_fire keys on it ─────────────
 -- The bug: S4.2's mms_fire_line ("make it now") stamps the same now()+10s grace as a host's batch send, so
--- "undo the latest by fire_at" could revert a GUEST's deliberate make-it-now togo line instead of the host's
--- batch. Each send already stamps a unique fire_batch; the send action now hands the client THAT batch id
--- and Undo passes it back, so undo reverses exactly the batch the button represents — never another actor's.
--- New signature (uuid, uuid) ⇒ drop the old (uuid) overload first. Still grace-gated (fire_at > now()) +
--- dine-in + cart-open, so a passed-grace (kitchen-pulled) line is never silently un-sent. Atomic, one statement.
+-- the old "undo the latest by fire_at" could revert a GUEST's make-it-now togo line instead of the host's
+-- batch. Fix = make the batch identity FLOW from the send to the undo, race-free: mms_fire_cart now returns
+-- the fire_batch it stamped (+ the shared deadline), the send action hands the client THAT batch, and undo
+-- keys on it. (Reading the batch back by max(fire_at) — the prior attempt — does NOT close the race: a
+-- concurrent make-it-now between fire and read-back wins the max. Returning it from the write does.)
+-- Return type changes ⇒ drop+recreate. Single atomic UPDATE, dine-in only (S4.2: grocery never fires, to-go
+-- waits for checkout/make-it-now); v_deadline is captured ONCE so fire_at == the returned deadline exactly.
+drop function if exists public.mms_fire_cart(uuid);
+create function public.mms_fire_cart(p_cart_id uuid)
+  returns table(fired integer, batch uuid, fire_deadline timestamptz)
+  language plpgsql set search_path = '' as $$
+declare n integer; v_batch uuid := gen_random_uuid(); v_deadline timestamptz := now() + interval '10 seconds';
+begin
+  update public.qr_cart_items ci
+    set state = 'fired', fire_at = v_deadline, fire_batch = v_batch
+    from public.qr_carts c
+    join public.table_sessions s on s.id = c.session_id
+    where ci.cart_id = p_cart_id
+      and c.id = ci.cart_id
+      and c.status = 'open'
+      and s.mode = 'dinein'
+      and ci.state = 'draft'
+      and ci.fulfillment = 'dinein';   -- S4.2: to-go waits for checkout/make-it-now; grocery never fires
+  get diagnostics n = row_count;
+  return query select n, v_batch, v_deadline;   -- the caller ignores batch/deadline when n=0 (nothing sent)
+end $$;
+revoke all on function public.mms_fire_cart(uuid) from public, anon, authenticated;
+grant execute on function public.mms_fire_cart(uuid) to service_role;
+
+-- mms_undo_fire reverses exactly the batch the send handed back. New signature (uuid, uuid) ⇒ drop the old
+-- (uuid) overload first. Guards restored from the S2 contract (20260622090000/100000): grace-gated
+-- (fire_at > now()) + dine-in + cart-open + `not ci.comped` (a comp is a committed loss — undo must skip it,
+-- else a comped-in-grace line is re-drafted and diverges from the mms_approvals audit) + clear fire_batch on
+-- revert (no dangling batch id on the now-draft line). Atomic, one statement.
 drop function if exists public.mms_undo_fire(uuid);
 create function public.mms_undo_fire(p_cart_id uuid, p_batch uuid) returns integer
   language plpgsql set search_path = '' as $$
 declare n integer;
 begin
   update public.qr_cart_items ci
-    set state = 'draft', fire_at = null
+    set state = 'draft', fire_at = null, fire_batch = null
     from public.qr_carts c
     join public.table_sessions s on s.id = c.session_id
     where ci.cart_id = p_cart_id
@@ -97,6 +126,7 @@ begin
       and c.status = 'open'
       and s.mode = 'dinein'
       and ci.state = 'fired'
+      and not ci.comped                -- a comped line is a committed loss; undo must skip it (S2-audit S4)
       and ci.fire_at > now()           -- still in grace; the kitchen has NOT pulled it (else removal → void)
       and ci.fire_batch = p_batch;     -- ONLY this send's batch (the UI's Undo corresponds to one send)
   get diagnostics n = row_count;

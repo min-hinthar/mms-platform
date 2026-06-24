@@ -15,6 +15,9 @@ export function StaffOrdersBoard({ initial }: { initial: StaffOrder[] }) {
   const [refunding, setRefunding] = useState<{ order: StaffOrder; line: StaffOrderLine } | null>(
     null,
   );
+  // The last refund's confirmation (the server-authorized amount — may differ from the line estimate when
+  // the over-refund cap clamps). One live region for the board (announced once on a successful refund).
+  const [confirm, setConfirm] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   const refresh = useCallback(() => {
@@ -39,6 +42,10 @@ export function StaffOrdersBoard({ initial }: { initial: StaffOrder[] }) {
 
   return (
     <>
+      {/* The board's single live region — announces a completed refund's actual amount once. */}
+      <p role="status" aria-live="polite" style={confirmBanner}>
+        {confirm}
+      </p>
       <ul
         role="list"
         style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}
@@ -87,7 +94,9 @@ export function StaffOrdersBoard({ initial }: { initial: StaffOrder[] }) {
                         {l.name}
                         <span style={{ color: "var(--t2)" }}>
                           {" "}
-                          · ${((l.unitPriceCents * l.qty + l.taxCents) / 100).toFixed(2)}
+                          {/* The line's refundable value (discounted goods + its share of tax) — the
+                              server-derived figure, NOT a per-unit-tax estimate (S4-audit P0-1). */}
+                          · ${(l.refundableCents / 100).toFixed(2)}
                         </span>
                       </span>
                       {l.refunded ? (
@@ -118,8 +127,10 @@ export function StaffOrdersBoard({ initial }: { initial: StaffOrder[] }) {
           line={refunding.line}
           orderLabel={refunding.order.label}
           onClose={() => setRefunding(null)}
-          onDone={() => {
+          onDone={(refundedCents?: number) => {
             setRefunding(null);
+            if (refundedCents != null)
+              setConfirm(`Refunded $${(refundedCents / 100).toFixed(2)} to the card.`);
             refresh();
           }}
         />
@@ -128,6 +139,13 @@ export function StaffOrdersBoard({ initial }: { initial: StaffOrder[] }) {
   );
 }
 
+const confirmBanner: CSSProperties = {
+  minHeight: 18,
+  margin: "0 0 10px",
+  fontSize: 13,
+  fontWeight: 700,
+  color: "var(--ac-strong)",
+};
 const orderHead: CSSProperties = {
   width: "100%",
   display: "flex",
