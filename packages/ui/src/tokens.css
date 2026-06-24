@@ -18,6 +18,10 @@
   --r-card: 20px;
   --r-sheet: 26px;
   --r-full: 999px;
+  /* Bottom-sheet max height. Use `dvh` (not `vh`): iOS `vh` is the LARGE viewport behind the
+     toolbar/notch, so a `90vh` sheet's top — and its close button — hide under the status bar.
+     Subtract the top safe-area inset + a little breathing room. (Ported from delivery's hardening.) */
+  --sheet-max-h: calc(100dvh - env(safe-area-inset-top, 0px) - 1rem);
   --spring: linear(
     0,
     0.006,

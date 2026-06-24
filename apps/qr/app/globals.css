@@ -39,6 +39,19 @@ h3 {
   border-radius: 6px;
 }
 
+/* iOS Safari auto-zooms on focusing any form control with font-size <16px — and never zooms back
+   out. Pin form controls to 16px on the narrow viewport (overrides inline/utility sizing via
+   !important) so no field zooms on focus; the design's smaller sizes resume from sm: (640px) up.
+   No QR input is intentionally >16px, so a flat 16px is safe here. (Ported from delivery's input
+   discipline; audit every new customer form for this.) */
+@media (max-width: 639.98px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
 /* Radix Sheet skin (paired with @mms/ui Sheet) */
 .mms-scrim {
   position: fixed;
@@ -51,12 +64,17 @@ h3 {
   left: 0;
   right: 0;
   bottom: 0;
+  /* `--sheet-max-h` is dvh-based (not vh) so the sheet top + close button never hide under the iOS
+     status bar; the bottom padding clears the home-bar inset so content/CTA aren't obscured. The
+     `90vh` line is the fallback for browsers without `dvh` (iOS <15.4) — there `calc(100dvh …)` is
+     invalid and dropped, so without it max-height would become `none` (worse than the old 90vh). */
   max-height: 90vh;
+  max-height: var(--sheet-max-h);
   overflow-y: auto;
   background: var(--pg);
   border-radius: var(--r-sheet) var(--r-sheet) 0 0;
   box-shadow: var(--sh-xl);
-  padding: 8px 20px 24px;
+  padding: 8px 20px calc(24px + env(safe-area-inset-bottom, 0px));
   animation: up var(--dur-sheet) var(--spring);
 }
 .mms-grab {

@@ -54,7 +54,8 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
           position: "sticky",
           top: 0,
           background: "var(--pg)",
-          padding: "8px 0 10px",
+          // clear the iOS notch under viewport-fit=cover — sticky top:0 pins to the true viewport top
+          padding: "calc(8px + env(safe-area-inset-top, 0px)) 0 10px",
           zIndex: 1,
         }}
       >

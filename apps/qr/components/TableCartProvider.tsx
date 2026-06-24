@@ -354,7 +354,8 @@ export function TableCartProvider({
           role="alert"
           style={{
             position: "fixed",
-            top: 12,
+            // clear the iOS notch/status-bar inset (position, not padding) — top-pinned alert
+            top: "calc(12px + env(safe-area-inset-top, 0px))",
             left: 12,
             right: 12,
             margin: "0 auto",

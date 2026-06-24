@@ -25,7 +25,8 @@ export function CartBar() {
         position: "fixed",
         left: 12,
         right: 12,
-        bottom: 16,
+        // clear the iOS home-bar inset so the bar isn't half-hidden behind it (position, not padding)
+        bottom: "calc(16px + env(safe-area-inset-bottom, 0px))",
         maxWidth: 416,
         margin: "0 auto",
         background: "var(--ac)",

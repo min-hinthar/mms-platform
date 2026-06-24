@@ -4,6 +4,32 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — M5 · P5.2: iOS / mobile hardening sweep (QR ← delivery transfer) (2026-06-24)
+
+First transfer slice of the reshaped M5 — ports delivery's production-hardened mobile/iOS patterns into QR,
+built to QR's own tokens. Pure mobile-robustness; no behavior/logic change to money/auth/data.
+
+- **Bottom sheets size by `--sheet-max-h` (dvh), not `vh`** — new `--sheet-max-h: calc(100dvh -
+  env(safe-area-inset-top) - 1rem)` token in `@mms/ui/tokens.css`; the shared `.mms-sheet` (every
+  `@mms/ui` Sheet — JoinTable/InviteSheet/PickupSlotSheet/LossActionSheet) now uses it + clears the home-bar
+  inset in its bottom padding. iOS `vh` is the large viewport, so a `90vh` sheet's top/close button could hide
+  under the status bar.
+- **Safe-area insets via position, not padding**, on every edge-pinned element: `CartBar` + grocery
+  `checkoutCta` (bottom), `TableCartProvider` recovery alert (top), `RefundActionSheet` overlay (bottom), the
+  staff `table/[id]/add` sticky header **and** the diner `menu` sticky header (top — handheld tableside is the
+  worst notched-portrait case). (Mid-floating toasts at bottom 84/90 already clear the inset — left as-is.)
+  `.mms-sheet` carries a `90vh` fallback before the `dvh` value for iOS <15.4; `RefundActionSheet`'s inner
+  sheet gained `--sheet-max-h` + scroll to match. (Deferred to **P5.6/PWA**: a top inset on ordinary page-flow
+  content — cosmetic in browser-portrait where `safe-area-top≈0`, only relevant once a standalone PWA ships.)
+- **16px form controls on mobile** — a single `@media (max-width: 639.98px)` base rule pins
+  `input`/`textarea`/`select` to 16px (overrides inline sizing) so iOS never auto-zooms on focus; desktop sizes
+  resume at `sm:`. QR had fixed *some* inputs ad hoc (StaffLogin/FeedbackPrompt/JoinTable) but missed others
+  (grocery search, InviteSheet, RefundActionSheet) — this closes the whole class in one rule.
+- Audited clean (no change needed): nested-scroll wheel traps and breakpoint-coupled overlay anchors — QR uses
+  centered inline-styled fixed elements, not Tailwind-breakpoint-anchored dropdowns.
+- Verified the new CSS emits in the built bundle (`--sheet-max-h`, `safe-area-inset`, the mobile media query);
+  gate green (`turbo lint typecheck build`). Backlog: `docs/QR_FROM_DELIVERY.md`.
+
 ### Changed — M5 · P5.1: reshaped from migration → "QR learns from delivery" (repos stay separate) (2026-06-24)
 
 **M5 is no longer a repo migration.** On review with Min we changed direction: the two apps stay **separate

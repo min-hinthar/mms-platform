@@ -49,7 +49,12 @@ export default async function Menu({
     <TableCartProvider mode={mode} code={code} joinOnly={joinOnly}>
       <main style={{ maxWidth: 440, margin: "0 auto", paddingBottom: 96 }}>
         <header
-          style={{ padding: "44px 20px 8px", position: "sticky", top: 0, background: "var(--pg)" }}
+          style={{
+            padding: "calc(44px + env(safe-area-inset-top, 0px)) 20px 8px",
+            position: "sticky",
+            top: 0,
+            background: "var(--pg)",
+          }}
         >
           <p className="eyebrow">
             {mode === "dinein" ? "Dine-in" : mode === "pickup" ? "Pickup" : "Scan & Go"}
