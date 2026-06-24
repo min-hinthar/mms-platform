@@ -968,6 +968,7 @@ export type Database = {
       }
       qr_order_items: {
         Row: {
+          fulfillment: string
           id: string
           menu_item_id: string
           modifiers: Json
@@ -978,6 +979,7 @@ export type Database = {
           unit_price_cents: number
         }
         Insert: {
+          fulfillment?: string
           id?: string
           menu_item_id: string
           modifiers?: Json
@@ -988,6 +990,7 @@ export type Database = {
           unit_price_cents: number
         }
         Update: {
+          fulfillment?: string
           id?: string
           menu_item_id?: string
           modifiers?: Json
@@ -1025,6 +1028,7 @@ export type Database = {
           tax_cents: number
           tender: string
           tip_cents: number
+          togo_status: string | null
           total_cents: number
         }
         Insert: {
@@ -1044,6 +1048,7 @@ export type Database = {
           tax_cents: number
           tender?: string
           tip_cents?: number
+          togo_status?: string | null
           total_cents: number
         }
         Update: {
@@ -1061,6 +1066,7 @@ export type Database = {
           stripe_payment_intent_id?: string | null
           subtotal_cents?: number
           tax_cents?: number
+          togo_status?: string | null
           tender?: string
           tip_cents?: number
           total_cents?: number
@@ -1345,6 +1351,10 @@ export type Database = {
         Args: { p_cart_id: string; p_expected_total_cents: number }
         Returns: string
       }
+      mms_init_togo_status: {
+        Args: { p_cart: string; p_order: string }
+        Returns: string
+      }
       mms_line_tax: {
         Args: { amount_cents: number; category: string; dine_in: boolean }
         Returns: number
@@ -1432,6 +1442,10 @@ export type Database = {
           ok: boolean
           reason: string
         }[]
+      }
+      mms_set_togo_status: {
+        Args: { p_order: string; p_to: string }
+        Returns: string
       }
       mms_staff_clear_pin: { Args: { p_staff_id: string }; Returns: undefined }
       mms_staff_set_pin: {

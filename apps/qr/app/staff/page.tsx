@@ -59,6 +59,9 @@ export default async function StaffHome() {
         <Link href="/staff/kitchen" style={ownerLink}>
           Kitchen →
         </Link>
+        <Link href="/staff/expo" style={ownerLink}>
+          Expo →
+        </Link>
         {isManager && (
           <Link href="/staff/approvals" style={ownerLink}>
             Approvals{pendingApprovals > 0 ? ` (${pendingApprovals})` : ""} →

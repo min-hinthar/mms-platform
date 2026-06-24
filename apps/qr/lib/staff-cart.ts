@@ -241,6 +241,17 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
           cartId: cart.id,
           message: fireErr.message,
         });
+      // To-go fulfillment loop (S4.3a): flag 'preparing' if the order has a takeaway (togo/grocery) line,
+      // so the expo station + /track reflect it. Same drain; idempotent; null for a pure dine-in order.
+      const { error: togoErr } = await db.rpc("mms_init_togo_status", {
+        p_order: orderId,
+        p_cart: cart.id,
+      });
+      if (togoErr)
+        console.error("[staff-cart] init togo_status failed", {
+          cartId: cart.id,
+          message: togoErr.message,
+        });
     });
 
     if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
