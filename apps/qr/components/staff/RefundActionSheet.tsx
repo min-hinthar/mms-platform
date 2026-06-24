@@ -195,7 +195,14 @@ const overlay: CSSProperties = {
   padding: "16px 16px calc(16px + env(safe-area-inset-bottom, 0px))",
   zIndex: 50,
 };
-const sheet: CSSProperties = { width: "100%", maxWidth: 440, padding: 18 };
+const sheet: CSSProperties = {
+  width: "100%",
+  maxWidth: 440,
+  padding: 18,
+  // match the .mms-sheet dvh discipline so a tall sheet scrolls rather than overflowing the viewport
+  maxHeight: "var(--sheet-max-h)",
+  overflowY: "auto",
+};
 const lbl: CSSProperties = {
   display: "block",
   margin: "14px 0 4px",

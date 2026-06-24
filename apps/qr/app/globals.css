@@ -65,7 +65,10 @@ h3 {
   right: 0;
   bottom: 0;
   /* `--sheet-max-h` is dvh-based (not vh) so the sheet top + close button never hide under the iOS
-     status bar; the bottom padding clears the home-bar inset so content/CTA aren't obscured. */
+     status bar; the bottom padding clears the home-bar inset so content/CTA aren't obscured. The
+     `90vh` line is the fallback for browsers without `dvh` (iOS <15.4) — there `calc(100dvh …)` is
+     invalid and dropped, so without it max-height would become `none` (worse than the old 90vh). */
+  max-height: 90vh;
   max-height: var(--sheet-max-h);
   overflow-y: auto;
   background: var(--pg);

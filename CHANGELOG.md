@@ -14,9 +14,12 @@ built to QR's own tokens. Pure mobile-robustness; no behavior/logic change to mo
   `@mms/ui` Sheet — JoinTable/InviteSheet/PickupSlotSheet/LossActionSheet) now uses it + clears the home-bar
   inset in its bottom padding. iOS `vh` is the large viewport, so a `90vh` sheet's top/close button could hide
   under the status bar.
-- **Safe-area insets via position, not padding**, on every edge-pinned fixed element: `CartBar` + grocery
-  `checkoutCta` (bottom), `TableCartProvider` recovery alert (top), `RefundActionSheet` overlay (bottom).
-  (Mid-floating toasts at bottom 84/90 already clear the inset — left as-is.)
+- **Safe-area insets via position, not padding**, on every edge-pinned element: `CartBar` + grocery
+  `checkoutCta` (bottom), `TableCartProvider` recovery alert (top), `RefundActionSheet` overlay (bottom), and
+  the staff `table/[id]/add` sticky header (top — used handheld tableside, the worst notched-portrait case).
+  (Mid-floating toasts at bottom 84/90 already clear the inset — left as-is.) `.mms-sheet` carries a `90vh`
+  fallback before the `dvh` value for iOS <15.4; `RefundActionSheet`'s inner sheet gained `--sheet-max-h` +
+  scroll to match.
 - **16px form controls on mobile** — a single `@media (max-width: 639.98px)` base rule pins
   `input`/`textarea`/`select` to 16px (overrides inline sizing) so iOS never auto-zooms on focus; desktop sizes
   resume at `sm:`. QR had fixed *some* inputs ad hoc (StaffLogin/FeedbackPrompt/JoinTable) but missed others

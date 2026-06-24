@@ -16,8 +16,10 @@ production app** (regression risk — the #1 frustration). Full-repo co-location
 (the prioritized transfer backlog from two grounded audits). P5.0 (the `@mms/db` factory, #79) is retained as a
 clean internal refactor. P5.1 = this reshape + the backlog (docs). Slices P5.2–P5.6 are the actual transfers.
 **P5.2 SHIPPED (2026-06-24): iOS / mobile hardening sweep** — `--sheet-max-h` (dvh) token + safe-area in the
-shared `.mms-sheet`; position-based `env(safe-area-inset-*)` on CartBar / grocery CTA / recovery alert /
-RefundActionSheet; a single mobile-16px form-control base rule (fixed the inputs QR had missed). Nested-scroll +
+shared `.mms-sheet` (with a `90vh` fallback for iOS <15.4); `viewportFit:"cover"` so the insets resolve;
+position-based `env(safe-area-inset-*)` on CartBar / grocery CTA / recovery alert / RefundActionSheet / the
+staff add-items sticky header; a single mobile-16px form-control base rule (fixed the inputs QR had missed).
+Nested-scroll +
 breakpoint-overlay items audited clean; swipe-to-close deferred to P5.4 (needs the `@mms/ui` Drawer). Gate green,
 built-CSS verified. **Next: P5.3 — motion discipline + perf budget** (`useAnimationPreference` JS gate,
 `useInView` offscreen-pause, the mobile GPU/blur budget rules, `useDeviceTier`, `useRipple`/`useTilt`).
