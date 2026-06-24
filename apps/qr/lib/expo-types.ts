@@ -5,9 +5,8 @@
  * pays and walks out without their bag. Money never appears here beyond the order total for identification.
  */
 
-/** A takeaway line on an expo ticket. `fulfillment` is the destination (togo food vs grocery); `state` is
- *  the kitchen lifecycle for to-go FOOD (so the expo knows if it's cooked yet) — grocery has no kitchen
- *  state (it's never fired), shown as bag-and-go. */
+/** A takeaway line on an expo ticket. `fulfillment` is the destination — `togo` food (cooked by the
+ *  kitchen, then bagged) vs `grocery` (never fired; bag-and-go). */
 export type ExpoLine = {
   id: string;
   name: string;
