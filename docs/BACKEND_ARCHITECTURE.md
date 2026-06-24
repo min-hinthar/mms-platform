@@ -58,6 +58,13 @@ This risk is the single most important consequence of decisions #1+#2 and is why
 
 ### Topology
 
+> **⚠️ SUPERSEDED by the 2026-06-18 banner above (re-confirmed at the S4 audit, P0-2).** The diagram below
+> is the original **shared-prod** sketch and is **no longer the design of record.** QR runs on its **OWN**
+> project (`fasnpdhtvqtzjlvruqcu`), delivery on **its** own (`ukuzkhuppqwtrdkjqrkv`) — **no shared database.**
+> M5 unifies the monorepo _packages_ + the one Stripe account, not the DB (see `ROADMAP.md` M5). The QR path
+> is now: `local (supabase start) ▶ the QR project (apply directly; no live traffic yet) ▶ a staging QR
+project added when QR goes live`. The shared-prod text below is kept only as the migration-era history.
+
 ```
 local dev ──▶ staging Supabase project ──▶ prod (mandalay-morning-star-delivery-app)
 (supabase start)   (new; free tier)            (ukuzkhuppqwtrdkjqrkv — shared, live)

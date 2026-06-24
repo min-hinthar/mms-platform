@@ -167,7 +167,13 @@ export async function assignLine(cartItemId: string, seatId: string) {
 }
 
 export type SendToKitchenResult =
-  | { ok: true; fired: number; undoUntil: string | null; serverNow: string }
+  | {
+      ok: true;
+      fired: number;
+      undoUntil: string | null;
+      serverNow: string;
+      undoBatch: string | null;
+    }
   | {
       ok: false;
       reason: "not_host" | "locked" | "settling" | "nothing" | "rate_limited" | "error";
@@ -203,14 +209,16 @@ export async function sendToKitchen(cartId: string): Promise<SendToKitchenResult
   await touchCart(input.cartId, "sendToKitchen");
 
   // The batch's grace deadline = the latest fire_at among the lines just fired (all share now()+grace
-  // from the single UPDATE; an earlier elapsed batch has a smaller fire_at, so DESC picks this one).
-  // We return it WITH `serverNow` so the client counts down the server-MEASURED grace duration
-  // (`undoUntil − serverNow`) from its own receipt — immune to absolute client-clock skew (a slow phone
-  // can't show a longer window). A miss → no undo window shown (the line is still server-side undoable;
-  // the button just won't offer it) rather than a fake one.
+  // from the single UPDATE; an earlier elapsed batch has a smaller fire_at, so DESC picks this one). We
+  // read its `fire_batch` too and hand it back as `undoBatch`: the client binds its Undo to THIS batch, so
+  // mms_undo_fire reverses exactly the send the button represents — never a guest's later make-it-now line
+  // that happens to share the grace window (S4-audit P1-3). We return the deadline WITH `serverNow` so the
+  // client counts down the server-MEASURED grace duration (`undoUntil − serverNow`) from its own receipt —
+  // immune to absolute client-clock skew (a slow phone can't show a longer window). A miss → no undo window
+  // shown (the line is still server-side undoable; the button just won't offer it) rather than a fake one.
   const { data: deadline } = await db
     .from("qr_cart_items")
-    .select("fire_at")
+    .select("fire_at,fire_batch")
     .eq("cart_id", input.cartId)
     .eq("state", "fired")
     .order("fire_at", { ascending: false })
@@ -227,6 +235,7 @@ export async function sendToKitchen(cartId: string): Promise<SendToKitchenResult
     fired,
     undoUntil: deadline?.fire_at ?? null,
     serverNow: new Date().toISOString(),
+    undoBatch: deadline?.fire_batch ?? null,
   };
 }
 
@@ -240,13 +249,14 @@ export type UndoFireResult =
 /**
  * Undo the just-sent batch within the grace window (S2.2). The symmetric inverse of sendToKitchen — same
  * host-authority + dine-in model — driving the grace-gated, atomic mms_undo_fire (fired→draft + fire_at
- * null for every line on the cart still in grace; a line whose grace already passed is left fired, so
- * undo can't un-send food the kitchen already has). `expired` (0 rows un-fired) is the honest signal that
- * the window closed / nothing was undoable → the UI steers to "ask a server", never a silent success.
- * Returned (not thrown) for the same prod-redaction reason as sendToKitchen.
+ * null; a line whose grace already passed is left fired, so undo can't un-send food the kitchen already
+ * has). S4-audit P1-3: undo targets the SPECIFIC `batch` sendToKitchen handed back — so a host's Undo
+ * reverses only the host's batch, never a guest's make-it-now (S4.2) line sharing the grace window.
+ * `expired` (0 rows un-fired) is the honest signal that the window closed / nothing was undoable → the UI
+ * steers to "ask a server", never a silent success. Returned (not thrown) for the same prod-redaction reason.
  */
-export async function undoFire(cartId: string): Promise<UndoFireResult> {
-  const input = undoFireInput.parse({ cartId });
+export async function undoFire(cartId: string, batch: string): Promise<UndoFireResult> {
+  const input = undoFireInput.parse({ cartId, batch });
   const { uid, role, locked, settling } = await assertCartMember(input.cartId);
   if (!(await withinMutationRate(uid))) return { ok: false, reason: "rate_limited" };
   if (locked) return { ok: false, reason: "locked" };
@@ -255,6 +265,7 @@ export async function undoFire(cartId: string): Promise<UndoFireResult> {
 
   const { data: unfired, error } = await serviceClient().rpc("mms_undo_fire", {
     p_cart_id: input.cartId,
+    p_batch: input.batch,
   });
   if (error) {
     console.error("[cart] mms_undo_fire failed", { cartId: input.cartId, message: error.message });

@@ -59,34 +59,57 @@ export async function POST(req: NextRequest) {
           if (splitCartId) {
             // Fire-at-checkout (S4.2): the split is fully settled (cart paid) → fire any still-draft FOOD
             // so the kitchen makes it ("no charge-with-no-fire"). Drained, idempotent, dine-in/food-gated.
+            // S4-audit P1-2: independent side-effects — a throw on one must not starve the others; the
+            // pg_cron reconciler is the durable backstop if after() never runs.
             after(async () => {
-              const { error: fireErr } = await db.rpc("mms_fire_pending_food", {
-                p_cart_id: splitCartId,
-              });
-              if (fireErr)
-                console.error("[stripe webhook] split fire-at-checkout failed", {
-                  cartId: splitCartId,
-                  error: fireErr,
+              try {
+                const { error: fireErr } = await db.rpc("mms_fire_pending_food", {
+                  p_cart_id: splitCartId,
                 });
+                if (fireErr)
+                  console.error("[stripe webhook] split fire-at-checkout failed", {
+                    cartId: splitCartId,
+                    error: fireErr,
+                  });
+              } catch (e) {
+                console.error("[stripe webhook] split fire-at-checkout threw", {
+                  cartId: splitCartId,
+                  error: e,
+                });
+              }
               // To-go fulfillment loop (S4.3a): flag 'preparing' if the split order has a takeaway line.
-              const { error: togoErr } = await db.rpc("mms_init_togo_status", {
-                p_order: orderId,
-                p_cart: splitCartId,
-              });
-              if (togoErr)
-                console.error("[stripe webhook] split init togo_status failed", {
-                  cartId: splitCartId,
-                  error: togoErr,
+              try {
+                const { error: togoErr } = await db.rpc("mms_init_togo_status", {
+                  p_order: orderId,
+                  p_cart: splitCartId,
                 });
+                if (togoErr)
+                  console.error("[stripe webhook] split init togo_status failed", {
+                    cartId: splitCartId,
+                    error: togoErr,
+                  });
+              } catch (e) {
+                console.error("[stripe webhook] split init togo_status threw", {
+                  cartId: splitCartId,
+                  error: e,
+                });
+              }
               // Split-tender SEAM (S4.3c): eligibility-at-sale on the split order's grocery lines.
-              const { error: ebtErr } = await db.rpc("mms_snapshot_ebt_eligibility", {
-                p_order: orderId,
-              });
-              if (ebtErr)
-                console.error("[stripe webhook] split snapshot ebt eligibility failed", {
-                  cartId: splitCartId,
-                  error: ebtErr,
+              try {
+                const { error: ebtErr } = await db.rpc("mms_snapshot_ebt_eligibility", {
+                  p_order: orderId,
                 });
+                if (ebtErr)
+                  console.error("[stripe webhook] split snapshot ebt eligibility failed", {
+                    cartId: splitCartId,
+                    error: ebtErr,
+                  });
+              } catch (e) {
+                console.error("[stripe webhook] split snapshot ebt eligibility threw", {
+                  cartId: splitCartId,
+                  error: e,
+                });
+              }
             });
             // Redeem any applied reward (M4 P4.2) — single-use, exactly-once on the open→paid transition.
             const { error: redErr } = await db.rpc("mms_redeem_cart_reward", {
@@ -285,38 +308,58 @@ export async function POST(req: NextRequest) {
           // paid for ("no charge-with-no-fire"). Drained in after(): a kitchen-fire hiccup must NEVER block
           // the Stripe ack or fail the money path. Idempotent (no draft food ⇒ fires 0); covers a secure-tab
           // off-session close too (it rides this same succeeded→fulfill path). KDS sees it via realtime.
+          // S4-audit P1-2: each settlement side-effect is INDEPENDENT — a thrown await (transport hiccup) on
+          // one must not starve the next two, so each is wrapped on its own. The pg_cron reconciler
+          // (mms_reconcile_settled_fulfillment) is the durable backstop if after() never runs at all.
           after(async () => {
-            const { error: fireErr } = await db.rpc("mms_fire_pending_food", { p_cart_id: cartId });
-            if (fireErr)
-              console.error("[stripe webhook] fire-at-checkout failed", {
-                cartId,
-                paymentIntent: intent.id,
-                error: fireErr,
+            try {
+              const { error: fireErr } = await db.rpc("mms_fire_pending_food", {
+                p_cart_id: cartId,
               });
+              if (fireErr)
+                console.error("[stripe webhook] fire-at-checkout failed", {
+                  cartId,
+                  paymentIntent: intent.id,
+                  error: fireErr,
+                });
+            } catch (e) {
+              console.error("[stripe webhook] fire-at-checkout threw", { cartId, error: e });
+            }
             // To-go fulfillment loop (S4.3a): flag the order 'preparing' iff it has a takeaway (togo/
-            // grocery) line, so the expo station picks it up + /track shows progress. Same after() drain
-            // (off the money path); idempotent (only sets when null + a bag exists; null for pure dine-in).
-            const { error: togoErr } = await db.rpc("mms_init_togo_status", {
-              p_order: orderId,
-              p_cart: cartId,
-            });
-            if (togoErr)
-              console.error("[stripe webhook] init togo_status failed", {
-                cartId,
-                paymentIntent: intent.id,
-                error: togoErr,
+            // grocery) line, so the expo station picks it up + /track shows progress. Idempotent (only sets
+            // when null + a bag exists; null for pure dine-in).
+            try {
+              const { error: togoErr } = await db.rpc("mms_init_togo_status", {
+                p_order: orderId,
+                p_cart: cartId,
               });
+              if (togoErr)
+                console.error("[stripe webhook] init togo_status failed", {
+                  cartId,
+                  paymentIntent: intent.id,
+                  error: togoErr,
+                });
+            } catch (e) {
+              console.error("[stripe webhook] init togo_status threw", { cartId, error: e });
+            }
             // Split-tender SEAM (S4.3c): record eligibility-at-sale on the order's grocery lines (the 2027
-            // EBT partition key). Off the money path; idempotent; false if it hiccups (catalog stays derivable).
-            const { error: ebtErr } = await db.rpc("mms_snapshot_ebt_eligibility", {
-              p_order: orderId,
-            });
-            if (ebtErr)
-              console.error("[stripe webhook] snapshot ebt eligibility failed", {
-                cartId,
-                paymentIntent: intent.id,
-                error: ebtErr,
+            // EBT partition key). Idempotent; false if it hiccups (catalog stays derivable).
+            try {
+              const { error: ebtErr } = await db.rpc("mms_snapshot_ebt_eligibility", {
+                p_order: orderId,
               });
+              if (ebtErr)
+                console.error("[stripe webhook] snapshot ebt eligibility failed", {
+                  cartId,
+                  paymentIntent: intent.id,
+                  error: ebtErr,
+                });
+            } catch (e) {
+              console.error("[stripe webhook] snapshot ebt eligibility threw", {
+                cartId,
+                error: e,
+              });
+            }
           });
           // Morning Star Rewards (M4): stamp the earner + award Stars. Only a known diner PAYER earns
           // (earnerUid set by create-intent); a cash/staff close has none → earns nothing. Server-
@@ -514,6 +557,11 @@ export async function POST(req: NextRequest) {
       // authorize's already-refunded guard holds (no >24h re-refund). Dashboard refunds carry no orderItemId
       // metadata → status-only. `charge.refunds` is NOT auto-expanded on modern API versions, so FETCH the
       // refund objects explicitly. Best-effort: a list failure leaves a rare orphan logged; status still runs.
+      // P1-4 (S4-audit): a list/record failure here is NOT swallowed — it's a lost ledger row while money
+      // already moved, and >24h later (Stripe idempotency key expired) a re-refund would double-pay. 5xx so
+      // Stripe redelivers within its 72h window; mms_record_refund is idempotent (on conflict do nothing),
+      // so re-recording the already-saved rows on redelivery is safe and the missed one finally lands.
+      let backstopFailed = false;
       try {
         const refunds = await getStripe().refunds.list({ charge: charge.id, limit: 100 });
         for (const r of refunds.data) {
@@ -528,11 +576,13 @@ export async function POST(req: NextRequest) {
               p_reason: rc,
               p_initiator: init,
             });
-            if (recErr)
+            if (recErr) {
               console.error("[stripe webhook] refund ledger backstop failed", {
                 refundId: r.id,
                 error: recErr,
               });
+              backstopFailed = true;
+            }
           }
         }
       } catch (e) {
@@ -540,7 +590,10 @@ export async function POST(req: NextRequest) {
           chargeId: charge.id,
           error: e,
         });
+        backstopFailed = true;
       }
+      if (backstopFailed)
+        return NextResponse.json({ error: "Refund backstop failed; will retry" }, { status: 500 });
       const { error: reconErr } = await db.rpc("mms_apply_refund_reconcile", {
         p_payment_intent: pi,
         p_amount_refunded: charge.amount_refunded,

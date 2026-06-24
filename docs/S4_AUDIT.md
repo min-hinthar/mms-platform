@@ -5,6 +5,12 @@ auth/RLS/IDOR, concurrency/idempotency, M5/M6 integration seams, a11y/UX fidelit
 This is the consolidated, de-duplicated, prioritized record. Verdicts and `file:line` are the auditors'; the
 P0/P1/P2 triage is the synthesis.
 
+> **Remediation status (2026-06-24):** **P0-1, P1-1, P1-2, P1-3, P1-4, P0-2, P0-3 are FIXED** — migration
+> `20260624030000` + `lib/refunds.ts`/`cart.ts`/webhook/`staff-cart.ts` + the `ROADMAP.md`/
+> `BACKEND_ARCHITECTURE.md` topology reconciliation (this PR; see CHANGELOG). **Still open:** P1-5
+> (`RefundActionSheet` → canonical `Sheet` + `--scrim` token) and P1-6 (refunded orders in `/account`
+> history) — a11y/product, deferred to an opportunistic follow-up — plus the P2 debt and the M6 carry-forward.
+
 ## Executive verdict
 
 **S4 is structurally sound** — security is a clean PASS (every new SECURITY DEFINER fn is service-role-only,
@@ -161,5 +167,5 @@ Tax TS↔SQL parity after S4 · the 3 fulfill RPCs' money logic unchanged (addit
 `getCartTotals` correct under mixed fulfillment · integer-cents discipline · split-order refund deferral
 consistent end-to-end · all SECURITY DEFINER fns service-role-only + `mms_refunds` RLS-on · all deferrals
 tracked in S4*DESIGN/ROADMAP/CHANGELOG · `database.types.ts` fresh · no dead code / dangling `paid_by_intent` /
-phantom token / S4 TODOs · S4 strictly additive to `qr*_`/`mms\__`, read-only on the shared catalog (M5-safe) ·
+phantom token / S4 TODOs · S4 strictly additive to `qr*\_`/`mms\_\_`, read-only on the shared catalog (M5-safe) ·
 every cross-milestone touch-point honored.

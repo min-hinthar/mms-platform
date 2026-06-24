@@ -1466,6 +1466,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      mms_reconcile_settled_fulfillment: { Args: never; Returns: number }
       mms_record_refund: {
         Args: {
           p_amount: number
@@ -1555,7 +1556,7 @@ export type Database = {
         Args: { category: string; dine_in: boolean }
         Returns: boolean
       }
-      mms_undo_fire: { Args: { p_cart_id: string }; Returns: number }
+      mms_undo_fire: { Args: { p_batch: string; p_cart_id: string }; Returns: number }
       mms_void_line: {
         Args: {
           p_action: string

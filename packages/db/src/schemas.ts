@@ -251,9 +251,10 @@ export const submitFeedbackInput = z.object({
 export const sendToKitchenInput = z.object({ cartId: uuid });
 
 /** undoFire (S2.2) — the host reverses the just-sent batch within the grace window (fired→draft for any
- *  line still in grace). Shape only; the server re-derives membership + host + the grace gate
- *  (mms_undo_fire, dine-in only, fire_at > now()). */
-export const undoFireInput = z.object({ cartId: uuid });
+ *  line still in grace). `batch` is the fire_batch sendToKitchen handed back, so undo targets exactly that
+ *  send (S4-audit P1-3 — never another actor's make-it-now line). Shape only; the server re-derives
+ *  membership + host + the grace gate (mms_undo_fire, dine-in only, fire_at > now(), fire_batch = batch). */
+export const undoFireInput = z.object({ cartId: uuid, batch: uuid });
 
 /** staffFireCart (S2.1b) — staff fire a table's draft batch from the console (keyed by session). */
 export const staffFireInput = z.object({ sessionId: uuid });

@@ -32,6 +32,9 @@ export function SendToKitchenButton({
   // Client-local undo deadline (epoch ms, = receipt + server-measured grace) + a tick so the countdown
   // re-renders each second.
   const [undoUntil, setUndoUntil] = useState<number | null>(null);
+  // The fire_batch the server handed back for THIS send — undo targets exactly it (S4-audit P1-3), so the
+  // host's Undo never claws back a guest's make-it-now line that shares the grace window.
+  const [undoBatch, setUndoBatch] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const undoBtnRef = useRef<HTMLButtonElement>(null);
@@ -76,7 +79,10 @@ export function SendToKitchenButton({
           const graceMs = res.undoUntil ? Date.parse(res.undoUntil) - Date.parse(res.serverNow) : 0;
           const startNow = Date.now();
           setNowMs(startNow);
-          setUndoUntil(graceMs > 0 ? startNow + graceMs : null);
+          // Only open the undo window if we have BOTH a grace and the batch id to target on undo.
+          const canUndo = graceMs > 0 && res.undoBatch !== null;
+          setUndoBatch(res.undoBatch);
+          setUndoUntil(canUndo ? startNow + graceMs : null);
           onChanged(); // steppers → "Sent to kitchen" chips
         } else {
           setMsg({ kind: "err", text: reasonCopy[res.reason] });
@@ -89,10 +95,12 @@ export function SendToKitchenButton({
   };
 
   const undo = () => {
+    // The window only opens with a batch id (see send()); guard so undo always targets a concrete batch.
+    if (undoBatch === null) return;
     setMsg(null);
     startTransition(async () => {
       try {
-        const res = await undoFire(cartId);
+        const res = await undoFire(cartId, undoBatch);
         if (res.ok) {
           setMsg({ kind: "ok", text: "Brought back to your cart — edit and send again." });
           setUndoUntil(null); // the batch is back in draft → close the window
