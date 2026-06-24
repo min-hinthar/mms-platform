@@ -1,12 +1,13 @@
-import { createBrowserClient } from "@supabase/ssr";
 import type { Database } from "./database.types";
+import { createBrowserSupabaseClient } from "./factory";
 
 export type { Database } from "./database.types";
 export type { Tables, TablesInsert, TablesUpdate } from "./database.types";
 
-/** Browser client — anon/publishable key only. Reads via RLS; never writes prices. */
+/** Browser client — anon/publishable key only. Reads via RLS; never writes prices. QR's env binding of the
+ *  generic `createBrowserSupabaseClient` factory (M5 · P5.0); delivery binds its own in P5.2. */
 export function browserClient() {
-  return createBrowserClient<Database>(
+  return createBrowserSupabaseClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
       process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)!,
