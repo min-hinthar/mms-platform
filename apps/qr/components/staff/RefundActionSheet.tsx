@@ -191,7 +191,8 @@ const overlay: CSSProperties = {
   background: "var(--scrim, rgba(0,0,0,0.45))",
   display: "grid",
   placeItems: "end center",
-  padding: 16,
+  // clear the iOS home-bar inset so the bottom-anchored sheet isn't obscured by it
+  padding: "16px 16px calc(16px + env(safe-area-inset-bottom, 0px))",
   zIndex: 50,
 };
 const sheet: CSSProperties = { width: "100%", maxWidth: 440, padding: 18 };

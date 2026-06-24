@@ -36,6 +36,9 @@ export const viewport: Viewport = {
   ],
   width: "device-width",
   initialScale: 1,
+  // Draw edge-to-edge (under the notch/home-bar) so `env(safe-area-inset-*)` resolves non-zero —
+  // required for the bottom-sheet/CTA safe-area insets to actually take effect (P5.2).
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

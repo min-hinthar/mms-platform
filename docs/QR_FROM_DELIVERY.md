@@ -36,7 +36,12 @@ The QR audit confirmed these are production-grade in QR; re-porting delivery's v
 
 Priority = value to QR · Effort = S/M/L. Items QR can adopt without a design-system change come first.
 
-### P5.2 — iOS / mobile hardening sweep `[the highest value:effort ratio]`
+### P5.2 — iOS / mobile hardening sweep `[the highest value:effort ratio]` — ✅ shipped (2026-06-24)
+
+> Shipped: `--sheet-max-h` (dvh) token + safe-area in the shared `.mms-sheet`; position-based safe-area insets
+> on CartBar / grocery CTA / recovery alert / RefundActionSheet; a single mobile-16px form-control base rule
+> (covers the inputs QR had missed). Nested-scroll + breakpoint-overlay items audited clean. The
+> swipe-to-close two-layer fix is carried to **P5.4** (it needs the `@mms/ui` Drawer that slice adds).
 
 Concrete production bugs delivery already hit and fixed; QR has the latent versions. Each is a small, contained
 edit to QR's shared `@mms/ui` Sheet, checkout forms, and any overlay.
