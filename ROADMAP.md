@@ -98,8 +98,10 @@ Smallest slice that takes one real test charge end-to-end (solo Scan & Go). **No
   synthesized from two grounded audits (delivery wisdom · QR posture/gaps). _(docs)_ ⬜
 - **P5.2** iOS / mobile hardening sweep — safe-area **position** insets, `--sheet-max-h` dvh sheets, 16px
   input-zoom audit, nested-scroll wheel-block, breakpoint-coupled overlay anchors. ✅
-- **P5.3** Motion discipline + perf budget — `useAnimationPreference` JS gate, `useInView` offscreen-pause, the
-  mobile GPU/blur budget rules, `useDeviceTier`, `useRipple`/`useTilt` as QR-token primitives. ⬜
+- **P5.3** Motion discipline + perf budget — `@mms/ui` foundation primitives (`useAnimationPreference` JS gate,
+  `useInView` offscreen-pause, `useDeviceTier`) + `docs/MOTION_AND_PERF.md` (the mobile GPU/blur budget rules);
+  `/track` pulse wired as the canonical offscreen-pause consumer. `useRipple`/`useTilt` deferred to P5.4 (need
+  component consumers). ✅
 - **P5.4** Primitive library in `@mms/ui` — Skeleton, Toast, EmptyState, Stepper, Card variants, Drawer, Badge,
   Avatar, Tooltip (QR tokens; delivery APIs as reference). Ship incrementally, most-used first. ⬜
 - **P5.5** Contrast-audit test + QR test infra — wire Vitest + uncomment the turbo `test` gate; port delivery's

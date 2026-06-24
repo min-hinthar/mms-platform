@@ -55,7 +55,11 @@ edit to QR's shared `@mms/ui` Sheet, checkout forms, and any overlay.
 | Breakpoint-coupled overlay anchor uses **one** breakpoint | A dropdown that flips anchor at `sm:` but whose trigger moves at `md:` opens off-screen at 640–767px | learnings `mobile-ux.md` (ProfileMenu) | QR staff/account overlays | Med/S |
 | Swipe-to-close two-layer fix (`height:auto` + drop `touchAction:pan-y` on non-scrollable content) | `height:full` + `pan-y` captures all touch → swipe-close never fires | `src/components/ui/feedback/FeedbackSheet.tsx`; `mobile-ux.md §7` | `@mms/ui` Drawer (if added in P5.4) | Med/M |
 
-### P5.3 — Motion discipline + perf budget `[adopt before QR adds heavier motion]`
+### P5.3 — Motion discipline + perf budget `[adopt before QR adds heavier motion]` — ✅ shipped (2026-06-24)
+
+> Shipped: `@mms/ui` foundation primitives `useAnimationPreference` / `useInView` / `useDeviceTier` (lean,
+> SSR-safe) + **`docs/MOTION_AND_PERF.md`** (the full discipline) + the `/track` pulse as the canonical
+> offscreen-pause consumer. `useRipple`/`useTilt` carried to **P5.4** (need component consumers).
 
 QR's motion is light today (CSS keyframes only). Adopt the *discipline* now so richer motion lands safe.
 

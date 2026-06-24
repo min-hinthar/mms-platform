@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 import Link from "next/link";
 import { useOrderStatus } from "@/lib/useOrderStatus";
 import { formatSlotLong } from "@/lib/pickupTime";
+import { useAnimationPreference, useInView } from "@mms/ui";
 import { FeedbackPrompt } from "./FeedbackPrompt";
 
 // Lifecycle steps (verbatim v7.2). The active step is server-driven; at M1/M2 there's no kitchen
@@ -39,6 +40,12 @@ export function OrderTracker({
   processing: boolean; // redirect_status === "processing" — payment not yet captured (e.g. bank debit)
 }) {
   const { order, timedOut } = useOrderStatus(paymentIntent, orderId);
+  // Pulse the active step only while the timeline is on-screen AND motion is allowed (P5.3): a
+  // box-shadow `infinite` loop shouldn't keep ticking when scrolled out of view. The ref sits on the
+  // STABLE <ul>, not the moving active dot (a ref on a conditional/moving target breaks the observer).
+  const { shouldAnimate } = useAnimationPreference();
+  const { ref: timelineRef, inView } = useInView<HTMLUListElement>();
+  const pulseActive = shouldAnimate && inView;
   const arrived = !!order;
   // A pickup order carries a slot → use the pickup lifecycle + echo the slot as the honest ETA (no
   // fabricated countdown). Until the order lands we don't know the mode, so default to Scan & Go.
@@ -121,6 +128,7 @@ export function OrderTracker({
       {/* <ul>, not <ol>: the steps' order is conveyed visually + by aria-current, not a numeric
           counter. role="list" restores semantics WebKit drops from a list-style:none list. */}
       <ul
+        ref={timelineRef}
         role="list"
         aria-label="Order status"
         style={{ listStyle: "none", padding: "20px 4px 0", margin: 0 }}
@@ -151,7 +159,7 @@ export function OrderTracker({
               >
                 <span
                   aria-hidden
-                  className={state === "now" ? "mms-track-now" : undefined}
+                  className={state === "now" && pulseActive ? "mms-track-now" : undefined}
                   style={{
                     width: 18,
                     height: 18,
