@@ -29,7 +29,10 @@ They are intentionally lean (no in-app motion-settings store yet — add one whe
    JS animations (framer loops, rAF, libs that don't self-gate) → gate on
    `useAnimationPreference().shouldAnimate`, so JS matches what the CSS already does.
 2. **60fps or don't ship it.** Animate **`transform` / `opacity` only** — never `width`/`height`/`top`/
-   `box-shadow`-on-layout/etc. (they trigger layout/paint). rAF-throttle any pointer-driven handler.
+   layout-affecting props (they trigger layout/paint). rAF-throttle any pointer-driven handler.
+   _Bounded exception:_ the `/track` `mms-track-now` halo animates `box-shadow` — paint-only on a single
+   tiny static-position dot (no layout), and it's gated + offscreen-paused, so it stays cheap. Don't
+   generalize box-shadow loops to large or many elements.
 3. **Pause every loop offscreen.** A CSS `infinite` animation or a framer `repeat: Infinity` keeps
    ticking when scrolled out of view (battery + jank). Gate it with `useInView`:
    `const loop = shouldAnimate && inView`, then apply the animating class / run the loop only when `loop`.
