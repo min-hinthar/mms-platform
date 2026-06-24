@@ -1523,7 +1523,10 @@ export type Database = {
         Args: { p_order: string; p_to: string }
         Returns: string
       }
-      mms_snapshot_ebt_eligibility: { Args: { p_order: string }; Returns: number }
+      mms_snapshot_ebt_eligibility: {
+        Args: { p_order: string }
+        Returns: number
+      }
       mms_staff_clear_pin: { Args: { p_staff_id: string }; Returns: undefined }
       mms_staff_set_pin: {
         Args: { p_pin: string; p_staff_id: string }
