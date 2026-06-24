@@ -1,7 +1,19 @@
 import "server-only";
-import { createClient } from "@supabase/supabase-js";
-import { createServerClient } from "@supabase/ssr";
 import type { Database } from "./database.types";
+import {
+  createPublicClient,
+  createServiceRoleClient,
+  createSessionClient,
+  createSsrClient,
+  type CookieStore,
+} from "./factory";
+
+/**
+ * QR's server-side Supabase clients — the QR-env + QR-`Database` BINDING of the generic factory
+ * (`./factory.ts`, M5 · P5.0). The construction logic lives in the factory so `apps/delivery` can reuse it
+ * with its OWN type + project env; this module binds it to QR (`fasnpdhtvqtzjlvruqcu`) and keeps the
+ * `server-only` boundary that prevents the service-role key from ever reaching a browser bundle.
+ */
 
 /**
  * Fail-fast env read (P1.6). A missing secret is a deploy/config error — surfacing it here, named,
@@ -27,16 +39,18 @@ function publishableKey(): string {
   return value;
 }
 
+/** Re-exported so existing `@mms/db/server` consumers keep their import; the type now lives in the factory. */
+export type { CookieStore };
+
 /**
  * Service-role client — SERVER ONLY. Bypasses RLS by design: the server is the
  * authoritative writer of cart prices, tax, and orders. Never import this in a
  * client component; never expose SUPABASE_SERVICE_ROLE_KEY to the browser.
  */
 export function serviceClient() {
-  return createClient<Database>(
+  return createServiceRoleClient<Database>(
     requireEnv("NEXT_PUBLIC_SUPABASE_URL"),
     requireEnv("SUPABASE_SERVICE_ROLE_KEY"),
-    { auth: { persistSession: false } },
   );
 }
 
@@ -46,9 +60,7 @@ export function serviceClient() {
  * hands the service-role key to a public render path.
  */
 export function publicClient() {
-  return createClient<Database>(requireEnv("NEXT_PUBLIC_SUPABASE_URL"), publishableKey(), {
-    auth: { persistSession: false },
-  });
+  return createPublicClient<Database>(requireEnv("NEXT_PUBLIC_SUPABASE_URL"), publishableKey());
 }
 
 /**
@@ -58,43 +70,23 @@ export function publicClient() {
  * round-trip), so it's the trustworthy way to turn a Bearer token into `auth.uid()`.
  */
 export function sessionClient(accessToken: string) {
-  return createClient<Database>(requireEnv("NEXT_PUBLIC_SUPABASE_URL"), publishableKey(), {
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
-    auth: { persistSession: false },
-  });
+  return createSessionClient<Database>(
+    requireEnv("NEXT_PUBLIC_SUPABASE_URL"),
+    publishableKey(),
+    accessToken,
+  );
 }
 
 /**
- * Minimal cookie adapter — the shape Next's `cookies()` store satisfies. Kept here so
- * `@mms/db` stays framework-agnostic: the app passes `await cookies()`, we don't import
- * `next/headers`. `set` is optional because the RSC cookie store is read-only.
- */
-export type CookieStore = {
-  getAll: () => { name: string; value: string }[];
-  set?: (name: string, value: string, options?: Record<string, unknown>) => void;
-};
-
-/**
- * SSR session client — reads the diner's anonymous-auth session from the request cookies
- * (persisted by the browser `createBrowserClient`). Use in Server Actions / route handlers to
+ * SSR session client — reads the diner's anonymous-auth session from the request cookies (persisted by the
+ * browser `createBrowserClient`). Use in Server Actions / route handlers to
  * `await serverClient(await cookies()).auth.getUser()` → the caller's `auth.uid()`, then authorize
  * a service-role mutation against `session_members`. RLS still applies to this client's own reads.
  */
 export function serverClient(cookieStore: CookieStore) {
-  return createServerClient<Database>(requireEnv("NEXT_PUBLIC_SUPABASE_URL"), publishableKey(), {
-    cookies: {
-      getAll: () => cookieStore.getAll(),
-      setAll: (cookiesToSet) => {
-        // RSC cookie stores are read-only (no `set`) — token refresh is handled on a
-        // mutable surface (Server Action / route / middleware), so swallow that case.
-        try {
-          for (const { name, value, options } of cookiesToSet) {
-            cookieStore.set?.(name, value, options as Record<string, unknown>);
-          }
-        } catch {
-          /* read-only store — ignore */
-        }
-      },
-    },
-  });
+  return createSsrClient<Database>(
+    requireEnv("NEXT_PUBLIC_SUPABASE_URL"),
+    publishableKey(),
+    cookieStore,
+  );
 }

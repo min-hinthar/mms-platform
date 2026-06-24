@@ -90,9 +90,10 @@ Smallest slice that takes one real test charge end-to-end (solo Scan & Go). **No
 > open decisions). The real work is `@mms/db` (the only QR-coupled package); `@mms/ui`/`@mms/config` are
 > already app-agnostic. **Rewards unification is post-M5 ("M5a") — M5 ships with two ledgers, honestly.**
 
-- **P5.0** `@mms/db` multi-project restructure (prep, QR-only gate): a generic `createServiceClient<DB>`
-  factory + per-app types (`database.types.{qr,delivery}.ts`) + namespace QR-only schemas off the `@mms/db`
-  root (closes audit P2). QR rewired to its bound client, zero behavior change. ⬜
+- **P5.0** `@mms/db` generic client factory (prep, QR-only gate): `@mms/db/factory` (generic over `DB`,
+  env-injected) — QR's `serviceClient`/`publicClient`/`sessionClient`/`serverClient`/`browserClient` delegate
+  to it with identical signatures (zero churn). Per-app type-file rename + Zod-schema namespacing deferred to
+  P5.2 (churn-without-enablement until delivery lands). ✅
 - **P5.1** `git clone` delivery app → `apps/delivery`, drop its `.git`, dedupe deps to root. ⬜
 - **P5.2** Point its Supabase/Stripe wiring at the shared `@mms/db` client factory + `@mms/ui` tokens —
   each app keeps its **own** Supabase project env + the shared Stripe account keys; fold delivery migrations

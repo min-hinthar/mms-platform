@@ -50,20 +50,28 @@ Make `@mms/db` a **generic, project-parameterized** client toolkit, with each ap
 
 - env — rather than forcing delivery onto QR's types (wrong) or duplicating client boilerplate per app (drift):
 
-1. **Extract a generic factory.** `@mms/db` exports `createServiceClient<DB>(url, key)` /
-   `createBrowserClient<DB>(url, key)` (the construction + cookie/auth wiring, today's logic, minus the
-   hardcoded env read). The env read moves to a thin per-app binding.
-2. **Per-app typed bindings + types.** `database.types.qr.ts` (from `fasnpdhtvqtzjlvruqcu`) and
-   `database.types.delivery.ts` (from `ukuzkhuppqwtrdkjqrkv`). QR's `apps/qr/lib/db.ts` binds the QR type +
-   QR env; delivery's binds its own. `@mms/db` root stays the **shared contract**, not a QR dump.
-3. **Namespace the QR-only surface (closes audit P2).** `@mms/db/schemas` (Zod) is QR-only but root-exported
-   today — move QR schemas under `@mms/db/qr` (or `apps/qr`) so the `@mms/db` root is genuinely shared. The
-   QR-specific domain types (`CartItem`/`CartTotals`/`TaxCategory` — dine-in line-state, fulfillment routing)
-   are **not** delivery's model and stay QR-scoped.
+1. **Extract a generic factory (DONE in P5.0).** `@mms/db/factory` exports `createServiceRoleClient<DB>` /
+   `createPublicClient<DB>` / `createSessionClient<DB>` / `createSsrClient<DB>` / `createBrowserSupabaseClient<DB>`
+   — the construction + cookie/auth wiring, GENERIC over `Database` and INJECTED with `url`/`key` (no env read).
+   QR's existing `serviceClient()`/`publicClient()`/`sessionClient()`/`serverClient()`/`browserClient()`
+   **keep their exact signatures and delegate** to the factory with QR env + QR `Database` — so all ~20 QR call
+   sites are byte-unchanged (zero behavior change) while delivery gets a typed client the same way in P5.2.
+   The `server-only` boundary for the service-role key stays on QR's `./server.ts` wrapper.
+2. **Per-app types — DEFERRED to P5.2 (deliberately).** Renaming `database.types.ts` → `database.types.qr.ts`
+   touches the CI-critical `types-fresh` path (`ci.yml` + the `db:types` script both hardcode the name) and
+   enables nothing until delivery's parallel file + the per-app CI matrix exist. So P5.2 adds
+   `database.types.delivery.ts` alongside (rename-or-keep then, when the matrix lands). The factory is already
+   generic over `DB`, so the type binding is a one-liner per app — the rename is cosmetic, not load-bearing.
+3. **Namespace the QR-only Zod surface — DEFERRED to P5.2 (deliberately).** `@mms/db/schemas` is a QR subpath
+   (not the root `.`); moving it to `@mms/db/qr` churns ~15 QR import sites for no enablement until delivery
+   adds its own validation. Fold it into P5.2 when delivery's parallel makes the namespacing meaningful. The
+   QR domain types on the root (`CartItem`/`CartTotals`/`TaxCategory`/`LineState`/`LineFulfillment`) stay
+   QR-scoped (commented as such); delivery never imports them.
 
-This keeps QR working unchanged (it just imports its bound client) and gives delivery a typed client the same
-way, each against its own project. **Do P5.0 as its own gated PR _before_ the delivery clone** so QR's full
-gate proves the refactor in isolation (no delivery noise).
+This keeps QR working unchanged (its wrappers delegate to the factory) and gives delivery a typed client the
+same way, each against its own project. **P5.0 ships as its own gated PR _before_ the delivery clone** so QR's
+full gate proves the factory in isolation (no delivery noise). The deferrals above are churn-without-enablement
+until delivery actually lands — doing them now would risk the byte-exact `types-fresh` gate for cosmetic gain.
 
 ## CI & tooling: the second-stack problem
 
@@ -102,16 +110,19 @@ needs its own threat model (identity matching across two anon/account spaces is 
 
 ## Slice plan (one slice = one gated PR)
 
-- **P5.0 · `@mms/db` multi-project restructure** _(prep; do FIRST, QR-only gate)_ — extract the generic
-  client factory; split types per app (QR file now, delivery file lands in P5.2); namespace QR schemas off the
-  `@mms/db` root (audit P2). QR imports updated to its bound client. **Exit:** QR builds/typechecks/`types-fresh`
-  green with zero behavior change; `@mms/db` root exports only the shared contract.
+- **P5.0 · `@mms/db` generic client factory** _(prep; QR-only gate)_ ✅ **DONE** — extracted `@mms/db/factory`
+  (generic over `DB`, env-injected); QR's `serviceClient()`/`publicClient()`/`sessionClient()`/`serverClient()`/
+  `browserClient()` delegate to it with **identical signatures** (zero QR churn). Type-file rename + Zod-schema
+  namespacing **deferred to P5.2** (churn-without-enablement until delivery lands — see the §`@mms/db` shape).
+  **Exit met:** QR builds/typechecks/`types-fresh`/knip green, zero behavior change; `@mms/db/factory` is the
+  shared multi-app contract delivery imports.
 - **P5.1 · Clone delivery → `apps/delivery`** — `git clone` the delivery repo into `apps/delivery`, drop its
   `.git`, dedupe deps to root (pnpm single-version), wire its scripts into turbo. No behavior change; it builds
   standalone in the monorepo against its own env.
-- **P5.2 · Wire delivery to the shared layer** — point delivery's Supabase client at the `@mms/db` factory
-  bound to `database.types.delivery.ts` + delivery env; adopt `@mms/ui` tokens (`tokens.css`) + `@mms/config`;
-  share the Stripe account wiring. Fold delivery migrations into the CI matrix (per §CI).
+- **P5.2 · Wire delivery to the shared layer** — point delivery's Supabase client at the `@mms/db/factory`
+  bound to a new `database.types.delivery.ts` + delivery env; adopt `@mms/ui` tokens (`tokens.css`) +
+  `@mms/config`; share the Stripe account wiring. **Land the deferred P5.0 cleanups here** (per-app type-file
+  rename + Zod namespacing, now load-bearing). Fold delivery migrations into the CI matrix (per §CI).
 - **P5.3 · Second Vercel project + CI** — `apps/delivery/vercel.json` + a second Vercel project (Root
   Directory `apps/delivery`, turbo-ignore); confirm the per-app CI matrix is green for both.
 

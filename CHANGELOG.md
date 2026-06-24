@@ -4,6 +4,19 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Changed — M5 · P5.0: `@mms/db` generic client factory (multi-app prep) (2026-06-24)
+
+The first M5 build slice: make `@mms/db` reusable by a second app without merging databases. New
+`@mms/db/factory` exports `createServiceRoleClient<DB>` / `createPublicClient<DB>` / `createSessionClient<DB>`
+/ `createSsrClient<DB>` / `createBrowserSupabaseClient<DB>` — the client construction + cookie/auth wiring,
+**generic over the project's `Database` type and injected with `url`/`key`** (no `process.env` read). QR's
+`serviceClient()`/`publicClient()`/`sessionClient()`/`serverClient()`/`browserClient()` keep **identical
+signatures** and now delegate to the factory bound to QR env + QR types — so all ~20 QR call sites are
+byte-unchanged (zero behavior change), the `server-only` service-role boundary stays on QR's wrapper, and
+`apps/delivery` (P5.2) will bind the same factory to its own project + types. The per-app type-file rename
+(`database.types.delivery.ts`) and Zod-schema namespacing are deferred to P5.2 (churn-without-enablement until
+delivery lands; would needlessly risk the byte-exact `types-fresh` gate now). Plan: `docs/M5_DESIGN.md`.
+
 ### Added — M5 prep: design-of-record for the delivery-app migration (2026-06-24)
 
 Pre-build design for M5 (bring the live delivery PWA into the monorepo), grounded in a structural recon of
