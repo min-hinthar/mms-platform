@@ -1,48 +1,66 @@
-# Session Handoff — MMS Platform (2026-06-21)
+# Session Handoff — MMS Platform (2026-06-24)
 
 The originating chat context does not carry across sessions — **this file is the durable pickup point.**
 Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — decisions, QA gate, rubric,
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
-**M1 + M2 + M3 are complete, and S1 (staff & floor) is complete** (S1.1a/b · S1.2 · S1.3 · S1.4 all shipped).
-**S2 — line lifecycle & authority — is UNDERWAY.** Build order `M1 → M2 → M3 → S1 → S2 → S3 → M4 → S4 →
-M5 → M6` in `ROADMAP.md`; full design + adversarial review in [`docs/S2_DESIGN.md`](S2_DESIGN.md).
+**M1 + M2 + M3 + S1 + S2 + S3 + M4 + S4 are all complete and merged.** Build order `M1 → M2 → M3 → S1 → S2 →
+S3 → M4 → S4 → M5 → M6` in `ROADMAP.md`. **Next: M5 (migrate apps/delivery onto the shared packages) — but
+M5 is BLOCKED on a project-topology decision (audit P0-2 below), a doc contradiction, not code.**
 
-> **S2 progress:** **S2.1 + S2.2 shipped.** S2.1a — line-state spine: `qr_cart_items.state`
-> (`draft|fired|in_progress|served|voided`, backfilled `draft`), atomic legal-edge RPC `mms_line_transition`,
-> `canMutateLine` v2 (staff first-class; diner own-draft-only). S2.1b — the kitchen loop: `qr_cart_items.fire_at`
-> (the unified timer) + `mms_fire_cart` (atomic `draft→fired`, **dine-in only** — grocery `scango`/pickup/non-open
-> all fire 0) + the **KDS console** `/staff/kitchen` (live cross-table fire queue + two-stage Start→Ready bump on
-> the S1.2 `postgres_changes` path) + diner-host & staff **Send to kitchen**. **S2.2 — post-fire "Ask server" +
-> the server-clocked undo grace:** `mms_fire_cart` now stamps `fire_at = now() + 10s` (the grace; the KDS already
-> pulls only `fire_at <= now()`, so a just-sent line is `fired` to the table but invisible to the kitchen until
-> grace elapses); **`mms_undo_fire`** reverses only the **latest in-grace batch** (`fire_at = max(in-grace)`,
-> cart-open+dine-in guarded) — matches the "Undo (Ns)" countdown, never claws back an earlier send; `getCartView`
-> threads the real `state`/`fire_at` into `CartItem` so a fired line shows a state chip ("Ask a server") instead
-> of a stepper (`canMutateLine` keys on real state — fixes the solo-dine-in gap). Migrations `20260622030000`,
-> `20260622040000`, `20260622050000` applied to live. **S2.3 — loss-gated voids/comps:** `mms_void_line`
-> derives the gate SERVER-side — a `fired`-but-uncooked under-ceiling void is server-solo + reason; a cooked
-> (`in_progress`/`served`) line, any **comp** (giveaway, kitchen still makes it → a `comped` flag), or a value
-> over the **$20** ceiling (`mms_loss_config`) needs a **manager-PIN step-up** (the server taps the manager's
-> name → PIN via `mms_staff_verify_pin`; a `server`-role or self approver is rejected — re-checked in SQL). The
-> first **durable, append-only `mms_approvals` ledger** (initiator + approver + line + reason + amount + cooked)
-> is written in the SAME txn as the flip (no audit ⇒ no void). A voided/comped line is charged **$0 everywhere**
-> — getCartTotals + both promo RPCs + the cash reconcile + all three order-snapshot copies exclude
-> `state='voided' OR comped` (redefined in the migration); the diner cart shows a "Removed"/"Comped" chip,
-> split shares exclude them. Staff void/comp from the drill-down (`LossActionSheet`), refused mid-payment.
-> `20260622060000` + the merge guard `20260622070000` (mms_merge_table_orders skips voided/comped lines on
-> both scans — a one-tap merge can't re-charge a voided line or give away an active one, a gap S2.3 made
-> reachable) are **applied to live** + verified (grants/RLS/advisors clean; SQL gate behaviorally tested).
-> **S2 decisions confirmed** (in `S2_DESIGN.md`): manager taps-name→PIN · console-view KDS ·
-> 20%/$20 loss ceiling · **10s** per-batch undo grace. **S2.4 — the approvals primitive (S2 COMPLETE):**
-> `mms_request_approval` records a **default-safe `pending`** request (line untouched — still charged, food
-> not un-fired); `mms_resolve_approval` is the manager's decision (approve applies the recorded void/comp +
-> `approved`; deny → `denied`, line live), resolves once (idempotent), approver = active `manager`/`owner` ≠
-> requester (SQL-checked). Manager-gated live `/staff/approvals` queue (polled — `mms_approvals` is owner-read
-> RLS, off the realtime publication) with Approve/Deny via the manager-PIN step-up; `LossActionSheet` gains a
-> "Request approval" path; the drill-down shows "Approval requested". `20260622080000` **pending a live apply**.
-> **Next: S3 (tabs / deferred settlement)** per the build order — reuses S2's approvals for after-hours closes.
-> Owner-remote-approve (push/SMS) + refund-of-captured-line (S4.3) stay deferred.
+> **S4 — unified basket & fulfillment routing — COMPLETE (PRs #71–75, all merged + applied to live).**
+> **S4.1** (#71, `20260623100000`) — per-line `qr_cart_items.fulfillment` (dinein/togo/grocery) drives BOTH
+> routing and tax; `mms_set_line_fulfillment` (TOCTOU-fixed: re-asserts open+draft+not-grocery in the UPDATE
+> WHERE). **S4.2** (#72, `20260623220000`) — per-line fire routing: `mms_fire_cart` fires only
+> `fulfillment='dinein'`; `mms_fire_line` (togo make-it-now, guards in WHERE); `mms_fire_pending_food` (fires
+> draft food of a PAID dinein cart at checkout) + KDS fulfillment subset + ready signal. **S4.3a** (#73,
+> `20260624000000`) — to-go fulfillment loop: `qr_orders.togo_status` (preparing/ready/picked_up) +
+> `qr_order_items.fulfillment` snapshot; `mms_init_togo_status`/`mms_set_togo_status`; the bagging/**expo**
+> station `/staff/expo` + "to-go ready" signal. **S4.3b** (#74, `20260624010000`) — line-level **refunds**
+> (money-out): `mms_refunds` ledger (unique stripe_refund_id + partial-unique on order_item_id, RLS-on,
+> manager-read), `mms_approvals.kind` gains `'refund'`; `mms_refund_authorize`/`mms_record_refund`/
+> `mms_apply_refund_reconcile`; manager-facing `/staff/orders` surface + `RefundActionSheet` + self-PIN
+> step-up; `charge.refunded` webhook reconcile (fetches `refunds.list({charge})` — `charge.refunds` is NOT
+> auto-expanded on Stripe apiVersion `2026-05-27.dahlia`). **S4.3c** (#75, `20260624020000`) — the EBT
+> split-tender **seam** (data model only): `qr_order_items.ebt_eligible` + `mms_snapshot_ebt_eligibility`
+> (marks grocery lines whose catalog item is EBT-eligible, in the settlement after() drain) — the 2027 Forage
+> tender becomes a tender-time branch, not a rewrite. The 3 settlement after() drains (card webhook single +
+> split, cash settle) chain `mms_fire_pending_food` → `mms_init_togo_status` → `mms_snapshot_ebt_eligibility`.
+> **Design-of-record:** [`docs/S4_DESIGN.md`](S4_DESIGN.md). **All 5 migrations applied to live + advisor-clean.**
+
+> **⚠️ S4 deep audit shipped — [`docs/S4_AUDIT.md`](S4_AUDIT.md)** (6 parallel adversarial auditors; money/tax,
+> auth/RLS/IDOR, concurrency, M5/M6 seams, a11y/UX, schema/debt). **Verdict: structurally sound, security a
+> clean PASS — but the fast build left real defects.** The remediation set, prioritized, is the **first work
+> of any M5-prep session** (none are started — they warrant their own gated, dual-adversarial PRs):
+>
+> - **P0-1 · BLOCKER (money-out, live):** `mms_refund_authorize` (`20260624010000:49`) computes refund as
+>   `unit_price_cents*qty + tax_cents`, but `tax_cents` is stored **per unit** → a qty>1 taxable line refunds
+>   only 1 unit of tax, **shorting the diner** `(qty−1)×per-unit-tax`. Fix: `… + oi.tax_cents * oi.qty`. Also
+>   audit live `mms_refunds` for any qty>1 refund already issued (likely none — refunds are days old).
+> - **P0-2 · BLOCKER (doc, blocks M5):** project-topology contradiction — `BACKEND_ARCHITECTURE.md:8-18`
+>   says QR runs on its **own** project (`fasnpdhtvqtzjlvruqcu`), but `:62-66` + `ROADMAP.md:84` say M5's exit
+>   is "**one** Supabase + Stripe, **shared** by delivery + qr." Both can't hold; M5's whole plan turns on
+>   which is true (shared → the un-prefixed `create table menu_items/grocery_items` in
+>   `20260618000000:51-115` collides with delivery's live tables; own → M5's "clone + repoint, one project"
+>   needs a data migration). **Reconcile to one design-of-record before M5 — a decision, not code.**
+> - **P1 (should fix before M6):** (1) no order-level over-refund cap + refunds undiscounted goods/tax while
+>   the diner paid the **discounted** net → over-refunds promo orders; close WITH P0-1. (2) fire-at-checkout
+>   has **no durable backstop** — if `after()` cold-stops post-200, paid draft food is never fired and nothing
+>   reconciles (silent charge-with-no-fire); give it the QBO-style needs-fire marker + reconciler and split the
+>   3 RPCs into independent after()/try-catch. (3) `mms_undo_fire` keys on `max(fire_at)` not `fire_batch`, so
+>   a host's grace-Undo can claw back a guest's make-it-now togo line. (4) `charge.refunded` backstop logs (not
+>   5xx) on list/record failure → a transient Stripe hiccup loses the ledger row → >24h re-refund double-pays.
+>   (5) `RefundActionSheet` hand-rolls a `role="dialog"` (no focus trap on a money-out modal) + uses an
+>   undefined `--scrim` token — port to the canonical `Sheet`, define `--scrim` (light+dark) in `tokens.css`
+>   before M5 so the 2nd app inherits one dialog primitive. (6) refunded orders vanish from `/account` history.
+> - **P2 (debt):** missing `mms_refunds(order_id)` + partial `qr_orders(togo_status)` indexes; 2–3 live regions
+>   on Checkout review; `docs/REVIEW.md` dead since S1.2; no S4 LEARNINGS entries; `@mms/db/schemas.ts` is
+>   QR-only but root-exported (namespace before M5's delivery import); S4.1 bare `create function` (not replay-safe).
+> - **M6 carry-forward (not S4 defects):** EBT is the deferred split-refund's twin (2027 needs a Forage tender
+>   column + a tender↔line-subset association on `qr_cart_shares`); SNAP tax exemption is a tender-time fact the
+>   single per-line snapshot can't represent (needs an adjustment entry + scan-time eligibility); `/track` needs
+>   a session-less signed-order-token path for kiosk/Terminal walk-ups; Terminal must route through the
+>   settlement mutex or the double-collect guard has a hole.
 
 ## Where we are — M1 + M2 complete (merged)
 
