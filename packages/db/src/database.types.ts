@@ -1066,9 +1066,9 @@ export type Database = {
           stripe_payment_intent_id?: string | null
           subtotal_cents?: number
           tax_cents?: number
-          togo_status?: string | null
           tender?: string
           tip_cents?: number
+          togo_status?: string | null
           total_cents?: number
         }
         Relationships: [
