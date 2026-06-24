@@ -27,7 +27,7 @@ app** (next/react/eslint/TS — a regression surface, the owner's #1 frustration
 
 ### Changed — M5 · P5.0: `@mms/db` generic client factory (multi-app prep) (2026-06-24)
 
-The first M5 build slice: make `@mms/db` reusable by a second app without merging databases. New
+**(Superseded by the P5.1 reshape above — repos stay separate; retained as a clean internal refactor.)** The first M5 build slice: make `@mms/db` reusable by a second app without merging databases. New
 `@mms/db/factory` exports `createServiceRoleClient<DB>` / `createPublicClient<DB>` / `createSessionClient<DB>`
 / `createSsrClient<DB>` / `createBrowserSupabaseClient<DB>` — the client construction + cookie/auth wiring,
 **generic over the project's `Database` type and injected with `url`/`key`** (no `process.env` read). QR's
@@ -40,7 +40,7 @@ delivery lands; would needlessly risk the byte-exact `types-fresh` gate now). Pl
 
 ### Added — M5 prep: design-of-record for the delivery-app migration (2026-06-24)
 
-Pre-build design for M5 (bring the live delivery PWA into the monorepo), grounded in a structural recon of
+**(Superseded by the P5.1 reshape above — M5 is now a transfer, not a migration.)** Pre-build design for M5 (bring the live delivery PWA into the monorepo), grounded in a structural recon of
 the packages. `docs/M5_DESIGN.md` + a HANDOFF refresh (S4 audit remediation shipped → M5 unblocked) +
 `ROADMAP.md` M5 (a P5.0 prep slice + the design pointer).
 

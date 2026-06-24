@@ -43,12 +43,12 @@ edit to QR's shared `@mms/ui` Sheet, checkout forms, and any overlay.
 
 | Item | Why QR needs it | Delivery source | QR target | Pri/Eff |
 |---|---|---|---|---|
-| Safe-area insets via **position, not padding** (`bottom: calc(… + env(safe-area-inset-bottom))`) | QR sheets/fixed CTAs clip behind the iPhone notch/home-bar; padding shifts layout, position doesn't | `src/components/ui/FeedbackFAB.tsx`; learnings `mobile-ux.md §8` | `@mms/ui/sheet.tsx`, QR `CartBar`/checkout CTAs | High/S |
+| Safe-area insets via **position, not padding** (`bottom: calc(… + env(safe-area-inset-bottom))`) | QR sheets/fixed CTAs clip behind the iPhone notch/home-bar; padding shifts layout, position doesn't | `src/components/ui/feedback/FeedbackFAB.tsx`; learnings `mobile-ux.md §8` | `@mms/ui/sheet.tsx`, QR `CartBar`/checkout CTAs | High/S |
 | `--sheet-max-h` = `calc(100dvh - env(safe-area-inset-top) - 1rem)` for bottom sheets (not `vh`) | iOS `vh` is the *large* viewport → a `95vh` sheet's close button hides under the status bar | `src/styles/tokens.css`, `src/components/ui/Drawer.tsx` | `@mms/ui/tokens.css` + `sheet.tsx` | High/S |
 | 16px input font on mobile (`text-base sm:text-sm`) | iOS auto-zooms on focusing any `<input>`/`<textarea>` <16px and never zooms back | learnings `mobile-ux.md`; all delivery inputs | QR checkout/grocery-search inputs | High/S |
 | Single scroll container per axis (nested `overflow-y-auto` blocks wheel) | Modal-wrapping-Drawer eats wheel events with no resolved height | learnings `mobile-ux.md §3` | QR Modal/Sheet nesting | Med/S |
 | Breakpoint-coupled overlay anchor uses **one** breakpoint | A dropdown that flips anchor at `sm:` but whose trigger moves at `md:` opens off-screen at 640–767px | learnings `mobile-ux.md` (ProfileMenu) | QR staff/account overlays | Med/S |
-| Swipe-to-close two-layer fix (`height:auto` + drop `touchAction:pan-y` on non-scrollable content) | `height:full` + `pan-y` captures all touch → swipe-close never fires | `src/components/ui/FeedbackSheet.tsx`; `mobile-ux.md §7` | `@mms/ui` Drawer (if added in P5.4) | Med/M |
+| Swipe-to-close two-layer fix (`height:auto` + drop `touchAction:pan-y` on non-scrollable content) | `height:full` + `pan-y` captures all touch → swipe-close never fires | `src/components/ui/feedback/FeedbackSheet.tsx`; `mobile-ux.md §7` | `@mms/ui` Drawer (if added in P5.4) | Med/M |
 
 ### P5.3 — Motion discipline + perf budget `[adopt before QR adds heavier motion]`
 
@@ -59,7 +59,7 @@ QR's motion is light today (CSS keyframes only). Adopt the *discipline* now so r
 | `useAnimationPreference()` JS gate (`shouldAnimate`) + in-app override | QR honors reduced-motion in CSS but has no JS gate — any future framer `repeat:Infinity` loop ignores it | `src/lib/hooks/useAnimationPreference.ts` | new QR hook (built to QR tokens) | High/S |
 | `useInView` offscreen-pause for any infinite loop | framer JS loops keep ticking offscreen (battery/jank); `.hero-anim-paused` only stops CSS | catalog §4.2 | wherever QR adds looping motion | High/S |
 | Mobile GPU/blur budget rules (no stacked `backdrop-filter` / large `blur()` on mobile; radial-gradient glows) | The exact rule set that fixed delivery's **iOS WebKit OOM tab crash** — pre-empt it in QR | `docs/hero-design-language.md §7.1`; `useHeroFx.ts` | QR design-rules doc + lint note | High/S (doc) |
-| `useDeviceTier()` (SSR-safe low→desktop) to gate expensive FX | Capability-based gating; the primitive QR needs before any WebGL/particle/parallax | `src/lib/hooks/` (device tier) | new QR hook | Med/S |
+| Device-tier gating (SSR-safe low→desktop) for expensive FX | Capability-based gating; the primitive QR needs before any WebGL/particle/parallax | `src/lib/hooks/useDeviceCapability.ts` (+ FX budget in `useHeroFx.ts`) | new QR hook | Med/S |
 | `useRipple()` / `useTilt()` interaction hooks | Per-element micro-interaction, app-agnostic math — re-skin to QR tokens | `src/components/ui/.../interactions.ts`, `useTiltEffect.ts` | `@mms/ui` motion hooks | Med/M |
 
 > Carry the hard-won caveats verbatim: **no 3D tilt on a card whose body holds the primary CTA** (square

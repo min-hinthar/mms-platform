@@ -83,6 +83,14 @@ reconsidered at M6.
    exists partly to make later visual changes safe.
 4. **Two repos, no single dep/CI policy (accepted).** The explicit trade for not risking the live app. Revisit
    at M6.
+5. **Co-location's premise is now conditional, not merely postponed (P2).** The "shared `@mms/ui` payoff" we
+   defer to M6 only materializes if the two design languages actually converge — which may never happen. Name it
+   honestly: M5 does not "delay" co-location so much as make it contingent on a future convergence + a concrete
+   shared-runtime need. If neither arrives, separate repos is the permanent state, and that is acceptable.
+6. **`@mms/db/factory`'s generic-over-`DB` machinery is now unexercised (P3).** It was built so a second app
+   could bind its own types/env; no second app consumes it from this repo anymore. We keep it (reverting is pure
+   churn, zero behavior change), but it leaves a permanently-unexercised generic abstraction in a money-path
+   package — a small, eyes-open debt, not a bug.
 
 ## Open question answered by the audit
 

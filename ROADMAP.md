@@ -10,7 +10,7 @@ Milestones → phases → tasks (the delivery-app rhythm). Each **milestone** sh
 
 - **Now →** M1 · Walking pay path (the smallest end-to-end real charge).
 - **Next →** M2 tax/promos/scheduling · M3 group cart.
-- **Later →** M4 rewards · M5 migrate delivery app · M6 kiosk + Terminal + EBT (2027).
+- **Later →** M4 rewards · M5 QR learns from delivery (separate repos) · M6 kiosk + Terminal + EBT (2027).
 - **Service-model arc →** S1 staff & floor · S2 line authority · S3 tabs · S4 unified basket — the dine-in/full-service layer from [`docs/context/ORDER-MODEL.md`](docs/context/ORDER-MODEL.md). Interleaves after M3 (see the track below; **build order ≠ milestone number**).
 
 ---
