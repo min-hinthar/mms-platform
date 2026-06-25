@@ -5,6 +5,7 @@ import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { formatSlotLong } from "@/lib/pickupTime";
 import type { ExpoLine, ExpoQueue, ExpoTicket } from "@/lib/expo-types";
 import { RelativeTime } from "./RelativeTime";
+import { EmptyState } from "@mms/ui";
 
 /**
  * Expo / bagging station (S4.3a) — the takeaway counterpart to the KDS. Server-rendered initial queue,
@@ -77,7 +78,11 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
       </div>
 
       {count === 0 ? (
-        <p style={empty}>Bags appear here once a to-go or grocery order is paid. 🥡</p>
+        <EmptyState
+          title="Nothing to bag"
+          subtitle="Bags appear here once a to-go or grocery order is paid."
+          icon="🥡"
+        />
       ) : (
         <ul role="list" style={grid}>
           {tickets.map((t) => (
@@ -177,7 +182,6 @@ const headRow: CSSProperties = {
   gap: "var(--s4)",
   marginBottom: "var(--s4)",
 };
-const empty: CSSProperties = { padding: "var(--s6)", color: "var(--t2)" };
 const grid: CSSProperties = {
   listStyle: "none",
   margin: 0,

@@ -4,6 +4,7 @@ import { bumpLine, getKitchenQueue } from "@/lib/kitchen";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import type { KitchenLine, KitchenQueue, KitchenTicket } from "@/lib/kitchen-types";
 import { RelativeTime } from "./RelativeTime";
+import { EmptyState } from "@mms/ui";
 
 /**
  * The KDS — kitchen display (S2.1b). Server-rendered initial queue, then kept live by Postgres-Changes
@@ -82,13 +83,10 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
       </div>
 
       {count === 0 ? (
-        <div className="card" style={empty}>
-          <p style={{ margin: 0, fontWeight: 600 }}>Nothing on the line</p>
-          <p style={{ margin: "4px 0 0", fontSize: 14, color: "var(--t2)", lineHeight: 1.5 }}>
-            Tickets appear here the moment a table sends its order to the kitchen — oldest first, so
-            you can work the queue top-down.
-          </p>
-        </div>
+        <EmptyState
+          title="Nothing on the line"
+          subtitle="Tickets appear here the moment a table sends its order to the kitchen — oldest first, so you can work the queue top-down."
+        />
       ) : (
         <ul role="list" aria-label="Open kitchen tickets" style={grid}>
           {tickets.map((t) => (
@@ -202,7 +200,6 @@ const headRow: CSSProperties = {
   gap: "var(--s4)",
   marginBottom: "var(--s4)",
 };
-const empty: CSSProperties = { padding: "var(--s6)" };
 const grid: CSSProperties = {
   listStyle: "none",
   margin: 0,

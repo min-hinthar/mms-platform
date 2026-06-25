@@ -102,8 +102,12 @@ Smallest slice that takes one real test charge end-to-end (solo Scan & Go). **No
   `useInView` offscreen-pause, `useDeviceTier`) + `docs/MOTION_AND_PERF.md` (the mobile GPU/blur budget rules);
   `/track` pulse wired as the canonical offscreen-pause consumer. `useRipple`/`useTilt` deferred to P5.4 (need
   component consumers). ✅
-- **P5.4** Primitive library in `@mms/ui` — Skeleton, Toast, EmptyState, Stepper, Card variants, Drawer, Badge,
-  Avatar, Tooltip (QR tokens; delivery APIs as reference). Ship incrementally, most-used first. ⬜
+- **P5.4** Primitive library in `@mms/ui` (QR tokens; delivery APIs as reference), shipped incrementally:
+  - **P5.4a** ✅ — `@mms/ui` eslint/`lint` (+`react-hooks`) · `Badge` (dedups `RoleBadge`+`FloorStatusChip`) ·
+    `EmptyState` (dedups Kds/Approvals boards).
+  - **P5.4b** ⬜ — `Avatar` (GuestList), `Skeleton` (loading states), `Stepper` (qty +/-).
+  - **P5.4c** ⬜ — `Card` variants (the 20+ `.card` sites — its own careful PR).
+  - **Deferred (no QR consumer):** `Tooltip`, `Drawer`, tilt; `Toast` + ripple only if a real consumer emerges. ⬜
 - **P5.5** Contrast-audit test + QR test infra — wire Vitest + uncomment the turbo `test` gate; port delivery's
   contrast-audit with QR token fixtures. ⬜
 - **P5.6** PWA / offline _(deferred / optional)_ — Serwist SW + manifest + offline cart + chunk-load reload

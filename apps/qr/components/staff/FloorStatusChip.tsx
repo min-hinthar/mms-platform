@@ -1,10 +1,11 @@
-import { type CSSProperties } from "react";
 import type { FloorStatus } from "@/lib/floor-types";
+import { Badge } from "@mms/ui";
 
 /**
  * The per-table status chip (S1.2), shared by the floor cards + the detail header. Tokens only (no
  * hardcoded colors); each state reads as text (never color-alone, for color-blind staff). Payment-level
- * only — kitchen states (fired/served) arrive with S2.
+ * only — kitchen states (fired/served) arrive with S2. Built on the shared `@mms/ui` Badge (P5.4),
+ * outlined variant (the dot matches the text color).
  */
 const META: Record<FloorStatus, { label: string; fg: string; bg: string }> = {
   seated: { label: "Seated", fg: "var(--t2)", bg: "var(--cd)" },
@@ -17,22 +18,8 @@ const META: Record<FloorStatus, { label: string; fg: string; bg: string }> = {
 export function FloorStatusChip({ status }: { status: FloorStatus }) {
   const m = META[status];
   return (
-    <span style={{ ...chip, color: m.fg, background: m.bg }}>
-      {/* Decorative dot; the text label carries the meaning. */}
-      <span aria-hidden style={{ width: 6, height: 6, borderRadius: 999, background: m.fg }} />
+    <Badge color={m.fg} background={m.bg} dot={m.fg} bordered>
       {m.label}
-    </span>
+    </Badge>
   );
 }
-
-const chip: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 6,
-  padding: "3px 10px",
-  borderRadius: "var(--r-full)",
-  border: "1px solid var(--bd)",
-  fontSize: 12,
-  fontWeight: 700,
-  whiteSpace: "nowrap",
-};

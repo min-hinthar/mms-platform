@@ -4,6 +4,31 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — M5 · P5.4a: `@mms/ui` lint + Badge + EmptyState primitives (QR ← delivery transfer) (2026-06-24)
+
+First slice of the primitive library — built to QR tokens, each adopted at an **existing duplicated** site
+(no dead code). No functional change; colors/AA (`-strong` tokens) byte-identical — the only render deltas are
+a sub-pixel unification of the floor chip (dot 6→7px + hairline `letter-spacing`/`nowrap`).
+
+- **`@mms/ui` is now linted** — added `packages/ui/eslint.config.mjs` (extends `@mms/config/eslint` +
+  `eslint-plugin-react-hooks`) + a `lint` script, so `turbo lint` now covers the shared hooks/components
+  (`motion.ts`/`sheet.tsx`/the new primitives) — previously typecheck-only (P5.3 review Low-2). 6/6 gate tasks.
+- **`Badge`** (`packages/ui/src/badge.tsx`) — pure presentational (Server-Component safe) status/role chip with
+  semantic **`tone` presets** (`gold`/`jade`/`accent`/`ok`/`warn`/`neutral`) that carry the AA-correct mapping
+  (text `-strong` on a tint; vivid decorative dot) so that rule lives once in the primitive, not in every call
+  site — plus explicit `color`/`background`/`dot`/`bordered` overrides for bespoke palettes, and
+  `aria-label`/`decorative` (aria-hidden) passthroughs. `RoleBadge` (owner/manager/server) uses `tone`;
+  `FloorStatusChip` (its flat-on-`--cd` states) uses the explicit path — both render byte-identical.
+- **`EmptyState`** (`packages/ui/src/empty-state.tsx`) — the "nothing here" card (token surface = `.card`),
+  title + optional subtitle/icon/action + `titleAs` (`p` default / `h2`/`h3` for standalone regions, a11y).
+  `KdsBoard` + `ApprovalsBoard` + **`ExpoBoard`** (now unified across the staff board family) use it.
+- **Deep pre-merge review (3 parallel lenses): all PASS** — the API-design lens prompted the `tone` presets +
+  a11y passthroughs; the consistency lens prompted ExpoBoard's migration; build/lint/deps proved eslint efficacy
+  + frozen-lockfile safety. Carry-forward: the `tabChip`↔`FloorStatusChip` floor adjacency is a **pre-existing**
+  (sub-perceptual) inconsistency — a Badge-migration candidate for P5.4b (now unblocked by `decorative`).
+- **Deferred:** `Avatar`/`Skeleton`/`Stepper` → P5.4b; `Card` variants → P5.4c (20+ sites); `Tooltip`/`Drawer`/
+  tilt → no QR consumer.
+
 ### Added — M5 · P5.3: motion discipline + perf budget (QR ← delivery transfer) (2026-06-24)
 
 Establishes QR's motion/perf foundation **before** richer motion lands (P5.4+), so it never reintroduces the
