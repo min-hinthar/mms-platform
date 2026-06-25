@@ -6,4 +6,5 @@ export { useAnimationPreference, useInView, useDeviceTier } from "./motion";
 export type { DeviceTier } from "./motion";
 // Presentational primitives (P5.4)
 export { Badge } from "./badge";
+export type { BadgeTone } from "./badge";
 export { EmptyState } from "./empty-state";

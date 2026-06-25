@@ -76,8 +76,9 @@ QR's motion is light today (CSS keyframes only). Adopt the *discipline* now so r
 
 ### P5.4 — Primitive component library in `@mms/ui` `[QR's biggest structural gap]` — 🚧 in progress
 
-> **P5.4a ✅** shipped: `@mms/ui` lint config + `Badge` (dedups RoleBadge/FloorStatusChip) + `EmptyState`
-> (dedups Kds/Approvals boards). **P5.4b next:** Avatar (GuestList) · Skeleton (loading) · Stepper (qty +/-).
+> **P5.4a ✅** shipped (+ 3-lens deep pre-merge review): `@mms/ui` lint config + `Badge` (semantic `tone`
+> presets owning the AA-on-tint rule; dedups RoleBadge/FloorStatusChip) + `EmptyState` (dedups Kds/Approvals
+> **+ ExpoBoard** boards). **P5.4b next:** Avatar (GuestList) · Skeleton (loading) · Stepper (qty +/-).
 > **P5.4c:** Card variants (20+ `.card` sites, own PR). **Deferred — no QR consumer:** Tooltip, Drawer, tilt;
 > Toast + ripple only if a consumer emerges. (Consumer audit: STRONG for Badge/EmptyState/Avatar/Skeleton/
 > Stepper/Card; NONE for Tooltip/Drawer.)

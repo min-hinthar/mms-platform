@@ -37,12 +37,17 @@ keyboard-focus caveats; reference impls in the delivery repo `Hero/interactions.
 adopted at an EXISTING duplicated site — no dead code; two grounded audits confirmed consumers + that
 Tooltip/Drawer/tilt have NONE → deferred).
 - **P5.4a ✅ (this PR):** `@mms/ui` eslint config + `lint` script (+`react-hooks`; closes the P5.3 review Low-2
-  — shared hooks were typecheck-only) · **`Badge`** (explicit token colors; `RoleBadge`+`FloorStatusChip`
-  delegate, exact palettes preserved) · **`EmptyState`** (token `.card` surface; `KdsBoard`+`ApprovalsBoard`
-  adopt; ExpoBoard's lighter line left as-is). Both pure-presentational (Server-Component safe). 6/6 gate.
+  — shared hooks were typecheck-only) · **`Badge`** (semantic `tone` presets that own the AA-on-tint rule +
+  explicit-color override + `aria-label`/`decorative` passthroughs; `RoleBadge`→tone, `FloorStatusChip`→explicit,
+  both byte-identical) · **`EmptyState`** (token `.card` surface + `titleAs`; `KdsBoard`+`ApprovalsBoard`+
+  `ExpoBoard` unified). Both pure-presentational (Server-Component safe). **Hardened by a 3-lens deep pre-merge
+  review (all PASS).** 6/6 gate.
 - **NEXT — P5.4b:** `Avatar` (GuestList overlapping seats + `lib/avatars.ts`; check SplitSection as a 2nd
   consumer), `Skeleton` (loading states — CSS shimmer, reduced-motion-gated, consume P5.3 `useInView` if it
-  loops), `Stepper` (qty +/- — StaffLineEditor is the reference, ≥44px unlike delivery's 24–32px).
+  loops), `Stepper` (qty +/- — StaffLineEditor is the reference, ≥44px unlike delivery's 24–32px). **Also:**
+  migrate the floor `tabChip` (TableCard/FloorDetailLive) onto `Badge` (use the new `decorative` prop) — it's a
+  **pre-existing** inconsistency next to the migrated `FloorStatusChip` (deep-review carry-forward), not a P5.4a
+  regression.
 - **P5.4c:** `Card` variants — the 20+ `.card` sites; its own careful PR (cosmetic, big blast radius).
 - **Deferred (no consumer):** `Tooltip`, `Drawer`, tilt; `Toast` + ripple only if a real consumer emerges.
 

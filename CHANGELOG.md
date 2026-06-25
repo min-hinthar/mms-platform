@@ -13,13 +13,19 @@ a sub-pixel unification of the floor chip (dot 6→7px + hairline `letter-spacin
 - **`@mms/ui` is now linted** — added `packages/ui/eslint.config.mjs` (extends `@mms/config/eslint` +
   `eslint-plugin-react-hooks`) + a `lint` script, so `turbo lint` now covers the shared hooks/components
   (`motion.ts`/`sheet.tsx`/the new primitives) — previously typecheck-only (P5.3 review Low-2). 6/6 gate tasks.
-- **`Badge`** (`packages/ui/src/badge.tsx`) — pure presentational (Server-Component safe) status/role chip taking
-  explicit token colors (`color`/`background`/optional `dot`/`bordered`) so each consumer keeps its exact
-  palette. `RoleBadge` (owner/manager/server) and `FloorStatusChip` (seated/ordering/paying/splitting/paid) now
-  delegate to it — dedups two hand-rolled chip+dot style blocks; colors/AA (`-strong` tokens) preserved.
+- **`Badge`** (`packages/ui/src/badge.tsx`) — pure presentational (Server-Component safe) status/role chip with
+  semantic **`tone` presets** (`gold`/`jade`/`accent`/`ok`/`warn`/`neutral`) that carry the AA-correct mapping
+  (text `-strong` on a tint; vivid decorative dot) so that rule lives once in the primitive, not in every call
+  site — plus explicit `color`/`background`/`dot`/`bordered` overrides for bespoke palettes, and
+  `aria-label`/`decorative` (aria-hidden) passthroughs. `RoleBadge` (owner/manager/server) uses `tone`;
+  `FloorStatusChip` (its flat-on-`--cd` states) uses the explicit path — both render byte-identical.
 - **`EmptyState`** (`packages/ui/src/empty-state.tsx`) — the "nothing here" card (token surface = `.card`),
-  title + optional subtitle/icon/action. `KdsBoard` + `ApprovalsBoard` (identical empty-card markup) now use it.
-  `ExpoBoard`'s lighter one-line treatment left as-is (no forced visual change).
+  title + optional subtitle/icon/action + `titleAs` (`p` default / `h2`/`h3` for standalone regions, a11y).
+  `KdsBoard` + `ApprovalsBoard` + **`ExpoBoard`** (now unified across the staff board family) use it.
+- **Deep pre-merge review (3 parallel lenses): all PASS** — the API-design lens prompted the `tone` presets +
+  a11y passthroughs; the consistency lens prompted ExpoBoard's migration; build/lint/deps proved eslint efficacy
+  + frozen-lockfile safety. Carry-forward: the `tabChip`↔`FloorStatusChip` floor adjacency is a **pre-existing**
+  (sub-perceptual) inconsistency — a Badge-migration candidate for P5.4b (now unblocked by `decorative`).
 - **Deferred:** `Avatar`/`Skeleton`/`Stepper` → P5.4b; `Card` variants → P5.4c (20+ sites); `Tooltip`/`Drawer`/
   tilt → no QR consumer.
 
