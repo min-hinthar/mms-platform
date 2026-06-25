@@ -4,6 +4,27 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — M5 · P5.3: motion discipline + perf budget (QR ← delivery transfer) (2026-06-24)
+
+Establishes QR's motion/perf foundation **before** richer motion lands (P5.4+), so it never reintroduces the
+sibling app's prod iOS-WebKit-OOM crash. No behavior change to existing flows.
+
+- **`@mms/ui` foundation primitives** (lean, SSR-safe, `"use client"`, exported from the package root):
+  `useAnimationPreference()` (`{ shouldAnimate }` — the JS counterpart to the CSS reduced-motion query,
+  reactive to OS changes), `useInView()` (IntersectionObserver offscreen-pause; falls back to in-view where
+  IO is absent), `useDeviceTier()` (`low|mid|high|desktop`, SSR-safe `low` first paint — the gate for future
+  heavy GPU FX). Ported lean from delivery (no in-app override store — QR has no motion-settings UI yet).
+- **Canonical consumer:** the `/track` active-step pulse (`mms-track-now`, the app's one infinite loop) is now
+  gated `shouldAnimate && inView` — JS reduced-motion + offscreen-pause — with the `useInView` ref on the
+  stable `<ul>` (not the moving dot). Proves the primitives without retrofitting JS onto already-correct CSS.
+- **`docs/MOTION_AND_PERF.md`** — the discipline doc: reduced-motion (CSS + JS), 60fps transform/opacity-only,
+  offscreen-pause, the **mobile GPU/blur budget** (no stacked `backdrop-filter`/large `blur()` on mobile;
+  radial-gradient glows; gate heavy FX behind `md:`/`useDeviceTier`; budget the initial composite), and
+  `desktop`-only gating for the heaviest GPU (high cores ≠ lifted WebKit memory ceiling).
+- **Deferred to P5.4:** `useRipple`/`useTilt` interaction hooks — meaningless without component consumers; they
+  land with the primitive library that uses them (carry the "no tilt on a CTA card / disable on keyboard focus"
+  caveats). Learnings captured in `.claude/LEARNINGS.md`.
+
 ### Added — M5 · P5.2: iOS / mobile hardening sweep (QR ← delivery transfer) (2026-06-24)
 
 First transfer slice of the reshaped M5 — ports delivery's production-hardened mobile/iOS patterns into QR,
