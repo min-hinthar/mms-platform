@@ -74,7 +74,13 @@ QR's motion is light today (CSS keyframes only). Adopt the *discipline* now so r
 > Carry the hard-won caveats verbatim: **no 3D tilt on a card whose body holds the primary CTA** (square
 > shadow artifact + the Add button slides out from under the cursor), and **disable tilt on keyboard focus**.
 
-### P5.4 — Primitive component library in `@mms/ui` `[QR's biggest structural gap]`
+### P5.4 — Primitive component library in `@mms/ui` `[QR's biggest structural gap]` — 🚧 in progress
+
+> **P5.4a ✅** shipped: `@mms/ui` lint config + `Badge` (dedups RoleBadge/FloorStatusChip) + `EmptyState`
+> (dedups Kds/Approvals boards). **P5.4b next:** Avatar (GuestList) · Skeleton (loading) · Stepper (qty +/-).
+> **P5.4c:** Card variants (20+ `.card` sites, own PR). **Deferred — no QR consumer:** Tooltip, Drawer, tilt;
+> Toast + ripple only if a consumer emerges. (Consumer audit: STRONG for Badge/EmptyState/Avatar/Skeleton/
+> Stepper/Card; NONE for Tooltip/Drawer.)
 
 QR ships ~50 bespoke domain components and rebuilds primitives inline each time. Promote the missing ones into
 `@mms/ui`, **built to QR tokens**, with delivery's component APIs as the reference (not a copy).

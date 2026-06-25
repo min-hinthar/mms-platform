@@ -4,6 +4,25 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — M5 · P5.4a: `@mms/ui` lint + Badge + EmptyState primitives (QR ← delivery transfer) (2026-06-24)
+
+First slice of the primitive library — built to QR tokens, each adopted at an **existing duplicated** site
+(no dead code). No functional change; colors/AA (`-strong` tokens) byte-identical — the only render deltas are
+a sub-pixel unification of the floor chip (dot 6→7px + hairline `letter-spacing`/`nowrap`).
+
+- **`@mms/ui` is now linted** — added `packages/ui/eslint.config.mjs` (extends `@mms/config/eslint` +
+  `eslint-plugin-react-hooks`) + a `lint` script, so `turbo lint` now covers the shared hooks/components
+  (`motion.ts`/`sheet.tsx`/the new primitives) — previously typecheck-only (P5.3 review Low-2). 6/6 gate tasks.
+- **`Badge`** (`packages/ui/src/badge.tsx`) — pure presentational (Server-Component safe) status/role chip taking
+  explicit token colors (`color`/`background`/optional `dot`/`bordered`) so each consumer keeps its exact
+  palette. `RoleBadge` (owner/manager/server) and `FloorStatusChip` (seated/ordering/paying/splitting/paid) now
+  delegate to it — dedups two hand-rolled chip+dot style blocks; colors/AA (`-strong` tokens) preserved.
+- **`EmptyState`** (`packages/ui/src/empty-state.tsx`) — the "nothing here" card (token surface = `.card`),
+  title + optional subtitle/icon/action. `KdsBoard` + `ApprovalsBoard` (identical empty-card markup) now use it.
+  `ExpoBoard`'s lighter one-line treatment left as-is (no forced visual change).
+- **Deferred:** `Avatar`/`Skeleton`/`Stepper` → P5.4b; `Card` variants → P5.4c (20+ sites); `Tooltip`/`Drawer`/
+  tilt → no QR consumer.
+
 ### Added — M5 · P5.3: motion discipline + perf budget (QR ← delivery transfer) (2026-06-24)
 
 Establishes QR's motion/perf foundation **before** richer motion lands (P5.4+), so it never reintroduces the

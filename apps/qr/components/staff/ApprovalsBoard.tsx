@@ -10,6 +10,7 @@ import {
 } from "react";
 import { listPendingApprovals, resolveApproval, type PendingApproval } from "@/lib/approvals";
 import type { Approver } from "@/lib/voids";
+import { EmptyState } from "@mms/ui";
 import { RelativeTime } from "./RelativeTime";
 import { ManagerPinFields, PIN_NO_PIN_COPY, pinFailureCopy, useLockout } from "./ManagerPinStepUp";
 
@@ -86,13 +87,10 @@ export function ApprovalsBoard({
       </div>
 
       {count === 0 ? (
-        <div className="card" style={empty}>
-          <p style={{ margin: 0, fontWeight: 600 }}>Nothing to approve</p>
-          <p style={{ margin: "4px 0 0", fontSize: 14, color: "var(--t2)", lineHeight: 1.5 }}>
-            When a server asks to void or comp something they can’t do solo, it lands here for a
-            manager to approve or deny — oldest first.
-          </p>
-        </div>
+        <EmptyState
+          title="Nothing to approve"
+          subtitle="When a server asks to void or comp something they can’t do solo, it lands here for a manager to approve or deny — oldest first."
+        />
       ) : (
         <ul role="list" aria-label="Pending approval requests" style={grid}>
           {snap.map((a) => (
@@ -284,7 +282,6 @@ const headRow: CSSProperties = {
   gap: "var(--s4)",
   marginBottom: "var(--s4)",
 };
-const empty: CSSProperties = { padding: "var(--s6)" };
 const grid: CSSProperties = {
   listStyle: "none",
   margin: 0,

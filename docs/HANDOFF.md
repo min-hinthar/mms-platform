@@ -33,13 +33,21 @@ CSS-only + already reduced-motion-gated; so P5.3 is the foundation+discipline fo
 `useRipple`/`useTilt` deferred to P5.4 (need component consumers; carry the no-tilt-on-CTA-card + disable-on-
 keyboard-focus caveats; reference impls in the delivery repo `Hero/interactions.ts` / `useTiltEffect.ts`).
 
-**NEXT: P5.4 — primitive component library in `@mms/ui`** (Skeleton, Toast, EmptyState, Stepper, Card variants,
-Drawer, Badge, Avatar, Tooltip — built to QR tokens; consume the P5.3 motion primitives + bake in the P5.2
-sheet/safe-area hardening; bring `useRipple`/`useTilt` + swipe-to-close here). **Also in P5.4** (P5.3 review
-Low-2): add a `lint` script + eslint config to `@mms/ui` — `motion.ts`/`sheet.tsx` are currently typecheck-only
-(no `react-hooks` lint coverage on the shared hooks). Then P5.5 (contrast-audit test + QR test infra — QR has
-**zero** tests today, `turbo test` is commented out in `ci.yml`), P5.6 (PWA/offline, deferred). Backlog:
-`docs/QR_FROM_DELIVERY.md`.
+**P5.4 — primitive component library in `@mms/ui`, shipped incrementally** (built to QR tokens; each primitive
+adopted at an EXISTING duplicated site — no dead code; two grounded audits confirmed consumers + that
+Tooltip/Drawer/tilt have NONE → deferred).
+- **P5.4a ✅ (this PR):** `@mms/ui` eslint config + `lint` script (+`react-hooks`; closes the P5.3 review Low-2
+  — shared hooks were typecheck-only) · **`Badge`** (explicit token colors; `RoleBadge`+`FloorStatusChip`
+  delegate, exact palettes preserved) · **`EmptyState`** (token `.card` surface; `KdsBoard`+`ApprovalsBoard`
+  adopt; ExpoBoard's lighter line left as-is). Both pure-presentational (Server-Component safe). 6/6 gate.
+- **NEXT — P5.4b:** `Avatar` (GuestList overlapping seats + `lib/avatars.ts`; check SplitSection as a 2nd
+  consumer), `Skeleton` (loading states — CSS shimmer, reduced-motion-gated, consume P5.3 `useInView` if it
+  loops), `Stepper` (qty +/- — StaffLineEditor is the reference, ≥44px unlike delivery's 24–32px).
+- **P5.4c:** `Card` variants — the 20+ `.card` sites; its own careful PR (cosmetic, big blast radius).
+- **Deferred (no consumer):** `Tooltip`, `Drawer`, tilt; `Toast` + ripple only if a real consumer emerges.
+
+Then **P5.5** (contrast-audit test + QR test infra — QR has **zero** tests today, `turbo test` is commented out
+in `ci.yml`), **P5.6** (PWA/offline, deferred). Backlog + per-primitive consumer map: `docs/QR_FROM_DELIVERY.md`.
 
 > **S4 — unified basket & fulfillment routing — COMPLETE (PRs #71–75, all merged + applied to live).**
 > **S4.1** (#71, `20260623100000`) — per-line `qr_cart_items.fulfillment` (dinein/togo/grocery) drives BOTH
