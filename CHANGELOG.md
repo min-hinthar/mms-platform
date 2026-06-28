@@ -4,6 +4,27 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — M5 · P5.4b-1: Avatar primitive + tabChip→Badge (QR ← delivery transfer) (2026-06-28)
+
+The floor/presence cluster of P5.4b. Built to QR tokens; each adopted at a real site. (Skeleton + Stepper —
+the loading/qty cluster, thinner consumers — follow in P5.4b-2.)
+
+- **`Avatar`** (`packages/ui/src/avatar.tsx`) — pure presentational (Server-Component safe) initial-in-a-circle;
+  caller passes the resolved `initial`+`color` (QR's `seatColor`/`seatInitial` stay app-side). Sizes match the
+  consumers exactly (`md` 30/12, `sm` 22/10), optional `ring` for overlap, `aria-label` else decorative.
+  Adopted in **`GuestList`** (overlapping presence avatars) + **`SplitSection`** (2 static attribution avatars);
+  the interactive 44px tap-target `aav` stays bespoke (it's a button, not a display circle).
+- **`tabChip` → `Badge`** — the floor open-tab indicator now uses `Badge`, unifying it with the adjacent
+  `FloorStatusChip` (deep-review carry-forward from P5.4a, unblocked by the new `decorative` prop), all chips now
+  `bordered` (the shared outlined look) at the Badge's normalized 700 weight. **`TableCard`** (decorative — the
+  card's `aria-label` already names the tab state; over-ceiling keeps a non-color `⚠` cue, never color-alone for
+  color-blind staff) + **`FloorDetailLive`** (announced — its text is the only place the tab state is named;
+  **secured = `jade`** affirmative tone vs **open = `accent`**, restoring the `✓`/`●` two-state read). **Visual
+  change:** the `●`/`✓` glyph → a tone-colored dot + unified pill geometry (preview-flag for review).
+- Gate 6/6 green. `Avatar`'s two consumers + the `tabChip` migration confirmed against the originals. Pre-merge
+  deep adversarial pass (3 lenses) drove the `bordered`/`jade`/`⚠` refinements above; one tracked follow-up — the
+  two lightest `seatColor` hues sit just under AA behind the white avatar initial (pre-existing; redundant cue).
+
 ### Added — M5 · P5.4a: `@mms/ui` lint + Badge + EmptyState primitives (QR ← delivery transfer) (2026-06-24)
 
 First slice of the primitive library — built to QR tokens, each adopted at an **existing duplicated** site

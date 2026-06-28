@@ -7,6 +7,7 @@ import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import type { TableDetail } from "@/lib/floor-types";
 import { FloorStatusChip } from "./FloorStatusChip";
 import { RelativeTime } from "./RelativeTime";
+import { Badge } from "@mms/ui";
 import { ClearTableButton } from "./ClearTableButton";
 import { StaffLineEditor } from "./StaffLineEditor";
 import { CashSettleButton } from "./CashSettleButton";
@@ -121,10 +122,12 @@ export function FloorDetailLive({
             <h1 style={h1}>Table {detail.label}</h1>
             <FloorStatusChip status={detail.status} />
             {detail.tab !== "none" && (
-              <span style={tabChip}>
-                <span aria-hidden>{detail.tab === "secure" ? "✓" : "●"}</span>{" "}
+              // Announced (not decorative): this chip's text is the only place the tab state is named.
+              // Secured = jade (affirmative, card-backed); open = accent (neutral-attention). `bordered`
+              // matches the sibling FloorStatusChip; the "· card on file" suffix is the non-color cue.
+              <Badge tone={detail.tab === "secure" ? "jade" : "accent"} bordered>
                 {detail.tab === "secure" ? "Tab secured · card on file" : "Tab open"}
-              </span>
+              </Badge>
             )}
           </div>
           <p style={sub}>
@@ -426,18 +429,6 @@ const chipList: CSSProperties = {
   display: "flex",
   flexWrap: "wrap",
   gap: "var(--s3)",
-};
-const tabChip: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 6,
-  padding: "4px 12px",
-  borderRadius: "var(--r-full)",
-  border: "1px solid color-mix(in oklab, var(--ac) 35%, var(--bd))",
-  background: "color-mix(in oklab, var(--ac) 10%, var(--cd))",
-  color: "var(--ac-strong)",
-  fontSize: 12.5,
-  fontWeight: 800,
 };
 const guestChip: CSSProperties = {
   padding: "4px 12px",

@@ -7,6 +7,7 @@ import { openSettlement } from "@/lib/split";
 import { assignLine } from "@/lib/cart";
 import { canMutateLine } from "@/lib/permissions";
 import { seatColor, seatInitial } from "@/lib/avatars";
+import { Avatar } from "@mms/ui";
 
 /**
  * Dine-in split-the-bill section on /cart (M3·P3.3a). Per-seat shares are computed CLIENT-side from
@@ -155,9 +156,11 @@ export function SplitSection({
                   <div
                     style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 6 }}
                   >
-                    <span aria-hidden style={{ ...avatarSm, background: seatColor(owner) }}>
-                      {seatInitial(ownerMember?.name ?? "Guest")}
-                    </span>
+                    <Avatar
+                      size="sm"
+                      initial={seatInitial(ownerMember?.name ?? "Guest")}
+                      color={seatColor(owner)}
+                    />
                     <span style={{ fontSize: 12.5, color: "var(--t2)" }}>
                       Assigned to {ownerName}
                     </span>
@@ -179,9 +182,7 @@ export function SplitSection({
             style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}
           >
             <dt style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 14 }}>
-              <span aria-hidden style={{ ...avatarSm, background: seatColor(s.seat) }}>
-                {seatInitial(s.name)}
-              </span>
+              <Avatar size="sm" initial={seatInitial(s.name)} color={seatColor(s.seat)} />
               {s.seat === ctx.mySeat ? `${s.name} (you)` : s.name}
             </dt>
             <dd style={{ margin: 0, fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>
@@ -257,13 +258,3 @@ const aav = (on: boolean, seat: string): CSSProperties => ({
   opacity: on ? 1 : 0.5,
   cursor: "pointer",
 });
-const avatarSm: CSSProperties = {
-  width: 22,
-  height: 22,
-  borderRadius: "50%",
-  display: "grid",
-  placeItems: "center",
-  color: "#fff",
-  fontWeight: 800,
-  fontSize: 10,
-};

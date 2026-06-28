@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { FloorTable } from "@/lib/floor-types";
 import { FloorStatusChip } from "./FloorStatusChip";
 import { RelativeTime } from "./RelativeTime";
+import { Badge } from "@mms/ui";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const MODE_LABEL: Record<FloorTable["mode"], string> = {
@@ -30,12 +31,12 @@ export function TableCard({ table, serverNow }: { table: FloorTable; serverNow: 
         <span style={label}>{table.label}</span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
           {table.tab !== "none" && (
-            <span
-              style={table.tabOverCeiling ? { ...tabChip, ...tabChipWarn } : tabChip}
-              aria-hidden
-            >
-              {table.tabOverCeiling ? "⚠ Tab" : "● Tab"}
-            </span>
+            // Decorative: the card's aria-label already says "tab open" / "over tab limit".
+            // Warn keeps a non-color cue (⚠) too — never color-alone, for color-blind floor staff.
+            // `bordered` matches the sibling FloorStatusChip's outlined look.
+            <Badge tone={table.tabOverCeiling ? "warn" : "accent"} bordered decorative>
+              {table.tabOverCeiling ? "Tab ⚠" : "Tab"}
+            </Badge>
           )}
           <FloorStatusChip status={table.status} />
         </span>
@@ -103,24 +104,6 @@ const topRow: CSSProperties = {
   gap: 10,
 };
 const label: CSSProperties = { fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 700 };
-const tabChip: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 4,
-  padding: "2px 9px",
-  borderRadius: "var(--r-full)",
-  border: "1px solid color-mix(in oklab, var(--ac) 35%, var(--bd))",
-  background: "color-mix(in oklab, var(--ac) 10%, var(--cd))",
-  color: "var(--ac-strong)",
-  fontSize: 11.5,
-  fontWeight: 800,
-};
-// T11: a trust tab past the silent ceiling — warn tint on the floor card (a flag, never an action).
-const tabChipWarn: CSSProperties = {
-  border: "1px solid color-mix(in oklab, var(--warn) 45%, var(--bd))",
-  background: "color-mix(in oklab, var(--warn) 12%, var(--cd))",
-  color: "var(--warn)",
-};
 const metaRow: CSSProperties = {
   display: "flex",
   alignItems: "center",
