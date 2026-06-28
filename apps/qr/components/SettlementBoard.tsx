@@ -4,6 +4,7 @@ import type { SplitContext, SettlementShare } from "@/lib/split";
 import { getSettlement, abortSettlement } from "@/lib/split";
 import { useSettlementRealtime } from "@/lib/realtime";
 import { seatColor, seatInitial } from "@/lib/avatars";
+import { Skeleton } from "@mms/ui";
 import { SharePay } from "./SharePay";
 
 /**
@@ -127,7 +128,27 @@ export function SettlementBoard({
             </button>
           </p>
         ) : (
-          <p style={{ fontSize: 13, color: "var(--t2)" }}>Loading the split…</p>
+          // Skeleton mirror of the share rows. Decorative (aria-hidden) — the section's <h2> already
+          // names it and the error branch above owns the only role=alert (one live region per view).
+          // A sibling sr-only string keeps an SR loading cue.
+          <>
+            <span className="sr-only">Loading the split…</span>
+            <div aria-hidden>
+              <Skeleton width={160} height={13} style={{ margin: "0 0 12px" }} />
+              <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 10 }}>
+                {[0, 1, 2].map((i) => (
+                  <li key={i} className="card" style={{ padding: 12 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <Skeleton circle height={30} />
+                      <Skeleton height={14} style={{ flex: 1 }} />
+                      <Skeleton width={56} height={14} />
+                      <Skeleton width={64} height={18} radius={999} />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </>
         )
       ) : (
         <>

@@ -152,6 +152,50 @@ h3 {
   }
 }
 
+/* Skeleton loading placeholder (M5·P5.4b-2) — a soft shimmer sweep while client-fetched content loads.
+   Lives here (not in @mms/ui) because @keyframes can't be authored inline; the <Skeleton> primitive
+   only references this class. The highlight is a token mix (no hardcoded colors). Reduced motion: the
+   sweep collapses to a flat fill (the 1.4s loop is hardcoded, so the token duration override can't
+   reach it — it needs its own off-switch, QA §A). */
+.mms-skeleton {
+  background: linear-gradient(
+    100deg,
+    var(--sf) 30%,
+    color-mix(in oklab, var(--sf) 40%, var(--cd)) 50%,
+    var(--sf) 70%
+  );
+  background-size: 200% 100%;
+  animation: mmsShimmer 1.4s linear infinite;
+}
+@keyframes mmsShimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mms-skeleton {
+    animation: none;
+    background: var(--sf);
+  }
+}
+
+/* Visually hidden but screen-reader-navigable (NOT a live region — static text only). Pairs with an
+   aria-hidden skeleton so an SR user still gets a "Loading…" cue without auto-announcing (P5.4b-2). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* Split-the-bill (M3·P3.3a): purposeful state motion on the mode toggle + assignment avatars —
    a soft on/off fade + a press "thunk" so the assign tap registers with weight (RUBRIC #2/#5). */
 .mms-seg-btn {

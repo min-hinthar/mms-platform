@@ -36,6 +36,7 @@ keyboard-focus caveats; reference impls in the delivery repo `Hero/interactions.
 **P5.4 — primitive component library in `@mms/ui`, shipped incrementally** (built to QR tokens; each primitive
 adopted at an EXISTING duplicated site — no dead code; two grounded audits confirmed consumers + that
 Tooltip/Drawer/tilt have NONE → deferred).
+
 - **P5.4a ✅ (this PR):** `@mms/ui` eslint config + `lint` script (+`react-hooks`; closes the P5.3 review Low-2
   — shared hooks were typecheck-only) · **`Badge`** (semantic `tone` presets that own the AA-on-tint rule +
   explicit-color override + `aria-label`/`decorative` passthroughs; `RoleBadge`→tone, `FloorStatusChip`→explicit,
@@ -46,12 +47,21 @@ Tooltip/Drawer/tilt have NONE → deferred).
   `GuestList` + `SplitSection`; `tabChip`→`Badge` (`tone="accent"/"warn"`, decorative on TableCard / announced on
   FloorDetailLive) — unifies the floor pills (deep-review carry-forward). **Visual change** (glyph→tone-dot) —
   preview-flagged for the owner.
-- **NEXT — P5.4b-2:** `Skeleton` (loading states — CSS shimmer in `@mms/ui/tokens.css`, reduced-motion-gated;
-  consumers are PickupSlotSheet "Loading times…" + SettlementBoard "Loading the split…" — a text→skeleton
-  **enhancement**, thin) + `Stepper` (qty +/- — `StaffLineEditor` is the **only** consumer, with bespoke
-  remove-at-1/sold-out/≥99 logic, so the primitive is a thin ≥44px button-pair wrapper; confirm it earns its
-  keep vs. leaving StaffLineEditor inline).
-- **P5.4c:** `Card` variants — the 20+ `.card` sites; its own careful PR (cosmetic, big blast radius).
+- **P5.4b-2 ✅:** `Skeleton` (`@mms/ui`, Server-safe, `aria-hidden`; `width`/`height`/`radius`/`circle`) adopted
+  in `PickupSlotSheet` (slot-chip mirror) + `SettlementBoard` (share-row mirror). **The shimmer `@keyframes`
+  lives in `apps/qr/app/globals.css` `.mms-skeleton`, NOT the package** — a keyframe can't be inline, and the
+  pkg ships no component CSS (only `tokens.css`); the primitive references the class (the `Sheet`→`.mms-sheet`
+  split). + `Stepper` (`@mms/ui`, client, presentational; parent keeps the mutation). **The "only one consumer"
+  belief was WRONG** — a context sweep found **two** drifted consumers: `StaffLineEditor` (red ✕, no count) +
+  customer cart `Checkout` (🗑, center count). Extracted one canonical primitive preserving each look via
+  `removeGlyph`/`removeTone`/`showCount`; minor flagged cosmetic deltas on Checkout (glyph −2px, sold-out now
+  dims, aria wording) — qty math untouched. Skeleton fast-follow consumers surfaced: **SharePay**, **MergeTableButton**.
+  - **Deferred (tracked a11y ticket, NOT a P5.4b-2 regression):** removing a line at qty 1 disables/removes the
+    "−", dropping focus to `<body>` (WCAG 2.4.3) — **both old inline steppers behaved identically**, so it's
+    pre-existing. Fix pattern already in `Checkout.tsx` (`refocusToggle` ref + post-`refresh` effect): stash the
+    next focus target (the line above's stepper, or the cart/section heading) and restore it after the mutation.
+    Apply to `Stepper` consumers (`Checkout` + `StaffLineEditor`) in a focused a11y pass.
+- **NEXT — P5.4c:** `Card` variants — the 20+ `.card` sites; its own careful PR (cosmetic, big blast radius).
 - **Deferred (no consumer):** `Tooltip`, `Drawer`, tilt; `Toast` + ripple only if a real consumer emerges.
 
 Then **P5.5** (contrast-audit test + QR test infra — QR has **zero** tests today, `turbo test` is commented out

@@ -4,6 +4,37 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — M5 · P5.4b-2: Skeleton + Stepper primitives (QR ← delivery transfer) (2026-06-28)
+
+The loading/qty cluster of P5.4b. Both built to QR tokens, each wired to **real existing consumers** — and a
+context sweep **refuted the assumption that the stepper had only one consumer**: there are two, already drifted.
+
+- **`Skeleton`** (`packages/ui/src/skeleton.tsx`) — pure presentational (Server-Component safe) shimmer
+  placeholder; `width`/`height`/`radius`/`circle` + a `style` passthrough for layout. Always `aria-hidden`
+  (a skeleton is never announced — both consumers keep "one live region per view", their error branch owns
+  `role=alert`). The shimmer `@keyframes` + its reduced-motion off-switch live in `apps/qr/app/globals.css`
+  (`.mms-skeleton`) — a keyframe can't be authored inline, so the primitive references the class (same
+  package↔app split as `Sheet`→`.mms-sheet`); the highlight is a `color-mix` of `--sf`/`--cd` (no hardcoded
+  colors). Adopted in **`PickupSlotSheet`** (day-grouped slot-chip mirror) + **`SettlementBoard`** (share-row
+  mirror: avatar circle + name/amount bars + status pill). Fast-follow consumers noted: `SharePay`, `MergeTableButton`.
+- **`Stepper`** (`packages/ui/src/stepper.tsx`) — interactive (client) qty −/+ control; **presentational only**
+  (the parent keeps the optimistic update / `startTransition` / rollback — the qty _math_ is untouched). Encodes
+  the load-bearing rules once: 44px targets, the **remove-at-min swap** (the "−" becomes a destructive Remove
+  with a swapped glyph + accessible name), the **increment gate** (`disabled`/`qty>=max`/`soldOut`, each with the
+  right name; sold-out "+" dims), and the non-live center count (`<span>`, never `<output>` — its implicit
+  `role=status` would announce per tap). Adopted in **`StaffLineEditor`** (red ✕ remove, no count) + the
+  customer cart **`Checkout`** (🗑 remove, center count, warm "Add another X" label via `incrementLabel`) —
+  re-converging two copies that had drifted.
+  - **Minor flagged deltas on the customer cart `Checkout` stepper** (presentation only — qty math + the
+    warm "Add another X" microcopy unchanged): glyph font 20→18px (imperceptible); a sold-out "+" now dims
+    (opacity 0.55, consistent with staff). Staff gains a "Maximum 99" aria cap label.
+- A **4-lens deep pre-PR adversarial review** drove: the `incrementLabel` prop (keeps the cart's warm copy —
+  it had flattened to the staff phrasing); the sold-out dim tuned 0.4→0.55 (0.4 read "broken"); the dark-mode
+  shimmer highlight shifted toward `--cd` (was near-imperceptible); and an `sr-only` "Loading…" cue beside each
+  `aria-hidden` skeleton (restores the SR text the old `<p>` carried, with no live region). Deferred (tracked):
+  focus-restore on line-removal at qty 1 — **pre-existing** in both old steppers, its own a11y ticket.
+- Gate 6/6 green.
+
 ### Added — M5 · P5.4b-1: Avatar primitive + tabChip→Badge (QR ← delivery transfer) (2026-06-28)
 
 The floor/presence cluster of P5.4b. Built to QR tokens; each adopted at a real site. (Skeleton + Stepper —
@@ -45,8 +76,8 @@ a sub-pixel unification of the floor chip (dot 6→7px + hairline `letter-spacin
   `KdsBoard` + `ApprovalsBoard` + **`ExpoBoard`** (now unified across the staff board family) use it.
 - **Deep pre-merge review (3 parallel lenses): all PASS** — the API-design lens prompted the `tone` presets +
   a11y passthroughs; the consistency lens prompted ExpoBoard's migration; build/lint/deps proved eslint efficacy
-  + frozen-lockfile safety. Carry-forward: the `tabChip`↔`FloorStatusChip` floor adjacency is a **pre-existing**
-  (sub-perceptual) inconsistency — a Badge-migration candidate for P5.4b (now unblocked by `decorative`).
+  - frozen-lockfile safety. Carry-forward: the `tabChip`↔`FloorStatusChip` floor adjacency is a **pre-existing**
+    (sub-perceptual) inconsistency — a Badge-migration candidate for P5.4b (now unblocked by `decorative`).
 - **Deferred:** `Avatar`/`Skeleton`/`Stepper` → P5.4b; `Card` variants → P5.4c (20+ sites); `Tooltip`/`Drawer`/
   tilt → no QR consumer.
 
@@ -77,7 +108,7 @@ First transfer slice of the reshaped M5 — ports delivery's production-hardened
 built to QR's own tokens. Pure mobile-robustness; no behavior/logic change to money/auth/data.
 
 - **Bottom sheets size by `--sheet-max-h` (dvh), not `vh`** — new `--sheet-max-h: calc(100dvh -
-  env(safe-area-inset-top) - 1rem)` token in `@mms/ui/tokens.css`; the shared `.mms-sheet` (every
+env(safe-area-inset-top) - 1rem)` token in `@mms/ui/tokens.css`; the shared `.mms-sheet` (every
   `@mms/ui` Sheet — JoinTable/InviteSheet/PickupSlotSheet/LossActionSheet) now uses it + clears the home-bar
   inset in its bottom padding. iOS `vh` is the large viewport, so a `90vh` sheet's top/close button could hide
   under the status bar.
@@ -90,7 +121,7 @@ built to QR's own tokens. Pure mobile-robustness; no behavior/logic change to mo
   content — cosmetic in browser-portrait where `safe-area-top≈0`, only relevant once a standalone PWA ships.)
 - **16px form controls on mobile** — a single `@media (max-width: 639.98px)` base rule pins
   `input`/`textarea`/`select` to 16px (overrides inline sizing) so iOS never auto-zooms on focus; desktop sizes
-  resume at `sm:`. QR had fixed *some* inputs ad hoc (StaffLogin/FeedbackPrompt/JoinTable) but missed others
+  resume at `sm:`. QR had fixed _some_ inputs ad hoc (StaffLogin/FeedbackPrompt/JoinTable) but missed others
   (grocery search, InviteSheet, RefundActionSheet) — this closes the whole class in one rule.
 - Audited clean (no change needed): nested-scroll wheel traps and breakpoint-coupled overlay anchors — QR uses
   centered inline-styled fixed elements, not Tailwind-breakpoint-anchored dropdowns.
@@ -115,7 +146,7 @@ app** (next/react/eslint/TS — a regression surface, the owner's #1 frustration
 - **New slice plan:** P5.0 (the `@mms/db` factory, #79) retained as a clean internal refactor → **P5.2** iOS/
   mobile hardening sweep → **P5.3** motion discipline + perf budget → **P5.4** primitive library in `@mms/ui`
   (built to QR tokens) → **P5.5** contrast-audit test + QR test infra → **P5.6** PWA/offline (deferred).
-- **Key correction over the delivery catalog's instinct:** transfer *behavior + craft + primitives*, never the
+- **Key correction over the delivery catalog's instinct:** transfer _behavior + craft + primitives_, never the
   design tokens — QR keeps its own. **Audit fact recorded:** delivery uses file-based migrations.
 
 ### Changed — M5 · P5.0: `@mms/db` generic client factory (multi-app prep) (2026-06-24)

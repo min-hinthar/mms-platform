@@ -9,6 +9,7 @@ import {
 } from "react";
 import Link from "next/link";
 import type { CartItem, CartTotals } from "@mms/db";
+import { Stepper } from "@mms/ui";
 import {
   applyPromo as applyPromoAction,
   getCartView,
@@ -528,6 +529,9 @@ export function Checkout({
                       disabled={pending || !canEdit}
                       soldOut={i.soldOut}
                       name={i.name}
+                      removeGlyph="🗑"
+                      showCount
+                      incrementLabel={`Add another ${i.name}`}
                       onChange={(q) => changeQty(i.id, q)}
                     />
                   ) : (
@@ -824,70 +828,6 @@ const keepTabBtn: CSSProperties = {
   fontSize: 15,
   cursor: "pointer",
 };
-
-function Stepper({
-  qty,
-  onChange,
-  disabled,
-  soldOut,
-  name,
-}: {
-  qty: number;
-  onChange: (q: number) => void;
-  disabled?: boolean;
-  // 86'd after it was added → can't increment (QA §D), but "−"/remove stays enabled so it can be cleared.
-  soldOut?: boolean;
-  name: string;
-}) {
-  const btn = {
-    width: 44,
-    height: 44,
-    borderRadius: 999,
-    border: "1px solid var(--bd)",
-    background: "var(--cd)",
-    color: "var(--tx)",
-    fontSize: 20,
-    fontWeight: 700,
-    cursor: disabled ? "default" : "pointer",
-  } as const;
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <button
-        type="button"
-        disabled={disabled}
-        aria-label={qty <= 1 ? `Remove ${name}` : `Decrease ${name} quantity`}
-        onClick={() => onChange(qty - 1)}
-        style={btn}
-      >
-        {qty <= 1 ? "🗑" : "−"}
-      </button>
-      {/* Plain <span> (not <output>): <output> has an implicit role="status" some AT announces on
-          every press even with aria-live="off". The count must NOT be a live region (RED-TEAM/QA). */}
-      <span
-        aria-label={`Quantity ${qty}`}
-        style={{
-          minWidth: 20,
-          textAlign: "center",
-          fontWeight: 700,
-          fontVariantNumeric: "tabular-nums",
-        }}
-      >
-        {qty}
-      </span>
-      <button
-        type="button"
-        disabled={disabled || qty >= 99 || soldOut}
-        aria-label={
-          soldOut ? `${name} is sold out` : qty >= 99 ? `Maximum 99 ${name}` : `Add another ${name}`
-        }
-        onClick={() => onChange(qty + 1)}
-        style={btn}
-      >
-        +
-      </button>
-    </div>
-  );
-}
 
 // The honest replacement for a stepper once a line has gone to the kitchen (S2.2) or been comped/voided
 // by a server (S2.3). Shows the line's state in place of the (now-forbidden) edit control. Static text —

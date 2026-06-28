@@ -3,6 +3,7 @@ import { useState, useTransition, type CSSProperties } from "react";
 import { staffSetQty } from "@/lib/staff-cart";
 import { STAFF_STATE_COPY } from "@/lib/line-state-copy";
 import type { TableLineView } from "@/lib/floor-types";
+import { Stepper } from "@mms/ui";
 import { LossActionSheet } from "./LossActionSheet";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -128,8 +129,7 @@ export function StaffLineEditor({
     );
   }
 
-  // ── Draft: the qty stepper (unchanged) ───────────────────────────────────────────────────────────────
-  const removing = qty <= 1;
+  // ── Draft: the qty stepper (shared @mms/ui Stepper; the red ✕ remove is the staff variant) ──────────
   return (
     <li style={row}>
       <span style={{ minWidth: 0, flex: 1 }}>
@@ -143,30 +143,15 @@ export function StaffLineEditor({
       </span>
       <span style={{ display: "flex", alignItems: "center", gap: "var(--s3)" }}>
         <span style={priceCell}>{fmt(line.unitPriceCents * qty)}</span>
-        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <button
-            type="button"
-            onClick={() => setQty(qty - 1)}
-            disabled={busy}
-            aria-label={removing ? `Remove ${line.name}` : `Decrease ${line.name} quantity`}
-            style={{ ...step, color: removing ? "var(--warn)" : "var(--tx)" }}
-          >
-            {removing ? "✕" : "−"}
-          </button>
-          <button
-            type="button"
-            onClick={() => setQty(qty + 1)}
-            disabled={busy || qty >= 99 || line.soldOut}
-            aria-label={
-              line.soldOut
-                ? `${line.name} is sold out — can’t add more`
-                : `Increase ${line.name} quantity`
-            }
-            style={{ ...step, ...(line.soldOut ? { opacity: 0.4, cursor: "not-allowed" } : null) }}
-          >
-            +
-          </button>
-        </span>
+        <Stepper
+          qty={qty}
+          onChange={setQty}
+          name={line.name}
+          disabled={busy}
+          soldOut={line.soldOut}
+          soldOutLabel={`${line.name} is sold out — can’t add more`}
+          removeTone="var(--warn)"
+        />
       </span>
     </li>
   );
@@ -186,21 +171,6 @@ const priceCell: CSSProperties = {
   whiteSpace: "nowrap",
   minWidth: 56,
   textAlign: "right",
-};
-const step: CSSProperties = {
-  width: 44,
-  height: 44,
-  minWidth: 44,
-  borderRadius: "var(--r-full)",
-  border: "1px solid var(--bd)",
-  background: "var(--cd)",
-  fontSize: 18,
-  fontWeight: 700,
-  lineHeight: 1,
-  cursor: "pointer",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
 };
 const lossBtn: CSSProperties = {
   minHeight: 44,
