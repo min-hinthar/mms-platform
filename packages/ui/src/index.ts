@@ -8,3 +8,4 @@ export type { DeviceTier } from "./motion";
 export { Badge } from "./badge";
 export type { BadgeTone } from "./badge";
 export { EmptyState } from "./empty-state";
+export { Avatar } from "./avatar";

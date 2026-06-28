@@ -105,7 +105,8 @@ Smallest slice that takes one real test charge end-to-end (solo Scan & Go). **No
 - **P5.4** Primitive library in `@mms/ui` (QR tokens; delivery APIs as reference), shipped incrementally:
   - **P5.4a** ✅ — `@mms/ui` eslint/`lint` (+`react-hooks`) · `Badge` (dedups `RoleBadge`+`FloorStatusChip`) ·
     `EmptyState` (dedups Kds/Approvals boards).
-  - **P5.4b** ⬜ — `Avatar` (GuestList), `Skeleton` (loading states), `Stepper` (qty +/-).
+  - **P5.4b** 🚧 — `Avatar` (GuestList + SplitSection) + `tabChip`→`Badge` (floor pills unified) ✅;
+    `Skeleton` (loading) + `Stepper` (qty +/-) ⬜ next.
   - **P5.4c** ⬜ — `Card` variants (the 20+ `.card` sites — its own careful PR).
   - **Deferred (no QR consumer):** `Tooltip`, `Drawer`, tilt; `Toast` + ripple only if a real consumer emerges. ⬜
 - **P5.5** Contrast-audit test + QR test infra — wire Vitest + uncomment the turbo `test` gate; port delivery's

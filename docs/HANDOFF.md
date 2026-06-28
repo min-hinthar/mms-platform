@@ -42,12 +42,15 @@ Tooltip/Drawer/tilt have NONE → deferred).
   both byte-identical) · **`EmptyState`** (token `.card` surface + `titleAs`; `KdsBoard`+`ApprovalsBoard`+
   `ExpoBoard` unified). Both pure-presentational (Server-Component safe). **Hardened by a 3-lens deep pre-merge
   review (all PASS).** 6/6 gate.
-- **NEXT — P5.4b:** `Avatar` (GuestList overlapping seats + `lib/avatars.ts`; check SplitSection as a 2nd
-  consumer), `Skeleton` (loading states — CSS shimmer, reduced-motion-gated, consume P5.3 `useInView` if it
-  loops), `Stepper` (qty +/- — StaffLineEditor is the reference, ≥44px unlike delivery's 24–32px). **Also:**
-  migrate the floor `tabChip` (TableCard/FloorDetailLive) onto `Badge` (use the new `decorative` prop) — it's a
-  **pre-existing** inconsistency next to the migrated `FloorStatusChip` (deep-review carry-forward), not a P5.4a
-  regression.
+- **P5.4b-1 ✅:** `Avatar` (`@mms/ui`, initial-in-a-circle; caller passes resolved `initial`+`color`) adopted in
+  `GuestList` + `SplitSection`; `tabChip`→`Badge` (`tone="accent"/"warn"`, decorative on TableCard / announced on
+  FloorDetailLive) — unifies the floor pills (deep-review carry-forward). **Visual change** (glyph→tone-dot) —
+  preview-flagged for the owner.
+- **NEXT — P5.4b-2:** `Skeleton` (loading states — CSS shimmer in `@mms/ui/tokens.css`, reduced-motion-gated;
+  consumers are PickupSlotSheet "Loading times…" + SettlementBoard "Loading the split…" — a text→skeleton
+  **enhancement**, thin) + `Stepper` (qty +/- — `StaffLineEditor` is the **only** consumer, with bespoke
+  remove-at-1/sold-out/≥99 logic, so the primitive is a thin ≥44px button-pair wrapper; confirm it earns its
+  keep vs. leaving StaffLineEditor inline).
 - **P5.4c:** `Card` variants — the 20+ `.card` sites; its own careful PR (cosmetic, big blast radius).
 - **Deferred (no consumer):** `Tooltip`, `Drawer`, tilt; `Toast` + ripple only if a real consumer emerges.
 

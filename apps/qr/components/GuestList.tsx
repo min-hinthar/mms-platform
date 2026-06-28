@@ -4,6 +4,7 @@ import { useCart } from "./TableCartProvider";
 import { InviteSheet } from "./InviteSheet";
 import { seatColor, seatInitial } from "@/lib/avatars";
 import { MAX_PARTY_SIZE } from "@/lib/limits";
+import { Avatar } from "@mms/ui";
 
 /**
  * Dine-in group cart guest list (M3·P3.1). Renders the live presence party (real second phones —
@@ -63,12 +64,13 @@ export function GuestList() {
           const isMe = m.seat === me.seat;
           const label = isMe ? `${m.name} (you)` : m.name;
           return (
-            <li
-              key={m.seat}
-              aria-label={label}
-              style={{ ...avatar, background: seatColor(m.seat), marginLeft: i === 0 ? 0 : -8 }}
-            >
-              <span aria-hidden>{seatInitial(m.name)}</span>
+            <li key={m.seat} style={{ display: "flex", marginLeft: i === 0 ? 0 : -8 }}>
+              <Avatar
+                initial={seatInitial(m.name)}
+                color={seatColor(m.seat)}
+                ring
+                aria-label={label}
+              />
             </li>
           );
         })}
@@ -101,17 +103,6 @@ const listReset: CSSProperties = {
   margin: 0,
   padding: 0,
   alignItems: "center",
-};
-const avatar: CSSProperties = {
-  width: 30,
-  height: 30,
-  borderRadius: "50%",
-  border: "2px solid var(--pg)",
-  display: "grid",
-  placeItems: "center",
-  color: "#fff",
-  fontWeight: 800,
-  fontSize: 12,
 };
 const lockBar: CSSProperties = {
   display: "flex",

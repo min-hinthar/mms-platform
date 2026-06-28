@@ -78,7 +78,8 @@ QR's motion is light today (CSS keyframes only). Adopt the *discipline* now so r
 
 > **P5.4a ✅** shipped (+ 3-lens deep pre-merge review): `@mms/ui` lint config + `Badge` (semantic `tone`
 > presets owning the AA-on-tint rule; dedups RoleBadge/FloorStatusChip) + `EmptyState` (dedups Kds/Approvals
-> **+ ExpoBoard** boards). **P5.4b next:** Avatar (GuestList) · Skeleton (loading) · Stepper (qty +/-).
+> **+ ExpoBoard** boards). **P5.4b-1 ✅:** Avatar (GuestList + SplitSection) · tabChip→Badge (floor pills
+> unified). **P5.4b-2 next:** Skeleton (loading) · Stepper (qty +/-).
 > **P5.4c:** Card variants (20+ `.card` sites, own PR). **Deferred — no QR consumer:** Tooltip, Drawer, tilt;
 > Toast + ripple only if a consumer emerges. (Consumer audit: STRONG for Badge/EmptyState/Avatar/Skeleton/
 > Stepper/Card; NONE for Tooltip/Drawer.)
@@ -102,6 +103,12 @@ and QR has no test script. Two steps:
    fixtures**. Source: delivery `e2e/contrast-audit.spec.ts` + the `contrast-audit.test.ts` fixture pattern.
    Caveat to carry: **fixtures hardcode token hex — they must be refreshed in the same PR as any token change**
    or the suite silently passes on a regressed token. Pri **High**, Eff **M**.
+   - **Include the seat-avatar white-initial combo** (`#fff` on each `lib/avatars.ts` `PCOL` hue): the two
+     lightest hues (`#A65F10` ≈ 3.6:1, `#A44B34` ≈ 4.4:1) sit just under AA behind the `Avatar` initial
+     (P5.4b-1 pre-merge review). Pre-existing + the initial is a redundant cue (every caller also names the
+     person via `aria-label`/adjacent text), so it's a tracked nit — darkening those two hues to clear 4.5:1
+     is the clean fix once the audit can assert it. Seat hues live in `lib/avatars.ts`, not `tokens.css`, so
+     the harvester must reach them.
 
 ### P5.6 — PWA / offline `[deferred / optional for dine-in]`
 
