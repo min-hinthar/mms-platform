@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import type { OrderHistoryEntry } from "@/lib/rewards";
+import { Card } from "@mms/ui";
 
 const dollars = (c: number) => `$${(c / 100).toFixed(2)}`;
 const TENDER_LABEL: Record<string, string> = { card: "Card", cash: "Cash", split: "Split" };
@@ -11,7 +12,7 @@ const TENDER_LABEL: Record<string, string> = { card: "Card", cash: "Cash", split
  */
 export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
   return (
-    <section style={card} aria-labelledby="history-h">
+    <Card as="section" style={card} aria-labelledby="history-h">
       <h2 id="history-h" style={cardH}>
         Your orders
       </h2>
@@ -43,15 +44,13 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
           );
         })}
       </ul>
-    </section>
+    </Card>
   );
 }
 
+// Surface (bg/border/radius/shadow) comes from `.card` via <Card>; this is layout only.
 const card: CSSProperties = {
   padding: "var(--s5)",
-  borderRadius: "var(--r-card)",
-  border: "1px solid var(--bd)",
-  background: "var(--cd)",
   marginBottom: "var(--s4)",
 };
 const cardH: CSSProperties = {

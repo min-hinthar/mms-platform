@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { getMergeCandidates, mergeTables } from "@/lib/floor";
 import type { MergeCandidate } from "@/lib/floor-types";
+import { Card } from "@mms/ui";
 
 /**
  * One-tap merge (S1.4 soft convergence). The recovery for a double-order: fold THIS table's open order
@@ -87,7 +88,7 @@ export function MergeTableButton({
       )}
 
       {step === "picking" && (
-        <div
+        <Card
           ref={pickingRef}
           tabIndex={-1}
           role="group"
@@ -125,11 +126,11 @@ export function MergeTableButton({
               ))}
             </ul>
           )}
-        </div>
+        </Card>
       )}
 
       {step === "confirm" && target && (
-        <div
+        <Card
           ref={confirmRef}
           tabIndex={-1}
           role="group"
@@ -154,7 +155,7 @@ export function MergeTableButton({
               {busy ? "Merging…" : `Merge into ${target.label}`}
             </button>
           </div>
-        </div>
+        </Card>
       )}
 
       {error && (
@@ -198,14 +199,12 @@ const linkBtn: CSSProperties = {
   fontWeight: 600,
   cursor: "pointer",
 };
+// Surface (bg/border/radius/shadow) comes from `.card` via <Card>; this is layout only.
 const panel: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: "var(--s4)",
   padding: "var(--s4)",
-  borderRadius: "var(--r-card)",
-  border: "1px solid var(--bd)",
-  background: "var(--cd)",
 };
 const panelHead: CSSProperties = {
   display: "flex",

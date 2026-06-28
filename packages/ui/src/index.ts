@@ -11,3 +11,4 @@ export { EmptyState } from "./empty-state";
 export { Avatar } from "./avatar";
 export { Skeleton } from "./skeleton";
 export { Stepper } from "./stepper";
+export { Card } from "./card";

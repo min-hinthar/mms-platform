@@ -74,7 +74,7 @@ QR's motion is light today (CSS keyframes only). Adopt the _discipline_ now so r
 > Carry the hard-won caveats verbatim: **no 3D tilt on a card whose body holds the primary CTA** (square
 > shadow artifact + the Add button slides out from under the cursor), and **disable tilt on keyboard focus**.
 
-### P5.4 — Primitive component library in `@mms/ui` `[QR's biggest structural gap]` — 🚧 in progress
+### P5.4 — Primitive component library in `@mms/ui` `[QR's biggest structural gap]` — ✅ a/b/c shipped
 
 > **P5.4a ✅** shipped (+ 3-lens deep pre-merge review): `@mms/ui` lint config + `Badge` (semantic `tone`
 > presets owning the AA-on-tint rule; dedups RoleBadge/FloorStatusChip) + `EmptyState` (dedups Kds/Approvals
@@ -82,16 +82,21 @@ QR's motion is light today (CSS keyframes only). Adopt the _discipline_ now so r
 > unified). **P5.4b-2 ✅:** Skeleton (PickupSlotSheet + SettlementBoard; `@keyframes` in app `globals.css`,
 > not the pkg) · Stepper (StaffLineEditor + Checkout — a context sweep found **2 drifted consumers, not 1**).
 > Skeleton fast-follow consumers surfaced + deferred: **SharePay** ("Preparing your payment…"), **MergeTableButton**
-> (staff). **P5.4c next:** Card variants (20+ `.card` sites, own PR). **Deferred — no QR consumer:** Tooltip,
-> Drawer, tilt; Toast + ripple only if a consumer emerges. (Consumer audit: STRONG for Badge/EmptyState/Avatar/
-> Skeleton/Stepper/Card; NONE for Tooltip/Drawer.)
+> (staff). **P5.4c ✅:** `Card` primitive — **NO variants.** A sweep overturned the planned elevated/outlined/filled
+> taxonomy (that was _delivery_'s, not QR's): QR's 25 `.card` sites are surface-uniform; the only fork was
+> accidental shadow-drift in 10 inline copies. Shipped a polymorphic `<Card>` (applies `.card`, `ref`-forwarding)
+>
+> - migrated the 10 drifters (9 gained the canonical shadow). **Tinted ok/warn status surfaces → a future
+>   `Callout`, not a Card variant.** **Deferred — no QR consumer:** Tooltip, Drawer, tilt; Toast + ripple only if a
+>   consumer emerges. (Consumer audit: STRONG for Badge/EmptyState/Avatar/Skeleton/Stepper/Card; NONE for Tooltip/Drawer.)
 
 QR ships ~50 bespoke domain components and rebuilds primitives inline each time. Promote the missing ones into
 `@mms/ui`, **built to QR tokens**, with delivery's component APIs as the reference (not a copy).
 
 - **Skeleton** (QR uses inline "…"), **Toast/notification stack** (QR has none — errors only via `aria-live`),
-  **EmptyState**, **Stepper** (QR inlines step counters), **Card variants** (one `.card` class today →
-  elevated/outlined/filled), **Drawer** (side/bottom, distinct from `Sheet`), **Badge**, **Avatar**, **Tooltip**.
+  **EmptyState**, **Stepper** (QR inlines step counters), **Card** (a polymorphic wrapper over the single `.card`
+  class — **no** elevated/outlined/filled variants; QR's cards are surface-uniform, so variants were not built),
+  **Drawer** (side/bottom, distinct from `Sheet`), **Badge**, **Avatar**, **Tooltip**.
 - Each lands with the P5.2 mobile-hardening baked in (dvh sizing, safe-area, single-scroll) and a Storybook-or-
   example entry. Pri **Med-High**, Eff **L** (the long tail; ship incrementally, most-used first).
 

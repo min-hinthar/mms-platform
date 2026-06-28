@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { settleCash } from "@/lib/staff-cart";
+import { Card } from "@mms/ui";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -55,7 +56,7 @@ export function CashSettleButton({
   return (
     <div>
       {confirming ? (
-        <div
+        <Card
           ref={confirmRef}
           tabIndex={-1}
           role="group"
@@ -79,7 +80,7 @@ export function CashSettleButton({
               {busy ? "Settling…" : `Settle ${fmt(totalCents)}`}
             </button>
           </div>
-        </div>
+        </Card>
       ) : (
         <button
           ref={triggerRef}
@@ -128,14 +129,12 @@ const cancelBtn: CSSProperties = {
   fontWeight: 600,
   cursor: "pointer",
 };
+// Surface (bg/border/radius/shadow) comes from the shared `.card` via <Card>; this is layout only.
 const confirmCard: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: "var(--s4)",
   padding: "var(--s4)",
-  borderRadius: "var(--r-card)",
-  border: "1px solid var(--bd)",
-  background: "var(--cd)",
 };
 const hint: CSSProperties = {
   margin: "8px 0 0",

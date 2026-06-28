@@ -4,6 +4,32 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — M5 · P5.4c: Card primitive (no variants — drift unified) (QR ← delivery transfer) (2026-06-28)
+
+A context sweep before building **overturned the planned `elevated/outlined/filled` variant taxonomy** — that
+described the _delivery_ app, not QR. In QR all 25 `className="card"` sites are surface-uniform (every override
+is just padding); the only real fork — shadow vs no-shadow — was **accidental drift** in 10 hand-rolled inline
+copies that re-typed the surface and silently dropped `box-shadow`. So the win isn't adding variants; it's
+retiring the drift.
+
+- **`Card`** (`packages/ui/src/card.tsx`) — pure presentational (Server-Component safe), **no variants**.
+  Applies the global **`.card`** class (the single source of truth in `globals.css`) so it can never drift from
+  the 25 class sites. Polymorphic `as` (default `div`) so a clickable card is a real `<Link>`/`<a>`/`<button>`
+  (native focus/semantics, not a `role="button"` div); `ref` forwards (React 19 ref-as-prop) for the focus-
+  management panels; `style`/`className` passthrough for per-site layout.
+- **Migrated the 10 inline re-implementations to `<Card>`** — `OrderHistory`, `AccountUpgrade`, `FeedbackPrompt`
+  (×2), `RewardsHub`, `staff/CashSettleButton`, `staff/CloseSecureTabButton`, `staff/MergeTableButton` (×2 focus
+  panels), `SecureTabButton`, `staff/feedback` rows, and `staff/TableCard` (the `<Link>` card). Their consts are
+  trimmed to layout-only; the surface (incl. shadow) now comes from `.card`.
+  - **Visual change to flag:** the 9 accidentally-flat surfaces (account/rewards/feedback + the staff cash/
+    secure-tab/merge confirm panels) **gain the canonical subtle `--sh` ambient shadow** — the deliberate
+    "unify drift" call. `TableCard` already had the shadow → unchanged. The 25 `className="card"` sites are
+    untouched. Accent-pill `.card` abusers (`CartBar`, grocery CTA) untouched.
+- **Out of scope (tracked):** the 4 tinted ok/warn status surfaces (OrderTracker + FloorDetailLive banners) are
+  a future **`Callout`** primitive, not a Card variant. `EmptyState` keeps its own inline surface copy (predates
+  Card; safe, optional future dedup via `<Card>`).
+- Gate 6/6 green. Pre-PR + deep pre-merge adversarial passes.
+
 ### Added — M5 · P5.4b-2: Skeleton + Stepper primitives (QR ← delivery transfer) (2026-06-28)
 
 The loading/qty cluster of P5.4b. Both built to QR tokens, each wired to **real existing consumers** — and a

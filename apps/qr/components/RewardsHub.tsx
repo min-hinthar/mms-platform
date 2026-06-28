@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import type { RewardsState } from "@/lib/rewards";
 import { REWARD_TIERS, tierMeta, nextTier, spendToNextTierCents } from "@/lib/rewards-tiers";
+import { Card } from "@mms/ui";
 
 const dollars = (c: number) => `$${(c / 100).toFixed(c % 100 === 0 ? 0 : 2)}`;
 
@@ -20,7 +21,7 @@ export function RewardsHub({ state }: { state: RewardsState }) {
   return (
     <>
       {/* Tier */}
-      <section style={card} aria-labelledby="tier-h">
+      <Card as="section" style={card} aria-labelledby="tier-h">
         <h2 id="tier-h" style={cardH}>
           Your tier
         </h2>
@@ -67,10 +68,10 @@ export function RewardsHub({ state }: { state: RewardsState }) {
             );
           })}
         </ol>
-      </section>
+      </Card>
 
       {/* Stars */}
-      <section style={card} aria-labelledby="stars-h">
+      <Card as="section" style={card} aria-labelledby="stars-h">
         <h2 id="stars-h" style={cardH}>
           Stars
         </h2>
@@ -93,11 +94,11 @@ export function RewardsHub({ state }: { state: RewardsState }) {
             ? "1 more order unlocks a Kyay-Zu-Par! reward."
             : `${state.ordersToNext} more orders unlock a Kyay-Zu-Par! reward.`}
         </p>
-      </section>
+      </Card>
 
       {/* Wallet — earned rewards (honest: saved now, redeemable at checkout in P4.2). */}
       {state.coupons.length > 0 && (
-        <section style={card} aria-labelledby="wallet-h">
+        <Card as="section" style={card} aria-labelledby="wallet-h">
           <h2 id="wallet-h" style={cardH}>
             Your rewards
           </h2>
@@ -124,17 +125,15 @@ export function RewardsHub({ state }: { state: RewardsState }) {
           <p style={{ margin: "10px 0 0", fontSize: 12, color: "var(--t3)" }}>
             Apply a reward at checkout — tap “Use a reward” on your order.
           </p>
-        </section>
+        </Card>
       )}
     </>
   );
 }
 
+// Surface (bg/border/radius/shadow) comes from `.card` via <Card>; this is layout only.
 const card: CSSProperties = {
   padding: "var(--s5)",
-  borderRadius: "var(--r-card)",
-  border: "1px solid var(--bd)",
-  background: "var(--cd)",
   marginBottom: "var(--s4)",
 };
 const cardH: CSSProperties = {

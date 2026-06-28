@@ -3,6 +3,7 @@ import { useState, useTransition, type CSSProperties, type FormEvent } from "rea
 import { useRouter } from "next/navigation";
 import { browserClient } from "@mms/db";
 import { ensureProfile } from "@/lib/rewards";
+import { Card } from "@mms/ui";
 
 /**
  * Anon → durable account (M4 P4.1). Upgrades the SAME anonymous uid in place (email OTP / Google), so the
@@ -79,7 +80,7 @@ export function AccountUpgrade() {
   }
 
   return (
-    <section style={card} aria-labelledby="upgrade-h">
+    <Card as="section" style={card} aria-labelledby="upgrade-h">
       <h2 id="upgrade-h" style={h2}>
         Keep your rewards
       </h2>
@@ -150,15 +151,13 @@ export function AccountUpgrade() {
       <p role="status" aria-live="polite" aria-atomic="true" style={errorLine}>
         {error}
       </p>
-    </section>
+    </Card>
   );
 }
 
+// Surface (bg/border/radius/shadow) comes from `.card` via <Card>; this is layout only.
 const card: CSSProperties = {
   padding: "var(--s5)",
-  borderRadius: "var(--r-card)",
-  border: "1px solid var(--bd)",
-  background: "var(--cd)",
 };
 const h2: CSSProperties = { margin: "0 0 6px", fontSize: 18, fontWeight: 800, color: "var(--tx)" };
 const sub: CSSProperties = {

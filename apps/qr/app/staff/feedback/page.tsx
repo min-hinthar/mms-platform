@@ -4,6 +4,7 @@ import Link from "next/link";
 import { getStaffAuth, roleAtLeast } from "@/lib/staff";
 import { isConsoleLocked } from "@/lib/staff-lock";
 import { getStaffFeedback } from "@/lib/feedback";
+import { Card } from "@mms/ui";
 
 export const metadata = { title: "Feedback — Mandalay Morning Star" };
 export const dynamic = "force-dynamic";
@@ -46,7 +47,11 @@ export default async function FeedbackPage() {
           {rows.map((r) => {
             const low = r.rating <= 3;
             return (
-              <li key={r.id} style={{ ...rowCard, borderColor: low ? "var(--warn)" : "var(--bd)" }}>
+              <Card
+                as="li"
+                key={r.id}
+                style={{ ...rowCard, borderColor: low ? "var(--warn)" : "var(--bd)" }}
+              >
                 <div
                   style={{
                     display: "flex",
@@ -86,7 +91,7 @@ export default async function FeedbackPage() {
                     “{r.comment}”
                   </p>
                 )}
-              </li>
+              </Card>
             );
           })}
         </ul>
@@ -109,11 +114,9 @@ const h1: CSSProperties = {
   color: "var(--tx)",
 };
 const sub: CSSProperties = { margin: 0, fontSize: 14, color: "var(--t2)" };
+// Surface comes from `.card` via <Card>; this is layout only (borderColor is overridden per-row).
 const rowCard: CSSProperties = {
   padding: "12px 14px",
-  borderRadius: "var(--r-card)",
-  border: "1px solid var(--bd)",
-  background: "var(--cd)",
 };
 const followChip: CSSProperties = {
   fontSize: 11,
