@@ -3,7 +3,7 @@ import Link from "next/link";
 import type { FloorTable } from "@/lib/floor-types";
 import { FloorStatusChip } from "./FloorStatusChip";
 import { RelativeTime } from "./RelativeTime";
-import { Badge } from "@mms/ui";
+import { Badge, Card } from "@mms/ui";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const MODE_LABEL: Record<FloorTable["mode"], string> = {
@@ -26,7 +26,7 @@ export function TableCard({ table, serverNow }: { table: FloorTable; serverNow: 
     (table.paidTotalCents != null ? `, ${fmt(table.paidTotalCents)} paid` : "");
 
   return (
-    <Link href={`/staff/table/${table.sessionId}`} style={card} aria-label={a11yName}>
+    <Card as={Link} href={`/staff/table/${table.sessionId}`} style={card} aria-label={a11yName}>
       <div style={topRow}>
         <span style={label}>{table.label}</span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
@@ -80,20 +80,17 @@ export function TableCard({ table, serverNow }: { table: FloorTable; serverNow: 
           <RelativeTime iso={table.lastActivityAt} serverNow={serverNow} />
         </span>
       </div>
-    </Link>
+    </Card>
   );
 }
 
+// Surface (bg/border/radius/shadow) comes from `.card` via <Card as={Link}>; layout + link reset only.
 const card: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: 8,
   minHeight: 44,
   padding: "var(--s4) var(--s5)",
-  borderRadius: "var(--r-card)",
-  border: "1px solid var(--bd)",
-  background: "var(--cd)",
-  boxShadow: "var(--sh)",
   textDecoration: "none",
   color: "var(--tx)",
 };

@@ -3,6 +3,7 @@ import { useMemo, useState, type CSSProperties, type FormEvent } from "react";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import type { StripeElementsOptions } from "@stripe/stripe-js";
 import { getStripePromise, stripeAppearance } from "@/lib/stripe-client";
+import { Card } from "@mms/ui";
 
 /**
  * Secure-tab card-save (S3.2). Lets a diner save a card so the tab can settle off-session at close —
@@ -56,7 +57,7 @@ export function SecureTabButton({ cartId, onSecured }: { cartId: string; onSecur
 
   if (phase === "form" && options && stripePromise)
     return (
-      <div style={panel}>
+      <Card style={panel}>
         <p style={{ margin: "0 0 10px", fontSize: 13, color: "var(--t2)", lineHeight: 1.5 }}>
           Save a card to keep your tab open — we’ll charge it when you’re ready to close. No charge
           now.
@@ -70,7 +71,7 @@ export function SecureTabButton({ cartId, onSecured }: { cartId: string; onSecur
             }}
           />
         </Elements>
-      </div>
+      </Card>
     );
 
   // idle / loading
@@ -158,12 +159,10 @@ const secureBtn: CSSProperties = {
   fontSize: 15,
   cursor: "pointer",
 };
+// Surface (bg/border/radius/shadow) comes from `.card` via <Card>; this is layout only.
 const panel: CSSProperties = {
   marginTop: 12,
   padding: "var(--s4)",
-  borderRadius: "var(--r-card)",
-  border: "1px solid var(--bd)",
-  background: "var(--cd)",
 };
 const hint: CSSProperties = {
   fontSize: 11.5,

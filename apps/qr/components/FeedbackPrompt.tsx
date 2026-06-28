@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, type CSSProperties } from "react";
 import { getFeedbackState, submitFeedback } from "@/lib/feedback";
+import { Card } from "@mms/ui";
 
 /**
  * Post-order feedback (M4 P4.3) — at peak goodwill on /track. UNGATED (docs/M4_DESIGN R9): ask for an
@@ -56,7 +57,7 @@ export function FeedbackPrompt({ orderId }: { orderId: string }) {
   if (done) {
     const low = submittedRating > 0 && submittedRating <= 3;
     return (
-      <section style={card} aria-labelledby="fb-h">
+      <Card as="section" style={card} aria-labelledby="fb-h">
         <h2 id="fb-h" style={h2}>
           {low ? "Thank you — we’ll make it right" : "Thanks for your feedback!"}
         </h2>
@@ -70,12 +71,12 @@ export function FeedbackPrompt({ orderId }: { orderId: string }) {
             Share your visit on Google <span aria-hidden>→</span>
           </a>
         )}
-      </section>
+      </Card>
     );
   }
 
   return (
-    <section style={card} aria-labelledby="fb-h">
+    <Card as="section" style={card} aria-labelledby="fb-h">
       <h2 id="fb-h" style={h2}>
         How was your visit?
       </h2>
@@ -112,16 +113,14 @@ export function FeedbackPrompt({ orderId }: { orderId: string }) {
       <p role="status" aria-live="polite" aria-atomic="true" style={errLine}>
         {error}
       </p>
-    </section>
+    </Card>
   );
 }
 
+// Surface (bg/border/radius/shadow) comes from `.card` via <Card>; this is layout only.
 const card: CSSProperties = {
   marginTop: "var(--s5)",
   padding: "var(--s5)",
-  borderRadius: "var(--r-card)",
-  border: "1px solid var(--bd)",
-  background: "var(--cd)",
 };
 const h2: CSSProperties = { margin: "0 0 4px", fontSize: 17, fontWeight: 800, color: "var(--tx)" };
 const sub: CSSProperties = {

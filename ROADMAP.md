@@ -108,7 +108,10 @@ Smallest slice that takes one real test charge end-to-end (solo Scan & Go). **No
   - **P5.4b** ✅ — `Avatar` (GuestList + SplitSection) + `tabChip`→`Badge` (floor pills unified) [b-1];
     `Skeleton` (PickupSlotSheet + SettlementBoard) + `Stepper` (StaffLineEditor + Checkout — **2** drifted
     consumers, not 1) [b-2]. (Skeleton fast-follow consumers: SharePay, MergeTableButton.)
-  - **P5.4c** ⬜ — `Card` variants (the 20+ `.card` sites — its own careful PR).
+  - **P5.4c** ✅ — `Card` primitive — **no variants** (a sweep overturned the planned elevated/outlined/filled
+    taxonomy: QR's 25 `.card` sites are surface-uniform; the only fork was accidental shadow-drift in 10 inline
+    copies). Shipped a polymorphic `<Card>` applying `.card` + migrated the 10 drifters (9 gain the canonical
+    shadow). Tinted status surfaces → future `Callout`.
   - **Deferred (no QR consumer):** `Tooltip`, `Drawer`, tilt; `Toast` + ripple only if a real consumer emerges. ⬜
 - **P5.5** Contrast-audit test + QR test infra — wire Vitest + uncomment the turbo `test` gate; port delivery's
   contrast-audit with QR token fixtures. ⬜

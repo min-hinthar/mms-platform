@@ -61,7 +61,19 @@ Tooltip/Drawer/tilt have NONE → deferred).
     pre-existing. Fix pattern already in `Checkout.tsx` (`refocusToggle` ref + post-`refresh` effect): stash the
     next focus target (the line above's stepper, or the cart/section heading) and restore it after the mutation.
     Apply to `Stepper` consumers (`Checkout` + `StaffLineEditor`) in a focused a11y pass.
-- **NEXT — P5.4c:** `Card` variants — the 20+ `.card` sites; its own careful PR (cosmetic, big blast radius).
+- **P5.4c ✅:** `Card` primitive — **NO variants.** A pre-build sweep overturned the planned elevated/outlined/
+  filled taxonomy (it was _delivery_'s, not QR's): all 25 `className="card"` sites are surface-uniform (overrides
+  are padding-only); the only fork — shadow vs none — was **accidental drift** in 10 hand-rolled inline copies
+  that dropped `box-shadow`. Shipped a polymorphic `<Card>` (`@mms/ui`, applies the global `.card` = single source
+  of truth, `as` for real `<Link>`/`<a>` semantics, `ref`-forwarding via React 19 ref-as-prop) + migrated the 10
+  drifters; the 9 accidentally-flat ones **gain the canonical `--sh` shadow** (the "unify drift" call, owner-chosen,
+  preview-flagged). The 25 class sites + the accent-pill `.card` abusers (CartBar, grocery CTA) are untouched.
+  - **Tracked follow-ups:** (a) the 4 tinted ok/warn status surfaces (OrderTracker + FloorDetailLive banners) want
+    a future **`Callout`** primitive, NOT a Card variant; (b) `EmptyState` still inlines its own `.card`-recipe copy
+    (predates Card; safe — optional dedup by composing `<Card>` later).
+- **NEXT — P5.5:** contrast-audit test + QR test infra (wire Vitest + uncomment the `turbo test` gate; port the
+  contrast-audit with QR token fixtures — **incl. the seat-avatar white-initial combo** flagged in P5.4b-1). QR has
+  **zero** automated tests today.
 - **Deferred (no consumer):** `Tooltip`, `Drawer`, tilt; `Toast` + ripple only if a real consumer emerges.
 
 Then **P5.5** (contrast-audit test + QR test infra — QR has **zero** tests today, `turbo test` is commented out
