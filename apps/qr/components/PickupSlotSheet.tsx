@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState, useTransition, type CSSProperties } from "react";
-import { Sheet } from "@mms/ui";
+import { Sheet, Skeleton } from "@mms/ui";
 import { getPickupSlots, setPickupSlot, type PickupSlot } from "@/lib/pickup";
 import { dayLabel, formatSlot } from "@/lib/pickupTime";
 
@@ -77,9 +77,24 @@ export function PickupSlotSheet({
         750 Terrado Plaza, Covina
       </p>
       {slots === null ? (
-        // Transient visual state only — no aria-live here, so it can't double-announce with the error
-        // region below (one live region per view; the Radix Dialog title already names the sheet).
-        <p style={{ color: "var(--t2)", fontSize: 14 }}>Loading times…</p>
+        // Skeleton mirror of the day-grouped slot chips. Decorative (aria-hidden) — no live region here,
+        // so it can't double-announce with the error region below (one live region per view; the Radix
+        // Dialog title already names the sheet). A sibling sr-only string keeps an SR loading cue.
+        <>
+          <span className="sr-only">Loading pickup times…</span>
+          <div aria-hidden>
+            {[5, 3].map((chips, d) => (
+              <section key={d} style={{ marginBottom: 8 }}>
+                <Skeleton width={72} height={13} style={{ margin: "12px 0 10px" }} />
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {Array.from({ length: chips }).map((_, i) => (
+                    <Skeleton key={i} width={96} height={44} radius={12} />
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        </>
       ) : slots.length === 0 ? (
         <p style={{ color: "var(--t2)", fontSize: 14 }}>
           No pickup times available right now — please check back soon.
