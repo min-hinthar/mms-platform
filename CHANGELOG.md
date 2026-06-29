@@ -18,6 +18,11 @@ removal without leaving the menu, **in every mode including dine-in groups**.
   constraint existed). Solo carts (one seat) are unchanged; a staff "added-by-server" line (`by_seat=null`)
   stays separate + assignable via `assignLine`. Totals/tax are aggregate-identical (summed per line); the
   cart, KDS ticket, and split board show one row per contributor.
+  - **Invariant kept across every line-mutation path** (so the menu `find()` always matches exactly one own
+    line): `assignLine` now **coalesces** — reassigning a line to a seat that already owns a matching draft
+    sibling folds the qty (99-capped) instead of leaving two identical owned lines; and the staff
+    **table-merge** (`mms_merge_table_orders`, migration) now folds only into an **unassigned** target line,
+    so a source diner's units never inherit a target diner's `by_seat` (which would skew by-person shares).
 - **`AddButton`** finds the viewer's OWN line by `insertOrIncLine`'s exact per-seat keys (item + no
   modifiers + **default fulfillment** + draft + own `by_seat`, not comped) and renders the
   `.mms-qty-stepper` when `qty > 0`. **+** reuses the server-authoritative `add`; **−** calls the new

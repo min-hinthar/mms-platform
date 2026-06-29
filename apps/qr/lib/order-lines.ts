@@ -11,8 +11,9 @@ import type { TaxCategory, LineFulfillment } from "@mms/db";
  */
 
 // Normalize a modifier set (label array) to a comparable, order-independent key — so "merge identical
-// lines" treats the same item + same options as one line regardless of pick order.
-const modKey = (m: unknown): string => JSON.stringify(Array.isArray(m) ? [...m].sort() : []);
+// lines" treats the same item + same options as one line regardless of pick order. Exported so the other
+// per-seat-invariant keepers (cart.ts assignLine coalesce) compare modifier sets the SAME way as the merge.
+export const modKey = (m: unknown): string => JSON.stringify(Array.isArray(m) ? [...m].sort() : []);
 
 /** Re-derive price (cents), name, tax category, and chosen option labels for a menu item. Only modifier
  *  options that genuinely belong to one of THIS item's groups are honored, so a client can't smuggle an

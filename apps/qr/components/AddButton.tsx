@@ -47,16 +47,22 @@ export function AddButton({
   // (item + no modifiers + default fulfillment + still-draft + own `by_seat`); `!comped` keeps an immutable
   // comped line out. Scoping to `me.seat` (the anon-auth uid == addItem's `by_seat`) means the morph shows +
   // controls THIS diner's line even in a dine-in group — a tablemate's separate line is never touched.
+  // Require a known seat before matching: a staff/server line has `bySeat` undefined, and during session
+  // recovery `me` is briefly null (→ `mySeat` undefined) while items linger — without this guard
+  // `i.bySeat === mySeat` would be `undefined === undefined` and falsely match a staff line the viewer
+  // doesn't own. (A diner line always has a `by_seat`, so a real own-line match is never lost.)
   const mySeat = me?.seat;
-  const line = items.find(
-    (i) =>
-      i.menuItemId === menuItemId &&
-      i.modifiers.length === 0 &&
-      i.fulfillment === defaultFulfillment &&
-      i.lineState === "draft" &&
-      !i.comped &&
-      i.bySeat === mySeat,
-  );
+  const line = mySeat
+    ? items.find(
+        (i) =>
+          i.menuItemId === menuItemId &&
+          i.modifiers.length === 0 &&
+          i.fulfillment === defaultFulfillment &&
+          i.lineState === "draft" &&
+          !i.comped &&
+          i.bySeat === mySeat,
+      )
+    : undefined;
   const qty = line?.qty ?? 0;
   // The fresher 86'd signal for an IN-CART line: the cart view carries a live `line.soldOut` (server-derived
   // in getCartView), more current than the menu RSC's `soldOut` prop captured at page render. Gate the in-cart
