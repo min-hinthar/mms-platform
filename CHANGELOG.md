@@ -4,6 +4,29 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — M5 · P5.5: Vitest + contrast-audit (QR's first test infra) (2026-06-29)
+
+QR's **first automated tests** — locking in the WCAG-AA claim the design system makes. Vitest 4 wired into
+`packages/ui` + `apps/qr` (node-env, pure-logic — sidesteps `server-only`/Tailwind-CSS), and the turbo `test`
+gate is now live in CI (`.github/workflows/ci.yml`).
+
+- **`packages/ui/src/__tests__/contrast-audit.test.ts`** — ported from delivery, improved: it **parses
+  `tokens.css` at test time** (resolves `var()` aliases like dark `--ac-strong: var(--ac)`; flattens the
+  `color-mix(... N%, transparent)` badge tints over `--cd`) rather than mirroring hardcoded hex — so a token
+  edit is checked automatically (delivery's hardcoded fixtures could silently pass on a regressed token).
+  Asserts the full text×surface matrix in **both themes** (tightest: light `t3`/`sf` 4.76, dark `jade-strong`
+  4.61) **plus light-theme negative guards** (plain `--ac`/`--gold` as text must STAY <4.5 — the reason the
+  `-strong` variants exist; guards against a future revert to the vivid hue as text).
+- **`apps/qr/lib/avatars.test.ts`** — seat-hue×`#fff` AA (drives the real `seatColor` hash, no hardcoded
+  palette) + `seatColor` determinism + `seatInitial` logic. **Finding:** the P5.4b-1 "two lightest seat hues
+  sit just under AA" worry was a **phantom** — all five `PCOL` hues clear 4.5:1 (lightest `#A65F10` = 4.92);
+  the stale `avatar.tsx` comment is corrected.
+- **Tooling:** `vitest@4.0.17` (matches delivery); `esbuild` added to `pnpm-workspace.yaml allowBuilds`;
+  `packages/ui/tsconfig.json` gets `types: ["node","react"]` (node builtins for the fs-based token parse).
+  37 tests green; full gate (`lint typecheck build test`) 8/8.
+- **Deferred fast-follow:** pure money-math tests (`tax.ts`, `split-math.ts`); component tests (need jsdom +
+  `@vitejs/plugin-react` + `@testing-library`, added when the first one lands — no speculative apparatus now).
+
 ### Added — M5 · P5.4c: Card primitive (no variants — drift unified) (QR ← delivery transfer) (2026-06-28)
 
 A context sweep before building **overturned the planned `elevated/outlined/filled` variant taxonomy** — that

@@ -6,10 +6,10 @@ import type { CSSProperties } from "react";
  * `seatInitial`/`seatColor`, which stay app-side — the color hash isn't a design-system concern).
  *
  * Decorative by default (`aria-hidden`) — pass `aria-label` (e.g. the guest's name) when the circle
- * is the only thing naming the person. `#fff` initial is intentional: `color` is always a vivid
- * fixed seat hue (theme-independent), so white is the legible choice in both themes. (The initial is
- * a redundant cue — every caller also names the person via `aria-label` or adjacent text — so the two
- * lightest seat hues sitting just under AA on white is a known, tracked nit, not a load-bearing gap.)
+ * is the only thing naming the person. `#fff` initial is intentional: `color` is always a vivid fixed
+ * seat hue (theme-independent), and **every `seatColor` hue clears WCAG AA (≥4.5:1) behind the white
+ * initial** — verified by `apps/qr/lib/avatars.test.ts` (P5.5). (An earlier note feared the two lightest
+ * hues fell just under AA; recomputed against the real palette, all five pass — that was a phantom.)
  */
 const SIZES = { sm: { box: 22, font: 10 }, md: { box: 30, font: 12 } } as const;
 

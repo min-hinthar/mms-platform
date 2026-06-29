@@ -113,8 +113,10 @@ Smallest slice that takes one real test charge end-to-end (solo Scan & Go). **No
     copies). Shipped a polymorphic `<Card>` applying `.card` + migrated the 10 drifters (9 gain the canonical
     shadow). Tinted status surfaces → future `Callout`.
   - **Deferred (no QR consumer):** `Tooltip`, `Drawer`, tilt; `Toast` + ripple only if a real consumer emerges. ⬜
-- **P5.5** Contrast-audit test + QR test infra — wire Vitest + uncomment the turbo `test` gate; port delivery's
-  contrast-audit with QR token fixtures. ⬜
+- **P5.5** ✅ Contrast-audit test + QR test infra — Vitest 4 in `packages/ui` + `apps/qr`, turbo `test` gate
+  uncommented in CI; contrast-audit ported to `packages/ui` (parses `tokens.css` at test time — no hardcoded
+  fixtures — + negative anti-regression guards) + `avatars.test.ts`. All combos clear AA both themes (the
+  P5.4b-1 seat-hue sub-AA worry was a phantom — all 5 pass). 37 tests.
 - **P5.6** PWA / offline _(deferred / optional)_ — Serwist SW + manifest + offline cart + chunk-load reload
   boundary. Low priority for dine-in. ⬜
 

@@ -100,22 +100,20 @@ QR ships ~50 bespoke domain components and rebuilds primitives inline each time.
 - Each lands with the P5.2 mobile-hardening baked in (dvh sizing, safe-area, single-scroll) and a Storybook-or-
   example entry. Pri **Med-High**, Eff **L** (the long tail; ship incrementally, most-used first).
 
-### P5.5 — Contrast-audit test + QR test infra `[lock in the AA claim]`
+### P5.5 — Contrast-audit test + QR test infra `[lock in the AA claim]` — ✅ shipped (2026-06-29)
 
-QR has WCAG-AA tokens but **zero automated tests** — `turbo test` is commented out in `.github/workflows/ci.yml`
-and QR has no test script. Two steps:
-
-1. Wire a test runner (Vitest) into QR + uncomment the turbo `test` gate.
-2. Port delivery's **contrast-audit** (harvests text×surface combos, asserts the ratio floor) with **QR token
-   fixtures**. Source: delivery `e2e/contrast-audit.spec.ts` + the `contrast-audit.test.ts` fixture pattern.
-   Caveat to carry: **fixtures hardcode token hex — they must be refreshed in the same PR as any token change**
-   or the suite silently passes on a regressed token. Pri **High**, Eff **M**.
-   - **Include the seat-avatar white-initial combo** (`#fff` on each `lib/avatars.ts` `PCOL` hue): the two
-     lightest hues (`#A65F10` ≈ 3.6:1, `#A44B34` ≈ 4.4:1) sit just under AA behind the `Avatar` initial
-     (P5.4b-1 pre-merge review). Pre-existing + the initial is a redundant cue (every caller also names the
-     person via `aria-label`/adjacent text), so it's a tracked nit — darkening those two hues to clear 4.5:1
-     is the clean fix once the audit can assert it. Seat hues live in `lib/avatars.ts`, not `tokens.css`, so
-     the harvester must reach them.
+> Shipped: **Vitest 4** wired into `packages/ui` + `apps/qr` (node-env, pure-logic — no `server-only`/CSS),
+> the turbo `test` gate uncommented in CI, and the **contrast-audit** ported to `packages/ui`. The port
+> improves on delivery's: it **parses `tokens.css` at test time** (resolving `var()` aliases + flattening the
+> `color-mix` tints) instead of mirroring hex fixtures, so a token edit is checked automatically — no fixture
+> to drift. Asserts the full text×surface matrix (both themes) **plus negative anti-regression guards** (plain
+> `--ac`/`--gold` as text must STAY <4.5 in light — the reason the `-strong` variants exist). + `apps/qr/lib/
+avatars.test.ts` (seat-hue×`#fff` AA + `seatColor`/`seatInitial` logic). **Finding:** every production combo
+> clears AA in both themes (tightest: light `t3`/`sf` 4.76, dark `jade-strong` 4.61) — and the P5.4b-1
+> "seat hues sub-AA" worry was a **phantom**: all five `PCOL` hues clear 4.5:1 (lightest `#A65F10` = 4.92);
+> the `avatar.tsx` comment was corrected. (`esbuild` had to be added to `pnpm-workspace.yaml allowBuilds`.)
+> _Deferred fast-follow:_ pure money-math tests (`tax.ts`, `split-math.ts`); component tests (need jsdom +
+> `@vitejs/plugin-react` + `@testing-library`).
 
 ### P5.6 — PWA / offline `[deferred / optional for dine-in]`
 
