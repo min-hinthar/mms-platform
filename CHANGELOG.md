@@ -4,6 +4,24 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — Richness R5a: primitive richness pass (2026-06-29)
+
+Makes the shared primitives feel alive so screens inherit it — all CSS/`domAnimation`-level, opt-in,
+reduced-motion-gated, transform/box-shadow only (no `blur()`, mobile-safe glows).
+
+- **`Card`** (`packages/ui`) gains opt-in `textured` + `interactive` props (CSS-only → stays
+  Server-Component safe; default off, the 12 existing Card sites unchanged). `.card-textured` =
+  printed-matter `::before` (gradient-masked dot-grid, radius-clipped, `pointer-events:none`,
+  AT-invisible — restrained on purpose so it doesn't repeat into a pattern down a dense list; the
+  `--glow-ac` token is reserved for R7's hero/celebration surfaces); `.card-interactive` = hover
+  shadow-lift + press settle (use only on clickable hosts). **Adopted `card-textured` on the menu item
+  rows** (depth; not interactive — the row isn't clickable until R6's item sheet).
+- **`Stepper`** — a count-bounce on quantity change (the aria-label stays on a stable outer span so AT
+  never re-announces; only an `aria-hidden` inner digit replays `mms-pop`) + a press settle on both
+  buttons. Both cart + staff-line-editor consumers inherit it.
+- **`ModeCard`** (homepage) — `card-interactive` + a `--grad` gradient emoji tile + a staggered
+  fade/rise entrance (per-card delay, RM-gated).
+
 ### Added — Richness R3+R4: framer-motion (lazy) + interaction hooks (2026-06-29)
 
 The motion engine for the rest of the Richness track, adopted lazily + scoped, with the first consumer.

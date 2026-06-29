@@ -65,6 +65,7 @@ export function Stepper({
     <span style={{ ...row, gap: showCount ? 8 : 4 }}>
       <button
         type="button"
+        className="mms-stepper-btn"
         onClick={() => onChange(qty - 1)}
         disabled={disabled}
         aria-label={removing ? `Remove ${name}` : `Decrease ${name} quantity`}
@@ -73,12 +74,19 @@ export function Stepper({
         <span aria-hidden>{removing ? removeGlyph : "−"}</span>
       </button>
       {showCount ? (
+        // R5a count-bounce: the aria-label sits on the STABLE outer span (a non-live element whose
+        // label change is silent — it must never announce per tap, see the a11y note above), while the
+        // visible digit is an aria-hidden inner span keyed on `qty` so it remounts → replays `mms-pop`
+        // (reduced-motion-gated by the shared keyframe rule). Purely visual; AT reads only the outer.
         <span aria-label={`Quantity ${qty}`} style={count}>
-          {qty}
+          <span key={qty} aria-hidden className="mms-pop" style={{ display: "inline-block" }}>
+            {qty}
+          </span>
         </span>
       ) : null}
       <button
         type="button"
+        className="mms-stepper-btn"
         onClick={() => onChange(qty + 1)}
         disabled={incDisabled}
         aria-label={

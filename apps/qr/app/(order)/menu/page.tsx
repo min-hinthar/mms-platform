@@ -76,7 +76,9 @@ export default async function Menu({
                 .map((i) => (
                   <li
                     key={i.id}
-                    className="card"
+                    // card-textured = printed-matter depth (masked dot-grid) behind the row; NOT
+                    // card-interactive — the row isn't clickable until R6's item sheet.
+                    className="card card-textured"
                     style={{
                       display: "flex",
                       gap: 13,

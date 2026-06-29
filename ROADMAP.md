@@ -142,7 +142,7 @@ clean token base, within the mobile-GPU/reduced-motion/AA guardrails M5 establis
   `--bg`→`--sf` ×6, hardcoded shadow→`--sh-md`, SharePay→shared appearance) · **R3 ✅** framer-motion adopted
   (root `LazyMotion domAnimation strict`; `domMax` deferred to R5 sheets) · **R4 ✅** `interactions.ts`
   (tilt/magnetic/parallax/ripple) ported → `@mms/ui`; first consumer = `AddButton` press-spring + ripple.
-- **Primitive richness:** **R5 — next** Card/Stepper/AddButton/ModeCard/Sheet (textured surfaces, press-springs, swipe-to-close; AddButton already has press+ripple from R4, R5 adds the Stepper morph + textured Card + the DomMaxProvider for sheet swipe).
+- **Primitive richness:** **R5a ✅** Card `textured`/`interactive` props (CSS-only, Server-safe) + masked-dotgrid/glow `.card-textured` on menu rows · `.card-interactive` + gradient tile + stagger on ModeCard · Stepper count-bounce + button press. **R5b — next:** `Sheet` swipe-to-close (the first `domMax` consumer, adds `DomMaxProvider`); **R5c:** AddButton→Stepper inline morph.
 - **Signature moments:** R6 menu (search/filters/hero/blur-up/**item sheet** — biggest gap) · R7 checkout +
   **pay-success celebration** · R8 /track + rewards (conic ring, `NumberFlow`, tier-up) · R9 staff floor + homepage.
 - **Calls (decided in the plan):** adopt framer-motion lazily; dark via a nonce-carrying `prefers-color-scheme`
