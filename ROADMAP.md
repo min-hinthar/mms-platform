@@ -124,6 +124,28 @@ Smallest slice that takes one real test charge end-to-end (solo Scan & Go). **No
 contrast-regression guard; both apps remain **independent repos** sharing only the Stripe account; co-location
 reconsidered at M6.
 
+> **Post-M5 audit (2026-06-29):** deep cross-slice adversarial audit — verdict **sound** (zero money/auth/RLS
+> findings). Fixed the primitive-migration tail (EmptyState→Card, FloorBoard→EmptyState, SettlementBoard→Avatar)
+>
+> - corrected the false dark-mode doc claim. Tracked-deferred: **dark-mode activation is dead** (`.dark` never
+>   set — now Richness-track R2), the live-region-at-the-seams a11y items, chips→Badge, split-avatar dim.
+
+## 🎨 Richness track (R1–R9) — world-class UI/UX &nbsp;`next`
+
+Bring delivery's **deep textures, layered surfaces, micro-interactions, and motion** to QR — built on QR's
+clean token base, within the mobile-GPU/reduced-motion/AA guardrails M5 established. **The next initiative**
+(distinct from the 2027 M6 kiosk milestone below). Full spec: **[`docs/RICHNESS_PLAN.md`](docs/RICHNESS_PLAN.md)**.
+
+- **Foundations:** R1 tokens + texture system · **R2 dark-mode activation** (fixes the dead `.dark` — top item) ·
+  R3 framer-motion (lazy `domAnimation`, `domMax` only where drag/layout) + Vitest framer stub · R4 port
+  `interactions.ts` (tilt/magnetic/ripple) → `@mms/ui`.
+- **Primitive richness:** R5 Card/Stepper/AddButton/ModeCard/Sheet (textured surfaces, press-springs, swipe-to-close).
+- **Signature moments:** R6 menu (search/filters/hero/blur-up/**item sheet** — biggest gap) · R7 checkout +
+  **pay-success celebration** · R8 /track + rewards (conic ring, `NumberFlow`, tier-up) · R9 staff floor + homepage.
+- **Calls (decided in the plan):** adopt framer-motion lazily; dark via a nonce-carrying `prefers-color-scheme`
+  inline script (not next-themes); `NumberFlow` (already in `@mms/ui`) over delivery's `RollingDigits`; rebuild
+  textures on QR tokens, never import delivery's 34KB `--hero-*` system.
+
 ## ⏸ M6 — Kiosk · Terminal · EBT (2027) &nbsp;`milestone:M6`
 
 - **P6.1** Kiosk shell + handheld HID scanner (no code change to grocery flow). ⬜
