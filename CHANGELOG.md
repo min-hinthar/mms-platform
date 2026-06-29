@@ -4,6 +4,21 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — Grocery Scan & Go: quantities + status-atomic upsert + scanner hardening (2026-06-29)
+
+Scan & Go now treats repeat scans of the same barcode as a **quantity increment** (one line "3 × $X")
+instead of stacking duplicate rows, and routes adds through the same hardened cart primitive as the
+restaurant flow.
+
+- **Server-atomic upsert** — `scanAdd` now calls the shared `insertOrIncLine` (+ `touchCart`) instead of a
+  plain insert, so grocery adds finally get the **in-SQL `status='open'` guard** (retires the prior plain-insert
+  TODO). Migration `20260624040000_grocery_status_atomic_insert.sql` widens `mms_cart_item_insert_if_open`'s
+  `p_menu_item_id` to `text` so a barcode can use the same primitive (uuid & text both gen to `string` — no
+  types drift). Totals stay server-authoritative; the client `qty × price` is display-only.
+- **Scanner lifecycle hardened** — `BarcodeScanner` early-checks `getUserMedia`, tracks a `stopped` flag to
+  prevent emit-after-teardown, and reliably tears down the camera stream + RAF on unmount.
+- **Cleanups** — removed genuinely-unused `CSSProperties` imports (`SettlementBoard`, `Avatar`).
+
 ### Changed — M5 deep audit + fixes · Richness-track plan + handoff (2026-06-29)
 
 Closed out M5 with a deep cross-slice adversarial audit (5 finder lenses × per-finding adversarial verification,
