@@ -159,8 +159,9 @@ strict`) at the root. `domMax`/`DomMaxProvider` deferred to R5 (sheet swipe). Fr
 
 > **R5a ✅ shipped 2026-06-29** — `Card` opt-in `textured`/`interactive` props (CSS-only) + `.card-textured`
 > on menu rows; `Stepper` count-bounce (a11y-safe) + button press; `ModeCard` gradient tile + stagger.
-> **Remaining: R5b** (`Sheet` swipe-to-close — first `domMax` consumer, adds `DomMaxProvider`) · **R5c**
-> (AddButton→Stepper inline morph).
+> **R5b ✅ shipped 2026-06-29** — `Sheet` swipe-to-close (first `domMax` consumer): `DomMaxProvider`
+> (`packages/ui`) + handle-initiated `useDragControls` drag (`dragListener=false` → body scroll untouched).
+> **Remaining: R5c** (AddButton→Stepper inline morph).
 
 **Goal:** make the shared primitives feel alive so every screen inherits it — the cheapest broad win.
 
