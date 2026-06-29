@@ -7,20 +7,24 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 ### Added — Richness R5c: menu Add → quantity-stepper morph (completes R5) (2026-06-29)
 
 The menu's per-item **Add** pill now morphs into an inline accent quantity stepper (− qty +) once the
-viewer has the item in their own cart line (the v7.2 prototype's `.add → .stp` morph) — quick re-order
-and removal without leaving the menu.
+viewer has the item in their cart line (the v7.2 prototype's `.add → .stp` morph) — quick re-order and
+removal without leaving the menu. **Solo modes only** (pickup / scan-and-go): in a dine-in group cart the
+no-modifier draft line is _shared_ (`insertOrIncLine` merges by item/fulfillment/state, not `by_seat`) and
+`canMutateLine` is owner/host-gated, so a per-row menu stepper would mis-target a peer's line — group
+quantity stays managed in the cart, where the Checkout `Stepper` already handles `canEdit`/host/split.
 
-- **`AddButton`** resolves the viewer's **own, still-draft, no-modifier** line for the item (scoped to
-  `bySeat === me.seat`) and renders the `.mms-qty-stepper` when `qty > 0`. **+** reuses the
-  server-authoritative `add` (merges/increments the same line); **−** calls the new `setItemQty`
-  (`qty<=0` removes → morphs back to the Add pill). A group peer's line, a modifier variant, a fired, or
-  a comped line is never editable from the menu — those stay managed in the cart.
-- **`TableCartProvider.setItemQty`** — a `setQty`-backed line mutation (server re-derives every amount;
-  authz'd `canMutateLine` own-draft-only) that re-syncs from the returned view, with the same
-  session-recovery path `add` uses for a silently-expired session.
-- a11y: 44px tap targets; `aria-hidden` −/+ glyphs with woven accessible names; an `.sr-only` real
-  quantity (not a live region — no per-tap announce); **focus moves to the Add pill** when a `−` removes
-  the line (WCAG 2.4.3). Pop-on-mount + `:active` settle reuse `.mms-pop` and are reduced-motion-gated.
+- **`AddButton`** matches `insertOrIncLine`'s exact merge keys (item + no modifiers + **default
+  fulfillment** + still-draft, not comped) and renders the `.mms-qty-stepper` when `qty > 0` **and not a
+  group cart**. **+** reuses the server-authoritative `add`; **−** calls the new `setItemQty` (`qty<=0`
+  removes → morphs back to the Add pill). The in-cart **+** gates on the **live** cart `line.soldOut`
+  (fresher than the page-render menu prop).
+- **`TableCartProvider`** — new `setItemQty` (`setQty`-backed; server re-derives every amount; authz'd
+  `canMutateLine` own-draft-only) re-syncing from server truth with `add`'s session-recovery path; the
+  provider now also exposes **`settling`** (split-tender freeze) so the menu controls disable during it.
+- a11y: 44px tap targets; `aria-hidden` −/+ glyphs with woven names; an `.sr-only` real quantity (not a
+  live region); decrement/removal **announced** via the one live region (WCAG 4.1.3); **focus moves to the
+  Add pill on remove** (kept focusable via `aria-disabled` when sold-out, and the move waits for `busy` to
+  clear so it lands on an enabled pill — WCAG 2.4.3). Pop/`:active` reduced-motion-gated.
 
 ### Added — Richness R5b: Sheet swipe-to-close (first domMax consumer) (2026-06-29)
 

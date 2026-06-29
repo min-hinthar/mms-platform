@@ -162,11 +162,18 @@ strict`) at the root. `domMax`/`DomMaxProvider` deferred to R5 (sheet swipe). Fr
 > **R5b ✅ shipped 2026-06-29** — `Sheet` swipe-to-close (first `domMax` consumer): `DomMaxProvider`
 > (`packages/ui`) + handle-initiated `useDragControls` drag (`dragListener=false` → body scroll untouched).
 > **R5c ✅ shipped 2026-06-29 (R5 complete)** — menu `AddButton` morphs into an inline accent quantity
-> stepper (`.mms-qty-stepper`) once the viewer has the item in their OWN draft no-modifier line: `+` reuses
-> the server-authoritative `add`, `−` calls the new `TableCartProvider.setItemQty` (`qty<=0` removes →
-> morphs back to Add). Own-draft-line-scoped (`bySeat === me.seat`); focus moves to the Add pill on remove;
-> pop-on-mount + `:active` reduced-motion-gated. **CSS morph (no `layoutId`)** — the root is `domAnimation`,
-> so the menu stays off `domMax`; the prototype's `.add → .stp` is a conditional render + `.mms-pop`.
+> stepper (`.mms-qty-stepper`) once the viewer has the item in their cart line: `+` reuses the
+> server-authoritative `add`, `−` calls the new `TableCartProvider.setItemQty` (`qty<=0` removes → morphs
+> back to Add). **SOLO modes only** (pickup/scan): a dine-in GROUP cart's no-modifier draft line is _shared_
+> (`insertOrIncLine` merges by item/fulfillment/draft-state, NOT `by_seat`) and `canMutateLine` is
+> owner/host-gated, so a per-row menu stepper would mis-target a peer's line / a non-owner's `−` would be
+> rejected — group quantity is managed in the cart (the Checkout `Stepper` handles `canEdit`/host/split). The
+> match mirrors `insertOrIncLine`'s exact merge keys (item + no-mods + default fulfillment + draft, not
+> comped); the in-cart `+` gates on the live `line.soldOut`; `setItemQty`/menu controls also gate on the new
+> `settling` (split-tender) freeze. Focus moves to the Add pill on remove (focusable via `aria-disabled` when
+> sold-out; waits for `busy` to clear). **CSS morph (no `layoutId`)** — root is `domAnimation`, menu stays off
+> `domMax`; the prototype's `.add → .stp` is a conditional render + `.mms-pop`. (Codex P1+P2s addressed:
+> live-sold-out, fulfillment match, focusable/timed refocus, cross-seat-merge → solo-only, settlement freeze.)
 
 **Goal:** make the shared primitives feel alive so every screen inherits it — the cheapest broad win.
 

@@ -53,6 +53,10 @@ type CartCtx = {
    *  else. `lockedByName` is who (resolved from presence; "You" if it's the viewer). */
   locked: boolean;
   lockedByName: string | null;
+  /** Split-tender settlement freeze (M3·P3.3b): true while the table settles its shares → the whole cart
+   *  is read-only (the server rejects add/setQty). Distinct from the pay-window `locked`; the menu controls
+   *  gate on it too so a quick add/remove can't fire an optimistic confirmation the server will reject. */
+  settling: boolean;
 };
 
 const Ctx = createContext<CartCtx | null>(null);
@@ -93,6 +97,7 @@ export function TableCartProvider({
   const [pickupSlot, setPickupSlot] = useState<string | null>(null);
   const [locked, setLocked] = useState(false); // pay-window lock (P3.2-lock)
   const [lockedBy, setLockedBy] = useState<string | null>(null);
+  const [settling, setSettling] = useState(false); // split-tender settlement freeze (P3.3b) — read-only cart
   const [slotSheetOpen, setSlotSheetOpen] = useState(false);
   const autoOpened = useRef(false); // only auto-prompt for a slot once per mount
 
@@ -153,6 +158,7 @@ export function TableCartProvider({
       setPickupSlot(v.pickupSlot);
       setLocked(v.locked);
       setLockedBy(v.lockedBy);
+      setSettling(v.settling);
     } catch {
       // Cart no longer open (paid/closed) → assertCartMember 403. Swallow so a stale read after a
       // successful add can't surface as a false-negative "Couldn't add"; P1.3 redirects to a receipt.
@@ -172,6 +178,7 @@ export function TableCartProvider({
         setPickupSlot(v.pickupSlot);
         setLocked(v.locked);
         setLockedBy(v.lockedBy);
+        setSettling(v.settling);
         // Pickup with no slot yet → prompt once (the diner schedules before ordering, per v7.2).
         if (isPickup && !v.pickupSlot && !autoOpened.current) {
           autoOpened.current = true;
@@ -372,6 +379,7 @@ export function TableCartProvider({
         setName,
         locked,
         lockedByName,
+        settling,
       }}
     >
       {children}
