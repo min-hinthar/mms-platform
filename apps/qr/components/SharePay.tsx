@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import type { Appearance, StripeElementsOptions } from "@stripe/stripe-js";
-import { getStripePromise } from "@/lib/stripe-client";
+import { getStripePromise, stripeAppearance } from "@/lib/stripe-client";
 
 /**
  * One payer's share-pay screen (M3·P3.3b, split-tender). The diner picks their OWN tip, then authorizes
@@ -28,24 +28,9 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
   const [error, setError] = useState<string | null>(null);
   const stripePromise = getStripePromise();
 
-  const appearance = useMemo<Appearance>(() => {
-    if (typeof window === "undefined") return { theme: "stripe" };
-    const cs = getComputedStyle(document.documentElement);
-    const v = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback;
-    return {
-      theme: document.documentElement.classList.contains("dark") ? "night" : "stripe",
-      variables: {
-        colorPrimary: v("--ac", "#a65f10"),
-        colorBackground: v("--cd", "#fffdf8"),
-        colorText: v("--tx", "#1b1714"),
-        colorTextSecondary: v("--t2", "#6e6358"),
-        colorDanger: v("--warn", "#a44b34"),
-        fontFamily: v("--font-body", "system-ui, sans-serif"),
-        borderRadius: v("--r-sm", "12px"),
-        spacingUnit: "4px",
-      },
-    };
-  }, []);
+  // Shared with PaymentSection (was an inline duplicate — drift risk). Resolves the theme from the
+  // live tokens at mount; .dark (R2) makes "night" reachable. Mount-time by design — see ThemeSync.
+  const appearance = useMemo<Appearance>(() => stripeAppearance(), []);
 
   // (Re)mint this payer's PaymentIntent for the chosen tip. Re-runs on a tip change (the route cancels
   // the prior pending PI). setState lives in the async callbacks (the allowed "sync from an external

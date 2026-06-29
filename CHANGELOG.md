@@ -4,6 +4,25 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — Richness R2: dark-mode activation (2026-06-29)
+
+The full Night palette existed in `tokens.css` `.dark` but nothing ever set `.dark` on `<html>` — dark
+was unreachable at runtime (caught by the M5 audit). R2 activates it, system-driven.
+
+- **Activation** (`apps/qr/app/layout.tsx` + new `components/ThemeSync.tsx`): a **nonce-carrying blocking
+  inline script**, first in `<body>`, sets `.dark` from `prefers-color-scheme` before first paint (no theme
+  flash) — it carries the per-request CSP nonce (`proxy.ts` strict-dynamic) or it'd be blocked. `ThemeSync`
+  keeps the class in sync on a live OS-theme flip. No `next-themes` (QR has no theme picker); the address-bar
+  `themeColor` (also `prefers-color-scheme`-keyed) stays in lockstep.
+- **Dark bug fixes** (from a verified per-surface audit — rewards & staff surfaces were already clean):
+  6× undefined `var(--bg)` (resolved to transparent → card-on-card meld in Night) → `var(--sf)` recessed-field
+  token (FeedbackPrompt, OrderHistory, RewardField, AccountUpgrade ×2, MergeTableButton); a hardcoded
+  light-theme `boxShadow` on the cart error alert → `var(--sh-md)` (was invisible on the Night page);
+  `SharePay` Stripe appearance consolidated to the shared `stripeAppearance()` helper (kills the inline drift).
+- **Stripe note:** the Payment Element resolves its theme at **mount** (correct in both themes after
+  activation); a mid-session OS flip is deliberately **not** re-keyed — remounting would wipe in-progress card
+  entry, a worse regression than a cosmetic stale theme.
+
 ### Added — Richness R1: motion + depth token/texture foundation (2026-06-29)
 
 First slice of the 🎨 Richness track ([`docs/RICHNESS_PLAN.md`](docs/RICHNESS_PLAN.md)) — the reusable depth

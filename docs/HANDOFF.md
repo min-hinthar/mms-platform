@@ -18,9 +18,15 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >   `--glow-*`, `--surface-glass/-vellum/-elevated`, `--sheen`, `--sh-glow`, both themes) + the gradient-masked
 >   `.tex-dotgrid`/`.tex-linegrid`/`.tex-grain` + opaque-mobile `.surface-glass/-vellum/-paper` + `pop`/`steam`
 >   keyframes in `globals.css`; `--surface-elevated` locked in contrast-audit (41 tests, both themes). **R2 next.**
-> - **R2 dark-mode is the top fix:** the M5 audit found `.dark` is NEVER applied at runtime (the whole Night
->   palette + the contrast-audit's dark half + the Stripe `.dark` reads are dead). The plan's call: a
->   **nonce-carrying** `prefers-color-scheme` inline script (QR runs a strict-dynamic nonce CSP — `proxy.ts`).
+> - **R2 ✅ shipped** — dark mode is now LIVE. Nonce blocking inline script in `layout.tsx` (carries the
+>   `proxy.ts` per-request nonce) sets `.dark` from `prefers-color-scheme` before paint; `ThemeSync` handles
+>   live OS flips; no next-themes. A verified per-surface audit (workflow) found only small latent dark bugs —
+>   all fixed: 6× undefined `var(--bg)`→`var(--sf)`, a hardcoded shadow→`var(--sh-md)`, SharePay→shared
+>   `stripeAppearance()`. Rewards + staff surfaces were already dark-clean. **Stripe theme is mount-time** (not
+>   re-keyed on a live flip — a remount would wipe in-progress card entry). **R3 (framer-motion, lazy) is next.**
+> - **Verify R2 by eye in the preview** (the contrast-audit proves the token matrix, not component usage): each
+>   screen in dark for the first time — the cart error-alert lift, the recessed `--sf` fields, over-photo chrome,
+>   `--ac` focus rings on Night, and no flash-of-wrong-theme on a hard dark load.
 > - **Tracked-deferred a11y (from the audit, not yet fixed):** "one live region per view" is violated at the
 >   _seams_ on Checkout-review (RewardField+SecureTabButton), /track (FeedbackPrompt), and ApprovalsBoard
 >   (N+1) — each component is correct alone but stacks a 2nd polite region when co-rendered. Also: status chips

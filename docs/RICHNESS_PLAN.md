@@ -79,7 +79,12 @@ R4 interactions.ts → @mms/ui  ─┘  (needs R3 for useSpring)
 
 ---
 
-### R2 — Dark-mode activation (explicit, early — the M5 audit found it dead)
+### R2 — Dark-mode activation (explicit, early — the M5 audit found it dead) — ✅ SHIPPED
+
+> **Shipped 2026-06-29.** Nonce blocking inline script + `ThemeSync` (live OS flip); no next-themes. A verified
+> per-surface dark audit found only small latent bugs (all fixed): 6× undefined `var(--bg)`→`var(--sf)`, a
+> hardcoded shadow→`var(--sh-md)`, `SharePay`→shared `stripeAppearance()`. Stripe theme is mount-time (not
+> re-keyed live — a remount would wipe in-progress card entry). Rewards + staff were already dark-clean.
 
 **Goal:** make the existing Night palette reachable. Today nothing sets `.dark`; `stripe-client.ts:13` and `SharePay.tsx:36` _read_ `classList.contains("dark")` but no code ever adds it — dark is unreachable at runtime.
 

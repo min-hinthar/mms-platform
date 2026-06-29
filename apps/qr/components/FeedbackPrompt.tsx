@@ -145,7 +145,7 @@ const textarea: CSSProperties = {
   padding: "10px 12px",
   borderRadius: 12,
   border: "1px solid var(--bd)",
-  background: "var(--bg)",
+  background: "var(--sf)",
   color: "var(--tx)",
   fontSize: 16, // ≥16px → no iOS zoom-on-focus
   resize: "vertical",

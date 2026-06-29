@@ -371,7 +371,9 @@ export function TableCartProvider({
             color: "var(--warn)",
             fontWeight: 700,
             fontSize: 12.5,
-            boxShadow: "0 6px 20px rgb(0 0 0 / 0.12)",
+            // Token (not a literal): the Night `--sh-md` is near-black-heavy so this floating alert
+            // keeps its lift on the dark page; a hardcoded light shadow vanished on Night (R2 audit).
+            boxShadow: "var(--sh-md)",
           }}
         >
           <span aria-hidden>⚠️</span> Couldn’t reach your order.{" "}

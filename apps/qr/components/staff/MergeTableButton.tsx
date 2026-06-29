@@ -229,7 +229,7 @@ const candidateBtn: CSSProperties = {
   textAlign: "left",
   borderRadius: "var(--r-card)",
   border: "1px solid var(--bd)",
-  background: "var(--bg)",
+  background: "var(--sf)",
   color: "var(--tx)",
   cursor: "pointer",
 };

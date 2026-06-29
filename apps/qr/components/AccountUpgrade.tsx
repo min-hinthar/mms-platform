@@ -179,7 +179,7 @@ const input: CSSProperties = {
   padding: "0 14px",
   borderRadius: 12,
   border: "1px solid var(--bd)",
-  background: "var(--bg)",
+  background: "var(--sf)",
   color: "var(--tx)",
   fontSize: 16, // ≥16px → no iOS zoom-on-focus
   marginBottom: 12,
@@ -200,7 +200,7 @@ const googleBtn: CSSProperties = {
   minHeight: 48,
   borderRadius: 12,
   border: "1px solid var(--bd)",
-  background: "var(--bg)",
+  background: "var(--sf)",
   color: "var(--tx)",
   fontWeight: 700,
   fontSize: 15,

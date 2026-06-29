@@ -165,7 +165,7 @@ const couponBtn: CSSProperties = {
   padding: "0 14px",
   borderRadius: 10,
   border: "1px solid var(--bd)",
-  background: "var(--bg)",
+  background: "var(--sf)",
   color: "var(--tx)",
   cursor: "pointer",
 };
