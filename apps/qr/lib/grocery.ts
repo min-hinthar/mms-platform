@@ -5,6 +5,7 @@ import { scanInput, grocerySearchInput } from "@mms/db/schemas";
 import { lineTax } from "./tax";
 import { assertCartMember } from "./authz";
 import { assertMutationRate } from "./rate";
+import { insertOrIncLine, touchCart } from "./order-lines";
 
 /**
  * Grocery Scan & Go. The client sends a scanned BARCODE (never a price); the server looks it
@@ -39,24 +40,23 @@ export async function scanAdd(cartId: string, barcode: string) {
 
   const unitPriceCents = Number(item.price_cents);
   const taxCents = lineTax(unitPriceCents, item.tax_category as TaxCategory, false);
-  // Plain insert (NOT the status-atomic mms_cart_item_insert_if_open RPC addItem uses): that RPC's
-  // p_menu_item_id is `uuid`, but a grocery id is a BARCODE and qr_cart_items.menu_item_id is text
-  // (soft-ref: a menu_items uuid-as-text OR a barcode) — a 13-digit barcode can't cast to uuid. The
-  // app-layer `locked` + membership guard above still gates this. TODO(follow-up): widen the RPC's
-  // p_menu_item_id to text (drop+recreate + re-grant + types regen) so grocery gets the in-SQL
-  // status='open' guard too. Low urgency: grocery is SOLO (scan, THEN pay), so the post-payment-insert
-  // race that guard closes is near-unreachable here (no concurrent writer mid-checkout).
-  await db.from("qr_cart_items").insert({
-    cart_id: input.cartId,
-    menu_item_id: item.barcode,
-    name: item.name,
-    qty: 1,
-    modifiers: [],
-    unit_price_cents: unitPriceCents,
-    tax_cents: taxCents,
-    by_seat: uid,
-    fulfillment: "grocery", // S4: grocery is auto-tagged + never guest-flippable (routing + exemption fixed)
-  });
+  // Reuse the same merge-or-insert primitive as restaurant adds. The companion migration widens
+  // mms_cart_item_insert_if_open(menu_item_id) to text, so a barcode can go through the same
+  // status-atomic open-cart guard instead of the old plain insert path. This keeps the server view,
+  // checkout totals, and the local Scan & Go list aligned: repeat scans increment qty.
+  await insertOrIncLine(
+    input.cartId,
+    {
+      menuItemId: item.barcode,
+      name: item.name,
+      opts: [],
+      unitPriceCents,
+      taxCents,
+      fulfillment: "grocery",
+    },
+    uid,
+  );
+  await touchCart(input.cartId, "scanAdd");
   return {
     ok: true as const,
     name: item.name as string,

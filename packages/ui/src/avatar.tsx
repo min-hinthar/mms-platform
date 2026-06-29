@@ -1,5 +1,3 @@
-import type { CSSProperties } from "react";
-
 /**
  * Avatar — a static initial-in-a-circle (P5.4). Pure presentational (Server-Component safe). The
  * caller supplies the resolved `initial` + `color` (QR derives these per-seat via `lib/avatars`

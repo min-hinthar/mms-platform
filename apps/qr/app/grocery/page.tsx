@@ -9,7 +9,7 @@ import { useTableSession } from "@/lib/useTableSession";
 // /cart + Stripe). The cart is now a REAL server-issued Scan & Go session (M2·P2.3): the same
 // anon-auth session + member-authorized cart the dine-in/pickup flows use, so `scanAdd` is
 // authorized like every other mutation — no more client-minted id the authz guard rejects.
-type Line = { name: string; priceCents: number; ebt: boolean };
+type Line = { barcode: string; name: string; priceCents: number; ebt: boolean; qty: number };
 
 export default function Grocery() {
   const { session, error: sessionError } = useTableSession("scango");
@@ -44,7 +44,18 @@ export default function Grocery() {
       }
       if (r.ok) {
         addedRef.current += 1;
-        setLines((l) => [...l, { name: r.name, priceCents: r.unitPriceCents, ebt: r.ebt }]);
+        setLines((current) => {
+          const existing = current.find((line) => line.barcode === barcode);
+          if (existing) {
+            return current.map((line) =>
+              line.barcode === barcode ? { ...line, qty: line.qty + 1 } : line,
+            );
+          }
+          return [
+            ...current,
+            { barcode, name: r.name, priceCents: r.unitPriceCents, ebt: r.ebt, qty: 1 },
+          ];
+        });
         flash(`Added ${r.name}${r.ebt ? " · EBT-eligible" : ""}`);
         posthog.capture("grocery_item_scanned", {
           barcode,
@@ -111,7 +122,8 @@ export default function Grocery() {
     searchRef.current?.focus();
   }
 
-  const totalCents = lines.reduce((a, l) => a + l.priceCents, 0);
+  const itemCount = lines.reduce((a, l) => a + l.qty, 0);
+  const totalCents = lines.reduce((a, l) => a + l.priceCents * l.qty, 0);
 
   return (
     <main style={{ maxWidth: 440, margin: "0 auto", padding: 20, paddingBottom: 120 }}>
@@ -185,16 +197,18 @@ export default function Grocery() {
         role="list"
         style={{ listStyle: "none", padding: 0, marginTop: 16, display: "grid", gap: 8 }}
       >
-        {lines.map((l, i) => (
-          <li
-            key={i}
-            className="card"
-            style={{ display: "flex", justifyContent: "space-between", padding: "10px 13px" }}
-          >
-            <span>
-              {l.name} {l.ebt && <small style={{ color: "var(--ok)", fontWeight: 700 }}>EBT</small>}
+        {lines.map((l) => (
+          <li key={l.barcode} className="card" style={scannedLineStyle}>
+            <span style={{ minWidth: 0 }}>
+              <span style={{ fontWeight: 700 }}>{l.name}</span>{" "}
+              {l.ebt && <small style={{ color: "var(--ok)", fontWeight: 700 }}>EBT</small>}
+              <small style={{ display: "block", color: "var(--t3)", marginTop: 2 }}>
+                {l.qty > 1 ? `${l.qty} × $${(l.priceCents / 100).toFixed(2)}` : "Scanned once"}
+              </small>
             </span>
-            <b style={{ fontVariantNumeric: "tabular-nums" }}>${(l.priceCents / 100).toFixed(2)}</b>
+            <b style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+              ${((l.priceCents * l.qty) / 100).toFixed(2)}
+            </b>
           </li>
         ))}
         {!lines.length && cartId && <li style={{ color: "var(--t3)" }}>Nothing scanned yet.</li>}
@@ -214,12 +228,15 @@ export default function Grocery() {
           onClick={() =>
             posthog.capture("grocery_checkout_clicked", {
               cart_id: cartId,
-              item_count: lines.length,
+              item_count: itemCount,
+              unique_item_count: lines.length,
               total_cents: totalCents,
             })
           }
         >
-          <span>Check out · {lines.length} items</span>
+          <span>
+            Check out · {itemCount} {itemCount === 1 ? "item" : "items"}
+          </span>
           <span>${(totalCents / 100).toFixed(2)}</span>
         </a>
       )}
@@ -273,6 +290,13 @@ const resultBtn: CSSProperties = {
   fontSize: 15,
   textAlign: "left",
   cursor: "pointer",
+};
+const scannedLineStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+  padding: "10px 13px",
 };
 const retryBtn: CSSProperties = {
   minHeight: 44,
