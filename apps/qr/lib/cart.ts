@@ -154,16 +154,14 @@ export async function assignLine(cartItemId: string, seatId: string) {
     .eq("id", cartId)
     .maybeSingle();
   if (openCart?.status !== "open") throw new Error("Cart is no longer open");
-  // Atomic reassign-or-coalesce (R5c per-seat invariant): if the TARGET seat already owns a matching draft
-  // line (same PRICED identity — item + modifiers + fulfillment + unit_price + tax), fold this line's qty
-  // into it (99-capped) so a diner never ends with two identical owned lines (which would make the menu
-  // quick-stepper show/edit only one while charging for both); else a plain re-own. The fold is done in
-  // mms_cart_item_assign — row-locked + price/tax-matched in SQL — so it never changes the cart total and
-  // never loses a unit to a concurrent add (a TS read-modify-write would race the atomic inc_qty path).
-  const { error } = await db.rpc("mms_cart_item_assign", {
-    p_id: input.cartItemId,
-    p_seat: input.seatId,
-  });
+  // Reassign provenance only (M3·P3.3a). Per-seat lines (R5c) can legitimately leave a diner with TWO
+  // matching draft lines after a reassign (or a price-snapshot difference, or a concurrent first-add) — the
+  // cart, split, and totals already sum per line, and the menu quick-stepper AGGREGATES the viewer's matching
+  // lines, so a duplicate is tolerated everywhere rather than forced into one line by a fragile coalesce.
+  const { error } = await db
+    .from("qr_cart_items")
+    .update({ by_seat: input.seatId })
+    .eq("id", input.cartItemId);
   if (error) throw new Error("Could not reassign that item");
   const { error: touchErr } = await db
     .from("qr_carts")

@@ -43,17 +43,17 @@ export function AddButton({
   // EXACTLY that default-fulfillment line — otherwise a line re-routed to "to go" in the cart would show its
   // qty here while "+" silently grew a different (default) line (stuck qty + wrong routing/tax).
   const defaultFulfillment = isGroup ? "dinein" : "togo";
-  // The VIEWER'S OWN quick-add line for this item, matching `insertOrIncLine`'s per-seat merge keys EXACTLY
-  // (item + no modifiers + default fulfillment + still-draft + own `by_seat`); `!comped` keeps an immutable
-  // comped line out. Scoping to `me.seat` (the anon-auth uid == addItem's `by_seat`) means the morph shows +
-  // controls THIS diner's line even in a dine-in group — a tablemate's separate line is never touched.
-  // Require a known seat before matching: a staff/server line has `bySeat` undefined, and during session
-  // recovery `me` is briefly null (→ `mySeat` undefined) while items linger — without this guard
-  // `i.bySeat === mySeat` would be `undefined === undefined` and falsely match a staff line the viewer
-  // doesn't own. (A diner line always has a `by_seat`, so a real own-line match is never lost.)
+  // The viewer's OWN draft quick-add lines for this item (item + no modifiers + default fulfillment + draft,
+  // not comped, own `by_seat`). Usually exactly one — `insertOrIncLine` merges a diner's repeat adds per
+  // seat — but the cart can legitimately hold MORE than one matching own line (a host reassign onto an item
+  // the diner already has, a price-snapshot difference between two adds, or a concurrent first-add race), and
+  // there's deliberately no unique constraint. So AGGREGATE rather than assume one line — the cart, split, and
+  // totals already sum per line — and the menu stays correct for any count. Require a known seat: a
+  // staff/server line has `bySeat` undefined and session recovery makes `mySeat` undefined, so an unguarded
+  // `=== mySeat` would false-match a staff line (a real diner line always carries its `by_seat`).
   const mySeat = me?.seat;
-  const line = mySeat
-    ? items.find(
+  const myLines = mySeat
+    ? items.filter(
         (i) =>
           i.menuItemId === menuItemId &&
           i.modifiers.length === 0 &&
@@ -62,15 +62,13 @@ export function AddButton({
           !i.comped &&
           i.bySeat === mySeat,
       )
-    : undefined;
-  const qty = line?.qty ?? 0;
-  // The fresher 86'd signal for an IN-CART line: the cart view carries a live `line.soldOut` (server-derived
-  // in getCartView), more current than the menu RSC's `soldOut` prop captured at page render. Gate the in-cart
-  // "+" on the fresher of the two so a line 86'd after load can't keep incrementing (addItem doesn't reject it).
-  const liveSoldOut = soldOut || (line?.soldOut ?? false);
-  // Morph once the viewer's own line exists (all modes — per-seat merge makes it unambiguous in groups too).
-  // Qty-driven: the stepper stays the authoritative control even if the item is later 86'd ("+" disables on
-  // sold-out, "−" stays enabled to remove). A sold-out item not yet in the cart (qty 0) shows the disabled pill.
+    : [];
+  const qty = myLines.reduce((sum, l) => sum + l.qty, 0);
+  // Fresher 86'd signal: any matching own line flagged sold-out (server-derived live in getCartView) OR the
+  // page-render menu prop. Gates the in-cart "+" so a line 86'd after load can't keep incrementing.
+  const liveSoldOut = soldOut || myLines.some((l) => l.soldOut);
+  // Morph once the viewer has the item in their own line(s) — all modes (per-seat merge shows each diner their
+  // own contribution). Qty-driven: the stepper stays the control even if 86'd ("+" disables, "−" still removes).
   const inCart = qty > 0;
 
   // While a member is checking out (P3.2-lock) OR the table is settling its split (P3.3b) the cart is frozen
@@ -105,16 +103,22 @@ export function AddButton({
   }
 
   async function decrement() {
-    if (!line) return;
+    if (myLines.length === 0) return;
+    // Reduce the AGGREGATE by one. Peel a qty-1 line first (so a duplicate line is fully removed and the
+    // set converges to one), else trim the last line. The morph reverts to the Add pill only when the
+    // aggregate hits 0 (not when a single duplicate line empties).
+    const target = myLines.find((l) => l.qty <= 1) ?? myLines[myLines.length - 1];
+    if (!target) return;
     const next = qty - 1;
-    if (next <= 0) refocusAfterRemove.current = true; // remove → focus the Add pill that replaces us
+    if (next <= 0) refocusAfterRemove.current = true; // aggregate empties → focus the Add pill that replaces us
     // Announce the outcome through the provider's ONE polite live region (WCAG 4.1.3) — symmetric with the
     // "+"/add path's "Added to your order". The provider flashes it optimistically on tap so the SR user
     // gets immediate confirmation; the visible qty settles on the server-authoritative refresh.
     const announce = next <= 0 ? `Removed ${name}` : `${name}, quantity ${next}`;
     setBusy(true);
     try {
-      await setItemQty(line.id, next, announce);
+      // `next` is the AGGREGATE for the announcement; the write trims the chosen line to its own qty − 1.
+      await setItemQty(target.id, target.qty - 1, announce);
     } catch {
       /* provider recovers + re-syncs from server truth */
     } finally {
