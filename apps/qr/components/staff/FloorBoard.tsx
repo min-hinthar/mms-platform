@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 import { getFloorView } from "@/lib/floor";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import type { FloorSnapshot } from "@/lib/floor-types";
+import { EmptyState } from "@mms/ui";
 import { TableCard } from "./TableCard";
 
 /**
@@ -63,13 +64,10 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
       </div>
 
       {count === 0 ? (
-        <div className="card" style={empty}>
-          <p style={{ margin: 0, fontWeight: 600 }}>The floor is quiet</p>
-          <p style={{ margin: "4px 0 0", fontSize: 14, color: "var(--t2)", lineHeight: 1.5 }}>
-            Active tables appear here the moment a guest scans in — party, what they’re ordering,
-            and how long they’ve been seated.
-          </p>
-        </div>
+        <EmptyState
+          title="The floor is quiet"
+          subtitle="Active tables appear here the moment a guest scans in — party, what they’re ordering, and how long they’ve been seated."
+        />
       ) : (
         <ul role="list" aria-label="Active tables" style={grid}>
           {tables.map((t) => (
@@ -90,7 +88,6 @@ const headRow: CSSProperties = {
   gap: "var(--s4)",
   marginBottom: "var(--s4)",
 };
-const empty: CSSProperties = { padding: "var(--s6)" };
 const grid: CSSProperties = {
   listStyle: "none",
   margin: 0,

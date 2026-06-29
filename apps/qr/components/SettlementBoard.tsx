@@ -4,7 +4,7 @@ import type { SplitContext, SettlementShare } from "@/lib/split";
 import { getSettlement, abortSettlement } from "@/lib/split";
 import { useSettlementRealtime } from "@/lib/realtime";
 import { seatColor, seatInitial } from "@/lib/avatars";
-import { Skeleton } from "@mms/ui";
+import { Avatar, Skeleton } from "@mms/ui";
 import { SharePay } from "./SharePay";
 
 /**
@@ -171,9 +171,11 @@ export function SettlementBoard({
               return (
                 <li key={s.seat} className="card" style={{ padding: 12 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <span aria-hidden style={{ ...avatar, background: seatColor(s.seat) }}>
-                      {seatInitial(nameOf(s.seat))}
-                    </span>
+                    <Avatar
+                      size="md"
+                      initial={seatInitial(nameOf(s.seat))}
+                      color={seatColor(s.seat)}
+                    />
                     <span style={{ flex: 1, fontWeight: 700 }}>{name}</span>
                     <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>
                       ${(s.amountCents / 100).toFixed(2)}
@@ -247,13 +249,3 @@ function StatusBadge({ status }: { status: SettlementShare["status"] }) {
   );
 }
 
-const avatar: CSSProperties = {
-  width: 30,
-  height: 30,
-  borderRadius: "50%",
-  display: "grid",
-  placeItems: "center",
-  color: "#fff",
-  fontWeight: 800,
-  fontSize: 12,
-};

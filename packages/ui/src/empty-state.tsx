@@ -1,9 +1,10 @@
 import type { CSSProperties, ReactNode } from "react";
+import { Card } from "./card";
 
 /**
  * EmptyState — the "nothing here yet" card (P5.4). Pure presentational (no hooks → Server-Component
- * safe). Renders the standard empty card surface from shared tokens (matches the app `.card` look) +
- * a bold title, optional muted subtitle, optional decorative icon, and an optional action slot.
+ * safe). Composes the shared `<Card>` surface (single source of truth — no re-inlined `.card` recipe)
+ * + a bold title, optional muted subtitle, optional decorative icon, and an optional action slot.
  *
  * a11y: the icon is decorative (`aria-hidden`); the title carries the meaning. Default `titleAs="p"`
  * is right when the EmptyState sits INSIDE a region a heading already names (e.g. a board `<h2>`). For a
@@ -28,7 +29,7 @@ export function EmptyState({
   titleAs?: "p" | "h2" | "h3";
 }) {
   return (
-    <div style={surface}>
+    <Card style={{ padding: "var(--s6)" }}>
       {icon ? (
         <div aria-hidden style={iconRow}>
           {icon}
@@ -37,17 +38,10 @@ export function EmptyState({
       <TitleTag style={titleStyle}>{title}</TitleTag>
       {subtitle ? <p style={subtitleStyle}>{subtitle}</p> : null}
       {action ? <div style={{ marginTop: "var(--s4)" }}>{action}</div> : null}
-    </div>
+    </Card>
   );
 }
 
-const surface: CSSProperties = {
-  background: "var(--cd)",
-  border: "1px solid var(--bd)",
-  borderRadius: "var(--r-card)",
-  boxShadow: "var(--sh)",
-  padding: "var(--s6)",
-};
 const iconRow: CSSProperties = { fontSize: 28, marginBottom: "var(--s2)", lineHeight: 1 };
 // Body font + weight 600 regardless of element, so a heading `titleAs` doesn't pull the display serif.
 const titleStyle: CSSProperties = { margin: 0, fontFamily: "var(--font-body)", fontWeight: 600, fontSize: 16 };

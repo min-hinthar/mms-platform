@@ -208,9 +208,15 @@ next_milestone, orders_to_next }`; service-role (called by a member-gated server
   ids) **cannot faithfully re-price** a reorder without first persisting `modifier_option_ids` on the lines
   (a schema + write-path change). A label→id reverse match would be lossy/ambiguous (breaks R8 + honesty).
   Prereq: capture option ids at order time; then reorder into the active cart, re-priced, unavailable surfaced.
-- **Account settings (theme / language)** → deferred (marginal / needs infra). Today the theme is pure
-  `prefers-color-scheme` (no `.dark` class / theme provider to override) — every diner already gets their OS
-  theme — and there is **no diner i18n framework** (bilingual = menu `name_en`/`name_my` only). A stored
+- **Account settings (theme / language)** → deferred (marginal / needs infra). ⚠️ **CORRECTION (M5 audit,
+  2026-06-29):** the earlier claim that "the theme is pure `prefers-color-scheme`" was **WRONG** — the dark
+  palette lives in a `.dark` CLASS block in `tokens.css` with **no** `@media (prefers-color-scheme: dark)`
+  mapping and **nothing toggles the `.dark` class**, so the app renders **light-only at runtime** (the full
+  dark token set, the contrast-audit's dark half, and the `classList.contains("dark")` Stripe-appearance reads
+  are all dead). Diners do NOT currently get their OS dark theme. **Dark-mode activation is tracked as M6's
+  first slice** (auto via a `prefers-color-scheme` → `.dark` inline script vs. a user toggle is the open
+  decision; either needs a QA pass across every surface in the now-live dark path). There is also **no diner
+  i18n framework** (bilingual = menu `name_en`/`name_my` only). A stored
   `mms_profiles.theme`/`locale` has nothing to apply to yet; shipping toggles now would be a hollow promise.
   Real value needs a theme-override provider + a full i18n layer (its own initiative). Low value/effort for a
   transient-diner app — revisit with the i18n initiative. The `mms_profiles` columns already exist for it.
