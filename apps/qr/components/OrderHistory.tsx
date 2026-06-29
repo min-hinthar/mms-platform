@@ -65,5 +65,5 @@ const row: CSSProperties = {
   padding: "10px 12px",
   borderRadius: 12,
   border: "1px solid var(--bd)",
-  background: "var(--bg)",
+  background: "var(--sf)",
 };

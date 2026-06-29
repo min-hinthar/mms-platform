@@ -1,8 +1,10 @@
 import "./globals.css";
 import type { ReactNode } from "react";
 import type { Viewport } from "next";
+import { headers } from "next/headers";
 import { Fraunces, Hanken_Grotesk, Padauk } from "next/font/google";
 import { AnonAuthGate } from "@/components/AnonAuthGate";
+import { ThemeSync } from "@/components/ThemeSync";
 
 const fraunces = Fraunces({ subsets: ["latin"], variable: "--font-fraunces" });
 const hanken = Hanken_Grotesk({ subsets: ["latin"], variable: "--font-hanken" });
@@ -41,11 +43,37 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  // Per-request CSP nonce (proxy.ts mints it, exposes it as `x-nonce`). The theme script below MUST
+  // carry it or `strict-dynamic` blocks the inline script and dark never activates. `headers()` is
+  // available because the layout is `force-dynamic`.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+  // Surface the silent failure: no nonce → the theme script is CSP-blocked → dark never activates.
+  // The proxy matcher covers every document route, so this should be unreachable; warn (dev only) if not.
+  if (!nonce && process.env.NODE_ENV !== "production") {
+    console.warn(
+      "[layout] missing x-nonce — theme script will be CSP-blocked; dark mode won't activate.",
+    );
+  }
   // `lang` is set per-locale on the client when the user switches EN/MY (WCAG 3.1.2).
   return (
-    <html lang="en" className={`${fraunces.variable} ${hanken.variable} ${padauk.variable}`}>
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={`${fraunces.variable} ${hanken.variable} ${padauk.variable}`}
+    >
       <body>
+        {/* Richness R2 — dark-mode activation. Blocking + first-in-body so `.dark` is set from the OS
+            scheme BEFORE content paints (no flash of the wrong theme). The full Night palette lives in
+            @mms/ui tokens.css `.dark`; nothing set the class until here. ThemeSync keeps it live on a
+            mid-session OS flip. */}
+        <script
+          nonce={nonce}
+          dangerouslySetInnerHTML={{
+            __html: `try{document.documentElement.classList.toggle("dark",matchMedia("(prefers-color-scheme:dark)").matches)}catch(e){}`,
+          }}
+        />
+        <ThemeSync />
         <AnonAuthGate />
         {children}
       </body>
