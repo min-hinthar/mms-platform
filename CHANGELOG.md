@@ -4,6 +4,26 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Changed — M5 deep audit + fixes · Richness-track plan + handoff (2026-06-29)
+
+Closed out M5 with a deep cross-slice adversarial audit (5 finder lenses × per-finding adversarial verification,
+34 agents) and teed up the next initiative.
+
+- **Audit verdict: sound** — zero findings touch money/auth/RLS/pricing/tax; 20 confirmed (1 Med + 11 Low + 8 Nit),
+  8 rejected. Two systemic threads: a holistic a11y blind spot (live regions stack at component _seams_) and a
+  primitive-migration tail (stragglers still hand-rolling what the new primitives cover).
+- **Fixed (safe / byte-identical):** `EmptyState` composes `<Card>` (retires the last inlined `.card` recipe);
+  `FloorBoard` empty state → `<EmptyState>` (harmonizes the 4th board); `SettlementBoard` seat avatar →
+  `<Avatar size="md">` (completes the P5.4b wave). **Corrected the false dark-mode claim** in `M4_DESIGN.md` —
+  `.dark` is never applied at runtime, so the app is light-only (dark activation tracked as Richness R2).
+- **Deferred (flagged, not silently shipped):** dark-mode activation, the live-region-at-the-seams items, status
+  chips→Badge (a visual change), split-pay avatar dim (cosmetic).
+- **New: [`docs/RICHNESS_PLAN.md`](docs/RICHNESS_PLAN.md)** — the phased **Richness track (R1–R9)** to bring
+  delivery's textures/surfaces/micro-interactions/motion to QR (built from a delivery-richness catalog + a QR
+  gap audit + a feasibility study). Decisive calls: adopt framer-motion lazily (`domAnimation` root, `domMax`
+  scoped), dark via a nonce-carrying `prefers-color-scheme` inline script, `NumberFlow` over `RollingDigits`,
+  rebuild textures on QR tokens. ROADMAP + HANDOFF + LEARNINGS updated.
+
 ### Added — M5 · P5.5: Vitest + contrast-audit (QR's first test infra) (2026-06-29)
 
 QR's **first automated tests** — locking in the WCAG-AA claim the design system makes. Vitest 4 wired into

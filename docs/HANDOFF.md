@@ -1,11 +1,30 @@
-# Session Handoff — MMS Platform (2026-06-24)
+# Session Handoff — MMS Platform (2026-06-29)
 
 The originating chat context does not carry across sessions — **this file is the durable pickup point.**
 Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — decisions, QA gate, rubric,
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
-**M1 + M2 + M3 + S1 + S2 + S3 + M4 + S4 are all complete and merged.** Build order `M1 → M2 → M3 → S1 → S2 →
-S3 → M4 → S4 → M5 → M6` in `ROADMAP.md`. **Next: M5 — RESHAPED 2026-06-24.** M5 is **no longer a migration**:
+
+> ## ⏭️ NEXT SESSION — start here (2026-06-29)
+>
+> **M1–M5 + S1–S4 are all complete & merged. M5 was deep-audited (verdict: sound — zero money/auth/RLS findings).**
+> **The next initiative is the 🎨 Richness track — see [`docs/RICHNESS_PLAN.md`](RICHNESS_PLAN.md) (the full spec).**
+> Bring delivery's deep textures/surfaces/micro-interactions/motion to QR, on QR's clean tokens, within the
+> M5 guardrails. Build order: **R1 tokens+texture → R2 dark-mode activation → R3 framer (lazy) + test stub →
+> R4 interactions.ts→@mms/ui → R5 primitive richness → R6 menu / R7 checkout-celebration / R8 track+rewards /
+> R9 staff+homepage.** Each slice = one gated PR with the pre-PR + pre-merge adversarial review.
+>
+> - **R2 dark-mode is the top fix:** the M5 audit found `.dark` is NEVER applied at runtime (the whole Night
+>   palette + the contrast-audit's dark half + the Stripe `.dark` reads are dead). The plan's call: a
+>   **nonce-carrying** `prefers-color-scheme` inline script (QR runs a strict-dynamic nonce CSP — `proxy.ts`).
+> - **Tracked-deferred a11y (from the audit, not yet fixed):** "one live region per view" is violated at the
+>   _seams_ on Checkout-review (RewardField+SecureTabButton), /track (FeedbackPrompt), and ApprovalsBoard
+>   (N+1) — each component is correct alone but stacks a 2nd polite region when co-rendered. Also: status chips
+>   → `Badge` (a visual change, defer), split-pay off-avatar dim → lighter-bg not opacity (cosmetic).
+> - Latest merged: the M5 audit-fix checkpoint (EmptyState→Card, FloorBoard→EmptyState, SettlementBoard→Avatar).
+
+**M1 + M2 + M3 + S1 + S2 + S3 + M4 + S4 + M5 are all complete and merged.** Build order `M1 → M2 → M3 → S1 → S2 →
+S3 → M4 → S4 → M5 → (Richness track) → M6` in `ROADMAP.md`. **M5 — RESHAPED 2026-06-24, now COMPLETE.** M5 is **no longer a migration**:
 the two apps stay **separate repos** and the younger **QR** app **learns from** the live **delivery** PWA
 (adopts its hardened mobile/iOS + a11y patterns, a motion/perf discipline layer, a reusable primitive library
 built to QR's tokens, and a contrast-audit test). Why the change: the shared-`@mms/ui` payoff is unrealized
@@ -69,8 +88,8 @@ Tooltip/Drawer/tilt have NONE → deferred).
   drifters; the 9 accidentally-flat ones **gain the canonical `--sh` shadow** (the "unify drift" call, owner-chosen,
   preview-flagged). The 25 class sites + the accent-pill `.card` abusers (CartBar, grocery CTA) are untouched.
   - **Tracked follow-ups:** (a) the 4 tinted ok/warn status surfaces (OrderTracker + FloorDetailLive banners) want
-    a future **`Callout`** primitive, NOT a Card variant; (b) `EmptyState` still inlines its own `.card`-recipe copy
-    (predates Card; safe — optional dedup by composing `<Card>` later).
+    a future **`Callout`** primitive, NOT a Card variant; (b) ✅ done in the M5 audit-fix checkpoint — `EmptyState`
+    now composes `<Card>` (the last re-inlined `.card`-recipe copy is retired).
 - **P5.5 ✅ — QR's first test infra:** Vitest 4 in `packages/ui` + `apps/qr` (node-env; pure-logic only — no
   `server-only`/CSS); the turbo `test` gate is now live in `ci.yml`. The **contrast-audit** (`packages/ui`)
   **parses `tokens.css` at test time** (resolves `var()` aliases + flattens `color-mix` tints — no hardcoded
