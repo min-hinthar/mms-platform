@@ -18,8 +18,16 @@ export function ThemeSync() {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const apply = () => document.documentElement.classList.toggle("dark", mq.matches);
     apply(); // reconcile in case the OS scheme changed between the blocking script and hydration
-    mq.addEventListener("change", apply);
-    return () => mq.removeEventListener("change", apply);
+    // Legacy MediaQueryList (Safari/iOS <14 — still targeted here, cf. the <15.4 dvh sheet fallback)
+    // lacks addEventListener; fall back to the deprecated addListener so this effect can't throw at the
+    // root (which would trip the error boundary). First-paint dark still works either way (the layout's
+    // inline script uses the universally-supported matchMedia().matches).
+    if (mq.addEventListener) {
+      mq.addEventListener("change", apply);
+      return () => mq.removeEventListener("change", apply);
+    }
+    mq.addListener(apply);
+    return () => mq.removeListener(apply);
   }, []);
   return null;
 }
