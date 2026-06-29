@@ -8,13 +8,16 @@ interface ModeCardProps {
   emoji: string;
   name: string;
   description: string;
+  /** Position in the mode list — drives the staggered entrance delay (Richness R5a). */
+  index?: number;
 }
 
-export function ModeCard({ mode, href, emoji, name, description }: ModeCardProps) {
+export function ModeCard({ mode, href, emoji, name, description, index = 0 }: ModeCardProps) {
   return (
     <Link
       href={href}
-      className="card"
+      // card-interactive = hover-lift + press settle (this card IS clickable); mms-stagger = entrance.
+      className="card card-interactive mms-stagger"
       style={{
         display: "flex",
         gap: 14,
@@ -22,10 +25,24 @@ export function ModeCard({ mode, href, emoji, name, description }: ModeCardProps
         padding: 18,
         textDecoration: "none",
         color: "inherit",
+        animationDelay: `calc(${index} * 70ms)`,
       }}
       onClick={() => posthog.capture("mode_selected", { mode })}
     >
-      <span aria-hidden style={{ fontSize: 34 }}>
+      {/* Gradient tile behind the emoji — a small depth detail (token --grad, flips per theme). */}
+      <span
+        aria-hidden
+        style={{
+          display: "grid",
+          placeItems: "center",
+          width: 52,
+          height: 52,
+          flex: "none",
+          borderRadius: 14,
+          background: "var(--grad)",
+          fontSize: 28,
+        }}
+      >
         {emoji}
       </span>
       <span>

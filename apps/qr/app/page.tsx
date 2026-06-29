@@ -21,8 +21,16 @@ export default function Entry() {
         <p style={{ color: "var(--t2)", margin: 0 }}>How would you like to order?</p>
       </div>
       <nav aria-label="Order type" style={{ marginTop: 22, display: "grid", gap: 13 }}>
-        {MODES.map(([m, e, n, d]) => (
-          <ModeCard key={m} mode={m} href={`/menu?mode=${m}`} emoji={e} name={n} description={d} />
+        {MODES.map(([m, e, n, d], i) => (
+          <ModeCard
+            key={m}
+            mode={m}
+            href={`/menu?mode=${m}`}
+            emoji={e}
+            name={n}
+            description={d}
+            index={i}
+          />
         ))}
       </nav>
       <JoinTable />

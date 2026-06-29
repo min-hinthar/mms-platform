@@ -369,3 +369,99 @@ h3 {
     display: none;
   }
 }
+
+/* ── Richness R5a: card + stepper micro-interactions ─────────────────────────────────────────────
+   Opt-in classes (the `<Card>` primitive maps its `interactive`/`textured` props to these; any `.card`
+   site can add them directly). transform/box-shadow only (60fps); glow is a radial-gradient, never a
+   blur(); all reduced-motion-gated. */
+
+/* Interactive card — hover lift + press settle. Use ONLY on a genuinely clickable card (a Link/button
+   host); a hover-lift on a static card falsely signals clickability. */
+.card-interactive {
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out);
+}
+@media (hover: hover) {
+  .card-interactive:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--sh-md);
+  }
+}
+.card-interactive:active {
+  transform: scale(0.985);
+}
+@media (prefers-reduced-motion: reduce) {
+  .card-interactive {
+    transition: none;
+  }
+  .card-interactive:hover,
+  .card-interactive:active {
+    transform: none;
+  }
+}
+
+/* Textured card — printed-matter depth behind the content: a gradient-masked dot grid drawn in a
+   `::before`, radius-clipped, never capturing pointer events and invisible to AT (pseudo-element).
+   Pure decoration → no DOM/a11y change at the call site. Restrained on purpose: a uniform dot grid
+   reads as incidental texture on a dense list, whereas a per-card directional accent glow would
+   repeat into a visible PATTERN row-after-row (delivery glows hero cards + hover, not every list
+   row). The `--glow-ac` token is reserved for R7's hero/celebration surfaces. */
+.card-textured {
+  position: relative;
+  isolation: isolate;
+}
+.card-textured::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  z-index: 0;
+  pointer-events: none;
+  background-image: radial-gradient(var(--tex-dot) 1px, transparent 1.6px);
+  background-size: 18px 18px;
+  -webkit-mask-image: radial-gradient(130% 110% at 50% 0%, #000 40%, transparent 82%);
+  mask-image: radial-gradient(130% 110% at 50% 0%, #000 40%, transparent 82%);
+}
+/* Keep real content above the ::before texture (it's z-index:0 within the isolated card). */
+.card-textured > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Stepper buttons — a tactile press settle. (mms-pop count-bounce reuses the R1 keyframe + its RM gate.) */
+.mms-stepper-btn {
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.mms-stepper-btn:active:not(:disabled) {
+  transform: scale(0.9);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mms-stepper-btn {
+    transition: none;
+  }
+  .mms-stepper-btn:active:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* Staggered entrance — a gentle fade + rise on load; the caller sets `animation-delay` per item for
+   the stagger. `both` holds the from-state through the delay (no flash-visible-then-animate). RM off. */
+@keyframes mmsRise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.mms-stagger {
+  animation: mmsRise var(--dur-slow) var(--ease-out) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mms-stagger {
+    animation: none;
+  }
+}

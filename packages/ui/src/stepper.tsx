@@ -65,6 +65,7 @@ export function Stepper({
     <span style={{ ...row, gap: showCount ? 8 : 4 }}>
       <button
         type="button"
+        className="mms-stepper-btn"
         onClick={() => onChange(qty - 1)}
         disabled={disabled}
         aria-label={removing ? `Remove ${name}` : `Decrease ${name} quantity`}
@@ -73,12 +74,20 @@ export function Stepper({
         <span aria-hidden>{removing ? removeGlyph : "−"}</span>
       </button>
       {showCount ? (
-        <span aria-label={`Quantity ${qty}`} style={count}>
-          {qty}
+        // R5a count-bounce. The accessible quantity is a REAL `.sr-only` text node (reliably exposed —
+        // `aria-label` on a roleless <span> is not), and it's NOT a live region, so it never announces
+        // per tap (the red-team rule above). The visible digit is `aria-hidden` and keyed on `qty` so it
+        // remounts → replays `mms-pop` (reduced-motion-gated by the shared keyframe rule) — purely visual.
+        <span style={count}>
+          <span className="sr-only">Quantity {qty}</span>
+          <span key={qty} aria-hidden className="mms-pop" style={{ display: "inline-block" }}>
+            {qty}
+          </span>
         </span>
       ) : null}
       <button
         type="button"
+        className="mms-stepper-btn"
         onClick={() => onChange(qty + 1)}
         disabled={incDisabled}
         aria-label={
