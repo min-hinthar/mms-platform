@@ -1358,6 +1358,10 @@ export type Database = {
         Args: { p_cart: string; p_code: string; p_user: string }
         Returns: string
       }
+      mms_cart_item_assign: {
+        Args: { p_id: string; p_seat: string }
+        Returns: undefined
+      }
       mms_cart_item_inc_qty: { Args: { p_id: string }; Returns: undefined }
       mms_cart_item_insert_if_open: {
         Args: {

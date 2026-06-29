@@ -324,6 +324,10 @@ export function TableCartProvider({
         await setQtyAction(cartItemId, qty);
         await refresh();
       } catch {
+        // Re-sync from server truth on BOTH outcomes (like Checkout's changeQty): a rejected remove —
+        // line already gone/fired/locked, or a solo diner who removed it on another tab where realtime is
+        // off — must snap the stepper back, not leave the stale line visible after the optimistic announce.
+        await refresh();
         recoveringRef.current = true;
         flash("Reconnecting to your table…", 2500);
         revalidate();

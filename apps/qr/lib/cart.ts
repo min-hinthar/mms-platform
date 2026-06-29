@@ -21,7 +21,7 @@ import { assertMutationRate, withinMutationRate } from "./rate";
 import { canMutateLine } from "./permissions";
 import { releaseCartLock } from "./lock";
 import { getPostHogClient } from "./posthog-server";
-import { insertOrIncLine, modKey, priceItem, touchCart } from "./order-lines";
+import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
 
 /**
  * SERVER-AUTHORITATIVE cart. The browser never sends a price — it sends a menu item id +
@@ -154,52 +154,17 @@ export async function assignLine(cartItemId: string, seatId: string) {
     .eq("id", cartId)
     .maybeSingle();
   if (openCart?.status !== "open") throw new Error("Cart is no longer open");
-  // Per-seat invariant (R5c): `by_seat` is now part of a line's identity (insertOrIncLine merges per seat).
-  // If the TARGET seat ALREADY owns a matching draft sibling (same item + modifiers + fulfillment), a bare
-  // `by_seat` update would leave the diner with TWO identical lines — the menu quick-stepper's `items.find`
-  // would then show/edit only one (partial qty / partial remove) while they're charged for both. So coalesce:
-  // fold this line's qty into the twin (within the 99-per-line cap) and delete it, mirroring the add-merge.
-  // No twin (or the sum would exceed 99) → fall back to a plain re-own (never lose units).
-  const { data: moving } = await db
-    .from("qr_cart_items")
-    .select("menu_item_id,modifiers,fulfillment,qty")
-    .eq("id", input.cartItemId)
-    .single();
-  let coalesced = false;
-  if (moving) {
-    const { data: twins } = await db
-      .from("qr_cart_items")
-      .select("id,modifiers,qty")
-      .eq("cart_id", cartId)
-      .eq("menu_item_id", moving.menu_item_id)
-      .eq("fulfillment", moving.fulfillment)
-      .eq("state", "draft")
-      .eq("comped", false)
-      .eq("by_seat", input.seatId)
-      .neq("id", input.cartItemId);
-    const twin = (twins ?? []).find((t) => modKey(t.modifiers) === modKey(moving.modifiers));
-    if (twin && twin.qty + moving.qty <= 99) {
-      const { error: incErr } = await db
-        .from("qr_cart_items")
-        .update({ qty: twin.qty + moving.qty })
-        .eq("id", twin.id)
-        .eq("cart_id", cartId); // status already re-checked above; scope the write to this cart
-      if (incErr) throw new Error("Could not reassign that item");
-      const { error: delErr } = await db
-        .from("qr_cart_items")
-        .delete()
-        .eq("id", input.cartItemId);
-      if (delErr) throw new Error("Could not reassign that item");
-      coalesced = true;
-    }
-  }
-  if (!coalesced) {
-    const { error } = await db
-      .from("qr_cart_items")
-      .update({ by_seat: input.seatId })
-      .eq("id", input.cartItemId);
-    if (error) throw new Error("Could not reassign that item");
-  }
+  // Atomic reassign-or-coalesce (R5c per-seat invariant): if the TARGET seat already owns a matching draft
+  // line (same PRICED identity — item + modifiers + fulfillment + unit_price + tax), fold this line's qty
+  // into it (99-capped) so a diner never ends with two identical owned lines (which would make the menu
+  // quick-stepper show/edit only one while charging for both); else a plain re-own. The fold is done in
+  // mms_cart_item_assign — row-locked + price/tax-matched in SQL — so it never changes the cart total and
+  // never loses a unit to a concurrent add (a TS read-modify-write would race the atomic inc_qty path).
+  const { error } = await db.rpc("mms_cart_item_assign", {
+    p_id: input.cartItemId,
+    p_seat: input.seatId,
+  });
+  if (error) throw new Error("Could not reassign that item");
   const { error: touchErr } = await db
     .from("qr_carts")
     .update({ updated_at: new Date().toISOString() })

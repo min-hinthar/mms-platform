@@ -19,10 +19,15 @@ removal without leaving the menu, **in every mode including dine-in groups**.
   stays separate + assignable via `assignLine`. Totals/tax are aggregate-identical (summed per line); the
   cart, KDS ticket, and split board show one row per contributor.
   - **Invariant kept across every line-mutation path** (so the menu `find()` always matches exactly one own
-    line): `assignLine` now **coalesces** — reassigning a line to a seat that already owns a matching draft
-    sibling folds the qty (99-capped) instead of leaving two identical owned lines; and the staff
-    **table-merge** (`mms_merge_table_orders`, migration) now folds only into an **unassigned** target line,
-    so a source diner's units never inherit a target diner's `by_seat` (which would skew by-person shares).
+    line): `assignLine` now **reassigns-or-coalesces atomically** via the new `mms_cart_item_assign` RPC —
+    reassigning a line to a seat that already owns a matching draft sibling folds the qty (99-capped) instead
+    of leaving two identical owned lines. The fold is **price/tax-matched** (a twin must share
+    `unit_price_cents` + `tax_cents`, so it never changes the cart total just from an assignment — differently
+    -priced adds stay separate) and **row-locked** (no unit lost to a concurrent add). The staff
+    **table-merge** (`mms_merge_table_orders`) now folds only into an **unassigned** target line, so a source
+    diner's units never inherit a target diner's `by_seat` (which would skew by-person shares). The menu
+    `setItemQty` recovery path now `refresh()`es on failure too, so a rejected quick-remove snaps back to
+    server truth instead of leaving a stale line.
 - **`AddButton`** finds the viewer's OWN line by `insertOrIncLine`'s exact per-seat keys (item + no
   modifiers + **default fulfillment** + draft + own `by_seat`, not comped) and renders the
   `.mms-qty-stepper` when `qty > 0`. **+** reuses the server-authoritative `add`; **−** calls the new
