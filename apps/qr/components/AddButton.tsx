@@ -17,8 +17,9 @@ const MAX_QTY = 99; // matches the cart Stepper's upper bound (setQty is the aut
  * Richness R5c — **Add → quantity morph** (the prototype's `.add → .stp`): once the viewer has this item
  * in their OWN cart line, the pill morphs into an inline accent stepper (− qty +). The "+" reuses `add`
  * (the server merges/increments the same no-modifier line); the "−" calls `setItemQty` (`qty<=0` removes,
- * morphing back to the Add pill). It edits ONLY the viewer's own, still-draft, no-modifier line — a group
- * peer's line, a modifier variant, or a fired line is never touched from the menu (managed in the cart).
+ * morphing back to the Add pill). It edits ONLY the viewer's own, still-draft, no-modifier, default-
+ * fulfillment line — a group peer's line, a modifier variant, a re-routed (to-go) line, a fired or a
+ * comped line is never touched from the menu (those are managed in the cart).
  */
 export function AddButton({
   menuItemId,
@@ -29,24 +30,34 @@ export function AddButton({
   name: string;
   soldOut?: boolean;
 }) {
-  const { add, setItemQty, items, cartId, locked, me } = useCart();
+  const { add, setItemQty, items, cartId, locked, me, isGroup } = useCart();
   const [busy, setBusy] = useState(false);
   const { shouldAnimate } = useAnimationPreference();
   const { ripples, onPointerDown } = useRipple();
 
-  // The viewer's OWN, still-draft, no-modifier quick-add line for this item — the only line the menu's
-  // Add creates/edits. Scoping to `bySeat === me.seat` (the anon-auth uid == addItem's `by_seat`) keeps a
-  // group peer's line, a modifier variant (future item sheet), a fired line, or a comped line off the
-  // menu's reach; those are managed in the cart. `find` is safe: merge-or-insert yields one such line.
+  // `add(menuItemId)` inserts/increments at the SESSION-DEFAULT fulfillment (dine-in at a table, else to-go),
+  // and `insertOrIncLine` keeps different fulfillments as SEPARATE lines. So the menu stepper must match
+  // EXACTLY that default-fulfillment line — otherwise a line the diner re-routed to "to go" in the cart would
+  // show its qty here while "+" silently grew a different (default) line (stuck qty + wrong routing/tax).
+  const defaultFulfillment = isGroup ? "dinein" : "togo";
+  // The viewer's OWN, still-draft, no-modifier, default-fulfillment quick-add line for this item — the only
+  // line the menu's Add creates/edits. Scoping to `bySeat === me.seat` (the anon-auth uid == addItem's
+  // `by_seat`) keeps a group peer's line, a modifier variant (future item sheet), a fired line, or a comped
+  // line off the menu's reach. `find` is safe: merge-or-insert yields one such line.
   const line = items.find(
     (i) =>
       i.menuItemId === menuItemId &&
       i.modifiers.length === 0 &&
+      i.fulfillment === defaultFulfillment &&
       i.lineState === "draft" &&
       !i.comped &&
       (me ? i.bySeat === me.seat : true),
   );
   const qty = line?.qty ?? 0;
+  // The fresher 86'd signal for an IN-CART line: the cart view carries a live `line.soldOut` (server-derived
+  // in getCartView), more current than the menu RSC's `soldOut` prop captured at page render. Gate the in-cart
+  // "+" on the fresher of the two so a line 86'd after load can't keep incrementing (addItem doesn't reject it).
+  const liveSoldOut = soldOut || (line?.soldOut ?? false);
   // The morph is qty-driven, NOT shelf-status-driven: once the viewer has the item, the stepper stays the
   // authoritative control even if the item is later 86'd — so they can still DECREMENT/remove it from the
   // menu (the "+" disables on sold-out; the "−" stays enabled, matching the cart Stepper). A sold-out item
@@ -134,9 +145,11 @@ export function AddButton({
           type="button"
           className="mms-stepper-btn"
           // Sold-out disables "+" (a now-86'd line can't grow — only shrink via "−"), as does max/locked/busy.
-          disabled={blocked || soldOut || qty >= MAX_QTY}
+          // Uses the LIVE cart `line.soldOut` (fresher than the page-render menu prop) so a freshly-86'd line
+          // can't keep incrementing during the page's session.
+          disabled={blocked || liveSoldOut || qty >= MAX_QTY}
           aria-label={
-            soldOut
+            liveSoldOut
               ? `${name} is sold out`
               : qty >= MAX_QTY
                 ? `Maximum ${MAX_QTY} ${name}`
@@ -151,12 +164,19 @@ export function AddButton({
   }
 
   // Default / sold-out state: the Add pill.
-  const disabled = soldOut || blocked;
+  // Sold-out is rendered as a FOCUSABLE `aria-disabled` control (NOT the native `disabled` attribute) for two
+  // reasons: (a) the focus-restoration after a sold-out removal can actually land on it — a native-disabled
+  // button can't receive focus, which would drop focus to <body> (WCAG 2.4.3); (b) it stays perceivable to AT
+  // as "sold out". The truly-transient inert states (no cart / busy / locked) stay NATIVELY disabled (out of
+  // the tab order). `inactive` = no add can fire either way; both the gesture + the click are gated on it.
+  const nativeDisabled = blocked;
+  const inactive = blocked || soldOut;
   return (
     <m.button
       ref={addBtnRef}
       type="button"
-      disabled={disabled}
+      disabled={nativeDisabled}
+      aria-disabled={soldOut || undefined}
       aria-busy={busy}
       aria-label={
         soldOut
@@ -165,11 +185,15 @@ export function AddButton({
             ? `${name} — order locked while someone checks out`
             : `Add ${name} to your order`
       }
-      // Spring press feedback — reduced-motion-gated; a disabled button never receives the gesture.
-      whileTap={shouldAnimate && !disabled ? { scale: 0.94 } : undefined}
-      // Ripple origin — only while interactive + motion is allowed (a disabled button gets no pointer events).
-      onPointerDown={shouldAnimate && !disabled ? onPointerDown : undefined}
-      onClick={increment}
+      // Spring press feedback — reduced-motion-gated; never on an inactive (disabled/sold-out) button.
+      whileTap={shouldAnimate && !inactive ? { scale: 0.94 } : undefined}
+      // Ripple origin — only while interactive + motion is allowed.
+      onPointerDown={shouldAnimate && !inactive ? onPointerDown : undefined}
+      // Guard the click: a focusable aria-disabled sold-out pill (and keyboard Enter) must not add.
+      onClick={() => {
+        if (inactive) return;
+        void increment();
+      }}
       style={{
         position: "relative", // ripple container
         overflow: "hidden", // clip the ripple to the pill
@@ -180,10 +204,10 @@ export function AddButton({
         borderRadius: 999,
         border: "none",
         fontWeight: 800,
-        cursor: disabled ? "default" : "pointer",
+        cursor: inactive ? "default" : "pointer",
         background: soldOut ? "var(--sf)" : "var(--ac)",
         color: soldOut ? "var(--t3)" : "var(--oa)",
-        opacity: !soldOut && disabled ? 0.6 : 1,
+        opacity: !soldOut && nativeDisabled ? 0.6 : 1,
       }}
     >
       {shouldAnimate &&
