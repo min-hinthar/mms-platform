@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState, useTransition, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import type { SplitContext, SettlementShare } from "@/lib/split";
 import { getSettlement, abortSettlement } from "@/lib/split";
 import { useSettlementRealtime } from "@/lib/realtime";
@@ -248,4 +248,3 @@ function StatusBadge({ status }: { status: SettlementShare["status"] }) {
     </span>
   );
 }
-

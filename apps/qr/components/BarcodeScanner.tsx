@@ -12,7 +12,10 @@ export function BarcodeScanner({ onScan }: { onScan: (code: string) => void }) {
   const lastRef = useRef<{ code: string; t: number }>({ code: "", t: 0 });
 
   useEffect(() => {
-    let stop = () => {};
+    let stopped = false;
+    let stop = () => {
+      stopped = true;
+    };
     const emit = (code: string) => {
       const now = Date.now();
       if (code === lastRef.current.code && now - lastRef.current.t < 1500) return;
@@ -22,9 +25,24 @@ export function BarcodeScanner({ onScan }: { onScan: (code: string) => void }) {
 
     (async () => {
       try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          setErr("Camera unavailable — search for the item by name instead.");
+          return;
+        }
+
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: "environment" },
         });
+        const stopStream = () => stream.getTracks().forEach((t) => t.stop());
+        stop = () => {
+          stopped = true;
+          stopStream();
+        };
+        if (stopped) {
+          stopStream();
+          return;
+        }
+
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           await videoRef.current.play();
@@ -38,6 +56,7 @@ export function BarcodeScanner({ onScan }: { onScan: (code: string) => void }) {
           });
           let raf = 0;
           const tick = async () => {
+            if (stopped) return;
             if (videoRef.current) {
               try {
                 const codes = await detector.detect(videoRef.current);
@@ -46,28 +65,34 @@ export function BarcodeScanner({ onScan }: { onScan: (code: string) => void }) {
                 // detection can throw on a bad frame; keep scanning
               }
             }
-            raf = requestAnimationFrame(tick);
+            if (!stopped) raf = requestAnimationFrame(tick);
           };
           tick();
           stop = () => {
+            stopped = true;
             cancelAnimationFrame(raf);
-            stream.getTracks().forEach((t) => t.stop());
+            stopStream();
           };
           return;
         }
 
-        // Fallback: @zxing/library  (pnpm add @zxing/library)
+        // Fallback: @zxing/library
         const { BrowserMultiFormatReader } = await import("@zxing/library");
+        if (stopped || !videoRef.current) {
+          stopStream();
+          return;
+        }
         const reader = new BrowserMultiFormatReader();
-        reader.decodeFromVideoElementContinuously(videoRef.current!, (result) => {
-          if (result) emit(result.getText());
+        reader.decodeFromVideoElementContinuously(videoRef.current, (result) => {
+          if (!stopped && result) emit(result.getText());
         });
         stop = () => {
+          stopped = true;
           reader.reset();
-          stream.getTracks().forEach((t) => t.stop());
+          stopStream();
         };
       } catch {
-        setErr("Camera unavailable — allow camera access, or type the barcode.");
+        if (!stopped) setErr("Camera unavailable — search for the item by name instead.");
       }
     })();
 
