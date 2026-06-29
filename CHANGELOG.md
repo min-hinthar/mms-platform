@@ -4,6 +4,19 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — Richness R5b: Sheet swipe-to-close (first domMax consumer) (2026-06-29)
+
+The `@mms/ui` bottom `Sheet` (Radix Dialog) now drags down to dismiss — the iOS-native expectation,
+symmetric with tap-scrim / Esc / the ✕.
+
+- **`DomMaxProvider`** (`packages/ui`) — a nested `LazyMotion` with an async `domMax` loader (drag/layout),
+  loaded only when a Sheet mounts (kept off the root chunk; the root stays `domAnimation`).
+- **`Sheet`** wraps its Radix `Dialog.Content` in `DomMaxProvider` and renders it `asChild` as an `m.div`.
+  Drag is **handle-initiated** (`useDragControls` + `dragListener={false}`) so the body's `overflow-y:auto`
+  scroll is untouched — only the grab handle starts a drag; a downward drag ≥120px or a fast flick closes.
+  The CSS `up` entrance + scrim/Esc/✕ + focus-trap are unchanged; the public API is identical, so all four
+  consumers (PickupSlotSheet, LossActionSheet, InviteSheet, JoinTable) inherit swipe-to-close for free.
+
 ### Added — Richness R5a: primitive richness pass (2026-06-29)
 
 Makes the shared primitives feel alive so screens inherit it — all CSS/`domAnimation`-level, opt-in,
