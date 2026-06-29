@@ -23,8 +23,16 @@ export function useAnimationPreference() {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
     setPrefersReducedMotion(mq.matches);
     const onChange = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches);
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
+    // Legacy MediaQueryList (Safari/iOS <14 — still targeted here, cf. ThemeSync + the <15.4 dvh sheet
+    // fallback) lacks addEventListener; fall back to the deprecated addListener so this effect can't
+    // throw at the root. Matters more now that R4 mounts this hook on every menu AddButton (the core
+    // ordering page), not just the /track pulse.
+    if (mq.addEventListener) {
+      mq.addEventListener("change", onChange);
+      return () => mq.removeEventListener("change", onChange);
+    }
+    mq.addListener(onChange);
+    return () => mq.removeListener(onChange);
   }, []);
   return { prefersReducedMotion, shouldAnimate: !prefersReducedMotion };
 }
@@ -59,7 +67,7 @@ export function useInView<T extends Element = HTMLElement>(options?: {
         setInView(entry.isIntersecting);
         if (entry.isIntersecting && once) obs.disconnect();
       },
-      { rootMargin, threshold }
+      { rootMargin, threshold },
     );
     obs.observe(el);
     return () => obs.disconnect();
@@ -86,13 +94,7 @@ export function useDeviceTier(): DeviceTier {
     const finePointer = window.matchMedia?.("(pointer: fine)").matches ?? false;
     const cores = navigator.hardwareConcurrency ?? 0;
     setTier(
-      finePointer && cores >= 8
-        ? "desktop"
-        : cores >= 8
-          ? "high"
-          : cores >= 4
-            ? "mid"
-            : "low"
+      finePointer && cores >= 8 ? "desktop" : cores >= 8 ? "high" : cores >= 4 ? "mid" : "low",
     );
   }, []);
   return tier;

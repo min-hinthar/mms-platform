@@ -139,10 +139,10 @@ clean token base, within the mobile-GPU/reduced-motion/AA guardrails M5 establis
 - **Foundations:** **R1 ✅** tokens + texture system (motion/depth tokens both themes + gradient-masked
   `.tex-*`/opaque-mobile `.surface-*` utilities + `pop`/`steam`) · **R2 ✅** dark-mode activation (nonce
   blocking inline script + `ThemeSync` live OS-flip + fixed the latent dark bugs the audit found:
-  `--bg`→`--sf` ×6, hardcoded shadow→`--sh-md`, SharePay→shared appearance) · **R3 framer-motion** (lazy
-  `domAnimation`, `domMax` only where drag/layout) + Vitest framer stub — **next** · R4 port `interactions.ts`
-  (tilt/magnetic/ripple) → `@mms/ui`.
-- **Primitive richness:** R5 Card/Stepper/AddButton/ModeCard/Sheet (textured surfaces, press-springs, swipe-to-close).
+  `--bg`→`--sf` ×6, hardcoded shadow→`--sh-md`, SharePay→shared appearance) · **R3 ✅** framer-motion adopted
+  (root `LazyMotion domAnimation strict`; `domMax` deferred to R5 sheets) · **R4 ✅** `interactions.ts`
+  (tilt/magnetic/parallax/ripple) ported → `@mms/ui`; first consumer = `AddButton` press-spring + ripple.
+- **Primitive richness:** **R5 — next** Card/Stepper/AddButton/ModeCard/Sheet (textured surfaces, press-springs, swipe-to-close; AddButton already has press+ripple from R4, R5 adds the Stepper morph + textured Card + the DomMaxProvider for sheet swipe).
 - **Signature moments:** R6 menu (search/filters/hero/blur-up/**item sheet** — biggest gap) · R7 checkout +
   **pay-success celebration** · R8 /track + rewards (conic ring, `NumberFlow`, tier-up) · R9 staff floor + homepage.
 - **Calls (decided in the plan):** adopt framer-motion lazily; dark via a nonce-carrying `prefers-color-scheme`
@@ -150,6 +150,10 @@ clean token base, within the mobile-GPU/reduced-motion/AA guardrails M5 establis
   textures on QR tokens, never import delivery's 34KB `--hero-*` system.
 
 ## ⏸ M6 — Kiosk · Terminal · EBT (2027) &nbsp;`milestone:M6`
+
+**Design of record: [`docs/M6_DESIGN.md`](docs/M6_DESIGN.md)** — per-phase plan grounded in the S4.3c EBT
+seam; the critical path is **FNS retailer authorization** (months), so most of M6 is gated on real-world
+prerequisites, not code. Distinct from the 🎨 Richness track above (which runs first).
 
 - **P6.1** Kiosk shell + handheld HID scanner (no code change to grocery flow). ⬜
 - **P6.2** Stripe **Terminal** (server-driven, S700) for in-person card. ⬜

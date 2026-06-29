@@ -4,6 +4,24 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — Richness R3+R4: framer-motion (lazy) + interaction hooks (2026-06-29)
+
+The motion engine for the rest of the Richness track, adopted lazily + scoped, with the first consumer.
+
+- **R3 — framer-motion** `^12.26.1` added (`packages/ui` + `apps/qr`); new `MotionProvider` wraps the app
+  in `LazyMotion features={domAnimation} strict` (root layout). `domAnimation` async-loads after hydration
+  (~18KB gz, never blocks first paint) and covers animations/variants/exit/press-hover-focus gestures;
+  `strict` forbids the un-treeshakeable `motion.*` (only `m.*`). `domMax` (drag/`layout`) is **deferred to R5**
+  (sheet swipe), loaded only where used. Vitest framer stub deferred — QR's tests are node-env/pure-logic
+  (`*.test.ts`), so no jsdom suite imports framer yet; the first `*.test.tsx` adds the stub.
+- **R4 — interaction hooks** ported to `packages/ui/src/interactions.ts`: `useTilt`, `useMagnetic`,
+  `useHeroParallax`, `useRipple` (re-skinned to QR's `useAnimationPreference`; reduced-motion-gated,
+  rAF-throttled, IntersectionObserver-detached offscreen). Carries the delivery caveats (no tilt on a
+  CTA-bearing card; no scroll-coupled background parallax).
+- **First consumer — `AddButton`** now answers a tap with a reduced-motion-gated `whileTap` spring press +
+  a `useRipple` ripple (new `.mms-ripple` utility). Purely presentational; the server-authoritative add
+  path is unchanged.
+
 ### Added — Richness R2: dark-mode activation (2026-06-29)
 
 The full Night palette existed in `tokens.css` `.dark` but nothing ever set `.dark` on `<html>` — dark

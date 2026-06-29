@@ -109,7 +109,12 @@ R4 interactions.ts → @mms/ui  ─┘  (needs R3 for useSpring)
 
 ---
 
-### R3 — framer-motion adoption + test stub
+### R3 — framer-motion adoption + test stub — ✅ SHIPPED
+
+> **Shipped 2026-06-29 (with R4).** `framer-motion ^12.26.1` + `MotionProvider` (`LazyMotion domAnimation
+strict`) at the root. `domMax`/`DomMaxProvider` deferred to R5 (sheet swipe). Framer Vitest stub deferred:
+> QR's vitest is node-env and only matches `*.test.ts` (no jsdom component suite imports framer yet) — the
+> first `*.test.tsx` adds the stub.
 
 **Goal:** land the vendor and the topology so R4+ can use springs/drag/presence.
 
@@ -129,7 +134,12 @@ R4 interactions.ts → @mms/ui  ─┘  (needs R3 for useSpring)
 
 ---
 
-### R4 — Port `interactions.ts` → `@mms/ui`
+### R4 — Port `interactions.ts` → `@mms/ui` — ✅ SHIPPED
+
+> **Shipped 2026-06-29 (with R3).** `useTilt`/`useMagnetic`/`useHeroParallax`/`useRipple` →
+> `packages/ui/src/interactions.ts` (re-skinned to QR's `useAnimationPreference`; caveats carried). First
+> consumer: `AddButton` press-spring (`m.button whileTap`) + ripple. The broader R5 primitive pass consumes
+> the rest (tilt on non-CTA cards, etc.).
 
 **Goal:** land the highest-value reusable richness: pointer-spring micro-interactions, gated and crash-safe.
 
