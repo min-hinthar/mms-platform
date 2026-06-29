@@ -506,8 +506,11 @@ h3 {
   cursor: pointer;
   transition: transform var(--dur-fast) var(--ease-out);
 }
+/* Disabled glyphs fade to the same 0.6 the Add pill uses for its disabled state (consistency + keeps the
+   aria-hidden −/+ icon above the 3:1 non-text-contrast bar on the accent fill; full-contrast text/qty is
+   unaffected — only the icon glyph dims). */
 .mms-qty-stepper button:disabled {
-  opacity: 0.5;
+  opacity: 0.6;
   cursor: default;
 }
 .mms-qty-val {

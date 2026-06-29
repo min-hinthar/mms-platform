@@ -32,8 +32,10 @@ type CartCtx = {
   add: (menuItemId: string) => Promise<void>;
   /** Set a cart line's quantity (server-authoritative `setQty`; `qty<=0` removes). Used by the menu's
    *  inline quick-qty stepper (R5c) to decrement/remove the viewer's own line without leaving the menu.
-   *  Re-syncs from the returned view; a refused write (locked/closed) recovers like `add`. */
-  setItemQty: (cartItemId: string, qty: number) => Promise<void>;
+   *  Re-syncs from the returned view; a refused write (locked/closed) recovers like `add`. `announce` (the
+   *  caller's outcome string, e.g. "Removed Tea Leaf Salad") is flashed through the single live region so
+   *  the decrement is announced symmetrically with the "+"/add path (WCAG 4.1.3). */
+  setItemQty: (cartItemId: string, qty: number, announce?: string) => Promise<void>;
   refresh: () => Promise<void>;
   /** Pickup mode only: the chosen slot (ISO instant) + a way to (re)open the picker. */
   pickupSlot: string | null;
@@ -306,8 +308,11 @@ export function TableCartProvider({
   // Checkout's `changeQty`: swallow a refused write (locked/closed) and re-sync from server truth via
   // refresh, with the same session-recovery path `add` uses for a silently-expired session.
   const setItemQty = useCallback(
-    async (cartItemId: string, qty: number) => {
+    async (cartItemId: string, qty: number, announce?: string) => {
       if (!cartId) return;
+      // Announce the outcome immediately (optimistic, like `add`'s "Added to your order") so SR users get
+      // instant confirmation; the error path below replaces it with the recovery message if the write fails.
+      if (announce) flash(announce, 2000);
       try {
         await setQtyAction(cartItemId, qty);
         await refresh();

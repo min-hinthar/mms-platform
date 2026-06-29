@@ -47,7 +47,11 @@ export function AddButton({
       (me ? i.bySeat === me.seat : true),
   );
   const qty = line?.qty ?? 0;
-  const inCart = qty > 0 && !soldOut;
+  // The morph is qty-driven, NOT shelf-status-driven: once the viewer has the item, the stepper stays the
+  // authoritative control even if the item is later 86'd — so they can still DECREMENT/remove it from the
+  // menu (the "+" disables on sold-out; the "−" stays enabled, matching the cart Stepper). A sold-out item
+  // not yet in the cart (qty 0) still shows the disabled "Sold out" pill below.
+  const inCart = qty > 0;
 
   // Focus management (WCAG 2.4.3): a "−" that removes the line unmounts the stepper, so focus would drop
   // to <body>. When that removal lands (qty → 0), move focus to the Add pill that replaces it — its
@@ -82,9 +86,13 @@ export function AddButton({
     if (!line) return;
     const next = qty - 1;
     if (next <= 0) refocusAfterRemove.current = true; // remove → focus the Add pill that replaces us
+    // Announce the outcome through the provider's ONE polite live region (WCAG 4.1.3) — symmetric with the
+    // "+"/add path's "Added to your order". The provider flashes it optimistically on tap so the SR user
+    // gets immediate confirmation; the visible qty settles on the server-authoritative refresh.
+    const announce = next <= 0 ? `Removed ${name}` : `${name}, quantity ${next}`;
     setBusy(true);
     try {
-      await setItemQty(line.id, next);
+      await setItemQty(line.id, next, announce);
     } catch {
       /* provider recovers + re-syncs from server truth */
     } finally {
@@ -125,8 +133,15 @@ export function AddButton({
         <button
           type="button"
           className="mms-stepper-btn"
-          disabled={blocked || qty >= MAX_QTY}
-          aria-label={qty >= MAX_QTY ? `Maximum ${MAX_QTY} ${name}` : `Add another ${name}`}
+          // Sold-out disables "+" (a now-86'd line can't grow — only shrink via "−"), as does max/locked/busy.
+          disabled={blocked || soldOut || qty >= MAX_QTY}
+          aria-label={
+            soldOut
+              ? `${name} is sold out`
+              : qty >= MAX_QTY
+                ? `Maximum ${MAX_QTY} ${name}`
+                : `Add another ${name}`
+          }
           onClick={increment}
         >
           <span aria-hidden>+</span>
