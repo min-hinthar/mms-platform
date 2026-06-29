@@ -77,12 +77,24 @@ h3 {
   padding: 8px 20px calc(24px + env(safe-area-inset-bottom, 0px));
   animation: up var(--dur-sheet) var(--spring);
 }
+/* Drag-start hit zone (R5b): since the Sheet's swipe is handle-initiated (dragListener=false), the
+   gesture can ONLY begin on this element — so it must be a real ≥44px touch target, not the 5px bar.
+   The visible bar stays decorative + centered inside it. `touch-action:none` so the browser doesn't
+   scroll-hijack the handle drag. */
+.mms-grab-zone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  margin-bottom: 2px;
+  cursor: grab;
+  touch-action: none;
+}
 .mms-grab {
   width: 38px;
   height: 5px;
   border-radius: 3px;
   background: var(--bd);
-  margin: 9px auto 6px;
 }
 .mms-sheet-title {
   font-family: var(--font-display);

@@ -71,12 +71,11 @@ function SheetContent({
           if (info.offset.y > 120 || info.velocity.y > 700) onClose();
         }}
       >
-        <div
-          className="mms-grab"
-          aria-hidden
-          onPointerDown={(e) => controls.start(e)}
-          style={{ touchAction: "none", cursor: "grab" }}
-        />
+        {/* 44px-tall touch zone wraps the 5px visual bar so the swipe is actually triggerable on mobile
+            (dragListener=false means the drag can ONLY start here). touch-action/cursor live on .mms-grab-zone. */}
+        <div className="mms-grab-zone" aria-hidden onPointerDown={(e) => controls.start(e)}>
+          <div className="mms-grab" />
+        </div>
         <Dialog.Title className="mms-sheet-title">{title}</Dialog.Title>
         {children}
         <Dialog.Close aria-label="Close" className="mms-sheet-close">
