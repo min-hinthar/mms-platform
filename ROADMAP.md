@@ -151,6 +151,10 @@ clean token base, within the mobile-GPU/reduced-motion/AA guardrails M5 establis
 
 ## ⏸ M6 — Kiosk · Terminal · EBT (2027) &nbsp;`milestone:M6`
 
+**Design of record: [`docs/M6_DESIGN.md`](docs/M6_DESIGN.md)** — per-phase plan grounded in the S4.3c EBT
+seam; the critical path is **FNS retailer authorization** (months), so most of M6 is gated on real-world
+prerequisites, not code. Distinct from the 🎨 Richness track above (which runs first).
+
 - **P6.1** Kiosk shell + handheld HID scanner (no code change to grocery flow). ⬜
 - **P6.2** Stripe **Terminal** (server-driven, S700) for in-person card. ⬜
 - **P6.3** **EBT/SNAP** via Forage + FNS authorization (50%-rule → likely separate FNS firm); weighed-produce entry. ⏸ 2027
