@@ -15,16 +15,14 @@ const MAX_QTY = 99; // matches the cart Stepper's upper bound (setQty is the aut
  * Richness R3/R4: the press answers with a spring scale-down (`whileTap`) + a tap ripple (`useRipple`).
  *
  * Richness R5c — **Add → quantity morph** (the prototype's `.add → .stp`): once the viewer has this item
- * in their cart line, the pill morphs into an inline accent stepper (− qty +). The "+" reuses `add` (the
- * server merges/increments the same line); the "−" calls `setItemQty` (`qty<=0` removes, morphing back to
- * the Add pill).
+ * in their OWN cart line, the pill morphs into an inline accent stepper (− qty +). The "+" reuses `add` (the
+ * server creates/increments the viewer's own line); the "−" calls `setItemQty` (`qty<=0` removes, morphing
+ * back to the Add pill).
  *
- * **Solo modes only.** In a dine-in GROUP cart the no-modifier draft line is SHARED — `insertOrIncLine`
- * merges by cart/item/fulfillment/draft-state, NOT by `by_seat` — and `canMutateLine` is owner/host-gated.
- * A per-row menu stepper there would mis-target a peer's shared line and a non-owner's "−" would be rejected
- * server-side, so group quantity is managed in the cart (the Checkout `Stepper` already gates on `canEdit`,
- * host, split). Solo (pickup / scan-and-go) has one diner, no cross-seat merge, and no split settlement → the
- * morph is unambiguous and correct. The match below mirrors `insertOrIncLine`'s exact merge keys.
+ * **Works in every mode, incl. dine-in groups, because the cart merge is per-seat** (`insertOrIncLine`
+ * scopes its merge by `by_seat`): two diners ordering the same item get SEPARATE lines, so each diner's
+ * Add/stepper targets their OWN line — never a tablemate's — and `canMutateLine` (own-draft) always passes
+ * for the "−". The match below mirrors `insertOrIncLine`'s exact merge keys, scoped to the viewer's seat.
  */
 export function AddButton({
   menuItemId,
@@ -35,7 +33,7 @@ export function AddButton({
   name: string;
   soldOut?: boolean;
 }) {
-  const { add, setItemQty, items, cartId, locked, settling, isGroup } = useCart();
+  const { add, setItemQty, items, cartId, locked, settling, isGroup, me } = useCart();
   const [busy, setBusy] = useState(false);
   const { shouldAnimate } = useAnimationPreference();
   const { ripples, onPointerDown } = useRipple();
@@ -45,26 +43,29 @@ export function AddButton({
   // EXACTLY that default-fulfillment line — otherwise a line re-routed to "to go" in the cart would show its
   // qty here while "+" silently grew a different (default) line (stuck qty + wrong routing/tax).
   const defaultFulfillment = isGroup ? "dinein" : "togo";
-  // The quick-add line for this item, matching `insertOrIncLine`'s merge keys EXACTLY (item + no modifiers +
-  // default fulfillment + still-draft); `!comped` keeps an immutable comped line out. No `by_seat` filter —
-  // the server merge ignores it too, and the morph only renders in solo modes (one seat) per `inCart` below.
+  // The VIEWER'S OWN quick-add line for this item, matching `insertOrIncLine`'s per-seat merge keys EXACTLY
+  // (item + no modifiers + default fulfillment + still-draft + own `by_seat`); `!comped` keeps an immutable
+  // comped line out. Scoping to `me.seat` (the anon-auth uid == addItem's `by_seat`) means the morph shows +
+  // controls THIS diner's line even in a dine-in group — a tablemate's separate line is never touched.
+  const mySeat = me?.seat;
   const line = items.find(
     (i) =>
       i.menuItemId === menuItemId &&
       i.modifiers.length === 0 &&
       i.fulfillment === defaultFulfillment &&
       i.lineState === "draft" &&
-      !i.comped,
+      !i.comped &&
+      i.bySeat === mySeat,
   );
   const qty = line?.qty ?? 0;
   // The fresher 86'd signal for an IN-CART line: the cart view carries a live `line.soldOut` (server-derived
   // in getCartView), more current than the menu RSC's `soldOut` prop captured at page render. Gate the in-cart
   // "+" on the fresher of the two so a line 86'd after load can't keep incrementing (addItem doesn't reject it).
   const liveSoldOut = soldOut || (line?.soldOut ?? false);
-  // Show the morph ONLY in solo modes (see the component doc): qty-driven once present (the stepper stays the
-  // authoritative control even if the item is later 86'd — "+" disables on sold-out, "−" stays enabled to
-  // remove). In group dine-in the Add pill always shows; quantity is managed in the shared cart.
-  const inCart = qty > 0 && !isGroup;
+  // Morph once the viewer's own line exists (all modes — per-seat merge makes it unambiguous in groups too).
+  // Qty-driven: the stepper stays the authoritative control even if the item is later 86'd ("+" disables on
+  // sold-out, "−" stays enabled to remove). A sold-out item not yet in the cart (qty 0) shows the disabled pill.
+  const inCart = qty > 0;
 
   // While a member is checking out (P3.2-lock) OR the table is settling its split (P3.3b) the cart is frozen
   // and the server rejects add/setQty — disable the control so a tap can't fire an optimistic confirmation

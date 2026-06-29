@@ -48,9 +48,13 @@ async function openCartFor(sessionId: string) {
 }
 
 /**
- * Add an item to a table's open cart FOR a guest. Re-derives price/tax server-side (priceItem), merges
- * identical lines, and attributes the line to no seat (by_seat = null). Refused while a payment is in
- * flight (shared mutex with cash settle / clear-table) — staff mustn't change a total a diner is paying.
+ * Add an item to a table's open cart FOR a guest. Re-derives price/tax server-side (priceItem), and
+ * attributes the line to no seat (by_seat = null). Refused while a payment is in flight (shared mutex with
+ * cash settle / clear-table) — staff mustn't change a total a diner is paying.
+ *
+ * Per-seat merge (R5c): `insertOrIncLine` now scopes its merge by `by_seat`, so a staff-added line
+ * (by_seat = null) merges only with other staff/null lines — it no longer folds into whichever diner added
+ * the same item first. The line stays unattributed and assignable to a guest later via `assignLine`.
  */
 export async function staffAddItem(raw: unknown): Promise<StaffWriteResult> {
   const caller = await requireStaff().catch(() => null);

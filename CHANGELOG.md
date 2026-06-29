@@ -4,20 +4,25 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
-### Added — Richness R5c: menu Add → quantity-stepper morph (completes R5) (2026-06-29)
+### Added — Richness R5c: menu Add → quantity-stepper morph + per-seat group lines (completes R5) (2026-06-29)
 
 The menu's per-item **Add** pill now morphs into an inline accent quantity stepper (− qty +) once the
 viewer has the item in their cart line (the v7.2 prototype's `.add → .stp` morph) — quick re-order and
-removal without leaving the menu. **Solo modes only** (pickup / scan-and-go): in a dine-in group cart the
-no-modifier draft line is _shared_ (`insertOrIncLine` merges by item/fulfillment/state, not `by_seat`) and
-`canMutateLine` is owner/host-gated, so a per-row menu stepper would mis-target a peer's line — group
-quantity stays managed in the cart, where the Checkout `Stepper` already handles `canEdit`/host/split.
+removal without leaving the menu, **in every mode including dine-in groups**.
 
-- **`AddButton`** matches `insertOrIncLine`'s exact merge keys (item + no modifiers + **default
-  fulfillment** + still-draft, not comped) and renders the `.mms-qty-stepper` when `qty > 0` **and not a
-  group cart**. **+** reuses the server-authoritative `add`; **−** calls the new `setItemQty` (`qty<=0`
-  removes → morphs back to the Add pill). The in-cart **+** gates on the **live** cart `line.soldOut`
-  (fresher than the page-render menu prop).
+- **Group-cart model → per-seat lines.** `insertOrIncLine` now scopes its merge by `by_seat`, so two
+  diners ordering the same item get **separate lines** (each owns + manages their own qty) instead of
+  folding into one shared line owned by the first adder. This makes the menu morph unambiguous for every
+  diner (your Add/stepper always targets your own line, `canMutateLine` own-draft always passes) and the
+  by-person split is pre-attributed by contributor. Application-level only — no schema change (no unique
+  constraint existed). Solo carts (one seat) are unchanged; a staff "added-by-server" line (`by_seat=null`)
+  stays separate + assignable via `assignLine`. Totals/tax are aggregate-identical (summed per line); the
+  cart, KDS ticket, and split board show one row per contributor.
+- **`AddButton`** finds the viewer's OWN line by `insertOrIncLine`'s exact per-seat keys (item + no
+  modifiers + **default fulfillment** + draft + own `by_seat`, not comped) and renders the
+  `.mms-qty-stepper` when `qty > 0`. **+** reuses the server-authoritative `add`; **−** calls the new
+  `setItemQty` (`qty<=0` removes → morphs back to the Add pill). The in-cart **+** gates on the **live**
+  cart `line.soldOut` (fresher than the page-render menu prop).
 - **`TableCartProvider`** — new `setItemQty` (`setQty`-backed; server re-derives every amount; authz'd
   `canMutateLine` own-draft-only) re-syncing from server truth with `add`'s session-recovery path; the
   provider now also exposes **`settling`** (split-tender freeze) so the menu controls disable during it.
