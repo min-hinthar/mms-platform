@@ -18,6 +18,13 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >   `--glow-*`, `--surface-glass/-vellum/-elevated`, `--sheen`, `--sh-glow`, both themes) + the gradient-masked
 >   `.tex-dotgrid`/`.tex-linegrid`/`.tex-grain` + opaque-mobile `.surface-glass/-vellum/-paper` + `pop`/`steam`
 >   keyframes in `globals.css`; `--surface-elevated` locked in contrast-audit (41 tests, both themes). **R2 next.**
+> - **R3+R4 ✅ shipped** — framer-motion adopted lazily (`MotionProvider` = root `LazyMotion domAnimation
+>   strict`; `domMax`/`DomMaxProvider` deferred to R5 sheet-swipe) + the interaction hooks
+>   (`useTilt`/`useMagnetic`/`useHeroParallax`/`useRipple`) ported to `packages/ui/src/interactions.ts`.
+>   First consumer: `AddButton` press-spring + ripple. **R5 is next** — primitive richness: textured `Card`,
+>   `Stepper` count-bounce, the AddButton→Stepper morph, `ModeCard`, and `DomMaxProvider` + `Sheet`
+>   swipe-to-close (the first `domMax` consumer). **When the first `*.test.tsx` lands, add the framer Vitest
+>   stub** (vitest is node-env today; switch to jsdom + add a `framer-motion` mock).
 > - **R2 ✅ shipped** — dark mode is now LIVE. Nonce blocking inline script in `layout.tsx` (carries the
 >   `proxy.ts` per-request nonce) sets `.dark` from `prefers-color-scheme` before paint; `ThemeSync` handles
 >   live OS flips; no next-themes. A verified per-surface audit (workflow) found only small latent dark bugs —

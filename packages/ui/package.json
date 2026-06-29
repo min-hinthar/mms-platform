@@ -5,6 +5,10 @@
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
+  "//sideEffects": "All modules are pure (the only side-effectful file is tokens.css, kept in the list) — lets the bundler tree-shake the barrel so framer-motion (via interactions.ts) doesn't ride into chunks that only import a framer-free primitive like Badge.",
+  "sideEffects": [
+    "**/*.css"
+  ],
   "exports": {
     ".": "./src/index.ts",
     "./tokens.css": "./src/tokens.css"
@@ -17,7 +21,8 @@
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.17",
     "@number-flow/react": "^0.6.0",
-    "clsx": "^2.1.1"
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.26.1"
   },
   "peerDependencies": {
     "react": "^19",

@@ -5,6 +5,7 @@ import { headers } from "next/headers";
 import { Fraunces, Hanken_Grotesk, Padauk } from "next/font/google";
 import { AnonAuthGate } from "@/components/AnonAuthGate";
 import { ThemeSync } from "@/components/ThemeSync";
+import { MotionProvider } from "@/components/MotionProvider";
 
 const fraunces = Fraunces({ subsets: ["latin"], variable: "--font-fraunces" });
 const hanken = Hanken_Grotesk({ subsets: ["latin"], variable: "--font-hanken" });
@@ -75,7 +76,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         />
         <ThemeSync />
         <AnonAuthGate />
-        {children}
+        <MotionProvider>{children}</MotionProvider>
       </body>
     </html>
   );

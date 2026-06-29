@@ -139,10 +139,10 @@ clean token base, within the mobile-GPU/reduced-motion/AA guardrails M5 establis
 - **Foundations:** **R1 ✅** tokens + texture system (motion/depth tokens both themes + gradient-masked
   `.tex-*`/opaque-mobile `.surface-*` utilities + `pop`/`steam`) · **R2 ✅** dark-mode activation (nonce
   blocking inline script + `ThemeSync` live OS-flip + fixed the latent dark bugs the audit found:
-  `--bg`→`--sf` ×6, hardcoded shadow→`--sh-md`, SharePay→shared appearance) · **R3 framer-motion** (lazy
-  `domAnimation`, `domMax` only where drag/layout) + Vitest framer stub — **next** · R4 port `interactions.ts`
-  (tilt/magnetic/ripple) → `@mms/ui`.
-- **Primitive richness:** R5 Card/Stepper/AddButton/ModeCard/Sheet (textured surfaces, press-springs, swipe-to-close).
+  `--bg`→`--sf` ×6, hardcoded shadow→`--sh-md`, SharePay→shared appearance) · **R3 ✅** framer-motion adopted
+  (root `LazyMotion domAnimation strict`; `domMax` deferred to R5 sheets) · **R4 ✅** `interactions.ts`
+  (tilt/magnetic/parallax/ripple) ported → `@mms/ui`; first consumer = `AddButton` press-spring + ripple.
+- **Primitive richness:** **R5 — next** Card/Stepper/AddButton/ModeCard/Sheet (textured surfaces, press-springs, swipe-to-close; AddButton already has press+ripple from R4, R5 adds the Stepper morph + textured Card + the DomMaxProvider for sheet swipe).
 - **Signature moments:** R6 menu (search/filters/hero/blur-up/**item sheet** — biggest gap) · R7 checkout +
   **pay-success celebration** · R8 /track + rewards (conic ring, `NumberFlow`, tier-up) · R9 staff floor + homepage.
 - **Calls (decided in the plan):** adopt framer-motion lazily; dark via a nonce-carrying `prefers-color-scheme`
