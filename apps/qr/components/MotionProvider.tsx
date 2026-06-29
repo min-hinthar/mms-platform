@@ -1,12 +1,17 @@
 "use client";
 import type { ReactNode } from "react";
-import { LazyMotion, domAnimation } from "framer-motion";
+import { LazyMotion } from "framer-motion";
+
+// Async feature loader — dynamic-imports the domAnimation bundle so it's code-split into its own chunk
+// and loaded AFTER hydration, never in the initial client JS. `features={domAnimation}` (a STATIC
+// import) is framer's synchronous path: it would bundle the feature set into every route's initial JS,
+// defeating the lazy win. This loader form is delivery's proven DomMaxProvider pattern.
+const loadDomAnimation = () => import("framer-motion").then((mod) => mod.domAnimation);
 
 /**
- * Root framer-motion provider (Richness R3). `LazyMotion features={domAnimation}` async-loads the
- * animation/gesture feature bundle AFTER hydration (never blocks first paint), keeping the initial JS
- * lean (~18KB gz for `m` + domAnimation vs ~34KB for full `motion`). `strict` forbids the
- * un-treeshakeable `motion.*` — only `m.*` is allowed — so the heavy bundle can't sneak in.
+ * Root framer-motion provider (Richness R3). `LazyMotion` with an async `features` loader keeps the
+ * initial client JS lean (~`m` core only) and pulls the animation/gesture feature bundle after
+ * hydration. `strict` forbids the un-treeshakeable `motion.*` — only `m.*` is allowed.
  *
  * `domAnimation` covers animations, variants, exit, and press/hover/focus gestures (`whileTap` etc.).
  * Drag + `layout`/`layoutId` need `domMax`; load that ONLY where used via a nested DomMaxProvider
@@ -14,7 +19,7 @@ import { LazyMotion, domAnimation } from "framer-motion";
  */
 export function MotionProvider({ children }: { children: ReactNode }) {
   return (
-    <LazyMotion features={domAnimation} strict>
+    <LazyMotion features={loadDomAnimation} strict>
       {children}
     </LazyMotion>
   );
