@@ -4,6 +4,42 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — Richness R5c: menu Add → quantity-stepper morph + per-seat group lines (completes R5) (2026-06-29)
+
+The menu's per-item **Add** pill now morphs into an inline accent quantity stepper (− qty +) once the
+viewer has the item in their cart line (the v7.2 prototype's `.add → .stp` morph) — quick re-order and
+removal without leaving the menu, **in every mode including dine-in groups**.
+
+- **Group-cart model → per-seat lines.** `insertOrIncLine` now scopes its merge by `by_seat`, so two
+  diners ordering the same item get **separate lines** (each owns + manages their own qty) instead of
+  folding into one shared line owned by the first adder. This makes the menu morph unambiguous for every
+  diner (your Add/stepper always targets your own line, `canMutateLine` own-draft always passes) and the
+  by-person split is pre-attributed by contributor. Application-level only — no schema change (no unique
+  constraint existed). Solo carts (one seat) are unchanged; a staff "added-by-server" line (`by_seat=null`)
+  stays separate + assignable via `assignLine`. Totals/tax are aggregate-identical (summed per line); the
+  cart, KDS ticket, and split board show one row per contributor.
+  - **Menu tolerates duplicate own lines (aggregate, don't enforce one).** A diner can legitimately hold more
+    than one matching own draft line — a host `assignLine` onto an item they already have, a price-snapshot
+    difference between two adds, or a concurrent first-add race — and there's deliberately no unique
+    constraint. So the menu stepper **sums the viewer's matching lines** (exactly as the cart, split, and
+    totals already do) and the `−` peels a line at a time, instead of forcing a one-line invariant via a
+    fragile cross-path coalesce. The staff **table-merge** (`mms_merge_table_orders`) still folds only into an
+    **unassigned** target line, so a source diner's units never inherit a target diner's `by_seat` (which
+    would skew by-person shares). The menu `setItemQty` recovery path now `refresh()`es on failure too, so a
+    rejected quick-remove snaps back to server truth instead of leaving a stale line.
+- **`AddButton`** finds the viewer's OWN line by `insertOrIncLine`'s exact per-seat keys (item + no
+  modifiers + **default fulfillment** + draft + own `by_seat`, not comped) and renders the
+  `.mms-qty-stepper` when `qty > 0`. **+** reuses the server-authoritative `add`; **−** calls the new
+  `setItemQty` (`qty<=0` removes → morphs back to the Add pill). The in-cart **+** gates on the **live**
+  cart `line.soldOut` (fresher than the page-render menu prop).
+- **`TableCartProvider`** — new `setItemQty` (`setQty`-backed; server re-derives every amount; authz'd
+  `canMutateLine` own-draft-only) re-syncing from server truth with `add`'s session-recovery path; the
+  provider now also exposes **`settling`** (split-tender freeze) so the menu controls disable during it.
+- a11y: 44px tap targets; `aria-hidden` −/+ glyphs with woven names; an `.sr-only` real quantity (not a
+  live region); decrement/removal **announced** via the one live region (WCAG 4.1.3); **focus moves to the
+  Add pill on remove** (kept focusable via `aria-disabled` when sold-out, and the move waits for `busy` to
+  clear so it lands on an enabled pill — WCAG 2.4.3). Pop/`:active` reduced-motion-gated.
+
 ### Added — Richness R5b: Sheet swipe-to-close (first domMax consumer) (2026-06-29)
 
 The `@mms/ui` bottom `Sheet` (Radix Dialog) now drags down to dismiss — the iOS-native expectation,

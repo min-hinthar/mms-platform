@@ -64,9 +64,16 @@ export type PricedLine = {
 
 /**
  * Merge-or-insert a priced line into an OPEN cart, via the status-atomic RPCs (a webhook/settle status
- * flip can't slip a row past the app guard). Merges an identical line (same item + same modifier set)
- * by bumping qty rather than duplicating. Throws "Cart is no longer open" when the cart isn't open.
- * `bySeat` is provenance only: a VERIFIED diner uid, or null for a staff-added line ("added by server").
+ * flip can't slip a row past the app guard). Merges an identical line (same item + same modifier set +
+ * **same `by_seat`**) by bumping qty rather than duplicating. Throws "Cart is no longer open" when the
+ * cart isn't open.
+ *
+ * **Per-seat merge (R5c group-cart model):** `by_seat` is part of the merge key, not just provenance — an
+ * add merges only into the SAME diner's own draft sibling, so two diners ordering the same item get
+ * SEPARATE lines, each owning + managing their own qty (the menu quick-stepper and the by-person split
+ * both read `by_seat`). A solo cart has one seat, so this is unchanged there. A staff-added line
+ * (`by_seat = null`, "added by server") merges only with other null lines and stays assignable to a guest
+ * later via `assignLine` — it no longer silently folds into whichever diner happened to add the item first.
  */
 export async function insertOrIncLine(
   cartId: string,
@@ -79,13 +86,18 @@ export async function insertOrIncLine(
   // may have started, through the state-blind inc_qty path (the one ungated diner→fired mutation). Per
   // the ORDER-MODEL, an add post-fire is a FRESH draft that fires on the next send, so a non-draft
   // sibling falls through to the insert below.
-  const { data: siblings } = await db
+  let siblingQuery = db
     .from("qr_cart_items")
     .select("id,modifiers")
     .eq("cart_id", cartId)
     .eq("menu_item_id", line.menuItemId)
     .eq("fulfillment", line.fulfillment) // S4: a for-here add must NOT merge into a to-go line (different routing/tax)
     .eq("state", "draft");
+  // Per-seat scope (R5c): merge only into the SAME seat's own draft line — different diners keep separate
+  // lines. NULL (staff "added by server") needs PostgREST `.is`, not `.eq`, so it merges only other null lines.
+  siblingQuery =
+    bySeat === null ? siblingQuery.is("by_seat", null) : siblingQuery.eq("by_seat", bySeat);
+  const { data: siblings } = await siblingQuery;
   const dup = (siblings ?? []).find((s) => modKey(s.modifiers) === modKey(line.opts));
   if (dup) {
     // ATOMIC `qty = qty + 1` requiring status='open' and qty<99 (can't lose an increment, can't bump a

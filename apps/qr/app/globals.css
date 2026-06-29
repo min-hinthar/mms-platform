@@ -477,3 +477,59 @@ h3 {
     animation: none;
   }
 }
+
+/* ── Richness R5c: menu quick-qty stepper (Add → −/qty/+ morph) ───────────────────────────────────
+   Once the viewer has the item in their OWN cart line, the menu "Add" pill morphs into this accent
+   pill (the prototype's `.add → .stp` morph). Deliberately DISTINCT from the @mms/ui cart `Stepper`
+   (bordered, neutral `--cd`): this is the menu's accent-pill signature, matching the Add button it
+   replaces. 44px tap targets (a11y), pop on mount (reuses `.mms-pop` + its RM gate), `:active` settle. */
+.mms-qty-stepper {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  background: var(--ac);
+  color: var(--oa);
+  border-radius: var(--r-full);
+}
+.mms-qty-stepper button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 44px;
+  border: none;
+  background: none;
+  color: var(--oa);
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+/* Disabled glyphs fade to the same 0.6 the Add pill uses for its disabled state (consistency + keeps the
+   aria-hidden −/+ icon above the 3:1 non-text-contrast bar on the accent fill; full-contrast text/qty is
+   unaffected — only the icon glyph dims). */
+.mms-qty-stepper button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.mms-qty-val {
+  min-width: 22px;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mms-qty-stepper button {
+    transition: none;
+  }
+}
+.mms-qty-stepper button:active:not(:disabled) {
+  transform: scale(0.9);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mms-qty-stepper button:active:not(:disabled) {
+    transform: none;
+  }
+}

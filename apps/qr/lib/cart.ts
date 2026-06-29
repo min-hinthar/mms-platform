@@ -154,6 +154,10 @@ export async function assignLine(cartItemId: string, seatId: string) {
     .eq("id", cartId)
     .maybeSingle();
   if (openCart?.status !== "open") throw new Error("Cart is no longer open");
+  // Reassign provenance only (M3·P3.3a). Per-seat lines (R5c) can legitimately leave a diner with TWO
+  // matching draft lines after a reassign (or a price-snapshot difference, or a concurrent first-add) — the
+  // cart, split, and totals already sum per line, and the menu quick-stepper AGGREGATES the viewer's matching
+  // lines, so a duplicate is tolerated everywhere rather than forced into one line by a fragile coalesce.
   const { error } = await db
     .from("qr_cart_items")
     .update({ by_seat: input.seatId })

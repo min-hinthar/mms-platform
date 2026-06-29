@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import type { CartItem, CartTotals } from "@mms/db";
-import { addItem as addItemAction, getCartView } from "@/lib/cart";
+import { addItem as addItemAction, setQty as setQtyAction, getCartView } from "@/lib/cart";
 import { setDisplayName } from "@/lib/members";
 import { useTableSession } from "@/lib/useTableSession";
 import {
@@ -30,6 +30,12 @@ type CartCtx = {
   totals: CartTotals | null;
   count: number;
   add: (menuItemId: string) => Promise<void>;
+  /** Set a cart line's quantity (server-authoritative `setQty`; `qty<=0` removes). Used by the menu's
+   *  inline quick-qty stepper (R5c) to decrement/remove the viewer's own line without leaving the menu.
+   *  Re-syncs from the returned view; a refused write (locked/closed) recovers like `add`. `announce` (the
+   *  caller's outcome string, e.g. "Removed Tea Leaf Salad") is flashed through the single live region so
+   *  the decrement is announced symmetrically with the "+"/add path (WCAG 4.1.3). */
+  setItemQty: (cartItemId: string, qty: number, announce?: string) => Promise<void>;
   refresh: () => Promise<void>;
   /** Pickup mode only: the chosen slot (ISO instant) + a way to (re)open the picker. */
   pickupSlot: string | null;
@@ -47,6 +53,10 @@ type CartCtx = {
    *  else. `lockedByName` is who (resolved from presence; "You" if it's the viewer). */
   locked: boolean;
   lockedByName: string | null;
+  /** Split-tender settlement freeze (M3·P3.3b): true while the table settles its shares → the whole cart
+   *  is read-only (the server rejects add/setQty). Distinct from the pay-window `locked`; the menu controls
+   *  gate on it too so a quick add/remove can't fire an optimistic confirmation the server will reject. */
+  settling: boolean;
 };
 
 const Ctx = createContext<CartCtx | null>(null);
@@ -87,6 +97,7 @@ export function TableCartProvider({
   const [pickupSlot, setPickupSlot] = useState<string | null>(null);
   const [locked, setLocked] = useState(false); // pay-window lock (P3.2-lock)
   const [lockedBy, setLockedBy] = useState<string | null>(null);
+  const [settling, setSettling] = useState(false); // split-tender settlement freeze (P3.3b) — read-only cart
   const [slotSheetOpen, setSlotSheetOpen] = useState(false);
   const autoOpened = useRef(false); // only auto-prompt for a slot once per mount
 
@@ -147,6 +158,7 @@ export function TableCartProvider({
       setPickupSlot(v.pickupSlot);
       setLocked(v.locked);
       setLockedBy(v.lockedBy);
+      setSettling(v.settling);
     } catch {
       // Cart no longer open (paid/closed) → assertCartMember 403. Swallow so a stale read after a
       // successful add can't surface as a false-negative "Couldn't add"; P1.3 redirects to a receipt.
@@ -166,6 +178,7 @@ export function TableCartProvider({
         setPickupSlot(v.pickupSlot);
         setLocked(v.locked);
         setLockedBy(v.lockedBy);
+        setSettling(v.settling);
         // Pickup with no slot yet → prompt once (the diner schedules before ordering, per v7.2).
         if (isPickup && !v.pickupSlot && !autoOpened.current) {
           autoOpened.current = true;
@@ -296,6 +309,33 @@ export function TableCartProvider({
     [cartId, flash, revalidate],
   );
 
+  // Menu inline quick-qty (R5c): decrement/remove the viewer's OWN draft line from the menu (the "+" goes
+  // through `add`, which merges/increments the same no-modifier line). Server-authoritative (`setQty`
+  // re-derives nothing on the client; `qty<=0` removes), authz'd (canMutateLine own-draft-only). Mirrors
+  // Checkout's `changeQty`: swallow a refused write (locked/closed) and re-sync from server truth via
+  // refresh, with the same session-recovery path `add` uses for a silently-expired session.
+  const setItemQty = useCallback(
+    async (cartItemId: string, qty: number, announce?: string) => {
+      if (!cartId) return;
+      // Announce the outcome immediately (optimistic, like `add`'s "Added to your order") so SR users get
+      // instant confirmation; the error path below replaces it with the recovery message if the write fails.
+      if (announce) flash(announce, 2000);
+      try {
+        await setQtyAction(cartItemId, qty);
+        await refresh();
+      } catch {
+        // Re-sync from server truth on BOTH outcomes (like Checkout's changeQty): a rejected remove —
+        // line already gone/fired/locked, or a solo diner who removed it on another tab where realtime is
+        // off — must snap the stepper back, not leave the stale line visible after the optimistic announce.
+        await refresh();
+        recoveringRef.current = true;
+        flash("Reconnecting to your table…", 2500);
+        revalidate();
+      }
+    },
+    [cartId, refresh, flash, revalidate],
+  );
+
   const openSlotSheet = useCallback(() => setSlotSheetOpen(true), []);
   const count = items.reduce((a, i) => a + i.qty, 0) + pendingAdds;
   const me = session ? { seat: session.seat, name } : null;
@@ -331,6 +371,7 @@ export function TableCartProvider({
         totals,
         count,
         add,
+        setItemQty,
         refresh,
         pickupSlot,
         openSlotSheet,
@@ -342,6 +383,7 @@ export function TableCartProvider({
         setName,
         locked,
         lockedByName,
+        settling,
       }}
     >
       {children}

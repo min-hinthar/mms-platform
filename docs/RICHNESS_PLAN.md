@@ -161,7 +161,22 @@ strict`) at the root. `domMax`/`DomMaxProvider` deferred to R5 (sheet swipe). Fr
 > on menu rows; `Stepper` count-bounce (a11y-safe) + button press; `ModeCard` gradient tile + stagger.
 > **R5b ✅ shipped 2026-06-29** — `Sheet` swipe-to-close (first `domMax` consumer): `DomMaxProvider`
 > (`packages/ui`) + handle-initiated `useDragControls` drag (`dragListener=false` → body scroll untouched).
-> **Remaining: R5c** (AddButton→Stepper inline morph).
+> **R5c ✅ shipped 2026-06-29 (R5 complete)** — menu `AddButton` morphs into an inline accent quantity
+> stepper (`.mms-qty-stepper`) once the viewer has the item in their OWN cart line, **in every mode incl.
+> dine-in groups**: `+` reuses the server-authoritative `add`, `−` calls the new
+> `TableCartProvider.setItemQty` (`qty<=0` removes → morphs back to Add).
+> **Group-cart model → per-seat lines:** `insertOrIncLine` now scopes its merge by `by_seat`, so two diners
+> ordering the same item get SEPARATE lines (each owns + manages their own qty) instead of folding into one
+> shared first-adder line. That makes the morph unambiguous for everyone (your stepper targets your own line,
+> `canMutateLine` own-draft always passes) and pre-attributes the by-person split. App-level only — no schema
+> change (no unique constraint existed); solo carts unchanged; staff `by_seat=null` lines stay separate +
+> assignable; totals/tax aggregate-identical; cart/KDS/split show one row per contributor. The `AddButton`
+> lookup mirrors `insertOrIncLine`'s exact per-seat keys (item + no-mods + default fulfillment + draft + own
+> `by_seat`, not comped); the in-cart `+` gates on live `line.soldOut`; menu controls gate on the new
+> `settling` freeze. Focus moves to the Add pill on remove (focusable via `aria-disabled` when sold-out; waits
+> for `busy` to clear). **CSS morph (no `layoutId`)** — root is `domAnimation`; the prototype's `.add → .stp`
+> is a conditional render + `.mms-pop`. (Codex P1+P2s addressed: live-sold-out, fulfillment match,
+> focusable/timed refocus, settlement freeze; cross-seat-merge resolved by the per-seat model.)
 
 **Goal:** make the shared primitives feel alive so every screen inherits it — the cheapest broad win.
 
