@@ -74,11 +74,12 @@ export function Stepper({
         <span aria-hidden>{removing ? removeGlyph : "−"}</span>
       </button>
       {showCount ? (
-        // R5a count-bounce: the aria-label sits on the STABLE outer span (a non-live element whose
-        // label change is silent — it must never announce per tap, see the a11y note above), while the
-        // visible digit is an aria-hidden inner span keyed on `qty` so it remounts → replays `mms-pop`
-        // (reduced-motion-gated by the shared keyframe rule). Purely visual; AT reads only the outer.
-        <span aria-label={`Quantity ${qty}`} style={count}>
+        // R5a count-bounce. The accessible quantity is a REAL `.sr-only` text node (reliably exposed —
+        // `aria-label` on a roleless <span> is not), and it's NOT a live region, so it never announces
+        // per tap (the red-team rule above). The visible digit is `aria-hidden` and keyed on `qty` so it
+        // remounts → replays `mms-pop` (reduced-motion-gated by the shared keyframe rule) — purely visual.
+        <span style={count}>
+          <span className="sr-only">Quantity {qty}</span>
           <span key={qty} aria-hidden className="mms-pop" style={{ display: "inline-block" }}>
             {qty}
           </span>

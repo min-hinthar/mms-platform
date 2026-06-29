@@ -53,6 +53,10 @@ export default async function Menu({
             padding: "calc(44px + env(safe-area-inset-top, 0px)) 20px 8px",
             position: "sticky",
             top: 0,
+            // Above the rows: `.card-textured` (R5a) makes each row a positioned stacking context
+            // (isolation:isolate + position:relative), which would otherwise paint over this sticky
+            // header as rows scroll under it.
+            zIndex: 1,
             background: "var(--pg)",
           }}
         >
