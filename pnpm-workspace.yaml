@@ -9,6 +9,7 @@ allowBuilds:
   sharp: true
   unrs-resolver: true
   core-js: false
+  esbuild: true # vitest's bundler (P5.5)
 
 # Single-version policy (pnpm 10+ reads overrides here, not in package.json).
 # Keep the framework trio pinned exact so both apps resolve one copy.

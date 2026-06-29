@@ -71,13 +71,21 @@ Tooltip/Drawer/tilt have NONE → deferred).
   - **Tracked follow-ups:** (a) the 4 tinted ok/warn status surfaces (OrderTracker + FloorDetailLive banners) want
     a future **`Callout`** primitive, NOT a Card variant; (b) `EmptyState` still inlines its own `.card`-recipe copy
     (predates Card; safe — optional dedup by composing `<Card>` later).
-- **NEXT — P5.5:** contrast-audit test + QR test infra (wire Vitest + uncomment the `turbo test` gate; port the
-  contrast-audit with QR token fixtures — **incl. the seat-avatar white-initial combo** flagged in P5.4b-1). QR has
-  **zero** automated tests today.
+- **P5.5 ✅ — QR's first test infra:** Vitest 4 in `packages/ui` + `apps/qr` (node-env; pure-logic only — no
+  `server-only`/CSS); the turbo `test` gate is now live in `ci.yml`. The **contrast-audit** (`packages/ui`)
+  **parses `tokens.css` at test time** (resolves `var()` aliases + flattens `color-mix` tints — no hardcoded
+  fixtures to drift) and asserts the text×surface matrix both themes + **negative anti-regression guards**
+  (plain `--ac`/`--gold` as text must stay <4.5 in light). + `avatars.test.ts` (seat AA + `seatColor`/
+  `seatInitial`). **The P5.4b-1 "seat hues sub-AA" follow-up was a PHANTOM** — all 5 `PCOL` hues clear 4.5:1
+  (lightest 4.92); `avatar.tsx` comment corrected. Tooling: `esbuild`→`pnpm-workspace.yaml allowBuilds`;
+  `packages/ui/tsconfig` `types:["node","react"]`. 37 tests; gate 8/8.
+  - **Deferred fast-follow:** pure money-math tests (`tax.ts`/`split-math.ts`); component tests (need jsdom +
+    `@vitejs/plugin-react` + `@testing-library` — add when the first lands, no speculative apparatus now).
+- **NEXT — P5.6 (deferred/optional):** PWA/offline (Serwist SW + manifest + offline cart + chunk-load reload
+  boundary). Low priority for dine-in (on-site, ~4h session, network assumed) — **M5 is otherwise complete.**
 - **Deferred (no consumer):** `Tooltip`, `Drawer`, tilt; `Toast` + ripple only if a real consumer emerges.
 
-Then **P5.5** (contrast-audit test + QR test infra — QR has **zero** tests today, `turbo test` is commented out
-in `ci.yml`), **P5.6** (PWA/offline, deferred). Backlog + per-primitive consumer map: `docs/QR_FROM_DELIVERY.md`.
+Backlog + per-primitive consumer map: `docs/QR_FROM_DELIVERY.md`.
 
 > **S4 — unified basket & fulfillment routing — COMPLETE (PRs #71–75, all merged + applied to live).**
 > **S4.1** (#71, `20260623100000`) — per-line `qr_cart_items.fulfillment` (dinein/togo/grocery) drives BOTH

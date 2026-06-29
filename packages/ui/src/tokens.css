@@ -1,8 +1,9 @@
 /* MMS design tokens — light = editorial-forward · dark = v4 Night. WCAG AA verified across the
-   text×surface matrix (t2/t3/ac/ok/warn × pg/sf/cd, both themes): t3 ≥4.5:1 on every surface;
-   accent TEXT on a tinted/sf fill uses --ac-strong (plain --ac is ~4.3 on --sf — borders/solid
-   buttons only). Re-check this matrix when changing a text or surface token.
-   (Mirror of MMS_QR_tokens.css from the design system; single source of truth.) */
+   AA-critical text×surface matrix (t2/t3/ac/ac-strong/ok/warn × pg/sf/cd + the badge tints, both
+   themes): t3 ≥4.5:1 on every surface; accent TEXT on a tinted/sf fill uses --ac-strong (plain --ac
+   is ~4.3 on --sf — borders/solid buttons only there, but legible as text on --pg/--cd). ENFORCED by
+   src/__tests__/contrast-audit.test.ts, which parses THIS file — it re-checks the matrix on every
+   token change (so this claim can't silently rot). (Mirror of MMS_QR_tokens.css; single source of truth.) */
 :root {
   --font-display: "Fraunces", Georgia, serif;
   --font-body: "Hanken Grotesk", system-ui, sans-serif;

@@ -21,9 +21,8 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # Turborepo runs lint, typecheck, build across the affected workspaces (cached).
-      - run: pnpm turbo run lint typecheck build
-      # - run: pnpm turbo run test   # enable once tests exist
+      # Turborepo runs lint, typecheck, build, test across the affected workspaces (cached).
+      - run: pnpm turbo run lint typecheck build test
 
   # Proves the DB layer can't drift: the migrations apply cleanly and the committed types match.
   supabase:
