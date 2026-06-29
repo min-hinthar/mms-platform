@@ -161,7 +161,12 @@ strict`) at the root. `domMax`/`DomMaxProvider` deferred to R5 (sheet swipe). Fr
 > on menu rows; `Stepper` count-bounce (a11y-safe) + button press; `ModeCard` gradient tile + stagger.
 > **R5b ✅ shipped 2026-06-29** — `Sheet` swipe-to-close (first `domMax` consumer): `DomMaxProvider`
 > (`packages/ui`) + handle-initiated `useDragControls` drag (`dragListener=false` → body scroll untouched).
-> **Remaining: R5c** (AddButton→Stepper inline morph).
+> **R5c ✅ shipped 2026-06-29 (R5 complete)** — menu `AddButton` morphs into an inline accent quantity
+> stepper (`.mms-qty-stepper`) once the viewer has the item in their OWN draft no-modifier line: `+` reuses
+> the server-authoritative `add`, `−` calls the new `TableCartProvider.setItemQty` (`qty<=0` removes →
+> morphs back to Add). Own-draft-line-scoped (`bySeat === me.seat`); focus moves to the Add pill on remove;
+> pop-on-mount + `:active` reduced-motion-gated. **CSS morph (no `layoutId`)** — the root is `domAnimation`,
+> so the menu stays off `domMax`; the prototype's `.add → .stp` is a conditional render + `.mms-pop`.
 
 **Goal:** make the shared primitives feel alive so every screen inherits it — the cheapest broad win.
 

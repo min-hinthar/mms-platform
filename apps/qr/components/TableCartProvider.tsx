@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import type { CartItem, CartTotals } from "@mms/db";
-import { addItem as addItemAction, getCartView } from "@/lib/cart";
+import { addItem as addItemAction, setQty as setQtyAction, getCartView } from "@/lib/cart";
 import { setDisplayName } from "@/lib/members";
 import { useTableSession } from "@/lib/useTableSession";
 import {
@@ -30,6 +30,10 @@ type CartCtx = {
   totals: CartTotals | null;
   count: number;
   add: (menuItemId: string) => Promise<void>;
+  /** Set a cart line's quantity (server-authoritative `setQty`; `qty<=0` removes). Used by the menu's
+   *  inline quick-qty stepper (R5c) to decrement/remove the viewer's own line without leaving the menu.
+   *  Re-syncs from the returned view; a refused write (locked/closed) recovers like `add`. */
+  setItemQty: (cartItemId: string, qty: number) => Promise<void>;
   refresh: () => Promise<void>;
   /** Pickup mode only: the chosen slot (ISO instant) + a way to (re)open the picker. */
   pickupSlot: string | null;
@@ -296,6 +300,26 @@ export function TableCartProvider({
     [cartId, flash, revalidate],
   );
 
+  // Menu inline quick-qty (R5c): decrement/remove the viewer's OWN draft line from the menu (the "+" goes
+  // through `add`, which merges/increments the same no-modifier line). Server-authoritative (`setQty`
+  // re-derives nothing on the client; `qty<=0` removes), authz'd (canMutateLine own-draft-only). Mirrors
+  // Checkout's `changeQty`: swallow a refused write (locked/closed) and re-sync from server truth via
+  // refresh, with the same session-recovery path `add` uses for a silently-expired session.
+  const setItemQty = useCallback(
+    async (cartItemId: string, qty: number) => {
+      if (!cartId) return;
+      try {
+        await setQtyAction(cartItemId, qty);
+        await refresh();
+      } catch {
+        recoveringRef.current = true;
+        flash("Reconnecting to your table…", 2500);
+        revalidate();
+      }
+    },
+    [cartId, refresh, flash, revalidate],
+  );
+
   const openSlotSheet = useCallback(() => setSlotSheetOpen(true), []);
   const count = items.reduce((a, i) => a + i.qty, 0) + pendingAdds;
   const me = session ? { seat: session.seat, name } : null;
@@ -331,6 +355,7 @@ export function TableCartProvider({
         totals,
         count,
         add,
+        setItemQty,
         refresh,
         pickupSlot,
         openSlotSheet,

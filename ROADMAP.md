@@ -142,7 +142,7 @@ clean token base, within the mobile-GPU/reduced-motion/AA guardrails M5 establis
   `--bg`→`--sf` ×6, hardcoded shadow→`--sh-md`, SharePay→shared appearance) · **R3 ✅** framer-motion adopted
   (root `LazyMotion domAnimation strict`; `domMax` deferred to R5 sheets) · **R4 ✅** `interactions.ts`
   (tilt/magnetic/parallax/ripple) ported → `@mms/ui`; first consumer = `AddButton` press-spring + ripple.
-- **Primitive richness:** **R5a ✅** Card `textured`/`interactive` props (CSS-only, Server-safe) + masked-dotgrid `.card-textured` on menu rows · `.card-interactive` + gradient tile + stagger on ModeCard · Stepper count-bounce + button press. **R5b ✅** `Sheet` swipe-to-close — first `domMax` consumer (`DomMaxProvider` + handle-initiated `useDragControls` drag, body-scroll-safe). **R5c — next:** AddButton→Stepper inline morph.
+- **Primitive richness (R5 ✅ complete):** **R5a ✅** Card `textured`/`interactive` props (CSS-only, Server-safe) + masked-dotgrid `.card-textured` on menu rows · `.card-interactive` + gradient tile + stagger on ModeCard · Stepper count-bounce + button press. **R5b ✅** `Sheet` swipe-to-close — first `domMax` consumer (`DomMaxProvider` + handle-initiated `useDragControls` drag, body-scroll-safe). **R5c ✅** menu Add → quantity-stepper morph (`.mms-qty-stepper`; `+`=`add`, `−`=`setItemQty`/`qty<=0` removes; own-draft-line-scoped, focus-on-remove).
 - **Signature moments:** R6 menu (search/filters/hero/blur-up/**item sheet** — biggest gap) · R7 checkout +
   **pay-success celebration** · R8 /track + rewards (conic ring, `NumberFlow`, tier-up) · R9 staff floor + homepage.
 - **Calls (decided in the plan):** adopt framer-motion lazily; dark via a nonce-carrying `prefers-color-scheme`
