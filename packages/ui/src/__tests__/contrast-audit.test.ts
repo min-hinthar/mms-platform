@@ -108,6 +108,9 @@ function combos(map: Record<string, string>, theme: "light" | "dark") {
   // Must clear 4.5:1 (real production text×surface pairings).
   const pass: Combo[] = [
     { name: "tx on cd", fg: tok(map, "--tx"), bg: cd },
+    // R1: --surface-elevated is the theme-true white/dark chrome that floats OVER cards/photos
+    // (favorite heart, close X, add ✓). Body/icon text on it must stay AA in both themes.
+    { name: "tx on surface-elevated", fg: tok(map, "--tx"), bg: tok(map, "--surface-elevated") },
     { name: "t2 on pg", fg: tok(map, "--t2"), bg: pg },
     { name: "t2 on sf", fg: tok(map, "--t2"), bg: sf },
     { name: "t2 on cd", fg: tok(map, "--t2"), bg: cd },

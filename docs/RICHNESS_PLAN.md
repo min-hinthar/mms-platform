@@ -73,7 +73,7 @@ R4 interactions.ts → @mms/ui  ─┘  (needs R3 for useSpring)
 
 **Tokens added:** the ~14 above, each mapped in **both** `:root` and `.dark`.
 
-**Guardrail:** `contrast-audit.test.ts` parses `tokens.css` and hardcodes hex fixtures — **refresh fixtures in the same PR** or the suite silently passes a fail. Every non-default utility must be a real `@layer`/`@theme` entry (Tailwind v4 has no `@config`) — grep built CSS to confirm it emits.
+**Guardrail:** `contrast-audit.test.ts` **parses `tokens.css` at test time** (no hardcoded hex — a token edit is auto-checked); the _semantic combos_ (which text sits on which surface) are the fixtures. So additive non-text tokens (texture/glow) need no change, but a new **text-bearing** surface (e.g. `--surface-elevated`) must get its own `tx-on-surface` combo added in the same PR. Every non-default utility must be a real top-level/`@layer` class (Tailwind v4 has no `@config`) — grep built CSS to confirm it emits.
 
 **Effort: M.**
 
@@ -264,7 +264,7 @@ R4 interactions.ts → @mms/ui  ─┘  (needs R3 for useSpring)
 - **Perf budget (iOS OOM is the crash class):** NO stacked `backdrop-filter` + NO large/full-screen `blur()` on mobile. Glows = `radial-gradient` falloff. Glass surfaces opaque on mobile, `backdrop-filter` only `md:+`, never two stacked. Texture = gradient-masked `background-image`, count-capped. The first screen is **in view on load** — budget the _initial composite_, not just the offscreen-paused steady state.
 - **60fps:** animate `transform`/`opacity` only (never layout/width/top). rAF-throttle all pointer handlers.
 - **Reduced-motion:** every new animation needs a CSS `@media (prefers-reduced-motion)` / `motion-safe:` off-switch **and** a JS `shouldAnimate` gate. framer `repeat: Infinity` loops must use `const loop = shouldAnimate && inView` — they ignore CSS pause and RM otherwise.
-- **AA contrast:** `contrast-audit.test.ts` parses `tokens.css` with hardcoded hex fixtures — refresh fixtures on any token/surface/text change, in the same PR, or it silently passes a fail. Sweep both themes (the test proves the matrix, not component usage).
+- **AA contrast:** `contrast-audit.test.ts` parses `tokens.css` at test time (no hex fixtures — token edits auto-checked); add a `tx-on-surface` combo for any new **text-bearing** surface token, in the same PR. Sweep both themes (the test proves the token matrix, not component usage).
 - **No fabricated data:** roll/animate REAL server-derived values only — no fake ETAs, counts, or countdowns. Money stays server-authoritative; reskins are presentation-only and never touch tip/tax/discount/total math.
 - **Built-CSS reality:** Tailwind v4 has no `@config` here — any non-default utility must be a real `@layer`/`@theme` entry; grep the built CSS to confirm it emits (a green build does not prove the class exists).
 - **a11y:** decoration `pointer-events-none` + `aria-hidden`; rolling digits `aria-hidden` with an `sr-only` real value; ≥44px targets; one live region per view; focus moved on remove/route/step; inputs ≥16px on mobile (iOS focus-zoom).
