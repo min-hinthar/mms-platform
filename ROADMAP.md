@@ -136,9 +136,10 @@ Bring delivery's **deep textures, layered surfaces, micro-interactions, and moti
 clean token base, within the mobile-GPU/reduced-motion/AA guardrails M5 established. **The next initiative**
 (distinct from the 2027 M6 kiosk milestone below). Full spec: **[`docs/RICHNESS_PLAN.md`](docs/RICHNESS_PLAN.md)**.
 
-- **Foundations:** R1 tokens + texture system · **R2 dark-mode activation** (fixes the dead `.dark` — top item) ·
-  R3 framer-motion (lazy `domAnimation`, `domMax` only where drag/layout) + Vitest framer stub · R4 port
-  `interactions.ts` (tilt/magnetic/ripple) → `@mms/ui`.
+- **Foundations:** **R1 ✅** tokens + texture system (motion/depth tokens both themes + gradient-masked
+  `.tex-*`/opaque-mobile `.surface-*` utilities + `pop`/`steam`) · **R2 dark-mode activation** (fixes the dead
+  `.dark` — top item, next) · R3 framer-motion (lazy `domAnimation`, `domMax` only where drag/layout) + Vitest
+  framer stub · R4 port `interactions.ts` (tilt/magnetic/ripple) → `@mms/ui`.
 - **Primitive richness:** R5 Card/Stepper/AddButton/ModeCard/Sheet (textured surfaces, press-springs, swipe-to-close).
 - **Signature moments:** R6 menu (search/filters/hero/blur-up/**item sheet** — biggest gap) · R7 checkout +
   **pay-success celebration** · R8 /track + rewards (conic ring, `NumberFlow`, tier-up) · R9 staff floor + homepage.

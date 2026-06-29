@@ -221,3 +221,124 @@ h3 {
     transform: none;
   }
 }
+
+/* ── Richness track (R1): texture + layered-surface utilities ────────────────────────────────────
+   Printed-matter depth in pure CSS — the technique is ported from the delivery app's hero surfaces
+   but RE-SKINNED to QR's tokens (never imported). Two rules QR adds over delivery: (1) every grid is
+   gradient-MASKED so it fades to nothing toward the edges (a uniform full-bleed grid reads as cheap
+   wallpaper); (2) surfaces stay OPAQUE on mobile — `backdrop-filter`/`blur()` only at md:+ — because
+   stacked blur layers OOM-crash the iOS WebKit tab (documented prod crash). All of these are
+   DECORATIVE: the call site must add `aria-hidden` + `pointer-events-none`. Plain top-level classes
+   (not @layer) to match this file's convention and guarantee they emit in built CSS (Tailwind v4 here
+   has no @config — a JS-config utility would be a silent no-op). */
+
+/* Dot grid — faint radial dots, masked to fade out toward the edges. Tunable: --tex-dot-gap/-r. */
+.tex-dotgrid {
+  background-image: radial-gradient(
+    var(--tex-dot) var(--tex-dot-r, 1px),
+    transparent calc(var(--tex-dot-r, 1px) + 0.6px)
+  );
+  background-size: var(--tex-dot-gap, 18px) var(--tex-dot-gap, 18px);
+  -webkit-mask-image: radial-gradient(120% 120% at 50% 0%, #000 35%, transparent 78%);
+  mask-image: radial-gradient(120% 120% at 50% 0%, #000 35%, transparent 78%);
+}
+/* Line grid — hairline rules, masked to fade top→bottom. Tunable: --tex-line-gap. */
+.tex-linegrid {
+  background-image:
+    linear-gradient(to right, var(--tex-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--tex-line) 1px, transparent 1px);
+  background-size: var(--tex-line-gap, 40px) var(--tex-line-gap, 40px);
+  -webkit-mask-image: linear-gradient(to bottom, #000, transparent);
+  mask-image: linear-gradient(to bottom, #000, transparent);
+}
+/* Grain — inline fractal-noise SVG (zero network cost); --tex-grain-opacity is the single tunable.
+   Consume as an aria-hidden UNDERLAY (a sibling / ::before behind content), never on a text container —
+   the 0.4–0.55 opacity would wash the text. */
+.tex-grain {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+  background-size: 140px 140px;
+  opacity: var(--tex-grain-opacity, 0.4);
+}
+
+/* Layered surfaces — two-tier shadow + an inner top sheen so the panel reads as gently lifted.
+   A) Glass: frosted translucent. Mobile OPAQUE (no backdrop-filter); md:+ frosts + saturates. */
+.surface-glass {
+  background: var(--surface-glass);
+  border: 1px solid var(--bd);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-md);
+}
+@media (min-width: 768px) {
+  .surface-glass {
+    background: color-mix(in oklab, var(--surface-glass) 78%, transparent);
+    -webkit-backdrop-filter: blur(14px) saturate(1.15);
+    backdrop-filter: blur(14px) saturate(1.15);
+  }
+}
+/* B) Vellum: a warm clay→sage wash over cream. Opaque at all widths (the wash is the character). */
+.surface-vellum {
+  background:
+    linear-gradient(
+      140deg,
+      color-mix(in oklab, var(--ac) 8%, transparent),
+      color-mix(in oklab, var(--jade) 7%, transparent)
+    ),
+    var(--surface-vellum);
+  border: 1px solid var(--bd);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-md);
+}
+/* C) Paper: opaque stacked depth (tight ambient + wide diffuse), no translucency. */
+.surface-paper {
+  background: var(--surface-vellum);
+  border: 1px solid var(--bd);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh),
+    var(--sh-md);
+}
+
+/* Count-bounce — a qty/number-change "thunk" (R5 stepper, R8 rolling numbers will consume `.mms-pop`).
+   Keyframes are `mms`-prefixed (like mmsPulse/mmsShimmer) to avoid the global keyframe-namespace
+   collision a bare `pop`/`steam` would risk against a future lib/@theme. */
+@keyframes mmsPop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.18);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.mms-pop {
+  animation: mmsPop var(--dur-fast) var(--ease-out);
+}
+/* Steam — slow rise + fade for the R6 menu-hero wisps. transform/opacity only (60fps). */
+@keyframes mmsSteam {
+  0% {
+    transform: translateY(0) scaleX(1);
+    opacity: 0;
+  }
+  30% {
+    opacity: var(--steam-opacity, 0.5);
+  }
+  100% {
+    transform: translateY(-22px) scaleX(1.4);
+    opacity: 0;
+  }
+}
+.mms-steam {
+  animation: mmsSteam 4.5s var(--ease-in-out) infinite;
+}
+/* Both decorative loops/one-shots honor reduced motion (the keyframe durations are hardcoded, so the
+   token-duration override can't reach them — they need their own off-switch, QA §A). */
+@media (prefers-reduced-motion: reduce) {
+  .mms-pop,
+  .mms-steam {
+    animation: none;
+  }
+}

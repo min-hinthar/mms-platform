@@ -72,6 +72,29 @@
   --sh: 0 1px 3px rgba(35, 24, 16, 0.06), 0 1px 2px rgba(35, 24, 16, 0.04);
   --sh-md: 0 8px 24px rgba(35, 24, 16, 0.09), 0 3px 8px rgba(35, 24, 16, 0.05);
   --sh-xl: 0 24px 60px rgba(35, 24, 16, 0.16);
+  /* ── Richness track (R1): motion + depth tokens (additive — no existing token changed) ──
+     Easing/durations are theme-agnostic (defined here only). Texture/glow/surface/sheen/sh-glow
+     are color-bearing → mirrored in .dark below. Consumed by the globals.css `.tex-*`/`.surface-*`
+     utilities + the R5–R9 component richness. Decorative layers pair with aria-hidden at the call site. */
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast: 120ms; /* micro-interactions: press, count-bounce */
+  --dur-slow: 480ms; /* hero / entrance */
+  /* Texture tints key off theme-aware hues so they read on either surface; alpha kept low
+     (printed-matter detail, not noise). Gaps/radii are utility-level (--tex-*-gap/-r). */
+  --tex-dot: color-mix(in oklab, var(--ac) 16%, transparent);
+  --tex-line: color-mix(in oklab, var(--bd) 70%, transparent);
+  --tex-grain-opacity: 0.4;
+  /* Mobile-safe glow = a radial-gradient STOP color, NEVER a blur() (the iOS WebKit OOM budget). */
+  --glow-ac: color-mix(in oklab, var(--ac) 38%, transparent);
+  --glow-gold: color-mix(in oklab, var(--gold) 34%, transparent);
+  /* Layered surfaces: opaque on mobile; the utility frosts (backdrop-filter) only at md:+. */
+  --surface-glass: rgba(255, 253, 248, 0.96);
+  --surface-vellum: rgba(250, 247, 239, 0.97);
+  /* theme-true chrome OVER cards/photos — a token the card-invert never remaps */
+  --surface-elevated: #ffffff;
+  /* inner top-highlight on lifted surfaces (stays a faint white in BOTH themes — see .dark) */
+  --sheen: rgba(255, 255, 255, 0.55);
+  --sh-glow: 0 6px 22px color-mix(in oklab, var(--ac) 18%, transparent); /* accent-tinted lift */
 }
 .dark {
   /* v4 Night */
@@ -102,11 +125,26 @@
   --sh: 0 1px 3px rgba(0, 0, 0, 0.45);
   --sh-md: 0 8px 22px rgba(0, 0, 0, 0.5);
   --sh-xl: 0 26px 60px rgba(0, 0, 0, 0.65);
+  /* ── Richness track (R1): Night mirror. Dots/glow lift slightly (the dark surface eats contrast);
+     surfaces are translucent Night purple; sheen stays a faint WHITE highlight (not --oa, which is
+     near-black in Night and would read as a dark line, killing the lifted look). ── */
+  --tex-dot: color-mix(in oklab, var(--ac) 20%, transparent);
+  --tex-line: color-mix(in oklab, var(--bd) 80%, transparent);
+  --tex-grain-opacity: 0.55;
+  --glow-ac: color-mix(in oklab, var(--ac) 32%, transparent);
+  --glow-gold: color-mix(in oklab, var(--gold) 30%, transparent);
+  --surface-glass: rgba(39, 31, 56, 0.9);
+  --surface-vellum: rgba(32, 26, 46, 0.95);
+  --surface-elevated: #2e2545;
+  --sheen: rgba(255, 255, 255, 0.06);
+  --sh-glow: 0 6px 22px color-mix(in oklab, var(--ac) 22%, transparent);
 }
 @media (prefers-reduced-motion: reduce) {
   :root {
     --spring: linear(0, 1);
     --dur-base: 0.01ms;
     --dur-sheet: 0.01ms;
+    --dur-fast: 0.01ms;
+    --dur-slow: 0.01ms;
   }
 }

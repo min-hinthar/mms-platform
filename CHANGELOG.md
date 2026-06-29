@@ -4,6 +4,23 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — Richness R1: motion + depth token/texture foundation (2026-06-29)
+
+First slice of the 🎨 Richness track ([`docs/RICHNESS_PLAN.md`](docs/RICHNESS_PLAN.md)) — the reusable depth
+layer R2–R9 build on. **Additive only** (no existing token or component changed); built on QR's clean token
+base, not a port of delivery's accreted `--hero-*` system.
+
+- **Tokens** (`packages/ui/src/tokens.css`, both `:root` and `.dark`): motion (`--ease-in-out`, `--dur-fast`,
+  `--dur-slow`), texture (`--tex-dot`/`--tex-line`/`--tex-grain-opacity`), mobile-safe glow stops
+  (`--glow-ac`/`--glow-gold`), layered surfaces (`--surface-glass`/`--surface-vellum`/`--surface-elevated`,
+  `--sheen`, `--sh-glow`). New durations collapse under `prefers-reduced-motion`.
+- **Utilities** (`apps/qr/app/globals.css`): `.tex-dotgrid`/`.tex-linegrid` (gradient-**masked** so they fade to
+  nothing at the edges, never uniform wallpaper), `.tex-grain` (inline SVG, zero network), `.surface-glass`/
+  `-vellum`/`-paper` (opaque on mobile, `backdrop-filter` only `md:+` — the iOS WebKit OOM budget), and
+  `pop`/`steam` keyframes (RM-gated). Confirmed emitting in built CSS.
+- **Guardrail:** `--surface-elevated` (text-bearing chrome) locked in `contrast-audit.test.ts` for both themes
+  (41 tests green).
+
 ### Added — Grocery Scan & Go: quantities + status-atomic upsert + scanner hardening (2026-06-29)
 
 Scan & Go now treats repeat scans of the same barcode as a **quantity increment** (one line "3 × $X")

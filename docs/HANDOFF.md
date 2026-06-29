@@ -14,6 +14,10 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > R4 interactions.ts→@mms/ui → R5 primitive richness → R6 menu / R7 checkout-celebration / R8 track+rewards /
 > R9 staff+homepage.** Each slice = one gated PR with the pre-PR + pre-merge adversarial review.
 >
+> - **R1 ✅ shipped** — the motion/depth token set (`--ease-in-out`/`--dur-fast`/`--dur-slow`, `--tex-*`,
+>   `--glow-*`, `--surface-glass/-vellum/-elevated`, `--sheen`, `--sh-glow`, both themes) + the gradient-masked
+>   `.tex-dotgrid`/`.tex-linegrid`/`.tex-grain` + opaque-mobile `.surface-glass/-vellum/-paper` + `pop`/`steam`
+>   keyframes in `globals.css`; `--surface-elevated` locked in contrast-audit (41 tests, both themes). **R2 next.**
 > - **R2 dark-mode is the top fix:** the M5 audit found `.dark` is NEVER applied at runtime (the whole Night
 >   palette + the contrast-audit's dark half + the Stripe `.dark` reads are dead). The plan's call: a
 >   **nonce-carrying** `prefers-color-scheme` inline script (QR runs a strict-dynamic nonce CSP — `proxy.ts`).
