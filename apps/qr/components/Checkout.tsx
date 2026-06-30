@@ -9,7 +9,7 @@ import {
 } from "react";
 import Link from "next/link";
 import type { CartItem, CartTotals } from "@mms/db";
-import { Stepper } from "@mms/ui";
+import { NumberFlow, Stepper } from "@mms/ui";
 import {
   applyPromo as applyPromoAction,
   getCartView,
@@ -372,7 +372,7 @@ export function Checkout({
             <Row k="Service charge (5%)" cents={payTotals.serviceChargeCents} />
             <Row k="Sales tax" cents={payTotals.taxCents} />
             {payTotals.tipCents > 0 && <Row k="Tip" cents={payTotals.tipCents} />}
-            <Row k="Total" cents={payTotals.totalCents} strong />
+            <Row k="Total" cents={payTotals.totalCents} strong roll />
           </dl>
           <PaymentSection
             cartId={cartId}
@@ -686,6 +686,7 @@ export function Checkout({
               k={tipPreviewCents > 0 ? "Estimated total" : "Total"}
               cents={totals.totalCents + tipPreviewCents}
               strong
+              roll
             />
           </dl>
 
@@ -882,7 +883,17 @@ function LineStateChip({ state, comped }: { state: CartItem["lineState"]; comped
   );
 }
 
-function Row({ k, cents, strong }: { k: string; cents: number; strong?: boolean }) {
+function Row({
+  k,
+  cents,
+  strong,
+  roll,
+}: {
+  k: string;
+  cents: number;
+  strong?: boolean;
+  roll?: boolean;
+}) {
   return (
     <div
       style={{
@@ -893,7 +904,15 @@ function Row({ k, cents, strong }: { k: string; cents: number; strong?: boolean 
       }}
     >
       <dt>{k}</dt>
-      <dd style={{ margin: 0, fontVariantNumeric: "tabular-nums" }}>${(cents / 100).toFixed(2)}</dd>
+      <dd style={{ margin: 0, fontVariantNumeric: "tabular-nums" }}>
+        {/* R7a: roll the hero total as the tip selection changes it (presentation-only; the charge stays
+            server-authoritative). NumberFlow snaps under reduced-motion automatically. */}
+        {roll ? (
+          <NumberFlow value={cents / 100} format={{ style: "currency", currency: "USD" }} />
+        ) : (
+          `$${(cents / 100).toFixed(2)}`
+        )}
+      </dd>
     </div>
   );
 }

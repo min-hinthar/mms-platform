@@ -1,5 +1,6 @@
 "use client";
 import { useRouter } from "next/navigation";
+import { NumberFlow } from "@mms/ui";
 import { useCart } from "./TableCartProvider";
 
 /**
@@ -44,7 +45,11 @@ export function CartBar() {
       <span>
         View order · {count} {count === 1 ? "item" : "items"}
       </span>
-      <span style={{ fontVariantNumeric: "tabular-nums" }}>{dollars}</span>
+      {/* Roll the subtotal as it changes (R7a). The button's accessible name is the static aria-label
+          above (read on focus) — the rolling figure is presentation, not a per-tap announcement. */}
+      <span style={{ fontVariantNumeric: "tabular-nums" }}>
+        <NumberFlow value={subtotalCents / 100} format={{ style: "currency", currency: "USD" }} />
+      </span>
     </button>
   );
 }

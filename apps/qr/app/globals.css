@@ -966,3 +966,82 @@ h3 {
     transition: none;
   }
 }
+
+/* ── Richness R7a: pay-success celebration (draw-on checkmark · confetti · gems pill) ─────────────────
+   transform/opacity only; tokens not hex; reduced-motion off-switch; confetti is the one decorative layer
+   (no blur, no backdrop-filter — mobile GPU budget). The JS (PaySuccess) gates FX on motion + device tier. */
+
+.pay-success {
+  text-align: center;
+  padding: 8px 0 2px;
+}
+.pay-success-check {
+  width: 72px;
+  height: 72px;
+  display: inline-block;
+}
+.pay-success-check-ring {
+  fill: color-mix(in oklab, var(--ok) 15%, var(--cd));
+  stroke: var(--ok);
+  stroke-width: 2.5;
+}
+.pay-success-check-mark {
+  fill: none;
+  stroke: var(--ok);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.pay-success-title {
+  font-size: 26px;
+  margin: 8px 0 0;
+}
+.pay-success-gems {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 7px 16px;
+  border-radius: var(--r-full);
+  background: color-mix(in oklab, var(--ac) 12%, var(--cd));
+  color: var(--ac-strong);
+  font-weight: 800;
+  font-size: 14px;
+}
+/* Mode + status + ETA row under the celebration headline. */
+.track-statusrow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+/* One-shot confetti — a fixed, non-interactive overlay; particles fall via a single transform/opacity
+   keyframe with per-particle custom props. display:none under reduced-motion (PaySuccess also won't mount it). */
+.mms-confetti {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 60;
+  overflow: hidden;
+}
+.mms-confetti-pc {
+  position: absolute;
+  top: 0;
+  border-radius: 2px;
+  animation: mmsConfettiFall var(--cf-dur, 2000ms) var(--cf-delay, 0ms) var(--ease-out) both;
+}
+@keyframes mmsConfettiFall {
+  0% {
+    transform: translate3d(0, -12vh, 0) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(var(--cf-drift, 0), 112vh, 0) rotate(var(--cf-rot, 360deg));
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mms-confetti {
+    display: none;
+  }
+}
