@@ -4,6 +4,23 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — Richness R7a: pay-success celebration + money-roll (2026-06-30)
+
+The highest-impact single moment: a pay-success "thunk" on `/track` and rolling money. (R7b polishes the
+checkout review/pay surfaces next.) The Payment Element hard-redirects to `/track?...&redirect_status=succeeded`,
+so the celebration lives there (gated by a new `OrderTracker` `justPaid` prop; split-tender `paid=1` too).
+
+- **Pay-success celebration** (`PaySuccess` + `Confetti`, new) — a draw-on SVG checkmark (`pathLength`) +
+  **"Paid — thank you!"** + a **"✦ +N gems earned"** pill, with a one-shot confetti burst + success haptic
+  (`[10,40,18]`). Confetti is bespoke (≤90 CSS-animated transform/opacity spans, token gold/jade/clay, no
+  blur) and gated on `shouldAnimate && useDeviceTier()!=="low"`; reduced-motion drops the confetti + leaves the
+  checkmark at rest. No new live region — the tracker's single `role="status"` carries the spoken confirmation.
+- **Gems** = `round(total)` — a deterministic display rule (≈1/$) over the **real paid total**, shown once the
+  order lands; not a fabricated/persisted balance.
+- **NumberFlow money-roll** — the `CartBar` subtotal and the Checkout `Total`/`Estimated total` row now roll as
+  the amount changes (currency format, snaps under reduced-motion). Static `aria-label` kept so the amount
+  isn't re-announced per tap. **Money stays presentation-only / server-authoritative — totals math untouched.**
+
 ### Added — Richness R6b: item detail sheet — modifiers · live price · upsell · photo-hero (2026-06-30)
 
 Tapping a menu row opens a detail bottom-sheet (the `@mms/ui` `Sheet`, R5b swipe-to-close + Radix focus

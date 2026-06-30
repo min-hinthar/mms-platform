@@ -5,6 +5,7 @@ import { useOrderStatus } from "@/lib/useOrderStatus";
 import { formatSlotLong } from "@/lib/pickupTime";
 import { useAnimationPreference, useInView } from "@mms/ui";
 import { FeedbackPrompt } from "./FeedbackPrompt";
+import { PaySuccess } from "./PaySuccess";
 
 // Lifecycle steps (verbatim v7.2). The active step is server-driven; at M1/M2 there's no kitchen
 // actor, so it rests at "Order placed" — the kitchen steps light up when S2's KDS lands (same Realtime
@@ -32,12 +33,16 @@ export function OrderTracker({
   paymentIntent,
   orderId = null,
   processing,
+  justPaid = false,
 }: {
   paymentIntent: string | null;
   // Split-tender (M3·P3.3b) orders have no PaymentIntent on the row, so /track keys them by the
   // resolved order id instead (getSplitOrderId). Exactly one of paymentIntent/orderId is set.
   orderId?: string | null;
   processing: boolean; // redirect_status === "processing" — payment not yet captured (e.g. bank debit)
+  // R7a: this mount is a FRESH successful payment (redirect_status=succeeded / split paid=1) → play the
+  // one-shot pay-success celebration. False on a revisit/processing/direct-visit (no celebration).
+  justPaid?: boolean;
 }) {
   const { order, timedOut } = useOrderStatus(paymentIntent, orderId);
   // Pulse the active step only while the timeline is on-screen AND motion is allowed (P5.3): a
@@ -68,44 +73,66 @@ export function OrderTracker({
           ? 1
           : 0;
   const ready = arrived && togo === "ready";
+  // Gems = round(total) — a real value (the amount paid) via a deterministic display rule (≈1/$). Shown only
+  // once the order lands (the paid total is known); never a fabricated balance. (R7a, owner decision 1c.)
+  const gems = order ? Math.round(order.totalCents / 100) : null;
+  const modeLabel = isPickup ? "Pickup" : "Scan & Go";
+  const statusChip = (
+    <span
+      style={{
+        ...chip,
+        background: arrived ? "var(--okb)" : "var(--sf)",
+        color: arrived ? "var(--ok)" : "var(--t2)",
+      }}
+    >
+      {ready
+        ? "Ready for pickup"
+        : arrived
+          ? togo === "picked_up"
+            ? "Picked up"
+            : "Order received"
+          : processing
+            ? "Confirming payment"
+            : "Confirming order"}
+    </span>
+  );
 
   return (
     <main style={{ padding: "24px 20px 40px", maxWidth: 440, margin: "0 auto" }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          gap: 12,
-        }}
-      >
-        <div>
-          <div className="eyebrow">{isPickup ? "Pickup" : "Scan & Go"}</div>
-          <h1 style={{ fontSize: 28, margin: "2px 0 0" }}>Your order</h1>
-          {eta && (
-            <div style={{ marginTop: 6, fontWeight: 800, color: "var(--ac)", fontSize: 14 }}>
-              {eta}
+      {justPaid ? (
+        // Fresh successful payment → the celebration is the headline (one <h1>); the mode + status + ETA
+        // ride a compact row below it, and the timeline follows.
+        <>
+          <PaySuccess gems={gems} />
+          <div className="track-statusrow">
+            <div className="eyebrow">
+              {modeLabel}
+              {eta ? ` · ${eta}` : ""}
             </div>
-          )}
-        </div>
-        <span
+            {statusChip}
+          </div>
+        </>
+      ) : (
+        <div
           style={{
-            ...chip,
-            background: arrived ? "var(--okb)" : "var(--sf)",
-            color: arrived ? "var(--ok)" : "var(--t2)",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: 12,
           }}
         >
-          {ready
-            ? "Ready for pickup"
-            : arrived
-              ? togo === "picked_up"
-                ? "Picked up"
-                : "Order received"
-              : processing
-                ? "Confirming payment"
-                : "Confirming order"}
-        </span>
-      </div>
+          <div>
+            <div className="eyebrow">{modeLabel}</div>
+            <h1 style={{ fontSize: 28, margin: "2px 0 0" }}>Your order</h1>
+            {eta && (
+              <div style={{ marginTop: 6, fontWeight: 800, color: "var(--ac)", fontSize: 14 }}>
+                {eta}
+              </div>
+            )}
+          </div>
+          {statusChip}
+        </div>
+      )}
 
       {/* Single live region: role="status" already implies aria-live="polite" (ARIA 1.2). The
           timedOut arm makes the text CHANGE when polling gives up, so AT announces the recovery. */}
@@ -120,9 +147,11 @@ export function OrderTracker({
                 : "Payment confirmed — your order is in."
             : timedOut
               ? "Your order is taking longer than expected — use the Refresh button to check."
-              : processing
-                ? "Confirming your payment."
-                : "Confirming your order."}
+              : justPaid
+                ? "Payment confirmed — finalizing your order."
+                : processing
+                  ? "Confirming your payment."
+                  : "Confirming your order."}
       </p>
 
       {/* <ul>, not <ol>: the steps' order is conveyed visually + by aria-current, not a numeric

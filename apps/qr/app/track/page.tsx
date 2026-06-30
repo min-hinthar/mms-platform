@@ -52,7 +52,8 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
   // distinguishes this from a stray direct visit to `/track?cart=…`.
   if (paid && cart) {
     const orderId = await getSplitOrderId(cart).catch(() => null);
-    if (orderId) return <OrderTracker paymentIntent={null} orderId={orderId} processing={false} />;
+    if (orderId)
+      return <OrderTracker paymentIntent={null} orderId={orderId} processing={false} justPaid />;
     return (
       <main style={wrap}>
         <h1 style={{ fontSize: 28, margin: "8px 0" }}>Payment received</h1>
@@ -70,7 +71,13 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
     // The PaymentIntent id keys the live subscription. Stripe always appends it; if it's somehow
     // absent, fall back to a static confirmation rather than a tracker that can never resolve.
     if (paymentIntent)
-      return <OrderTracker paymentIntent={paymentIntent} processing={status === "processing"} />;
+      return (
+        <OrderTracker
+          paymentIntent={paymentIntent}
+          processing={status === "processing"}
+          justPaid={status === "succeeded"}
+        />
+      );
     return (
       <main style={wrap}>
         <h1 style={{ fontSize: 28, margin: "8px 0" }}>
