@@ -131,7 +131,7 @@ function PayForm({
           borderRadius: 12,
           border: "none",
           background: "transparent",
-          color: "var(--t2)",
+          // color lives in .checkout-cta-ghost so the :hover brighten isn't outranked by an inline color.
           fontWeight: 700,
           cursor: submitting ? "default" : "pointer",
         }}

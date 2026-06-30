@@ -1109,8 +1109,10 @@ h3 {
   transform: scale(0.97);
 }
 
-/* Ghost CTA (Edit order) — quiet hover + press. */
+/* Ghost CTA (Edit order) — quiet hover + press. Base color lives HERE (not inline on the button) so the
+   :hover brighten wins by normal cascade — an inline `color` would outrank a class+pseudo rule. */
 .checkout-cta-ghost {
+  color: var(--t2);
   transition:
     transform var(--dur-fast) var(--ease-out),
     color var(--dur-fast) var(--ease-out);
