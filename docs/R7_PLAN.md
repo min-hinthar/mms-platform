@@ -49,12 +49,24 @@
 - **`globals.css`** — `.pay-success*`, `.mms-confetti*` + `@keyframes mmsConfettiFall`, `.track-statusrow`
   (all transform/opacity, reduced-motion off-switch).
 
-## R7b — checkout polish (next PR)
+## R7b — checkout polish ✅ shipped 2026-06-30
 
-Tip-chip press-scale + `--ac` tint + soft preview fade; pay/continue/edit buttons press-scale(.97) + accent
-glow (`--sh-glow`); `card-interactive` on cart lines; spring slide on the review↔pay step transition
-**without remounting the Stripe Element** (its appearance is resolved mount-time — a remount wipes in-progress
-card entry, R2 known limitation). Order summary visual hierarchy.
+Built, with one thoughtful deviation: **cart lines use `card-textured`, not `card-interactive`** — the lines
+aren't clickable (they hold a Stepper), so a hover-lift would be a false affordance; the texture adds the
+"layered surface" richness without implying interactivity. Everything is **CSS `@media`-gated** (not the
+`shouldAnimate` hook — applying the R7a reduced-motion-race learning proactively):
+
+- **Tip chips** (`.checkout-tip`) — press settle (scale .97) + a smooth tint/preview transition on rate change.
+- **CTAs** — `.checkout-cta` (Continue / Pay): accent glow (`--sh-glow`) on hover + press settle;
+  `.checkout-cta-ghost` (Edit): quiet hover + press.
+- **Cart lines** — `card card-textured` (richer surface, no false-clickable hover-lift).
+- **Order summary** — the grand total reads as the hero figure (hairline divider + display serif + 20px),
+  presentation-only.
+- **Step transition** (`.checkout-step`) — a **keyed** wrapper enter-slides on each view change
+  (review ↔ pay ↔ settle); keyed on the view so the animation replays while the always-mounted `<h1>` stays
+  the focus target. The pay step's **Stripe Element mounts with the wrapper**, and the enter is a `transform`
+  on the wrapper, so the embedded Payment Element iframe never reloads (its appearance is mount-time — a
+  remount would wipe in-progress card entry, R2 known limitation).
 
 ## Guardrails (every R7 PR)
 

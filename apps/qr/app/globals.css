@@ -1075,3 +1075,77 @@ h3 {
     display: none;
   }
 }
+
+/* ── Richness R7b: checkout review/pay polish (tip + CTA press·glow · step transition) ────────────────
+   Press/hover feedback + a keyed step-enter slide. transform/opacity + box-shadow only; tokens not hex;
+   every animation has an `@media (prefers-reduced-motion)` off-switch (CSS, not the shouldAnimate hook —
+   so no first-render race + SSR-safe; see .claude/LEARNINGS.md). Stripe-iframe-safe: the step enter is a
+   transform on the wrapper, which never reloads the embedded Payment Element. */
+
+/* Tip chips — press settle + a smooth tint/preview transition when the active rate changes. */
+.checkout-tip {
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+.checkout-tip:not(:disabled):active {
+  transform: scale(0.97);
+}
+.checkout-tip small {
+  transition: color var(--dur-fast) var(--ease-out);
+}
+
+/* Primary accent CTA (Continue to payment / Pay) — accent glow on hover, press settle. */
+.checkout-cta {
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out);
+}
+.checkout-cta:not(:disabled):hover {
+  box-shadow: var(--sh-glow);
+}
+.checkout-cta:not(:disabled):active {
+  transform: scale(0.97);
+}
+
+/* Ghost CTA (Edit order) — quiet hover + press. Base color lives HERE (not inline on the button) so the
+   :hover brighten wins by normal cascade — an inline `color` would outrank a class+pseudo rule. */
+.checkout-cta-ghost {
+  color: var(--t2);
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+.checkout-cta-ghost:not(:disabled):hover {
+  color: var(--tx);
+}
+.checkout-cta-ghost:not(:disabled):active {
+  transform: scale(0.97);
+}
+
+/* Step transition — the keyed wrapper enter-slides on each view change (review ↔ pay ↔ settle). */
+.checkout-step {
+  animation: checkoutStepIn var(--dur-base) var(--ease-out) both;
+}
+@keyframes checkoutStepIn {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .checkout-tip,
+  .checkout-cta,
+  .checkout-cta-ghost {
+    transition: none;
+  }
+  .checkout-step {
+    animation: none;
+  }
+}
