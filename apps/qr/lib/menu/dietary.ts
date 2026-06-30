@@ -28,12 +28,13 @@ type DietInput = { tags: readonly string[]; allergens: readonly string[] };
 /** True if `item` satisfies EVERY active diet. Empty `diets` ⇒ everything passes. */
 export function passesDiets(item: DietInput, diets: readonly Diet[]): boolean {
   return diets.every((d) => {
-    // Deliberately EXCLUDES vegan-optional (fail-safe, matches the canonical delivery model
-    // `vegetarian = vegetarian|vegan`): "vegan on request" only guarantees a vegan version exists, not
-    // that the DEFAULT prep is vegetarian (e.g. pad thai with fish sauce) — including it would fail open.
+    // Both chips deliberately EXCLUDE vegan-optional in R6a (fail-safe). "Vegan on request" only means a
+    // vegan VARIANT can be made — the DEFAULT prep is not guaranteed vegetarian/vegan (e.g. Everything Salad
+    // ships with shrimp/egg). R6a only has the quick Add (item id, no modifier), so there is no way to
+    // request the vegan variant yet — letting vegan-optional through would one-tap-add the NON-vegan default.
+    // R6b (item sheet + "make it vegan" capture) re-introduces vegan-optional to the vegan chip then.
     if (d === "vegetarian") return item.tags.includes("vegetarian") || item.tags.includes("vegan");
-    // "Vegan on request" counts for the vegan chip (the dish can be made vegan — see vegan-optional).
-    if (d === "vegan") return item.tags.includes("vegan") || item.tags.includes("vegan-optional");
+    if (d === "vegan") return item.tags.includes("vegan");
     // Free-from, FAIL-SAFE: excluded if it declares the allergen, OR if its allergens are unknown and it
     // was never reviewed (unknown ≠ safe).
     const ruled = FREE_FROM_ALLERGENS[d] ?? [];

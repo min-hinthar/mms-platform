@@ -561,13 +561,15 @@ h3 {
   }
 }
 
-/* Sticky toolbar shell (search + rail + chips) — pins under the title; opaque so rows scroll cleanly under. */
+/* Sticky toolbar shell (search + rail + chips) — pins under the title; opaque so rows scroll cleanly under.
+   Safe-area top padding: once the header scrolls away this is the topmost element and pins to the physical
+   viewport top under viewportFit:cover, so it must clear the notch/status bar on iOS/installed PWAs. */
 .menu-toolbar {
   position: sticky;
   top: 0;
   z-index: 2;
   background: var(--pg);
-  padding: 8px 20px 10px;
+  padding: calc(8px + env(safe-area-inset-top, 0px)) 20px 10px;
 }
 
 /* Search field — 16px text (no iOS focus-zoom), pill, leading 🔍 set by the wrapper. */
