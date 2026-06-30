@@ -27,16 +27,23 @@ export function PaySuccess({ gems }: { gems: number | null }) {
   const hapticDone = useRef(false);
 
   // One-shot success haptic — an external-system write (not React state), so it's effect-legal. Fires once
-  // per mount; a page refresh re-mounts and may re-buzz (acceptable, same as the confetti).
+  // per mount; a page refresh re-mounts and may re-buzz (acceptable, same as the confetti). Read the
+  // reduced-motion preference SYNCHRONOUSLY here: `useAnimationPreference()` seeds `shouldAnimate=true` until
+  // its own media-query effect resolves, so trusting it on the first-mount pass would buzz a reduced-motion
+  // user once before the off-switch flips. `matchMedia` is authoritative + race-free on the client.
   useEffect(() => {
-    if (hapticDone.current || !shouldAnimate) return;
+    if (hapticDone.current) return;
+    const reduce =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) return;
     hapticDone.current = true;
     try {
       navigator.vibrate?.([10, 40, 18]);
     } catch {
       /* unsupported */
     }
-  }, [shouldAnimate]);
+  }, []);
 
   // Unmount the confetti overlay once the particles have fallen, so a fixed full-screen layer doesn't linger
   // for the page's life. setState in the timeout callback is async (not a synchronous setState-in-effect).
@@ -71,7 +78,7 @@ export function PaySuccess({ gems }: { gems: number | null }) {
       <h1 className="pay-success-title">Paid — thank you!</h1>
       {gems != null && gems > 0 && (
         <span className="pay-success-gems">
-          <span aria-hidden>✦ </span>+{gems} gems earned
+          <span aria-hidden>✦ </span>+{gems} {gems === 1 ? "gem" : "gems"} earned
         </span>
       )}
     </div>

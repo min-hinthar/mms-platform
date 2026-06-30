@@ -147,9 +147,11 @@ export function OrderTracker({
                 : "Payment confirmed — your order is in."
             : timedOut
               ? "Your order is taking longer than expected — use the Refresh button to check."
-              : processing
-                ? "Confirming your payment."
-                : "Confirming your order."}
+              : justPaid
+                ? "Payment confirmed — finalizing your order."
+                : processing
+                  ? "Confirming your payment."
+                  : "Confirming your order."}
       </p>
 
       {/* <ul>, not <ol>: the steps' order is conveyed visually + by aria-current, not a numeric
