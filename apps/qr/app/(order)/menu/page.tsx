@@ -50,6 +50,16 @@ function shapeModifierGroups(links: RawModLink[] | null | undefined): ModGroup[]
   return groups.sort((a, b) => (b.minSelect >= 1 ? 1 : 0) - (a.minSelect >= 1 ? 1 : 0));
 }
 
+// An item with a REQUIRED group whose options are ALL inactive can't be completed (the required choice has
+// no options), and the server's `enforceCardinality` would reject every add. Treat it as unavailable so the
+// menu shows it sold-out (honest) rather than an addable item that always fails.
+function requiredChoiceUnavailable(links: RawModLink[] | null | undefined): boolean {
+  return (links ?? []).some((l) => {
+    const g = l.modifier_groups;
+    return !!g && g.min_select >= 1 && !(g.modifier_options ?? []).some((o) => o.is_active);
+  });
+}
+
 export default async function Menu({
   searchParams,
 }: {
@@ -79,7 +89,8 @@ export default async function Menu({
       description_en: i.description_en,
       base_price_cents: i.base_price_cents,
       image_url: i.image_url,
-      is_sold_out: i.is_sold_out,
+      // Unavailable if flagged sold-out OR a required modifier group has no active options to choose from.
+      is_sold_out: i.is_sold_out || requiredChoiceUnavailable(i.item_modifier_groups),
       tags: i.tags ?? [],
       allergens: i.allergens ?? [],
       category: i.menu_categories?.name ?? "Menu",

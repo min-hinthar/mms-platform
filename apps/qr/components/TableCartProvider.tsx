@@ -31,8 +31,9 @@ type CartCtx = {
   count: number;
   /** Add an item to the cart. `modifierIds` (R6b item sheet) are modifier-OPTION ids only — the server
    *  (`priceItem`/`addItem`) re-derives every amount; the client never sends a price. Omitted ⇒ quick-add
-   *  with no modifiers (the inline menu AddButton path). */
-  add: (menuItemId: string, modifierIds?: string[]) => Promise<void>;
+   *  with no modifiers (the inline menu AddButton path). Resolves `true` on a successful add, `false` if the
+   *  add was refused/recovered (so the item sheet can stay OPEN and keep the diner's modifier choices). */
+  add: (menuItemId: string, modifierIds?: string[]) => Promise<boolean>;
   /** Set a cart line's quantity (server-authoritative `setQty`; `qty<=0` removes). Used by the menu's
    *  inline quick-qty stepper (R5c) to decrement/remove the viewer's own line without leaving the menu.
    *  Re-syncs from the returned view; a refused write (locked/closed) recovers like `add`. `announce` (the
@@ -283,8 +284,8 @@ export function TableCartProvider({
   useCartRealtime(cartId ?? "", session?.accessToken ?? "", isGroup, handleCartChange);
 
   const add = useCallback(
-    async (menuItemId: string, modifierIds: string[] = []) => {
-      if (!cartId) return;
+    async (menuItemId: string, modifierIds: string[] = []): Promise<boolean> => {
+      if (!cartId) return false;
       // Optimistic: bump the visible count + confirm on tap, so the cart bar responds immediately
       // instead of after the round-trip. The total stays server-authoritative (no client price math),
       // so it settles when the view returns — the count is the instant feedback.
@@ -297,16 +298,17 @@ export function TableCartProvider({
         setItems(view.items);
         setTotals(view.totals);
         setPickupSlot(view.pickupSlot);
+        return true;
       } catch {
         // The add failed — most often a silently-EXPIRED table session (the mint had handed back a
-        // still-'active' but expired session that the server now 403s). Recover by re-minting rather
-        // than stranding the diner behind a "try again" that can never succeed; the cartId-diff effect
-        // above announces honestly whether the session was renewed or restarted. Works for a transient
-        // network blip too (re-mint returns the same cart → "reconnected, try again"). No rethrow:
-        // AddButton already swallows, and recovery is the handled outcome.
+        // still-'active' but expired session that the server now 403s), or a refused write (cart locked,
+        // a stale/invalid modifier selection). Recover by re-minting rather than stranding the diner; the
+        // cartId-diff effect announces honestly whether the session was renewed or restarted. Return false
+        // so the item sheet stays OPEN (keeps the diner's modifier choices) instead of a false success.
         recoveringRef.current = true;
         flash("Reconnecting to your table…", 2500);
         revalidate();
+        return false;
       } finally {
         setPendingAdds((n) => n - 1);
       }

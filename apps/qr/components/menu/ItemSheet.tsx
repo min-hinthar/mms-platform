@@ -128,8 +128,10 @@ function ItemSheetBody({
     try {
       // Option ids only — the provider's `add` forwards to `addItem`→`priceItem`, which validates the ids
       // against this item's groups and re-derives the charge. The client never sends a price.
-      await add(item.id, selectedIds(groups, selected));
-      onClose(); // optimistic close (the provider's live region confirms / recovers); Radix restores focus
+      // Close only on SUCCESS — a refused add (expired session / locked cart / invalid selection) keeps the
+      // sheet open with the diner's choices intact (the provider's live region shows the recovery message).
+      const ok = await add(item.id, selectedIds(groups, selected));
+      if (ok) onClose(); // Radix restores focus to the trigger row
     } finally {
       setBusy(false);
     }
