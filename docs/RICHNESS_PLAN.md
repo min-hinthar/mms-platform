@@ -200,6 +200,14 @@ strict`) at the root. `domMax`/`DomMaxProvider` deferred to R5 (sheet swipe). Fr
 
 ### R6 — Menu: search · filters · hero · blur-up · item sheet (the single biggest gap)
 
+> **Split into two gated PRs (owner-confirmed 2026-06-30; build plan: `docs/R6_PLAN.md`).**
+> **R6a ✅ shipped 2026-06-30** — browse layer: RSC fetches the catalog (+`description_en`/`tags`/`allergens`)
+> → client `MenuBrowser` (search · scroll-spy category **jump-nav** (`<nav>`+`aria-current`, NOT tablist) ·
+> fail-safe dietary filters in `lib/menu/dietary.ts` · `BlurUpImage` · real-tag `Badge`s · empty state). No
+> menu-top hero band (decision: lean top; the photo-hero lives in the R6b sheet). **R6b next** = the item
+> detail sheet (modifiers from `min_select` · client-preview/server-final live price · hardcoded "goes well
+> with" upsell). Decisions recap: split · item-sheet-hero-only · hardcoded upsell · client-preview pricing.
+
 **Goal:** lift the menu from ~2.2/5 to the bar. Today it's a flat RSC list (`apps/qr/app/(order)/menu/page.tsx`).
 
 **Scope:**

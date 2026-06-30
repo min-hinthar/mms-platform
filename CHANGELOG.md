@@ -4,6 +4,29 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — Richness R6a: menu browse layer — search · category rail · dietary filters · blur-up · badges (2026-06-30)
+
+The flat menu list becomes a browsable surface (R6a; the item detail sheet is R6b). The RSC page now fetches
+the catalog (incl. `description_en`, `tags`, `allergens`) and hands it to a client `MenuBrowser` that owns the
+search / category / dietary state — data stays server-fetched, only the interaction is client-side.
+
+- **Search** — sticky pill input, live client-filter on EN/MY name + description; `text-base` (≥16px → no
+  iOS focus-zoom); labelled "Search the menu"; 🔍 `aria-hidden`.
+- **Category jump-rail** — a `<nav aria-label="Menu categories">` of chips (NOT `role="tablist"` — it's a
+  scroll-spy jump nav, not switched panels): tap → smooth `scrollIntoView` (instant under reduced-motion);
+  an `IntersectionObserver` sets `aria-current` on the in-view category; the rail tracks the filtered set.
+  44px targets, lit active / ghost inactive.
+- **Dietary filters** — toggle chips (Vegetarian/Vegan/Gluten-free/No nuts/No shellfish), `aria-pressed`,
+  jade tint when on. **Fail-safe** logic in `lib/menu/dietary.ts`: a free-from chip excludes any dish that
+  declares the allergen AND any dish with **no declared allergens unless `allergen-reviewed`** (unknown ≠
+  safe); an inline disclaimer ("Allergen info is a guide — please tell our staff about any allergy.") shows
+  only while a free-from chip is active.
+- **Blur-up images** (`BlurUpImage`) — `next/image` fades + un-blurs on load over a gradient placeholder;
+  `onError` drops the img; transform/opacity/filter only, reduced-motion-gated; no broken-image flash.
+- **Badges** — `@mms/ui` Badge for the item's **real** tags only (Popular/Vegan/Vegetarian) — never a
+  fabricated "Signature"; sold-out stays a dimmed, disabled row (not removed).
+- **Empty state** — one live region (`role="status"`) "Nothing matches" + a "Clear filters" button.
+
 ### Added — Richness R5c: menu Add → quantity-stepper morph + per-seat group lines (completes R5) (2026-06-29)
 
 The menu's per-item **Add** pill now morphs into an inline accent quantity stepper (− qty +) once the
