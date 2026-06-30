@@ -1,0 +1,331 @@
+"use client";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Badge } from "@mms/ui";
+import { AddButton } from "@/components/AddButton";
+import { CartBar } from "@/components/CartBar";
+import { GuestList } from "@/components/GuestList";
+import { PickupSlotChip } from "@/components/PickupSlotChip";
+import { BlurUpImage } from "./BlurUpImage";
+import { DIETS, hasFreeFrom, passesDiets, type Diet } from "@/lib/menu/dietary";
+
+export type MenuItem = {
+  id: string;
+  name_en: string;
+  name_my: string | null;
+  description_en: string | null;
+  base_price_cents: number;
+  image_url: string | null;
+  is_sold_out: boolean;
+  tags: string[];
+  allergens: string[];
+  category: string;
+};
+
+const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+
+// Item tags → real, honest badges (only tags that actually exist in the catalog — never a fabricated
+// "Signature"). At most two so the row stays calm; sold-out is shown separately (text + dimming).
+function itemBadges(tags: string[]): { label: string; tone: "gold" | "jade" }[] {
+  const out: { label: string; tone: "gold" | "jade" }[] = [];
+  if (tags.includes("popular")) out.push({ label: "Popular", tone: "gold" });
+  if (tags.includes("vegan")) out.push({ label: "Vegan", tone: "jade" });
+  else if (tags.includes("vegetarian")) out.push({ label: "Vegetarian", tone: "jade" });
+  return out.slice(0, 2);
+}
+
+/**
+ * Menu browse layer (R6a). A client island the RSC page hands the server-fetched catalog: it owns the
+ * search / category / dietary state and renders the sticky toolbar + grouped sections. Data stays
+ * server-fetched (RLS, fast TTFB); only the interaction is client-side. The item rows keep the R5a
+ * textured card + the AddButton morph; the item DETAIL sheet is R6b.
+ */
+export function MenuBrowser({ items, mode }: { items: MenuItem[]; mode: string }) {
+  const [q, setQ] = useState("");
+  const [diets, setDiets] = useState<Diet[]>([]);
+  const [activeCat, setActiveCat] = useState<string | null>(null);
+  const sectionRefs = useRef(new Map<string, HTMLElement>());
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const clearBtnRef = useRef<HTMLButtonElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  // Measured sticky-toolbar height — drives both the scroll-spy top inset and section scroll-margin so a
+  // tab-click lands the heading just under the toolbar. Measured (not hard-coded) because the toolbar grows
+  // when the rail/diet chips wrap or the disclaimer appears; falls back to 150 pre-measure / without RO.
+  const [toolbarH, setToolbarH] = useState(150);
+
+  // Category order as fetched (the server sorted by sort_order); first occurrence wins.
+  const allCats = useMemo(() => [...new Set(items.map((i) => i.category))], [items]);
+
+  // Visible items = search match (EN/MY/description) ∩ dietary filters. Pure, recomputed on input.
+  const visible = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return items.filter((i) => {
+      if (!passesDiets(i, diets)) return false;
+      if (!needle) return true;
+      return (
+        i.name_en.toLowerCase().includes(needle) ||
+        (i.name_my?.toLowerCase().includes(needle) ?? false) ||
+        (i.description_en?.toLowerCase().includes(needle) ?? false)
+      );
+    });
+  }, [items, q, diets]);
+
+  // Categories that still have a visible item (the rail + sections track the filtered set).
+  const cats = useMemo(
+    () => allCats.filter((c) => visible.some((i) => i.category === c)),
+    [allCats, visible],
+  );
+
+  const freeFrom = hasFreeFrom(diets);
+  const empty = visible.length === 0;
+
+  // Measure the sticky toolbar so the scroll-spy inset + section scroll-margin track its real height
+  // (it grows when chips wrap / the disclaimer shows). Falls back to the 150 seed if RO is unavailable.
+  useEffect(() => {
+    const el = toolbarRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const measure = () => setToolbarH(el.getBoundingClientRect().height);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Scroll-spy: mark the section nearest the top (just under the sticky toolbar) as the active tab.
+  useEffect(() => {
+    if (cats.length === 0) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        const onScreen = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+        if (onScreen) setActiveCat(onScreen.target.getAttribute("data-cat"));
+      },
+      // Top inset = measured toolbar height so a section counts as "active" once it clears the toolbar.
+      { rootMargin: `-${Math.round(toolbarH)}px 0px -55% 0px`, threshold: 0 },
+    );
+    for (const c of cats) {
+      const el = sectionRefs.current.get(c);
+      if (el) io.observe(el);
+    }
+    return () => io.disconnect();
+  }, [cats, toolbarH]);
+
+  // a11y: when filtering empties the list, pull focus to the recovery action — but NOT while the user is
+  // actively typing in the search box (stealing focus would interrupt their query). Only the diet-chip /
+  // post-type empty states move focus; the live region (role="status") announces the change either way.
+  useEffect(() => {
+    if (!empty) return;
+    const active = document.activeElement;
+    const typing = active instanceof HTMLInputElement && active.type === "search";
+    if (!typing) clearBtnRef.current?.focus();
+  }, [empty]);
+
+  function jumpTo(cat: string) {
+    setActiveCat(cat);
+    const el = sectionRefs.current.get(cat);
+    if (!el) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+  }
+
+  function toggleDiet(d: Diet) {
+    setDiets((cur) => (cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d]));
+  }
+
+  function clearFilters() {
+    setQ("");
+    setDiets([]);
+    // The Clear button unmounts as the list refills — keep focus in the toolbar (search) instead of body.
+    searchRef.current?.focus();
+  }
+
+  return (
+    <main style={{ maxWidth: 440, margin: "0 auto", paddingBottom: 96 }}>
+      <header style={{ padding: "calc(44px + env(safe-area-inset-top, 0px)) 20px 4px" }}>
+        <p className="eyebrow">
+          {mode === "dinein" ? "Dine-in" : mode === "pickup" ? "Pickup" : "Scan & Go"}
+        </p>
+        <h1 style={{ fontSize: 34 }}>Menu</h1>
+        {mode === "dinein" && <GuestList />}
+        {mode === "pickup" && <PickupSlotChip />}
+      </header>
+
+      <div className="menu-toolbar" ref={toolbarRef}>
+        <div className="menu-search">
+          <span aria-hidden>🔍</span>
+          <input
+            ref={searchRef}
+            type="search"
+            inputMode="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search dishes, drinks…"
+            aria-label="Search the menu"
+          />
+        </div>
+
+        {cats.length > 1 && (
+          // A scroll-spy JUMP nav (not a tab widget — the sections are all on one scroll, not switched
+          // panels), so it's a <nav> with `aria-current` on the in-view category, not role=tablist.
+          <nav className="menu-rail" aria-label="Menu categories">
+            {cats.map((c) => {
+              const on = activeCat === c;
+              return (
+                <button
+                  key={c}
+                  type="button"
+                  aria-current={on ? "true" : undefined}
+                  className={`menu-tab${on ? " menu-tab-on" : ""}`}
+                  onClick={() => jumpTo(c)}
+                >
+                  {c}
+                </button>
+              );
+            })}
+          </nav>
+        )}
+
+        <div className="menu-diets" role="group" aria-label="Dietary filters">
+          {DIETS.map((d) => {
+            const on = diets.includes(d.id);
+            return (
+              <button
+                key={d.id}
+                type="button"
+                aria-pressed={on}
+                className={`diet-chip${on ? " diet-chip-on" : ""}`}
+                onClick={() => toggleDiet(d.id)}
+              >
+                <span aria-hidden>{d.emoji}</span>
+                {d.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Fail-safe disclaimer — shown only while a free-from chip is active (a guide, never a guarantee). */}
+        {freeFrom && (
+          <p
+            role="note"
+            style={{ margin: "8px 2px 0", fontSize: 12, color: "var(--t2)", lineHeight: 1.4 }}
+          >
+            <span aria-hidden>ⓘ </span>
+            Allergen info is a guide — please tell our staff about any allergy.
+          </p>
+        )}
+      </div>
+
+      {cats.map((c) => (
+        <section
+          key={c}
+          data-cat={c}
+          ref={(el) => {
+            if (el) sectionRefs.current.set(c, el);
+            else sectionRefs.current.delete(c);
+          }}
+          style={{ padding: "8px 20px", scrollMarginTop: Math.round(toolbarH) }}
+        >
+          <h2 style={{ fontSize: 18 }}>{c}</h2>
+          <ul
+            role="list"
+            aria-label={`${c} items`}
+            style={{ listStyle: "none", padding: 0, display: "grid", gap: 12 }}
+          >
+            {visible
+              .filter((i) => i.category === c)
+              .map((i) => {
+                const badges = itemBadges(i.tags);
+                return (
+                  <li
+                    key={i.id}
+                    className="card card-textured"
+                    style={{
+                      display: "flex",
+                      gap: 13,
+                      padding: 11,
+                      opacity: i.is_sold_out ? 0.5 : 1,
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 88,
+                        height: 88,
+                        borderRadius: 14,
+                        overflow: "hidden",
+                        flex: "none",
+                        background: "var(--grad)",
+                        position: "relative",
+                      }}
+                    >
+                      <BlurUpImage src={i.image_url} alt="" width={88} height={88} sizes="88px" />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600 }}>
+                        {i.name_en}
+                        {i.is_sold_out && (
+                          <span style={{ color: "var(--t3)", fontWeight: 400 }}> · Sold out</span>
+                        )}
+                      </div>
+                      {i.name_my && (
+                        <div
+                          style={{ fontFamily: "var(--font-my)", fontSize: 12, color: "var(--t2)" }}
+                          lang="my"
+                        >
+                          {i.name_my}
+                        </div>
+                      )}
+                      {badges.length > 0 && (
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+                          {badges.map((b) => (
+                            <Badge key={b.label} tone={b.tone}>
+                              {b.label}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{ fontWeight: 800, marginTop: 6 }}>{dollars(i.base_price_cents)}</div>
+                    </div>
+                    <AddButton menuItemId={i.id} name={i.name_en} soldOut={i.is_sold_out} />
+                  </li>
+                );
+              })}
+          </ul>
+        </section>
+      ))}
+
+      {empty && (
+        <div role="status" style={{ padding: "32px 24px", textAlign: "center" }}>
+          <p style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>
+            <span aria-hidden>🔎 </span>Nothing matches
+          </p>
+          <p style={{ color: "var(--t2)", marginBottom: 14 }}>
+            {items.length
+              ? "Try fewer filters or a different search."
+              : "The menu catalog is empty."}
+          </p>
+          {(q || diets.length > 0) && (
+            <button
+              ref={clearBtnRef}
+              type="button"
+              onClick={clearFilters}
+              style={{
+                minHeight: 44,
+                padding: "0 18px",
+                borderRadius: "var(--r-full)",
+                border: "1px solid var(--bd)",
+                background: "var(--sf)",
+                color: "var(--tx)",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
+      )}
+
+      <CartBar />
+    </main>
+  );
+}

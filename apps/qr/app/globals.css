@@ -533,3 +533,152 @@ h3 {
     transform: none;
   }
 }
+
+/* ── Richness R6a: menu browse layer (search · category rail · diet chips · blur-up) ──────────────────
+   The menu page's interactive toolbar + thumbnails. transform/opacity/filter only; reduced-motion gated;
+   tokens not hex; opaque surfaces (no backdrop-filter on mobile — the iOS-OOM budget). */
+
+/* Blur-up thumbnail: fades + un-blurs on load over the parent gradient. One-shot, RM-gated. */
+.blur-up {
+  opacity: 0;
+  filter: blur(8px);
+  transform: scale(1.05);
+  transition:
+    opacity var(--dur-slow) var(--ease-out),
+    filter var(--dur-slow) var(--ease-out),
+    transform var(--dur-slow) var(--ease-out);
+}
+.blur-up.on {
+  opacity: 1;
+  filter: blur(0);
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .blur-up {
+    transition: none;
+    filter: none;
+    transform: none;
+  }
+}
+
+/* Sticky toolbar shell (search + rail + chips) — pins under the title; opaque so rows scroll cleanly under. */
+.menu-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--pg);
+  padding: 8px 20px 10px;
+}
+
+/* Search field — 16px text (no iOS focus-zoom), pill, leading 🔍 set by the wrapper. */
+.menu-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 14px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: var(--sf);
+}
+.menu-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--tx);
+  font-size: 16px; /* ≥16px → iOS Safari does not auto-zoom on focus */
+}
+.menu-search input::placeholder {
+  color: var(--t3);
+}
+.menu-search input:focus {
+  outline: none;
+}
+.menu-search:focus-within {
+  border-color: var(--ac);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ac) 18%, transparent);
+}
+
+/* Category jump-rail — horizontal scroller of tab chips. */
+.menu-rail {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin-top: 8px;
+  scroll-snap-type: x proximity;
+}
+.menu-rail::-webkit-scrollbar {
+  display: none;
+}
+.menu-tab {
+  flex: none;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: var(--sf);
+  color: var(--t2);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  scroll-snap-align: start;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+.menu-tab-on {
+  background: var(--ac);
+  color: var(--oa);
+  border-color: var(--ac);
+}
+@media (prefers-reduced-motion: reduce) {
+  .menu-tab {
+    transition: none;
+  }
+}
+
+/* Dietary filter chips — toggles; selected = jade tint. */
+.menu-diets {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin-top: 8px;
+}
+.menu-diets::-webkit-scrollbar {
+  display: none;
+}
+.diet-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: var(--r-full);
+  border: 1.5px solid var(--bd);
+  background: transparent;
+  color: var(--t2);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+.diet-chip-on {
+  border-color: var(--jade);
+  background: color-mix(in srgb, var(--jade) 12%, transparent);
+  color: var(--jade-strong);
+}
+@media (prefers-reduced-motion: reduce) {
+  .diet-chip {
+    transition: none;
+  }
+}
