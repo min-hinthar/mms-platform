@@ -64,7 +64,17 @@ moves the interactive list client-side. `force-dynamic`/nonce-CSP unchanged.
 search labelled; 44px targets; reduced-motion off-switches on collapse + blur-up; decorative emoji
 `aria-hidden`.
 
-## R6b — item detail sheet (next PR)
+## R6b — item detail sheet ✅ shipped 2026-06-30
+
+Built as specified below. Modifiers are loaded **eagerly** with each item in the RSC (nested PostgREST embed,
+shaped to `ModGroup[]` — required groups first), so the sheet (`components/menu/ItemSheet.tsx`, keyed body for
+a clean reset-on-swap) previews instantly. Client preview = base + selected `price_delta_cents` (advisory);
+add → `add(id, modifierIds)` → `addItem`/`priceItem` (server re-derives; client never sends a price). Added a
+**required-modifier guard**: the inline quick-Add (which sends `[]`) is swapped for a "Choose" pill on any item
+with a required group, since `priceItem` doesn't enforce `min_select`. Upsell = `lib/menu/upsell.ts` hardcoded
+rules (real items only). Helpers: `lib/menu/modifiers.ts`, `lib/menu/badges.ts` (shared with the row).
+
+### R6b spec (as built)
 
 Tap a row → `@mms/ui` `Sheet` (R5b swipe-to-close) with: big photo-hero (blur-up, RM-gated), name + MY +
 description, real badges + the fail-safe disclaimer, **required (radio) then optional (checkbox) modifier

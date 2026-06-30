@@ -29,7 +29,10 @@ type CartCtx = {
   items: CartItem[];
   totals: CartTotals | null;
   count: number;
-  add: (menuItemId: string) => Promise<void>;
+  /** Add an item to the cart. `modifierIds` (R6b item sheet) are modifier-OPTION ids only — the server
+   *  (`priceItem`/`addItem`) re-derives every amount; the client never sends a price. Omitted ⇒ quick-add
+   *  with no modifiers (the inline menu AddButton path). */
+  add: (menuItemId: string, modifierIds?: string[]) => Promise<void>;
   /** Set a cart line's quantity (server-authoritative `setQty`; `qty<=0` removes). Used by the menu's
    *  inline quick-qty stepper (R5c) to decrement/remove the viewer's own line without leaving the menu.
    *  Re-syncs from the returned view; a refused write (locked/closed) recovers like `add`. `announce` (the
@@ -280,7 +283,7 @@ export function TableCartProvider({
   useCartRealtime(cartId ?? "", session?.accessToken ?? "", isGroup, handleCartChange);
 
   const add = useCallback(
-    async (menuItemId: string) => {
+    async (menuItemId: string, modifierIds: string[] = []) => {
       if (!cartId) return;
       // Optimistic: bump the visible count + confirm on tap, so the cart bar responds immediately
       // instead of after the round-trip. The total stays server-authoritative (no client price math),
@@ -288,7 +291,9 @@ export function TableCartProvider({
       setPendingAdds((n) => n + 1);
       flash("Added to your order", 2000);
       try {
-        const view = await addItemAction(cartId, menuItemId, []); // ONE round-trip — returns the view
+        // Modifier ids only (R6b sheet) — `addItem`→`priceItem` validates them against the item's groups
+        // and re-derives the charge; a client-sent price is never trusted. ONE round-trip returns the view.
+        const view = await addItemAction(cartId, menuItemId, modifierIds);
         setItems(view.items);
         setTotals(view.totals);
         setPickupSlot(view.pickupSlot);

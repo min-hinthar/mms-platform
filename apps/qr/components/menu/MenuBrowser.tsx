@@ -7,6 +7,9 @@ import { GuestList } from "@/components/GuestList";
 import { PickupSlotChip } from "@/components/PickupSlotChip";
 import { BlurUpImage } from "./BlurUpImage";
 import { DIETS, hasFreeFrom, passesDiets, type Diet } from "@/lib/menu/dietary";
+import type { ModGroup } from "@/lib/menu/modifiers";
+import { itemBadges } from "@/lib/menu/badges";
+import { ItemSheet } from "./ItemSheet";
 
 export type MenuItem = {
   id: string;
@@ -19,19 +22,12 @@ export type MenuItem = {
   tags: string[];
   allergens: string[];
   category: string;
+  // R6b: modifier groups loaded eagerly with the item (most items have none) for the detail sheet's
+  // instant preview. Advisory only — the server re-derives the charge on add.
+  modifierGroups: ModGroup[];
 };
 
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
-
-// Item tags → real, honest badges (only tags that actually exist in the catalog — never a fabricated
-// "Signature"). At most two so the row stays calm; sold-out is shown separately (text + dimming).
-function itemBadges(tags: string[]): { label: string; tone: "gold" | "jade" }[] {
-  const out: { label: string; tone: "gold" | "jade" }[] = [];
-  if (tags.includes("popular")) out.push({ label: "Popular", tone: "gold" });
-  if (tags.includes("vegan")) out.push({ label: "Vegan", tone: "jade" });
-  else if (tags.includes("vegetarian")) out.push({ label: "Vegetarian", tone: "jade" });
-  return out.slice(0, 2);
-}
 
 /**
  * Menu browse layer (R6a). A client island the RSC page hands the server-fetched catalog: it owns the
@@ -43,6 +39,8 @@ export function MenuBrowser({ items, mode }: { items: MenuItem[]; mode: string }
   const [q, setQ] = useState("");
   const [diets, setDiets] = useState<Diet[]>([]);
   const [activeCat, setActiveCat] = useState<string | null>(null);
+  // R6b: the item whose detail sheet is open (null = closed). Radix restores focus to the trigger row on close.
+  const [sheetItem, setSheetItem] = useState<MenuItem | null>(null);
   const sectionRefs = useRef(new Map<string, HTMLElement>());
   const toolbarRef = useRef<HTMLDivElement>(null);
   const clearBtnRef = useRef<HTMLButtonElement>(null);
@@ -246,46 +244,86 @@ export function MenuBrowser({ items, mode }: { items: MenuItem[]; mode: string }
                       opacity: i.is_sold_out ? 0.5 : 1,
                     }}
                   >
-                    <div
-                      style={{
-                        width: 88,
-                        height: 88,
-                        borderRadius: 14,
-                        overflow: "hidden",
-                        flex: "none",
-                        background: "var(--grad)",
-                        position: "relative",
-                      }}
+                    {/* Tap photo+text → open the detail sheet (customize). A real <button> so Radix can
+                        restore focus here on close; the AddButton stays a SEPARATE control (no nested
+                        interactives). Concise aria-label — the inner rich text isn't re-announced. */}
+                    <button
+                      type="button"
+                      className="menu-row-open"
+                      onClick={() => setSheetItem(i)}
+                      aria-label={`${i.name_en}, ${dollars(i.base_price_cents)} — open to customize`}
                     >
-                      <BlurUpImage src={i.image_url} alt="" width={88} height={88} sizes="88px" />
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 600 }}>
-                        {i.name_en}
-                        {i.is_sold_out && (
-                          <span style={{ color: "var(--t3)", fontWeight: 400 }}> · Sold out</span>
+                      <span
+                        style={{
+                          width: 88,
+                          height: 88,
+                          borderRadius: 14,
+                          overflow: "hidden",
+                          flex: "none",
+                          background: "var(--grad)",
+                          position: "relative",
+                          display: "block",
+                        }}
+                      >
+                        <BlurUpImage src={i.image_url} alt="" width={88} height={88} sizes="88px" />
+                      </span>
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ fontWeight: 600, display: "block" }}>
+                          {i.name_en}
+                          {i.is_sold_out && (
+                            <span style={{ color: "var(--t3)", fontWeight: 400 }}> · Sold out</span>
+                          )}
+                        </span>
+                        {i.name_my && (
+                          <span
+                            style={{
+                              fontFamily: "var(--font-my)",
+                              fontSize: 12,
+                              color: "var(--t2)",
+                              display: "block",
+                            }}
+                            lang="my"
+                          >
+                            {i.name_my}
+                          </span>
                         )}
-                      </div>
-                      {i.name_my && (
-                        <div
-                          style={{ fontFamily: "var(--font-my)", fontSize: 12, color: "var(--t2)" }}
-                          lang="my"
-                        >
-                          {i.name_my}
-                        </div>
-                      )}
-                      {badges.length > 0 && (
-                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
-                          {badges.map((b) => (
-                            <Badge key={b.label} tone={b.tone}>
-                              {b.label}
-                            </Badge>
-                          ))}
-                        </div>
-                      )}
-                      <div style={{ fontWeight: 800, marginTop: 6 }}>{dollars(i.base_price_cents)}</div>
-                    </div>
-                    <AddButton menuItemId={i.id} name={i.name_en} soldOut={i.is_sold_out} />
+                        {badges.length > 0 && (
+                          <span
+                            style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}
+                            aria-hidden
+                          >
+                            {badges.map((b) => (
+                              <Badge key={b.label} tone={b.tone}>
+                                {b.label}
+                              </Badge>
+                            ))}
+                          </span>
+                        )}
+                        <span style={{ fontWeight: 800, marginTop: 6, display: "block" }}>
+                          {dollars(i.base_price_cents)}
+                        </span>
+                      </span>
+                    </button>
+                    {/* Quick-add ([] modifiers) is only valid when nothing is REQUIRED — `priceItem` doesn't
+                        enforce min_select, so a required-group item (e.g. curry style) must go through the
+                        sheet where the choice is made. Optional-only / no-modifier items keep one-tap add. */}
+                    {i.modifierGroups.some((g) => g.minSelect >= 1) ? (
+                      <button
+                        type="button"
+                        className="menu-choose-btn"
+                        data-soldout={i.is_sold_out || undefined}
+                        onClick={() => setSheetItem(i)}
+                        aria-label={
+                          i.is_sold_out
+                            ? `${i.name_en}, sold out — view details`
+                            : `Choose options for ${i.name_en}`
+                        }
+                      >
+                        {i.is_sold_out ? "Sold out" : "Choose"}
+                      </button>
+                    ) : (
+                      <AddButton menuItemId={i.id} name={i.name_en} soldOut={i.is_sold_out} />
+                    )}
                   </li>
                 );
               })}
@@ -326,6 +364,15 @@ export function MenuBrowser({ items, mode }: { items: MenuItem[]; mode: string }
       )}
 
       <CartBar />
+
+      {/* Item detail sheet (R6b). One instance, fed the open item; an upsell tap swaps the open item. */}
+      <ItemSheet
+        item={sheetItem}
+        allItems={items}
+        open={!!sheetItem}
+        onClose={() => setSheetItem(null)}
+        onSelectItem={setSheetItem}
+      />
     </main>
   );
 }

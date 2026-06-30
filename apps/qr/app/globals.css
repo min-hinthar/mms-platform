@@ -684,3 +684,285 @@ h3 {
     transition: none;
   }
 }
+
+/* ── Richness R6b: item detail sheet (hero · modifiers · live price · upsell · sticky CTA) ─────────────
+   Tokens not hex; transform/opacity only; reduced-motion off-switches; opaque surfaces (no mobile blur). */
+
+/* Menu row → sheet trigger. A real <button> wrapping photo+text (the AddButton stays a SEPARATE sibling),
+   reset to look like the row; press dims, keyboard focus shows a ring. */
+.menu-row-open {
+  display: flex;
+  gap: 13px;
+  flex: 1;
+  min-width: 0;
+  align-items: flex-start;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 12px;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.menu-row-open:active {
+  opacity: 0.7;
+}
+.menu-row-open:focus-visible {
+  outline: 2px solid var(--ac);
+  outline-offset: 3px;
+}
+
+/* Row "Choose" pill — shown instead of quick-Add when an item has a REQUIRED modifier group (the choice
+   must be made in the sheet). Mirrors the Add pill; sold-out is muted but still opens the sheet (view details). */
+.menu-choose-btn {
+  align-self: center;
+  flex: none;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 999px;
+  background: var(--ac);
+  color: var(--oa);
+  font-weight: 800;
+  cursor: pointer;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.menu-choose-btn:active {
+  opacity: 0.85;
+}
+.menu-choose-btn[data-soldout] {
+  background: var(--sf);
+  color: var(--t3);
+}
+.menu-choose-btn:focus-visible {
+  outline: 2px solid var(--ac);
+  outline-offset: 3px;
+}
+
+.item-sheet {
+  display: block;
+}
+.item-sheet-my {
+  font-family: var(--font-my);
+  font-size: 14px;
+  color: var(--t2);
+  margin: -4px 0 10px;
+}
+
+/* Big photo-hero — bounded band over the item gradient; BlurUpImage fills it (object-fit:cover). */
+.item-hero {
+  position: relative;
+  width: 100%;
+  height: 200px;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.item-sheet-desc {
+  margin: 12px 0 0;
+  color: var(--t2);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.item-sheet-allergens {
+  margin: 10px 0 4px;
+  color: var(--t3);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* Modifier group — fieldset/legend for native grouping semantics. */
+.item-modgroup {
+  border: none;
+  margin: 18px 0 0;
+  padding: 0;
+}
+.item-modgroup-legend {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 0 0 4px;
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--tx);
+}
+.item-modgroup-hint {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--t3);
+}
+
+/* Option row — native radio/checkbox (accent-color tokenized) + a :has()-driven selected state. */
+.item-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 12px;
+  margin-top: 8px;
+  border: 1.5px solid var(--bd);
+  border-radius: 12px;
+  background: var(--sf);
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+.item-opt:has(.item-opt-input:checked) {
+  border-color: var(--jade);
+  background: color-mix(in srgb, var(--jade) 10%, transparent);
+}
+.item-opt:focus-within {
+  outline: 2px solid var(--ac);
+  outline-offset: 2px;
+}
+.item-opt[data-disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.item-opt-input {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  accent-color: var(--jade);
+  cursor: inherit;
+}
+.item-opt-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--tx);
+}
+.item-opt-delta {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--jade-strong);
+}
+
+/* "Goes well with" — horizontal scroller of real, in-stock pairings (tap swaps the open item). */
+.item-upsell {
+  margin: 22px 0 0;
+}
+.item-upsell-title {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0 0 10px;
+}
+.item-upsell-row {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.item-upsell-row::-webkit-scrollbar {
+  display: none;
+}
+.item-upsell-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 120px;
+  flex: none;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+.item-upsell-thumb {
+  display: block;
+  position: relative;
+  width: 120px;
+  height: 84px;
+  border-radius: 12px;
+  overflow: hidden;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.item-upsell-card:active .item-upsell-thumb {
+  opacity: 0.8;
+}
+.item-upsell-card:focus-visible {
+  outline: 2px solid var(--ac);
+  outline-offset: 2px;
+  border-radius: 12px;
+}
+.item-upsell-name {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.item-upsell-price {
+  font-size: 12px;
+  color: var(--t2);
+  font-weight: 700;
+}
+
+/* Sticky Add-to-order bar — pins to the sheet's bottom (the sheet is the scroll container); full-bleed
+   over the sheet's 20px side padding; opaque so content scrolls cleanly under it. */
+.item-cta-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 22px -20px 0;
+  padding: 12px 20px;
+  background: var(--pg);
+  border-top: 1px solid var(--bd);
+}
+.item-cta-price {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--tx);
+  flex: none;
+}
+.item-add-btn {
+  flex: 1;
+  min-height: 48px;
+  padding: 0 18px;
+  border: none;
+  border-radius: var(--r-full);
+  background: var(--ac);
+  color: var(--oa);
+  font-weight: 800;
+  font-size: 15px;
+  cursor: pointer;
+}
+.item-add-btn:disabled,
+.item-add-btn[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.item-add-btn-anim {
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.item-add-btn-anim:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu-row-open,
+  .menu-choose-btn,
+  .item-opt,
+  .item-upsell-thumb,
+  .item-add-btn-anim {
+    transition: none;
+  }
+}
