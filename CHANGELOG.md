@@ -4,6 +4,28 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — Richness R6b: item detail sheet — modifiers · live price · upsell · photo-hero (2026-06-30)
+
+Tapping a menu row opens a detail bottom-sheet (the `@mms/ui` `Sheet`, R5b swipe-to-close + Radix focus
+trap/restore) — the customize moment. Modifier groups are loaded **eagerly** with each item in the RSC (most
+items have none), so the sheet renders + previews instantly with no client round-trip.
+
+- **Modifier groups** — required single-selects (radio) render before optional multi-selects (checkbox),
+  driven by `min_select`; native inputs (`accent-color` tokenized) in `fieldset`/`legend` groups; a
+  `:has()`-driven selected tint; multi-selects disable past `max_select`. Logic in `lib/menu/modifiers.ts`.
+- **Live price — client preview, server-final.** The sheet sums base + selected `price_delta_cents` for an
+  instant **advisory** total; on add it calls `add(id, modifierIds)` → `addItem`→`priceItem`, which validates
+  the option ids against the item's groups and **re-derives the charge**. The client never sends a price.
+- **Required-modifier guard** — the inline quick-Add (which sends `[]`) is replaced by a **"Choose"** pill for
+  any item with a required group, so a required choice (e.g. curry style) can't be bypassed (`priceItem`
+  doesn't enforce `min_select`). Optional-only / no-modifier items keep one-tap Add.
+- **"Goes well with"** — a hardcoded pairing-rules map (`lib/menu/upsell.ts`, no schema change) suggests up to
+  3 **real**, in-stock items (category rules → popular → other-category fallback; never fabricated); a tap
+  swaps the open item.
+- **Photo-hero + honesty** — big blur-up hero (RM-gated), name/MY/description, real badges, and a fail-safe
+  allergen note ("Contains …" when declared + the always-on "ask our staff" guide). Sticky Add-to-order CTA
+  (disabled + perceivable when sold-out / cart-locked / required choice unmet).
+
 ### Added — Richness R6a: menu browse layer — search · category rail · dietary filters · blur-up · badges (2026-06-30)
 
 The flat menu list becomes a browsable surface (R6a; the item detail sheet is R6b). The RSC page now fetches

@@ -16,32 +16,57 @@ const modKey = (m: unknown): string => JSON.stringify(Array.isArray(m) ? [...m].
 
 /** Re-derive price (cents), name, tax category, and chosen option labels for a menu item. Only modifier
  *  options that genuinely belong to one of THIS item's groups are honored, so a client can't smuggle an
- *  arbitrary (cheaper/foreign) option id into the price. */
-export async function priceItem(menuItemId: string, modifierIds: string[]) {
+ *  arbitrary (cheaper/foreign) option id into the price.
+ *
+ *  `enforceCardinality` (the diner add path opts in — see `addItem`) makes the server the authority on
+ *  modifier REQUIREDNESS too, not just the client "Choose" gate: every group must have `min_select..max_select`
+ *  options chosen, so a forged or stale client can't add a required-modifier item (e.g. a curry without its
+ *  style) or an over-cap single-select. Throws on violation; the diner provider recovers + re-syncs. Default
+ *  OFF so the trusted staff path (`staffAddItem`) is unchanged. The item's groups are embedded in the single
+ *  item query (no extra round-trip on the common add). */
+export async function priceItem(
+  menuItemId: string,
+  modifierIds: string[],
+  { enforceCardinality = false }: { enforceCardinality?: boolean } = {},
+) {
   const db = serviceClient();
   const { data: item, error } = await db
     .from("menu_items")
-    .select("id,name_en,base_price_cents,tax_category")
+    .select(
+      "id,name_en,base_price_cents,tax_category,item_modifier_groups(modifier_groups(id,min_select,max_select))",
+    )
     .eq("id", menuItemId)
     .single();
   if (error || !item) throw new Error("Unknown menu item");
 
+  const groups = (item.item_modifier_groups ?? [])
+    .map((l) => l.modifier_groups)
+    .filter((g): g is NonNullable<typeof g> => g != null);
+  const allowedGroups = new Set(groups.map((g) => g.id));
+
   let addCents = 0;
   let optLabels: string[] = [];
+  let chosen: { id: string; name: string; price_delta_cents: number; group_id: string }[] = [];
   if (modifierIds.length) {
-    const { data: links } = await db
-      .from("item_modifier_groups")
-      .select("group_id")
-      .eq("item_id", menuItemId);
-    const allowedGroups = new Set((links ?? []).map((l) => l.group_id));
     const { data: opts } = await db
       .from("modifier_options")
       .select("id,name,price_delta_cents,group_id")
       .eq("is_active", true)
       .in("id", modifierIds);
-    const chosen = (opts ?? []).filter((m) => allowedGroups.has(m.group_id));
+    chosen = (opts ?? []).filter((m) => allowedGroups.has(m.group_id));
     addCents = chosen.reduce((a, m) => a + m.price_delta_cents, 0);
     optLabels = chosen.map((m) => m.name);
+  }
+
+  if (enforceCardinality) {
+    // Server-authoritative requiredness/cardinality — the backstop to the client "Choose" gate. `chosen`
+    // already holds only valid (active, allowed-group) options, so the per-group count is the true count.
+    for (const g of groups) {
+      const n = chosen.filter((m) => m.group_id === g.id).length;
+      if (n < g.min_select)
+        throw new Error("This item needs a required choice — reopen it to choose your options.");
+      if (n > g.max_select) throw new Error("Too many options chosen for this item.");
+    }
   }
 
   return {
