@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { m } from "framer-motion";
 import { useAnimationPreference, useDeviceTier } from "@mms/ui";
 import { Confetti } from "./Confetti";
 
@@ -56,24 +55,12 @@ export function PaySuccess({ gems }: { gems: number | null }) {
   return (
     <div className="pay-success">
       {celebrate && !confettiDone && <Confetti />}
+      {/* CSS-animated checkmark (ring scale-in + stroke draw). CSS — not framer — so the reduced-motion
+          off-switch is a pure `@media (prefers-reduced-motion)` rule with no first-render shouldAnimate race
+          and no SSR/hydration concern; framer's reducedMotion doesn't disable SVG pathLength anyway. */}
       <svg className="pay-success-check" viewBox="0 0 52 52" role="img" aria-hidden>
-        <m.circle
-          className="pay-success-check-ring"
-          cx="26"
-          cy="26"
-          r="24"
-          initial={shouldAnimate ? { scale: 0 } : false}
-          animate={{ scale: 1 }}
-          transition={{ type: "spring", stiffness: 420, damping: 16 }}
-          style={{ transformBox: "fill-box", transformOrigin: "center" }}
-        />
-        <m.path
-          className="pay-success-check-mark"
-          d="M15 27 l7.5 7.5 L37.5 19"
-          initial={shouldAnimate ? { pathLength: 0 } : false}
-          animate={{ pathLength: 1 }}
-          transition={{ duration: 0.4, delay: 0.18, ease: "easeOut" }}
-        />
+        <circle className="pay-success-check-ring" cx="26" cy="26" r="24" />
+        <path className="pay-success-check-mark" d="M15 27 l7.5 7.5 L37.5 19" />
       </svg>
       <h1 className="pay-success-title">Paid — thank you!</h1>
       {gems != null && gems > 0 && (

@@ -984,6 +984,9 @@ h3 {
   fill: color-mix(in oklab, var(--ok) 15%, var(--cd));
   stroke: var(--ok);
   stroke-width: 2.5;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: paySuccessRing var(--dur-slow) var(--spring) both;
 }
 .pay-success-check-mark {
   fill: none;
@@ -991,6 +994,33 @@ h3 {
   stroke-width: 4;
   stroke-linecap: round;
   stroke-linejoin: round;
+  /* dasharray ≥ the path length (~32) so dashoffset hides it, then draws to 0. */
+  stroke-dasharray: 40;
+  stroke-dashoffset: 40;
+  animation: paySuccessDraw var(--dur-slow) var(--ease-out) 0.15s forwards;
+}
+@keyframes paySuccessRing {
+  from {
+    transform: scale(0);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+@keyframes paySuccessDraw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Static, fully-drawn checkmark — no scale-in, no stroke draw. */
+  .pay-success-check-ring {
+    animation: none;
+  }
+  .pay-success-check-mark {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
 }
 .pay-success-title {
   font-size: 26px;
