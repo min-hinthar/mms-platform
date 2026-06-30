@@ -4,6 +4,31 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — Richness R8: real Stars on /track + the rewards hub (2026-06-30)
+
+Retires R7a's placeholder `gems = round(total)` display rule for the **real loyalty Stars**
+(`mms_rewards_summary`: 1 paid order = 1 Star), and brings the signature rewards flourishes to the two
+honest-but-plain surfaces. All motion is CSS `@media (prefers-reduced-motion)`-gated (no `shouldAnimate`
+first-render race); rewards are server-derived and the earn-claim is gated on real attribution.
+
+- **/track** — the pay-success pill now shows **"✦ +N Star(s) earned"** (the real per-order earn) + an
+  honest **"N order(s) to your next reward"** caption. New `getRewardsProgress(orderId?)` server action
+  fetches the milestone summary race-correct (once the order has landed → the webhook counted it) and
+  server-checks `earned_by === auth.uid()`, so a split-tender **non-host** share-payer (who earns nothing —
+  only the host does) never sees a Star they didn't get; no session → no claim.
+- **Stars ring** (`StarsRing`, new) — a 148px SVG `stroke-dashoffset` progress ring over the real milestone
+  cycle, pure-CSS draw-on, `✦{stars}` rolling via `NumberFlow`, one composed `role="img"` label.
+- **Tier-up celebration** (`TierUpCelebration`, new) — fires once on a genuine tier climb (`localStorage`
+  last-seen-rank compare; first sight/revisit/downgrade stay silent), rAF-deferred reveal, reused confetti,
+  `role="status"`, ≥44px dismiss.
+- **RewardsHub** (`/account`) — flat bar → the Stars ring hero; `NumberFlow` on stars + lifetime spend; a
+  CLS-safe tier-ladder entrance (no hover-lift — the rungs aren't interactive) with a soft glow on the
+  current rung; an **honest "How it works"** panel (earn a Star / a reward every N Stars / climb the tiers)
+  that replaces the prototype's fictional perk grid (free milk tea / snacks / birthday — not deliverable;
+  `isEarlyAccess` has no consumers).
+- **`globals.css`** — `.stars-ring*`, `.reward-rung*`, `.tier-up*` + keyframes, all transform/opacity/stroke
+  with reduced-motion off-switches (built-CSS grep confirms emit).
+
 ### Added — Richness R7b: checkout review/pay polish (2026-06-30)
 
 Brings the checkout review + pay surfaces up to the celebration's bar (R7a). All motion is CSS

@@ -1,9 +1,10 @@
 "use client";
-import type { CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { useOrderStatus } from "@/lib/useOrderStatus";
 import { formatSlotLong } from "@/lib/pickupTime";
 import { useAnimationPreference, useInView } from "@mms/ui";
+import { getRewardsProgress, type RewardsProgress } from "@/lib/rewards";
 import { FeedbackPrompt } from "./FeedbackPrompt";
 import { PaySuccess } from "./PaySuccess";
 
@@ -73,9 +74,23 @@ export function OrderTracker({
           ? 1
           : 0;
   const ready = arrived && togo === "ready";
-  // Gems = round(total) — a real value (the amount paid) via a deterministic display rule (≈1/$). Shown only
-  // once the order lands (the paid total is known); never a fabricated balance. (R7a, owner decision 1c.)
-  const gems = order ? Math.round(order.totalCents / 100) : null;
+  // R8: the REAL loyalty earn for this order, fetched once it lands (the webhook has fulfilled → the order
+  // is counted in `stars` AND its earner is stamped). `getRewardsProgress(order.id)` server-checks whether
+  // THIS order is attributed to the viewer, so a split-tender share-payer who isn't the stamped earner
+  // (only the host is) never sees a Star they didn't get; no session → null → no claim. Retires R7a's
+  // placeholder `gems = round(total)` display rule for the real per-order +1 Star + the honest milestone clause.
+  const [progress, setProgress] = useState<RewardsProgress | null>(null);
+  const progressFetched = useRef(false);
+  useEffect(() => {
+    if (!justPaid || !order || progressFetched.current) return;
+    progressFetched.current = true;
+    // Deliberate read-only swallow: a transient failure just drops the milestone caption (the order flow
+    // is unaffected) rather than surfacing an error toast on a success screen.
+    getRewardsProgress(order.id)
+      .then(setProgress)
+      .catch(() => {});
+  }, [justPaid, order]);
+  const starsEarned = progress?.earnedThisOrder ? 1 : 0;
   const modeLabel = isPickup ? "Pickup" : "Scan & Go";
   const statusChip = (
     <span
@@ -103,7 +118,12 @@ export function OrderTracker({
         // Fresh successful payment → the celebration is the headline (one <h1>); the mode + status + ETA
         // ride a compact row below it, and the timeline follows.
         <>
-          <PaySuccess gems={gems} />
+          <PaySuccess
+            starsEarned={starsEarned}
+            ordersToNext={progress?.ordersToNext ?? null}
+            stars={progress?.stars ?? null}
+            milestoneStep={progress?.milestoneStep ?? null}
+          />
           <div className="track-statusrow">
             <div className="eyebrow">
               {modeLabel}

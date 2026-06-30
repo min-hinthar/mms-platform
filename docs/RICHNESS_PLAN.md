@@ -252,7 +252,14 @@ strict`) at the root. `domMax`/`DomMaxProvider` deferred to R5 (sheet swipe). Fr
 
 ---
 
-### R8 — /track + rewards signature moments
+### R8 — /track + rewards signature moments ✅ shipped 2026-06-30
+
+> Shipped: **real Stars** on /track (retired R7a's `gems=round(total)` for `mms_rewards_summary`; "+N Star
+> earned" pill gated on real `earned_by` attribution so split-tender non-host payers don't see a false
+> claim) + the **Full** RewardsHub (SVG Stars ring · `NumberFlow` stars/spend · localStorage-deduped tier-up
+> · honest "How it works" — the prototype's milk-tea/snacks/birthday perks are demo fiction and `isEarlyAccess`
+> has no consumers, so they're NOT shipped). Deferred (→ R9 if wanted): the /track connector shimmer + a
+> receipt-total `NumberFlow` (a final receipt shouldn't imply a changing total). See `docs/R8_PLAN.md`.
 
 **Goal:** add the alive numbers + signature flourishes to the two surfaces that are honest-but-plain.
 
