@@ -369,6 +369,7 @@ export function MenuBrowser({ items, mode }: { items: MenuItem[]; mode: string }
       <ItemSheet
         item={sheetItem}
         allItems={items}
+        diets={diets}
         open={!!sheetItem}
         onClose={() => setSheetItem(null)}
         onSelectItem={setSheetItem}

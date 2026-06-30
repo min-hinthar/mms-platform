@@ -49,9 +49,12 @@ export async function addItem(cartId: string, menuItemId: string, modifierIds: s
     .eq("id", sessionId)
     .single();
   const dineIn = sess?.mode === "dinein";
+  // Diner add: enforce modifier requiredness/cardinality SERVER-side (the client "Choose" gate is advisory)
+  // — a forged/stale client can't add a required-modifier item without its required choice.
   const { name, unitPriceCents, category, opts } = await priceItem(
     input.menuItemId,
     input.modifierIds,
+    { enforceCardinality: true },
   );
   const taxCents = lineTax(unitPriceCents, category, dineIn);
   // S4 unified basket: a food line's fulfillment defaults from context — a dine-in table → 'dinein', any

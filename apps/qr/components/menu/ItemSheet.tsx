@@ -5,6 +5,7 @@ import { useCart } from "@/components/TableCartProvider";
 import { BlurUpImage } from "./BlurUpImage";
 import { itemBadges } from "@/lib/menu/badges";
 import { goesWellWith } from "@/lib/menu/upsell";
+import { passesDiets, type Diet } from "@/lib/menu/dietary";
 import {
   initialSelection,
   isSelectionValid,
@@ -47,12 +48,14 @@ const ALLERGEN_LABEL: Record<string, string> = {
 export function ItemSheet({
   item,
   allItems,
+  diets,
   open,
   onClose,
   onSelectItem,
 }: {
   item: MenuItem | null;
   allItems: MenuItem[];
+  diets: Diet[];
   open: boolean;
   onClose: () => void;
   onSelectItem: (item: MenuItem) => void;
@@ -64,6 +67,7 @@ export function ItemSheet({
           key={item.id}
           item={item}
           allItems={allItems}
+          diets={diets}
           onClose={onClose}
           onSelectItem={onSelectItem}
         />
@@ -75,11 +79,13 @@ export function ItemSheet({
 function ItemSheetBody({
   item,
   allItems,
+  diets,
   onClose,
   onSelectItem,
 }: {
   item: MenuItem;
   allItems: MenuItem[];
+  diets: Diet[];
   onClose: () => void;
   onSelectItem: (item: MenuItem) => void;
 }) {
@@ -99,8 +105,12 @@ function ItemSheetBody({
   // yet / an add in flight also block. A disabled CTA, never a missing one.
   const blocked = !cartId || busy || locked || settling;
   const canAdd = !soldOut && !blocked && valid;
-  // Stable per item (the body is keyed on item.id) — don't re-scan the catalog on every option toggle.
-  const upsell = useMemo(() => goesWellWith(item, allItems), [item, allItems]);
+  // Upsell respects the diner's ACTIVE dietary filters (fail-safe): a "No shellfish" diner must not be
+  // recommended a shellfish dish the browse list just hid. Stable per item (the body is keyed on item.id).
+  const upsell = useMemo(
+    () => goesWellWith(item, allItems.filter((i) => passesDiets(i, diets))),
+    [item, allItems, diets],
+  );
 
   const badges = itemBadges(item.tags);
   const contains =
@@ -191,6 +201,11 @@ function ItemSheetBody({
                     checked={isOn}
                     disabled={disabled}
                     onChange={() => choose(g, o.id)}
+                    // A native radio doesn't fire onChange when the already-checked one is re-tapped, so an
+                    // OPTIONAL single-select couldn't be cleared back to "none". Handle that one case on click.
+                    onClick={
+                      single && g.minSelect === 0 && isOn ? () => choose(g, o.id) : undefined
+                    }
                   />
                   <span className="item-opt-name">{o.name}</span>
                   {o.priceDeltaCents !== 0 && (
