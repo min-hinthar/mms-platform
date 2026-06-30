@@ -4,6 +4,22 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — Richness R7b: checkout review/pay polish (2026-06-30)
+
+Brings the checkout review + pay surfaces up to the celebration's bar (R7a). All motion is CSS
+`@media (prefers-reduced-motion)`-gated (not the `shouldAnimate` hook — applying the R7a reduced-motion-race
+learning), and money stays presentation-only / server-authoritative.
+
+- **Tip chips** — press settle + a smooth tint/preview transition when the rate changes.
+- **CTAs** — Continue / Pay get an accent glow (`--sh-glow`) on hover + a press settle; Edit gets a quiet
+  hover + press.
+- **Cart lines** — `card-textured` (a richer layered surface; deliberately *not* `card-interactive`, which
+  would imply a clickable affordance the line doesn't have).
+- **Order summary** — the grand total reads as the hero figure (hairline divider + display serif + larger).
+- **Step transition** — the review ↔ pay change enter-slides via a keyed CSS-animated wrapper; the Stripe
+  Payment Element mounts with the wrapper and the enter is a transform, so the card iframe never reloads
+  (appearance is mount-time). The always-mounted `<h1>` stays the focus target.
+
 ### Added — Richness R7a: pay-success celebration + money-roll (2026-06-30)
 
 The highest-impact single moment: a pay-success "thunk" on `/track` and rolling money. (R7b polishes the

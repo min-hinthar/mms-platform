@@ -101,6 +101,7 @@ function PayForm({
         type="submit"
         disabled={!stripe || submitting}
         aria-busy={submitting}
+        className="checkout-cta"
         style={{
           width: "100%",
           marginTop: 12,
@@ -122,6 +123,7 @@ function PayForm({
         type="button"
         onClick={onEdit}
         disabled={submitting}
+        className="checkout-cta-ghost"
         style={{
           width: "100%",
           marginTop: 8,

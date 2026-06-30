@@ -341,7 +341,15 @@ export function Checkout({
         Your order
       </h1>
 
-      {isGroup && settling && splitContext ? (
+      {/* R7b: keyed step wrapper — a CSS enter-slide replays on each view change (review ↔ pay ↔ settle).
+          Keyed on the view so React remounts it (the animation replays); the <h1> above stays mounted as the
+          focus target. The pay step's Stripe Element mounts WITH this wrapper, so the transform-based enter
+          never reloads the iframe. CSS `@media`-gated — no shouldAnimate first-render race. */}
+      <div
+        key={isGroup && settling && splitContext ? "settle" : onPay ? "pay" : "review"}
+        className="checkout-step"
+      >
+        {isGroup && settling && splitContext ? (
         <>
           <SettlementBoard
             cartId={cartId}
@@ -406,7 +414,7 @@ export function Checkout({
               return (
                 <li
                   key={i.id}
-                  className="card"
+                  className="card card-textured"
                   style={{ padding: 12, display: "flex", gap: 10, alignItems: "center" }}
                 >
                   <div style={{ flex: 1 }}>
@@ -642,6 +650,7 @@ export function Checkout({
                   type="button"
                   aria-pressed={on}
                   onClick={() => setTipRate(rate)}
+                  className="checkout-tip"
                   style={{
                     flex: 1,
                     minHeight: 44,
@@ -711,6 +720,7 @@ export function Checkout({
             onClick={continueToPayment}
             disabled={loadingPay}
             aria-busy={loadingPay}
+            className="checkout-cta"
             style={{
               width: "100%",
               marginTop: 12,
@@ -805,7 +815,8 @@ export function Checkout({
             {payError ?? tabError ?? status}
           </p>
         </>
-      )}
+        )}
+      </div>
     </main>
   );
 }
@@ -899,12 +910,24 @@ function Row({
       style={{
         display: "flex",
         justifyContent: "space-between",
-        padding: "5px 0",
+        alignItems: "baseline",
+        // R7b: lift the grand total — a hairline divider + extra top space sets it apart from the breakdown.
+        padding: strong ? "10px 0 0" : "5px 0",
+        marginTop: strong ? 6 : 0,
+        borderTop: strong ? "1px solid var(--bd)" : "none",
         fontWeight: strong ? 800 : 400,
       }}
     >
       <dt>{k}</dt>
-      <dd style={{ margin: 0, fontVariantNumeric: "tabular-nums" }}>
+      <dd
+        style={{
+          margin: 0,
+          fontVariantNumeric: "tabular-nums",
+          // The total reads as the hero figure (display serif, larger) — presentation only.
+          fontSize: strong ? 20 : undefined,
+          fontFamily: strong ? "var(--font-display)" : undefined,
+        }}
+      >
         {/* R7a: roll the hero total as the tip selection changes it (presentation-only; the charge stays
             server-authoritative). NumberFlow snaps under reduced-motion automatically. */}
         {roll ? (
