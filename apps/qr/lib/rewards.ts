@@ -125,13 +125,10 @@ export async function getRewardsProgress(
   } = await supa.auth.getUser();
   if (!user) return null;
   const db = serviceClient();
-  const { data: summary } = await db.rpc("mms_rewards_summary", { p_user: user.id });
-  const s = (summary ?? {}) as {
-    stars?: number;
-    tier_id?: string;
-    milestone_step?: number;
-    orders_to_next?: number;
-  };
+  // Read the order's attribution FIRST, then the summary. The webhook stamps `earned_by` and its Star count
+  // (mms_rewards_summary counts qr_orders by earned_by) off the SAME update — so ordering the summary AFTER a
+  // true `earnedThisOrder` guarantees the count already includes this order (no stale stars / lagging
+  // "N to next reward" / missed "Reward unlocked" the moment attribution lands).
   let earnedThisOrder = false;
   if (orderId) {
     const { data: row } = await db
@@ -141,6 +138,13 @@ export async function getRewardsProgress(
       .maybeSingle();
     earnedThisOrder = row?.earned_by === user.id;
   }
+  const { data: summary } = await db.rpc("mms_rewards_summary", { p_user: user.id });
+  const s = (summary ?? {}) as {
+    stars?: number;
+    tier_id?: string;
+    milestone_step?: number;
+    orders_to_next?: number;
+  };
   return {
     stars: Number(s.stars ?? 0),
     milestoneStep: Number(s.milestone_step ?? 5),

@@ -74,22 +74,48 @@ export function OrderTracker({
           ? 1
           : 0;
   const ready = arrived && togo === "ready";
-  // R8: the REAL loyalty earn for this order, fetched once it lands (the webhook has fulfilled → the order
-  // is counted in `stars` AND its earner is stamped). `getRewardsProgress(order.id)` server-checks whether
-  // THIS order is attributed to the viewer, so a split-tender share-payer who isn't the stamped earner
-  // (only the host is) never sees a Star they didn't get; no session → null → no claim. Retires R7a's
-  // placeholder `gems = round(total)` display rule for the real per-order +1 Star + the honest milestone clause.
+  // R8: the REAL loyalty earn for this order. `getRewardsProgress(orderId)` server-checks whether THIS order
+  // is attributed to the viewer (`earned_by === auth.uid()`), so a split-tender share-payer who isn't the
+  // stamped earner (only the host is) never sees a Star they didn't get; no session → null → no claim.
+  // Retires R7a's placeholder `gems = round(total)` for the real per-order +1 Star + the honest milestone clause.
+  //
+  // POLL-until-attributed: the webhook makes the paid order VISIBLE (mms_fulfill_order) slightly BEFORE it
+  // stamps `earned_by` + recomputes Stars (separate awaited calls) — so a first read the instant the order
+  // surfaces can land in that gap (earnedThisOrder=false / stale). We retry (bounded) until this order is
+  // attributed, keeping the latest snapshot, then stop; a genuine non-earner / no-session settles at the cap
+  // without looping. Fixes the one-shot guard that would otherwise strand a real earner with no Star pill.
   const [progress, setProgress] = useState<RewardsProgress | null>(null);
-  const progressFetched = useRef(false);
+  const resolvedOrderId = order?.id ?? null; // the landed order's id (distinct from the `orderId` split prop)
+  const progressDone = useRef(false);
+  const progressTries = useRef(0);
   useEffect(() => {
-    if (!justPaid || !order || progressFetched.current) return;
-    progressFetched.current = true;
-    // Deliberate read-only swallow: a transient failure just drops the milestone caption (the order flow
-    // is unaffected) rather than surfacing an error toast on a success screen.
-    getRewardsProgress(order.id)
-      .then(setProgress)
-      .catch(() => {});
-  }, [justPaid, order]);
+    if (!justPaid || !resolvedOrderId || progressDone.current) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const MAX_TRIES = 5; // ~6s of coverage at 1.2s spacing — comfortably past the earn-stamp gap
+    const poll = () => {
+      progressTries.current += 1;
+      // Deliberate read-only swallow: a transient failure just drops the milestone caption (the order flow
+      // is unaffected) rather than surfacing an error toast on a success screen.
+      getRewardsProgress(resolvedOrderId)
+        .then((p) => {
+          if (cancelled) return;
+          if (p) setProgress(p); // keep the latest snapshot even before attribution lands
+          if (p?.earnedThisOrder || progressTries.current >= MAX_TRIES) progressDone.current = true;
+          else timer = setTimeout(poll, 1200);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          if (progressTries.current >= MAX_TRIES) progressDone.current = true;
+          else timer = setTimeout(poll, 1200);
+        });
+    };
+    poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [justPaid, resolvedOrderId]);
   const starsEarned = progress?.earnedThisOrder ? 1 : 0;
   const modeLabel = isPickup ? "Pickup" : "Scan & Go";
   const statusChip = (

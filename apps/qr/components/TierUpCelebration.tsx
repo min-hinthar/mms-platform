@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAnimationPreference, useDeviceTier } from "@mms/ui";
 import { Confetti } from "./Confetti";
 import { tierMeta } from "@/lib/rewards-tiers";
@@ -21,7 +21,9 @@ const DISMISS_MS = 5200;
  * card animates in. Confetti is gated on `shouldAnimate && useDeviceTier() !== "low"` (mirrors PaySuccess —
  * the mobile GPU budget for the particle field) plus Confetti's own CSS reduced-motion off-switch; the
  * `.tier-up-card` enters with a `@media`-gated transform. a11y: `role="status"` announces it, the tier emoji
- * is `aria-hidden`, the dismiss button's visible "Nice!" is its accessible name (tap anywhere also dismisses).
+ * is `aria-hidden`. The overlay is a full-screen scrim, so on show it moves focus to the dismiss button,
+ * Escape (or tap-anywhere) dismisses, and focus is restored to the prior element on close — matching the
+ * codebase's modal focus discipline (RefundActionSheet / QA §A).
  */
 export function TierUpCelebration({ tierId }: { tierId: string }) {
   const { shouldAnimate } = useAnimationPreference();
@@ -29,6 +31,15 @@ export function TierUpCelebration({ tierId }: { tierId: string }) {
   const celebrate = shouldAnimate && tier !== "low";
   const [show, setShow] = useState(false);
   const evaluated = useRef(false);
+  const dismissRef = useRef<HTMLButtonElement>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
+
+  const dismiss = useCallback(() => {
+    setShow(false);
+    // Restore focus to whatever had it before the celebration stole it (next frame, after unmount).
+    const prev = restoreFocusRef.current;
+    if (prev) requestAnimationFrame(() => prev.focus?.());
+  }, []);
 
   useEffect(() => {
     if (evaluated.current) return;
@@ -49,17 +60,27 @@ export function TierUpCelebration({ tierId }: { tierId: string }) {
     }
   }, [tierId]);
 
+  // While shown: capture prior focus + move it into the dismiss button, wire Escape, and auto-dismiss.
   useEffect(() => {
     if (!show) return;
-    const t = setTimeout(() => setShow(false), DISMISS_MS);
-    return () => clearTimeout(t);
-  }, [show]);
+    restoreFocusRef.current = (document.activeElement as HTMLElement) ?? null;
+    dismissRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") dismiss();
+    };
+    document.addEventListener("keydown", onKey);
+    const t = setTimeout(dismiss, DISMISS_MS);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      clearTimeout(t);
+    };
+  }, [show, dismiss]);
 
   if (!show) return null;
   const meta = tierMeta(tierId);
 
   return (
-    <div className="tier-up" role="status" onClick={() => setShow(false)}>
+    <div className="tier-up" role="status" onClick={dismiss}>
       {celebrate && <Confetti count={48} />}
       <div className="tier-up-card">
         <span className="tier-up-emoji" aria-hidden>
@@ -71,11 +92,12 @@ export function TierUpCelebration({ tierId }: { tierId: string }) {
         </div>
         <p className="tier-up-sub">You’ve climbed the gem tiers — kyay-zu tin ba deh.</p>
         <button
+          ref={dismissRef}
           type="button"
           className="tier-up-dismiss"
           onClick={(e) => {
             e.stopPropagation();
-            setShow(false);
+            dismiss();
           }}
         >
           Nice!

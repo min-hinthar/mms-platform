@@ -1213,9 +1213,11 @@ h3 {
     transform: scale(1);
   }
 }
-/* The current rung carries the emphasis — a soft accent glow (status, not affordance). */
+/* The current rung carries the emphasis — a soft accent glow (status, not affordance). Use the real shadow
+   token (--sh-glow = 0 6px 22px color-mix(…)); --glow-ac is a bare COLOR (radial-gradient stop), and a
+   color-only box-shadow is invalid → dropped, so the glow would never paint. */
 .reward-rung-current {
-  box-shadow: var(--glow-ac);
+  box-shadow: var(--sh-glow);
 }
 
 /* Tier-up moment — a centered card over a dimmed scrim + the reused confetti. role="status" announces it. */

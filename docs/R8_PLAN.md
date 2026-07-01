@@ -81,6 +81,15 @@ on the receipt total — is held back: the receipt total is a *final* figure, so
 changing total (honesty), and the "your food's up" pulse already exists (`mms-track-now`, `useInView`-gated).
 Fold into R9 if still wanted.
 
+## Pre-merge hardening (deep review + Codex)
+
+The pre-PR review fixed 5 (see PR comment). The **pre-merge deep review** (7 lenses → double-verify → completeness critic) + Codex then caught the load-bearing one:
+
+- **Earn-stamp race (P1).** `mms_fulfill_order` makes the paid order visible (Realtime) BEFORE the webhook stamps `earned_by` in a separate later call — so a one-shot `getRewardsProgress` read could land pre-stamp and permanently deny a real earner their "+N Star earned" pill (the guard never retried). Fixed: `OrderTracker` now **polls until attributed** (bounded 5×/1.2s, keeps the latest snapshot, stops on `earnedThisOrder` or the cap; self-heals a transient fetch error too). `getRewardsProgress` reads `earned_by` before the summary RPC so a true attribution guarantees the count includes this order (no lagging caption / missed "Reward unlocked").
+- **`.reward-rung-current` dead glow (P2).** `box-shadow: var(--glow-ac)` is a color-only value → invalid → dropped; the current-tier emphasis never painted. Fixed to `var(--sh-glow)` (a real offset+color shadow).
+- **Tier-up a11y (P2).** The full-screen overlay now moves focus to the dismiss button on show, dismisses on Escape (and tap-anywhere), and restores focus on close.
+- Refuted / deferred: none material — the two contested findings were the glow (fixed) and tier-up focus (fixed).
+
 ## Guardrails (every R8 change)
 
 Money/rewards **server-derived, never a client value**; the "+N Star earned" claim **gated on real
