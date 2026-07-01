@@ -77,11 +77,23 @@ but surfaced worthwhile refinements, all applied:
   polling); NumberFlow on every card is bounded (it only *animates* on a real value change — idle instances
   just reconcile), consistent with the "full enrichment" directive.
 
-## R9b — homepage hero (maximal) — PENDING
+## R9b — homepage hero (maximal) ✅ shipped 2026-07-01
 
-`app/page.tsx` + `ModeCard` + a new hero: gradient-masked dot-texture backdrop; finish the card stagger
-(grocery card index + header lines); a hero signature moment — radial glow behind the ☕ + `.mms-steam`
-wisps + a draw-on SVG ring + device-tier-gated pointer/gyro parallax (rAF-throttled, IO-gated, passive).
+The "morning coffee" signature moment behind the mode picker.
+
+- **`components/HomeHero.tsx`** (new, client) — the ☕ glyph over a warm **radial-gradient glow**
+  (`--glow-gold`, NOT blur), a **draw-on SVG ring** (CSS `stroke-dashoffset`, reduced-motion → fully drawn),
+  rising **`.mms-steam` wisps** (`useInView`-gated so the loop pauses offscreen), and **multi-layer
+  pointer/gyro parallax** via `useHeroParallax` (the glyph leads at `×18`, the glow/ring trail at `×8` for
+  depth). Parallax is **device-tier-gated** (transform zeroed on `low` → no GPU churn) and reduced-motion-
+  gated (the hook self-disables). Staggered header lines (`.mms-stagger`). Every decorative layer is
+  `aria-hidden`; the real accessible content is the heading + copy.
+- **`app/page.tsx`** — renders `<HomeHero>`; adds a fixed **masked dot-texture backdrop** (`.home-bg`,
+  gradient-mask fade, no blur) behind the transparent `<main>`; finishes the card stagger (grocery
+  `index={4}`).
+- **`globals.css`** — R9b block: `.home-hero*` (glyph/glow/ring/steam), `.home-bg`, `homeHeroRingDraw`
+  keyframe; radial-gradient/stroke/transform only (no blur/backdrop-filter); ring draw-on has a
+  `@media (prefers-reduced-motion)` off-switch (steam + stagger reuse the shared ones). Built-CSS grep ✓.
 
 ## Guardrails (every R9 change)
 

@@ -1404,3 +1404,103 @@ h3 {
     transform: none;
   }
 }
+
+/* ── Richness R9b: homepage hero (glow · draw-on ring · steam · parallax) + dot backdrop ───────────────
+   The "morning coffee" signature. transform/opacity/stroke + a radial-gradient glow only — NO blur /
+   backdrop-filter (mobile GPU budget). Parallax is JS (useHeroParallax, device-tier + reduced-motion gated
+   in HomeHero); the ring draw-on, steam loop, and stagger each have a `@media (prefers-reduced-motion)`
+   off-switch (steam via the shared `.mms-steam` rule, stagger via `.mms-stagger`). */
+.home-hero {
+  position: relative;
+  text-align: center;
+}
+.home-hero-badge {
+  position: relative;
+  width: 132px;
+  height: 132px;
+  margin: 0 auto 4px;
+  display: grid;
+  place-items: center;
+}
+.home-hero-glyph {
+  position: relative;
+  z-index: 2;
+  font-size: 50px;
+  line-height: 1;
+  display: inline-block;
+}
+.home-hero-back {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.home-hero-glow {
+  position: absolute;
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 46%, var(--glow-gold), transparent 68%);
+}
+.home-hero-ring {
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  overflow: visible;
+}
+.home-hero-ring circle {
+  fill: none;
+  stroke: var(--ac);
+  stroke-width: 1.5;
+  opacity: 0.45;
+  stroke-dasharray: 340;
+  stroke-dashoffset: 0;
+  animation: homeHeroRingDraw var(--dur-slow) var(--ease-out) both;
+}
+@keyframes homeHeroRingDraw {
+  from {
+    stroke-dashoffset: 340;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.home-hero-steam {
+  position: absolute;
+  top: 20px;
+  left: 0;
+  right: 0;
+  height: 40px;
+  z-index: 1;
+  pointer-events: none;
+}
+.hero-steam-wisp {
+  position: absolute;
+  bottom: 0;
+  width: 5px;
+  height: 22px;
+  border-radius: 999px;
+  background: linear-gradient(to top, transparent, color-mix(in srgb, var(--t2) 42%, transparent));
+  --steam-opacity: 0.5;
+}
+/* Full-viewport dot-texture backdrop — masked to fade toward the edges; fixed behind the transparent
+   <main>. Decorative; no blur. */
+.home-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.6;
+  background-image: radial-gradient(var(--tex-dot) 1px, transparent 1.6px);
+  background-size: 20px 20px;
+  -webkit-mask-image: radial-gradient(120% 90% at 50% 0%, #000 28%, transparent 74%);
+  mask-image: radial-gradient(120% 90% at 50% 0%, #000 28%, transparent 74%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-hero-ring circle {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}

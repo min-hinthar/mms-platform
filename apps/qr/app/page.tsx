@@ -1,5 +1,6 @@
 import { ModeCard } from "@/components/ModeCard";
 import { JoinTable } from "@/components/JoinTable";
+import { HomeHero } from "@/components/HomeHero";
 
 // Entry / mode picker. A scanned table QR deep-links to /menu?mode=dinein&t=<token>; the host's
 // invite code deep-links with &j=<code>. Guests without a sticker can also join via <JoinTable/>.
@@ -11,15 +12,19 @@ const MODES = [
 
 export default function Entry() {
   return (
-    <main style={{ padding: "60px 24px", maxWidth: 440, margin: "0 auto" }}>
-      <div style={{ textAlign: "center" }}>
-        <div style={{ fontSize: 50 }} aria-hidden>
-          ☕
-        </div>
-        <p className="eyebrow">Mandalay Morning Star</p>
-        <h1 style={{ fontSize: 30, margin: "6px 0 2px" }}>Good morning</h1>
-        <p style={{ color: "var(--t2)", margin: 0 }}>How would you like to order?</p>
-      </div>
+    <main
+      style={{
+        padding: "60px 24px",
+        maxWidth: 440,
+        margin: "0 auto",
+        // Establish a stacking context so the `.home-bg` negative-z layer paints WITHIN main (above body's
+        // opaque bg), not escaping to the root context below it — the MenuPageAmbient occlusion gotcha.
+        isolation: "isolate",
+      }}
+    >
+      {/* Masked dot-texture backdrop — decorative, fixed, scoped behind main's content (no blur, mobile-safe). */}
+      <div className="home-bg" aria-hidden />
+      <HomeHero />
       <nav aria-label="Order type" style={{ marginTop: 22, display: "grid", gap: 13 }}>
         {MODES.map(([m, e, n, d], i) => (
           <ModeCard
@@ -29,7 +34,8 @@ export default function Entry() {
             emoji={e}
             name={n}
             description={d}
-            index={i}
+            // Offset past HomeHero's header lines (40/100/160ms) so the whole page reads as ONE stagger wave.
+            index={i + 3}
           />
         ))}
       </nav>
@@ -41,6 +47,8 @@ export default function Entry() {
           emoji="🛒"
           name="Grocery Scan & Go"
           description="Scan barcodes, pay, walk out"
+          // Tail of the single stagger wave: header 40/100/160 → mode cards 210/280/350 → grocery 420ms.
+          index={6}
         />
       </div>
     </main>

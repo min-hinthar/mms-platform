@@ -4,6 +4,19 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — Richness R9b: homepage hero (maximal) (2026-07-01)
+
+The "morning coffee" signature moment behind the mode picker — the final Richness slice.
+
+- **`HomeHero`** (new) — ☕ glyph over a radial-gradient glow (no blur), a draw-on SVG ring, rising
+  `.mms-steam` wisps (`useInView`-paused offscreen), and **multi-layer pointer/gyro parallax**
+  (`useHeroParallax`: glyph leads, glow/ring trail) — **device-tier-gated** (zeroed on `low`) + reduced-motion
+  gated. Staggered header lines. All decorative layers `aria-hidden`; heading/copy stay the accessible content.
+- **Homepage** (`app/page.tsx`) — a fixed masked dot-texture backdrop (`.home-bg`, no blur) behind the
+  transparent `<main>`; the ModeCard stagger finished (grocery `index={4}`).
+- **`globals.css`** — R9b `.home-hero*` / `.home-bg` + `homeHeroRingDraw`; radial-gradient/stroke/transform
+  only, ring draw-on reduced-motion-gated.
+
 ### Added — Richness R9a: staff-board live-notice (2026-07-01)
 
 Brings **full-but-informative** richness to the staff boards (owner overrode the plan's "restrained" for ops
