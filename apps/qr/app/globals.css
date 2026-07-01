@@ -1026,7 +1026,7 @@ h3 {
   font-size: 26px;
   margin: 8px 0 0;
 }
-.pay-success-gems {
+.pay-success-stars {
   display: inline-block;
   margin-top: 10px;
   padding: 7px 16px;
@@ -1035,6 +1035,12 @@ h3 {
   color: var(--ac-strong);
   font-weight: 800;
   font-size: 14px;
+}
+/* The honest milestone caption beneath the Stars pill — only renders once the summary resolves. */
+.pay-success-progress {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--t2);
 }
 /* Mode + status + ETA row under the celebration headline. */
 .track-statusrow {
@@ -1146,6 +1152,152 @@ h3 {
     transition: none;
   }
   .checkout-step {
+    animation: none;
+  }
+}
+
+/* ── Richness R8: /track real Stars + /account rewards hub (ring · ladder · tier-up) ──────────────────
+   The Stars ring is an SVG stroke-dashoffset arc (no conic-gradient in QR); the draw-on + ladder entrance
+   + tier-up are pure CSS with a `@media (prefers-reduced-motion)` off-switch (no shouldAnimate first-render
+   race, SSR-safe; see .claude/LEARNINGS.md). transform/opacity/stroke + box-shadow only — no blur /
+   backdrop-filter (mobile GPU budget). The ✦ count + spend roll via NumberFlow (self-gates reduced motion). */
+
+/* Stars ring — track circle (var(--bd)) + the arc (currentColor, tinted by tier on the wrapper). */
+.stars-ring {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  line-height: 0;
+}
+.stars-ring-arc {
+  /* dasharray + the resting dashoffset are set inline (computed from the cycle); CSS draws from empty. */
+  animation: starsRingDraw var(--dur-slow) var(--ease-out) both;
+}
+@keyframes starsRingDraw {
+  from {
+    stroke-dashoffset: var(--ring-c);
+  }
+}
+.stars-ring-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.stars-ring-glyph {
+  font-size: 18px;
+  color: var(--ac-strong);
+}
+.stars-ring-count {
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 800;
+  color: var(--tx);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tier ladder rungs — a subtle scale entrance (transform only → no opacity-0/CLS risk), staggered per rung.
+   No hover-lift (the rungs aren't interactive — a lift would be a false affordance, R7b learning). */
+.reward-rung {
+  animation: rewardRungIn var(--dur-base) var(--ease-out) var(--rung-delay, 0ms) both;
+  transition: box-shadow var(--dur-base) var(--ease-out);
+}
+@keyframes rewardRungIn {
+  from {
+    transform: scale(0.92);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+/* The current rung carries the emphasis — a soft accent glow (status, not affordance). Use the real shadow
+   token (--sh-glow = 0 6px 22px color-mix(…)); --glow-ac is a bare COLOR (radial-gradient stop), and a
+   color-only box-shadow is invalid → dropped, so the glow would never paint. */
+.reward-rung-current {
+  box-shadow: var(--sh-glow);
+}
+
+/* Tier-up moment — a centered card over a dimmed scrim + the reused confetti. role="status" announces it. */
+.tier-up {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--tx) 38%, transparent);
+}
+.tier-up-card {
+  position: relative;
+  z-index: 1;
+  max-width: 320px;
+  width: 100%;
+  text-align: center;
+  padding: 28px 24px 22px;
+  border-radius: var(--r-sheet);
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  box-shadow: var(--sh-xl);
+  animation: tierUpIn var(--dur-sheet) var(--spring) both;
+}
+.tier-up-emoji {
+  font-size: 46px;
+  line-height: 1;
+  display: inline-block;
+}
+.tier-up-kicker {
+  margin: 10px 0 2px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--ac-strong);
+}
+.tier-up-name {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--tx);
+}
+.tier-up-sub {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--t2);
+}
+.tier-up-dismiss {
+  margin-top: 16px;
+  min-height: 44px;
+  padding: 0 24px;
+  border-radius: var(--r-full);
+  border: none;
+  background: var(--ac);
+  color: var(--oa);
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+@keyframes tierUpIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stars-ring-arc {
+    animation: none;
+  }
+  .reward-rung {
+    animation: none;
+    transition: none;
+  }
+  .tier-up-card {
     animation: none;
   }
 }

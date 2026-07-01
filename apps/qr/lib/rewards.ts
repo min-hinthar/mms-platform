@@ -92,6 +92,68 @@ export async function getRewardsState(): Promise<RewardsState | null> {
   };
 }
 
+export type RewardsProgress = {
+  stars: number;
+  milestoneStep: number;
+  /** Orders until the next reward coupon (1..milestoneStep — strictly above, never 0). */
+  ordersToNext: number;
+  tierId: string;
+  /** Did the passed order earn THIS viewer a Star? (false when no orderId, or the viewer isn't its earner.) */
+  earnedThisOrder: boolean;
+};
+
+/**
+ * A lean rewards-progress read for the /track success moment (R8) — just the milestone numbers, NO coupon
+ * or profile reads (unlike getRewardsState). Resolves the SSR-verified uid (anon or upgraded — the SAME
+ * uid the webhook stamped as `earned_by`) and reads the server-derived summary service-role, so a diner
+ * only ever reads their OWN progress. Called from /track once the order has landed (the webhook has
+ * fulfilled → this order is counted in `stars`). Returns null when there's no session on the /track
+ * request (e.g. opened on another device / without the diner's cookie) — the caller then shows just the
+ * "Paid — thank you!" success with no Star claim. Never trust a client-sent stars/tier value.
+ *
+ * `earnedThisOrder`: when an `orderId` is passed, this server-checks whether THAT order is attributed to
+ * the viewer (`earned_by === auth.uid()`). Split-tender stamps only the HOST as earner, so a non-host
+ * share-payer earned nothing — gating the "+1 Star earned" pill on this never claims a Star they didn't
+ * get. The check returns only a boolean about the viewer's OWN attribution, so it leaks no other diner's data.
+ */
+export async function getRewardsProgress(
+  orderId?: string | null,
+): Promise<RewardsProgress | null> {
+  const supa = serverClient(await cookies());
+  const {
+    data: { user },
+  } = await supa.auth.getUser();
+  if (!user) return null;
+  const db = serviceClient();
+  // Read the order's attribution FIRST, then the summary. The webhook stamps `earned_by` and its Star count
+  // (mms_rewards_summary counts qr_orders by earned_by) off the SAME update — so ordering the summary AFTER a
+  // true `earnedThisOrder` guarantees the count already includes this order (no stale stars / lagging
+  // "N to next reward" / missed "Reward unlocked" the moment attribution lands).
+  let earnedThisOrder = false;
+  if (orderId) {
+    const { data: row } = await db
+      .from("qr_orders")
+      .select("earned_by")
+      .eq("id", orderId)
+      .maybeSingle();
+    earnedThisOrder = row?.earned_by === user.id;
+  }
+  const { data: summary } = await db.rpc("mms_rewards_summary", { p_user: user.id });
+  const s = (summary ?? {}) as {
+    stars?: number;
+    tier_id?: string;
+    milestone_step?: number;
+    orders_to_next?: number;
+  };
+  return {
+    stars: Number(s.stars ?? 0),
+    milestoneStep: Number(s.milestone_step ?? 5),
+    ordersToNext: Number(s.orders_to_next ?? 0),
+    tierId: s.tier_id ?? "new",
+    earnedThisOrder,
+  };
+}
+
 /**
  * The caller's active (unredeemed, unexpired) reward coupons — for the checkout redeem field (M4 P4.2).
  * Resolves the SSR-verified uid (anon or upgraded — the same uid that earned them) and reads service-role,
