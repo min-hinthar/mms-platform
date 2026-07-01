@@ -7,6 +7,7 @@ import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import type { TableDetail } from "@/lib/floor-types";
 import { FloorStatusChip } from "./FloorStatusChip";
 import { RelativeTime } from "./RelativeTime";
+import { LiveMoney } from "./LiveMoney";
 import { Badge } from "@mms/ui";
 import { ClearTableButton } from "./ClearTableButton";
 import { StaffLineEditor } from "./StaffLineEditor";
@@ -275,7 +276,9 @@ export function FloorDetailLive({
         <div style={totalRow}>
           {detail.itemCount > 0 && (
             <span>
-              <span style={{ fontWeight: 700 }}>{fmt(detail.runningSubtotalCents)}</span>{" "}
+              <span style={{ fontWeight: 700 }}>
+                <LiveMoney cents={detail.runningSubtotalCents} />
+              </span>{" "}
               <span style={{ color: "var(--t2)", fontSize: 13 }}>
                 subtotal so far · {detail.itemCount} {detail.itemCount === 1 ? "item" : "items"}
               </span>
