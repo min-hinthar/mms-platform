@@ -34,7 +34,8 @@ export default function Entry() {
             emoji={e}
             name={n}
             description={d}
-            index={i}
+            // Offset past HomeHero's header lines (40/100/160ms) so the whole page reads as ONE stagger wave.
+            index={i + 3}
           />
         ))}
       </nav>
@@ -46,7 +47,8 @@ export default function Entry() {
           emoji="🛒"
           name="Grocery Scan & Go"
           description="Scan barcodes, pay, walk out"
-          index={4}
+          // Tail of the single stagger wave: header 40/100/160 → mode cards 210/280/350 → grocery 420ms.
+          index={6}
         />
       </div>
     </main>

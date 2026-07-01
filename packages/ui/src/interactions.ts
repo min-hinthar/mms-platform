@@ -95,21 +95,31 @@ export function useHeroParallax(
   const y = useSpring(0, PARALLAX_SPRING);
   const scrollY = useSpring(0, PARALLAX_SPRING);
   const frame = useRef(0);
+  const scrollFrame = useRef(0);
 
   useEffect(() => {
     if (!shouldAnimate || !enabled) return;
     const el = ref.current;
     if (!el) return;
 
+    // Clamp to the documented -0.5..0.5 envelope: the listener is on `window` but we normalize against the
+    // ref box, so an off-element pointer (a narrow, centered hero on a wide desktop) would otherwise blow
+    // past ±0.5 and over-drive the consumer's transform. Matches the gyro (onOrient) clamp below.
+    const clamp = (v: number) => Math.max(-0.5, Math.min(0.5, v));
     const onPointer = (e: PointerEvent) => {
       const r = el.getBoundingClientRect();
       cancelAnimationFrame(frame.current);
       frame.current = requestAnimationFrame(() => {
-        x.set((e.clientX - (r.left + r.width / 2)) / r.width);
-        y.set((e.clientY - (r.top + r.height / 2)) / r.height);
+        x.set(clamp((e.clientX - (r.left + r.width / 2)) / r.width));
+        y.set(clamp((e.clientY - (r.top + r.height / 2)) / r.height));
       });
     };
-    const onScroll = () => scrollY.set(-el.getBoundingClientRect().top);
+    // rAF-throttle the scroll read too (parity with onPointer) — the raw handler forced a synchronous
+    // layout (getBoundingClientRect) per scroll event.
+    const onScroll = () => {
+      cancelAnimationFrame(scrollFrame.current);
+      scrollFrame.current = requestAnimationFrame(() => scrollY.set(-el.getBoundingClientRect().top));
+    };
     const onOrient = (e: DeviceOrientationEvent) => {
       if (e.gamma == null || e.beta == null) return;
       x.set(Math.max(-0.5, Math.min(0.5, e.gamma / 45)));
@@ -147,6 +157,7 @@ export function useHeroParallax(
 
     return () => {
       cancelAnimationFrame(frame.current);
+      cancelAnimationFrame(scrollFrame.current);
       detach();
       io?.disconnect();
     };
