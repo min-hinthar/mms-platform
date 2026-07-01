@@ -1301,3 +1301,106 @@ h3 {
     animation: none;
   }
 }
+
+/* ── Richness R9: staff-board live-notice (value flash · change-pulse) ─────────────────────────────────
+   The peripheral "this just moved" cues for a live ops board — a saturated server registers a change
+   without staring. EVENT-DRIVEN only (no idle loops behind live data — constant motion would wash out the
+   signal); transform/opacity/color + a one-shot box-shadow ring only (no blur/backdrop-filter — mobile GPU
+   budget); every animation has a `@media (prefers-reduced-motion)` off-switch. Cards animate ENTER/EXIT via
+   framer (AnimatePresence), so those aren't here. */
+
+/* Live money: a brief directional wash when the figure changes (accent up, muted down). The wash is a KEYED
+   overlay (remounts per change → the animation restarts even on rapid same-direction changes) painted BEHIND
+   the number (no layout shift — the reel rolls via NumberFlow above it). */
+.floor-live {
+  position: relative;
+  display: inline-block;
+}
+.floor-live-num {
+  position: relative;
+  z-index: 1;
+}
+.floor-flash {
+  position: absolute;
+  inset: 0 -3px;
+  z-index: 0;
+  border-radius: 6px;
+  pointer-events: none;
+}
+.floor-flash-up {
+  animation: floorFlashUp var(--dur-slow) var(--ease-out);
+}
+.floor-flash-down {
+  animation: floorFlashDown var(--dur-slow) var(--ease-out);
+}
+@keyframes floorFlashUp {
+  0% {
+    background: color-mix(in srgb, var(--ac) 26%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
+}
+@keyframes floorFlashDown {
+  0% {
+    /* A subtotal DECREASE is a money-negative event (void / comp) worth a visible heads-up — a warn wash,
+       not the near-invisible muted-text token. Decorative (aria-hidden); the sr-only value stays exact. */
+    background: color-mix(in srgb, var(--warn) 20%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+/* One-shot accent ring when a table's STATUS transitions — a KEYED inset overlay (remounts per transition
+   nonce so it restarts on rapid changes); its box-shadow ring renders at the card edge. The higher-specificity
+   selector beats `.card-textured > *` (which would force position:relative). */
+.card-textured > .floor-card-pulse {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: var(--r-card);
+  pointer-events: none;
+  animation: floorCardPulse 1s var(--ease-out);
+}
+@keyframes floorCardPulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ac) 42%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 7px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* Staff action buttons (bump · approve/deny · refund · order disclosure) — a quiet press settle + hover
+   lift, transform/box-shadow only so it never reflows a dense board. Inline styles set each button's
+   colors; this adds only the interaction feedback (and skips it while disabled). */
+.staff-btn {
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out),
+    filter var(--dur-fast) var(--ease-out);
+}
+.staff-btn:not(:disabled):hover {
+  filter: brightness(1.04);
+}
+.staff-btn:not(:disabled):active {
+  transform: scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .floor-flash-up,
+  .floor-flash-down,
+  .card-textured > .floor-card-pulse {
+    animation: none;
+  }
+  .staff-btn {
+    transition: none;
+  }
+  .staff-btn:not(:disabled):active {
+    transform: none;
+  }
+}

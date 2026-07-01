@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { FloorTable } from "@/lib/floor-types";
 import { FloorStatusChip } from "./FloorStatusChip";
 import { RelativeTime } from "./RelativeTime";
+import { LiveMoney } from "./LiveMoney";
 import { Badge, Card } from "@mms/ui";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -13,12 +14,25 @@ const MODE_LABEL: Record<FloorTable["mode"], string> = {
 };
 
 /**
- * One table on the floor (S1.2). The whole card is a link into the read-only drill-down (≥44px tap).
- * Shows the at-a-glance state a server scans: label, status, party, the running "so far" subtotal (or a
- * paid total), and last activity. An accessible name summarizes it so a screen-reader user gets the gist
- * without walking every child node.
+ * One table on the floor (S1.2 · enriched R9). The whole card is a link into the read-only drill-down
+ * (≥44px tap) — so it opts into `interactive` (hover-lift + press) honestly, plus a `textured` layered
+ * surface. Shows the at-a-glance state a server scans: label, status, party, the running "so far" subtotal
+ * (rolling + flashing via `LiveMoney`), or a paid total, and last activity. `pulse` (a per-transition nonce
+ * from FloorBoard's status diff) renders a KEYED one-shot accent ring — the peripheral "this table just
+ * moved" cue; keying by the nonce restarts the ring even on a rapid second transition (a plain class toggle
+ * would no-op). An accessible name summarizes the card so a screen-reader user gets the gist without walking
+ * every child.
  */
-export function TableCard({ table, serverNow }: { table: FloorTable; serverNow: string }) {
+export function TableCard({
+  table,
+  serverNow,
+  pulse,
+}: {
+  table: FloorTable;
+  serverNow: string;
+  /** A per-transition nonce (FloorBoard diff) → a keyed one-shot ring overlay; undefined = no pulse. */
+  pulse?: number;
+}) {
   const showRunning = table.itemCount > 0;
   const a11yName =
     `Table ${table.label}, ${table.status}${table.tab !== "none" ? ", tab open" : ""}${table.tabOverCeiling ? ", over tab limit" : ""}, party of ${table.partySize}` +
@@ -26,7 +40,17 @@ export function TableCard({ table, serverNow }: { table: FloorTable; serverNow: 
     (table.paidTotalCents != null ? `, ${fmt(table.paidTotalCents)} paid` : "");
 
   return (
-    <Card as={Link} href={`/staff/table/${table.sessionId}`} style={card} aria-label={a11yName}>
+    <Card
+      as={Link}
+      href={`/staff/table/${table.sessionId}`}
+      interactive
+      textured
+      style={card}
+      aria-label={a11yName}
+    >
+      {/* Keyed one-shot status ring — remounts per transition nonce so it restarts on rapid changes.
+          Decorative (aria-hidden); CSS `@media (prefers-reduced-motion)` off-switch. */}
+      {pulse != null && <span key={pulse} className="floor-card-pulse" aria-hidden />}
       <div style={topRow}>
         <span style={label}>{table.label}</span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
@@ -62,7 +86,7 @@ export function TableCard({ table, serverNow }: { table: FloorTable; serverNow: 
         <span style={{ fontWeight: 700, fontSize: 15 }}>
           {showRunning ? (
             <>
-              {fmt(table.runningSubtotalCents)}{" "}
+              <LiveMoney cents={table.runningSubtotalCents} srHidden />{" "}
               <span style={{ fontWeight: 500, color: "var(--t2)", fontSize: 13 }}>
                 so far · {table.itemCount} {table.itemCount === 1 ? "item" : "items"}
               </span>

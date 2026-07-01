@@ -5,6 +5,7 @@ import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { formatSlotLong } from "@/lib/pickupTime";
 import type { ExpoLine, ExpoQueue, ExpoTicket } from "@/lib/expo-types";
 import { RelativeTime } from "./RelativeTime";
+import { StaggerList } from "./StaggerList";
 import { EmptyState } from "@mms/ui";
 
 /**
@@ -84,13 +85,15 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
           icon="🥡"
         />
       ) : (
-        <ul role="list" style={grid}>
-          {tickets.map((t) => (
-            <li key={t.orderId}>
-              <ExpoCard ticket={t} serverNow={snap.serverNow} onBumped={refresh} onError={setErr} />
-            </li>
-          ))}
-        </ul>
+        <StaggerList
+          items={tickets}
+          getKey={(t) => t.orderId}
+          ariaLabel="Bags waiting"
+          style={grid}
+          renderItem={(t) => (
+            <ExpoCard ticket={t} serverNow={snap.serverNow} onBumped={refresh} onError={setErr} />
+          )}
+        />
       )}
     </section>
   );
@@ -125,7 +128,7 @@ function ExpoCard({
   };
 
   return (
-    <article className="card" style={cardStyle} aria-label={`Bag for ${ticket.label}`}>
+    <article className="card card-textured" style={cardStyle} aria-label={`Bag for ${ticket.label}`}>
       <header style={cardHead}>
         <span style={tableLabel}>{ticket.label}</span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
@@ -150,6 +153,7 @@ function ExpoCard({
         onClick={bump}
         disabled={pending}
         aria-label={`${label} — bag for ${ticket.label}`}
+        className="staff-btn"
         style={{ ...bumpBtn, ...(ticket.status === "preparing" ? readyBtn : pickedBtn) }}
       >
         {pending ? "…" : label}

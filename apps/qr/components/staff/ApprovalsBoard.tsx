@@ -12,6 +12,7 @@ import { listPendingApprovals, resolveApproval, type PendingApproval } from "@/l
 import type { Approver } from "@/lib/voids";
 import { EmptyState } from "@mms/ui";
 import { RelativeTime } from "./RelativeTime";
+import { StaggerList } from "./StaggerList";
 import { ManagerPinFields, PIN_NO_PIN_COPY, pinFailureCopy, useLockout } from "./ManagerPinStepUp";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -92,18 +93,20 @@ export function ApprovalsBoard({
           subtitle="When a server asks to void or comp something they can’t do solo, it lands here for a manager to approve or deny — oldest first."
         />
       ) : (
-        <ul role="list" aria-label="Pending approval requests" style={grid}>
-          {snap.map((a) => (
-            <li key={a.id}>
-              <RequestCard
-                request={a}
-                approvers={approvers}
-                serverNow={serverNow}
-                onResolved={refresh}
-              />
-            </li>
-          ))}
-        </ul>
+        <StaggerList
+          items={snap}
+          getKey={(a) => a.id}
+          ariaLabel="Pending approval requests"
+          style={grid}
+          renderItem={(a) => (
+            <RequestCard
+              request={a}
+              approvers={approvers}
+              serverNow={serverNow}
+              onResolved={refresh}
+            />
+          )}
+        />
       )}
     </section>
   );
@@ -187,7 +190,7 @@ function RequestCard({
 
   return (
     <article
-      className="card"
+      className="card card-textured"
       style={cardStyle}
       aria-label={`${verb} request for ${request.lineName}`}
     >
@@ -214,11 +217,17 @@ function RequestCard({
           <button
             type="button"
             onClick={() => open("approve")}
+            className="staff-btn"
             style={{ ...actionBtn, ...approveBtn }}
           >
             Approve
           </button>
-          <button type="button" onClick={() => open("deny")} style={{ ...actionBtn, ...denyBtn }}>
+          <button
+            type="button"
+            onClick={() => open("deny")}
+            className="staff-btn"
+            style={{ ...actionBtn, ...denyBtn }}
+          >
             Deny
           </button>
         </div>
@@ -241,6 +250,7 @@ function RequestCard({
             <button
               type="submit"
               disabled={!canConfirm}
+              className="staff-btn"
               style={{
                 ...actionBtn,
                 ...(decision === "approve" ? approveBtn : denyBtn),
@@ -253,6 +263,7 @@ function RequestCard({
               type="button"
               onClick={cancel}
               disabled={pending}
+              className="staff-btn"
               style={{ ...actionBtn, ...cancelBtn }}
             >
               Cancel

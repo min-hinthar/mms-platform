@@ -2,6 +2,7 @@
 import { useCallback, useState, useTransition, type CSSProperties } from "react";
 import { getStaffOrders, type StaffOrder, type StaffOrderLine } from "@/lib/refunds";
 import { RefundActionSheet } from "./RefundActionSheet";
+import { StaggerList } from "./StaggerList";
 
 /**
  * Manager orders & refunds board (S4.3b). Lists recent paid orders; expand to lines; refund a line
@@ -46,19 +47,20 @@ export function StaffOrdersBoard({ initial }: { initial: StaffOrder[] }) {
       <p role="status" aria-live="polite" style={confirmBanner}>
         {confirm}
       </p>
-      <ul
-        role="list"
+      <StaggerList
+        items={orders}
+        getKey={(o) => o.id}
         style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}
-      >
-        {orders.map((o) => {
+        renderItem={(o) => {
           const isOpen = open.has(o.id);
           const refunded = o.status === "refunded";
           return (
-            <li key={o.id} className="card" style={{ padding: 14 }}>
+            <div className="card card-textured" style={{ padding: 14 }}>
               <button
                 type="button"
                 onClick={() => toggle(o.id)}
                 aria-expanded={isOpen}
+                className="staff-btn"
                 style={orderHead}
               >
                 <span style={{ display: "grid", gap: 2, textAlign: "left" }}>
@@ -107,6 +109,7 @@ export function StaffOrdersBoard({ initial }: { initial: StaffOrder[] }) {
                           <button
                             type="button"
                             onClick={() => setRefunding({ order: o, line: l })}
+                            className="staff-btn"
                             style={refundBtn}
                           >
                             Refund
@@ -117,10 +120,10 @@ export function StaffOrdersBoard({ initial }: { initial: StaffOrder[] }) {
                   ))}
                 </ul>
               )}
-            </li>
+            </div>
           );
-        })}
-      </ul>
+        }}
+      />
 
       {refunding && (
         <RefundActionSheet

@@ -4,6 +4,7 @@ import { bumpLine, getKitchenQueue } from "@/lib/kitchen";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import type { KitchenLine, KitchenQueue, KitchenTicket } from "@/lib/kitchen-types";
 import { RelativeTime } from "./RelativeTime";
+import { StaggerList } from "./StaggerList";
 import { EmptyState } from "@mms/ui";
 
 /**
@@ -88,18 +89,20 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
           subtitle="Tickets appear here the moment a table sends its order to the kitchen — oldest first, so you can work the queue top-down."
         />
       ) : (
-        <ul role="list" aria-label="Open kitchen tickets" style={grid}>
-          {tickets.map((t) => (
-            <li key={t.sessionId}>
-              <TicketCard
-                ticket={t}
-                serverNow={snap.serverNow}
-                onBumped={refresh}
-                onError={setErr}
-              />
-            </li>
-          ))}
-        </ul>
+        <StaggerList
+          items={tickets}
+          getKey={(t) => t.sessionId}
+          ariaLabel="Open kitchen tickets"
+          style={grid}
+          renderItem={(t) => (
+            <TicketCard
+              ticket={t}
+              serverNow={snap.serverNow}
+              onBumped={refresh}
+              onError={setErr}
+            />
+          )}
+        />
       )}
     </section>
   );
@@ -117,7 +120,7 @@ function TicketCard({
   onError: (msg: string | null) => void;
 }) {
   return (
-    <article className="card" style={cardStyle} aria-label={`Table ${ticket.label}`}>
+    <article className="card card-textured" style={cardStyle} aria-label={`Table ${ticket.label}`}>
       <header style={cardHead}>
         <span style={tableLabel}>Table {ticket.label}</span>
         <span style={{ fontSize: 12, color: "var(--t2)" }}>
@@ -185,6 +188,7 @@ function KdsLineRow({
         onClick={bump}
         disabled={pending}
         aria-label={`${label} — ${line.qty} ${line.name} for the kitchen`}
+        className="staff-btn"
         style={{ ...bumpBtn, ...(line.state === "fired" ? startBtn : readyBtn) }}
       >
         {pending ? "…" : label}

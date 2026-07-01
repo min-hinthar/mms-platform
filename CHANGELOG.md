@@ -4,6 +4,26 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — Richness R9a: staff-board live-notice (2026-07-01)
+
+Brings **full-but-informative** richness to the staff boards (owner overrode the plan's "restrained" for ops
+surfaces; the perf/a11y/honesty guardrails still hold). The signature: a saturated server registers a change
+**peripherally** — event-driven only, no idle loops behind live data.
+
+- **`LiveMoney`** (new) — a running subtotal that ROLLS (NumberFlow) + FLASHES directionally on change
+  (accent up / muted down); self-contained prev value; reduced-motion gated; real cents only (display-only).
+- **`StaggerList`** (new) — shared `role="list"` with framer card-enter on arrival + exit on removal, keyed
+  so only added/removed items animate; stagger capped at 500ms; reduced-motion → no enter/exit. Adds no live
+  region.
+- **Floor** — FloorBoard diffs table status → a one-shot ring pulse on a just-changed `TableCard`
+  (`interactive`+`textured`, subtotal via `LiveMoney`); FloorDetailLive subtotal → `LiveMoney`.
+- **KDS / Expo / Approvals / Orders** — routed through `StaggerList`; `card-textured` surfaces; primary
+  actions get a `.staff-btn` press. Each board keeps its single existing live region.
+- **`globals.css`** — `.floor-live*`, `.floor-card-pulse`, `.staff-btn` (+ keyframes), all transform/opacity/
+  color + one-shot box-shadow, every one with a reduced-motion off-switch. No blur/backdrop-filter.
+
+R9b (maximal homepage hero) follows.
+
 ### Added — Richness R8: real Stars on /track + the rewards hub (2026-06-30)
 
 Retires R7a's placeholder `gems = round(total)` display rule for the **real loyalty Stars**
