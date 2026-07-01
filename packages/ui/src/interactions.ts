@@ -80,7 +80,12 @@ export function useMagnetic(strength = 0.35) {
  * device orientation (gyro) on mobile, and a scroll value (decorative FOREGROUND depth only — never the
  * page background). Listens only while `ref` is on screen (window-listener perf). rAF-throttled.
  */
-export function useHeroParallax(ref: React.RefObject<HTMLElement | null>): {
+export function useHeroParallax(
+  ref: React.RefObject<HTMLElement | null>,
+  // `enabled` lets a caller skip the window listeners entirely (not just zero the output) — e.g. a
+  // device-tier gate so a low-end phone pays no listener/spring cost. Re-attaches when it flips true.
+  enabled = true,
+): {
   x: MotionValue<number>;
   y: MotionValue<number>;
   scrollY: MotionValue<number>;
@@ -92,7 +97,7 @@ export function useHeroParallax(ref: React.RefObject<HTMLElement | null>): {
   const frame = useRef(0);
 
   useEffect(() => {
-    if (!shouldAnimate) return;
+    if (!shouldAnimate || !enabled) return;
     const el = ref.current;
     if (!el) return;
 
@@ -145,7 +150,7 @@ export function useHeroParallax(ref: React.RefObject<HTMLElement | null>): {
       detach();
       io?.disconnect();
     };
-  }, [ref, x, y, scrollY, shouldAnimate]);
+  }, [ref, x, y, scrollY, shouldAnimate, enabled]);
 
   return { x, y, scrollY };
 }
