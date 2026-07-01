@@ -1343,7 +1343,9 @@ h3 {
 }
 @keyframes floorFlashDown {
   0% {
-    background: color-mix(in srgb, var(--t3) 22%, transparent);
+    /* A subtotal DECREASE is a money-negative event (void / comp) worth a visible heads-up — a warn wash,
+       not the near-invisible muted-text token. Decorative (aria-hidden); the sr-only value stays exact. */
+    background: color-mix(in srgb, var(--warn) 20%, transparent);
   }
   100% {
     background: transparent;

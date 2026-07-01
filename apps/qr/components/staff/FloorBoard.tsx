@@ -6,17 +6,12 @@ import type { FloorSnapshot } from "@/lib/floor-types";
 import { EmptyState } from "@mms/ui";
 import { TableCard } from "./TableCard";
 import { StaggerList } from "./StaggerList";
+import { isRealTransition, type PulseMeta } from "@/lib/floor-pulse";
 
-// TTL-derived statuses (`paying` = a fresh cart lock ≤5min; `settling` = a fresh split freeze ≤10min) can
-// self-revert to `ordering`/`seated` when their time window elapses with NO real table event. A pulse must
-// mean a genuine change, so those reverts are NOT "real" transitions — never fabricate liveness.
-const TTL_REVERT_FROM = new Set(["paying", "settling"]);
-const TTL_REVERT_TO = new Set(["ordering", "seated"]);
-function isRealTransition(was: string, now: string): boolean {
-  if (was === now) return false;
-  if (TTL_REVERT_FROM.has(was) && TTL_REVERT_TO.has(now)) return false;
-  return true;
-}
+const metaOf = (t: { status: string; lastActivityAt: string }): PulseMeta => ({
+  status: t.status,
+  activityMs: Date.parse(t.lastActivityAt) || 0,
+});
 
 /**
  * The live floor (S1.2). Server-rendered initial snapshot, then kept fresh by Postgres-Changes
@@ -29,11 +24,12 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
   const [snap, setSnap] = useState(initial);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlight = useRef(false);
-  // R9 live-notice: remember each table's last status so a refresh can flag the ones that just made a REAL
-  // transition (seated→ordering→paying→paid). Seeded from the initial snapshot so the first realtime refresh
-  // diffs against real state (no false pulse on already-seated tables).
-  const prevStatus = useRef<Map<string, string>>(
-    new Map(initial.tables.map((t) => [t.sessionId, t.status])),
+  // R9 live-notice: remember each table's last {status, activity} so a refresh can flag the ones that made a
+  // REAL transition (seated→ordering→paying→paid, or a void/edit revert — but NOT a passive TTL self-revert;
+  // see isRealTransition). Seeded from the initial snapshot so the first realtime refresh diffs against real
+  // state (no false pulse on already-seated tables).
+  const prevMeta = useRef<Map<string, PulseMeta>>(
+    new Map(initial.tables.map((t) => [t.sessionId, metaOf(t)])),
   );
   // Per-table pulse NONCE (not a shared Set): a fresh nonce per real transition restarts the keyed ring
   // overlay even on a second transition within the window; merged (not replaced) so one table's pulse isn't
@@ -41,22 +37,26 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
   const nonceRef = useRef(0);
   const [pulses, setPulses] = useState<Map<string, number>>(new Map());
   const pulseTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // Guard against a fetch that resolves AFTER unmount (getFloorView has no AbortController) — otherwise we'd
+  // schedule pulse timers the cleanup already ran past + setState on a dead component.
+  const alive = useRef(true);
 
   const refresh = useCallback(async () => {
     if (inFlight.current) return; // coalesce overlapping fetches
     inFlight.current = true;
     try {
       const next = await getFloorView();
-      // Diff status vs the previous snapshot → the tables that made a REAL transition (for the card pulse).
+      if (!alive.current) return; // unmounted mid-fetch — don't setState / schedule timers
+      // Diff vs the previous snapshot → the tables that made a REAL transition (for the card pulse).
       const bumped: Array<[string, number]> = [];
       for (const t of next.tables) {
-        const was = prevStatus.current.get(t.sessionId);
-        if (was !== undefined && isRealTransition(was, t.status)) {
+        const prev = prevMeta.current.get(t.sessionId);
+        if (prev !== undefined && isRealTransition(prev, metaOf(t))) {
           nonceRef.current += 1;
           bumped.push([t.sessionId, nonceRef.current]);
         }
       }
-      prevStatus.current = new Map(next.tables.map((t) => [t.sessionId, t.status]));
+      prevMeta.current = new Map(next.tables.map((t) => [t.sessionId, metaOf(t)]));
       setSnap(next);
       if (bumped.length > 0) {
         setPulses((prev) => {
@@ -104,6 +104,7 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
     const id = setInterval(refresh, 5000);
     const timers = pulseTimers.current;
     return () => {
+      alive.current = false; // an in-flight refresh must not setState / schedule timers after this
       clearInterval(id);
       if (debounceRef.current) clearTimeout(debounceRef.current);
       timers.forEach((t) => clearTimeout(t));

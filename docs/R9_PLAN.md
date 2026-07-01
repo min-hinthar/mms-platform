@@ -59,6 +59,24 @@ replaced). (5) **Fabricated liveness** — the pulse fired on TTL-derived status
 (`paying`/`settling` → `ordering`/`seated` when the 5-/10-min window elapsed with no real event); a status
 change is now only "real" if it isn't such a revert.
 
+### Pre-merge deep review (verdict REVIEW-CONTESTED → hardened)
+
+A deeper pass (6 finders → perspective-diverse double-verify → completeness critic) hard-confirmed nothing,
+but surfaced worthwhile refinements, all applied:
+
+- **Honesty (over-suppression) — the important one.** The `paying/settling → ordering/seated` pulse
+  exclusion was a status-*pair* test, so it also swallowed a REAL void/edit that lands on the same pair (a
+  server *wants* that flagged). Extracted to `lib/floor-pulse.ts` `isRealTransition(prev, now)` which now
+  suppresses only a **passive** TTL revert (same pair AND `lastActivityAt` unchanged) — a real void/edit
+  advances `lastActivityAt`, so it still pulses. Pinned by `lib/floor-pulse.test.ts` (the honesty invariant).
+- **Down-flash visibility.** A subtotal *decrease* is money-negative (void/comp); the wash moved from the
+  near-invisible muted-text token to a visible `--warn` tint.
+- **Unmount guard.** `FloorBoard.refresh` now early-returns after its `await` if unmounted (an `alive` ref),
+  so a fetch resolving post-unmount can't schedule orphan pulse timers (matches `useFloorRealtime`).
+- Accepted (documented, no change): `paying→settling→paid` can collapse in one 5s poll (inherent to
+  polling); NumberFlow on every card is bounded (it only *animates* on a real value change — idle instances
+  just reconcile), consistent with the "full enrichment" directive.
+
 ## R9b — homepage hero (maximal) — PENDING
 
 `app/page.tsx` + `ModeCard` + a new hero: gradient-masked dot-texture backdrop; finish the card stagger
