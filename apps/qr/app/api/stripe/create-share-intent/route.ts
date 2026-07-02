@@ -117,7 +117,12 @@ export async function POST(req: NextRequest) {
       { idempotencyKey: `share_${share.id}_${amount}` },
     );
 
-    const { error: updErr } = await db
+    // Claim the row atomically: only overwrite it if it's STILL pre-authorization (pending/failed/canceled)
+    // AND still points at the PI we read. Guards a TOCTOU where the amount_capturable_updated webhook
+    // authorized+captured this share (via captureAllIfReady) between our status read above and this write —
+    // without the predicate, this update would flip the CAPTURED row back to 'pending' pointing at the new
+    // PI, orphaning the captured charge (no ledger) and letting the seat pay twice when the new PI clears.
+    let claim = db
       .from("qr_cart_shares")
       .update({
         amount_cents: amount,
@@ -127,15 +132,27 @@ export async function POST(req: NextRequest) {
         status: "pending",
         updated_at: new Date().toISOString(),
       })
-      .eq("id", share.id);
-    if (updErr) {
-      // Couldn't record the PI → cancel it so we don't leave an orphan authorization the webhook can't map.
+      .eq("id", share.id)
+      .in("status", ["pending", "failed", "canceled"]);
+    claim = share.stripe_payment_intent_id
+      ? claim.eq("stripe_payment_intent_id", share.stripe_payment_intent_id)
+      : claim.is("stripe_payment_intent_id", null);
+    const { data: claimed, error: updErr } = await claim.select("id").maybeSingle();
+    if (updErr || !claimed) {
+      // Either the write failed, or a concurrent webhook advanced this share (authorized/captured) since we
+      // read it → cancel the just-minted PI so it can't be captured, and never revert the ledger. Tell the
+      // payer their share already moved on (409) rather than returning a client secret we didn't record.
       try {
         await getStripe().paymentIntents.cancel(intent.id);
       } catch {
         /* best-effort */
       }
-      return NextResponse.json({ error: "Could not start your payment" }, { status: 500 });
+      return updErr
+        ? NextResponse.json({ error: "Could not start your payment" }, { status: 500 })
+        : NextResponse.json(
+            { error: "Your share was just settled — refresh to see it." },
+            { status: 409 },
+          );
     }
 
     getPostHogClient().capture({
