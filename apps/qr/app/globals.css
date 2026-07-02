@@ -172,6 +172,36 @@ h3 {
   }
 }
 
+/* /track rail — the connector between step dots. The completed portion FLOWS in (a success-green fill
+   grows top→bottom) instead of switching color instantly, so progress reads as it advances down the rail
+   (draws on mount for already-done steps; fills the next segment as the order moves). transform-only. */
+.track-rail {
+  position: relative;
+  flex: 1;
+  width: 2.5px;
+  min-height: 26px;
+  margin: 2px 0;
+  background: var(--bd);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.track-rail-fill {
+  position: absolute;
+  inset: 0;
+  background: var(--ok);
+  transform-origin: top;
+  transform: scaleY(0);
+  transition: transform var(--dur-slow) var(--ease-out);
+}
+.track-rail-fill-on {
+  transform: scaleY(1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .track-rail-fill {
+    transition: none;
+  }
+}
+
 /* Skeleton loading placeholder (M5·P5.4b-2) — a soft shimmer sweep while client-fetched content loads.
    Lives here (not in @mms/ui) because @keyframes can't be authored inline; the <Skeleton> primitive
    only references this class. The highlight is a token mix (no hardcoded colors). Reduced motion: the

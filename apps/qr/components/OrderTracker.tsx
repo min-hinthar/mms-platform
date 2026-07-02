@@ -247,16 +247,13 @@ export function OrderTracker({
                   }}
                 />
                 {!last && (
-                  <span
-                    aria-hidden
-                    style={{
-                      flex: 1,
-                      width: 2.5,
-                      minHeight: 26,
-                      margin: "2px 0",
-                      background: i < activeStep ? "var(--ok)" : "var(--bd)",
-                    }}
-                  />
+                  // Rail: the completed portion FLOWS in (green fill grows top→bottom) as the order
+                  // advances, instead of switching color instantly. Reduced-motion snaps it (no transition).
+                  <span aria-hidden className="track-rail">
+                    <span
+                      className={`track-rail-fill${i < activeStep ? " track-rail-fill-on" : ""}`}
+                    />
+                  </span>
                 )}
               </div>
               <div style={{ paddingBottom: 18 }}>
@@ -341,7 +338,7 @@ export function OrderTracker({
 
       {arrived && (
         <div
-          className="card"
+          className="card card-textured"
           style={{ display: "flex", gap: 12, alignItems: "center", padding: 12, marginTop: 6 }}
         >
           <span
