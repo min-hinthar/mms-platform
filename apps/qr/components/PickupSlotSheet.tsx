@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useTransition, type CSSProperties } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Sheet, Skeleton } from "@mms/ui";
 import { getPickupSlots, setPickupSlot, type PickupSlot } from "@/lib/pickup";
 import { dayLabel, formatSlot } from "@/lib/pickupTime";
@@ -23,6 +23,7 @@ export function PickupSlotSheet({
   const [slots, setSlots] = useState<PickupSlot[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pendingSlot, setPendingSlot] = useState<string | null>(null); // the chip being set (instant feedback)
+  const [dayIdx, setDayIdx] = useState(0); // which day section is shown in the time grid
   const [pending, start] = useTransition();
 
   // Re-fetch availability each time the sheet opens, or if the cart changes (capacity is live). setState
@@ -35,6 +36,7 @@ export function PickupSlotSheet({
       .then((s) => {
         if (!active) return;
         setSlots(s);
+        setDayIdx(0); // each open starts on the first day (Today)
         setError(null);
       })
       .catch(() => active && setSlots([]));
@@ -71,28 +73,35 @@ export function PickupSlotSheet({
     });
   }
 
+  // Slots arrive time-sorted → group into consecutive day sections (Today / Tomorrow / weekday). The
+  // selector picks a day; the grid shows just that day's times. `activeDay` clamps so a day that fully
+  // fills (and drops out on a re-list) can't leave the grid pointing past the end.
+  const groups = slots ? groupByDay(slots) : [];
+  const activeDay = Math.min(dayIdx, Math.max(0, groups.length - 1));
+  const dayTimes = groups[activeDay]?.slots ?? [];
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title="Pick a pickup time">
-      <p style={{ color: "var(--t2)", fontSize: 13, margin: "0 0 12px" }}>
-        750 Terrado Plaza, Covina
+      <p style={{ color: "var(--t2)", fontSize: 13, margin: "0 0 14px" }}>
+        <span aria-hidden>📍 </span>750 Terrado Plaza, Covina
       </p>
       {slots === null ? (
-        // Skeleton mirror of the day-grouped slot chips. Decorative (aria-hidden) — no live region here,
-        // so it can't double-announce with the error region below (one live region per view; the Radix
-        // Dialog title already names the sheet). A sibling sr-only string keeps an SR loading cue.
+        // Skeleton mirror of the day rail + time grid. Decorative (aria-hidden) — no live region here, so
+        // it can't double-announce with the error region below (one live region per view; the Radix Dialog
+        // title already names the sheet). A sibling sr-only string keeps an SR loading cue.
         <>
           <span className="sr-only">Loading pickup times…</span>
           <div aria-hidden>
-            {[5, 3].map((chips, d) => (
-              <section key={d} style={{ marginBottom: 8 }}>
-                <Skeleton width={72} height={13} style={{ margin: "12px 0 10px" }} />
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                  {Array.from({ length: chips }).map((_, i) => (
-                    <Skeleton key={i} width={96} height={44} radius={12} />
-                  ))}
-                </div>
-              </section>
-            ))}
+            <div className="slot-days">
+              {[0, 1, 2].map((i) => (
+                <Skeleton key={i} width={70} height={60} radius={14} />
+              ))}
+            </div>
+            <div className="slot-grid">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} height={50} radius={12} />
+              ))}
+            </div>
           </div>
         </>
       ) : slots.length === 0 ? (
@@ -100,49 +109,62 @@ export function PickupSlotSheet({
           No pickup times available right now — please check back soon.
         </p>
       ) : (
-        // Slots arrive sorted by time → already day-then-time order; group into day sections so an
-        // after-hours diner sees "Tomorrow"'s slots, not just an empty "Today".
-        groupByDay(slots).map((g) => (
-          <section key={g.label} style={{ marginBottom: 2 }}>
-            <h3 style={{ fontSize: 13, fontWeight: 800, color: "var(--t2)", margin: "12px 0 8px" }}>
-              {g.label}
-            </h3>
-            <div role="group" aria-label={`Pickup times — ${g.label}`}>
-              {g.slots.map((s) => (
+        <>
+          {/* Day selector — one card per bookable day, with its available-slot count. Hidden when there's
+              only a single day (no choice to make). */}
+          {groups.length > 1 && (
+            <div className="slot-days" role="group" aria-label="Pickup day">
+              {groups.map((g, i) => (
+                <button
+                  key={g.label}
+                  type="button"
+                  aria-pressed={i === activeDay}
+                  className={`slot-day${i === activeDay ? " slot-day-on" : ""}`}
+                  onClick={() => setDayIdx(i)}
+                >
+                  <span className="slot-day-kicker">{g.label}</span>
+                  <span className="slot-day-count">
+                    {g.slots.length} {g.slots.length === 1 ? "time" : "times"}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          {/* Time grid for the selected day. */}
+          <div
+            className="slot-grid"
+            role="group"
+            aria-label={`Pickup times — ${groups[activeDay]?.label ?? ""}`}
+          >
+            {dayTimes.map((s) => {
+              const setting = pendingSlot === s.slot;
+              return (
                 <button
                   key={s.slot}
                   type="button"
                   disabled={pending}
-                  aria-busy={pendingSlot === s.slot}
+                  aria-busy={setting}
+                  className={`slot-time${setting ? " slot-time-on" : ""}`}
                   onClick={() => choose(s.slot)}
-                  style={{
-                    ...slotChip,
-                    ...(pendingSlot === s.slot
-                      ? { borderColor: "var(--ac)", color: "var(--ac)" }
-                      : null),
-                  }}
                 >
-                  {pendingSlot === s.slot ? (
+                  {setting ? (
                     "Setting…"
                   ) : (
                     <>
-                      {formatSlot(s.slot)}
+                      <span>{formatSlot(s.slot)}</span>
                       {s.remaining <= 2 && (
-                        <span style={{ color: "var(--t3)", fontWeight: 600 }}>
-                          {" "}
-                          · {s.remaining} left
-                        </span>
+                        <span className="slot-time-low">{s.remaining} left</span>
                       )}
                     </>
                   )}
                 </button>
-              ))}
-            </div>
-          </section>
-        ))
+              );
+            })}
+          </div>
+        </>
       )}
       {error && (
-        <p role="alert" style={{ color: "var(--warn)", fontSize: 13, marginTop: 10 }}>
+        <p role="alert" style={{ color: "var(--warn)", fontSize: 13, marginTop: 12 }}>
           {error}
         </p>
       )}
@@ -161,17 +183,3 @@ function groupByDay(slots: PickupSlot[]): { label: string; slots: PickupSlot[] }
   }
   return groups;
 }
-
-const slotChip: CSSProperties = {
-  display: "inline-block",
-  minHeight: 44,
-  padding: "11px 16px",
-  margin: "0 8px 8px 0",
-  border: "1.5px solid var(--bd)",
-  borderRadius: 12,
-  background: "var(--cd)",
-  color: "var(--tx)",
-  fontWeight: 700,
-  fontSize: 14,
-  cursor: "pointer",
-};

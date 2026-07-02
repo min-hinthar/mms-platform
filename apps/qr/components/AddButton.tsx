@@ -35,6 +35,11 @@ export function AddButton({
 }) {
   const { add, setItemQty, items, cartId, locked, settling, isGroup, me } = useCart();
   const [busy, setBusy] = useState(false);
+  // Optimistic add delta (R7 perf): the button morphs to the stepper the INSTANT it's tapped, before the
+  // server round-trip returns, so a tap never sits at "…" waiting on the network. Reconciled to server
+  // truth in `increment`'s finally — on success the returned view already includes the add (delta nets to
+  // 0, no flicker); on failure the delta reverts, dropping back to the Add pill.
+  const [optimistic, setOptimistic] = useState(0);
   const { shouldAnimate } = useAnimationPreference();
   const { ripples, onPointerDown } = useRipple();
 
@@ -63,7 +68,10 @@ export function AddButton({
           i.bySeat === mySeat,
       )
     : [];
-  const qty = myLines.reduce((sum, l) => sum + l.qty, 0);
+  const serverQty = myLines.reduce((sum, l) => sum + l.qty, 0);
+  // Displayed qty = server truth + the optimistic in-flight delta (the instant-morph). All UI (the digit,
+  // aria labels, the MAX gate, the morph) keys off this; the WRITE still targets real server lines only.
+  const qty = serverQty + optimistic;
   // Fresher 86'd signal: any matching own line flagged sold-out (server-derived live in getCartView) OR the
   // page-render menu prop. Gates the in-cart "+" so a line 86'd after load can't keep incrementing.
   const liveSoldOut = soldOut || myLines.some((l) => l.soldOut);
@@ -91,6 +99,7 @@ export function AddButton({
   }, [qty, blocked]);
 
   async function increment() {
+    setOptimistic((n) => n + 1); // instant morph — the stepper appears before the round-trip resolves
     setBusy(true);
     try {
       await add(menuItemId);
@@ -98,6 +107,10 @@ export function AddButton({
     } catch {
       /* the provider announces the failure / recovers in its polite live region */
     } finally {
+      // Reconcile: the server view (success) now includes this add, so drop the optimistic delta — it nets
+      // to the same displayed qty (no flicker). On failure serverQty is unchanged, so the delta reverting
+      // to 0 drops the button back to the Add pill.
+      setOptimistic((n) => n - 1);
       setBusy(false);
     }
   }
@@ -146,7 +159,9 @@ export function AddButton({
             reliably exposed); NOT a live region, so it never announces per tap. The visible digit is
             aria-hidden + keyed on qty so it remounts → replays `.mms-pop` (RM-gated) — purely visual. */}
         <span className="mms-qty-val">
-          <span className="sr-only">{name}, quantity {qty}</span>
+          <span className="sr-only">
+            {name}, quantity {qty}
+          </span>
           <span
             key={qty}
             aria-hidden

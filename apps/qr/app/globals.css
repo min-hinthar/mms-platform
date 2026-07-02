@@ -77,7 +77,11 @@ h3 {
   overflow-y: auto;
   background: var(--pg);
   border-radius: var(--r-sheet) var(--r-sheet) 0 0;
-  box-shadow: var(--sh-xl);
+  /* Lifted-paper depth: the strong drop shadow separates it from the dimmed page, and an inset top
+     highlight (--sheen) gives the rounded top edge a crisp paper lip so it reads as a distinct layer. */
+  box-shadow:
+    var(--sh-xl),
+    inset 0 1px 0 var(--sheen);
   padding: 8px 20px calc(24px + env(safe-area-inset-bottom, 0px));
   animation: up var(--dur-sheet) var(--spring);
 }
@@ -698,6 +702,106 @@ h3 {
 @media (prefers-reduced-motion: reduce) {
   .diet-chip {
     transition: none;
+  }
+}
+
+/* ── Pickup time picker (PickupSlotSheet) — a day selector + a time grid, styled as distinct layers ────
+   Day cards along a snap rail; times in a responsive grid. Selected states lift with --sh-lift. */
+.slot-days {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 4px 0 16px;
+  scroll-snap-type: x proximity;
+}
+.slot-days::-webkit-scrollbar {
+  display: none;
+}
+.slot-day {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 70px;
+  min-height: 60px;
+  padding: 9px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--bd);
+  background: var(--sf);
+  color: var(--t2);
+  cursor: pointer;
+  scroll-snap-align: start;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+.slot-day-kicker {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--tx);
+}
+.slot-day-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--t3);
+}
+.slot-day-on {
+  background: var(--cd);
+  border-color: var(--ac);
+  box-shadow: var(--sh-lift);
+}
+.slot-day-on .slot-day-count {
+  color: var(--ac);
+}
+.slot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(102px, 1fr));
+  gap: 8px;
+}
+.slot-time {
+  min-height: 50px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1.5px solid var(--bd);
+  background: var(--cd);
+  color: var(--tx);
+  font-weight: 700;
+  font-size: 15px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+.slot-time:active {
+  transform: scale(0.97);
+}
+.slot-time-on {
+  border-color: var(--ac);
+  background: color-mix(in srgb, var(--ac) 10%, var(--cd));
+  box-shadow: var(--sh-lift);
+}
+.slot-time-low {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--warn);
+}
+@media (prefers-reduced-motion: reduce) {
+  .slot-day,
+  .slot-time {
+    transition: none;
+  }
+  .slot-time:active {
+    transform: none;
   }
 }
 

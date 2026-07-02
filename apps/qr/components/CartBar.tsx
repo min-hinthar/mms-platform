@@ -1,4 +1,5 @@
 "use client";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { NumberFlow } from "@mms/ui";
 import { useCart } from "./TableCartProvider";
@@ -12,14 +13,21 @@ import { useCart } from "./TableCartProvider";
 export function CartBar() {
   const router = useRouter();
   const { count, totals, cartId } = useCart();
-  if (!cartId || count === 0) return null;
+  const href = cartId ? `/cart?cart=${encodeURIComponent(cartId)}` : null;
+  // Warm the /cart route (its RSC payload + code + the new loading skeleton) as soon as the bar can
+  // appear, so a tap navigates without a cold server round-trip — the "opening the cart is slow" fix.
+  useEffect(() => {
+    if (href) router.prefetch(href);
+  }, [href, router]);
+  if (!cartId || !href || count === 0) return null;
   const subtotalCents = totals?.subtotalCents ?? 0;
   const dollars = `$${(subtotalCents / 100).toFixed(2)}`;
 
   return (
     <button
       type="button"
-      onClick={() => router.push(`/cart?cart=${encodeURIComponent(cartId)}`)}
+      onClick={() => router.push(href)}
+      onPointerEnter={() => router.prefetch(href)}
       aria-label={`View order — ${count} ${count === 1 ? "item" : "items"}, subtotal ${dollars}`}
       className="card"
       style={{
