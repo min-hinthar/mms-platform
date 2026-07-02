@@ -70,7 +70,8 @@ export function ItemSheet({
     const cur = open ? (item?.id ?? null) : null;
     const prev = prevIdRef.current;
     prevIdRef.current = cur;
-    if (prev != null && cur != null && prev !== cur) bodyRef.current?.focus();
+    // preventScroll: the child already reset the sheet to top; don't let focus() nudge it (belt-and-suspenders).
+    if (prev != null && cur != null && prev !== cur) bodyRef.current?.focus({ preventScroll: true });
   }, [item?.id, open]);
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()} title={item?.name_en ?? ""}>
