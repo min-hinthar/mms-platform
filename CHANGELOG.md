@@ -4,6 +4,29 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed — Holistic audit: money/security remediation (2026-07-02)
+
+Cross-repo adversarial audit (`docs/HOLISTIC_IMPROVEMENT_PLAN.md`). The QR-side confirmed fixes:
+
+- **Merge re-charged voided/comped lines (HIGH regression).** `mms_merge_table_orders` lost its S2.3 void/comp
+  fold guards when `20260623030000` restated the body (later rebased by R5c `20260629120000`) — a table merge
+  folded a voided/comped source line's qty into an active target, re-charging diners for a $0'd line.
+  `20260702000000` restates the fn as the **union** of every prior guard (source `state <> 'voided' and not
+comped`, target same-state + void filter + `by_seat is null`, both-sessions-active, S5 approvals-supersede)
+  - the S3 secure-tab refusal + trust carry-forward. Signature unchanged → no types drift.
+- **Split-payer double-charge race (HIGH).** `create-share-intent` overwrote the share row with `.eq("id")`
+  only, so a concurrent capture webhook between the status read and the write was reverted to `pending`
+  (orphan capture + pay-twice). The update now guards `.in("status",[pending,failed,canceled])` + optimistic
+  PI-id match, `.select("id")` to detect 0 rows → cancel the new PI + 409.
+- **Fire-at-checkout backstop never covered card/split (HIGH).** `mms_reconcile_settled_fulfillment` scans
+  `cart_id is not null`, but only the cash fulfill stamped it. `20260702000100` stamps `cart_id` in the card +
+  split `qr_orders` inserts (partial-unique is cash-scoped; card is PI-idempotent → one insert) so the pg_cron
+  backstop fires their draft food / inits togo / snapshots EBT.
+- **Grocery insert PUBLIC EXECUTE (LOW, latent).** `20260702000200` adds the missing `revoke … from public`
+  on `mms_cart_item_insert_if_open` (LEARNINGS #58; RLS denies today).
+
+⚠️ The three migrations need live-apply + advisor check + a money-path smoke before merge.
+
 ### Added — Richness R9b: homepage hero (maximal) (2026-07-01)
 
 The "morning coffee" signature moment behind the mode picker — the final Richness slice.
@@ -71,7 +94,7 @@ learning), and money stays presentation-only / server-authoritative.
 - **Tip chips** — press settle + a smooth tint/preview transition when the rate changes.
 - **CTAs** — Continue / Pay get an accent glow (`--sh-glow`) on hover + a press settle; Edit gets a quiet
   hover + press.
-- **Cart lines** — `card-textured` (a richer layered surface; deliberately *not* `card-interactive`, which
+- **Cart lines** — `card-textured` (a richer layered surface; deliberately _not_ `card-interactive`, which
   would imply a clickable affordance the line doesn't have).
 - **Order summary** — the grand total reads as the hero figure (hairline divider + display serif + larger).
 - **Step transition** — the review ↔ pay change enter-slides via a keyed CSS-animated wrapper; the Stripe
