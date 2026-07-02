@@ -114,6 +114,18 @@
   /* inner top-highlight on lifted surfaces (stays a faint white in BOTH themes — see .dark) */
   --sheen: rgba(255, 255, 255, 0.55);
   --sh-glow: 0 6px 22px color-mix(in oklab, var(--ac) 18%, transparent); /* accent-tinted lift */
+  /* z-index scale — SINGLE source of truth (theme-agnostic; defined here only). Ordering intent:
+     content < pinned chrome (toolbar/cartbar) < scrim < sheet < celebrations. The sheet sits ABOVE the
+     sticky toolbar so a bottom sheet is never painted-over by (or has its drag-to-close zone stolen by)
+     the toolbar — the root of the "sheet won't slide down under the toolbar" bug. */
+  --z-toolbar: 20;
+  --z-cartbar: 30;
+  --z-scrim: 40;
+  --z-sheet: 45;
+  --z-confetti: 60;
+  --z-tierup: 70;
+  /* Modal scrim — dims the WHOLE page (incl. pinned chrome) so a sheet reads as a lifted layer. */
+  --scrim: rgba(15, 10, 5, 0.42);
 }
 .dark {
   /* v4 Night */
@@ -157,6 +169,7 @@
   --surface-elevated: #2e2545;
   --sheen: rgba(255, 255, 255, 0.06);
   --sh-glow: 0 6px 22px color-mix(in oklab, var(--ac) 22%, transparent);
+  --scrim: rgba(0, 0, 0, 0.6); /* deeper dim on Night so the lifted sheet still separates */
 }
 @media (prefers-reduced-motion: reduce) {
   :root {

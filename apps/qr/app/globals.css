@@ -56,7 +56,8 @@ h3 {
 .mms-scrim {
   position: fixed;
   inset: 0;
-  background: rgba(15, 10, 5, 0.42);
+  z-index: var(--z-scrim); /* above the sticky toolbar (--z-toolbar) so it dims the whole page */
+  background: var(--scrim);
   animation: fade 0.24s var(--ease-out);
 }
 .mms-sheet {
@@ -64,6 +65,9 @@ h3 {
   left: 0;
   right: 0;
   bottom: 0;
+  z-index: var(
+    --z-sheet
+  ); /* above the scrim + toolbar: the sheet owns the top drag-to-close zone */
   /* `--sheet-max-h` is dvh-based (not vh) so the sheet top + close button never hide under the iOS
      status bar; the bottom padding clears the home-bar inset so content/CTA aren't obscured. The
      `90vh` line is the fallback for browsers without `dvh` (iOS <15.4) — there `calc(100dvh …)` is
@@ -567,9 +571,13 @@ h3 {
 .menu-toolbar {
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: var(--z-toolbar);
   background: var(--pg);
   padding: calc(8px + env(safe-area-inset-top, 0px)) 20px 10px;
+  /* Read as a lifted layer over the rows scrolling under it: a hairline seam + a soft down-shadow.
+     Both token-driven; no hardcoded color. */
+  border-bottom: 1px solid var(--bd);
+  box-shadow: var(--sh);
 }
 
 /* Search field — 16px text (no iOS focus-zoom), pill, leading 🔍 set by the wrapper. */
@@ -626,16 +634,20 @@ h3 {
   font-weight: 700;
   white-space: nowrap;
   cursor: pointer;
-  scroll-snap-align: start;
+  scroll-snap-align: center; /* a manual swipe settles the chip centered, matching the JS rail-centering */
   transition:
     background var(--dur-fast) var(--ease-out),
     color var(--dur-fast) var(--ease-out),
-    border-color var(--dur-fast) var(--ease-out);
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
 }
 .menu-tab-on {
   background: var(--ac);
   color: var(--oa);
   border-color: var(--ac);
+  box-shadow: var(
+    --sh-glow
+  ); /* the active pill lifts off the rail so it reads as the selected layer */
 }
 @media (prefers-reduced-motion: reduce) {
   .menu-tab {
@@ -1057,7 +1069,7 @@ h3 {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: 60;
+  z-index: var(--z-confetti);
   overflow: hidden;
 }
 .mms-confetti-pc {
@@ -1224,7 +1236,7 @@ h3 {
 .tier-up {
   position: fixed;
   inset: 0;
-  z-index: 70;
+  z-index: var(--z-tierup);
   display: grid;
   place-items: center;
   padding: 24px;

@@ -43,6 +43,7 @@ export function MenuBrowser({ items, mode }: { items: MenuItem[]; mode: string }
   const [sheetItem, setSheetItem] = useState<MenuItem | null>(null);
   const sectionRefs = useRef(new Map<string, HTMLElement>());
   const toolbarRef = useRef<HTMLDivElement>(null);
+  const railRef = useRef<HTMLElement>(null);
   const clearBtnRef = useRef<HTMLButtonElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   // Measured sticky-toolbar height — drives both the scroll-spy top inset and section scroll-margin so a
@@ -108,6 +109,21 @@ export function MenuBrowser({ items, mode }: { items: MenuItem[]; mode: string }
     return () => io.disconnect();
   }, [cats, toolbarH]);
 
+  // Keep the active category chip centered in the horizontal rail whenever it changes — whether from a
+  // tab click OR the scroll-spy tracking the page scroll — so the selected tab is never off-screen or
+  // stuck at an edge. Scrolls ONLY the rail (measured via rects) so it never nudges the page vertically.
+  useEffect(() => {
+    const rail = railRef.current;
+    if (!rail || !activeCat) return;
+    const chip = rail.querySelector<HTMLElement>('[aria-current="true"]');
+    if (!chip) return;
+    const railRect = rail.getBoundingClientRect();
+    const chipRect = chip.getBoundingClientRect();
+    const delta = chipRect.left + chipRect.width / 2 - (railRect.left + railRect.width / 2);
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    rail.scrollTo({ left: rail.scrollLeft + delta, behavior: reduce ? "auto" : "smooth" });
+  }, [activeCat]);
+
   // a11y: when filtering empties the list, pull focus to the recovery action — but NOT while the user is
   // actively typing in the search box (stealing focus would interrupt their query). Only the diet-chip /
   // post-type empty states move focus; the live region (role="status") announces the change either way.
@@ -165,7 +181,7 @@ export function MenuBrowser({ items, mode }: { items: MenuItem[]; mode: string }
         {cats.length > 1 && (
           // A scroll-spy JUMP nav (not a tab widget — the sections are all on one scroll, not switched
           // panels), so it's a <nav> with `aria-current` on the in-view category, not role=tablist.
-          <nav className="menu-rail" aria-label="Menu categories">
+          <nav className="menu-rail" aria-label="Menu categories" ref={railRef}>
             {cats.map((c) => {
               const on = activeCat === c;
               return (
