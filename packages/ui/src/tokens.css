@@ -114,12 +114,16 @@
   /* inner top-highlight on lifted surfaces (stays a faint white in BOTH themes — see .dark) */
   --sheen: rgba(255, 255, 255, 0.55);
   --sh-glow: 0 6px 22px color-mix(in oklab, var(--ac) 18%, transparent); /* accent-tinted lift */
+  /* Tight accent lift for a small chip/pill INSIDE an overflow:auto scroller (e.g. the active menu tab):
+     --sh-glow's 22px blur is clipped by the scroller — this stays within ~9px so a little rail padding
+     shows it fully. */
+  --sh-lift: 0 2px 8px -1px color-mix(in oklab, var(--ac) 42%, transparent);
   /* z-index scale — SINGLE source of truth (theme-agnostic; defined here only). Ordering intent:
-     content < pinned chrome (toolbar/cartbar) < scrim < sheet < celebrations. The sheet sits ABOVE the
-     sticky toolbar so a bottom sheet is never painted-over by (or has its drag-to-close zone stolen by)
-     the toolbar — the root of the "sheet won't slide down under the toolbar" bug. */
+     content < sticky toolbar < scrim < sheet < celebrations. The sheet sits ABOVE the sticky toolbar so
+     a bottom sheet is never painted-over by (or has its drag-to-close zone stolen by) the toolbar — the
+     root of the "sheet won't slide down under the toolbar" bug. (Transient toast/alert overlays keep
+     their own higher values; folding them in is a tracked follow-up.) */
   --z-toolbar: 20;
-  --z-cartbar: 30;
   --z-scrim: 40;
   --z-sheet: 45;
   --z-confetti: 60;
@@ -169,6 +173,7 @@
   --surface-elevated: #2e2545;
   --sheen: rgba(255, 255, 255, 0.06);
   --sh-glow: 0 6px 22px color-mix(in oklab, var(--ac) 22%, transparent);
+  --sh-lift: 0 2px 8px -1px color-mix(in oklab, var(--ac) 52%, transparent);
   --scrim: rgba(0, 0, 0, 0.6); /* deeper dim on Night so the lifted sheet still separates */
 }
 @media (prefers-reduced-motion: reduce) {

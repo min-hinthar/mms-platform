@@ -616,7 +616,11 @@ h3 {
   gap: 7px;
   overflow-x: auto;
   scrollbar-width: none;
-  margin-top: 8px;
+  /* vertical padding gives the active pill's lift shadow room to render — overflow-x:auto forces
+     overflow-y:auto, which would otherwise CLIP the shadow to invisibility. margin-top drops to 2px so
+     2px margin + 6px padding-top preserves the 8px gap from the search field above. */
+  margin-top: 2px;
+  padding-block: 6px;
   scroll-snap-type: x proximity;
 }
 .menu-rail::-webkit-scrollbar {
@@ -645,9 +649,9 @@ h3 {
   background: var(--ac);
   color: var(--oa);
   border-color: var(--ac);
-  box-shadow: var(
-    --sh-glow
-  ); /* the active pill lifts off the rail so it reads as the selected layer */
+  /* Tight lift (fits the rail's padding — --sh-glow's 22px blur was clipped) so the active pill reads
+     as the raised, selected layer. */
+  box-shadow: var(--sh-lift);
 }
 @media (prefers-reduced-motion: reduce) {
   .menu-tab {
