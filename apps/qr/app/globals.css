@@ -173,8 +173,9 @@ h3 {
 }
 
 /* /track rail — the connector between step dots. The completed portion FLOWS in (a success-green fill
-   grows top→bottom) instead of switching color instantly, so progress reads as it advances down the rail
-   (draws on mount for already-done steps; fills the next segment as the order moves). transform-only. */
+   grows top→bottom) instead of switching color instantly, so progress reads as it advances down the rail.
+   The order starts null (all rails empty), so scan-&-go segments animate as the order lands + advances;
+   a remount (e.g. the pickup-lifecycle title swap) snaps to filled — both fine. transform-only. */
 .track-rail {
   position: relative;
   flex: 1;
