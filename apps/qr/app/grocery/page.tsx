@@ -1,6 +1,8 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useRouter } from "next/navigation";
 import posthog from "posthog-js";
+import { NumberFlow } from "@mms/ui";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
 import { scanAdd, searchGroceryItems, type GroceryHit } from "@/lib/grocery";
 import { useTableSession } from "@/lib/useTableSession";
@@ -12,6 +14,7 @@ import { useTableSession } from "@/lib/useTableSession";
 type Line = { barcode: string; name: string; priceCents: number; ebt: boolean; qty: number };
 
 export default function Grocery() {
+  const router = useRouter();
   const { session, error: sessionError } = useTableSession("scango");
   const cartId = session?.cartId;
 
@@ -25,10 +28,26 @@ export default function Grocery() {
   const [searchFailed, setSearchFailed] = useState(false); // a failed search ≠ an empty one — say so
   const searchRef = useRef<HTMLInputElement>(null);
 
+  // ONE toast timer, cancelled before each re-arm — scanning is rapid-fire, so racing independent timers
+  // could blank a fresh notice (incl. an error like "Weighed item — see staff") ~100 ms after it appears.
+  // Mirrors TableCartProvider's flash discipline (the grocery page predated it).
+  const toastTimer = useRef<number | null>(null);
   const flash = useCallback((msg: string) => {
+    if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
     setToast(msg);
-    window.setTimeout(() => setToast(null), 1800);
+    toastTimer.current = window.setTimeout(() => setToast(null), 1800);
   }, []);
+  useEffect(
+    () => () => {
+      if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
+    },
+    [],
+  );
+
+  // Warm /cart so tapping "Check out" navigates without a cold server round-trip (matches CartBar).
+  useEffect(() => {
+    if (cartId) router.prefetch(`/cart?cart=${encodeURIComponent(cartId)}`);
+  }, [cartId, router]);
 
   // The ONE add path — a scan and a tapped search hit both go through here. Memoized on cartId so the
   // scanner effect (keyed on `onScan`) doesn't tear down + restart the camera on every re-render.
@@ -198,7 +217,9 @@ export default function Grocery() {
         style={{ listStyle: "none", padding: 0, marginTop: 16, display: "grid", gap: 8 }}
       >
         {lines.map((l) => (
-          <li key={l.barcode} className="card" style={scannedLineStyle}>
+          // Textured card + a rise-in on mount (a newly-scanned line "lands"); keyed by barcode so only a
+          // NEW line animates (a re-scan bumps qty in place). `.mms-stagger`/`.card-textured` are RM/token-safe.
+          <li key={l.barcode} className="card card-textured mms-stagger" style={scannedLineStyle}>
             <span style={{ minWidth: 0 }}>
               <span style={{ fontWeight: 700 }}>{l.name}</span>{" "}
               {l.ebt && <small style={{ color: "var(--ok)", fontWeight: 700 }}>EBT</small>}
@@ -221,24 +242,33 @@ export default function Grocery() {
       )}
 
       {lines.length > 0 && cartId && (
-        <a
-          href={`/cart?cart=${cartId}`}
+        // A real <button> (Enter AND Space), matching CartBar — the prior <a> only activated on Enter. The
+        // aria-label carries the count + total on focus; the rolling NumberFlow figure is presentation only
+        // (not announced per scan).
+        <button
+          type="button"
           className="card"
           style={checkoutCta}
-          onClick={() =>
+          aria-label={`Check out — ${itemCount} ${itemCount === 1 ? "item" : "items"}, total $${(
+            totalCents / 100
+          ).toFixed(2)}`}
+          onClick={() => {
             posthog.capture("grocery_checkout_clicked", {
               cart_id: cartId,
               item_count: itemCount,
               unique_item_count: lines.length,
               total_cents: totalCents,
-            })
-          }
+            });
+            router.push(`/cart?cart=${encodeURIComponent(cartId)}`);
+          }}
         >
           <span>
             Check out · {itemCount} {itemCount === 1 ? "item" : "items"}
           </span>
-          <span>${(totalCents / 100).toFixed(2)}</span>
-        </a>
+          <span style={{ fontVariantNumeric: "tabular-nums" }}>
+            <NumberFlow value={totalCents / 100} format={{ style: "currency", currency: "USD" }} />
+          </span>
+        </button>
       )}
     </main>
   );
@@ -333,6 +363,9 @@ const checkoutCta: CSSProperties = {
   padding: "14px 18px",
   display: "flex",
   justifyContent: "space-between",
-  textDecoration: "none",
+  alignItems: "center",
+  border: "none",
+  font: "inherit",
   fontWeight: 800,
+  cursor: "pointer",
 };

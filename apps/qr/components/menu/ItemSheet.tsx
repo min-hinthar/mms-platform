@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Badge, Sheet, useAnimationPreference } from "@mms/ui";
 import { useCart } from "@/components/TableCartProvider";
 import { BlurUpImage } from "./BlurUpImage";
@@ -60,6 +60,18 @@ export function ItemSheet({
   onClose: () => void;
   onSelectItem: (item: MenuItem) => void;
 }) {
+  // Detect an upsell SWAP (item changes while the sheet stays open) in an EFFECT — never read refs during
+  // render (React Compiler). On a swap the keyed body remounts mid-scroll and the tapped upsell card
+  // unmounts, so move focus to the top of the new content (WCAG 2.4.3); the INITIAL open is left to Radix.
+  // Runs after the body's own mount effect (child effects fire first), so scroll-to-top lands before focus.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const prevIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const cur = open ? (item?.id ?? null) : null;
+    const prev = prevIdRef.current;
+    prevIdRef.current = cur;
+    if (prev != null && cur != null && prev !== cur) bodyRef.current?.focus();
+  }, [item?.id, open]);
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()} title={item?.name_en ?? ""}>
       {item && (
@@ -68,6 +80,7 @@ export function ItemSheet({
           item={item}
           allItems={allItems}
           diets={diets}
+          rootRef={bodyRef}
           onClose={onClose}
           onSelectItem={onSelectItem}
         />
@@ -80,17 +93,25 @@ function ItemSheetBody({
   item,
   allItems,
   diets,
+  rootRef,
   onClose,
   onSelectItem,
 }: {
   item: MenuItem;
   allItems: MenuItem[];
   diets: Diet[];
+  rootRef: RefObject<HTMLDivElement | null>;
   onClose: () => void;
   onSelectItem: (item: MenuItem) => void;
 }) {
   const { add, cartId, locked, settling } = useCart();
   const { shouldAnimate } = useAnimationPreference();
+  // On mount (each keyed remount = open OR upsell swap): reset the SHARED sheet scroll to the top so a
+  // swapped-in item starts at its hero, not wherever the previous item's "Goes well with" row sat. Reading
+  // rootRef in an EFFECT is allowed (never during render); the parent handles focus-on-swap.
+  useEffect(() => {
+    rootRef.current?.closest<HTMLElement>(".mms-sheet")?.scrollTo({ top: 0 });
+  }, [rootRef]);
   const groups: ModGroup[] = item.modifierGroups;
   // Required single-selects pre-seeded so the sheet opens VALID (accurate preview, enabled CTA). Lazy init —
   // remounts (keyed on item.id) re-run it, so a swap resets cleanly without an effect.
@@ -108,15 +129,17 @@ function ItemSheetBody({
   // Upsell respects the diner's ACTIVE dietary filters (fail-safe): a "No shellfish" diner must not be
   // recommended a shellfish dish the browse list just hid. Stable per item (the body is keyed on item.id).
   const upsell = useMemo(
-    () => goesWellWith(item, allItems.filter((i) => passesDiets(i, diets))),
+    () =>
+      goesWellWith(
+        item,
+        allItems.filter((i) => passesDiets(i, diets)),
+      ),
     [item, allItems, diets],
   );
 
   const badges = itemBadges(item.tags);
   const contains =
-    item.allergens.length > 0
-      ? item.allergens.map((a) => ALLERGEN_LABEL[a] ?? a).join(", ")
-      : null;
+    item.allergens.length > 0 ? item.allergens.map((a) => ALLERGEN_LABEL[a] ?? a).join(", ") : null;
 
   function choose(group: ModGroup, optionId: string) {
     setSelected((s) => ({ ...s, [group.id]: toggleOption(group, s[group.id] ?? [], optionId) }));
@@ -138,7 +161,9 @@ function ItemSheetBody({
   }
 
   return (
-    <div className="item-sheet">
+    // tabIndex -1 + an accessible name so a swap can land focus at the top of the new item (not <body>);
+    // it's not in the tab order (only programmatically focused), so it adds no extra Tab stop.
+    <div className="item-sheet" ref={rootRef} tabIndex={-1} aria-label={item.name_en}>
       {item.name_my && (
         <p className="item-sheet-my" lang="my">
           {item.name_my}
