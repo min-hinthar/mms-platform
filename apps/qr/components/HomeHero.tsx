@@ -41,27 +41,35 @@ export function HomeHero() {
         </m.span>
         {steamOn && (
           <span className="home-hero-steam" aria-hidden>
-            <span className="mms-steam hero-steam-wisp" style={{ left: "42%", animationDelay: "0ms" }} />
-            <span className="mms-steam hero-steam-wisp" style={{ left: "50%", animationDelay: "700ms" }} />
+            <span
+              className="mms-steam hero-steam-wisp"
+              style={{ left: "42%", animationDelay: "0ms" }}
+            />
+            <span
+              className="mms-steam hero-steam-wisp"
+              style={{ left: "50%", animationDelay: "700ms" }}
+            />
             <span
               className="mms-steam hero-steam-wisp"
               style={{ left: "58%", animationDelay: "1400ms" }}
             />
           </span>
         )}
-        {/* The glyph — the leading parallax layer. */}
-        <m.span className="home-hero-glyph" aria-hidden style={{ x: glyphX, y: glyphY }}>
-          ☕
+        {/* The ✦ Morning Star mark — the leading parallax layer + QR's identity (replaces the ☕ emoji).
+            `currentColor` = brand gold; the same geometry ships as the favicon (public/icon.svg). */}
+        <m.span className="home-hero-mark" aria-hidden style={{ x: glyphX, y: glyphY }}>
+          <svg viewBox="0 0 64 64" width="52" height="52" focusable="false">
+            <path d="M32 8 C34 21,43 30,56 32 C43 34,34 43,32 56 C30 43,21 34,8 32 C21 30,30 21,32 8 Z" />
+          </svg>
         </m.span>
       </div>
-      <p className="eyebrow mms-stagger" style={{ animationDelay: "40ms" }}>
+      {/* The wordmark IS the hero — Fraunces display, the brand rendered with real editorial character
+          (was a tiny uppercase eyebrow). Verbatim strings; type-scale tokens, no inline magic sizes. */}
+      <h1 className="home-wordmark mms-stagger" style={{ animationDelay: "90ms" }}>
         Mandalay Morning Star
-      </p>
-      <h1 className="mms-stagger" style={{ fontSize: 30, margin: "6px 0 2px", animationDelay: "100ms" }}>
-        Good morning
       </h1>
-      <p className="mms-stagger" style={{ color: "var(--t2)", margin: 0, animationDelay: "160ms" }}>
-        How would you like to order?
+      <p className="home-greeting mms-stagger" style={{ animationDelay: "150ms" }}>
+        Good morning — how would you like to order?
       </p>
     </div>
   );

@@ -1422,12 +1422,35 @@ h3 {
   display: grid;
   place-items: center;
 }
-.home-hero-glyph {
+.home-hero-mark {
   position: relative;
   z-index: 2;
-  font-size: 50px;
-  line-height: 1;
-  display: inline-block;
+  color: var(--gold);
+  display: inline-flex;
+  line-height: 0;
+}
+.home-hero-mark svg {
+  width: 52px;
+  height: 52px;
+  fill: currentColor;
+}
+/* The brand wordmark — Fraunces display, the identity piece. text-wrap:balance kills widows (rubric #3). */
+.home-wordmark {
+  font-family: var(--font-display);
+  font-size: var(--fs-display);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--track-display);
+  font-weight: 600;
+  color: var(--tx);
+  margin: var(--s2) 0 0;
+  text-wrap: balance;
+}
+.home-greeting {
+  font-size: var(--fs-body);
+  line-height: var(--lh-normal);
+  color: var(--t2);
+  margin: var(--s3) 0 0;
+  text-wrap: pretty;
 }
 .home-hero-back {
   position: absolute;

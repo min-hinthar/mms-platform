@@ -15,6 +15,25 @@
   --s5: 20px;
   --s6: 24px;
   --s8: 32px;
+  --s10: 40px;
+  --s15: 60px;
+  /* ── Type scale (world-class R10): modular ratio ~1.24, rem-based; per-role line-heights + display
+     tracking. Additive — no COLOR token changed, so the contrast-audit (which parses this file) is
+     unaffected. Replaces inline magic font-sizes (e.g. the homepage's hard-coded 30px). ── */
+  --lh-tight: 1.08; /* display / wordmark */
+  --lh-snug: 1.22; /* headings */
+  --lh-normal: 1.5; /* body */
+  --lh-my: 1.6; /* Burmese (Padauk) wants more leading than Latin at the same size */
+  --fs-display: clamp(2.25rem, 7vw, 2.75rem); /* the wordmark lockup */
+  --fs-h1: 1.625rem; /* 26 */
+  --fs-h2: 1.3125rem; /* 21 */
+  --fs-h3: 1.0625rem; /* 17 */
+  --fs-body: 1rem; /* 16 */
+  --fs-sm: 0.8125rem; /* 13 */
+  --fs-xs: 0.6875rem; /* 11 */
+  --track-display: -0.02em;
+  --track-eyebrow: 0.16em;
+  --w-content: 27.5rem; /* 440 — the entry/content column */
   --r-sm: 12px;
   --r-card: 20px;
   --r-sheet: 26px;

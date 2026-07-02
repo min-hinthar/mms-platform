@@ -4,6 +4,24 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — World-class UX: homepage proof + type-scale + wordmark identity (2026-07-02)
+
+First slice of the world-class UX initiative (`docs/WORLD_CLASS_UX_PLAN.md`) — elevate the editorial/Night
+language, starting with the flagship entry screen as a proof-of-direction.
+
+- **Type-scale tokens** (`@mms/ui/tokens.css`, additive) — `--fs-display/-h1/-h2/-h3/-body/-sm/-xs`,
+  `--lh-*`, `--track-*`, `--w-content`, `--s10/--s15`. Retires inline magic font-sizes. Contrast-audit
+  (41 tests) unaffected — no color token changed.
+- **Wordmark identity** — the homepage hero replaces the **☕ emoji** with the **✦ Morning Star mark**
+  (brand gold, reframed inside the existing glow + draw-on ring + parallax) and renders **"Mandalay Morning
+  Star"** as a real Fraunces **display wordmark** (was a tiny uppercase eyebrow). Strings verbatim.
+- **First brand assets** — `apps/qr/public/icon.svg` (the ✦ mark) wired as the favicon + OG metadata
+  (QR had no `public/` before).
+- **Grid discipline** — homepage spacing now all `--s*` tokens (was `60/24/22/13/20/16/440` magic numbers);
+  `text-wrap: balance` on the wordmark (no widows).
+- **`themeColor` fix** — `#fffaf2/#0f1115` → the real `--pg` values `#faf9f5/#171221` (killed the Night
+  status-bar seam; audit U-Q5).
+
 ### Fixed — Holistic audit: money/security remediation (2026-07-02)
 
 Cross-repo adversarial audit (`docs/HOLISTIC_IMPROVEMENT_PLAN.md`). The QR-side confirmed fixes:
