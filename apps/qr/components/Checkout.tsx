@@ -9,7 +9,7 @@ import {
 } from "react";
 import Link from "next/link";
 import type { CartItem, CartTotals } from "@mms/db";
-import { NumberFlow, Stepper } from "@mms/ui";
+import { Avatar, NumberFlow, Stepper } from "@mms/ui";
 import {
   applyPromo as applyPromoAction,
   getCartView,
@@ -123,6 +123,13 @@ export function Checkout({
   });
   const [payError, setPayError] = useState<string | null>(null);
 
+  // Derived VIEW: settle (split freeze) / pay (Stripe step) / review. Drives BOTH the keyed step wrapper
+  // and the focus-move effect below — so a REALTIME `settling` flip (a peer opening a split changes the
+  // view WITHOUT touching `step`) still moves focus off the unmounting subtree to the heading, not just
+  // review↔pay taps. `onPay` keeps its original truthiness (narrows payTotals in the render).
+  const onPay = step === "pay" && clientSecret && payTotals;
+  const viewKey = isGroup && settling && splitContext ? "settle" : onPay ? "pay" : "review";
+
   // Focus management: when a stepper removes the last unit of a line, the <li> unmounts and focus
   // would fall to <body>. Move it to the heading so keyboard/SR users keep their place.
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -144,14 +151,15 @@ export function Checkout({
     prevDraftCount.current = draftCount;
   }, [items]);
 
-  // On a review↔pay transition the button that triggered it (Continue / Edit order) unmounts while
-  // holding focus → focus would drop to <body> with no cue (WCAG 2.4.3). The heading is mounted in
-  // both steps, so move focus there after the commit. Skip the first mount (no transition yet).
+  // On ANY view change (review↔pay tap OR a realtime settling flip) the subtree that held focus unmounts
+  // → focus would drop to <body> with no cue (WCAG 2.4.3). The heading is mounted across all views, so
+  // move focus there after the commit. Keyed on `viewKey` (not just `step`) so the settling flip counts.
+  // Skip the first mount (no transition yet).
   const mounted = useRef(false);
   useEffect(() => {
     if (mounted.current) headingRef.current?.focus();
     else mounted.current = true;
-  }, [step]);
+  }, [viewKey]);
 
   async function refresh() {
     try {
@@ -325,7 +333,6 @@ export function Checkout({
       </main>
     );
 
-  const onPay = step === "pay" && clientSecret && payTotals;
   // Client tip PREVIEW (a hint, not the charge) — identical formula to the server's
   // `Math.round(netCents * rate)` (lib/totals.ts), so the previewed "Estimated total" reconciles
   // exactly with the tip-inclusive total create-intent returns on the pay step.
@@ -345,476 +352,469 @@ export function Checkout({
           Keyed on the view so React remounts it (the animation replays); the <h1> above stays mounted as the
           focus target. The pay step's Stripe Element mounts WITH this wrapper, so the transform-based enter
           never reloads the iframe. CSS `@media`-gated — no shouldAnimate first-render race. */}
-      <div
-        key={isGroup && settling && splitContext ? "settle" : onPay ? "pay" : "review"}
-        className="checkout-step"
-      >
+      <div key={viewKey} className="checkout-step">
         {isGroup && settling && splitContext ? (
-        <>
-          <SettlementBoard
-            cartId={cartId}
-            accessToken={anon?.accessToken ?? ""}
-            ctx={splitContext}
-            onStatus={setStatus}
-            onChanged={refresh}
-          />
-          {/* The ONE polite live region for the settlement view (board announcements: split started,
+          <>
+            <SettlementBoard
+              cartId={cartId}
+              accessToken={anon?.accessToken ?? ""}
+              ctx={splitContext}
+              onStatus={setStatus}
+              onChanged={refresh}
+            />
+            {/* The ONE polite live region for the settlement view (board announcements: split started,
               canceled, abort errors). The board's own rows carry per-share status visually. */}
-          <p
-            role="status"
-            aria-live="polite"
-            aria-atomic="true"
-            style={{ minHeight: 16, margin: "12px 0 0", fontSize: 13, color: "var(--t2)" }}
-          >
-            {status}
-          </p>
-        </>
-      ) : onPay ? (
-        <>
-          <dl style={{ margin: "12px 0" }}>
-            <Row k="Subtotal" cents={payTotals.subtotalCents} />
-            {payTotals.discountCents - payTotals.rewardCents > 0 && (
-              <Row k="Promo" cents={-(payTotals.discountCents - payTotals.rewardCents)} />
-            )}
-            {payTotals.rewardCents > 0 && <Row k="Reward" cents={-payTotals.rewardCents} />}
-            <Row k="Service charge (5%)" cents={payTotals.serviceChargeCents} />
-            <Row k="Sales tax" cents={payTotals.taxCents} />
-            {payTotals.tipCents > 0 && <Row k="Tip" cents={payTotals.tipCents} />}
-            <Row k="Total" cents={payTotals.totalCents} strong roll />
-          </dl>
-          <PaymentSection
-            cartId={cartId}
-            clientSecret={clientSecret}
-            totals={payTotals}
-            onEdit={editOrder}
-          />
-        </>
-      ) : (
-        <>
-          {/* S4 unified basket: group lines by destination (At your table / To-go / Grocery). Headings
+            <p
+              role="status"
+              aria-atomic="true"
+              style={{ minHeight: 16, margin: "12px 0 0", fontSize: 13, color: "var(--t2)" }}
+            >
+              {status}
+            </p>
+          </>
+        ) : onPay ? (
+          <>
+            <div className="card card-textured checkout-receipt">
+              <dl>
+                <Row k="Subtotal" cents={payTotals.subtotalCents} />
+                {payTotals.discountCents - payTotals.rewardCents > 0 && (
+                  <Row k="Promo" cents={-(payTotals.discountCents - payTotals.rewardCents)} />
+                )}
+                {payTotals.rewardCents > 0 && <Row k="Reward" cents={-payTotals.rewardCents} />}
+                <Row k="Service charge (5%)" cents={payTotals.serviceChargeCents} />
+                <Row k="Sales tax" cents={payTotals.taxCents} />
+                {payTotals.tipCents > 0 && <Row k="Tip" cents={payTotals.tipCents} />}
+                <Row k="Total" cents={payTotals.totalCents} strong roll />
+              </dl>
+            </div>
+            <PaymentSection
+              cartId={cartId}
+              clientSecret={clientSecret}
+              totals={payTotals}
+              onEdit={editOrder}
+            />
+          </>
+        ) : (
+          <>
+            {/* S4 unified basket: group lines by destination (At your table / To-go / Grocery). Headings
               show only when the basket actually spans 2+ destinations, so a plain dine-in cart stays clean.
               The renderLine body is the S2 per-line card + an S4 for-here/to-go toggle on editable food. */}
-          {(() => {
-            const GROUPS: [label: string, key: CartItem["fulfillment"]][] = [
-              ["At your table", "dinein"],
-              ["To-go", "togo"],
-              ["Grocery", "grocery"],
-            ];
-            const present = GROUPS.filter(([, k]) => items.some((i) => i.fulfillment === k));
-            const showHeadings = present.length > 1;
-            const renderLine = (i: CartItem) => {
-              const canEdit = canMutateLine(i.lineState, {
-                kind: "diner",
-                role: splitContext?.myRole ?? "host",
-                isOwner: i.bySeat === splitContext?.mySeat,
-              });
-              const owner = isGroup
-                ? splitContext!.members.find((m) => m.seat === i.bySeat)
-                : undefined;
-              return (
-                <li
-                  key={i.id}
-                  className="card card-textured"
-                  style={{ padding: 12, display: "flex", gap: 10, alignItems: "center" }}
-                >
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600 }}>{i.name}</div>
-                    {i.modifiers.length > 0 && (
-                      <div style={{ fontSize: 12, color: "var(--t2)" }}>
-                        {i.modifiers.join(", ")}
-                      </div>
-                    )}
-                    {owner && (
-                      <div
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 6,
-                          marginTop: 4,
-                          fontSize: 12,
-                          color: "var(--t2)",
-                        }}
-                      >
-                        <span
-                          aria-hidden
+            {(() => {
+              const GROUPS: [label: string, key: CartItem["fulfillment"]][] = [
+                ["At your table", "dinein"],
+                ["To-go", "togo"],
+                ["Grocery", "grocery"],
+              ];
+              const present = GROUPS.filter(([, k]) => items.some((i) => i.fulfillment === k));
+              const showHeadings = present.length > 1;
+              const renderLine = (i: CartItem) => {
+                const canEdit = canMutateLine(i.lineState, {
+                  kind: "diner",
+                  role: splitContext?.myRole ?? "host",
+                  isOwner: i.bySeat === splitContext?.mySeat,
+                });
+                const owner = isGroup
+                  ? splitContext!.members.find((m) => m.seat === i.bySeat)
+                  : undefined;
+                return (
+                  <li
+                    key={i.id}
+                    className="card card-textured"
+                    style={{ padding: 12, display: "flex", gap: 10, alignItems: "center" }}
+                  >
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600 }}>{i.name}</div>
+                      {i.modifiers.length > 0 && (
+                        <div style={{ fontSize: 12, color: "var(--t2)" }}>
+                          {i.modifiers.join(", ")}
+                        </div>
+                      )}
+                      {owner && (
+                        <div
                           style={{
-                            width: 18,
-                            height: 18,
-                            borderRadius: "50%",
-                            background: seatColor(owner.seat),
-                            color: "#fff",
-                            display: "grid",
-                            placeItems: "center",
-                            fontSize: 9,
-                            fontWeight: 800,
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 6,
+                            marginTop: 4,
+                            fontSize: 12,
+                            color: "var(--t2)",
                           }}
                         >
-                          {seatInitial(owner.name)}
-                        </span>
-                        {owner.seat === splitContext!.mySeat ? "You" : owner.name}
-                      </div>
-                    )}
-                    <div
-                      style={{
-                        fontWeight: 700,
-                        marginTop: 4,
-                        fontVariantNumeric: "tabular-nums",
-                        textDecoration:
-                          i.comped || i.lineState === "voided" ? "line-through" : "none",
-                        color: i.comped || i.lineState === "voided" ? "var(--t3)" : "inherit",
-                      }}
-                    >
-                      ${((i.unitPriceCents * i.qty) / 100).toFixed(2)}
-                    </div>
-                    {/* For-here / To-go (S4): food only, draft + editable. Grocery routing is fixed. The
-                        server recomputes per-line tax (cold food flips taxability) — never a client guess. */}
-                    {i.fulfillment !== "grocery" && i.lineState === "draft" && canEdit && (
+                          <Avatar
+                            initial={seatInitial(owner.name)}
+                            color={seatColor(owner.seat)}
+                            size="sm"
+                          />
+                          {owner.seat === splitContext!.mySeat ? "You" : owner.name}
+                        </div>
+                      )}
                       <div
-                        role="group"
-                        aria-label={`Where ${i.name} goes`}
-                        style={{ display: "inline-flex", gap: 6, marginTop: 8 }}
-                      >
-                        {(["dinein", "togo"] as const).map((f) => {
-                          const on = i.fulfillment === f;
-                          return (
-                            <button
-                              key={f}
-                              type="button"
-                              data-ful-line={i.id}
-                              data-ful-val={f}
-                              aria-pressed={on}
-                              disabled={pending}
-                              onClick={() => toggleFulfillment(i.id, f)}
-                              style={{
-                                minHeight: 44,
-                                padding: "0 14px",
-                                borderRadius: 999,
-                                border: "1px solid var(--bd)",
-                                background: on ? "var(--ac)" : "transparent",
-                                color: on ? "var(--oa)" : "var(--t2)",
-                                fontSize: 12.5,
-                                fontWeight: 700,
-                                cursor: pending ? "default" : "pointer",
-                              }}
-                            >
-                              {f === "dinein" ? "For here" : "To go"}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                    {/* Make it now (S4.2): a to-go food line waits for checkout by default; this fires it to
-                        the kitchen early. Draft + editable + togo only (a dinein line fires via Send to
-                        kitchen; grocery never fires). The server gates it; refused → no-ops on refresh. */}
-                    {i.fulfillment === "togo" && i.lineState === "draft" && canEdit && (
-                      <button
-                        type="button"
-                        disabled={pending}
-                        onClick={() => makeNow(i.id)}
                         style={{
-                          display: "block",
-                          minHeight: 44,
-                          marginTop: 8,
-                          padding: "0 14px",
-                          borderRadius: 999,
-                          border: "1px solid var(--ac)",
-                          background: "transparent",
-                          color: "var(--ac)",
-                          fontSize: 12.5,
                           fontWeight: 700,
-                          cursor: pending ? "default" : "pointer",
+                          marginTop: 4,
+                          fontVariantNumeric: "tabular-nums",
+                          textDecoration:
+                            i.comped || i.lineState === "voided" ? "line-through" : "none",
+                          color: i.comped || i.lineState === "voided" ? "var(--t3)" : "inherit",
                         }}
                       >
-                        Make it now · ready in ~{prepMinutes} min
-                      </button>
+                        ${((i.unitPriceCents * i.qty) / 100).toFixed(2)}
+                      </div>
+                      {/* For-here / To-go (S4): food only, draft + editable. Grocery routing is fixed. The
+                        server recomputes per-line tax (cold food flips taxability) — never a client guess. */}
+                      {i.fulfillment !== "grocery" && i.lineState === "draft" && canEdit && (
+                        <div
+                          role="group"
+                          aria-label={`Where ${i.name} goes`}
+                          style={{ display: "inline-flex", gap: 6, marginTop: 8 }}
+                        >
+                          {(["dinein", "togo"] as const).map((f) => {
+                            const on = i.fulfillment === f;
+                            return (
+                              <button
+                                key={f}
+                                type="button"
+                                data-ful-line={i.id}
+                                data-ful-val={f}
+                                aria-pressed={on}
+                                disabled={pending}
+                                onClick={() => toggleFulfillment(i.id, f)}
+                                style={{
+                                  minHeight: 44,
+                                  padding: "0 14px",
+                                  borderRadius: 999,
+                                  border: "1px solid var(--bd)",
+                                  background: on ? "var(--ac)" : "transparent",
+                                  color: on ? "var(--oa)" : "var(--t2)",
+                                  fontSize: 12.5,
+                                  fontWeight: 700,
+                                  cursor: pending ? "default" : "pointer",
+                                }}
+                              >
+                                {f === "dinein" ? "For here" : "To go"}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {/* Make it now (S4.2): a to-go food line waits for checkout by default; this fires it to
+                        the kitchen early. Draft + editable + togo only (a dinein line fires via Send to
+                        kitchen; grocery never fires). The server gates it; refused → no-ops on refresh. */}
+                      {i.fulfillment === "togo" && i.lineState === "draft" && canEdit && (
+                        <button
+                          type="button"
+                          disabled={pending}
+                          onClick={() => makeNow(i.id)}
+                          style={{
+                            display: "block",
+                            minHeight: 44,
+                            marginTop: 8,
+                            padding: "0 14px",
+                            borderRadius: 999,
+                            border: "1px solid var(--ac)",
+                            background: "transparent",
+                            color: "var(--ac)",
+                            fontSize: 12.5,
+                            fontWeight: 700,
+                            cursor: pending ? "default" : "pointer",
+                          }}
+                        >
+                          Make it now · ready in ~{prepMinutes} min
+                        </button>
+                      )}
+                    </div>
+                    {i.comped ? (
+                      <LineStateChip state={i.lineState} comped />
+                    ) : i.lineState === "draft" ? (
+                      <Stepper
+                        qty={i.qty}
+                        disabled={pending || !canEdit}
+                        soldOut={i.soldOut}
+                        name={i.name}
+                        removeGlyph="🗑"
+                        showCount
+                        incrementLabel={`Add another ${i.name}`}
+                        onChange={(q) => changeQty(i.id, q)}
+                      />
+                    ) : (
+                      <LineStateChip state={i.lineState} comped={false} />
                     )}
-                  </div>
-                  {i.comped ? (
-                    <LineStateChip state={i.lineState} comped />
-                  ) : i.lineState === "draft" ? (
-                    <Stepper
-                      qty={i.qty}
-                      disabled={pending || !canEdit}
-                      soldOut={i.soldOut}
-                      name={i.name}
-                      removeGlyph="🗑"
-                      showCount
-                      incrementLabel={`Add another ${i.name}`}
-                      onChange={(q) => changeQty(i.id, q)}
-                    />
-                  ) : (
-                    <LineStateChip state={i.lineState} comped={false} />
+                  </li>
+                );
+              };
+              return present.map(([label, key]) => (
+                <section key={key} aria-label={label} style={{ margin: "12px 0" }}>
+                  {showHeadings && (
+                    <h3
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 800,
+                        letterSpacing: 0.3,
+                        textTransform: "uppercase",
+                        color: "var(--t2)",
+                        margin: "0 0 8px",
+                      }}
+                    >
+                      {label}
+                    </h3>
                   )}
-                </li>
-              );
-            };
-            return present.map(([label, key]) => (
-              <section key={key} aria-label={label} style={{ margin: "12px 0" }}>
-                {showHeadings && (
-                  <h3
+                  {/* S4.2: to-go food is made fresh at checkout (not fired with the dine-in batch). Honest,
+                    config-driven estimate — shown only while a to-go line is still waiting (draft). */}
+                  {key === "togo" &&
+                    items.some((i) => i.fulfillment === "togo" && i.lineState === "draft") && (
+                      <p style={{ fontSize: 12, color: "var(--t2)", margin: "0 0 8px" }}>
+                        Made fresh when you check out — ready in about {prepMinutes} min. Want it
+                        sooner? Tap “Make it now.”
+                      </p>
+                    )}
+                  <ul
+                    role="list"
+                    style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 10 }}
+                  >
+                    {items.filter((i) => i.fulfillment === key).map(renderLine)}
+                  </ul>
+                </section>
+              ));
+            })()}
+
+            {isGroup && splitContext && (
+              <SplitSection
+                cartId={cartId}
+                items={items}
+                totalCents={totals.totalCents}
+                ctx={splitContext}
+                onChanged={refresh}
+                onStatus={setStatus}
+              />
+            )}
+
+            <form onSubmit={onPromo} style={{ display: "flex", gap: 8, margin: "12px 0" }}>
+              <input
+                value={promo}
+                onChange={(e) => setPromo(e.target.value)}
+                placeholder="Promo code"
+                aria-label="Promo code"
+                autoCapitalize="characters"
+                maxLength={40}
+                style={{
+                  flex: 1,
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  border: "1px solid var(--bd)",
+                  background: "var(--cd)",
+                  color: "var(--tx)",
+                }}
+              />
+              <button
+                type="submit"
+                disabled={pending || !promo.trim()}
+                style={{
+                  minHeight: 44,
+                  padding: "0 16px",
+                  borderRadius: 10,
+                  border: "1px solid var(--bd)",
+                  background: "var(--sf)",
+                  fontWeight: 700,
+                }}
+              >
+                Apply
+              </button>
+            </form>
+
+            {/* Redeem a Morning Star reward (M4 P4.2) — renders only if the diner has coupons; the discount
+              is server-authoritative (rides getCartTotals). Refreshes the breakdown on apply/remove. */}
+            <RewardField
+              cartId={cartId}
+              appliedRewardCents={totals.rewardCents}
+              onChanged={() => void refresh()}
+            />
+
+            {/* Tip selector (server confirms the exact tip at create-intent) */}
+            <div
+              role="group"
+              aria-label="Add a tip"
+              style={{ display: "flex", gap: 8, margin: "14px 0 4px" }}
+            >
+              {TIPS.map(([label, rate]) => {
+                const on = tipRate === rate;
+                const previewCents = tipPreview(rate);
+                return (
+                  <button
+                    key={rate}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => setTipRate(rate)}
+                    className="checkout-tip"
                     style={{
-                      fontSize: 12,
+                      flex: 1,
+                      minHeight: 44,
+                      padding: "10px 4px",
+                      borderRadius: 13,
+                      border: `1.5px solid ${on ? "var(--ac)" : "var(--bd)"}`,
+                      background: on ? "color-mix(in oklab, var(--ac) 9%, var(--cd))" : "var(--cd)",
+                      color: on ? "var(--ac-strong)" : "var(--tx)",
+                      textAlign: "center",
                       fontWeight: 800,
-                      letterSpacing: 0.3,
-                      textTransform: "uppercase",
-                      color: "var(--t2)",
-                      margin: "0 0 8px",
+                      cursor: "pointer",
                     }}
                   >
                     {label}
-                  </h3>
+                    <small
+                      style={{
+                        display: "block",
+                        fontSize: 10,
+                        fontWeight: 700,
+                        color: on ? "var(--ac-strong)" : "var(--t3)",
+                      }}
+                    >
+                      {rate ? `$${(previewCents / 100).toFixed(2)}` : "—"}
+                    </small>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="card card-textured checkout-receipt">
+              <dl>
+                <Row k="Subtotal" cents={totals.subtotalCents} />
+                {totals.discountCents - totals.rewardCents > 0 && (
+                  <Row k="Promo" cents={-(totals.discountCents - totals.rewardCents)} />
                 )}
-                {/* S4.2: to-go food is made fresh at checkout (not fired with the dine-in batch). Honest,
-                    config-driven estimate — shown only while a to-go line is still waiting (draft). */}
-                {key === "togo" &&
-                  items.some((i) => i.fulfillment === "togo" && i.lineState === "draft") && (
-                    <p style={{ fontSize: 12, color: "var(--t2)", margin: "0 0 8px" }}>
-                      Made fresh when you check out — ready in about {prepMinutes} min. Want it
-                      sooner? Tap “Make it now.”
-                    </p>
-                  )}
-                <ul
-                  role="list"
-                  style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 10 }}
-                >
-                  {items.filter((i) => i.fulfillment === key).map(renderLine)}
-                </ul>
-              </section>
-            ));
-          })()}
+                {totals.rewardCents > 0 && <Row k="Reward" cents={-totals.rewardCents} />}
+                <Row k="Service charge (5%)" cents={totals.serviceChargeCents} />
+                <Row k="Sales tax" cents={totals.taxCents} />
+                {/* Tip is previewed here so the review total matches the pay-step total — labeled
+                  "Estimated" until create-intent confirms it server-side. */}
+                {tipPreviewCents > 0 && <Row k="Tip" cents={tipPreviewCents} />}
+                <Row
+                  k={tipPreviewCents > 0 ? "Estimated total" : "Total"}
+                  cents={totals.totalCents + tipPreviewCents}
+                  strong
+                  roll
+                />
+              </dl>
+            </div>
 
-          {isGroup && splitContext && (
-            <SplitSection
-              cartId={cartId}
-              items={items}
-              totalCents={totals.totalCents}
-              ctx={splitContext}
-              onChanged={refresh}
-              onStatus={setStatus}
-            />
-          )}
+            <p style={{ fontSize: 11, color: "var(--t3)" }}>
+              A 5% service charge supports fair kitchen wages and is shared with the team (CA
+              SB-1524). It is not a tip — anything extra above is yours to give. Card fees are built
+              into menu prices; we never add a surcharge on debit.
+            </p>
 
-          <form onSubmit={onPromo} style={{ display: "flex", gap: 8, margin: "12px 0" }}>
-            <input
-              value={promo}
-              onChange={(e) => setPromo(e.target.value)}
-              placeholder="Promo code"
-              aria-label="Promo code"
-              autoCapitalize="characters"
-              maxLength={40}
-              style={{
-                flex: 1,
-                padding: "10px 12px",
-                borderRadius: 10,
-                border: "1px solid var(--bd)",
-                background: "var(--cd)",
-                color: "var(--tx)",
-              }}
-            />
+            {canSendToKitchen && items.length > 0 && (
+              // onChanged re-syncs the cart after a send (steppers → chips) or an undo (chips → steppers),
+              // since solo dine-in isn't on the group realtime channel.
+              <SendToKitchenButton
+                cartId={cartId}
+                hasDraft={items.some((i) => i.lineState === "draft")}
+                onChanged={refresh}
+              />
+            )}
+
             <button
-              type="submit"
-              disabled={pending || !promo.trim()}
+              type="button"
+              onClick={continueToPayment}
+              disabled={loadingPay}
+              aria-busy={loadingPay}
+              className="checkout-cta"
               style={{
-                minHeight: 44,
-                padding: "0 16px",
-                borderRadius: 10,
-                border: "1px solid var(--bd)",
-                background: "var(--sf)",
-                fontWeight: 700,
+                width: "100%",
+                marginTop: 12,
+                minHeight: 50,
+                borderRadius: 12,
+                border: "none",
+                background: "var(--ac)",
+                color: "var(--oa)",
+                fontWeight: 800,
+                fontSize: 16,
+                cursor: loadingPay ? "default" : "pointer",
+                opacity: loadingPay ? 0.7 : 1,
               }}
             >
-              Apply
+              {loadingPay
+                ? "Starting checkout…"
+                : tabType !== "none"
+                  ? "Settle tab"
+                  : "Continue to payment"}
             </button>
-          </form>
 
-          {/* Redeem a Morning Star reward (M4 P4.2) — renders only if the diner has coupons; the discount
-              is server-authoritative (rides getCartTotals). Refreshes the breakdown on apply/remove. */}
-          <RewardField
-            cartId={cartId}
-            appliedRewardCents={totals.rewardCents}
-            onChanged={() => void refresh()}
-          />
-
-          {/* Tip selector (server confirms the exact tip at create-intent) */}
-          <div
-            role="group"
-            aria-label="Add a tip"
-            style={{ display: "flex", gap: 8, margin: "14px 0 4px" }}
-          >
-            {TIPS.map(([label, rate]) => {
-              const on = tipRate === rate;
-              const previewCents = tipPreview(rate);
-              return (
-                <button
-                  key={rate}
-                  type="button"
-                  aria-pressed={on}
-                  onClick={() => setTipRate(rate)}
-                  className="checkout-tip"
-                  style={{
-                    flex: 1,
-                    minHeight: 44,
-                    padding: "10px 4px",
-                    borderRadius: 13,
-                    border: `1.5px solid ${on ? "var(--ac)" : "var(--bd)"}`,
-                    background: on ? "color-mix(in oklab, var(--ac) 9%, var(--cd))" : "var(--cd)",
-                    color: on ? "var(--ac-strong)" : "var(--tx)",
-                    textAlign: "center",
-                    fontWeight: 800,
-                    cursor: "pointer",
-                  }}
-                >
-                  {label}
-                  <small
-                    style={{
-                      display: "block",
-                      fontSize: 10,
-                      fontWeight: 700,
-                      color: on ? "var(--ac-strong)" : "var(--t3)",
-                    }}
-                  >
-                    {rate ? `$${(previewCents / 100).toFixed(2)}` : "—"}
-                  </small>
-                </button>
-              );
-            })}
-          </div>
-
-          <dl style={{ margin: "12px 0" }}>
-            <Row k="Subtotal" cents={totals.subtotalCents} />
-            {totals.discountCents - totals.rewardCents > 0 && (
-              <Row k="Promo" cents={-(totals.discountCents - totals.rewardCents)} />
-            )}
-            {totals.rewardCents > 0 && <Row k="Reward" cents={-totals.rewardCents} />}
-            <Row k="Service charge (5%)" cents={totals.serviceChargeCents} />
-            <Row k="Sales tax" cents={totals.taxCents} />
-            {/* Tip is previewed here so the review total matches the pay-step total — labeled
-                "Estimated" until create-intent confirms it server-side. */}
-            {tipPreviewCents > 0 && <Row k="Tip" cents={tipPreviewCents} />}
-            <Row
-              k={tipPreviewCents > 0 ? "Estimated total" : "Total"}
-              cents={totals.totalCents + tipPreviewCents}
-              strong
-              roll
-            />
-          </dl>
-
-          <p style={{ fontSize: 11, color: "var(--t3)" }}>
-            A 5% service charge supports fair kitchen wages and is shared with the team (CA
-            SB-1524). It is not a tip — anything extra above is yours to give. Card fees are built
-            into menu prices; we never add a surcharge on debit.
-          </p>
-
-          {canSendToKitchen && items.length > 0 && (
-            // onChanged re-syncs the cart after a send (steppers → chips) or an undo (chips → steppers),
-            // since solo dine-in isn't on the group realtime channel.
-            <SendToKitchenButton
-              cartId={cartId}
-              hasDraft={items.some((i) => i.lineState === "draft")}
-              onChanged={refresh}
-            />
-          )}
-
-          <button
-            type="button"
-            onClick={continueToPayment}
-            disabled={loadingPay}
-            aria-busy={loadingPay}
-            className="checkout-cta"
-            style={{
-              width: "100%",
-              marginTop: 12,
-              minHeight: 50,
-              borderRadius: 12,
-              border: "none",
-              background: "var(--ac)",
-              color: "var(--oa)",
-              fontWeight: 800,
-              fontSize: 16,
-              cursor: loadingPay ? "default" : "pointer",
-              opacity: loadingPay ? 0.7 : 1,
-            }}
-          >
-            {loadingPay
-              ? "Starting checkout…"
-              : tabType !== "none"
-                ? "Settle tab"
-                : "Continue to payment"}
-          </button>
-
-          {/* Tab affordance (S3.1) — dine-in only. Before a tab is open, a calm secondary action to
+            {/* Tab affordance (S3.1) — dine-in only. Before a tab is open, a calm secondary action to
               keep it open and settle later; once open, an honest note that ordering continues and the
               CTA above settles it. Opening moves no money (openTab → mms_open_tab, member-gated). */}
-          {canTab && tabType === "none" && (
-            <>
-              <button
-                type="button"
-                onClick={keepTabOpen}
-                disabled={tabBusy}
-                aria-busy={tabBusy}
-                style={keepTabBtn}
-              >
-                {tabBusy ? "Opening tab…" : "Keep tab open · settle later"}
-              </button>
+            {canTab && tabType === "none" && (
+              <>
+                <button
+                  type="button"
+                  onClick={keepTabOpen}
+                  disabled={tabBusy}
+                  aria-busy={tabBusy}
+                  style={keepTabBtn}
+                >
+                  {tabBusy ? "Opening tab…" : "Keep tab open · settle later"}
+                </button>
+                <p
+                  style={{
+                    fontSize: 11.5,
+                    color: "var(--t3)",
+                    margin: "6px 0 0",
+                    textAlign: "center",
+                  }}
+                >
+                  Order all night and pay once when you’re ready — by card here or with a server.
+                </p>
+              </>
+            )}
+            {tabType === "secure" ? (
+              <p style={tabNote}>
+                <span aria-hidden>✓ </span>
+                Tab secured · card on file — settle anytime, or just leave and we’ll close it.
+              </p>
+            ) : tabType === "trust" ? (
+              <p style={tabNote}>
+                <span aria-hidden>● </span>
+                Tab open — add anything you like and settle when you’re ready.
+              </p>
+            ) : null}
+
+            {/* Secure with a card (S3.2) — offered for a none/trust tab (card-first open, or convert a
+              trust tab). Saves a card so the tab settles off-session at close; SAQ-A (the card lives only
+              in the Element); the webhook records it + flips to 'secure'. Hidden once secured. */}
+            {canTab && tabType !== "secure" && (
+              <SecureTabButton cartId={cartId} onSecured={refresh} />
+            )}
+
+            {isGroup && (
+              // Honesty (P3.3a): the split above is a reference; this button pays the WHOLE order, so a
+              // guest who read "your share" isn't surprised. Per-card share payment is P3.3b — stated as
+              // a fact, not a promise.
               <p
                 style={{
                   fontSize: 11.5,
                   color: "var(--t3)",
-                  margin: "6px 0 0",
+                  margin: "8px 0 0",
                   textAlign: "center",
                 }}
               >
-                Order all night and pay once when you’re ready — by card here or with a server.
+                This pays the full order. The split above is a reference for settling among
+                yourselves.
               </p>
-            </>
-          )}
-          {tabType === "secure" ? (
-            <p style={tabNote}>
-              <span aria-hidden>✓ </span>
-              Tab secured · card on file — settle anytime, or just leave and we’ll close it.
-            </p>
-          ) : tabType === "trust" ? (
-            <p style={tabNote}>
-              <span aria-hidden>● </span>
-              Tab open — add anything you like and settle when you’re ready.
-            </p>
-          ) : null}
-
-          {/* Secure with a card (S3.2) — offered for a none/trust tab (card-first open, or convert a
-              trust tab). Saves a card so the tab settles off-session at close; SAQ-A (the card lives only
-              in the Element); the webhook records it + flips to 'secure'. Hidden once secured. */}
-          {canTab && tabType !== "secure" && (
-            <SecureTabButton cartId={cartId} onSecured={refresh} />
-          )}
-
-          {isGroup && (
-            // Honesty (P3.3a): the split above is a reference; this button pays the WHOLE order, so a
-            // guest who read "your share" isn't surprised. Per-card share payment is P3.3b — stated as
-            // a fact, not a promise.
-            <p
-              style={{ fontSize: 11.5, color: "var(--t3)", margin: "8px 0 0", textAlign: "center" }}
-            >
-              This pays the full order. The split above is a reference for settling among
-              yourselves.
-            </p>
-          )}
-          {/* The ONE polite live region for the review step (QA §A P1) — carries the pay-start
+            )}
+            {/* The ONE polite live region for the review step (QA §A P1) — carries the pay-start
               error, a tab-action error, OR the promo result — never more than one (each handler
               clears the others first). The pay step has its own single region inside PaymentSection. */}
-          <p
-            role="status"
-            aria-live="polite"
-            aria-atomic="true"
-            style={{
-              minHeight: 16,
-              margin: "8px 0 0",
-              fontSize: 13,
-              color: payError || tabError ? "var(--warn)" : "var(--t2)",
-            }}
-          >
-            {payError ?? tabError ?? status}
-          </p>
-        </>
+            <p
+              role="status"
+              aria-atomic="true"
+              style={{
+                minHeight: 16,
+                margin: "8px 0 0",
+                fontSize: 13,
+                color: payError || tabError ? "var(--warn)" : "var(--t2)",
+              }}
+            >
+              {payError ?? tabError ?? status}
+            </p>
+          </>
         )}
       </div>
     </main>

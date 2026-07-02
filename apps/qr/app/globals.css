@@ -1250,6 +1250,17 @@ h3 {
   transform: scale(0.97);
 }
 
+/* Checkout totals "receipt" — the breakdown sits on its own textured, lifted layer (card + masked
+   dot-grid via .card-textured) so it reads as a distinct slip, not loose text on the page. The hero
+   total's hairline divider (Row `strong`) supplies the subtotal→total step; padding gives the slip air. */
+.checkout-receipt {
+  margin: 14px 0;
+  padding: 4px 16px 12px;
+}
+.checkout-receipt dl {
+  margin: 0;
+}
+
 /* Step transition — the keyed wrapper enter-slides on each view change (review ↔ pay ↔ settle). */
 .checkout-step {
   animation: checkoutStepIn var(--dur-base) var(--ease-out) both;
