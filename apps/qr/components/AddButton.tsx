@@ -98,12 +98,30 @@ export function AddButton({
     }
   }, [qty, blocked]);
 
+  // Symmetric to the remove path: the Add pill → stepper morph unmounts the focused Add button, so move
+  // focus to the new "+" (WCAG 2.4.3). Gated on `!blocked` (the "+" is natively disabled through the add's
+  // busy window; focus lands once it clears). The flag is set ONLY in `increment` for this instance's 0→1
+  // tap — never on a peer's add or a stepper "+", so it can't steal focus from another element.
+  const plusBtnRef = useRef<HTMLButtonElement>(null);
+  const refocusAfterAdd = useRef(false);
+  useEffect(() => {
+    if (inCart && refocusAfterAdd.current && !blocked) {
+      refocusAfterAdd.current = false;
+      plusBtnRef.current?.focus();
+    }
+  }, [inCart, blocked]);
+
   async function increment() {
+    if (qty === 0) refocusAfterAdd.current = true; // Add-pill tap → focus the "+" once the stepper mounts
     setOptimistic((n) => n + 1); // instant morph — the stepper appears before the round-trip resolves
     setBusy(true);
     try {
-      await add(menuItemId);
-      posthog.capture("menu_item_add_clicked", { menu_item_id: menuItemId });
+      // Record the add ONLY on a CONFIRMED add: the provider's `add` returns false (it never throws) on a
+      // refused/expired-session add, so an unconditional capture would log phantom adds. The catch stays a
+      // defensive guard so a hypothetical throw can't escape the `void increment()` call site.
+      if (await add(menuItemId)) {
+        posthog.capture("menu_item_add_clicked", { menu_item_id: menuItemId });
+      }
     } catch {
       /* the provider announces the failure / recovers in its polite live region */
     } finally {
@@ -172,6 +190,7 @@ export function AddButton({
           </span>
         </span>
         <button
+          ref={plusBtnRef}
           type="button"
           className="mms-stepper-btn"
           // Sold-out disables "+" (a now-86'd line can't grow — only shrink via "−"), as does max/locked/busy.
