@@ -32,7 +32,7 @@
   --fs-sm: 0.8125rem; /* 13 */
   --fs-xs: 0.6875rem; /* 11 */
   --track-display: -0.02em;
-  --track-eyebrow: 0.16em;
+  --track-eyebrow: 0.13em; /* matches the shipped .eyebrow value — the class consumes this token */
   --w-content: 27.5rem; /* 440 — the entry/content column */
   --r-sm: 12px;
   --r-card: 20px;

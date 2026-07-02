@@ -47,6 +47,12 @@ is a **ceiling raise** on three axes the audit + rubric surface:
 **Perennial laggards to design first (rubric §How-to):** #9 edge/empty/error and #1 perceived performance —
 skeletons + optimistic UI + designed empty/error states, not last-minute.
 
+**Tracked (pre-existing, not this proof): the homepage hero is English-only.** The v7.2 prototype greeting is
+bilingual (`မင်္ဂလာပါ` / "Good morning"); the current hero hardcodes English (predates this work). The
+bilingual EN/MY moat is a first-class brand rule — fold a `lang="my"` Burmese line into the wordmark/greeting
+in a later flagship-path slice (needs the app-wide EN↔MY toggle wired, so it's a system task, not a one-string
+fix).
+
 ## Sequenced build (each slice = one gated PR, adversarial pre-merge review)
 
 1. **Proof — homepage** (this PR): type-scale tokens · wordmark identity + favicon/OG · grid tokens ·

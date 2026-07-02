@@ -21,9 +21,9 @@ h3 {
   letter-spacing: -0.02em;
 }
 .eyebrow {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 700;
-  letter-spacing: 0.13em;
+  letter-spacing: var(--track-eyebrow);
   text-transform: uppercase;
   color: var(--ac);
 }
