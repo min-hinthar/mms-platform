@@ -126,7 +126,7 @@ export function InviteSheet({
       </p>
 
       {/* Single polite live region for this modal view (the page's region is inert behind the scrim).
-          role="status" already implies aria-live="polite" + aria-atomic — no redundant attrs. */}
+          role="status" already implies aria-live=polite + aria-atomic — no redundant attrs. */}
       <p role="status" style={statusLine}>
         {status}
       </p>

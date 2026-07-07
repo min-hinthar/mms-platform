@@ -340,12 +340,7 @@ export function LossActionSheet({
         )}
 
         {/* One live region (QA §A): the lockout countdown takes precedence over a transient message. */}
-        <p
-          id="loss-msg"
-          role="status"
-          aria-live="polite"
-          style={{ margin: "12px 0 0", minHeight: 18 }}
-        >
+        <p id="loss-msg" role="status" style={{ margin: "12px 0 0", minHeight: 18 }}>
           {(lockCopy ?? msg) && (
             <span style={{ fontSize: 13, color: "var(--warn)" }}>{lockCopy ?? msg}</span>
           )}

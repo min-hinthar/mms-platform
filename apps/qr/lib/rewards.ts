@@ -116,9 +116,7 @@ export type RewardsProgress = {
  * share-payer earned nothing — gating the "+1 Star earned" pill on this never claims a Star they didn't
  * get. The check returns only a boolean about the viewer's OWN attribution, so it leaks no other diner's data.
  */
-export async function getRewardsProgress(
-  orderId?: string | null,
-): Promise<RewardsProgress | null> {
+export async function getRewardsProgress(orderId?: string | null): Promise<RewardsProgress | null> {
   const supa = serverClient(await cookies());
   const {
     data: { user },

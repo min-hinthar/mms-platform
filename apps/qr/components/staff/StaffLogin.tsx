@@ -283,12 +283,7 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
 
         {/* One live region for both the success notice and the error (QA §A: no redundant regions).
             Also the email field's aria-describedby target — read on focus after a send error. */}
-        <p
-          id="staff-auth-msg"
-          role="status"
-          aria-live="polite"
-          style={{ margin: 0, minHeight: 20 }}
-        >
+        <p id="staff-auth-msg" role="status" style={{ margin: 0, minHeight: 20 }}>
           {error ? (
             <span style={{ color: "var(--warn)", fontSize: 13 }}>{error}</span>
           ) : notice ? (

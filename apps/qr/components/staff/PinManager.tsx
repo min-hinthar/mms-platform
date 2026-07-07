@@ -112,12 +112,7 @@ export function PinManager({ hasPin }: { hasPin: boolean }) {
       )}
 
       {/* One live region for the form (QA §A). Also the PIN field's aria-describedby target. */}
-      <p
-        id="pin-msg"
-        role="status"
-        aria-live="polite"
-        style={{ minHeight: 20, margin: "var(--s4) 0 0" }}
-      >
+      <p id="pin-msg" role="status" style={{ minHeight: 20, margin: "var(--s4) 0 0" }}>
         {msg && (
           <span style={{ fontSize: 13, color: msg.ok ? "var(--ok)" : "var(--warn)" }}>
             {msg.text}

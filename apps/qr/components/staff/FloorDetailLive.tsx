@@ -290,7 +290,6 @@ export function FloorDetailLive({
             frozen detail view mustn't look live. The write error takes precedence over the reconnect note. */}
         <p
           role="status"
-          aria-live="polite"
           style={{
             ...muted,
             marginTop: 6,

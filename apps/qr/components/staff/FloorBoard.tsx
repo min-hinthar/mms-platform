@@ -121,7 +121,7 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
         <h2 id="floor-h" style={{ fontSize: 16, margin: 0 }}>
           Tables
         </h2>
-        <p role="status" aria-live="polite" style={{ margin: 0, fontSize: 13, color: "var(--t2)" }}>
+        <p role="status" style={{ margin: 0, fontSize: 13, color: "var(--t2)" }}>
           {count === 0 ? "No active tables" : `${count} active ${count === 1 ? "table" : "tables"}`}
         </p>
       </div>

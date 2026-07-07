@@ -180,7 +180,7 @@ export function OrderTracker({
         </div>
       )}
 
-      {/* Single live region: role="status" already implies aria-live="polite" (ARIA 1.2). The
+      {/* Single live region: role="status" already implies aria-live=polite (ARIA 1.2). The
           timedOut arm makes the text CHANGE when polling gives up, so AT announces the recovery. */}
       <p role="status" style={srOnly}>
         {ready

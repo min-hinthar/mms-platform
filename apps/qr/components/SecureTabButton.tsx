@@ -127,7 +127,7 @@ function SetupForm({ cartId, onDone }: { cartId: string; onDone: () => void }) {
   return (
     <form onSubmit={onSubmit}>
       <PaymentElement options={{ layout: "tabs" }} />
-      {/* role="status" already implies aria-live="polite" — don't double it (CLAUDE.md a11y). */}
+      {/* role="status" already implies aria-live=polite — don't double it (CLAUDE.md a11y). */}
       <p
         role="status"
         aria-atomic="true"

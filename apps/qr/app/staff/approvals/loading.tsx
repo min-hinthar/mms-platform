@@ -3,7 +3,7 @@ import { Skeleton } from "@mms/ui";
 /** Instant skeleton for the approvals console — heading row then ticket-card grid (the shared board shape). */
 export default function ConsoleLoading() {
   return (
-    <main style={{ maxWidth: 960, margin: "0 auto", padding: "24px 20px 60px" }}>
+    <main style={{ maxWidth: 820, margin: "0 auto", padding: "var(--s5) var(--s4) var(--s8)" }}>
       <span className="sr-only">Loading open requests…</span>
       <div aria-hidden>
         <div

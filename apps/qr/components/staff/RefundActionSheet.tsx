@@ -161,7 +161,6 @@ export function RefundActionSheet({
         {/* One live region for the sheet's error (polite — the failure text changes so AT announces it). */}
         <p
           role="status"
-          aria-live="polite"
           style={{ minHeight: 18, margin: "8px 0 0", fontSize: 13, color: "var(--warn)" }}
         >
           {error}

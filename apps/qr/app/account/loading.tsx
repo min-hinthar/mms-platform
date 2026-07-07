@@ -4,7 +4,7 @@ import { Skeleton } from "@mms/ui";
  *  Mirrors the hub geometry so the swap doesn't shift layout; decorative + one sr-only cue. */
 export default function AccountLoading() {
   return (
-    <main style={{ padding: "24px 20px 40px", maxWidth: 440, margin: "0 auto" }}>
+    <main style={{ padding: 24, maxWidth: 480, margin: "0 auto" }}>
       <span className="sr-only">Loading your rewards…</span>
       <div aria-hidden>
         <Skeleton width={190} height={30} radius={8} style={{ margin: "0 0 20px" }} />

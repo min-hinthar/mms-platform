@@ -89,7 +89,12 @@ describe("toggleOption", () => {
 
 describe("selectionDeltaCents", () => {
   it("sums only the selected options' deltas", () => {
-    expect(selectionDeltaCents([reqSingle, optMulti], { "g-style": ["hot"], "g-addons": ["brains", "egg"] })).toBe(350);
+    expect(
+      selectionDeltaCents([reqSingle, optMulti], {
+        "g-style": ["hot"],
+        "g-addons": ["brains", "egg"],
+      }),
+    ).toBe(350);
   });
   it("ignores ids not present in the group's options", () => {
     expect(selectionDeltaCents([optMulti], { "g-addons": ["ghost"] })).toBe(0);
@@ -98,9 +103,8 @@ describe("selectionDeltaCents", () => {
 
 describe("selectedIds", () => {
   it("flattens chosen ids and drops ids foreign to the group", () => {
-    expect(selectedIds([reqSingle, optMulti], { "g-style": ["mild"], "g-addons": ["egg", "ghost"] })).toEqual([
-      "mild",
-      "egg",
-    ]);
+    expect(
+      selectedIds([reqSingle, optMulti], { "g-style": ["mild"], "g-addons": ["egg", "ghost"] }),
+    ).toEqual(["mild", "egg"]);
   });
 });

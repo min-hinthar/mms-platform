@@ -39,7 +39,8 @@ export function goesWellWith<T extends UpsellItem>(current: T, all: T[], limit =
     }
   };
 
-  if (rule) for (const target of rule.suggest) take((i) => i.category.toLowerCase().includes(target));
+  if (rule)
+    for (const target of rule.suggest) take((i) => i.category.toLowerCase().includes(target));
   // Top up with REAL popular items from other categories (honest — only the actual `popular` tag).
   take((i) => i.category !== current.category && i.tags.includes("popular"));
   // Last resort so the row isn't empty on a sparse catalog: any other-category item.

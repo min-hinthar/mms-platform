@@ -126,12 +126,7 @@ export function PinUnlock({ displayName }: { displayName: string }) {
         </button>
 
         {/* One live region (QA §A): the lockout countdown takes precedence over a transient message. */}
-        <p
-          id="unlock-msg"
-          role="status"
-          aria-live="polite"
-          style={{ margin: "var(--s4) 0 0", minHeight: 20 }}
-        >
+        <p id="unlock-msg" role="status" style={{ margin: "var(--s4) 0 0", minHeight: 20 }}>
           {(lockCopy ?? msg) && (
             <span style={{ fontSize: 13, color: "var(--warn)" }}>{lockCopy ?? msg}</span>
           )}

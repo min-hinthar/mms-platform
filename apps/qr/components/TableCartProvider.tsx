@@ -456,7 +456,6 @@ export function TableCartProvider({
       )}
       <div
         role="status"
-        aria-live="polite"
         aria-atomic="true"
         style={{
           position: "fixed",

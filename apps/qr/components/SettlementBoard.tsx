@@ -97,7 +97,13 @@ export function SettlementBoard({
     const wasPayable = prev === "pending" || prev === "failed";
     const nowIn = mine.status === "authorized" || mine.status === "captured";
     if (wasPayable && nowIn) {
-      onStatus("Your share is in — waiting for the rest of the table.");
+      // Honest copy for the LAST payer: if this authorization completed the table, don't say "waiting".
+      const everyoneIn = shares.every((s) => s.status !== "pending" && s.status !== "failed");
+      onStatus(
+        everyoneIn
+          ? "Your share is in — that’s everyone. Finishing up…"
+          : "Your share is in — waiting for the rest of the table.",
+      );
       if (document.activeElement === document.body)
         myRowRef.current?.focus({ preventScroll: true });
     }

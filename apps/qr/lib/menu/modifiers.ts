@@ -31,8 +31,7 @@ export function initialSelection(groups: ModGroup[]): Selection {
   const sel: Selection = {};
   for (const g of groups) {
     const first = g.options[0];
-    sel[g.id] =
-      g.minSelect >= 1 && g.selectionType === "single" && first ? [first.id] : [];
+    sel[g.id] = g.minSelect >= 1 && g.selectionType === "single" && first ? [first.id] : [];
   }
   return sel;
 }
@@ -57,7 +56,9 @@ export function isSelectionValid(groups: ModGroup[], sel: Selection): boolean {
 
 /** Flat list of all chosen option ids (what gets sent to `add` → the server). */
 export function selectedIds(groups: ModGroup[], sel: Selection): string[] {
-  return groups.flatMap((g) => (sel[g.id] ?? []).filter((id) => g.options.some((o) => o.id === id)));
+  return groups.flatMap((g) =>
+    (sel[g.id] ?? []).filter((id) => g.options.some((o) => o.id === id)),
+  );
 }
 
 /** Toggle an option within a group, honoring single (replace) vs multiple (add/remove, capped at maxSelect).

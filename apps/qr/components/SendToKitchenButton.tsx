@@ -159,7 +159,6 @@ export function SendToKitchenButton({
           count), so a SR hears "Sent…" / "Brought back…" once, not every second. */}
       <p
         role="status"
-        aria-live="polite"
         aria-atomic="true"
         style={{
           minHeight: 16,

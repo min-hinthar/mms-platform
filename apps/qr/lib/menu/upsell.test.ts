@@ -32,7 +32,11 @@ describe("goesWellWith", () => {
     expect(goesWellWith(curry, catalog).some((i) => i.id === "c1")).toBe(false);
   });
   it("never includes sold-out items", () => {
-    const withSoldOut = [curry, mk("r1", "Rice & Noodles", { is_sold_out: true }), mk("s1", "Sides")];
+    const withSoldOut = [
+      curry,
+      mk("r1", "Rice & Noodles", { is_sold_out: true }),
+      mk("s1", "Sides"),
+    ];
     expect(goesWellWith(curry, withSoldOut).some((i) => i.id === "r1")).toBe(false);
   });
   it("returns no duplicates", () => {

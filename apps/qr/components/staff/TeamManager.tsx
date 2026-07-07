@@ -122,7 +122,7 @@ export function TeamManager({
       </form>
 
       {/* One live region for both add + toggle feedback (QA §A: a single region per view). */}
-      <p role="status" aria-live="polite" style={{ minHeight: 20, margin: "var(--s4) 0" }}>
+      <p role="status" style={{ minHeight: 20, margin: "var(--s4) 0" }}>
         {msg && (
           <span style={{ fontSize: 13, color: msg.ok ? "var(--ok)" : "var(--warn)" }}>
             {msg.text}

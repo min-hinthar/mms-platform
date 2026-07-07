@@ -3,7 +3,7 @@ import { Skeleton } from "@mms/ui";
 /** Instant skeleton for the staff floor — header row then table-card grid (mirrors FloorBoard). */
 export default function StaffLoading() {
   return (
-    <main style={{ maxWidth: 960, margin: "0 auto", padding: "24px 20px 60px" }}>
+    <main style={{ maxWidth: 720, margin: "0 auto", padding: "var(--s6)" }}>
       <span className="sr-only">Loading the floor…</span>
       <div aria-hidden>
         <Skeleton width={150} height={26} radius={8} style={{ margin: "0 0 18px" }} />
