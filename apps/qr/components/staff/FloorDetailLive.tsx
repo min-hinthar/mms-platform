@@ -60,7 +60,13 @@ export function FloorDetailLive({
   // last detail change, on <body> now", so an idle touch device (activeElement persistently <body>)
   // never gets focus planted by the 5s poll, and a control the user moved to is never yanked.
   // preventScroll: the restore is an SR/keyboard continuity cue, not a viewport jump.
+  // `hadRealFocus` is set BOTH at interaction time (onFocusCapture on the root — closes the blind window
+  // where the FIRST action after load lands before any snapshot has sampled focus) and re-sampled at each
+  // detail commit (so a deliberate de-focus decays it and the poll can't re-plant focus forever after).
   const hadRealFocus = useRef(false);
+  const markFocus = useCallback(() => {
+    hadRealFocus.current = true;
+  }, []);
   useEffect(() => {
     const onBody = document.activeElement === document.body;
     if (onBody && hadRealFocus.current) orderHeadingRef.current?.focus({ preventScroll: true });
@@ -105,7 +111,7 @@ export function FloorDetailLive({
   }, [refresh]);
 
   return (
-    <main style={wrap}>
+    <main style={wrap} onFocusCapture={markFocus}>
       <Link href="/staff" style={back}>
         ← Floor
       </Link>

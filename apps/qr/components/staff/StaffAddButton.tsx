@@ -34,15 +34,22 @@ export function StaffAddButton({
 
   function add() {
     setError(null);
-    setAdded(true); // optimistic — reverted below if the server refuses
+    setAdded(true); // optimistic — reverted below if the server refuses OR the action throws
     if (timer.current) clearTimeout(timer.current);
     startTransition(async () => {
-      const res = await staffAddItem({ sessionId, menuItemId });
-      if (res.ok) {
-        timer.current = setTimeout(() => setAdded(false), 1400);
-      } else {
+      try {
+        const res = await staffAddItem({ sessionId, menuItemId });
+        if (res.ok) {
+          timer.current = setTimeout(() => setAdded(false), 1400);
+        } else {
+          setAdded(false);
+          setError(res.error);
+        }
+      } catch {
+        // A THROWN action (network/transport, redacted server error) must also revert the optimistic
+        // "Added ✓" — without this catch it would stick forever while nothing landed on the order.
         setAdded(false);
-        setError(res.error);
+        setError("Couldn’t add that — try again.");
       }
     });
   }

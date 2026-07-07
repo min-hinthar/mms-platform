@@ -58,7 +58,12 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
   // Focus catch-all (WCAG 2.4.3; the KdsBoard pattern): a picked-up bump drops the card — restore focus
   // to the heading only when it fell to <body> from a real control (edge-triggered; poll-safe).
   const headingRef = useRef<HTMLHeadingElement>(null);
+  // Set at interaction time too (onFocusCapture on the root) — closes the blind window where the FIRST
+  // bump after load lands before any snapshot has sampled focus (Codex P2).
   const hadRealFocus = useRef(false);
+  const markFocus = useCallback(() => {
+    hadRealFocus.current = true;
+  }, []);
   useEffect(() => {
     if (document.activeElement === document.body && hadRealFocus.current)
       headingRef.current?.focus({ preventScroll: true });
@@ -69,7 +74,7 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
   const count = tickets.length;
 
   return (
-    <section aria-labelledby="expo-h">
+    <section aria-labelledby="expo-h" onFocusCapture={markFocus}>
       <div style={headRow}>
         <h2 id="expo-h" ref={headingRef} tabIndex={-1} style={{ fontSize: 16, margin: 0 }}>
           Takeaway bags

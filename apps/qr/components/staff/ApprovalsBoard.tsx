@@ -69,7 +69,12 @@ export function ApprovalsBoard({
   // Focus catch-all (WCAG 2.4.3; the KdsBoard pattern): an approve/deny drops the request card —
   // restore focus to the heading only when it fell to <body> from a real control (edge-triggered).
   const headingRef = useRef<HTMLHeadingElement>(null);
+  // Set at interaction time too (onFocusCapture on the root) — closes the blind window where the FIRST
+  // bump after load lands before any snapshot has sampled focus (Codex P2).
   const hadRealFocus = useRef(false);
+  const markFocus = useCallback(() => {
+    hadRealFocus.current = true;
+  }, []);
   useEffect(() => {
     if (document.activeElement === document.body && hadRealFocus.current)
       headingRef.current?.focus({ preventScroll: true });
@@ -79,7 +84,7 @@ export function ApprovalsBoard({
   const count = snap.length;
 
   return (
-    <section aria-labelledby="appr-h">
+    <section aria-labelledby="appr-h" onFocusCapture={markFocus}>
       <div style={headRow}>
         <h2 id="appr-h" ref={headingRef} tabIndex={-1} style={{ fontSize: 16, margin: 0 }}>
           Open requests

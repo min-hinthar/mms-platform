@@ -63,7 +63,12 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
   // focus HAD been on a real control on the previous snapshot and fell to <body> now, so an idle touch
   // device is never focus-planted by the 5s poll. preventScroll: a continuity cue, not a viewport jump.
   const headingRef = useRef<HTMLHeadingElement>(null);
+  // Set at interaction time too (onFocusCapture on the root) — closes the blind window where the FIRST
+  // bump after load lands before any snapshot has sampled focus (Codex P2).
   const hadRealFocus = useRef(false);
+  const markFocus = useCallback(() => {
+    hadRealFocus.current = true;
+  }, []);
   useEffect(() => {
     if (document.activeElement === document.body && hadRealFocus.current)
       headingRef.current?.focus({ preventScroll: true });
@@ -74,7 +79,7 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
   const count = tickets.length;
 
   return (
-    <section aria-labelledby="kds-h">
+    <section aria-labelledby="kds-h" onFocusCapture={markFocus}>
       <div style={headRow}>
         <h2 id="kds-h" ref={headingRef} tabIndex={-1} style={{ fontSize: 16, margin: 0 }}>
           Fire queue
