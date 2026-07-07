@@ -66,8 +66,8 @@ export function PinManager({ hasPin }: { hasPin: boolean }) {
         {hasPin ? "Change your PIN" : "Set a tablet PIN"}
       </h2>
       <p style={sub}>
-        A {PIN_MIN_LENGTH}–{PIN_MAX_LENGTH} digit PIN lets you lock and resume the floor tablet without
-        signing in by email again. It’s yours alone — never share it.
+        A {PIN_MIN_LENGTH}–{PIN_MAX_LENGTH} digit PIN lets you lock and resume the floor tablet
+        without signing in by email again. It’s yours alone — never share it.
       </p>
 
       <form onSubmit={save} noValidate>
@@ -112,9 +112,11 @@ export function PinManager({ hasPin }: { hasPin: boolean }) {
       )}
 
       {/* One live region for the form (QA §A). Also the PIN field's aria-describedby target. */}
-      <p id="pin-msg" role="status" aria-live="polite" style={{ minHeight: 20, margin: "var(--s4) 0 0" }}>
+      <p id="pin-msg" role="status" style={{ minHeight: 20, margin: "var(--s4) 0 0" }}>
         {msg && (
-          <span style={{ fontSize: 13, color: msg.ok ? "var(--ok)" : "var(--warn)" }}>{msg.text}</span>
+          <span style={{ fontSize: 13, color: msg.ok ? "var(--ok)" : "var(--warn)" }}>
+            {msg.text}
+          </span>
         )}
       </p>
     </section>
@@ -122,7 +124,12 @@ export function PinManager({ hasPin }: { hasPin: boolean }) {
 }
 
 const card: CSSProperties = { padding: "var(--s5)" };
-const sub: CSSProperties = { color: "var(--t2)", fontSize: 13, lineHeight: 1.5, margin: "0 0 var(--s4)" };
+const sub: CSSProperties = {
+  color: "var(--t2)",
+  fontSize: 13,
+  lineHeight: 1.5,
+  margin: "0 0 var(--s4)",
+};
 const label: CSSProperties = {
   display: "block",
   fontSize: 13,

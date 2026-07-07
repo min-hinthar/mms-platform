@@ -20,10 +20,16 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
         role="list"
         style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}
       >
-        {entries.map((o) => {
+        {entries.map((o, i) => {
           const summary = o.lines.map((l) => `${l.qty}× ${l.name}`).join(" · ");
           return (
-            <li key={o.id} style={row}>
+            // Rise-in on mount (server-rendered once — no re-animate concern); the stagger delay is
+            // capped so a long history doesn't crawl. `.mms-stagger` carries the reduced-motion switch.
+            <li
+              key={o.id}
+              className="mms-stagger"
+              style={{ ...row, animationDelay: `${Math.min(i, 6) * 45}ms` }}
+            >
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                 <span style={{ fontWeight: 700, color: "var(--tx)" }}>
                   {new Date(o.createdAt).toLocaleDateString(undefined, {

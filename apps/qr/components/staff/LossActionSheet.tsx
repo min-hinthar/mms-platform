@@ -225,6 +225,7 @@ export function LossActionSheet({
             const on = action === a;
             return (
               <button
+                className="staff-btn"
                 key={a}
                 type="button"
                 aria-pressed={on}
@@ -256,6 +257,7 @@ export function LossActionSheet({
               const on = effectiveReason === r.value;
               return (
                 <button
+                  className="staff-btn"
                   key={r.value}
                   type="button"
                   aria-pressed={on}
@@ -302,6 +304,7 @@ export function LossActionSheet({
             primary action; otherwise the PIN confirm leads and the request is the secondary "no manager?" out. */}
         {showStepUp && noManagers ? (
           <button
+            className="staff-btn"
             type="button"
             onClick={submitRequest}
             disabled={pending || locked}
@@ -312,6 +315,7 @@ export function LossActionSheet({
         ) : (
           <>
             <button
+              className="staff-btn"
               type="submit"
               disabled={!canSubmit}
               style={{ ...primaryBtn, opacity: canSubmit ? 1 : 0.6 }}
@@ -323,6 +327,7 @@ export function LossActionSheet({
                 The line stays live until a manager resolves it from the queue. */}
             {showStepUp && (
               <button
+                className="staff-btn"
                 type="button"
                 onClick={submitRequest}
                 disabled={pending || locked}
@@ -335,12 +340,7 @@ export function LossActionSheet({
         )}
 
         {/* One live region (QA §A): the lockout countdown takes precedence over a transient message. */}
-        <p
-          id="loss-msg"
-          role="status"
-          aria-live="polite"
-          style={{ margin: "12px 0 0", minHeight: 18 }}
-        >
+        <p id="loss-msg" role="status" style={{ margin: "12px 0 0", minHeight: 18 }}>
           {(lockCopy ?? msg) && (
             <span style={{ fontSize: 13, color: "var(--warn)" }}>{lockCopy ?? msg}</span>
           )}

@@ -14,8 +14,9 @@ export default function Entry() {
   return (
     <main
       style={{
-        padding: "60px 24px",
-        maxWidth: 440,
+        // Spacing from the token grid (--s*), not off-grid magic numbers (rubric #4).
+        padding: "var(--s15) var(--s6)",
+        maxWidth: "var(--w-content)",
         margin: "0 auto",
         // Establish a stacking context so the `.home-bg` negative-z layer paints WITHIN main (above body's
         // opaque bg), not escaping to the root context below it — the MenuPageAmbient occlusion gotcha.
@@ -25,7 +26,10 @@ export default function Entry() {
       {/* Masked dot-texture backdrop — decorative, fixed, scoped behind main's content (no blur, mobile-safe). */}
       <div className="home-bg" aria-hidden />
       <HomeHero />
-      <nav aria-label="Order type" style={{ marginTop: 22, display: "grid", gap: 13 }}>
+      <nav
+        aria-label="Order type"
+        style={{ marginTop: "var(--s6)", display: "grid", gap: "var(--s3)" }}
+      >
         {MODES.map(([m, e, n, d], i) => (
           <ModeCard
             key={m}
@@ -40,7 +44,13 @@ export default function Entry() {
         ))}
       </nav>
       <JoinTable />
-      <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--bd)" }}>
+      <div
+        style={{
+          marginTop: "var(--s5)",
+          paddingTop: "var(--s4)",
+          borderTop: "1px solid var(--bd)",
+        }}
+      >
         <ModeCard
           mode="grocery"
           href="/grocery"

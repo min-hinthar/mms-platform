@@ -39,7 +39,11 @@ export function StaggerList<T>({
             // removed card (cleared table / bumped ticket) lingers in the DOM + a11y tree up to ~680ms.
             exit={
               shouldAnimate
-                ? { opacity: 0, y: -8, transition: { duration: 0.18, ease: [0.4, 0, 1, 1], delay: 0 } }
+                ? {
+                    opacity: 0,
+                    y: -8,
+                    transition: { duration: 0.18, ease: [0.4, 0, 1, 1], delay: 0 },
+                  }
                 : undefined
             }
             transition={

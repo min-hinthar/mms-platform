@@ -4,6 +4,49 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Changed — World-class UX: the full craft pass (menu · cart · checkout · track · grocery · staff · rewards · split) (2026-07-02)
+
+The whole app taken through the world-class bar (`docs/WORLD_CLASS_UX_PLAN.md`), each slice gated +
+adversarially reviewed (verdicts on PR #104). Presentation-only throughout — money/lifecycle logic untouched.
+
+- **Layering system** — a z-index **token scale** (`--z-toolbar < --z-scrim < --z-sheet < --z-toast <
+--z-alert/confetti < --z-tierup`) replaces scattered hardcodes; sheets paint **above** the sticky menu
+  toolbar (root-fixes drag-to-close being stolen); one `--scrim` token both themes (tier-up no longer a light
+  wash on Night); sheets get an inset `--sheen` paper lip; toolbar gains a hairline + shadow.
+- **Snappy** — optimistic add-to-cart (instant Add→stepper morph; staff add "Added ✓" likewise), `/cart`
+  prefetched from CartBar + grocery, `loading.tsx` skeletons for cart / account / staff floor / table
+  drill-down / all four consoles, bump/approve buttons hold their pending state through the refetch.
+- **Flowing** — item-sheet upsell swap scrolls to the new item's hero + moves focus; `/track`'s rail fill
+  flows down as the order advances; scanned grocery lines + settlement shares + order history + guest
+  avatars rise in (`.mms-stagger`, keyed — no re-animation); active menu tab centers in its rail + lifts
+  (`--sh-lift`, unclipped).
+- **Textured layers everywhere** — checkout receipt + `/track` paid summary + drill-down/staff-add/KDS
+  cards + settlement rows + rewards hero/tier + invite code card all on `.card-textured`.
+- **Focus seams closed (WCAG 2.4.3)** — checkout view changes (incl. the realtime settling flip),
+  reward apply/remove, account-upgrade steps, feedback submit, staff drill-down void/comp/approval swaps
+  (edge-triggered catch-all), console bump-offs, refund success; feedback stars are honest `aria-pressed`
+  toggles (were arrow-key-less fake radios); redundant `aria-live` on `role="status"` swept app-wide.
+- **Pickup date picker** redesigned: day-selector cards + a responsive time grid (was a flat chip stack).
+- **Reachability** — `/account` (the rewards hub) gains its first diner-facing link, on `/track`.
+
+### Added — World-class UX: homepage proof + type-scale + wordmark identity (2026-07-02)
+
+First slice of the world-class UX initiative (`docs/WORLD_CLASS_UX_PLAN.md`) — elevate the editorial/Night
+language, starting with the flagship entry screen as a proof-of-direction.
+
+- **Type-scale tokens** (`@mms/ui/tokens.css`, additive) — `--fs-display/-h1/-h2/-h3/-body/-sm/-xs`,
+  `--lh-*`, `--track-*`, `--w-content`, `--s10/--s15`. Retires inline magic font-sizes. Contrast-audit
+  (41 tests) unaffected — no color token changed.
+- **Wordmark identity** — the homepage hero replaces the **☕ emoji** with the **✦ Morning Star mark**
+  (brand gold, reframed inside the existing glow + draw-on ring + parallax) and renders **"Mandalay Morning
+  Star"** as a real Fraunces **display wordmark** (was a tiny uppercase eyebrow). Strings verbatim.
+- **First brand assets** — `apps/qr/public/icon.svg` (the ✦ mark) wired as the favicon + OG metadata
+  (QR had no `public/` before).
+- **Grid discipline** — homepage spacing now all `--s*` tokens (was `60/24/22/13/20/16/440` magic numbers);
+  `text-wrap: balance` on the wordmark (no widows).
+- **`themeColor` fix** — `#fffaf2/#0f1115` → the real `--pg` values `#faf9f5/#171221` (killed the Night
+  status-bar seam; audit U-Q5).
+
 ### Fixed — Holistic audit: money/security remediation (2026-07-02)
 
 Cross-repo adversarial audit (`docs/HOLISTIC_IMPROVEMENT_PLAN.md`). The QR-side confirmed fixes:

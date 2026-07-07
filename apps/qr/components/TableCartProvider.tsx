@@ -6,6 +6,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import type { CartItem, CartTotals } from "@mms/db";
@@ -409,7 +410,7 @@ export function TableCartProvider({
             right: 12,
             margin: "0 auto",
             maxWidth: 420,
-            zIndex: 60,
+            zIndex: "var(--z-alert)" as CSSProperties["zIndex"],
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -455,7 +456,6 @@ export function TableCartProvider({
       )}
       <div
         role="status"
-        aria-live="polite"
         aria-atomic="true"
         style={{
           position: "fixed",
@@ -464,7 +464,7 @@ export function TableCartProvider({
           bottom: 84,
           textAlign: "center",
           pointerEvents: "none",
-          zIndex: 50,
+          zIndex: "var(--z-toast)" as CSSProperties["zIndex"],
         }}
       >
         {notice && (

@@ -53,4 +53,10 @@ const header: CSSProperties = {
   gap: "var(--s4)",
   marginBottom: "var(--s6)",
 };
-const h1: CSSProperties = { fontSize: 22, margin: 0, display: "flex", alignItems: "center", gap: 10 };
+const h1: CSSProperties = {
+  fontSize: 22,
+  margin: 0,
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+};

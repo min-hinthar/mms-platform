@@ -21,6 +21,15 @@ const padauk = Padauk({
 export const metadata = {
   title: "Mandalay Morning Star — Order",
   description: "Order at the teahouse: dine-in, scan & go, or pickup.",
+  // The ✦ Morning Star mark (apps/qr/public/icon.svg) is QR's first brand asset — replaces the emoji
+  // identity. SVG favicon scales crisply on every tab/PWA surface.
+  icons: { icon: [{ url: "/icon.svg", type: "image/svg+xml" }] },
+  openGraph: {
+    title: "Mandalay Morning Star",
+    description: "Order at the teahouse: dine-in, scan & go, or pickup.",
+    siteName: "Mandalay Morning Star",
+    type: "website",
+  },
 };
 
 // The nonce CSP (proxy.ts) mints a fresh nonce per request; Next can only stamp it onto its
@@ -30,12 +39,13 @@ export const metadata = {
 // so the four otherwise-static shells lose no meaningful optimization.)
 export const dynamic = "force-dynamic";
 
-// Next 16 split themeColor/viewport out of metadata into its own export. Set both
-// schemes so the address-bar/status-bar matches Day and Night surfaces.
+// Next 16 split themeColor/viewport out of metadata into its own export. These MUST match the real page
+// background `--pg` (tokens.css: #faf9f5 light / #171221 Night) — the old #fffaf2/#0f1115 left a visible
+// address-bar/status-bar seam over the Night purple (audit U-Q5).
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#fffaf2" },
-    { media: "(prefers-color-scheme: dark)", color: "#0f1115" },
+    { media: "(prefers-color-scheme: light)", color: "#faf9f5" },
+    { media: "(prefers-color-scheme: dark)", color: "#171221" },
   ],
   width: "device-width",
   initialScale: 1,

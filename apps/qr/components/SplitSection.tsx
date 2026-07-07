@@ -7,7 +7,7 @@ import { openSettlement } from "@/lib/split";
 import { assignLine } from "@/lib/cart";
 import { canMutateLine } from "@/lib/permissions";
 import { seatColor, seatInitial } from "@/lib/avatars";
-import { Avatar } from "@mms/ui";
+import { Avatar, NumberFlow } from "@mms/ui";
 
 /**
  * Dine-in split-the-bill section on /cart (M3·P3.3a). Per-seat shares are computed CLIENT-side from
@@ -186,7 +186,11 @@ export function SplitSection({
               {s.seat === ctx.mySeat ? `${s.name} (you)` : s.name}
             </dt>
             <dd style={{ margin: 0, fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>
-              ${(s.shareCents / 100).toFixed(2)}
+              {/* Rolls as assignments shift the shares (presentation only — amounts stay server-derived). */}
+              <NumberFlow
+                value={s.shareCents / 100}
+                format={{ style: "currency", currency: "USD" }}
+              />
             </dd>
           </div>
         ))}
@@ -250,6 +254,9 @@ const aav = (on: boolean, seat: string): CSSProperties => ({
   borderRadius: "50%",
   border: on ? "2px solid var(--tx)" : "2px solid transparent",
   background: seatColor(seat),
+  // The documented Avatar-primitive exception (packages/ui/src/avatar.tsx): a white initial on the
+  // vivid fixed seat hues — every hue clears AA behind #fff (avatars.test.ts). This control IS the
+  // 44px tap-target avatar (the primitive's discs are 22/30px), so it carries the exception inline.
   color: "#fff",
   fontWeight: 800,
   fontSize: 14,

@@ -15,6 +15,25 @@
   --s5: 20px;
   --s6: 24px;
   --s8: 32px;
+  --s10: 40px;
+  --s15: 60px;
+  /* ── Type scale (world-class R10): modular ratio ~1.24, rem-based; per-role line-heights + display
+     tracking. Additive — no COLOR token changed, so the contrast-audit (which parses this file) is
+     unaffected. Replaces inline magic font-sizes (e.g. the homepage's hard-coded 30px). ── */
+  --lh-tight: 1.08; /* display / wordmark */
+  --lh-snug: 1.22; /* headings */
+  --lh-normal: 1.5; /* body */
+  --lh-my: 1.6; /* Burmese (Padauk) wants more leading than Latin at the same size */
+  --fs-display: clamp(2.25rem, 7vw, 2.75rem); /* the wordmark lockup */
+  --fs-h1: 1.625rem; /* 26 */
+  --fs-h2: 1.3125rem; /* 21 */
+  --fs-h3: 1.0625rem; /* 17 */
+  --fs-body: 1rem; /* 16 */
+  --fs-sm: 0.8125rem; /* 13 */
+  --fs-xs: 0.6875rem; /* 11 */
+  --track-display: -0.02em;
+  --track-eyebrow: 0.13em; /* matches the shipped .eyebrow value — the class consumes this token */
+  --w-content: 27.5rem; /* 440 — the entry/content column */
   --r-sm: 12px;
   --r-card: 20px;
   --r-sheet: 26px;
@@ -95,6 +114,24 @@
   /* inner top-highlight on lifted surfaces (stays a faint white in BOTH themes — see .dark) */
   --sheen: rgba(255, 255, 255, 0.55);
   --sh-glow: 0 6px 22px color-mix(in oklab, var(--ac) 18%, transparent); /* accent-tinted lift */
+  /* Tight accent lift for a small chip/pill INSIDE an overflow:auto scroller (e.g. the active menu tab):
+     --sh-glow's 22px blur is clipped by the scroller — this stays within ~9px so a little rail padding
+     shows it fully. */
+  --sh-lift: 0 2px 8px -1px color-mix(in oklab, var(--ac) 42%, transparent);
+  /* z-index scale — SINGLE source of truth (theme-agnostic; defined here only). Ordering intent:
+     content < sticky toolbar < scrim < sheet < celebrations. The sheet sits ABOVE the sticky toolbar so
+     a bottom sheet is never painted-over by (or has its drag-to-close zone stolen by) the toolbar — the
+     root of the "sheet won't slide down under the toolbar" bug. (Transient toast/alert overlays keep
+     their own higher values; folding them in is a tracked follow-up.) */
+  --z-toolbar: 20;
+  --z-scrim: 40;
+  --z-sheet: 45;
+  --z-toast: 50; /* transient notices float above an open sheet (they announce over anything) */
+  --z-alert: 60; /* the session-recovery alert outranks toasts (it demands action) */
+  --z-confetti: 60;
+  --z-tierup: 70;
+  /* Modal scrim — dims the WHOLE page (incl. pinned chrome) so a sheet reads as a lifted layer. */
+  --scrim: rgba(15, 10, 5, 0.42);
 }
 .dark {
   /* v4 Night */
@@ -138,6 +175,8 @@
   --surface-elevated: #2e2545;
   --sheen: rgba(255, 255, 255, 0.06);
   --sh-glow: 0 6px 22px color-mix(in oklab, var(--ac) 22%, transparent);
+  --sh-lift: 0 2px 8px -1px color-mix(in oklab, var(--ac) 52%, transparent);
+  --scrim: rgba(0, 0, 0, 0.6); /* deeper dim on Night so the lifted sheet still separates */
 }
 @media (prefers-reduced-motion: reduce) {
   :root {

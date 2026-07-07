@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { getFeedbackState, submitFeedback } from "@/lib/feedback";
 import { Card } from "@mms/ui";
 
@@ -58,9 +58,12 @@ export function FeedbackPrompt({ orderId }: { orderId: string }) {
     const low = submittedRating > 0 && submittedRating <= 3;
     return (
       <Card as="section" style={card} aria-labelledby="fb-h">
-        <h2 id="fb-h" style={h2}>
+        {/* Focused on submit (via DoneHeading): the form (with the pressed Send button) unmounts in
+            favour of this card — moving focus to the heading keeps the SR/keyboard user's place AND
+            reads the thank-you as the success cue (one move, no extra live region — WCAG 2.4.3). */}
+        <DoneHeading justSubmitted={submittedRating > 0}>
           {low ? "Thank you — we’ll make it right" : "Thanks for your feedback!"}
-        </h2>
+        </DoneHeading>
         <p style={sub}>
           {low
             ? "Sorry it wasn’t perfect. A manager will see this and follow up."
@@ -80,13 +83,15 @@ export function FeedbackPrompt({ orderId }: { orderId: string }) {
       <h2 id="fb-h" style={h2}>
         How was your visit?
       </h2>
-      <div role="radiogroup" aria-label="Rating, 1 to 5 stars" style={stars}>
+      {/* Plain toggle buttons (aria-pressed), NOT role=radio: fake radios promise arrow-key roving
+          they don't implement (all five were tabbable with no keyboard model). The LossActionSheet
+          convention — honest semantics over aspirational roles. */}
+      <div role="group" aria-label="Rating, 1 to 5 stars" style={stars}>
         {[1, 2, 3, 4, 5].map((n) => (
           <button
             key={n}
             type="button"
-            role="radio"
-            aria-checked={rating === n}
+            aria-pressed={rating === n}
             aria-label={`${n} star${n === 1 ? "" : "s"}`}
             onClick={() => setRating(n)}
             style={{ ...starBtn, color: n <= rating ? "var(--ac)" : "var(--t3)" }}
@@ -110,10 +115,26 @@ export function FeedbackPrompt({ orderId }: { orderId: string }) {
       <button type="button" onClick={submit} disabled={busy || rating < 1} style={submitBtn}>
         {busy ? "Sending…" : "Send feedback"}
       </button>
-      <p role="status" aria-live="polite" aria-atomic="true" style={errLine}>
+      <p role="status" aria-atomic="true" style={errLine}>
         {error}
       </p>
     </Card>
+  );
+}
+
+// The thank-you heading; takes focus on mount only right after THIS device's submit (not when the
+// card renders for an already-reviewed order on a revisit).
+function DoneHeading({ justSubmitted, children }: { justSubmitted: boolean; children: ReactNode }) {
+  const ref = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (justSubmitted) ref.current?.focus({ preventScroll: true });
+    // mount-only: the submit → done swap is the one seam this covers
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return (
+    <h2 id="fb-h" ref={ref} tabIndex={-1} style={{ ...h2, outline: "none" }}>
+      {children}
+    </h2>
   );
 }
 

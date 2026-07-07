@@ -82,7 +82,13 @@ export function MergeTableButton({
   return (
     <div>
       {step === "idle" && (
-        <button ref={triggerRef} type="button" onClick={open} style={mergeBtn}>
+        <button
+          className="staff-btn"
+          ref={triggerRef}
+          type="button"
+          onClick={open}
+          style={mergeBtn}
+        >
           Merge with another table
         </button>
       )}
@@ -97,7 +103,13 @@ export function MergeTableButton({
         >
           <div style={panelHead}>
             <span style={{ fontSize: 14, fontWeight: 600 }}>Merge Table {sourceLabel} into…</span>
-            <button type="button" onClick={reset} disabled={busy} style={linkBtn}>
+            <button
+              className="staff-btn"
+              type="button"
+              onClick={reset}
+              disabled={busy}
+              style={linkBtn}
+            >
               Cancel
             </button>
           </div>
@@ -110,6 +122,7 @@ export function MergeTableButton({
               {candidates.map((c) => (
                 <li key={c.sessionId}>
                   <button
+                    className="staff-btn"
                     type="button"
                     onClick={() => {
                       setTarget(c);
@@ -144,6 +157,7 @@ export function MergeTableButton({
           </p>
           <div style={{ display: "flex", gap: "var(--s3)" }}>
             <button
+              className="staff-btn"
               type="button"
               onClick={() => setStep("picking")}
               disabled={busy}
@@ -151,7 +165,13 @@ export function MergeTableButton({
             >
               Back
             </button>
-            <button type="button" onClick={confirm} disabled={busy} style={mergeBtn}>
+            <button
+              className="staff-btn"
+              type="button"
+              onClick={confirm}
+              disabled={busy}
+              style={mergeBtn}
+            >
               {busy ? "Merging…" : `Merge into ${target.label}`}
             </button>
           </div>

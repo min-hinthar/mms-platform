@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { applyReward, clearReward, type ApplyRewardReason } from "@/lib/cart";
 import { getMyRewardCoupons, type RewardCoupon } from "@/lib/rewards";
 
@@ -45,6 +45,19 @@ export function RewardField({
 
   const applied = appliedRewardCents > 0;
 
+  // Focus handoff (WCAG 2.4.3): an apply unmounts the tapped coupon button (panel → applied row) and a
+  // remove unmounts the Remove button (applied row → "Use a reward"). Move focus to the control that
+  // replaces it — but ONLY after an action on THIS device (`acted`), so a peer's realtime change or the
+  // initial render never steals focus.
+  const removeBtnRef = useRef<HTMLButtonElement>(null);
+  const useBtnRef = useRef<HTMLButtonElement>(null);
+  const acted = useRef(false);
+  useEffect(() => {
+    if (!acted.current) return;
+    acted.current = false;
+    (applied ? removeBtnRef.current : useBtnRef.current)?.focus({ preventScroll: true });
+  }, [applied]);
+
   async function apply(code: string) {
     setBusy(true);
     setError(null);
@@ -55,6 +68,7 @@ export function RewardField({
       return;
     }
     setOpen(false);
+    acted.current = true; // hand focus to the Remove button once the applied row mounts
     onChanged();
   }
 
@@ -63,6 +77,7 @@ export function RewardField({
     setError(null);
     await clearReward(cartId);
     setBusy(false);
+    acted.current = true; // hand focus back to "Use a reward" once it remounts
     onChanged();
   }
 
@@ -73,7 +88,7 @@ export function RewardField({
           <span aria-hidden>🎁 </span>Reward applied ·{" "}
           <strong>−{dollars(appliedRewardCents)}</strong>
         </span>
-        <button type="button" onClick={remove} disabled={busy} style={linkBtn}>
+        <button ref={removeBtnRef} type="button" onClick={remove} disabled={busy} style={linkBtn}>
           {busy ? "…" : "Remove"}
         </button>
       </div>
@@ -84,7 +99,7 @@ export function RewardField({
   return (
     <div style={{ marginTop: 10 }}>
       {!open ? (
-        <button type="button" onClick={() => setOpen(true)} style={applyBtn}>
+        <button ref={useBtnRef} type="button" onClick={() => setOpen(true)} style={applyBtn}>
           <span aria-hidden>🎁 </span>Use a reward ({coupons.length})
         </button>
       ) : (
@@ -124,7 +139,7 @@ export function RewardField({
           </button>
         </div>
       )}
-      <p role="status" aria-live="polite" aria-atomic="true" style={errLine}>
+      <p role="status" aria-atomic="true" style={errLine}>
         {error}
       </p>
     </div>

@@ -1,0 +1,7 @@
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Mandalay Morning Star">
+  <rect width="64" height="64" rx="14" fill="#1b1714"/>
+  <!-- the ✦ Morning Star: a four-point star with concave sides, in brand gold -->
+  <path d="M32 8 C34 21, 43 30, 56 32 C43 34, 34 43, 32 56 C30 43, 21 34, 8 32 C21 30, 30 21, 32 8 Z"
+        fill="#e8a83c"/>
+  <circle cx="32" cy="32" r="3.4" fill="#1b1714"/>
+</svg>

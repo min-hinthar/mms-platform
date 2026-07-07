@@ -69,6 +69,7 @@ export function CashSettleButton({
           </p>
           <div style={{ display: "flex", gap: "var(--s3)" }}>
             <button
+              className="staff-btn"
               type="button"
               onClick={() => setConfirming(false)}
               disabled={busy}
@@ -76,13 +77,20 @@ export function CashSettleButton({
             >
               Cancel
             </button>
-            <button type="button" onClick={confirm} disabled={busy} style={payBtn}>
+            <button
+              className="staff-btn"
+              type="button"
+              onClick={confirm}
+              disabled={busy}
+              style={payBtn}
+            >
               {busy ? "Settling…" : `Settle ${fmt(totalCents)}`}
             </button>
           </div>
         </Card>
       ) : (
         <button
+          className="staff-btn"
           ref={triggerRef}
           type="button"
           onClick={() => setConfirming(true)}

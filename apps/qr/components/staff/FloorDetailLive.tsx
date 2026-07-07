@@ -46,33 +46,32 @@ export function FloorDetailLive({
   const inFlight = useRef(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const orderHeadingRef = useRef<HTMLHeadingElement>(null);
-  const prevLineCount = useRef(initial.lines.length);
-  const prevTab = useRef(initial.tab);
 
   // Staff can write while there's an open cart and no payment in flight; once settled (cartId null) or
   // mid-payment the order goes read-only. The server enforces this too — this is just the affordance.
   const canWrite = detail.cartId != null && !detail.paymentInFlight;
 
-  // When a line is removed (the list shrinks), the editor row unmounts — move focus to the order
-  // heading so keyboard/SR focus isn't dropped to <body> (WCAG 2.4.3; parity with Checkout.tsx).
+  // Focus catch-all (WCAG 2.4.3): ANY detail refresh can unmount the control that held focus — a line
+  // removal (stepper row gone), a void/comp (row swaps to the no-controls variant), an approval request
+  // (badge replaces the buttons), a tab open (OpenTabButton unmounts), or a payment starting (the whole
+  // editor list swaps read-only). Instead of one narrow effect per seam (the previous shape covered only
+  // the list-shrink + tab-flip cases and missed void/comp/approval), run once per detail change and
+  // restore to the order heading when focus FELL to <body> — edge-triggered on "had real focus on the
+  // last detail change, on <body> now", so an idle touch device (activeElement persistently <body>)
+  // never gets focus planted by the 5s poll, and a control the user moved to is never yanked.
+  // preventScroll: the restore is an SR/keyboard continuity cue, not a viewport jump.
+  // `hadRealFocus` is set BOTH at interaction time (onFocusCapture on the root — closes the blind window
+  // where the FIRST action after load lands before any snapshot has sampled focus) and re-sampled at each
+  // detail commit (so a deliberate de-focus decays it and the poll can't re-plant focus forever after).
+  const hadRealFocus = useRef(false);
+  const markFocus = useCallback(() => {
+    hadRealFocus.current = true;
+  }, []);
   useEffect(() => {
-    if (detail.lines.length < prevLineCount.current) orderHeadingRef.current?.focus();
-    prevLineCount.current = detail.lines.length;
-  }, [detail.lines.length]);
-
-  // When a tab is opened here, the OpenTabButton (which held focus) unmounts as `detail.tab` flips —
-  // move focus to the order heading so it isn't dropped to <body> (WCAG 2.4.3; parity with the line-
-  // removal handler above). Only on none→tab, and only if focus actually fell to <body>, so a tab
-  // opened elsewhere (the diner's phone, another staff device) doesn't yank this user's focus.
-  useEffect(() => {
-    if (
-      prevTab.current === "none" &&
-      detail.tab !== "none" &&
-      document.activeElement === document.body
-    )
-      orderHeadingRef.current?.focus();
-    prevTab.current = detail.tab;
-  }, [detail.tab]);
+    const onBody = document.activeElement === document.body;
+    if (onBody && hadRealFocus.current) orderHeadingRef.current?.focus({ preventScroll: true });
+    hadRealFocus.current = document.activeElement !== document.body;
+  }, [detail]);
 
   const refresh = useCallback(async () => {
     if (inFlight.current) return;
@@ -112,7 +111,7 @@ export function FloorDetailLive({
   }, [refresh]);
 
   return (
-    <main style={wrap}>
+    <main style={wrap} onFocusCapture={markFocus}>
       <Link href="/staff" style={back}>
         ← Floor
       </Link>
@@ -173,7 +172,7 @@ export function FloorDetailLive({
       )}
 
       {/* Party */}
-      <section className="card" style={sectionCard} aria-labelledby="party-h">
+      <section className="card card-textured" style={sectionCard} aria-labelledby="party-h">
         <h2 id="party-h" style={sectionH}>
           Party
         </h2>
@@ -203,7 +202,7 @@ export function FloorDetailLive({
       </section>
 
       {/* Order so far */}
-      <section className="card" style={sectionCard} aria-labelledby="order-h">
+      <section className="card card-textured" style={sectionCard} aria-labelledby="order-h">
         <div
           style={{
             display: "flex",
@@ -297,7 +296,6 @@ export function FloorDetailLive({
             frozen detail view mustn't look live. The write error takes precedence over the reconnect note. */}
         <p
           role="status"
-          aria-live="polite"
           style={{
             ...muted,
             marginTop: 6,

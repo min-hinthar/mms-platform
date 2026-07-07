@@ -102,6 +102,7 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
               type="button"
               aria-pressed={on}
               onClick={() => selectTip(rate)}
+              className="checkout-tip"
               style={{
                 flex: 1,
                 minHeight: 44,
@@ -207,10 +208,10 @@ function ShareForm({
   return (
     <form onSubmit={onSubmit} style={{ marginTop: 12 }}>
       <PaymentElement options={{ layout: "tabs" }} />
+      {/* Errors only → role=alert (announces reliably; matches the mint-failure branches) — the settle
+          view's polite status region belongs to the parent (one per view). */}
       <p
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
+        role="alert"
         style={{ minHeight: 16, margin: "10px 0 0", fontSize: 13, color: "var(--warn)" }}
       >
         {error}

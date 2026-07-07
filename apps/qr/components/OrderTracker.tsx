@@ -180,7 +180,7 @@ export function OrderTracker({
         </div>
       )}
 
-      {/* Single live region: role="status" already implies aria-live="polite" (ARIA 1.2). The
+      {/* Single live region: role="status" already implies aria-live=polite (ARIA 1.2). The
           timedOut arm makes the text CHANGE when polling gives up, so AT announces the recovery. */}
       <p role="status" style={srOnly}>
         {ready
@@ -247,16 +247,13 @@ export function OrderTracker({
                   }}
                 />
                 {!last && (
-                  <span
-                    aria-hidden
-                    style={{
-                      flex: 1,
-                      width: 2.5,
-                      minHeight: 26,
-                      margin: "2px 0",
-                      background: i < activeStep ? "var(--ok)" : "var(--bd)",
-                    }}
-                  />
+                  // Rail: the completed portion FLOWS in (green fill grows top→bottom) as the order
+                  // advances, instead of switching color instantly. Reduced-motion snaps it (no transition).
+                  <span aria-hidden className="track-rail">
+                    <span
+                      className={`track-rail-fill${i < activeStep ? " track-rail-fill-on" : ""}`}
+                    />
+                  </span>
                 )}
               </div>
               <div style={{ paddingBottom: 18 }}>
@@ -341,7 +338,7 @@ export function OrderTracker({
 
       {arrived && (
         <div
-          className="card"
+          className="card card-textured"
           style={{ display: "flex", gap: 12, alignItems: "center", padding: 12, marginTop: 6 }}
         >
           <span
@@ -375,18 +372,37 @@ export function OrderTracker({
       <p style={{ fontSize: 12, color: "var(--t3)", margin: "14px 0 0" }}>
         Status updates here as the kitchen works on it — keep this open, or check back anytime.
       </p>
-      <Link
-        href="/menu"
-        style={{
-          color: "var(--ac)",
-          fontWeight: 700,
-          display: "inline-block",
-          marginTop: 4,
-          padding: "12px 0", // ≥44px touch target (QA §A P0)
-        }}
-      >
-        <span aria-hidden>←</span> Back to menu
-      </Link>
+      <div style={{ display: "flex", gap: 20, alignItems: "center" }}>
+        <Link
+          href="/menu"
+          style={{
+            color: "var(--ac)",
+            fontWeight: 700,
+            display: "inline-block",
+            marginTop: 4,
+            padding: "12px 0", // ≥44px touch target (QA §A P0)
+          }}
+        >
+          <span aria-hidden>←</span> Back to menu
+        </Link>
+        {/* The rewards hub had NO diner-facing entry point — the Star just earned here is the natural
+            moment to offer it (viewport-prefetched by <Link>). Only once the order landed (not while
+            confirming) so the tracker's first paint stays focused. */}
+        {arrived && (
+          <Link
+            href="/account"
+            style={{
+              color: "var(--ac)",
+              fontWeight: 700,
+              display: "inline-block",
+              marginTop: 4,
+              padding: "12px 0",
+            }}
+          >
+            View your rewards <span aria-hidden>→</span>
+          </Link>
+        )}
+      </div>
     </main>
   );
 }

@@ -90,7 +90,6 @@ function PayForm({
       {/* Polite, atomic live region for the pay error (the only announced status here). */}
       <p
         role="status"
-        aria-live="polite"
         aria-atomic="true"
         style={{ minHeight: 16, margin: "10px 0 0", fontSize: 13, color: "var(--warn)" }}
       >
