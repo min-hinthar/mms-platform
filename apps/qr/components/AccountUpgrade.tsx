@@ -1,5 +1,12 @@
 "use client";
-import { useState, useTransition, type CSSProperties, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+  type CSSProperties,
+  type FormEvent,
+} from "react";
 import { useRouter } from "next/navigation";
 import { browserClient } from "@mms/db";
 import { ensureProfile } from "@/lib/rewards";
@@ -21,6 +28,20 @@ export function AccountUpgrade() {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Focus follows the step (WCAG 2.4.3): email→code swaps the form (the pressed submit unmounts), and
+  // "Use a different email" swaps back — land focus in the new step's input. Skip the initial mount so
+  // the card never steals focus from the page.
+  const emailRef = useRef<HTMLInputElement>(null);
+  const codeRef = useRef<HTMLInputElement>(null);
+  const mounted = useRef(false);
+  useEffect(() => {
+    if (!mounted.current) {
+      mounted.current = true;
+      return;
+    }
+    (phase === "code" ? codeRef.current : emailRef.current)?.focus({ preventScroll: true });
+  }, [phase]);
   const [, startTransition] = useTransition();
 
   async function sendCode(e: FormEvent) {
@@ -95,6 +116,7 @@ export function AccountUpgrade() {
             Email
           </label>
           <input
+            ref={emailRef}
             id="up-email"
             type="email"
             inputMode="email"
@@ -115,6 +137,7 @@ export function AccountUpgrade() {
             6-digit code sent to {email}
           </label>
           <input
+            ref={codeRef}
             id="up-code"
             type="text"
             inputMode="numeric"
@@ -148,7 +171,7 @@ export function AccountUpgrade() {
         Continue with Google
       </button>
 
-      <p role="status" aria-live="polite" aria-atomic="true" style={errorLine}>
+      <p role="status" aria-atomic="true" style={errorLine}>
         {error}
       </p>
     </Card>

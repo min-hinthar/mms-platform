@@ -53,7 +53,9 @@ export function LiveMoney({ cents, srHidden = false }: { cents: number; srHidden
 
   return (
     <span className="floor-live">
-      {flash && <span key={flash.n} aria-hidden className={`floor-flash floor-flash-${flash.dir}`} />}
+      {flash && (
+        <span key={flash.n} aria-hidden className={`floor-flash floor-flash-${flash.dir}`} />
+      )}
       <span className="floor-live-num" aria-hidden>
         <NumberFlow value={cents / 100} format={{ style: "currency", currency: "USD" }} />
       </span>

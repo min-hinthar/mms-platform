@@ -64,7 +64,13 @@ export function GuestList() {
           const isMe = m.seat === me.seat;
           const label = isMe ? `${m.name} (you)` : m.name;
           return (
-            <li key={m.seat} style={{ display: "flex", marginLeft: i === 0 ? 0 : -8 }}>
+            // Rise-in per avatar (keys are stable seats — presence re-syncs never re-animate; only a
+            // genuinely NEW guest animates once on mount). `.mms-stagger` is reduced-motion-gated.
+            <li
+              key={m.seat}
+              className="mms-stagger"
+              style={{ display: "flex", marginLeft: i === 0 ? 0 : -8 }}
+            >
               <Avatar
                 initial={seatInitial(m.name)}
                 color={seatColor(m.seat)}

@@ -76,7 +76,7 @@ export function InviteSheet({
       </p>
 
       {joinCode && (
-        <div style={codeCard}>
+        <div className="card card-textured" style={codeCard}>
           <span style={codeLabel}>Table code</span>
           <button
             type="button"
@@ -140,13 +140,11 @@ const muted: CSSProperties = {
   lineHeight: 1.5,
   margin: "0 0 14px",
 };
+// Surface (bg/border/radius/shadow + texture) comes from `.card card-textured`; this is layout only.
 const codeCard: CSSProperties = {
   display: "grid",
   gap: 6,
   padding: "14px 16px",
-  borderRadius: 14,
-  border: "1px solid var(--bd)",
-  background: "var(--cd)",
   marginBottom: 12,
 };
 const codeLabel: CSSProperties = {

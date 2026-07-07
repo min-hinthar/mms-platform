@@ -1382,7 +1382,9 @@ h3 {
   box-shadow: var(--sh-glow);
 }
 
-/* Tier-up moment — a centered card over a dimmed scrim + the reused confetti. role="status" announces it. */
+/* Tier-up moment — a centered card over a dimmed scrim + the reused confetti. role="status" announces it.
+   --scrim (both themes): the old --tx mix flipped to a LIGHT wash on Night (--tx is cream there) — the
+   celebration must dim like every other overlay, not haze. */
 .tier-up {
   position: fixed;
   inset: 0;
@@ -1390,7 +1392,7 @@ h3 {
   display: grid;
   place-items: center;
   padding: 24px;
-  background: color-mix(in srgb, var(--tx) 38%, transparent);
+  background: var(--scrim);
 }
 .tier-up-card {
   position: relative;

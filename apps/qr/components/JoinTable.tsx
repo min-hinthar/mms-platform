@@ -32,7 +32,10 @@ export function JoinTable() {
           Enter the code your host shared to order together on one cart.
         </p>
         <form onSubmit={submit}>
-          <label htmlFor={id} style={{ fontSize: 13, fontWeight: 700, display: "block", marginBottom: 6 }}>
+          <label
+            htmlFor={id}
+            style={{ fontSize: 13, fontWeight: 700, display: "block", marginBottom: 6 }}
+          >
             Table code
           </label>
           <div style={{ display: "flex", gap: 8 }}>

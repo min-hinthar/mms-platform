@@ -104,6 +104,7 @@ export function StaffLineEditor({
             </span>
           ) : (
             <button
+              className="staff-btn"
               type="button"
               onClick={() => setSheetOpen(true)}
               disabled={disabled}

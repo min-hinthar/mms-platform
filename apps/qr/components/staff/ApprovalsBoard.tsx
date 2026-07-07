@@ -66,17 +66,26 @@ export function ApprovalsBoard({
     return () => clearInterval(id);
   }, [refresh]);
 
+  // Focus catch-all (WCAG 2.4.3; the KdsBoard pattern): an approve/deny drops the request card —
+  // restore focus to the heading only when it fell to <body> from a real control (edge-triggered).
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const hadRealFocus = useRef(false);
+  useEffect(() => {
+    if (document.activeElement === document.body && hadRealFocus.current)
+      headingRef.current?.focus({ preventScroll: true });
+    hadRealFocus.current = document.activeElement !== document.body;
+  }, [snap]);
+
   const count = snap.length;
 
   return (
     <section aria-labelledby="appr-h">
       <div style={headRow}>
-        <h2 id="appr-h" style={{ fontSize: 16, margin: 0 }}>
+        <h2 id="appr-h" ref={headingRef} tabIndex={-1} style={{ fontSize: 16, margin: 0 }}>
           Open requests
         </h2>
         <p
           role="status"
-          aria-live="polite"
           style={{ margin: 0, fontSize: 13, color: stale ? "var(--warn)" : "var(--t2)" }}
         >
           {stale
@@ -121,7 +130,7 @@ function RequestCard({
   request: PendingApproval;
   approvers: Approver[];
   serverNow: string;
-  onResolved: () => void;
+  onResolved: () => void | Promise<void>;
 }) {
   const [decision, setDecision] = useState<"approve" | "deny" | null>(null);
   const [approverStaffId, setApproverStaffId] = useState("");
@@ -151,7 +160,7 @@ function RequestCard({
     startTransition(async () => {
       const res = await resolveApproval({ approvalId: request.id, decision, approverStaffId, pin });
       if (res.ok) {
-        onResolved(); // the card drops off on the next snapshot
+        await onResolved(); // pending covers the refetch — the card drops off before the form re-enables
         return;
       }
       setPin("");
@@ -272,12 +281,7 @@ function RequestCard({
         </form>
       )}
 
-      <p
-        id={`appr-msg-${request.id}`}
-        role="status"
-        aria-live="polite"
-        style={{ margin: "8px 0 0", minHeight: 16 }}
-      >
+      <p id={`appr-msg-${request.id}`} role="status" style={{ margin: "8px 0 0", minHeight: 16 }}>
         {(lockCopy ?? msg) && (
           <span style={{ fontSize: 13, color: "var(--warn)" }}>{lockCopy ?? msg}</span>
         )}

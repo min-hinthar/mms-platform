@@ -58,20 +58,32 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
     };
   }, [refresh]);
 
+  // Focus catch-all (WCAG 2.4.3; the FloorDetailLive pattern): a bump that drops a line/ticket off the
+  // board unmounts the button that held focus. Edge-triggered — restore to the board heading only when
+  // focus HAD been on a real control on the previous snapshot and fell to <body> now, so an idle touch
+  // device is never focus-planted by the 5s poll. preventScroll: a continuity cue, not a viewport jump.
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const hadRealFocus = useRef(false);
+  useEffect(() => {
+    if (document.activeElement === document.body && hadRealFocus.current)
+      headingRef.current?.focus({ preventScroll: true });
+    hadRealFocus.current = document.activeElement !== document.body;
+  }, [snap]);
+
   const tickets = snap.tickets;
   const count = tickets.length;
 
   return (
     <section aria-labelledby="kds-h">
       <div style={headRow}>
-        <h2 id="kds-h" style={{ fontSize: 16, margin: 0 }}>
+        <h2 id="kds-h" ref={headingRef} tabIndex={-1} style={{ fontSize: 16, margin: 0 }}>
           Fire queue
         </h2>
         {/* ONE board-level live region (S2-audit S8): the bump error takes precedence over the count, so
-            a flaky socket / failed bump surfaces here instead of N per-line alert regions flooding the SR. */}
+            a flaky socket / failed bump surfaces here instead of N per-line alert regions flooding the SR.
+            Bare role="status" — it implies aria-live=polite (the codebase idiom). */}
         <p
           role="status"
-          aria-live="polite"
           style={{ margin: 0, fontSize: 13, color: err || stale ? "var(--warn)" : "var(--t2)" }}
         >
           {err ??
@@ -95,12 +107,7 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
           ariaLabel="Open kitchen tickets"
           style={grid}
           renderItem={(t) => (
-            <TicketCard
-              ticket={t}
-              serverNow={snap.serverNow}
-              onBumped={refresh}
-              onError={setErr}
-            />
+            <TicketCard ticket={t} serverNow={snap.serverNow} onBumped={refresh} onError={setErr} />
           )}
         />
       )}
@@ -142,7 +149,7 @@ function KdsLineRow({
   onError,
 }: {
   line: KitchenLine;
-  onBumped: () => void;
+  onBumped: () => void | Promise<void>;
   onError: (msg: string | null) => void;
 }) {
   const [pending, startTransition] = useTransition();
@@ -155,7 +162,9 @@ function KdsLineRow({
       try {
         const res = await bumpLine({ lineId: line.id, to });
         if (!res.ok) onError(res.error);
-        else onBumped(); // realtime also refreshes; this makes the bump feel instant
+        // AWAIT the refresh so `pending` covers the refetch — releasing on the write alone flickered
+        // the button back to its stale enabled label for a beat before the new snapshot landed.
+        else await onBumped();
       } catch {
         // S2-audit B3: a thrown action must not silently no-op the bump — surface it on the board region.
         onError(`Couldn’t update ${line.name} — try again.`);

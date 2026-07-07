@@ -55,18 +55,27 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
     };
   }, [refresh]);
 
+  // Focus catch-all (WCAG 2.4.3; the KdsBoard pattern): a picked-up bump drops the card — restore focus
+  // to the heading only when it fell to <body> from a real control (edge-triggered; poll-safe).
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const hadRealFocus = useRef(false);
+  useEffect(() => {
+    if (document.activeElement === document.body && hadRealFocus.current)
+      headingRef.current?.focus({ preventScroll: true });
+    hadRealFocus.current = document.activeElement !== document.body;
+  }, [snap]);
+
   const tickets = snap.tickets;
   const count = tickets.length;
 
   return (
     <section aria-labelledby="expo-h">
       <div style={headRow}>
-        <h2 id="expo-h" style={{ fontSize: 16, margin: 0 }}>
+        <h2 id="expo-h" ref={headingRef} tabIndex={-1} style={{ fontSize: 16, margin: 0 }}>
           Takeaway bags
         </h2>
         <p
           role="status"
-          aria-live="polite"
           style={{ margin: 0, fontSize: 13, color: err || stale ? "var(--warn)" : "var(--t2)" }}
         >
           {err ??
@@ -107,7 +116,7 @@ function ExpoCard({
 }: {
   ticket: ExpoTicket;
   serverNow: string;
-  onBumped: () => void;
+  onBumped: () => void | Promise<void>;
   onError: (msg: string | null) => void;
 }) {
   const [pending, startTransition] = useTransition();
@@ -120,7 +129,7 @@ function ExpoCard({
       try {
         const res = await setTogoStatus({ orderId: ticket.orderId, to });
         if (!res.ok) onError(res.error);
-        else onBumped();
+        else await onBumped(); // pending covers the refetch — no stale-label flicker
       } catch {
         onError(`Couldn’t update the bag for ${ticket.label} — try again.`);
       }
@@ -128,7 +137,11 @@ function ExpoCard({
   };
 
   return (
-    <article className="card card-textured" style={cardStyle} aria-label={`Bag for ${ticket.label}`}>
+    <article
+      className="card card-textured"
+      style={cardStyle}
+      aria-label={`Bag for ${ticket.label}`}
+    >
       <header style={cardHead}>
         <span style={tableLabel}>{ticket.label}</span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
@@ -233,7 +246,7 @@ const destTag: CSSProperties = {
 };
 const bumpBtn: CSSProperties = {
   minHeight: 44,
-  borderRadius: 10,
+  borderRadius: "var(--r-sm)",
   border: "1px solid var(--bd)",
   fontWeight: 700,
   fontSize: 14,

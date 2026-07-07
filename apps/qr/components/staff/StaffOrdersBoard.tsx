@@ -1,5 +1,6 @@
 "use client";
-import { useCallback, useState, useTransition, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition, type CSSProperties } from "react";
+import { EmptyState } from "@mms/ui";
 import { getStaffOrders, type StaffOrder, type StaffOrderLine } from "@/lib/refunds";
 import { RefundActionSheet } from "./RefundActionSheet";
 import { StaggerList } from "./StaggerList";
@@ -39,17 +40,39 @@ export function StaffOrdersBoard({ initial }: { initial: StaffOrder[] }) {
       return next;
     });
 
-  if (orders.length === 0) return <p style={{ color: "var(--t2)" }}>No paid orders yet.</p>;
+  // Refund focus handoff (WCAG 2.4.3): the sheet's cleanup restores focus to the Refund button that
+  // opened it — but a successful refund's refresh then swaps that button for the "Refunded" tag,
+  // dropping focus to <body>. Stash the order id on success and, once the refreshed list lands, move
+  // focus to that order's disclosure header (stable across the swap).
+  const refocusOrderId = useRef<string | null>(null);
+  useEffect(() => {
+    const id = refocusOrderId.current;
+    if (!id) return;
+    refocusOrderId.current = null;
+    if (document.activeElement === document.body)
+      document
+        .querySelector<HTMLButtonElement>(`[data-order-head="${id}"]`)
+        ?.focus({ preventScroll: true });
+  }, [orders]);
+
+  if (orders.length === 0)
+    return (
+      <EmptyState
+        title="No paid orders yet"
+        subtitle="Recent paid orders land here — expand one to refund a line."
+      />
+    );
 
   return (
     <>
       {/* The board's single live region — announces a completed refund's actual amount once. */}
-      <p role="status" aria-live="polite" style={confirmBanner}>
+      <p role="status" style={confirmBanner}>
         {confirm}
       </p>
       <StaggerList
         items={orders}
         getKey={(o) => o.id}
+        ariaLabel="Recent paid orders"
         style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}
         renderItem={(o) => {
           const isOpen = open.has(o.id);
@@ -58,6 +81,7 @@ export function StaffOrdersBoard({ initial }: { initial: StaffOrder[] }) {
             <div className="card card-textured" style={{ padding: 14 }}>
               <button
                 type="button"
+                data-order-head={o.id}
                 onClick={() => toggle(o.id)}
                 aria-expanded={isOpen}
                 className="staff-btn"
@@ -131,9 +155,12 @@ export function StaffOrdersBoard({ initial }: { initial: StaffOrder[] }) {
           orderLabel={refunding.order.label}
           onClose={() => setRefunding(null)}
           onDone={(refundedCents?: number) => {
+            const orderId = refunding.order.id;
             setRefunding(null);
-            if (refundedCents != null)
+            if (refundedCents != null) {
               setConfirm(`Refunded $${(refundedCents / 100).toFixed(2)} to the card.`);
+              refocusOrderId.current = orderId; // hand focus to the order header once the refresh lands
+            }
             refresh();
           }}
         />
@@ -175,7 +202,7 @@ const refundBtn: CSSProperties = {
   flex: "none",
   minHeight: 44,
   padding: "0 14px",
-  borderRadius: 999,
+  borderRadius: "var(--r-full)",
   border: "1px solid var(--bd)",
   background: "transparent",
   color: "var(--tx)",

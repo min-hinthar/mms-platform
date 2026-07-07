@@ -56,7 +56,9 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
           background: "var(--pg)",
           // clear the iOS notch under viewport-fit=cover — sticky top:0 pins to the true viewport top
           padding: "calc(8px + env(safe-area-inset-top, 0px)) 0 10px",
-          zIndex: 1,
+          // token scale: must exceed the textured rows' children (z1 via .card-textured > *), or the
+          // rows would paint over the pinned header (same z, later in DOM wins)
+          zIndex: "var(--z-toolbar)" as CSSProperties["zIndex"],
         }}
       >
         <Link href={`/staff/table/${id}`} style={back}>
@@ -81,7 +83,7 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
               .map((i) => (
                 <li
                   key={i.id}
-                  className="card"
+                  className="card card-textured"
                   style={{ ...rowCard, opacity: i.is_sold_out ? 0.55 : 1 }}
                 >
                   <div style={thumb}>

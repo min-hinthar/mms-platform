@@ -37,7 +37,7 @@ export function RewardsHub({ state }: { state: RewardsState }) {
       <TierUpCelebration tierId={state.tierId} />
 
       {/* Stars — the ring hero (replaces the old flat progress bar). */}
-      <Card as="section" style={card} aria-labelledby="stars-h">
+      <Card as="section" textured style={card} aria-labelledby="stars-h">
         <h2 id="stars-h" style={cardH}>
           Stars
         </h2>
@@ -60,7 +60,7 @@ export function RewardsHub({ state }: { state: RewardsState }) {
       </Card>
 
       {/* Tier — current standing, spend-to-next, and the ladder ribbon. */}
-      <Card as="section" style={card} aria-labelledby="tier-h">
+      <Card as="section" textured style={card} aria-labelledby="tier-h">
         <h2 id="tier-h" style={cardH}>
           Your tier
         </h2>
@@ -100,7 +100,10 @@ export function RewardsHub({ state }: { state: RewardsState }) {
               fontVariantNumeric: "tabular-nums",
             }}
           >
-            <NumberFlow value={state.spendCents / 100} format={{ style: "currency", currency: "USD" }} />
+            <NumberFlow
+              value={state.spendCents / 100}
+              format={{ style: "currency", currency: "USD" }}
+            />
           </span>
         </div>
         {/* Ladder ribbon — current lit + soft glow, passed tinted, future faint. Decorative gems aria-hidden;
@@ -144,7 +147,10 @@ export function RewardsHub({ state }: { state: RewardsState }) {
         <h2 id="how-h" style={cardH}>
           How it works
         </h2>
-        <ul role="list" style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
+        <ul
+          role="list"
+          style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}
+        >
           <li style={benefit}>
             <span style={benefitE} aria-hidden>
               ✦
@@ -171,7 +177,9 @@ export function RewardsHub({ state }: { state: RewardsState }) {
             </span>
             <div>
               <p style={benefitN}>Climb the gem tiers</p>
-              <p style={benefitD}>The more you spend over time, the higher your standing with us.</p>
+              <p style={benefitD}>
+                The more you spend over time, the higher your standing with us.
+              </p>
             </div>
           </li>
         </ul>

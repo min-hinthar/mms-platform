@@ -348,7 +348,7 @@ const toastStyle: CSSProperties = {
   padding: "10px 16px",
   borderRadius: 999,
   fontWeight: 700,
-  zIndex: 10,
+  zIndex: "var(--z-toast)" as CSSProperties["zIndex"],
 };
 const checkoutCta: CSSProperties = {
   position: "fixed",

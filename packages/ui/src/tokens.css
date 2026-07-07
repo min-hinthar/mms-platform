@@ -126,6 +126,8 @@
   --z-toolbar: 20;
   --z-scrim: 40;
   --z-sheet: 45;
+  --z-toast: 50; /* transient notices float above an open sheet (they announce over anything) */
+  --z-alert: 60; /* the session-recovery alert outranks toasts (it demands action) */
   --z-confetti: 60;
   --z-tierup: 70;
   /* Modal scrim — dims the WHOLE page (incl. pinned chrome) so a sheet reads as a lifted layer. */

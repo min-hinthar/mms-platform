@@ -168,10 +168,17 @@ export function RefundActionSheet({
         </p>
 
         <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
-          <button type="button" onClick={onClose} disabled={pending} style={secondaryBtn}>
+          <button
+            className="staff-btn"
+            type="button"
+            onClick={onClose}
+            disabled={pending}
+            style={secondaryBtn}
+          >
             Cancel
           </button>
           <button
+            className="staff-btn"
             type="button"
             onClick={submit}
             disabled={pending || pin.length < 4}
@@ -188,12 +195,13 @@ export function RefundActionSheet({
 const overlay: CSSProperties = {
   position: "fixed",
   inset: 0,
-  background: "var(--scrim, rgba(0,0,0,0.45))",
+  background: "var(--scrim)", // the real token (both themes) — the old rgba fallback was the only consumer
   display: "grid",
   placeItems: "end center",
   // clear the iOS home-bar inset so the bottom-anchored sheet isn't obscured by it
   padding: "16px 16px calc(16px + env(safe-area-inset-bottom, 0px))",
-  zIndex: 50,
+  // scrim+sheet in ONE fixed overlay → the sheet layer of the token scale (canonical Sheet migration is P1-5)
+  zIndex: "var(--z-sheet)" as CSSProperties["zIndex"],
 };
 const sheet: CSSProperties = {
   width: "100%",

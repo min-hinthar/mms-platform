@@ -4,7 +4,7 @@ import type { SplitContext, SettlementShare } from "@/lib/split";
 import { getSettlement, abortSettlement } from "@/lib/split";
 import { useSettlementRealtime } from "@/lib/realtime";
 import { seatColor, seatInitial } from "@/lib/avatars";
-import { Avatar, Skeleton } from "@mms/ui";
+import { Avatar, NumberFlow, Skeleton } from "@mms/ui";
 import { SharePay } from "./SharePay";
 
 /**
@@ -83,6 +83,26 @@ export function SettlementBoard({
   const allIn =
     shares.length > 0 && shares.every((s) => s.status !== "pending" && s.status !== "failed");
 
+  // The viewer's OWN share flipping out of payable (authorized/captured lands via realtime) unmounts
+  // their SharePay form silently — announce it through the settle view's ONE status region (Checkout's)
+  // and, if focus fell to <body> with the form, restore it to the viewer's row (WCAG 2.4.3). Edge-
+  // triggered on the status transition so a page refresh onto an already-authorized share stays quiet.
+  const myRowRef = useRef<HTMLLIElement>(null);
+  const prevMyStatus = useRef<SettlementShare["status"] | null>(null);
+  useEffect(() => {
+    const mine = shares.find((s) => s.seat === ctx.mySeat);
+    if (!mine) return;
+    const prev = prevMyStatus.current;
+    prevMyStatus.current = mine.status;
+    const wasPayable = prev === "pending" || prev === "failed";
+    const nowIn = mine.status === "authorized" || mine.status === "captured";
+    if (wasPayable && nowIn) {
+      onStatus("Your share is in — waiting for the rest of the table.");
+      if (document.activeElement === document.body)
+        myRowRef.current?.focus({ preventScroll: true });
+    }
+  }, [shares, ctx.mySeat, onStatus]);
+
   function cancel() {
     startAbort(async () => {
       try {
@@ -153,8 +173,9 @@ export function SettlementBoard({
       ) : (
         <>
           <p style={{ fontSize: 13, color: "var(--t2)", margin: "0 0 12px" }}>
+            {/* The paid figure ROLLS as shares land (live-board language); the frozen total stays static. */}
             <strong style={{ fontVariantNumeric: "tabular-nums" }}>
-              ${(paidCents / 100).toFixed(2)}
+              <NumberFlow value={paidCents / 100} format={{ style: "currency", currency: "USD" }} />
             </strong>{" "}
             of ${(totalCents / 100).toFixed(2)} authorized
             {allIn ? " — finishing up…" : ""}
@@ -164,12 +185,21 @@ export function SettlementBoard({
             role="list"
             style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 10 }}
           >
-            {shares.map((s) => {
+            {shares.map((s, i) => {
               const isMe = s.seat === ctx.mySeat;
               const name = isMe ? "You" : nameOf(s.seat);
               const canPay = isMe && (s.status === "pending" || s.status === "failed");
               return (
-                <li key={s.seat} className="card" style={{ padding: 12 }}>
+                // Textured + rise-in (keys are stable seats — status flips re-render, never re-animate).
+                // tabIndex -1 on the viewer's own row = the focus target when their pay form unmounts.
+                <li
+                  key={s.seat}
+                  ref={isMe ? myRowRef : undefined}
+                  tabIndex={isMe ? -1 : undefined}
+                  aria-label={isMe ? `Your share` : undefined}
+                  className="card card-textured mms-stagger"
+                  style={{ padding: 12, animationDelay: `${Math.min(i, 6) * 45}ms` }}
+                >
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <Avatar
                       size="md"
