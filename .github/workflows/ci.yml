@@ -40,6 +40,15 @@ jobs:
       # faster and avoids edge-runtime's flaky `@supabase/pg-delta` npm fetch at boot.
       - name: Apply migrations + seed (migrations-check)
         run: supabase start -x edge-runtime,studio,imgproxy,logflare,vector,mailpit
+      # `gen types --local` spawns postgres-meta from public.ecr.aws regardless of the registry override
+      # (CLI 2.107.0), and GitHub's shared runner IPs routinely trip ECR Public's anonymous pull rate
+      # limit ("docker: toomanyrequests" — two consecutive flakes on 2026-07-07, incl. a re-run). Pre-pull
+      # the SAME tag from Supabase's ghcr mirror and retag it with the ECR name, so the gen step finds the
+      # image locally and never contacts ECR. The tag tracks the pinned CLI (2.107.0 ships v0.96.1).
+      - name: Pre-pull postgres-meta via ghcr (dodge ECR rate limits)
+        run: |
+          docker pull ghcr.io/supabase/postgres-meta:v0.96.1
+          docker tag ghcr.io/supabase/postgres-meta:v0.96.1 public.ecr.aws/supabase/postgres-meta:v0.96.1
       # types-fresh — regenerate types from the just-applied schema; any drift vs the committed
       # file fails the job, so packages/db/src/database.types.ts can never lag the SQL.
       - name: Types are fresh
