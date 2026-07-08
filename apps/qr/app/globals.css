@@ -1292,6 +1292,104 @@ h3 {
   margin: 0;
 }
 
+/* ── Checkout pills — the per-line destination (For here · To go · Make it now) + the settle-later tray
+   (Keep tab open · Secure your tab). One tactile pill vocabulary: full-radius, textured, press-settle,
+   accent glow on the emphasised ones. transform/opacity/box-shadow + color only; tokens not hex; a
+   reduced-motion off-switch below. Named `-on`/`-accent` (not BEM `--`) to match `.checkout-cta-ghost`. */
+.checkout-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  color: var(--t2);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.1;
+  cursor: pointer;
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out);
+}
+.checkout-pill:not(:disabled):hover {
+  color: var(--tx);
+  border-color: var(--ac);
+}
+.checkout-pill:not(:disabled):active {
+  transform: scale(0.96);
+}
+.checkout-pill:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+/* Selected segment — filled accent, legible on both themes (--oa is the on-accent text token). */
+.checkout-pill-on {
+  background: var(--ac);
+  border-color: var(--ac);
+  color: var(--oa);
+}
+.checkout-pill-on:not(:disabled):hover {
+  color: var(--oa);
+  box-shadow: var(--sh-glow);
+}
+/* Accent-outline action pill (Make it now · Secure your tab) — a faint accent wash + accent text draws
+   the eye without the full fill of a primary CTA. */
+.checkout-pill-accent {
+  border-color: var(--ac);
+  color: var(--ac);
+  background: color-mix(in oklab, var(--ac) 6%, var(--cd));
+}
+.checkout-pill-accent:not(:disabled):hover {
+  color: var(--ac-strong);
+  box-shadow: var(--sh-glow);
+}
+
+/* Settle-later tray — the secondary tab actions grouped under a hairline "or settle later" divider,
+   subordinate to the primary pay CTA above (one hero action, the rest demoted to a pill tray). */
+.checkout-tray {
+  margin-top: 16px;
+}
+.checkout-tray-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--t3);
+}
+.checkout-tray-label::before,
+.checkout-tray-label::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--bd);
+}
+.checkout-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+/* In the tray the settle pills share the row equally; the per-line destination pills stay content-width. */
+.checkout-tray .checkout-pill {
+  flex: 1 1 0;
+}
+.checkout-tray-hint {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  color: var(--t3);
+  text-align: center;
+}
+
 /* Step transition — the keyed wrapper enter-slides on each view change (review ↔ pay ↔ settle). */
 .checkout-step {
   animation: checkoutStepIn var(--dur-base) var(--ease-out) both;
@@ -1310,8 +1408,12 @@ h3 {
 @media (prefers-reduced-motion: reduce) {
   .checkout-tip,
   .checkout-cta,
-  .checkout-cta-ghost {
+  .checkout-cta-ghost,
+  .checkout-pill {
     transition: none;
+  }
+  .checkout-pill:not(:disabled):active {
+    transform: none;
   }
   .checkout-step {
     animation: none;

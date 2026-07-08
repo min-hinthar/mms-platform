@@ -12,7 +12,17 @@ import { Card } from "@mms/ui";
  * (setup_intent.succeeded → the tab flips to 'secure'), so we never claim "secured" the gateway didn't
  * accept (T7) — on confirm we show a calm "saved, securing…" and let the realtime tab-state flip confirm it.
  */
-export function SecureTabButton({ cartId, onSecured }: { cartId: string; onSecured: () => void }) {
+export function SecureTabButton({
+  cartId,
+  onSecured,
+  compact = false,
+}: {
+  cartId: string;
+  onSecured: () => void;
+  /** Render the idle trigger as a `.checkout-pill` for the settle-later tray; the loading/error/form/done
+   *  phases wrap to a full-width line below the pill row (flex-basis:100% in the wrapping `.checkout-pill-row`). */
+  compact?: boolean;
+}) {
   const [phase, setPhase] = useState<"idle" | "loading" | "form" | "done">("idle");
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -50,14 +60,15 @@ export function SecureTabButton({ cartId, onSecured }: { cartId: string; onSecur
 
   if (phase === "done")
     return (
-      <p style={doneNote} role="status">
+      // In the tray, wrap to a full-width line below the pill row (flex-basis:100%).
+      <p style={compact ? { ...doneNote, flex: "1 0 100%", margin: "6px 0 0" } : doneNote} role="status">
         <span aria-hidden>✓ </span>Card saved — your tab is secured. Settle anytime.
       </p>
     );
 
   if (phase === "form" && options && stripePromise)
     return (
-      <Card style={panel}>
+      <Card style={compact ? { ...panel, flex: "1 0 100%", marginTop: 4 } : panel}>
         <p style={{ margin: "0 0 10px", fontSize: 13, color: "var(--t2)", lineHeight: 1.5 }}>
           Save a card to keep your tab open — we’ll charge it when you’re ready to close. No charge
           now.
@@ -74,7 +85,31 @@ export function SecureTabButton({ cartId, onSecured }: { cartId: string; onSecur
       </Card>
     );
 
-  // idle / loading
+  // idle / loading — compact renders the trigger as a tray pill (the accent-outline action variant);
+  // any error/unavailable note wraps full-width below the pill row.
+  if (compact)
+    return (
+      <>
+        <button
+          type="button"
+          onClick={begin}
+          disabled={phase === "loading" || !stripePromise}
+          aria-busy={phase === "loading"}
+          aria-label="Secure your tab — save a card to settle later"
+          className="checkout-pill checkout-pill-accent"
+          style={{ flex: "1 1 0" }}
+        >
+          {phase === "loading" ? "Starting…" : "Secure your tab"}
+        </button>
+        {(error || !stripePromise) && (
+          <p role="alert" style={{ ...hint, flex: "1 0 100%", margin: "6px 0 0", color: "var(--warn)" }}>
+            {error ?? "Card save is temporarily unavailable."}
+          </p>
+        )}
+      </>
+    );
+
+  // idle / loading (full-width default)
   return (
     <div>
       <button

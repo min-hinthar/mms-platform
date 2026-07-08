@@ -16,6 +16,12 @@ against the `RETURNING` projection, so `qr_carts.locked` fell out of scope and t
 representation) and surfacing the error (honest 500) instead of masquerading a query failure as a lock
 conflict. Verified against live PostgREST. Pure code change — no schema migration.
 
+### Changed — Checkout: organized pill actions + optimistic cart selections (2026-07-08)
+
+- **Action hierarchy** — the four competing full-width buttons (Send to kitchen · Continue to payment · Keep tab open · Secure your tab) become **one hero pay CTA** with the tab options demoted into a labeled **“or settle later” pill tray** (Keep tab open · Secure your tab). Send-to-kitchen stays a distinct pre-pay action by the food. Clear primary-vs-secondary hierarchy.
+- **Pill vocabulary** — a shared `.checkout-pill` system (full-radius, textured, press-settle, accent glow, reduced-motion-safe): per-line **For here / To go** is a segmented pill toggle, **Make it now** an accent-outline action pill, and the settle-later tray pills reuse the same language. `SecureTabButton` gains a `compact` tray-pill mode whose card form expands full-width below the row.
+- **Optimistic cart selections** — qty stepper, For-here/To-go re-route, and Make-it-now now reflect **instantly** (React 19 `useOptimistic` overlay) instead of waiting on a server round-trip + `refresh()`; the server action reconciles underneath and corrects a refused edit. Money stays server-authoritative — only per-line qty/destination/state flip optimistically; the totals receipt reconciles on refresh.
+
 ### Changed — World-class UX: the full craft pass (menu · cart · checkout · track · grocery · staff · rewards · split) (2026-07-02)
 
 The whole app taken through the world-class bar (`docs/WORLD_CLASS_UX_PLAN.md`), each slice gated +
