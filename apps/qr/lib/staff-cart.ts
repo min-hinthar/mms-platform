@@ -383,7 +383,17 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
           : "Someone’s already paying on their phone — wait for that to finish.",
     };
 
-  const totals = await getCartTotals(cart.id, 0); // final total, NO added tip (see the doc-comment)
+  // Parity with settleCash's try/finally: once the freeze is held, a totals throw must release it, or the
+  // table strands frozen until the 10-min TTL. (Unlike settleCash we can't use a blanket `finally` — the
+  // success path below deliberately HOLDS the freeze for the async off-session fulfill — so guard the one
+  // pre-charge await that isn't already covered by the release-on-error branches.) This became reachable
+  // once acquireSettlement stopped 42703-ing here (the cart-lock PostgREST-14 fix in this PR).
+  const totals = await getCartTotals(cart.id, 0).catch(() => null); // final total, NO added tip (see doc)
+  if (!totals) {
+    await releaseSettlement(cart.id);
+    console.error("[staff-cart] closeSecureTab totals failed", { sessionId, cartId: cart.id });
+    return { ok: false, error: "Couldn’t total this tab just now — try again." };
+  }
   const amount = totals.totalCents;
   if (amount <= 0) {
     await releaseSettlement(cart.id);
