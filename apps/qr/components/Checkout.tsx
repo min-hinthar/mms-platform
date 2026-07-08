@@ -1,6 +1,7 @@
 "use client";
 import {
   useEffect,
+  useOptimistic,
   useRef,
   useState,
   useTransition,
@@ -58,6 +59,28 @@ const TIPS: [label: string, rate: number][] = [
   ["20%", 0.2],
 ];
 
+// Optimistic cart edits — a qty / destination / make-now tap reflects INSTANTLY, then the server action
+// + refresh() reconcile the base underneath (and correct a refused edit). Money stays server-authoritative:
+// only per-line qty / fulfillment / state flip here; the per-line price (unit × qty, unit server-derived)
+// updates honestly, while the aggregate totals receipt (tax / service / discount) reconciles on the refresh.
+type CartOptimistic =
+  | { kind: "qty"; id: string; qty: number }
+  | { kind: "fulfillment"; id: string; ful: "dinein" | "togo" }
+  | { kind: "makeNow"; id: string };
+
+function applyCartOptimistic(state: CartItem[], u: CartOptimistic): CartItem[] {
+  switch (u.kind) {
+    case "qty":
+      return u.qty <= 0
+        ? state.filter((i) => i.id !== u.id)
+        : state.map((i) => (i.id === u.id ? { ...i, qty: u.qty } : i));
+    case "fulfillment":
+      return state.map((i) => (i.id === u.id ? { ...i, fulfillment: u.ful } : i));
+    case "makeNow":
+      return state.map((i) => (i.id === u.id ? { ...i, lineState: "fired" } : i));
+  }
+}
+
 /**
  * Cart + checkout (client), two steps: REVIEW (edit lines, promo, tip — cart open/editable) →
  * "Continue to payment" mints the intent + LOCKS the cart → PAY (Stripe Payment Element on a stable
@@ -89,6 +112,10 @@ export function Checkout({
   prepMinutes?: number;
 }) {
   const [items, setItems] = useState<CartItem[]>(initialItems);
+  // Optimistic overlay on top of the server `items`: an edit shows instantly and the delta re-applies over
+  // any realtime base change during the pending transition, then clears once refresh() lands the truth
+  // (React 19 useOptimistic). Render reads `viewItems`; `items`/`setItems` stay the reconciliation base.
+  const [viewItems, applyOptimistic] = useOptimistic(items, applyCartOptimistic);
   const [totals, setTotals] = useState<CartTotals>(initialTotals);
   // Split-tender settlement freeze (P3.3b): once the host opens a split, every member pays their share
   // on the live board instead of the review/pay flow. Synced from getCartView (initial + realtime).
@@ -102,6 +129,13 @@ export function Checkout({
   const [promo, setPromo] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // Cart edits (qty / fulfillment / make-now) ride their OWN transition so their pending doesn't disable
+  // the promo "Apply" button; its pending is intentionally unread (the controls stay live optimistically).
+  const [, startCartTransition] = useTransition();
+  // Per-line promise chain: serialize a line's absolute-qty writes so rapid taps commit in ORDER (last
+  // value wins) and can't interleave into a stale displayed count — the optimistic overlay keeps each tap
+  // instant meanwhile. Keyed by cart-item id; a stale entry just resolves and is harmless.
+  const qtyChain = useRef<Map<string, Promise<void>>>(new Map());
   const [tipRate, setTipRate] = useState(0);
   const [step, setStep] = useState<"review" | "pay">("review");
   // Tab lifecycle (S3.1) — seeded from the server view, kept in step by refresh() (a peer or a server
@@ -133,23 +167,23 @@ export function Checkout({
   // Focus management: when a stepper removes the last unit of a line, the <li> unmounts and focus
   // would fall to <body>. Move it to the heading so keyboard/SR users keep their place.
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const prevLen = useRef(items.length);
+  const prevLen = useRef(viewItems.length);
   useEffect(() => {
-    if (items.length > 0 && items.length < prevLen.current) headingRef.current?.focus();
-    prevLen.current = items.length;
-  }, [items.length]);
+    if (viewItems.length > 0 && viewItems.length < prevLen.current) headingRef.current?.focus();
+    prevLen.current = viewItems.length;
+  }, [viewItems.length]);
 
   // S2.2 (B4): when a line the diner could edit gets fired (its stepper unmounts in favour of a state
   // chip), focus would fall to <body>. Move it to the heading — BUT only if focus actually dropped
   // there, so we never yank focus off a control the user moved to (e.g. SendToKitchenButton focuses its
   // own "Undo" button when the window opens; for a host on this device, that's where focus lands).
-  const prevDraftCount = useRef(items.filter((i) => i.lineState === "draft").length);
+  const draftCount = viewItems.filter((i) => i.lineState === "draft").length;
+  const prevDraftCount = useRef(draftCount);
   useEffect(() => {
-    const draftCount = items.filter((i) => i.lineState === "draft").length;
     if (draftCount < prevDraftCount.current && document.activeElement === document.body)
       headingRef.current?.focus();
     prevDraftCount.current = draftCount;
-  }, [items]);
+  }, [draftCount]);
 
   // On ANY view change (review↔pay tap OR a realtime settling flip) the subtree that held focus unmounts
   // → focus would drop to <body> with no cue (WCAG 2.4.3). The heading is mounted across all views, so
@@ -178,12 +212,20 @@ export function Checkout({
   }
 
   function changeQty(id: string, qty: number) {
-    startTransition(async () => {
+    // Chain this line's write after any in-flight one so absolute setQty(N) calls commit in tap order
+    // (the last value wins) — concurrent writes could otherwise interleave and leave a stale count.
+    const prev = qtyChain.current.get(id) ?? Promise.resolve();
+    const write = prev.then(async () => {
       try {
         await setQtyAction(id, qty);
       } catch {
         // Locked or no-longer-open — refresh() below re-syncs the UI to server truth.
       }
+    });
+    qtyChain.current.set(id, write);
+    startCartTransition(async () => {
+      applyOptimistic({ kind: "qty", id, qty }); // instant — the stepper + per-line price react at once
+      await write; // this write + all prior for the line, in order → the final refresh reads the true qty
       await refresh();
     });
   }
@@ -204,12 +246,20 @@ export function Checkout({
         `[data-ful-line="${target.id}"][data-ful-val="${target.ful}"]`,
       )
       ?.focus();
-  }, [items]);
+    // Dep on viewItems (the optimistic list): the re-group happens optimistically now, so focus must
+    // follow at that commit, not one server round-trip later. The `if (!target) return` guard keeps this
+    // a no-op on every other render (viewItems is a fresh array each render).
+  }, [viewItems]);
   function toggleFulfillment(id: string, ful: "dinein" | "togo") {
-    startTransition(async () => {
+    startCartTransition(async () => {
+      // Set the refocus target in the SAME commit as the optimistic re-group: applyOptimistic moves the
+      // line's <li> to another destination <section>, unmounting the tapped button (focus → body). The
+      // [viewItems] effect then lands focus on this line's now-pressed pill — closing the WCAG 2.4.3 gap
+      // the instant re-group opens (the old post-await set left focus on <body> for a full round-trip).
+      refocusToggle.current = { id, ful };
+      applyOptimistic({ kind: "fulfillment", id, ful }); // instant — the line re-groups + the pill flips
       try {
-        const res = await setLineFulfillment(id, ful);
-        if (res.ok) refocusToggle.current = { id, ful }; // keep keyboard/SR place when the line re-groups
+        await setLineFulfillment(id, ful);
       } catch {
         /* transient/redacted — refresh re-syncs */
       }
@@ -222,7 +272,8 @@ export function Checkout({
   // line shows its state chip (the toggle + this button drop away once fired). A refused fire (busy/raced)
   // just no-ops back to server truth on refresh — the control is draft-only, so no error UI is needed.
   function makeNow(id: string) {
-    startTransition(async () => {
+    startCartTransition(async () => {
+      applyOptimistic({ kind: "makeNow", id }); // instant — the stepper swaps to its "on the way" chip
       try {
         await makeItNow(id);
       } catch {
@@ -322,7 +373,7 @@ export function Checkout({
     await refresh();
   }
 
-  if (items.length === 0)
+  if (viewItems.length === 0)
     return (
       <main style={{ padding: 24, maxWidth: 440, margin: "0 auto" }}>
         <h1 style={{ fontSize: 28 }}>Your order</h1>
@@ -405,7 +456,7 @@ export function Checkout({
                 ["To-go", "togo"],
                 ["Grocery", "grocery"],
               ];
-              const present = GROUPS.filter(([, k]) => items.some((i) => i.fulfillment === k));
+              const present = GROUPS.filter(([, k]) => viewItems.some((i) => i.fulfillment === k));
               const showHeadings = present.length > 1;
               const renderLine = (i: CartItem) => {
                 const canEdit = canMutateLine(i.lineState, {
@@ -461,12 +512,14 @@ export function Checkout({
                         ${((i.unitPriceCents * i.qty) / 100).toFixed(2)}
                       </div>
                       {/* For-here / To-go (S4): food only, draft + editable. Grocery routing is fixed. The
-                        server recomputes per-line tax (cold food flips taxability) — never a client guess. */}
+                        server recomputes per-line tax (cold food flips taxability) — the toggle is optimistic
+                        (instant re-group), reconciled on refresh. Unified `.checkout-pill` segmented control. */}
                       {i.fulfillment !== "grocery" && i.lineState === "draft" && canEdit && (
                         <div
                           role="group"
                           aria-label={`Where ${i.name} goes`}
-                          style={{ display: "inline-flex", gap: 6, marginTop: 8 }}
+                          className="checkout-pill-row"
+                          style={{ marginTop: 8 }}
                         >
                           {(["dinein", "togo"] as const).map((f) => {
                             const on = i.fulfillment === f;
@@ -477,19 +530,8 @@ export function Checkout({
                                 data-ful-line={i.id}
                                 data-ful-val={f}
                                 aria-pressed={on}
-                                disabled={pending}
                                 onClick={() => toggleFulfillment(i.id, f)}
-                                style={{
-                                  minHeight: 44,
-                                  padding: "0 14px",
-                                  borderRadius: 999,
-                                  border: "1px solid var(--bd)",
-                                  background: on ? "var(--ac)" : "transparent",
-                                  color: on ? "var(--oa)" : "var(--t2)",
-                                  fontSize: 12.5,
-                                  fontWeight: 700,
-                                  cursor: pending ? "default" : "pointer",
-                                }}
+                                className={`checkout-pill${on ? " checkout-pill-on" : ""}`}
                               >
                                 {f === "dinein" ? "For here" : "To go"}
                               </button>
@@ -499,25 +541,14 @@ export function Checkout({
                       )}
                       {/* Make it now (S4.2): a to-go food line waits for checkout by default; this fires it to
                         the kitchen early. Draft + editable + togo only (a dinein line fires via Send to
-                        kitchen; grocery never fires). The server gates it; refused → no-ops on refresh. */}
+                        kitchen; grocery never fires). Optimistic; the server gates it, refused → no-ops on
+                        refresh. Accent-outline action pill. */}
                       {i.fulfillment === "togo" && i.lineState === "draft" && canEdit && (
                         <button
                           type="button"
-                          disabled={pending}
                           onClick={() => makeNow(i.id)}
-                          style={{
-                            display: "block",
-                            minHeight: 44,
-                            marginTop: 8,
-                            padding: "0 14px",
-                            borderRadius: 999,
-                            border: "1px solid var(--ac)",
-                            background: "transparent",
-                            color: "var(--ac)",
-                            fontSize: 12.5,
-                            fontWeight: 700,
-                            cursor: pending ? "default" : "pointer",
-                          }}
+                          className="checkout-pill checkout-pill-accent"
+                          style={{ display: "flex", width: "100%", marginTop: 8 }}
                         >
                           Make it now · ready in ~{prepMinutes} min
                         </button>
@@ -528,7 +559,7 @@ export function Checkout({
                     ) : i.lineState === "draft" ? (
                       <Stepper
                         qty={i.qty}
-                        disabled={pending || !canEdit}
+                        disabled={!canEdit}
                         soldOut={i.soldOut}
                         name={i.name}
                         removeGlyph="🗑"
@@ -561,7 +592,7 @@ export function Checkout({
                   {/* S4.2: to-go food is made fresh at checkout (not fired with the dine-in batch). Honest,
                     config-driven estimate — shown only while a to-go line is still waiting (draft). */}
                   {key === "togo" &&
-                    items.some((i) => i.fulfillment === "togo" && i.lineState === "draft") && (
+                    viewItems.some((i) => i.fulfillment === "togo" && i.lineState === "draft") && (
                       <p style={{ fontSize: 12, color: "var(--t2)", margin: "0 0 8px" }}>
                         Made fresh when you check out — ready in about {prepMinutes} min. Want it
                         sooner? Tap “Make it now.”
@@ -571,7 +602,7 @@ export function Checkout({
                     role="list"
                     style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 10 }}
                   >
-                    {items.filter((i) => i.fulfillment === key).map(renderLine)}
+                    {viewItems.filter((i) => i.fulfillment === key).map(renderLine)}
                   </ul>
                 </section>
               ));
@@ -580,7 +611,7 @@ export function Checkout({
             {isGroup && splitContext && (
               <SplitSection
                 cartId={cartId}
-                items={items}
+                items={viewItems}
                 totalCents={totals.totalCents}
                 ctx={splitContext}
                 onChanged={refresh}
@@ -701,12 +732,12 @@ export function Checkout({
               into menu prices; we never add a surcharge on debit.
             </p>
 
-            {canSendToKitchen && items.length > 0 && (
+            {canSendToKitchen && viewItems.length > 0 && (
               // onChanged re-syncs the cart after a send (steppers → chips) or an undo (chips → steppers),
               // since solo dine-in isn't on the group realtime channel.
               <SendToKitchenButton
                 cartId={cartId}
-                hasDraft={items.some((i) => i.lineState === "draft")}
+                hasDraft={viewItems.some((i) => i.lineState === "draft")}
                 onChanged={refresh}
               />
             )}
@@ -723,46 +754,57 @@ export function Checkout({
                 minHeight: 50,
                 borderRadius: 12,
                 border: "none",
-                background: "var(--ac)",
-                color: "var(--oa)",
                 fontWeight: 800,
                 fontSize: 16,
                 cursor: loadingPay ? "default" : "pointer",
                 opacity: loadingPay ? 0.7 : 1,
               }}
             >
-              {loadingPay
-                ? "Starting checkout…"
-                : tabType !== "none"
-                  ? "Settle tab"
-                  : "Continue to payment"}
+              {/* The label rides above the ::after shine sweep on its own relative layer. */}
+              <span style={{ position: "relative", zIndex: 1 }}>
+                {loadingPay ? (
+                  "Starting checkout…"
+                ) : (
+                  <>
+                    {tabType !== "none" ? "Settle tab" : "Continue to payment"}
+                    <span aria-hidden className="checkout-cta-arrow">
+                      →
+                    </span>
+                  </>
+                )}
+              </span>
             </button>
 
-            {/* Tab affordance (S3.1) — dine-in only. Before a tab is open, a calm secondary action to
-              keep it open and settle later; once open, an honest note that ordering continues and the
-              CTA above settles it. Opening moves no money (openTab → mms_open_tab, member-gated). */}
-            {canTab && tabType === "none" && (
-              <>
-                <button
-                  type="button"
-                  onClick={keepTabOpen}
-                  disabled={tabBusy}
-                  aria-busy={tabBusy}
-                  style={keepTabBtn}
-                >
-                  {tabBusy ? "Opening tab…" : "Keep tab open · settle later"}
-                </button>
-                <p
-                  style={{
-                    fontSize: 11.5,
-                    color: "var(--t3)",
-                    margin: "6px 0 0",
-                    textAlign: "center",
-                  }}
-                >
-                  Order all night and pay once when you’re ready — by card here or with a server.
+            {/* Settle-later tray (S3.1/S3.2) — dine-in only, demoted below the primary pay CTA into a
+              labeled pill tray (one hero action, the rest a tray). Before a tab is open: keep it open, or
+              secure it with a card; once open (trust): convert to secured. Both move no money now (openTab →
+              mms_open_tab, member-gated; SecureTabButton saves a card via a SetupIntent). Hidden once secured. */}
+            {canTab && tabType !== "secure" && (
+              <div className="checkout-tray" role="group" aria-label="Other ways to settle">
+                <p className="checkout-tray-label" aria-hidden="true">
+                  or settle later
                 </p>
-              </>
+                <div className="checkout-pill-row">
+                  {tabType === "none" && (
+                    <button
+                      type="button"
+                      onClick={keepTabOpen}
+                      disabled={tabBusy}
+                      aria-busy={tabBusy}
+                      className="checkout-pill"
+                    >
+                      {tabBusy ? "Opening tab…" : "Keep tab open"}
+                    </button>
+                  )}
+                  {/* Compact: renders the trigger as a tray pill; its card form expands full-width below. */}
+                  <SecureTabButton cartId={cartId} onSecured={refresh} compact />
+                </div>
+                {tabType === "none" && (
+                  <p className="checkout-tray-hint">
+                    Order all night and pay once when you’re ready — by card here or with a server.
+                  </p>
+                )}
+              </div>
             )}
             {tabType === "secure" ? (
               <p style={tabNote}>
@@ -775,13 +817,6 @@ export function Checkout({
                 Tab open — add anything you like and settle when you’re ready.
               </p>
             ) : null}
-
-            {/* Secure with a card (S3.2) — offered for a none/trust tab (card-first open, or convert a
-              trust tab). Saves a card so the tab settles off-session at close; SAQ-A (the card lives only
-              in the Element); the webhook records it + flips to 'secure'. Hidden once secured. */}
-            {canTab && tabType !== "secure" && (
-              <SecureTabButton cartId={cartId} onSecured={refresh} />
-            )}
 
             {isGroup && (
               // Honesty (P3.3a): the split above is a reference; this button pays the WHOLE order, so a
@@ -828,19 +863,6 @@ const tabNote: CSSProperties = {
   textAlign: "center",
   lineHeight: 1.5,
 };
-const keepTabBtn: CSSProperties = {
-  width: "100%",
-  marginTop: 10,
-  minHeight: 48,
-  borderRadius: 12,
-  border: "1px solid var(--bd)",
-  background: "var(--cd)",
-  color: "var(--tx)",
-  fontWeight: 700,
-  fontSize: 15,
-  cursor: "pointer",
-};
-
 // The honest replacement for a stepper once a line has gone to the kitchen (S2.2) or been comped/voided
 // by a server (S2.3). Shows the line's state in place of the (now-forbidden) edit control. Static text —
 // NOT a live region (the state arrives via a cart refresh, announced once by SendToKitchenButton, not

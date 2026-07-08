@@ -43,15 +43,27 @@ export async function acquireCartLock(cartId: string, uid: string): Promise<Lock
   // risk. Don't pipe a user-supplied value through here. The two `.or()` groups are ANDed: single-pay
   // can only lock when (unlocked / mine / stale) AND no FRESH split settlement is in flight — so the
   // two freeze modes are mutually exclusive (the foundation review's lock×settle interaction).
-  const { data } = await db
+  //
+  // Count the affected rows via `{ count: "exact" }` (Content-Range header), NOT `.select()`. A mutation
+  // with `.select()` asks PostgREST for `Prefer: return=representation`, and PostgREST 14 re-applies the
+  // top-level `or()` logic-tree against the RETURNING projection — with only `id` selected, `qr_carts.locked`
+  // falls out of scope and the whole UPDATE 400s with 42703 (undefined_column). The old code destructured
+  // only `data`, ignored that error, saw 0 rows, and returned "held_by_other" — so EVERY checkout got a
+  // spurious 409 after Supabase's PostgREST 14 upgrade. `count` reads the affected-row count with no
+  // representation/re-projection; surfacing `error` (throw) makes a real failure a 500 the diner can retry,
+  // never a phantom lock conflict.
+  const { count, error } = await db
     .from("qr_carts")
-    .update({ locked: true, locked_at: new Date().toISOString(), locked_by: uid })
+    .update(
+      { locked: true, locked_at: new Date().toISOString(), locked_by: uid },
+      { count: "exact" },
+    )
     .eq("id", cartId)
     .eq("status", "open")
     .or(`locked.eq.false,locked_by.eq.${uid},locked_at.lte.${cutoff}`)
-    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)
-    .select("id");
-  if (data && data.length > 0) return "acquired";
+    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`);
+  if (error) throw error;
+  if ((count ?? 0) > 0) return "acquired";
   // 0 rows: closed, or a FRESH lock held by another. Read the status to message it honestly.
   const { data: cart } = await db.from("qr_carts").select("status").eq("id", cartId).maybeSingle();
   return cart?.status === "open" ? "held_by_other" : "closed";
@@ -67,15 +79,18 @@ export async function acquireCartLock(cartId: string, uid: string): Promise<Lock
 export async function acquireSettlement(cartId: string, uid: string): Promise<SettleResult> {
   const db = serviceClient();
   const cutoff = new Date(Date.now() - SETTLE_TTL_MS).toISOString();
-  const { data } = await db
+  // `{ count: "exact" }`, not `.select()` — same PostgREST-14 `return=representation` + `or()` re-projection
+  // trap as acquireCartLock (a `.select()` here 400s with 42703 undefined_column and mis-reads as
+  // settling_other). Count the affected rows and surface any real error instead of swallowing it.
+  const { count, error } = await db
     .from("qr_carts")
-    .update({ settle_at: new Date().toISOString(), settle_by: uid })
+    .update({ settle_at: new Date().toISOString(), settle_by: uid }, { count: "exact" })
     .eq("id", cartId)
     .eq("status", "open")
     .eq("locked", false) // never start a split while a single payer holds the pay-lock
-    .or(`settle_at.is.null,settle_by.eq.${uid},settle_at.lte.${cutoff}`)
-    .select("id");
-  if (data && data.length > 0) return "acquired";
+    .or(`settle_at.is.null,settle_by.eq.${uid},settle_at.lte.${cutoff}`);
+  if (error) throw error;
+  if ((count ?? 0) > 0) return "acquired";
   const { data: cart } = await db
     .from("qr_carts")
     .select("status,locked")
