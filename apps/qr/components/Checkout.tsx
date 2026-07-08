@@ -129,6 +129,13 @@ export function Checkout({
   const [promo, setPromo] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // Cart edits (qty / fulfillment / make-now) ride their OWN transition so their pending doesn't disable
+  // the promo "Apply" button; its pending is intentionally unread (the controls stay live optimistically).
+  const [, startCartTransition] = useTransition();
+  // Per-line promise chain: serialize a line's absolute-qty writes so rapid taps commit in ORDER (last
+  // value wins) and can't interleave into a stale displayed count — the optimistic overlay keeps each tap
+  // instant meanwhile. Keyed by cart-item id; a stale entry just resolves and is harmless.
+  const qtyChain = useRef<Map<string, Promise<void>>>(new Map());
   const [tipRate, setTipRate] = useState(0);
   const [step, setStep] = useState<"review" | "pay">("review");
   // Tab lifecycle (S3.1) — seeded from the server view, kept in step by refresh() (a peer or a server
@@ -205,13 +212,20 @@ export function Checkout({
   }
 
   function changeQty(id: string, qty: number) {
-    startTransition(async () => {
-      applyOptimistic({ kind: "qty", id, qty }); // instant — the stepper + per-line price react at once
+    // Chain this line's write after any in-flight one so absolute setQty(N) calls commit in tap order
+    // (the last value wins) — concurrent writes could otherwise interleave and leave a stale count.
+    const prev = qtyChain.current.get(id) ?? Promise.resolve();
+    const write = prev.then(async () => {
       try {
         await setQtyAction(id, qty);
       } catch {
         // Locked or no-longer-open — refresh() below re-syncs the UI to server truth.
       }
+    });
+    qtyChain.current.set(id, write);
+    startCartTransition(async () => {
+      applyOptimistic({ kind: "qty", id, qty }); // instant — the stepper + per-line price react at once
+      await write; // this write + all prior for the line, in order → the final refresh reads the true qty
       await refresh();
     });
   }
@@ -232,13 +246,20 @@ export function Checkout({
         `[data-ful-line="${target.id}"][data-ful-val="${target.ful}"]`,
       )
       ?.focus();
-  }, [items]);
+    // Dep on viewItems (the optimistic list): the re-group happens optimistically now, so focus must
+    // follow at that commit, not one server round-trip later. The `if (!target) return` guard keeps this
+    // a no-op on every other render (viewItems is a fresh array each render).
+  }, [viewItems]);
   function toggleFulfillment(id: string, ful: "dinein" | "togo") {
-    startTransition(async () => {
+    startCartTransition(async () => {
+      // Set the refocus target in the SAME commit as the optimistic re-group: applyOptimistic moves the
+      // line's <li> to another destination <section>, unmounting the tapped button (focus → body). The
+      // [viewItems] effect then lands focus on this line's now-pressed pill — closing the WCAG 2.4.3 gap
+      // the instant re-group opens (the old post-await set left focus on <body> for a full round-trip).
+      refocusToggle.current = { id, ful };
       applyOptimistic({ kind: "fulfillment", id, ful }); // instant — the line re-groups + the pill flips
       try {
-        const res = await setLineFulfillment(id, ful);
-        if (res.ok) refocusToggle.current = { id, ful }; // keep keyboard/SR place when the line re-groups
+        await setLineFulfillment(id, ful);
       } catch {
         /* transient/redacted — refresh re-syncs */
       }
@@ -251,7 +272,7 @@ export function Checkout({
   // line shows its state chip (the toggle + this button drop away once fired). A refused fire (busy/raced)
   // just no-ops back to server truth on refresh — the control is draft-only, so no error UI is needed.
   function makeNow(id: string) {
-    startTransition(async () => {
+    startCartTransition(async () => {
       applyOptimistic({ kind: "makeNow", id }); // instant — the stepper swaps to its "on the way" chip
       try {
         await makeItNow(id);
