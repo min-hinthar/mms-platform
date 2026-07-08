@@ -30,15 +30,22 @@ export function AccountUpgrade() {
   const [error, setError] = useState<string | null>(null);
 
   // OAuth callback error (M4 P4.1): linkIdentity redirects back to /account, and if the Google account the
-  // diner picked is already linked to a DIFFERENT Morning Star account, Supabase (PKCE) bounces back with
+  // diner picked is already linked to a DIFFERENT Morning Star account, Supabase (PKCE → the error lands in
+  // the QUERY string, which is why useSearchParams can read it) bounces back with
   // ?error_code=identity_already_exists + a 422 on /auth/v1/user — otherwise the diner would just see a raw
-  // error URL with no way forward. Read it from the query (derive, don't setState-in-effect); when it's the
-  // already-linked case the Google button becomes a SIGN-IN recovery (linking again would fail the same way).
+  // error URL with no way forward. Derive it during render (NOT setState-in-effect: the React-Compiler lint
+  // rule forbids that, and deriving also avoids a hydration mismatch on this dynamically-rendered route).
+  // When already-linked, the Google button becomes a SIGN-IN recovery (linking again would fail the same
+  // way). Copy stays HONEST: signing in switches to the EXISTING account — it does not merge this device's
+  // unsaved Stars (no server-side merge exists), so it also points at the email path for keeping THOSE.
+  // a11y tradeoff: because this message is present from SSR/first paint it's INITIAL content of the
+  // role="status" region, so a SR won't auto-announce it (live regions announce changes) — it's still
+  // visible + discoverable on navigation; a change-based fix would require the forbidden setState-in-effect.
   const searchParams = useSearchParams();
   const alreadyLinked = searchParams.get("error_code") === "identity_already_exists";
   const callbackError = searchParams.get("error_code")
     ? alreadyLinked
-      ? "That Google account is already saved to a Morning Star account — sign in with it to see those rewards."
+      ? "That Google account already has a Morning Star account. Sign in to use it, or add an email above to save this device’s rewards."
       : "Couldn’t finish with Google — please try again."
     : null;
 
