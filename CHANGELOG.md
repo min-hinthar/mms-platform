@@ -4,6 +4,18 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed — Checkout `create-intent` 409 (cart-lock acquire 42703 on PostgREST 14) (2026-07-08)
+
+`POST /api/stripe/create-intent` returned **409 (Conflict)** on every attempt — checkout was fully broken
+in production. Root cause: `acquireCartLock` / `acquireSettlement` (`apps/qr/lib/lock.ts`) built the atomic
+conditional UPDATE with `.select("id")`, which sends `Prefer: return=representation`; under PostgREST 14
+(Supabase's recent platform upgrade) a mutation with that header re-applies the top-level `or()` logic-tree
+against the `RETURNING` projection, so `qr_carts.locked` fell out of scope and the UPDATE 400'd with `42703`
+(undefined_column). Both functions swallowed the error, read 0 rows, and returned `held_by_other` /
+`settling_other` → a spurious 409. Fixed by counting affected rows via `{ count: "exact" }` (no
+representation) and surfacing the error (honest 500) instead of masquerading a query failure as a lock
+conflict. Verified against live PostgREST. Pure code change — no schema migration.
+
 ### Changed — World-class UX: the full craft pass (menu · cart · checkout · track · grocery · staff · rewards · split) (2026-07-02)
 
 The whole app taken through the world-class bar (`docs/WORLD_CLASS_UX_PLAN.md`), each slice gated +
