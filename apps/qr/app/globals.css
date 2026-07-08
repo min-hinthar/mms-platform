@@ -247,13 +247,8 @@ h3 {
   border: 0;
 }
 
-/* Split-the-bill (M3·P3.3a): purposeful state motion on the mode toggle + assignment avatars —
-   a soft on/off fade + a press "thunk" so the assign tap registers with weight (RUBRIC #2/#5). */
-.mms-seg-btn {
-  transition:
-    background var(--dur-base) var(--ease-out),
-    color var(--dur-base) var(--ease-out);
-}
+/* Split-the-bill (M3·P3.3a): a press "thunk" on the assignment avatars so the assign tap registers with
+   weight (RUBRIC #2/#5). The mode toggle now uses the shared .checkout-pill segmented language. */
 .mms-aav {
   transition:
     opacity var(--dur-base) var(--ease-out),
@@ -264,7 +259,6 @@ h3 {
   transform: scale(0.92);
 }
 @media (prefers-reduced-motion: reduce) {
-  .mms-seg-btn,
   .mms-aav {
     transition: none;
   }
@@ -1396,16 +1390,16 @@ h3 {
 
 /* Reward — the "Use a reward" affordance keeps its coupon-dashed border but gains a hover-lift; the
    applied row gets a warm gold wash + a ONE-sweep shimmer (a small delight when a reward lands). */
+/* Hover = lift + shadow only. (An earlier bg-warm here was dead: both consumers set `background` inline,
+   which outranks a class rule — the promo-border trap again — and their resting fills differ anyway.) */
 .checkout-reward-add {
   transition:
     transform var(--dur-fast) var(--ease-out),
-    box-shadow var(--dur-base) var(--ease-out),
-    background var(--dur-base) var(--ease-out);
+    box-shadow var(--dur-base) var(--ease-out);
 }
 .checkout-reward-add:not(:disabled):hover {
   transform: translateY(-1px);
   box-shadow: var(--sh-lift);
-  background: color-mix(in oklab, var(--ac) 10%, var(--cd));
 }
 .checkout-reward-applied {
   position: relative;
