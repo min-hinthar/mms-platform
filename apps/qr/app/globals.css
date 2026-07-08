@@ -1350,6 +1350,128 @@ h3 {
   margin: 0;
 }
 
+/* ── Checkout-surface cohesion — extend the pill/sheen/lift/glow language to the line-item cards, the
+   receipt slip, the promo + reward affordances, and the split/settlement board. Presentation only;
+   transform/opacity/box-shadow/gradient, tokens only, no blur/backdrop-filter, reduced-motion off-
+   switches below. Keyframes reused: `checkoutShine` (defined with the CTA above). */
+
+/* Line-item cards — a soft shadow-DEEPEN on hover (no translate: the stepper + destination pills live
+   INSIDE the card, and lifting it would slide those CTAs under the cursor — the menu-tilt lesson). */
+.checkout-line {
+  transition:
+    box-shadow var(--dur-base) var(--ease-out),
+    border-color var(--dur-base) var(--ease-out);
+}
+.checkout-line:hover {
+  border-color: color-mix(in oklab, var(--ac) 30%, var(--bd));
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-lift);
+}
+
+/* Receipt slip — a dotted leader from each breakdown label to its amount (the iconic receipt cue), drawn
+   by a flex spacer between <dt> and <dd>. Decorative (aria-hidden); the dt/dd pairing carries the value. */
+.checkout-leader {
+  flex: 1;
+  align-self: end;
+  min-width: 16px;
+  margin: 0 8px 5px;
+  border-bottom: 1.5px dotted color-mix(in oklab, var(--bd) 85%, transparent);
+}
+
+/* Promo input — a calm resting field that blooms an accent focus ring (matches the global focus-visible).
+   The border lives HERE (not inline) so :focus-visible can recolor it — an inline border would outrank it. */
+.checkout-promo-input {
+  border: 1px solid var(--bd);
+  box-shadow: inset 0 1px 2px color-mix(in oklab, var(--scrim) 12%, transparent);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out);
+}
+/* Keep the global :focus-visible outline (the load-bearing focus indicator) — only warm the border to
+   accent as an enhancement, so we never weaken the visible focus ring. */
+.checkout-promo-input:focus-visible {
+  border-color: var(--ac);
+}
+
+/* Reward — the "Use a reward" affordance keeps its coupon-dashed border but gains a hover-lift; the
+   applied row gets a warm gold wash + a ONE-sweep shimmer (a small delight when a reward lands). */
+.checkout-reward-add {
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out),
+    background var(--dur-base) var(--ease-out);
+}
+.checkout-reward-add:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: var(--sh-lift);
+  background: color-mix(in oklab, var(--ac) 10%, var(--cd));
+}
+.checkout-reward-applied {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--gold) 14%, var(--cd)),
+    color-mix(in oklab, var(--gold) 7%, var(--cd))
+  );
+  border: 1px solid color-mix(in oklab, var(--gold) 40%, var(--bd));
+  box-shadow: inset 0 1px 0 var(--sheen);
+}
+.checkout-reward-applied::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(105deg, transparent 34%, var(--sheen) 50%, transparent 66%);
+  transform: translateX(-120%);
+  animation: checkoutShine 0.9s var(--ease-out) 0.05s;
+}
+
+/* Settlement progress — a slim token-pure bar that fills as shares are authorized (REAL values only —
+   paid/total). The width transition animates the growth; reduced-motion snaps it (below). */
+.settle-progress {
+  height: 8px;
+  border-radius: var(--r-full);
+  background: color-mix(in oklab, var(--sf) 70%, transparent);
+  box-shadow: inset 0 1px 2px color-mix(in oklab, var(--scrim) 18%, transparent);
+  overflow: hidden;
+}
+.settle-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--gold), var(--ac));
+  box-shadow: 0 0 10px -3px var(--glow-gold);
+  transition: width 360ms var(--ease-out);
+}
+/* A settled (authorized/captured) share row — a warm accent left-edge + lift marks it done. Defined
+   after `.card` so it wins the border/shadow without !important. */
+.settle-row-paid {
+  border-color: color-mix(in oklab, var(--ac) 40%, var(--bd));
+  box-shadow:
+    inset 3px 0 0 var(--ac),
+    inset 0 1px 0 var(--sheen),
+    var(--sh-lift);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .checkout-line,
+  .checkout-promo-input,
+  .checkout-reward-add,
+  .settle-progress-fill {
+    transition: none;
+  }
+  .checkout-reward-add:not(:disabled):hover {
+    transform: none;
+  }
+  .checkout-reward-applied::after {
+    animation: none;
+    content: none;
+  }
+}
+
 /* ── World-class checkout pills — the per-line destination (For here · To go · Make it now) + the
    settle-later tray. One layered, tactile vocabulary: a paper sheen lip + a subtle top-lit fill so a
    resting pill reads as a lifted chip; a lit gold-warmed clay cap for the selected segment; press-settle

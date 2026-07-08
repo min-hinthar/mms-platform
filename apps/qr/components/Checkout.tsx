@@ -470,7 +470,7 @@ export function Checkout({
                 return (
                   <li
                     key={i.id}
-                    className="card card-textured"
+                    className="card card-textured checkout-line"
                     style={{ padding: 12, display: "flex", gap: 10, alignItems: "center" }}
                   >
                     <div style={{ flex: 1 }}>
@@ -509,7 +509,12 @@ export function Checkout({
                           color: i.comped || i.lineState === "voided" ? "var(--t3)" : "inherit",
                         }}
                       >
-                        ${((i.unitPriceCents * i.qty) / 100).toFixed(2)}
+                        {/* Rolls as the optimistic qty changes the line price (presentation only — unit
+                          price is server-derived). Static for comped/voided lines (their qty can't change). */}
+                        <NumberFlow
+                          value={(i.unitPriceCents * i.qty) / 100}
+                          format={{ style: "currency", currency: "USD" }}
+                        />
                       </div>
                       {/* For-here / To-go (S4): food only, draft + editable. Grocery routing is fixed. The
                         server recomputes per-line tax (cold food flips taxability) — the toggle is optimistic
@@ -627,11 +632,11 @@ export function Checkout({
                 aria-label="Promo code"
                 autoCapitalize="characters"
                 maxLength={40}
+                className="checkout-promo-input"
                 style={{
                   flex: 1,
                   padding: "10px 12px",
-                  borderRadius: 10,
-                  border: "1px solid var(--bd)",
+                  borderRadius: 12,
                   background: "var(--cd)",
                   color: "var(--tx)",
                 }}
@@ -639,14 +644,8 @@ export function Checkout({
               <button
                 type="submit"
                 disabled={pending || !promo.trim()}
-                style={{
-                  minHeight: 44,
-                  padding: "0 16px",
-                  borderRadius: 10,
-                  border: "1px solid var(--bd)",
-                  background: "var(--sf)",
-                  fontWeight: 700,
-                }}
+                className="checkout-pill checkout-pill-accent"
+                style={{ minHeight: 44 }}
               >
                 Apply
               </button>
@@ -941,6 +940,9 @@ function Row({
       }}
     >
       <dt>{k}</dt>
+      {/* Dotted receipt leader from the label to the amount on breakdown rows (not the hero total, which
+        has its own hairline divider above it). Decorative — the dt/dd pairing carries the value. */}
+      {!strong && <span className="checkout-leader" aria-hidden="true" />}
       <dd
         style={{
           margin: 0,

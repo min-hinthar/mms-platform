@@ -83,12 +83,20 @@ export function RewardField({
 
   if (applied) {
     return (
-      <div style={appliedRow}>
-        <span style={{ fontSize: 14, color: "var(--tx)" }}>
+      // Warm gold-wash pill + a one-sweep shimmer on mount — a small delight when a reward lands. The
+      // content rides above the ::after shimmer on its own z-layer.
+      <div className="checkout-reward-applied" style={appliedRow}>
+        <span style={{ position: "relative", zIndex: 1, fontSize: 14, color: "var(--tx)" }}>
           <span aria-hidden>🎁 </span>Reward applied ·{" "}
           <strong>−{dollars(appliedRewardCents)}</strong>
         </span>
-        <button ref={removeBtnRef} type="button" onClick={remove} disabled={busy} style={linkBtn}>
+        <button
+          ref={removeBtnRef}
+          type="button"
+          onClick={remove}
+          disabled={busy}
+          style={{ ...linkBtn, position: "relative", zIndex: 1 }}
+        >
           {busy ? "…" : "Remove"}
         </button>
       </div>
@@ -99,7 +107,13 @@ export function RewardField({
   return (
     <div style={{ marginTop: 10 }}>
       {!open ? (
-        <button ref={useBtnRef} type="button" onClick={() => setOpen(true)} style={applyBtn}>
+        <button
+          ref={useBtnRef}
+          type="button"
+          onClick={() => setOpen(true)}
+          className="checkout-reward-add"
+          style={applyBtn}
+        >
           <span aria-hidden>🎁 </span>Use a reward ({coupons.length})
         </button>
       ) : (
@@ -117,6 +131,7 @@ export function RewardField({
                   type="button"
                   onClick={() => apply(c.code)}
                   disabled={busy}
+                  className="checkout-reward-add"
                   style={couponBtn}
                 >
                   <span style={{ fontWeight: 800 }}>{dollars(c.amountCents)} off</span>

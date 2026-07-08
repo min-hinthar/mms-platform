@@ -86,19 +86,22 @@ export function SplitSection({
         Split the bill
       </h2>
 
-      <div role="group" aria-label="Split mode" style={seg}>
-        {(["even", "by_person"] as const).map((m) => (
-          <button
-            key={m}
-            type="button"
-            className="mms-seg-btn"
-            aria-pressed={mode === m}
-            onClick={() => switchMode(m)}
-            style={segBtn(mode === m)}
-          >
-            {m === "even" ? "Evenly" : "By person"}
-          </button>
-        ))}
+      <div role="group" aria-label="Split mode" className="checkout-pill-row">
+        {(["even", "by_person"] as const).map((m) => {
+          const on = mode === m;
+          return (
+            <button
+              key={m}
+              type="button"
+              className={`checkout-pill${on ? " checkout-pill-on" : ""}`}
+              aria-pressed={on}
+              onClick={() => switchMode(m)}
+              style={{ flex: "1 1 0" }}
+            >
+              {m === "even" ? "Evenly" : "By person"}
+            </button>
+          );
+        })}
       </div>
 
       {mode === "by_person" && (
@@ -206,17 +209,12 @@ export function SplitSection({
           type="button"
           onClick={beginSettle}
           disabled={splitting}
+          className="checkout-pill checkout-pill-accent"
           style={{
             width: "100%",
             marginTop: 12,
             minHeight: 48,
-            borderRadius: 12,
-            border: "1.5px solid var(--ac)",
-            background: "color-mix(in oklab, var(--ac) 9%, var(--cd))",
-            color: "var(--ac-strong)",
-            fontWeight: 800,
             fontSize: 15,
-            cursor: splitting ? "default" : "pointer",
             opacity: splitting ? 0.7 : 1,
           }}
         >
@@ -231,23 +229,6 @@ export function SplitSection({
   );
 }
 
-const seg: CSSProperties = {
-  display: "flex",
-  gap: 0,
-  border: "1.5px solid var(--bd)",
-  borderRadius: 12,
-  overflow: "hidden",
-};
-const segBtn = (on: boolean): CSSProperties => ({
-  flex: 1,
-  minHeight: 44,
-  border: "none",
-  background: on ? "color-mix(in oklab, var(--ac) 10%, var(--cd))" : "var(--cd)",
-  color: on ? "var(--ac-strong)" : "var(--t2)",
-  fontWeight: 800,
-  fontSize: 14,
-  cursor: "pointer",
-});
 const aav = (on: boolean, seat: string): CSSProperties => ({
   width: 44,
   height: 44,

@@ -4,6 +4,16 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Changed — Checkout-surface cohesion: line cards, receipt, promo/reward, split board (2026-07-08)
+
+Extends the #105 pill/sheen/lift/glow craft language across the rest of the checkout surface. Presentation only — money/lifecycle logic untouched; token-pure, no blur/backdrop-filter (mobile GPU budget), 60fps, reduced-motion-gated.
+
+- **Line-item cards** — a soft shadow-*deepen* on hover (no translate, so the stepper + destination pills never slide under the cursor); the per-line price now **rolls** (`NumberFlow`) as the optimistic qty changes.
+- **Receipt slip** — a dotted **leader** runs from each breakdown label to its amount (the iconic receipt cue), drawn by a decorative flex spacer between `<dt>`/`<dd>`.
+- **Promo + reward** — the promo input blooms an accent border on focus (keeps the global focus ring); **Apply** becomes an accent pill; the reward affordances gain hover-lift, and the **reward-applied** row is a warm gold-wash pill with a one-sweep shimmer.
+- **Split** — the Evenly/By-person toggle reuses the `.checkout-pill` segmented language; "Split & pay separately" is an accent pill.
+- **Settlement board** — a live **progress bar** (gold→clay) fills as shares are authorized (real `paid/total` values); settled share rows get a warm accent left-edge; the "Paid" badge gains a gold halo.
+
 ### Fixed — Checkout `create-intent` 409 (cart-lock acquire 42703 on PostgREST 14) (2026-07-08)
 
 `POST /api/stripe/create-intent` returned **409 (Conflict)** on every attempt — checkout was fully broken

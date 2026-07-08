@@ -178,7 +178,7 @@ export function SettlementBoard({
         )
       ) : (
         <>
-          <p style={{ fontSize: 13, color: "var(--t2)", margin: "0 0 12px" }}>
+          <p style={{ fontSize: 13, color: "var(--t2)", margin: "0 0 8px" }}>
             {/* The paid figure ROLLS as shares land (live-board language); the frozen total stays static. */}
             <strong style={{ fontVariantNumeric: "tabular-nums" }}>
               <NumberFlow value={paidCents / 100} format={{ style: "currency", currency: "USD" }} />
@@ -186,6 +186,17 @@ export function SettlementBoard({
             of ${(totalCents / 100).toFixed(2)} authorized
             {allIn ? " — finishing up…" : ""}
           </p>
+
+          {/* Live progress — the gold→clay fill grows as shares are authorized (real values). Decorative
+            (aria-hidden): the line above is the accessible source of truth, so the SR isn't double-told. */}
+          <div className="settle-progress" aria-hidden="true" style={{ margin: "0 0 14px" }}>
+            <div
+              className="settle-progress-fill"
+              style={{
+                width: `${totalCents > 0 ? Math.round((paidCents / totalCents) * 100) : 0}%`,
+              }}
+            />
+          </div>
 
           <ul
             role="list"
@@ -195,15 +206,17 @@ export function SettlementBoard({
               const isMe = s.seat === ctx.mySeat;
               const name = isMe ? "You" : nameOf(s.seat);
               const canPay = isMe && (s.status === "pending" || s.status === "failed");
+              const settled = s.status === "authorized" || s.status === "captured";
               return (
                 // Textured + rise-in (keys are stable seats — status flips re-render, never re-animate).
-                // tabIndex -1 on the viewer's own row = the focus target when their pay form unmounts.
+                // A settled share gets a warm accent left-edge (.settle-row-paid). tabIndex -1 on the
+                // viewer's own row = the focus target when their pay form unmounts.
                 <li
                   key={s.seat}
                   ref={isMe ? myRowRef : undefined}
                   tabIndex={isMe ? -1 : undefined}
                   aria-label={isMe ? `Your share` : undefined}
-                  className="card card-textured mms-stagger"
+                  className={`card card-textured mms-stagger${settled ? " settle-row-paid" : ""}`}
                   style={{ padding: 12, animationDelay: `${Math.min(i, 6) * 45}ms` }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -277,6 +290,11 @@ function StatusBadge({ status }: { status: SettlementShare["status"] }) {
         color: s.color,
         background: s.bg,
         whiteSpace: "nowrap",
+        // A paper sheen lip on every badge; the captured/"Paid" badge also gets a warm gold halo.
+        boxShadow:
+          status === "captured"
+            ? "inset 0 1px 0 var(--sheen), 0 0 10px -3px var(--glow-gold)"
+            : "inset 0 1px 0 var(--sheen)",
       }}
     >
       {(status === "captured" || status === "authorized") && <span aria-hidden>✓ </span>}
