@@ -636,7 +636,7 @@ export function Checkout({
                 style={{
                   flex: 1,
                   padding: "10px 12px",
-                  borderRadius: 12,
+                  borderRadius: "var(--r-sm)",
                   background: "var(--cd)",
                   color: "var(--tx)",
                 }}
@@ -928,6 +928,10 @@ function Row({
 }) {
   return (
     <div
+      // Breakdown rows draw a dotted receipt leader (label ···· amount) via a dt::after pseudo-element —
+      // no extra child, so the <dl> content model stays valid. The hero total row (strong) has no leader
+      // (its own hairline divider sets it apart).
+      className={strong ? undefined : "checkout-leader-row"}
       style={{
         display: "flex",
         justifyContent: "space-between",
@@ -940,9 +944,6 @@ function Row({
       }}
     >
       <dt>{k}</dt>
-      {/* Dotted receipt leader from the label to the amount on breakdown rows (not the hero total, which
-        has its own hairline divider above it). Decorative — the dt/dd pairing carries the value. */}
-      {!strong && <span className="checkout-leader" aria-hidden="true" />}
       <dd
         style={{
           margin: 0,

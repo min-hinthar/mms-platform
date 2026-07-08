@@ -1364,10 +1364,17 @@ h3 {
 }
 
 /* Receipt slip — a dotted leader from each breakdown label to its amount (the iconic receipt cue), drawn
-   by a flex spacer between <dt> and <dd>. Decorative (aria-hidden); the dt/dd pairing carries the value. */
-.checkout-leader {
+   as a dt::after PSEUDO (not a real child) so the <dl> content model stays valid. The dt grows to fill and
+   its ::after draws the dots between the label and the amount; the hero total row carries no leader. */
+.checkout-leader-row dt {
+  display: flex;
+  align-items: baseline;
   flex: 1;
-  align-self: end;
+  min-width: 0;
+}
+.checkout-leader-row dt::after {
+  content: "";
+  flex: 1;
   min-width: 16px;
   margin: 0 8px 5px;
   border-bottom: 1.5px dotted color-mix(in oklab, var(--bd) 85%, transparent);
