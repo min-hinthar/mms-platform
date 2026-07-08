@@ -4,6 +4,10 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed — Account upgrade: graceful `identity_already_exists` on Google link (2026-07-08)
+
+When a diner tapped "Continue with Google" on `/account` and picked a Google account **already linked to a different Morning Star account**, `supa.auth.linkIdentity` bounced back to `/account?error_code=identity_already_exists…` with a `422` on `/auth/v1/user` — and nothing read that callback error, so the diner saw a raw error URL and a dead end. `AccountUpgrade` now reads the error from the query (via `useSearchParams`, derived — not a `setState`-in-effect), shows an honest message, cleans the URL (`replaceState`), and switches the Google button to a **sign-in recovery** (`signInWithOAuth`) so they reach their existing account and its saved rewards instead of re-attempting a link that would fail the same way.
+
 ### Changed — Checkout-surface cohesion: line cards, receipt, promo/reward, split board (2026-07-08)
 
 Extends the #105 pill/sheen/lift/glow craft language across the rest of the checkout surface. Presentation only — money/lifecycle logic untouched; token-pure, no blur/backdrop-filter (mobile GPU budget), 60fps, reduced-motion-gated.
