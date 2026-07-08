@@ -148,7 +148,7 @@ export function AccountUpgrade() {
 
   return (
     <Card as="section" textured style={card} aria-labelledby="upgrade-h">
-      <p style={eyebrow}>
+      <p className="eyebrow" style={{ margin: "0 0 6px" }}>
         <span aria-hidden>✦ </span>Save your Stars
       </p>
       <h2 id="upgrade-h" style={h2}>
@@ -279,14 +279,6 @@ export function AccountUpgrade() {
 const card: CSSProperties = {
   padding: "var(--s5)",
 };
-const eyebrow: CSSProperties = {
-  margin: "0 0 4px",
-  fontSize: 11.5,
-  fontWeight: 800,
-  letterSpacing: "0.08em",
-  textTransform: "uppercase",
-  color: "var(--ac)",
-};
 const h2: CSSProperties = { margin: "0 0 6px", fontSize: 18, fontWeight: 800, color: "var(--tx)" };
 const sub: CSSProperties = {
   margin: "0 0 14px",
@@ -339,10 +331,9 @@ const googleBtn: CSSProperties = {
   fontSize: 15,
   cursor: "pointer",
 };
-// color/weight/size/underline/arrow come from `.nav-link`; this centers it full-width under the CTA.
+// color/weight/size/underline/arrow come from `.nav-link`; content-width so the underline hugs the text
+// (a full-width centered variant would stretch the wipe across the whole row) — left-aligns under the CTA.
 const textBtn: CSSProperties = {
-  width: "100%",
-  justifyContent: "center",
   marginTop: 4,
   border: "none",
   background: "transparent",

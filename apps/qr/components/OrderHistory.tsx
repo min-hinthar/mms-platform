@@ -54,10 +54,9 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
               <p style={{ margin: "3px 0 8px", fontSize: 12.5, color: "var(--t2)", lineHeight: 1.5 }}>
                 {summary || "—"}
               </p>
-              <span
-                className="history-badge"
-                aria-label={`Paid with ${TENDER_LABEL[o.tender] ?? o.tender}`}
-              >
+              {/* Visible text carries the meaning; the outer span is role=generic (aria-label would be
+                  dead there anyway), the glyph is decorative. */}
+              <span className="history-badge">
                 <span aria-hidden>{TENDER_ICON[o.tender] ?? "✓"}</span>
                 Paid · {TENDER_LABEL[o.tender] ?? o.tender}
               </span>

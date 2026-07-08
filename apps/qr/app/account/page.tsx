@@ -17,7 +17,7 @@ export default async function Account() {
   return (
     <main style={{ padding: 24, maxWidth: 480, margin: "0 auto" }}>
       <header className="account-masthead">
-        <p className="eyebrow">
+        <p className="eyebrow" style={{ margin: 0 }}>
           <span aria-hidden>✦ </span>Mandalay Morning Star
         </p>
         <h1 style={{ fontSize: 26, fontWeight: 900, margin: "2px 0 0", color: "var(--tx)" }}>
