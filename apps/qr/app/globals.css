@@ -1394,7 +1394,7 @@ h3 {
   cursor: default;
   opacity: 0.65;
 }
-/* Selected segment — a lit, lifted accent cap: SOLID --ac fill (keeps --oa cream text at ~5:1 AA — QR's
+/* Selected segment — a lit, lifted accent cap: SOLID --ac fill (keeps --oa cream text at ~4.8:1 AA — QR's
    --oa is cream, so a bright-gold tint UNDER the label would fail contrast, unlike the dark-ink menu tabs)
    with a sheen lip, an accent lift, and a warm gold HALO (a glow around the pill, never under the text).
    The bg/shadow transition makes the light-up feel animated when the toggle flips. */
@@ -1417,10 +1417,12 @@ h3 {
     0 0 18px -6px var(--glow-gold);
 }
 /* Accent-outline action pill (Make it now · Secure your tab) — a warm accent wash + accent text that
-   lifts + glows on hover, reading as an inviting-but-secondary action. */
+   lifts + glows on hover, reading as an inviting-but-secondary action. Text is --ac-STRONG (not --ac):
+   --ac on this tint is only ~4.25:1 in light (below AA), while --ac-strong clears ~5.5:1 — per the token
+   guidance "use *-strong for TEXT on those tints" (--ac-strong === --ac in dark, so a no-op there). */
 .checkout-pill-accent {
   border-color: color-mix(in oklab, var(--ac) 55%, var(--bd));
-  color: var(--ac);
+  color: var(--ac-strong);
   background: linear-gradient(
     180deg,
     color-mix(in oklab, var(--ac) 10%, var(--cd)),
@@ -1504,7 +1506,12 @@ h3 {
     transition: none;
   }
   .checkout-pill:not(:disabled):active,
-  .checkout-tip:not(:disabled):active {
+  .checkout-tip:not(:disabled):active,
+  .checkout-pill:not(:disabled):hover,
+  .checkout-pill-accent:not(:disabled):hover,
+  .checkout-tip:not(:disabled):hover,
+  .checkout-cta:not(:disabled):active,
+  .checkout-cta:not(:disabled):hover .checkout-cta-arrow {
     transform: none;
   }
   /* Kill the one-sweep CTA shine + the step-enter slide entirely under reduced motion. */
