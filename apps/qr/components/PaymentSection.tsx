@@ -107,15 +107,17 @@ function PayForm({
           minHeight: 50,
           borderRadius: 12,
           border: "none",
-          background: "var(--ac)",
-          color: "var(--oa)",
+          // bg/color come from .checkout-cta (gold-warmed gradient + sheen + one-sweep shine) — parity
+          // with the "Continue to payment" CTA. The label rides above the ::after sweep on its own layer.
           fontWeight: 800,
           fontSize: 16,
           cursor: !stripe || submitting ? "default" : "pointer",
           opacity: !stripe || submitting ? 0.7 : 1,
         }}
       >
-        {submitting ? "Processing…" : `Pay ${dollars}`}
+        <span style={{ position: "relative", zIndex: 1 }}>
+          {submitting ? "Processing…" : `Pay ${dollars}`}
+        </span>
       </button>
 
       <button

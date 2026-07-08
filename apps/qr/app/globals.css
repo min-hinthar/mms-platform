@@ -1239,12 +1239,21 @@ h3 {
    so no first-render race + SSR-safe; see .claude/LEARNINGS.md). Stripe-iframe-safe: the step enter is a
    transform on the wrapper, which never reloads the embedded Payment Element. */
 
-/* Tip chips — press settle + a smooth tint/preview transition when the active rate changes. */
+/* Tip chips — a paper sheen lip + hover-lift + press-settle, cohesive with the checkout pill vocabulary
+   (the active tint/preview stays inline on the button). */
 .checkout-tip {
+  box-shadow: inset 0 1px 0 var(--sheen);
   transition:
     transform var(--dur-fast) var(--ease-out),
     border-color var(--dur-fast) var(--ease-out),
-    background var(--dur-fast) var(--ease-out);
+    background var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out);
+}
+.checkout-tip:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-lift);
 }
 .checkout-tip:not(:disabled):active {
   transform: scale(0.97);
@@ -1253,17 +1262,66 @@ h3 {
   transition: color var(--dur-fast) var(--ease-out);
 }
 
-/* Primary accent CTA (Continue to payment / Pay) — accent glow on hover, press settle. */
+/* Primary accent CTA (Continue to payment / Settle tab / Pay) — a gold-warmed clay gradient with a paper
+   sheen lip + accent lift, a hover glow, a ONE-sweep diagonal shine, and an arrow that nudges. bg/color
+   live HERE now (not inline) so the gradient + the ::after sweep can layer; the label rides above the
+   sweep on its own relative span (z-index 1). */
 .checkout-cta {
+  position: relative;
+  overflow: hidden;
+  /* --ac → --ac-strong (a DARKER clay at the bottom) for pressed-in depth — both stops keep --oa cream
+     text ≥AA (no gold under the label). The gold warmth rides as a hover HALO below, off the text. */
+  background: linear-gradient(180deg, var(--ac), var(--ac-strong));
+  color: var(--oa);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-lift);
   transition:
     transform var(--dur-fast) var(--ease-out),
     box-shadow var(--dur-base) var(--ease-out);
 }
 .checkout-cta:not(:disabled):hover {
-  box-shadow: var(--sh-glow);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-glow),
+    0 0 24px -10px var(--glow-gold);
 }
 .checkout-cta:not(:disabled):active {
-  transform: scale(0.97);
+  transform: scale(0.98);
+}
+.checkout-cta::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(105deg, transparent 32%, var(--sheen) 48%, transparent 64%);
+  transform: translateX(-120%);
+  opacity: 0;
+}
+.checkout-cta:not(:disabled):hover::after {
+  animation: checkoutShine 0.7s var(--ease-out);
+}
+@keyframes checkoutShine {
+  0% {
+    transform: translateX(-120%);
+    opacity: 0;
+  }
+  22% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(120%);
+    opacity: 0;
+  }
+}
+.checkout-cta-arrow {
+  display: inline-block;
+  margin-left: 8px;
+  transition: transform var(--dur-base) var(--ease-out);
+}
+.checkout-cta:not(:disabled):hover .checkout-cta-arrow {
+  transform: translateX(4px);
 }
 
 /* Ghost CTA (Edit order) — quiet hover + press. Base color lives HERE (not inline on the button) so the
@@ -1292,11 +1350,13 @@ h3 {
   margin: 0;
 }
 
-/* ── Checkout pills — the per-line destination (For here · To go · Make it now) + the settle-later tray
-   (Keep tab open · Secure your tab). One tactile pill vocabulary: full-radius, textured, press-settle,
-   accent glow on the emphasised ones. transform/opacity/box-shadow + color only; tokens not hex; a
-   reduced-motion off-switch below. Named `-on`/`-accent` (not BEM `--`) to match `.checkout-cta-ghost`. */
+/* ── World-class checkout pills — the per-line destination (For here · To go · Make it now) + the
+   settle-later tray. One layered, tactile vocabulary: a paper sheen lip + a subtle top-lit fill so a
+   resting pill reads as a lifted chip; a lit gold-warmed clay cap for the selected segment; press-settle
+   + hover-lift + accent glow. All transform/opacity/box-shadow/gradient — NO blur/backdrop-filter (mobile
+   GPU budget) — 60fps, tokens only, reduced-motion off-switch below. `-on`/`-accent` (not BEM `--`). */
 .checkout-pill {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1305,56 +1365,85 @@ h3 {
   padding: 0 16px;
   border-radius: var(--r-full);
   border: 1px solid var(--bd);
-  background: var(--cd);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--sf) 55%, var(--cd)), var(--cd));
   color: var(--t2);
   font-size: 13px;
   font-weight: 700;
   line-height: 1.1;
   cursor: pointer;
+  box-shadow: inset 0 1px 0 var(--sheen);
   transition:
     transform var(--dur-fast) var(--ease-out),
     border-color var(--dur-fast) var(--ease-out),
-    background var(--dur-fast) var(--ease-out),
+    background var(--dur-base) var(--ease-out),
     color var(--dur-fast) var(--ease-out),
     box-shadow var(--dur-base) var(--ease-out);
 }
 .checkout-pill:not(:disabled):hover {
   color: var(--tx);
-  border-color: var(--ac);
+  border-color: color-mix(in oklab, var(--ac) 55%, var(--bd));
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-lift);
 }
 .checkout-pill:not(:disabled):active {
   transform: scale(0.96);
 }
 .checkout-pill:disabled {
   cursor: default;
-  opacity: 0.7;
+  opacity: 0.65;
 }
-/* Selected segment — filled accent, legible on both themes (--oa is the on-accent text token). */
+/* Selected segment — a lit, lifted accent cap: SOLID --ac fill (keeps --oa cream text at ~5:1 AA — QR's
+   --oa is cream, so a bright-gold tint UNDER the label would fail contrast, unlike the dark-ink menu tabs)
+   with a sheen lip, an accent lift, and a warm gold HALO (a glow around the pill, never under the text).
+   The bg/shadow transition makes the light-up feel animated when the toggle flips. */
 .checkout-pill-on {
+  border-color: transparent;
   background: var(--ac);
-  border-color: var(--ac);
   color: var(--oa);
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-lift),
+    0 0 14px -6px var(--glow-gold);
 }
 .checkout-pill-on:not(:disabled):hover {
   color: var(--oa);
-  box-shadow: var(--sh-glow);
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-glow),
+    0 0 18px -6px var(--glow-gold);
 }
-/* Accent-outline action pill (Make it now · Secure your tab) — a faint accent wash + accent text draws
-   the eye without the full fill of a primary CTA. */
+/* Accent-outline action pill (Make it now · Secure your tab) — a warm accent wash + accent text that
+   lifts + glows on hover, reading as an inviting-but-secondary action. */
 .checkout-pill-accent {
-  border-color: var(--ac);
+  border-color: color-mix(in oklab, var(--ac) 55%, var(--bd));
   color: var(--ac);
-  background: color-mix(in oklab, var(--ac) 6%, var(--cd));
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--ac) 10%, var(--cd)),
+    color-mix(in oklab, var(--ac) 5%, var(--cd))
+  );
 }
 .checkout-pill-accent:not(:disabled):hover {
   color: var(--ac-strong);
-  box-shadow: var(--sh-glow);
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-glow);
 }
 
-/* Settle-later tray — the secondary tab actions grouped under a hairline "or settle later" divider,
-   subordinate to the primary pay CTA above (one hero action, the rest demoted to a pill tray). */
+/* Settle-later tray — a shallow recessed well (faint tint + inset hairline) holding the secondary tab
+   pills under an "or settle later" fading divider, subordinate to the primary pay CTA above. */
 .checkout-tray {
   margin-top: 16px;
+  padding: 12px;
+  border-radius: var(--r-card);
+  background: color-mix(in oklab, var(--sf) 50%, transparent);
+  border: 1px solid color-mix(in oklab, var(--bd) 65%, transparent);
+  box-shadow: inset 0 1px 2px color-mix(in oklab, var(--scrim) 22%, transparent);
 }
 .checkout-tray-label {
   display: flex;
@@ -1372,7 +1461,8 @@ h3 {
   content: "";
   flex: 1;
   height: 1px;
-  background: var(--bd);
+  /* A hairline that fades at both ends — a more refined rule than a flat 1px line. */
+  background: linear-gradient(90deg, transparent, var(--bd), transparent);
 }
 .checkout-pill-row {
   display: flex;
@@ -1384,7 +1474,7 @@ h3 {
   flex: 1 1 0;
 }
 .checkout-tray-hint {
-  margin: 8px 0 0;
+  margin: 10px 0 0;
   font-size: 11.5px;
   color: var(--t3);
   text-align: center;
@@ -1409,11 +1499,18 @@ h3 {
   .checkout-tip,
   .checkout-cta,
   .checkout-cta-ghost,
+  .checkout-cta-arrow,
   .checkout-pill {
     transition: none;
   }
-  .checkout-pill:not(:disabled):active {
+  .checkout-pill:not(:disabled):active,
+  .checkout-tip:not(:disabled):active {
     transform: none;
+  }
+  /* Kill the one-sweep CTA shine + the step-enter slide entirely under reduced motion. */
+  .checkout-cta::after {
+    animation: none;
+    content: none;
   }
   .checkout-step {
     animation: none;

@@ -754,19 +754,25 @@ export function Checkout({
                 minHeight: 50,
                 borderRadius: 12,
                 border: "none",
-                background: "var(--ac)",
-                color: "var(--oa)",
                 fontWeight: 800,
                 fontSize: 16,
                 cursor: loadingPay ? "default" : "pointer",
                 opacity: loadingPay ? 0.7 : 1,
               }}
             >
-              {loadingPay
-                ? "Starting checkout…"
-                : tabType !== "none"
-                  ? "Settle tab"
-                  : "Continue to payment"}
+              {/* The label rides above the ::after shine sweep on its own relative layer. */}
+              <span style={{ position: "relative", zIndex: 1 }}>
+                {loadingPay ? (
+                  "Starting checkout…"
+                ) : (
+                  <>
+                    {tabType !== "none" ? "Settle tab" : "Continue to payment"}
+                    <span aria-hidden className="checkout-cta-arrow">
+                      →
+                    </span>
+                  </>
+                )}
+              </span>
             </button>
 
             {/* Settle-later tray (S3.1/S3.2) — dine-in only, demoted below the primary pay CTA into a
