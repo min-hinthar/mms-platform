@@ -7,7 +7,7 @@ import {
   type CSSProperties,
   type FormEvent,
 } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { browserClient } from "@mms/db";
 import { ensureProfile } from "@/lib/rewards";
 import { Card } from "@mms/ui";
@@ -29,6 +29,26 @@ export function AccountUpgrade() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // OAuth callback error (M4 P4.1): linkIdentity redirects back to /account, and if the Google account the
+  // diner picked is already linked to a DIFFERENT Morning Star account, Supabase (PKCE → the error lands in
+  // the QUERY string, which is why useSearchParams can read it) bounces back with
+  // ?error_code=identity_already_exists + a 422 on /auth/v1/user — otherwise the diner would just see a raw
+  // error URL with no way forward. Derive it during render (NOT setState-in-effect: the React-Compiler lint
+  // rule forbids that, and deriving also avoids a hydration mismatch on this dynamically-rendered route).
+  // When already-linked, the Google button becomes a SIGN-IN recovery (linking again would fail the same
+  // way). Copy stays HONEST: signing in switches to the EXISTING account — it does not merge this device's
+  // unsaved Stars (no server-side merge exists), so it also points at the email path for keeping THOSE.
+  // a11y tradeoff: because this message is present from SSR/first paint it's INITIAL content of the
+  // role="status" region, so a SR won't auto-announce it (live regions announce changes) — it's still
+  // visible + discoverable on navigation; a change-based fix would require the forbidden setState-in-effect.
+  const searchParams = useSearchParams();
+  const alreadyLinked = searchParams.get("error_code") === "identity_already_exists";
+  const callbackError = searchParams.get("error_code")
+    ? alreadyLinked
+      ? "That Google account already has a Morning Star account. Sign in to use it, or add an email above to save this device’s rewards."
+      : "Couldn’t finish with Google — please try again."
+    : null;
+
   // Focus follows the step (WCAG 2.4.3): email→code swaps the form (the pressed submit unmounts), and
   // "Use a different email" swaps back — land focus in the new step's input. Skip the initial mount so
   // the card never steals focus from the page.
@@ -43,6 +63,16 @@ export function AccountUpgrade() {
     (phase === "code" ? codeRef.current : emailRef.current)?.focus({ preventScroll: true });
   }, [phase]);
   const [, startTransition] = useTransition();
+
+  // Once the callback error is read (above), strip the ?error…/#error… params (and the SDK's `sb=` hash)
+  // via replaceState — a side-effect only, no setState. Using replaceState (not router.replace) keeps the
+  // derived callbackError/alreadyLinked intact (Next's searchParams don't react to it), so the message +
+  // recovery stay visible while the URL is cleaned and a refresh can't replay the raw error.
+  useEffect(() => {
+    if (callbackError && typeof window !== "undefined") {
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }, [callbackError]);
 
   async function sendCode(e: FormEvent) {
     e.preventDefault();
@@ -98,6 +128,22 @@ export function AccountUpgrade() {
       setBusy(false);
     }
     // success → redirects to Google, returns to /account (server-side ensureProfile finalizes the profile).
+  }
+
+  async function signInGoogle() {
+    setBusy(true);
+    setError(null);
+    const supa = browserClient();
+    // Recovery for identity_already_exists: SIGN IN to the existing account (not linkIdentity, which would
+    // fail the same way) so the diner lands on their real account and its saved rewards.
+    const { error: e4 } = await supa.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: `${window.location.origin}/account` },
+    });
+    if (e4) {
+      setError(e4.message || "Couldn’t sign in with Google — try again.");
+      setBusy(false);
+    }
   }
 
   return (
@@ -167,12 +213,17 @@ export function AccountUpgrade() {
 
       <div style={divider} aria-hidden />
 
-      <button type="button" onClick={google} disabled={busy} style={googleBtn}>
-        Continue with Google
+      <button
+        type="button"
+        onClick={alreadyLinked ? signInGoogle : google}
+        disabled={busy}
+        style={googleBtn}
+      >
+        {alreadyLinked ? "Sign in with Google" : "Continue with Google"}
       </button>
 
       <p role="status" aria-atomic="true" style={errorLine}>
-        {error}
+        {error ?? callbackError}
       </p>
     </Card>
   );
