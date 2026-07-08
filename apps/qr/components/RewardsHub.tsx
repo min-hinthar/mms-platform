@@ -84,6 +84,7 @@ export function RewardsHub({ state }: { state: RewardsState }) {
             row is one labelled group + the visual label/reel are aria-hidden, so AT announces "Lifetime spend
             $X" once and NumberFlow's own role="img" doesn't leak a stray "image" node (matches StarsRing). */}
         <div
+          className="reward-spendstat"
           style={spendStat}
           role="group"
           aria-label={`Lifetime spend ${dollars(state.spendCents)}`}
@@ -196,7 +197,7 @@ export function RewardsHub({ state }: { state: RewardsState }) {
             style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 8 }}
           >
             {state.coupons.map((c) => (
-              <li key={c.code} style={coupon}>
+              <li key={c.code} className="reward-coupon">
                 <span style={{ fontSize: 18 }} aria-hidden>
                   🎁
                 </span>
@@ -234,6 +235,7 @@ const cardH: CSSProperties = {
   color: "var(--t2)",
 };
 const spendStat: CSSProperties = {
+  // bg (gold-warmed) + sheen lip come from `.reward-spendstat`; this is layout + border only.
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
@@ -242,7 +244,6 @@ const spendStat: CSSProperties = {
   padding: "10px 12px",
   borderRadius: 12,
   border: "1px solid var(--bd)",
-  background: "var(--cd)",
 };
 const ladder: CSSProperties = {
   display: "grid",
@@ -283,13 +284,4 @@ const benefitD: CSSProperties = {
   margin: "2px 0 0",
   fontSize: 12.5,
   color: "var(--t2)",
-};
-const coupon: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 10,
-  padding: "10px 12px",
-  borderRadius: 12,
-  border: "1px dashed var(--ac)",
-  background: "color-mix(in srgb, var(--ac) 7%, var(--cd))",
 };

@@ -8,13 +8,6 @@ import { getSplitOrderId } from "@/lib/order";
 // the moment the signature-verified webhook fulfills, no manual refresh). The kitchen lifecycle +
 // ETA arrive with S2's KDS / M2.2 — the same subscription carries them.
 const wrap = { padding: 24, maxWidth: 440, margin: "0 auto" } as const;
-// inline-block + vertical padding → ≥44px touch target (QA §A P0)
-const back = {
-  color: "var(--ac)",
-  fontWeight: 700,
-  display: "inline-block",
-  padding: "12px 0",
-} as const;
 
 type SearchParams = Promise<{
   redirect_status?: string;
@@ -56,13 +49,16 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
       return <OrderTracker paymentIntent={null} orderId={orderId} processing={false} justPaid />;
     return (
       <main style={wrap}>
-        <h1 style={{ fontSize: 28, margin: "8px 0" }}>Payment received</h1>
-        <p style={{ color: "var(--t2)" }}>
-          Your share is in — we’re finalizing the table’s order. Check back in a moment.
-        </p>
-        <Link href={`/track?cart=${encodeURIComponent(cart)}&paid=1`} style={back}>
-          Refresh
-        </Link>
+        <div className="card card-textured track-notice">
+          <div className="track-notice-medallion" aria-hidden>
+            🫖
+          </div>
+          <h1>Payment received</h1>
+          <p>Your share is in — we’re finalizing the table’s order. Check back in a moment.</p>
+          <Link href={`/track?cart=${encodeURIComponent(cart)}&paid=1`} className="nav-link-strong">
+            Refresh
+          </Link>
+        </div>
       </main>
     );
   }
@@ -80,17 +76,23 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
       );
     return (
       <main style={wrap}>
-        <h1 style={{ fontSize: 28, margin: "8px 0" }}>
-          {status === "processing" ? "Payment processing" : "Payment received"}
-        </h1>
-        <p style={{ color: "var(--t2)" }}>
-          {status === "processing"
-            ? "We’re still confirming your payment — check back shortly for your order."
-            : "Your order’s in — the kitchen has it. Check back anytime for updates."}
-        </p>
-        <Link href="/menu" style={back}>
-          Back to menu
-        </Link>
+        <div className="card card-textured track-notice">
+          <div className="track-notice-medallion" aria-hidden>
+            {status === "processing" ? "⏳" : "🧾"}
+          </div>
+          <h1>{status === "processing" ? "Payment processing" : "Payment received"}</h1>
+          <p>
+            {status === "processing"
+              ? "We’re still confirming your payment — check back shortly for your order."
+              : "Your order’s in — the kitchen has it. Check back anytime for updates."}
+          </p>
+          <Link href="/menu" className="nav-link">
+            <span aria-hidden className="nav-arrow nav-arrow-back">
+              ←
+            </span>{" "}
+            Back to menu
+          </Link>
+        </div>
       </main>
     );
   }
@@ -98,26 +100,38 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
   if (status)
     return (
       <main style={wrap}>
-        <h1 style={{ fontSize: 28 }}>Payment didn’t go through</h1>
-        <p style={{ color: "var(--t2)" }}>
-          No charge was made — you can try again from your order.
-        </p>
-        <Link href={cart ? `/cart?cart=${encodeURIComponent(cart)}` : "/menu"} style={back}>
-          <span aria-hidden>←</span> Back to your order
-        </Link>
+        <div className="card card-textured track-notice">
+          <div className="track-notice-medallion track-notice-medallion-warn" aria-hidden>
+            ↺
+          </div>
+          <h1>Payment didn’t go through</h1>
+          <p>No charge was made — you can try again from your order.</p>
+          <Link
+            href={cart ? `/cart?cart=${encodeURIComponent(cart)}` : "/menu"}
+            className="nav-link-strong"
+          >
+            <span aria-hidden>←</span> Back to your order
+          </Link>
+        </div>
       </main>
     );
 
   // Direct visit (no payment redirect) — stub until an order exists.
   return (
     <main style={wrap}>
-      <h1 style={{ fontSize: 28 }}>Track</h1>
-      <p style={{ color: "var(--t2)" }}>
-        Your order timeline and ETA will appear here once you’ve placed an order.
-      </p>
-      <Link href="/menu" style={back}>
-        Browse the menu
-      </Link>
+      <div className="card card-textured track-notice">
+        <div className="track-notice-medallion" aria-hidden>
+          🍵
+        </div>
+        <h1>Track your order</h1>
+        <p>Your order timeline and ETA will appear here once you’ve placed an order.</p>
+        <Link href="/menu" className="nav-link-strong">
+          Browse the menu{" "}
+          <span aria-hidden className="nav-arrow nav-arrow-fwd">
+            →
+          </span>
+        </Link>
+      </div>
     </main>
   );
 }
