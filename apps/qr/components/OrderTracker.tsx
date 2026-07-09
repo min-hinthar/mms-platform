@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { useOrderStatus } from "@/lib/useOrderStatus";
+import { useActiveOrder } from "./ActiveOrderProvider";
 import { formatSlotLong } from "@/lib/pickupTime";
 import { useAnimationPreference, useInView } from "@mms/ui";
 import { getRewardsProgress, type RewardsProgress } from "@/lib/rewards";
@@ -74,6 +75,17 @@ export function OrderTracker({
           ? 1
           : 0;
   const ready = arrived && togo === "ready";
+
+  // The persistent header/homepage pill no longer tracks the order while on /track (one realtime channel
+  // per route), so retire the resumable order here the moment IT reaches a terminal state — otherwise a
+  // completed order would briefly re-show as a "Confirming" pill on the next navigation before self-healing.
+  // clearOrder defers its setState (rAF) → lint-safe.
+  const { clearOrder } = useActiveOrder();
+  const orderDone = togo === "picked_up" || order?.status === "refunded" || order?.status === "failed";
+  useEffect(() => {
+    if (orderDone) clearOrder();
+  }, [orderDone, clearOrder]);
+
   // R8: the REAL loyalty earn for this order. `getRewardsProgress(orderId)` server-checks whether THIS order
   // is attributed to the viewer (`earned_by === auth.uid()`), so a split-tender share-payer who isn't the
   // stamped earner (only the host is) never sees a Star they didn't get; no session → null → no claim.
