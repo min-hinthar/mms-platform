@@ -240,7 +240,7 @@ export type OrderHistoryEntry = {
   lines: OrderHistoryLine[];
 };
 
-export async function getOrderHistory(limit = 20): Promise<OrderHistoryEntry[]> {
+export async function getOrderHistory(limit = 20): Promise<OrderHistoryEntry[] | null> {
   const supa = serverClient(await cookies());
   const {
     data: { user },
@@ -248,10 +248,10 @@ export async function getOrderHistory(limit = 20): Promise<OrderHistoryEntry[]> 
   if (!user) return [];
   const lim = Math.min(Math.max(Math.trunc(limit), 1), 50); // bound a server-action arg (own data only)
   const db = serviceClient();
-  // Deliberate read-only swallow ({ data } only): a transient read error degrades to "no orders" rather
-  // than stranding /account — the page stays renderable and the empty/"—" fallbacks read honestly. Every
-  // amount below is the SERVER-DERIVED figure stored at fulfillment; the UI only displays it verbatim.
-  const { data: orders } = await db
+  // Every amount below is the SERVER-DERIVED figure stored at fulfillment; the UI only displays it verbatim.
+  // Return NULL on a read FAILURE (vs [] for a genuinely empty history) so /account can show an honest
+  // "couldn't load" note instead of the affirmative "No orders yet" to a diner who actually has orders.
+  const { data: orders, error } = await db
     .from("qr_orders")
     .select(
       "id,created_at,total_cents,tender,pickup_slot,subtotal_cents,discount_cents,service_charge_cents,tax_cents,tip_cents",
@@ -260,6 +260,7 @@ export async function getOrderHistory(limit = 20): Promise<OrderHistoryEntry[]> 
     .eq("status", "paid")
     .order("created_at", { ascending: false })
     .limit(lim);
+  if (error) return null;
   if (!orders || orders.length === 0) return [];
 
   const ids = orders.map((o) => o.id);

@@ -2226,8 +2226,8 @@ h3 {
   height: 1px;
   background: linear-gradient(90deg, color-mix(in oklab, var(--gold) 45%, transparent), transparent);
 }
-/* The receipt card surface (reuses the .history-row look, minus padding — summary/detail pad themselves).
-   overflow:hidden clips the detail's top hairline + the card radius. */
+/* The receipt card surface — a top-lit fill + paper sheen lip so each order reads as a lifted receipt, minus
+   padding (summary/detail pad themselves). overflow:hidden clips the detail's top hairline + the card radius. */
 .history-card {
   border-radius: var(--r-sm);
   border: 1px solid var(--bd);

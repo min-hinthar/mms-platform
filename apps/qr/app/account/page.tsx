@@ -41,7 +41,13 @@ export default async function Account() {
             </div>
           )}
           <RewardsHub state={state} />
-          <OrderHistory entries={history} />
+          {history === null ? (
+            <p style={{ fontSize: 13, color: "var(--t2)", margin: "0 0 var(--s4)", padding: "0 2px" }}>
+              We couldn’t load your past orders just now — check back in a moment.
+            </p>
+          ) : (
+            <OrderHistory entries={history} />
+          )}
           {state.isUpgraded && (
             <p style={{ margin: "4px 2px 0", fontSize: 12.5, color: "var(--t3)" }}>
               Signed in as {state.email}. Your rewards are saved to your account.

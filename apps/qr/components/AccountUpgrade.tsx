@@ -89,7 +89,16 @@ export function AccountUpgrade() {
       const upgraded = session?.user?.is_anonymous === false;
       if ((event === "SIGNED_IN" || event === "USER_UPDATED") && upgraded && !refreshedRef.current) {
         refreshedRef.current = true;
-        void ensureProfile().then(() => startTransition(() => router.refresh()));
+        // Refresh even if ensureProfile rejects — the account is confirmed; the profile row is secondary
+        // (idempotently re-created on the next confirmed load) and must not block the hub from updating.
+        void (async () => {
+          try {
+            await ensureProfile();
+          } catch {
+            /* best-effort */
+          }
+          startTransition(() => router.refresh());
+        })();
       }
     });
     return () => subscription.unsubscribe();
