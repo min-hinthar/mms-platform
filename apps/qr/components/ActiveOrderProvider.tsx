@@ -37,6 +37,9 @@ type ActiveOrderCtx = {
   order: ActiveOrder | null;
   /** Drop the resumable order (the pill/card call this once its live status reads terminal). */
   clearOrder: () => void;
+  /** The menu publishes its server-minted open-cart id here (the menu URL carries no `?cart=`), so the
+   *  header's off-menu "back to cart" link works after a menu-only session — not just after a /cart visit. */
+  publishCart: (id: string) => void;
 };
 
 const KEY_MODE = "mms.qr.activeMode";
@@ -111,10 +114,12 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
         };
         try {
           localStorage.setItem(KEY_ORDER, JSON.stringify(captured));
+          localStorage.removeItem(KEY_CART); // the open cart is now a placed order
         } catch {
           /* private mode — the pill just won't persist across a reload */
         }
         nextOrder = captured;
+        nextCart = null; // drop the "back to cart" affordance — the cart became this order
       }
     }
     if (nextOrder === undefined && !hydrated.current) nextOrder = readStoredOrder();
@@ -138,5 +143,17 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
     requestAnimationFrame(() => setOrder(null));
   }, []);
 
-  return <Ctx.Provider value={{ mode, cartId, order, clearOrder }}>{children}</Ctx.Provider>;
+  const publishCart = useCallback((id: string) => {
+    if (!id) return;
+    try {
+      localStorage.setItem(KEY_CART, id);
+    } catch {
+      /* ignore */
+    }
+    requestAnimationFrame(() => setCartId(id)); // async setState (lint-safe), like clearOrder
+  }, []);
+
+  return (
+    <Ctx.Provider value={{ mode, cartId, order, clearOrder, publishCart }}>{children}</Ctx.Provider>
+  );
 }

@@ -1,5 +1,6 @@
 import { publicClient } from "@mms/db/server";
 import { TableCartProvider } from "@/components/TableCartProvider";
+import { CartPublisher } from "@/components/CartPublisher";
 import { MenuBrowser, type MenuItem } from "@/components/menu/MenuBrowser";
 import type { ModGroup } from "@/lib/menu/modifiers";
 
@@ -99,6 +100,8 @@ export default async function Menu({
 
   return (
     <TableCartProvider mode={mode} code={code} joinOnly={joinOnly}>
+      {/* Publishes the open-cart id to the wayfinding store so the header's "back to cart" works off-menu. */}
+      <CartPublisher />
       <MenuBrowser items={items} mode={mode} />
     </TableCartProvider>
   );

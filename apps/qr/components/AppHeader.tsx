@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useActiveOrder } from "./ActiveOrderProvider";
-import { useOrderStatus } from "@/lib/useOrderStatus";
+import { useActiveOrderStatus } from "./useActiveOrderStatus";
 import { getRewardsBadge, type RewardsBadge } from "@/lib/rewards";
 
 /**
@@ -13,19 +13,20 @@ import { getRewardsBadge, type RewardsBadge } from "@/lib/rewards";
  * early-returns on `/staff` (staff run their own console), mirroring AnonAuthGate's path-exclusion.
  *
  * Cart is a LINK, not a live counter: `useCart()`/TableCartProvider wrap only the menu subtree, so a
- * root-layout bar has no provider on `/cart`/`/track`/`/account`. It shows only off-menu when a cart id is
- * known (the menu's bottom CartBar owns the live count there) — no second source of truth to diverge.
+ * root-layout bar has no provider on `/cart`/`/track`/`/account`. The menu publishes its cart id to the store
+ * (CartPublisher), so the link shows off-menu after any menu session (the bottom CartBar owns the live count).
  *
- * Live status comes from `useOrderStatus` (single-pay key). Split-tender has no client-side PI, so its pill
- * links to `/track?cart=…&paid=1` (status resolves server-side there) rather than showing a live label.
+ * Live status (single-pay AND split-tender) comes from `useActiveOrderStatus`, which resolves the split order
+ * id server-side. The hook subscribes only where the pill can show (`track`) — not on `/`/`/track`, where the
+ * homepage card / OrderTracker already track — so there's one realtime channel per route.
  */
 export function AppHeader() {
   const pathname = usePathname();
   const hidden = pathname?.startsWith("/staff") ?? false;
 
-  const { order, cartId, clearOrder } = useActiveOrder();
-  // Single-pay orders carry a PI → live status; split-tender (paymentIntent null) no-ops the hook (generic pill).
-  const { order: tracked } = useOrderStatus(order?.paymentIntent ?? null, null);
+  const { cartId } = useActiveOrder();
+  const track = !hidden && pathname !== "/" && pathname !== "/track";
+  const { order, statusWord, ready, isDone } = useActiveOrderStatus(track);
 
   const [badge, setBadge] = useState<RewardsBadge | null>(null);
   const orderKey = order?.paymentIntent ?? order?.cartId ?? null;
@@ -44,39 +45,18 @@ export function AppHeader() {
     };
   }, [hidden, orderKey]);
 
-  // Terminal live states retire the resumable order (picked up / refunded / failed). clearOrder defers its
-  // setState (rAF), so calling it from this status effect stays lint-safe.
-  const isDone =
-    !!tracked &&
-    (tracked.togoStatus === "picked_up" ||
-      tracked.status === "refunded" ||
-      tracked.status === "failed");
-  useEffect(() => {
-    if (order && isDone) clearOrder();
-  }, [order, isDone, clearOrder]);
-
   if (hidden) return null;
 
   // The order pill is redundant on the homepage (the resume card lives there) and on /track (you're already
-  // watching it) — show it everywhere else while an order is live.
-  const showOrder = !!order && !isDone && pathname !== "/track" && pathname !== "/";
+  // watching it); `track` already excludes both, so show it everywhere else while an order is live.
+  const showOrder = !!order && !isDone && track;
   const onMenu = pathname === "/menu";
   const showCart = !!cartId && !order && !onMenu && pathname !== "/cart";
 
   const mode = order?.mode ?? "scango";
   const base = mode === "pickup" ? "Pickup" : "Your order";
-  const ready = tracked?.togoStatus === "ready";
-  // Split into base + status so the status word can be dropped on very narrow phones (the colored dot
-  // still conveys ready-ness) without truncating the whole label.
-  const statusWord = !order?.paymentIntent
-    ? null // split-tender: no client-side live status
-    : !tracked
-      ? "Confirming"
-      : ready
-        ? "Ready"
-        : tracked.togoStatus === "preparing"
-          ? "Preparing"
-          : "Placed";
+  // statusWord (base + status split) lets the status word drop on very narrow phones (the colored dot still
+  // conveys ready-ness) without truncating the whole label; it now covers split-tender too.
   const orderLabel = statusWord ? `${base} · ${statusWord}` : base;
   const orderHref = order?.paymentIntent
     ? `/track?payment_intent=${encodeURIComponent(order.paymentIntent)}&redirect_status=succeeded${order.cartId ? `&cart=${encodeURIComponent(order.cartId)}` : ""}`
