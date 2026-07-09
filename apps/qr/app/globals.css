@@ -2327,8 +2327,11 @@ h3 {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  min-height: var(--header-height);
-  /* The header owns the notch clearance (topmost element); the menu toolbar offsets below it. */
+  /* Fixed height = content + the notch inset, so the header's actual bottom EQUALS the menu toolbar's
+     `top` offset (--header-height + inset) — otherwise the 44px targets make the header shorter than the
+     56px offset and a ~11px band of content peeks through on notched devices. The header owns the notch
+     clearance (topmost element); the toolbar offsets below it. */
+  height: calc(var(--header-height) + env(safe-area-inset-top, 0px));
   padding: env(safe-area-inset-top, 0px) 14px 0;
   background: var(--pg);
   border-bottom: 1px solid var(--bd);

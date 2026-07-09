@@ -404,8 +404,9 @@ export function TableCartProvider({
           role="alert"
           style={{
             position: "fixed",
-            // clear the iOS notch/status-bar inset (position, not padding) — top-pinned alert
-            top: "calc(12px + env(safe-area-inset-top, 0px))",
+            // Pin BELOW the persistent AppHeader (which owns the notch inset) so the alert doesn't cover
+            // the brand/rewards — header height + inset + a small gap.
+            top: "calc(var(--header-height) + env(safe-area-inset-top, 0px) + 8px)",
             left: 12,
             right: 12,
             margin: "0 auto",
