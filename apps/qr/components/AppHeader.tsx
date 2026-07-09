@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { browserClient } from "@mms/db";
 import { useActiveOrder } from "./ActiveOrderProvider";
 import { useActiveOrderStatus } from "./useActiveOrderStatus";
 import { getRewardsBadge, type RewardsBadge } from "@/lib/rewards";
@@ -30,11 +31,12 @@ export function AppHeader() {
 
   const [badge, setBadge] = useState<RewardsBadge | null>(null);
   const orderKey = order?.paymentIntent ?? order?.cartId ?? null;
+  // Refetch on mount, a new order (orderKey), and route change — the Star may be stamped by the webhook
+  // AFTER the diner leaves /track, so a route change back to /menu should refresh the count. Async setState
+  // (in .then) → lint-safe; a transient failure just leaves the plain "Rewards" label.
   useEffect(() => {
     if (hidden) return;
     let active = true;
-    // Async server-action read → setState in the .then is async (lint-safe). Refetch when a new order lands
-    // (its Star may have incremented). A transient failure just leaves the plain "Rewards" label.
     getRewardsBadge()
       .then((b) => {
         if (active) setBadge(b);
@@ -43,7 +45,33 @@ export function AppHeader() {
     return () => {
       active = false;
     };
-  }, [hidden, orderKey]);
+  }, [hidden, orderKey, pathname]);
+
+  // React to AUTH changes (anon→account upgrade): the header is mounted once in the root layout and
+  // `router.refresh()` re-runs only Server Components — NOT this client effect — so without this the "Save
+  // your Stars" nudge + Star count stay stale after sign-in until a full reload. Subscribe to the
+  // browserClient() singleton's auth events (it receives the ones AccountUpgrade fires) and refetch, so
+  // `isUpgraded` flips true and the nudge disappears the instant the account confirms. Mirrors useAnonSession.
+  useEffect(() => {
+    if (hidden) return;
+    let active = true;
+    const supa = browserClient();
+    const {
+      data: { subscription },
+    } = supa.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_IN" || event === "USER_UPDATED" || event === "TOKEN_REFRESHED") {
+        getRewardsBadge()
+          .then((b) => {
+            if (active) setBadge(b);
+          })
+          .catch(() => {});
+      }
+    });
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, [hidden]);
 
   if (hidden) return null;
 

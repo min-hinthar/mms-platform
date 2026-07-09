@@ -2176,27 +2176,6 @@ h3 {
   color: var(--t2);
 }
 
-/* Past-orders slip — a top-lit fill + paper sheen lip so each order reads as a lifted receipt (not a flat
-   row); hover deepens the lift + warms the border. `.mms-stagger` still carries the mount rise + its RM gate. */
-.history-row {
-  padding: 12px 14px;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--bd);
-  background: linear-gradient(180deg, color-mix(in oklab, var(--sf) 55%, var(--cd)), var(--cd));
-  box-shadow: inset 0 1px 0 var(--sheen);
-  transition:
-    transform var(--dur-fast) var(--ease-out),
-    border-color var(--dur-base) var(--ease-out),
-    box-shadow var(--dur-base) var(--ease-out);
-}
-@media (hover: hover) {
-  .history-row:hover {
-    border-color: color-mix(in oklab, var(--ac) 28%, var(--bd));
-    box-shadow:
-      inset 0 1px 0 var(--sheen),
-      var(--sh-lift);
-  }
-}
 /* Tender badge — a small accent-tinted pill carrying the "✓ Paid · Card" cue (accent-STRONG text clears AA
    on the faint accent wash, per the token guidance — bare --ac on a tint is ~4.25:1). */
 .history-badge {
@@ -2211,6 +2190,143 @@ h3 {
   color: var(--ac-strong);
   background: color-mix(in oklab, var(--ac) 8%, var(--cd));
   border: 1px solid color-mix(in oklab, var(--ac) 22%, var(--bd));
+}
+/* Neutral fulfillment chip (To go / Grocery) — deliberately NOT accent-tinted so it reads distinct from the
+   tender badge. */
+.history-fulfill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: var(--r-full);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--t2);
+  background: color-mix(in oklab, var(--sf) 60%, var(--cd));
+  border: 1px solid var(--bd);
+}
+
+/* ── Past-orders receipt cards (elevated) — month-grouped, expandable native <details> receipts ────────── */
+/* Month divider — an editorial kicker + a gold-tick rule that fades to nothing (non-sticky: cleaner + lower
+   risk inside the 480px account column than a sticky header stuck within a rounded card). */
+.history-month {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 2px 8px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--t2);
+}
+.history-month::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, color-mix(in oklab, var(--gold) 45%, transparent), transparent);
+}
+/* The receipt card surface — a top-lit fill + paper sheen lip so each order reads as a lifted receipt, minus
+   padding (summary/detail pad themselves). overflow:hidden clips the detail's top hairline + the card radius. */
+.history-card {
+  border-radius: var(--r-sm);
+  border: 1px solid var(--bd);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--sf) 55%, var(--cd)), var(--cd));
+  box-shadow: inset 0 1px 0 var(--sheen);
+  overflow: hidden;
+  transition:
+    border-color var(--dur-base) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out);
+}
+@media (hover: hover) {
+  .history-card:hover {
+    border-color: color-mix(in oklab, var(--ac) 28%, var(--bd));
+    box-shadow:
+      inset 0 1px 0 var(--sheen),
+      var(--sh-lift);
+  }
+}
+.history-summary {
+  list-style: none;
+  cursor: pointer;
+  min-height: 44px;
+  padding: 12px 14px;
+  display: grid;
+  gap: 6px;
+}
+.history-summary::-webkit-details-marker {
+  display: none;
+}
+.history-chev {
+  flex: none;
+  color: var(--t2);
+  font-size: 18px;
+  line-height: 1;
+  transition: transform var(--dur-base) var(--ease-out);
+}
+.history-card[open] .history-chev {
+  transform: rotate(90deg);
+}
+.history-detail {
+  padding: 4px 14px 14px;
+  border-top: 1px solid var(--bd);
+}
+.history-card[open] .history-detail {
+  animation: mmsRise var(--dur-base) var(--ease-out) both;
+}
+.history-line {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 6px 0;
+  font-size: 13px;
+}
+.history-line + .history-line {
+  border-top: 1px solid color-mix(in oklab, var(--bd) 50%, transparent);
+}
+.history-line-qty {
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  font-size: 12px;
+  color: var(--ac-strong);
+}
+.history-line-mods {
+  display: block;
+  margin-top: 1px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--t3);
+}
+.history-totals {
+  margin: 10px 0 0;
+  display: grid;
+  gap: 4px;
+  font-size: 12.5px;
+}
+.history-totals-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.history-totals-row dt {
+  margin: 0;
+  color: var(--t2);
+}
+.history-totals-row dd {
+  margin: 0;
+  color: var(--tx);
+  font-variant-numeric: tabular-nums;
+}
+.history-totals-grand {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--bd);
+  font-weight: 800;
+}
+.history-totals-grand dt,
+.history-totals-grand dd {
+  color: var(--tx);
 }
 
 /* Reward wallet coupon — a gold-wash ticket with a punched notch on each edge + sheen lip. Static (no
@@ -2295,10 +2411,14 @@ h3 {
   .nav-link::after,
   .nav-arrow,
   .nav-link-strong,
-  .history-row,
+  .history-card,
+  .history-chev,
   .account-field,
   .account-oauth {
     transition: none;
+  }
+  .history-card[open] .history-detail {
+    animation: none;
   }
   .nav-link:hover::after {
     transform: scaleX(1); /* show the underline, just don't animate it in */
