@@ -26,26 +26,43 @@ export type ActiveOrderStatus = {
 export function useActiveOrderStatus(track: boolean): ActiveOrderStatus {
   const { order, clearOrder } = useActiveOrder();
 
-  // Resolve a split order id (no PI) so split orders can be tracked. Server action → setState in the .then is
-  // async (lint-safe). Only when tracking + it's a split order carrying a cart id.
-  const [splitOrderId, setSplitOrderId] = useState<string | null>(null);
+  // Resolve a split order id (no PI) so split orders can be tracked. The resolved id is stored WITH its cart
+  // id and used only when it matches the CURRENT order's cart (below) — so a stale id from a prior split
+  // order can't leak into the next order via useOrderStatus's orderId-precedence and wrongly retire it.
+  const [resolved, setResolved] = useState<{ cartId: string; id: string | null } | null>(null);
   const cartId = order?.cartId ?? null;
   const needSplit = track && !!order && !order.paymentIntent && !!cartId;
   useEffect(() => {
     if (!needSplit || !cartId) return;
     let active = true;
-    resolveSplitOrderId(cartId)
-      .then((id) => {
-        if (active) setSplitOrderId(id);
-      })
-      .catch(() => {});
+    let tries = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // Server action → setState in the .then is async (lint-safe). Bounded retry (~4×2s) covers the brief
+    // post-capture race where the order id isn't stamped yet (resolve returns null); it stops once found.
+    const attempt = () => {
+      tries += 1;
+      resolveSplitOrderId(cartId)
+        .then((id) => {
+          if (!active) return;
+          setResolved({ cartId, id });
+          if (id == null && tries < 4) timer = setTimeout(attempt, 2000);
+        })
+        .catch(() => {
+          if (active && tries < 4) timer = setTimeout(attempt, 2000);
+        });
+    };
+    attempt();
     return () => {
       active = false;
+      if (timer) clearTimeout(timer);
     };
   }, [needSplit, cartId]);
 
   const pi = track ? (order?.paymentIntent ?? null) : null;
-  const oid = track ? splitOrderId : null;
+  // Use the split id ONLY for the current split order (matching cart) — never let a stale id leak to a
+  // single-pay or a different order (orderId takes precedence over the PI in useOrderStatus).
+  const oid =
+    track && order && !order.paymentIntent && resolved?.cartId === cartId ? resolved.id : null;
   const { order: tracked } = useOrderStatus(pi, oid);
 
   const ready = tracked?.togoStatus === "ready";
