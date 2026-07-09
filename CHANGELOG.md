@@ -4,6 +4,13 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — Wayfinding follow-ups: cart-from-anywhere + live split-tender pill (2026-07-09)
+
+Closes the two v1 boundaries noted when the wayfinding header shipped. Client-nav + a read-only resolver only — no money/auth/RLS/order logic touched.
+
+- **Cart-from-anywhere** — a tiny `CartPublisher` mounted in the menu publishes `TableCartProvider`'s server-minted open-cart id to the wayfinding store (`publishCart`), so the header's off-menu "back to cart" link now works after *any* menu session, not just after a `/cart` visit. The stored cart id is cleared once an order is captured (it became a placed order).
+- **Live split-tender status** — a thin member-gated `resolveSplitOrderId` server action (wrapping the `server-only` `getSplitOrderId`) lets the header pill + homepage resume card resolve a split-tender order's id (which has no PaymentIntent) and show its **live** status ("Confirming → Preparing → Ready") instead of a generic label. Extracted a shared `useActiveOrderStatus` hook (store read + split resolve + `useOrderStatus` + terminal-state retire); its `track` gate also collapses the header/card/tracker to **one realtime channel per route** (retiring the earlier duplicate-subscription nit).
+
 ### Added — Persistent wayfinding header + active-order resume + cold-load session fix (2026-07-09)
 
 QR screens were islands connected by ad-hoc links that nearly all pointed one way (→ menu): `/account` was reachable from a single place (the post-payment tracker), `/track` only via the Stripe redirect (close the tab and the order was gone), and there was no persistent chrome. Adds the diner's wayfinding spine. Client-nav + presentation only — no money/auth/RLS/order logic touched; tokens only, no blur/backdrop-filter (mobile GPU budget), ≥44px targets, one live region per view, reduced-motion-gated, light + Night.
