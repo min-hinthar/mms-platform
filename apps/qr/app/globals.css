@@ -2122,6 +2122,16 @@ h3 {
 .nav-link-strong:not(:disabled):active {
   transform: scale(0.98);
 }
+/* The filled CTA's arrow nudges too (parity with the quiet nav-links, so every arrow affordance behaves
+   the same) — its direction follows -fwd/-back. */
+@media (hover: hover) {
+  .nav-link-strong:not(:disabled):hover .nav-arrow-fwd {
+    transform: translateX(3px);
+  }
+  .nav-link-strong:not(:disabled):hover .nav-arrow-back {
+    transform: translateX(-3px);
+  }
+}
 
 /* Track confirmation panel — the static /track states (payment received · processing · unsuccessful ·
    direct-visit stub) get the same lifted, textured slip the live tracker cards use, headed by an icon
@@ -2291,6 +2301,8 @@ h3 {
   }
   .nav-link:hover .nav-arrow-fwd,
   .nav-link:hover .nav-arrow-back,
+  .nav-link-strong:not(:disabled):hover .nav-arrow-fwd,
+  .nav-link-strong:not(:disabled):hover .nav-arrow-back,
   .nav-link-strong:not(:disabled):active,
   .account-oauth:not(:disabled):hover,
   .account-oauth:not(:disabled):active {

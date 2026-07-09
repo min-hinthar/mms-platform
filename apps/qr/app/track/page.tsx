@@ -110,7 +110,10 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
             href={cart ? `/cart?cart=${encodeURIComponent(cart)}` : "/menu"}
             className="nav-link-strong"
           >
-            <span aria-hidden>←</span> Back to your order
+            <span aria-hidden className="nav-arrow nav-arrow-back">
+              ←
+            </span>{" "}
+            Back to your order
           </Link>
         </div>
       </main>
