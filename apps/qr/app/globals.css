@@ -5,6 +5,9 @@
   --font-display: var(--font-fraunces), Georgia, serif;
   --font-body: var(--font-hanken), system-ui, sans-serif;
   --font-my: var(--font-padauk), sans-serif;
+  /* Persistent app-header content height (excl. the notch inset, which the header adds as padding-top).
+     The menu's sticky toolbar offsets its `top` by this so the two chrome layers never overlap. */
+  --header-height: 56px;
 }
 html,
 body {
@@ -594,15 +597,16 @@ h3 {
   }
 }
 
-/* Sticky toolbar shell (search + rail + chips) — pins under the title; opaque so rows scroll cleanly under.
-   Safe-area top padding: once the header scrolls away this is the topmost element and pins to the physical
-   viewport top under viewportFit:cover, so it must clear the notch/status bar on iOS/installed PWAs. */
+/* Sticky toolbar shell (search + rail + chips) — pins UNDER the persistent app-header (which owns the notch
+   clearance now), opaque so rows scroll cleanly under. `top` offsets by the header height + the notch inset
+   so the two chrome layers stack instead of overlapping; the header's own safe-area padding means this no
+   longer adds its own (no double-count). */
 .menu-toolbar {
   position: sticky;
-  top: 0;
+  top: calc(var(--header-height) + env(safe-area-inset-top, 0px));
   z-index: var(--z-toolbar);
   background: var(--pg);
-  padding: calc(8px + env(safe-area-inset-top, 0px)) 20px 10px;
+  padding: 8px 20px 10px;
   /* Read as a lifted layer over the rows scrolling under it: a hairline seam + a soft down-shadow.
      Both token-driven; no hardcoded color. */
   border-bottom: 1px solid var(--bd);
@@ -2307,5 +2311,249 @@ h3 {
   .account-oauth:not(:disabled):hover,
   .account-oauth:not(:disabled):active {
     transform: none;
+  }
+}
+
+/* ── Persistent app-header + homepage order-resume (M-nav wayfinding) ──────────────────────────────────
+   The diner's wayfinding spine: a slim sticky top bar (brand · contextual order pill · rewards · off-menu
+   cart) and a homepage "resume your order" card. Opaque surface (NO backdrop-filter — mobile GPU budget),
+   sits at --z-toolbar so sheets/scrims/toasts still paint above it, tokens only, ≥44px targets, light + Night,
+   reduced-motion off-switch at the end. */
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-toolbar);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: var(--header-height);
+  /* The header owns the notch clearance (topmost element); the menu toolbar offsets below it. */
+  padding: env(safe-area-inset-top, 0px) 14px 0;
+  background: var(--pg);
+  border-bottom: 1px solid var(--bd);
+}
+.app-header-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+  color: var(--tx);
+}
+.app-header-star {
+  color: var(--ac);
+}
+.app-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Contextual "your order" pill — a warm accent chip with a live-status dot. */
+.app-header-order {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 0 13px;
+  border-radius: var(--r-full);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--ac) 12%, var(--cd)), var(--cd));
+  border: 1px solid color-mix(in oklab, var(--ac) 42%, var(--bd));
+  color: var(--ac-strong); /* accent-STRONG for AA on the faint accent tint */
+  font-weight: 700;
+  font-size: 13px;
+  white-space: nowrap;
+  box-shadow: inset 0 1px 0 var(--sheen);
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out);
+}
+@media (hover: hover) {
+  .app-header-order:hover {
+    transform: translateY(-1px);
+    box-shadow:
+      inset 0 1px 0 var(--sheen),
+      var(--sh-lift);
+  }
+}
+.app-header-order:active {
+  transform: scale(0.97);
+}
+.app-header-order-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--ac);
+}
+/* Ready-to-collect — a success-green dot + a soft gold halo pull the eye. */
+.app-header-order-ready {
+  border-color: color-mix(in oklab, var(--ok) 45%, var(--bd));
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    0 0 16px -6px var(--glow-gold);
+}
+.app-header-order-ready .app-header-order-dot {
+  background: var(--ok);
+  animation: appHeaderDotPulse 1.8s var(--ease-out) infinite;
+}
+@keyframes appHeaderDotPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--ok) 55%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--ok) 0%, transparent);
+  }
+}
+/* Off-menu "back to cart" link — a quiet secondary. */
+.app-header-cart {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: var(--r-full);
+  color: var(--t2);
+  font-weight: 700;
+  font-size: 13px;
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+@media (hover: hover) {
+  .app-header-cart:hover {
+    color: var(--tx);
+    background: color-mix(in oklab, var(--tx) 5%, transparent);
+  }
+}
+/* Rewards affordance — accent ✦ + Star count (bare --ac as TEXT sits on --pg = 4.67:1 AA, never a tint). */
+.app-header-rewards {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: var(--r-full);
+  color: var(--ac);
+  font-weight: 800;
+  font-size: 13.5px;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+@media (hover: hover) {
+  .app-header-rewards:hover {
+    background: color-mix(in oklab, var(--ac) 8%, transparent);
+  }
+}
+/* Anon "save your rewards" nudge — a solid accent chip (cream --oa on solid --ac = AA). */
+.app-header-save {
+  margin-left: 2px;
+  padding: 2px 7px;
+  border-radius: var(--r-full);
+  background: var(--ac);
+  color: var(--oa);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+/* Homepage "resume your order" card — a lifted slip with an accent edge + medallion, leading the entry
+   screen back to a live order's tracker. */
+.home-resume {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: var(--s4);
+  padding: 14px 16px;
+  border-radius: var(--r-card);
+  background: var(--cd);
+  border: 1px solid color-mix(in oklab, var(--ac) 35%, var(--bd));
+  color: var(--tx);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh);
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out);
+}
+@media (hover: hover) {
+  .home-resume:hover {
+    transform: translateY(-1px);
+    box-shadow:
+      inset 0 1px 0 var(--sheen),
+      var(--sh-lift);
+  }
+}
+.home-resume:active {
+  transform: scale(0.99);
+}
+.home-resume-medallion {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  background: var(--grad);
+  box-shadow: inset 0 1px 0 var(--sheen);
+}
+.home-resume-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.home-resume-kicker {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ac);
+}
+.home-resume-status {
+  margin-top: 1px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--tx);
+}
+.home-resume-arrow {
+  flex: none;
+  color: var(--ac);
+  font-weight: 800;
+  transition: transform var(--dur-base) var(--ease-out);
+}
+@media (hover: hover) {
+  .home-resume:hover .home-resume-arrow {
+    transform: translateX(3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-header-order,
+  .app-header-cart,
+  .app-header-rewards,
+  .home-resume,
+  .home-resume-arrow {
+    transition: none;
+  }
+  .app-header-order:active,
+  .home-resume:active {
+    transform: none;
+  }
+  .app-header-order-ready .app-header-order-dot {
+    animation: none;
+  }
+  @media (hover: hover) {
+    .app-header-order:hover,
+    .home-resume:hover {
+      transform: none;
+    }
+    .home-resume:hover .home-resume-arrow {
+      transform: none;
+    }
   }
 }

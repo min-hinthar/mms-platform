@@ -1,6 +1,7 @@
 import { ModeCard } from "@/components/ModeCard";
 import { JoinTable } from "@/components/JoinTable";
 import { HomeHero } from "@/components/HomeHero";
+import { HomeResumeCard } from "@/components/HomeResumeCard";
 
 // Entry / mode picker. A scanned table QR deep-links to /menu?mode=dinein&t=<token>; the host's
 // invite code deep-links with &j=<code>. Guests without a sticker can also join via <JoinTable/>.
@@ -26,6 +27,8 @@ export default function Entry() {
       {/* Masked dot-texture backdrop — decorative, fixed, scoped behind main's content (no blur, mobile-safe). */}
       <div className="home-bg" aria-hidden />
       <HomeHero />
+      {/* When a live order exists, lead with a way back to its tracker (client-gated; renders nothing otherwise). */}
+      <HomeResumeCard />
       <nav
         aria-label="Order type"
         style={{ marginTop: "var(--s6)", display: "grid", gap: "var(--s3)" }}

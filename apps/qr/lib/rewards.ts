@@ -92,6 +92,36 @@ export async function getRewardsState(): Promise<RewardsState | null> {
   };
 }
 
+export type RewardsBadge = {
+  stars: number;
+  tierId: string;
+  /** A confirmed (non-anonymous) account — for the header's "save your rewards" anon nudge. */
+  isUpgraded: boolean;
+};
+
+/**
+ * The leanest rewards read — just the Star count + tier + anon/upgraded flag for the persistent header's
+ * rewards affordance (and its anon "save your rewards" nudge). One round trip: the SSR-verified uid (anon or
+ * upgraded — same uid) + the server-derived summary, service-role, uid-scoped, so a diner only reads their
+ * OWN count. Returns null when there's no session (behind AnonAuthGate there always is; the caller renders a
+ * plain "Rewards" link either way). Never trust a client-sent stars/tier value.
+ */
+export async function getRewardsBadge(): Promise<RewardsBadge | null> {
+  const supa = serverClient(await cookies());
+  const {
+    data: { user },
+  } = await supa.auth.getUser();
+  if (!user) return null;
+  const db = serviceClient();
+  const { data: summary } = await db.rpc("mms_rewards_summary", { p_user: user.id });
+  const s = (summary ?? {}) as { stars?: number; tier_id?: string };
+  return {
+    stars: Number(s.stars ?? 0),
+    tierId: s.tier_id ?? "new",
+    isUpgraded: user.is_anonymous === false,
+  };
+}
+
 export type RewardsProgress = {
   stars: number;
   milestoneStep: number;
