@@ -4,6 +4,16 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Changed — Account, sign-in, order-status & past-orders world-class pass (2026-07-08)
+
+Extends the checkout craft language (paper-sheen lip · accent lift · gold warmth · textured slips · quiet-nav vocabulary) to the account/rewards hub, the anon→account sign-in card, the `/track` order-status states, and post-order navigation — so the surfaces a diner reaches _after_ ordering match the checkout bar. Presentation only — auth/rewards/order logic untouched; token-pure (only the sanctioned Google brand mark uses literal color), no blur/backdrop-filter (mobile GPU budget), 60fps, every animation reduced-motion-gated.
+
+- **Account masthead** — an editorial `✦ Mandalay Morning Star` kicker + "Rewards & account" display title + a gold hairline that fades to nothing, above the (already-rich) reward cards; a quiet "← Back to menu" nav-link closes the page.
+- **Sign-in card** — primary buttons adopt the `.checkout-cta` gold-warmed clay gradient (+ sheen lip + one-sweep shine); a branded **Continue with Google** button carries the official Google "G" (matching `StaffLogin`); inputs become calm inset fields that bloom an accent focus border; a labeled fading-hairline divider separates the paths; the card is textured.
+- **Past orders** — each order is now a lifted "receipt" slip (top-lit fill + sheen lip + hover deepen) with a tender **badge** pill (`✓ Paid · Card`), tabular totals.
+- **Rewards wallet** — earned-reward coupons become **gold-wash tickets** with a punched notch on each edge; the lifetime-spend stat gains a sheen lip + faint gold warmth.
+- **Order status (`/track`)** — the static confirmation states (payment received · processing · unsuccessful · direct-visit stub) are now elevated textured panels headed by an icon **medallion** (a warm caution medallion for the failure state), instead of naked text; the live tracker's footer + all "back / view rewards / refresh" links adopt the shared **quiet nav-link** vocabulary (accent, ≥44px, underline-wipe + arrow nudge).
+
 ### Fixed — Account upgrade: graceful `identity_already_exists` on Google link (2026-07-08)
 
 When a diner tapped "Continue with Google" on `/account` and picked a Google account **already linked to a different Morning Star account**, `supa.auth.linkIdentity` bounced back to `/account?error_code=identity_already_exists…` with a `422` on `/auth/v1/user` — and nothing read that callback error, so the diner saw a raw error URL and a dead end. `AccountUpgrade` now reads the error from the query (via `useSearchParams`, derived — not a `setState`-in-effect), shows an honest message, cleans the URL (`replaceState`), and switches the Google button to a **sign-in recovery** (`signInWithOAuth`) so they reach their existing account and its saved rewards instead of re-attempting a link that would fail the same way.

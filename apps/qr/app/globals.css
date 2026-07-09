@@ -2020,3 +2020,292 @@ h3 {
     stroke-dashoffset: 0;
   }
 }
+
+/* ── Account · sign-in · order-status world-class pass ────────────────────────────────────────────────
+   Extends the checkout vocabulary (paper sheen lip · accent lift · gold warmth · textured slips) to the
+   /account hub masthead, the anon→account sign-in card, the past-orders list, and the /track confirmation
+   states + post-order navigation. Presentation only: transform/opacity/box-shadow/gradient, tokens (no raw
+   hex), NO blur/backdrop-filter (mobile GPU budget), 60fps; every animation has a reduced-motion off-switch
+   at the end of this block. Reuses `checkoutShine` (defined with the CTA above). `-strong`/`-warn` variants,
+   never BEM `--`. */
+
+/* Masthead — an editorial kicker + display title + a gold hairline that fades to nothing (a more refined
+   rule than a flat line), setting the premium tone above the rich reward cards. */
+.account-masthead {
+  margin-bottom: 20px;
+}
+.account-masthead-rule {
+  height: 1px;
+  margin-top: 14px;
+  background: linear-gradient(90deg, color-mix(in oklab, var(--gold) 55%, transparent), transparent);
+}
+
+/* Quiet nav link — the post-order / account navigation vocabulary (Back to menu · View your rewards ·
+   Browse the menu · Refresh). Accent text, ≥44px target, an underline that wipes in from the left, and an
+   arrow that nudges in its travel direction. Replaces the loose inline `color:var(--ac)` links. */
+.nav-link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 10px 2px;
+  color: var(--ac);
+  font-weight: 700;
+  font-size: 14px;
+  transition: color var(--dur-fast) var(--ease-out);
+}
+.nav-link::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  bottom: 7px;
+  height: 1.5px;
+  background: currentColor;
+  border-radius: var(--r-full);
+  transform: scaleX(0);
+  transform-origin: left;
+  opacity: 0.7;
+  transition: transform var(--dur-base) var(--ease-out);
+}
+@media (hover: hover) {
+  .nav-link:hover {
+    color: var(--ac-strong);
+  }
+  .nav-link:hover::after {
+    transform: scaleX(1);
+  }
+}
+.nav-arrow {
+  display: inline-block;
+  transition: transform var(--dur-base) var(--ease-out);
+}
+@media (hover: hover) {
+  .nav-link:hover .nav-arrow-fwd {
+    transform: translateX(3px);
+  }
+  .nav-link:hover .nav-arrow-back {
+    transform: translateX(-3px);
+  }
+}
+
+/* Primary nav pill — a filled accent action (the confirmation-panel CTA: Back to menu / Refresh). The CTA
+   gradient + sheen lip + accent lift, minus the one-sweep shine (a quieter, reusable sibling of .checkout-cta). */
+.nav-link-strong {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 22px;
+  border-radius: var(--r-full);
+  background: linear-gradient(180deg, var(--ac), var(--ac-strong));
+  color: var(--oa);
+  font-weight: 800;
+  font-size: 15px;
+  border: none;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-lift);
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out);
+}
+.nav-link-strong:not(:disabled):hover {
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-glow),
+    0 0 24px -10px var(--glow-gold);
+}
+.nav-link-strong:not(:disabled):active {
+  transform: scale(0.98);
+}
+/* The filled CTA's arrow nudges too (parity with the quiet nav-links, so every arrow affordance behaves
+   the same) — its direction follows -fwd/-back. */
+@media (hover: hover) {
+  .nav-link-strong:not(:disabled):hover .nav-arrow-fwd {
+    transform: translateX(3px);
+  }
+  .nav-link-strong:not(:disabled):hover .nav-arrow-back {
+    transform: translateX(-3px);
+  }
+}
+
+/* Track confirmation panel — the static /track states (payment received · processing · unsuccessful ·
+   direct-visit stub) get the same lifted, textured slip the live tracker cards use, headed by an icon
+   medallion, so a diner never lands on naked text. Pair with `.card .card-textured`. */
+.track-notice {
+  margin-top: 8px;
+  padding: 28px 22px 22px;
+  text-align: center;
+}
+.track-notice-medallion {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 14px;
+  border-radius: var(--r-card);
+  display: grid;
+  place-items: center;
+  font-size: 30px;
+  background: var(--grad);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-lift);
+}
+/* Failure/unsuccessful variant — a warm caution medallion instead of the celebratory gold gradient. */
+.track-notice-medallion-warn {
+  background: var(--warnb);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    0 2px 8px -1px color-mix(in oklab, var(--warn) 34%, transparent);
+}
+.track-notice h1 {
+  font-size: 24px;
+  margin: 0 0 6px;
+}
+.track-notice p {
+  margin: 0 0 16px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--t2);
+}
+
+/* Past-orders slip — a top-lit fill + paper sheen lip so each order reads as a lifted receipt (not a flat
+   row); hover deepens the lift + warms the border. `.mms-stagger` still carries the mount rise + its RM gate. */
+.history-row {
+  padding: 12px 14px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--bd);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--sf) 55%, var(--cd)), var(--cd));
+  box-shadow: inset 0 1px 0 var(--sheen);
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    border-color var(--dur-base) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out);
+}
+@media (hover: hover) {
+  .history-row:hover {
+    border-color: color-mix(in oklab, var(--ac) 28%, var(--bd));
+    box-shadow:
+      inset 0 1px 0 var(--sheen),
+      var(--sh-lift);
+  }
+}
+/* Tender badge — a small accent-tinted pill carrying the "✓ Paid · Card" cue (accent-STRONG text clears AA
+   on the faint accent wash, per the token guidance — bare --ac on a tint is ~4.25:1). */
+.history-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: var(--r-full);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--ac-strong);
+  background: color-mix(in oklab, var(--ac) 8%, var(--cd));
+  border: 1px solid color-mix(in oklab, var(--ac) 22%, var(--bd));
+}
+
+/* Reward wallet coupon — a gold-wash ticket with a punched notch on each edge + sheen lip. Static (no
+   hover-lift: wallet coupons aren't tap targets — a lift would be a false affordance; they're redeemed at
+   checkout). Replaces the flat dashed row. The notch circles are the card fill (`--cd`) biting the gold. */
+.reward-coupon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--r-sm);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--gold) 15%, var(--cd)),
+    color-mix(in oklab, var(--gold) 7%, var(--cd))
+  );
+  border: 1px dashed color-mix(in oklab, var(--gold) 48%, var(--bd));
+  box-shadow: inset 0 1px 0 var(--sheen);
+}
+.reward-coupon::before,
+.reward-coupon::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--cd);
+  transform: translateY(-50%);
+}
+.reward-coupon::before {
+  left: -7px;
+}
+.reward-coupon::after {
+  right: -7px;
+}
+
+/* Spend-stat — the lifetime-spend figure gains a sheen lip + faint gold-warmed fill (elevates it above the
+   plain inset well). Class owns the bg so the sheen layers cleanly. */
+.reward-spendstat {
+  background: linear-gradient(180deg, color-mix(in oklab, var(--gold) 6%, var(--cd)), var(--cd));
+  box-shadow: inset 0 1px 0 var(--sheen);
+}
+
+/* Sign-in card fields — a calm inset field that blooms the accent border on focus (keeps the global
+   :focus-visible ring; border lives here so focus can recolor it — an inline border would outrank it). */
+.account-field {
+  border: 1px solid var(--bd);
+  box-shadow: inset 0 1px 2px color-mix(in oklab, var(--scrim) 12%, transparent);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out);
+}
+.account-field:focus-visible {
+  border-color: var(--ac);
+}
+
+/* Continue-with-Google button — sheen lip + hover lift (border warms to accent on hover; border lives here
+   so hover can recolor it). Matches StaffLogin's Google affordance. */
+.account-oauth {
+  border: 1px solid var(--bd);
+  box-shadow: inset 0 1px 0 var(--sheen);
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out);
+}
+.account-oauth:not(:disabled):hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in oklab, var(--ac) 40%, var(--bd));
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-lift);
+}
+.account-oauth:not(:disabled):active {
+  transform: scale(0.98);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-link,
+  .nav-link::after,
+  .nav-arrow,
+  .nav-link-strong,
+  .history-row,
+  .account-field,
+  .account-oauth {
+    transition: none;
+  }
+  .nav-link:hover::after {
+    transform: scaleX(1); /* show the underline, just don't animate it in */
+  }
+  .nav-link:hover .nav-arrow-fwd,
+  .nav-link:hover .nav-arrow-back,
+  .nav-link-strong:not(:disabled):hover .nav-arrow-fwd,
+  .nav-link-strong:not(:disabled):hover .nav-arrow-back,
+  .nav-link-strong:not(:disabled):active,
+  .account-oauth:not(:disabled):hover,
+  .account-oauth:not(:disabled):active {
+    transform: none;
+  }
+}

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { getRewardsState, getOrderHistory, ensureProfile } from "@/lib/rewards";
 import { RewardsHub } from "@/components/RewardsHub";
 import { OrderHistory } from "@/components/OrderHistory";
@@ -15,12 +16,18 @@ export default async function Account() {
 
   return (
     <main style={{ padding: 24, maxWidth: 480, margin: "0 auto" }}>
-      <h1 style={{ fontSize: 24, fontWeight: 900, margin: "0 0 4px", color: "var(--tx)" }}>
-        Morning Star Rewards
-      </h1>
-      <p style={{ margin: "0 0 20px", fontSize: 14, color: "var(--t2)" }}>
-        Earn Stars as you order — climb the gem tiers and unlock Kyay-Zu-Par! rewards.
-      </p>
+      <header className="account-masthead">
+        <p className="eyebrow" style={{ margin: 0 }}>
+          <span aria-hidden>✦ </span>Mandalay Morning Star
+        </p>
+        <h1 style={{ fontSize: 26, fontWeight: 900, margin: "2px 0 0", color: "var(--tx)" }}>
+          Rewards &amp; account
+        </h1>
+        <p style={{ margin: "6px 0 0", fontSize: 14, color: "var(--t2)", lineHeight: 1.5 }}>
+          Earn Stars as you order — climb the gem tiers and unlock Kyay-Zu-Par! rewards.
+        </p>
+        <div className="account-masthead-rule" aria-hidden />
+      </header>
 
       {!state ? (
         <p role="alert" style={{ fontSize: 14, color: "var(--warn)" }}>
@@ -42,6 +49,15 @@ export default async function Account() {
           )}
         </>
       )}
+
+      <div style={{ marginTop: 8 }}>
+        <Link href="/menu" className="nav-link">
+          <span aria-hidden className="nav-arrow nav-arrow-back">
+            ←
+          </span>{" "}
+          Back to menu
+        </Link>
+      </div>
     </main>
   );
 }

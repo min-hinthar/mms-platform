@@ -4,6 +4,8 @@ import { Card } from "@mms/ui";
 
 const dollars = (c: number) => `$${(c / 100).toFixed(2)}`;
 const TENDER_LABEL: Record<string, string> = { card: "Card", cash: "Cash", split: "Split" };
+// Decorative tender glyph (aria-hidden) — the label carries the meaning for AT.
+const TENDER_ICON: Record<string, string> = { card: "💳", cash: "💵", split: "🧾" };
 
 /**
  * Order history (M4 P4.2) — the diner's own past orders, server-rendered from the uid-scoped read. Read-
@@ -24,11 +26,12 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
           const summary = o.lines.map((l) => `${l.qty}× ${l.name}`).join(" · ");
           return (
             // Rise-in on mount (server-rendered once — no re-animate concern); the stagger delay is
-            // capped so a long history doesn't crawl. `.mms-stagger` carries the reduced-motion switch.
+            // capped so a long history doesn't crawl. `.mms-stagger` carries the reduced-motion switch;
+            // `.history-row` adds the lifted-receipt sheen + hover deepen.
             <li
               key={o.id}
-              className="mms-stagger"
-              style={{ ...row, animationDelay: `${Math.min(i, 6) * 45}ms` }}
+              className="mms-stagger history-row"
+              style={{ animationDelay: `${Math.min(i, 6) * 45}ms` }}
             >
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                 <span style={{ fontWeight: 700, color: "var(--tx)" }}>
@@ -38,14 +41,25 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
                     year: "numeric",
                   })}
                 </span>
-                <span style={{ fontWeight: 800, color: "var(--tx)" }}>{dollars(o.totalCents)}</span>
+                <span
+                  style={{
+                    fontWeight: 800,
+                    color: "var(--tx)",
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  {dollars(o.totalCents)}
+                </span>
               </div>
-              <p style={{ margin: "3px 0 0", fontSize: 12.5, color: "var(--t2)", lineHeight: 1.5 }}>
+              <p style={{ margin: "3px 0 8px", fontSize: 12.5, color: "var(--t2)", lineHeight: 1.5 }}>
                 {summary || "—"}
               </p>
-              <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--t3)" }}>
+              {/* Visible text carries the meaning; the outer span is role=generic (aria-label would be
+                  dead there anyway), the glyph is decorative. */}
+              <span className="history-badge">
+                <span aria-hidden>{TENDER_ICON[o.tender] ?? "✓"}</span>
                 Paid · {TENDER_LABEL[o.tender] ?? o.tender}
-              </p>
+              </span>
             </li>
           );
         })}
@@ -66,10 +80,4 @@ const cardH: CSSProperties = {
   letterSpacing: 0.3,
   textTransform: "uppercase",
   color: "var(--t2)",
-};
-const row: CSSProperties = {
-  padding: "10px 12px",
-  borderRadius: 12,
-  border: "1px solid var(--bd)",
-  background: "var(--sf)",
 };
