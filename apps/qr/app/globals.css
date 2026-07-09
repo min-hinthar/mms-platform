@@ -2340,6 +2340,7 @@ h3 {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0; /* the wordmark may shrink/hide — never force horizontal page scroll */
   min-height: 44px;
   font-family: var(--font-display);
   font-weight: 800;
@@ -2348,18 +2349,26 @@ h3 {
   color: var(--tx);
 }
 .app-header-star {
+  flex: none;
   color: var(--ac);
+}
+.app-header-brand-word {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .app-header-actions {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0; /* let the order pill yield before the row overflows the viewport */
 }
 /* Contextual "your order" pill — a warm accent chip with a live-status dot. */
 .app-header-order {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  min-width: 0; /* shrinkable — the label truncates (below) before the page scrolls */
   min-height: 44px;
   padding: 0 13px;
   border-radius: var(--r-full);
@@ -2373,6 +2382,13 @@ h3 {
   transition:
     transform var(--dur-fast) var(--ease-out),
     box-shadow var(--dur-base) var(--ease-out);
+}
+/* Label truncates as a last-resort safety net (the breakpoints below handle the clean common cases). */
+.app-header-order-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 @media (hover: hover) {
   .app-header-order:hover {
@@ -2461,6 +2477,20 @@ h3 {
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.02em;
+}
+/* When a live-order pill is present, compact the header on small phones so the row never overflows into a
+   horizontal page scroll (no body overflow-x:hidden — that breaks sticky/dvh). Wordmark → mark-only under
+   420px; drop the status word under 360px (the colored dot still conveys ready-ness). The ellipsis on
+   .app-header-order-label is the final safety net if a label is still too wide. */
+@media (max-width: 420px) {
+  .app-header--has-order .app-header-brand-word {
+    display: none;
+  }
+}
+@media (max-width: 360px) {
+  .app-header--has-order .app-header-order-status {
+    display: none;
+  }
 }
 
 /* Homepage "resume your order" card — a lifted slip with an accent edge + medallion, leading the entry

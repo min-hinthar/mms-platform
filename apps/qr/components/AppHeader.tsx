@@ -66,15 +66,18 @@ export function AppHeader() {
   const mode = order?.mode ?? "scango";
   const base = mode === "pickup" ? "Pickup" : "Your order";
   const ready = tracked?.togoStatus === "ready";
-  const orderLabel = !order?.paymentIntent
-    ? base // split-tender: no client-side live status
+  // Split into base + status so the status word can be dropped on very narrow phones (the colored dot
+  // still conveys ready-ness) without truncating the whole label.
+  const statusWord = !order?.paymentIntent
+    ? null // split-tender: no client-side live status
     : !tracked
-      ? `${base} · Confirming`
+      ? "Confirming"
       : ready
-        ? `${base} · Ready`
+        ? "Ready"
         : tracked.togoStatus === "preparing"
-          ? `${base} · Preparing`
-          : `${base} · Placed`;
+          ? "Preparing"
+          : "Placed";
+  const orderLabel = statusWord ? `${base} · ${statusWord}` : base;
   const orderHref = order?.paymentIntent
     ? `/track?payment_intent=${encodeURIComponent(order.paymentIntent)}&redirect_status=succeeded${order.cartId ? `&cart=${encodeURIComponent(order.cartId)}` : ""}`
     : `/track?cart=${encodeURIComponent(order?.cartId ?? "")}&paid=1`;
@@ -85,12 +88,12 @@ export function AppHeader() {
     : "Rewards and account";
 
   return (
-    <header className="app-header">
+    <header className={`app-header${showOrder ? " app-header--has-order" : ""}`}>
       <Link href="/" className="app-header-brand" aria-label="Mandalay Morning Star — home">
         <span className="app-header-star" aria-hidden>
           ✦
         </span>
-        <span>Morning Star</span>
+        <span className="app-header-brand-word">Morning Star</span>
       </Link>
 
       <nav className="app-header-actions" aria-label="Account and order">
@@ -101,7 +104,10 @@ export function AppHeader() {
             aria-label={`${orderLabel} — view status`}
           >
             <span className="app-header-order-dot" aria-hidden />
-            <span>{orderLabel}</span>
+            <span className="app-header-order-label">
+              {base}
+              {statusWord && <span className="app-header-order-status"> · {statusWord}</span>}
+            </span>
           </Link>
         )}
         {showCart && (
