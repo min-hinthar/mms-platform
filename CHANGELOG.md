@@ -4,6 +4,15 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed — Cart actions feel instant (optimistic stepper, one-trip writes) (2026-07-09)
+
+The menu Add/stepper still felt laggy vs the delivery app: a decrement showed no feedback until the write returned, the whole stepper went **disabled** mid-write (rapid taps blocked), and `setQty` cost **two** server round-trips. All fixed UI-side — pricing stays server-authoritative (the client never re-prices; only the display count is optimistic, never the money total).
+
+- **One round-trip writes.** `setQty` now returns the fresh server-authoritative view (mirroring `addItem`), so `TableCartProvider.setItemQty` applies it directly instead of a second `getCartView` refresh — halving the decrement/remove latency.
+- **Instant, race-safe stepper.** The `-`/`+` now update the digit the instant they're tapped (an optimistic delta on **both** directions, not just add) and no longer disable during the in-flight write, so rapid taps stay live. Writes serialize through a per-button queue that threads each op's returned view to the next, so serialized `-` taps each peel a real, still-present line (no stale-read snap-back). The hard freeze (`locked`/`settling`/no-session) still disables the control — only the transient `busy` freeze is gone.
+- **Instant cart count both ways.** The provider's optimistic count went from add-only (`pendingAdds`) to a signed `pendingDelta`, so the `CartBar` count drops immediately on a remove too (clamped ≥ 0), reconciling to server truth as the view returns. The subtotal stays server-derived on purpose — a wrong-for-a-moment amount on a money surface is worse than a beat of latency.
+- Checkout's own optimistic layer (`applyOptimistic`/`qtyChain`) is untouched; the `setQty` return value is additive, so its `await setQtyAction(...)` call is unaffected.
+
 ### Fixed / Added — Rewards reflects sign-in + world-class past orders (2026-07-09)
 
 - **Rewards now updates on sign-in.** The header rewards badge fetched once on `[hidden, orderKey]` and never re-ran on an auth change — and `router.refresh()` re-runs only Server Components, not a client effect — so the "Save your Stars" nudge + Star count stayed stale after an anon→account upgrade until a full reload. The header now subscribes to `supabase.auth.onAuthStateChange` (`SIGNED_IN`/`USER_UPDATED`/`TOKEN_REFRESHED`) and refetches, and also refetches on route change (the webhook may stamp a Star after the diner leaves `/track`). Fixed the Google path's missing refresh too: `AccountUpgrade` now `router.refresh()`es once the OAuth PKCE exchange confirms a real account (`is_anonymous === false`), so `/account`'s RewardsHub isn't stale on the Google return either.

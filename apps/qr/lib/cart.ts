@@ -119,6 +119,11 @@ export async function setQty(cartItemId: string, qty: number) {
     .update({ updated_at: new Date().toISOString() })
     .eq("id", cartId);
   if (touchErr) console.error("[cart] updated_at touch failed (setQty)", touchErr.message);
+  // Return the fresh server-authoritative view so the caller re-syncs in ONE round-trip (mirrors
+  // addItem) instead of a separate getCartView afterward — the "cart actions feel delayed" fix. The
+  // amounts stay server-derived here; the client never re-prices. Callers that don't need the view
+  // (Checkout keeps its own optimistic layer) simply ignore it.
+  return getCartView(cartId);
 }
 
 /**
