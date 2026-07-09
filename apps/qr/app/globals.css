@@ -2176,27 +2176,6 @@ h3 {
   color: var(--t2);
 }
 
-/* Past-orders slip — a top-lit fill + paper sheen lip so each order reads as a lifted receipt (not a flat
-   row); hover deepens the lift + warms the border. `.mms-stagger` still carries the mount rise + its RM gate. */
-.history-row {
-  padding: 12px 14px;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--bd);
-  background: linear-gradient(180deg, color-mix(in oklab, var(--sf) 55%, var(--cd)), var(--cd));
-  box-shadow: inset 0 1px 0 var(--sheen);
-  transition:
-    transform var(--dur-fast) var(--ease-out),
-    border-color var(--dur-base) var(--ease-out),
-    box-shadow var(--dur-base) var(--ease-out);
-}
-@media (hover: hover) {
-  .history-row:hover {
-    border-color: color-mix(in oklab, var(--ac) 28%, var(--bd));
-    box-shadow:
-      inset 0 1px 0 var(--sheen),
-      var(--sh-lift);
-  }
-}
 /* Tender badge — a small accent-tinted pill carrying the "✓ Paid · Card" cue (accent-STRONG text clears AA
    on the faint accent wash, per the token guidance — bare --ac on a tint is ~4.25:1). */
 .history-badge {
@@ -2432,7 +2411,6 @@ h3 {
   .nav-link::after,
   .nav-arrow,
   .nav-link-strong,
-  .history-row,
   .history-card,
   .history-chev,
   .account-field,

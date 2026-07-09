@@ -75,7 +75,7 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
         Your orders
       </h2>
       {groups.map((g) => (
-        <section key={g.label} aria-label={g.label}>
+        <section key={g.label}>
           <h3 className="history-month">
             {g.label}
             <span aria-hidden style={{ color: "var(--t3)", fontWeight: 700 }}>
@@ -131,8 +131,11 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
                       <ul role="list" style={{ listStyle: "none", margin: 0, padding: 0 }}>
                         {o.lines.map((l, li) => (
                           <li key={li} className="history-line">
-                            <span className="history-line-qty" aria-hidden>
-                              {l.qty}×
+                            {/* Keep the qty NUMBER audible (the price is qty-multiplied — hiding it would
+                                read "Latte $9.00" for a 2× line); only the × glyph is decorative. */}
+                            <span className="history-line-qty">
+                              {l.qty}
+                              <span aria-hidden>×</span>
                             </span>
                             <span>
                               <span style={{ color: "var(--tx)" }}>{l.name}</span>
