@@ -4,6 +4,11 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed / Added — Rewards reflects sign-in + world-class past orders (2026-07-09)
+
+- **Rewards now updates on sign-in.** The header rewards badge fetched once on `[hidden, orderKey]` and never re-ran on an auth change — and `router.refresh()` re-runs only Server Components, not a client effect — so the "Save your Stars" nudge + Star count stayed stale after an anon→account upgrade until a full reload. The header now subscribes to `supabase.auth.onAuthStateChange` (`SIGNED_IN`/`USER_UPDATED`/`TOKEN_REFRESHED`) and refetches, and also refetches on route change (the webhook may stamp a Star after the diner leaves `/track`). Fixed the Google path's missing refresh too: `AccountUpgrade` now `router.refresh()`es once the OAuth PKCE exchange confirms a real account (`is_anonymous === false`), so `/account`'s RewardsHub isn't stale on the Google return either.
+- **Past orders → expandable receipts.** Rewrote `OrderHistory` (still a server component — native `<details>` for free disclosure a11y): orders are grouped by month, each an expandable receipt showing per-line qty · name · modifiers · price and the full server-derived breakdown (subtotal / discount / service / tax / tip / total), plus a `#ref` from the order id and a To-go/Grocery chip. Widened `getOrderHistory`'s `SELECT` (**zero migration** — every column already existed) and added a real "No orders yet → Browse the menu" empty state (the section no longer hides for new diners). Dates/months render in the restaurant's timezone so an evening order never drifts to the next day. Totals are presentation-only (rendered verbatim, never recomputed).
+
 ### Added — Wayfinding follow-ups: cart-from-anywhere + live split-tender pill (2026-07-09)
 
 Closes the two v1 boundaries noted when the wayfinding header shipped. Client-nav + a read-only resolver only — no money/auth/RLS/order logic touched.

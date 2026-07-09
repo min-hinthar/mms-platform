@@ -74,6 +74,27 @@ export function AccountUpgrade() {
     }
   }, [callbackError]);
 
+  // Refresh the Server Components once the account CONFIRMS. The Google OAuth return exchanges the PKCE code
+  // client-side AFTER the initial SSR (which saw anonymous cookies), so `/account`'s RewardsHub + this card
+  // stay stale until a manual reload — verify() refreshes the email path explicitly, but the Google path had
+  // no refresh. Subscribe to the auth confirm (SIGNED_IN on Google, USER_UPDATED on email) and refresh once
+  // (ref-guarded), gated on the session being a REAL account (is_anonymous === false) so the anonymous
+  // sign-in AnonAuthGate mints never trips it. ensureProfile() first so the Google upgrade's profile row exists.
+  const refreshedRef = useRef(false);
+  useEffect(() => {
+    const supa = browserClient();
+    const {
+      data: { subscription },
+    } = supa.auth.onAuthStateChange((event, session) => {
+      const upgraded = session?.user?.is_anonymous === false;
+      if ((event === "SIGNED_IN" || event === "USER_UPDATED") && upgraded && !refreshedRef.current) {
+        refreshedRef.current = true;
+        void ensureProfile().then(() => startTransition(() => router.refresh()));
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [router, startTransition]);
+
   async function sendCode(e: FormEvent) {
     e.preventDefault();
     if (!email.trim()) return;

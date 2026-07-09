@@ -213,12 +213,30 @@ export async function getMyRewardCoupons(): Promise<RewardCoupon[]> {
  * to the uid, so a diner only ever sees their OWN orders. Cash/staff-closed orders have no earner, so they
  * don't appear here (honest — "orders you placed", not the whole table's).
  */
-export type OrderHistoryLine = { name: string; qty: number };
+export type OrderHistoryLine = {
+  name: string;
+  qty: number;
+  unitPriceCents: number;
+  /** Chosen modifier OPTION labels (a string[] in the DB — see cart.ts); [] when none/legacy shape. */
+  mods: string[];
+  fulfillment: string; // 'dinein' | 'togo' | 'grocery'
+};
 export type OrderHistoryEntry = {
   id: string;
+  /** Short human reference derived from the order uuid tail (deterministic, no migration). */
+  code: string;
   createdAt: string;
   totalCents: number;
   tender: string;
+  pickupSlot: string | null;
+  /** Server-derived receipt breakdown (presentation-only — never recomputed client-side). */
+  breakdown: {
+    subtotalCents: number;
+    discountCents: number;
+    serviceChargeCents: number;
+    taxCents: number;
+    tipCents: number;
+  };
   lines: OrderHistoryLine[];
 };
 
@@ -231,10 +249,13 @@ export async function getOrderHistory(limit = 20): Promise<OrderHistoryEntry[]> 
   const lim = Math.min(Math.max(Math.trunc(limit), 1), 50); // bound a server-action arg (own data only)
   const db = serviceClient();
   // Deliberate read-only swallow ({ data } only): a transient read error degrades to "no orders" rather
-  // than stranding /account — the page stays renderable and the empty/"—" fallbacks read honestly.
+  // than stranding /account — the page stays renderable and the empty/"—" fallbacks read honestly. Every
+  // amount below is the SERVER-DERIVED figure stored at fulfillment; the UI only displays it verbatim.
   const { data: orders } = await db
     .from("qr_orders")
-    .select("id,created_at,total_cents,tender")
+    .select(
+      "id,created_at,total_cents,tender,pickup_slot,subtotal_cents,discount_cents,service_charge_cents,tax_cents,tip_cents",
+    )
     .eq("earned_by", user.id)
     .eq("status", "paid")
     .order("created_at", { ascending: false })
@@ -244,19 +265,38 @@ export async function getOrderHistory(limit = 20): Promise<OrderHistoryEntry[]> 
   const ids = orders.map((o) => o.id);
   const { data: items } = await db
     .from("qr_order_items")
-    .select("order_id,name,qty")
+    .select("order_id,name,qty,unit_price_cents,modifiers,fulfillment")
     .in("order_id", ids);
   const byOrder = new Map<string, OrderHistoryLine[]>();
   for (const it of items ?? []) {
     const arr = byOrder.get(it.order_id) ?? [];
-    arr.push({ name: it.name, qty: it.qty });
+    // modifiers is a string[] of option labels; guard defensively against a legacy/unexpected jsonb shape
+    // so a malformed row degrades to no mods rather than crashing the server render.
+    const raw = it.modifiers;
+    const mods = Array.isArray(raw) ? raw.filter((m): m is string => typeof m === "string") : [];
+    arr.push({
+      name: it.name,
+      qty: it.qty,
+      unitPriceCents: it.unit_price_cents ?? 0,
+      mods,
+      fulfillment: it.fulfillment ?? "dinein",
+    });
     byOrder.set(it.order_id, arr);
   }
   return orders.map((o) => ({
     id: o.id,
+    code: o.id.slice(-6).toUpperCase(),
     createdAt: o.created_at,
     totalCents: o.total_cents,
     tender: o.tender,
+    pickupSlot: o.pickup_slot ?? null,
+    breakdown: {
+      subtotalCents: o.subtotal_cents ?? 0,
+      discountCents: o.discount_cents ?? 0,
+      serviceChargeCents: o.service_charge_cents ?? 0,
+      taxCents: o.tax_cents ?? 0,
+      tipCents: o.tip_cents ?? 0,
+    },
     lines: byOrder.get(o.id) ?? [],
   }));
 }
