@@ -155,7 +155,9 @@ export function MenuBrowser({ items, mode }: { items: MenuItem[]; mode: string }
 
   return (
     <main style={{ maxWidth: 440, margin: "0 auto", paddingBottom: 96 }}>
-      <header style={{ padding: "calc(44px + env(safe-area-inset-top, 0px)) 20px 4px" }}>
+      {/* The persistent AppHeader now owns the notch clearance (it's sticky above this in-flow title), so
+          this header must NOT add env(safe-area-inset-top) again — that double-counted the inset. */}
+      <header style={{ padding: "44px 20px 4px" }}>
         <p className="eyebrow">
           {mode === "dinein" ? "Dine-in" : mode === "pickup" ? "Pickup" : "Scan & Go"}
         </p>

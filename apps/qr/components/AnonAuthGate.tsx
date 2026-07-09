@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { browserClient } from "@mms/db";
 import { getSessionKind } from "@/lib/rewards";
 
@@ -19,6 +19,7 @@ import { getSessionKind } from "@/lib/rewards";
  */
 export function AnonAuthGate() {
   const pathname = usePathname();
+  const router = useRouter();
   // In-flight guard: the effect re-runs on every pathname change, but the session is global (cookies)
   // and route-independent — so a swap/sign-in already running must not be started a second time (a
   // concurrent swap would see the not-yet-cleared staff session and mint a redundant orphan anon user).
@@ -56,11 +57,20 @@ export function AnonAuthGate() {
         // retry; the next route change also re-runs this guard (running resets in finally).
         let { error } = await supa.auth.signInAnonymously();
         if (error) ({ error } = await supa.auth.signInAnonymously());
-        if (error) console.error("[AnonAuthGate] anonymous sign-in failed", error.message);
+        if (error) {
+          console.error("[AnonAuthGate] anonymous sign-in failed", error.message);
+        } else {
+          // A session was just MINTED client-side, but the current route's server components already
+          // rendered with no session (e.g. a cold deep-link straight to /account → the "couldn't load your
+          // rewards" fallback). Re-render them now that auth.uid() resolves, so the diner never lands on the
+          // sessionless state and has to refresh by hand. Only fires on a fresh mint (the steady-state keep
+          // returns above), so no loop: the next getSession sees the anon session and keeps it.
+          router.refresh();
+        }
       } finally {
         running.current = false;
       }
     })();
-  }, [pathname]);
+  }, [pathname, router]);
   return null;
 }

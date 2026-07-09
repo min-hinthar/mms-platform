@@ -6,6 +6,8 @@ import { Fraunces, Hanken_Grotesk, Padauk } from "next/font/google";
 import { AnonAuthGate } from "@/components/AnonAuthGate";
 import { ThemeSync } from "@/components/ThemeSync";
 import { MotionProvider } from "@/components/MotionProvider";
+import { ActiveOrderProvider } from "@/components/ActiveOrderProvider";
+import { AppHeader } from "@/components/AppHeader";
 
 const fraunces = Fraunces({ subsets: ["latin"], variable: "--font-fraunces" });
 const hanken = Hanken_Grotesk({ subsets: ["latin"], variable: "--font-hanken" });
@@ -86,7 +88,14 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         />
         <ThemeSync />
         <AnonAuthGate />
-        <MotionProvider>{children}</MotionProvider>
+        <MotionProvider>
+          {/* Persistent wayfinding spine (M-nav): the store observes the URL for mode/cart/order, the header
+              reads it. Both are client components; AppHeader self-hides on /staff. */}
+          <ActiveOrderProvider>
+            <AppHeader />
+            {children}
+          </ActiveOrderProvider>
+        </MotionProvider>
       </body>
     </html>
   );

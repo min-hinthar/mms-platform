@@ -4,6 +4,17 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — Persistent wayfinding header + active-order resume + cold-load session fix (2026-07-09)
+
+QR screens were islands connected by ad-hoc links that nearly all pointed one way (→ menu): `/account` was reachable from a single place (the post-payment tracker), `/track` only via the Stripe redirect (close the tab and the order was gone), and there was no persistent chrome. Adds the diner's wayfinding spine. Client-nav + presentation only — no money/auth/RLS/order logic touched; tokens only, no blur/backdrop-filter (mobile GPU budget), ≥44px targets, one live region per view, reduced-motion-gated, light + Night.
+
+- **`AppHeader`** — a slim sticky top bar in the root layout (self-hides on `/staff`): brand→home · a contextual **"Your order · [status]"** pill→`/track` · a **rewards** affordance (✦ Star count + an anon **"Save your rewards"** nudge)→`/account` · an off-menu **"back to cart"** link. Cart is a link, not a live counter (the menu's bottom `CartBar` stays the single source of truth there); the order pill is deliberately not a live region (no double-announce with `/track`).
+- **`ActiveOrderProvider`** — a small root-layout client store (React Context) that observes the URL for `mode`/`cart` and captures the live order at the `/track` success landing, persisting to `localStorage`; a 4h TTL retires a resumable order (a pure dine-in order has no `picked_up` done-signal). Live status via `useOrderStatus`; split-tender resumes via `/track?cart=…&paid=1`.
+- **`HomeResumeCard`** — the homepage leads with a way back to a live order's tracker.
+- **`getRewardsBadge`** — a lean uid-scoped read (Stars + tier + `isUpgraded`) for the header, mirroring `getRewardsProgress`.
+- **Cold-load session fix** — `AnonAuthGate` now `router.refresh()`es after a _fresh_ anonymous mint, so a deep-link straight to `/account` re-renders with the session instead of flashing the "couldn't load your rewards" fallback.
+- **`--header-height` token** — the menu's sticky `.menu-toolbar` offsets below the header (no double-count of `env(safe-area-inset-top)`).
+
 ### Changed — Account, sign-in, order-status & past-orders world-class pass (2026-07-08)
 
 Extends the checkout craft language (paper-sheen lip · accent lift · gold warmth · textured slips · quiet-nav vocabulary) to the account/rewards hub, the anon→account sign-in card, the `/track` order-status states, and post-order navigation — so the surfaces a diner reaches _after_ ordering match the checkout bar. Presentation only — auth/rewards/order logic untouched; token-pure (only the sanctioned Google brand mark uses literal color), no blur/backdrop-filter (mobile GPU budget), 60fps, every animation reduced-motion-gated.
