@@ -4,7 +4,10 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
-### Fixed — Cart actions feel instant (optimistic stepper, one-trip writes) (2026-07-09)
+### Fixed — Account sign-in recovery for an existing email + past-orders card overflow (2026-07-10)
+
+- **"A user with this email address has already been registered" is no longer a dead end.** When the diner enters an email that already belongs to another Morning Star account, `updateUser` 422s `email_exists` — previously surfaced as a raw error with no way forward. `AccountUpgrade` now detects that (by error code, message fallback) and pivots to a **sign-in recovery** (mirroring the existing Google `identity_already_exists` path): the button becomes **"Send sign-in code"**, which `signInWithOtp({ shouldCreateUser: false })`s the existing account and verifies with OTP type `email` (vs the `email_change` upgrade). Copy stays honest — signing in switches to that account and won't transfer this device's unsaved Stars; editing the email clears the recovery to retry the normal upgrade. Announced through the card's single existing `role="status"` region (no second live region).
+- **Past-orders receipt cards no longer overflow on mobile.** The month `<ul>` and the `.history-summary` used implicit `auto` grid columns, so a long nowrap order-summary line sized the receipt card to its max-content (~462px) and blew the account column past the viewport (~117px horizontal overflow at 390px). Both grids now use `grid-template-columns: minmax(0, 1fr)`, so the column shrinks and the summary ellipsizes as intended (verified via a rendered harness: overflow 117px → 0, card 462px → fits).
 
 The menu Add/stepper still felt laggy vs the delivery app: a decrement showed no feedback until the write returned, the whole stepper went **disabled** mid-write (rapid taps blocked), and `setQty` cost **two** server round-trips. All fixed UI-side — pricing stays server-authoritative (the client never re-prices; only the display count is optimistic, never the money total).
 

@@ -2252,6 +2252,10 @@ h3 {
   min-height: 44px;
   padding: 12px 14px;
   display: grid;
+  /* minmax(0,1fr), not the implicit `auto`: the single column must shrink BELOW its content's
+     max-content so the nowrap order-summary line ellipsizes instead of blowing the receipt card
+     past its container (a ~117px mobile horizontal overflow at 390px otherwise). */
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
 }
 .history-summary::-webkit-details-marker {

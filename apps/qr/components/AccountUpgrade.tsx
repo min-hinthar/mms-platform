@@ -28,6 +28,12 @@ export function AccountUpgrade() {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The email the diner typed already belongs to a DIFFERENT account → `updateUser` can't attach it (it
+  // 422s `email_exists`). Instead of a dead-end raw error, pivot to a SIGN-IN recovery (mirrors the Google
+  // identity_already_exists path). `codeMode` then drives the verifyOtp type: an `email_change` upgrade
+  // keeps this anon uid (Stars carry over); an `email` sign-in switches to the existing account.
+  const [emailTaken, setEmailTaken] = useState(false);
+  const [codeMode, setCodeMode] = useState<"email_change" | "email">("email_change");
 
   // OAuth callback error (M4 P4.1): linkIdentity redirects back to /account, and if the Google account the
   // diner picked is already linked to a DIFFERENT Morning Star account, Supabase (PKCE → the error lands in
@@ -104,21 +110,51 @@ export function AccountUpgrade() {
     return () => subscription.unsubscribe();
   }, [router, startTransition]);
 
-  async function sendCode(e: FormEvent) {
+  async function submitEmail(e: FormEvent) {
     e.preventDefault();
-    if (!email.trim()) return;
+    const addr = email.trim();
+    if (!addr) return;
     setBusy(true);
     setError(null);
     const supa = browserClient();
-    // Attach the email to the SAME anonymous user — keeps the uid, so past orders + Stars carry over.
-    // Supabase sends a confirmation (6-digit code + link) to the address; is_anonymous flips on verify.
-    // (AnonAuthGate keeps the upgraded session via a server-side staff check — no client marker needed.)
-    const { error: e1 } = await supa.auth.updateUser({ email: email.trim() });
+
+    if (emailTaken) {
+      // RECOVERY: the address belongs to another account, so SIGN IN to it (updateUser would just
+      // re-fail email_exists). `shouldCreateUser: false` never silently mints a new account — it sends a
+      // code to the EXISTING one. verify() then uses type "email" (a sign-in, not an email-change).
+      const { error: e0 } = await supa.auth.signInWithOtp({
+        email: addr,
+        options: { shouldCreateUser: false },
+      });
+      if (e0) {
+        setError(e0.message || "Couldn’t send the sign-in code — try again.");
+        setBusy(false);
+        return;
+      }
+      setCodeMode("email");
+      setPhase("code");
+      setBusy(false);
+      return;
+    }
+
+    // UPGRADE: attach the email to the SAME anonymous user — keeps the uid, so past orders + Stars carry
+    // over. Supabase sends a confirmation (6-digit code + link); is_anonymous flips on verify. (AnonAuthGate
+    // keeps the upgraded session via a server-side staff check — no client marker needed.)
+    const { error: e1 } = await supa.auth.updateUser({ email: addr });
     if (e1) {
+      // The email already belongs to a DIFFERENT Morning Star account. Don't dead-end on the raw 422 —
+      // flip to the sign-in recovery (the diner re-submits to send a sign-in code). Match the typed code
+      // first, with a message fallback for SDK-version drift.
+      if (e1.code === "email_exists" || /already.*registered/i.test(e1.message)) {
+        setEmailTaken(true);
+        setBusy(false);
+        return;
+      }
       setError(e1.message || "Couldn’t send the code — try again.");
       setBusy(false);
       return;
     }
+    setCodeMode("email_change");
     setPhase("code");
     setBusy(false);
   }
@@ -129,10 +165,12 @@ export function AccountUpgrade() {
     setBusy(true);
     setError(null);
     const supa = browserClient();
+    // `email_change` finalizes the anon→account UPGRADE (keeps the uid + Stars); `email` completes the
+    // SIGN-IN to the pre-existing account (recovery). The verify token/flow is otherwise identical.
     const { error: e2 } = await supa.auth.verifyOtp({
       email: email.trim(),
       token: code.trim(),
-      type: "email_change",
+      type: codeMode,
     });
     if (e2) {
       setError(e2.message || "That code didn’t match. Check your email and try again.");
@@ -140,7 +178,7 @@ export function AccountUpgrade() {
       return;
     }
     await ensureProfile(); // create the profile row now the account is confirmed
-    startTransition(() => router.refresh()); // re-render the hub as upgraded — keeps the rewards
+    startTransition(() => router.refresh()); // re-render the hub as upgraded / signed-in — keeps the rewards
   }
 
   async function google() {
@@ -190,7 +228,7 @@ export function AccountUpgrade() {
       </p>
 
       {phase === "idle" ? (
-        <form onSubmit={sendCode}>
+        <form onSubmit={submitEmail}>
           <label htmlFor="up-email" style={label}>
             Email
           </label>
@@ -202,7 +240,13 @@ export function AccountUpgrade() {
             autoComplete="email"
             required
             value={email}
-            onChange={(ev) => setEmail(ev.target.value)}
+            onChange={(ev) => {
+              setEmail(ev.target.value);
+              // Editing the address clears the "already registered" recovery + any error, so a corrected
+              // or different email starts fresh on the normal upgrade path.
+              if (emailTaken) setEmailTaken(false);
+              if (error) setError(null);
+            }}
             placeholder="you@example.com"
             className="account-field"
             style={input}
@@ -214,7 +258,9 @@ export function AccountUpgrade() {
             className="checkout-cta"
             style={primaryBtn}
           >
-            <span style={ctaLabel}>{busy ? "Sending…" : "Email me a code"}</span>
+            <span style={ctaLabel}>
+              {busy ? "Sending…" : emailTaken ? "Send sign-in code" : "Email me a code"}
+            </span>
           </button>
         </form>
       ) : (
@@ -242,7 +288,13 @@ export function AccountUpgrade() {
             className="checkout-cta"
             style={primaryBtn}
           >
-            <span style={ctaLabel}>{busy ? "Confirming…" : "Confirm & save my rewards"}</span>
+            <span style={ctaLabel}>
+              {busy
+                ? "Confirming…"
+                : codeMode === "email"
+                  ? "Confirm & sign in"
+                  : "Confirm & save my rewards"}
+            </span>
           </button>
           <button
             type="button"
@@ -250,6 +302,8 @@ export function AccountUpgrade() {
               setPhase("idle");
               setCode("");
               setError(null);
+              setEmailTaken(false); // back to a clean upgrade attempt
+              setCodeMode("email_change");
             }}
             className="nav-link"
             style={textBtn}
@@ -298,8 +352,16 @@ export function AccountUpgrade() {
         {alreadyLinked ? "Sign in with Google" : "Continue with Google"}
       </button>
 
+      {/* SINGLE live region for the card — an error, the email-already-registered recovery, or the Google
+          callback recovery (mutually exclusive at any moment). Routing the recovery here (vs a second
+          region) keeps one live region per view; it announces on the emailTaken change (a real change to
+          this persistent node, unlike the SSR-initial callbackError). */}
       <p role="status" aria-atomic="true" style={errorLine}>
-        {error ?? callbackError}
+        {error ??
+          (emailTaken
+            ? "That email already has a Morning Star account — tap “Send sign-in code” to use it. Signing in won’t transfer this device’s unsaved Stars; enter a different email to keep them."
+            : null) ??
+          callbackError}
       </p>
     </Card>
   );
