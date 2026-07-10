@@ -2280,7 +2280,10 @@ h3 {
 }
 .history-line {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  /* minmax(0,1fr) on the name/mods column (not a bare 1fr) so a long unbreakable token can't push the
+     detail row — and thus the receipt card — wider than its container (defense-in-depth for the same
+     overflow class the summary grid fixes). */
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 10px;
   align-items: baseline;
   padding: 6px 0;

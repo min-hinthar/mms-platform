@@ -177,7 +177,14 @@ export function AccountUpgrade() {
       setBusy(false);
       return;
     }
-    await ensureProfile(); // create the profile row now the account is confirmed
+    // Create the profile row now the account is confirmed — but never let a throw here strand the button at
+    // "Confirming…": the account IS confirmed, the profile is secondary (idempotently re-created on the next
+    // confirmed load), so swallow + still refresh (mirrors the auth-listener path).
+    try {
+      await ensureProfile();
+    } catch {
+      /* best-effort — the confirmed session is what matters */
+    }
     startTransition(() => router.refresh()); // re-render the hub as upgraded / signed-in — keeps the rewards
   }
 
