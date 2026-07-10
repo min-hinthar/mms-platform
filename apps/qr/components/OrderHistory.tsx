@@ -198,7 +198,17 @@ const cardH: CSSProperties = {
   textTransform: "uppercase",
   color: "var(--t2)",
 };
-const list: CSSProperties = { listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 8 };
+// minmax(0,1fr) so the receipt cards can't be widened past this column by a long nowrap summary line
+// (the implicit `auto` grid track sizes to max-content → a mobile horizontal overflow). Pairs with the
+// same guard on `.history-summary`'s own grid.
+const list: CSSProperties = {
+  listStyle: "none",
+  margin: 0,
+  padding: 0,
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr)",
+  gap: 8,
+};
 const rowTop: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",

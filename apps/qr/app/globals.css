@@ -2252,6 +2252,10 @@ h3 {
   min-height: 44px;
   padding: 12px 14px;
   display: grid;
+  /* minmax(0,1fr), not the implicit `auto`: the single column must shrink BELOW its content's
+     max-content so the nowrap order-summary line ellipsizes instead of blowing the receipt card
+     past its container (a ~117px mobile horizontal overflow at 390px otherwise). */
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
 }
 .history-summary::-webkit-details-marker {
@@ -2276,7 +2280,10 @@ h3 {
 }
 .history-line {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  /* minmax(0,1fr) on the name/mods column (not a bare 1fr) so a long unbreakable token can't push the
+     detail row — and thus the receipt card — wider than its container (defense-in-depth for the same
+     overflow class the summary grid fixes). */
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 10px;
   align-items: baseline;
   padding: 6px 0;
