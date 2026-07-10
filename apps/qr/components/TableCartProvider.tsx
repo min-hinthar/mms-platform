@@ -32,15 +32,17 @@ type CartCtx = {
   count: number;
   /** Add an item to the cart. `modifierIds` (R6b item sheet) are modifier-OPTION ids only — the server
    *  (`priceItem`/`addItem`) re-derives every amount; the client never sends a price. Omitted ⇒ quick-add
-   *  with no modifiers (the inline menu AddButton path). Resolves `true` on a successful add, `false` if the
-   *  add was refused/recovered (so the item sheet can stay OPEN and keep the diner's modifier choices). */
-  add: (menuItemId: string, modifierIds?: string[]) => Promise<boolean>;
+   *  with no modifiers (the inline menu AddButton path). Resolves the fresh server-authoritative items on a
+   *  successful add (so the caller's serialized write-queue can thread a deterministic snapshot to its next
+   *  op), or `null` if the add was refused/recovered (the item sheet stays OPEN, keeping the diner's
+   *  modifier choices). A non-empty array and `null` are still truthy/falsy, so `if (await add(...))` holds. */
+  add: (menuItemId: string, modifierIds?: string[]) => Promise<CartItem[] | null>;
   /** Set a cart line's quantity (server-authoritative `setQty`; `qty<=0` removes). Used by the menu's
    *  inline quick-qty stepper (R5c) to decrement/remove the viewer's own line without leaving the menu.
    *  Re-syncs from the returned view; a refused write (locked/closed) recovers like `add`. `announce` (the
    *  caller's outcome string, e.g. "Removed Tea Leaf Salad") is flashed through the single live region so
    *  the decrement is announced symmetrically with the "+"/add path (WCAG 4.1.3). */
-  setItemQty: (cartItemId: string, qty: number, announce?: string) => Promise<void>;
+  setItemQty: (cartItemId: string, qty: number, announce?: string) => Promise<CartItem[]>;
   refresh: () => Promise<void>;
   /** Pickup mode only: the chosen slot (ISO instant) + a way to (re)open the picker. */
   pickupSlot: string | null;
@@ -154,21 +156,34 @@ export function TableCartProvider({
     [name, session],
   );
 
+  // Latest server-authoritative items in a ref (updated in an effect, not render) so an optimistic
+  // write can look up a line's current qty for the signed count delta — and the AddButton decrement
+  // queue can seed its first op — without a stale render closure.
+  const itemsRef = useRef<CartItem[]>([]);
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+
+  // One place to fan a fresh server view into the six pieces of cart state — keeps addItem/setQty/
+  // refresh in lockstep so a new field can never be applied in one path and forgotten in another.
+  const applyView = useCallback((v: Awaited<ReturnType<typeof getCartView>>) => {
+    setItems(v.items);
+    setTotals(v.totals);
+    setPickupSlot(v.pickupSlot);
+    setLocked(v.locked);
+    setLockedBy(v.lockedBy);
+    setSettling(v.settling);
+  }, []);
+
   const refresh = useCallback(async () => {
     if (!cartId) return;
     try {
-      const v = await getCartView(cartId);
-      setItems(v.items);
-      setTotals(v.totals);
-      setPickupSlot(v.pickupSlot);
-      setLocked(v.locked);
-      setLockedBy(v.lockedBy);
-      setSettling(v.settling);
+      applyView(await getCartView(cartId));
     } catch {
       // Cart no longer open (paid/closed) → assertCartMember 403. Swallow so a stale read after a
       // successful add can't surface as a false-negative "Couldn't add"; P1.3 redirects to a receipt.
     }
-  }, [cartId]);
+  }, [cartId, applyView]);
 
   // Initial load when the cart id resolves — setState lives in the `.then` callback (the allowed
   // pattern: sync React from an external system), with a cancel guard against an unmounted update.
@@ -203,7 +218,11 @@ export function TableCartProvider({
   // never the rolling total itself (the CartBar/total deliberately aren't aria-live, so SR users
   // don't hear the amount re-read on every tap). Server errors are redacted in prod → generic text.
   const [notice, setNotice] = useState<string | null>(null);
-  const [pendingAdds, setPendingAdds] = useState(0); // optimistic in-flight adds (instant count bump)
+  // Signed optimistic count delta for in-flight mutations (instant CartBar count in BOTH directions:
+  // an add is +1, a stepper decrement/lower is −N). Reconciled to 0 as each write's returned view
+  // re-derives the true count from `items`. The MONEY total stays server-derived — only the count is
+  // optimistic (a wrong-for-a-moment subtotal on a money surface is worse than a beat's latency).
+  const [pendingDelta, setPendingDelta] = useState(0);
 
   // All transactional feedback flows through ONE polite live region via `flash`, which keeps a SINGLE
   // clear-timer (cancels the prior one) so overlapping events — a guest joining, a peer's add, your own
@@ -285,36 +304,36 @@ export function TableCartProvider({
   useCartRealtime(cartId ?? "", session?.accessToken ?? "", isGroup, handleCartChange);
 
   const add = useCallback(
-    async (menuItemId: string, modifierIds: string[] = []): Promise<boolean> => {
-      if (!cartId) return false;
+    async (menuItemId: string, modifierIds: string[] = []): Promise<CartItem[] | null> => {
+      if (!cartId) return null;
       // Optimistic: bump the visible count + confirm on tap, so the cart bar responds immediately
       // instead of after the round-trip. The total stays server-authoritative (no client price math),
       // so it settles when the view returns — the count is the instant feedback.
-      setPendingAdds((n) => n + 1);
+      setPendingDelta((n) => n + 1);
       flash("Added to your order", 2000);
       try {
         // Modifier ids only (R6b sheet) — `addItem`→`priceItem` validates them against the item's groups
         // and re-derives the charge; a client-sent price is never trusted. ONE round-trip returns the view.
         const view = await addItemAction(cartId, menuItemId, modifierIds);
-        setItems(view.items);
-        setTotals(view.totals);
-        setPickupSlot(view.pickupSlot);
-        return true;
+        applyView(view);
+        // Return the fresh items so a caller's serialized write-queue threads THIS add's server truth into
+        // its next op (a following "−" then trims a real, current line — no stale-read snap-back).
+        return view.items;
       } catch {
         // The add failed — most often a silently-EXPIRED table session (the mint had handed back a
         // still-'active' but expired session that the server now 403s), or a refused write (cart locked,
         // a stale/invalid modifier selection). Recover by re-minting rather than stranding the diner; the
-        // cartId-diff effect announces honestly whether the session was renewed or restarted. Return false
+        // cartId-diff effect announces honestly whether the session was renewed or restarted. Return null
         // so the item sheet stays OPEN (keeps the diner's modifier choices) instead of a false success.
         recoveringRef.current = true;
         flash("Reconnecting to your table…", 2500);
         revalidate();
-        return false;
+        return null;
       } finally {
-        setPendingAdds((n) => n - 1);
+        setPendingDelta((n) => n - 1);
       }
     },
-    [cartId, flash, revalidate],
+    [cartId, applyView, flash, revalidate],
   );
 
   // Menu inline quick-qty (R5c): decrement/remove the viewer's OWN draft line from the menu (the "+" goes
@@ -323,29 +342,48 @@ export function TableCartProvider({
   // Checkout's `changeQty`: swallow a refused write (locked/closed) and re-sync from server truth via
   // refresh, with the same session-recovery path `add` uses for a silently-expired session.
   const setItemQty = useCallback(
-    async (cartItemId: string, qty: number, announce?: string) => {
-      if (!cartId) return;
+    async (cartItemId: string, qty: number, announce?: string): Promise<CartItem[]> => {
+      if (!cartId) return itemsRef.current;
       // Announce the outcome immediately (optimistic, like `add`'s "Added to your order") so SR users get
       // instant confirmation; the error path below replaces it with the recovery message if the write fails.
       if (announce) flash(announce, 2000);
+      // Instant CartBar count: shift the signed optimistic delta by this line's change (new qty − current;
+      // a remove is qty 0). Reconciled to 0 in `finally` once the returned view re-derives the true count.
+      const line = itemsRef.current.find((i) => i.id === cartItemId);
+      const delta = line ? Math.max(0, qty) - line.qty : 0;
+      setPendingDelta((d) => d + delta);
       try {
-        await setQtyAction(cartItemId, qty);
-        await refresh();
+        // ONE round-trip: setQty now returns the fresh server-authoritative view (like addItem), so we
+        // apply it directly instead of a second getCartView refresh — the "cart actions feel delayed" fix.
+        const view = await setQtyAction(cartItemId, qty);
+        applyView(view);
+        return view.items;
       } catch {
-        // Re-sync from server truth on BOTH outcomes (like Checkout's changeQty): a rejected remove —
-        // line already gone/fired/locked, or a solo diner who removed it on another tab where realtime is
-        // off — must snap the stepper back, not leave the stale line visible after the optimistic announce.
-        await refresh();
+        // Re-sync from server truth (like Checkout's changeQty): a rejected remove — line already
+        // gone/fired/locked, or a solo diner who removed it on another tab where realtime is off — must
+        // snap the stepper back, not leave the stale line visible after the optimistic announce. Re-fetch
+        // FIRST so the UI settles on truth, THEN kick the session-recovery path.
+        let fresh = itemsRef.current;
+        try {
+          const v = await getCartView(cartId);
+          applyView(v);
+          fresh = v.items;
+        } catch {
+          // Cart paid/closed → the refetch 403s too; leave the last-known view (P1.3 redirects to a receipt).
+        }
         recoveringRef.current = true;
         flash("Reconnecting to your table…", 2500);
         revalidate();
+        return fresh;
+      } finally {
+        setPendingDelta((d) => d - delta);
       }
     },
-    [cartId, refresh, flash, revalidate],
+    [cartId, applyView, flash, revalidate],
   );
 
   const openSlotSheet = useCallback(() => setSlotSheetOpen(true), []);
-  const count = items.reduce((a, i) => a + i.qty, 0) + pendingAdds;
+  const count = Math.max(0, items.reduce((a, i) => a + i.qty, 0) + pendingDelta);
   const me = session ? { seat: session.seat, name } : null;
   // Who holds the pay lock, for the "checking out" banner: "You" if it's the viewer, else the peer's
   // presence name (falls back to a neutral label until presence resolves the seat).

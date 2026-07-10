@@ -2,10 +2,34 @@
 import { useEffect, useRef, useState } from "react";
 import { m } from "framer-motion";
 import posthog from "posthog-js";
+import type { CartItem } from "@mms/db";
 import { useAnimationPreference, useRipple } from "@mms/ui";
 import { useCart } from "./TableCartProvider";
 
 const MAX_QTY = 99; // matches the cart Stepper's upper bound (setQty is the authority; this is the UI gate)
+
+// The viewer's OWN draft quick-add lines for this item, from a given cart snapshot: item + no modifiers +
+// the session-default fulfillment + draft + not comped + own verified seat. Shared by the render (current
+// items) and the write-queue (the freshest threaded snapshot) so both agree on which lines the stepper
+// owns. Require a known seat — a staff line has `bySeat` undefined and session recovery blanks `mySeat`, so
+// an unguarded `=== mySeat` would false-match a staff line (a real diner line always carries its by_seat).
+function matchOwnLines(
+  items: CartItem[],
+  menuItemId: string,
+  fulfillment: string,
+  mySeat: string | undefined,
+): CartItem[] {
+  if (!mySeat) return [];
+  return items.filter(
+    (i) =>
+      i.menuItemId === menuItemId &&
+      i.modifiers.length === 0 &&
+      i.fulfillment === fulfillment &&
+      i.lineState === "draft" &&
+      !i.comped &&
+      i.bySeat === mySeat,
+  );
+}
 
 /**
  * Per-item "Add" — the only way an item enters the cart, via the server-authoritative `addItem`
@@ -48,26 +72,13 @@ export function AddButton({
   // EXACTLY that default-fulfillment line — otherwise a line re-routed to "to go" in the cart would show its
   // qty here while "+" silently grew a different (default) line (stuck qty + wrong routing/tax).
   const defaultFulfillment = isGroup ? "dinein" : "togo";
-  // The viewer's OWN draft quick-add lines for this item (item + no modifiers + default fulfillment + draft,
-  // not comped, own `by_seat`). Usually exactly one — `insertOrIncLine` merges a diner's repeat adds per
-  // seat — but the cart can legitimately hold MORE than one matching own line (a host reassign onto an item
-  // the diner already has, a price-snapshot difference between two adds, or a concurrent first-add race), and
-  // there's deliberately no unique constraint. So AGGREGATE rather than assume one line — the cart, split, and
-  // totals already sum per line — and the menu stays correct for any count. Require a known seat: a
-  // staff/server line has `bySeat` undefined and session recovery makes `mySeat` undefined, so an unguarded
-  // `=== mySeat` would false-match a staff line (a real diner line always carries its `by_seat`).
+  // The viewer's OWN draft quick-add lines for this item. Usually exactly one — `insertOrIncLine` merges a
+  // diner's repeat adds per seat — but the cart can legitimately hold MORE than one matching own line (a host
+  // reassign onto an item the diner already has, a price-snapshot difference between two adds, or a concurrent
+  // first-add race), and there's deliberately no unique constraint. So AGGREGATE rather than assume one line —
+  // the cart, split, and totals already sum per line — and the menu stays correct for any count.
   const mySeat = me?.seat;
-  const myLines = mySeat
-    ? items.filter(
-        (i) =>
-          i.menuItemId === menuItemId &&
-          i.modifiers.length === 0 &&
-          i.fulfillment === defaultFulfillment &&
-          i.lineState === "draft" &&
-          !i.comped &&
-          i.bySeat === mySeat,
-      )
-    : [];
+  const myLines = matchOwnLines(items, menuItemId, defaultFulfillment, mySeat);
   const serverQty = myLines.reduce((sum, l) => sum + l.qty, 0);
   // Displayed qty = server truth + the optimistic in-flight delta (the instant-morph). All UI (the digit,
   // aria labels, the MAX gate, the morph) keys off this; the WRITE still targets real server lines only.
@@ -79,16 +90,31 @@ export function AddButton({
   // own contribution). Qty-driven: the stepper stays the control even if 86'd ("+" disables, "−" still removes).
   const inCart = qty > 0;
 
-  // While a member is checking out (P3.2-lock) OR the table is settling its split (P3.3b) the cart is frozen
-  // and the server rejects add/setQty — disable the control so a tap can't fire an optimistic confirmation
-  // the server will reject (a disabled control, not a missing one). No cart yet / a mutation in flight also disable.
-  const blocked = !cartId || busy || locked || settling;
+  // Two freeze levels. `frozen` = the cart can't be written AT ALL: no session yet, a pay-window lock
+  // (P3.2), or a split-settlement freeze (P3.3b) — the server rejects add/setQty, so the STEPPER's +/−
+  // are disabled (a disabled control, not a missing one). `blocked` adds the in-flight `busy` window and
+  // gates only the Add PILL (double-create guard) + the focus effects. Crucially the stepper does NOT gate
+  // on `busy`, so rapid +/− taps stay live and never freeze mid-write — the "cart actions feel delayed" fix.
+  const frozen = !cartId || locked || settling;
+  const blocked = frozen || busy;
+
+  // Serialize THIS button's stepper writes so rapid taps can't race on a stale server read: a "+" merges via
+  // `add` (relative — order-independent), a "−" trims a specific line by id, and each op reads the FRESHEST
+  // lines (threaded from the prior op's returned view) before it writes. The digit stays instant via the
+  // optimistic delta; the writes drain in the background, in tap order.
+  const writeChain = useRef<Promise<CartItem[] | null>>(Promise.resolve(null));
+  // Latest committed items in a ref (effect-synced, not a render closure) so a decrement op that has no
+  // threaded predecessor — the first op, or one following a concurrent create — still seeds from the freshest
+  // snapshot rather than the tap-time closure.
+  const itemsRef = useRef<CartItem[]>(items);
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
 
   // Focus management (WCAG 2.4.3): a "−" that removes the line unmounts the stepper, so focus would drop to
-  // <body>. When that removal lands (qty → 0), move focus to the Add pill that replaces it. Gate on `!blocked`
-  // so we focus only once the pill is actually focusable — `decrement` holds `busy` (→ `blocked`) through the
-  // provider refresh, so the first render at qty 0 has a NATIVELY-disabled pill; `blocked` is a dep, so the
-  // effect re-fires when `busy` clears and the focus then lands. Set only on a remove-via-"−".
+  // <body>. When the removal lands (qty → 0), move focus to the Add pill that replaces it. Gate on `!blocked`
+  // so we focus only a focusable pill (`frozen` natively-disables it). The decrement no longer holds `busy`,
+  // so at qty 0 the pill is focusable at once and focus lands immediately. Set only on a remove-via-"−".
   const addBtnRef = useRef<HTMLButtonElement>(null);
   const refocusAfterRemove = useRef(false);
   useEffect(() => {
@@ -98,63 +124,109 @@ export function AddButton({
     }
   }, [qty, blocked]);
 
-  // Symmetric to the remove path: the Add pill → stepper morph unmounts the focused Add button, so move
-  // focus to the new "+" (WCAG 2.4.3). Gated on `!blocked` (the "+" is natively disabled through the add's
-  // busy window; focus lands once it clears). The flag is set ONLY in `increment` for this instance's 0→1
-  // tap — never on a peer's add or a stepper "+", so it can't steal focus from another element.
+  // Symmetric to the remove path: a morph that mounts the stepper unmounts whatever was focused, so move
+  // focus back onto a stepper button (WCAG 2.4.3). Gated on `!blocked` (a create holds `busy`; focus lands
+  // once it clears). Two arming cases, mutually exclusive:
+  //  • `refocusAfterAdd` — this instance's 0→1 create tap → focus the "+" (never a peer's add / a stepper
+  //    "+", so it can't steal focus from another element).
+  //  • `refocusStepper` — a "−" optimistically emptied the line (focus moved to the Add pill), but the write
+  //    was REVERTED (transient error left the draft line), so the stepper REMOUNTS and the pill's focus would
+  //    drop to <body>. Land focus back on the "−" the user was operating.
   const plusBtnRef = useRef<HTMLButtonElement>(null);
+  const minusBtnRef = useRef<HTMLButtonElement>(null);
   const refocusAfterAdd = useRef(false);
+  const refocusStepper = useRef(false);
   useEffect(() => {
-    if (inCart && refocusAfterAdd.current && !blocked) {
+    if (!inCart || blocked) return;
+    if (refocusAfterAdd.current) {
       refocusAfterAdd.current = false;
+      refocusStepper.current = false; // an add supersedes a pending revert-refocus
       plusBtnRef.current?.focus();
+    } else if (refocusStepper.current) {
+      refocusStepper.current = false;
+      minusBtnRef.current?.focus();
     }
   }, [inCart, blocked]);
 
-  async function increment() {
-    if (qty === 0) refocusAfterAdd.current = true; // Add-pill tap → focus the "+" once the stepper mounts
-    setOptimistic((n) => n + 1); // instant morph — the stepper appears before the round-trip resolves
-    setBusy(true);
-    try {
-      // Record the add ONLY on a CONFIRMED add: the provider's `add` returns false (it never throws) on a
-      // refused/expired-session add, so an unconditional capture would log phantom adds. The catch stays a
-      // defensive guard so a hypothetical throw can't escape the `void increment()` call site.
-      if (await add(menuItemId)) {
-        posthog.capture("menu_item_add_clicked", { menu_item_id: menuItemId });
-      }
-    } catch {
-      /* the provider announces the failure / recovers in its polite live region */
-    } finally {
-      // Reconcile: the server view (success) now includes this add, so drop the optimistic delta — it nets
-      // to the same displayed qty (no flicker). On failure serverQty is unchanged, so the delta reverting
-      // to 0 drops the button back to the Add pill.
-      setOptimistic((n) => n - 1);
-      setBusy(false);
-    }
+  // Record a CONFIRMED add only: the provider's `add` returns null (never throws) on a refused/expired add,
+  // so an unconditional capture would log phantom adds. Returns the result through for the queue to thread.
+  function captureAdd(result: CartItem[] | null): CartItem[] | null {
+    if (result) posthog.capture("menu_item_add_clicked", { menu_item_id: menuItemId });
+    return result;
   }
 
-  async function decrement() {
-    if (myLines.length === 0) return;
-    // Reduce the AGGREGATE by one. Peel a qty-1 line first (so a duplicate line is fully removed and the
-    // set converges to one), else trim the last line. The morph reverts to the Add pill only when the
-    // aggregate hits 0 (not when a single duplicate line empties).
-    const target = myLines.find((l) => l.qty <= 1) ?? myLines[myLines.length - 1];
-    if (!target) return;
-    const next = qty - 1;
-    if (next <= 0) refocusAfterRemove.current = true; // aggregate empties → focus the Add pill that replaces us
-    // Announce the outcome through the provider's ONE polite live region (WCAG 4.1.3) — symmetric with the
-    // "+"/add path's "Added to your order". The provider flashes it optimistically on tap so the SR user
-    // gets immediate confirmation; the visible qty settles on the server-authoritative refresh.
-    const announce = next <= 0 ? `Removed ${name}` : `${name}, quantity ${next}`;
-    setBusy(true);
-    try {
-      // `next` is the AGGREGATE for the announcement; the write trims the chosen line to its own qty − 1.
-      await setItemQty(target.id, target.qty - 1, announce);
-    } catch {
-      /* provider recovers + re-syncs from server truth */
-    } finally {
-      setBusy(false);
+  // Every increment (the 0→1 create tap from the pill AND a stepper "+") runs through `writeChain` so it
+  // orders with any in-flight "−" and threads THIS add's server truth to the next op. `fromPill` additionally
+  // holds `busy` (the pill's double-create guard + the focus-after-morph timing) and arms the "+" refocus.
+  // The morph/digit is instant via the optimistic delta; the write drains in the background, in tap order.
+  function increment(fromPill: boolean) {
+    setOptimistic((n) => n + 1); // instant morph / digit bump — before the round-trip resolves
+    if (fromPill) {
+      refocusAfterAdd.current = true; // Add-pill tap → focus the "+" once the stepper mounts
+      setBusy(true);
     }
+    writeChain.current = writeChain.current
+      .then(async () => {
+        let fresh: CartItem[] | null = null;
+        try {
+          fresh = captureAdd(await add(menuItemId));
+        } finally {
+          // Reconcile: on success the returned view already includes the add (delta nets to 0, no flicker);
+          // on failure serverQty is unchanged, so the delta reverting drops back to the Add pill.
+          setOptimistic((n) => n - 1);
+          if (fromPill) setBusy(false);
+        }
+        return fresh; // thread THIS add's server truth so a following "−" trims a real, current line
+      })
+      .catch(() => null);
+  }
+
+  function decrement() {
+    const nextAgg = qty - 1; // qty is optimistic-inclusive → the aggregate the user intends after this tap
+    if (nextAgg < 0) return; // the "−" unmounts at 0, but never underflow
+    setOptimistic((n) => n - 1); // instant digit drop
+    const emptying = nextAgg <= 0;
+    if (emptying) {
+      refocusAfterRemove.current = true; // aggregate empties → focus the Add pill that replaces us
+      refocusAfterAdd.current = false; // a removal moots any pending create-focus (avoids a stuck flag)
+    }
+    // Announce through the provider's ONE polite live region (WCAG 4.1.3), symmetric with the add path's
+    // "Added to your order"; the provider flashes it optimistically on tap so the SR user hears it at once.
+    const announce = emptying ? `Removed ${name}` : `${name}, quantity ${nextAgg}`;
+    // If an emptying "−" is REVERTED (the write fails and the draft line survives), the optimistic +1 below
+    // remounts the stepper — arm a refocus so the pill's focus doesn't drop to <body> (WCAG 2.4.3).
+    const armRevertRefocus = (fresh: CartItem[]) => {
+      if (
+        emptying &&
+        matchOwnLines(fresh, menuItemId, defaultFulfillment, mySeat).some((l) => l.qty > 0)
+      ) {
+        refocusStepper.current = true;
+      }
+    };
+    writeChain.current = writeChain.current
+      .then(async (threaded) => {
+        try {
+          // Freshest lines: the prior op's returned view, else the latest committed snapshot. Recomputed here
+          // (not from a tap-time closure) so serialized "−" taps each peel a real, still-present line. Peel a
+          // qty-1 line first (a duplicate fully removed → set converges to one), else trim the last line.
+          const source = threaded ?? itemsRef.current;
+          const lines = matchOwnLines(source, menuItemId, defaultFulfillment, mySeat);
+          const target = lines.find((l) => l.qty <= 1) ?? lines[lines.length - 1];
+          if (!target) {
+            setOptimistic((n) => n + 1); // nothing to remove (already gone) → drop the optimistic step
+            return source;
+          }
+          const fresh = await setItemQty(target.id, target.qty - 1, announce);
+          armRevertRefocus(fresh); // set BEFORE the reconcile so the flag is armed when the stepper remounts
+          setOptimistic((n) => n + 1); // reconcile: the returned view's serverQty now reflects the removal
+          return fresh;
+        } catch {
+          if (emptying) refocusStepper.current = true; // defensive: assume the line survived the throw
+          setOptimistic((n) => n + 1); // defensive: setItemQty swallows its own errors, so this rarely runs
+          return itemsRef.current;
+        }
+      })
+      .catch(() => null);
   }
 
   // Morphed state: the viewer has this item in their own line → the accent quick-qty stepper.
@@ -165,9 +237,10 @@ export function AddButton({
         className={`mms-qty-stepper${shouldAnimate ? " mms-pop" : ""}`}
       >
         <button
+          ref={minusBtnRef}
           type="button"
           className="mms-stepper-btn"
-          disabled={blocked}
+          disabled={frozen}
           aria-label={qty === 1 ? `Remove ${name}` : `Remove one ${name}`}
           onClick={decrement}
         >
@@ -193,10 +266,10 @@ export function AddButton({
           ref={plusBtnRef}
           type="button"
           className="mms-stepper-btn"
-          // Sold-out disables "+" (a now-86'd line can't grow — only shrink via "−"), as does max/locked/busy.
-          // Uses the LIVE cart `line.soldOut` (fresher than the page-render menu prop) so a freshly-86'd line
-          // can't keep incrementing during the page's session.
-          disabled={blocked || liveSoldOut || qty >= MAX_QTY}
+          // Sold-out disables "+" (a now-86'd line can't grow — only shrink via "−"), as does max/lock/settle.
+          // NOT the in-flight `busy` — the stepper stays live across writes. Uses the LIVE cart `line.soldOut`
+          // (fresher than the page-render menu prop) so a freshly-86'd line can't keep incrementing this session.
+          disabled={frozen || liveSoldOut || qty >= MAX_QTY}
           aria-label={
             liveSoldOut
               ? `${name} is sold out`
@@ -204,7 +277,7 @@ export function AddButton({
                 ? `Maximum ${MAX_QTY} ${name}`
                 : `Add another ${name}`
           }
-          onClick={increment}
+          onClick={() => increment(false)}
         >
           <span aria-hidden>+</span>
         </button>
@@ -241,7 +314,7 @@ export function AddButton({
       // Guard the click: a focusable aria-disabled sold-out pill (and keyboard Enter) must not add.
       onClick={() => {
         if (inactive) return;
-        void increment();
+        increment(true);
       }}
       style={{
         position: "relative", // ripple container
