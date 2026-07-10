@@ -124,16 +124,27 @@ export function AddButton({
     }
   }, [qty, blocked]);
 
-  // Symmetric to the remove path: the Add pill → stepper morph unmounts the focused Add button, so move
-  // focus to the new "+" (WCAG 2.4.3). Gated on `!blocked` (the create holds `busy`; focus lands once it
-  // clears). The flag is set ONLY on this instance's 0→1 create tap — never on a peer's add or a stepper
-  // "+", so it can't steal focus from another element.
+  // Symmetric to the remove path: a morph that mounts the stepper unmounts whatever was focused, so move
+  // focus back onto a stepper button (WCAG 2.4.3). Gated on `!blocked` (a create holds `busy`; focus lands
+  // once it clears). Two arming cases, mutually exclusive:
+  //  • `refocusAfterAdd` — this instance's 0→1 create tap → focus the "+" (never a peer's add / a stepper
+  //    "+", so it can't steal focus from another element).
+  //  • `refocusStepper` — a "−" optimistically emptied the line (focus moved to the Add pill), but the write
+  //    was REVERTED (transient error left the draft line), so the stepper REMOUNTS and the pill's focus would
+  //    drop to <body>. Land focus back on the "−" the user was operating.
   const plusBtnRef = useRef<HTMLButtonElement>(null);
+  const minusBtnRef = useRef<HTMLButtonElement>(null);
   const refocusAfterAdd = useRef(false);
+  const refocusStepper = useRef(false);
   useEffect(() => {
-    if (inCart && refocusAfterAdd.current && !blocked) {
+    if (!inCart || blocked) return;
+    if (refocusAfterAdd.current) {
       refocusAfterAdd.current = false;
+      refocusStepper.current = false; // an add supersedes a pending revert-refocus
       plusBtnRef.current?.focus();
+    } else if (refocusStepper.current) {
+      refocusStepper.current = false;
+      minusBtnRef.current?.focus();
     }
   }, [inCart, blocked]);
 
@@ -174,10 +185,24 @@ export function AddButton({
     const nextAgg = qty - 1; // qty is optimistic-inclusive → the aggregate the user intends after this tap
     if (nextAgg < 0) return; // the "−" unmounts at 0, but never underflow
     setOptimistic((n) => n - 1); // instant digit drop
-    if (nextAgg <= 0) refocusAfterRemove.current = true; // aggregate empties → focus the Add pill that replaces us
+    const emptying = nextAgg <= 0;
+    if (emptying) {
+      refocusAfterRemove.current = true; // aggregate empties → focus the Add pill that replaces us
+      refocusAfterAdd.current = false; // a removal moots any pending create-focus (avoids a stuck flag)
+    }
     // Announce through the provider's ONE polite live region (WCAG 4.1.3), symmetric with the add path's
     // "Added to your order"; the provider flashes it optimistically on tap so the SR user hears it at once.
-    const announce = nextAgg <= 0 ? `Removed ${name}` : `${name}, quantity ${nextAgg}`;
+    const announce = emptying ? `Removed ${name}` : `${name}, quantity ${nextAgg}`;
+    // If an emptying "−" is REVERTED (the write fails and the draft line survives), the optimistic +1 below
+    // remounts the stepper — arm a refocus so the pill's focus doesn't drop to <body> (WCAG 2.4.3).
+    const armRevertRefocus = (fresh: CartItem[]) => {
+      if (
+        emptying &&
+        matchOwnLines(fresh, menuItemId, defaultFulfillment, mySeat).some((l) => l.qty > 0)
+      ) {
+        refocusStepper.current = true;
+      }
+    };
     writeChain.current = writeChain.current
       .then(async (threaded) => {
         try {
@@ -192,9 +217,11 @@ export function AddButton({
             return source;
           }
           const fresh = await setItemQty(target.id, target.qty - 1, announce);
+          armRevertRefocus(fresh); // set BEFORE the reconcile so the flag is armed when the stepper remounts
           setOptimistic((n) => n + 1); // reconcile: the returned view's serverQty now reflects the removal
           return fresh;
         } catch {
+          if (emptying) refocusStepper.current = true; // defensive: assume the line survived the throw
           setOptimistic((n) => n + 1); // defensive: setItemQty swallows its own errors, so this rarely runs
           return itemsRef.current;
         }
@@ -210,6 +237,7 @@ export function AddButton({
         className={`mms-qty-stepper${shouldAnimate ? " mms-pop" : ""}`}
       >
         <button
+          ref={minusBtnRef}
           type="button"
           className="mms-stepper-btn"
           disabled={frozen}
