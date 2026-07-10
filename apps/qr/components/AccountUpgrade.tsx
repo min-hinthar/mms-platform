@@ -365,7 +365,9 @@ export function AccountUpgrade() {
           this persistent node, unlike the SSR-initial callbackError). */}
       <p role="status" aria-atomic="true" style={errorLine}>
         {error ??
-          (emailTaken
+          // Only on the idle (email-entry) step — once we advance to the code step the "Send sign-in code"
+          // button is gone, so the directive would contradict the screen (the diner already tapped it).
+          (emailTaken && phase === "idle"
             ? "That email already has a Morning Star account — tap “Send sign-in code” to use it. Signing in won’t transfer this device’s unsaved Stars; enter a different email to keep them."
             : null) ??
           callbackError}
