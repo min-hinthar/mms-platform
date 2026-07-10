@@ -137,40 +137,35 @@ export function AddButton({
     }
   }, [inCart, blocked]);
 
-  // Record a CONFIRMED add only: the provider's `add` returns false (never throws) on a refused/expired
-  // add, so an unconditional capture would log phantom adds.
-  function captureAdd(ok: boolean) {
-    if (ok) posthog.capture("menu_item_add_clicked", { menu_item_id: menuItemId });
+  // Record a CONFIRMED add only: the provider's `add` returns null (never throws) on a refused/expired add,
+  // so an unconditional capture would log phantom adds. Returns the result through for the queue to thread.
+  function captureAdd(result: CartItem[] | null): CartItem[] | null {
+    if (result) posthog.capture("menu_item_add_clicked", { menu_item_id: menuItemId });
+    return result;
   }
 
-  // `fromPill` = the 0→1 create tap: concurrent (no line to race on yet, and the pill morphs to the stepper
-  // instantly) and it holds `busy` for the double-create guard + the focus-after-morph timing. A stepper "+"
-  // chains on `writeChain` (relative `add`) so it orders with any in-flight "−".
+  // Every increment (the 0→1 create tap from the pill AND a stepper "+") runs through `writeChain` so it
+  // orders with any in-flight "−" and threads THIS add's server truth to the next op. `fromPill` additionally
+  // holds `busy` (the pill's double-create guard + the focus-after-morph timing) and arms the "+" refocus.
+  // The morph/digit is instant via the optimistic delta; the write drains in the background, in tap order.
   function increment(fromPill: boolean) {
     setOptimistic((n) => n + 1); // instant morph / digit bump — before the round-trip resolves
     if (fromPill) {
       refocusAfterAdd.current = true; // Add-pill tap → focus the "+" once the stepper mounts
       setBusy(true);
-      void (async () => {
+    }
+    writeChain.current = writeChain.current
+      .then(async () => {
+        let fresh: CartItem[] | null = null;
         try {
-          captureAdd(await add(menuItemId));
+          fresh = captureAdd(await add(menuItemId));
         } finally {
           // Reconcile: on success the returned view already includes the add (delta nets to 0, no flicker);
           // on failure serverQty is unchanged, so the delta reverting drops back to the Add pill.
           setOptimistic((n) => n - 1);
-          setBusy(false);
+          if (fromPill) setBusy(false);
         }
-      })();
-      return;
-    }
-    writeChain.current = writeChain.current
-      .then(async () => {
-        try {
-          captureAdd(await add(menuItemId));
-        } finally {
-          setOptimistic((n) => n - 1);
-        }
-        return null; // a relative add threads nothing to the next op
+        return fresh; // thread THIS add's server truth so a following "−" trims a real, current line
       })
       .catch(() => null);
   }
