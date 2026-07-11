@@ -62,7 +62,13 @@ Every J-phase below designs one row of this table end-to-end, with real data onl
   the cart inside 90 seconds). Hospitality metrics: **second-round rate** (J3's target) and
   **return-visit rate** (J5's). Baseline before J1 so every phase PR ships a before/after.
 - **Walkthrough baseline:** scripted Playwright pass on the Vercel preview (mobile viewport), one
-  screenshot per journey step per mode, committed to the PR description — the "before" reel.
+  screenshot per journey step per mode — the "before" reel. *Shipped as:* the scored baseline table in
+  `RUBRIC.md` (code-walked); the visual reel itself needs an environment with browser egress (the cloud
+  sandbox's Chromium can't reach the preview) — capture it from a local session before J1 merges.
+- **Shipped (2026-07-11):** journey axes + scored baseline in `RUBRIC.md`; PostHog dashboard
+  **“J0 · Journey baseline”** (pinned) with four uid-joined funnels from the true scan moment
+  (`session_created` carries `mode` + the diner uid): dine-in scan→add→send→paid · pickup scan→add→paid ·
+  grocery scan→add→paid · the headline **time-to-first-add** (median, time-to-convert viz).
 
 ## J1 — Continuity engine (the global "feel" lever) `apps/qr, one PR`
 

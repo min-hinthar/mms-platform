@@ -4,6 +4,12 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — J0: journey measurement spine (rubric axes + funnels + baseline) (2026-07-11)
+
+- **`docs/context/RUBRIC.md`** — seven **journey axes** (J-A continuity · J-B progress · J-C effort · J-D emotional arc · J-E dead-time · J-F recognition · J-G recovery), scored per *path* at the same ≥4.3 bar, plus the honest baseline: dine-in **2.7**, pickup **2.9**, grocery **3.1** — recovery is already world-class (the hardening paid off), continuity/arc/dead-time/recognition are the gap, exactly what J1–J5 attack.
+- **PostHog "J0 · Journey baseline" dashboard** (pinned) — four server-side, uid-joined funnels starting at the true scan moment (`session_created` carries `mode` + the diner uid): dine-in scan→add→send→paid, pickup and grocery scan→add→paid, and the headline **time-to-first-add** (median, time-to-convert). Every J-phase PR reports before/after against these. Known limit documented: client events (cookieless anon id) can't join server funnels; the `identify` bridge is a consent-posture decision deferred to J5.
+- Visual walkthrough reel deferred: the cloud sandbox's Chromium has no browser egress to the preview — capture locally before J1 merges (noted in `JOURNEY_PLAN.md`).
+
 ### Added — Journey track plan (J0–J6): paths over screens (2026-07-10)
 
 - **`docs/JOURNEY_PLAN.md`** — the layer above the (shipped) Richness/World-Class screen work: a diagnosis of why the app still feels assembled rather than choreographed (hard cuts between routes, undesigned arrival/wait/goodbye, catalog-not-guided deciding, no return-visit memory; root cause — the rubric scores screens, not paths), a six-moment journey frame per mode (arrive · decide · commit · wait · settle · return), and seven phased PRs: **J0** journey rubric + PostHog funnels + walkthrough baseline → **J1** continuity engine (directional route transitions + shared-element continuity) → **J2** arrival beat + guided start → **J3** the wait designed from real line states → **J4** settle & goodbye (peak-end) → **J5** recognition (welcome-back · server-re-priced reorder · favorites) → **J6** mode tempo. `ROADMAP.md` gains the 🧭 Journey track section.

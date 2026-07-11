@@ -155,8 +155,11 @@ designed — hard cuts between routes, undesigned arrival/wait/goodbye, catalog-
 return-visit memory. This track choreographs the surfaces we already have; one moment per PR, real data
 only. Full spec: **[`docs/JOURNEY_PLAN.md`](docs/JOURNEY_PLAN.md)**.
 
-- **J0** Measure the path — journey axes added to `RUBRIC.md` (continuity · progress · effort · arc ·
-  dead-time · recognition · recovery), PostHog funnels per mode, Playwright walkthrough baseline. ⬜
+- **J0 ✅** Measure the path (2026-07-11) — journey axes + scored baseline in `RUBRIC.md` (dine-in 2.7 ·
+  pickup 2.9 · grocery 3.1 vs the 4.3 bar; J-A/D/E/F are the gap, J-G already world-class); PostHog
+  **"J0 · Journey baseline"** dashboard (pinned) — four uid-joined funnels from `session_created` (mode-
+  filtered) through add/send to `payment_succeeded`, + headline **time-to-first-add** (median). Visual
+  walkthrough reel deferred to a browser-egress environment (sandbox Chromium can't reach the preview).
 - **J1** Continuity engine — directional route transitions + shared-element continuity (item→sheet,
   cart→checkout total, checkout→track receipt); staggers once per session. ⬜
 - **J2** Arrival + guided start — dine-in place-setting beat, "Start here" band, counts-only social proof. ⬜
