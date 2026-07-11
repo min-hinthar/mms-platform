@@ -18,9 +18,13 @@ const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
  */
 export function StartHereBand({
   items,
+  dataBacked,
   onSelect,
 }: {
   items: MenuItem[];
+  /** True only when real paid-order counts curated this rail (>=3 crowned items) — drives the honest
+   *  sub-heading: observed table behavior vs our own picks. */
+  dataBacked: boolean;
   onSelect: (i: MenuItem) => void;
 }) {
   if (items.length === 0) return null;
@@ -32,7 +36,7 @@ export function StartHereBand({
     >
       <h2 id="start-here-h" className="start-here-h">
         Start here <span aria-hidden>✦</span>
-        <span className="start-here-sub">what tables love</span>
+        <span className="start-here-sub">{dataBacked ? "what tables love" : "our picks to start"}</span>
       </h2>
       <ul role="list" className="start-here-rail" aria-labelledby="start-here-h">
         {items.map((i) => (

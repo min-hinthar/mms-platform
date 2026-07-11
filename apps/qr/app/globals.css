@@ -2935,3 +2935,10 @@ html[data-seen-surface] .mms-stagger {
     transition: none;
   }
 }
+/* Match the sibling horizontal rails (.menu-rail/.menu-diets/.slot-days): no visible scrollbar strip. */
+.start-here-rail {
+  scrollbar-width: none;
+}
+.start-here-rail::-webkit-scrollbar {
+  display: none;
+}

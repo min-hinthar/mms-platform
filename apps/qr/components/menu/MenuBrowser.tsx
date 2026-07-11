@@ -68,16 +68,20 @@ export function MenuBrowser({
   const allCats = useMemo(() => [...new Set(items.map((i) => i.category))], [items]);
 
   // J2 guided start: the data-backed favorite set (badges) + the "Start here" rail (top 6, in-stock,
-  // rank order preserved). Honest fallback while order history is thin: the hand-set `popular` tag.
+  // rank order preserved). The rail claims table behavior ("what tables love") ONLY when counts back it —
+  // and only with ≥3 crowned items, so a thin dataset can't render a lone-card "band". Otherwise it falls
+  // back to the hand-set `popular` tag under honest "our picks" framing (dataBacked drives the copy).
   const favSet = useMemo(() => new Set(favoriteIds), [favoriteIds]);
   const startHere = useMemo(() => {
     const byId = new Map(items.map((i) => [i.id, i]));
     const loved = favoriteIds
       .map((id) => byId.get(id))
       .filter((i): i is MenuItem => !!i && !i.is_sold_out);
-    const pool =
-      loved.length > 0 ? loved : items.filter((i) => !i.is_sold_out && i.tags.includes("popular"));
-    return pool.slice(0, 6);
+    const dataBacked = loved.length >= 3;
+    const pool = dataBacked
+      ? loved
+      : items.filter((i) => !i.is_sold_out && i.tags.includes("popular"));
+    return { items: pool.slice(0, 6), dataBacked };
   }, [items, favoriteIds]);
 
   // Visible items = search match (EN/MY/description) ∩ dietary filters. Pure, recomputed on input.
@@ -265,7 +269,11 @@ export function MenuBrowser({
           their result. Tapping a card opens the same item sheet as a row. */}
       {!q.trim() && diets.length === 0 && (
         <div style={{ padding: "0 20px" }}>
-          <StartHereBand items={startHere} onSelect={setSheetItem} />
+          <StartHereBand
+            items={startHere.items}
+            dataBacked={startHere.dataBacked}
+            onSelect={setSheetItem}
+          />
         </div>
       )}
 
