@@ -508,8 +508,16 @@ h3 {
 .mms-stagger {
   animation: mmsRise var(--dur-slow) var(--ease-out) both;
 }
+/* `.mms-rise` — the DYNAMIC-MOUNT variant (same rise, same RM gate) for a thing that ARRIVES mid-stay:
+   a newly-scanned grocery line, a guest joining the table. A separate class from `.mms-stagger` so
+   SurfaceMemory's once-per-session gate (J1) never zeroes a mid-session landing — entrance CASCADES
+   premiere once per surface; a new arrival always lands. */
+.mms-rise {
+  animation: mmsRise var(--dur-slow) var(--ease-out) both;
+}
 @media (prefers-reduced-motion: reduce) {
-  .mms-stagger {
+  .mms-stagger,
+  .mms-rise {
     animation: none;
   }
 }

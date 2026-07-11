@@ -55,7 +55,14 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
           </div>
           <h1>Payment received</h1>
           <p>Your share is in — we’re finalizing the table’s order. Check back in a moment.</p>
-          <Link href={`/track?cart=${encodeURIComponent(cart)}&paid=1`} className="nav-link-strong">
+          {/* `replace`, not push (J1): a self-refresh to the SAME URL would stack a duplicate history entry —
+              the view-transition library's popstate handler then freezes ~4s on the next browser-back
+              (same-pathname pop → its route effect never re-fires → the transition promise hangs). */}
+          <Link
+            href={`/track?cart=${encodeURIComponent(cart)}&paid=1`}
+            replace
+            className="nav-link-strong"
+          >
             Refresh
           </Link>
         </div>

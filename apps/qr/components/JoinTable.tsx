@@ -1,7 +1,7 @@
 "use client";
 import { useId, useState, type CSSProperties, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
 import { Sheet } from "@mms/ui";
+import { useJourneyRouter } from "./nav/TransitionNav"; // J1: home→menu is a FORWARD cut
 
 /**
  * Entry-screen "join a table" path (M3·P3.1 host-invite fallback). A guest who was given a code but
@@ -10,7 +10,7 @@ import { Sheet } from "@mms/ui";
  * primary path and skips this entirely.)
  */
 export function JoinTable() {
-  const router = useRouter();
+  const router = useJourneyRouter();
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState("");
   const id = useId();

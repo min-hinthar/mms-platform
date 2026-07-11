@@ -55,8 +55,11 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
         <p style={{ color: "var(--t2)" }}>
           Your table is splitting the bill — we couldn’t load the split just now.
         </p>
+        {/* `replace`, not push (J1): same-URL self-refresh must not stack a duplicate history entry —
+            see the /track Refresh link for the back-press freeze this avoids. */}
         <Link
           href={`/cart?cart=${encodeURIComponent(cart)}`}
+          replace
           style={{ color: "var(--ac)", fontWeight: 700 }}
         >
           Reload the split

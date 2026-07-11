@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
+import { useJourneyRouter } from "@/components/nav/TransitionNav"; // J1 journey grammar
 import posthog from "posthog-js";
 import { NumberFlow } from "@mms/ui";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
@@ -14,7 +15,8 @@ import { useTableSession } from "@/lib/useTableSession";
 type Line = { barcode: string; name: string; priceCents: number; ebt: boolean; qty: number };
 
 export default function Grocery() {
-  const router = useRouter();
+  const router = useRouter(); // prefetch only — the checkout push rides the journey grammar
+  const journey = useJourneyRouter(); // J1: grocery→cart is a FORWARD cut
   const { session, error: sessionError } = useTableSession("scango");
   const cartId = session?.cartId;
 
@@ -218,8 +220,9 @@ export default function Grocery() {
       >
         {lines.map((l) => (
           // Textured card + a rise-in on mount (a newly-scanned line "lands"); keyed by barcode so only a
-          // NEW line animates (a re-scan bumps qty in place). `.mms-stagger`/`.card-textured` are RM/token-safe.
-          <li key={l.barcode} className="card card-textured mms-stagger" style={scannedLineStyle}>
+          // NEW line animates (a re-scan bumps qty in place). `.mms-rise` (the dynamic-mount variant — J1's
+          // SurfaceMemory never zeroes it, unlike `.mms-stagger`) + `.card-textured` are RM/token-safe.
+          <li key={l.barcode} className="card card-textured mms-rise" style={scannedLineStyle}>
             <span style={{ minWidth: 0 }}>
               <span style={{ fontWeight: 700 }}>{l.name}</span>{" "}
               {l.ebt && <small style={{ color: "var(--ok)", fontWeight: 700 }}>EBT</small>}
@@ -259,7 +262,7 @@ export default function Grocery() {
               unique_item_count: lines.length,
               total_cents: totalCents,
             });
-            router.push(`/cart?cart=${encodeURIComponent(cartId)}`);
+            journey.push(`/cart?cart=${encodeURIComponent(cartId)}`);
           }}
         >
           <span>

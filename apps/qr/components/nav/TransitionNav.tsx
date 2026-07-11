@@ -10,9 +10,9 @@ import { Link as VTLink, useTransitionRouter } from "next-view-transitions";
  * Next 16's native `experimental.viewTransition` needs React's experimental `<ViewTransition>`, which
  * stable React 19.2 doesn't ship; browsers without the API just get today's instant cut). Direction is
  * a DATA ATTRIBUTE on <html> that globals.css turns into a subtle drift grammar: FORWARD (deeper into
- * the journey) drifts in from the right, BACK drifts in from the left, LATERAL cross-fades. Chrome
- * (AppHeader / CartBar / the toast region) carries its own `view-transition-name` so it stays put while
- * the page moves — the "one camera move" rule.
+ * the journey) drifts in from the right, BACK drifts in from the left, LATERAL cross-fades. The
+ * AppHeader carries its own `view-transition-name` so the wayfinding chrome stays put while the page
+ * moves under it — the "one camera move" rule.
  *
  * Direction = journey depth, not URL shape: home(0) → menu/grocery(1) → cart(2) → track(3); /account and
  * /rewards sit at 2 (a "your stuff" side-room off any surface). Unknown routes (staff) are lateral.
@@ -60,7 +60,12 @@ export function TransitionLink(props: ComponentProps<typeof VTLink>) {
       href={href}
       {...rest}
       onClick={(e) => {
-        stampDir(directionBetween(pathname, pathnameOf(String(href))));
+        // Stamp only when THIS click will actually navigate in-tab: a modified/middle click opens a
+        // new tab (no transition here), and stamping anyway would leave a stale direction for the next
+        // unstamped transition source (the popstate handler restamps, but keep the invariant tight).
+        if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+          stampDir(directionBetween(pathname, pathnameOf(String(href))));
+        }
         onClick?.(e);
       }}
     />

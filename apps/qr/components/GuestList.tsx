@@ -65,10 +65,11 @@ export function GuestList() {
           const label = isMe ? `${m.name} (you)` : m.name;
           return (
             // Rise-in per avatar (keys are stable seats — presence re-syncs never re-animate; only a
-            // genuinely NEW guest animates once on mount). `.mms-stagger` is reduced-motion-gated.
+            // genuinely NEW guest animates once on mount). `.mms-rise` (the dynamic-mount variant —
+            // J1's SurfaceMemory never zeroes it, unlike `.mms-stagger`) is reduced-motion-gated.
             <li
               key={m.seat}
-              className="mms-stagger"
+              className="mms-rise"
               style={{ display: "flex", marginLeft: i === 0 ? 0 : -8 }}
             >
               <Avatar
