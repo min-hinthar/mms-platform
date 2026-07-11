@@ -165,7 +165,11 @@ only. Full spec: **[`docs/JOURNEY_PLAN.md`](docs/JOURNEY_PLAN.md)**.
   shared cuts: CartBar total → checkout hero total, header order pill → /track status chip; staggers once
   per session (`SurfaceMemory`). Honest cut revision: checkout→track is a Stripe full-page redirect (no
   client cut possible); item→sheet morph deferred to J2 (would double-animate against the framer sheet). ⬜→✅
-- **J2** Arrival + guided start — dine-in place-setting beat, "Start here" band, counts-only social proof. ⬜
+- **J2 ✅** Arrival + guided start (2026-07-11) — bilingual place-setting beat (`ArrivalBeat`: မင်္ဂလာပါ +
+  live-presence party copy, once per session via J1's SurfaceMemory); "Start here" band (`StartHereBand`,
+  top-6 rail, hidden while searching/filtering); `popular` badge upgraded to a data-backed **Table
+  favorite** (`mostLoved.ts`: counts-only aggregate over paid orders, ≥2 distinct orders/60d, cached 1h,
+  honest fallback to the manual tag while history is thin). ⬜→✅
 - **J3** The wait, designed — table timeline from real line states, right-moment dessert/settle prompts,
   pickup "I'm here". ⬜
 - **J4** Settle & goodbye — receipt tucks to account, live Star/tier rollup, group "everyone's paid" beat,
