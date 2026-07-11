@@ -216,7 +216,7 @@ export function SettlementBoard({
                   ref={isMe ? myRowRef : undefined}
                   tabIndex={isMe ? -1 : undefined}
                   aria-label={isMe ? `Your share` : undefined}
-                  className={`card card-textured mms-stagger${settled ? " settle-row-paid" : ""}`}
+                  className={`card card-textured mms-rise${settled ? " settle-row-paid" : ""}`}
                   style={{ padding: 12, animationDelay: `${Math.min(i, 6) * 45}ms` }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>

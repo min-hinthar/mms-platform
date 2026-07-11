@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import Link from "next/link";
+import { TransitionLink as Link } from "./nav/TransitionNav"; // J1 journey grammar
 import { useOrderStatus } from "@/lib/useOrderStatus";
 import { useActiveOrder } from "./ActiveOrderProvider";
 import { formatSlotLong } from "@/lib/pickupTime";
@@ -81,7 +81,8 @@ export function OrderTracker({
   // completed order would briefly re-show as a "Confirming" pill on the next navigation before self-healing.
   // clearOrder defers its setState (rAF) → lint-safe.
   const { clearOrder } = useActiveOrder();
-  const orderDone = togo === "picked_up" || order?.status === "refunded" || order?.status === "failed";
+  const orderDone =
+    togo === "picked_up" || order?.status === "refunded" || order?.status === "failed";
   useEffect(() => {
     if (orderDone) clearOrder();
   }, [orderDone, clearOrder]);
@@ -131,7 +132,11 @@ export function OrderTracker({
   const starsEarned = progress?.earnedThisOrder ? 1 : 0;
   const modeLabel = isPickup ? "Pickup" : "Scan & Go";
   const statusChip = (
+    // `.vt-order-status` (J1): the header order pill morphs into THIS chip on the pill→/track cut —
+    // the status the diner tapped lands as the status they're now watching. Rendered once per branch
+    // (celebration vs regular are exclusive), so the view-transition name is unique in the document.
     <span
+      className="vt-order-status"
       style={{
         ...chip,
         background: arrived ? "var(--okb)" : "var(--sf)",

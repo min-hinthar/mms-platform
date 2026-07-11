@@ -1,9 +1,9 @@
 # Journey Track (J0–J6) — paths over screens
 
 **The gap this plan closes:** three initiatives deep (M5 hardening → Richness R1–R9 → the World-Class UX
-slices), every *screen* now clears the ≥4.3 rubric bar — and the app still feels **assembled, not
-choreographed**. That's because all prior plans score and build *surfaces*: tokens, textures, per-screen
-signature moments. None designs the **path**: what a diner feels *between* screens, across the arc of a
+slices), every _screen_ now clears the ≥4.3 rubric bar — and the app still feels **assembled, not
+choreographed**. That's because all prior plans score and build _surfaces_: tokens, textures, per-screen
+signature moments. None designs the **path**: what a diner feels _between_ screens, across the arc of a
 meal, and across visits. This track is that layer. It does not re-plan any surface — it choreographs the
 ones we have.
 
@@ -18,14 +18,14 @@ shipped) · `docs/context/RUBRIC.md` (screen rubric — J0 extends it) · `QR_FR
    the whole flow as **one camera move**; we cut between sets.
 2. **Undesigned arrival.** Scanning the table sticker — the single most branded moment of the night — lands
    on a utility menu. No place-setting beat ("you're at Table 7, we know it's you four"), no guided start.
-   Peak-*start* is missing (peak-end rule: people remember peaks and ends; we designed neither end of
+   Peak-_start_ is missing (peak-end rule: people remember peaks and ends; we designed neither end of
    dine-in).
 3. **Undesigned wait.** Anticipation is the core restaurant emotion, and we have the REAL data to feed it —
    line states `fired → in_progress → served` (S2) — but mid-meal they render as chips on cart lines, not
    as a story ("first round is with the kitchen · Mohinga is on the stove"). Nothing invites the second
-   round or dessert at the *right moment* (the one upsell that's hospitality, not a nag — and a direct
+   round or dessert at the _right moment_ (the one upsell that's hospitality, not a nag — and a direct
    revenue path).
-4. **Deciding is a catalog, not a guided path.** R6 shipped *finding* tools (search · scroll-spy · dietary
+4. **Deciding is a catalog, not a guided path.** R6 shipped _finding_ tools (search · scroll-spy · dietary
    filters · badges) — great for diners who know what they want. First-timers face a wall of items with no
    curated "start here," no social proof from real order data, no party-aware guidance.
 5. **No memory.** Every visit is the first visit. No "welcome back," no favorites, no "your usual" reorder
@@ -37,21 +37,21 @@ the measuring stick first.
 
 ## The frame — design six moments, not twelve screens
 
-| Moment | Dine-in | Pickup | Grocery |
-| --- | --- | --- | --- |
-| **Arrive** | scan → place-set + party | intent → slot clarity | walk in → scanner up |
-| **Decide** | guided start · social proof | reorder/usual first | n/a (list in hand) |
-| **Commit** | order together · send rounds | order → "we've started" | scan tempo, instant adds |
-| **Wait** | table timeline · second round | countdown → "come up" | none — that's the point |
-| **Settle** | split → everyone-paid beat → goodbye | handoff + thanks | one-thumb pay-and-go |
-| **Return** | welcome back · usual · tier | same | same |
+| Moment     | Dine-in                              | Pickup                  | Grocery                  |
+| ---------- | ------------------------------------ | ----------------------- | ------------------------ |
+| **Arrive** | scan → place-set + party             | intent → slot clarity   | walk in → scanner up     |
+| **Decide** | guided start · social proof          | reorder/usual first     | n/a (list in hand)       |
+| **Commit** | order together · send rounds         | order → "we've started" | scan tempo, instant adds |
+| **Wait**   | table timeline · second round        | countdown → "come up"   | none — that's the point  |
+| **Settle** | split → everyone-paid beat → goodbye | handoff + thanks        | one-thumb pay-and-go     |
+| **Return** | welcome back · usual · tier          | same                    | same                     |
 
 Every J-phase below designs one row of this table end-to-end, with real data only (never a fabricated
 "on the stove" — `in_progress` comes from the KDS).
 
 ## J0 — Measure the path (rubric + funnels + baseline) `docs + analytics, small PR`
 
-- Add **journey axes** to `RUBRIC.md`, scored per *path* (scan→paid per mode), same ≥4.3 bar:
+- Add **journey axes** to `RUBRIC.md`, scored per _path_ (scan→paid per mode), same ≥4.3 bar:
   **Continuity** (does anything persist/move across the cut?) · **Progress clarity** (do I always know
   where I am + what's next?) · **Effort** (taps/decisions per step vs the theoretical floor) ·
   **Emotional arc** (designed peak-start and peak-end?) · **Dead-time** (is waiting designed?) ·
@@ -62,7 +62,7 @@ Every J-phase below designs one row of this table end-to-end, with real data onl
   the cart inside 90 seconds). Hospitality metrics: **second-round rate** (J3's target) and
   **return-visit rate** (J5's). Baseline before J1 so every phase PR ships a before/after.
 - **Walkthrough baseline:** scripted Playwright pass on the Vercel preview (mobile viewport), one
-  screenshot per journey step per mode — the "before" reel. *Shipped as:* the scored baseline table in
+  screenshot per journey step per mode — the "before" reel. _Shipped as:_ the scored baseline table in
   `RUBRIC.md` (code-walked); the visual reel itself needs an environment with browser egress (the cloud
   sandbox's Chromium can't reach the preview) — capture it from a local session before J1 merges.
 - **Shipped (2026-07-11):** journey axes + scored baseline in `RUBRIC.md`; PostHog dashboard
@@ -79,7 +79,7 @@ The single highest-leverage fix for "assembled → choreographed."
   push; account/track→menu reads as return.
 - **Shared-element continuity** at the three highest-traffic cuts: menu item photo → item-sheet hero;
   CartBar total → checkout hero-total; checkout receipt → `/track` receipt panel.
-- **Vendor decision (evidence-checked against the installed stack):** Next 16.2.9 *has* the
+- **Vendor decision (evidence-checked against the installed stack):** Next 16.2.9 _has_ the
   `experimental.viewTransition` flag, but it rides React's experimental `<ViewTransition>` — and our
   stable React 19.2.7 doesn't export it (verified) — so the native path would mean a React canary in a
   money app: **disqualified**. Primary: **`next-view-transitions`** (~2KB, works on stable React by
@@ -90,7 +90,18 @@ The single highest-leverage fix for "assembled → choreographed."
   cut remains the RM experience.
 - **Timebox:** J1 is ONE PR — the directional grammar + exactly the three named cuts. Continuity is an
   enabler for J2–J4, not a rabbit hole; anything past those three cuts ships with the phase that needs it.
-- Kill the stagger-replay: entrance staggers (`.mms-stagger`) fire once per *session* per surface, not per
+- **Shipped (2026-07-11):** the grammar (forward drifts in from the right, back from the left, lateral
+  cross-fades; journey-depth map home 0 → menu 1 → cart 2 → track 3, account/rewards lateral at 2) via
+  `next-view-transitions` + `TransitionNav` (drop-in `TransitionLink`, `useJourneyRouter`, popstate→back);
+  AppHeader carries its own `view-transition-name` so the chrome never re-animates; TWO route-nav shared
+  cuts live — `cart-total` (CartBar figure → checkout review hero total) and `order-status` (header pill →
+  /track status chip); `.mms-stagger` premieres once per session per surface (`SurfaceMemory`). **Cut
+  revision (honest):** the planned checkout→track receipt cut is a Stripe full-page redirect (not client
+  nav) — replaced by the order-pill cut; the menu item→sheet morph is DEFERRED — the sheet already has a
+  framer slide-up + swipe-to-close, and a same-document view transition would double-animate against it;
+  reconciling the two motion systems is J2's item-work, not a J1 timebox item. RM: CSS-level off-switch
+  snaps every transition group.
+- Kill the stagger-replay: entrance staggers (`.mms-stagger`) fire once per _session_ per surface, not per
   mount (sessionStorage flag) — returning to the menu mid-meal should feel like turning back to your
   table, not a re-premiere.
 
@@ -104,11 +115,11 @@ The single highest-leverage fix for "assembled → choreographed."
   proof = **upgrade the existing honest `popular` catalog-tag badge** (`lib/menu/badges.ts` — which
   rightly refuses to fabricate a "most-loved") into a **server-derived, cached, counts-only** signal
   (no uid ever leaves the server; service-role aggregate, revalidated hourly) — the counts make the
-  claim *real*, which is exactly the badge rule's spirit.
+  claim _real_, which is exactly the badge rule's spirit.
 - **Party-aware copy** for groups ("feeding four? the lahpet + two mains spreads well") — copy per v7.2
   voice, honest (no fabricated counts).
 - **Bilingual voice rule for every new journey moment:** menu items already render `name_my`
-  (MenuBrowser/ItemSheet) — the *journey* copy must match: the arrival greeting, wait narration, and
+  (MenuBrowser/ItemSheet) — the _journey_ copy must match: the arrival greeting, wait narration, and
   goodbye each carry their Burmese line (Mingalaba ✦ / Kyay-zu tin ba de), Padauk-safe, not decoration.
 - Pickup arrival = slot-first clarity (exists) + the same start-here band.
 
@@ -126,12 +137,12 @@ The single highest-leverage fix for "assembled → choreographed."
   not a modal). When the table's been idle post-serve ~20min, surface "ready to settle up?" — the check
   that arrives before you have to ask for it.
 - **Pickup wait:** slot countdown → "we've started your order" (first line fires) → "it's ready — come to
-  the counter" + an *I'm here* button that pings the staff board (rides the existing floor realtime
+  the counter" + an _I'm here_ button that pings the staff board (rides the existing floor realtime
   channel — `lib/useFloorRealtime.ts`).
 
 ## J4 — Settle & goodbye (peak-end completion) `apps/qr, one PR`
 
-R7a designed the success *spike* (checkmark · confetti · +N Stars); this designs the *exit arc* after it —
+R7a designed the success _spike_ (checkmark · confetti · +N Stars); this designs the _exit arc_ after it —
 the part the peak-end rule says diners actually carry home.
 
 - Post-celebration on `/track`: the receipt visibly **tucks into your account** (shared-element into the
@@ -163,10 +174,10 @@ the part the peak-end rule says diners actually carry home.
 
 ## Sequencing + how we work it
 
-**J0 → J1 → J2 → J3 → J4 → J5 → J6.** J0 is the measuring stick (small, fast). J1 is the *enabler* —
+**J0 → J1 → J2 → J3 → J4 → J5 → J6.** J0 is the measuring stick (small, fast). J1 is the _enabler_ —
 timeboxed, because continuity is what every later phase composes with (J4's receipt-tuck is a
 view-transition) — but **J2/J3 are the substance**: arrival and the wait are where "hospitality, not
-e-commerce" is actually won. Honest sequencing note: if the feel-test that matters most is *your own*
+e-commerce" is actually won. Honest sequencing note: if the feel-test that matters most is _your own_
 repeated visits, **J5 (recognition) moves that needle hardest** — it's safe to pull forward after J1
 since only the favorites rail depends on nothing else. J5 needs J0's aggregate + the one migration.
 Each phase: one PR on the standard gate (build · lint · typecheck · migrations-check · require-docs),

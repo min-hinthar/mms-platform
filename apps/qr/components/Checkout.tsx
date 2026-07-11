@@ -8,7 +8,7 @@ import {
   type CSSProperties,
   type FormEvent,
 } from "react";
-import Link from "next/link";
+import { TransitionLink as Link } from "./nav/TransitionNav"; // J1 journey grammar
 import type { CartItem, CartTotals } from "@mms/db";
 import { Avatar, NumberFlow, Stepper } from "@mms/ui";
 import {
@@ -721,6 +721,7 @@ export function Checkout({
                   cents={totals.totalCents + tipPreviewCents}
                   strong
                   roll
+                  vt
                 />
               </dl>
             </div>
@@ -920,11 +921,16 @@ function Row({
   cents,
   strong,
   roll,
+  vt,
 }: {
   k: string;
   cents: number;
   strong?: boolean;
   roll?: boolean;
+  /** J1 shared element: marks THIS row's figure as the `cart-total` morph target (the CartBar total
+   *  morphs into it on the menu→cart cut). Set on exactly one row per rendered view — the review-step
+   *  hero total (the landing view) — so the view-transition name is never duplicated in one document. */
+  vt?: boolean;
 }) {
   return (
     <div
@@ -945,6 +951,7 @@ function Row({
     >
       <dt>{k}</dt>
       <dd
+        className={vt ? "vt-cart-total" : undefined}
         style={{
           margin: 0,
           fontVariantNumeric: "tabular-nums",

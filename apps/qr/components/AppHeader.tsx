@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { usePathname } from "next/navigation";
+// J1: header navs ride the journey grammar (direction-stamped view transitions) — drop-in Link swap.
+import { TransitionLink as Link } from "./nav/TransitionNav";
 import { browserClient } from "@mms/db";
 import { useActiveOrder } from "./ActiveOrderProvider";
 import { useActiveOrderStatus } from "./useActiveOrderStatus";
@@ -112,7 +113,10 @@ export function AppHeader() {
             aria-label={`${orderLabel} — view status`}
           >
             <span className="app-header-order-dot" aria-hidden />
-            <span className="app-header-order-label">
+            {/* `.vt-order-status` (J1): on the pill→/track cut this label MORPHS into the tracker's
+                status chip — the diner follows their order's status across the navigation. The pill
+                hides on /track, so the view-transition name is never duplicated in one document. */}
+            <span className="app-header-order-label vt-order-status">
               {base}
               {statusWord && <span className="app-header-order-status"> · {statusWord}</span>}
             </span>

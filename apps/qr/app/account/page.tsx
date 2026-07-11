@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import { TransitionLink as Link } from "@/components/nav/TransitionNav"; // J1 journey grammar
 import { getRewardsState, getOrderHistory, ensureProfile } from "@/lib/rewards";
 import { RewardsHub } from "@/components/RewardsHub";
 import { OrderHistory } from "@/components/OrderHistory";
@@ -42,7 +42,14 @@ export default async function Account() {
           )}
           <RewardsHub state={state} />
           {history === null ? (
-            <p style={{ fontSize: 13, color: "var(--t2)", margin: "0 0 var(--s4)", padding: "0 2px" }}>
+            <p
+              style={{
+                fontSize: 13,
+                color: "var(--t2)",
+                margin: "0 0 var(--s4)",
+                padding: "0 2px",
+              }}
+            >
               We couldn’t load your past orders just now — check back in a moment.
             </p>
           ) : (
