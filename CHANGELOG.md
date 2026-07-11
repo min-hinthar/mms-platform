@@ -4,6 +4,10 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — Journey track plan (J0–J6): paths over screens (2026-07-10)
+
+- **`docs/JOURNEY_PLAN.md`** — the layer above the (shipped) Richness/World-Class screen work: a diagnosis of why the app still feels assembled rather than choreographed (hard cuts between routes, undesigned arrival/wait/goodbye, catalog-not-guided deciding, no return-visit memory; root cause — the rubric scores screens, not paths), a six-moment journey frame per mode (arrive · decide · commit · wait · settle · return), and seven phased PRs: **J0** journey rubric + PostHog funnels + walkthrough baseline → **J1** continuity engine (directional route transitions + shared-element continuity) → **J2** arrival beat + guided start → **J3** the wait designed from real line states → **J4** settle & goodbye (peak-end) → **J5** recognition (welcome-back · server-re-priced reorder · favorites) → **J6** mode tempo. `ROADMAP.md` gains the 🧭 Journey track section.
+
 ### Fixed — Account sign-in recovery for an existing email + past-orders card overflow (2026-07-10)
 
 - **"A user with this email address has already been registered" is no longer a dead end.** When the diner enters an email that already belongs to another Morning Star account, `updateUser` 422s `email_exists` — previously surfaced as a raw error with no way forward. `AccountUpgrade` now detects that (by error code, message fallback) and pivots to a **sign-in recovery** (mirroring the existing Google `identity_already_exists` path): the button becomes **"Send sign-in code"**, which `signInWithOtp({ shouldCreateUser: false })`s the existing account and verifies with OTP type `email` (vs the `email_change` upgrade). Copy stays honest — signing in switches to that account and won't transfer this device's unsaved Stars; editing the email clears the recovery to retry the normal upgrade. Announced through the card's single existing `role="status"` region (no second live region).

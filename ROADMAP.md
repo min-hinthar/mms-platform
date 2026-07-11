@@ -148,6 +148,26 @@ clean token base, within the mobile-GPU/reduced-motion/AA guardrails M5 establis
   inline script (not next-themes); `NumberFlow` (already in `@mms/ui`) over delivery's `RollingDigits`; rebuild
   textures on QR tokens, never import delivery's 34KB `--hero-*` system.
 
+## 🧭 Journey track (J0–J6) — paths over screens &nbsp;`next`
+
+The layer above Richness: every *screen* now clears the rubric bar, but the *path* between them was never
+designed — hard cuts between routes, undesigned arrival/wait/goodbye, catalog-not-guided deciding, zero
+return-visit memory. This track choreographs the surfaces we already have; one moment per PR, real data
+only. Full spec: **[`docs/JOURNEY_PLAN.md`](docs/JOURNEY_PLAN.md)**.
+
+- **J0** Measure the path — journey axes added to `RUBRIC.md` (continuity · progress · effort · arc ·
+  dead-time · recognition · recovery), PostHog funnels per mode, Playwright walkthrough baseline. ⬜
+- **J1** Continuity engine — directional route transitions + shared-element continuity (item→sheet,
+  cart→checkout total, checkout→track receipt); staggers once per session. ⬜
+- **J2** Arrival + guided start — dine-in place-setting beat, "Start here" band, counts-only social proof. ⬜
+- **J3** The wait, designed — table timeline from real line states, right-moment dessert/settle prompts,
+  pickup "I'm here". ⬜
+- **J4** Settle & goodbye — receipt tucks to account, live Star/tier rollup, group "everyone's paid" beat,
+  timed ungated review ask. ⬜
+- **J5** Recognition — welcome-back, `reorderOrder` (server re-derived pricing), uid-scoped favorites
+  (one RLS migration). ⬜
+- **J6** Mode tempo — grocery speed-run, pickup step-count floor, dine-in round framing. ⬜
+
 ## ⏸ M6 — Kiosk · Terminal · EBT (2027) &nbsp;`milestone:M6`
 
 **Design of record: [`docs/M6_DESIGN.md`](docs/M6_DESIGN.md)** — per-phase plan grounded in the S4.3c EBT
