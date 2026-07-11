@@ -184,8 +184,10 @@ the part the peak-end rule says diners actually carry home.
   anon diner's Stars are device-bound until they upgrade; the upgrade card owns that promise). **One
   food-in-hand clock for the whole exit arc:** the goodbye AND the review ask land when the food is
   where it belongs — pure dine-in immediately, pickup/to-go at the expo's picked-up tap, pure-grocery
-  immediately (`useOrderStatus` now reads line fulfillments: `togo_status` alone can't tell a grocery
-  basket already in hand from a bag still being made). **Receipt tuck = the third J1 shared cut**
+  immediately. Keyed on line fulfillments (`useOrderStatus.hasTogoFood`), NOT `togo_status`: the
+  status can't tell a grocery basket already in hand from a bag still being made, and it initializes
+  in the webhook's after() block — briefly null on a fresh bag order, so gating on it would flash a
+  premature goodbye mid-wait; the lines are immutable and race-immune. **Receipt tuck = the third J1 shared cut**
   (`.vt-receipt`): the /track receipt card morphs into the account "Your orders" card on
   track→account — gated to the earner so the metaphor is never a false promise (a split share-payer's
   history won't contain this order). **Group settle moment:** the SettlementBoard now holds every

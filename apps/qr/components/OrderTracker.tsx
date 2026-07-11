@@ -413,19 +413,21 @@ export function OrderTracker({
       )}
 
       {/* J4 — one clock for the exit arc: the goodbye + the review ask land when the FOOD is where it
-          belongs, not merely when money moved. `togoStatus` alone can't tell (the fulfillment trigger
-          sets it for grocery lines too) — so: no takeaway status at all (pure dine-in, already eaten),
-          expo says picked-up, or nothing to-go is FOOD (a pure grocery basket is in the diner's hands
-          at payment). A pickup diner mid-wait gets neither a premature "see you next time" nor a
-          review ask for a meal they haven't held — both rise (realtime) the moment the expo hands it
-          over, which IS the visit's end. */}
-      {justPaid && arrived && (togo === null || togo === "picked_up" || !order.hasTogoFood) && (
+          belongs, not merely when money moved. Keyed on the LINES, not `togoStatus`: nothing to-go is
+          food (pure dine-in — already eaten at the table; pure grocery — the basket's in hand at
+          payment) → immediately; otherwise only at the expo's picked-up tap. Deliberately NOT
+          `togo === null`: the webhook inits togo_status in its after() block, so a bag order can
+          briefly exist with a null status — that disjunct would flash (or, on a stale-response race,
+          pin) a premature goodbye mid-wait. `hasTogoFood` is derived from immutable line data, so
+          it's race-immune; a permanently failed init is healed by the pg_cron fulfillment reconciler.
+          Both rise (realtime) the moment the expo hands the bag over, which IS the visit's end. */}
+      {justPaid && arrived && (!order.hasTogoFood || togo === "picked_up") && (
         <GoodbyeBeat progress={progress} />
       )}
 
       {/* Post-order feedback (M4 P4.3, timed by J4 on the same food-in-hand clock) — renders nothing
           unless the caller is the earner + hasn't reviewed; ungated public-review link inside. */}
-      {arrived && (togo === null || togo === "picked_up" || !order.hasTogoFood) && (
+      {arrived && (!order.hasTogoFood || togo === "picked_up") && (
         <FeedbackPrompt orderId={order.id} />
       )}
 

@@ -126,6 +126,10 @@ export function SettlementBoard({
     const wasPayable = prev === "pending" || prev === "failed";
     const nowIn = mine.status === "authorized" || mine.status === "captured";
     if (wasPayable && nowIn) {
+      // Once the end-beat has announced "everyone's paid", don't overwrite it with "finishing up" —
+      // the last payer (whose own flip can be observed in the same load as the table completing) is
+      // exactly the diner who should hear the table-wide message, not their solo one.
+      if (redirected.current) return;
       // Honest copy for the LAST payer: if this authorization completed the table, don't say "waiting".
       const everyoneIn = shares.every((s) => s.status !== "pending" && s.status !== "failed");
       onStatus(
