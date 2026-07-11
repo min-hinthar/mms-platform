@@ -171,10 +171,11 @@ only. Full spec: **[`docs/JOURNEY_PLAN.md`](docs/JOURNEY_PLAN.md)**.
   favorite** (`mostLoved.ts`: counts-only aggregate over paid orders, ≥2 distinct orders/60d, cached 1h,
   honest fallback to the manual tag while history is thin). ⬜→✅
 - **J3 ✅** The wait, designed (2026-07-11) — `TableTimeline` strip (menu header + cart review) narrating
-  REAL kitchen taps (`fired → in_progress → served`; headline prioritizes the live tap; counts chips);
-  right-moment lines (dessert/tea on all-served; a client-observed 20-min settle pointer); provider-wide
-  visibility refetch (poor-wifi/solo freshness); honest pickup slot countdown on /track (arithmetic on
-  the diner's own slot, "any minute now" once due, dropped when expo says ready). **"I'm here" DEFERRED
+  REAL kitchen taps (`fired → in_progress → served`; headline prioritizes the live tap; a qty-weighted
+  counts line); right-moment lines (dessert/tea on all-served; a client-observed 20-min settle pointer);
+  visibility refetch on BOTH cart surfaces (provider + checkout — poor-wifi/pickup freshness); honest
+  pickup slot countdown on /track (arithmetic on the diner's own slot, "any minute now" once due,
+  dropped when expo says ready or ~15 min past an un-actioned slot). **"I'm here" DEFERRED
   honestly:** the floor "channel" is postgres_changes (read-only per-subscriber RLS) — a diner→staff ping
   needs a `realtime.messages` is_staff broadcast policy or an orders column, i.e. the J5 migration window. ⬜→✅
 - **J4** Settle & goodbye — receipt tucks to account, live Star/tier rollup, group "everyone's paid" beat,

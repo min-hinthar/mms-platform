@@ -1,5 +1,6 @@
 "use client";
 import {
+  useCallback,
   useEffect,
   useOptimistic,
   useRef,
@@ -148,6 +149,25 @@ export function Checkout({
   const [payTotals, setPayTotals] = useState<CartTotals | null>(null);
   const [loadingPay, setLoadingPay] = useState(false);
 
+  // Re-sync the server-authoritative view (items / totals / settling / tabType — never pay-step state,
+  // so a mid-payment refetch can't disturb the mounted Stripe Element). Stable (useCallback on the
+  // stable cartId prop) so the realtime + visibility subscriptions below register once.
+  const refresh = useCallback(async () => {
+    try {
+      const v = await getCartView(cartId);
+      setItems(v.items);
+      setTotals(v.totals);
+      setSettling(v.settling); // a peer (host) opening/canceling a split flips the whole table here
+      setTabType(v.tabType); // a server (or a peer) opening the tab reflects here too
+    } catch {
+      // Swallow: the EXPECTED failure here is the post-payment 403 (the cart flipped to paid → the
+      // diner is being redirected to /track). We can't discriminate it from a transient error
+      // client-side — Server Action errors are redacted in prod, so no `.status` survives — and
+      // surfacing an error on the expected post-pay 403 would be a false alarm. A transient failure
+      // self-heals on the next interaction (every mutation re-fetches).
+    }
+  }, [cartId]);
+
   // Live cart sync: a peer's add/qty/assignment (P3.2) OR a server opening the tab / editing the order
   // (S1.3/S3.1) re-fetches the server-authoritative view here, so the cart + shares + tab state stay in
   // step. Enabled for ANY dine-in cart (not just groups) — a solo diner must still see a server-opened
@@ -196,26 +216,10 @@ export function Checkout({
     else mounted.current = true;
   }, [viewKey]);
 
-  async function refresh() {
-    try {
-      const v = await getCartView(cartId);
-      setItems(v.items);
-      setTotals(v.totals);
-      setSettling(v.settling); // a peer (host) opening/canceling a split flips the whole table here
-      setTabType(v.tabType); // a server (or a peer) opening the tab reflects here too
-    } catch {
-      // Swallow: the EXPECTED failure here is the post-payment 403 (the cart flipped to paid → the
-      // diner is being redirected to /track). We can't discriminate it from a transient error
-      // client-side — Server Action errors are redacted in prod, so no `.status` survives — and
-      // surfacing an error on the expected post-pay 403 would be a false alarm. A transient failure
-      // self-heals on the next interaction (every mutation re-fetches).
-    }
-  }
-
   // J3 freshness backstop (mirrors TableCartProvider's): the review-step timeline must never narrate
   // a stale kitchen state as current — realtime here is dine-in-gated (a pickup cart has none) and a
   // backgrounded phone misses the flips anyway — so re-sync the server view whenever the tab returns
-  // to the foreground. (refresh is compiler-memoized on its stable captures, so this registers once.)
+  // to the foreground.
   useEffect(() => {
     const onVis = () => {
       if (document.visibilityState === "visible") void refresh();
