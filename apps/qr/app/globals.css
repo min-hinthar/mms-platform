@@ -2942,3 +2942,45 @@ html[data-seen-surface] .mms-stagger {
 .start-here-rail::-webkit-scrollbar {
   display: none;
 }
+
+/* ── J3 · Table timeline — the wait, narrated from real kitchen taps (docs/JOURNEY_PLAN.md) ───────────
+   A slim strip (menu header + cart review): headline = the kitchen's live state, counts chips, and the
+   right-moment lines (dessert on all-served; the 20-min settle pointer). Deliberately NOT a live region
+   (ambient state — same discipline as the never-announced CartBar total). Entrance rides `.mms-rise`
+   (a mid-meal dynamic mount). Tokens only; opaque surface (mobile GPU budget). */
+.table-timeline {
+  margin: 10px 0 2px;
+  padding: 10px 13px;
+  border-radius: var(--r-sm);
+  border: 1px solid color-mix(in oklab, var(--ac) 20%, var(--bd));
+  background: linear-gradient(180deg, color-mix(in oklab, var(--ac) 6%, var(--cd)), var(--cd));
+  box-shadow: inset 0 1px 0 var(--sheen);
+}
+.table-timeline-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--tx);
+}
+.table-timeline-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--r-full);
+  background: var(--ac);
+}
+.table-timeline-counts {
+  margin: 3px 0 0 16px;
+  font-size: 12px;
+  color: var(--t2);
+  font-variant-numeric: tabular-nums;
+}
+.table-timeline-note {
+  margin: 6px 0 0 16px;
+  font-size: 12.5px;
+  color: var(--t2);
+  line-height: 1.5;
+}

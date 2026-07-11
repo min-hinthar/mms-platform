@@ -4,6 +4,13 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — J3: the wait, designed (2026-07-11)
+
+- **Table timeline** (`TableTimeline` — `TimelineStrip` + `MenuTimeline`): a slim ambient strip on the menu header and the checkout review step narrating the kitchen's REAL taps — `fired → in_progress → served` are literally KdsBoard's Start/Ready buttons, so "Mohinga is being made" is the kitchen's own word, never a guess or a fabricated ETA. Counts line ("2 with the kitchen · 1 cooking · 3 served ✓"), a dessert/tea invitation when everything's served, and a quiet "ready to settle up?" pointer once the table's been idle ~20 min post-serve (client-observed serve time — the schema stores no `served_at`; the copy stays "when you're ready", never presumptuous). The strip is deliberately **not** a live region: the one-live-region-per-view rule holds (kitchen flips are glanceable ambient state, the same discipline as the never-announced CartBar total).
+- **Poor-wifi freshness backstop:** restaurant interiors drop realtime — `TableCartProvider` now refetches the cart on `visibilitychange`, so a phone that slept through a websocket drop shows the kitchen's current state the moment it wakes (stronger than the planned "reconnecting" label: the strip is simply never staler than the last foreground).
+- **Honest pickup countdown** on `/track`: the slot line gains "in ~N min" (30s tick, shown only within 90 min of the slot) and "any minute now" at the slot — derived purely from the diner's own chosen slot time, dropped entirely once the kitchen marks the order ready/picked-up (the kitchen's word outranks the clock; no fabricated prep ETA).
+- **Deferred (honest):** the pickup _I'm here_ ping — the "floor channel" is postgres_changes (read-only per-subscriber RLS), not a broadcast channel a diner may publish to; doing it right needs a `realtime.messages` staff policy or an orders column, i.e. J5's migration window (this track's one migration).
+
 ### Added — J2: arrival beat + guided start (2026-07-11)
 
 - **Arrival beat** (`ArrivalBeat`) — the first branded moment after the scan: a bilingual greeting (မင်္ဂလာပါ Mingalaba ✦, real `lang="my"` content in the Padauk face, not decoration) + one mode-aware place-setting line. Dine-in party copy comes from **live presence** ("3 of you at the table — order together, settle together") — never a fabricated table number (sessions carry no human table label). The once-per-session beat composes with J1's `SurfaceMemory` for free: it premieres on the session's first menu visit and lands settled on revisits.

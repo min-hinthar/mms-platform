@@ -29,6 +29,7 @@ import { useCartRealtime } from "@/lib/realtime";
 import { PaymentSection } from "./PaymentSection";
 import { SplitSection } from "./SplitSection";
 import { SettlementBoard } from "./SettlementBoard";
+import { TimelineStrip } from "./TableTimeline";
 import { SendToKitchenButton } from "./SendToKitchenButton";
 import { SecureTabButton } from "./SecureTabButton";
 import { RewardField } from "./RewardField";
@@ -447,6 +448,9 @@ export function Checkout({
           </>
         ) : (
           <>
+            {/* J3: the wait, narrated from real kitchen taps — shows only once something is with the
+                kitchen, right where the mid-meal diner reviews the table's order. */}
+            <TimelineStrip items={items} />
             {/* S4 unified basket: group lines by destination (At your table / To-go / Grocery). Headings
               show only when the basket actually spans 2+ destinations, so a plain dine-in cart stays clean.
               The renderLine body is the S2 per-line card + an S4 for-here/to-go toggle on editable food. */}
