@@ -122,6 +122,14 @@ The single highest-leverage fix for "assembled → choreographed."
   (MenuBrowser/ItemSheet) — the _journey_ copy must match: the arrival greeting, wait narration, and
   goodbye each carry their Burmese line (Mingalaba ✦ / Kyay-zu tin ba de), Padauk-safe, not decoration.
 - Pickup arrival = slot-first clarity (exists) + the same start-here band.
+- **Shipped (2026-07-11):** `ArrivalBeat` (bilingual `lang="my"` greeting + mode-aware place-setting line;
+  party copy from live presence — no fabricated table numbers, sessions carry none; the once-per-session
+  beat rides J1's SurfaceMemory for free); `StartHereBand` (top-6 horizontal rail → the same item sheet;
+  hidden while searching/filtering); `lib/menu/mostLoved.ts` (service-role counts-only aggregate: paid
+  orders, 60-day window, ≥2 distinct orders, uuid-only ids so grocery lines are excluded, 1h cache,
+  fails to `[]` so it can never take the menu down) upgrading `badges.ts` to a data-backed "Table
+  favorite" that supersedes the manual `popular` tag when real counts exist. The J1-deferred item→sheet
+  morph remains deferred (framer double-animation still unresolved — revisit with J3's motion work).
 
 ## J3 — The wait, designed `apps/qr, one PR`
 

@@ -2816,3 +2816,129 @@ html[data-seen-surface] .mms-stagger {
     animation: none !important;
   }
 }
+
+/* ── J2 · Arrival beat + "Start here" guided opening (docs/JOURNEY_PLAN.md) ────────────────────────────
+   The place-setting greeting under the menu masthead (bilingual — the Burmese line is content, not
+   decoration) and the horizontal guided-start rail of table favorites. Entrances ride `.mms-stagger`
+   (once per session via SurfaceMemory, reduced-motion-gated). Tokens only; opaque surfaces (mobile GPU
+   budget — no blur). */
+.arrival-beat {
+  margin: 2px 0 0;
+}
+.arrival-greeting {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--ac-strong);
+  letter-spacing: 0.01em;
+}
+.arrival-line {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--t2);
+  line-height: 1.5;
+}
+.start-here-h {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.start-here-sub {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--t3);
+  letter-spacing: 0.02em;
+}
+/* Horizontal rail: native scroll + snap; edge padding so the first/last card can center. Cards are real
+   buttons (≥44px) on the `.card` surface with the gold-wash lift the band's "favorite" framing implies. */
+.start-here-rail {
+  list-style: none;
+  margin: 0 -20px;
+  padding: 2px 20px 10px;
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+}
+.start-here-rail > li {
+  flex: none;
+  scroll-snap-align: start;
+}
+.start-here-card {
+  display: grid;
+  gap: 3px;
+  width: 132px;
+  min-height: 44px;
+  padding: 8px 8px 10px;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  color: var(--tx);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--gold) 7%, var(--cd)), var(--cd));
+  border: 1px solid color-mix(in oklab, var(--gold) 30%, var(--bd));
+  border-radius: var(--r-sm);
+  box-shadow: inset 0 1px 0 var(--sheen);
+  transition:
+    border-color var(--dur-base) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out);
+}
+@media (hover: hover) {
+  .start-here-card:hover {
+    border-color: color-mix(in oklab, var(--ac) 32%, var(--bd));
+    box-shadow:
+      inset 0 1px 0 var(--sheen),
+      var(--sh-lift);
+  }
+}
+.start-here-photo {
+  display: block;
+  margin: 0 0 4px;
+  border-radius: 9px;
+  overflow: hidden;
+  aspect-ratio: 128 / 88;
+}
+.start-here-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.start-here-name {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.start-here-my {
+  font-family: var(--font-my);
+  font-size: 11.5px;
+  color: var(--t2);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.start-here-price {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--ac-strong);
+  font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+  .start-here-card {
+    transition: none;
+  }
+}
+/* Match the sibling horizontal rails (.menu-rail/.menu-diets/.slot-days): no visible scrollbar strip. */
+.start-here-rail {
+  scrollbar-width: none;
+}
+.start-here-rail::-webkit-scrollbar {
+  display: none;
+}

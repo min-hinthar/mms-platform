@@ -4,6 +4,12 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — J2: arrival beat + guided start (2026-07-11)
+
+- **Arrival beat** (`ArrivalBeat`) — the first branded moment after the scan: a bilingual greeting (မင်္ဂလာပါ Mingalaba ✦, real `lang="my"` content in the Padauk face, not decoration) + one mode-aware place-setting line. Dine-in party copy comes from **live presence** ("3 of you at the table — order together, settle together") — never a fabricated table number (sessions carry no human table label). The once-per-session beat composes with J1's `SurfaceMemory` for free: it premieres on the session's first menu visit and lands settled on revisits.
+- **"Start here" band** (`StartHereBand`) — the guided opening for first-timers: a horizontal rail of the top-6 dishes tables actually love, each card opening the same item sheet as a menu row. Hidden the moment the diner is _finding_ (search text or a diet filter active). Curation is real data first, honest fallback to `popular`-tagged items while order history is thin.
+- **"Table favorite" badge — the `popular` tag goes data-backed.** `lib/menu/mostLoved.ts` is a counts-only, service-role aggregate over PAID orders (60-day window, ≥2 distinct orders so one party's bulk order can't crown a dish, uuid-only ids so grocery barcode lines are excluded, cached 1h, resolves `[]` on any failure so it can never take the menu down — and no uid/order-id/amount ever leaves the module). When real counts crown an item, "Table favorite" supersedes the hand-set `popular` tag — the truer claim wins, which is `badges.ts`'s founding never-fabricate rule. Menu row and item sheet stay in agreement.
+
 ### Added — J1: continuity engine — the route-change grammar (2026-07-11)
 
 - **Route changes are choreographed, not cut.** Client navigation now rides the View Transitions API via `next-view-transitions` (~2KB; works on stable React — Next's native flag needs a React canary, disqualified for a money app; non-supporting browsers keep the instant cut). The grammar: **forward** (deeper into the journey — home→menu→cart→track by depth map) drifts the page in from the right (16px + fade, 240ms), **back** from the left (browser back too, via popstate), lateral cross-fades. The `AppHeader` carries its own `view-transition-name`, so the wayfinding chrome stays put while the page moves under it — one camera move.

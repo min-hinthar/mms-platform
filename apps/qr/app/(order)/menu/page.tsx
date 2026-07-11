@@ -3,6 +3,7 @@ import { TableCartProvider } from "@/components/TableCartProvider";
 import { CartPublisher } from "@/components/CartPublisher";
 import { MenuBrowser, type MenuItem } from "@/components/menu/MenuBrowser";
 import type { ModGroup } from "@/lib/menu/modifiers";
+import { getMostLoved } from "@/lib/menu/mostLoved";
 
 // RSC menu — reads the catalog (`menu_items`) server-side with the ANON/publishable key (gated by
 // public-read RLS, least privilege). Fetches the fields the R6 browse layer needs (name EN/MY,
@@ -72,6 +73,9 @@ export default async function Menu({
   const code = t ?? j;
   const joinOnly = !t && !!j;
   const db = publicClient();
+  // J2: the catalog and the counts-only favorites aggregate load in parallel — the aggregate is cached
+  // (1h) and can never block or break the menu (it resolves [] on failure inside mostLoved).
+  const mostLovedP = getMostLoved();
   const { data } = await db
     .from("menu_items")
     .select(
@@ -98,11 +102,13 @@ export default async function Menu({
       modifierGroups: shapeModifierGroups(i.item_modifier_groups),
     }));
 
+  const favoriteIds = (await mostLovedP).map((m) => m.menuItemId);
+
   return (
     <TableCartProvider mode={mode} code={code} joinOnly={joinOnly}>
       {/* Publishes the open-cart id to the wayfinding store so the header's "back to cart" works off-menu. */}
       <CartPublisher />
-      <MenuBrowser items={items} mode={mode} />
+      <MenuBrowser items={items} mode={mode} favoriteIds={favoriteIds} />
     </TableCartProvider>
   );
 }

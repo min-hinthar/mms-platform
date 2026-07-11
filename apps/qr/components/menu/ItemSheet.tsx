@@ -52,6 +52,7 @@ export function ItemSheet({
   open,
   onClose,
   onSelectItem,
+  tableFavorite = false,
 }: {
   item: MenuItem | null;
   allItems: MenuItem[];
@@ -59,6 +60,9 @@ export function ItemSheet({
   open: boolean;
   onClose: () => void;
   onSelectItem: (item: MenuItem) => void;
+  /** J2: the data-backed favorite flag for THIS item (real paid-order counts) — keeps the sheet's badge
+   *  in agreement with the menu row it opened from. */
+  tableFavorite?: boolean;
 }) {
   // Detect an upsell SWAP (item changes while the sheet stays open) in an EFFECT — never read refs during
   // render (React Compiler). On a swap the keyed body remounts mid-scroll and the tapped upsell card
@@ -85,6 +89,7 @@ export function ItemSheet({
           rootRef={bodyRef}
           onClose={onClose}
           onSelectItem={onSelectItem}
+          tableFavorite={tableFavorite}
         />
       )}
     </Sheet>
@@ -98,6 +103,7 @@ function ItemSheetBody({
   rootRef,
   onClose,
   onSelectItem,
+  tableFavorite,
 }: {
   item: MenuItem;
   allItems: MenuItem[];
@@ -105,6 +111,7 @@ function ItemSheetBody({
   rootRef: RefObject<HTMLDivElement | null>;
   onClose: () => void;
   onSelectItem: (item: MenuItem) => void;
+  tableFavorite: boolean;
 }) {
   const { add, cartId, locked, settling } = useCart();
   const { shouldAnimate } = useAnimationPreference();
@@ -139,7 +146,7 @@ function ItemSheetBody({
     [item, allItems, diets],
   );
 
-  const badges = itemBadges(item.tags);
+  const badges = itemBadges(item.tags, tableFavorite);
   const contains =
     item.allergens.length > 0 ? item.allergens.map((a) => ALLERGEN_LABEL[a] ?? a).join(", ") : null;
 
