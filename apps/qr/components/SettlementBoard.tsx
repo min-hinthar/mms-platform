@@ -86,6 +86,15 @@ export function SettlementBoard({
     },
     [],
   );
+
+  // The complete flip unmounts interactive things (the host's Cancel, the progress line) — if focus
+  // fell to <body> with them, park it on the beat so a keyboard/SR user isn't dropped mid-breath
+  // (WCAG 2.4.3; same convention as the share-row restore above).
+  const completeRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (complete && document.activeElement === document.body)
+      completeRef.current?.focus({ preventScroll: true });
+  }, [complete]);
   useSettlementRealtime(cartId, accessToken, true, load);
 
   // Poll backstop (payment-critical screen): re-fetch every 5s while settling so progress shows even if
@@ -136,8 +145,12 @@ export function SettlementBoard({
         onStatus("Split canceled — back to one bill.");
         onChanged();
       } catch (e) {
-        // Host abort lost the race to a completing capture (or not permitted) — surface it honestly.
-        onStatus(e instanceof Error ? e.message : "Couldn’t cancel the split.");
+        // Host abort lost the race to a completing capture (or not permitted) — surface it honestly,
+        // UNLESS the table just completed: the end-beat's announcement owns the one status region
+        // during the breath, and "couldn't cancel" would clobber "everyone's paid" (the completed
+        // capture IS the answer to the failed abort).
+        if (!redirected.current)
+          onStatus(e instanceof Error ? e.message : "Couldn’t cancel the split.");
         load();
       }
     });
@@ -203,7 +216,7 @@ export function SettlementBoard({
             // receipt. NOT a live region — the announcement went through the settle view's one status
             // region (onStatus above); this is the visible face of the same moment. Bilingual per the
             // J2 journey-copy rule (the farewell is content, not decoration).
-            <div className="settle-complete mms-rise">
+            <div ref={completeRef} tabIndex={-1} className="settle-complete mms-rise">
               <p className="settle-complete-line">
                 <span aria-hidden>🎉 </span>Everyone’s paid —{" "}
                 <span lang="my" style={{ fontFamily: "var(--font-my)" }}>

@@ -412,16 +412,22 @@ export function OrderTracker({
         </div>
       )}
 
-      {/* J4 — the goodbye beat: only on a FRESH payment (the exit arc of this visit, not a revisit
-          artifact). Bilingual farewell for everyone; the Stars ring + account tuck for the earner. */}
-      {justPaid && arrived && <GoodbyeBeat progress={progress} />}
+      {/* J4 — one clock for the exit arc: the goodbye + the review ask land when the FOOD is where it
+          belongs, not merely when money moved. `togoStatus` alone can't tell (the fulfillment trigger
+          sets it for grocery lines too) — so: no takeaway status at all (pure dine-in, already eaten),
+          expo says picked-up, or nothing to-go is FOOD (a pure grocery basket is in the diner's hands
+          at payment). A pickup diner mid-wait gets neither a premature "see you next time" nor a
+          review ask for a meal they haven't held — both rise (realtime) the moment the expo hands it
+          over, which IS the visit's end. */}
+      {justPaid && arrived && (togo === null || togo === "picked_up" || !order.hasTogoFood) && (
+        <GoodbyeBeat progress={progress} />
+      )}
 
-      {/* Post-order feedback (M4 P4.3, timed by J4) — only once the order has landed AND the food is
-          where it belongs: a kitchen order (togoStatus non-null) asks after PICK-UP, never mid-wait
-          ("never before food is served" — docs/JOURNEY_PLAN.md); an order with no kitchen portion
-          (pure grocery / dine-in already at the table) asks right away, at peak goodwill. Renders
-          nothing unless the caller is the earner + hasn't reviewed; ungated public-review link inside. */}
-      {arrived && (togo === null || togo === "picked_up") && <FeedbackPrompt orderId={order.id} />}
+      {/* Post-order feedback (M4 P4.3, timed by J4 on the same food-in-hand clock) — renders nothing
+          unless the caller is the earner + hasn't reviewed; ungated public-review link inside. */}
+      {arrived && (togo === null || togo === "picked_up" || !order.hasTogoFood) && (
+        <FeedbackPrompt orderId={order.id} />
+      )}
 
       <p style={{ fontSize: 12, color: "var(--t3)", margin: "14px 0 0" }}>
         Status updates here as the kitchen works on it — keep this open, or check back anytime.
@@ -433,11 +439,11 @@ export function OrderTracker({
           </span>{" "}
           Back to menu
         </Link>
-        {/* The rewards hub had NO diner-facing entry point — the Star just earned here is the natural
-            moment to offer it (viewport-prefetched by <Link>). Only once the order landed (not while
-            confirming), and not when the goodbye beat already carries the account link (the earner's
-            fresh-payment mount) — one clear door, not two. */}
-        {arrived && !(justPaid && progress?.earnedThisOrder) && (
+        {/* The rewards hub's diner-facing entry point on a REVISIT (viewport-prefetched by <Link>).
+            On a fresh payment the goodbye beat carries the rewards door for everyone instead — one
+            clear door, decided once at mount (never a link that vanishes underfoot when the progress
+            poll resolves — focus would drop to <body>). */}
+        {arrived && !justPaid && (
           <Link href="/account" className="nav-link">
             View your rewards{" "}
             <span aria-hidden className="nav-arrow nav-arrow-fwd">

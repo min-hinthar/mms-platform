@@ -177,22 +177,27 @@ the part the peak-end rule says diners actually carry home.
   before food is served.
 - **Shipped (2026-07-11):** `GoodbyeBeat` on /track (fresh payments only — the exit arc, not a revisit
   artifact): the bilingual farewell (ကျေးဇူးတင်ပါတယ် Kyay-zu tin ba de, `lang="my"` Padauk — content,
-  not decoration) for everyone; for the ORDER'S EARNER, the account hub's own `StarsRing` drawn to the
-  post-order cycle (the summary read is ordered after attribution, so the arc the diner watches fill
-  already includes this order's Star — the Star visibly arrives, nothing fabricated) + "saved to your
-  account" + the tuck link. **Receipt tuck = the third J1 shared cut** (`.vt-receipt`): the /track
-  receipt card morphs into the account "Your orders" card on track→account — gated to the earner so
-  the metaphor is never a false promise (a split share-payer's history won't contain this order).
-  **Group settle moment:** the SettlementBoard now holds every diner for a ~1.6s table-wide
-  "Everyone's paid 🎉 — ကျေးဇူးတင်ပါတယ်" beat (announced once through the settle view's single status
-  region) before the receipt redirect; the host's dead cancel affordance hides once captured. **Review
-  ask re-timed, not rebuilt:** M4's `FeedbackPrompt` (already ungated + one-per-order) now waits for
-  the food — kitchen orders (togoStatus set) ask at PICKED-UP, orders with no kitchen portion ask
-  immediately; DOM order puts it after the goodbye. **Honest deltas:** the tuck lands on the "Your
-  orders" history card, not the header account icon (the J1 rule — chrome carries its own stable
-  view-transition name and never re-animates; morphing INTO the header would break the one-camera-move
-  grammar), and PaySuccess's verbatim v7.2 headline stays — the group beat lives on the board, where
-  the table actually sees it together.
+  not decoration) + one rewards door for everyone; for the ORDER'S EARNER, the account hub's own
+  `StarsRing` drawn to the post-order cycle (the summary read is ordered after attribution, so the arc
+  the diner watches fill already includes this order's Star — the Star visibly arrives, nothing
+  fabricated) + "your Star and this receipt are with your rewards" (NOT "saved to your account" — an
+  anon diner's Stars are device-bound until they upgrade; the upgrade card owns that promise). **One
+  food-in-hand clock for the whole exit arc:** the goodbye AND the review ask land when the food is
+  where it belongs — pure dine-in immediately, pickup/to-go at the expo's picked-up tap, pure-grocery
+  immediately (`useOrderStatus` now reads line fulfillments: `togo_status` alone can't tell a grocery
+  basket already in hand from a bag still being made). **Receipt tuck = the third J1 shared cut**
+  (`.vt-receipt`): the /track receipt card morphs into the account "Your orders" card on
+  track→account — gated to the earner so the metaphor is never a false promise (a split share-payer's
+  history won't contain this order). **Group settle moment:** the SettlementBoard now holds every
+  diner for a ~1.6s table-wide "Everyone's paid 🎉 — ကျေးဇူးတင်ပါတယ်" beat (announced once through the
+  settle view's single status region; a losing host abort can't clobber it; focus parks on the beat if
+  its controls unmounted underfoot) before the receipt redirect; the host's dead cancel affordance
+  hides once captured. **Review ask re-timed, not rebuilt:** M4's `FeedbackPrompt` (already ungated +
+  one-per-order) rides the same clock, after the goodbye in DOM order. **Honest deltas:** the tuck
+  lands on the "Your orders" history card, not the header account icon (the J1 rule — chrome carries
+  its own stable view-transition name and never re-animates; morphing INTO the header would break the
+  one-camera-move grammar), and PaySuccess's verbatim v7.2 headline stays — the group beat lives on
+  the board, where the table actually sees it together.
 
 ## J5 — Recognition (return visits) `apps/qr + 1 small migration, one PR`
 

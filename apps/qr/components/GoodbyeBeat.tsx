@@ -25,13 +25,17 @@ import type { RewardsProgress } from "@/lib/rewards";
  */
 export function GoodbyeBeat({ progress }: { progress: RewardsProgress | null }) {
   const earned = !!progress?.earnedThisOrder;
+  // Degenerate-summary guard (mirrors PaySuccess): if the summary RPC transiently failed inside
+  // getRewardsProgress, the snapshot can read stars:0 / ordersToNext:0 with earnedThisOrder still
+  // true — a "✦ 0" ring under "+1 Star earned" would be a lie. No ring beats a wrong ring.
+  const ringSafe = earned && !!progress && progress.stars > 0 && progress.ordersToNext > 0;
   return (
     <section
       className="goodbye-beat mms-rise"
       aria-label="Thank you"
       style={{ animationDelay: "420ms" }}
     >
-      {earned && progress && (
+      {ringSafe && progress && (
         <div className="goodbye-beat-ring mms-rise">
           <StarsRing
             stars={progress.stars}
@@ -52,19 +56,22 @@ export function GoodbyeBeat({ progress }: { progress: RewardsProgress | null }) 
         </span>
         Kyay-zu tin ba de — see you next time
       </p>
-      {/* The account claim + tuck link are the EARNER's (the order lives in their history — the
-          receipt card above carries the shared-element name only for them, same gate). */}
+      {/* The Star claim is the EARNER's (the receipt card above carries the shared-element name on the
+          same gate). "With your rewards", not "to your account": an anonymous diner's Stars are
+          device-bound until they upgrade — /account itself says "add an email to save them to an
+          account", and this beat must not promise the durability that card exists to offer. */}
       {earned && (
-        <>
-          <p className="goodbye-beat-sub">Your Star and this receipt are saved to your account.</p>
-          <Link href="/account" className="nav-link">
-            See it in your account{" "}
-            <span aria-hidden className="nav-arrow nav-arrow-fwd">
-              →
-            </span>
-          </Link>
-        </>
+        <p className="goodbye-beat-sub">Your Star and this receipt are with your rewards.</p>
       )}
+      {/* One rewards door for everyone on the fresh-payment mount (the tracker's bottom link yields
+          to this one) — the earner follows their Star + receipt; a split share-payer still has their
+          own rewards to visit, just no claim about THIS order. */}
+      <Link href="/account" className="nav-link">
+        {earned ? "See them in your rewards" : "View your rewards"}{" "}
+        <span aria-hidden className="nav-arrow nav-arrow-fwd">
+          →
+        </span>
+      </Link>
     </section>
   );
 }

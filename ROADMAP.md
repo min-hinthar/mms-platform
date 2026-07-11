@@ -178,12 +178,13 @@ only. Full spec: **[`docs/JOURNEY_PLAN.md`](docs/JOURNEY_PLAN.md)**.
   dropped when expo says ready or ~15 min past an un-actioned slot). **"I'm here" DEFERRED
   honestly:** the floor "channel" is postgres_changes (read-only per-subscriber RLS) — a diner→staff ping
   needs a `realtime.messages` is_staff broadcast policy or an orders column, i.e. the J5 migration window. ⬜→✅
-- **J4 ✅** Settle & goodbye (2026-07-11) — `GoodbyeBeat` on /track (bilingual farewell; the earner's
-  `StarsRing` drawn to the post-order cycle — the Star visibly arrives; "saved to your account" + tuck
-  link); the receipt→"Your orders" shared cut (`.vt-receipt`, earner-gated so the metaphor is never
-  false); the SettlementBoard's table-wide "everyone's paid 🎉" breath before the receipt redirect
-  (announced via the one status region; dead cancel hidden); `FeedbackPrompt` re-timed — kitchen orders
-  ask at picked-up, never mid-wait (ungated + one-per-order unchanged). ⬜→✅
+- **J4 ✅** Settle & goodbye (2026-07-11) — `GoodbyeBeat` on /track (bilingual farewell + one rewards
+  door for all; the earner's `StarsRing` drawn to the post-order cycle — the Star visibly arrives —
+  with device-honest "with your rewards" copy); the receipt→"Your orders" shared cut (`.vt-receipt`,
+  earner-gated so the metaphor is never false); one food-in-hand clock for goodbye + review ask
+  (pickup/to-go at picked-up, pure grocery/dine-in immediately — line fulfillments now read
+  client-side); the SettlementBoard's table-wide "everyone's paid 🎉" breath before the receipt
+  redirect (one status region; abort can't clobber it; focus parked; dead cancel hidden). ⬜→✅
 - **J5** Recognition — welcome-back, `reorderOrder` (server re-derived pricing), uid-scoped favorites
   (one RLS migration). ⬜
 - **J6** Mode tempo — grocery speed-run, pickup step-count floor, dine-in round framing. ⬜

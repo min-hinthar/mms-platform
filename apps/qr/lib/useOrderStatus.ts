@@ -12,6 +12,10 @@ export type TrackedOrder = {
   /** S4.3a takeaway fulfillment: null (no bag — pure dine-in) | 'preparing' | 'ready' | 'picked_up'.
    *  The expo sets it; /track lights the pickup/scango step rail from it. */
   togoStatus: string | null;
+  /** J4: does the order carry to-go FOOD (a `togo` line the kitchen makes + expo bags)? `togo_status`
+   *  alone can't answer this — the fulfillment trigger sets it for grocery lines too, and a pure
+   *  grocery basket is already in the diner's hands at payment (no wait to respect). */
+  hasTogoFood: boolean;
 };
 
 export type OrderStatus = {
@@ -63,7 +67,7 @@ export function useOrderStatus(
     async function load() {
       const { data, error } = await supa
         .from("qr_orders")
-        .select("id,status,total_cents,pickup_slot,togo_status,qr_order_items(qty)")
+        .select("id,status,total_cents,pickup_slot,togo_status,qr_order_items(qty,fulfillment)")
         .eq(column, key!)
         .maybeSingle();
       if (!active) return;
@@ -87,7 +91,7 @@ export function useOrderStatus(
         errs = 0;
       }
       if (data) {
-        const items = (data.qr_order_items ?? []) as { qty: number }[];
+        const items = (data.qr_order_items ?? []) as { qty: number; fulfillment: string }[];
         setOrder({
           id: data.id,
           status: data.status,
@@ -95,6 +99,7 @@ export function useOrderStatus(
           itemCount: items.reduce((a, i) => a + i.qty, 0),
           pickupSlot: data.pickup_slot ?? null,
           togoStatus: data.togo_status ?? null,
+          hasTogoFood: items.some((i) => i.fulfillment === "togo"),
         });
       } else if (tries < 10) {
         // Not fulfilled yet — Realtime will deliver the INSERT, but poll a few times as a safety net
