@@ -154,8 +154,10 @@ The single highest-leverage fix for "assembled → choreographed."
   interval-checked, honest "when you're ready" copy). The strip is deliberately ambient, NOT a live
   region — the one-live-region rule holds (kitchen flips are glanceable state, same discipline as the
   never-announced CartBar total). **Poor-wifi backstop shipped stronger than planned:** instead of a
-  "reconnecting" label, `TableCartProvider` refetches on `visibilitychange` — the strip is never staler
-  than the moment the phone woke. Pickup wait = honest slot countdown on /track ("in ~N min" /
+  "reconnecting" label, both cart surfaces refetch on `visibilitychange` (`TableCartProvider` on the
+  menu, `Checkout` on the review step — the latter also covers pickup carts, which have no realtime) —
+  the strip is never staler than the moment the phone woke. Pickup wait = honest slot countdown on
+  /track ("in ~N min" /
   "any minute now", only within 90 min of the slot, dropped once the kitchen marks ready/picked-up —
   never a fabricated prep ETA). **Cut revision (honest):** the _I'm here_ ping is DEFERRED to J5 — the
   "floor channel" is postgres_changes (read-only per-subscriber RLS), not a broadcast channel; a diner

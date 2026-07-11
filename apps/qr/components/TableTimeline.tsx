@@ -20,17 +20,39 @@ import { TransitionLink as Link } from "./nav/TransitionNav"; // J1 journey gram
  * place, and the view keeps its ONE polite live region for transactional feedback. Entrance rides
  * `.mms-rise` (a mid-meal dynamic mount — J1's stagger memory must never zero it).
  *
- * Freshness: dine-in updates live (the cart realtime subscription fires on the KDS's qr_cart_items
- * state flips); every mode also re-fetches on tab re-focus (the provider's visibility refetch), so a
- * backgrounded phone in a thick-walled teahouse never narrates a stale state as current.
+ * Freshness: carts update live where a realtime subscription exists (group dine-in on the menu,
+ * dine-in on /cart); EVERY mount also re-fetches on tab re-focus (the provider's and Checkout's
+ * visibility refetch), so a backgrounded phone in a thick-walled teahouse never narrates a stale
+ * state as current.
  */
-export function TimelineStrip({ items, onMenu = false }: { items: CartItem[]; onMenu?: boolean }) {
+export function TimelineStrip({
+  items,
+  onMenu = false,
+  /** Menu mount: where the settle nudge's "order" link lands (the cart NEEDS its `?cart=` id — a bare
+   *  /cart renders the not-available placeholder). Null → the nudge renders linkless, never a dead end. */
+  cartHref = null,
+  /** Checkout mount: where the dessert line's menu link lands. Must carry the session `mode` — a bare
+   *  /menu defaults to scan-&-go and would strand a dine-in diner's dessert in a phantom cart. */
+  menuHref = "/menu",
+  /** Suppress the invitation notes (dessert / settle) while the cart can't accept them — locked by a
+   *  peer's checkout or frozen by a split. The kitchen counts stay: they're true regardless. */
+  quiet = false,
+}: {
+  items: CartItem[];
+  onMenu?: boolean;
+  cartHref?: string | null;
+  menuHref?: string;
+  quiet?: boolean;
+}) {
   // Real, countable kitchen states only (comped lines still cook — keep them; voided lines are gone).
   const active = items.filter((l) => l.lineState !== "draft" && l.lineState !== "voided");
   const cooking = active.filter((l) => l.lineState === "in_progress");
   const sent = active.filter((l) => l.lineState === "fired");
   const served = active.filter((l) => l.lineState === "served");
   const allServed = active.length > 0 && sent.length === 0 && cooking.length === 0;
+  // Counts are PLATES (qty-weighted), not lines — "3 cooking" for one qty-3 line is what the diner
+  // ordered and what the kitchen is actually making.
+  const plates = (ls: CartItem[]) => ls.reduce((n, l) => n + l.qty, 0);
 
   // The settle nudge: 20 minutes after the all-served transition WE observed. A ref timestamp (set on
   // the edge, cleared when new food fires) + a minute tick while relevant — client-measured, honestly
@@ -65,15 +87,15 @@ export function TimelineStrip({ items, onMenu = false }: { items: CartItem[]; on
     cooking.length === 1
       ? `${cooking[0]?.name ?? "Your dish"} is being made`
       : cooking.length > 1
-        ? `${cooking.length} dishes are being made`
+        ? `${plates(cooking)} dishes are being made`
         : sent.length > 0
           ? "Your order’s with the kitchen"
           : "All served — enjoy!";
 
   const counts = [
-    sent.length > 0 ? `${sent.length} with the kitchen` : null,
-    cooking.length > 0 ? `${cooking.length} cooking` : null,
-    served.length > 0 ? `${served.length} served` : null,
+    sent.length > 0 ? `${plates(sent)} with the kitchen` : null,
+    cooking.length > 0 ? `${plates(cooking)} cooking` : null,
+    served.length > 0 ? `${plates(served)} served` : null,
   ].filter(Boolean);
 
   return (
@@ -83,30 +105,34 @@ export function TimelineStrip({ items, onMenu = false }: { items: CartItem[]; on
         {headline}
       </p>
       <p className="table-timeline-counts">{counts.join(" · ")}</p>
-      {allServed && (
+      {allServed && !quiet && (
         <p className="table-timeline-note">
           {onMenu ? (
             <>Room for dessert or tea? The menu’s right here.</>
           ) : (
             <>
               Room for dessert or tea?{" "}
-              <Link href="/menu" className="nav-link">
+              <Link href={menuHref} className="nav-link">
                 Back to the menu
               </Link>
             </>
           )}
         </p>
       )}
-      {settleNudge && (
+      {settleNudge && !quiet && (
         <p className="table-timeline-note">
           {onMenu ? (
-            <>
-              Whenever you’re ready — settle up from your{" "}
-              <Link href="/cart" className="nav-link">
-                order
-              </Link>
-              .
-            </>
+            cartHref ? (
+              <>
+                Whenever you’re ready — settle up from your{" "}
+                <Link href={cartHref} className="nav-link">
+                  order
+                </Link>
+                .
+              </>
+            ) : (
+              <>Settle up whenever you’re ready.</>
+            )
           ) : (
             <>Whenever you’re ready — settle up below.</>
           )}
@@ -116,8 +142,17 @@ export function TimelineStrip({ items, onMenu = false }: { items: CartItem[]; on
   );
 }
 
-/** Menu mount: the provider's live items (dine-in realtime + visibility refetch). */
+/** Menu mount: the provider's live items (group realtime + visibility refetch). The settle link
+ *  carries the server-issued cart id (a bare /cart is a dead end); a locked/settling cart quiets the
+ *  invitations — the menu can't accept an add and the bill is already in motion. */
 export function MenuTimeline() {
-  const { items } = useCart();
-  return <TimelineStrip items={items} onMenu />;
+  const { items, cartId, locked, settling } = useCart();
+  return (
+    <TimelineStrip
+      items={items}
+      onMenu
+      cartHref={cartId ? `/cart?cart=${encodeURIComponent(cartId)}` : null}
+      quiet={locked || settling}
+    />
+  );
 }

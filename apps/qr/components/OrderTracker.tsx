@@ -75,6 +75,10 @@ export function OrderTracker({
     if (!isPickup || !order?.pickupSlot || togo === "ready" || togo === "picked_up") return null;
     const mins = Math.round((new Date(order.pickupSlot).getTime() - nowTick) / 60000);
     if (mins > 90) return null; // far-out slots: the absolute time says it better than a big number
+    // Long past the slot with still no "ready" tap (kitchen running late, or an order that never
+    // progressed): an eternal "any minute now" is a claim we can't keep — drop the suffix and let the
+    // absolute slot time stand alone, honestly.
+    if (mins < -15) return null;
     return mins >= 1 ? `in ~${mins} min` : "any minute now";
   })();
   const eta =

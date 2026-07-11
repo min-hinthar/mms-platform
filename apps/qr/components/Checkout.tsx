@@ -212,6 +212,18 @@ export function Checkout({
     }
   }
 
+  // J3 freshness backstop (mirrors TableCartProvider's): the review-step timeline must never narrate
+  // a stale kitchen state as current — realtime here is dine-in-gated (a pickup cart has none) and a
+  // backgrounded phone misses the flips anyway — so re-sync the server view whenever the tab returns
+  // to the foreground. (refresh is compiler-memoized on its stable captures, so this registers once.)
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [refresh]);
+
   function changeQty(id: string, qty: number) {
     // Chain this line's write after any in-flight one so absolute setQty(N) calls commit in tap order
     // (the last value wins) — concurrent writes could otherwise interleave and leave a stale count.
@@ -449,8 +461,15 @@ export function Checkout({
         ) : (
           <>
             {/* J3: the wait, narrated from real kitchen taps — shows only once something is with the
-                kitchen, right where the mid-meal diner reviews the table's order. */}
-            <TimelineStrip items={items} />
+                kitchen, right where the mid-meal diner reviews the table's order. viewItems (not items)
+                so a "Make it now" tap and the strip agree instantly; the menu link carries the session
+                mode — a bare /menu defaults to scan-&-go and would orphan a dine-in dessert. */}
+            <TimelineStrip
+              items={viewItems}
+              menuHref={
+                splitContext?.mode ? `/menu?mode=${encodeURIComponent(splitContext.mode)}` : "/menu"
+              }
+            />
             {/* S4 unified basket: group lines by destination (At your table / To-go / Grocery). Headings
               show only when the basket actually spans 2+ destinations, so a plain dine-in cart stays clean.
               The renderLine body is the S2 per-line card + an S4 for-here/to-go toggle on editable food. */}
