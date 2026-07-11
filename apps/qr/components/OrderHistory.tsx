@@ -44,9 +44,12 @@ function groupByMonth(entries: OrderHistoryEntry[]) {
 }
 
 export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
+  // `.vt-receipt` (J4): the /track receipt card (earner, fresh payment) MORPHS into this card on the
+  // track→account cut — the receipt visibly tucks into the diner's own history. Exactly one instance
+  // per document (the two branches are exclusive); unpaired on other routes, which is harmless.
   if (entries.length === 0) {
     return (
-      <Card as="section" style={card} aria-labelledby="history-h">
+      <Card as="section" className="vt-receipt" style={card} aria-labelledby="history-h">
         <h2 id="history-h" style={cardH}>
           Your orders
         </h2>
@@ -70,7 +73,7 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
   const groups = groupByMonth(entries);
 
   return (
-    <Card as="section" style={card} aria-labelledby="history-h">
+    <Card as="section" className="vt-receipt" style={card} aria-labelledby="history-h">
       <h2 id="history-h" style={cardH}>
         Your orders
       </h2>

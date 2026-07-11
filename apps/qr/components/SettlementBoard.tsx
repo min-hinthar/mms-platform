@@ -30,6 +30,11 @@ export function SettlementBoard({
   const [shares, setShares] = useState<SettlementShare[]>([]);
   const [loaded, setLoaded] = useState(false); // first getSettlement resolved → show the board
   const [loadError, setLoadError] = useState(false); // first load failed → offer a retry
+  // J4 — the shared end-beat: every share captured → the whole table sees "everyone's paid" TOGETHER
+  // for a breath before the receipt (the shared end of the shared meal), instead of being yanked
+  // mid-glance into a hard navigation.
+  const [complete, setComplete] = useState(false);
+  const navTimer = useRef<number | null>(null);
   const [aborting, startAbort] = useTransition();
   const redirected = useRef(false);
   const nameOf = useCallback(
@@ -47,12 +52,18 @@ export function SettlementBoard({
         setShares(rows);
         setLoaded(true);
         setLoadError(false);
-        // All shares captured → the order is being fulfilled; move everyone to the receipt (once).
-        // `paid=1` tells /track this is a completed split (no Stripe redirect params) so it resolves
-        // the order by cart instead of falling through to the "no order yet" stub (the C1 fix).
+        // All shares captured → the order is being fulfilled; show the table-wide end-beat, then move
+        // everyone to the receipt (once). `paid=1` tells /track this is a completed split (no Stripe
+        // redirect params) so it resolves the order by cart instead of falling through to the "no
+        // order yet" stub (the C1 fix). The beat is announced through the settle view's ONE status
+        // region (onStatus); setComplete runs in a promise callback, not an effect body (lint-safe).
         if (rows.length > 0 && rows.every((s) => s.status === "captured") && !redirected.current) {
           redirected.current = true;
-          window.location.assign(`/track?cart=${encodeURIComponent(cartId)}&paid=1`);
+          setComplete(true);
+          onStatus("Everyone’s paid — pulling up the table’s receipt…");
+          navTimer.current = window.setTimeout(() => {
+            window.location.assign(`/track?cart=${encodeURIComponent(cartId)}&paid=1`);
+          }, 1600);
         }
       })
       .catch(() => {
@@ -61,11 +72,29 @@ export function SettlementBoard({
         // no data to show, so flag it (the render offers a retry rather than a permanent empty board).
         setLoadError(true);
       });
-  }, [cartId]);
+  }, [cartId, onStatus]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  // If the diner navigates away during the end-beat's breath, don't yank them back to /track later —
+  // the pending navigation dies with the board. (The redirected ref already stops further loads.)
+  useEffect(
+    () => () => {
+      if (navTimer.current) window.clearTimeout(navTimer.current);
+    },
+    [],
+  );
+
+  // The complete flip unmounts interactive things (the host's Cancel, the progress line) — if focus
+  // fell to <body> with them, park it on the beat so a keyboard/SR user isn't dropped mid-breath
+  // (WCAG 2.4.3; same convention as the share-row restore above).
+  const completeRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (complete && document.activeElement === document.body)
+      completeRef.current?.focus({ preventScroll: true });
+  }, [complete]);
   useSettlementRealtime(cartId, accessToken, true, load);
 
   // Poll backstop (payment-critical screen): re-fetch every 5s while settling so progress shows even if
@@ -97,6 +126,10 @@ export function SettlementBoard({
     const wasPayable = prev === "pending" || prev === "failed";
     const nowIn = mine.status === "authorized" || mine.status === "captured";
     if (wasPayable && nowIn) {
+      // Once the end-beat has announced "everyone's paid", don't overwrite it with "finishing up" —
+      // the last payer (whose own flip can be observed in the same load as the table completing) is
+      // exactly the diner who should hear the table-wide message, not their solo one.
+      if (redirected.current) return;
       // Honest copy for the LAST payer: if this authorization completed the table, don't say "waiting".
       const everyoneIn = shares.every((s) => s.status !== "pending" && s.status !== "failed");
       onStatus(
@@ -116,8 +149,12 @@ export function SettlementBoard({
         onStatus("Split canceled — back to one bill.");
         onChanged();
       } catch (e) {
-        // Host abort lost the race to a completing capture (or not permitted) — surface it honestly.
-        onStatus(e instanceof Error ? e.message : "Couldn’t cancel the split.");
+        // Host abort lost the race to a completing capture (or not permitted) — surface it honestly,
+        // UNLESS the table just completed: the end-beat's announcement owns the one status region
+        // during the breath, and "couldn't cancel" would clobber "everyone's paid" (the completed
+        // capture IS the answer to the failed abort).
+        if (!redirected.current)
+          onStatus(e instanceof Error ? e.message : "Couldn’t cancel the split.");
         load();
       }
     });
@@ -178,25 +215,46 @@ export function SettlementBoard({
         )
       ) : (
         <>
-          <p style={{ fontSize: 13, color: "var(--t2)", margin: "0 0 8px" }}>
-            {/* The paid figure ROLLS as shares land (live-board language); the frozen total stays static. */}
-            <strong style={{ fontVariantNumeric: "tabular-nums" }}>
-              <NumberFlow value={paidCents / 100} format={{ style: "currency", currency: "USD" }} />
-            </strong>{" "}
-            of ${(totalCents / 100).toFixed(2)} authorized
-            {allIn ? " — finishing up…" : ""}
-          </p>
+          {complete ? (
+            // J4 — the shared end-beat: the whole table sees this together for a breath before the
+            // receipt. NOT a live region — the announcement went through the settle view's one status
+            // region (onStatus above); this is the visible face of the same moment. Bilingual per the
+            // J2 journey-copy rule (the farewell is content, not decoration).
+            <div ref={completeRef} tabIndex={-1} className="settle-complete mms-rise">
+              <p className="settle-complete-line">
+                <span aria-hidden>🎉 </span>Everyone’s paid —{" "}
+                <span lang="my" style={{ fontFamily: "var(--font-my)" }}>
+                  ကျေးဇူးတင်ပါတယ်
+                </span>
+              </p>
+              <p className="settle-complete-sub">Pulling up the table’s receipt…</p>
+            </div>
+          ) : (
+            <>
+              <p style={{ fontSize: 13, color: "var(--t2)", margin: "0 0 8px" }}>
+                {/* The paid figure ROLLS as shares land (live-board language); the frozen total stays static. */}
+                <strong style={{ fontVariantNumeric: "tabular-nums" }}>
+                  <NumberFlow
+                    value={paidCents / 100}
+                    format={{ style: "currency", currency: "USD" }}
+                  />
+                </strong>{" "}
+                of ${(totalCents / 100).toFixed(2)} authorized
+                {allIn ? " — finishing up…" : ""}
+              </p>
 
-          {/* Live progress — the gold→clay fill grows as shares are authorized (real values). Decorative
+              {/* Live progress — the gold→clay fill grows as shares are authorized (real values). Decorative
             (aria-hidden): the line above is the accessible source of truth, so the SR isn't double-told. */}
-          <div className="settle-progress" aria-hidden="true" style={{ margin: "0 0 14px" }}>
-            <div
-              className="settle-progress-fill"
-              style={{
-                width: `${totalCents > 0 ? Math.round((paidCents / totalCents) * 100) : 0}%`,
-              }}
-            />
-          </div>
+              <div className="settle-progress" aria-hidden="true" style={{ margin: "0 0 14px" }}>
+                <div
+                  className="settle-progress-fill"
+                  style={{
+                    width: `${totalCents > 0 ? Math.round((paidCents / totalCents) * 100) : 0}%`,
+                  }}
+                />
+              </div>
+            </>
+          )}
 
           <ul
             role="list"
@@ -239,7 +297,9 @@ export function SettlementBoard({
         </>
       )}
 
-      {ctx.myRole === "host" && (
+      {/* No cancel once every share is captured (the beat is showing) — the capture already happened;
+          offering an abort that must fail is a dead affordance, not an option. */}
+      {ctx.myRole === "host" && !complete && (
         <button
           type="button"
           onClick={cancel}
