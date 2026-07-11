@@ -81,7 +81,10 @@ export function MenuBrowser({
     const pool = dataBacked
       ? loved
       : items.filter((i) => !i.is_sold_out && i.tags.includes("popular"));
-    return { items: pool.slice(0, 6), dataBacked };
+    // A rail needs at least 3 cards on EITHER path (sparse `popular` tagging could otherwise render a
+    // lone-card "band" that reads as broken) — below that, no band at all.
+    const rail = pool.slice(0, 6);
+    return { items: rail.length >= 3 ? rail : [], dataBacked };
   }, [items, favoriteIds]);
 
   // Visible items = search match (EN/MY/description) ∩ dietary filters. Pure, recomputed on input.

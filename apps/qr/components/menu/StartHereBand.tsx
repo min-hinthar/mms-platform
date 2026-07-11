@@ -32,7 +32,8 @@ export function StartHereBand({
     <section
       aria-labelledby="start-here-h"
       className="mms-stagger"
-      style={{ padding: "10px 0 2px" }}
+      // 90ms after the arrival beat above so the first-visit cascade reads TOP-DOWN (greeting, then rail).
+      style={{ padding: "10px 0 2px", animationDelay: "90ms" }}
     >
       <h2 id="start-here-h" className="start-here-h">
         Start here <span aria-hidden>✦</span>

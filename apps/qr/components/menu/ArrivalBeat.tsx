@@ -26,7 +26,7 @@ export function ArrivalBeat({ mode }: { mode: string }) {
         : "Welcome in — pay right from your phone.";
 
   return (
-    <div className="arrival-beat mms-stagger" style={{ animationDelay: "60ms" }}>
+    <div className="arrival-beat mms-stagger">
       <p className="arrival-greeting">
         <span lang="my" style={{ fontFamily: "var(--font-my)" }}>
           မင်္ဂလာပါ
