@@ -147,6 +147,21 @@ The single highest-leverage fix for "assembled → choreographed."
 - **Pickup wait:** slot countdown → "we've started your order" (first line fires) → "it's ready — come to
   the counter" + an _I'm here_ button that pings the staff board (rides the existing floor realtime
   channel — `lib/useFloorRealtime.ts`).
+- **Shipped (2026-07-11):** `TableTimeline` (`TimelineStrip` + `MenuTimeline`) narrating the kitchen's
+  real taps — `fired → in_progress → served` are literally KdsBoard's Start/Ready buttons — on the menu
+  header and the checkout review step; a dessert/tea line when everything's served and a quiet ~20-min
+  "ready to settle up?" pointer (client-observed serve time — the schema stores no `served_at`;
+  interval-checked, honest "when you're ready" copy). The strip is deliberately ambient, NOT a live
+  region — the one-live-region rule holds (kitchen flips are glanceable state, same discipline as the
+  never-announced CartBar total). **Poor-wifi backstop shipped stronger than planned:** instead of a
+  "reconnecting" label, both cart surfaces refetch on `visibilitychange` (`TableCartProvider` on the
+  menu, `Checkout` on the review step — the latter also covers pickup carts, which have no realtime) —
+  the strip is never staler than the moment the phone woke. Pickup wait = honest slot countdown on
+  /track ("in ~N min" /
+  "any minute now", only within 90 min of the slot, dropped once the kitchen marks ready/picked-up —
+  never a fabricated prep ETA). **Cut revision (honest):** the _I'm here_ ping is DEFERRED to J5 — the
+  "floor channel" is postgres_changes (read-only per-subscriber RLS), not a broadcast channel; a diner
+  ping needs a `realtime.messages` staff policy or an orders column, i.e. J5's migration window.
 
 ## J4 — Settle & goodbye (peak-end completion) `apps/qr, one PR`
 

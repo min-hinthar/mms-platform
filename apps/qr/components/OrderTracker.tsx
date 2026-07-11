@@ -58,13 +58,38 @@ export function OrderTracker({
   // fabricated countdown). Until the order lands we don't know the mode, so default to Scan & Go.
   const isPickup = !!order?.pickupSlot;
   const STEPS = isPickup ? PICKUP_STEPS : SCANGO_STEPS;
-  const eta = isPickup && order?.pickupSlot ? `Ready ${formatSlotLong(order.pickupSlot)}` : null;
-  // Active step: until the order lands, nothing pulses (-1). Once it lands, the takeaway fulfillment
-  // status (S4.3a, expo-driven) lights the rail — preparing→"In the kitchen", ready→"Ready (for pickup)",
-  // picked_up→done. An order with NO takeaway portion (pure dine-in, togoStatus null) rests at "Order
-  // placed" (the diner's at the table; the rail isn't their surface). Don't gate on the URL `processing`
-  // param — it doesn't track bank-settlement, so a stale ?redirect_status=processing still renders right.
+  // Takeaway fulfillment status (S4.3a, expo-driven) — declared here because the countdown below and
+  // the step rail both key off it.
   const togo = order?.togoStatus ?? null;
+  // J3: the pickup wait gets an HONEST countdown — pure arithmetic on the diner's own chosen slot (a
+  // real commitment, not a kitchen estimate). Re-derived every 30s via a tick; phrased "~in N min" and
+  // capped at "any minute now" once due (never a fabricated kitchen claim); dropped entirely once the
+  // expo marks it ready/picked up (the rail is the truth from there).
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    if (!isPickup || !order?.pickupSlot || togo === "ready" || togo === "picked_up") return;
+    const t = window.setInterval(() => setNowTick(Date.now()), 30 * 1000);
+    return () => window.clearInterval(t);
+  }, [isPickup, order?.pickupSlot, togo]);
+  const slotCountdown = (() => {
+    if (!isPickup || !order?.pickupSlot || togo === "ready" || togo === "picked_up") return null;
+    const mins = Math.round((new Date(order.pickupSlot).getTime() - nowTick) / 60000);
+    if (mins > 90) return null; // far-out slots: the absolute time says it better than a big number
+    // Long past the slot with still no "ready" tap (kitchen running late, or an order that never
+    // progressed): an eternal "any minute now" is a claim we can't keep — drop the suffix and let the
+    // absolute slot time stand alone, honestly.
+    if (mins < -15) return null;
+    return mins >= 1 ? `in ~${mins} min` : "any minute now";
+  })();
+  const eta =
+    isPickup && order?.pickupSlot
+      ? `Ready ${formatSlotLong(order.pickupSlot)}${slotCountdown ? ` · ${slotCountdown}` : ""}`
+      : null;
+  // Active step: until the order lands, nothing pulses (-1). Once it lands, `togo` lights the rail —
+  // preparing→"In the kitchen", ready→"Ready (for pickup)", picked_up→done. An order with NO takeaway
+  // portion (pure dine-in, togoStatus null) rests at "Order placed" (the diner's at the table; the rail
+  // isn't their surface). Don't gate on the URL `processing` param — it doesn't track bank-settlement,
+  // so a stale ?redirect_status=processing still renders right.
   const activeStep = !arrived
     ? -1
     : togo === "picked_up"

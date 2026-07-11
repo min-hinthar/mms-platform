@@ -281,6 +281,19 @@ export function TableCartProvider({
     void Promise.resolve().then(() => flash(msg, 2600));
   }, [members, meSeat, flash]);
 
+  // J3 freshness backstop: re-fetch the server view whenever the tab returns to the foreground. Dine-in
+  // has realtime, but a backgrounded phone drops sockets (thick-walled teahouse wifi), and solo modes have
+  // no subscription at all — without this, the timeline strip / cart could narrate a STALE state as
+  // current after the diner pockets their phone. refresh() swallows the post-payment 403, so this is safe
+  // on every route that mounts the provider.
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [refresh]);
+
   // Live group-cart sync (M3·P3.2): a peer's change on another phone → re-fetch the server-authoritative
   // view (keyed React state, never client math) + announce a peer's ADD honestly (by_seat is the adder
   // → a reliable "who" for INSERTs; qty/remove just refresh, since the event doesn't carry the actor).

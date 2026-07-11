@@ -1,5 +1,6 @@
 "use client";
 import {
+  useCallback,
   useEffect,
   useOptimistic,
   useRef,
@@ -29,6 +30,7 @@ import { useCartRealtime } from "@/lib/realtime";
 import { PaymentSection } from "./PaymentSection";
 import { SplitSection } from "./SplitSection";
 import { SettlementBoard } from "./SettlementBoard";
+import { TimelineStrip } from "./TableTimeline";
 import { SendToKitchenButton } from "./SendToKitchenButton";
 import { SecureTabButton } from "./SecureTabButton";
 import { RewardField } from "./RewardField";
@@ -147,6 +149,25 @@ export function Checkout({
   const [payTotals, setPayTotals] = useState<CartTotals | null>(null);
   const [loadingPay, setLoadingPay] = useState(false);
 
+  // Re-sync the server-authoritative view (items / totals / settling / tabType — never pay-step state,
+  // so a mid-payment refetch can't disturb the mounted Stripe Element). Stable (useCallback on the
+  // stable cartId prop) so the realtime + visibility subscriptions below register once.
+  const refresh = useCallback(async () => {
+    try {
+      const v = await getCartView(cartId);
+      setItems(v.items);
+      setTotals(v.totals);
+      setSettling(v.settling); // a peer (host) opening/canceling a split flips the whole table here
+      setTabType(v.tabType); // a server (or a peer) opening the tab reflects here too
+    } catch {
+      // Swallow: the EXPECTED failure here is the post-payment 403 (the cart flipped to paid → the
+      // diner is being redirected to /track). We can't discriminate it from a transient error
+      // client-side — Server Action errors are redacted in prod, so no `.status` survives — and
+      // surfacing an error on the expected post-pay 403 would be a false alarm. A transient failure
+      // self-heals on the next interaction (every mutation re-fetches).
+    }
+  }, [cartId]);
+
   // Live cart sync: a peer's add/qty/assignment (P3.2) OR a server opening the tab / editing the order
   // (S1.3/S3.1) re-fetches the server-authoritative view here, so the cart + shares + tab state stay in
   // step. Enabled for ANY dine-in cart (not just groups) — a solo diner must still see a server-opened
@@ -195,21 +216,17 @@ export function Checkout({
     else mounted.current = true;
   }, [viewKey]);
 
-  async function refresh() {
-    try {
-      const v = await getCartView(cartId);
-      setItems(v.items);
-      setTotals(v.totals);
-      setSettling(v.settling); // a peer (host) opening/canceling a split flips the whole table here
-      setTabType(v.tabType); // a server (or a peer) opening the tab reflects here too
-    } catch {
-      // Swallow: the EXPECTED failure here is the post-payment 403 (the cart flipped to paid → the
-      // diner is being redirected to /track). We can't discriminate it from a transient error
-      // client-side — Server Action errors are redacted in prod, so no `.status` survives — and
-      // surfacing an error on the expected post-pay 403 would be a false alarm. A transient failure
-      // self-heals on the next interaction (every mutation re-fetches).
-    }
-  }
+  // J3 freshness backstop (mirrors TableCartProvider's): the review-step timeline must never narrate
+  // a stale kitchen state as current — realtime here is dine-in-gated (a pickup cart has none) and a
+  // backgrounded phone misses the flips anyway — so re-sync the server view whenever the tab returns
+  // to the foreground.
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [refresh]);
 
   function changeQty(id: string, qty: number) {
     // Chain this line's write after any in-flight one so absolute setQty(N) calls commit in tap order
@@ -447,6 +464,16 @@ export function Checkout({
           </>
         ) : (
           <>
+            {/* J3: the wait, narrated from real kitchen taps — shows only once something is with the
+                kitchen, right where the mid-meal diner reviews the table's order. viewItems (not items)
+                so a "Make it now" tap and the strip agree instantly; the menu link carries the session
+                mode — a bare /menu defaults to scan-&-go and would orphan a dine-in dessert. */}
+            <TimelineStrip
+              items={viewItems}
+              menuHref={
+                splitContext?.mode ? `/menu?mode=${encodeURIComponent(splitContext.mode)}` : "/menu"
+              }
+            />
             {/* S4 unified basket: group lines by destination (At your table / To-go / Grocery). Headings
               show only when the basket actually spans 2+ destinations, so a plain dine-in cart stays clean.
               The renderLine body is the S2 per-line card + an S4 for-here/to-go toggle on editable food. */}

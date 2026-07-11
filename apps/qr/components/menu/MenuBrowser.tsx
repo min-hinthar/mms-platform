@@ -11,6 +11,7 @@ import type { ModGroup } from "@/lib/menu/modifiers";
 import { itemBadges } from "@/lib/menu/badges";
 import { ItemSheet } from "./ItemSheet";
 import { ArrivalBeat } from "./ArrivalBeat";
+import { MenuTimeline } from "@/components/TableTimeline";
 import { StartHereBand } from "./StartHereBand";
 
 export type MenuItem = {
@@ -200,6 +201,9 @@ export function MenuBrowser({
         <ArrivalBeat mode={mode} />
         {mode === "dinein" && <GuestList />}
         {mode === "pickup" && <PickupSlotChip />}
+        {/* J3: the wait, narrated from real kitchen taps — renders only once something is with the
+            kitchen (fired/cooking/served), i.e. exactly when a mid-meal diner is back here waiting. */}
+        <MenuTimeline />
       </header>
 
       <div className="menu-toolbar" ref={toolbarRef}>
