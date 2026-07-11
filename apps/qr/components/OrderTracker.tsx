@@ -7,6 +7,7 @@ import { formatSlotLong } from "@/lib/pickupTime";
 import { useAnimationPreference, useInView } from "@mms/ui";
 import { getRewardsProgress, type RewardsProgress } from "@/lib/rewards";
 import { FeedbackPrompt } from "./FeedbackPrompt";
+import { GoodbyeBeat } from "./GoodbyeBeat";
 import { PaySuccess } from "./PaySuccess";
 
 // Lifecycle steps (verbatim v7.2). The active step is server-driven; at M1/M2 there's no kitchen
@@ -379,8 +380,12 @@ export function OrderTracker({
       )}
 
       {arrived && (
+        // `.vt-receipt` (J4, earner + fresh payment only): on the next nav to /account this receipt
+        // card MORPHS into the "Your orders" history card — the receipt visibly tucks into the
+        // account. Gated on `earnedThisOrder` so the metaphor is never a false promise: split
+        // share-payers aren't the stamped earner, and this order won't be in THEIR history.
         <div
-          className="card card-textured"
+          className={`card card-textured${justPaid && progress?.earnedThisOrder ? " vt-receipt" : ""}`}
           style={{ display: "flex", gap: 12, alignItems: "center", padding: 12, marginTop: 6 }}
         >
           <span
@@ -407,9 +412,16 @@ export function OrderTracker({
         </div>
       )}
 
-      {/* Post-order feedback (M4 P4.3) — only once the order has landed (its id is known). Renders
+      {/* J4 — the goodbye beat: only on a FRESH payment (the exit arc of this visit, not a revisit
+          artifact). Bilingual farewell for everyone; the Stars ring + account tuck for the earner. */}
+      {justPaid && arrived && <GoodbyeBeat progress={progress} />}
+
+      {/* Post-order feedback (M4 P4.3, timed by J4) — only once the order has landed AND the food is
+          where it belongs: a kitchen order (togoStatus non-null) asks after PICK-UP, never mid-wait
+          ("never before food is served" — docs/JOURNEY_PLAN.md); an order with no kitchen portion
+          (pure grocery / dine-in already at the table) asks right away, at peak goodwill. Renders
           nothing unless the caller is the earner + hasn't reviewed; ungated public-review link inside. */}
-      {arrived && <FeedbackPrompt orderId={order.id} />}
+      {arrived && (togo === null || togo === "picked_up") && <FeedbackPrompt orderId={order.id} />}
 
       <p style={{ fontSize: 12, color: "var(--t3)", margin: "14px 0 0" }}>
         Status updates here as the kitchen works on it — keep this open, or check back anytime.
@@ -423,8 +435,9 @@ export function OrderTracker({
         </Link>
         {/* The rewards hub had NO diner-facing entry point — the Star just earned here is the natural
             moment to offer it (viewport-prefetched by <Link>). Only once the order landed (not while
-            confirming) so the tracker's first paint stays focused. */}
-        {arrived && (
+            confirming), and not when the goodbye beat already carries the account link (the earner's
+            fresh-payment mount) — one clear door, not two. */}
+        {arrived && !(justPaid && progress?.earnedThisOrder) && (
           <Link href="/account" className="nav-link">
             View your rewards{" "}
             <span aria-hidden className="nav-arrow nav-arrow-fwd">

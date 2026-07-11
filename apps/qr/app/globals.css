@@ -2742,8 +2742,11 @@ h3 {
    240ms) — direction you FEEL, not a full-screen slide (motion-sickness budget). Chrome stays put: the
    AppHeader carries its own view-transition-name, so the wayfinding spine never re-animates — the page
    moves UNDER it (the "one camera move" rule). Shared elements: `.vt-cart-total` (CartBar total → the
-   checkout hero total) and `.vt-order-status` (header order pill → the /track status chip) morph across
-   the cut — each name appears at most once per page (CartBar is menu-only; the pill hides on /track). */
+   checkout hero total), `.vt-order-status` (header order pill → the /track status chip), and
+   `.vt-receipt` (J4: the /track receipt card → the account "Your orders" card — the receipt visibly
+   tucks into the diner's history; /track carries the name only for the earner on a fresh payment)
+   morph across the cut — each name appears at most once per page (CartBar is menu-only; the pill
+   hides on /track; the account history card renders exactly once). */
 @supports (view-transition-name: none) {
   .app-header {
     view-transition-name: app-header;
@@ -2753,6 +2756,9 @@ h3 {
   }
   .vt-order-status {
     view-transition-name: order-status;
+  }
+  .vt-receipt {
+    view-transition-name: receipt;
   }
   ::view-transition-old(root),
   ::view-transition-new(root) {
@@ -2983,4 +2989,64 @@ html[data-seen-surface] .mms-stagger {
   font-size: 12.5px;
   color: var(--t2);
   line-height: 1.5;
+}
+
+/* ── J4 · Settle & goodbye (docs/JOURNEY_PLAN.md) ──────────────────────────────────────────────────────
+   The exit arc after R7a's success spike: a bilingual goodbye beat on /track (the peak-END the diner
+   carries home) and the settlement board's table-wide "everyone's paid" breath before the receipt.
+   Tokens only; entrances ride .mms-rise (its reduced-motion off-switch covers these too). */
+.goodbye-beat {
+  margin-top: 14px;
+  padding: 18px 16px 16px;
+  border-radius: var(--r-card);
+  border: 1px solid color-mix(in oklab, var(--ac) 18%, var(--bd));
+  background: linear-gradient(180deg, color-mix(in oklab, var(--ac) 5%, var(--cd)), var(--cd));
+  box-shadow: inset 0 1px 0 var(--sheen);
+  text-align: center;
+}
+.goodbye-beat-ring {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 6px;
+}
+.goodbye-beat-line {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--tx);
+  line-height: 1.45;
+}
+.goodbye-beat-line [lang="my"] {
+  display: block;
+  font-size: 17px;
+  margin-bottom: 2px;
+}
+.goodbye-beat-sub {
+  margin: 6px 0 2px;
+  font-size: 12.5px;
+  color: var(--t2);
+}
+.settle-complete {
+  padding: 12px 14px;
+  margin: 0 0 14px;
+  border-radius: var(--r-card);
+  border: 1px solid color-mix(in oklab, var(--ac) 22%, var(--bd));
+  background: color-mix(in oklab, var(--ac) 8%, var(--cd));
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    0 0 14px -6px var(--glow-gold);
+}
+.settle-complete-line {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--tx);
+}
+.settle-complete-line [lang="my"] {
+  font-weight: 700;
+}
+.settle-complete-sub {
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  color: var(--t2);
 }

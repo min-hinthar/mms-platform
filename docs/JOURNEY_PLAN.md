@@ -175,6 +175,24 @@ the part the peak-end rule says diners actually carry home.
   broadcast exists via cart lock/settle state) — the shared end-beat for the shared meal.
 - **Timed, ungated review ask** (compliance: reviews ungated): one ask, after the goodbye beat, never
   before food is served.
+- **Shipped (2026-07-11):** `GoodbyeBeat` on /track (fresh payments only — the exit arc, not a revisit
+  artifact): the bilingual farewell (ကျေးဇူးတင်ပါတယ် Kyay-zu tin ba de, `lang="my"` Padauk — content,
+  not decoration) for everyone; for the ORDER'S EARNER, the account hub's own `StarsRing` drawn to the
+  post-order cycle (the summary read is ordered after attribution, so the arc the diner watches fill
+  already includes this order's Star — the Star visibly arrives, nothing fabricated) + "saved to your
+  account" + the tuck link. **Receipt tuck = the third J1 shared cut** (`.vt-receipt`): the /track
+  receipt card morphs into the account "Your orders" card on track→account — gated to the earner so
+  the metaphor is never a false promise (a split share-payer's history won't contain this order).
+  **Group settle moment:** the SettlementBoard now holds every diner for a ~1.6s table-wide
+  "Everyone's paid 🎉 — ကျေးဇူးတင်ပါတယ်" beat (announced once through the settle view's single status
+  region) before the receipt redirect; the host's dead cancel affordance hides once captured. **Review
+  ask re-timed, not rebuilt:** M4's `FeedbackPrompt` (already ungated + one-per-order) now waits for
+  the food — kitchen orders (togoStatus set) ask at PICKED-UP, orders with no kitchen portion ask
+  immediately; DOM order puts it after the goodbye. **Honest deltas:** the tuck lands on the "Your
+  orders" history card, not the header account icon (the J1 rule — chrome carries its own stable
+  view-transition name and never re-animates; morphing INTO the header would break the one-camera-move
+  grammar), and PaySuccess's verbatim v7.2 headline stays — the group beat lives on the board, where
+  the table actually sees it together.
 
 ## J5 — Recognition (return visits) `apps/qr + 1 small migration, one PR`
 
