@@ -2,6 +2,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { NumberFlow } from "@mms/ui";
+import { useJourneyRouter } from "./nav/TransitionNav";
 import { useCart } from "./TableCartProvider";
 
 /**
@@ -11,7 +12,8 @@ import { useCart } from "./TableCartProvider";
  * announced on every tap (RED-TEAM/QA); the static `aria-label` is read on focus only.
  */
 export function CartBar() {
-  const router = useRouter();
+  const router = useRouter(); // prefetch only — the navigation itself rides the journey grammar below
+  const journey = useJourneyRouter(); // J1: menu→cart is a FORWARD cut; the total morphs into the checkout hero
   const { count, totals, cartId } = useCart();
   const href = cartId ? `/cart?cart=${encodeURIComponent(cartId)}` : null;
   // Warm the /cart route (its RSC payload + code + the new loading skeleton) as soon as the bar can
@@ -26,7 +28,7 @@ export function CartBar() {
   return (
     <button
       type="button"
-      onClick={() => router.push(href)}
+      onClick={() => journey.push(href)}
       onPointerEnter={() => router.prefetch(href)}
       aria-label={`View order — ${count} ${count === 1 ? "item" : "items"}, subtotal ${dollars}`}
       className="card"
@@ -54,8 +56,10 @@ export function CartBar() {
         View order · {count} {count === 1 ? "item" : "items"}
       </span>
       {/* Roll the subtotal as it changes (R7a). The button's accessible name is the static aria-label
-          above (read on focus) — the rolling figure is presentation, not a per-tap announcement. */}
-      <span style={{ fontVariantNumeric: "tabular-nums" }}>
+          above (read on focus) — the rolling figure is presentation, not a per-tap announcement.
+          `.vt-cart-total` (J1): on the menu→cart cut this figure MORPHS into the checkout hero total —
+          the money the diner is watching never blinks out of existence. */}
+      <span className="vt-cart-total" style={{ fontVariantNumeric: "tabular-nums" }}>
         <NumberFlow value={subtotalCents / 100} format={{ style: "currency", currency: "USD" }} />
       </span>
     </button>

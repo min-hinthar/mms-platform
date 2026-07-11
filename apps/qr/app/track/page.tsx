@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import { TransitionLink as Link } from "@/components/nav/TransitionNav"; // J1 journey grammar
 import { OrderTracker } from "@/components/OrderTracker";
 import { getSplitOrderId } from "@/lib/order";
 

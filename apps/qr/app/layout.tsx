@@ -3,11 +3,14 @@ import type { ReactNode } from "react";
 import type { Viewport } from "next";
 import { headers } from "next/headers";
 import { Fraunces, Hanken_Grotesk, Padauk } from "next/font/google";
+import { ViewTransitions } from "next-view-transitions";
 import { AnonAuthGate } from "@/components/AnonAuthGate";
 import { ThemeSync } from "@/components/ThemeSync";
 import { MotionProvider } from "@/components/MotionProvider";
 import { ActiveOrderProvider } from "@/components/ActiveOrderProvider";
 import { AppHeader } from "@/components/AppHeader";
+import { NavDirectionSync } from "@/components/nav/TransitionNav";
+import { SurfaceMemory } from "@/components/nav/SurfaceMemory";
 
 const fraunces = Fraunces({ subsets: ["latin"], variable: "--font-fraunces" });
 const hanken = Hanken_Grotesk({ subsets: ["latin"], variable: "--font-hanken" });
@@ -70,33 +73,41 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   }
   // `lang` is set per-locale on the client when the user switches EN/MY (WCAG 3.1.2).
   return (
-    <html
-      lang="en"
-      suppressHydrationWarning
-      className={`${fraunces.variable} ${hanken.variable} ${padauk.variable}`}
-    >
-      <body>
-        {/* Richness R2 — dark-mode activation. Blocking + first-in-body so `.dark` is set from the OS
+    // J1 continuity engine: <ViewTransitions> wraps client-side route changes in
+    // document.startViewTransition (progressive — non-supporting browsers keep the instant cut).
+    // The direction grammar + chrome-stability names live in globals.css; TransitionNav stamps the
+    // direction; SurfaceMemory keeps entrance staggers a once-per-session premiere.
+    <ViewTransitions>
+      <html
+        lang="en"
+        suppressHydrationWarning
+        className={`${fraunces.variable} ${hanken.variable} ${padauk.variable}`}
+      >
+        <body>
+          {/* Richness R2 — dark-mode activation. Blocking + first-in-body so `.dark` is set from the OS
             scheme BEFORE content paints (no flash of the wrong theme). The full Night palette lives in
             @mms/ui tokens.css `.dark`; nothing set the class until here. ThemeSync keeps it live on a
             mid-session OS flip. */}
-        <script
-          nonce={nonce}
-          dangerouslySetInnerHTML={{
-            __html: `try{document.documentElement.classList.toggle("dark",matchMedia("(prefers-color-scheme:dark)").matches)}catch(e){}`,
-          }}
-        />
-        <ThemeSync />
-        <AnonAuthGate />
-        <MotionProvider>
-          {/* Persistent wayfinding spine (M-nav): the store observes the URL for mode/cart/order, the header
-              reads it. Both are client components; AppHeader self-hides on /staff. */}
-          <ActiveOrderProvider>
-            <AppHeader />
-            {children}
-          </ActiveOrderProvider>
-        </MotionProvider>
-      </body>
-    </html>
+          <script
+            nonce={nonce}
+            dangerouslySetInnerHTML={{
+              __html: `try{document.documentElement.classList.toggle("dark",matchMedia("(prefers-color-scheme:dark)").matches)}catch(e){}`,
+            }}
+          />
+          <ThemeSync />
+          <AnonAuthGate />
+          <NavDirectionSync />
+          <SurfaceMemory />
+          <MotionProvider>
+            {/* Persistent wayfinding spine (M-nav): the store observes the URL for mode/cart/order, the header
+                reads it. Both are client components; AppHeader self-hides on /staff. */}
+            <ActiveOrderProvider>
+              <AppHeader />
+              {children}
+            </ActiveOrderProvider>
+          </MotionProvider>
+        </body>
+      </html>
+    </ViewTransitions>
   );
 }

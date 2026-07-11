@@ -150,7 +150,7 @@ clean token base, within the mobile-GPU/reduced-motion/AA guardrails M5 establis
 
 ## 🧭 Journey track (J0–J6) — paths over screens &nbsp;`next`
 
-The layer above Richness: every *screen* now clears the rubric bar, but the *path* between them was never
+The layer above Richness: every _screen_ now clears the rubric bar, but the _path_ between them was never
 designed — hard cuts between routes, undesigned arrival/wait/goodbye, catalog-not-guided deciding, zero
 return-visit memory. This track choreographs the surfaces we already have; one moment per PR, real data
 only. Full spec: **[`docs/JOURNEY_PLAN.md`](docs/JOURNEY_PLAN.md)**.
@@ -160,8 +160,11 @@ only. Full spec: **[`docs/JOURNEY_PLAN.md`](docs/JOURNEY_PLAN.md)**.
   **"J0 · Journey baseline"** dashboard (pinned) — four uid-joined funnels from `session_created` (mode-
   filtered) through add/send to `payment_succeeded`, + headline **time-to-first-add** (median). Visual
   walkthrough reel deferred to a browser-egress environment (sandbox Chromium can't reach the preview).
-- **J1** Continuity engine — directional route transitions + shared-element continuity (item→sheet,
-  cart→checkout total, checkout→track receipt); staggers once per session. ⬜
+- **J1 ✅** Continuity engine (2026-07-11) — directional route grammar (`next-view-transitions` on stable
+  React; forward/back drift, chrome pinned via its own `view-transition-name`, RM off-switch) + two live
+  shared cuts: CartBar total → checkout hero total, header order pill → /track status chip; staggers once
+  per session (`SurfaceMemory`). Honest cut revision: checkout→track is a Stripe full-page redirect (no
+  client cut possible); item→sheet morph deferred to J2 (would double-animate against the framer sheet). ⬜→✅
 - **J2** Arrival + guided start — dine-in place-setting beat, "Start here" band, counts-only social proof. ⬜
 - **J3** The wait, designed — table timeline from real line states, right-moment dessert/settle prompts,
   pickup "I'm here". ⬜

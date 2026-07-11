@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { TransitionLink as Link } from "@/components/nav/TransitionNav"; // J1 journey grammar
 import { getCartView } from "@/lib/cart";
 import { getPrepMinutes } from "@/lib/pickup";
 import { getSplitContext, type SplitContext } from "@/lib/split";

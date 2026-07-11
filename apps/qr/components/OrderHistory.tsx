@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import Link from "next/link";
+import { TransitionLink as Link } from "./nav/TransitionNav"; // J1 journey grammar
 import type { OrderHistoryEntry } from "@/lib/rewards";
 import { formatSlotLong } from "@/lib/pickupTime";
 import { Card } from "@mms/ui";
@@ -150,10 +150,16 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
                       <dl className="history-totals">
                         <TotalRow label="Subtotal" value={dollars(o.breakdown.subtotalCents)} />
                         {o.breakdown.discountCents > 0 && (
-                          <TotalRow label="Discount" value={`−${dollars(o.breakdown.discountCents)}`} />
+                          <TotalRow
+                            label="Discount"
+                            value={`−${dollars(o.breakdown.discountCents)}`}
+                          />
                         )}
                         {o.breakdown.serviceChargeCents > 0 && (
-                          <TotalRow label="Service" value={dollars(o.breakdown.serviceChargeCents)} />
+                          <TotalRow
+                            label="Service"
+                            value={dollars(o.breakdown.serviceChargeCents)}
+                          />
                         )}
                         {o.breakdown.taxCents > 0 && (
                           <TotalRow label="Tax" value={dollars(o.breakdown.taxCents)} />
@@ -227,7 +233,12 @@ const codeStyle: CSSProperties = {
   color: "var(--t3)",
   letterSpacing: 0.4,
 };
-const rowMid: CSSProperties = { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" };
+const rowMid: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 10,
+  alignItems: "center",
+};
 const summaryStyle: CSSProperties = {
   fontSize: 12.5,
   color: "var(--t2)",

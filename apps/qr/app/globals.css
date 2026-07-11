@@ -2041,7 +2041,11 @@ h3 {
 .account-masthead-rule {
   height: 1px;
   margin-top: 14px;
-  background: linear-gradient(90deg, color-mix(in oklab, var(--gold) 55%, transparent), transparent);
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--gold) 55%, transparent),
+    transparent
+  );
 }
 
 /* Quiet nav link — the post-order / account navigation vocabulary (Back to menu · View your rewards ·
@@ -2224,7 +2228,11 @@ h3 {
   content: "";
   flex: 1;
   height: 1px;
-  background: linear-gradient(90deg, color-mix(in oklab, var(--gold) 45%, transparent), transparent);
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--gold) 45%, transparent),
+    transparent
+  );
 }
 /* The receipt card surface — a top-lit fill + paper sheen lip so each order reads as a lifted receipt, minus
    padding (summary/detail pad themselves). overflow:hidden clips the detail's top hairline + the card radius. */
@@ -2715,5 +2723,88 @@ h3 {
     .home-resume:hover .home-resume-arrow {
       transform: none;
     }
+  }
+}
+
+/* ── J1 · Continuity engine — the route-change grammar (docs/JOURNEY_PLAN.md) ──────────────────────────
+   Client route changes ride the View Transitions API (next-view-transitions wraps App Router nav in
+   document.startViewTransition; non-supporting browsers keep the instant cut). The grammar: FORWARD
+   (deeper into the journey — TransitionNav stamps html[data-nav-dir]) drifts the page in from the right,
+   BACK from the left, LATERAL cross-fades (the UA default). Drifts are deliberately small (16px + fade,
+   240ms) — direction you FEEL, not a full-screen slide (motion-sickness budget). Chrome stays put: the
+   AppHeader carries its own view-transition-name, so the wayfinding spine never re-animates — the page
+   moves UNDER it (the "one camera move" rule). Shared elements: `.vt-cart-total` (CartBar total → the
+   checkout hero total) and `.vt-order-status` (header order pill → the /track status chip) morph across
+   the cut — each name appears at most once per page (CartBar is menu-only; the pill hides on /track). */
+@supports (view-transition-name: none) {
+  .app-header {
+    view-transition-name: app-header;
+  }
+  .vt-cart-total {
+    view-transition-name: cart-total;
+  }
+  .vt-order-status {
+    view-transition-name: order-status;
+  }
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 240ms;
+    animation-timing-function: var(--ease-out);
+  }
+  html[data-nav-dir="forward"]::view-transition-old(root) {
+    animation-name: vtDriftOutLeft;
+  }
+  html[data-nav-dir="forward"]::view-transition-new(root) {
+    animation-name: vtDriftInRight;
+  }
+  html[data-nav-dir="back"]::view-transition-old(root) {
+    animation-name: vtDriftOutRight;
+  }
+  html[data-nav-dir="back"]::view-transition-new(root) {
+    animation-name: vtDriftInLeft;
+  }
+}
+@keyframes vtDriftOutLeft {
+  to {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+}
+@keyframes vtDriftInRight {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+@keyframes vtDriftOutRight {
+  to {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+@keyframes vtDriftInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+}
+
+/* Staggers premiere once per session per surface (SurfaceMemory stamps data-seen-surface on a revisit):
+   zeroed duration+delay lands content in its settled state instantly — the reduced-motion presentation,
+   so nothing is hidden and a11y is unaffected. Returning to the menu is turning back to your table. */
+html[data-seen-surface] .mms-stagger {
+  animation-duration: 0s;
+  animation-delay: 0s;
+}
+
+/* Reduced motion: route changes are an instant swap — the transition still runs (the DOM still updates)
+   but every group snaps. This is the CSS-level off-switch the JS gate can't cover (the transition is
+   started by the nav library, not our components). */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-image-pair(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
   }
 }

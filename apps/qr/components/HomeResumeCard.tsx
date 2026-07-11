@@ -1,5 +1,5 @@
 "use client";
-import Link from "next/link";
+import { TransitionLink as Link } from "./nav/TransitionNav"; // J1 journey grammar
 import { useActiveOrderStatus } from "./useActiveOrderStatus";
 
 /**
