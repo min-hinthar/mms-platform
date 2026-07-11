@@ -54,10 +54,17 @@ const pathnameOf = (href: string) => {
  */
 export function TransitionLink(props: ComponentProps<typeof VTLink>) {
   const pathname = usePathname();
-  const { onClick, href, ...rest } = props;
+  const { onClick, href, replace, ...rest } = props;
+  // Same-pathname navs default to REPLACE (still overridable): a self-push (re-tapping the ✦ Rewards
+  // pill on /account, the brand mark on /, a self-refresh link) would stack a duplicate history entry,
+  // and the transition library's popstate handler hangs ~4s on the next browser-back over it (its
+  // route effect keys on [pathname, hash], which don't change). Fixing it IN the grammar kills the
+  // whole defect class — no diner surface needs a same-pathname push.
+  const samePath = pathnameOf(String(href)) === pathname;
   return (
     <VTLink
       href={href}
+      replace={replace ?? samePath}
       {...rest}
       onClick={(e) => {
         // Stamp only when THIS click will actually navigate in-tab: a modified/middle click opens a
@@ -80,7 +87,10 @@ export function useJourneyRouter() {
   const push = useCallback(
     (href: string) => {
       stampDir(directionBetween(pathname, pathnameOf(href)));
-      router.push(href);
+      // Same-pathname → replace, mirroring TransitionLink: never stack a duplicate history entry
+      // (the popstate-hang class — see the comment there).
+      if (pathnameOf(href) === pathname) router.replace(href);
+      else router.push(href);
     },
     [router, pathname],
   );
