@@ -179,7 +179,8 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
                       {/* J5 — reorder "your usual": lands on the menu, which runs the earner-gated
                           server reorder once the session's cart is ready (every price re-derived at
                           TODAY's menu — never these historical figures) and says exactly what came
-                          back and what didn't. A plain link — no client JS on this server card.
+                          back and what didn't. The card stays server-rendered — the TransitionLink
+                          is its only client island.
                           A pickup order carries mode=pickup so the slot picker is part of the flow
                           (a bare /menu is scan&go — no slot, and the bag would fire immediately on
                           payment). Other orders land scan&go: we can't know from here whether a

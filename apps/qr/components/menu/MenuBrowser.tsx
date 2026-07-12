@@ -158,10 +158,14 @@ export function MenuBrowser({
           announce(res.error);
           return;
         }
-        // Per-reason honesty: a dish that NEEDS choices is on today's menu (say "tap to choose"),
-        // only gone/sold-out/grocery lines are truly unavailable — never collapse the two.
+        // Per-reason honesty: a dish that NEEDS choices is on today's menu (say "tap to choose");
+        // a grocery line is on the SHELF, not unavailable (scan it in the store); only
+        // gone/sold-out lines are truly unavailable — never collapse the three.
         const needsChoice = res.skipped.filter((k) => k.reason === "needs_choices");
-        const unavailable = res.skipped.filter((k) => k.reason !== "needs_choices");
+        const grocery = res.skipped.filter((k) => k.reason === "grocery");
+        const unavailable = res.skipped.filter(
+          (k) => k.reason !== "needs_choices" && k.reason !== "grocery",
+        );
         const bits: string[] = [];
         if (res.added > 0)
           bits.push(
@@ -181,6 +185,12 @@ export function MenuBrowser({
             needsChoice.length === 1
               ? `${needsChoice[0]?.name ?? "1 dish"} needs a choice — tap it on the menu`
               : `${needsChoice.length} dishes need choices — tap them on the menu`,
+          );
+        if (grocery.length > 0)
+          bits.push(
+            grocery.length === 1
+              ? `${grocery[0]?.name ?? "1 item"} is a shelf item — scan it in the store`
+              : `${grocery.length} shelf items — scan them in the store`,
           );
         if (unavailable.length > 0)
           bits.push(

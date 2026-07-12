@@ -112,13 +112,14 @@ export function OrderTracker({
   const [arriveErr, setArriveErr] = useState<string | null>(null);
   const announced = !!order?.arrivedAt || arrivedLocal;
   // The focused "I'm here" button unmounts in favour of the confirmation — park focus on the ready
-  // card so a keyboard/SR user keeps their place (focus-on-remove rule, WCAG 2.4.3). Edge-triggered
-  // on `announced`; the activeElement check means we never yank focus from somewhere the user moved.
+  // card so a keyboard/SR user keeps their place (focus-on-remove rule, WCAG 2.4.3). Keyed to
+  // `arrivedLocal` (THIS device's tap), not `announced`: a revisit whose order loads with arrivedAt
+  // already set must not have its reading position yanked to a mid-page card on mount.
   const readyCardRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (announced && document.activeElement === document.body)
+    if (arrivedLocal && document.activeElement === document.body)
       readyCardRef.current?.focus({ preventScroll: true });
-  }, [announced]);
+  }, [arrivedLocal]);
   async function imHere() {
     if (!order || arriveBusy || announced) return;
     setArriveBusy(true);

@@ -58,6 +58,10 @@ export async function reorderOrder(raw: {
   const { cartId, orderId } = parsed.data;
 
   // AuthZ first (cart membership + freeze state), then the flood guard — one gesture, one rate tick.
+  // Accepted TOCTOU note: the lock/settle check is entry-time; a peer's create-intent landing during
+  // the (seconds-long) line loop can race lines into the pay window. Bounded + recoverable by design:
+  // the webhook re-derives totals and 409s on an amount mismatch (qr_refunds_needed ledger) — never a
+  // mispriced capture. Same class as addItem's ~100ms window, just wider; revisit if it ever bites.
   let uid: string, sessionId: string;
   try {
     const authz = await assertCartMember(cartId);
@@ -91,11 +95,11 @@ export async function reorderOrder(raw: {
     .select("menu_item_id,name,qty,modifiers,fulfillment")
     .eq("order_id", orderId)
     .order("id") // deterministic under the cap — never a different 30 on retry
-    .limit(LINE_CAP);
+    .limit(LINE_CAP + 1); // +1 = exact truncation detection (an exactly-at-cap order isn't "capped")
   if (!lines || lines.length === 0)
     return { ok: false, error: "That order isn’t available to reorder." };
-  // At the cap we may have truncated — say so rather than silently reordering "everything".
-  const capped = lines.length === LINE_CAP;
+  const capped = lines.length > LINE_CAP;
+  if (capped) lines.length = LINE_CAP;
 
   // The new lines' dine-in/to-go default follows the CURRENT session's mode (same rule as addItem) —
   // reordering last week's pickup at the table today makes table food, not a phantom bag.

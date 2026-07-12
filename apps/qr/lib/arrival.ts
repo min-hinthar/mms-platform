@@ -2,6 +2,7 @@
 import { serviceClient } from "@mms/db/server";
 import { announceArrivalInput } from "@mms/db/schemas";
 import { assertSessionMember } from "./authz";
+import { assertMutationRate } from "./rate";
 
 /**
  * J5 — the pickup "I'm here" ping (deferred from J3 to this migration window). Stamps
@@ -33,7 +34,10 @@ export async function announceArrival(raw: { orderId: string }): Promise<Announc
   if (!order || !order.session_id)
     return { ok: false, error: "Couldn’t let the counter know — try again." };
   try {
-    await assertSessionMember(order.session_id);
+    const { uid } = await assertSessionMember(order.session_id);
+    // Same per-device flood guard as every diner mutation (P3.4) — hammering an unstamped order id
+    // must not buy unbounded service-role work, even though the write surface is one timestamp.
+    await assertMutationRate(uid);
   } catch {
     return { ok: false, error: "Couldn’t let the counter know — try again." };
   }
