@@ -32,9 +32,12 @@ drop policy if exists qr_fav_delete on qr_favorites;
 create policy qr_fav_delete on qr_favorites for delete to authenticated
   using (user_id = (select auth.uid()));
 
--- Explicit grants (new tables inherit nothing useful): diners are the `authenticated` role (anon-auth
--- users included). The unauthenticated `anon` role gets nothing — belt to the RLS braces.
-revoke all on qr_favorites from public, anon;
+-- Explicit grants. Supabase's ALTER DEFAULT PRIVILEGES hands ALL on new public tables to
+-- anon/authenticated/service_role — so revoke the lot FIRST (the sibling lockdown convention), then
+-- grant back exactly the three verbs a diner needs. Without the authenticated revoke, the narrow
+-- grant below would be a no-op layered on the default ALL (an UPDATE grant would linger — inert under
+-- RLS default-deny, but contradicting the intent).
+revoke all on qr_favorites from public, anon, authenticated;
 grant select, insert, delete on qr_favorites to authenticated;
 
 -- No UPDATE grant/policy: a favorite is created or removed, never edited.

@@ -179,8 +179,16 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
                       {/* J5 — reorder "your usual": lands on the menu, which runs the earner-gated
                           server reorder once the session's cart is ready (every price re-derived at
                           TODAY's menu — never these historical figures) and says exactly what came
-                          back and what didn't. A plain link — no client JS on this server card. */}
-                      <Link href={`/menu?reorder=${encodeURIComponent(o.id)}`} className="nav-link">
+                          back and what didn't. A plain link — no client JS on this server card.
+                          A pickup order carries mode=pickup so the slot picker is part of the flow
+                          (a bare /menu is scan&go — no slot, and the bag would fire immediately on
+                          payment). Other orders land scan&go: we can't know from here whether a
+                          dine-in table session is live on this device, and minting a phantom dine-in
+                          table from home would be worse than a visible device cart. */}
+                      <Link
+                        href={`/menu?reorder=${encodeURIComponent(o.id)}${o.pickupSlot ? "&mode=pickup" : ""}`}
+                        className="nav-link"
+                      >
                         Order this again{" "}
                         <span aria-hidden className="nav-arrow nav-arrow-fwd">
                           →

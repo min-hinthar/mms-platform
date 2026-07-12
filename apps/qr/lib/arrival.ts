@@ -27,17 +27,18 @@ export async function announceArrival(raw: { orderId: string }): Promise<Announc
     .select("id,session_id,arrived_at")
     .eq("id", orderId)
     .maybeSingle();
-  // One generic error for unknown/not-yours (no existence oracle); already-stamped is a success (the
-  // counter already knows — the retry means the diner never sees a false failure).
+  // One generic error for unknown/not-yours (no existence oracle) — membership is asserted BEFORE the
+  // already-stamped success short-circuit, so a non-member replaying a leaked order id can't tell a
+  // stamped order from an unknown one.
   if (!order || !order.session_id)
     return { ok: false, error: "Couldn’t let the counter know — try again." };
-  if (order.arrived_at) return { ok: true };
-
   try {
     await assertSessionMember(order.session_id);
   } catch {
     return { ok: false, error: "Couldn’t let the counter know — try again." };
   }
+  // Already stamped (a double-tap / offline retry) is a MEMBER's success — the counter already knows.
+  if (order.arrived_at) return { ok: true };
 
   const { error } = await db
     .from("qr_orders")

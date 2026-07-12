@@ -43,6 +43,11 @@ export function FavoritesRail({
                 </span>
               )}
               <span className="start-here-name">{i.name_en}</span>
+              {i.name_my && (
+                <span className="start-here-my" lang="my">
+                  {i.name_my}
+                </span>
+              )}
               <span className="start-here-price">{dollars(i.base_price_cents)}</span>
             </button>
           </li>

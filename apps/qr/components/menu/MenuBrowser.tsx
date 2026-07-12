@@ -142,6 +142,7 @@ export function MenuBrowser({
   const { cartId, announce, refresh } = useCart();
   const reorderRan = useRef(false);
   const [reorderNote, setReorderNote] = useState<string | null>(null);
+  const menuHeadingRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     if (!reorderId || !cartId || reorderRan.current) return;
     reorderRan.current = true;
@@ -157,6 +158,10 @@ export function MenuBrowser({
           announce(res.error);
           return;
         }
+        // Per-reason honesty: a dish that NEEDS choices is on today's menu (say "tap to choose"),
+        // only gone/sold-out/grocery lines are truly unavailable — never collapse the two.
+        const needsChoice = res.skipped.filter((k) => k.reason === "needs_choices");
+        const unavailable = res.skipped.filter((k) => k.reason !== "needs_choices");
         const bits: string[] = [];
         if (res.added > 0)
           bits.push(
@@ -171,16 +176,20 @@ export function MenuBrowser({
               ? `${res.optionsReset[0]} came back without its options — tap it to re-choose`
               : `${res.optionsReset.length} came back without options — tap to re-choose`,
           );
-        if (res.skipped.length > 0)
+        if (needsChoice.length > 0)
           bits.push(
-            res.skipped.length === 1
-              ? `${res.skipped[0]?.name ?? "1 item"} isn’t available today`
-              : `${res.skipped.length} items aren’t available today`,
+            needsChoice.length === 1
+              ? `${needsChoice[0]?.name ?? "1 dish"} needs a choice — tap it on the menu`
+              : `${needsChoice.length} dishes need choices — tap them on the menu`,
           );
-        const msg =
-          res.added > 0
-            ? bits.join(" · ")
-            : "Couldn’t bring that order back — nothing on it is available today.";
+        if (unavailable.length > 0)
+          bits.push(
+            unavailable.length === 1
+              ? `${unavailable[0]?.name ?? "1 item"} isn’t available today`
+              : `${unavailable.length} items aren’t available today`,
+          );
+        if (res.capped) bits.push("only the first 30 lines were brought back");
+        const msg = bits.length > 0 ? bits.join(" · ") : "Nothing to bring back from that order.";
         setReorderNote(msg);
         announce(msg);
         if (res.added > 0) void refresh();
@@ -299,7 +308,9 @@ export function MenuBrowser({
         <p className="eyebrow">
           {mode === "dinein" ? "Dine-in" : mode === "pickup" ? "Pickup" : "Scan & Go"}
         </p>
-        <h1 style={{ fontSize: 34 }}>Menu</h1>
+        <h1 ref={menuHeadingRef} tabIndex={-1} style={{ fontSize: 34, outline: "none" }}>
+          Menu
+        </h1>
         {/* J2 arrival beat — the bilingual place-setting greeting; premieres once per session (J1's
             SurfaceMemory gates the stagger), lands settled on revisits. */}
         <ArrivalBeat mode={mode} welcome={welcome} />
@@ -317,7 +328,12 @@ export function MenuBrowser({
               type="button"
               className="reorder-note-x"
               aria-label="Dismiss"
-              onClick={() => setReorderNote(null)}
+              onClick={() => {
+                // The focused dismiss button unmounts with the note — park focus on the heading so a
+                // keyboard/SR user keeps their place (the repo's focus-on-remove rule, WCAG 2.4.3).
+                setReorderNote(null);
+                menuHeadingRef.current?.focus({ preventScroll: true });
+              }}
             >
               <span aria-hidden>✕</span>
             </button>

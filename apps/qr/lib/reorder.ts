@@ -41,6 +41,8 @@ export type ReorderResult =
       optionsReset: string[];
       /** True when any original line had qty > 1 (everything lands at 1 — bump with the stepper). */
       quantitiesReset: boolean;
+      /** True when the order had more lines than the cap — the outcome message discloses it. */
+      capped: boolean;
       skipped: { name: string; reason: ReorderSkipReason }[];
     }
   | { ok: false; error: string };
@@ -65,8 +67,11 @@ export async function reorderOrder(raw: {
     uid = authz.uid;
     sessionId = authz.sessionId;
     await assertMutationRate(uid);
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Couldn’t reorder just now." };
+  } catch {
+    // One generic string for every guard miss (no-such-cart / not-a-member / expired / rate): thrown
+    // Server Action messages are redacted in prod for exactly this reason — returning them as data
+    // would re-expose guard internals and make an existence probe out of the error text.
+    return { ok: false, error: "Couldn’t reorder just now — start from the menu." };
   }
 
   const db = serviceClient();
@@ -85,9 +90,12 @@ export async function reorderOrder(raw: {
     .from("qr_order_items")
     .select("menu_item_id,name,qty,modifiers,fulfillment")
     .eq("order_id", orderId)
+    .order("id") // deterministic under the cap — never a different 30 on retry
     .limit(LINE_CAP);
   if (!lines || lines.length === 0)
     return { ok: false, error: "That order isn’t available to reorder." };
+  // At the cap we may have truncated — say so rather than silently reordering "everything".
+  const capped = lines.length === LINE_CAP;
 
   // The new lines' dine-in/to-go default follows the CURRENT session's mode (same rule as addItem) —
   // reordering last week's pickup at the table today makes table food, not a phantom bag.
@@ -148,8 +156,12 @@ export async function reorderOrder(raw: {
       added += 1;
       if (Array.isArray(l.modifiers) && l.modifiers.length > 0) optionsReset.push(name);
       if (l.qty > 1) quantitiesReset = true;
-    } catch {
-      // priceItem threw: required choices on an empty selection (or the item vanished mid-loop).
+    } catch (e) {
+      // insertOrIncLine's status-atomic guard: the cart closed mid-loop (a webhook capture landed).
+      // That is NOT an availability fact about the remaining dishes — stop and say what happened.
+      if (e instanceof Error && e.message === "Cart is no longer open")
+        return { ok: false, error: "Your cart just closed — start a fresh order from the menu." };
+      // Otherwise priceItem threw: required choices on an empty selection (or a mid-loop vanish).
       skipped.push({ name: l.name, reason: "needs_choices" });
     }
   }
@@ -173,5 +185,5 @@ export async function reorderOrder(raw: {
     });
   }
 
-  return { ok: true, added, optionsReset, quantitiesReset, skipped };
+  return { ok: true, added, optionsReset, quantitiesReset, capped, skipped };
 }

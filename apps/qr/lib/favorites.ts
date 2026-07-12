@@ -2,11 +2,12 @@
 import { cookies } from "next/headers";
 import { serverClient } from "@mms/db/server";
 import { toggleFavoriteInput } from "@mms/db/schemas";
+import { assertMutationRate } from "./rate";
 
 /**
  * J5 — uid-scoped menu favorites (docs/JOURNEY_PLAN.md · recognition). Every read/write rides the
- * caller's OWN session through RLS (`qr_favorites`: own rows only) — no service-role client in this
- * module at all, so there is no authorization decision to get wrong here: the DB is the gate.
+ * caller's OWN session through RLS (`qr_favorites`: own rows only) — no authorization decision lives
+ * in this module: the DB is the gate (the only service-role touch is the shared rate counter).
  * Bounds: the PK dedupes and the menu_items FK caps rows at catalog size; the input is a real uuid.
  */
 
@@ -37,6 +38,13 @@ export async function toggleFavorite(menuItemId: string): Promise<{ on: boolean 
   if (!parsed.success) return null;
   try {
     const supa = serverClient(await cookies());
+    // Same per-device flood guard as every diner mutation (P3.4) — a hammered heart is only DB load
+    // (RLS-scoped, PK-bounded rows), but there's no reason to let it be free. Throws → null → revert.
+    const {
+      data: { user },
+    } = await supa.auth.getUser();
+    if (!user) return null;
+    await assertMutationRate(user.id);
     const { data: removed, error: delErr } = await supa
       .from("qr_favorites")
       .delete()
