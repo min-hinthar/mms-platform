@@ -19,6 +19,9 @@ export type TrackedOrder = {
   /** J5: the diner's "I'm here" stamp (null until they announce). The stamping UPDATE re-fires this
    *  subscription, so the button's confirmed state survives refreshes and peers' devices agree. */
   arrivedAt: string | null;
+  /** J6: does the order carry grocery lines? With `hasTogoFood` this identifies a PURE grocery basket
+   *  (self-scanned, already in hand) — whose tracker shows an exit pass, never kitchen theater. */
+  hasGrocery: boolean;
 };
 
 export type OrderStatus = {
@@ -106,6 +109,7 @@ export function useOrderStatus(
           togoStatus: data.togo_status ?? null,
           hasTogoFood: items.some((i) => i.fulfillment === "togo"),
           arrivedAt: data.arrived_at ?? null,
+          hasGrocery: items.some((i) => i.fulfillment === "grocery"),
         });
       } else if (tries < 10) {
         // Not fulfilled yet — Realtime will deliver the INSERT, but poll a few times as a safety net

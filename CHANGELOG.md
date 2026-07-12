@@ -4,6 +4,14 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — J6: mode tempo — the Journey track closes (2026-07-12)
+
+- **Grocery speed-run:** a GIANT running total (40px rolling figure readable at arm's length while the other hand scans — presentation of the same client-side sum the checkout CTA already carries; the charge is re-derived server-side at checkout, as everywhere) lands above the scanned lines.
+- **The exit pass replaces false theater.** A pure grocery basket's /track used to show "In the kitchen · Cooking" — the `togo_status` trigger covers grocery lines, so the step rail lit for a jar of pickled tea nobody was cooking. Now: "✓ Paid — you're all set" with the big uuid-tail order code (the same short reference the account history prints) and "show this on your way out if asked". Mixed orders (grocery + to-go food) keep the rail — a bag really is being made. The tracker's single `role="status"` announces the honest paid state.
+- **Pickup step audit — no cuts, on purpose.** The path is already at the theoretical floor + 1 (the slot sheet auto-opens once per mount, slot selection is one tap, two-step checkout is the money rule). The one further cut available — defaulting the slot to next-available — was rejected on honesty grounds: it silently commits a pickup time the diner didn't choose. Documented rather than built.
+- **Dine-in rounds:** the table timeline now says "Next round's with the kitchen" when dishes fire after others were served — the plan's "if tables order in waves" condition answered per-table, live, by the real line states (no aggregate analytics required, nothing guessed).
+- **Track close:** self-scored journey-axis "after" table in `docs/JOURNEY_PLAN.md` (dine-in 2.7 → ≈4.3, pickup 2.9 → ≈4.3, grocery 3.1 → ≈4.4), marked for what it is — the author's pre-launch score; the J0 funnels and live diners decide whether the bar is met in the room.
+
 ### Added — J5: recognition — visit N ≠ visit 1 (2026-07-12)
 
 - **The track's one migration** (`20260712000000_j5_recognition`, applied to live + types regenerated): `qr_favorites` — uid-scoped menu hearts with RLS own-rows-only on all three verbs, `authenticated` grants only, a uuid FK to `menu_items` (grocery barcodes can never land here) and a row count naturally capped by PK+FK at catalog size; plus `qr_orders.arrived_at`, the J3-deferred "I'm here" enabler.

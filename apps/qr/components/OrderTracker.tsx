@@ -102,6 +102,11 @@ export function OrderTracker({
           ? 1
           : 0;
   const ready = arrived && togo === "ready";
+  // J6 — a PURE grocery basket (self-scanned, already in the diner's hands at payment): the kitchen
+  // rail would be false theater ("In the kitchen · Cooking" for a jar of pickled tea), so the tracker
+  // swaps it for an EXIT PASS — paid ✓, the short order code staff can glance, done. Mixed orders
+  // (grocery + to-go food) keep the rail: a bag really is being made.
+  const pureGrocery = arrived && order.hasGrocery && !order.hasTogoFood && !isPickup;
 
   // J5 — the pickup "I'm here" ping (deferred from J3 to the migration window; qr_orders.arrived_at
   // now exists). Server truth (order.arrivedAt, refreshed by the stamping UPDATE's realtime event) OR
@@ -259,102 +264,125 @@ export function OrderTracker({
       {/* Single live region: role="status" already implies aria-live=polite (ARIA 1.2). The
           timedOut arm makes the text CHANGE when polling gives up, so AT announces the recovery. */}
       <p role="status" style={srOnly}>
-        {arriveErr && ready
-          ? arriveErr
-          : ready
-            ? announced
-              ? "The counter knows you’re here — hang tight."
-              : "Your order is ready for pickup — grab it before you go."
-            : arrived
-              ? togo === "picked_up"
-                ? "Order picked up — enjoy!"
-                : togo === "preparing"
-                  ? "Your order is being prepared."
-                  : "Payment confirmed — your order is in."
-              : timedOut
-                ? "Your order is taking longer than expected — use the Refresh button to check."
-                : justPaid
-                  ? "Payment confirmed — finalizing your order."
-                  : processing
-                    ? "Confirming your payment."
-                    : "Confirming your order."}
+        {pureGrocery
+          ? "Paid — you’re all set. Show your exit pass on the way out if asked."
+          : arriveErr && ready
+            ? arriveErr
+            : ready
+              ? announced
+                ? "The counter knows you’re here — hang tight."
+                : "Your order is ready for pickup — grab it before you go."
+              : arrived
+                ? togo === "picked_up"
+                  ? "Order picked up — enjoy!"
+                  : togo === "preparing"
+                    ? "Your order is being prepared."
+                    : "Payment confirmed — your order is in."
+                : timedOut
+                  ? "Your order is taking longer than expected — use the Refresh button to check."
+                  : justPaid
+                    ? "Payment confirmed — finalizing your order."
+                    : processing
+                      ? "Confirming your payment."
+                      : "Confirming your order."}
       </p>
 
-      {/* <ul>, not <ol>: the steps' order is conveyed visually + by aria-current, not a numeric
-          counter. role="list" restores semantics WebKit drops from a list-style:none list. */}
-      <ul
-        ref={timelineRef}
-        role="list"
-        aria-label="Order status"
-        style={{ listStyle: "none", padding: "20px 4px 0", margin: 0 }}
-      >
-        {STEPS.map(([title, sub], i) => {
-          const state = i < activeStep ? "done" : i === activeStep ? "now" : "pending";
-          const last = i === STEPS.length - 1;
-          const subtitle =
-            i === 0 && !arrived ? (processing ? "Confirming payment…" : "Confirming…") : sub;
-          const dotBg =
-            state === "done" ? "var(--ok)" : state === "now" ? "var(--ac)" : "var(--pg)";
-          const dotBorder =
-            state === "done" ? "var(--ok)" : state === "now" ? "var(--ac)" : "var(--bd)";
-          return (
-            <li
-              key={title}
-              style={{ display: "flex", gap: 14 }}
-              aria-current={state === "now" ? "step" : undefined}
-            >
-              <div
-                style={{
-                  width: 30,
-                  flex: "none",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                }}
+      {/* J6 — the exit pass replaces the step rail for a pure grocery basket: nothing is cooking and
+          nothing is being bagged for them (they bagged it) — the only real state is PAID, so show it
+          big enough to flash on the way out. The code is the same uuid-tail short reference the
+          account history prints; every figure is the real order row. Not a live region — the single
+          role="status" above already announced the paid state. */}
+      {pureGrocery ? (
+        <section className="exit-pass mms-rise" aria-label="Exit pass">
+          <p className="exit-pass-kicker">
+            <span aria-hidden>✓ </span>Paid — you’re all set
+          </p>
+          <p
+            className="exit-pass-code"
+            aria-label={`Order reference ${order.id.slice(-6).toUpperCase()}`}
+          >
+            #{order.id.slice(-6).toUpperCase()}
+          </p>
+          <p className="exit-pass-sub">
+            {order.itemCount} {order.itemCount === 1 ? "item" : "items"} · $
+            {(order.totalCents / 100).toFixed(2)} — show this on your way out if asked.
+          </p>
+        </section>
+      ) : (
+        <ul
+          ref={timelineRef}
+          role="list"
+          aria-label="Order status"
+          style={{ listStyle: "none", padding: "20px 4px 0", margin: 0 }}
+        >
+          {STEPS.map(([title, sub], i) => {
+            const state = i < activeStep ? "done" : i === activeStep ? "now" : "pending";
+            const last = i === STEPS.length - 1;
+            const subtitle =
+              i === 0 && !arrived ? (processing ? "Confirming payment…" : "Confirming…") : sub;
+            const dotBg =
+              state === "done" ? "var(--ok)" : state === "now" ? "var(--ac)" : "var(--pg)";
+            const dotBorder =
+              state === "done" ? "var(--ok)" : state === "now" ? "var(--ac)" : "var(--bd)";
+            return (
+              <li
+                key={title}
+                style={{ display: "flex", gap: 14 }}
+                aria-current={state === "now" ? "step" : undefined}
               >
-                <span
-                  aria-hidden
-                  className={state === "now" && pulseActive ? "mms-track-now" : undefined}
-                  style={{
-                    width: 18,
-                    height: 18,
-                    borderRadius: "50%",
-                    boxSizing: "border-box",
-                    border: `2.5px solid ${dotBorder}`,
-                    background: dotBg,
-                    transition:
-                      "background var(--dur-base) var(--ease-out), border-color var(--dur-base) var(--ease-out)",
-                  }}
-                />
-                {!last && (
-                  // Rail: the completed portion FLOWS in (green fill grows top→bottom) as the order
-                  // advances, instead of switching color instantly. Reduced-motion snaps it (no transition).
-                  <span aria-hidden className="track-rail">
-                    <span
-                      className={`track-rail-fill${i < activeStep ? " track-rail-fill-on" : ""}`}
-                    />
-                  </span>
-                )}
-              </div>
-              <div style={{ paddingBottom: 18 }}>
                 <div
                   style={{
-                    fontWeight: 700,
-                    fontSize: 14.5,
-                    color: state === "pending" ? "var(--t3)" : "var(--tx)",
+                    width: 30,
+                    flex: "none",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
                   }}
                 >
-                  {title}
+                  <span
+                    aria-hidden
+                    className={state === "now" && pulseActive ? "mms-track-now" : undefined}
+                    style={{
+                      width: 18,
+                      height: 18,
+                      borderRadius: "50%",
+                      boxSizing: "border-box",
+                      border: `2.5px solid ${dotBorder}`,
+                      background: dotBg,
+                      transition:
+                        "background var(--dur-base) var(--ease-out), border-color var(--dur-base) var(--ease-out)",
+                    }}
+                  />
+                  {!last && (
+                    // Rail: the completed portion FLOWS in (green fill grows top→bottom) as the order
+                    // advances, instead of switching color instantly. Reduced-motion snaps it (no transition).
+                    <span aria-hidden className="track-rail">
+                      <span
+                        className={`track-rail-fill${i < activeStep ? " track-rail-fill-on" : ""}`}
+                      />
+                    </span>
+                  )}
                 </div>
-                <div style={{ fontSize: 12, color: "var(--t2)", marginTop: 1 }}>
-                  {subtitle}
-                  {last && <span aria-hidden> 🍵</span>}
+                <div style={{ paddingBottom: 18 }}>
+                  <div
+                    style={{
+                      fontWeight: 700,
+                      fontSize: 14.5,
+                      color: state === "pending" ? "var(--t3)" : "var(--tx)",
+                    }}
+                  >
+                    {title}
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--t2)", marginTop: 1 }}>
+                    {subtitle}
+                    {last && <span aria-hidden> 🍵</span>}
+                  </div>
                 </div>
-              </div>
-            </li>
-          );
-        })}
-      </ul>
+              </li>
+            );
+          })}
+        </ul>
+      )}
 
       {/* To-go ready departure signal (S4.3a): the whole point — don't let a guest pay and walk out
           without their bag. Visual only; the role="status" region above carries the announcement (one

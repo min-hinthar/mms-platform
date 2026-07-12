@@ -83,13 +83,19 @@ export function TimelineStrip({
   if (active.length === 0) return null;
 
   // Headline priority: the kitchen's LIVE tap (cooking) > queued (sent) > done (all served).
+  // J6 round framing: dishes fired AFTER others were served = a table ordering in waves — say
+  // "next round", derived purely from the real line states (served > 0 alongside a fresh send),
+  // never a guess about intent. The plan's "if tables order in waves" condition is answered
+  // per-table, live, by the states themselves.
   const headline =
     cooking.length === 1
       ? `${cooking[0]?.name ?? "Your dish"} is being made`
       : cooking.length > 1
         ? `${plates(cooking)} dishes are being made`
         : sent.length > 0
-          ? "Your order’s with the kitchen"
+          ? served.length > 0
+            ? "Next round’s with the kitchen"
+            : "Your order’s with the kitchen"
           : "All served — enjoy!";
 
   const counts = [

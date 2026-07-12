@@ -193,7 +193,16 @@ only. Full spec: **[`docs/JOURNEY_PLAN.md`](docs/JOURNEY_PLAN.md)**.
   lines return as base + "re-choose", qty resets to one) via /account "Order this again"; the J3
   "I'm here" ping shipped (member-gated `arrived_at` stamp → expo "Here now" chip on the existing
   floor realtime); `posthog.identify` decided NO (no identity bridging without a consent surface). ⬜→✅
-- **J6** Mode tempo — grocery speed-run, pickup step-count floor, dine-in round framing. ⬜
+- **J6 ✅** Mode tempo (2026-07-12) — **the track closes.** Grocery: the giant running total (40px
+  rolling figure, display of the same client sum the CTA carries — charge stays server-derived) + the
+  exit pass on /track for pure grocery baskets (big uuid-tail code, "✓ Paid — you're all set"),
+  REPLACING the kitchen step rail that was false theater for self-scanned items (the togo_status
+  trigger covers grocery, so it lit "Cooking" for a jar of pickled tea); mixed orders keep the rail.
+  Pickup: the audit found the path already at floor+1 — the one further cut (defaulting the slot)
+  REJECTED on honesty (silently commits a time the diner didn't pick; documented, not built). Dine-in:
+  "Next round's with the kitchen" when dishes fire after others served — waves answered per-table by
+  the real line states. Self-scored track close in JOURNEY_PLAN (dine-in 2.7→≈4.3, pickup 2.9→≈4.3,
+  grocery 3.1→≈4.4; the funnels decide whether it's met in the room). ⬜→✅
 
 ## ⏸ M6 — Kiosk · Terminal · EBT (2027) &nbsp;`milestone:M6`
 
