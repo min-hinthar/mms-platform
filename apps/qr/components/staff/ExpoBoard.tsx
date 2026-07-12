@@ -150,6 +150,9 @@ function ExpoCard({
       <header style={cardHead}>
         <span style={tableLabel}>{ticket.label}</span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          {/* J5: the diner tapped "I'm here" on /track (qr_orders.arrived_at) — a waiting HUMAN
+              outranks bag age; hand this one over first. Rendered only from the real stamp. */}
+          {ticket.arrivedAt && <span style={hereTag}>Here now</span>}
           {ticket.status === "ready" && <span style={readyTag}>Ready</span>}
           <span style={{ fontSize: 12, color: "var(--t2)" }}>
             <RelativeTime iso={ticket.createdAt} serverNow={serverNow} />
@@ -226,6 +229,14 @@ const readyTag: CSSProperties = {
   textTransform: "uppercase",
   letterSpacing: "0.04em",
   color: "var(--ok)",
+};
+// "Here now" (J5) — accent, not success-green: it flags a waiting person, not a completed step.
+const hereTag: CSSProperties = {
+  fontSize: 11,
+  fontWeight: 800,
+  textTransform: "uppercase",
+  letterSpacing: "0.04em",
+  color: "var(--ac-strong)",
 };
 const lineList: CSSProperties = {
   listStyle: "none",

@@ -53,6 +53,8 @@ export function ItemSheet({
   onClose,
   onSelectItem,
   tableFavorite = false,
+  hearted = false,
+  onToggleHeart,
 }: {
   item: MenuItem | null;
   allItems: MenuItem[];
@@ -63,6 +65,10 @@ export function ItemSheet({
   /** J2: the data-backed favorite flag for THIS item (real paid-order counts) — keeps the sheet's badge
    *  in agreement with the menu row it opened from. */
   tableFavorite?: boolean;
+  /** J5: the CALLER's own heart on this item (qr_favorites) + the optimistic toggle. Optional so other
+   *  mounts (if any) stay heart-less rather than broken. */
+  hearted?: boolean;
+  onToggleHeart?: (id: string) => void;
 }) {
   // Detect an upsell SWAP (item changes while the sheet stays open) in an EFFECT — never read refs during
   // render (React Compiler). On a swap the keyed body remounts mid-scroll and the tapped upsell card
@@ -90,6 +96,8 @@ export function ItemSheet({
           onClose={onClose}
           onSelectItem={onSelectItem}
           tableFavorite={tableFavorite}
+          hearted={hearted}
+          onToggleHeart={onToggleHeart}
         />
       )}
     </Sheet>
@@ -104,6 +112,8 @@ function ItemSheetBody({
   onClose,
   onSelectItem,
   tableFavorite,
+  hearted = false,
+  onToggleHeart,
 }: {
   item: MenuItem;
   allItems: MenuItem[];
@@ -112,6 +122,8 @@ function ItemSheetBody({
   onClose: () => void;
   onSelectItem: (item: MenuItem) => void;
   tableFavorite: boolean;
+  hearted?: boolean;
+  onToggleHeart?: (id: string) => void;
 }) {
   const { add, cartId, locked, settling } = useCart();
   const { shouldAnimate } = useAnimationPreference();
@@ -187,6 +199,19 @@ function ItemSheetBody({
           height={248}
           sizes="(max-width: 440px) 100vw, 440px"
         />
+        {/* J5 — the heart (uid-scoped favorite). A true toggle (aria-pressed), 44px, optimistic via the
+            parent; state is conveyed by aria-pressed so no announcement is needed (no second region). */}
+        {onToggleHeart && (
+          <button
+            type="button"
+            className={`sheet-heart${hearted ? " sheet-heart-on" : ""}`}
+            aria-pressed={hearted}
+            aria-label="Save to your favorites"
+            onClick={() => onToggleHeart(item.id)}
+          >
+            <span aria-hidden>{hearted ? "♥" : "♡"}</span>
+          </button>
+        )}
       </div>
 
       {badges.length > 0 && (

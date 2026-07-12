@@ -25,6 +25,8 @@ export type ExpoTicket = {
   status: "preparing" | "ready";
   /** Pickup orders carry a slot — the expo shows it as the honest ready-by time (no fabricated countdown). */
   pickupSlot: string | null;
+  /** J5: the diner's "I'm here" stamp (null until they announce) — the board flags a waiting diner. */
+  arrivedAt: string | null;
   lines: ExpoLine[];
   /** When the order was paid (ISO) — the board shows its age so a forgotten bag surfaces. */
   createdAt: string;

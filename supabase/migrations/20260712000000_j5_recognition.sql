@@ -1,0 +1,45 @@
+-- 20260712000000_j5_recognition.sql — J5: recognition (docs/JOURNEY_PLAN.md), the track's one migration.
+--
+-- 1) qr_favorites — uid-scoped menu hearts. The diner's uid (anonymous or upgraded — SAME uid across the
+--    upgrade) owns its rows outright; every verb rides RLS (no service-role path exists or is needed).
+--    menu_item_id is a REAL menu item (uuid FK, cascade on menu removal) — grocery barcodes can never land
+--    here (the heart lives on the food item sheet, and the FK enforces it at the DB regardless of client).
+--    Row count is naturally bounded per user by the PK + FK: at most one row per (user, catalog item), so
+--    no count trigger is needed — the catalog is the cap.
+-- 2) qr_orders.arrived_at — the J3-deferred "I'm here" signal, done in this migration window as planned:
+--    a member-gated server action stamps it once (idempotent — only from null); the expo board reads it on
+--    the EXISTING floor realtime path (a qr_orders UPDATE is already what lights /staff surfaces), so no
+--    new channel and no realtime.messages policy is required. Nullable, no default: null = never announced.
+
+create table if not exists qr_favorites (
+  user_id uuid not null default auth.uid(),
+  menu_item_id uuid not null references menu_items(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (user_id, menu_item_id)
+);
+
+alter table qr_favorites enable row level security;
+
+-- Own rows only, for exactly the three verbs a diner needs. `(select auth.uid())` (not bare auth.uid())
+-- per the initializer-plan convention the sibling policies use.
+drop policy if exists qr_fav_select on qr_favorites;
+create policy qr_fav_select on qr_favorites for select to authenticated
+  using (user_id = (select auth.uid()));
+drop policy if exists qr_fav_insert on qr_favorites;
+create policy qr_fav_insert on qr_favorites for insert to authenticated
+  with check (user_id = (select auth.uid()));
+drop policy if exists qr_fav_delete on qr_favorites;
+create policy qr_fav_delete on qr_favorites for delete to authenticated
+  using (user_id = (select auth.uid()));
+
+-- Explicit grants. Supabase's ALTER DEFAULT PRIVILEGES hands ALL on new public tables to
+-- anon/authenticated/service_role — so revoke the lot FIRST (the sibling lockdown convention), then
+-- grant back exactly the three verbs a diner needs. Without the authenticated revoke, the narrow
+-- grant below would be a no-op layered on the default ALL (an UPDATE grant would linger — inert under
+-- RLS default-deny, but contradicting the intent).
+revoke all on qr_favorites from public, anon, authenticated;
+grant select, insert, delete on qr_favorites to authenticated;
+
+-- No UPDATE grant/policy: a favorite is created or removed, never edited.
+
+alter table qr_orders add column if not exists arrived_at timestamptz;

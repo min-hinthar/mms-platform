@@ -49,6 +49,16 @@ export const addItemInput = z.object({
   modifierIds: z.array(uuid).max(20).default([]),
 });
 
+/** toggleFavorite (J5) — the heart on a menu item; the DB FK re-verifies the id is a real item. */
+export const toggleFavoriteInput = z.object({ menuItemId: uuid });
+
+/** reorderOrder (J5) — bring a past order back as draft lines in the CURRENT cart. Ids only: every
+ *  amount is re-derived server-side at today's prices (never copied from the historical rows). */
+export const reorderInput = z.object({ cartId: uuid, orderId: uuid });
+
+/** announceArrival (J5) — the pickup "I'm here" ping; stamps qr_orders.arrived_at once. */
+export const announceArrivalInput = z.object({ orderId: uuid });
+
 /** setQty — `0` deletes the line; cap qty so one line can't balloon the order. */
 export const setQtyInput = z.object({
   cartItemId: uuid,

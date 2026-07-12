@@ -211,6 +211,36 @@ the part the peak-end rule says diners actually carry home.
   Surfaces on `/account` order rows + the menu welcome-back band.
 - **Favorites:** heart on menu items → uid-scoped `qr_favorites` table (RLS: own rows only; the one
   migration in this track) → "your favorites" rail at the top of the menu on return.
+- **Shipped (2026-07-12):** the migration (`qr_favorites` — uuid FK to menu_items, PK (user, item),
+  RLS own-rows-only for select/insert/delete, `authenticated` grants only, row count naturally capped
+  by the catalog via PK+FK; plus `qr_orders.arrived_at`) applied to live + `database.types.ts`
+  regenerated. **Welcome back:** `getWelcomeBack()` (upgraded display name; paid-orders-this-month at
+  the LA clock) layered into the J2 `ArrivalBeat` — the name only for upgraded accounts, the return
+  line ("Welcome back — N orders with us this month") only at N≥2, phrased as ORDERS never "visits"
+  (two orders in one sitting are two orders; the plan's "third visit" copy was an overclaim the data
+  can't back — revised). The group party line always outranks the warmth line (coordination beats
+  sentiment). **Favorites:** heart on the item sheet (44px, aria-pressed, optimistic with revert);
+  "Your favorites" rail reuses the J2 rail vocabulary and REPLACES the start-here band once ≥1 heart
+  exists (a returning diner needs their shortlist, not our guidance); in-stock items only.
+  **Reorder "your usual":** `reorderOrder(cartId, orderId)` — earner-gated (`earned_by = uid`),
+  cart-membership + lock/settle + rate-limit guarded, every price re-derived via the SAME
+  `priceItem`/`insertOrIncLine`/`lineTax` primitives as the add path (no new money path; historical
+  cents never copied); vanished/sold-out/requires-choices/grocery lines skip with per-item reasons.
+  **Honest deltas:** history stores modifier NAMES not option ids, so modified lines come back as the
+  base dish and say so ("came back without options — tap to re-choose"); every dish lands at qty 1
+  (the status-atomic insert core is qty-1 by design — "quantities start at one" beats a new guarded
+  write path on a money table). Surfaces: /account "Order this again" (a plain link to
+  `/menu?reorder=<id>`; the menu runs the reorder once the session cart exists, announces the outcome
+  through the provider's ONE live region, and strips the param so back/refresh can't double-run).
+  **"I'm here" shipped** (the J3 deferral, honored in this migration window): /track's ready card
+  gains the button (pickup only), `announceArrival` stamps `arrived_at` once (member-gated, idempotent
+  in the statement), and the expo board shows "Here now" over the EXISTING floor realtime — no new
+  channel, no realtime.messages policy. **`posthog.identify` decision: NO.** Anonymous diners get no
+  client↔server identity bridging without a real consent surface — the uid-keyed server funnels
+  already measure the money path end-to-end; the split client/server funnel view is an acceptable cost
+  for not linking a device's browsing to an identity nobody consented to connect. Revisit only if an
+  explicit consent banner ever ships. (Server-side `reorder_used` counts-only event added for J-F
+  evidence.)
 
 ## J6 — Mode tempo tuning `apps/qr, one PR`
 
