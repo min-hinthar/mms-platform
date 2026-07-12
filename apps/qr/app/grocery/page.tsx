@@ -212,6 +212,19 @@ export default function Grocery() {
         </>
       )}
 
+      {/* J6 — the GIANT running total: scan-and-go's one number, big enough to read at arm's length
+          while the other hand scans. Presentation of the same client-side sum the checkout CTA
+          carries (display only — the charge is re-derived server-side at checkout, as everywhere);
+          NOT a live region (the toast announces each add; the CTA's label carries the total for AT). */}
+      {lines.length > 0 && (
+        <div className="grocery-total mms-rise" aria-hidden>
+          <span className="grocery-total-label">Running total</span>
+          <span className="grocery-total-figure">
+            <NumberFlow value={totalCents / 100} format={{ style: "currency", currency: "USD" }} />
+          </span>
+        </div>
+      )}
+
       {/* Scanned lines — NOT a live region: the toast (role="status") announces each add, so one
           live region per view (a second `aria-live` here would double-announce). */}
       <ul

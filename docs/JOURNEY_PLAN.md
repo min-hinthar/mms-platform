@@ -249,6 +249,32 @@ the part the peak-end rule says diners actually carry home.
 - **Pickup:** step-count audit scan→slot→paid; target ≤ the theoretical floor + 1.
 - **Dine-in:** round-based framing (drinks first, mains second) if J3's timeline shows tables naturally
   order in waves.
+- **Shipped (2026-07-12) — the track closes:** **Grocery:** the GIANT running total (a 40px rolling
+  figure readable at arm's length while the other hand scans — presentation of the same client sum the
+  checkout CTA already carries; the charge stays server-derived) + the **exit pass**: a pure grocery
+  basket's /track now shows "✓ Paid — you're all set" with the big uuid-tail order code instead of the
+  kitchen step rail, which for a self-scanned jar of pickled tea was FALSE THEATER ("In the kitchen ·
+  Cooking" — the `togo_status` initializer covers grocery lines, so the rail lit for food nobody was
+  making). Mixed orders (grocery + to-go food) keep the rail — a bag really is being made. **Pickup —
+  the audit, no cuts:** the path is already at floor+1 (slot sheet auto-opens once per mount, slot
+  select is one tap, two-step checkout is the money rule). The one remaining "cut" — defaulting the
+  slot to next-available — was REJECTED on honesty: it silently commits a time the diner didn't
+  choose. Documented, not built. **Dine-in rounds:** the timeline says "Next round's with the kitchen"
+  when dishes fire after others were served — the plan's "if tables order in waves" condition is
+  answered per-table, live, by the real line states, not by aggregate analytics we don't have yet.
+
+### Track close — the honest "after" (self-scored, pre-launch)
+
+Self-scored against the J-axes the same way the J0 baseline was (against shipped code, by the author —
+real validation is live diners + the J0 funnels, not this table). Dine-in **2.7 → ≈4.3**, pickup
+**2.9 → ≈4.3**, grocery **3.1 → ≈4.4**. What moved: J-A continuity (2 → 4.5: the route grammar +
+three shared cuts), J-D arc (2.5 → 4: arrival beat + goodbye beat + everyone's-paid), J-E dead-time
+(1.5 → 4.5 dine-in: the timeline narrates real taps; grocery's by-design 4.5 held — J6 protected it
+by REMOVING theater), J-F recognition (1 → 4: name/welcome-back, favorites, reorder, I'm-here).
+J-B/J-C/J-G were already strong and held. Known honest gaps: J-D's arc is unproven against real
+emotion (peak-end is a design bet until diners feel it); J-F's reorder loses modifiers (names-not-ids
+— a schema improvement for a future milestone); the identify decision caps funnel joinery by choice.
+The rubric bar (≥4.3) is met on paper — the funnels decide whether it's met in the room.
 
 ## Sequencing + how we work it
 
