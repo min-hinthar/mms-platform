@@ -31,7 +31,7 @@ export async function getExpoQueue(): Promise<ExpoQueue> {
 
   const { data: orders } = await db
     .from("qr_orders")
-    .select("id,togo_status,session_id,pickup_slot,created_at")
+    .select("id,togo_status,session_id,pickup_slot,arrived_at,created_at")
     .in("togo_status", ["preparing", "ready"])
     .order("created_at", { ascending: true })
     .limit(QUEUE_CAP);
@@ -75,6 +75,7 @@ export async function getExpoQueue(): Promise<ExpoQueue> {
       mode: sess?.mode ?? "scango",
       status: o.togo_status === "ready" ? "ready" : "preparing",
       pickupSlot: o.pickup_slot ?? null,
+      arrivedAt: o.arrived_at ?? null,
       lines,
       createdAt: o.created_at,
     });

@@ -4,6 +4,8 @@ import { CartPublisher } from "@/components/CartPublisher";
 import { MenuBrowser, type MenuItem } from "@/components/menu/MenuBrowser";
 import type { ModGroup } from "@/lib/menu/modifiers";
 import { getMostLoved } from "@/lib/menu/mostLoved";
+import { getWelcomeBack } from "@/lib/rewards";
+import { getFavoriteIds } from "@/lib/favorites";
 
 // RSC menu — reads the catalog (`menu_items`) server-side with the ANON/publishable key (gated by
 // public-read RLS, least privilege). Fetches the fields the R6 browse layer needs (name EN/MY,
@@ -65,17 +67,23 @@ function requiredChoiceUnavailable(links: RawModLink[] | null | undefined): bool
 export default async function Menu({
   searchParams,
 }: {
-  searchParams: Promise<{ mode?: string; t?: string; j?: string }>;
+  searchParams: Promise<{ mode?: string; t?: string; j?: string; reorder?: string }>;
 }) {
   // `t` = a scanned table-sticker token (may provision a new table); `j` = the host's invite code
   // (join-only — a wrong code must NOT mint a phantom table). Both are the dine-in session key (M3·P3.1).
-  const { mode = "scango", t, j } = await searchParams;
+  // `reorder` (J5) = a past order id to bring back once the cart is ready (validated + earner-gated
+  // server-side in reorderOrder; the client only relays the id).
+  const { mode = "scango", t, j, reorder } = await searchParams;
   const code = t ?? j;
   const joinOnly = !t && !!j;
   const db = publicClient();
   // J2: the catalog and the counts-only favorites aggregate load in parallel — the aggregate is cached
   // (1h) and can never block or break the menu (it resolves [] on failure inside mostLoved).
   const mostLovedP = getMostLoved();
+  // J5 recognition reads (both the caller's OWN, both cookie-scoped, both fail to a quiet default —
+  // a broken greeting or missing hearts must never take the menu down).
+  const welcomeP = getWelcomeBack();
+  const heartedP = getFavoriteIds();
   const { data } = await db
     .from("menu_items")
     .select(
@@ -103,12 +111,21 @@ export default async function Menu({
     }));
 
   const favoriteIds = (await mostLovedP).map((m) => m.menuItemId);
+  const welcome = await welcomeP;
+  const heartedIds = await heartedP;
 
   return (
     <TableCartProvider mode={mode} code={code} joinOnly={joinOnly}>
       {/* Publishes the open-cart id to the wayfinding store so the header's "back to cart" works off-menu. */}
       <CartPublisher />
-      <MenuBrowser items={items} mode={mode} favoriteIds={favoriteIds} />
+      <MenuBrowser
+        items={items}
+        mode={mode}
+        favoriteIds={favoriteIds}
+        heartedIds={heartedIds}
+        welcome={welcome}
+        reorderId={reorder ?? null}
+      />
     </TableCartProvider>
   );
 }

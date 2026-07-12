@@ -6,6 +6,7 @@ import { useActiveOrder } from "./ActiveOrderProvider";
 import { formatSlotLong } from "@/lib/pickupTime";
 import { useAnimationPreference, useInView } from "@mms/ui";
 import { getRewardsProgress, type RewardsProgress } from "@/lib/rewards";
+import { announceArrival } from "@/lib/arrival";
 import { FeedbackPrompt } from "./FeedbackPrompt";
 import { GoodbyeBeat } from "./GoodbyeBeat";
 import { PaySuccess } from "./PaySuccess";
@@ -101,6 +102,29 @@ export function OrderTracker({
           ? 1
           : 0;
   const ready = arrived && togo === "ready";
+
+  // J5 — the pickup "I'm here" ping (deferred from J3 to the migration window; qr_orders.arrived_at
+  // now exists). Server truth (order.arrivedAt, refreshed by the stamping UPDATE's realtime event) OR
+  // the local just-tapped flag — the optimistic arm covers a dropped websocket so a successful tap
+  // never looks ignored. Idempotent server-side; pickup-only (a scan&go diner is already in the room).
+  const [arriveBusy, setArriveBusy] = useState(false);
+  const [arrivedLocal, setArrivedLocal] = useState(false);
+  const [arriveErr, setArriveErr] = useState<string | null>(null);
+  const announced = !!order?.arrivedAt || arrivedLocal;
+  async function imHere() {
+    if (!order || arriveBusy || announced) return;
+    setArriveBusy(true);
+    setArriveErr(null);
+    try {
+      const res = await announceArrival({ orderId: order.id });
+      if (res.ok) setArrivedLocal(true);
+      else setArriveErr(res.error);
+    } catch {
+      setArriveErr("Couldn’t let the counter know — try again.");
+    } finally {
+      setArriveBusy(false);
+    }
+  }
 
   // The persistent header/homepage pill no longer tracks the order while on /track (one realtime channel
   // per route), so retire the resumable order here the moment IT reaches a terminal state — otherwise a
@@ -226,21 +250,25 @@ export function OrderTracker({
       {/* Single live region: role="status" already implies aria-live=polite (ARIA 1.2). The
           timedOut arm makes the text CHANGE when polling gives up, so AT announces the recovery. */}
       <p role="status" style={srOnly}>
-        {ready
-          ? "Your order is ready for pickup — grab it before you go."
-          : arrived
-            ? togo === "picked_up"
-              ? "Order picked up — enjoy!"
-              : togo === "preparing"
-                ? "Your order is being prepared."
-                : "Payment confirmed — your order is in."
-            : timedOut
-              ? "Your order is taking longer than expected — use the Refresh button to check."
-              : justPaid
-                ? "Payment confirmed — finalizing your order."
-                : processing
-                  ? "Confirming your payment."
-                  : "Confirming your order."}
+        {arriveErr && ready
+          ? arriveErr
+          : ready
+            ? announced
+              ? "The counter knows you’re here — your order is on its way out."
+              : "Your order is ready for pickup — grab it before you go."
+            : arrived
+              ? togo === "picked_up"
+                ? "Order picked up — enjoy!"
+                : togo === "preparing"
+                  ? "Your order is being prepared."
+                  : "Payment confirmed — your order is in."
+              : timedOut
+                ? "Your order is taking longer than expected — use the Refresh button to check."
+                : justPaid
+                  ? "Payment confirmed — finalizing your order."
+                  : processing
+                    ? "Confirming your payment."
+                    : "Confirming your order."}
       </p>
 
       {/* <ul>, not <ol>: the steps' order is conveyed visually + by aria-current, not a numeric
@@ -339,6 +367,43 @@ export function OrderTracker({
           <div style={{ fontSize: 13, color: "var(--t2)", marginTop: 4 }}>
             Grab it from the counter before you head out.
           </div>
+          {/* J5 — "I'm here" (pickup only; a scan&go diner is already in the room). One tap pings the
+              expo board over the existing floor realtime; confirmed state = the REAL arrived_at stamp
+              (or the just-tapped optimistic flag), so a refresh/second device agrees. Errors surface
+              inline AND through the tracker's single role="status" region above (one live region). */}
+          {isPickup &&
+            (announced ? (
+              <div style={{ fontWeight: 700, fontSize: 13.5, marginTop: 10 }}>
+                <span aria-hidden>✦ </span>The counter knows you’re here — hang tight.
+              </div>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={imHere}
+                  disabled={arriveBusy}
+                  style={{
+                    minHeight: 44,
+                    marginTop: 10,
+                    padding: "0 18px",
+                    borderRadius: 10,
+                    border: "1px solid var(--ok)",
+                    background: "var(--cd)",
+                    color: "var(--tx)",
+                    fontWeight: 800,
+                    fontSize: 14,
+                    cursor: arriveBusy ? "default" : "pointer",
+                  }}
+                >
+                  {arriveBusy ? "Letting them know…" : "I’m here"}
+                </button>
+                {arriveErr && (
+                  <div style={{ fontSize: 12.5, color: "var(--warn)", marginTop: 6 }}>
+                    {arriveErr}
+                  </div>
+                )}
+              </>
+            ))}
         </div>
       )}
 

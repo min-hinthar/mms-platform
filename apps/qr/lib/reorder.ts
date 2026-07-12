@@ -1,0 +1,177 @@
+"use server";
+import { after } from "next/server";
+import { serviceClient } from "@mms/db/server";
+import { reorderInput } from "@mms/db/schemas";
+import { assertCartMember } from "./authz";
+import { assertMutationRate } from "./rate";
+import { lineTax } from "./tax";
+import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
+import { getPostHogClient } from "./posthog-server";
+
+/**
+ * J5 — reorder "your usual" (docs/JOURNEY_PLAN.md · recognition; the deferred M4 item, done right).
+ * Brings a PAST paid order back as fresh DRAFT lines in the caller's CURRENT cart.
+ *
+ * Money rules (the whole point of doing it server-side):
+ *  - Every amount is re-derived at TODAY's prices via the same `priceItem` the add path uses — the
+ *    historical `unit_price_cents` is never copied, so a menu price change is honored automatically.
+ *  - Every insert goes through `insertOrIncLine` (the status-atomic core addItem uses) — no new write
+ *    primitive, so the cart-open guard, draft-merge semantics, and by_seat provenance are inherited.
+ *  - AuthZ: the caller must be a member of the target cart (assertCartMember: active session, not
+ *    locked/settling) AND the order's stamped earner (`earned_by = uid`) — you reorder YOUR orders.
+ *
+ * Honesty rules (what history can't give us, we say out loud instead of guessing):
+ *  - Line `modifiers` are stored as display NAMES, not option ids — a modified line comes back as the
+ *    BASE dish and is reported in `optionsReset` (never a silent guess at what "extra chili oil" was).
+ *  - Items that vanished, went sold-out, or REQUIRE choices (priceItem's cardinality check throws for
+ *    those on an empty selection) are skipped with a per-item reason.
+ *  - Grocery lines are skipped — a shelf item scanned in person isn't reorderable from a menu.
+ *  - Every dish lands at qty 1 (`quantitiesReset` says so when the original had more) — the atomic
+ *    insert core is qty-1 by design, and one stepper tap beats a new money path.
+ */
+
+const LINE_CAP = 30; // bound the work regardless of history size
+
+export type ReorderSkipReason = "gone" | "sold_out" | "needs_choices" | "grocery";
+export type ReorderResult =
+  | {
+      ok: true;
+      added: number;
+      /** Dishes whose original line had modifiers — they came back as the base dish. */
+      optionsReset: string[];
+      /** True when any original line had qty > 1 (everything lands at 1 — bump with the stepper). */
+      quantitiesReset: boolean;
+      skipped: { name: string; reason: ReorderSkipReason }[];
+    }
+  | { ok: false; error: string };
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export async function reorderOrder(raw: {
+  cartId: string;
+  orderId: string;
+}): Promise<ReorderResult> {
+  const parsed = reorderInput.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "That order isn’t available to reorder." };
+  const { cartId, orderId } = parsed.data;
+
+  // AuthZ first (cart membership + freeze state), then the flood guard — one gesture, one rate tick.
+  let uid: string, sessionId: string;
+  try {
+    const authz = await assertCartMember(cartId);
+    if (authz.locked) return { ok: false, error: "Order is locked while someone checks out" };
+    if (authz.settling)
+      return { ok: false, error: "The table is settling up — you can’t edit while everyone pays" };
+    uid = authz.uid;
+    sessionId = authz.sessionId;
+    await assertMutationRate(uid);
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Couldn’t reorder just now." };
+  }
+
+  const db = serviceClient();
+
+  // The order must be the caller's OWN (earned_by = uid) and paid. One generic error for every miss —
+  // no oracle distinguishing "exists but not yours" from "unknown id".
+  const { data: order } = await db
+    .from("qr_orders")
+    .select("id,earned_by,status")
+    .eq("id", orderId)
+    .maybeSingle();
+  if (!order || order.earned_by !== uid || order.status !== "paid")
+    return { ok: false, error: "That order isn’t available to reorder." };
+
+  const { data: lines } = await db
+    .from("qr_order_items")
+    .select("menu_item_id,name,qty,modifiers,fulfillment")
+    .eq("order_id", orderId)
+    .limit(LINE_CAP);
+  if (!lines || lines.length === 0)
+    return { ok: false, error: "That order isn’t available to reorder." };
+
+  // The new lines' dine-in/to-go default follows the CURRENT session's mode (same rule as addItem) —
+  // reordering last week's pickup at the table today makes table food, not a phantom bag.
+  const { data: sess } = await db
+    .from("table_sessions")
+    .select("mode")
+    .eq("id", sessionId)
+    .single();
+  const dineIn = sess?.mode === "dinein";
+
+  // Today's availability for the food lines, one batch read.
+  const foodIds = [
+    ...new Set(lines.filter((l) => UUID_RE.test(l.menu_item_id)).map((l) => l.menu_item_id)),
+  ];
+  const { data: itemRows } = foodIds.length
+    ? await db.from("menu_items").select("id,is_active,is_sold_out").in("id", foodIds)
+    : { data: [] as { id: string; is_active: boolean; is_sold_out: boolean }[] };
+  const itemById = new Map((itemRows ?? []).map((i) => [i.id, i]));
+
+  let added = 0;
+  const optionsReset: string[] = [];
+  const skipped: { name: string; reason: ReorderSkipReason }[] = [];
+  let quantitiesReset = false;
+
+  for (const l of lines) {
+    if (l.fulfillment === "grocery" || !UUID_RE.test(l.menu_item_id)) {
+      skipped.push({ name: l.name, reason: "grocery" });
+      continue;
+    }
+    const item = itemById.get(l.menu_item_id);
+    if (!item || !item.is_active) {
+      skipped.push({ name: l.name, reason: "gone" });
+      continue;
+    }
+    if (item.is_sold_out) {
+      skipped.push({ name: l.name, reason: "sold_out" });
+      continue;
+    }
+    try {
+      // Empty selection + enforceCardinality: a required-choice item throws here → honest skip. The
+      // returned price is TODAY's base price; tax re-derives from today's category + this session's
+      // dine-in context (same formula as addItem).
+      const { name, unitPriceCents, category } = await priceItem(l.menu_item_id, [], {
+        enforceCardinality: true,
+      });
+      await insertOrIncLine(
+        cartId,
+        {
+          menuItemId: l.menu_item_id,
+          name,
+          opts: [],
+          unitPriceCents,
+          taxCents: lineTax(unitPriceCents, category, dineIn),
+          fulfillment: dineIn ? "dinein" : "togo",
+        },
+        uid,
+      );
+      added += 1;
+      if (Array.isArray(l.modifiers) && l.modifiers.length > 0) optionsReset.push(name);
+      if (l.qty > 1) quantitiesReset = true;
+    } catch {
+      // priceItem threw: required choices on an empty selection (or the item vanished mid-loop).
+      skipped.push({ name: l.name, reason: "needs_choices" });
+    }
+  }
+
+  if (added > 0) await touchCart(cartId, "reorder");
+
+  // Counts-only analytics (J-F evidence for the funnels) — drained off the response path.
+  if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
+    after(async () => {
+      try {
+        const ph = getPostHogClient();
+        ph.capture({
+          distinctId: uid,
+          event: "reorder_used",
+          properties: { added, skipped: skipped.length, options_reset: optionsReset.length },
+        });
+        await ph.flush();
+      } catch {
+        /* analytics best-effort */
+      }
+    });
+  }
+
+  return { ok: true, added, optionsReset, quantitiesReset, skipped };
+}

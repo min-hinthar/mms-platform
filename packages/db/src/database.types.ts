@@ -1017,6 +1017,32 @@ export type Database = {
           },
         ]
       }
+      qr_favorites: {
+        Row: {
+          created_at: string
+          menu_item_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          menu_item_id: string
+          user_id?: string
+        }
+        Update: {
+          created_at?: string
+          menu_item_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "qr_favorites_menu_item_id_fkey"
+            columns: ["menu_item_id"]
+            isOneToOne: false
+            referencedRelation: "menu_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       qr_order_items: {
         Row: {
           ebt_eligible: boolean
@@ -1066,6 +1092,7 @@ export type Database = {
       }
       qr_orders: {
         Row: {
+          arrived_at: string | null
           cart_id: string | null
           created_at: string
           discount_cents: number
@@ -1086,6 +1113,7 @@ export type Database = {
           total_cents: number
         }
         Insert: {
+          arrived_at?: string | null
           cart_id?: string | null
           created_at?: string
           discount_cents?: number
@@ -1106,6 +1134,7 @@ export type Database = {
           total_cents: number
         }
         Update: {
+          arrived_at?: string | null
           cart_id?: string | null
           created_at?: string
           discount_cents?: number

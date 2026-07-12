@@ -16,6 +16,9 @@ export type TrackedOrder = {
    *  alone can't answer this — the fulfillment trigger sets it for grocery lines too, and a pure
    *  grocery basket is already in the diner's hands at payment (no wait to respect). */
   hasTogoFood: boolean;
+  /** J5: the diner's "I'm here" stamp (null until they announce). The stamping UPDATE re-fires this
+   *  subscription, so the button's confirmed state survives refreshes and peers' devices agree. */
+  arrivedAt: string | null;
 };
 
 export type OrderStatus = {
@@ -67,7 +70,9 @@ export function useOrderStatus(
     async function load() {
       const { data, error } = await supa
         .from("qr_orders")
-        .select("id,status,total_cents,pickup_slot,togo_status,qr_order_items(qty,fulfillment)")
+        .select(
+          "id,status,total_cents,pickup_slot,togo_status,arrived_at,qr_order_items(qty,fulfillment)",
+        )
         .eq(column, key!)
         .maybeSingle();
       if (!active) return;
@@ -100,6 +105,7 @@ export function useOrderStatus(
           pickupSlot: data.pickup_slot ?? null,
           togoStatus: data.togo_status ?? null,
           hasTogoFood: items.some((i) => i.fulfillment === "togo"),
+          arrivedAt: data.arrived_at ?? null,
         });
       } else if (tries < 10) {
         // Not fulfilled yet — Realtime will deliver the INSERT, but poll a few times as a safety net

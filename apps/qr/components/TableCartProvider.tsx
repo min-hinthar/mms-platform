@@ -44,6 +44,9 @@ type CartCtx = {
    *  the decrement is announced symmetrically with the "+"/add path (WCAG 4.1.3). */
   setItemQty: (cartItemId: string, qty: number, announce?: string) => Promise<CartItem[]>;
   refresh: () => Promise<void>;
+  /** J5: route a one-off transactional announcement through the view's ONE polite live region (the
+   *  same `flash` every cart op uses) — never mount a second aria-live region for a new feature. */
+  announce: (msg: string) => void;
   /** Pickup mode only: the chosen slot (ISO instant) + a way to (re)open the picker. */
   pickupSlot: string | null;
   openSlotSheet: () => void;
@@ -432,6 +435,7 @@ export function TableCartProvider({
         add,
         setItemQty,
         refresh,
+        announce: flash,
         pickupSlot,
         openSlotSheet,
         isGroup,

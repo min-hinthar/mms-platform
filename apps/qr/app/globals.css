@@ -3050,3 +3050,67 @@ html[data-seen-surface] .mms-stagger {
   font-size: 12.5px;
   color: var(--t2);
 }
+
+/* ── J5 · Recognition (docs/JOURNEY_PLAN.md) ───────────────────────────────────────────────────────────
+   The heart on the item sheet, and the reorder outcome note. The favorites rail reuses the J2
+   start-here vocabulary wholesale (one rail system). Tokens only. */
+.sheet-heart {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  color: var(--t2);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 var(--sheen);
+  transition:
+    color var(--dur-base) var(--ease-out),
+    border-color var(--dur-base) var(--ease-out),
+    transform var(--dur-base) var(--ease-out);
+}
+.sheet-heart:active {
+  transform: scale(0.92);
+}
+.sheet-heart-on {
+  color: var(--ac-strong);
+  border-color: color-mix(in oklab, var(--ac) 45%, var(--bd));
+}
+@media (prefers-reduced-motion: reduce) {
+  .sheet-heart {
+    transition: none;
+  }
+}
+.reorder-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 10px 6px 10px 12px;
+  border-radius: var(--r-card);
+  border: 1px solid color-mix(in oklab, var(--ac) 18%, var(--bd));
+  background: color-mix(in oklab, var(--ac) 5%, var(--cd));
+  box-shadow: inset 0 1px 0 var(--sheen);
+  font-size: 13px;
+  color: var(--tx);
+  line-height: 1.45;
+}
+.reorder-note-x {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: transparent;
+  color: var(--t2);
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: var(--r-full);
+}

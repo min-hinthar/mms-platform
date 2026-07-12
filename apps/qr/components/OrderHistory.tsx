@@ -176,6 +176,16 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
                         {full}
                         {o.pickupSlot ? ` · Pickup ${formatSlotLong(o.pickupSlot)}` : ""}
                       </p>
+                      {/* J5 — reorder "your usual": lands on the menu, which runs the earner-gated
+                          server reorder once the session's cart is ready (every price re-derived at
+                          TODAY's menu — never these historical figures) and says exactly what came
+                          back and what didn't. A plain link — no client JS on this server card. */}
+                      <Link href={`/menu?reorder=${encodeURIComponent(o.id)}`} className="nav-link">
+                        Order this again{" "}
+                        <span aria-hidden className="nav-arrow nav-arrow-fwd">
+                          →
+                        </span>
+                      </Link>
                     </div>
                   </details>
                 </li>

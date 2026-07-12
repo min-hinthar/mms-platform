@@ -13,6 +13,11 @@ import { ItemSheet } from "./ItemSheet";
 import { ArrivalBeat } from "./ArrivalBeat";
 import { MenuTimeline } from "@/components/TableTimeline";
 import { StartHereBand } from "./StartHereBand";
+import { FavoritesRail } from "./FavoritesRail";
+import { useCart } from "@/components/TableCartProvider";
+import { toggleFavorite } from "@/lib/favorites";
+import { reorderOrder } from "@/lib/reorder";
+import type { WelcomeBack } from "@/lib/rewards";
 
 export type MenuItem = {
   id: string;
@@ -42,6 +47,9 @@ export function MenuBrowser({
   items,
   mode,
   favoriteIds = [],
+  heartedIds = [],
+  welcome = null,
+  reorderId = null,
 }: {
   items: MenuItem[];
   mode: string;
@@ -49,6 +57,14 @@ export function MenuBrowser({
    *  counts-only). Drives the "Start here" band + the data-backed "Table favorite" badge. Empty while
    *  order history is thin → the band falls back to `popular`-tagged items, badges to the manual tag. */
   favoriteIds?: string[];
+  /** J5: the CALLER's own hearted item ids (qr_favorites, RLS-scoped, newest first) — drives the
+   *  "Your favorites" rail + the sheet's heart state. Distinct from `favoriteIds` (the crowd). */
+  heartedIds?: string[];
+  /** J5: recognition facts for the arrival greeting (upgraded name / paid-orders-this-month). */
+  welcome?: WelcomeBack | null;
+  /** J5: a past order id to bring back as draft lines once the session's cart is ready (the
+   *  /account "Order this again" path); validated + earner-gated server-side. */
+  reorderId?: string | null;
 }) {
   const [q, setQ] = useState("");
   const [diets, setDiets] = useState<Diet[]>([]);
@@ -87,6 +103,94 @@ export function MenuBrowser({
     const rail = pool.slice(0, 6);
     return { items: rail.length >= 3 ? rail : [], dataBacked };
   }, [items, favoriteIds]);
+
+  // J5 — the diner's own hearts: optimistic local set over the server-fetched ids. A toggle flips the
+  // heart instantly and reverts if the RLS-scoped write fails (toggleFavorite returns null) — the
+  // heart is decorative state, so an optimistic miss can never cost money or strand a screen.
+  const [hearts, setHearts] = useState<Set<string>>(() => new Set(heartedIds));
+  const toggleHeart = (id: string) => {
+    setHearts((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    void toggleFavorite(id).then((res) => {
+      if (res === null)
+        // Write failed → revert to the pre-tap state (flip back whatever we just flipped).
+        setHearts((prev) => {
+          const next = new Set(prev);
+          if (next.has(id)) next.delete(id);
+          else next.add(id);
+          return next;
+        });
+    });
+  };
+  // "Your favorites" rail: the diner's hearted items that are on TODAY's menu and in stock, in their
+  // heart order (newest first — un-persisted same-session hearts float to the front). Capped at 8.
+  const favRail = useMemo(() => {
+    const pos = new Map(heartedIds.map((id, i) => [id, i]));
+    return items
+      .filter((i) => hearts.has(i.id) && !i.is_sold_out)
+      .sort((a, b) => (pos.get(a.id) ?? -1) - (pos.get(b.id) ?? -1))
+      .slice(0, 8);
+  }, [items, hearts, heartedIds]);
+
+  // J5 — reorder-on-arrival (the /account "Order this again" path): once the session's cart exists,
+  // run the earner-gated server reorder EXACTLY once, strip the param (so refresh/back can't double-
+  // run it), announce the honest outcome through the provider's ONE live region, and re-sync the cart.
+  const { cartId, announce, refresh } = useCart();
+  const reorderRan = useRef(false);
+  const [reorderNote, setReorderNote] = useState<string | null>(null);
+  useEffect(() => {
+    if (!reorderId || !cartId || reorderRan.current) return;
+    reorderRan.current = true;
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("reorder")) {
+      url.searchParams.delete("reorder");
+      window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    }
+    reorderOrder({ cartId, orderId: reorderId })
+      .then((res) => {
+        if (!res.ok) {
+          setReorderNote(res.error);
+          announce(res.error);
+          return;
+        }
+        const bits: string[] = [];
+        if (res.added > 0)
+          bits.push(
+            res.added === 1
+              ? "Brought back 1 dish from your order"
+              : `Brought back ${res.added} dishes from your order`,
+          );
+        if (res.quantitiesReset) bits.push("quantities start at one");
+        if (res.optionsReset.length > 0)
+          bits.push(
+            res.optionsReset.length === 1
+              ? `${res.optionsReset[0]} came back without its options — tap it to re-choose`
+              : `${res.optionsReset.length} came back without options — tap to re-choose`,
+          );
+        if (res.skipped.length > 0)
+          bits.push(
+            res.skipped.length === 1
+              ? `${res.skipped[0]?.name ?? "1 item"} isn’t available today`
+              : `${res.skipped.length} items aren’t available today`,
+          );
+        const msg =
+          res.added > 0
+            ? bits.join(" · ")
+            : "Couldn’t bring that order back — nothing on it is available today.";
+        setReorderNote(msg);
+        announce(msg);
+        if (res.added > 0) void refresh();
+      })
+      .catch(() => {
+        const m = "Couldn’t reorder just now — the menu’s all yours.";
+        setReorderNote(m);
+        announce(m);
+      });
+  }, [reorderId, cartId, announce, refresh]);
 
   // Visible items = search match (EN/MY/description) ∩ dietary filters. Pure, recomputed on input.
   const visible = useMemo(() => {
@@ -198,12 +302,27 @@ export function MenuBrowser({
         <h1 style={{ fontSize: 34 }}>Menu</h1>
         {/* J2 arrival beat — the bilingual place-setting greeting; premieres once per session (J1's
             SurfaceMemory gates the stagger), lands settled on revisits. */}
-        <ArrivalBeat mode={mode} />
+        <ArrivalBeat mode={mode} welcome={welcome} />
         {mode === "dinein" && <GuestList />}
         {mode === "pickup" && <PickupSlotChip />}
         {/* J3: the wait, narrated from real kitchen taps — renders only once something is with the
             kitchen (fired/cooking/served), i.e. exactly when a mid-meal diner is back here waiting. */}
         <MenuTimeline />
+        {/* J5 — the reorder outcome, in plain words (also announced through the provider's ONE live
+            region above; this line is the visible, dismissible face of the same message). */}
+        {reorderNote && (
+          <p className="reorder-note mms-rise">
+            <span style={{ flex: 1 }}>{reorderNote}</span>
+            <button
+              type="button"
+              className="reorder-note-x"
+              aria-label="Dismiss"
+              onClick={() => setReorderNote(null)}
+            >
+              <span aria-hidden>✕</span>
+            </button>
+          </p>
+        )}
       </header>
 
       <div className="menu-toolbar" ref={toolbarRef}>
@@ -274,15 +393,23 @@ export function MenuBrowser({
       {/* J2 "Start here" — the guided opening for browse mode only: hidden the moment the diner is
           FINDING (search text or a diet filter active), when the band would be noise between them and
           their result. Tapping a card opens the same item sheet as a row. */}
-      {!q.trim() && diets.length === 0 && (
-        <div style={{ padding: "0 20px" }}>
-          <StartHereBand
-            items={startHere.items}
-            dataBacked={startHere.dataBacked}
-            onSelect={setSheetItem}
-          />
-        </div>
-      )}
+      {/* J5 precedence: once the diner HAS favorites, their own shortlist replaces our guidance —
+          the start-here band is a first-timer's opening, not a permanent fixture. */}
+      {!q.trim() &&
+        diets.length === 0 &&
+        (favRail.length > 0 ? (
+          <div style={{ padding: "0 20px" }}>
+            <FavoritesRail items={favRail} onSelect={setSheetItem} />
+          </div>
+        ) : (
+          <div style={{ padding: "0 20px" }}>
+            <StartHereBand
+              items={startHere.items}
+              dataBacked={startHere.dataBacked}
+              onSelect={setSheetItem}
+            />
+          </div>
+        ))}
 
       {cats.map((c) => (
         <section
@@ -445,6 +572,8 @@ export function MenuBrowser({
         onClose={() => setSheetItem(null)}
         onSelectItem={setSheetItem}
         tableFavorite={!!sheetItem && favSet.has(sheetItem.id)}
+        hearted={!!sheetItem && hearts.has(sheetItem.id)}
+        onToggleHeart={toggleHeart}
       />
     </main>
   );

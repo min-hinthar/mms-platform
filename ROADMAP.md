@@ -185,8 +185,14 @@ only. Full spec: **[`docs/JOURNEY_PLAN.md`](docs/JOURNEY_PLAN.md)**.
   (pickup/to-go at picked-up, pure grocery/dine-in immediately — line fulfillments now read
   client-side); the SettlementBoard's table-wide "everyone's paid 🎉" breath before the receipt
   redirect (one status region; abort can't clobber it; focus parked; dead cancel hidden). ⬜→✅
-- **J5** Recognition — welcome-back, `reorderOrder` (server re-derived pricing), uid-scoped favorites
-  (one RLS migration). ⬜
+- **J5 ✅** Recognition (2026-07-12) — the track's one migration (`qr_favorites` own-rows RLS +
+  `qr_orders.arrived_at`, applied to live, types regenerated); welcome-back in the arrival beat
+  (upgraded name / "N orders with us this month" at N≥2 — orders, never invented "visits"); item-sheet
+  heart + "Your favorites" rail (replaces start-here once hearts exist); `reorderOrder` on the add
+  path's own primitives (earner-gated, every price re-derived today, per-item honest skips; modified
+  lines return as base + "re-choose", qty resets to one) via /account "Order this again"; the J3
+  "I'm here" ping shipped (member-gated `arrived_at` stamp → expo "Here now" chip on the existing
+  floor realtime); `posthog.identify` decided NO (no identity bridging without a consent surface). ⬜→✅
 - **J6** Mode tempo — grocery speed-run, pickup step-count floor, dine-in round framing. ⬜
 
 ## ⏸ M6 — Kiosk · Terminal · EBT (2027) &nbsp;`milestone:M6`

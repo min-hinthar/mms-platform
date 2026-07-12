@@ -208,6 +208,81 @@ export async function getMyRewardCoupons(): Promise<RewardCoupon[]> {
 }
 
 /**
+ * J5 — the welcome-back read for the menu's arrival beat (docs/JOURNEY_PLAN.md · recognition). Two
+ * facts, both the caller's OWN and both server-derived: their display name (UPGRADED accounts only —
+ * an anon uid has no durable identity to greet by; dine-in guest names are per-session, not a
+ * greeting-grade identity) and how many PAID orders this uid has placed this calendar month at the
+ * RESTAURANT's clock (America/Los_Angeles — the same TZ convention as order history, so an evening
+ * order never drifts into next month). Copy rule for callers: claim ORDERS, never "visits" — two
+ * orders in one sitting are two orders, and we won't invent an ordinal the data can't back.
+ */
+export type WelcomeBack = { name: string | null; ordersThisMonth: number };
+
+/** The LA-midnight instant that starts the current month — computed by rendering "now" in the
+ *  restaurant TZ and correcting a first-guess UTC instant by its own TZ rendering (2 passes covers
+ *  any DST offset). Pure arithmetic on real clocks; no fabricated boundaries. */
+function laMonthStartIso(): string {
+  const TZ = "America/Los_Angeles";
+  const ym = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ,
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(new Date());
+  const y = ym.find((p) => p.type === "year")?.value;
+  const m = ym.find((p) => p.type === "month")?.value;
+  let guess = new Date(`${y}-${m}-01T00:00:00Z`);
+  const wall = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+  for (let i = 0; i < 2; i++) {
+    const seen = wall.format(guess).replace(", ", "T");
+    const delta = new Date(`${y}-${m}-01T00:00:00Z`).getTime() - new Date(`${seen}Z`).getTime();
+    if (delta === 0) break;
+    guess = new Date(guess.getTime() + delta);
+  }
+  return guess.toISOString();
+}
+
+export async function getWelcomeBack(): Promise<WelcomeBack | null> {
+  const supa = serverClient(await cookies());
+  const {
+    data: { user },
+  } = await supa.auth.getUser();
+  if (!user) return null;
+  const uid = user.id;
+  const db = serviceClient();
+  try {
+    const [{ count }, name] = await Promise.all([
+      db
+        .from("qr_orders")
+        .select("id", { count: "exact", head: true })
+        .eq("earned_by", uid)
+        .eq("status", "paid")
+        .gte("created_at", laMonthStartIso()),
+      user.is_anonymous === false
+        ? db
+            .from("mms_profiles")
+            .select("display_name")
+            .eq("id", uid)
+            .maybeSingle()
+            .then((r) => r.data?.display_name ?? null)
+        : Promise.resolve(null),
+    ]);
+    return { name, ordersThisMonth: count ?? 0 };
+  } catch {
+    // Deliberate swallow (decorative greeting): a failed read is a plain Mingalaba, never a broken menu.
+    return null;
+  }
+}
+
+/**
  * The caller's own order history (M4 P4.2) — their PAID orders (the ones they paid for: earned_by = the
  * SSR-verified uid, anon or upgraded), newest first, with a short line summary. Service-role read scoped
  * to the uid, so a diner only ever sees their OWN orders. Cash/staff-closed orders have no earner, so they
