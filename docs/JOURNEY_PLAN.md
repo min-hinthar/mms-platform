@@ -254,7 +254,7 @@ the part the peak-end rule says diners actually carry home.
   checkout CTA already carries; the charge stays server-derived) + the **exit pass**: a pure grocery
   basket's /track now shows "✓ Paid — you're all set" with the big uuid-tail order code instead of the
   kitchen step rail, which for a self-scanned jar of pickled tea was FALSE THEATER ("In the kitchen ·
-  Cooking" — the `togo_status` trigger covers grocery lines, so the rail lit for food nobody was
+  Cooking" — the `togo_status` initializer covers grocery lines, so the rail lit for food nobody was
   making). Mixed orders (grocery + to-go food) keep the rail — a bag really is being made. **Pickup —
   the audit, no cuts:** the path is already at floor+1 (slot sheet auto-opens once per mount, slot
   select is one tap, two-step checkout is the money rule). The one remaining "cut" — defaulting the

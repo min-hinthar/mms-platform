@@ -197,7 +197,7 @@ only. Full spec: **[`docs/JOURNEY_PLAN.md`](docs/JOURNEY_PLAN.md)**.
   rolling figure, display of the same client sum the CTA carries — charge stays server-derived) + the
   exit pass on /track for pure grocery baskets (big uuid-tail code, "✓ Paid — you're all set"),
   REPLACING the kitchen step rail that was false theater for self-scanned items (the togo_status
-  trigger covers grocery, so it lit "Cooking" for a jar of pickled tea); mixed orders keep the rail.
+  initializer covers grocery, so it lit "Cooking" for a jar of pickled tea); mixed orders keep the rail.
   Pickup: the audit found the path already at floor+1 — the one further cut (defaulting the slot)
   REJECTED on honesty (silently commits a time the diner didn't pick; documented, not built). Dine-in:
   "Next round's with the kitchen" when dishes fire after others served — waves answered per-table by

@@ -101,12 +101,17 @@ export function OrderTracker({
         : togo === "preparing"
           ? 1
           : 0;
-  const ready = arrived && togo === "ready";
   // J6 — a PURE grocery basket (self-scanned, already in the diner's hands at payment): the kitchen
   // rail would be false theater ("In the kitchen · Cooking" for a jar of pickled tea), so the tracker
   // swaps it for an EXIT PASS — paid ✓, the short order code staff can glance, done. Mixed orders
-  // (grocery + to-go food) keep the rail: a bag really is being made.
-  const pureGrocery = arrived && order.hasGrocery && !order.hasTogoFood && !isPickup;
+  // (grocery + to-go food) keep the rail: a bag really is being made. Guards: `status === "paid"`
+  // (a fully-refunded order must never show an affirmative pass — the refund UPDATE re-fires this
+  // subscription live; partial refunds keep status='paid'), and the READY card below is suppressed
+  // for the pass (the expo still tracks a grocery-only "bag" until staff bump it — a diner told
+  // "you're all set" must not also read "grab it from the counter" when that bump lands).
+  const pureGrocery =
+    arrived && order.status === "paid" && order.hasGrocery && !order.hasTogoFood && !isPickup;
+  const ready = arrived && togo === "ready" && !pureGrocery;
 
   // J5 — the pickup "I'm here" ping (deferred from J3 to the migration window; qr_orders.arrived_at
   // now exists). Server truth (order.arrivedAt, refreshed by the stamping UPDATE's realtime event) OR
@@ -297,16 +302,16 @@ export function OrderTracker({
           <p className="exit-pass-kicker">
             <span aria-hidden>✓ </span>Paid — you’re all set
           </p>
-          <p
-            className="exit-pass-code"
-            aria-label={`Order reference ${order.id.slice(-6).toUpperCase()}`}
-          >
+          {/* ARIA prohibits naming a paragraph — the visual code is hidden and an sr-only sibling
+              reads the reference as spaced characters (a hex tail read as one word is useless). The
+              receipt card below carries the count + total, so the pass doesn't repeat them. */}
+          <p className="exit-pass-code" aria-hidden>
             #{order.id.slice(-6).toUpperCase()}
           </p>
-          <p className="exit-pass-sub">
-            {order.itemCount} {order.itemCount === 1 ? "item" : "items"} · $
-            {(order.totalCents / 100).toFixed(2)} — show this on your way out if asked.
-          </p>
+          <span className="sr-only">
+            {`Order reference ${order.id.slice(-6).toUpperCase().split("").join(" ")}`}
+          </span>
+          <p className="exit-pass-sub">Show this on your way out if asked.</p>
         </section>
       ) : (
         <ul
@@ -537,7 +542,9 @@ export function OrderTracker({
       )}
 
       <p style={{ fontSize: 12, color: "var(--t3)", margin: "14px 0 0" }}>
-        Status updates here as the kitchen works on it — keep this open, or check back anytime.
+        {pureGrocery
+          ? "You’re free to go — this receipt lives in your order history."
+          : "Status updates here as the kitchen works on it — keep this open, or check back anytime."}
       </p>
       <div style={{ display: "flex", gap: 20, alignItems: "center", marginTop: 4 }}>
         <Link href="/menu" className="nav-link">

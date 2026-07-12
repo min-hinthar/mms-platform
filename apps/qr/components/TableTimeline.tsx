@@ -83,17 +83,23 @@ export function TimelineStrip({
   if (active.length === 0) return null;
 
   // Headline priority: the kitchen's LIVE tap (cooking) > queued (sent) > done (all served).
-  // J6 round framing: dishes fired AFTER others were served = a table ordering in waves — say
-  // "next round", derived purely from the real line states (served > 0 alongside a fresh send),
-  // never a guess about intent. The plan's "if tables order in waves" condition is answered
-  // per-table, live, by the states themselves.
+  // J6 round framing: a REAL wave, not a coincidence of speed — "next round" only when every queued
+  // line was FIRED after every served line's own send (mms_fire_cart stamps a batch with one
+  // fire_at, so batch membership is recoverable from the stamps). A first send whose tea lands
+  // while the mains still wait stays "Your order's with the kitchen" — same round, not a next one.
+  // The plan's "if tables order in waves" condition is answered per-table, live, by the stamps.
+  const fireMs = (l: CartItem) => (l.fireAt ? new Date(l.fireAt).getTime() : 0);
+  const isNextRound =
+    sent.length > 0 &&
+    served.length > 0 &&
+    Math.min(...sent.map(fireMs)) > Math.max(...served.map(fireMs));
   const headline =
     cooking.length === 1
       ? `${cooking[0]?.name ?? "Your dish"} is being made`
       : cooking.length > 1
         ? `${plates(cooking)} dishes are being made`
         : sent.length > 0
-          ? served.length > 0
+          ? isNextRound
             ? "Next round’s with the kitchen"
             : "Your order’s with the kitchen"
           : "All served — enjoy!";
