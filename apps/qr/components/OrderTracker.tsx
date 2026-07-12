@@ -52,6 +52,10 @@ export function OrderTracker({
   // Pulse the active step only while the timeline is on-screen AND motion is allowed (P5.3): a
   // box-shadow `infinite` loop shouldn't keep ticking when scrolled out of view. The ref sits on the
   // STABLE <ul>, not the moving active dot (a ref on a conditional/moving target breaks the observer).
+  // J6 accepted edge: the ul is now conditional (the pure-grocery exit pass replaces it), so on the
+  // ONE path where the pass swaps back to the rail mid-view (a full refund landing live) the observer
+  // never re-attaches and the pulse stays off — cosmetic, and that screen has bigger problems (the
+  // /track refund arm is a flagged follow-up).
   const { shouldAnimate } = useAnimationPreference();
   const { ref: timelineRef, inView } = useInView<HTMLUListElement>();
   const pulseActive = shouldAnimate && inView;
