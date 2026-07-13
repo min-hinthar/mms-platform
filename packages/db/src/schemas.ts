@@ -29,6 +29,11 @@ export const sessionMintInput = z.object({
    *  three-door IA stays funnel-able even where two doors share an internal mode. */
   door: z.enum(["dinein", "pickup", "togo", "grocery"]).optional(),
   qrCode: z.string().trim().min(1).max(100).optional(),
+  // K2 (Journey II): the dine-in table PICKER sends a table NUMBER instead of a token — the server
+  // resolves it to that table's registered sticker qr_code (the token never leaves the server). The
+  // picker is advisory; the mint re-checks the table is registered + active. Bounds mirror the
+  // qr_tables CHECK (1..99). Ignored for non-dine-in modes.
+  tableNumber: z.number().int().min(1).max(99).optional(),
   mode: z.enum(["dinein", "scango", "pickup"]).default("dinein"),
   name: displayName.default("Guest"),
   // join-ONLY (M3·P3.1): set when joining via the host's invite code (`?j=`). The server must NOT
@@ -132,6 +137,10 @@ export const sessionMintOutput = z.object({
   // The resolved session key — the code other phones scan/enter to join this dine-in session.
   // For solo modes it's the per-device id (the UI doesn't surface it).
   joinCode: z.string().min(1),
+  // K2: the registered table this dine-in session is seated at (1–10), or null for a host-mint join
+  // code, an unregistered/legacy sticker, or a solo mode. Drives "Table 7" on the greeting/guest
+  // list/settle; the order surfaces read the denormalized qr_orders.table_number instead.
+  tableNumber: z.number().int().nullable().default(null),
 });
 
 /**

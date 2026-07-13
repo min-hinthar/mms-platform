@@ -217,8 +217,10 @@ pre-merge, per-PR merge go).
 - **K1** Three doors — Dine-in · To-go (Now→scango / Schedule→pickup, one door) · Grocery; "Scan & Go"
   retired diner-facing; no mode migration (presentation moves, plumbing stays); `?door=` threaded to
   the session mint (K0 menu wiring). ✅
-- **K2** Table registry — `qr_tables` (1–10, sticker-mapped) + session `table_number`; picker with
-  honest occupancy on host-start; the number flows to arrival/KDS/expo/floor/track/receipt. ⬜
+- **K2** Table registry — `qr_tables` (1–10, sticker-mapped, RLS-locked) + session `table_number` +
+  denormalized `qr_orders.table_number`; picker (`/dine-in`) with honest occupancy (open→claim,
+  seated→party-code join, per owner's call); mint resolves number→token server-side + race guards;
+  the number flows to arrival/guest-list/invite/settle/floor/KDS/expo/track/receipt. ✅
 - **K3a** Rewards presence — persistent wallet chip (menu + checkout) + quiet-when-signed-in sweep. ⬜
 - **K3b** Stars merge on sign-in — server-verified single-use merge token (survives the PKCE
   redirect); the coupon-reconciliation migration (move + re-index + mint WATERMARK so merged orders

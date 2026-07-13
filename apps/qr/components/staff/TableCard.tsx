@@ -1,6 +1,6 @@
 import { type CSSProperties } from "react";
 import Link from "next/link";
-import type { FloorTable } from "@/lib/floor-types";
+import { type FloorTable, tableDisplay } from "@/lib/floor-types";
 import { FloorStatusChip } from "./FloorStatusChip";
 import { RelativeTime } from "./RelativeTime";
 import { LiveMoney } from "./LiveMoney";
@@ -34,8 +34,11 @@ export function TableCard({
   pulse?: number;
 }) {
   const showRunning = table.itemCount > 0;
+  // K2: the real table number ("Table 7") at last; an unregistered/legacy sticker falls back to its
+  // raw token, flagged so staff map it in the registry.
+  const td = tableDisplay(table);
   const a11yName =
-    `Table ${table.label}, ${table.status}${table.tab !== "none" ? ", tab open" : ""}${table.tabOverCeiling ? ", over tab limit" : ""}, party of ${table.partySize}` +
+    `Table ${td.text}${td.unregistered ? ", unregistered sticker" : ""}, ${table.status}${table.tab !== "none" ? ", tab open" : ""}${table.tabOverCeiling ? ", over tab limit" : ""}, party of ${table.partySize}` +
     (showRunning ? `, ${table.itemCount} items, ${fmt(table.runningSubtotalCents)} so far` : "") +
     (table.paidTotalCents != null ? `, ${fmt(table.paidTotalCents)} paid` : "");
 
@@ -52,7 +55,22 @@ export function TableCard({
           Decorative (aria-hidden); CSS `@media (prefers-reduced-motion)` off-switch. */}
       {pulse != null && <span key={pulse} className="floor-card-pulse" aria-hidden />}
       <div style={topRow}>
-        <span style={label}>{table.label}</span>
+        <span style={label}>
+          Table {td.text}
+          {td.unregistered && (
+            <span
+              style={{
+                marginLeft: 6,
+                fontFamily: "var(--font-body)",
+                fontSize: 11,
+                color: "var(--warn)",
+                fontWeight: 700,
+              }}
+            >
+              unregistered
+            </span>
+          )}
+        </span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
           {table.tab !== "none" && (
             // Decorative: the card's aria-label already says "tab open" / "over tab limit".

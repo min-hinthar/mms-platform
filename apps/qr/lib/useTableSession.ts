@@ -11,6 +11,9 @@ export type TableSession = {
   role: "host" | "guest";
   /** The code other phones scan/enter to join this dine-in session (== the session's qr_code). */
   joinCode: string;
+  /** K2: the registered table number (1–10) this dine-in session is seated at, or null for a
+   *  host-mint code / unregistered sticker / solo mode. Drives "Table 7" on the greeting + guest list. */
+  tableNumber: number | null;
 };
 
 const DINEIN_KEY = "mms.qr.dinein";
@@ -53,12 +56,20 @@ function resolveQrCode(mode: string, code: string | undefined): string | undefin
  */
 export function useTableSession(
   mode: string,
-  opts?: { code?: string; joinOnly?: boolean; door?: "dinein" | "pickup" | "togo" | "grocery" },
+  opts?: {
+    code?: string;
+    joinOnly?: boolean;
+    door?: "dinein" | "pickup" | "togo" | "grocery";
+    /** K2: the table number from the dine-in picker's claim path (`?table=N`). The server resolves
+     *  it to that table's registered token — the token never travels through the client. */
+    tableNumber?: number;
+  },
 ) {
   const anon = useAnonSession();
   const code = opts?.code;
   const joinOnly = opts?.joinOnly ?? false;
   const door = opts?.door;
+  const tableNumber = opts?.tableNumber;
   const [session, setSession] = useState<TableSession | null>(null);
   const [error, setError] = useState<string | null>(null);
   const minting = useRef(false);
@@ -83,9 +94,13 @@ export function useTableSession(
   useEffect(() => {
     if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
-    if (!url.searchParams.has("t") && !url.searchParams.has("j")) return;
+    // K2: also strip `?table=` (the picker's claim param). A reload must NOT re-send it — the diner's
+    // own now-active session would 409 the claim; instead the persisted token (below) rejoins.
+    if (!url.searchParams.has("t") && !url.searchParams.has("j") && !url.searchParams.has("table"))
+      return;
     url.searchParams.delete("t");
     url.searchParams.delete("j");
+    url.searchParams.delete("table");
     window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
   }, []);
 
@@ -95,7 +110,10 @@ export function useTableSession(
     // the route to switch modes.
     if (!anon || session || minting.current) return;
     minting.current = true;
-    const qrCode = resolveQrCode(mode, code); // may be undefined for a dine-in host-start
+    // K2: on a fresh picker CLAIM (`?table=N`), send the table number and DON'T reuse a stale persisted
+    // token — the server resolves the number to the table's token and mints/claims it. Otherwise resolve
+    // the code as before (sticker/invite param or the persisted dine-in key).
+    const qrCode = tableNumber != null ? undefined : resolveQrCode(mode, code);
     const storedName = window.localStorage.getItem(NAME_KEY);
     fetch("/api/session", {
       method: "POST",
@@ -105,6 +123,7 @@ export function useTableSession(
       },
       body: JSON.stringify({
         ...(qrCode ? { qrCode } : {}),
+        ...(tableNumber != null ? { tableNumber } : {}), // K2: dine-in picker claim path
         ...(door ? { door } : {}), // K0: analytics-only door tag (validated server-side)
         mode,
         ...(storedName ? { name: storedName } : {}),
@@ -133,13 +152,14 @@ export function useTableSession(
           accessToken: anon.accessToken,
           role: d.role,
           joinCode: d.joinCode,
+          tableNumber: d.tableNumber,
         });
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Could not start session"))
       .finally(() => {
         minting.current = false;
       });
-  }, [anon, mode, session, code, joinOnly, door, nonce]);
+  }, [anon, mode, session, code, joinOnly, door, tableNumber, nonce]);
 
   return { session, loading: !session && !error, error, revalidate };
 }

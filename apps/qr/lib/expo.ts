@@ -31,7 +31,7 @@ export async function getExpoQueue(): Promise<ExpoQueue> {
 
   const { data: orders } = await db
     .from("qr_orders")
-    .select("id,togo_status,session_id,pickup_slot,arrived_at,created_at")
+    .select("id,togo_status,session_id,table_number,pickup_slot,arrived_at,created_at")
     .in("togo_status", ["preparing", "ready"])
     .order("created_at", { ascending: true })
     .limit(QUEUE_CAP);
@@ -72,6 +72,9 @@ export async function getExpoQueue(): Promise<ExpoQueue> {
     tickets.push({
       orderId: o.id,
       label: sess?.qr_code ?? "Order",
+      // K2: the denormalized table snapshot (stamped at fulfillment) — durable past session expiry,
+      // and null for a pickup/scango bag (no table). Read off the ORDER, not the (maybe-gone) session.
+      tableNumber: o.table_number ?? null,
       mode: sess?.mode ?? "scango",
       status: o.togo_status === "ready" ? "ready" : "preparing",
       pickupSlot: o.pickup_slot ?? null,

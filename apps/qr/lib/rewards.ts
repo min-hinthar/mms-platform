@@ -304,6 +304,9 @@ export type OrderHistoryEntry = {
   totalCents: number;
   tender: string;
   pickupSlot: string | null;
+  /** K2: the registered table (1–10) this order was placed at, or null (pickup/scango/unregistered).
+   *  Denormalized snapshot on the order — the receipt shows the table you sat at that night. */
+  tableNumber: number | null;
   /** Server-derived receipt breakdown (presentation-only — never recomputed client-side). */
   breakdown: {
     subtotalCents: number;
@@ -329,7 +332,7 @@ export async function getOrderHistory(limit = 20): Promise<OrderHistoryEntry[] |
   const { data: orders, error } = await db
     .from("qr_orders")
     .select(
-      "id,created_at,total_cents,tender,pickup_slot,subtotal_cents,discount_cents,service_charge_cents,tax_cents,tip_cents",
+      "id,created_at,total_cents,tender,pickup_slot,table_number,subtotal_cents,discount_cents,service_charge_cents,tax_cents,tip_cents",
     )
     .eq("earned_by", user.id)
     .eq("status", "paid")
@@ -366,6 +369,7 @@ export async function getOrderHistory(limit = 20): Promise<OrderHistoryEntry[] |
     totalCents: o.total_cents,
     tender: o.tender,
     pickupSlot: o.pickup_slot ?? null,
+    tableNumber: o.table_number ?? null,
     breakdown: {
       subtotalCents: o.subtotal_cents ?? 0,
       discountCents: o.discount_cents ?? 0,

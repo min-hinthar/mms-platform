@@ -22,6 +22,9 @@ export type TrackedOrder = {
   /** J6: does the order carry grocery lines? With `hasTogoFood` this identifies a PURE grocery basket
    *  (self-scanned, already in hand) — whose tracker shows an exit pass, never kitchen theater. */
   hasGrocery: boolean;
+  /** K2: the registered table (1–10) this dine-in order was placed at, or null (pickup/scango/
+   *  unregistered). Denormalized snapshot on the order — readable here after the session has expired. */
+  tableNumber: number | null;
 };
 
 export type OrderStatus = {
@@ -74,7 +77,7 @@ export function useOrderStatus(
       const { data, error } = await supa
         .from("qr_orders")
         .select(
-          "id,status,total_cents,pickup_slot,togo_status,arrived_at,qr_order_items(qty,fulfillment)",
+          "id,status,total_cents,table_number,pickup_slot,togo_status,arrived_at,qr_order_items(qty,fulfillment)",
         )
         .eq(column, key!)
         .maybeSingle();
@@ -110,6 +113,7 @@ export function useOrderStatus(
           hasTogoFood: items.some((i) => i.fulfillment === "togo"),
           arrivedAt: data.arrived_at ?? null,
           hasGrocery: items.some((i) => i.fulfillment === "grocery"),
+          tableNumber: data.table_number ?? null,
         });
       } else if (tries < 10) {
         // Not fulfilled yet — Realtime will deliver the INSERT, but poll a few times as a safety net

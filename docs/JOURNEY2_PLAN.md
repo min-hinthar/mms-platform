@@ -96,6 +96,18 @@ int null references qr_tables(table_number)`.
 - Guards: the picker is advisory; the server re-checks the table exists + is active in the mint;
   occupancy is read-only truth (active sessions) rendered as the join affordance above.
 
+> **Shipped (2026-07-13).** Migration: `qr_tables` (RLS-locked, service-only — anon `permission
+denied`; opaque 8-char tokens matching the join-code UX) + `table_sessions.table_number` FK +
+> denormalized `qr_orders.table_number` stamped in all three fulfill RPCs (additive; money math
+> untouched). **Owner's call on the occupancy fork: a SEATED table needs the party's code** (not a
+> code-free remote join) — so open→claim&host, seated→`?j=` code entry; the physical sticker stays
+> the code-free path. Picker `/dine-in` routes by NUMBER (`?table=N`) — the token never reaches the
+> client; the mint resolves it server-side, re-checks active, and the CLAIM path 409s rather than
+> converge onto an already-active table (race-safe against the plan's convergence, which stays for the
+> sticker path). The number flows to arrival/guest-list/invite/settle + floor/KDS/expo (staff) +
+> track/receipt (denormalized, expiry-durable). Unregistered tokens → `table_number` null, flagged on
+> the floor.
+
 ## K3a — Rewards presence (chip + quiet) `apps/qr, one PR`
 
 - **Persistent wallet card:** signed-in diners get a compact Stars chip in the journey (menu header +

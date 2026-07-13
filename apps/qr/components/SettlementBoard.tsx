@@ -164,6 +164,13 @@ export function SettlementBoard({
     <section aria-labelledby="settle-h" style={{ marginTop: 18 }}>
       <h2 id="settle-h" style={{ fontSize: 18, margin: "0 0 4px" }}>
         Everyone pays their share
+        {/* K2: anchor the split to the real table. */}
+        {ctx.tableNumber != null && (
+          <span style={{ color: "var(--t3)", fontWeight: 600, fontSize: 14 }}>
+            {" "}
+            · Table {ctx.tableNumber}
+          </span>
+        )}
       </h2>
       <p style={{ fontSize: 11.5, color: "var(--t3)", margin: "0 0 12px", lineHeight: 1.5 }}>
         No one’s card is charged until everyone has paid; then the whole order is captured together.

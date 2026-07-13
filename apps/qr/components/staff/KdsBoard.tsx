@@ -132,9 +132,14 @@ function TicketCard({
   onError: (msg: string | null) => void;
 }) {
   return (
-    <article className="card card-textured" style={cardStyle} aria-label={`Table ${ticket.label}`}>
+    <article
+      className="card card-textured"
+      style={cardStyle}
+      aria-label={`Table ${ticket.tableNumber ?? ticket.label}`}
+    >
       <header style={cardHead}>
-        <span style={tableLabel}>Table {ticket.label}</span>
+        {/* K2: the real table number the cook calls out (falls back to the raw sticker if unregistered). */}
+        <span style={tableLabel}>Table {ticket.tableNumber ?? ticket.label}</span>
         <span style={{ fontSize: 12, color: "var(--t2)" }}>
           <RelativeTime iso={ticket.firedAt} serverNow={serverNow} />
         </span>

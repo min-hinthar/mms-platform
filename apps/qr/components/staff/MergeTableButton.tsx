@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { getMergeCandidates, mergeTables } from "@/lib/floor";
-import type { MergeCandidate } from "@/lib/floor-types";
+import { type MergeCandidate, tableDisplay } from "@/lib/floor-types";
 import { Card } from "@mms/ui";
 
 /**
@@ -130,7 +130,7 @@ export function MergeTableButton({
                     }}
                     style={candidateBtn}
                   >
-                    <span style={{ fontWeight: 700 }}>Table {c.label}</span>
+                    <span style={{ fontWeight: 700 }}>Table {tableDisplay(c).text}</span>
                     <span style={{ color: "var(--t2)", fontSize: 13 }}>
                       {c.itemCount} {c.itemCount === 1 ? "item" : "items"} · party of {c.partySize}
                     </span>
@@ -152,8 +152,8 @@ export function MergeTableButton({
         >
           <p style={{ margin: 0, fontSize: 14 }}>
             Move {sourceItemCount} {sourceItemCount === 1 ? "item" : "items"} from{" "}
-            <strong>Table {sourceLabel}</strong> into <strong>Table {target.label}</strong>? This
-            closes Table {sourceLabel}.
+            <strong>Table {sourceLabel}</strong> into{" "}
+            <strong>Table {tableDisplay(target).text}</strong>? This closes Table {sourceLabel}.
           </p>
           <div style={{ display: "flex", gap: "var(--s3)" }}>
             <button
@@ -172,7 +172,7 @@ export function MergeTableButton({
               disabled={busy}
               style={mergeBtn}
             >
-              {busy ? "Merging…" : `Merge into ${target.label}`}
+              {busy ? "Merging…" : `Merge into Table ${tableDisplay(target).text}`}
             </button>
           </div>
         </Card>

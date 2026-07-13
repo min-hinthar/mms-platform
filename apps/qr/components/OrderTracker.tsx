@@ -521,7 +521,11 @@ export function OrderTracker({
               {order.itemCount} {order.itemCount === 1 ? "item" : "items"} · $
               {(order.totalCents / 100).toFixed(2)}
             </div>
-            <div style={{ fontSize: 12, color: "var(--t2)" }}>Paid in full</div>
+            <div style={{ fontSize: 12, color: "var(--t2)" }}>
+              Paid in full
+              {/* K2: dine-in receipts name the table (null for to-go/pickup — no table). */}
+              {order.tableNumber != null && ` · Table ${order.tableNumber}`}
+            </div>
           </div>
         </div>
       )}

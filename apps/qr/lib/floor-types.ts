@@ -18,6 +18,9 @@ export type FloorTable = {
   sessionId: string;
   /** The physical table sticker id / dine-in join code — the label a server scans for. */
   label: string;
+  /** K2: the registered table number (1–10), or null for an unregistered/legacy sticker or a
+   *  host-mint join code — the floor flags null as "unregistered" so staff map it in the registry. */
+  tableNumber: number | null;
   mode: "dinein" | "scango" | "pickup";
   status: FloorStatus;
   partySize: number;
@@ -75,6 +78,8 @@ export type TableDetail = {
    *  updates (qr_carts.updated_at isn't bumped, so we watch qr_cart_items by cart_id directly). */
   cartId: string | null;
   label: string;
+  /** K2: the registered table number (1–10), or null for an unregistered sticker / host-mint code. */
+  tableNumber: number | null;
   mode: "dinein" | "scango" | "pickup";
   status: FloorStatus;
   members: TableMemberView[];
@@ -108,6 +113,19 @@ export type TableDetail = {
   serverNow: string;
 };
 
+/** K2: the human table label for staff surfaces — the registered number (bare, e.g. "7"), or a
+ *  flagged fallback to the raw sticker token so an unregistered/legacy sticker stays visible +
+ *  actionable (staff map it in the registry), never a silent blank. Returns the BARE value so every
+ *  call site keeps its existing `Table {…}` prefix. Plain fn — server + client both import it. */
+export function tableDisplay(t: { tableNumber: number | null; label: string }): {
+  text: string;
+  unregistered: boolean;
+} {
+  return t.tableNumber != null
+    ? { text: String(t.tableNumber), unregistered: false }
+    : { text: t.label, unregistered: true };
+}
+
 export type ClearTableResult = { ok: true } | { ok: false; error: string };
 
 /** A table the current (source) table can be merged INTO (S1.4). Same mode, active, has an open cart, not
@@ -115,6 +133,8 @@ export type ClearTableResult = { ok: true } | { ok: false; error: string };
 export type MergeCandidate = {
   sessionId: string;
   label: string;
+  /** K2: the registered table number (1–10), or null. */
+  tableNumber: number | null;
   mode: "dinein" | "scango" | "pickup";
   itemCount: number;
   partySize: number;

@@ -105,7 +105,7 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
                   <details className="history-card">
                     <summary
                       className="history-summary"
-                      aria-label={`Order ${o.code}, ${full}, total ${dollars(o.totalCents)}, paid ${TENDER_LABEL[o.tender] ?? o.tender}${kind ? `, ${FULFILL_LABEL[kind]}` : ""}. Show items.`}
+                      aria-label={`Order ${o.code}, ${full}, total ${dollars(o.totalCents)}, paid ${TENDER_LABEL[o.tender] ?? o.tender}${kind ? `, ${FULFILL_LABEL[kind]}` : ""}${o.tableNumber != null ? `, Table ${o.tableNumber}` : ""}. Show items.`}
                     >
                       <div style={rowTop}>
                         <span style={{ fontWeight: 700, color: "var(--tx)" }}>
@@ -125,6 +125,10 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
                           Paid · {TENDER_LABEL[o.tender] ?? o.tender}
                         </span>
                         {kind && <span className="history-fulfill">{FULFILL_LABEL[kind]}</span>}
+                        {/* K2: the table you sat at that night (dine-in only). */}
+                        {o.tableNumber != null && (
+                          <span className="history-fulfill">Table {o.tableNumber}</span>
+                        )}
                         <span style={itemCountStyle}>
                           {itemCount} {itemCount === 1 ? "item" : "items"}
                         </span>
