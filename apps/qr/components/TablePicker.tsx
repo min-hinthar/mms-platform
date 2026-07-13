@@ -127,7 +127,9 @@ export function TablePicker({ tables }: { tables: DineInTable[] }) {
               autoCorrect="off"
               spellCheck={false}
               maxLength={40}
-              placeholder="e.g. 800FA82B"
+              // A synthetic example, NOT any seeded token — a real token in a "use client" bundle is a
+              // live join credential shipped to every browser + git (adversarial catch).
+              placeholder="e.g. WXYZ1234"
               style={input}
             />
             <button type="submit" disabled={!code.trim()} style={joinBtn}>
