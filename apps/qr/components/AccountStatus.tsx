@@ -28,22 +28,38 @@ export function AccountStatus({
   const [, startTransition] = useTransition();
   const who = displayName?.trim() || email || "your account";
 
-  // Tapping "Sign out" unmounts it and reveals the confirm — park focus on the SAFE default ("Stay
-  // signed in") so a keyboard/SR diner isn't dropped to <body> (WCAG 2.4.3), and an accidental Enter
-  // keeps them signed in rather than signing out. Skip the initial mount.
+  // Focus follows the confirm step both ways (WCAG 2.4.3): opening parks focus on the SAFE default
+  // ("Stay signed in") so an accidental Enter can't sign out; cancelling returns focus to the "Sign
+  // out" trigger (never dropped to <body>). `wasConfirming` skips the initial mount.
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const wasConfirming = useRef(false);
   useEffect(() => {
-    if (confirming) cancelRef.current?.focus({ preventScroll: true });
+    if (confirming) {
+      cancelRef.current?.focus({ preventScroll: true });
+      wasConfirming.current = true;
+    } else if (wasConfirming.current) {
+      triggerRef.current?.focus({ preventScroll: true });
+      wasConfirming.current = false;
+    }
   }, [confirming]);
 
   async function signOut() {
     setBusy(true);
+    const supa = browserClient();
     try {
-      await browserClient().auth.signOut();
+      await supa.auth.signOut();
+      // Re-mint a fresh ANONYMOUS session (mirroring AnonAuthGate) — `router.refresh()` only re-renders
+      // server components and does NOT re-run AnonAuthGate's client effect, so without this the app sits
+      // sessionless: /account would render the red "couldn't load your rewards" alert (not the promised
+      // guest state) and the header would keep the stale wallet chip. Retry once (GoTrue anon-signup can
+      // transiently rate-limit), exactly like AnonAuthGate; the SIGNED_IN it fires refetches the badge.
+      let { error } = await supa.auth.signInAnonymously();
+      if (error) ({ error } = await supa.auth.signInAnonymously());
     } catch {
-      // Best-effort — the refresh below re-derives the (now anonymous) session either way; never
-      // strand the button at "Signing out…" on a transient error.
+      // Best-effort — the refresh re-derives the session; the next route change re-runs AnonAuthGate.
     }
+    setBusy(false); // reset before the refresh: on a re-mint failure the button must not stick at "Signing out…"
     startTransition(() => router.refresh());
   }
 
@@ -59,6 +75,7 @@ export function AccountStatus({
 
       {!confirming ? (
         <button
+          ref={triggerRef}
           type="button"
           onClick={() => setConfirming(true)}
           className="nav-link"
@@ -67,8 +84,13 @@ export function AccountStatus({
           Sign out
         </button>
       ) : (
-        <div style={{ marginTop: 4 }} role="group" aria-label="Confirm sign out">
-          <p style={confirmCopy}>
+        <div
+          style={{ marginTop: 4 }}
+          role="group"
+          aria-label="Confirm sign out"
+          aria-describedby="acct-signout-warning"
+        >
+          <p id="acct-signout-warning" style={confirmCopy}>
             Sign out? You’ll browse as a guest — sign back in anytime to see your Stars.
           </p>
           <div style={{ display: "flex", gap: 8 }}>
