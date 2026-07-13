@@ -204,6 +204,27 @@ only. Full spec: **[`docs/JOURNEY_PLAN.md`](docs/JOURNEY_PLAN.md)**.
   the real line states. Self-scored track close in JOURNEY_PLAN (dine-in 2.7→≈4.3, pickup 2.9→≈4.3,
   grocery 3.1→≈4.4; the funnels decide whether it's met in the room). ⬜→✅
 
+### 🚪 Journey II track — one house, three doors ([`docs/JOURNEY2_PLAN.md`](docs/JOURNEY2_PLAN.md))
+
+Owner findings after walking the shipped J-track: the HOUSE needs restructuring, not the hallways.
+Decisions locked 2026-07-12 (recommendation-led): 3 doors · table registry · rewards continuity (all
+three) · orders tray. Same working rules as the J-track (one phase = one PR, adversarial pre-PR +
+pre-merge, per-PR merge go).
+
+- **K0** Track spine — plan doc + `door` property on session_created + door-keyed funnels. ⬜
+- **K1** Three doors — Dine-in · To-go (ASAP or slot, one door) · Grocery; "Scan & Go" retired
+  diner-facing; no mode migration (presentation moves, plumbing stays). ⬜
+- **K2** Table registry — `qr_tables` (1–10, sticker-mapped) + session `table_number`; picker with
+  honest occupancy on host-start; the number flows to arrival/KDS/expo/floor/track/receipt. ⬜
+- **K3** Rewards you can hold — persistent wallet chip (menu + checkout); stars MERGE on sign-in via
+  a server-verified single-use merge token (the #113 abandon-gap, done right); quiet-when-signed-in
+  sweep. ⬜
+- **K4** Orders tray — `getMyLiveOrders()` + the pill becomes a live multi-order tray + /account
+  "Today". ⬜
+- **K5** Grocery grown up — server-hydrated product list (photos, steppers via existing setQty,
+  survives refresh); scanner stays the hero. ⬜
+- **K6** Track close — door-keyed funnels vs J0, rubric re-score, QA sweep. ⬜
+
 ## ⏸ M6 — Kiosk · Terminal · EBT (2027) &nbsp;`milestone:M6`
 
 **Design of record: [`docs/M6_DESIGN.md`](docs/M6_DESIGN.md)** — per-phase plan grounded in the S4.3c EBT

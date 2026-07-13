@@ -4,6 +4,10 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — Journey II plan (K0–K6): one house, three doors (2026-07-12)
+
+- **`docs/JOURNEY2_PLAN.md`** — the sequel track, built from the owner's five structural findings after walking the shipped J-track: the mode IA is wrong (Scan & Go bundles counter food with the grocery scanner), dine-in has no real table identity, rewards are earned but not held, the app thinks about one active order at a time, and grocery is a stub next to the menu. Decisions locked with the owner (recommendation-led): **three doors** (Dine-in · To-go with ASAP-or-slot · Grocery — no mode migration; presentation moves, plumbing stays), **table registry** (`qr_tables` 1–10, sticker-mapped, honest-occupancy picker fallback), **rewards continuity — all three** (persistent wallet chip, stars merge on sign-in via a server-verified single-use merge token, quiet when signed in), **orders tray** (the pill becomes a live multi-order surface), plus grocery grown up to product-grade rows. Phases K0–K6, one PR each, same adversarial gates as the J-track.
+
 ### Added — J6: mode tempo — the Journey track closes (2026-07-12)
 
 - **Grocery speed-run:** a GIANT running total (40px rolling figure readable at arm's length while the other hand scans — presentation of the same client-side sum the checkout CTA already carries; the charge is re-derived server-side at checkout, as everywhere) lands above the scanned lines.
