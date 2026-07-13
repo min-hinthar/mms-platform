@@ -158,6 +158,15 @@ surface in the track AND its hardest money problem — it must not ship padded w
   vanishes while the server cart still holds (and will charge) the items, and a re-scan doubles the
   server qty behind a UI showing 1. K5 builds FIRST.
 
+> **Shipped (2026-07-13).** As designed: `getGroceryLines` (member-gated, voided excluded) hydrates
+> on session-ready + tab re-focus; `scanAdd` returns the fresh server view in its own response (the
+> addItem one-round-trip pattern) so the list reconciles from the scan itself; product rows (56px
+> photo, EBT tag, qty × unit, line total) with 44px aria-labeled steppers on CART-LINE ids through
+> the existing `setQty` (qty 0 removes — no new money surface), optimistic + server-reconcile +
+> single-flight `busyLine`; honest "Checking your basket…" until the first read lands. K0's `door`
+> property rode along (`door: "grocery"` on the mint; menu wiring waits for the K1 doors; funnel
+> re-pin at K6).
+
 ## K6 — Close the track `docs + sweep, small PR`
 
 - Door-keyed funnel screenshots vs the J0 originals; rubric re-score of the three door-paths

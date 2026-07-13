@@ -62,7 +62,64 @@ export async function scanAdd(cartId: string, barcode: string) {
     name: item.name as string,
     unitPriceCents,
     ebt: item.ebt_eligible as boolean,
+    // K5: the fresh server-authoritative grocery view in the SAME round trip (the addItem pattern) —
+    // the page renders CART truth, so a refresh can never hide items the cart will charge.
+    lines: await readGroceryLines(input.cartId),
   };
+}
+
+/** K5 — a product-grade grocery cart line: the CART line (id = the setQty handle) joined with the
+ *  catalog's presentation fields. Every money figure is the cart's own server-derived snapshot. */
+export type GroceryLine = {
+  lineId: string;
+  barcode: string;
+  name: string;
+  qty: number;
+  unitPriceCents: number;
+  ebt: boolean;
+  imageUrl: string | null;
+};
+
+// Internal (already-authorized) read — callers must have passed assertCartMember for this cart.
+async function readGroceryLines(cartId: string): Promise<GroceryLine[]> {
+  const db = serviceClient();
+  const { data: rows } = await db
+    .from("qr_cart_items")
+    .select("id,menu_item_id,name,qty,unit_price_cents,state")
+    .eq("cart_id", cartId)
+    .eq("fulfillment", "grocery")
+    .neq("state", "voided")
+    .order("created_at", { ascending: true });
+  const lines = rows ?? [];
+  if (lines.length === 0) return [];
+  const barcodes = [...new Set(lines.map((l) => l.menu_item_id))];
+  const { data: items } = await db
+    .from("grocery_items")
+    .select("barcode,ebt_eligible,image_url")
+    .in("barcode", barcodes);
+  const byBarcode = new Map((items ?? []).map((i) => [i.barcode, i]));
+  return lines.map((l) => {
+    const cat = byBarcode.get(l.menu_item_id);
+    return {
+      lineId: l.id,
+      barcode: l.menu_item_id,
+      name: l.name,
+      qty: l.qty,
+      unitPriceCents: l.unit_price_cents,
+      ebt: cat?.ebt_eligible ?? false,
+      imageUrl: cat?.image_url ?? null,
+    };
+  });
+}
+
+/**
+ * K5 — the member-gated grocery cart read: the source of truth the /grocery page hydrates from (on
+ * mount and on tab re-focus), fixing the live money-display bug where a refresh showed "Nothing
+ * scanned yet" while the server cart still held (and would charge) the items. Read-only.
+ */
+export async function getGroceryLines(cartId: string): Promise<GroceryLine[]> {
+  await assertCartMember(cartId); // membership is the gate; throws on non-members/unknown carts
+  return readGroceryLines(cartId);
 }
 
 export type GroceryHit = { barcode: string; name: string; unitPriceCents: number; ebt: boolean };

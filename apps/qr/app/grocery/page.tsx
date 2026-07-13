@@ -5,24 +5,35 @@ import { useJourneyRouter } from "@/components/nav/TransitionNav"; // J1 journey
 import posthog from "posthog-js";
 import { NumberFlow } from "@mms/ui";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
-import { scanAdd, searchGroceryItems, type GroceryHit } from "@/lib/grocery";
+import { BlurUpImage } from "@/components/menu/BlurUpImage";
+import {
+  scanAdd,
+  searchGroceryItems,
+  getGroceryLines,
+  type GroceryHit,
+  type GroceryLine,
+} from "@/lib/grocery";
+import { setQty } from "@/lib/cart";
 import { useTableSession } from "@/lib/useTableSession";
 
 // Grocery Scan & Go — scan shelf barcodes (or search by name) into a cart, then check out (reuses
-// /cart + Stripe). The cart is now a REAL server-issued Scan & Go session (M2·P2.3): the same
-// anon-auth session + member-authorized cart the dine-in/pickup flows use, so `scanAdd` is
-// authorized like every other mutation — no more client-minted id the authz guard rejects.
-type Line = { barcode: string; name: string; priceCents: number; ebt: boolean; qty: number };
+// /cart + Stripe). K5 (Journey II): the list renders the CART's truth — hydrated from the server on
+// mount and on tab re-focus, reconciled from every scan's own returned view — fixing the live
+// money-display bug where a refresh showed "Nothing scanned yet" while the server cart still held
+// (and would charge) the items. Product-grade rows: photo, EBT tag, qty steppers on CART-LINE ids
+// (the existing setQty path — no new money surface), line totals.
 
 export default function Grocery() {
   const router = useRouter(); // prefetch only — the checkout push rides the journey grammar
   const journey = useJourneyRouter(); // J1: grocery→cart is a FORWARD cut
-  const { session, error: sessionError } = useTableSession("scango");
+  const { session, error: sessionError } = useTableSession("scango", { door: "grocery" });
   const cartId = session?.cartId;
 
-  const [lines, setLines] = useState<Line[]>([]);
+  const [lines, setLines] = useState<GroceryLine[]>([]);
+  const [hydrated, setHydrated] = useState(false); // first server read landed → empty state is TRUE
   const [toast, setToast] = useState<string | null>(null);
   const addedRef = useRef(0); // success count for analytics cart_size — stable across the memoized adder
+  const [busyLine, setBusyLine] = useState<string | null>(null); // one in-flight stepper op at a time
 
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<GroceryHit[] | null>(null);
@@ -51,6 +62,60 @@ export default function Grocery() {
     if (cartId) router.prefetch(`/cart?cart=${encodeURIComponent(cartId)}`);
   }, [cartId, router]);
 
+  // K5 — hydrate from the CART (the truth) on session-ready and on tab re-focus (the J3 freshness
+  // pattern): a refresh or a backgrounded phone never hides items the cart will charge. Deliberate
+  // read-only swallow: a transient failure keeps the last-known list; the next scan/focus re-syncs.
+  useEffect(() => {
+    if (!cartId) return;
+    let active = true;
+    const sync = () =>
+      void getGroceryLines(cartId)
+        .then((ls) => {
+          if (!active) return;
+          setLines(ls);
+          setHydrated(true);
+        })
+        .catch(() => {});
+    sync();
+    const onVis = () => {
+      if (document.visibilityState === "visible") sync();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      active = false;
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [cartId]);
+
+  // K5 — stepper on the CART LINE (setQty is the same guarded money path the menu uses; qty 0
+  // removes). Optimistic flip, then reconcile from a fresh server read; a refused write (locked/
+  // settling/raced) snaps back to truth the same way.
+  const stepQty = useCallback(
+    async (line: GroceryLine, nextQty: number) => {
+      if (!cartId || busyLine) return;
+      setBusyLine(line.lineId);
+      setLines((cur) =>
+        nextQty <= 0
+          ? cur.filter((l) => l.lineId !== line.lineId)
+          : cur.map((l) => (l.lineId === line.lineId ? { ...l, qty: nextQty } : l)),
+      );
+      flash(nextQty <= 0 ? `Removed ${line.name}` : `${line.name} × ${nextQty}`);
+      try {
+        await setQty(line.lineId, nextQty);
+      } catch {
+        flash("Couldn’t update that — try again.");
+      } finally {
+        try {
+          setLines(await getGroceryLines(cartId));
+        } catch {
+          /* keep optimistic view; next scan/focus re-syncs */
+        }
+        setBusyLine(null);
+      }
+    },
+    [cartId, busyLine, flash],
+  );
+
   // The ONE add path — a scan and a tapped search hit both go through here. Memoized on cartId so the
   // scanner effect (keyed on `onScan`) doesn't tear down + restart the camera on every re-render.
   const add = useCallback(
@@ -65,18 +130,10 @@ export default function Grocery() {
       }
       if (r.ok) {
         addedRef.current += 1;
-        setLines((current) => {
-          const existing = current.find((line) => line.barcode === barcode);
-          if (existing) {
-            return current.map((line) =>
-              line.barcode === barcode ? { ...line, qty: line.qty + 1 } : line,
-            );
-          }
-          return [
-            ...current,
-            { barcode, name: r.name, priceCents: r.unitPriceCents, ebt: r.ebt, qty: 1 },
-          ];
-        });
+        // The scan's OWN response carries the fresh server view (one round trip, the addItem
+        // pattern) — the list is cart truth, not a parallel client ledger.
+        setLines(r.lines);
+        setHydrated(true);
         flash(`Added ${r.name}${r.ebt ? " · EBT-eligible" : ""}`);
         posthog.capture("grocery_item_scanned", {
           barcode,
@@ -144,7 +201,7 @@ export default function Grocery() {
   }
 
   const itemCount = lines.reduce((a, l) => a + l.qty, 0);
-  const totalCents = lines.reduce((a, l) => a + l.priceCents * l.qty, 0);
+  const totalCents = lines.reduce((a, l) => a + l.unitPriceCents * l.qty, 0);
 
   return (
     <main style={{ maxWidth: 440, margin: "0 auto", padding: 20, paddingBottom: 120 }}>
@@ -232,23 +289,52 @@ export default function Grocery() {
         style={{ listStyle: "none", padding: 0, marginTop: 16, display: "grid", gap: 8 }}
       >
         {lines.map((l) => (
-          // Textured card + a rise-in on mount (a newly-scanned line "lands"); keyed by barcode so only a
-          // NEW line animates (a re-scan bumps qty in place). `.mms-rise` (the dynamic-mount variant — J1's
-          // SurfaceMemory never zeroes it, unlike `.mms-stagger`) + `.card-textured` are RM/token-safe.
-          <li key={l.barcode} className="card card-textured mms-rise" style={scannedLineStyle}>
-            <span style={{ minWidth: 0 }}>
+          // Product-grade row (K5): photo · name · EBT · unit math · stepper · line total. Keyed by
+          // CART-LINE id; `.mms-rise` (dynamic-mount variant) + `.card-textured` are RM/token-safe.
+          <li key={l.lineId} className="card card-textured mms-rise" style={scannedLineStyle}>
+            {l.imageUrl && (
+              <span className="grocery-thumb" aria-hidden>
+                <BlurUpImage src={l.imageUrl} alt="" width={56} height={56} sizes="56px" />
+              </span>
+            )}
+            <span style={{ minWidth: 0, flex: 1 }}>
               <span style={{ fontWeight: 700 }}>{l.name}</span>{" "}
               {l.ebt && <small style={{ color: "var(--ok)", fontWeight: 700 }}>EBT</small>}
               <small style={{ display: "block", color: "var(--t3)", marginTop: 2 }}>
-                {l.qty > 1 ? `${l.qty} × $${(l.priceCents / 100).toFixed(2)}` : "Scanned once"}
+                {l.qty} × ${(l.unitPriceCents / 100).toFixed(2)}
               </small>
             </span>
+            <span className="grocery-stepper" role="group" aria-label={`${l.name} quantity`}>
+              <button
+                type="button"
+                className="grocery-step-btn"
+                aria-label={l.qty <= 1 ? `Remove ${l.name}` : `One less ${l.name}`}
+                disabled={busyLine !== null}
+                onClick={() => void stepQty(l, l.qty - 1)}
+              >
+                <span aria-hidden>−</span>
+              </button>
+              <span style={{ minWidth: 18, textAlign: "center", fontWeight: 800 }}>{l.qty}</span>
+              <button
+                type="button"
+                className="grocery-step-btn"
+                aria-label={`One more ${l.name}`}
+                disabled={busyLine !== null || l.qty >= 99}
+                onClick={() => void stepQty(l, l.qty + 1)}
+              >
+                <span aria-hidden>+</span>
+              </button>
+            </span>
             <b style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-              ${((l.priceCents * l.qty) / 100).toFixed(2)}
+              ${((l.unitPriceCents * l.qty) / 100).toFixed(2)}
             </b>
           </li>
         ))}
-        {!lines.length && cartId && <li style={{ color: "var(--t3)" }}>Nothing scanned yet.</li>}
+        {!lines.length && cartId && (
+          <li style={{ color: "var(--t3)" }}>
+            {hydrated ? "Nothing scanned yet." : "Checking your basket…"}
+          </li>
+        )}
       </ul>
 
       {toast && (

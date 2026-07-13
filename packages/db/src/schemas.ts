@@ -25,6 +25,9 @@ const displayName = z.string().trim().min(1).max(40);
  * price; this only shapes the join key + the optional display name.
  */
 export const sessionMintInput = z.object({
+  /** K0 (Journey II): which DOOR the diner entered through — analytics-only (never authz), so the
+   *  three-door IA stays funnel-able even where two doors share an internal mode. */
+  door: z.enum(["dinein", "pickup", "togo", "grocery"]).optional(),
   qrCode: z.string().trim().min(1).max(100).optional(),
   mode: z.enum(["dinein", "scango", "pickup"]).default("dinein"),
   name: displayName.default("Guest"),
