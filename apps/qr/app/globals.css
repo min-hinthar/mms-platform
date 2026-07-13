@@ -3205,7 +3205,12 @@ html[data-seen-surface] .mms-stagger {
   cursor: pointer;
   box-shadow: inset 0 1px 0 var(--sheen);
 }
-.grocery-step-btn:disabled {
-  opacity: 0.5;
+/* Busy = aria-disabled (NOT disabled): the button keeps focus + tab order mid-op (a disabled
+   control drops from the tab order and strands keyboard/SR focus on <body> every ±1 tap);
+   the click handler early-returns instead. Only the in-flight row dims. */
+.grocery-step-btn[aria-disabled="true"] {
   cursor: default;
+}
+.grocery-stepper[data-busy] .grocery-step-btn {
+  opacity: 0.55;
 }
