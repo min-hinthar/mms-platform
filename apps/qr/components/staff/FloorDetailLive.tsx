@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getTableDetail } from "@/lib/floor";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
-import type { TableDetail } from "@/lib/floor-types";
+import { type TableDetail, tableDisplay } from "@/lib/floor-types";
 import { FloorStatusChip } from "./FloorStatusChip";
 import { RelativeTime } from "./RelativeTime";
 import { LiveMoney } from "./LiveMoney";
@@ -119,7 +119,13 @@ export function FloorDetailLive({
       <header style={header}>
         <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <h1 style={h1}>Table {detail.label}</h1>
+            {/* K2: the real table number; an unregistered/legacy sticker shows its raw token + flag. */}
+            <h1 style={h1}>Table {tableDisplay(detail).text}</h1>
+            {tableDisplay(detail).unregistered && (
+              <Badge tone="warn" bordered>
+                Unregistered sticker
+              </Badge>
+            )}
             <FloorStatusChip status={detail.status} />
             {detail.tab !== "none" && (
               // Announced (not decorative): this chip's text is the only place the tab state is named.
@@ -353,7 +359,7 @@ export function FloorDetailLive({
         <section style={{ marginTop: "var(--s4)" }} aria-label="Merge this table">
           <MergeTableButton
             sourceSessionId={sessionId}
-            sourceLabel={detail.label}
+            sourceLabel={tableDisplay(detail).text}
             sourceItemCount={detail.itemCount}
           />
         </section>
@@ -362,7 +368,7 @@ export function FloorDetailLive({
       <section style={{ marginTop: "var(--s5)" }}>
         <ClearTableButton
           sessionId={sessionId}
-          label={detail.label}
+          label={tableDisplay(detail).text}
           paymentInFlight={detail.paymentInFlight}
         />
       </section>

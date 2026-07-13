@@ -36,11 +36,11 @@ export default function Entry() {
         <ModeCard
           mode="dinein"
           door="dinein"
-          href="/menu?mode=dinein&door=dinein"
+          href="/dine-in"
           emoji="🪑"
           name="Dine-in"
           my="ဆိုင်တွင်စားရန်"
-          description="Grab a table, invite friends, order together"
+          description="Pick your table, invite friends, order together"
           index={3}
         />
         <TogoDoor index={4} />

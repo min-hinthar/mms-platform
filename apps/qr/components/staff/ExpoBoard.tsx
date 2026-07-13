@@ -145,10 +145,13 @@ function ExpoCard({
     <article
       className="card card-textured"
       style={cardStyle}
-      aria-label={`Bag for ${ticket.label}`}
+      aria-label={`Bag for ${ticket.tableNumber != null ? `Table ${ticket.tableNumber}` : ticket.label}`}
     >
       <header style={cardHead}>
-        <span style={tableLabel}>{ticket.label}</span>
+        {/* K2: a dine-in to-go bag calls out its real table; a pickup/scango bag keeps its channel label. */}
+        <span style={tableLabel}>
+          {ticket.tableNumber != null ? `Table ${ticket.tableNumber}` : ticket.label}
+        </span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
           {/* J5: the diner tapped "I'm here" on /track (qr_orders.arrived_at) — a waiting HUMAN
               outranks bag age; hand this one over first. Rendered only from the real stamp. */}

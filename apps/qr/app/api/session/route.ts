@@ -7,7 +7,13 @@ import { withinJoinRate } from "@/lib/rate";
 import { MAX_PARTY_SIZE } from "@/lib/limits";
 import { getPostHogClient } from "@/lib/posthog-server";
 
-type Sess = { id: string; mode: string; host_seat: string | null; qr_code: string };
+type Sess = {
+  id: string;
+  mode: string;
+  host_seat: string | null;
+  qr_code: string;
+  table_number: number | null;
+};
 
 /**
  * Table-session mint/join (closes red-team C2). A scanned QR — or, for the dine-in group cart
@@ -33,7 +39,7 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 400 });
   }
-  const { qrCode, mode, name, joinOnly } = body;
+  const { qrCode, mode, name, joinOnly, tableNumber } = body;
 
   // Verify the caller actually holds a valid anonymous-auth session.
   const token = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
@@ -56,7 +62,42 @@ export async function POST(req: NextRequest) {
     );
 
   const db = serviceClient();
-  const cols = "id,mode,host_seat,qr_code";
+  const cols = "id,mode,host_seat,qr_code,table_number";
+
+  // K2 (Journey II): resolve the effective session key + the registered table number.
+  //  • Dine-in PICKER path (a `tableNumber` with no token): look up the table's registered sticker
+  //    qr_code server-side — the token never travels to the client. The picker is advisory, so the
+  //    mint re-checks the table is registered + active (a stale/forged number 400s here).
+  //  • Sticker/invite path (a `qrCode`): resolve the table number FROM the token so the session is
+  //    stamped even when a physical sticker is scanned — null for a host-mint code / legacy sticker.
+  // `resolvedQr` then drives find-or-create exactly as `qrCode` did; `sessionTable` stamps the insert.
+  let resolvedQr = qrCode;
+  let sessionTable: number | null = null;
+  if (mode === "dinein") {
+    if (!resolvedQr && tableNumber != null) {
+      const { data: tbl } = await db
+        .from("qr_tables")
+        .select("qr_code")
+        .eq("table_number", tableNumber)
+        .eq("active", true)
+        .maybeSingle();
+      if (!tbl)
+        return NextResponse.json(
+          { error: "That table isn’t available — scan its sticker or pick another." },
+          { status: 400 },
+        );
+      resolvedQr = tbl.qr_code;
+      sessionTable = tableNumber;
+    } else if (resolvedQr) {
+      const { data: tbl } = await db
+        .from("qr_tables")
+        .select("table_number")
+        .eq("qr_code", resolvedQr)
+        .eq("active", true)
+        .maybeSingle();
+      sessionTable = tbl?.table_number ?? null;
+    }
+  }
   // Find an active AND non-expired session for the code. The expiry filter MUST match assertCartMember
   // + the is_member RLS fn (both reject `expires_at <= now()`): without it the mint would hand back a
   // still-'active' but expired session that every later cart write then 403s on (the strand bug).
@@ -71,13 +112,23 @@ export async function POST(req: NextRequest) {
         .maybeSingle()
     ).data ?? null;
 
-  let sess: Sess | null = qrCode ? await findActive(qrCode) : null;
+  let sess: Sess | null = resolvedQr ? await findActive(resolvedQr) : null;
   let created = false;
 
   // Invite-code join (`?j=`) that matched nothing → don't mint a phantom table; tell the guest the
   // code is wrong. (A scanned sticker `?t=` or a host-start leaves joinOnly false → may provision.)
   if (joinOnly && !sess)
     return NextResponse.json({ error: "No table found for that code" }, { status: 404 });
+
+  // K2 — the picker's CLAIM path (`tableNumber`) expects an EMPTY table. If one is already active
+  // (someone claimed/sat this table between the picker's occupancy read and now), do NOT silently
+  // drop this diner into a stranger's live cart — the seated-table rule requires the party's code or
+  // a physical sticker scan (`?t=`, which uses the qrCode path, not this one). Refuse with guidance.
+  if (tableNumber != null && sess)
+    return NextResponse.json(
+      { error: "That table was just seated — join with the party’s code, or pick another." },
+      { status: 409 },
+    );
 
   // Turned-over table: the same physical sticker code can be reused, but the prior session may be
   // EXPIRED yet still status='active' (there's no background sweeper) — squatting on the partial unique
@@ -86,11 +137,11 @@ export async function POST(req: NextRequest) {
   // Trust note: only an ALREADY-expired session is swept (its legit diners are already locked out by
   // the expiry check), and whoever re-mints becomes host — the same "first scanner provisions" model
   // the sticker flow already trusts, not a new takeover vector against a live table.
-  if (!sess && qrCode && !joinOnly) {
+  if (!sess && resolvedQr && !joinOnly) {
     await db
       .from("table_sessions")
       .update({ status: "closed" })
-      .eq("qr_code", qrCode)
+      .eq("qr_code", resolvedQr)
       .eq("status", "active")
       .lte("expires_at", new Date().toISOString());
   }
@@ -99,10 +150,12 @@ export async function POST(req: NextRequest) {
   // Up to a few attempts: a *generated* code that collides regenerates; a *provided* code that
   // collides means a concurrent joiner won the insert, so we re-read and join theirs.
   for (let attempt = 0; attempt < 6 && !sess; attempt++) {
-    const code = qrCode ?? generateJoinCode();
+    const code = resolvedQr ?? generateJoinCode();
     const { data, error } = await db
       .from("table_sessions")
-      .insert({ qr_code: code, mode, host_seat: seat })
+      // K2: stamp the registered table number (null for a host-mint code / unregistered sticker /
+      // non-dine-in mode) so the greeting, guest list, floor, KDS + settle read it live.
+      .insert({ qr_code: code, mode, host_seat: seat, table_number: sessionTable })
       .select(cols)
       .single();
     if (data) {
@@ -112,8 +165,15 @@ export async function POST(req: NextRequest) {
     }
     if (error?.code === "23505") {
       // Unique violation on table_sessions_active_qr_uniq.
-      if (qrCode) {
-        sess = await findActive(qrCode); // concurrent first-joiner won → converge on their session
+      // K2: a picker CLAIM that lost the insert race to a concurrent claimant must NOT converge onto
+      // their session (that's a code-free join into a stranger's party) — refuse, same as above.
+      if (tableNumber != null)
+        return NextResponse.json(
+          { error: "That table was just seated — join with the party’s code, or pick another." },
+          { status: 409 },
+        );
+      if (resolvedQr) {
+        sess = await findActive(resolvedQr); // concurrent first-joiner won → converge on their session
         break;
       }
       continue; // our generated code collided with a live session → try a fresh one
@@ -229,5 +289,8 @@ export async function POST(req: NextRequest) {
     role,
     cartId: cart.id,
     joinCode: sess.qr_code,
+    // K2: the registered table (from the session row — a JOIN reads the existing session's number,
+    // a fresh mint reads the just-stamped one). Null for host-mint / unregistered / solo modes.
+    tableNumber: sess.table_number,
   });
 }

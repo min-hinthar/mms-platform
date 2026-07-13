@@ -67,7 +67,7 @@ export async function getFloorView(): Promise<FloorSnapshot> {
 
   const { data: sessions } = await db
     .from("table_sessions")
-    .select("id,qr_code,mode,host_seat,created_at")
+    .select("id,qr_code,table_number,mode,host_seat,created_at")
     .eq("status", "active")
     .gt("expires_at", nowIso)
     .order("created_at", { ascending: true })
@@ -162,6 +162,7 @@ export async function getFloorView(): Promise<FloorSnapshot> {
     return {
       sessionId: s.id,
       label: s.qr_code,
+      tableNumber: s.table_number,
       mode: s.mode as FloorTable["mode"],
       status: deriveStatus(cart, agg.count, paid != null),
       partySize: party.length,
@@ -176,7 +177,14 @@ export async function getFloorView(): Promise<FloorSnapshot> {
     };
   });
 
-  tables.sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+  // K2: sort by the real table number first (registered tables 1→10 in order), unregistered/legacy
+  // stickers after, tie-broken by the label so the ordering is stable.
+  tables.sort((a, b) => {
+    if (a.tableNumber != null && b.tableNumber != null) return a.tableNumber - b.tableNumber;
+    if (a.tableNumber != null) return -1;
+    if (b.tableNumber != null) return 1;
+    return a.label.localeCompare(b.label, undefined, { numeric: true });
+  });
   return { tables, serverNow: nowIso };
 }
 
@@ -196,7 +204,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetail | n
 
   const { data: session } = await db
     .from("table_sessions")
-    .select("id,qr_code,mode,status,host_seat,created_at")
+    .select("id,qr_code,table_number,mode,status,host_seat,created_at")
     .eq("id", sessionId)
     .maybeSingle();
   if (!session || session.status === "closed") return null;
@@ -321,6 +329,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetail | n
     sessionId: session.id,
     cartId: cart?.id ?? null,
     label: session.qr_code,
+    tableNumber: session.table_number,
     mode: session.mode as TableDetail["mode"],
     status: deriveStatus(cart ?? null, itemCount, paid != null),
     members: memberViews,
@@ -472,7 +481,7 @@ export async function getMergeCandidates(sourceSessionId: string): Promise<Merge
 
   const { data: sessions } = await db
     .from("table_sessions")
-    .select("id,qr_code,mode")
+    .select("id,qr_code,table_number,mode")
     .eq("status", "active")
     .eq("mode", source.mode)
     .gt("expires_at", nowIso)
@@ -513,12 +522,18 @@ export async function getMergeCandidates(sourceSessionId: string): Promise<Merge
     candidates.push({
       sessionId: s.id,
       label: s.qr_code,
+      tableNumber: s.table_number,
       mode: s.mode as MergeCandidate["mode"],
       itemCount: qtyByCart.get(cart.id) ?? 0,
       partySize: partyBySession.get(s.id) ?? 0,
     });
   }
-  candidates.sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+  candidates.sort((a, b) => {
+    if (a.tableNumber != null && b.tableNumber != null) return a.tableNumber - b.tableNumber;
+    if (a.tableNumber != null) return -1;
+    if (b.tableNumber != null) return 1;
+    return a.label.localeCompare(b.label, undefined, { numeric: true });
+  });
   return candidates;
 }
 

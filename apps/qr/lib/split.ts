@@ -13,6 +13,8 @@ export type SplitContext = {
   mySeat: string;
   myRole: "host" | "guest";
   members: { seat: string; name: string; role: "host" | "guest" }[];
+  /** K2: the registered table (1–10) this dine-in session is seated at, or null. */
+  tableNumber: number | null;
 };
 
 /** One payer's row on the live settlement board (M3·P3.3b). `amountCents` is the PI target (base, then
@@ -39,7 +41,7 @@ export async function getSplitContext(cartId: string): Promise<SplitContext> {
   const db = serviceClient();
   const { data: sess } = await db
     .from("table_sessions")
-    .select("mode")
+    .select("mode,table_number")
     .eq("id", sessionId)
     .maybeSingle();
   const { data: members } = await db
@@ -58,6 +60,7 @@ export async function getSplitContext(cartId: string): Promise<SplitContext> {
       name: m.display_name,
       role: m.role === "host" ? "host" : "guest",
     })),
+    tableNumber: sess?.table_number ?? null,
   };
 }
 

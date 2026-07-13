@@ -20,7 +20,7 @@ export function InviteSheet({
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
-  const { joinCode, role, me, setName } = useCart();
+  const { joinCode, role, me, setName, tableNumber } = useCart();
   const [draft, setDraft] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const nameId = useId();
@@ -77,7 +77,10 @@ export function InviteSheet({
 
       {joinCode && (
         <div className="card card-textured" style={codeCard}>
-          <span style={codeLabel}>Table code</span>
+          {/* K2: name the real table on the shareable code when it's registered. */}
+          <span style={codeLabel}>
+            {tableNumber != null ? `Table ${tableNumber} code` : "Table code"}
+          </span>
           <button
             type="button"
             onClick={() => copy(joinCode, "Code copied")}

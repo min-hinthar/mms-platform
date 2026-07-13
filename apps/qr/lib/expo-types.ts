@@ -20,6 +20,9 @@ export type ExpoLine = {
 export type ExpoTicket = {
   orderId: string;
   label: string;
+  /** K2: the registered table (1–10) a dine-in to-go bag came from, or null for a pickup/scango bag
+   *  (no table) or an unregistered sticker. Denormalized snapshot — durable past session expiry. */
+  tableNumber: number | null;
   /** The session channel this came through, for context ('dinein' to-go vs 'pickup' vs 'scango'). */
   mode: string;
   status: "preparing" | "ready";

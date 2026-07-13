@@ -64,11 +64,13 @@ export async function getKitchenQueue(): Promise<KitchenQueue> {
 
   const { data: sessions } = await db
     .from("table_sessions")
-    .select("id,qr_code,mode,status")
+    .select("id,qr_code,table_number,mode,status")
     .in("id", sessionIds)
     .eq("status", "active")
     .eq("mode", "dinein");
   const labelBySession = new Map((sessions ?? []).map((s) => [s.id, s.qr_code]));
+  // K2: the registered table number for the ticket header (null for an unregistered/legacy sticker).
+  const tableBySession = new Map((sessions ?? []).map((s) => [s.id, s.table_number]));
 
   // Assemble tickets, preserving the oldest-first line order (lines is already sorted by fire_at).
   const ticketBySession = new Map<string, KitchenTicket>();
@@ -94,6 +96,7 @@ export async function getKitchenQueue(): Promise<KitchenQueue> {
       ticketBySession.set(sessionId, {
         sessionId,
         label,
+        tableNumber: tableBySession.get(sessionId) ?? null,
         lines: [line],
         firedAt: line.firedAt, // first (oldest) line's fire time = the ticket's age
       });

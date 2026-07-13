@@ -58,6 +58,9 @@ type CartCtx = {
   me: { seat: string; name: string } | null;
   role: "host" | "guest" | null;
   joinCode: string | null;
+  /** K2: the registered table number (1–10) this dine-in session is seated at, or null (host-mint
+   *  code / unregistered sticker / solo mode). Drives "Table 7" on the greeting + guest list + settle. */
+  tableNumber: number | null;
   setName: (name: string) => Promise<void>;
   /** Pay-window lock (M3·P3.2-lock): a member is checking out → the cart is read-only for everyone
    *  else. `lockedByName` is who (resolved from presence; "You" if it's the viewer). */
@@ -92,12 +95,15 @@ export function TableCartProvider({
   code,
   joinOnly,
   door,
+  table,
   children,
 }: {
   mode: string;
   code?: string;
   joinOnly?: boolean;
   door?: string;
+  /** K2: the dine-in picker's `?table=` claim param (free text — parsed to a bounded int below). */
+  table?: string;
   children: ReactNode;
 }) {
   // Narrow the free-text `?door=` param to the analytics enum (K0) — an arbitrary query value never
@@ -106,10 +112,18 @@ export function TableCartProvider({
     door === "dinein" || door === "pickup" || door === "togo" || door === "grocery"
       ? door
       : undefined;
+  // K2: parse the picker's `?table=` to a bounded 1–99 int (the server re-validates against qr_tables;
+  // an out-of-range/garbage value is dropped, never sent). Only meaningful for dine-in.
+  const parsedTable = table != null ? Number(table) : NaN;
+  const tableNumber =
+    mode === "dinein" && Number.isInteger(parsedTable) && parsedTable >= 1 && parsedTable <= 99
+      ? parsedTable
+      : undefined;
   const { session, loading, error, revalidate } = useTableSession(mode, {
     code,
     joinOnly,
     door: doorTag,
+    tableNumber,
   });
   const cartId = session?.cartId ?? null;
   const isGroup = mode === "dinein";
@@ -455,6 +469,7 @@ export function TableCartProvider({
         me,
         role: session?.role ?? null,
         joinCode: session?.joinCode ?? null,
+        tableNumber: session?.tableNumber ?? null,
         setName,
         locked,
         lockedByName,

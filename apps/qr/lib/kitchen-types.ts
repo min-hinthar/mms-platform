@@ -27,6 +27,9 @@ export type KitchenTicket = {
   sessionId: string;
   /** The table sticker id / dine-in label the expo calls out. */
   label: string;
+  /** K2: the registered table number (1–10) the cook/expo calls out, or null for an unregistered
+   *  sticker (the board falls back to the raw label). */
+  tableNumber: number | null;
   lines: KitchenLine[];
   firedAt: string;
 };

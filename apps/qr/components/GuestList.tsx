@@ -13,7 +13,7 @@ import { Avatar } from "@mms/ui";
  * Solo modes return null (honesty — RED-TEAM #3).
  */
 export function GuestList() {
-  const { isGroup, members, me, error, locked, lockedByName } = useCart();
+  const { isGroup, members, me, error, locked, lockedByName, tableNumber } = useCart();
   const [inviteOpen, setInviteOpen] = useState(false);
   if (!isGroup) return null;
 
@@ -83,6 +83,8 @@ export function GuestList() {
         })}
       </ul>
       <span style={{ fontSize: 13, color: "var(--t2)", fontWeight: 600 }}>
+        {/* K2: lead with the real table when it's registered — "Table 7 · Party of 3". */}
+        {tableNumber != null ? `Table ${tableNumber} · ` : ""}
         {list.length === 1 ? "Just you" : `Party of ${list.length}`}
       </span>
       {atCap ? (

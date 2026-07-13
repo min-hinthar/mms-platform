@@ -1106,6 +1106,7 @@ export type Database = {
           status: string
           stripe_payment_intent_id: string | null
           subtotal_cents: number
+          table_number: number | null
           tax_cents: number
           tender: string
           tip_cents: number
@@ -1127,6 +1128,7 @@ export type Database = {
           status?: string
           stripe_payment_intent_id?: string | null
           subtotal_cents: number
+          table_number?: number | null
           tax_cents: number
           tender?: string
           tip_cents?: number
@@ -1148,6 +1150,7 @@ export type Database = {
           status?: string
           stripe_payment_intent_id?: string | null
           subtotal_cents?: number
+          table_number?: number | null
           tax_cents?: number
           tender?: string
           tip_cents?: number
@@ -1215,6 +1218,27 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      qr_tables: {
+        Row: {
+          active: boolean
+          created_at: string
+          qr_code: string
+          table_number: number
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          qr_code: string
+          table_number: number
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          qr_code?: string
+          table_number?: number
+        }
+        Relationships: []
       }
       rate_events: {
         Row: {
@@ -1347,6 +1371,7 @@ export type Database = {
           pickup_slot: string | null
           qr_code: string
           status: string
+          table_number: number | null
         }
         Insert: {
           created_at?: string
@@ -1357,6 +1382,7 @@ export type Database = {
           pickup_slot?: string | null
           qr_code: string
           status?: string
+          table_number?: number | null
         }
         Update: {
           created_at?: string
@@ -1367,8 +1393,17 @@ export type Database = {
           pickup_slot?: string | null
           qr_code?: string
           status?: string
+          table_number?: number | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "table_sessions_table_number_fkey"
+            columns: ["table_number"]
+            isOneToOne: false
+            referencedRelation: "qr_tables"
+            referencedColumns: ["table_number"]
+          },
+        ]
       }
     }
     Views: {
@@ -1739,4 +1774,3 @@ export const Constants = {
     Enums: {},
   },
 } as const
-

@@ -27,7 +27,7 @@ export function ArrivalBeat({
   mode: string;
   welcome?: WelcomeBack | null;
 }) {
-  const { isGroup, members } = useCart();
+  const { isGroup, members, tableNumber } = useCart();
   const party = isGroup && members.length > 1 ? members.length : 0;
   const line =
     mode === "dinein"
@@ -54,6 +54,10 @@ export function ArrivalBeat({
           မင်္ဂလာပါ
         </span>{" "}
         Mingalaba{name ? `, ${name}` : ""} <span aria-hidden>✦</span>
+        {/* K2: the real table label, at last (dine-in with a registered table only). */}
+        {isGroup && tableNumber != null && (
+          <span style={{ color: "var(--ac)", fontWeight: 700 }}> · Table {tableNumber}</span>
+        )}
       </p>
       <p className="arrival-line">{shown}</p>
     </div>
