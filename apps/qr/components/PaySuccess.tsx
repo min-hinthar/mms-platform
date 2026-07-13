@@ -28,6 +28,7 @@ export function PaySuccess({
   ordersToNext = null,
   stars = null,
   milestoneStep = null,
+  isUpgraded = false,
 }: {
   /** Stars earned by this order — the honest constant (1 per paid order), 0 if the viewer isn't the earner. */
   starsEarned: number;
@@ -37,6 +38,9 @@ export function PaySuccess({
   stars?: number | null;
   /** Reward cadence (Stars per reward); null = summary unavailable. */
   milestoneStep?: number | null;
+  /** K3a: a confirmed account — only then is the reward "saved to your account"; an anonymous diner's
+   *  is device-bound (the copy must not over-claim). */
+  isUpgraded?: boolean;
 }) {
   const { shouldAnimate } = useAnimationPreference();
   const tier = useDeviceTier();
@@ -95,9 +99,13 @@ export function PaySuccess({
           <span aria-hidden>✦ </span>+{starsEarned} {starsEarned === 1 ? "Star" : "Stars"} earned
         </span>
       )}
-      {/* Caption only for the actual earner (gated on `earned`), so a split non-host sees no progress claim. */}
+      {/* Caption only for the actual earner (gated on `earned`), so a split non-host sees no progress claim.
+          K3a: "saved to your account" only when upgraded — an anonymous diner's reward is device-bound, so
+          the claim would be false (the header/account still nudge them to save it). */}
       {earned && justUnlocked ? (
-        <p className="pay-success-progress">Reward unlocked — saved to your account.</p>
+        <p className="pay-success-progress">
+          {isUpgraded ? "Reward unlocked — saved to your account." : "Reward unlocked!"}
+        </p>
       ) : earned && ordersToNext != null && ordersToNext > 0 ? (
         <p className="pay-success-progress">
           {ordersToNext === 1

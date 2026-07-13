@@ -235,6 +235,7 @@ export function OrderTracker({
         // ride a compact row below it, and the timeline follows.
         <>
           <PaySuccess
+            isUpgraded={progress?.isUpgraded ?? false}
             starsEarned={starsEarned}
             ordersToNext={progress?.ordersToNext ?? null}
             stars={progress?.stars ?? null}

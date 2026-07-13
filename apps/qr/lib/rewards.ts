@@ -130,6 +130,9 @@ export type RewardsProgress = {
   tierId: string;
   /** Did the passed order earn THIS viewer a Star? (false when no orderId, or the viewer isn't its earner.) */
   earnedThisOrder: boolean;
+  /** K3a: a confirmed (non-anonymous) account — so the post-pay copy only claims "saved to your
+   *  account" when it's true; an anonymous diner's Stars are device-bound until they upgrade. */
+  isUpgraded: boolean;
 };
 
 /**
@@ -179,6 +182,7 @@ export async function getRewardsProgress(orderId?: string | null): Promise<Rewar
     ordersToNext: Number(s.orders_to_next ?? 0),
     tierId: s.tier_id ?? "new",
     earnedThisOrder,
+    isUpgraded: user.is_anonymous === false,
   };
 }
 

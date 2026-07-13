@@ -221,7 +221,9 @@ pre-merge, per-PR merge go).
   denormalized `qr_orders.table_number`; picker (`/dine-in`) with honest occupancy (open→claim,
   seated→party-code join, per owner's call); mint resolves number→token server-side + race guards;
   the number flows to arrival/guest-list/invite/settle/floor/KDS/expo/track/receipt. ✅
-- **K3a** Rewards presence — persistent wallet chip (menu + checkout) + quiet-when-signed-in sweep. ⬜
+- **K3a** Rewards presence — persistent tier-tinted wallet chip (menu header + checkout) for signed-in
+  diners; AccountStatus (identity + honest sign-out) replaces the upgrade pitch when signed in; honest
+  post-pay copy ("saved to your account" only when upgraded). ✅
 - **K3b** Stars merge on sign-in — server-verified single-use merge token (survives the PKCE
   redirect); the coupon-reconciliation migration (move + re-index + mint WATERMARK so merged orders
   can never double-mint); the track's deepest review, its own PR. ⬜

@@ -4,6 +4,7 @@ import { getRewardsState, getOrderHistory, ensureProfile } from "@/lib/rewards";
 import { RewardsHub } from "@/components/RewardsHub";
 import { OrderHistory } from "@/components/OrderHistory";
 import { AccountUpgrade } from "@/components/AccountUpgrade";
+import { AccountStatus } from "@/components/AccountStatus";
 
 export const metadata: Metadata = { title: "Rewards & account · Morning Star" };
 
@@ -35,11 +36,15 @@ export default async function Account() {
         </p>
       ) : (
         <>
-          {!state.isUpgraded && (
-            <div style={{ marginBottom: "var(--s4)" }}>
+          {/* K3a: quiet when signed in — an upgraded diner gets an identity/sign-out status card
+              instead of the "Save your Stars" upgrade pitch. */}
+          <div style={{ marginBottom: "var(--s4)" }}>
+            {state.isUpgraded ? (
+              <AccountStatus email={state.email} displayName={state.displayName} />
+            ) : (
               <AccountUpgrade />
-            </div>
-          )}
+            )}
+          </div>
           <RewardsHub state={state} />
           {history === null ? (
             <p
@@ -55,11 +60,7 @@ export default async function Account() {
           ) : (
             <OrderHistory entries={history} />
           )}
-          {state.isUpgraded && (
-            <p style={{ margin: "4px 2px 0", fontSize: 12.5, color: "var(--t3)" }}>
-              Signed in as {state.email}. Your rewards are saved to your account.
-            </p>
-          )}
+          {/* K3a: the old "Signed in as …" footer note is now the AccountStatus card above. */}
         </>
       )}
 

@@ -60,8 +60,14 @@ export function GoodbyeBeat({ progress }: { progress: RewardsProgress | null }) 
           same gate). "With your rewards", not "to your account": an anonymous diner's Stars are
           device-bound until they upgrade — /account itself says "add an email to save them to an
           account", and this beat must not promise the durability that card exists to offer. */}
+      {/* K3a: warmer + still honest — a signed-in diner's Star really IS on their account; an anon
+          diner's is device-bound, so keep the softer "with your rewards" (never over-claim durability). */}
       {earned && (
-        <p className="goodbye-beat-sub">Your Star and this receipt are with your rewards.</p>
+        <p className="goodbye-beat-sub">
+          {progress?.isUpgraded
+            ? "Your Star and this receipt are saved to your account."
+            : "Your Star and this receipt are with your rewards."}
+        </p>
       )}
       {/* One rewards door for everyone on the fresh-payment mount (the tracker's bottom link yields
           to this one) — the earner follows their Star + receipt; a split share-payer still has their

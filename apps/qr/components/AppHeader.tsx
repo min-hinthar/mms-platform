@@ -7,6 +7,7 @@ import { browserClient } from "@mms/db";
 import { useActiveOrder } from "./ActiveOrderProvider";
 import { useActiveOrderStatus } from "./useActiveOrderStatus";
 import { getRewardsBadge, type RewardsBadge } from "@/lib/rewards";
+import { WalletChip } from "./WalletChip";
 
 /**
  * Persistent top app-bar (M-nav) — the diner's wayfinding spine across every route: brand→home, a contextual
@@ -132,17 +133,23 @@ export function AppHeader() {
             <span>Cart</span>
           </Link>
         )}
-        <Link href="/account" className="app-header-rewards" aria-label={rewardsAria}>
-          <span className="app-header-star" aria-hidden>
-            ✦
-          </span>
-          <span>{badge && badge.stars > 0 ? badge.stars : "Rewards"}</span>
-          {anonWithStars && (
-            <span className="app-header-save" aria-hidden>
-              Save
+        {/* K3a: a SIGNED-IN diner gets the persistent tier-tinted wallet chip (recognition); an
+            anonymous diner keeps the quiet ✦ + count + "Save" nudge (the pitch, gated on !isUpgraded). */}
+        {badge?.isUpgraded ? (
+          <WalletChip badge={badge} />
+        ) : (
+          <Link href="/account" className="app-header-rewards" aria-label={rewardsAria}>
+            <span className="app-header-star" aria-hidden>
+              ✦
             </span>
-          )}
-        </Link>
+            <span>{badge && badge.stars > 0 ? badge.stars : "Rewards"}</span>
+            {anonWithStars && (
+              <span className="app-header-save" aria-hidden>
+                Save
+              </span>
+            )}
+          </Link>
+        )}
       </nav>
     </header>
   );

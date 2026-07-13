@@ -3373,3 +3373,45 @@ html[data-seen-surface] .mms-stagger {
     transition: none;
   }
 }
+
+/* ── K3a · The rewards wallet chip (docs/JOURNEY2_PLAN.md) ───────────────────────────────────────── */
+/* A signed-in diner's persistent standing: tier glyph + tier tint + Stars → /account. Tint comes in
+   via `--chip-tint` (vivid) + `--chip-tint-text` (AA text-on-tint) set inline per tier (tierTint). */
+.wallet-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 44px; /* touch target */
+  padding: 0 12px 0 10px;
+  border-radius: var(--r-full);
+  border: 1.5px solid color-mix(in oklab, var(--chip-tint) 42%, var(--bd));
+  background: color-mix(in oklab, var(--chip-tint) 12%, var(--cd));
+  color: var(--tx);
+  text-decoration: none;
+  font-weight: 800;
+  font-size: 13.5px;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+@media (hover: hover) {
+  .wallet-chip:hover {
+    border-color: var(--chip-tint);
+    background: color-mix(in oklab, var(--chip-tint) 18%, var(--cd));
+  }
+}
+.wallet-chip-glyph {
+  font-size: 14px;
+  line-height: 1;
+}
+.wallet-chip-count {
+  font-variant-numeric: tabular-nums;
+}
+.wallet-chip-star {
+  color: var(--chip-tint-text);
+}
+@media (prefers-reduced-motion: reduce) {
+  .wallet-chip {
+    transition: none;
+  }
+}

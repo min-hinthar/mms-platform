@@ -82,6 +82,10 @@
      of --ac-strong: use *-strong for TEXT on those tints, the vivid hue for the dot/border. */
   --gold-strong: #8a5a00;
   --jade-strong: #1a5e54;
+  /* K3a: ruby completes the tier-tint quad (new=--ac · jade · ruby · gold=Gold). Vivid hue for the
+     chip dot/glyph; --ruby-strong for TEXT on a ruby tint over --cd (clears 4.5:1, like --gold-strong). */
+  --ruby: #b2364a;
+  --ruby-strong: #8c1f36;
   --bd: rgba(58, 35, 23, 0.1);
   --ok: #346e47;
   --okb: #eaf2ec;
@@ -153,6 +157,9 @@
      (parity with --ac-strong, so components can use *-strong unconditionally). */
   --gold-strong: var(--gold);
   --jade-strong: var(--jade);
+  /* K3a ruby (dark) — bright-on-dark clears AA on the tint, so -strong is the same hue (like --gold). */
+  --ruby: #e6788c;
+  --ruby-strong: var(--ruby);
   --bd: rgba(243, 236, 223, 0.13);
   --ok: #5fb07e;
   --okb: #1f2e26;

@@ -34,6 +34,8 @@ import { TimelineStrip } from "./TableTimeline";
 import { SendToKitchenButton } from "./SendToKitchenButton";
 import { SecureTabButton } from "./SecureTabButton";
 import { RewardField } from "./RewardField";
+import { WalletChip } from "./WalletChip";
+import { useRewardsBadge } from "@/lib/useRewardsBadge";
 import { openTab } from "@/lib/tabs";
 
 // Per-reason promo copy (the action returns a reason; Next redacts thrown errors in prod). Honest +
@@ -173,6 +175,10 @@ export function Checkout({
   // step. Enabled for ANY dine-in cart (not just groups) — a solo diner must still see a server-opened
   // tab flip to "Tab open / Settle tab" live (the qr_carts UPDATE drives refresh → getCartView.tabType).
   const anon = useAnonSession();
+  // K3a: a signed-in diner's Stars standing at the moment of payment (recognition, not a pitch —
+  // WalletChip renders nothing for an anonymous diner). Balance is server-derived; a fetch failure
+  // just hides the chip.
+  const rewardsBadge = useRewardsBadge();
   useCartRealtime(cartId, anon?.accessToken ?? "", canTab || isGroup, () => {
     void refresh();
   });
@@ -411,10 +417,16 @@ export function Checkout({
   return (
     <main style={{ padding: "24px 20px 40px", maxWidth: 440, margin: "0 auto" }}>
       {/* tabIndex={-1} = programmatic focus target (focus moves here when a line is removed). No
-          outline override — the browser shows its :focus-visible ring (WCAG 2.4.7). */}
-      <h1 ref={headingRef} tabIndex={-1} style={{ fontSize: 28 }}>
-        Your order
-      </h1>
+          outline override — the browser shows its :focus-visible ring (WCAG 2.4.7). K3a: a signed-in
+          diner's wallet chip rides beside the heading (recognition at the pay moment; hidden for anon). */}
+      <div
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}
+      >
+        <h1 ref={headingRef} tabIndex={-1} style={{ fontSize: 28 }}>
+          Your order
+        </h1>
+        <WalletChip badge={rewardsBadge} />
+      </div>
 
       {/* R7b: keyed step wrapper — a CSS enter-slide replays on each view change (review ↔ pay ↔ settle).
           Keyed on the view so React remounts it (the animation replays); the <h1> above stays mounted as the
