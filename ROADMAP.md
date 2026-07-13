@@ -204,6 +204,29 @@ only. Full spec: **[`docs/JOURNEY_PLAN.md`](docs/JOURNEY_PLAN.md)**.
   the real line states. Self-scored track close in JOURNEY_PLAN (dine-in 2.7→≈4.3, pickup 2.9→≈4.3,
   grocery 3.1→≈4.4; the funnels decide whether it's met in the room). ⬜→✅
 
+### 🚪 Journey II track — one house, three doors ([`docs/JOURNEY2_PLAN.md`](docs/JOURNEY2_PLAN.md))
+
+Owner findings after walking the shipped J-track: the HOUSE needs restructuring, not the hallways.
+Decisions locked 2026-07-12 (recommendation-led): 3 doors · table registry · rewards continuity (all
+three) · orders tray. Same working rules as the J-track (one phase = one PR, adversarial pre-PR +
+pre-merge, per-PR merge go).
+
+- **K0** Track spine — plan doc + `door` property on session_created + door-keyed funnels. ⬜
+- **K1** Three doors — Dine-in · To-go (ASAP or slot, one door) · Grocery; "Scan & Go" retired
+  diner-facing; no mode migration (presentation moves, plumbing stays). ⬜
+- **K2** Table registry — `qr_tables` (1–10, sticker-mapped) + session `table_number`; picker with
+  honest occupancy on host-start; the number flows to arrival/KDS/expo/floor/track/receipt. ⬜
+- **K3a** Rewards presence — persistent wallet chip (menu + checkout) + quiet-when-signed-in sweep. ⬜
+- **K3b** Stars merge on sign-in — server-verified single-use merge token (survives the PKCE
+  redirect); the coupon-reconciliation migration (move + re-index + mint WATERMARK so merged orders
+  can never double-mint); the track's deepest review, its own PR. ⬜
+- **K4** Orders tray — `getMyLiveOrders()` + the pill becomes a live multi-order tray + /account
+  "Today". ⬜
+- **K5** Grocery grown up (PULLED FIRST — fixes a live money-display bug: a refresh hides items the
+  server cart will still charge) — server-hydrated product list (photos, steppers on cart-line ids
+  via existing setQty). Build order: K0 → K5 → K1 → K2 → K3a → K3b → K4 → K6. ⬜
+- **K6** Track close — door-keyed funnels vs J0, rubric re-score, QA sweep. ⬜
+
 ## ⏸ M6 — Kiosk · Terminal · EBT (2027) &nbsp;`milestone:M6`
 
 **Design of record: [`docs/M6_DESIGN.md`](docs/M6_DESIGN.md)** — per-phase plan grounded in the S4.3c EBT
