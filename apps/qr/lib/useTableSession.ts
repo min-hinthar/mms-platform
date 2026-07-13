@@ -51,10 +51,14 @@ function resolveQrCode(mode: string, code: string | undefined): string | undefin
  * `opts.code` is the dine-in join key from the entry deep link (a scanned sticker token or the
  * host's invite code). Group-cart presence/split build on the returned `role` + `joinCode`.
  */
-export function useTableSession(mode: string, opts?: { code?: string; joinOnly?: boolean }) {
+export function useTableSession(
+  mode: string,
+  opts?: { code?: string; joinOnly?: boolean; door?: "dinein" | "pickup" | "togo" | "grocery" },
+) {
   const anon = useAnonSession();
   const code = opts?.code;
   const joinOnly = opts?.joinOnly ?? false;
+  const door = opts?.door;
   const [session, setSession] = useState<TableSession | null>(null);
   const [error, setError] = useState<string | null>(null);
   const minting = useRef(false);
@@ -101,6 +105,7 @@ export function useTableSession(mode: string, opts?: { code?: string; joinOnly?:
       },
       body: JSON.stringify({
         ...(qrCode ? { qrCode } : {}),
+        ...(door ? { door } : {}), // K0: analytics-only door tag (validated server-side)
         mode,
         ...(storedName ? { name: storedName } : {}),
         // Only the invite-code path (a present `code` we didn't generate) is join-only; a host-start
@@ -134,7 +139,7 @@ export function useTableSession(mode: string, opts?: { code?: string; joinOnly?:
       .finally(() => {
         minting.current = false;
       });
-  }, [anon, mode, session, code, joinOnly, nonce]);
+  }, [anon, mode, session, code, joinOnly, door, nonce]);
 
   return { session, loading: !session && !error, error, revalidate };
 }

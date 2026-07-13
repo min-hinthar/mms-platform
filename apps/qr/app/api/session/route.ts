@@ -215,7 +215,11 @@ export async function POST(req: NextRequest) {
   posthog.capture({
     distinctId: seat, // opaque uid — no PII in event props (QA §C P2)
     event: created ? "session_created" : "session_joined",
-    properties: { session_id: sess.id, mode: sess.mode, role },
+    // K0 (Journey II): `door` = the diner-facing entrance (analytics-only, never authz) — keeps the
+    // three-door IA funnel-able even where two doors share an internal mode. Unclaimed = null, NOT
+    // a mode fallback: mode values ("scango") would pollute the door vocabulary until K1 wires
+    // every entry point.
+    properties: { session_id: sess.id, mode: sess.mode, role, door: body.door ?? null },
   });
 
   // `joinCode` = the session's qr_code → the code other phones scan/enter to join (dine-in group).

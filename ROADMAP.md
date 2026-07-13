@@ -211,7 +211,9 @@ Decisions locked 2026-07-12 (recommendation-led): 3 doors · table registry · r
 three) · orders tray. Same working rules as the J-track (one phase = one PR, adversarial pre-PR +
 pre-merge, per-PR merge go).
 
-- **K0** Track spine — plan doc + `door` property on session_created + door-keyed funnels. ⬜
+- **K0** Track spine — plan doc + `door` property on session_created + door-keyed funnels. ✅ (plan
+  #122; `door` shipped with K5 — grocery emits it; menu-page wiring lands with the K1 doors;
+  funnel re-pin at K6)
 - **K1** Three doors — Dine-in · To-go (ASAP or slot, one door) · Grocery; "Scan & Go" retired
   diner-facing; no mode migration (presentation moves, plumbing stays). ⬜
 - **K2** Table registry — `qr_tables` (1–10, sticker-mapped) + session `table_number`; picker with
@@ -224,7 +226,7 @@ pre-merge, per-PR merge go).
   "Today". ⬜
 - **K5** Grocery grown up (PULLED FIRST — fixes a live money-display bug: a refresh hides items the
   server cart will still charge) — server-hydrated product list (photos, steppers on cart-line ids
-  via existing setQty). Build order: K0 → K5 → K1 → K2 → K3a → K3b → K4 → K6. ⬜
+  via existing setQty). Build order: K0 → K5 → K1 → K2 → K3a → K3b → K4 → K6. ✅
 - **K6** Track close — door-keyed funnels vs J0, rubric re-score, QA sweep. ⬜
 
 ## ⏸ M6 — Kiosk · Terminal · EBT (2027) &nbsp;`milestone:M6`

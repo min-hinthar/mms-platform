@@ -1,7 +1,7 @@
 "use server";
 import { serviceClient, publicClient } from "@mms/db/server";
 import type { TaxCategory } from "@mms/db";
-import { scanInput, grocerySearchInput } from "@mms/db/schemas";
+import { scanInput, grocerySearchInput, cartViewInput } from "@mms/db/schemas";
 import { lineTax } from "./tax";
 import { assertCartMember } from "./authz";
 import { assertMutationRate } from "./rate";
@@ -57,12 +57,96 @@ export async function scanAdd(cartId: string, barcode: string) {
     uid,
   );
   await touchCart(input.cartId, "scanAdd");
+  // K5: the fresh server-authoritative grocery view in the SAME round trip (the addItem pattern) —
+  // the page renders CART truth, so a refresh can never hide items the cart will charge. The WRITE
+  // has already committed here, so a failed read must not fail the scan — and it must not pose as
+  // an empty basket either: `lines: null` says "couldn't read", and the client keeps its list.
+  let lines: GroceryLine[] | null = null;
+  try {
+    lines = await readGroceryLines(input.cartId);
+  } catch {
+    /* deliberate: null = read failed (never [] = empty) — the client keeps its last-known view */
+  }
   return {
     ok: true as const,
     name: item.name as string,
     unitPriceCents,
     ebt: item.ebt_eligible as boolean,
+    lines,
   };
+}
+
+/** K5 — a product-grade grocery cart line: the CART line (id = the setQty handle) joined with the
+ *  catalog's presentation fields. Every money figure is the cart's own server-derived snapshot. */
+export type GroceryLine = {
+  lineId: string;
+  barcode: string;
+  name: string;
+  qty: number;
+  unitPriceCents: number;
+  ebt: boolean;
+  imageUrl: string | null;
+};
+
+// Internal (already-authorized) read — callers must have passed assertCartMember for this cart.
+// THROWS on a failed query (searchGroceryItems' throw-not-empty discipline): a read failure must
+// never resolve as [] — an "empty basket" the page would trust is exactly the money-display bug
+// K5 exists to fix (the cart would still charge the invisible items).
+async function readGroceryLines(cartId: string): Promise<GroceryLine[]> {
+  const db = serviceClient();
+  const { data: rows, error } = await db
+    .from("qr_cart_items")
+    .select("id,menu_item_id,name,qty,unit_price_cents,state")
+    .eq("cart_id", cartId)
+    .eq("fulfillment", "grocery")
+    .neq("state", "voided")
+    .order("created_at", { ascending: true });
+  if (error) {
+    console.error("[grocery] readGroceryLines cart read failed", error);
+    throw new Error("grocery cart read failed");
+  }
+  const lines = rows ?? [];
+  if (lines.length === 0) return [];
+  const barcodes = [...new Set(lines.map((l) => l.menu_item_id))];
+  const { data: items, error: catErr } = await db
+    .from("grocery_items")
+    .select("barcode,ebt_eligible,image_url")
+    .in("barcode", barcodes);
+  if (catErr) {
+    console.error("[grocery] readGroceryLines catalog read failed", catErr);
+    throw new Error("grocery cart read failed");
+  }
+  const byBarcode = new Map((items ?? []).map((i) => [i.barcode, i]));
+  return lines.map((l) => {
+    const cat = byBarcode.get(l.menu_item_id);
+    const rawUrl = cat?.image_url ?? null;
+    return {
+      lineId: l.id,
+      barcode: l.menu_item_id,
+      name: l.name,
+      qty: l.qty,
+      unitPriceCents: l.unit_price_cents,
+      ebt: cat?.ebt_eligible ?? false,
+      // Contain a bad catalog URL: next/image THROWS at render on a non-allowlisted host (only
+      // relative paths + *.supabase.co pass next.config remotePatterns) — a broken thumb must
+      // never take down the whole page, so anything else renders as "no photo".
+      imageUrl:
+        rawUrl && (rawUrl.startsWith("/") || /^https:\/\/[^/]+\.supabase\.co\//.test(rawUrl))
+          ? rawUrl
+          : null,
+    };
+  });
+}
+
+/**
+ * K5 — the member-gated grocery cart read: the source of truth the /grocery page hydrates from (on
+ * mount and on tab re-focus), fixing the live money-display bug where a refresh showed "Nothing
+ * scanned yet" while the server cart still held (and would charge) the items. Read-only.
+ */
+export async function getGroceryLines(cartId: string): Promise<GroceryLine[]> {
+  const { cartId: id } = cartViewInput.parse({ cartId }); // every Server Action parses before the DB
+  await assertCartMember(id); // membership is the gate; throws on non-members/unknown carts
+  return readGroceryLines(id);
 }
 
 export type GroceryHit = { barcode: string; name: string; unitPriceCents: number; ebt: boolean };

@@ -5,24 +5,58 @@ import { useJourneyRouter } from "@/components/nav/TransitionNav"; // J1 journey
 import posthog from "posthog-js";
 import { NumberFlow } from "@mms/ui";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
-import { scanAdd, searchGroceryItems, type GroceryHit } from "@/lib/grocery";
+import { BlurUpImage } from "@/components/menu/BlurUpImage";
+import {
+  scanAdd,
+  searchGroceryItems,
+  getGroceryLines,
+  type GroceryHit,
+  type GroceryLine,
+} from "@/lib/grocery";
+import { setQty } from "@/lib/cart";
 import { useTableSession } from "@/lib/useTableSession";
 
 // Grocery Scan & Go — scan shelf barcodes (or search by name) into a cart, then check out (reuses
-// /cart + Stripe). The cart is now a REAL server-issued Scan & Go session (M2·P2.3): the same
-// anon-auth session + member-authorized cart the dine-in/pickup flows use, so `scanAdd` is
-// authorized like every other mutation — no more client-minted id the authz guard rejects.
-type Line = { barcode: string; name: string; priceCents: number; ebt: boolean; qty: number };
+// /cart + Stripe). K5 (Journey II): the list renders the CART's truth — hydrated from the server on
+// mount and on tab re-focus, reconciled from every scan's own returned view — fixing the live
+// money-display bug where a refresh showed "Nothing scanned yet" while the server cart still held
+// (and would charge) the items. Product-grade rows: photo, EBT tag, qty steppers on CART-LINE ids
+// (the existing setQty path — no new money surface), line totals.
 
 export default function Grocery() {
   const router = useRouter(); // prefetch only — the checkout push rides the journey grammar
   const journey = useJourneyRouter(); // J1: grocery→cart is a FORWARD cut
-  const { session, error: sessionError } = useTableSession("scango");
+  const { session, error: sessionError } = useTableSession("scango", { door: "grocery" });
   const cartId = session?.cartId;
 
-  const [lines, setLines] = useState<Line[]>([]);
+  const [lines, setLines] = useState<GroceryLine[]>([]);
+  const [hydrated, setHydrated] = useState(false); // first server read landed → empty state is TRUE
+  const [syncFailed, setSyncFailed] = useState(false); // pre-hydration read failed → honest Retry, not a fake "checking…"
   const [toast, setToast] = useState<string | null>(null);
   const addedRef = useRef(0); // success count for analytics cart_size — stable across the memoized adder
+  const [busyLine, setBusyLine] = useState<string | null>(null); // one in-flight stepper op at a time
+
+  // K5 — reads land out of order on flaky mobile radios (a visibilitychange sync issued on a waking
+  // radio can resolve AFTER a scan that was issued later — the stale snapshot would make the just-
+  // scanned item invisibly vanish, and the re-scan doubles the server qty: the exact bug this page
+  // exists to fix). Every server read takes a ticket at ISSUE time; a response applies only if no
+  // later-issued read has already applied.
+  const reqSeq = useRef(0);
+  const appliedSeq = useRef(0);
+  const applyLines = useCallback((seq: number, ls: GroceryLine[]) => {
+    if (seq <= appliedSeq.current) return;
+    appliedSeq.current = seq;
+    setLines(ls);
+  }, []);
+  // Set true in the effect BODY (not the initializer): StrictMode's simulated remount keeps the
+  // same ref, so an initializer-only `true` would stay false after the dev-mode unmount+remount.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<GroceryHit[] | null>(null);
@@ -51,11 +85,82 @@ export default function Grocery() {
     if (cartId) router.prefetch(`/cart?cart=${encodeURIComponent(cartId)}`);
   }, [cartId, router]);
 
+  // K5 — hydrate from the CART (the truth) on session-ready and on tab re-focus (the J3 freshness
+  // pattern): a refresh or a backgrounded phone never hides items the cart will charge. A failure
+  // AFTER first hydration is a deliberate read-only swallow (keep the last-known list; the next
+  // scan/focus re-syncs); BEFORE it, `syncFailed` surfaces an honest Retry instead of a perpetual
+  // "checking…" with nothing in flight. Callable from the Retry button, hence the useCallback.
+  const syncNow = useCallback(() => {
+    if (!cartId) return;
+    const seq = ++reqSeq.current; // ticket at issue time — see applyLines
+    getGroceryLines(cartId)
+      .then((ls) => {
+        if (!mountedRef.current) return;
+        applyLines(seq, ls);
+        setHydrated(true);
+        setSyncFailed(false);
+      })
+      .catch(() => {
+        if (mountedRef.current) setSyncFailed(true); // only rendered pre-hydration — see empty state
+      });
+  }, [cartId, applyLines]);
+  useEffect(() => {
+    if (!cartId) return;
+    syncNow();
+    const onVis = () => {
+      if (document.visibilityState === "visible") syncNow();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [cartId, syncNow]);
+
+  // K5 — stepper on the CART LINE (setQty is the same guarded money path the menu uses; qty 0
+  // removes). Optimistic flip, then reconcile from a fresh server read; a refused write (locked/
+  // settling/raced) snaps back to truth via the reconcile — and if the reconcile ALSO fails after
+  // a failed write (radio down), the pre-flip snapshot restores: the optimistic view must never
+  // outlive a write the server refused (UI 2 / server 3 → checkout charges 3).
+  const stepQty = useCallback(
+    async (line: GroceryLine, nextQty: number) => {
+      if (!cartId || busyLine || nextQty > 99) return;
+      setBusyLine(line.lineId);
+      const snapshot = lines; // pre-flip truth for the double-failure rollback
+      const appliedAtFlip = appliedSeq.current; // rollback only if nothing fresher landed meanwhile
+      setLines((cur) =>
+        nextQty <= 0
+          ? cur.filter((l) => l.lineId !== line.lineId)
+          : cur.map((l) => (l.lineId === line.lineId ? { ...l, qty: nextQty } : l)),
+      );
+      // A removed row unmounts under the finger/focus — park focus on the stable search input
+      // (the addHit pattern) so keyboard/SR diners aren't dropped to <body>.
+      if (nextQty <= 0) searchRef.current?.focus();
+      flash(nextQty <= 0 ? `Removed ${line.name}` : `${line.name} × ${nextQty}`);
+      let wrote = false;
+      try {
+        await setQty(line.lineId, nextQty);
+        wrote = true;
+      } catch {
+        flash("Couldn’t update that — try again.");
+      }
+      const seq = ++reqSeq.current; // reconcile ticket — see applyLines
+      try {
+        applyLines(seq, await getGroceryLines(cartId));
+      } catch {
+        // Reconcile failed. A refused write + optimistic view is a lie about money — roll back to
+        // the snapshot (unless a fresher view already applied). A SUCCESSFUL write keeps the
+        // optimistic view; the next scan/focus re-syncs. Deliberate read-only swallow.
+        if (!wrote && appliedSeq.current === appliedAtFlip) setLines(snapshot);
+      }
+      setBusyLine(null);
+    },
+    [cartId, busyLine, lines, flash, applyLines],
+  );
+
   // The ONE add path — a scan and a tapped search hit both go through here. Memoized on cartId so the
   // scanner effect (keyed on `onScan`) doesn't tear down + restart the camera on every re-render.
   const add = useCallback(
     async (barcode: string, via: "scan" | "search") => {
       if (!cartId) return;
+      const seq = ++reqSeq.current; // ticket at issue time — the response carries a server view
       let r;
       try {
         r = await scanAdd(cartId, barcode);
@@ -65,18 +170,15 @@ export default function Grocery() {
       }
       if (r.ok) {
         addedRef.current += 1;
-        setLines((current) => {
-          const existing = current.find((line) => line.barcode === barcode);
-          if (existing) {
-            return current.map((line) =>
-              line.barcode === barcode ? { ...line, qty: line.qty + 1 } : line,
-            );
-          }
-          return [
-            ...current,
-            { barcode, name: r.name, priceCents: r.unitPriceCents, ebt: r.ebt, qty: 1 },
-          ];
-        });
+        // The scan's OWN response carries the fresh server view (one round trip, the addItem
+        // pattern) — the list is cart truth, not a parallel client ledger. `lines: null` = the
+        // post-write read failed: keep the current list (a failed read is never an empty basket);
+        // the next scan/focus re-syncs.
+        if (r.lines) {
+          applyLines(seq, r.lines);
+          setHydrated(true);
+          setSyncFailed(false);
+        }
         flash(`Added ${r.name}${r.ebt ? " · EBT-eligible" : ""}`);
         posthog.capture("grocery_item_scanned", {
           barcode,
@@ -95,7 +197,7 @@ export default function Grocery() {
         flash(`Not found: ${barcode} — try searching by name`);
       }
     },
-    [cartId, flash],
+    [cartId, flash, applyLines],
   );
 
   const onScan = useCallback((code: string) => void add(code, "scan"), [add]);
@@ -144,7 +246,7 @@ export default function Grocery() {
   }
 
   const itemCount = lines.reduce((a, l) => a + l.qty, 0);
-  const totalCents = lines.reduce((a, l) => a + l.priceCents * l.qty, 0);
+  const totalCents = lines.reduce((a, l) => a + l.unitPriceCents * l.qty, 0);
 
   return (
     <main style={{ maxWidth: 440, margin: "0 auto", padding: 20, paddingBottom: 120 }}>
@@ -232,23 +334,79 @@ export default function Grocery() {
         style={{ listStyle: "none", padding: 0, marginTop: 16, display: "grid", gap: 8 }}
       >
         {lines.map((l) => (
-          // Textured card + a rise-in on mount (a newly-scanned line "lands"); keyed by barcode so only a
-          // NEW line animates (a re-scan bumps qty in place). `.mms-rise` (the dynamic-mount variant — J1's
-          // SurfaceMemory never zeroes it, unlike `.mms-stagger`) + `.card-textured` are RM/token-safe.
-          <li key={l.barcode} className="card card-textured mms-rise" style={scannedLineStyle}>
-            <span style={{ minWidth: 0 }}>
+          // Product-grade row (K5): photo · name · EBT · unit math · stepper · line total. Keyed by
+          // CART-LINE id; `.mms-rise` (dynamic-mount variant) + `.card-textured` are RM/token-safe.
+          <li key={l.lineId} className="card card-textured mms-rise" style={scannedLineStyle}>
+            {l.imageUrl && (
+              <span className="grocery-thumb" aria-hidden>
+                <BlurUpImage src={l.imageUrl} alt="" width={56} height={56} sizes="56px" />
+              </span>
+            )}
+            <span style={{ minWidth: 0, flex: 1 }}>
               <span style={{ fontWeight: 700 }}>{l.name}</span>{" "}
               {l.ebt && <small style={{ color: "var(--ok)", fontWeight: 700 }}>EBT</small>}
               <small style={{ display: "block", color: "var(--t3)", marginTop: 2 }}>
-                {l.qty > 1 ? `${l.qty} × $${(l.priceCents / 100).toFixed(2)}` : "Scanned once"}
+                {l.qty} × ${(l.unitPriceCents / 100).toFixed(2)}
               </small>
             </span>
+            {/* Busy = aria-disabled + handler early-return, NOT disabled — a disabled control
+                drops from the tab order, stranding keyboard/SR focus on <body> every ±1 tap. */}
+            <span
+              className="grocery-stepper"
+              role="group"
+              aria-label={`${l.name} quantity`}
+              data-busy={busyLine === l.lineId || undefined}
+            >
+              <button
+                type="button"
+                className="grocery-step-btn"
+                aria-label={l.qty <= 1 ? `Remove ${l.name}` : `One less ${l.name}`}
+                aria-disabled={busyLine !== null}
+                onClick={() => void stepQty(l, l.qty - 1)}
+              >
+                <span aria-hidden>−</span>
+              </button>
+              <span style={{ minWidth: 18, textAlign: "center", fontWeight: 800 }}>{l.qty}</span>
+              <button
+                type="button"
+                className="grocery-step-btn"
+                aria-label={`One more ${l.name}`}
+                aria-disabled={busyLine !== null || l.qty >= 99}
+                onClick={() => void stepQty(l, l.qty + 1)}
+              >
+                <span aria-hidden>+</span>
+              </button>
+            </span>
             <b style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-              ${((l.priceCents * l.qty) / 100).toFixed(2)}
+              ${((l.unitPriceCents * l.qty) / 100).toFixed(2)}
             </b>
           </li>
         ))}
-        {!lines.length && cartId && <li style={{ color: "var(--t3)" }}>Nothing scanned yet.</li>}
+        {!lines.length && cartId && (
+          <li style={{ color: "var(--t3)" }}>
+            {hydrated ? (
+              "Nothing scanned yet."
+            ) : syncFailed ? (
+              // The pre-hydration check failed — say so and offer a real retry ("checking…" with
+              // nothing in flight would be a lie; scanning still works either way).
+              <span style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                Couldn’t check your basket.
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSyncFailed(false);
+                    syncNow();
+                  }}
+                  style={retryBtn}
+                >
+                  Retry
+                </button>
+              </span>
+            ) : (
+              "Checking your basket…"
+            )}
+          </li>
+        )}
       </ul>
 
       {toast && (

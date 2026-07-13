@@ -3175,3 +3175,42 @@ html[data-seen-surface] .mms-stagger {
   color: var(--t2);
   line-height: 1.5;
 }
+
+/* ── K5 · Grocery grown up (docs/JOURNEY2_PLAN.md) ─────────────────────────────────────────────────── */
+.grocery-thumb {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--grad);
+}
+.grocery-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+.grocery-step-btn {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  color: var(--tx);
+  font-size: 18px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 var(--sheen);
+}
+/* Busy = aria-disabled (NOT disabled): the button keeps focus + tab order mid-op (a disabled
+   control drops from the tab order and strands keyboard/SR focus on <body> every ±1 tap);
+   the click handler early-returns instead. Only the in-flight row dims. */
+.grocery-step-btn[aria-disabled="true"] {
+  cursor: default;
+}
+.grocery-stepper[data-busy] .grocery-step-btn {
+  opacity: 0.55;
+}
