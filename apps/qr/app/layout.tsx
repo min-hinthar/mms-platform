@@ -25,13 +25,13 @@ const padauk = Padauk({
 
 export const metadata = {
   title: "Mandalay Morning Star — Order",
-  description: "Order at the teahouse: dine-in, scan & go, or pickup.",
+  description: "Order at the teahouse: dine-in, to-go, or grocery.",
   // The ✦ Morning Star mark (apps/qr/public/icon.svg) is QR's first brand asset — replaces the emoji
   // identity. SVG favicon scales crisply on every tab/PWA surface.
   icons: { icon: [{ url: "/icon.svg", type: "image/svg+xml" }] },
   openGraph: {
     title: "Mandalay Morning Star",
-    description: "Order at the teahouse: dine-in, scan & go, or pickup.",
+    description: "Order at the teahouse: dine-in, to-go, or grocery.",
     siteName: "Mandalay Morning Star",
     type: "website",
   },

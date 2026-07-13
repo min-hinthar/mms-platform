@@ -259,14 +259,14 @@ export default function Grocery() {
       {sessionError ? (
         <div className="card" role="alert" style={{ padding: 16 }}>
           <p style={{ margin: "0 0 12px", color: "var(--warn)", fontWeight: 600 }}>
-            Couldn’t start Scan &amp; Go. Check your connection and try again.
+            Couldn’t start grocery scanning. Check your connection and try again.
           </p>
           <button type="button" onClick={() => window.location.reload()} style={retryBtn}>
             Retry
           </button>
         </div>
       ) : !cartId ? (
-        <p style={{ color: "var(--t2)", fontSize: 14 }}>Starting Scan &amp; Go…</p>
+        <p style={{ color: "var(--t2)", fontSize: 14 }}>Starting grocery scanning…</p>
       ) : (
         <>
           <BarcodeScanner onScan={onScan} />
