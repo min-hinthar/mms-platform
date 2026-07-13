@@ -3214,3 +3214,80 @@ html[data-seen-surface] .mms-stagger {
 .grocery-stepper[data-busy] .grocery-step-btn {
   opacity: 0.55;
 }
+
+/* ── K1 · The To-go door (three-door entry, docs/JOURNEY2_PLAN.md) ───────────────────────────────── */
+/* The disclosure trigger: a real <button> wearing the .card door face (reset button chrome; .card
+   supplies the surface). Full-width, left-aligned, same padding as the ModeCard link doors. */
+.togo-door {
+  width: 100%;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 18px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  appearance: none;
+}
+/* The chevron rotates ›→▾ to signal open/closed (decorative, aria-hidden — aria-expanded is the
+   real state for AT). */
+.togo-caret {
+  margin-left: auto;
+  color: var(--ac);
+  font-size: 20px;
+  transition: transform 200ms var(--ease-out, ease);
+}
+.togo-caret[data-open] {
+  transform: rotate(90deg);
+}
+/* Auto-height disclosure via grid-template-rows 0fr→1fr (animatable; no magic max-height). The inner
+   is overflow-hidden + min-height:0 so it clips cleanly while collapsed. */
+.togo-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 260ms var(--ease-out, ease);
+}
+.togo-panel[data-open] {
+  grid-template-rows: 1fr;
+}
+.togo-panel-inner {
+  overflow: hidden;
+  min-height: 0;
+  display: grid;
+  gap: 8px;
+  /* A left rail nests the choices under To-go — "these belong to this door". Top pad shows only when
+     open (clipped to 0 while the row is 0fr). */
+  margin: 0 0 0 24px;
+  padding: 8px 0 2px 14px;
+  border-left: 2px solid var(--bd);
+}
+.togo-choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  color: inherit;
+  text-decoration: none;
+  box-shadow: inset 0 1px 0 var(--sheen);
+  transition:
+    border-color 160ms var(--ease-out, ease),
+    background 160ms var(--ease-out, ease);
+}
+.togo-choice:hover {
+  border-color: var(--ac);
+}
+.togo-choice b {
+  font-size: 15px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .togo-caret,
+  .togo-panel,
+  .togo-choice {
+    transition: none;
+  }
+}

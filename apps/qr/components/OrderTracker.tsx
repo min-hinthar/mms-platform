@@ -61,7 +61,7 @@ export function OrderTracker({
   const pulseActive = shouldAnimate && inView;
   const arrived = !!order;
   // A pickup order carries a slot → use the pickup lifecycle + echo the slot as the honest ETA (no
-  // fabricated countdown). Until the order lands we don't know the mode, so default to Scan & Go.
+  // fabricated countdown). Until the order lands we don't know the mode, so default to the To-go rail.
   const isPickup = !!order?.pickupSlot;
   const STEPS = isPickup ? PICKUP_STEPS : SCANGO_STEPS;
   // Takeaway fulfillment status (S4.3a, expo-driven) — declared here because the countdown below and
@@ -203,7 +203,7 @@ export function OrderTracker({
     };
   }, [justPaid, resolvedOrderId]);
   const starsEarned = progress?.earnedThisOrder ? 1 : 0;
-  const modeLabel = isPickup ? "Pickup" : "Scan & Go";
+  const modeLabel = isPickup ? "Pickup" : "To-go";
   const statusChip = (
     // `.vt-order-status` (J1): the header order pill morphs into THIS chip on the pill→/track cut —
     // the status the diner tapped lands as the status they're now watching. Rendered once per branch

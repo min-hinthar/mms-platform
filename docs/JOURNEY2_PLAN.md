@@ -65,6 +65,13 @@ constraint) do NOT migrate. Presentation moves; plumbing stays.
 - **Honesty rule for the funnels:** the `door` property (K0) keeps To-go-ASAP distinguishable from
   grocery even if they share `scango` plumbing in wiring (b).
 
+> **Shipped (2026-07-13).** Entry = three doors (Dine-in · To-go · Grocery), bilingual EN/MY, grocery
+> promoted to a peer. `TogoDoor` is a disclosure (`aria-expanded` + `inert`/row-collapsed closed panel,
+> RM-safe) revealing Now→`scango` / Schedule→`pickup`. K0 `?door=` threaded entry→menu→`TableCartProvider`
+> →`useTableSession`→mint, narrowed to the enum server-side. "Scan & Go" retired diner-facing (menu
+> eyebrow, /track label, grocery H1); staff surfaces keep `scango`. Doors use the emoji-tile card
+> language, not photos (no assets exist — a broken/stock image would be worse). Funnel re-pin at K6.
+
 ## K2 — The table registry (the track's one migration) `apps/qr + 1 migration, one PR`
 
 - **Migration:** `qr_tables` — `table_number int primary key check (1..N config)`, `qr_code text

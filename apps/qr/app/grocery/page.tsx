@@ -251,7 +251,7 @@ export default function Grocery() {
   return (
     <main style={{ maxWidth: 440, margin: "0 auto", padding: 20, paddingBottom: 120 }}>
       <p className="eyebrow">Grocery</p>
-      <h1 style={{ fontSize: 30 }}>Scan &amp; Go</h1>
+      <h1 style={{ fontSize: 30 }}>Scan your basket</h1>
       <p style={{ color: "var(--t2)", marginTop: 0 }}>
         Point at a barcode to add it. EBT-eligible items are tagged (SNAP checkout arrives 2027).
       </p>

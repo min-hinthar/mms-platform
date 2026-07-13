@@ -214,8 +214,9 @@ pre-merge, per-PR merge go).
 - **K0** Track spine — plan doc + `door` property on session_created + door-keyed funnels. ✅ (plan
   #122; `door` shipped with K5 — grocery emits it; menu-page wiring lands with the K1 doors;
   funnel re-pin at K6)
-- **K1** Three doors — Dine-in · To-go (ASAP or slot, one door) · Grocery; "Scan & Go" retired
-  diner-facing; no mode migration (presentation moves, plumbing stays). ⬜
+- **K1** Three doors — Dine-in · To-go (Now→scango / Schedule→pickup, one door) · Grocery; "Scan & Go"
+  retired diner-facing; no mode migration (presentation moves, plumbing stays); `?door=` threaded to
+  the session mint (K0 menu wiring). ✅
 - **K2** Table registry — `qr_tables` (1–10, sticker-mapped) + session `table_number`; picker with
   honest occupancy on host-start; the number flows to arrival/KDS/expo/floor/track/receipt. ⬜
 - **K3a** Rewards presence — persistent wallet chip (menu + checkout) + quiet-when-signed-in sweep. ⬜

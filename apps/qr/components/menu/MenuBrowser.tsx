@@ -316,7 +316,7 @@ export function MenuBrowser({
           this header must NOT add env(safe-area-inset-top) again — that double-counted the inset. */}
       <header style={{ padding: "44px 20px 4px" }}>
         <p className="eyebrow">
-          {mode === "dinein" ? "Dine-in" : mode === "pickup" ? "Pickup" : "Scan & Go"}
+          {mode === "dinein" ? "Dine-in" : mode === "pickup" ? "Pickup" : "To-go"}
         </p>
         <h1 ref={menuHeadingRef} tabIndex={-1} style={{ fontSize: 34, outline: "none" }}>
           Menu
