@@ -67,13 +67,20 @@ function requiredChoiceUnavailable(links: RawModLink[] | null | undefined): bool
 export default async function Menu({
   searchParams,
 }: {
-  searchParams: Promise<{ mode?: string; t?: string; j?: string; reorder?: string }>;
+  searchParams: Promise<{
+    mode?: string;
+    t?: string;
+    j?: string;
+    reorder?: string;
+    door?: string;
+  }>;
 }) {
   // `t` = a scanned table-sticker token (may provision a new table); `j` = the host's invite code
   // (join-only — a wrong code must NOT mint a phantom table). Both are the dine-in session key (M3·P3.1).
   // `reorder` (J5) = a past order id to bring back once the cart is ready (validated + earner-gated
-  // server-side in reorderOrder; the client only relays the id).
-  const { mode = "scango", t, j, reorder } = await searchParams;
+  // server-side in reorderOrder; the client only relays the id). `door` (K0/K1) = the diner-facing
+  // entrance for analytics only (never authz) — the TogoDoor sends door=togo for both scango & pickup.
+  const { mode = "scango", t, j, reorder, door } = await searchParams;
   const code = t ?? j;
   const joinOnly = !t && !!j;
   const db = publicClient();
@@ -115,7 +122,7 @@ export default async function Menu({
   const heartedIds = await heartedP;
 
   return (
-    <TableCartProvider mode={mode} code={code} joinOnly={joinOnly}>
+    <TableCartProvider mode={mode} code={code} joinOnly={joinOnly} door={door}>
       {/* Publishes the open-cart id to the wayfinding store so the header's "back to cart" works off-menu. */}
       <CartPublisher />
       <MenuBrowser

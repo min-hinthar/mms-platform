@@ -251,7 +251,7 @@ export default function Grocery() {
   return (
     <main style={{ maxWidth: 440, margin: "0 auto", padding: 20, paddingBottom: 120 }}>
       <p className="eyebrow">Grocery</p>
-      <h1 style={{ fontSize: 30 }}>Scan &amp; Go</h1>
+      <h1 style={{ fontSize: 30 }}>Scan your basket</h1>
       <p style={{ color: "var(--t2)", marginTop: 0 }}>
         Point at a barcode to add it. EBT-eligible items are tagged (SNAP checkout arrives 2027).
       </p>
@@ -259,14 +259,14 @@ export default function Grocery() {
       {sessionError ? (
         <div className="card" role="alert" style={{ padding: 16 }}>
           <p style={{ margin: "0 0 12px", color: "var(--warn)", fontWeight: 600 }}>
-            Couldn’t start Scan &amp; Go. Check your connection and try again.
+            Couldn’t start grocery scanning. Check your connection and try again.
           </p>
           <button type="button" onClick={() => window.location.reload()} style={retryBtn}>
             Retry
           </button>
         </div>
       ) : !cartId ? (
-        <p style={{ color: "var(--t2)", fontSize: 14 }}>Starting Scan &amp; Go…</p>
+        <p style={{ color: "var(--t2)", fontSize: 14 }}>Starting grocery scanning…</p>
       ) : (
         <>
           <BarcodeScanner onScan={onScan} />

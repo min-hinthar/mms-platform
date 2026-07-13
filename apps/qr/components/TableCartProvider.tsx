@@ -91,14 +91,26 @@ export function TableCartProvider({
   mode,
   code,
   joinOnly,
+  door,
   children,
 }: {
   mode: string;
   code?: string;
   joinOnly?: boolean;
+  door?: string;
   children: ReactNode;
 }) {
-  const { session, loading, error, revalidate } = useTableSession(mode, { code, joinOnly });
+  // Narrow the free-text `?door=` param to the analytics enum (K0) — an arbitrary query value never
+  // reaches the typed slot; door is analytics-only (never authz), so an unknown one is simply dropped.
+  const doorTag =
+    door === "dinein" || door === "pickup" || door === "togo" || door === "grocery"
+      ? door
+      : undefined;
+  const { session, loading, error, revalidate } = useTableSession(mode, {
+    code,
+    joinOnly,
+    door: doorTag,
+  });
   const cartId = session?.cartId ?? null;
   const isGroup = mode === "dinein";
   const isPickup = mode === "pickup";

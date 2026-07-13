@@ -19,7 +19,7 @@ export function JoinTable() {
     e.preventDefault();
     const c = code.trim().toUpperCase();
     if (!c) return;
-    router.push(`/menu?mode=dinein&j=${encodeURIComponent(c)}`);
+    router.push(`/menu?mode=dinein&door=dinein&j=${encodeURIComponent(c)}`);
   }
 
   return (

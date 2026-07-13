@@ -1,16 +1,15 @@
 import { ModeCard } from "@/components/ModeCard";
+import { TogoDoor } from "@/components/TogoDoor";
 import { JoinTable } from "@/components/JoinTable";
 import { HomeHero } from "@/components/HomeHero";
 import { HomeResumeCard } from "@/components/HomeResumeCard";
 
-// Entry / mode picker. A scanned table QR deep-links to /menu?mode=dinein&t=<token>; the host's
-// invite code deep-links with &j=<code>. Guests without a sticker can also join via <JoinTable/>.
-const MODES = [
-  ["dinein", "🪑", "Dine-in", "Grab a table, invite friends, order together"],
-  ["scango", "🥡", "Scan & Go", "Order and pay now, we bring it out"],
-  ["pickup", "🛍️", "Pickup", "Order ahead, pick a time, skip the line"],
-] as const;
-
+// Entry — the house's three doors (K1, Journey II): Dine-in · To-go · Grocery. The internal mode
+// values (dinein|scango|pickup — a DB CHECK) do NOT migrate; presentation moves, plumbing stays.
+// To-go is one door with Now/Schedule decided inside it (see TogoDoor). Grocery is a first-class
+// peer door (no longer a separated afterthought). The `door` param rides to the menu → session mint
+// (K0) so the three-door IA stays funnel-able even where two doors share an internal mode. A scanned
+// table sticker still deep-links straight past this to /menu?mode=dinein&t=<token>.
 export default function Entry() {
   return (
     <main
@@ -33,37 +32,30 @@ export default function Entry() {
         aria-label="Order type"
         style={{ marginTop: "var(--s6)", display: "grid", gap: "var(--s3)" }}
       >
-        {MODES.map(([m, e, n, d], i) => (
-          <ModeCard
-            key={m}
-            mode={m}
-            href={`/menu?mode=${m}`}
-            emoji={e}
-            name={n}
-            description={d}
-            // Offset past HomeHero's header lines (40/100/160ms) so the whole page reads as ONE stagger wave.
-            index={i + 3}
-          />
-        ))}
-      </nav>
-      <JoinTable />
-      <div
-        style={{
-          marginTop: "var(--s5)",
-          paddingTop: "var(--s4)",
-          borderTop: "1px solid var(--bd)",
-        }}
-      >
+        {/* Indices continue HomeHero's stagger wave (40/100/160 → wordmark 90 → doors 210/280/350ms). */}
+        <ModeCard
+          mode="dinein"
+          door="dinein"
+          href="/menu?mode=dinein&door=dinein"
+          emoji="🪑"
+          name="Dine-in"
+          my="ဆိုင်တွင်စားရန်"
+          description="Grab a table, invite friends, order together"
+          index={3}
+        />
+        <TogoDoor index={4} />
         <ModeCard
           mode="grocery"
+          door="grocery"
           href="/grocery"
           emoji="🛒"
-          name="Grocery Scan & Go"
+          name="Grocery"
+          my="ကုန်စုံဝယ်ရန်"
           description="Scan barcodes, pay, walk out"
-          // Tail of the single stagger wave: header 40/100/160 → mode cards 210/280/350 → grocery 420ms.
-          index={6}
+          index={5}
         />
-      </div>
+      </nav>
+      <JoinTable />
     </main>
   );
 }

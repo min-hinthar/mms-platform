@@ -1,18 +1,97 @@
 "use client";
+import type { CSSProperties, ReactNode } from "react";
 import { TransitionLink as Link } from "./nav/TransitionNav"; // J1 journey grammar
 import posthog from "posthog-js";
+
+// K1 (Journey II) — the three-door entry. `DoorFace` is the shared inner visual (emoji tile ·
+// bilingual EN/MY name · description · trailing affordance) so a LINK door (ModeCard) and the
+// expandable To-go door (TogoDoor) render an identical face. The doors are the front door of the
+// house — a first impression, not a utility switch — so they carry the menu's card language + a
+// real Burmese line each (the app is bilingual everywhere).
+
+const tileStyle: CSSProperties = {
+  display: "grid",
+  placeItems: "center",
+  width: 52,
+  height: 52,
+  flex: "none",
+  borderRadius: 14,
+  background: "var(--grad)", // gradient tile behind the emoji — a small depth detail, flips per theme
+  fontSize: 28,
+};
+
+/** The card interior shared by every door. `trailing` overrides the default chevron (To-go swaps in
+ *  a rotating disclosure caret). `my` is the Burmese companion to the English name (lang="my" Padauk
+ *  for correct SR pronunciation per WCAG 3.1.2 — the same bilingual idiom as the menu item rows). */
+export function DoorFace({
+  emoji,
+  name,
+  my,
+  description,
+  trailing,
+}: {
+  emoji: string;
+  name: string;
+  my?: string;
+  description: string;
+  trailing?: ReactNode;
+}) {
+  return (
+    <>
+      <span aria-hidden style={tileStyle}>
+        {emoji}
+      </span>
+      <span style={{ minWidth: 0 }}>
+        <b style={{ fontSize: 17 }}>
+          {name}
+          {my ? (
+            <>
+              {" "}
+              <span
+                lang="my"
+                style={{ fontFamily: "var(--font-my)", fontWeight: 600, color: "var(--t2)" }}
+              >
+                {my}
+              </span>
+            </>
+          ) : null}
+        </b>
+        <br />
+        <small style={{ color: "var(--t2)" }}>{description}</small>
+      </span>
+      {trailing ?? (
+        <span aria-hidden style={{ marginLeft: "auto", color: "var(--ac)", fontSize: 20 }}>
+          ›
+        </span>
+      )}
+    </>
+  );
+}
 
 interface ModeCardProps {
   mode: string;
   href: string;
   emoji: string;
   name: string;
+  /** Burmese companion line (bilingual door). */
+  my?: string;
   description: string;
-  /** Position in the mode list — drives the staggered entrance delay (Richness R5a). */
+  /** Analytics-only door tag (K0) — mirrors the `door` that lands on `session_created` at mint. */
+  door?: string;
+  /** Position in the door list — drives the staggered entrance delay (Richness R5a). */
   index?: number;
 }
 
-export function ModeCard({ mode, href, emoji, name, description, index = 0 }: ModeCardProps) {
+export function ModeCard({
+  mode,
+  href,
+  emoji,
+  name,
+  my,
+  description,
+  door,
+  index = 0,
+}: ModeCardProps) {
   return (
     <Link
       href={href}
@@ -27,32 +106,9 @@ export function ModeCard({ mode, href, emoji, name, description, index = 0 }: Mo
         color: "inherit",
         animationDelay: `calc(${index} * 70ms)`,
       }}
-      onClick={() => posthog.capture("mode_selected", { mode })}
+      onClick={() => posthog.capture("mode_selected", { mode, ...(door ? { door } : {}) })}
     >
-      {/* Gradient tile behind the emoji — a small depth detail (token --grad, flips per theme). */}
-      <span
-        aria-hidden
-        style={{
-          display: "grid",
-          placeItems: "center",
-          width: 52,
-          height: 52,
-          flex: "none",
-          borderRadius: 14,
-          background: "var(--grad)",
-          fontSize: 28,
-        }}
-      >
-        {emoji}
-      </span>
-      <span>
-        <b style={{ fontSize: 17 }}>{name}</b>
-        <br />
-        <small style={{ color: "var(--t2)" }}>{description}</small>
-      </span>
-      <span aria-hidden style={{ marginLeft: "auto", color: "var(--ac)", fontSize: 20 }}>
-        ›
-      </span>
+      <DoorFace emoji={emoji} name={name} my={my} description={description} />
     </Link>
   );
 }
