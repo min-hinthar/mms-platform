@@ -216,13 +216,15 @@ pre-merge, per-PR merge go).
   diner-facing; no mode migration (presentation moves, plumbing stays). ⬜
 - **K2** Table registry — `qr_tables` (1–10, sticker-mapped) + session `table_number`; picker with
   honest occupancy on host-start; the number flows to arrival/KDS/expo/floor/track/receipt. ⬜
-- **K3** Rewards you can hold — persistent wallet chip (menu + checkout); stars MERGE on sign-in via
-  a server-verified single-use merge token (the #113 abandon-gap, done right); quiet-when-signed-in
-  sweep. ⬜
+- **K3a** Rewards presence — persistent wallet chip (menu + checkout) + quiet-when-signed-in sweep. ⬜
+- **K3b** Stars merge on sign-in — server-verified single-use merge token (survives the PKCE
+  redirect); the coupon-reconciliation migration (move + re-index + mint WATERMARK so merged orders
+  can never double-mint); the track's deepest review, its own PR. ⬜
 - **K4** Orders tray — `getMyLiveOrders()` + the pill becomes a live multi-order tray + /account
   "Today". ⬜
-- **K5** Grocery grown up — server-hydrated product list (photos, steppers via existing setQty,
-  survives refresh); scanner stays the hero. ⬜
+- **K5** Grocery grown up (PULLED FIRST — fixes a live money-display bug: a refresh hides items the
+  server cart will still charge) — server-hydrated product list (photos, steppers on cart-line ids
+  via existing setQty). Build order: K0 → K5 → K1 → K2 → K3a → K3b → K4 → K6. ⬜
 - **K6** Track close — door-keyed funnels vs J0, rubric re-score, QA sweep. ⬜
 
 ## ⏸ M6 — Kiosk · Terminal · EBT (2027) &nbsp;`milestone:M6`

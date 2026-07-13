@@ -48,15 +48,15 @@ The entry becomes three honest doors; the internal mode values (`dinein|scango|p
 constraint) do NOT migrate. Presentation moves; plumbing stays.
 
 - **Dine-in** — unchanged flow (sticker deep-link or host-start), now landing on K2's table identity.
-- **To-go** — one door for "food I'll carry out": **ASAP or scheduled** decided INSIDE the door, not
-  by picking a different app mode. Recon decides the wiring, two candidates (build-time decision,
-  recorded in the shipped note):
-  (a) _preferred if it holds:_ To-go = `pickup` mode with an **"ASAP" slot option** added — the slot
-  sheet's first choice becomes "As soon as it's ready" (fires at checkout, like today's scango
-  make-it-now); scheduled slots unchanged. `scango` then becomes grocery-only.
-  (b) _fallback:_ the To-go door offers Now → `scango` menu / Schedule → `pickup` menu as its first
-  interaction. (Two taps where (a) has one — only if (a)'s fire-at-checkout recon finds a money-path
-  landmine, e.g. create-intent requiring a slot.)
+- **To-go** — one door for "food I'll carry out": **Now or scheduled** decided INSIDE the door, not
+  by picking a different app mode. **Wiring decided by plan-critique recon (not deferred): the door
+  offers Now → `scango` menu / Schedule → `pickup` menu as its first interaction.** The "ASAP slot"
+  alternative is DEAD on evidence: create-intent hard-400s a slotless pickup cart and re-validates
+  against `mms_pickup_slots` (capacity-checked real slots only) — ASAP is unrepresentable there
+  without editing the money path + a migration, which would falsify this phase's "presentation moves,
+  plumbing stays" claim. To-go-Now's real semantics ARE today's scango counter-food flow (orders
+  reach staff via the expo at pay; the KDS is dine-in-only), so this wiring delivers them with zero
+  money-path risk.
 - **Grocery** — its own first-class door straight to the scanner (K5 gives it a worthy surface).
 - The entry page is a designed moment, not a utility switch: three doors with the same card language
   as the menu (photo, bilingual line each), because the front door is a first impression too.
@@ -71,43 +71,69 @@ constraint) do NOT migrate. Presentation moves; plumbing stays.
 unique` (the physical sticker's opaque token), `active bool`. Seed 1–10; the sticker↔table mapping
   is data, so re-stickering a table is an UPDATE, not a deploy. Plus `table_sessions.table_number
 int null references qr_tables(table_number)`.
-- **Sticker scan** (`?t=<token>`): the session mint resolves the token → table number and stamps the
-  session. **Host-start without a sticker:** a designed table picker (1–10 from the registry, live
-  occupancy honestly shown from active sessions — "Table 3 · party of 4 seated" so nobody claims an
-  occupied table by accident; picking one stamps the session the same way).
+- **Convergence rule (the critique's key catch):** the picker path ADOPTS the table's registered
+  sticker token as the session `qr_code` — find-or-create by that token, exactly as if the sticker
+  had been scanned. Scan and picker therefore land in the SAME session (the existing
+  `table_sessions_active_qr_uniq` partial index + the 23505 re-read convergence already arbitrate
+  the race); a companion scanning the physical sticker after a picker-start joins the party instead
+  of minting a split-brain twin. One active session per table is the invariant; the occupancy display
+  becomes a JOIN affordance ("Table 3 is seated — join them, or pick another"), not a warning about
+  parallel sessions (which the machinery rightly forbids).
+- **Unknown/unregistered tokens keep working:** a `?t=` token not in `qr_tables` mints a session with
+  `table_number = null` (today's behavior — never brick a legacy/unregistered sticker) and the floor
+  board flags it "unregistered sticker" so staff map it in the registry.
 - **The number flows everywhere it's been missing:** ArrivalBeat ("Mingalaba, Min ✦ · Table 7"),
   GuestList/invite copy, KDS + expo tickets, the floor board (real labels at last), /track, the
   receipt, the settle beat. The J2 honesty constraint ("sessions carry no human table label") is
   RESOLVED by making the label real, not by fabricating one.
-- Guards: the picker is advisory, the server re-checks the table exists + is active in the mint;
-  occupancy display is read-only truth (active sessions), never a lock (two parties CAN share a
-  table — a warning, not a wall).
+- Guards: the picker is advisory; the server re-checks the table exists + is active in the mint;
+  occupancy is read-only truth (active sessions) rendered as the join affordance above.
 
-## K3 — Rewards you can hold `apps/qr (+ 1 tiny migration if merge needs a ledger), one PR`
-
-All three, per the owner:
+## K3a — Rewards presence (chip + quiet) `apps/qr, one PR`
 
 - **Persistent wallet card:** signed-in diners get a compact Stars chip in the journey (menu header +
   checkout review — balance ✦ + tier tint, tap → /account). Real balance (`getRewardsProgress`-class
   read), never cached stale across a payment; anonymous diners keep the current quiet treatment (the
   chip is recognition, not a pitch).
-- **Stars merge on sign-in (the #113 gap, done right):** signing in to an existing account from a
-  device with anonymous Stars currently ABANDONS them. Fix with a server-verified merge: while still
-  anonymous, the device mints a short-lived, single-use **merge token** (server-signed, bound to the
-  anon uid); after OTP sign-in the client redeems it and the server re-stamps that anon uid's
-  `earned_by` orders + `qr_favorites` (+ feedback rows) onto the signed-in uid, then invalidates the
-  token. Client-asserted uids are never trusted (a bare "merge uid X into me" endpoint would be an
-  account-takeover primitive — the token IS the proof of having held the anon session). Loyalty
-  recount is automatic (`mms_rewards_summary` derives from `earned_by`). Idempotent + bounded; the
-  UI says exactly what moved ("2 orders and 14 Stars joined your account").
 - **Quiet when signed in:** `AccountUpgrade` becomes a status card for upgraded users (who you are +
   sign-out), and every "save your Stars" pitch line site-wide gates on `!isUpgraded`.
+
+## K3b — Stars merge on sign-in (its own PR — the track's deepest review) `apps/qr + 1 migration`
+
+Split from K3a deliberately (the critique's call): the merge is the one genuinely new authorization
+surface in the track AND its hardest money problem — it must not ship padded with chip styling.
+
+- **The merge:** signing in to an existing account from a device with anonymous Stars currently
+  ABANDONS them (#113's honest copy says so). Fix with a server-verified merge: while still
+  anonymous, the device mints a short-lived, single-use **merge token** (server-signed, bound to the
+  anon uid); after sign-in the client redeems it and the server re-stamps that anon uid's `earned_by`
+  orders + `qr_favorites` (+ feedback rows) onto the signed-in uid, then invalidates the token.
+  Client-asserted uids are never trusted — the token IS the proof of having held the anon session.
+  **It must survive the Google path:** `identity_already_exists` recovery is a full-page PKCE
+  redirect, so the token is minted BEFORE any sign-in begins and persists in storage across the
+  redirect; the upgrade-in-place path (`email_change`, same uid) needs no merge at all.
+- **The coupon problem (specced BEFORE build — the critique's top finding):** `mms_rewards` is a
+  materialized ledger minted from a bare `count(*) where earned_by = uid` with
+  `unique(user_id, milestone_index)`. A naive re-stamp re-counts orders that already produced
+  (possibly redeemed) anonymous coupons — the same 5 paid orders could mint a SECOND $5 coupon on
+  the target — and anon-held unredeemed coupons would strand on the dead uid. The merge migration
+  therefore: (1) moves the anon uid's coupons to the target (unredeemed stay live; redeemed move as
+  history), (2) re-indexes on collision, and (3) sets the target's mint WATERMARK to the merged
+  ledger's max milestone index so `mms_reward_on_fulfill` can never re-mint a milestone either uid
+  already produced. Star-count jumps across skipped milestones mint nothing retroactively — the
+  watermark rule, stated in the migration, is the invariant the adversarial review checks.
+- Idempotent + bounded; the UI says exactly what moved ("2 orders and 14 Stars joined your account").
 
 ## K4 — The orders tray (many live orders, one calm surface) `apps/qr, one PR`
 
 - **Server read:** `getMyLiveOrders()` — uid-scoped (`earned_by`), status `paid`, pre-terminal
-  (togo_status not `picked_up`; dine-in orders until their session closes), bounded + newest-first.
-  Plus the open carts the device already knows (resume-your-table/basket).
+  (togo_status not `picked_up`), **time-bounded (last 12h) AND session-bounded for dine-in**
+  (`expires_at > now()` — nothing in the diner settle flow closes a session; staff close, the 4h
+  sliding TTL sweep, or a re-mint do, so "until the session closes" alone would show a finished
+  dinner as live for hours, and pre-sweep rows are still status='active'). Count-bounded,
+  newest-first. Honest limitation, stated where relevant: cash-settled orders carry no `earned_by`
+  (they earn nothing) and are invisible here — same attribution rule as rewards. Plus the open carts
+  the device already knows (resume-your-table/basket).
 - **The tray:** the header pill grows a live count badge; tap opens a sheet listing every in-flight
   order — mode icon, honest status chip (the same words /track uses), table number (K2) or slot or
   "exit pass" context — each row tapping through to its own /track. One realtime-ish freshness rule:
@@ -124,7 +150,13 @@ All three, per the owner:
 - **Product-grade rows:** photo (`grocery_items.image_url`), name, EBT tag, unit price, **qty
   steppers + remove** (the existing `setQty` path — no new money surface), line totals — the same
   card craft as menu rows.
+- Steppers bind to CART-LINE ids from `getCartView` (not barcodes) — `setQty` is line-generic, so
+  "no new money surface" holds literally.
 - The giant running total and exit pass (J6) stay the anchors; the scanner stays the hero interaction.
+- **PULLED FORWARD (the critique upgraded "can" to "must"):** the local-only list is a live
+  money-display bug today — after a refresh the page says "Nothing scanned yet" and the checkout CTA
+  vanishes while the server cart still holds (and will charge) the items, and a re-scan doubles the
+  server qty behind a UI showing 1. K5 builds FIRST.
 
 ## K6 — Close the track `docs + sweep, small PR`
 
@@ -134,13 +166,13 @@ All three, per the owner:
 
 ## Sequencing + rules
 
-**K0 → K1 → K2 → K3 → K4 → K5 → K6.** K1 before K2 so the doors exist before the table identity
-lands behind the dine-in door (K2's arrival copy assumes the new entry). K5 is independent — it can
-be pulled forward any time as a quick win. Every phase: recon before design, the pre-PR sweep, the
-fresh-context adversarial subagent pre-PR AND pre-merge with verdicts posted, per-PR "merge go" from
-the owner. Money rules unchanged and non-negotiable: prices server-derived, RLS everywhere, no new
-write primitives where an existing guarded one serves (K3's merge is the one genuinely new
-authorization surface in the track — it gets the deepest review).
+**K0 → K5 → K1 → K2 → K3a → K3b → K4 → K6.** K5 first — it fixes a live money-display bug (see
+K5). K1 before K2 so the doors exist before the table identity lands behind the dine-in door. K3
+split: presence (K3a) ships light; the merge (K3b) ships alone under the track's deepest review.
+Every phase: recon before design, the pre-PR sweep, the fresh-context adversarial subagent pre-PR
+AND pre-merge with verdicts posted, per-PR "merge go" from the owner. Money rules unchanged and
+non-negotiable: prices server-derived, RLS everywhere, no new write primitives where an existing
+guarded one serves.
 
 **Known honest limits going in:** the merge token design must survive adversarial review before any
 build (it touches attribution = money-adjacent); table occupancy display is truth-at-read-time, not
