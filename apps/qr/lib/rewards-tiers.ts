@@ -48,3 +48,19 @@ export function spendToNextTierCents(spendCents: number, id: string | null | und
 export function isEarlyAccess(id: string | null | undefined): boolean {
   return id === "ruby" || id === "gold";
 }
+
+/** K3a: the wallet-chip/badge tint per tier — `fill` = the vivid hue (dot/glyph/border), `text` = the
+ *  `-strong` variant for text-on-tint (clears AA). Token-pure (defined in `@mms/ui/tokens.css`) and
+ *  mapped HERE, the single tier source, so there's no second color map to drift (QR has exactly one). */
+export function tierTint(id: string | null | undefined): { fill: string; text: string } {
+  switch (tierMeta(id).id) {
+    case "gold":
+      return { fill: "var(--gold)", text: "var(--gold-strong)" };
+    case "ruby":
+      return { fill: "var(--ruby)", text: "var(--ruby-strong)" };
+    case "jade":
+      return { fill: "var(--jade)", text: "var(--jade-strong)" };
+    default:
+      return { fill: "var(--ac)", text: "var(--ac-strong)" };
+  }
+}

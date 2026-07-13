@@ -114,6 +114,15 @@ denied`; opaque 8-char tokens matching the join-code UX) + `table_sessions.table
   checkout review — balance ✦ + tier tint, tap → /account). Real balance (`getRewardsProgress`-class
   read), never cached stale across a payment; anonymous diners keep the current quiet treatment (the
   chip is recognition, not a pitch).
+
+  > **Shipped (2026-07-13).** `WalletChip` (tier glyph + token-pure tier tint via new `--ruby` +
+  > `tierTint()` + live Stars) in the menu header + checkout review, signed-in only (`useRewardsBadge`);
+  > anon keeps the quiet ✦-count + Save nudge. `AccountStatus` (identity + honest sign-out → fresh anon,
+  > Stars stay on the account) replaces the upgrade pitch + the "Signed in as" note when signed in. Honest
+  > post-pay copy: `isUpgraded` on `getRewardsProgress` → PaySuccess/GoodbyeBeat only claim "saved to your
+  > account" when true. K3b (the stars MERGE + coupon-watermark migration) ships separately — the track's
+  > deepest review.
+
 - **Quiet when signed in:** `AccountUpgrade` becomes a status card for upgraded users (who you are +
   sign-out), and every "save your Stars" pitch line site-wide gates on `!isUpgraded`.
 
