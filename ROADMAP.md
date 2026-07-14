@@ -225,8 +225,10 @@ pre-merge, per-PR merge go).
   diners; AccountStatus (identity + honest sign-out) replaces the upgrade pitch when signed in; honest
   post-pay copy ("saved to your account" only when upgraded). ✅
 - **K3b** Stars merge on sign-in — server-verified single-use merge token (survives the PKCE
-  redirect); the coupon-reconciliation migration (move + re-index + mint WATERMARK so merged orders
-  can never double-mint); the track's deepest review, its own PR. ⬜
+  redirect); the coupon-reconciliation migration (move + contiguous re-index so the coupon ROWS ARE
+  the watermark → merged orders can never double-mint, + a durable identity-redirect for a late
+  webhook payment); a celebratory merge beat on /account; the track's deepest review, its own PR.
+  Proven with a BEGIN/ROLLBACK invariant test before shipping. ✅
 - **K4** Orders tray — `getMyLiveOrders()` + the pill becomes a live multi-order tray + /account
   "Today". ⬜
 - **K5** Grocery grown up (PULLED FIRST — fixes a live money-display bug: a refresh hides items the

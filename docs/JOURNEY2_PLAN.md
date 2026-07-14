@@ -152,6 +152,22 @@ surface in the track AND its hardest money problem — it must not ship padded w
   watermark rule, stated in the migration, is the invariant the adversarial review checks.
 - Idempotent + bounded; the UI says exactly what moved ("2 orders and 14 Stars joined your account").
 
+> **Shipped (2026-07-14, migration `20260714000000_k3b_stars_merge`).** The design-critique subagent's
+> ruling refined the plan on one load-bearing point: **there is NO separate watermark column** — the
+> **coupon ROWS ARE the watermark**. `mms_merge_anon_rewards` moves the anon uid's coupons and re-indexes
+> them **contiguously above the target's max milestone index** (`max` offset, dense `row_number()`,
+> **redeemed coupons move too** as index-occupiers), so every already-earned milestone is OCCUPIED and
+> `mms_reward_on_fulfill`'s `on conflict (user_id, milestone_index) do nothing` can never re-mint one. The
+> merge then MINTS the single legitimate **boundary** milestone the combined orders now justify
+> (`floor(A)+floor(B) ≤ floor(A+B) ≤ +1` — exactly-once). Two hardening additions from the critique: a
+> durable **`mms_identity_merges`** redirect (resolved at both webhook earn sites via the new
+> `mms_earn_on_fulfill`) so a payment landing AFTER the merge credits the signed-in account, not the
+> orphan anon uid (P0-1); and a **source-must-still-be-anon** guard so a stale token can never strip a real
+> account (P0-2). The token is redeemed **merge-first, mark-redeemed-after** (the `mms_identity_merges` PK
+> is the real single-use authority — idempotent, so a transient failure retries instead of stranding the
+> Stars on a burned token). Invariants proven by a BEGIN/ROLLBACK scenario test against the live functions
+> before shipping. The merge beat (`MergeRedeemer`) celebrates only when Stars actually moved.
+
 ## K4 — The orders tray (many live orders, one calm surface) `apps/qr, one PR`
 
 - **Server read:** `getMyLiveOrders()` — uid-scoped (`earned_by`), status `paid`, pre-terminal

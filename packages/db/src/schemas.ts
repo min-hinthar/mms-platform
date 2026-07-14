@@ -376,6 +376,18 @@ export const resolveApprovalInput = z.object({
   pin: z.string().regex(/^\d{4,8}$/),
 });
 
+/**
+ * redeemMergeToken (K3b) — the single-use proof minted while anonymous (mms_merge_tokens), presented after
+ * sign-in to move that device's Stars onto the account signed into. Server-generated (base64url, ≥256-bit),
+ * but it round-trips through the client's localStorage, so validate the SHAPE defensively before the DB
+ * claim (the atomic single-use `.update().is(redeemed_at,null)` is the real authority — this is a cheap
+ * pre-filter that rejects an obviously-junk value without a round trip).
+ */
+export const mergeTokenInput = z.object({
+  token: z.string().trim().min(20).max(200),
+});
+export type MergeTokenInput = z.infer<typeof mergeTokenInput>;
+
 export type RequestApprovalInput = z.infer<typeof requestApprovalInput>;
 export type ResolveApprovalInput = z.infer<typeof resolveApprovalInput>;
 export type SetStaffPinInput = z.infer<typeof setStaffPinInput>;
