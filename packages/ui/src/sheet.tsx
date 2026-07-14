@@ -41,6 +41,17 @@ export function Sheet({
   );
 }
 
+// Cross-sheet coordination for `--kb-inset` (module-scoped, client-only): a ref count so closing one of
+// two (rarely) stacked sheets doesn't zero the inset while the other is still open + focused, and a
+// last-written cache so the rapid VisualViewport `scroll`/`resize` stream skips no-op style writes.
+let openSheetCount = 0;
+let lastKbInset = -1;
+function writeKbInset(px: number) {
+  if (px === lastKbInset) return;
+  lastKbInset = px;
+  document.documentElement.style.setProperty("--kb-inset", `${px}px`);
+}
+
 // Separate component so the drag-controls hook runs UNDER the DomMaxProvider (where `m`/drag resolve).
 function SheetContent({
   title,
@@ -52,6 +63,36 @@ function SheetContent({
   children: React.ReactNode;
 }) {
   const controls = useDragControls();
+  // Keyboard-aware lift: while the sheet is mounted (open), track the on-screen keyboard via the
+  // VisualViewport API and publish its height as `--kb-inset` on <html>, which `.mms-sheet` uses to sit
+  // above the keyboard so a focused input + its submit button stay visible instead of buried behind it.
+  // Works on iOS AND Android — both keep the LAYOUT viewport full-height on keyboard (resizes-visual), so
+  // `innerHeight - vv.height` is the keyboard height on both, and a fixed bottom sheet would otherwise sit
+  // behind it. No-op where VisualViewport is unavailable; ref-counted + reset to 0 when the last sheet
+  // closes (unmount).
+  React.useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    openSheetCount += 1;
+    const sync = () => {
+      const raw = window.innerHeight - vv.height - vv.offsetTop;
+      // Threshold: only a real keyboard (always ≫ the ~60px iOS URL-bar) lifts the sheet — avoids a spurious
+      // gap while the Safari toolbar animates in/out (that also shortens the visual viewport).
+      writeKbInset(raw > 120 ? Math.round(raw) : 0);
+    };
+    sync();
+    vv.addEventListener("resize", sync);
+    vv.addEventListener("scroll", sync);
+    return () => {
+      vv.removeEventListener("resize", sync);
+      vv.removeEventListener("scroll", sync);
+      openSheetCount -= 1;
+      if (openSheetCount <= 0) {
+        openSheetCount = 0;
+        writeKbInset(0); // last sheet closed → clear the inset
+      }
+    };
+  }, []);
   return (
     <Dialog.Content asChild aria-describedby={undefined}>
       <m.div

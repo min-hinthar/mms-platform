@@ -57,6 +57,11 @@ export const viewport: Viewport = {
   // Draw edge-to-edge (under the notch/home-bar) so `env(safe-area-inset-*)` resolves non-zero —
   // required for the bottom-sheet/CTA safe-area insets to actually take effect (P5.2).
   viewportFit: "cover",
+  // NOTE: intentionally NOT setting `interactive-widget=resizes-content` — that's global and would shrink
+  // the layout viewport for EVERY input (jumping the fixed menu CartBar above the keyboard, reflowing the
+  // 100dvh staff login mid-entry). The keyboard-covers-a-sheet-input case is fixed narrowly instead, in the
+  // Sheet primitive, via the VisualViewport `--kb-inset` lift (works on iOS AND Android — both keep the
+  // layout viewport full on keyboard, so a fixed bottom sheet would otherwise sit behind the keyboard).
 };
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
