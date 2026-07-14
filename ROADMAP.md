@@ -229,8 +229,10 @@ pre-merge, per-PR merge go).
   the watermark → merged orders can never double-mint, + a durable identity-redirect for a late
   webhook payment); a celebratory merge beat on /account; the track's deepest review, its own PR.
   Proven with a BEGIN/ROLLBACK invariant test before shipping. ✅
-- **K4** Orders tray — `getMyLiveOrders()` + the pill becomes a live multi-order tray + /account
-  "Today". ⬜
+- **K4** Orders tray — `getMyLiveOrders()` (uid-scoped, 12h-bounded, **session-bounded for every kind**
+  so the tray only shows orders /track can still read) + the header pill grows a count badge that opens
+  a tray sheet (one row per in-flight order → its /track) + /account "Today". No new realtime channels
+  (refetch on open/visibility). ✅
 - **K5** Grocery grown up (PULLED FIRST — fixes a live money-display bug: a refresh hides items the
   server cart will still charge) — server-hydrated product list (photos, steppers on cart-line ids
   via existing setQty). Build order: K0 → K5 → K1 → K2 → K3a → K3b → K4 → K6. ✅

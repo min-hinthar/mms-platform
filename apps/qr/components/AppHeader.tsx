@@ -6,8 +6,11 @@ import { TransitionLink as Link } from "./nav/TransitionNav";
 import { browserClient } from "@mms/db";
 import { useActiveOrder } from "./ActiveOrderProvider";
 import { useActiveOrderStatus } from "./useActiveOrderStatus";
+import { useLiveOrders } from "@/lib/useLiveOrders";
+import { liveOrderTrackHref } from "@/lib/live-order";
 import { getRewardsBadge, type RewardsBadge } from "@/lib/rewards";
 import { WalletChip } from "./WalletChip";
+import { OrdersTray } from "./OrdersTray";
 
 /**
  * Persistent top app-bar (M-nav) — the diner's wayfinding spine across every route: brand→home, a contextual
@@ -28,11 +31,19 @@ export function AppHeader() {
   const hidden = pathname?.startsWith("/staff") ?? false;
 
   const { cartId } = useActiveOrder();
-  const track = !hidden && pathname !== "/" && pathname !== "/track";
+  // The order affordance is redundant where a dedicated surface already shows it: the homepage resume card
+  // (`/`), the live tracker (`/track`), and the /account "Today" section — so hide it (and skip its fetch)
+  // on all three.
+  const track = !hidden && pathname !== "/" && pathname !== "/track" && pathname !== "/account";
   const { order, statusWord, ready, isDone } = useActiveOrderStatus(track);
 
   const [badge, setBadge] = useState<RewardsBadge | null>(null);
   const orderKey = order?.paymentIntent ?? order?.cartId ?? null;
+  // K4 — the diner's LIVE orders (server-derived), refetched on visibility/focus + when the poke changes:
+  // a new order (orderKey) or an in-app navigation (pathname, matching the rewards badge's freshness). Only
+  // fetched where the pill can show (`track`); no new realtime channels.
+  const { orders: liveOrders } = useLiveOrders(track, `${orderKey ?? ""}:${pathname ?? ""}`);
+  const [trayOpen, setTrayOpen] = useState(false);
   // Refetch on mount, a new order (orderKey), and route change — the Star may be stamped by the webhook
   // AFTER the diner leaves /track, so a route change back to /menu should refresh the count. Async setState
   // (in .then) → lint-safe; a transient failure just leaves the plain "Rewards" label.
@@ -77,20 +88,41 @@ export function AppHeader() {
 
   if (hidden) return null;
 
-  // The order pill is redundant on the homepage (the resume card lives there) and on /track (you're already
-  // watching it); `track` already excludes both, so show it everywhere else while an order is live.
-  const showOrder = !!order && !isDone && track;
+  // The order affordance is redundant on the homepage (the resume card lives there) and on /track (you're
+  // already watching it); `track` excludes both, so show it everywhere else while an order is live.
   const onMenu = pathname === "/menu";
-  const showCart = !!cartId && !order && !onMenu && pathname !== "/cart";
 
-  const mode = order?.mode ?? "scango";
-  const base = mode === "pickup" ? "Pickup" : "Your order";
-  // statusWord (base + status split) lets the status word drop on very narrow phones (the colored dot still
-  // conveys ready-ness) without truncating the whole label; it now covers split-tender too.
-  const orderLabel = statusWord ? `${base} · ${statusWord}` : base;
-  const orderHref = order?.paymentIntent
-    ? `/track?payment_intent=${encodeURIComponent(order.paymentIntent)}&redirect_status=succeeded${order.cartId ? `&cart=${encodeURIComponent(order.cartId)}` : ""}`
-    : `/track?cart=${encodeURIComponent(order?.cartId ?? "")}&paid=1`;
+  // K4 — one affordance for however many orders are in flight:
+  //  • ≥2 live  → a count-badged pill that opens the tray (it earns its ink only when it disambiguates).
+  //  • ≤1 live  → the single pill: this device's own just-placed order (instant, realtime status word) if
+  //    known, else the lone server order (a cross-device order this device didn't place).
+  //  • 0        → nothing.
+  const liveCount = liveOrders.length;
+  const clientLive = !!order && !isDone; // this device's order — realtime status, shows instantly on pay
+  const showTray = track && liveCount >= 2;
+  const serverSingle = !clientLive && liveCount === 1 ? liveOrders[0]! : null;
+  const showSingle = track && !showTray && (clientLive || !!serverSingle);
+  const hasOrderPill = showSingle || showTray;
+
+  // The single pill's link + label: from the client order (realtime status) or the lone server order.
+  let singleHref = "";
+  let singleBase = "Your order";
+  let singleWord: string | null = null;
+  let singleReady = false;
+  if (clientLive && order) {
+    singleHref = liveOrderTrackHref(order);
+    singleBase = order.mode === "pickup" ? "Pickup" : "Your order";
+    singleWord = statusWord; // the base+status split lets the word drop on very narrow phones (dot stays)
+    singleReady = ready;
+  } else if (serverSingle) {
+    singleHref = liveOrderTrackHref(serverSingle);
+    singleBase = serverSingle.kind === "pickup" ? "Pickup" : "Your order";
+    singleWord = serverSingle.statusWord;
+    singleReady = serverSingle.togoStatus === "ready";
+  }
+
+  // Cart affordance yields to ANY order pill (single or tray) — an order supersedes its now-placed cart.
+  const showCart = !!cartId && !showSingle && !showTray && !onMenu && pathname !== "/cart";
 
   const anonWithStars = !!badge && !badge.isUpgraded && badge.stars > 0;
   const rewardsAria = badge
@@ -98,7 +130,7 @@ export function AppHeader() {
     : "Rewards and account";
 
   return (
-    <header className={`app-header${showOrder ? " app-header--has-order" : ""}`}>
+    <header className={`app-header${hasOrderPill ? " app-header--has-order" : ""}`}>
       <Link href="/" className="app-header-brand" aria-label="Mandalay Morning Star — home">
         <span className="app-header-star" aria-hidden>
           ✦
@@ -107,21 +139,37 @@ export function AppHeader() {
       </Link>
 
       <nav className="app-header-actions" aria-label="Account and order">
-        {showOrder && (
+        {showSingle && (
           <Link
-            href={orderHref}
-            className={`app-header-order${ready ? " app-header-order-ready" : ""}`}
-            aria-label={`${orderLabel} — view status`}
+            href={singleHref}
+            className={`app-header-order${singleReady ? " app-header-order-ready" : ""}`}
+            aria-label={`${singleBase}${singleWord ? ` · ${singleWord}` : ""} — view status`}
           >
             <span className="app-header-order-dot" aria-hidden />
             {/* `.vt-order-status` (J1): on the pill→/track cut this label MORPHS into the tracker's
                 status chip — the diner follows their order's status across the navigation. The pill
                 hides on /track, so the view-transition name is never duplicated in one document. */}
             <span className="app-header-order-label vt-order-status">
-              {base}
-              {statusWord && <span className="app-header-order-status"> · {statusWord}</span>}
+              {singleBase}
+              {singleWord && <span className="app-header-order-status"> · {singleWord}</span>}
             </span>
           </Link>
+        )}
+        {showTray && (
+          <button
+            type="button"
+            onClick={() => setTrayOpen(true)}
+            className="app-header-order app-header-order-tray"
+            aria-haspopup="dialog"
+            aria-expanded={trayOpen}
+            aria-label={`${liveCount} orders in progress — open your orders`}
+          >
+            <span className="app-header-order-dot" aria-hidden />
+            <span className="app-header-order-label">Orders</span>
+            <span className="app-header-order-count" aria-hidden>
+              {liveCount}
+            </span>
+          </button>
         )}
         {showCart && (
           <Link
@@ -151,6 +199,13 @@ export function AppHeader() {
           </Link>
         )}
       </nav>
+      {/* Radix portals the sheet to <body>; `open` folds to false when there's nothing to show, so a
+          completing order can't leave the tray stranded open. */}
+      <OrdersTray
+        open={trayOpen && liveOrders.length > 0}
+        onOpenChange={setTrayOpen}
+        orders={liveOrders}
+      />
     </header>
   );
 }
