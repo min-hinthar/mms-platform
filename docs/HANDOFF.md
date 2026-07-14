@@ -5,6 +5,27 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
+> ## ⏭️ CURRENT STATE — start here (2026-07-14)
+>
+> **Journey II (the K-track) is CLOSED.** Since the 2026-06-29 banner below, three initiatives shipped &
+> merged: the 🎨 **Richness track** (R1–R9), **Journey I** (J0–J6, the mode journeys), and **Journey II**
+> (K0–K6, "one house, three doors" — the entry IA, table registry, rewards presence + cross-device Stars
+> merge, the orders tray, grocery grown up). All on the standard gate with per-PR pre-PR **and** pre-merge
+> fresh-context adversarial reviews (verdicts posted on the PRs).
+>
+> - **Where the plans/scores live:** `ROADMAP.md` (the K0–K6 board, all ✅), `docs/JOURNEY2_PLAN.md`
+>   (§ Track close — the self-scored rubric re-score: dine-in/pickup/grocery all ≈4.5), `docs/JOURNEY_PLAN.md`
+>   (the J-track close), `CHANGELOG.md` (per-PR detail), `docs/REVIEW.md` (the J/K QA-sweep record).
+> - **Open follow-ups (parked, not blocking):** a `posthog.identify` consent surface (would let the client↔
+>   server funnels join — deliberately deferred, needs a consent banner); door-keyed funnels await real diner
+>   traffic to read (wired + captured, no data yet); `/track` refund arm; the K3b merge-token `pg_cron`
+>   expired-row reaper (belt-and-suspenders on the per-device self-clean); K4 reorder loses modifiers
+>   (names-not-ids, a schema improvement for a future milestone).
+> - **Next initiative:** none scheduled — M6 (Kiosk · Terminal · EBT, 2027) is the next roadmap milestone;
+>   until then, polish/feel-test passes on the shipped tracks or a new track as the owner directs.
+>
+> _(The 2026-06-29 banner below is kept as history — it pointed at the Richness track, now shipped.)_
+
 > ## ⏭️ NEXT SESSION — start here (2026-06-29)
 >
 > **M1–M5 + S1–S4 are all complete & merged. M5 was deep-audited (verdict: sound — zero money/auth/RLS findings).**

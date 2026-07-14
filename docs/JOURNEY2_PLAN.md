@@ -230,9 +230,79 @@ surface in the track AND its hardest money problem — it must not ship padded w
 
 ## K6 — Close the track `docs + sweep, small PR`
 
-- Door-keyed funnel screenshots vs the J0 originals; rubric re-score of the three door-paths
-  (self-scored, marked as such — same honesty as the J6 close); QA-checklist sweep of every new
-  surface; LEARNINGS entries for the sharp edges.
+- Door-keyed funnel screenshots vs the J0 originals _(deferred pending real diner traffic — the door
+  dimension is wired + pinned but has no non-null values yet; see Track close below)_; rubric re-score of
+  the three door-paths (self-scored, marked as such — same honesty as the J6 close); QA-checklist sweep of
+  every new surface; LEARNINGS entries for the sharp edges.
+
+### Track close — the honest "after" (self-scored, pre-launch)
+
+Self-scored against the J-axes the same way the J0 baseline and the J6 close were — against shipped code,
+by the author. **Real validation is live diners + the door-keyed funnels, not this table.** The K-track
+built ON TOP of the J6 close (dine-in ≈4.3 · pickup ≈4.3 · grocery ≈4.4); this is the cumulative "after"
+of the whole Journey II track:
+
+| Path                                | J-A | J-B | J-C | J-D | J-E | J-F | J-G | Avg     |
+| ----------------------------------- | --- | --- | --- | --- | --- | --- | --- | ------- |
+| Dine-in (door→table→send→pay→track) | 4.5 | 4.5 | 4.5 | 4.3 | 4.5 | 4.6 | 4.5 | **4.5** |
+| Pickup (door→slot→pay→track)        | 4.5 | 4.4 | 4.5 | 4.3 | 4.5 | 4.6 | 4.5 | **4.5** |
+| Grocery (door→basket→pay→exit pass) | 4.5 | 4.5 | 4.5 | 4.2 | 4.5 | 4.5 | 4.6 | **4.5** |
+
+**What the K-track moved (on top of J1–J6):**
+
+- **J-B progress clarity + J-C effort** — the three-door entry IA (K1: dine-in · pickup/to-go · grocery,
+  each its own affordance) makes the diner declare their path up front instead of discovering it; the table
+  registry (K2) puts a real, remembered table number on the dine-in path and every order surface; the
+  orders tray (K4) turns "which of my orders is this?" into one glance + one tap. These are the axes the
+  doors / table / tray most directly lift.
+- **J-F recognition — the biggest K lift** — the persistent tier-tinted wallet chip (K3a) carries the
+  diner's standing onto the menu header + the checkout pay moment, and the Stars merge (K3b) makes that standing survive the
+  anon→account sign-in and follow them to any device: visit-N recognition that J5's favorites/welcome-back
+  started, now durable and cross-device.
+- **J-A continuity + J-G recovery** — K5 closed a real hole: the grocery list is now server-hydrated, so a
+  refresh no longer strands the diner on a "nothing scanned" screen while the server cart still holds (and
+  will charge) the items; and K4's tray is session-gated so it never deep-links to a tracker `/track` can't
+  read — no new dead end.
+- **J-D emotional arc** — the merge beat (K3b) adds a small, honest delight moment ("N Stars followed
+  you"), and the wallet chip warms the pay moment; the arc stays a design bet until diners feel it.
+
+**Door-keyed funnels (vs the J0 originals).** J0 pinned four uid-joined funnels off `session_created`
+(which carries `mode` + the diner uid). K0 added a **`door`** property to that same event (+ client
+`mode_selected` / `door_opened`), so each J0 funnel now **breaks down by door** with no new events — the
+re-pin is a `breakdown: session_created.door` on the existing insights:
+
+| Funnel                    | Steps (verbatim events)                                                                                       | Split     |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------- | --------- |
+| Dine-in commitment        | `session_created` → `item_added_to_cart` → `send_to_kitchen` → `payment_intent_created` → `payment_succeeded` | by `door` |
+| Pickup commitment         | `session_created` → `item_added_to_cart` → `pickup_slot_set` → `payment_intent_created` → `payment_succeeded` | by `door` |
+| Grocery speed-run         | `session_created` → `grocery_item_scanned` → `grocery_checkout_clicked` → `payment_succeeded`                 | by `door` |
+| Client entry (cookieless) | `mode_selected` → `menu_item_add_clicked`                                                                     | by `door` |
+
+**Known honest gaps (unchanged posture from J0/J6):**
+
+- The scores are the author's, against shipped code — **the funnels decide whether the bar is met in the
+  room, and they need real diner traffic to read.** Verified in PostHog: `session_created` carries `door`,
+  but it has **no non-null values in the taxonomy yet** — no diner has flowed through a wired door in this
+  environment, so the door-split comparison is pending traffic, not screenshots. (Do not fabricate the
+  before/after — the instrumentation is proven; the data isn't there yet.)
+- The `posthog.identify(uid)` decision is still **NO** (no consent surface), so the client↔server funnel
+  join stays by-design incomplete — the uid-keyed server funnel measures the money path end-to-end; the
+  cookieless client journey funnel stays separate.
+- The door dimension is wired everywhere the K-track touches, but a **bare sticker scan with no `?door=`**
+  still mints `door: null` — so the door-split funnels read "unclaimed" for legacy/direct entries until
+  every physical sticker carries a door param (a rollout task, not a code gap).
+
+**QA sweep (the K-surfaces vs `docs/context/QA-CHECKLIST.md`).** Every new surface was swept in its phase's
+pre-PR + pre-merge adversarial passes (verdicts on #123–128); the K-track touch-points against the gate:
+§A a11y — the three doors + `TogoDoor` disclosure (`inert` closed panel, 44px, labels), the table picker
+grid (44px, open/seated names), the orders tray (Radix `Sheet` focus-trap + `aria-haspopup`, `role="list"`,
+named rows), the wallet chip + merge beat (`role="status"`, reduced-motion off-switch), grocery product
+rows (44px steppers, aria-labels) — all ticked in-review. §C P2 — the PostHog PII rule: door/table events
+carry only opaque ids + the `before_send` URL-param scrubber strips `t`/`j`/`payment_intent` (verified in
+`instrumentation-client.ts`). No new P0/P1 opened.
+
+**The rubric bar (≥4.3) is met on paper — three doors, one house, and the funnels to prove it once the room
+fills.**
 
 ## Sequencing + rules
 

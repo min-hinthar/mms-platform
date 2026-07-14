@@ -236,7 +236,12 @@ pre-merge, per-PR merge go).
 - **K5** Grocery grown up (PULLED FIRST — fixes a live money-display bug: a refresh hides items the
   server cart will still charge) — server-hydrated product list (photos, steppers on cart-line ids
   via existing setQty). Build order: K0 → K5 → K1 → K2 → K3a → K3b → K4 → K6. ✅
-- **K6** Track close — door-keyed funnels vs J0, rubric re-score, QA sweep. ⬜
+- **K6** Track close — the door dimension re-pins the J0 funnels by `door` (a breakdown on the existing
+  `session_created` insights, no new events); self-scored re-score of the three door-paths on the J-axes
+  (**dine-in / pickup / grocery all ≈4.5**, up from the J6 close's ≈4.3/4.3/4.4 — J-B/J-C/J-F carried the
+  K-lift); QA sweep of every K-surface (all closed in the #123–128 adversarial passes). Honest: the door
+  funnels are wired + pinned but await real diner traffic to read (no fabricated screenshots). **Journey
+  II track CLOSED.** ✅
 
 ## ⏸ M6 — Kiosk · Terminal · EBT (2027) &nbsp;`milestone:M6`
 
