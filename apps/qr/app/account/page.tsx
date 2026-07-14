@@ -51,7 +51,12 @@ export default async function Account() {
               instead of the "Save your Stars" upgrade pitch. */}
           <div style={{ marginBottom: "var(--s4)" }}>
             {state.isUpgraded ? (
-              <AccountStatus email={state.email} displayName={state.displayName} />
+              <AccountStatus
+                email={state.email}
+                displayName={state.displayName}
+                tierId={state.tierId}
+                stars={state.stars}
+              />
             ) : (
               <AccountUpgrade />
             )}

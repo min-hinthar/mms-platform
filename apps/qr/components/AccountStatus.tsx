@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, useTransition, type CSSProperties } from "
 import { useRouter } from "next/navigation";
 import { browserClient } from "@mms/db";
 import { Card } from "@mms/ui";
+import { tierMeta, tierTint } from "@/lib/rewards-tiers";
 
 /**
  * K3a "quiet when signed in" — the upgraded diner's identity card on /account. It REPLACES the anon
@@ -18,15 +19,26 @@ import { Card } from "@mms/ui";
 export function AccountStatus({
   email,
   displayName,
+  tierId,
+  stars,
 }: {
   email: string | null;
   displayName: string | null;
+  /** K3a rewards standing — a compact recognition chip (the full ring/ladder is the Rewards card below). */
+  tierId: string;
+  stars: number;
 }) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [, startTransition] = useTransition();
-  const who = displayName?.trim() || email || "your account";
+  const name = displayName?.trim() || null;
+  const who = name || email || "your account";
+  // Show the email as a SECOND line only when a display name is the primary — otherwise it's already the
+  // heading (no need to repeat it), and an anonymous-but-somehow-here case falls back to "your account".
+  const secondaryEmail = name && email ? email : null;
+  const tier = tierMeta(tierId);
+  const tint = tierTint(tierId);
 
   // Focus follows the confirm step both ways (WCAG 2.4.3): opening parks focus on the SAFE default
   // ("Stay signed in") so an accidental Enter can't sign out; cancelling returns focus to the "Sign
@@ -71,7 +83,32 @@ export function AccountStatus({
       <h2 id="acct-status-h" style={h2}>
         {who}
       </h2>
-      <p style={sub}>Your Stars are saved to your account — they follow you to any device.</p>
+      {secondaryEmail && <p style={emailLine}>{secondaryEmail}</p>}
+      {/* Standing chip — recognition at a glance (tier-tinted; text uses the AA `-strong` token). The full
+          Stars ring + tier ladder is the Rewards card right below, so this stays a compact summary. */}
+      <div style={{ margin: "10px 0 12px" }}>
+        <span
+          // role="img" so the aria-label is reliably announced — a bare <span> maps to `generic`, where
+          // ARIA says a label "should not be used" (NVDA/VoiceOver may skip it); the label then names this
+          // labelled composite glyph, and its all-decorative children stay aria-hidden.
+          role="img"
+          style={{
+            ...tierChip,
+            background: `color-mix(in srgb, ${tint.fill} 14%, transparent)`,
+            borderColor: `color-mix(in srgb, ${tint.fill} 32%, transparent)`,
+            color: tint.text,
+          }}
+          aria-label={`${tier.english} tier, ${stars} ${stars === 1 ? "Star" : "Stars"}`}
+        >
+          <span aria-hidden>{tier.emoji}</span>
+          <span aria-hidden>{tier.english}</span>
+          <span aria-hidden style={{ opacity: 0.45 }}>
+            ·
+          </span>
+          <span aria-hidden>✦ {stars}</span>
+        </span>
+      </div>
+      <p style={sub}>Your Stars follow you to any device.</p>
 
       {!confirming ? (
         <button
@@ -127,6 +164,23 @@ const h2: CSSProperties = {
   fontWeight: 800,
   color: "var(--tx)",
   overflowWrap: "anywhere", // a long email must wrap, never overflow the card
+};
+const emailLine: CSSProperties = {
+  margin: "1px 0 0",
+  fontSize: 13,
+  color: "var(--t2)",
+  overflowWrap: "anywhere", // a long email wraps, never overflows the card
+};
+const tierChip: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  minHeight: 26,
+  padding: "3px 11px",
+  borderRadius: 999,
+  border: "1px solid transparent", // color set inline from the tier tint
+  fontSize: 12.5,
+  fontWeight: 800,
 };
 const sub: CSSProperties = {
   margin: "0 0 14px",
