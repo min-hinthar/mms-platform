@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { TransitionLink as Link } from "@/components/nav/TransitionNav"; // J1 journey grammar
 import { getRewardsState, getOrderHistory, ensureProfile } from "@/lib/rewards";
+import { getMyLiveOrders } from "@/lib/orders";
 import { RewardsHub } from "@/components/RewardsHub";
 import { OrderHistory } from "@/components/OrderHistory";
+import { TodayOrders } from "@/components/TodayOrders";
 import { AccountUpgrade } from "@/components/AccountUpgrade";
 import { AccountStatus } from "@/components/AccountStatus";
 import { MergeRedeemer } from "@/components/MergeRedeemer";
@@ -14,7 +16,11 @@ export const metadata: Metadata = { title: "Rewards & account · Morning Star" }
 // profile row when an upgrade has just confirmed (e.g. the Google redirect returns here).
 export default async function Account() {
   await ensureProfile();
-  const [state, history] = await Promise.all([getRewardsState(), getOrderHistory()]);
+  const [state, history, live] = await Promise.all([
+    getRewardsState(),
+    getOrderHistory(),
+    getMyLiveOrders(),
+  ]);
 
   return (
     <main style={{ padding: 24, maxWidth: 480, margin: "0 auto" }}>
@@ -51,6 +57,9 @@ export default async function Account() {
             )}
           </div>
           <RewardsHub state={state} />
+          {/* K4: the diner's in-flight orders (live), above their past-order history. Renders nothing
+              when nothing's in progress. */}
+          <TodayOrders orders={live} />
           {history === null ? (
             <p
               style={{

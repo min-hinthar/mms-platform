@@ -187,6 +187,23 @@ surface in the track AND its hardest money problem — it must not ship padded w
   behavior remains the collapsed state (badge hidden at ≤1 live order — the tray earns its ink only
   when it disambiguates).
 
+> **Shipped (2026-07-14).** Refined the store split: the **server read `getMyLiveOrders`** is the
+> multi-order truth (it captures cross-device orders a client keyed store never could), so the
+> `ActiveOrderProvider` stays the single-`order` client nav-memory (the instant, realtime collapsed
+> pill), and the header composes both: **0 live → nothing; ≤1 → the single realtime pill (client
+> order, else the lone server order); ≥2 → a count-badged button that opens the `OrdersTray` sheet**.
+> No new realtime channels — the tray/badge are a `getMyLiveOrders` poll refetched on mount /
+> visibilitychange / focus / new-order (the J3 freshness rule); the collapsed pill keeps its one
+> existing channel. `qr_orders` has no mode column, so `kind` is derived from line `fulfillment` +
+> `pickup_slot`; "live" = paid AND ≤12h AND not `picked_up` AND its **session is still open** — the
+> session gate applies to EVERY kind (pre-PR review's catch), because /track's read is RLS-gated by
+> `is_member(session_id)`, so an order past its ~4h session is unreadable there and the tray must not
+> deep-link to a tracker that never resolves; it also gives dine-in (no pick-up signal, minted post-settle)
+> its terminal bound. Status words + the /track deep-link are a single shared source (`lib/live-order.ts`),
+> so the tray never shows a status /track wouldn't.
+> Honest limitation surfaced in the tray: cash-settled orders carry no `earned_by`, so they're invisible
+> (same attribution rule as rewards).
+
 ## K5 — Grocery, grown up `apps/qr, one PR`
 
 - **Server-hydrated list:** /grocery renders the CART's grocery lines (survives refresh; the local
