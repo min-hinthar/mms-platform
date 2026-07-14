@@ -424,7 +424,7 @@ broadcast). All reads + the write are `requireStaff()` + service-role; migration
     line changes refreshing only via the 5s poll. Fixed app-side (no money-path RPC change): last-activity
     now derives from the latest `qr_cart_items.created_at`; the detail subscribes to `qr_cart_items` by
     `cart_id` (added `cartId` to `TableDetail`); false comments corrected.
-  - **F2 (Med) FIXED** — clear-table could cancel a *stale* split that already had an `authorized`/`captured`
+  - **F2 (Med) FIXED** — clear-table could cancel a _stale_ split that already had an `authorized`/`captured`
     share → loud `status conflict` at fulfillment (charge, no order). Now also refuses clear if any share is
     authorized/captured, independent of the freshness TTL.
   - **F3 (Low) FIXED** — `getTableDetail` now uuid-validates its id (parity with clearTable's Zod parse).
@@ -433,3 +433,31 @@ broadcast). All reads + the write are `requireStaff()` + service-role; migration
   adds both tables to the publication, idempotent on re-apply). ⚠️ **Live apply PENDING** — the live
   `supabase_realtime` publication still lacks `table_sessions`/`session_members`, so the floor won't
   live-update on the preview/prod until applied (the snapshot + 5s poll still work).
+
+## Journey II (K-track) — QA sweep close (2026-07-14)
+
+Restores the per-phase QA record for the Journey tracks (the log above stopped at S1.2; the J-track and
+K-track closed their QA in the plan docs + per-PR adversarial verdicts rather than here — this closes that
+gap for the K-track). Full detail lives in each PR's posted verdict + `CHANGELOG.md`; the self-scored
+rubric re-score is in `docs/JOURNEY2_PLAN.md` (§ Track close).
+
+Every K-phase ran the standard gate + a **fresh-context adversarial subagent pre-PR AND pre-merge**, with
+the verdict posted on the PR:
+
+- **K5** (grocery grown up, #123) — server-hydrated list fixes a live money-display bug; PASS.
+- **K1** (three doors, #124) — entry IA + `TogoDoor` disclosure; PASS.
+- **K2** (table registry, #125) — migration + picker + number everywhere; a **HIGH** caught pre-merge (a
+  live join token used as a UI placeholder) fixed + the token rotated; PASS after fix.
+- **K3a** (rewards presence, #126) — wallet chip + quiet-when-signed-in; a **HIGH** (sign-out left the app
+  sessionless) fixed pre-PR; PASS.
+- **K3b** (Stars merge, #127) — the track's deepest review: design-critiqued BEFORE the migration, proven
+  with a BEGIN/ROLLBACK invariant test, pre-PR **SHIP** + pre-merge **MERGE** (one LOW folded each pass);
+  security advisor clean for the new objects.
+- **K4** (orders tray, #128) — pre-PR **FIX-FIRST** (a MED: the tray could deep-link to an order `/track`
+  can't read past its session — folded by session-gating every kind) → pre-merge **MERGE**.
+
+**QA-CHECKLIST cross-refs (§A a11y · §C privacy):** the three doors + disclosure, the table picker grid,
+the orders tray sheet, the wallet chip + merge beat, and the grocery product rows were each swept for 44px
+targets, accessible names, `role="list"`, one live region per view, reduced-motion off-switches, and
+decorative-glyph `aria-hidden` in-review. §C P2 (PostHog PII): door/table analytics carry only opaque ids;
+the `before_send` URL scrubber strips `t`/`j`/`payment_intent`. No new P0/P1 opened across the track.
