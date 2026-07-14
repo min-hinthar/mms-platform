@@ -139,17 +139,17 @@ export async function POST(req: NextRequest) {
                 .maybeSingle();
               const hostUid = sess?.host_seat ?? null;
               if (hostUid) {
-                const { error: earnErr } = await db
-                  .from("qr_orders")
-                  .update({ earned_by: hostUid })
-                  .eq("id", orderId);
-                const { error: rewardErr } = earnErr
-                  ? { error: earnErr }
-                  : await db.rpc("mms_reward_on_fulfill", { p_user: hostUid });
-                if (earnErr || rewardErr)
+                // K3b: redirect-aware earn — one RPC stamps earned_by (resolved through any identity merge)
+                // and awards. A split payment that lands after the host merged their anon device still
+                // credits the signed-in account, never the orphaned anon uid.
+                const { error: earnErr } = await db.rpc("mms_earn_on_fulfill", {
+                  p_order: orderId,
+                  p_earner: hostUid,
+                });
+                if (earnErr)
                   console.error("[stripe webhook] split rewards earn failed", {
                     orderId,
-                    error: earnErr ?? rewardErr,
+                    error: earnErr,
                   });
               }
             }
@@ -368,17 +368,17 @@ export async function POST(req: NextRequest) {
           // order recomputes Stars from the orders table, the single source of truth).
           const earnerUid = intent.metadata?.earnerUid;
           if (earnerUid) {
-            const { error: earnErr } = await db
-              .from("qr_orders")
-              .update({ earned_by: earnerUid })
-              .eq("id", orderId);
-            const { error: rewardErr } = earnErr
-              ? { error: earnErr }
-              : await db.rpc("mms_reward_on_fulfill", { p_user: earnerUid });
-            if (earnErr || rewardErr)
+            // K3b: redirect-aware earn (see mms_earn_on_fulfill) — resolves earnerUid through any identity
+            // merge so a payment that lands after the diner merged credits the merged-into account, not the
+            // orphaned anon uid. Identical to the old 2-step when no merge exists (coalesce falls through).
+            const { error: earnErr } = await db.rpc("mms_earn_on_fulfill", {
+              p_order: orderId,
+              p_earner: earnerUid,
+            });
+            if (earnErr)
               console.error("[stripe webhook] rewards earn failed", {
                 orderId,
-                error: earnErr ?? rewardErr,
+                error: earnErr,
               });
           }
           // Redeem any applied reward coupon (M4 P4.2) — flip it to redeemed AFTER the order is snapshotted

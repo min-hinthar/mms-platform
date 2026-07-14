@@ -5,6 +5,7 @@ import { RewardsHub } from "@/components/RewardsHub";
 import { OrderHistory } from "@/components/OrderHistory";
 import { AccountUpgrade } from "@/components/AccountUpgrade";
 import { AccountStatus } from "@/components/AccountStatus";
+import { MergeRedeemer } from "@/components/MergeRedeemer";
 
 export const metadata: Metadata = { title: "Rewards & account · Morning Star" };
 
@@ -17,6 +18,10 @@ export default async function Account() {
 
   return (
     <main style={{ padding: 24, maxWidth: 480, margin: "0 auto" }}>
+      {/* K3b: redeems a merge token (minted while anon before a sign-into-existing) once signed in, then
+          celebrates the carried-over Stars. Renders null until a merge actually lands — mounted for both
+          the anon and upgraded views so it catches the sign-in transition either way. */}
+      <MergeRedeemer />
       <header className="account-masthead">
         <p className="eyebrow" style={{ margin: 0 }}>
           <span aria-hidden>✦ </span>Mandalay Morning Star

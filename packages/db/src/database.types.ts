@@ -277,6 +277,24 @@ export type Database = {
         }
         Relationships: []
       }
+      mms_identity_merges: {
+        Row: {
+          anon_uid: string
+          merged_at: string
+          target_uid: string
+        }
+        Insert: {
+          anon_uid: string
+          merged_at?: string
+          target_uid: string
+        }
+        Update: {
+          anon_uid?: string
+          merged_at?: string
+          target_uid?: string
+        }
+        Relationships: []
+      }
       mms_loss_config: {
         Row: {
           id: boolean
@@ -295,6 +313,30 @@ export type Database = {
           max_loss_cents?: number
           max_loss_percent?: number
           updated_at?: string
+        }
+        Relationships: []
+      }
+      mms_merge_tokens: {
+        Row: {
+          anon_uid: string
+          created_at: string
+          expires_at: string
+          redeemed_at: string | null
+          token: string
+        }
+        Insert: {
+          anon_uid: string
+          created_at?: string
+          expires_at: string
+          redeemed_at?: string | null
+          token: string
+        }
+        Update: {
+          anon_uid?: string
+          created_at?: string
+          expires_at?: string
+          redeemed_at?: string | null
+          token?: string
         }
         Relationships: []
       }
@@ -1441,6 +1483,10 @@ export type Database = {
         Returns: number
       }
       mms_clear_reward: { Args: { p_cart: string }; Returns: undefined }
+      mms_earn_on_fulfill: {
+        Args: { p_earner: string; p_order: string }
+        Returns: undefined
+      }
       mms_fire_cart: {
         Args: { p_cart_id: string }
         Returns: {
@@ -1491,6 +1537,10 @@ export type Database = {
       mms_line_transition: {
         Args: { p_line: string; p_to: string }
         Returns: number
+      }
+      mms_merge_anon_rewards: {
+        Args: { p_anon: string; p_target: string }
+        Returns: Json
       }
       mms_merge_table_orders: {
         Args: { p_source_cart: string; p_target_cart: string }

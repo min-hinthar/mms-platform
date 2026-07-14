@@ -10,6 +10,8 @@ import {
 import { useRouter, useSearchParams } from "next/navigation";
 import { browserClient } from "@mms/db";
 import { ensureProfile } from "@/lib/rewards";
+import { mintMergeToken } from "@/lib/merge";
+import { stashMergeToken } from "@/lib/mergeTokenStore";
 import { Card } from "@mms/ui";
 
 /**
@@ -42,8 +44,8 @@ export function AccountUpgrade() {
   // error URL with no way forward. Derive it during render (NOT setState-in-effect: the React-Compiler lint
   // rule forbids that, and deriving also avoids a hydration mismatch on this dynamically-rendered route).
   // When already-linked, the Google button becomes a SIGN-IN recovery (linking again would fail the same
-  // way). Copy stays HONEST: signing in switches to the EXISTING account — it does not merge this device's
-  // unsaved Stars (no server-side merge exists), so it also points at the email path for keeping THOSE.
+  // way). Copy stays HONEST: signing in switches to the EXISTING account — and K3b now MOVES this device's
+  // Stars onto it (a merge token minted before the redirect, redeemed by /account's MergeRedeemer on return).
   // a11y tradeoff: because this message is present from SSR/first paint it's INITIAL content of the
   // role="status" region, so a SR won't auto-announce it (live regions announce changes) — it's still
   // visible + discoverable on navigation; a change-based fix would require the forbidden setState-in-effect.
@@ -51,7 +53,7 @@ export function AccountUpgrade() {
   const alreadyLinked = searchParams.get("error_code") === "identity_already_exists";
   const callbackError = searchParams.get("error_code")
     ? alreadyLinked
-      ? "That Google account already has a Morning Star account. Sign in to use it, or add an email above to save this device’s rewards."
+      ? "That Google account already has a Morning Star account — sign in and we’ll move this device’s Stars onto it."
       : "Couldn’t finish with Google — please try again."
     : null;
 
@@ -93,7 +95,11 @@ export function AccountUpgrade() {
       data: { subscription },
     } = supa.auth.onAuthStateChange((event, session) => {
       const upgraded = session?.user?.is_anonymous === false;
-      if ((event === "SIGNED_IN" || event === "USER_UPDATED") && upgraded && !refreshedRef.current) {
+      if (
+        (event === "SIGNED_IN" || event === "USER_UPDATED") &&
+        upgraded &&
+        !refreshedRef.current
+      ) {
         refreshedRef.current = true;
         // Refresh even if ensureProfile rejects — the account is confirmed; the profile row is secondary
         // (idempotently re-created on the next confirmed load) and must not block the hub from updating.
@@ -122,6 +128,10 @@ export function AccountUpgrade() {
       // RECOVERY: the address belongs to another account, so SIGN IN to it (updateUser would just
       // re-fail email_exists). `shouldCreateUser: false` never silently mints a new account — it sends a
       // code to the EXISTING one. verify() then uses type "email" (a sign-in, not an email-change).
+      // K3b: this switches to a DIFFERENT uid, so mint a merge token WHILE still anonymous — after sign-in
+      // /account's MergeRedeemer moves this device's Stars onto that account. Best-effort (null → no merge).
+      const mtoken = await mintMergeToken();
+      if (mtoken) stashMergeToken(mtoken);
       const { error: e0 } = await supa.auth.signInWithOtp({
         email: addr,
         options: { shouldCreateUser: false },
@@ -211,6 +221,10 @@ export function AccountUpgrade() {
     const supa = browserClient();
     // Recovery for identity_already_exists: SIGN IN to the existing account (not linkIdentity, which would
     // fail the same way) so the diner lands on their real account and its saved rewards.
+    // K3b: mint the merge token before leaving for Google (still anonymous now) — on return, /account's
+    // MergeRedeemer moves this device's Stars onto that account. Best-effort (null → no merge).
+    const mtoken = await mintMergeToken();
+    if (mtoken) stashMergeToken(mtoken);
     const { error: e4 } = await supa.auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo: `${window.location.origin}/account` },
@@ -368,7 +382,7 @@ export function AccountUpgrade() {
           // Only on the idle (email-entry) step — once we advance to the code step the "Send sign-in code"
           // button is gone, so the directive would contradict the screen (the diner already tapped it).
           (emailTaken && phase === "idle"
-            ? "That email already has a Morning Star account — tap “Send sign-in code” to use it. Signing in won’t transfer this device’s unsaved Stars; enter a different email to keep them."
+            ? "That email already has a Morning Star account — tap “Send sign-in code” to use it. We’ll move this device’s Stars onto it when you sign in."
             : null) ??
           callbackError}
       </p>
