@@ -74,8 +74,10 @@ A global `LendModeBanner` then rides every surface — _"Guest mode · ordering 
 [owner]**. Resolution:
 
 - **Owner taps Done** → fast re-auth of the owner's remembered identity (no merge) → lend clears.
-- **Friend signs into _their own_ account** → normal merge (their guest Stars → their account) → lend clears
-  (it's their session now; a later owner return is just a normal switch).
+- **Friend signs into _their own_ account** → lend clears (it's their session now; a later owner return is
+  just a normal switch). Whether their lend-session guest Stars follow depends on _how_ they sign in — the
+  typed-taken-email / Google path brings them (`bringStars: true`); a remembered-chip tap suppresses (their
+  few session Stars stay on the guest uid). Both err safe — a switch never mis-attributes Stars.
 - **Friend just orders as a guest and hands back** → owner resumes (no merge); the friend's guest Stars stay on
   the abandoned anon uid (correct — they chose to stay a guest).
 

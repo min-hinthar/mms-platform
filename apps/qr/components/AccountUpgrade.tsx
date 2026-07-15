@@ -195,16 +195,20 @@ export function AccountUpgrade({ stars }: { stars: number }) {
   const resumeFired = useRef(false);
   useEffect(() => {
     if (!resumeParam || resumeFired.current) return;
-    resumeFired.current = true;
-    if (typeof window !== "undefined") {
-      // Strip ONLY `resume` (keep any co-present params, e.g. an OAuth error_code) so a refresh can't re-fire.
-      const url = new URL(window.location.href);
-      url.searchParams.delete("resume");
-      window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
-    }
-    // Defer to the next frame so the fast-re-auth's setState isn't a synchronous setState-in-effect
-    // (lint-safe, matching the chooser's deferred read).
+    // Defer everything to the next frame AND set the fire-once guard INSIDE the callback (not in setup): React
+    // Strict Mode double-invokes mount effects (setup → cleanup → setup), and a guard set in setup would
+    // survive the simulated remount (refs persist) while the raf got cancelled — leaving the second setup to
+    // bail without ever running. Guarding at run-time means the second setup reschedules and the work fires
+    // exactly once. Deferring also keeps the fast-re-auth's setState off the synchronous effect body (lint).
     const raf = requestAnimationFrame(() => {
+      if (resumeFired.current) return;
+      resumeFired.current = true;
+      if (typeof window !== "undefined") {
+        // Strip ONLY `resume` (keep any co-present params, e.g. an OAuth error_code) so a refresh can't re-fire.
+        const url = new URL(window.location.href);
+        url.searchParams.delete("resume");
+        window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+      }
       const match = readIdentities().find(
         (i) => i.email.toLowerCase() === resumeParam.toLowerCase(),
       );

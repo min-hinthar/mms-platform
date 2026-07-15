@@ -1,5 +1,12 @@
 "use client";
-import { useEffect, useRef, useState, useTransition, type CSSProperties } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+  type CSSProperties,
+  type MouseEvent,
+} from "react";
 import { useRouter } from "next/navigation";
 import { browserClient } from "@mms/db";
 import { Card } from "@mms/ui";
@@ -64,7 +71,7 @@ export function AccountStatus({
     }
   }, [pending]);
 
-  function open(kind: "switch" | "lend", e: React.MouseEvent<HTMLButtonElement>) {
+  function open(kind: "switch" | "lend", e: MouseEvent<HTMLButtonElement>) {
     lastTrigger.current = e.currentTarget;
     setPending(kind);
   }
