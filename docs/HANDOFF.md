@@ -5,13 +5,20 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ CURRENT STATE — start here (2026-07-14)
+> ## ⏭️ CURRENT STATE — start here (2026-07-15)
 >
 > **Journey II (the K-track) is CLOSED.** Since the 2026-06-29 banner below, three initiatives shipped &
 > merged: the 🎨 **Richness track** (R1–R9), **Journey I** (J0–J6, the mode journeys), and **Journey II**
 > (K0–K6, "one house, three doors" — the entry IA, table registry, rewards presence + cross-device Stars
 > merge, the orders tray, grocery grown up). All on the standard gate with per-PR pre-PR **and** pre-merge
 > fresh-context adversarial reviews (verdicts posted on the PRs).
+>
+> **Latest (post-K6 follow-ons, PR #131):** a guest-rewards-card clarity fix + **K7 — the shared-device
+> account experience** ([`docs/SHARED_DEVICE.md`](SHARED_DEVICE.md)): **Switch account** + a **"Welcome back"**
+> remembered-identity chooser (one-tap re-auth; hints only, never tokens) + **"Order for a friend"** lend mode
+> (clean guest session + a global ribbon + one-tap owner return). The safety hinge: a K3b Stars-merge fires
+> only when a genuine guest saves _their own_ Stars — every switch/return suppresses it, so a friend's guest
+> Stars can never land on the owner's account. No schema change; server stays the sole rewards authority.
 >
 > - **Where the plans/scores live:** `ROADMAP.md` (the K0–K6 board, all ✅), `docs/JOURNEY2_PLAN.md`
 >   (§ Track close — the self-scored rubric re-score: dine-in/pickup/grocery all ≈4.5), `docs/JOURNEY_PLAN.md`

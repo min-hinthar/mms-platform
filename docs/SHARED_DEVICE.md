@@ -1,6 +1,6 @@
 # Shared-device account experience — switch, remember, lend
 
-**Status:** built · gate green (lint · typecheck · build) · in adversarial review · **Phase:** K7 (follow-on to Journey II) · **Branch:** `claude/app-ui-security-branding-ezpqkq`
+**Status:** shipped (PR #131) · gate green · pre-PR + pre-merge adversarial passes (SHIP; findings folded) · **Phase:** K7 (follow-on to Journey II) · **Branch:** `claude/app-ui-security-branding-ezpqkq`
 
 The scenario the owner raised: _"a friend is ordering for a friend on my device and wants to switch back to
 their own account."_ Today the QR app has **no logged-out state and no account switcher** — signing out drops
