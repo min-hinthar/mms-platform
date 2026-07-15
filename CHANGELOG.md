@@ -4,6 +4,12 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — shared-device account experience: switch · remember · lend (2026-07-15)
+
+- **Switch back to your own account in one tap.** The signed-in account card gains a **Switch account** action, and the guest sign-in card now shows a **"Welcome back" chooser** — remembered prior sign-ins on this device (name/tier/email hints only, **never tokens**) as one-tap re-auth chips (email → pre-filled OTP; Google → one-tap). Returning to your account is now "tap your name + confirm," not "retype your email + wait." Privacy-first for a shared phone: a per-chip **×** and a **"Not you? Forget this device"** wipe the roster. See [`docs/SHARED_DEVICE.md`](docs/SHARED_DEVICE.md).
+- **"Order for a friend" lend mode.** The signed-in card can hand the phone to a friend: it drops to a **clean 0-Star guest session** (the friend never touches your account) and raises a global **"Ordering for a friend"** ribbon with a **Done — back to [you]** one-tap return. Structurally closes the shared-device Stars-merge footgun.
+- **Merge-safety hinge.** A K3b Stars-merge now fires **only** when a genuine guest saves _their own_ Stars into a pre-existing account (typed a taken email / used Google). An explicit **switch** (a remembered chip, or a lend-mode return) **suppresses** the merge — the current session's guest Stars are never swept onto the account you switch to. No schema change; server stays the sole authority on rewards/orders (hints are display-only and grant no access).
+
 ### Fixed — guest rewards clarity + hardened signed-in detection (2026-07-14)
 
 - **The guest "Keep your rewards" card now names the stakes.** Seeing your device's Stars + a "save your Stars" pitch read as a contradiction (an anonymous guest session earns Stars, but they're bound to that device). The card now leads with the real count — "You've earned **N Stars** on this device — they live only here. … keep them for good; your past orders come with you" — so it's clear _why_ to attach an email/Google, not just _that_ you should.

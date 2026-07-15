@@ -7,6 +7,7 @@ import { OrderHistory } from "@/components/OrderHistory";
 import { TodayOrders } from "@/components/TodayOrders";
 import { AccountUpgrade } from "@/components/AccountUpgrade";
 import { AccountStatus } from "@/components/AccountStatus";
+import { RememberIdentity } from "@/components/RememberIdentity";
 import { MergeRedeemer } from "@/components/MergeRedeemer";
 
 export const metadata: Metadata = { title: "Rewards & account · Morning Star" };
@@ -51,12 +52,17 @@ export default async function Account() {
               instead of the "Save your Stars" upgrade pitch. */}
           <div style={{ marginBottom: "var(--s4)" }}>
             {state.isUpgraded ? (
-              <AccountStatus
-                email={state.email}
-                displayName={state.displayName}
-                tierId={state.tierId}
-                stars={state.stars}
-              />
+              <>
+                {/* K7: records this signed-in identity (hints only, no token) so the switcher can offer a
+                    one-tap return next time; also clears any lingering lend flag. Renders null. */}
+                <RememberIdentity displayName={state.displayName} tierId={state.tierId} />
+                <AccountStatus
+                  email={state.email}
+                  displayName={state.displayName}
+                  tierId={state.tierId}
+                  stars={state.stars}
+                />
+              </>
             ) : (
               <AccountUpgrade stars={state.stars} />
             )}

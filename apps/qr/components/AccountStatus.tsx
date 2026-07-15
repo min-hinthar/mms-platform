@@ -4,17 +4,24 @@ import { useRouter } from "next/navigation";
 import { browserClient } from "@mms/db";
 import { Card } from "@mms/ui";
 import { tierMeta, tierTint } from "@/lib/rewards-tiers";
+import { setLend, firstNameOf } from "@/lib/deviceIdentity";
 
 /**
- * K3a "quiet when signed in" — the upgraded diner's identity card on /account. It REPLACES the anon
- * "Save your Stars" upgrade pitch (a signed-in diner is done being pitched) and the old plain "Signed
- * in as …" footer note, giving them a real status surface: who you are + a sign-out.
+ * K3a "quiet when signed in" + K7 shared-device — the upgraded diner's identity card on /account. It REPLACES
+ * the anon "Save your Stars" pitch (a signed-in diner is done being pitched) with a real status surface: who
+ * you are, your standing, and two shared-device actions.
  *
- * Honest sign-out: the QR app has no persistent logged-out state — signing out drops the diner to
- * GUEST browsing (AnonAuthGate immediately mints a fresh ANONYMOUS session, a new uid). Their Stars
- * are NOT lost — they live on the account, reachable again on the next sign-in — so the copy says
- * exactly that, and a two-tap confirm guards against an accidental tap. On success we refresh the
- * Server Components: /account re-renders as anonymous (the upgrade pitch returns).
+ * - **Switch account** — signs out to a fresh anonymous guest, landing on the sign-in chooser (with the
+ *   "Welcome back" chips) so returning to your own OR another account is a one-tap re-auth. Your Stars are NOT
+ *   lost — they live on the account, reachable again on the next sign-in — so the copy says exactly that.
+ * - **Order for a friend** — lend mode: same sign-out-to-guest, but it stashes YOUR greeting hint so a global
+ *   "ordering for a friend" banner can offer a one-tap return. The friend browses/orders on a clean guest
+ *   session that never touches your account (structurally, they can't earn onto or spend from it).
+ *
+ * Neither is destructive (Stars are safe either way), so each is a single tap behind a one-line confirm (no
+ * accidental mode change), with WCAG-2.4.3 focus discipline: the confirm parks focus on the SAFE "Cancel" so a
+ * stray Enter can't fire, and returns focus to the trigger on cancel. On success we refresh the Server
+ * Components so /account re-renders as the guest chooser (and, for lend, the banner appears).
  */
 export function AccountStatus({
   email,
@@ -29,7 +36,7 @@ export function AccountStatus({
   stars: number;
 }) {
   const router = useRouter();
-  const [confirming, setConfirming] = useState(false);
+  const [pending, setPending] = useState<null | "switch" | "lend">(null);
   const [busy, setBusy] = useState(false);
   const [, startTransition] = useTransition();
   const name = displayName?.trim() || null;
@@ -39,39 +46,63 @@ export function AccountStatus({
   const secondaryEmail = name && email ? email : null;
   const tier = tierMeta(tierId);
   const tint = tierTint(tierId);
+  const firstName = firstNameOf(displayName);
 
-  // Focus follows the confirm step both ways (WCAG 2.4.3): opening parks focus on the SAFE default
-  // ("Stay signed in") so an accidental Enter can't sign out; cancelling returns focus to the "Sign
-  // out" trigger (never dropped to <body>). `wasConfirming` skips the initial mount.
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  // Focus follows the confirm step both ways (WCAG 2.4.3): opening parks focus on the SAFE default ("Cancel")
+  // so an accidental Enter can't act; cancelling returns focus to the button that opened it (never dropped to
+  // <body>). `lastTrigger` records which action opened the confirm; `wasPending` skips the initial mount.
   const cancelRef = useRef<HTMLButtonElement>(null);
-  const wasConfirming = useRef(false);
+  const lastTrigger = useRef<HTMLButtonElement | null>(null);
+  const wasPending = useRef(false);
   useEffect(() => {
-    if (confirming) {
+    if (pending) {
       cancelRef.current?.focus({ preventScroll: true });
-      wasConfirming.current = true;
-    } else if (wasConfirming.current) {
-      triggerRef.current?.focus({ preventScroll: true });
-      wasConfirming.current = false;
+      wasPending.current = true;
+    } else if (wasPending.current) {
+      lastTrigger.current?.focus({ preventScroll: true });
+      wasPending.current = false;
     }
-  }, [confirming]);
+  }, [pending]);
 
-  async function signOut() {
-    setBusy(true);
+  function open(kind: "switch" | "lend", e: React.MouseEvent<HTMLButtonElement>) {
+    lastTrigger.current = e.currentTarget;
+    setPending(kind);
+  }
+
+  // Sign out to a fresh ANONYMOUS guest — the shared mechanic behind both actions. `router.refresh()` only
+  // re-renders server components and does NOT re-run AnonAuthGate's client effect, so we re-mint here or the
+  // app sits sessionless (/account would show the red "couldn't load" alert, not the guest chooser). Retry
+  // once (GoTrue anon-signup can transiently rate-limit), mirroring AnonAuthGate.
+  async function toGuest(): Promise<void> {
     const supa = browserClient();
+    await supa.auth.signOut();
+    let { error } = await supa.auth.signInAnonymously();
+    if (error) ({ error } = await supa.auth.signInAnonymously());
+  }
+
+  async function doSwitch() {
+    setBusy(true);
     try {
-      await supa.auth.signOut();
-      // Re-mint a fresh ANONYMOUS session (mirroring AnonAuthGate) — `router.refresh()` only re-renders
-      // server components and does NOT re-run AnonAuthGate's client effect, so without this the app sits
-      // sessionless: /account would render the red "couldn't load your rewards" alert (not the promised
-      // guest state) and the header would keep the stale wallet chip. Retry once (GoTrue anon-signup can
-      // transiently rate-limit), exactly like AnonAuthGate; the SIGNED_IN it fires refetches the badge.
-      let { error } = await supa.auth.signInAnonymously();
-      if (error) ({ error } = await supa.auth.signInAnonymously());
+      await toGuest();
     } catch {
       // Best-effort — the refresh re-derives the session; the next route change re-runs AnonAuthGate.
     }
-    setBusy(false); // reset before the refresh: on a re-mint failure the button must not stick at "Signing out…"
+    setBusy(false);
+    startTransition(() => router.refresh());
+  }
+
+  async function doLend() {
+    setBusy(true);
+    try {
+      await toGuest();
+      // Stash the owner hint AFTER the guest session is minted, so the "ordering for a friend" banner + the
+      // one-tap return light up. `email` is guaranteed here (the button is gated on it). Best-effort inside
+      // setLend (storage may be unavailable → no banner, but the guest session is still clean).
+      if (email) setLend({ ownerEmail: email, ownerFirstName: firstName });
+    } catch {
+      /* best-effort — as above */
+    }
+    setBusy(false);
     startTransition(() => router.refresh());
   }
 
@@ -108,46 +139,63 @@ export function AccountStatus({
           <span aria-hidden>✦ {stars}</span>
         </span>
       </div>
-      <p style={sub}>Your Stars follow you to any device.</p>
+      <p style={sub}>Your Stars stay on your account — switch or lend this phone anytime.</p>
 
-      {!confirming ? (
-        <button
-          ref={triggerRef}
-          type="button"
-          onClick={() => setConfirming(true)}
-          className="nav-link"
-          style={signOutBtn}
-        >
-          Sign out
-        </button>
+      {pending === null ? (
+        <div style={{ display: "grid", gap: 10 }}>
+          {/* Lend the phone for one guest order — only when we have an email to route the return to. */}
+          {email && (
+            <button
+              type="button"
+              onClick={(e) => open("lend", e)}
+              className="account-oauth"
+              style={lendBtn}
+            >
+              <span aria-hidden style={{ fontSize: 16 }}>
+                ✦
+              </span>
+              Order for a friend
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={(e) => open("switch", e)}
+            className="nav-link"
+            style={switchBtn}
+          >
+            Switch account
+          </button>
+        </div>
       ) : (
         <div
           style={{ marginTop: 4 }}
           role="group"
-          aria-label="Confirm sign out"
-          aria-describedby="acct-signout-warning"
+          aria-label={pending === "lend" ? "Confirm ordering for a friend" : "Confirm switching account"}
+          aria-describedby="acct-confirm-copy"
         >
-          <p id="acct-signout-warning" style={confirmCopy}>
-            Sign out? You’ll browse as a guest — sign back in anytime to see your Stars.
+          <p id="acct-confirm-copy" style={confirmCopy}>
+            {pending === "lend"
+              ? `Hand the phone to a friend? They’ll browse as a guest — your account and Stars stay safe. Tap “Done — back to ${firstName ?? "you"}” on the banner to return.`
+              : `Switch account? You’ll browse as a guest — sign back in with one tap, or pick another account. Your Stars stay on ${who}.`}
           </p>
           <div style={{ display: "flex", gap: 8 }}>
             <button
               type="button"
-              onClick={signOut}
+              onClick={pending === "lend" ? doLend : doSwitch}
               disabled={busy}
               aria-busy={busy}
-              style={confirmBtn}
+              style={proceedBtn}
             >
-              {busy ? "Signing out…" : "Yes, sign out"}
+              {busy ? "One moment…" : pending === "lend" ? "Yes, order for a friend" : "Yes, switch"}
             </button>
             <button
               ref={cancelRef}
               type="button"
-              onClick={() => setConfirming(false)}
+              onClick={() => setPending(null)}
               disabled={busy}
               style={cancelBtn}
             >
-              Stay signed in
+              Cancel
             </button>
           </div>
         </div>
@@ -188,12 +236,28 @@ const sub: CSSProperties = {
   color: "var(--t2)",
   lineHeight: 1.5,
 };
-const signOutBtn: CSSProperties = {
+// Outline action (borrows `.account-oauth`'s border/hover-accent) — the lend affordance.
+const lendBtn: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 8,
+  width: "100%",
+  minHeight: 48,
+  borderRadius: 12,
+  background: "var(--sf)",
+  color: "var(--tx)",
+  fontWeight: 700,
+  fontSize: 15,
+  cursor: "pointer",
+};
+const switchBtn: CSSProperties = {
   minHeight: 44,
   padding: "0 2px",
   border: "none",
   background: "transparent",
   cursor: "pointer",
+  justifySelf: "start",
 };
 const confirmCopy: CSSProperties = {
   margin: "0 0 10px",
@@ -201,13 +265,14 @@ const confirmCopy: CSSProperties = {
   color: "var(--t2)",
   lineHeight: 1.5,
 };
-const confirmBtn: CSSProperties = {
+// Non-destructive proceed (Stars are safe) → accent border, not the `--warn` red of a true destructive step.
+const proceedBtn: CSSProperties = {
   minHeight: 44,
   padding: "0 16px",
   borderRadius: 11,
-  border: "1.5px solid var(--warn)",
+  border: "1.5px solid var(--ac)",
   background: "transparent",
-  color: "var(--warn)",
+  color: "var(--ac)",
   fontWeight: 800,
   fontSize: 14,
   cursor: "pointer",
