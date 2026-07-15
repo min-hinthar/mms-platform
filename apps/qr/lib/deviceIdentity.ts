@@ -6,6 +6,8 @@
 //
 // See docs/SHARED_DEVICE.md for the flows + the merge-suppression safety rule.
 
+import { clearMergeToken } from "./mergeTokenStore";
+
 const IDENTITIES_KEY = "mms.identities";
 const LEND_KEY = "mms.lend";
 const MAX_IDENTITIES = 3; // most-recent LRU; a shared phone shouldn't hoard a long roster of prior sign-ins
@@ -105,13 +107,19 @@ export function forgetIdentity(email: string): void {
   }
 }
 
-/** Wipe every remembered identity ("Not you? Forget this device"). */
+/**
+ * A COMPLETE device wipe ("Not you? Forget this device") — the remembered roster AND the lend flag (which
+ * holds the owner's email/name) AND any stashed merge token. Anything less would leave PII the copy promises
+ * to remove (and a lingering lend flag would keep greeting the prior owner by name).
+ */
 export function forgetAllIdentities(): void {
   try {
     window.localStorage.removeItem(IDENTITIES_KEY);
   } catch {
     /* ignore */
   }
+  clearLend(); // also drop the owner hint (email PII) + fire the banner-change event
+  clearMergeToken(); // and any stale merge proof, so it can never redeem onto a later sign-in
 }
 
 /** The active lend session, or null. Auto-expires past the TTL so a stale flag never shows a wrong banner. */

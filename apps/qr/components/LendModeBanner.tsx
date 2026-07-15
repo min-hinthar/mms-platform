@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { readLend, LEND_CHANGE_EVENT, type LendState } from "@/lib/deviceIdentity";
 
@@ -21,8 +21,23 @@ export function LendModeBanner() {
   const pathname = usePathname();
   const router = useRouter();
   const [lend, setLend] = useState<LendState | null>(null);
+  const ref = useRef<HTMLElement>(null);
 
   const refresh = useCallback(() => setLend(readLend()), []);
+
+  // Publish the ribbon's real height as `--lend-offset` so every OTHER sticky chrome pinned at the header
+  // offset (the menu toolbar, the cart alert) drops below it instead of painting over it. Cleared to 0 when
+  // the ribbon isn't showing. Layout effect + measured height so the offset is right before the next paint.
+  const shown = !!lend && !pathname?.startsWith("/staff");
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    if (shown && ref.current) {
+      root.style.setProperty("--lend-offset", `${Math.round(ref.current.offsetHeight)}px`);
+    } else {
+      root.style.setProperty("--lend-offset", "0px");
+    }
+    return () => root.style.setProperty("--lend-offset", "0px");
+  }, [shown, lend]);
 
   useEffect(() => {
     const raf = requestAnimationFrame(refresh); // deferred first read (SSR parity)
@@ -45,11 +60,14 @@ export function LendModeBanner() {
     return () => cancelAnimationFrame(raf);
   }, [pathname, refresh]);
 
-  if (!lend || pathname?.startsWith("/staff")) return null;
+  if (!shown || !lend) return null;
   const owner = lend.ownerFirstName?.trim() || "your account";
 
   return (
-    <div className="lend-banner" aria-label="Ordering for a friend">
+    // <aside> = a complementary landmark, so the aria-label is actually announced (a bare labelled <div> is
+    // role-less and AT ignores the label). Persistent chrome, NOT a live region — no aria-live (it must not
+    // double-announce against /account's role="status" regions).
+    <aside ref={ref} className="lend-banner" aria-label="Ordering for a friend">
       <span className="lend-banner-glyph" aria-hidden>
         ✦
       </span>
@@ -64,6 +82,6 @@ export function LendModeBanner() {
       >
         Done — back to {owner}
       </button>
-    </div>
+    </aside>
   );
 }

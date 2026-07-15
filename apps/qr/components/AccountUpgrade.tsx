@@ -197,19 +197,35 @@ export function AccountUpgrade({ stars }: { stars: number }) {
     if (!resumeParam || resumeFired.current) return;
     resumeFired.current = true;
     if (typeof window !== "undefined") {
-      window.history.replaceState(null, "", window.location.pathname);
+      // Strip ONLY `resume` (keep any co-present params, e.g. an OAuth error_code) so a refresh can't re-fire.
+      const url = new URL(window.location.href);
+      url.searchParams.delete("resume");
+      window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
     }
-    // Defer to the next frame so the fast-re-auth's setState (setBusy / setEmail) isn't a synchronous
-    // setState-in-effect (lint-safe, matching the chooser's deferred read).
+    // Defer to the next frame so the fast-re-auth's setState isn't a synchronous setState-in-effect
+    // (lint-safe, matching the chooser's deferred read).
     const raf = requestAnimationFrame(() => {
       const match = readIdentities().find(
         (i) => i.email.toLowerCase() === resumeParam.toLowerCase(),
       );
-      if (match) void selectIdentity(match);
-      else setEmail(resumeParam); // not remembered → pre-fill the field for a manual sign-in
+      if (match) {
+        void selectIdentity(match);
+        return;
+      }
+      // A `?resume=` return is ALWAYS the owner coming back to their OWN account (it originates only from the
+      // lend banner), so the current session's guest Stars are the FRIEND's — never bring them. Even when the
+      // owner is no longer remembered (roster wiped / LRU-evicted), force the merge-SUPPRESSED sign-in rather
+      // than falling back to a bare pre-fill (which would route through emailTaken → bringStars:true and sweep
+      // the friend's Stars onto the owner). An OTP works whether the owner is an email or Google account.
+      setBusy(true);
+      setSelectedEmail(resumeParam);
+      void sendSignInCode(resumeParam, false).then((ok) => {
+        setBusy(false);
+        if (!ok) setSelectedEmail(null);
+      });
     });
     return () => cancelAnimationFrame(raf);
-  }, [resumeParam, selectIdentity]);
+  }, [resumeParam, selectIdentity, sendSignInCode]);
 
   async function submitEmail(e: FormEvent) {
     e.preventDefault();

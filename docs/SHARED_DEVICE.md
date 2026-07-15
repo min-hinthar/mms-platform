@@ -1,6 +1,6 @@
 # Shared-device account experience — switch, remember, lend
 
-**Status:** in build · **Phase:** K7 (follow-on to Journey II) · **Branch:** `claude/app-ui-security-branding-ezpqkq`
+**Status:** built · gate green (lint · typecheck · build) · in adversarial review · **Phase:** K7 (follow-on to Journey II) · **Branch:** `claude/app-ui-security-branding-ezpqkq`
 
 The scenario the owner raised: _"a friend is ordering for a friend on my device and wants to switch back to
 their own account."_ Today the QR app has **no logged-out state and no account switcher** — signing out drops
@@ -86,8 +86,8 @@ account, and the owner can never inherit the friend's Stars.
 
 - Chips + banner are real controls: ≥44px targets, accessible names, `role="list"` on the chip list, focus
   moved on step change, decorative glyphs `aria-hidden`, one live region per view.
-- Motion (chip entrance, banner slide) is `shouldAnimate`-gated with a `prefers-reduced-motion` off-switch;
-  transform/opacity only.
+- Motion (chip entrance, banner slide) is pure CSS with a `@media (prefers-reduced-motion: reduce)`
+  off-switch; transform/opacity only.
 - Tokens only (no hardcoded colors); copy is bilingual-aware and honest (no promise the code doesn't keep).
 
 ## Files

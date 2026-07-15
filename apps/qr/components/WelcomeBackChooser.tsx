@@ -5,6 +5,7 @@ import {
   readIdentities,
   forgetIdentity,
   forgetAllIdentities,
+  readLend,
   maskEmail,
   type DeviceIdentity,
 } from "@/lib/deviceIdentity";
@@ -38,9 +39,13 @@ export function WelcomeBackChooser({
   const [ready, setReady] = useState(false); // gates the entrance animation to the post-hydration populate
 
   useEffect(() => {
-    // Deferred read — first render is empty (SSR-parity), then the chips animate in.
+    // Deferred read — first render is empty (SSR-parity), then the chips animate in. While the phone is LENT,
+    // hide the OWNER's own chip: the friend is ordering as a guest and shouldn't be nudged to sign into the
+    // owner's account (the owner returns via the banner's one-tap resume, not this chooser).
     const raf = requestAnimationFrame(() => {
-      setIdentities(readIdentities());
+      const lend = readLend();
+      const owner = lend?.ownerEmail.toLowerCase();
+      setIdentities(readIdentities().filter((i) => i.email.toLowerCase() !== owner));
       setReady(true);
     });
     return () => cancelAnimationFrame(raf);

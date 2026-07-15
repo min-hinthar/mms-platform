@@ -487,8 +487,8 @@ export function TableCartProvider({
           style={{
             position: "fixed",
             // Pin BELOW the persistent AppHeader (which owns the notch inset) so the alert doesn't cover
-            // the brand/rewards — header height + inset + a small gap.
-            top: "calc(var(--header-height) + env(safe-area-inset-top, 0px) + 8px)",
+            // the brand/rewards — header height + inset + the K7 lend ribbon (0 when not lent) + a small gap.
+            top: "calc(var(--header-height) + env(safe-area-inset-top, 0px) + var(--lend-offset, 0px) + 8px)",
             left: 12,
             right: 12,
             margin: "0 auto",

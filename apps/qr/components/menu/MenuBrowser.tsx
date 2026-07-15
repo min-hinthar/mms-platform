@@ -17,6 +17,7 @@ import { FavoritesRail } from "./FavoritesRail";
 import { useCart } from "@/components/TableCartProvider";
 import { toggleFavorite } from "@/lib/favorites";
 import { reorderOrder } from "@/lib/reorder";
+import { LEND_CHANGE_EVENT } from "@/lib/deviceIdentity";
 import type { WelcomeBack } from "@/lib/rewards";
 
 export type MenuItem = {
@@ -234,16 +235,26 @@ export function MenuBrowser({
   const freeFrom = hasFreeFrom(diets);
   const empty = visible.length === 0;
 
-  // Measure the sticky toolbar so the scroll-spy inset + section scroll-margin track its real height
-  // (it grows when chips wrap / the disclaimer shows). Falls back to the 150 seed if RO is unavailable.
+  // Measure the sticky toolbar so the scroll-spy inset + section scroll-margin track its real height (it grows
+  // when chips wrap / the disclaimer shows) PLUS the K7 lend ribbon's height (`--lend-offset`, 0 when not
+  // lent) — while the phone is lent, the toolbar pins below the ribbon, so a jump must clear both. Re-measures
+  // on the toolbar resize AND on a lend-mode toggle. Falls back to the 150 seed if RO is unavailable.
   useEffect(() => {
     const el = toolbarRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const measure = () => setToolbarH(el.getBoundingClientRect().height);
+    if (!el) return;
+    const lendOffset = () => {
+      const n = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--lend-offset"));
+      return Number.isFinite(n) ? n : 0;
+    };
+    const measure = () => setToolbarH(el.getBoundingClientRect().height + lendOffset());
     measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    ro?.observe(el);
+    window.addEventListener(LEND_CHANGE_EVENT, measure);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener(LEND_CHANGE_EVENT, measure);
+    };
   }, []);
 
   // Scroll-spy: mark the section nearest the top (just under the sticky toolbar) as the active tab.

@@ -8,6 +8,10 @@
   /* Persistent app-header content height (excl. the notch inset, which the header adds as padding-top).
      The menu's sticky toolbar offsets its `top` by this so the two chrome layers never overlap. */
   --header-height: 56px;
+  /* K7 lend mode: the "ordering for a friend" ribbon stacks below the header, so any OTHER sticky chrome
+     pinned at the header offset (the menu toolbar, the cart alert) must drop by the ribbon's height or it
+     paints over the ribbon. LendModeBanner sets this to its measured height while active, else 0. */
+  --lend-offset: 0px;
 }
 html,
 body {
@@ -617,7 +621,7 @@ h3 {
    longer adds its own (no double-count). */
 .menu-toolbar {
   position: sticky;
-  top: calc(var(--header-height) + env(safe-area-inset-top, 0px));
+  top: calc(var(--header-height) + env(safe-area-inset-top, 0px) + var(--lend-offset, 0px));
   z-index: var(--z-toolbar);
   background: var(--pg);
   padding: 8px 20px 10px;
