@@ -9,6 +9,7 @@ import { ThemeSync } from "@/components/ThemeSync";
 import { MotionProvider } from "@/components/MotionProvider";
 import { ActiveOrderProvider } from "@/components/ActiveOrderProvider";
 import { AppHeader } from "@/components/AppHeader";
+import { LendModeBanner } from "@/components/LendModeBanner";
 import { NavDirectionSync } from "@/components/nav/TransitionNav";
 import { SurfaceMemory } from "@/components/nav/SurfaceMemory";
 
@@ -108,6 +109,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                 reads it. Both are client components; AppHeader self-hides on /staff. */}
             <ActiveOrderProvider>
               <AppHeader />
+              {/* K7 shared-device: sticky "ordering for a friend" ribbon, stacked below the header. Renders
+                  null off lend mode / on /staff. */}
+              <LendModeBanner />
               {children}
             </ActiveOrderProvider>
           </MotionProvider>

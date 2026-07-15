@@ -8,6 +8,10 @@
   /* Persistent app-header content height (excl. the notch inset, which the header adds as padding-top).
      The menu's sticky toolbar offsets its `top` by this so the two chrome layers never overlap. */
   --header-height: 56px;
+  /* K7 lend mode: the "ordering for a friend" ribbon stacks below the header, so any OTHER sticky chrome
+     pinned at the header offset (the menu toolbar, the cart alert) must drop by the ribbon's height or it
+     paints over the ribbon. LendModeBanner sets this to its measured height while active, else 0. */
+  --lend-offset: 0px;
 }
 html,
 body {
@@ -617,7 +621,7 @@ h3 {
    longer adds its own (no double-count). */
 .menu-toolbar {
   position: sticky;
-  top: calc(var(--header-height) + env(safe-area-inset-top, 0px));
+  top: calc(var(--header-height) + env(safe-area-inset-top, 0px) + var(--lend-offset, 0px));
   z-index: var(--z-toolbar);
   background: var(--pg);
   padding: 8px 20px 10px;
@@ -2560,6 +2564,244 @@ h3 {
   .nav-link-strong:not(:disabled):active,
   .account-oauth:not(:disabled):hover,
   .account-oauth:not(:disabled):active {
+    transform: none;
+  }
+}
+
+/* ── K7 shared-device: "Welcome back" chooser + lend banner ───────────────────────────────────────────
+   Remembered-identity chips (one-tap merge-suppressed return) above the sign-in form, and the global
+   "ordering for a friend" ribbon. Tokens only, ≥44px targets, light + Night, reduced-motion off-switch at
+   the end. Hints are display-only (deviceIdentity.ts) — the surface never holds a credential. */
+.wb-chooser {
+  margin: 0 0 16px;
+}
+.wb-heading {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--t2);
+}
+.wb-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.wb-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+.wb-chip {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  padding: 8px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--bd);
+  background: var(--sf);
+  color: var(--tx);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 var(--sheen);
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out);
+  animation: wb-in var(--dur-base) var(--ease-out) backwards;
+  animation-delay: calc(var(--wb-i, 0) * 60ms);
+}
+.wb-chip:not(:disabled):hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in oklab, var(--ac) 40%, var(--bd));
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-lift);
+}
+.wb-chip:not(:disabled):active {
+  transform: scale(0.99);
+}
+.wb-chip:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.wb-avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  font-size: 18px;
+}
+.wb-who {
+  flex: 1; /* bounded width so the name/email truncate instead of shoving the method pill off */
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.wb-name {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--tx);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wb-mail {
+  font-size: 12px;
+  color: var(--t2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wb-method {
+  flex: none;
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--ac);
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--ac) 12%, transparent);
+}
+.wb-forget {
+  flex: none;
+  width: 44px;
+  min-height: 56px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  border: 1px solid var(--bd);
+  background: transparent;
+  color: var(--t2);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+.wb-forget:not(:disabled):hover {
+  color: var(--warn);
+  border-color: color-mix(in oklab, var(--warn) 40%, var(--bd));
+}
+.wb-forget-all {
+  margin: 12px 0 0;
+  padding: 0 2px;
+  min-height: 44px; /* ≥44px touch target (QA-CHECKLIST §A) */
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.wb-divider {
+  margin: 16px 0;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--t2);
+}
+
+.lend-banner {
+  position: sticky;
+  top: calc(var(--header-height) + env(safe-area-inset-top, 0px));
+  z-index: calc(var(--z-toolbar) - 1);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 14px;
+  min-height: 52px;
+  background: color-mix(in oklab, var(--ac) 12%, var(--pg));
+  border-bottom: 1px solid color-mix(in oklab, var(--ac) 26%, var(--bd));
+  color: var(--tx);
+  animation: lend-in var(--dur-base) var(--ease-out);
+}
+.lend-banner-glyph {
+  flex: none;
+  font-size: 16px;
+  color: var(--ac);
+}
+.lend-banner-copy {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lend-banner-sub {
+  color: var(--t2);
+  font-weight: 500;
+}
+.lend-banner-back {
+  flex: none;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--ac) 45%, var(--bd));
+  background: color-mix(in oklab, var(--ac) 16%, var(--sf));
+  color: var(--ac);
+  font-weight: 800;
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out);
+}
+.lend-banner-back:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--sh-lift);
+}
+.lend-banner-back:active {
+  transform: scale(0.98);
+}
+@media (max-width: 379px) {
+  .lend-banner-sub {
+    display: none; /* keep the ribbon single-line on the narrowest phones */
+  }
+}
+@keyframes wb-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes lend-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wb-chip,
+  .lend-banner {
+    animation: none;
+  }
+  .wb-chip:not(:disabled):hover,
+  .wb-chip:not(:disabled):active,
+  .wb-forget:not(:disabled):hover,
+  .lend-banner-back:hover,
+  .lend-banner-back:active {
     transform: none;
   }
 }

@@ -1,5 +1,6 @@
 "use client";
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -11,7 +12,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { browserClient } from "@mms/db";
 import { ensureProfile } from "@/lib/rewards";
 import { mintMergeToken } from "@/lib/merge";
-import { stashMergeToken } from "@/lib/mergeTokenStore";
+import { stashMergeToken, clearMergeToken } from "@/lib/mergeTokenStore";
+import { readIdentities, type DeviceIdentity } from "@/lib/deviceIdentity";
+import { WelcomeBackChooser } from "./WelcomeBackChooser";
 import { Card } from "@mms/ui";
 
 /**
@@ -23,7 +26,7 @@ import { Card } from "@mms/ui";
  * only confirmed staff, never an upgraded diner — so there's no client marker to set (and no marker-write
  * that could fail before the Google redirect and orphan the account).
  */
-export function AccountUpgrade() {
+export function AccountUpgrade({ stars }: { stars: number }) {
   const router = useRouter();
   const [phase, setPhase] = useState<"idle" | "code">("idle");
   const [email, setEmail] = useState("");
@@ -36,6 +39,73 @@ export function AccountUpgrade() {
   // keeps this anon uid (Stars carry over); an `email` sign-in switches to the existing account.
   const [emailTaken, setEmailTaken] = useState(false);
   const [codeMode, setCodeMode] = useState<"email_change" | "email">("email_change");
+  // K7: the email currently mid re-auth from a "Welcome back" chip / a `?resume=` return — shows a spinner on
+  // that chip and drives the code-step label.
+  const [selectedEmail, setSelectedEmail] = useState<string | null>(null);
+
+  // K7 shared-device — sign INTO a pre-existing account. `bringStars` is the merge-safety hinge: a genuine
+  // guest saving their own Stars (typed a taken email / used Google) mints the K3b merge token to carry them
+  // over; an explicit SWITCH (a remembered-identity chip, or a lend-mode resume) passes false so the current
+  // session's guest Stars are NEVER swept onto the account being switched to — and clears any stale token.
+  const sendSignInCode = useCallback(async (addr: string, bringStars: boolean): Promise<boolean> => {
+    const supa = browserClient();
+    if (bringStars) {
+      const mtoken = await mintMergeToken();
+      if (mtoken) stashMergeToken(mtoken);
+    } else {
+      clearMergeToken();
+    }
+    const { error: e0 } = await supa.auth.signInWithOtp({
+      email: addr,
+      options: { shouldCreateUser: false }, // sign in to the EXISTING account — never silently mint a new one
+    });
+    if (e0) {
+      setError(e0.message || "Couldn’t send the sign-in code — try again.");
+      return false;
+    }
+    setEmail(addr);
+    setCodeMode("email");
+    setPhase("code");
+    return true;
+  }, []);
+
+  const startGoogleSignIn = useCallback(async (bringStars: boolean): Promise<void> => {
+    const supa = browserClient();
+    if (bringStars) {
+      const mtoken = await mintMergeToken();
+      if (mtoken) stashMergeToken(mtoken);
+    } else {
+      clearMergeToken();
+    }
+    const { error: e4 } = await supa.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: `${window.location.origin}/account` },
+    });
+    if (e4) {
+      setError(e4.message || "Couldn’t sign in with Google — try again.");
+      setBusy(false);
+      setSelectedEmail(null);
+    }
+    // success → full-page redirect to Google, returns to /account
+  }, []);
+
+  // Tap a "Welcome back" chip — a merge-suppressed switch to a known prior identity.
+  const selectIdentity = useCallback(
+    async (id: DeviceIdentity) => {
+      setBusy(true);
+      setError(null);
+      setEmailTaken(false);
+      setSelectedEmail(id.email);
+      if (id.method === "google") {
+        await startGoogleSignIn(false); // redirects away (or clears busy on error)
+        return;
+      }
+      const ok = await sendSignInCode(id.email, false);
+      setBusy(false);
+      if (!ok) setSelectedEmail(null);
+    },
+    [sendSignInCode, startGoogleSignIn],
+  );
 
   // OAuth callback error (M4 P4.1): linkIdentity redirects back to /account, and if the Google account the
   // diner picked is already linked to a DIFFERENT Morning Star account, Supabase (PKCE → the error lands in
@@ -86,15 +156,16 @@ export function AccountUpgrade() {
   // client-side AFTER the initial SSR (which saw anonymous cookies), so `/account`'s RewardsHub + this card
   // stay stale until a manual reload — verify() refreshes the email path explicitly, but the Google path had
   // no refresh. Subscribe to the auth confirm (SIGNED_IN on Google, USER_UPDATED on email) and refresh once
-  // (ref-guarded), gated on the session being a REAL account (is_anonymous === false) so the anonymous
-  // sign-in AnonAuthGate mints never trips it. ensureProfile() first so the Google upgrade's profile row exists.
+  // (ref-guarded), gated on the session being a REAL account (is_anonymous !== true — a real account may
+  // surface the flag as false OR omit it, and only an anon session is explicitly `true`) so the anonymous
+  // sign-in AnonAuthGate mints never trip it. ensureProfile() first so the Google upgrade's profile row exists.
   const refreshedRef = useRef(false);
   useEffect(() => {
     const supa = browserClient();
     const {
       data: { subscription },
     } = supa.auth.onAuthStateChange((event, session) => {
-      const upgraded = session?.user?.is_anonymous === false;
+      const upgraded = !!session?.user && session.user.is_anonymous !== true;
       if (
         (event === "SIGNED_IN" || event === "USER_UPDATED") &&
         upgraded &&
@@ -116,6 +187,50 @@ export function AccountUpgrade() {
     return () => subscription.unsubscribe();
   }, [router, startTransition]);
 
+  // K7 lend resume — a "Done — back to [owner]" tap lands here as `?resume=<email>`. Fire the owner's
+  // merge-SUPPRESSED fast re-auth once (a remembered chip → its OTP/OAuth path; otherwise pre-fill the field
+  // for a manual sign-in), then strip the param so a refresh can't re-fire it. `readIdentities` is client-only
+  // so this runs post-hydration, matching the chooser.
+  const resumeParam = searchParams.get("resume");
+  const resumeFired = useRef(false);
+  useEffect(() => {
+    if (!resumeParam || resumeFired.current) return;
+    // Defer everything to the next frame AND set the fire-once guard INSIDE the callback (not in setup): React
+    // Strict Mode double-invokes mount effects (setup → cleanup → setup), and a guard set in setup would
+    // survive the simulated remount (refs persist) while the raf got cancelled — leaving the second setup to
+    // bail without ever running. Guarding at run-time means the second setup reschedules and the work fires
+    // exactly once. Deferring also keeps the fast-re-auth's setState off the synchronous effect body (lint).
+    const raf = requestAnimationFrame(() => {
+      if (resumeFired.current) return;
+      resumeFired.current = true;
+      if (typeof window !== "undefined") {
+        // Strip ONLY `resume` (keep any co-present params, e.g. an OAuth error_code) so a refresh can't re-fire.
+        const url = new URL(window.location.href);
+        url.searchParams.delete("resume");
+        window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+      }
+      const match = readIdentities().find(
+        (i) => i.email.toLowerCase() === resumeParam.toLowerCase(),
+      );
+      if (match) {
+        void selectIdentity(match);
+        return;
+      }
+      // A `?resume=` return is ALWAYS the owner coming back to their OWN account (it originates only from the
+      // lend banner), so the current session's guest Stars are the FRIEND's — never bring them. Even when the
+      // owner is no longer remembered (roster wiped / LRU-evicted), force the merge-SUPPRESSED sign-in rather
+      // than falling back to a bare pre-fill (which would route through emailTaken → bringStars:true and sweep
+      // the friend's Stars onto the owner). An OTP works whether the owner is an email or Google account.
+      setBusy(true);
+      setSelectedEmail(resumeParam);
+      void sendSignInCode(resumeParam, false).then((ok) => {
+        setBusy(false);
+        if (!ok) setSelectedEmail(null);
+      });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [resumeParam, selectIdentity, sendSignInCode]);
+
   async function submitEmail(e: FormEvent) {
     e.preventDefault();
     const addr = email.trim();
@@ -125,24 +240,11 @@ export function AccountUpgrade() {
     const supa = browserClient();
 
     if (emailTaken) {
-      // RECOVERY: the address belongs to another account, so SIGN IN to it (updateUser would just
-      // re-fail email_exists). `shouldCreateUser: false` never silently mints a new account — it sends a
-      // code to the EXISTING one. verify() then uses type "email" (a sign-in, not an email-change).
-      // K3b: this switches to a DIFFERENT uid, so mint a merge token WHILE still anonymous — after sign-in
-      // /account's MergeRedeemer moves this device's Stars onto that account. Best-effort (null → no merge).
-      const mtoken = await mintMergeToken();
-      if (mtoken) stashMergeToken(mtoken);
-      const { error: e0 } = await supa.auth.signInWithOtp({
-        email: addr,
-        options: { shouldCreateUser: false },
-      });
-      if (e0) {
-        setError(e0.message || "Couldn’t send the sign-in code — try again.");
-        setBusy(false);
-        return;
-      }
-      setCodeMode("email");
-      setPhase("code");
+      // RECOVERY: the diner TYPED an address that belongs to another account, so SIGN IN to it (updateUser
+      // would just re-fail email_exists). This is a genuine guest saving their OWN Stars into a pre-existing
+      // account → `bringStars: true` mints the K3b merge token so /account's MergeRedeemer carries this
+      // device's Stars over. (A remembered-CHIP switch takes the `false` path instead — see selectIdentity.)
+      await sendSignInCode(addr, true);
       setBusy(false);
       return;
     }
@@ -218,21 +320,10 @@ export function AccountUpgrade() {
   async function signInGoogle() {
     setBusy(true);
     setError(null);
-    const supa = browserClient();
     // Recovery for identity_already_exists: SIGN IN to the existing account (not linkIdentity, which would
-    // fail the same way) so the diner lands on their real account and its saved rewards.
-    // K3b: mint the merge token before leaving for Google (still anonymous now) — on return, /account's
-    // MergeRedeemer moves this device's Stars onto that account. Best-effort (null → no merge).
-    const mtoken = await mintMergeToken();
-    if (mtoken) stashMergeToken(mtoken);
-    const { error: e4 } = await supa.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: `${window.location.origin}/account` },
-    });
-    if (e4) {
-      setError(e4.message || "Couldn’t sign in with Google — try again.");
-      setBusy(false);
-    }
+    // fail the same way) so the diner lands on their real account and its saved rewards. A genuine guest
+    // saving their OWN Stars → `bringStars: true` mints the merge token before the redirect.
+    await startGoogleSignIn(true);
   }
 
   return (
@@ -243,10 +334,32 @@ export function AccountUpgrade() {
       <h2 id="upgrade-h" style={h2}>
         Keep your rewards
       </h2>
+      {/* Name the stakes honestly (the confusion this fixes: seeing your Stars + a "save them" pitch reads
+          as a contradiction unless it's clear they're DEVICE-BOUND and could be lost). Lead with the real
+          count when there is one. */}
       <p style={sub}>
-        You’re earning Stars on this device. Add an email or continue with Google to{" "}
-        <strong>save them to an account</strong> — your past orders count too.
+        {stars > 0 ? (
+          <>
+            You’ve earned{" "}
+            <strong>
+              {stars} {stars === 1 ? "Star" : "Stars"}
+            </strong>{" "}
+            on this device — they live only here. Add an email or continue with Google to{" "}
+            <strong>keep them for good</strong>; your past orders come with you too.
+          </>
+        ) : (
+          <>
+            You’re earning Stars on this device — they live only here. Add an email or continue with
+            Google to <strong>save them to an account</strong>.
+          </>
+        )}
       </p>
+
+      {/* K7: remembered-identity chips for a one-tap (merge-suppressed) return — renders null for a
+          first-time guest with no history. Only on the idle step (the code step is mid-sign-in). */}
+      {phase === "idle" && (
+        <WelcomeBackChooser onSelect={selectIdentity} busy={busy} selectedEmail={selectedEmail} />
+      )}
 
       {phase === "idle" ? (
         <form onSubmit={submitEmail}>
@@ -325,6 +438,7 @@ export function AccountUpgrade() {
               setError(null);
               setEmailTaken(false); // back to a clean upgrade attempt
               setCodeMode("email_change");
+              setSelectedEmail(null); // clear any chip-selection spinner state
             }}
             className="nav-link"
             style={textBtn}

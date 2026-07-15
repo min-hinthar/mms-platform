@@ -44,7 +44,12 @@ export async function getRewardsState(): Promise<RewardsState | null> {
   } = await supa.auth.getUser();
   if (!user) return null; // no session (shouldn't happen behind AnonAuthGate) — caller renders a fallback
   const uid = user.id;
-  const isUpgraded = user.is_anonymous === false;
+  // "Upgraded" = a REAL (non-anonymous) account. Test `!== true`, NOT `=== false`: an anonymous session
+  // always carries `is_anonymous: true`, but a real account can surface it as `false` OR omit it
+  // (undefined) depending on the GoTrue/session shape — and `undefined === false` would wrongly drop a
+  // signed-in diner back to the "save your Stars" guest pitch. `!== true` treats anything not-explicitly-
+  // anonymous as the real account it is.
+  const isUpgraded = user.is_anonymous !== true;
 
   const db = serviceClient();
   const { data: summary } = await db.rpc("mms_rewards_summary", { p_user: uid });
@@ -118,7 +123,7 @@ export async function getRewardsBadge(): Promise<RewardsBadge | null> {
   return {
     stars: Number(s.stars ?? 0),
     tierId: s.tier_id ?? "new",
-    isUpgraded: user.is_anonymous === false,
+    isUpgraded: user.is_anonymous !== true, // real account = not-explicitly-anonymous (see getRewardsState)
   };
 }
 
@@ -182,7 +187,7 @@ export async function getRewardsProgress(orderId?: string | null): Promise<Rewar
     ordersToNext: Number(s.orders_to_next ?? 0),
     tierId: s.tier_id ?? "new",
     earnedThisOrder,
-    isUpgraded: user.is_anonymous === false,
+    isUpgraded: user.is_anonymous !== true, // real account = not-explicitly-anonymous (see getRewardsState)
   };
 }
 
@@ -270,7 +275,7 @@ export async function getWelcomeBack(): Promise<WelcomeBack | null> {
         .eq("earned_by", uid)
         .eq("status", "paid")
         .gte("created_at", laMonthStartIso()),
-      user.is_anonymous === false
+      user.is_anonymous !== true // real account only has a durable display name (see getRewardsState)
         ? db
             .from("mms_profiles")
             .select("display_name")
@@ -395,7 +400,7 @@ export async function ensureProfile(): Promise<void> {
   const {
     data: { user },
   } = await supa.auth.getUser();
-  if (!user || user.is_anonymous !== false) return;
+  if (!user || user.is_anonymous === true) return; // skip only for an anonymous guest (see getRewardsState)
   const db = serviceClient();
   await db
     .from("mms_profiles")
