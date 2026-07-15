@@ -23,7 +23,7 @@ import { Card } from "@mms/ui";
  * only confirmed staff, never an upgraded diner — so there's no client marker to set (and no marker-write
  * that could fail before the Google redirect and orphan the account).
  */
-export function AccountUpgrade() {
+export function AccountUpgrade({ stars }: { stars: number }) {
   const router = useRouter();
   const [phase, setPhase] = useState<"idle" | "code">("idle");
   const [email, setEmail] = useState("");
@@ -86,15 +86,16 @@ export function AccountUpgrade() {
   // client-side AFTER the initial SSR (which saw anonymous cookies), so `/account`'s RewardsHub + this card
   // stay stale until a manual reload — verify() refreshes the email path explicitly, but the Google path had
   // no refresh. Subscribe to the auth confirm (SIGNED_IN on Google, USER_UPDATED on email) and refresh once
-  // (ref-guarded), gated on the session being a REAL account (is_anonymous === false) so the anonymous
-  // sign-in AnonAuthGate mints never trips it. ensureProfile() first so the Google upgrade's profile row exists.
+  // (ref-guarded), gated on the session being a REAL account (is_anonymous !== true — a real account may
+  // surface the flag as false OR omit it, and only an anon session is explicitly `true`) so the anonymous
+  // sign-in AnonAuthGate mints never trip it. ensureProfile() first so the Google upgrade's profile row exists.
   const refreshedRef = useRef(false);
   useEffect(() => {
     const supa = browserClient();
     const {
       data: { subscription },
     } = supa.auth.onAuthStateChange((event, session) => {
-      const upgraded = session?.user?.is_anonymous === false;
+      const upgraded = !!session?.user && session.user.is_anonymous !== true;
       if (
         (event === "SIGNED_IN" || event === "USER_UPDATED") &&
         upgraded &&
@@ -243,9 +244,25 @@ export function AccountUpgrade() {
       <h2 id="upgrade-h" style={h2}>
         Keep your rewards
       </h2>
+      {/* Name the stakes honestly (the confusion this fixes: seeing your Stars + a "save them" pitch reads
+          as a contradiction unless it's clear they're DEVICE-BOUND and could be lost). Lead with the real
+          count when there is one. */}
       <p style={sub}>
-        You’re earning Stars on this device. Add an email or continue with Google to{" "}
-        <strong>save them to an account</strong> — your past orders count too.
+        {stars > 0 ? (
+          <>
+            You’ve earned{" "}
+            <strong>
+              {stars} {stars === 1 ? "Star" : "Stars"}
+            </strong>{" "}
+            on this device — they live only here. Add an email or continue with Google to{" "}
+            <strong>keep them for good</strong>; your past orders come with you too.
+          </>
+        ) : (
+          <>
+            You’re earning Stars on this device — they live only here. Add an email or continue with
+            Google to <strong>save them to an account</strong>.
+          </>
+        )}
       </p>
 
       {phase === "idle" ? (

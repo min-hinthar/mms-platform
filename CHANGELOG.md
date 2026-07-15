@@ -4,6 +4,11 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed — guest rewards clarity + hardened signed-in detection (2026-07-14)
+
+- **The guest "Keep your rewards" card now names the stakes.** Seeing your device's Stars + a "save your Stars" pitch read as a contradiction (an anonymous guest session earns Stars, but they're bound to that device). The card now leads with the real count — "You've earned **N Stars** on this device — they live only here. … keep them for good; your past orders come with you" — so it's clear _why_ to attach an email/Google, not just _that_ you should.
+- **Hardened the "signed-in" (upgraded) check** from `is_anonymous === false` to `!== true` across the rewards reads (`getRewardsState`/`getRewardsBadge`/`getRewardsProgress`/`getWelcomeBack`/`ensureProfile`). An anonymous session always carries `is_anonymous: true`, but a real account can surface it as `false` **or** omit it — and `undefined === false` would wrongly drop a signed-in diner back to the guest pitch. `!== true` treats anything not-explicitly-anonymous as the real account it is (belt-and-suspenders; not the cause of the current guest-sees-pitch behavior, which is by design).
+
 ### Fixed — UI/UX polish: keyboard-safe sheets, To-go dropdown, richer signed-in card (2026-07-14)
 
 - **Bottom sheets ride above the on-screen keyboard.** A focused input in a bottom `Sheet` (e.g. the dine-in "join a table" party-code entry) was buried behind the mobile keyboard. Fixed in the shared `Sheet` primitive: it tracks the keyboard via the **VisualViewport API** and lifts itself by a `--kb-inset` — on **both iOS and Android** (both keep the layout viewport full-height on keyboard, so a `position:fixed` sheet would otherwise sit behind it), with the sheet's max-height subtracting the inset so its top never slips under the notch. Deliberately **not** the global `interactive-widget=resizes-content` (it would jump the fixed menu CartBar above the keyboard and reflow the `100dvh` staff login). Ref-counted across stacked sheets and thresholded (>120px) so the iOS URL-bar collapse doesn't false-lift. Benefits every sheet with an input.

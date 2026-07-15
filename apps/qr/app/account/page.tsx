@@ -58,7 +58,7 @@ export default async function Account() {
                 stars={state.stars}
               />
             ) : (
-              <AccountUpgrade />
+              <AccountUpgrade stars={state.stars} />
             )}
           </div>
           <RewardsHub state={state} />

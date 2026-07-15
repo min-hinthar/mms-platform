@@ -76,10 +76,14 @@ export function MergeRedeemer() {
     const {
       data: { subscription },
     } = supa.auth.onAuthStateChange((event, session) => {
-      // Redeem the moment a REAL account confirms (anon AnonAuthGate mints never trip it: is_anonymous check).
+      // Redeem the moment a REAL account confirms — `is_anonymous !== true` (a real account may surface the
+      // flag as false OR omit it; only an anon session is explicitly `true`), so anon AnonAuthGate mints
+      // never trip it. This only fires the ATTEMPT; the server redeem stays the authority (SSR-verifies a
+      // non-anon caller before touching anything).
       if (
         (event === "SIGNED_IN" || event === "USER_UPDATED") &&
-        session?.user?.is_anonymous === false
+        !!session?.user &&
+        session.user.is_anonymous !== true
       ) {
         void attempt();
       }
