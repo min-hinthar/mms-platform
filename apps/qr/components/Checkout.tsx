@@ -412,7 +412,17 @@ export function Checkout({
   // exactly with the tip-inclusive total create-intent returns on the pay step.
   const tipPreview = (rate: number) =>
     Math.round((totals.subtotalCents - totals.discountCents) * rate);
-  const tipPreviewCents = tipPreview(tipRate);
+
+  // Pure-grocery basket (W1): every chargeable line is a self-scanned retail item — no tip ask
+  // (no grocery self-checkout prompts one) and no SB-1524 service copy (the server excludes
+  // grocery lines from the service base + forces tip to 0, so the receipt rows go honest here
+  // too). Voided/comped lines are charged $0 and don't count against the predicate. The preview
+  // is zeroed as well so a mixed cart that BECOMES pure grocery (restaurant line removed after a
+  // tip was picked) can't show an "Estimated total" the server will honestly refuse to charge.
+  const chargeableItems = viewItems.filter((i) => i.lineState !== "voided" && !i.comped);
+  const pureGrocery =
+    chargeableItems.length > 0 && chargeableItems.every((i) => i.fulfillment === "grocery");
+  const tipPreviewCents = pureGrocery ? 0 : tipPreview(tipRate);
 
   return (
     <main style={{ padding: "24px 20px 40px", maxWidth: 440, margin: "0 auto" }}>
@@ -698,7 +708,9 @@ export function Checkout({
               onChanged={() => void refresh()}
             />
 
-            {/* Tip selector (server confirms the exact tip at create-intent) */}
+            {/* Tip selector (server confirms the exact tip at create-intent). Hidden on a
+                pure-grocery basket — self-scanned retail is not table service (W1). */}
+            {!pureGrocery && (
             <div
               role="group"
               aria-label="Add a tip"
@@ -742,6 +754,7 @@ export function Checkout({
                 );
               })}
             </div>
+            )}
 
             <div className="card card-textured checkout-receipt">
               <dl>
@@ -750,7 +763,11 @@ export function Checkout({
                   <Row k="Promo" cents={-(totals.discountCents - totals.rewardCents)} />
                 )}
                 {totals.rewardCents > 0 && <Row k="Reward" cents={-totals.rewardCents} />}
-                <Row k="Service charge (5%)" cents={totals.serviceChargeCents} />
+                {/* Server-derived: 0 on a pure-grocery basket (grocery lines are outside the
+                    SB-1524 service base) — the row and the disclosure only render when charged. */}
+                {totals.serviceChargeCents > 0 && (
+                  <Row k="Service charge (5%)" cents={totals.serviceChargeCents} />
+                )}
                 <Row k="Sales tax" cents={totals.taxCents} />
                 {/* Tip is previewed here so the review total matches the pay-step total — labeled
                   "Estimated" until create-intent confirms it server-side. */}
@@ -765,11 +782,13 @@ export function Checkout({
               </dl>
             </div>
 
-            <p style={{ fontSize: 11, color: "var(--t3)" }}>
-              A 5% service charge supports fair kitchen wages and is shared with the team (CA
-              SB-1524). It is not a tip — anything extra above is yours to give. Card fees are built
-              into menu prices; we never add a surcharge on debit.
-            </p>
+            {totals.serviceChargeCents > 0 && (
+              <p style={{ fontSize: 11, color: "var(--t3)" }}>
+                A 5% service charge supports fair kitchen wages and is shared with the team (CA
+                SB-1524). It is not a tip — anything extra above is yours to give. Card fees are
+                built into menu prices; we never add a surcharge on debit.
+              </p>
+            )}
 
             {canSendToKitchen && viewItems.length > 0 && (
               // onChanged re-syncs the cart after a send (steppers → chips) or an undo (chips → steppers),
