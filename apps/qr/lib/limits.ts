@@ -27,6 +27,19 @@ export const JOIN_RATE = { max: 30, windowSeconds: 60 } as const;
 export const MUTATE_RATE = { max: 120, windowSeconds: 60 } as const;
 
 /**
+ * Per-caller manager-PIN step-up attempt limit (W1·Q7). The lockout in mms_staff_verify_pin protects
+ * the TARGET (5 wrong tries → 15-min lock per staff id) — but that very lockout is a DoS lever: any
+ * staff account could serially wrong-PIN every manager/owner and keep voids/refunds/approvals locked
+ * floor-wide. This bounds the ATTACKER instead: every step-up attempt a caller makes, keyed by the
+ * CALLER's staff id. The bucket counts ALL attempts (mms_rate_limit is count-on-check — it can't
+ * count only failures), so the cap is sized for legit RUSH work: 20 per 10 min clears a manager
+ * resolving a queue of approvals or comping a large party's lines, while still bounding a
+ * lockout-griefing account to a visible, attributable trickle. Fail-open like every
+ * mms_rate_limit consumer.
+ */
+export const STEPUP_RATE = { max: 20, windowSeconds: 600 } as const;
+
+/**
  * Staff-PIN policy (S1.1b). A PIN is a low-entropy shared-tablet fast-path, so the brute-force defense
  * is the lockout, enforced atomically in the SQL `mms_staff_verify_pin` (lib/staff-pin.ts is the app
  * mirror). KEEP THESE IN SYNC with the `v_max` (5) / `v_lockout` (15 min) constants in

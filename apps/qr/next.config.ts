@@ -18,15 +18,62 @@ const securityHeaders = [
   { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
 ];
 
+// W1·Q11: static FALLBACK CSP for the document requests the proxy matcher deliberately skips —
+// prefetch-header'd navigations (`next-router-prefetch` / `purpose: prefetch`). Those responses are
+// normally RSC payloads, but anything served as HTML under a prefetch header would otherwise carry
+// NO CSP at all. No nonce here (a static header can't mint one), so no 'unsafe-inline' either —
+// inline script in a prefetched document simply doesn't run, which is exactly right for a payload
+// that should never need it. The real per-request nonce CSP still lands on the actual navigation.
+// Supabase hosts derive from the same env the proxy pins (wildcard fallback = the pre-Q11 status
+// quo); img keeps the delivery host until the W2a bucket migration, mirroring proxy.ts.
+const supaHost = (() => {
+  try {
+    return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").host;
+  } catch {
+    return "*.supabase.co";
+  }
+})();
+const fallbackCsp = [
+  "default-src 'self'",
+  "script-src 'self' https://js.stripe.com https://*.js.stripe.com",
+  "style-src 'self' 'unsafe-inline'",
+  `img-src 'self' data: blob: https://${supaHost} https://ukuzkhuppqwtrdkjqrkv.supabase.co`,
+  `connect-src 'self' https://${supaHost} wss://${supaHost} https://api.stripe.com`,
+  "frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join("; ");
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   images: {
-    // self-host dish photos in Supabase Storage; no third-party hotlinking (QA checklist)
-    remotePatterns: [{ protocol: "https", hostname: "*.supabase.co" }],
+    // Dish photos live in Supabase Storage. W1·Q11 pins the optimizer to the two REAL hosts instead
+    // of every *.supabase.co tenant: the QR project + the DELIVERY project (photos still hotlink the
+    // latter until the W2a bucket migration — drop it then; PRODUCTION_PLAN W2a).
+    remotePatterns: [
+      { protocol: "https", hostname: "fasnpdhtvqtzjlvruqcu.supabase.co" },
+      { protocol: "https", hostname: "ukuzkhuppqwtrdkjqrkv.supabase.co" },
+    ],
     formats: ["image/avif", "image/webp"],
   },
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      // The prefetch-CSP fallback (see fallbackCsp above). Two rules — Next `has` conditions are
+      // ANDed within a rule, and either header alone marks a prefetch.
+      {
+        source: "/:path*",
+        has: [{ type: "header", key: "next-router-prefetch" }],
+        headers: [{ key: "Content-Security-Policy", value: fallbackCsp }],
+      },
+      {
+        source: "/:path*",
+        has: [{ type: "header", key: "purpose", value: "prefetch" }],
+        headers: [{ key: "Content-Security-Policy", value: fallbackCsp }],
+      },
+    ];
   },
   async rewrites() {
     // PostHog reverse proxy — keeps analytics first-party, dodges blockers

@@ -4,6 +4,8 @@ import { createIntentInput } from "@mms/db/schemas";
 import { getStripe } from "@/lib/stripe";
 import { assertCartMember, AuthzError } from "@/lib/authz";
 import { withinMutationRate } from "@/lib/rate";
+import { extendSettlement } from "@/lib/lock";
+import { captureAllIfReady } from "@/lib/split-settle";
 import { getPostHogClient } from "@/lib/posthog-server";
 
 /**
@@ -88,6 +90,17 @@ export async function POST(req: NextRequest) {
           updated_at: new Date().toISOString(),
         })
         .eq("id", share.id);
+      // W1·Q4: a $0 share takes no PI, so no webhook will ever re-run the all-covered check — if
+      // this was the LAST unsettled share, trigger capture-all here or the table dead-ends with
+      // every other card authorized and nothing capturing. Idempotent; no-op when others remain.
+      // Best-effort in the REQUEST path (unlike the webhook, a throw here has no Stripe retry and
+      // the share is already honestly 'captured') — a transient failure is re-driven by the next
+      // succeeded-webhook delivery (onShareCaptured's straggler pass), so log and don't 500.
+      try {
+        await captureAllIfReady(db, cartId);
+      } catch (e) {
+        console.error("[create-share-intent] $0-path capture-all failed (webhook will re-drive)", e);
+      }
       return NextResponse.json({ settled: true, amountCents: 0, tipCents: 0 });
     }
 
@@ -154,6 +167,12 @@ export async function POST(req: NextRequest) {
             { status: 409 },
           );
     }
+
+    // W1·Q4: payer activity — slide the settlement freeze forward (extend-only while still fresh;
+    // `settling` was just verified above, so this keeps a slow table alive without ever reviving an
+    // aborted or taken-over settlement). Without it, a table that takes >TTL to enter cards
+    // dead-ends: captures refused, holds authorized ~7 days.
+    await extendSettlement(cartId);
 
     getPostHogClient().capture({
       distinctId: uid,

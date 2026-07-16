@@ -1,7 +1,9 @@
 import "server-only";
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { serverClient, serviceClient } from "@mms/db/server";
 import { AuthzError } from "./authz";
+import { isConsoleLocked } from "./staff-lock";
 
 /**
  * Staff identity helpers (S1.1a) — the server-side mirror of the `is_staff` / `is_staff_at_least`
@@ -115,6 +117,21 @@ export async function requireStaff(minRole: StaffRole = "server"): Promise<Staff
   if (!caller) throw new AuthzError("Staff sign-in required", 401);
   if (!roleAtLeast(caller.role, minRole)) throw new AuthzError("Insufficient role", 403);
   return caller;
+}
+
+/**
+ * Redirecting gate for /staff PAGES (W1·Q11): the ONE canonical auth sequence — verified staff row →
+ * console lock → optional role floor — replacing the hand-copied triplet on every staff page (a
+ * drifted copy is exactly how a page silently ships ungated). Server Components only; Server Actions
+ * keep the throwing `requireStaff`. Returns the resolved caller for the page header/UI.
+ */
+export async function requireStaffPage(minRole: StaffRole = "server"): Promise<StaffCaller> {
+  const auth = await getStaffAuth();
+  if (auth.kind === "anon") redirect("/staff/login");
+  if (auth.kind === "not_staff") redirect("/staff/login?denied=1");
+  if (await isConsoleLocked()) redirect("/staff/lock");
+  if (!roleAtLeast(auth.caller.role, minRole)) redirect("/staff");
+  return auth.caller;
 }
 
 export type StaffRow = {

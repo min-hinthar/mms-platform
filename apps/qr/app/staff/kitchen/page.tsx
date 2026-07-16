@@ -1,8 +1,6 @@
 import { type CSSProperties } from "react";
-import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getStaffAuth } from "@/lib/staff";
-import { isConsoleLocked } from "@/lib/staff-lock";
+import { requireStaffPage } from "@/lib/staff";
 import { getKitchenQueue } from "@/lib/kitchen";
 import { RoleBadge } from "@/components/staff/RoleBadge";
 import { KdsBoard } from "@/components/staff/KdsBoard";
@@ -11,17 +9,12 @@ export const metadata = { title: "Kitchen — Mandalay Morning Star" };
 export const dynamic = "force-dynamic";
 
 /**
- * The KDS — kitchen display (S2.1b). Same verified-staff gate as the floor (the staff row, not a client
- * claim): anon → sign-in, a real-but-not-staff account → sign-in with a reason, a locked tablet → PIN.
+ * The KDS — kitchen display (S2.1b). Same verified-staff gate as the floor (requireStaffPage).
  * The fire queue is the server-rendered initial snapshot, kept live client-side (KdsBoard). v1 runs on
  * the proven S1.2 postgres_changes read path — no realtime broadcast / privatization needed yet.
  */
 export default async function KitchenPage() {
-  const auth = await getStaffAuth();
-  if (auth.kind === "anon") redirect("/staff/login");
-  if (auth.kind === "not_staff") redirect("/staff/login?denied=1");
-  if (await isConsoleLocked()) redirect("/staff/lock");
-  const caller = auth.caller;
+  const caller = await requireStaffPage();
   const queue = await getKitchenQueue();
 
   return (

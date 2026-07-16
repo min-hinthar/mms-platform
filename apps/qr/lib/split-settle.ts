@@ -1,7 +1,7 @@
 import "server-only";
 import { serviceClient } from "@mms/db/server";
 import { getStripe } from "./stripe";
-import { releaseSettlement, SETTLE_TTL_MS } from "./lock";
+import { extendSettlement, releaseSettlement, CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock";
 
 /**
  * Split-tender settlement orchestration (M3·P3.3b, Option A: authorize-all → capture-together). Driven
@@ -39,26 +39,30 @@ export async function onShareAuthorized(piId: string): Promise<void> {
     .eq("stripe_payment_intent_id", piId)
     .eq("status", "pending"); // idempotent: only pending → authorized
   const cartId = await cartIdForPi(db, piId);
-  if (cartId) await captureAllIfReady(db, cartId);
+  if (!cartId) return;
+  // W1·Q4: a payer just authorized — the settlement is demonstrably alive, so slide the freeze
+  // forward (extend-only; never revives an aborted/stale one). Keeps a slow table's freeze fresh
+  // between authorizations so the LAST payer's capture isn't refused at the TTL.
+  await extendSettlement(cartId);
+  await captureAllIfReady(db, cartId);
 }
 
-/** Once every share is authorized (or a $0 share auto-captured), capture the authorized PIs together. */
-async function captureAllIfReady(
+/** Once every share is authorized (or a $0 share auto-captured), capture the authorized PIs together.
+ *  Exported for the ONE non-webhook trigger: create-share-intent's $0-share auto-settle (the last
+ *  share to settle may take no PI, so no webhook would ever fire the all-covered check). */
+export async function captureAllIfReady(
   db: ReturnType<typeof serviceClient>,
   cartId: string,
 ): Promise<void> {
-  // Gate on a LIVE settlement before taking any money. If the cart isn't open (already paid/cancelled),
-  // or the freeze was lifted/expired (the host aborted, or a single payer took over a STALE settlement),
-  // do NOT capture — capturing a dead settlement is exactly the charged-with-no-order trap. This is the
-  // primary guard that keeps capture and abort/takeover from both acting on the cart.
+  // Gate on a LIVE settlement before taking any money. If the cart isn't open (already paid/cancelled)
+  // or the freeze was LIFTED (settle_at null — the host aborted and holds are being canceled), do NOT
+  // capture — capturing a dead settlement is exactly the charged-with-no-order trap.
   const { data: cart } = await db
     .from("qr_carts")
-    .select("status,settle_at")
+    .select("status,settle_at,locked,locked_at")
     .eq("id", cartId)
     .maybeSingle();
-  const fresh =
-    cart?.settle_at != null && new Date(cart.settle_at).getTime() > Date.now() - SETTLE_TTL_MS;
-  if (cart?.status !== "open" || !fresh) return;
+  if (cart?.status !== "open" || cart.settle_at == null) return;
 
   const { data } = await db
     .from("qr_cart_shares")
@@ -68,6 +72,20 @@ async function captureAllIfReady(
   if (shares.length === 0) return;
   // NO share may still be pending/failed/canceled — every one authorized or already captured.
   if (!shares.every((s) => s.status === "authorized" || s.status === "captured")) return;
+
+  // Freshness (W1·Q4, relaxed for the fully-covered case): a fresh freeze always proceeds. A STALE
+  // (but non-null) freeze may only proceed when the table is FULLY covered (checked above) AND no
+  // single payer holds a fresh pay-lock — a stale settlement is exactly what acquireCartLock's
+  // takeover branch accepts, so a fresh lock means a single-pay attempt is in flight and capture
+  // must yield (the atomic open→paid flip in each fulfill path stays the final backstop). Without
+  // this, a table that took >TTL to authorize every card dead-ends: capture refused forever,
+  // authorization holds sitting ~7 days.
+  const fresh = new Date(cart.settle_at).getTime() > Date.now() - SETTLE_TTL_MS;
+  const singlePayInFlight =
+    cart.locked === true &&
+    cart.locked_at != null &&
+    new Date(cart.locked_at).getTime() > Date.now() - CART_LOCK_TTL_MS;
+  if (!fresh && singlePayInFlight) return;
 
   const nowIso = new Date().toISOString();
   for (const s of shares) {
@@ -114,7 +132,15 @@ export async function onShareCaptured(piId: string): Promise<string | null> {
     .select("status,amount_cents")
     .eq("cart_id", cartId);
   const shares = (data ?? []) as Pick<ShareRow, "status" | "amount_cents">[];
-  if (shares.length === 0 || !shares.every((s) => s.status === "captured")) return null;
+  if (shares.length === 0) return null;
+  if (!shares.every((s) => s.status === "captured")) {
+    // W1·Q4 straggler re-drive: if a previous capture-all pass died mid-loop (e.g. the $0-share
+    // request path hit a transient Stripe error), some shares sit 'authorized' with no future
+    // webhook to re-trigger them — THIS redelivered/next succeeded event is the retry. Idempotent:
+    // it only captures when the table is fully covered, and a captured PI re-capture is tolerated.
+    await captureAllIfReady(db, cartId);
+    return null;
+  }
 
   // Fire the order's side-effects (QBO + analytics) only on the call that actually CREATES it: read the
   // cart's pre-state — the fn's atomic open→paid flip is the real claim, so a redelivery (cart already

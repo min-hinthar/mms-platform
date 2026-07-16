@@ -104,7 +104,9 @@ export async function POST(req: NextRequest) {
       // Include tipRate in the key so two different tip choices that happen to land on the same
       // total (after a cart edit) can't collide onto one intent — Stripe would otherwise return the
       // first PI (with the OLD tipRate in metadata), and the webhook would fulfill the wrong breakdown.
-      { idempotencyKey: `pi_${cartId}_${amount}_t${tipRate}` },
+      // uid is in the key (Q9) so a SECOND payer minting the same cart/amount/tip gets their OWN PI —
+      // otherwise they'd inherit the first payer's intent and its earnerUid (Stars/feedback attribution).
+      { idempotencyKey: `pi_${cartId}_${amount}_t${tipRate}_${uid}` },
     );
 
     const posthog = getPostHogClient();

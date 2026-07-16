@@ -1,9 +1,7 @@
 import { type CSSProperties } from "react";
-import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getStaffAuth } from "@/lib/staff";
+import { requireStaffPage } from "@/lib/staff";
 import { staffHasPin } from "@/lib/staff-pin";
-import { isConsoleLocked } from "@/lib/staff-lock";
 import { RoleBadge } from "@/components/staff/RoleBadge";
 import { PinManager } from "@/components/staff/PinManager";
 import { LockButton } from "@/components/staff/LockButton";
@@ -17,11 +15,7 @@ export const dynamic = "force-dynamic";
  * here AND on the home shell so a staff member can step away from either screen.
  */
 export default async function StaffProfile() {
-  const auth = await getStaffAuth();
-  if (auth.kind === "anon") redirect("/staff/login");
-  if (auth.kind === "not_staff") redirect("/staff/login?denied=1");
-  if (await isConsoleLocked()) redirect("/staff/lock");
-  const caller = auth.caller;
+  const caller = await requireStaffPage();
   const hasPin = await staffHasPin(caller.staffId);
 
   return (

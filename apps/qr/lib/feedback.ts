@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { serverClient, serviceClient } from "@mms/db/server";
 import { submitFeedbackInput } from "@mms/db/schemas";
 import { requireStaff } from "./staff";
+import { withinMutationRate } from "./rate";
 import { getPostHogClient } from "./posthog-server";
 
 // Feedback + UNGATED review triage (M4 P4.3; docs/M4_DESIGN R9/R10). Ask everyone, offer the public link
@@ -32,9 +33,13 @@ export async function getFeedbackState(orderId: string): Promise<FeedbackState> 
     db.from("mms_feedback").select("id").eq("order_id", orderId).maybeSingle(),
     db.from("mms_feedback_config").select("google_review_url").eq("id", true).maybeSingle(),
   ]);
+  // W1·Q11: report feedback-existence only to the order's EARNER — `reviewed` computed for any
+  // order id let an arbitrary caller probe whether someone else's order had feedback (an oracle,
+  // not a data leak, but one we don't need to offer).
+  const mine = !!order && order.earned_by === user.id;
   return {
-    canReview: !!order && order.status === "paid" && order.earned_by === user.id,
-    reviewed: !!existing,
+    canReview: mine && order.status === "paid",
+    reviewed: mine && !!existing,
     googleReviewUrl: cfg?.google_review_url ?? null,
   };
 }
@@ -59,6 +64,9 @@ export async function submitFeedback(
     data: { user },
   } = await supa.auth.getUser();
   if (!user) return { ok: false, reason: "not_yours" };
+  // W1·Q6 flood guard. Reported as the generic "error" (retryable copy) — feedback is one-per-order
+  // and SQL-idempotent, so a rate-limited legit diner just retries in a moment.
+  if (!(await withinMutationRate(user.id))) return { ok: false, reason: "error" };
   const db = serviceClient();
   const { data, error } = await db.rpc("mms_submit_feedback", {
     p_order: input.orderId,

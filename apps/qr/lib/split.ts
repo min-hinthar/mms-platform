@@ -193,8 +193,9 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
  */
 export async function abortSettlement(cartId: string): Promise<void> {
   const { cartId: id } = cartViewInput.parse({ cartId });
-  const { role } = await assertCartMember(id);
+  const { uid, role } = await assertCartMember(id);
   if (role !== "host") throw new Error("Only the host can cancel the split");
+  await assertMutationRate(uid); // W1·Q6 — abort churns Stripe cancels + ledger deletes; bound it
   const db = serviceClient();
 
   // CLAIM the abort FIRST by lifting the freeze: captureAllIfReady gates on a fresh settle_at, so any

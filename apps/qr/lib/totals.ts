@@ -16,7 +16,7 @@ export async function getCartTotals(cartId: string, tipRate = 0): Promise<CartTo
   const db = serviceClient();
   const { data: rows } = await db
     .from("qr_cart_items")
-    .select("qty,unit_price_cents,tax_cents,state,comped")
+    .select("qty,unit_price_cents,tax_cents,state,comped,fulfillment")
     .eq("cart_id", cartId);
   // A voided OR comped line is charged at $0 (S2.3) — exclude it from the chargeable base everywhere
   // (mms_promo_discount + the settle reconciles apply the SAME predicate, so they all agree). A line that
@@ -49,8 +49,23 @@ export async function getCartTotals(cartId: string, tipRate = 0): Promise<CartTo
   const discOnTaxableCents =
     subtotalCents > 0 ? Math.round(discountCents * (taxableBaseCents / subtotalCents)) : 0;
   const taxCents = Math.round((taxableBaseCents - discOnTaxableCents) * taxRate());
-  const serviceChargeCents = Math.round(netCents * 0.05); // SB-1524, disclosed in UI
-  const tipCents = Math.round(netCents * tipRate);
+  // SB-1524 service charge applies to RESTAURANT service only (W1) — grocery retail lines are
+  // excluded from the base: a self-scanned bag of rice is not table service, and the disclosed
+  // "supports fair kitchen wages" copy would be false on it. Discount is pro-rated onto the
+  // service base the same way tax pro-rates onto the taxable base (never a pro-rata of the
+  // rounded aggregate). Downstream consumers need no change: the cash-settle RPC reconciles
+  // SUBTOTAL only (service stays TS-derived), and split shares allocate this figure pro-rata.
+  const serviceBaseCents = items.reduce(
+    (a, i) => a + (i.fulfillment === "grocery" ? 0 : Number(i.unit_price_cents) * i.qty),
+    0,
+  );
+  const discOnServiceCents =
+    subtotalCents > 0 ? Math.round(discountCents * (serviceBaseCents / subtotalCents)) : 0;
+  const serviceChargeCents = Math.round((serviceBaseCents - discOnServiceCents) * 0.05);
+  // No tip ask on a pure-grocery basket (no grocery self-checkout prompts one) — forcing it to 0
+  // HERE covers every caller identically: create-intent mints the amount and the webhook
+  // recomputes the same breakdown from metadata.tipRate, so the reconcile can never mismatch.
+  const tipCents = serviceBaseCents === 0 ? 0 : Math.round(netCents * tipRate);
   return {
     subtotalCents,
     discountCents,

@@ -362,6 +362,7 @@ export type ApplyRewardReason =
   | "in_use"
   | "busy"
   | "cart_closed"
+  | "rate_limited"
   | "error";
 export type ApplyRewardResult = { ok: true } | { ok: false; reason: ApplyRewardReason };
 
@@ -375,6 +376,7 @@ export type ApplyRewardResult = { ok: true } | { ok: false; reason: ApplyRewardR
 export async function applyReward(cartId: string, rewardCode: string): Promise<ApplyRewardResult> {
   const input = applyRewardInput.parse({ cartId, rewardCode });
   const { uid, locked, settling } = await assertCartMember(input.cartId);
+  if (!(await withinMutationRate(uid))) return { ok: false, reason: "rate_limited" }; // W1·Q6
   if (locked || settling) return { ok: false, reason: "busy" };
   const db = serviceClient();
   const { data, error } = await db.rpc("mms_apply_reward", {
@@ -472,7 +474,8 @@ export async function makeItNow(cartItemId: string): Promise<SetFulfillmentResul
  *  the discount the create-intent PI already priced in → a webhook 409 reconcile strand (mms_clear_reward
  *  re-guards locked/settle_at in the statement as the backstop for a direct call). */
 export async function clearReward(cartId: string): Promise<{ ok: boolean }> {
-  const { locked, settling } = await assertCartMember(cartId);
+  const { uid, locked, settling } = await assertCartMember(cartId);
+  if (!(await withinMutationRate(uid))) return { ok: false }; // W1·Q6 — per-device flood guard
   if (locked || settling) return { ok: false };
   const { error } = await serviceClient().rpc("mms_clear_reward", { p_cart: cartId });
   if (error) {
@@ -575,5 +578,8 @@ export async function getCartView(cartId: string): Promise<{
 export async function releasePayLock(cartId: string): Promise<void> {
   const { cartId: id } = cartViewInput.parse({ cartId });
   const { uid } = await assertCartMember(id);
+  // W1·Q6 flood guard — a rate-limited release just no-ops (the lock TTL is the backstop, so a
+  // legit diner who somehow hits the cap recovers on the next tap or the TTL; never throw here).
+  if (!(await withinMutationRate(uid))) return;
   await releaseCartLock(id, uid);
 }

@@ -58,3 +58,28 @@ phases J1–J5 attack. Funnel evidence lives in PostHog (`J0 ·` insights): clie
 joined on uid). Known split: client events carry a cookieless anon id, server events the Supabase uid —
 they can't join in one funnel; bridging via `posthog.identify(uid)` is a **consent-posture decision
 deferred to J5**, not an analytics default.
+
+> **W0 note — the grocery row above scored scan→basket→pay only.** The W4 build adds the stages the
+> J0 walk skipped: **browse** (can the market be shopped like an aisle?) and **exit** (the pass at the
+> door, offline-safe, staff-scannable). Re-score the grocery journey across
+> **browse → scan → basket → pay → exit** at the W4 close.
+
+## O-axes — score the OPS SURFACE, not the screen (W0)
+
+The ten dimensions and the J-axes grade *diner* surfaces. Staff tools (KDS · expo · floor · register ·
+order-ready board) fail in ways neither catches: a board can be token-pure, AA-contrast, reduced-motion
+clean — and still be useless from two metres with wet hands during a rush. These seven grade a surface
+**as operational equipment**; same 1–5 scale, same **≥ 4.3 shippable** bar. Score them for any W3/W6
+surface (and any later staff-facing change), from **real hardware at real distance** — not a laptop.
+Design sources: [`SPEC-KDS.md`](SPEC-KDS.md) · [`SPEC-GROCERY.md`](SPEC-GROCERY.md) ·
+[`SPEC-KIOSK.md`](SPEC-KIOSK.md).
+
+| #   | Axis                    | Good                               | World-class (the target)                                                                     |
+| --- | ----------------------- | ---------------------------------- | -------------------------------------------------------------------------------------------- |
+| O-A | Legibility at distance  | Readable at arm's length           | Item lines ≥28px/800 weight read at 1–2m; safety-critical text (allergy/notes) is the MOST legible element, never the least |
+| O-B | Glanceable time         | An age string exists               | Urgency is pre-attentive: 2-threshold header-strip color per channel + mm:ss elapsed — a late ticket found without reading |
+| O-C | Attention without looking | New items appear                  | A cook facing the wok KNOWS a ticket landed: chime (gesture-armed, volume-set, per-channel), edge flash, "N new" pill; re-alert if un-started |
+| O-D | Rush behavior           | Scrolls without breaking           | 20 tickets: fixed grid + paging with an unmissable "+N more" + late count — text never shrinks, nothing hides silently |
+| O-E | Fat-finger safety       | Targets ≥44px                      | Bump zones ~60px+; destructive taps two-step or undoable; recall restores the last N bumped — a greasy mis-tap is never unrecoverable |
+| O-F | Always-on resilience    | Recovers on reload                 | Wake lock held + re-acquired; auth expiry says "sign in" (never wears "reconnecting"); realtime self-heals; burn-in-aware theme |
+| O-G | Channel triage          | Order type is visible              | One color dimension (urgency) + one symbolic dimension (channel badge); scheduled orders HELD until fire time, never aging red for hours |

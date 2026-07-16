@@ -4,6 +4,33 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W0 + W1 — truth/registry + stop the bleeding (2026-07-16)
+
+- **W1a (money):** grocery retail lines are excluded from the SB-1524 service-charge base in
+  `getCartTotals` (discount pro-rated onto the service base exactly like tax onto the taxable base) and
+  tip is forced to 0 server-side on a pure-grocery basket — one derivation covers create-intent, the
+  webhook reconcile, cash settle, and split shares identically. Checkout hides the tip group on
+  pure-grocery baskets and renders the service-charge row + SB-1524 disclosure only when actually
+  charged. A bag of rice no longer pays a "kitchen wages" charge. Plus Q9: the intent idempotency key
+  gains the payer uid so a second payer can't inherit the first payer's PI + Stars attribution.
+- **W1b (security):** Q4 — `settle_at` slides forward on payer activity (extend-only; never revives an
+  aborted/taken-over settlement) and `captureAllIfReady` relaxes for the fully-covered case, so a table
+  slower than the 10-min TTL no longer dead-ends with every card authorized ~7 days (also fixed the
+  sibling $0-share-settles-last dead-end). Q6 — the seven unthrottled mutations gain the per-device
+  flood guard. Q7 — manager-PIN step-ups pre-flight the approver (active manager/owner ≠ caller) + a
+  per-caller step-up rate bucket before any lockout budget is spent (closes the floor-wide
+  approvals/voids/refunds lockout DoS).
+- **W1c (security+UX):** the /track **refund arm** — a fully-refunded order shows an honest terminal
+  state (warn chip · refund card with the real 5–10-day window + order reference · suppressed
+  goodbye/feedback/ETA) instead of a step rail claiming the kitchen's on it. Q11 —
+  `requireStaffPage()` replaces the hand-copied gate triplet on all 10 staff pages; CSP pins Supabase
+  to our project host (delivery host kept for photos until W2a) + prefetch-header'd documents get a
+  static fallback CSP; `getFeedbackState` reports feedback-existence only to the order's earner.
+- **W0 (docs):** `docs/OPEN-ITEMS.md` — the single severity-tagged registry (joins the "Gate before
+  done" checklist) · `RUBRIC.md` gains the **O-axes** ops scorecard + the grocery browse/exit widening ·
+  three benchmark-grounded design sources for the surfaces v7.2 never covered: `SPEC-KDS.md`,
+  `SPEC-GROCERY.md`, `SPEC-KIOSK.md` (linked from the context INDEX).
+
 ### Added — the 🏭 W-track plan: production polish across all four fronts (2026-07-16)
 
 - **[`docs/PRODUCTION_PLAN.md`](docs/PRODUCTION_PLAN.md)** — plan-of-record for the owner's brief ("nowhere

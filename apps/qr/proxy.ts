@@ -14,12 +14,26 @@ import { NextResponse, type NextRequest } from "next/server";
  *
  * `proxy` is Next 16's rename of the `middleware` convention (same Edge runtime + matcher API).
  */
+// W1·Q11: pin the Supabase directives to OUR project host instead of any `*.supabase.co` tenant —
+// a wildcard lets injected markup/fetches talk to an attacker-controlled Supabase project. Derived
+// from the build-inlined env; falls back to the wildcard if unset/malformed (never break the app on
+// a config gap — the wildcard is the pre-Q11 status quo, not a regression).
+function supabaseOrigins(): { https: string; wss: string } {
+  try {
+    const u = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "");
+    return { https: u.origin, wss: `wss://${u.host}` };
+  } catch {
+    return { https: "https://*.supabase.co", wss: "wss://*.supabase.co" };
+  }
+}
+
 export function proxy(request: NextRequest) {
   const nonce = btoa(crypto.randomUUID());
   // `next dev` (React's dev runtime + Turbopack HMR) evaluates code via eval(), which 'strict-dynamic'
   // + a nonce can't authorize — only 'unsafe-eval' does. Add it in development ONLY; production never
   // ships it. (NODE_ENV is inlined on the Edge runtime.)
   const isDev = process.env.NODE_ENV === "development";
+  const supa = supabaseOrigins();
 
   const csp = [
     "default-src 'self'",
@@ -31,12 +45,14 @@ export function proxy(request: NextRequest) {
     // Inline styles stay allowed: React style props, next/font, and NumberFlow emit them, and CSS
     // injection is a marginal risk next to script. Tighten to a nonce/hash if that calculus changes.
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob: https://*.supabase.co",
+    // Dish photos still hotlink the DELIVERY project's storage (ukuzkhuppqwtrdkjqrkv) until the W2a
+    // bucket migration — keep that ONE extra host until then, then drop it (PRODUCTION_PLAN W2a).
+    `img-src 'self' data: blob: ${supa.https} https://ukuzkhuppqwtrdkjqrkv.supabase.co`,
     "font-src 'self'",
-    // Supabase REST + Realtime websocket; the Stripe API. PostHog stays first-party via the
-    // next.config `/ingest` rewrite (covered by 'self') — if api_host ever leaves /ingest, its host
-    // must be added here or analytics silently breaks under CSP.
-    "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com",
+    // Supabase REST + Realtime websocket (OUR project only); the Stripe API. PostHog stays first-party
+    // via the next.config `/ingest` rewrite (covered by 'self') — if api_host ever leaves /ingest, its
+    // host must be added here or analytics silently breaks under CSP.
+    `connect-src 'self' ${supa.https} ${supa.wss} https://api.stripe.com`,
     // Stripe's Payment Element mounts iframes on per-origin *.js.stripe.com shards (frame-src is a
     // plain host allow-list — 'strict-dynamic' does NOT cover it), plus hooks.stripe.com for redirects.
     "frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com",

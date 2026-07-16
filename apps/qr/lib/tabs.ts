@@ -4,6 +4,7 @@ import { serviceClient } from "@mms/db/server";
 import { openTabInput } from "@mms/db/schemas";
 import { getStaffAuth } from "./staff";
 import { assertCartMember, AuthzError } from "./authz";
+import { withinMutationRate } from "./rate";
 import { paymentInFlightReason } from "./pay-guard";
 import { logTabEvent } from "./tab-events";
 
@@ -39,7 +40,11 @@ export async function openTab(raw: unknown): Promise<OpenTabResult> {
   const actorStaffId = staff.kind === "staff" ? staff.caller.staffId : null;
   if (staff.kind !== "staff") {
     try {
-      await assertCartMember(cartId);
+      const { uid } = await assertCartMember(cartId);
+      // W1·Q6 flood guard (diner branch only — staff is a provisioned, audited account): a verified
+      // member could otherwise churn tab opens with zero throttle.
+      if (!(await withinMutationRate(uid)))
+        return { ok: false, error: "Too many attempts — wait a moment and try again." };
     } catch (e) {
       if (e instanceof AuthzError)
         return { ok: false, error: "You can’t open a tab on this table." };

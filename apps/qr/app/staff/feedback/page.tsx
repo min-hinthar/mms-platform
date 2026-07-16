@@ -1,8 +1,6 @@
 import { type CSSProperties } from "react";
-import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getStaffAuth, roleAtLeast } from "@/lib/staff";
-import { isConsoleLocked } from "@/lib/staff-lock";
+import { requireStaffPage } from "@/lib/staff";
 import { getStaffFeedback } from "@/lib/feedback";
 import { Card } from "@mms/ui";
 
@@ -16,11 +14,7 @@ export const dynamic = "force-dynamic";
  * floor. Read-only (owner-read RLS backs the table); a server snapshot — low volume, no live poll needed.
  */
 export default async function FeedbackPage() {
-  const auth = await getStaffAuth();
-  if (auth.kind === "anon") redirect("/staff/login");
-  if (auth.kind === "not_staff") redirect("/staff/login?denied=1");
-  if (await isConsoleLocked()) redirect("/staff/lock");
-  if (!roleAtLeast(auth.caller.role, "manager")) redirect("/staff");
+  await requireStaffPage("manager");
 
   const rows = await getStaffFeedback();
   const lowCount = rows.filter((r) => r.rating <= 3).length;

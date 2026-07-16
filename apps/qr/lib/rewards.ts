@@ -2,6 +2,7 @@
 import { cookies } from "next/headers";
 import { serverClient, serviceClient } from "@mms/db/server";
 import { getStaffAuth } from "./staff";
+import { withinMutationRate } from "./rate";
 
 /**
  * Server-authoritative session kind for AnonAuthGate (M4): is the caller an anonymous diner, an UPGRADED
@@ -401,6 +402,9 @@ export async function ensureProfile(): Promise<void> {
     data: { user },
   } = await supa.auth.getUser();
   if (!user || user.is_anonymous === true) return; // skip only for an anonymous guest (see getRewardsState)
+  // W1·Q6 flood guard — the upsert is idempotent, so a rate-limited call is a safe no-op (the next
+  // account-page visit re-runs it).
+  if (!(await withinMutationRate(user.id))) return;
   const db = serviceClient();
   await db
     .from("mms_profiles")

@@ -1,8 +1,6 @@
 import { type CSSProperties } from "react";
-import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getStaffAuth } from "@/lib/staff";
-import { isConsoleLocked } from "@/lib/staff-lock";
+import { requireStaffPage } from "@/lib/staff";
 import { getExpoQueue } from "@/lib/expo";
 import { RoleBadge } from "@/components/staff/RoleBadge";
 import { ExpoBoard } from "@/components/staff/ExpoBoard";
@@ -12,16 +10,11 @@ export const dynamic = "force-dynamic";
 
 /**
  * The expo / bagging station (S4.3a) — the takeaway counterpart to the KDS. Same verified-staff gate as
- * the floor + kitchen (the staff row, not a client claim): anon → sign-in, a real-but-not-staff account →
- * sign-in with a reason, a locked tablet → PIN. The takeaway queue is the server-rendered initial
+ * the floor + kitchen (requireStaffPage). The takeaway queue is the server-rendered initial
  * snapshot, kept live client-side (ExpoBoard) on the proven postgres_changes read path.
  */
 export default async function ExpoPage() {
-  const auth = await getStaffAuth();
-  if (auth.kind === "anon") redirect("/staff/login");
-  if (auth.kind === "not_staff") redirect("/staff/login?denied=1");
-  if (await isConsoleLocked()) redirect("/staff/lock");
-  const caller = auth.caller;
+  const caller = await requireStaffPage();
   const queue = await getExpoQueue();
 
   return (

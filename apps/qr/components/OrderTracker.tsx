@@ -88,7 +88,7 @@ export function OrderTracker({
     return mins >= 1 ? `in ~${mins} min` : "any minute now";
   })();
   const eta =
-    isPickup && order?.pickupSlot
+    isPickup && order?.pickupSlot && order.status !== "refunded"
       ? `Ready ${formatSlotLong(order.pickupSlot)}${slotCountdown ? ` · ${slotCountdown}` : ""}`
       : null;
   // Active step: until the order lands, nothing pulses (-1). Once it lands, `togo` lights the rail —
@@ -115,7 +115,13 @@ export function OrderTracker({
   // "you're all set" must not also read "grab it from the counter" when that bump lands).
   const pureGrocery =
     arrived && order.status === "paid" && order.hasGrocery && !order.hasTogoFood && !isPickup;
-  const ready = arrived && togo === "ready" && !pureGrocery;
+  // W1c — the /track refund arm (the flagged follow-up): a FULLY refunded order (charge.refunded
+  // webhook flips status once every cent is back) gets an honest terminal state instead of a step
+  // rail claiming the kitchen's still on it. Partial refunds keep status='paid' and stay on the
+  // rail — surfacing per-line refunds to the diner needs a diner-safe read of the manager-read
+  // mms_refunds ledger (tracked follow-up, PRODUCTION_PLAN W2e).
+  const refunded = arrived && order.status === "refunded";
+  const ready = arrived && togo === "ready" && !pureGrocery && !refunded;
 
   // J5 — the pickup "I'm here" ping (deferred from J3 to the migration window; qr_orders.arrived_at
   // now exists). Server truth (order.arrivedAt, refreshed by the stamping UPDATE's realtime event) OR
@@ -212,19 +218,21 @@ export function OrderTracker({
       className="vt-order-status"
       style={{
         ...chip,
-        background: arrived ? "var(--okb)" : "var(--sf)",
-        color: arrived ? "var(--ok)" : "var(--t2)",
+        background: refunded ? "var(--warnb)" : arrived ? "var(--okb)" : "var(--sf)",
+        color: refunded ? "var(--warn)" : arrived ? "var(--ok)" : "var(--t2)",
       }}
     >
-      {ready
-        ? "Ready for pickup"
-        : arrived
-          ? togo === "picked_up"
-            ? "Picked up"
-            : "Order received"
-          : processing
-            ? "Confirming payment"
-            : "Confirming order"}
+      {refunded
+        ? "Refunded"
+        : ready
+          ? "Ready for pickup"
+          : arrived
+            ? togo === "picked_up"
+              ? "Picked up"
+              : "Order received"
+            : processing
+              ? "Confirming payment"
+              : "Confirming order"}
     </span>
   );
 
@@ -274,7 +282,9 @@ export function OrderTracker({
       {/* Single live region: role="status" already implies aria-live=polite (ARIA 1.2). The
           timedOut arm makes the text CHANGE when polling gives up, so AT announces the recovery. */}
       <p role="status" style={srOnly}>
-        {pureGrocery
+        {refunded
+          ? "This order was refunded — the amount returns to your original payment method, typically within five to ten business days."
+          : pureGrocery
           ? "Paid — you’re all set. Show your exit pass on the way out if asked."
           : arriveErr && ready
             ? arriveErr
@@ -302,7 +312,33 @@ export function OrderTracker({
           big enough to flash on the way out. The code is the same uuid-tail short reference the
           account history prints; every figure is the real order row. Not a live region — the single
           role="status" above already announced the paid state. */}
-      {pureGrocery ? (
+      {refunded ? (
+        // W1c — the refund arm: an honest terminal card in place of the rail. Not a live region (the
+        // single role="status" above announces it); copy states the real Stripe window, no promises.
+        <section
+          className="card mms-rise"
+          aria-label="Order refunded"
+          style={{ marginTop: 20, padding: "18px 16px", borderLeft: "3px solid var(--warn)" }}
+        >
+          <p className="eyebrow" style={{ color: "var(--warn)", margin: 0 }}>
+            Refunded
+          </p>
+          <p style={{ margin: "6px 0 0", fontWeight: 800 }}>
+            Your money is on its way back.
+          </p>
+          <p style={{ margin: "6px 0 0", fontSize: 13.5, color: "var(--t2)" }}>
+            This order was refunded to your original payment method — banks typically post it within
+            5–10 business days.
+          </p>
+          <p style={{ margin: "10px 0 0", fontSize: 13.5, color: "var(--t2)" }}>
+            Order reference{" "}
+            <strong style={{ color: "var(--tx)", letterSpacing: "0.04em" }}>
+              #{order.id.slice(-6).toUpperCase()}
+            </strong>{" "}
+            — questions? Ask us at the counter or call (626) 665-5317.
+          </p>
+        </section>
+      ) : pureGrocery ? (
         <section className="exit-pass mms-rise" aria-label="Exit pass">
           <p className="exit-pass-kicker">
             <span aria-hidden>✓ </span>Paid — you’re all set
@@ -540,20 +576,22 @@ export function OrderTracker({
           pin) a premature goodbye mid-wait. `hasTogoFood` is derived from immutable line data, so
           it's race-immune; a permanently failed init is healed by the pg_cron fulfillment reconciler.
           Both rise (realtime) the moment the expo hands the bag over, which IS the visit's end. */}
-      {justPaid && arrived && (!order.hasTogoFood || togo === "picked_up") && (
+      {justPaid && arrived && !refunded && (!order.hasTogoFood || togo === "picked_up") && (
         <GoodbyeBeat progress={progress} />
       )}
 
       {/* Post-order feedback (M4 P4.3, timed by J4 on the same food-in-hand clock) — renders nothing
           unless the caller is the earner + hasn't reviewed; ungated public-review link inside. */}
-      {arrived && (!order.hasTogoFood || togo === "picked_up") && (
+      {arrived && !refunded && (!order.hasTogoFood || togo === "picked_up") && (
         <FeedbackPrompt orderId={order.id} />
       )}
 
       <p style={{ fontSize: 12, color: "var(--t3)", margin: "14px 0 0" }}>
-        {pureGrocery
-          ? "You’re free to go — this receipt lives in your order history."
-          : "Status updates here as the kitchen works on it — keep this open, or check back anytime."}
+        {refunded
+          ? "This order is closed — the refund above is its final state."
+          : pureGrocery
+            ? "You’re free to go — this receipt lives in your order history."
+            : "Status updates here as the kitchen works on it — keep this open, or check back anytime."}
       </p>
       <div style={{ display: "flex", gap: 20, alignItems: "center", marginTop: 4 }}>
         <Link href="/menu" className="nav-link">
