@@ -1,8 +1,6 @@
 import { type CSSProperties } from "react";
-import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getStaffAuth } from "@/lib/staff";
-import { isConsoleLocked } from "@/lib/staff-lock";
+import { requireStaffPage } from "@/lib/staff";
 import { getTableDetail } from "@/lib/floor";
 import { FloorDetailLive } from "@/components/staff/FloorDetailLive";
 
@@ -15,10 +13,7 @@ export const dynamic = "force-dynamic";
  * way back, never a stale order. The live detail + the turnover clear-table live in FloorDetailLive.
  */
 export default async function TablePage({ params }: { params: Promise<{ id: string }> }) {
-  const auth = await getStaffAuth();
-  if (auth.kind === "anon") redirect("/staff/login");
-  if (auth.kind === "not_staff") redirect("/staff/login?denied=1");
-  if (await isConsoleLocked()) redirect("/staff/lock");
+  await requireStaffPage();
 
   const { id } = await params;
   const detail = await getTableDetail(id);

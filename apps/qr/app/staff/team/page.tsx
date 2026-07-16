@@ -1,22 +1,18 @@
 import { type CSSProperties } from "react";
-import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getStaffCaller, listStaff } from "@/lib/staff";
-import { isConsoleLocked } from "@/lib/staff-lock";
+import { requireStaffPage, listStaff } from "@/lib/staff";
 import { TeamManager } from "@/components/staff/TeamManager";
 
 export const metadata = { title: "Staff — Mandalay Morning Star" };
 
 /**
  * Team management (S1.1a) — OWNER-only. Provision staff (the email becomes their magic-link login),
- * assign a role, and offboard/reinstate. Gated three ways: getStaffCaller here, requireStaff('owner')
- * inside listStaff + every action, and the staff_read_self RLS policy. A non-owner sees an honest
- * "owners only", not a silent bounce.
+ * assign a role, and offboard/reinstate. Gated three ways: requireStaffPage here (default floor — any
+ * active staff may LAND here, because a non-owner sees an honest "owners only", not a silent bounce),
+ * requireStaff('owner') inside listStaff + every action, and the staff_read_self RLS policy.
  */
 export default async function TeamPage() {
-  const caller = await getStaffCaller();
-  if (!caller) redirect("/staff/login");
-  if (await isConsoleLocked()) redirect("/staff/lock");
+  const caller = await requireStaffPage();
 
   if (caller.role !== "owner") {
     return (

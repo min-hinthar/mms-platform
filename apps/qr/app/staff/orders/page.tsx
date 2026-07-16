@@ -1,8 +1,6 @@
 import { type CSSProperties } from "react";
-import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getStaffAuth, roleAtLeast } from "@/lib/staff";
-import { isConsoleLocked } from "@/lib/staff-lock";
+import { requireStaffPage } from "@/lib/staff";
 import { getStaffOrders } from "@/lib/refunds";
 import { StaffOrdersBoard } from "@/components/staff/StaffOrdersBoard";
 
@@ -15,11 +13,7 @@ export const dynamic = "force-dynamic";
  * refund itself re-confirms with a self-PIN step-up. Server snapshot (low volume; revalidated on refund).
  */
 export default async function OrdersPage() {
-  const auth = await getStaffAuth();
-  if (auth.kind === "anon") redirect("/staff/login");
-  if (auth.kind === "not_staff") redirect("/staff/login?denied=1");
-  if (await isConsoleLocked()) redirect("/staff/lock");
-  if (!roleAtLeast(auth.caller.role, "manager")) redirect("/staff");
+  await requireStaffPage("manager");
 
   const orders = await getStaffOrders();
 

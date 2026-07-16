@@ -3,8 +3,7 @@ import { redirect } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { publicClient } from "@mms/db/server";
-import { getStaffAuth } from "@/lib/staff";
-import { isConsoleLocked } from "@/lib/staff-lock";
+import { requireStaffPage } from "@/lib/staff";
 import { getTableDetail } from "@/lib/floor";
 import { StaffAddButton } from "@/components/staff/StaffAddButton";
 
@@ -18,10 +17,7 @@ export const dynamic = "force-dynamic";
  * drill-down, which shows the honest state.
  */
 export default async function StaffAddItems({ params }: { params: Promise<{ id: string }> }) {
-  const auth = await getStaffAuth();
-  if (auth.kind === "anon") redirect("/staff/login");
-  if (auth.kind === "not_staff") redirect("/staff/login?denied=1");
-  if (await isConsoleLocked()) redirect("/staff/lock");
+  await requireStaffPage();
 
   const { id } = await params;
   const detail = await getTableDetail(id);

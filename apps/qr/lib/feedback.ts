@@ -33,9 +33,13 @@ export async function getFeedbackState(orderId: string): Promise<FeedbackState> 
     db.from("mms_feedback").select("id").eq("order_id", orderId).maybeSingle(),
     db.from("mms_feedback_config").select("google_review_url").eq("id", true).maybeSingle(),
   ]);
+  // W1·Q11: report feedback-existence only to the order's EARNER — `reviewed` computed for any
+  // order id let an arbitrary caller probe whether someone else's order had feedback (an oracle,
+  // not a data leak, but one we don't need to offer).
+  const mine = !!order && order.earned_by === user.id;
   return {
-    canReview: !!order && order.status === "paid" && order.earned_by === user.id,
-    reviewed: !!existing,
+    canReview: mine && order.status === "paid",
+    reviewed: mine && !!existing,
     googleReviewUrl: cfg?.google_review_url ?? null,
   };
 }

@@ -1,9 +1,7 @@
 import { type CSSProperties } from "react";
-import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getStaffAuth, roleAtLeast } from "@/lib/staff";
+import { requireStaffPage, roleAtLeast } from "@/lib/staff";
 import { staffHasPin } from "@/lib/staff-pin";
-import { isConsoleLocked } from "@/lib/staff-lock";
 import { getFloorView } from "@/lib/floor";
 import { countPendingApprovals } from "@/lib/approvals";
 import { RoleBadge } from "@/components/staff/RoleBadge";
@@ -15,17 +13,12 @@ export const metadata = { title: "Floor — Mandalay Morning Star" };
 export const dynamic = "force-dynamic";
 
 /**
- * Staff console home + live floor (S1.1a shell · S1.2 floor). Gates on a VERIFIED staff identity (the
- * staff row, not a client claim): an anon/no session goes to sign-in; a real account that isn't staff
- * goes to sign-in with a clear reason (?denied) so it can recover instead of looping; a locked tablet
- * goes to the PIN screen. The floor itself is the server-rendered initial snapshot, kept live client-side.
+ * Staff console home + live floor (S1.1a shell · S1.2 floor). Gated by requireStaffPage (verified
+ * staff row → console lock). The floor itself is the server-rendered initial snapshot, kept live
+ * client-side.
  */
 export default async function StaffHome() {
-  const auth = await getStaffAuth();
-  if (auth.kind === "anon") redirect("/staff/login");
-  if (auth.kind === "not_staff") redirect("/staff/login?denied=1");
-  if (await isConsoleLocked()) redirect("/staff/lock");
-  const caller = auth.caller;
+  const caller = await requireStaffPage();
   const isManager = roleAtLeast(caller.role, "manager");
   const [hasPin, floor, pendingApprovals] = await Promise.all([
     staffHasPin(caller.staffId),

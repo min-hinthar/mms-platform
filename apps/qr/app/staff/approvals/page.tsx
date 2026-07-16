@@ -1,8 +1,6 @@
 import { type CSSProperties } from "react";
-import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getStaffAuth, roleAtLeast } from "@/lib/staff";
-import { isConsoleLocked } from "@/lib/staff-lock";
+import { requireStaffPage } from "@/lib/staff";
 import { listPendingApprovals } from "@/lib/approvals";
 import { listApprovers } from "@/lib/voids";
 import { RoleBadge } from "@/components/staff/RoleBadge";
@@ -18,12 +16,7 @@ export const dynamic = "force-dynamic";
  * a poll (the audit table is owner-read RLS, so it's not on the realtime publication — see ApprovalsBoard).
  */
 export default async function ApprovalsPage() {
-  const auth = await getStaffAuth();
-  if (auth.kind === "anon") redirect("/staff/login");
-  if (auth.kind === "not_staff") redirect("/staff/login?denied=1");
-  if (await isConsoleLocked()) redirect("/staff/lock");
-  const caller = auth.caller;
-  if (!roleAtLeast(caller.role, "manager")) redirect("/staff");
+  const caller = await requireStaffPage("manager");
 
   const [pending, approvers] = await Promise.all([listPendingApprovals(), listApprovers()]);
 
