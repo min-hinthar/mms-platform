@@ -28,8 +28,15 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >   traffic to read (wired + captured, no data yet); `/track` refund arm; the K3b merge-token `pg_cron`
 >   expired-row reaper (belt-and-suspenders on the per-device self-clean); K4 reorder loses modifiers
 >   (names-not-ids, a schema improvement for a future milestone).
-> - **Next initiative:** none scheduled — M6 (Kiosk · Terminal · EBT, 2027) is the next roadmap milestone;
->   until then, polish/feel-test passes on the shipped tracks or a new track as the owner directs.
+> - **Next initiative (2026-07-16): the 🏭 W-track — Production ("the working house").** Owner verdict:
+>   the app is "nowhere near production level polish"; an 8-agent audit+benchmark pass confirmed it and
+>   found why the ≈4.5 self-scores missed it (photography/content/ops/i18n are product-level gaps the
+>   per-surface rubric never measured; v7.2 covers only the diner path; WORLD_CLASS_UX_PLAN shipped 1/6
+>   slices). **Plan-of-record: [`docs/PRODUCTION_PLAN.md`](PRODUCTION_PLAN.md)** — W0 truth/registry →
+>   W1 money blockers (grocery pays the 5% service charge + tip today; `totals.ts:52`) → W3 kitchen
+>   (KDS never sees pickup orders; `kitchen.ts:69`) → W2 flagship craft → W7 shell → W4 grocery →
+>   W5 bilingual → W6 register + kiosk shell. Photography + 198-SKU data sprints (needs Min, §5) start
+>   in parallel now.
 >
 > _(The 2026-06-29 banner below is kept as history — it pointed at the Richness track, now shipped.)_
 
