@@ -13,7 +13,7 @@ import { getPostHogClient } from "@/lib/posthog-server";
 export async function POST(req: NextRequest) {
   let acquired: { cartId: string; uid: string } | null = null;
   try {
-    const { cartId, tipRate } = createIntentInput.parse(await req.json());
+    const { cartId, tipRate, firstName } = createIntentInput.parse(await req.json());
 
     // C3: only a verified member of this cart's session may mint its PaymentIntent.
     const { sessionId, uid, settling } = await assertCartMember(cartId);
@@ -82,6 +82,19 @@ export async function POST(req: NextRequest) {
           { status: 409 },
         );
       }
+    }
+
+    // W3e: persist the pickup/scango call-out name on the CART (member+lock already asserted; the
+    // open-status guard rides in the statement). Fulfillment snapshots it onto the order for expo/the
+    // order-ready board; never analytics (PII). Dine-in has no use for it — the table is the identity —
+    // so it's only stored off-table. Non-fatal: a name write must never block a payment.
+    if (firstName && sess?.mode !== "dinein") {
+      const { error: nameErr } = await db
+        .from("qr_carts")
+        .update({ customer_name: firstName })
+        .eq("id", cartId)
+        .eq("status", "open");
+      if (nameErr) console.error("[create-intent] customer_name write failed:", nameErr.message);
     }
 
     const totals = await getCartTotals(cartId, tipRate);

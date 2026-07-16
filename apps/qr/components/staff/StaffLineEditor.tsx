@@ -1,6 +1,6 @@
 "use client";
 import { useState, useTransition, type CSSProperties } from "react";
-import { staffSetQty } from "@/lib/staff-cart";
+import { setLineNotes, staffSetQty } from "@/lib/staff-cart";
 import { STAFF_STATE_COPY } from "@/lib/line-state-copy";
 import type { TableLineView } from "@/lib/floor-types";
 import { Stepper } from "@mms/ui";
@@ -31,6 +31,22 @@ export function StaffLineEditor({
   const [optimisticQty, setOptimisticQty] = useState<number | null>(null);
   const [seenServerQty, setSeenServerQty] = useState(line.qty);
   const [sheetOpen, setSheetOpen] = useState(false);
+  // W3b kitchen note: null = editor closed; a string = the in-progress draft (may be "", which clears).
+  const [noteDraft, setNoteDraft] = useState<string | null>(null);
+  const [notePending, startNote] = useTransition();
+
+  function saveNote() {
+    const value = (noteDraft ?? "").trim();
+    startNote(async () => {
+      try {
+        const res = await setLineNotes(sessionId, { cartItemId: line.id, notes: value });
+        if (!res.ok) onError(res.error);
+        else setNoteDraft(null); // the live re-fetch renders the saved note
+      } catch {
+        onError("Couldn’t save that note — check the connection and try again.");
+      }
+    });
+  }
 
   // When the server (the live re-fetch) reports a new qty, drop any optimistic value — both when it
   // catches up to ours AND when another actor changes the line. React's guarded set-during-render pattern.
@@ -130,9 +146,10 @@ export function StaffLineEditor({
     );
   }
 
-  // ── Draft: the qty stepper (shared @mms/ui Stepper; the red ✕ remove is the staff variant) ──────────
+  // ── Draft: the qty stepper (shared @mms/ui Stepper; the red ✕ remove is the staff variant) + the
+  // W3b kitchen-note editor (draft-only; the note freezes at fire so the board can't silently diverge).
   return (
-    <li style={row}>
+    <li style={{ ...row, flexWrap: "wrap" }}>
       <span style={{ minWidth: 0, flex: 1 }}>
         <span style={{ fontWeight: 600 }}>{qty}×</span> {line.name}
         {line.soldOut && (
@@ -141,9 +158,23 @@ export function StaffLineEditor({
         {line.bySeatName && (
           <span style={{ color: "var(--t3)", fontSize: 12 }}> · {line.bySeatName}</span>
         )}
+        {line.notes && noteDraft === null && (
+          <span style={noteText}>“{line.notes}”</span>
+        )}
       </span>
       <span style={{ display: "flex", alignItems: "center", gap: "var(--s3)" }}>
         <span style={priceCell}>{fmt(line.unitPriceCents * qty)}</span>
+        <button
+          className="staff-btn"
+          type="button"
+          onClick={() => setNoteDraft((d) => (d === null ? (line.notes ?? "") : null))}
+          disabled={busy}
+          aria-expanded={noteDraft !== null}
+          aria-label={`${line.notes ? "Edit" : "Add"} kitchen note for ${line.name}`}
+          style={{ ...noteBtn, opacity: busy ? 0.5 : 1 }}
+        >
+          {line.notes ? "Edit note" : "Note"}
+        </button>
         <Stepper
           qty={qty}
           onChange={setQty}
@@ -154,6 +185,31 @@ export function StaffLineEditor({
           removeTone="var(--warn)"
         />
       </span>
+      {noteDraft !== null && (
+        <span style={noteEditor}>
+          <label className="sr-only" htmlFor={`note-${line.id}`}>
+            Kitchen note for {line.name}
+          </label>
+          <input
+            id={`note-${line.id}`}
+            type="text"
+            value={noteDraft}
+            maxLength={160}
+            placeholder="e.g. No peanuts — allergy"
+            onChange={(e) => setNoteDraft(e.target.value)}
+            style={noteInput}
+          />
+          <button
+            className="staff-btn"
+            type="button"
+            onClick={saveNote}
+            disabled={notePending}
+            style={noteSave}
+          >
+            {notePending ? "…" : "Save"}
+          </button>
+        </span>
+      )}
     </li>
   );
 }
@@ -190,4 +246,47 @@ const badge: CSSProperties = {
   fontWeight: 700,
   color: "var(--t2)",
   whiteSpace: "nowrap",
+};
+// The saved note reads at FULL text color (safety-adjacent, never muted) in the diner's own words.
+const noteText: CSSProperties = { display: "block", fontSize: 13, fontWeight: 600 };
+const noteBtn: CSSProperties = {
+  minHeight: 44,
+  padding: "0 12px",
+  borderRadius: "var(--r-full)",
+  border: "1px solid var(--bd)",
+  background: "var(--cd)",
+  color: "var(--tx)",
+  fontSize: 13,
+  fontWeight: 700,
+  cursor: "pointer",
+  whiteSpace: "nowrap",
+};
+const noteEditor: CSSProperties = {
+  display: "flex",
+  gap: "var(--s2)",
+  width: "100%",
+  paddingTop: 6,
+};
+const noteInput: CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  minHeight: 44,
+  padding: "0 12px",
+  borderRadius: "var(--r-sm)",
+  border: "1.5px solid var(--bd)",
+  background: "var(--sf)",
+  color: "var(--tx)",
+  font: "inherit",
+  fontSize: 16, // iOS input-zoom floor (P5.2)
+};
+const noteSave: CSSProperties = {
+  minHeight: 44,
+  padding: "0 16px",
+  borderRadius: "var(--r-sm)",
+  border: "1px solid var(--ac)",
+  background: "var(--ac)",
+  color: "var(--oa)",
+  fontSize: 14,
+  fontWeight: 700,
+  cursor: "pointer",
 };

@@ -1,5 +1,6 @@
 import { type CSSProperties } from "react";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { requireStaffPage } from "@/lib/staff";
 import { getExpoQueue } from "@/lib/expo";
 import { RoleBadge } from "@/components/staff/RoleBadge";
@@ -11,11 +12,13 @@ export const dynamic = "force-dynamic";
 /**
  * The expo / bagging station (S4.3a) — the takeaway counterpart to the KDS. Same verified-staff gate as
  * the floor + kitchen (requireStaffPage). The takeaway queue is the server-rendered initial
- * snapshot, kept live client-side (ExpoBoard) on the proven postgres_changes read path.
+ * snapshot, kept live client-side (ExpoBoard) on the proven postgres_changes read path. The poll gate
+ * discriminant can only trip here on a lock/session race — send it to the honest surface.
  */
 export default async function ExpoPage() {
   const caller = await requireStaffPage();
-  const queue = await getExpoQueue();
+  const res = await getExpoQueue();
+  if (!res.ok) redirect(res.reason === "locked" ? "/staff/lock" : "/staff/login");
 
   return (
     <main style={wrap}>
@@ -33,7 +36,7 @@ export default async function ExpoPage() {
         </Link>
       </header>
 
-      <ExpoBoard initial={queue} />
+      <ExpoBoard initial={res.queue} />
     </main>
   );
 }

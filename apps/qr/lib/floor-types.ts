@@ -68,6 +68,8 @@ export type TableLineView = {
    *  queue; the line is unchanged until then, and the staff editor shows "approval requested" not a new
    *  Void/Comp button (so a second request can't stack). */
   pendingApproval: boolean;
+  /** W3b: the kitchen note (allergy/request). Staff set it on DRAFT lines; frozen once fired. */
+  notes: string | null;
 };
 
 export type TableMemberView = { seatId: string; name: string; isHost: boolean };

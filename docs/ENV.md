@@ -35,6 +35,7 @@ run locally, copy [`.env.example`](../.env.example) → `apps/qr/.env.local` and
 | `RESEND_SIGNING_SECRET`                         | **server**    | **yes** | `/api/resend/webhook` — Svix signing secret (`whsec_…`) to verify Resend events      |
 | `SEND_EMAIL_HOOK_SECRET`                        | **server**    | **yes** | `/api/auth/send-email` — Supabase Send-Email Hook secret (`v1,whsec_…`) to verify it |
 | `NEXT_PUBLIC_SITE_URL`                          | client+server | no      | canonical prod URL for email links — `https://qr.mandalaymorningstar.com`            |
+| `BOARD_DEVICE_TOKEN`                            | **server**    | **yes** | W3e order-ready board: the device token in the TV's `/board?k=…` URL, verified (constant-time) by `/api/board`. Long + random (`openssl rand -base64 32`); unset ⇒ the board answers 503 (feature off). Rotate by changing the value + updating the TV bookmark. |
 
 ¹ Either `NEXT_PUBLIC_SUPABASE_ANON_KEY` **or** `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` is accepted
 (new Supabase key naming); set one. ² A PostHog **project** key is a publishable write-only key — not

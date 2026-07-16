@@ -138,6 +138,9 @@ function ItemSheetBody({
   // remounts (keyed on item.id) re-run it, so a swap resets cleanly without an effect.
   const [selected, setSelected] = useState<Selection>(() => initialSelection(groups));
   const [busy, setBusy] = useState(false);
+  // W3b: the kitchen note (allergy/request channel). Keyed remount (item.id) resets it with the rest of
+  // the selection; bounded to the schema/column cap so the server never truncates silently.
+  const [notes, setNotes] = useState("");
 
   const deltaCents = selectionDeltaCents(groups, selected);
   const totalCents = item.base_price_cents + deltaCents;
@@ -171,10 +174,11 @@ function ItemSheetBody({
     setBusy(true);
     try {
       // Option ids only — the provider's `add` forwards to `addItem`→`priceItem`, which validates the ids
-      // against this item's groups and re-derives the charge. The client never sends a price.
+      // against this item's groups and re-derives the charge. The client never sends a price. The kitchen
+      // note (W3b) rides along — free text, trimmed here, length-bounded again server-side.
       // Close only on SUCCESS — a refused add (expired session / locked cart / invalid selection) keeps the
       // sheet open with the diner's choices intact (the provider's live region shows the recovery message).
-      const ok = await add(item.id, selectedIds(groups, selected));
+      const ok = await add(item.id, selectedIds(groups, selected), notes.trim() || undefined);
       if (ok) onClose(); // Radix restores focus to the trigger row
     } finally {
       setBusy(false);
@@ -226,15 +230,16 @@ function ItemSheetBody({
 
       {item.description_en && <p className="item-sheet-desc">{item.description_en}</p>}
 
-      {/* Fail-safe allergen note: declared allergens (when any) + the always-on "ask us" disclaimer —
-          never asserts a free-from claim from absent data. One static note, not a live region. */}
+      {/* Fail-safe allergen note: declared allergens (when any) + the always-on disclaimer — never
+          asserts a free-from claim from absent data. W3b: the note now points at a REAL channel (the
+          kitchen-note field below) instead of "tell our staff" with nowhere to put it. */}
       <p className="item-sheet-allergens" role="note">
         {contains && (
           <>
             <span style={{ fontWeight: 700 }}>Contains</span> {contains}.{" "}
           </>
         )}
-        Allergen info is a guide — please tell our staff about any allergy.
+        Allergen info is a guide — add any allergy in the note below and the kitchen will see it.
       </p>
 
       {groups.map((g) => {
@@ -278,6 +283,31 @@ function ItemSheetBody({
           </fieldset>
         );
       })}
+
+      {/* W3b: the kitchen-note channel — allergies and requests reach the KDS as a red band. Optional,
+          bounded (160 = the Zod cap + column CHECK); the counter only appears once it matters. */}
+      <div className="item-note">
+        <label htmlFor={`item-note-${item.id}`} className="item-note-label">
+          A note for the kitchen{" "}
+          <span className="item-modgroup-hint" style={{ textTransform: "none" }}>
+            Optional
+          </span>
+        </label>
+        <textarea
+          id={`item-note-${item.id}`}
+          className="item-note-input"
+          value={notes}
+          maxLength={160}
+          rows={2}
+          placeholder="e.g. No peanuts — allergy"
+          onChange={(e) => setNotes(e.target.value)}
+        />
+        {notes.length >= 120 && (
+          <p className="item-note-count" aria-hidden="true">
+            {160 - notes.length} characters left
+          </p>
+        )}
+      </div>
 
       {upsell.length > 0 && (
         <section className="item-upsell" aria-label="Goes well with">

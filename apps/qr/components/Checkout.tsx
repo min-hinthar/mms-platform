@@ -142,6 +142,29 @@ export function Checkout({
   const qtyChain = useRef<Map<string, Promise<void>>>(new Map());
   const [tipRate, setTipRate] = useState(0);
   const [step, setStep] = useState<"review" | "pay">("review");
+  // W3e: the pickup/scango call-out name — optional, rides create-intent → qr_carts.customer_name →
+  // the order snapshot, so expo + the order-ready board can call a human instead of a code. Dine-in
+  // never shows it (the table IS the identity). Prefilled from the diner's saved display name.
+  const sessionMode = splitContext?.mode ?? null;
+  const isTakeout = sessionMode === "pickup" || sessionMode === "scango";
+  const [firstName, setFirstName] = useState("");
+  useEffect(() => {
+    if (!isTakeout) return;
+    let active = true;
+    // Hydrate AFTER mount via a microtask (the TableCartProvider NAME_KEY pattern): SSR and the first
+    // client render agree, and the setState runs in a callback, never the effect body.
+    void Promise.resolve()
+      .then(() => localStorage.getItem("mms.name")) // the group-cart display-name key (one identity)
+      .then((saved) => {
+        if (active && saved) setFirstName(saved.slice(0, 40));
+      })
+      .catch(() => {
+        /* private mode — the field just starts empty */
+      });
+    return () => {
+      active = false;
+    };
+  }, [isTakeout]);
   // Tab lifecycle (S3.1) — seeded from the server view, kept in step by refresh() (a peer or a server
   // opening the tab flips it here too). `tabBusy`/`tabError` drive the "Keep tab open" affordance.
   const [tabType, setTabType] = useState(initialTabType);
@@ -331,11 +354,20 @@ export function Checkout({
     setLoadingPay(true);
     try {
       // Member-gated (cookie session); the route re-derives the amount from getCartTotals and locks
-      // the cart for the pay window. Same-origin fetch carries the auth cookie.
+      // the cart for the pay window. Same-origin fetch carries the auth cookie. The takeout call-out
+      // name (W3e) rides along; remember it for next time (same key the group-cart name uses).
+      const name = isTakeout ? firstName.trim().slice(0, 40) : "";
+      if (name) {
+        try {
+          localStorage.setItem("mms.name", name);
+        } catch {
+          /* private mode */
+        }
+      }
       const res = await fetch("/api/stripe/create-intent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cartId, tipRate }),
+        body: JSON.stringify({ cartId, tipRate, ...(name ? { firstName: name } : {}) }),
       });
       const data = (await res.json()) as {
         clientSecret?: string;
@@ -707,6 +739,41 @@ export function Checkout({
               appliedRewardCents={totals.rewardCents}
               onChanged={() => void refresh()}
             />
+
+            {/* W3e: the takeout call-out name — one optional field, so the expo and the ready board
+                can call "Aye Aye" instead of a hex code. Never shown for dine-in (the table is the
+                identity); never required (the short order code is the fallback). */}
+            {isTakeout && (
+              <div style={{ margin: "12px 0" }}>
+                <label
+                  htmlFor="pickup-name"
+                  style={{ display: "block", fontWeight: 700, fontSize: 14, marginBottom: 4 }}
+                >
+                  First name for pickup{" "}
+                  <span style={{ fontWeight: 600, color: "var(--t3)", fontSize: 12 }}>Optional</span>
+                </label>
+                <input
+                  id="pickup-name"
+                  type="text"
+                  value={firstName}
+                  maxLength={40}
+                  autoComplete="given-name"
+                  placeholder="e.g. Aye Aye"
+                  onChange={(e) => setFirstName(e.target.value)}
+                  className="checkout-promo-input"
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: "var(--r-sm)",
+                    background: "var(--cd)",
+                    color: "var(--tx)",
+                  }}
+                />
+                <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--t3)" }}>
+                  We’ll call it out — and show it on the ready board — when your order’s up.
+                </p>
+              </div>
+            )}
 
             {/* Tip selector (server confirms the exact tip at create-intent). Hidden on a
                 pure-grocery basket — self-scanned retail is not table service (W1). */}

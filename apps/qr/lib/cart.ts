@@ -34,8 +34,13 @@ import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
  * Tax category is resolved QR-side via mms_menu_tax_category (delivery menu is untouched).
  */
 
-export async function addItem(cartId: string, menuItemId: string, modifierIds: string[] = []) {
-  const input = addItemInput.parse({ cartId, menuItemId, modifierIds });
+export async function addItem(
+  cartId: string,
+  menuItemId: string,
+  modifierIds: string[] = [],
+  notes?: string,
+) {
+  const input = addItemInput.parse({ cartId, menuItemId, modifierIds, notes });
   // AuthZ first: a verified member of this cart's active session, and the host hasn't locked it.
   const { uid, sessionId, locked, settling } = await assertCartMember(input.cartId);
   await assertMutationRate(uid); // per-device flood guard (P3.4) — after authz, before the write
@@ -63,9 +68,19 @@ export async function addItem(cartId: string, menuItemId: string, modifierIds: s
   const fulfillment = dineIn ? "dinein" : "togo";
   // Merge-or-insert via the shared status-atomic core. by_seat = the VERIFIED diner uid (provenance for
   // the by-person split), never a client-asserted seat. Throws "Cart is no longer open" on a closed cart.
+  // W3b: an empty/whitespace note normalizes away here (Zod already trimmed); a real note rides the line
+  // to the kitchen and never merges with a plain sibling.
   await insertOrIncLine(
     input.cartId,
-    { menuItemId: input.menuItemId, name, opts, unitPriceCents, taxCents, fulfillment },
+    {
+      menuItemId: input.menuItemId,
+      name,
+      opts,
+      unitPriceCents,
+      taxCents,
+      fulfillment,
+      notes: input.notes || undefined,
+    },
     uid,
   );
   await touchCart(input.cartId, "addItem");

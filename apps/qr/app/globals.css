@@ -965,6 +965,43 @@ h3 {
   color: var(--t3);
 }
 
+/* W3b: the kitchen-note field — the allergy/request channel (mirrors the modgroup rhythm). */
+.item-note {
+  margin: 18px 0 0;
+}
+.item-note-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 0 4px;
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--tx);
+}
+.item-note-input {
+  width: 100%;
+  min-height: 56px;
+  padding: 10px 12px;
+  border: 1.5px solid var(--bd);
+  border-radius: 12px;
+  background: var(--sf);
+  color: var(--tx);
+  font: inherit;
+  font-size: 16px; /* the app-wide iOS input-zoom floor (P5.2) */
+  line-height: 1.4;
+  resize: vertical;
+}
+.item-note-input:focus-visible {
+  outline: 2px solid var(--ac);
+  outline-offset: 2px;
+}
+.item-note-count {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--t3);
+}
+
 /* Option row — native radio/checkbox (accent-color tokenized) + a :has()-driven selected state. */
 .item-opt {
   display: flex;
@@ -3929,5 +3966,591 @@ html[data-seen-surface] .mms-stagger {
 @media (prefers-reduced-motion: reduce) {
   .wallet-chip {
     transition: none;
+  }
+}
+
+/* ── W3: the KDS — a hardware-grade kitchen display (SPEC-KDS; O-axes) ─────────────────────────────────
+   The board runs full-bleed on a 15.6" touchscreen at the pass, read at 1–2 metres — a DEDICATED type
+   tier (--kfs-*) lives on .kds-root, so ticket text never inherits phone-scale sizes (K1) and the W2c
+   inline-fontSize ban has nothing to catch here. The page wraps itself in `.dark` (Night is the KDS
+   default: glare + burn-in + the aging colors pop), so every color below reads its Night value.
+   ONE color dimension = urgency on the header strip (green → amber → red, thresholds from
+   mms_kds_config); ONE symbolic dimension = the channel badge. Body contrast never changes with age. */
+.kds-root {
+  --kfs-id: 2rem; /* 32px ticket identity (table # / first name) */
+  --kfs-item: 1.75rem; /* 28px item lines, weight 800 — the signage rule */
+  --kfs-mod: 1.3125rem; /* 21px modifiers, FULL contrast (allergy-critical) */
+  --kfs-clock: 1.5rem; /* 24px mm:ss elapsed + header numbers */
+  --kfs-meta: 0.9375rem; /* 15px chrome/badges/buttons */
+  min-height: 100dvh;
+  background: var(--pg);
+  color: var(--tx);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding: clamp(8px, 1vw, 16px);
+}
+.kds-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3) var(--s4);
+  padding-bottom: var(--s2);
+  border-bottom: 1px solid var(--bd);
+}
+.kds-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--kfs-clock);
+  line-height: var(--lh-tight);
+}
+.kds-stats {
+  display: flex;
+  gap: var(--s4);
+  font-variant-numeric: tabular-nums;
+}
+.kds-stat {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+}
+.kds-stat b {
+  font-size: var(--kfs-clock);
+  font-weight: 800;
+  line-height: 1;
+}
+.kds-stat span {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--t2);
+}
+.kds-stat-late b {
+  color: var(--warn);
+}
+.kds-controls {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+.kds-chip {
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: var(--sf);
+  color: var(--tx);
+  font-weight: 700;
+  font-size: var(--kfs-meta);
+  cursor: pointer;
+}
+.kds-chip[aria-pressed="true"] {
+  background: var(--ac);
+  border-color: var(--ac);
+  color: var(--oa);
+}
+.kds-vol {
+  accent-color: var(--ac);
+  width: 110px;
+  min-height: 44px;
+}
+
+.kds-body {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  gap: var(--s3);
+  min-height: 0;
+}
+.kds-grid {
+  flex: 1;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s3);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  align-content: start;
+}
+/* The fixed 2×4 landscape envelope (15.6" at the pass): four columns, page size 8 — overflow PAGES
+   with an unmissable "+N more"; text never shrinks to fit (Toast Grid rule, O-D). */
+@media (min-width: 1200px) {
+  .kds-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.kds-ticket {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--cd);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+/* HELD (scheduled, not yet due): visibly parked, not urgent — dashed + dimmed, slot time on the strip.
+   Dimming is deliberate sub-emphasis; the card's text starts near-max contrast so it stays readable. */
+.kds-ticket-held {
+  opacity: 0.68;
+  border-style: dashed;
+}
+.kds-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  padding: 10px 14px;
+  background: var(--sf);
+}
+.kds-strip-amber {
+  background: color-mix(in srgb, var(--gold) 30%, var(--cd));
+}
+.kds-strip-red {
+  background: color-mix(in srgb, var(--warn) 46%, var(--cd));
+}
+.kds-strip-red.kds-strip-pulse {
+  animation: kdsRedPulse 1.6s var(--ease-in-out) infinite;
+}
+@keyframes kdsRedPulse {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.22);
+  }
+}
+.kds-id {
+  font-size: var(--kfs-id);
+  font-weight: 800;
+  line-height: var(--lh-tight);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.kds-id small {
+  display: block;
+  font-size: var(--kfs-meta);
+  font-weight: 700;
+  color: var(--t2);
+  letter-spacing: 0.04em;
+}
+.kds-strip-amber .kds-id small,
+.kds-strip-red .kds-id small {
+  color: var(--tx); /* keep the sub-line readable over the tinted strip */
+}
+.kds-strip-side {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  flex: none;
+}
+.kds-clock {
+  font-size: var(--kfs-clock);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.kds-badge {
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--t2);
+}
+.kds-strip-amber .kds-badge,
+.kds-strip-red .kds-badge {
+  color: var(--tx);
+}
+
+.kds-lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+}
+/* Per-line check-off (Toast's partial-fulfillment tap): the WHOLE row is the button — ≥56px, full
+   width, giant text. data-state=in_progress washes the row so "started" is visible at a glance. */
+.kds-line {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 14px;
+  min-height: 56px;
+  border: 0;
+  border-top: 1px solid var(--bd);
+  background: none;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.kds-line[data-state="in_progress"] {
+  background: color-mix(in srgb, var(--ac) 12%, transparent);
+}
+.kds-line:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+.kds-qty {
+  flex: none;
+  min-width: 44px;
+  height: 44px;
+  padding: 0 6px;
+  display: grid;
+  place-items: center;
+  background: var(--ac);
+  color: var(--oa);
+  border-radius: 10px;
+  font-size: var(--kfs-item);
+  font-weight: 800;
+  line-height: 1;
+}
+.kds-line-main {
+  min-width: 0;
+  flex: 1;
+}
+.kds-line-name {
+  margin: 0;
+  font-size: var(--kfs-item);
+  font-weight: 800;
+  line-height: var(--lh-snug);
+  overflow-wrap: anywhere;
+}
+.kds-line-mods {
+  margin: 2px 0 0;
+  font-size: var(--kfs-mod);
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--tx); /* FULL contrast — modifiers carry the allergy-adjacent picks (O-A) */
+}
+.kds-line-tag {
+  margin: 2px 0 0;
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ac);
+}
+/* The note band — the HIGHEST-contrast element on the card (allergy channel, W3b). */
+.kds-note {
+  margin: 8px 14px 4px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 2px solid var(--warn);
+  background: color-mix(in srgb, var(--warn) 30%, var(--cd));
+  font-size: var(--kfs-mod);
+  font-weight: 800;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.kds-bump {
+  margin: 10px;
+  min-height: 64px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--ok);
+  color: var(--oa);
+  font-size: var(--kfs-clock);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+.kds-bump-fire {
+  background: var(--ac);
+}
+.kds-slot {
+  margin: 0;
+  padding: 8px 14px 0;
+  font-size: var(--kfs-mod);
+  font-weight: 700;
+  color: var(--tx);
+}
+
+/* New-ticket edge flash — a KEYED overlay (remounts per arrival nonce, the FloorBoard pattern). */
+.kds-ticket > .kds-flash {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: var(--r-sm);
+  pointer-events: none;
+  animation: kdsFlash 1.4s var(--ease-out);
+}
+@keyframes kdsFlash {
+  0% {
+    box-shadow:
+      inset 0 0 0 3px var(--gold),
+      0 0 0 0 color-mix(in srgb, var(--gold) 45%, transparent);
+  }
+  70% {
+    box-shadow:
+      inset 0 0 0 3px transparent,
+      0 0 0 9px transparent;
+  }
+  100% {
+    box-shadow:
+      inset 0 0 0 0 transparent,
+      0 0 0 0 transparent;
+  }
+}
+
+.kds-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s3);
+  padding-top: var(--s2);
+}
+.kds-page-btn {
+  min-width: 64px;
+  min-height: 48px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--bd);
+  background: var(--sf);
+  color: var(--tx);
+  font-size: var(--kfs-clock);
+  font-weight: 800;
+  cursor: pointer;
+}
+.kds-page-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.kds-dots {
+  display: flex;
+  gap: 8px;
+}
+.kds-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--bd);
+}
+.kds-dot[data-current="true"] {
+  background: var(--ac);
+}
+/* "+N more" IS the rush signal (O-D) — never quiet, never truncated. */
+.kds-more {
+  font-size: var(--kfs-clock);
+  font-weight: 800;
+  color: var(--warn);
+}
+.kds-new-pill {
+  min-height: 48px;
+  padding: 0 18px;
+  border-radius: var(--r-full);
+  border: 0;
+  background: var(--gold);
+  color: var(--oa);
+  font-size: var(--kfs-meta);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+/* All-Day rail (Toast All Day, one-screen adaptation): the batch-cook view — "Mohinga ×4". */
+.kds-rail {
+  flex: none;
+  width: 232px;
+  background: var(--cd);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-sm);
+  padding: var(--s3);
+  overflow-y: auto;
+}
+.kds-rail h3 {
+  margin: 0 0 var(--s2);
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--t2);
+}
+.kds-rail ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.kds-rail li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 0;
+  border-top: 1px solid var(--bd);
+  font-size: var(--kfs-mod);
+  font-weight: 700;
+  line-height: 1.25;
+}
+.kds-rail li b {
+  color: var(--ac);
+  font-size: var(--kfs-clock);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Recall rail (Fresh Recall): the last bumps, restorable — a greasy mis-tap is never fatal (O-E). */
+.kds-recall {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  overflow-x: auto;
+  padding: 2px 0;
+}
+.kds-recall-btn {
+  flex: none;
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: var(--r-sm);
+  border: 1px dashed var(--bd);
+  background: var(--sf);
+  color: var(--tx);
+  font-size: var(--kfs-meta);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* The 6s undo toast after a ticket bump. */
+.kds-undo {
+  position: fixed;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: 10px 12px 10px 18px;
+  border-radius: var(--r-full);
+  background: var(--tx);
+  color: var(--pg);
+  font-size: var(--kfs-meta);
+  font-weight: 700;
+  box-shadow: var(--sh-md);
+}
+.kds-undo button {
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: var(--r-full);
+  border: 0;
+  background: var(--ac);
+  color: var(--oa);
+  font-weight: 800;
+  font-size: var(--kfs-meta);
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kds-ticket > .kds-flash,
+  .kds-strip-red.kds-strip-pulse {
+    animation: none;
+  }
+}
+
+/* ── W3e: the order-ready board (/board — any smart-TV browser) ────────────────────────────────────────
+   Two columns, read across a room: names + short codes only. Same Night-forced wrapper as the KDS. */
+.orb-root {
+  min-height: 100dvh;
+  background: var(--pg);
+  color: var(--tx);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(12px, 1.5vw, 28px);
+  padding: clamp(16px, 2.5vw, 48px);
+}
+.orb-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s4);
+  flex-wrap: wrap;
+}
+.orb-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(24px, 2.6vw, 40px);
+  line-height: var(--lh-tight);
+}
+.orb-status {
+  margin: 0;
+  font-size: clamp(14px, 1.2vw, 20px);
+  color: var(--t2);
+  font-weight: 600;
+}
+.orb-cols {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: clamp(16px, 2.5vw, 44px);
+  min-height: 0;
+}
+.orb-col h2 {
+  margin: 0 0 clamp(8px, 1vw, 16px);
+  font-size: clamp(22px, 2.4vw, 36px);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 2px solid var(--bd);
+  padding-bottom: 10px;
+}
+.orb-col h2 small {
+  display: block;
+  font-size: 0.62em;
+  font-weight: 600;
+  color: var(--t2);
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+.orb-col-ready h2 {
+  color: var(--gold);
+  border-bottom-color: var(--gold);
+}
+.orb-col ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.orb-card {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  padding: clamp(10px, 1.2vw, 20px) 6px;
+  border-bottom: 1px solid var(--bd);
+  font-size: clamp(28px, 3.6vw, 54px);
+  font-weight: 800;
+  line-height: var(--lh-tight);
+  overflow-wrap: anywhere;
+}
+.orb-code {
+  flex: none;
+  color: var(--t2);
+  font-size: 0.58em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.05em;
+}
+.orb-card-flash {
+  animation: orbFlash 2s var(--ease-out);
+}
+@keyframes orbFlash {
+  0% {
+    background: color-mix(in srgb, var(--gold) 32%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
+}
+.orb-empty {
+  margin: clamp(12px, 1.5vw, 24px) 0 0;
+  color: var(--t2);
+  font-size: clamp(18px, 1.8vw, 30px);
+  font-weight: 600;
+}
+@media (prefers-reduced-motion: reduce) {
+  .orb-card-flash {
+    animation: none;
   }
 }

@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState, useTransition, type CSSProperties } from "react";
 import { getExpoQueue, setTogoStatus } from "@/lib/expo";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
+import { useWakeLock } from "@/lib/useWakeLock";
 import { formatSlotLong } from "@/lib/pickupTime";
 import type { ExpoLine, ExpoQueue, ExpoTicket } from "@/lib/expo-types";
 import { RelativeTime } from "./RelativeTime";
@@ -9,11 +10,14 @@ import { StaggerList } from "./StaggerList";
 import { EmptyState } from "@mms/ui";
 
 /**
- * Expo / bagging station (S4.3a) — the takeaway counterpart to the KDS. Server-rendered initial queue,
- * kept live by Postgres-Changes (useFloorRealtime watches qr_orders → re-fetch the server-authoritative
- * getExpoQueue; never client state-math) with a 5s poll BACKSTOP. Re-fetches debounced. ONE polite live
- * region (bump error takes precedence over the count). Two-stage bump: "Bagged & ready" (preparing→ready,
- * lights the diner's /track) then "Picked up" (ready→picked_up, drops off the board).
+ * Expo / bagging station (S4.3a, W3a) — the takeaway counterpart to the KDS. Server-rendered initial
+ * queue, kept live by Postgres-Changes (useFloorRealtime watches qr_orders → re-fetch the server-
+ * authoritative getExpoQueue; never client state-math) with a 5s poll BACKSTOP. Re-fetches debounced.
+ * ONE polite live region (bump error takes precedence over the count). Two-stage bump: "Bagged & ready"
+ * (preparing→ready, lights the diner's /track AND the order-ready board) then "Picked up" (ready→
+ * picked_up, drops off both). W3a: the queue arrives sorted by EFFECTIVE DUE TIME with "Here now"
+ * pinned; pickup/scango bags headline the first name + short code. K10: an expired staff cookie or a
+ * locked console redirects honestly instead of wearing "Reconnecting…" forever.
  */
 export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
   const [snap, setSnap] = useState(initial);
@@ -23,11 +27,18 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlight = useRef(false);
 
+  useWakeLock(); // O-F: the bagging tablet is always-on too
+
   const refresh = useCallback(async () => {
     if (inFlight.current) return;
     inFlight.current = true;
     try {
-      setSnap(await getExpoQueue());
+      const res = await getExpoQueue();
+      if (!res.ok) {
+        window.location.assign(res.reason === "locked" ? "/staff/lock" : "/staff/login");
+        return;
+      }
+      setSnap(res.queue);
       setErr(null);
       fails.current = 0;
       setStale(false);
@@ -128,6 +139,16 @@ function ExpoCard({
   const to = ticket.status === "preparing" ? "ready" : "picked_up";
   const label = ticket.status === "preparing" ? "Bagged & ready" : "Picked up";
 
+  // K2 + W3e call-out identity: a dine-in to-go bag calls out its real table; a pickup/scango bag
+  // headlines the first name captured at checkout (short code as the collision-safe suffix), falling
+  // back to the short code alone when the diner skipped the name — expo always has something to call.
+  const callOut =
+    ticket.tableNumber != null
+      ? `Table ${ticket.tableNumber}`
+      : ticket.customerName
+        ? ticket.customerName
+        : `#${ticket.shortCode}`;
+
   const bump = () => {
     onError(null);
     startTransition(async () => {
@@ -136,21 +157,19 @@ function ExpoCard({
         if (!res.ok) onError(res.error);
         else await onBumped(); // pending covers the refetch — no stale-label flicker
       } catch {
-        onError(`Couldn’t update the bag for ${ticket.label} — try again.`);
+        onError(`Couldn’t update the bag for ${callOut} — try again.`);
       }
     });
   };
 
   return (
-    <article
-      className="card card-textured"
-      style={cardStyle}
-      aria-label={`Bag for ${ticket.tableNumber != null ? `Table ${ticket.tableNumber}` : ticket.label}`}
-    >
+    <article className="card card-textured" style={cardStyle} aria-label={`Bag for ${callOut}`}>
       <header style={cardHead}>
-        {/* K2: a dine-in to-go bag calls out its real table; a pickup/scango bag keeps its channel label. */}
         <span style={tableLabel}>
-          {ticket.tableNumber != null ? `Table ${ticket.tableNumber}` : ticket.label}
+          {callOut}
+          {ticket.tableNumber == null && ticket.customerName && (
+            <span style={codeSuffix}> #{ticket.shortCode}</span>
+          )}
         </span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
           {/* J5: the diner tapped "I'm here" on /track (qr_orders.arrived_at) — a waiting HUMAN
@@ -176,7 +195,7 @@ function ExpoCard({
         type="button"
         onClick={bump}
         disabled={pending}
-        aria-label={`${label} — bag for ${ticket.label}`}
+        aria-label={`${label} — bag for ${callOut}`}
         className="staff-btn"
         style={{ ...bumpBtn, ...(ticket.status === "preparing" ? readyBtn : pickedBtn) }}
       >
@@ -197,6 +216,8 @@ function ExpoLineRow({ line }: { line: ExpoLine }) {
         {line.modifiers.length > 0 && (
           <span style={{ color: "var(--t2)" }}> · {line.modifiers.join(" · ")}</span>
         )}
+        {/* W3b: the allergy/request note rides to the bag too — pack the sauce separately, etc. */}
+        {line.notes && <span style={noteInline}>“{line.notes}”</span>}
       </span>
       <span style={destTag}>{line.fulfillment === "grocery" ? "Grocery" : "To-go"}</span>
     </li>
@@ -226,6 +247,9 @@ const cardHead: CSSProperties = {
   gap: "var(--s3)",
 };
 const tableLabel: CSSProperties = { fontWeight: 700, fontSize: 16 };
+const codeSuffix: CSSProperties = { fontWeight: 700, fontSize: 12, color: "var(--t2)" };
+// The note is safety-adjacent — full text color (not muted), quoted so it reads as the diner's words.
+const noteInline: CSSProperties = { display: "block", fontWeight: 700, color: "var(--tx)" };
 const readyTag: CSSProperties = {
   fontSize: 11,
   fontWeight: 800,

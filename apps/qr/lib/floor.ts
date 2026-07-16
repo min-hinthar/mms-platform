@@ -246,7 +246,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetail | n
   if (cart) {
     const { data: items } = await db
       .from("qr_cart_items")
-      .select("id,name,qty,unit_price_cents,by_seat,created_at,menu_item_id,state,comped")
+      .select("id,name,qty,unit_price_cents,by_seat,created_at,menu_item_id,state,comped,notes")
       .eq("cart_id", cart.id)
       .order("created_at", { ascending: true });
     // Resolve which lines are 86'd so the editor can hide the "+" (S1-audit S4). One extra read on the
@@ -287,6 +287,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetail | n
       state: (i.state ?? "draft") as TableLineView["state"],
       comped: i.comped ?? false,
       pendingApproval: pendingLineIds.has(i.id),
+      notes: i.notes ?? null, // W3b: the kitchen note (staff can set/see it on draft lines)
     }));
     // Count + running subtotal reflect what's CHARGEABLE — a voided/comped line shows on the drill-down
     // (as a removed/comped row) but isn't part of the "so far" total or the settle amount.
