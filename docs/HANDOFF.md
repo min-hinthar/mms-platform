@@ -36,10 +36,22 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >   W1 money blockers (grocery pays the 5% service charge + is offered tip presets today; `totals.ts:52`)
 >   → W3 kitchen (KDS never sees pickup orders; `kitchen.ts:70`) → W2 flagship craft → W7 shell → W4 grocery →
 >   W5 bilingual → W6 register + kiosk shell. Photography + 198-SKU data sprints (needs Min, §5) start
->   in parallel now. **W0 ✅ + W1 ✅ shipped (2026-07-16, same PR as this banner):** the money/hardening
->   blockers are closed (grocery service-charge/tip · Q4/Q6/Q7/Q9/Q11 · the /track refund arm), the
->   OPEN-ITEMS registry + O-axes + the three SPEC design sources exist. **Next: W3 (the kitchen).**
->   Read `docs/OPEN-ITEMS.md` for everything still open, and `docs/context/SPEC-KDS.md` before W3.
+>   in parallel now. **W0 ✅ + W1 ✅ shipped (2026-07-16):** the money/hardening blockers are closed
+>   (grocery service-charge/tip · Q4/Q6/Q7/Q9/Q11 · the /track refund arm), the OPEN-ITEMS registry +
+>   O-axes + the three SPEC design sources exist.
+>
+>   **W3 ✅ shipped (2026-07-16, the PR carrying this banner) — the kitchen you can trust.** All five
+>   slices in one PR (W3a–W3e, per-slice detail in `CHANGELOG.md`): every channel reaches the KDS
+>   (pickup/scango fire at settlement at `slot − prep`, HELD cards, the latent unbumpable-paid-cart-line
+>   fix), the hardware-grade board (full-bleed Night `--kfs-*` tier, config-driven urgency, chime/
+>   re-chime, paging + "+N more", All-Day rail), ticket bump + 6s undo + 2-min recall (SQL-enforced),
+>   the bounded notes/allergy channel end-to-end, wake lock + honest 401/lock redirects, first-name
+>   capture at takeout checkout, and the `/board` order-ready TV behind a sanitized device-token poll.
+>   **⚠️ Before merge: apply `20260716000000_w3_kitchen.sql` to live** (`fasnpdhtvqtzjlvruqcu` — the
+>   preview shares the live DB; the Supabase MCP was unauthenticated in the build session, so this is
+>   still pending) **and set `BOARD_DEVICE_TOKEN` in Vercel** (docs/ENV.md) or `/board` stays 503.
+>   Hardware to buy stays C7. **Next: W2 (flagship craft)** — photography (C5) gates W2a.
+>   Read `docs/OPEN-ITEMS.md` for everything still open (K14/K15 are the new W3 residuals).
 >
 > _(The 2026-06-29 banner below is kept as history — it pointed at the Richness track, now shipped.)_
 

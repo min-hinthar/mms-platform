@@ -12,110 +12,112 @@ prerequisite). Closed items move to the Closed section with the closing PR — d
 
 ## Config / needs Min (not code)
 
-| ID | Sev | Item | Source |
-| --- | --- | --- | --- |
-| C1 | **high** | **Auth hardening on the live project** (S1-audit B1 backstop): disable public email/password signup OR turn confirmations ON; workspace-domain-restrict Google; disable cross-provider auto-linking. The SQL side is code-fixed; this config is the durable control. | HANDOFF "Auth hardening" |
-| C2 | config | Stripe **live** webhook + keys at production cutover (`docs/ENV.md` "Wiring Production") | HANDOFF |
-| C3 | config | QBO activation: clearing GL account, realm id, developer app creds, `QBO_SYNC_ENABLED=true`, one test order (+ refresh-token rotation & cron drain before `QBO_ENV=production`) | HANDOFF / QBO_SYNC.md |
-| C4 | config | Supabase Auth email rate-limit raise (OTP resend loop, fixed in code #43; Google OAuth is the reliable path meanwhile) | HANDOFF |
-| C5 | config | **Photograph the 31 dishes without a real photo** (28 fallback.jpg + 3 NULL) — gates W2a | PRODUCTION_PLAN §5 |
-| C6 | config | **198-SKU grocery data** (barcode · category · size/unit · EN+MY names · EBT flag · photos) — gates W4a | PRODUCTION_PLAN §5 |
-| C7 | config | Hardware: KDS 15.6" Android touchscreen + VESA arm · order-ready smart TV · kiosk iPad + stand · HID scanner · label-printing scale · S700 (M6) | PRODUCTION_PLAN §5 |
-| C8 | config | Resend diner-facing from-address for receipts (gates W2e email receipt) | PRODUCTION_PLAN §5 |
-| C9 | config | Paid UI kit go/no-go (~$790 — HeroUI Pro · Motion+ · shadcnblocks · 1mo Mobbin) | DESIGN-RESEARCH §5 |
+| ID  | Sev      | Item                                                                                                                                                                                                                                                                 | Source                   |
+| --- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| C1  | **high** | **Auth hardening on the live project** (S1-audit B1 backstop): disable public email/password signup OR turn confirmations ON; workspace-domain-restrict Google; disable cross-provider auto-linking. The SQL side is code-fixed; this config is the durable control. | HANDOFF "Auth hardening" |
+| C2  | config   | Stripe **live** webhook + keys at production cutover (`docs/ENV.md` "Wiring Production")                                                                                                                                                                             | HANDOFF                  |
+| C3  | config   | QBO activation: clearing GL account, realm id, developer app creds, `QBO_SYNC_ENABLED=true`, one test order (+ refresh-token rotation & cron drain before `QBO_ENV=production`)                                                                                      | HANDOFF / QBO_SYNC.md    |
+| C4  | config   | Supabase Auth email rate-limit raise (OTP resend loop, fixed in code #43; Google OAuth is the reliable path meanwhile)                                                                                                                                               | HANDOFF                  |
+| C5  | config   | **Photograph the 31 dishes without a real photo** (28 fallback.jpg + 3 NULL) — gates W2a                                                                                                                                                                             | PRODUCTION_PLAN §5       |
+| C6  | config   | **198-SKU grocery data** (barcode · category · size/unit · EN+MY names · EBT flag · photos) — gates W4a                                                                                                                                                              | PRODUCTION_PLAN §5       |
+| C7  | config   | Hardware: KDS 15.6" Android touchscreen + VESA arm · order-ready smart TV · kiosk iPad + stand · HID scanner · label-printing scale · S700 (M6)                                                                                                                      | PRODUCTION_PLAN §5       |
+| C8  | config   | Resend diner-facing from-address for receipts (gates W2e email receipt)                                                                                                                                                                                              | PRODUCTION_PLAN §5       |
+| C9  | config   | Paid UI kit go/no-go (~$790 — HeroUI Pro · Motion+ · shadcnblocks · 1mo Mobbin)                                                                                                                                                                                      | DESIGN-RESEARCH §5       |
 
 ## Money / security / hardening
 
-| ID | Sev | Item | Status | Source |
-| --- | --- | --- | --- | --- |
-| M1 | med | **Q5 — split fulfill reconciles only Σ(shares)** (circular): a line added in the openSettlement race window ships unpaid. Re-derive the chargeable base in `mms_fulfill_split_order`, or refuse line mutations under a fresh `settle_at`. | open | HOLISTIC §1 |
-| M2 | med | **Partial-refund diner surface**: line-level refunds (S4.3b) leave `status='paid'` — the diner sees no trace on /track or /account. Needs a diner-safe read of the manager-read `mms_refunds` ledger. (Full-refund arm shipped in W1c.) | planned:W2e | S4.3b / W1c |
-| M3 | med | **K4 reorder loses modifiers** — order lines store modifier *labels* not option ids; faithful re-price needs option-id capture on order snapshots (schema change). | open | HANDOFF parked |
-| M4 | low | Q11 tail: a `/staff` prefix **proxy pre-check** (cheap 401 before the page gate) — defense-in-depth beyond `requireStaffPage`. | open | HOLISTIC §1 |
-| M5 | low | **K3b merge-token pg_cron reaper** (belt-and-suspenders on the per-device self-clean of expired merge tokens). | open | HANDOFF parked |
-| M6 | low | Sub-6¢ taxable SKU: `getCartTotals` infers taxability from `tax_cents>0` (a rounded-to-0 taxable line reads exempt — no real SKU that cheap); clean fix carries `is_taxable` on the cart line. | open | HANDOFF M1-money |
-| M7 | low | Order-level `tax_cents` (aggregate-rounded) vs Σ per-unit line snapshots can differ by a cent or two on a receipt — charge is correct; display nuance. | open | HANDOFF M1-money |
-| M8 | low | P3.3b `onShareCaptured` `wasOpen` TOCTOU → possible duplicate analytics event on a sub-ms double delivery (money unaffected; QBO idempotent). | open | HANDOFF |
-| M9 | low | Cross-owner line delete is host-only with **no confirm** (QA §D accepts host-only; revisit if product wants a confirm step). | open | HANDOFF |
-| M10 | low | Mutate-rate 429 in `TableCartProvider.add` shows session-recovery copy, not a throttle message (thrown Server Action errors are redacted in prod; needs a result discriminant). | open | HANDOFF P3.4 |
-| M11 | low | **Split path ignores W1a's grocery money rules**: `SharePay` offers tip presets regardless of basket composition, and `deriveShareBreakdowns` allocates the (now restaurant-only) service charge pro-rata to ALL seats' net — a grocery-only seat in by-person mode pays a slice of a "kitchen wages" charge its own lines don't owe (sums still reconcile to the cent). Reachable via the S4 unified basket on a dine-in table, not just theoretical. Align tip-offer + service allocation with per-seat composition. | open | W1a / W0+W1 adversarial review L1 |
-| M12 | low | **Stale-covered split capture can coexist with an abandoned single-pay PI** (risk-accepted): when the freeze is stale, all shares are covered, and the takeover lock is itself stale, capture proceeds — but the abandoned single payer's PI stays confirmable from a sleeping phone; if both complete, the atomic open→paid flip makes one an orphan charge landing in `qr_refunds_needed` (operator-mediated refund, not prevention). Prevention = cancel the stale locker's PI when the relaxed branch proceeds. Low probability, real money — documented, not built. | open | W1b / adversarial review M3 |
-| M13 | low | **Superseded single-pay PIs are never canceled** (widened slightly by Q9's uid-in-key: two payers at the same amount now hold two live PIs where one was deduped): a stale payer confirming later lands in the webhook's already-settled → `qr_refunds_needed` branch. Consider canceling the losers' PIs at fulfill. | open | adversarial review L3 |
+| ID  | Sev | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Status      | Source                            |
+| --- | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- | --------------------------------- |
+| M1  | med | **Q5 — split fulfill reconciles only Σ(shares)** (circular): a line added in the openSettlement race window ships unpaid. Re-derive the chargeable base in `mms_fulfill_split_order`, or refuse line mutations under a fresh `settle_at`.                                                                                                                                                                                                                                                                                                                                | open        | HOLISTIC §1                       |
+| M2  | med | **Partial-refund diner surface**: line-level refunds (S4.3b) leave `status='paid'` — the diner sees no trace on /track or /account. Needs a diner-safe read of the manager-read `mms_refunds` ledger. (Full-refund arm shipped in W1c.)                                                                                                                                                                                                                                                                                                                                  | planned:W2e | S4.3b / W1c                       |
+| M3  | med | **K4 reorder loses modifiers** — order lines store modifier _labels_ not option ids; faithful re-price needs option-id capture on order snapshots (schema change).                                                                                                                                                                                                                                                                                                                                                                                                       | open        | HANDOFF parked                    |
+| M4  | low | Q11 tail: a `/staff` prefix **proxy pre-check** (cheap 401 before the page gate) — defense-in-depth beyond `requireStaffPage`.                                                                                                                                                                                                                                                                                                                                                                                                                                           | open        | HOLISTIC §1                       |
+| M5  | low | **K3b merge-token pg_cron reaper** (belt-and-suspenders on the per-device self-clean of expired merge tokens).                                                                                                                                                                                                                                                                                                                                                                                                                                                           | open        | HANDOFF parked                    |
+| M6  | low | Sub-6¢ taxable SKU: `getCartTotals` infers taxability from `tax_cents>0` (a rounded-to-0 taxable line reads exempt — no real SKU that cheap); clean fix carries `is_taxable` on the cart line.                                                                                                                                                                                                                                                                                                                                                                           | open        | HANDOFF M1-money                  |
+| M7  | low | Order-level `tax_cents` (aggregate-rounded) vs Σ per-unit line snapshots can differ by a cent or two on a receipt — charge is correct; display nuance.                                                                                                                                                                                                                                                                                                                                                                                                                   | open        | HANDOFF M1-money                  |
+| M8  | low | P3.3b `onShareCaptured` `wasOpen` TOCTOU → possible duplicate analytics event on a sub-ms double delivery (money unaffected; QBO idempotent).                                                                                                                                                                                                                                                                                                                                                                                                                            | open        | HANDOFF                           |
+| M9  | low | Cross-owner line delete is host-only with **no confirm** (QA §D accepts host-only; revisit if product wants a confirm step).                                                                                                                                                                                                                                                                                                                                                                                                                                             | open        | HANDOFF                           |
+| M10 | low | Mutate-rate 429 in `TableCartProvider.add` shows session-recovery copy, not a throttle message (thrown Server Action errors are redacted in prod; needs a result discriminant).                                                                                                                                                                                                                                                                                                                                                                                          | open        | HANDOFF P3.4                      |
+| M11 | low | **Split path ignores W1a's grocery money rules**: `SharePay` offers tip presets regardless of basket composition, and `deriveShareBreakdowns` allocates the (now restaurant-only) service charge pro-rata to ALL seats' net — a grocery-only seat in by-person mode pays a slice of a "kitchen wages" charge its own lines don't owe (sums still reconcile to the cent). Reachable via the S4 unified basket on a dine-in table, not just theoretical. Align tip-offer + service allocation with per-seat composition.                                                   | open        | W1a / W0+W1 adversarial review L1 |
+| M12 | low | **Stale-covered split capture can coexist with an abandoned single-pay PI** (risk-accepted): when the freeze is stale, all shares are covered, and the takeover lock is itself stale, capture proceeds — but the abandoned single payer's PI stays confirmable from a sleeping phone; if both complete, the atomic open→paid flip makes one an orphan charge landing in `qr_refunds_needed` (operator-mediated refund, not prevention). Prevention = cancel the stale locker's PI when the relaxed branch proceeds. Low probability, real money — documented, not built. | open        | W1b / adversarial review M3       |
+| M13 | low | **Superseded single-pay PIs are never canceled** (widened slightly by Q9's uid-in-key: two payers at the same amount now hold two live PIs where one was deduped): a stale payer confirming later lands in the webhook's already-settled → `qr_refunds_needed` branch. Consider canceling the losers' PIs at fulfill.                                                                                                                                                                                                                                                    | open        | adversarial review L3             |
 
 ## Flagship craft debt (W2)
 
-| ID | Sev | Item | Status |
-| --- | --- | --- | --- |
-| F1 | **blocker** | 31/60 menu items without a real photo; missing-photo fallback renders an empty gradient tile + a 200px empty ItemSheet hero band | planned:W2a (photos = C5) |
-| F2 | high | Every dish photo **hotlinks the delivery project's storage** (bucket change there silently blanks our menu); migrate bucket → QR project, then drop the extra CSP/remotePatterns host W1 pinned | planned:W2a |
-| F3 | high | ~360 inline `fontSize:` magic numbers vs `--fs-*` consumed in 3 rules — WORLD_CLASS slices 2–6 never shipped; add the per-sweep-scoped lint ban | planned:W2c |
-| F4 | high | No `loading.tsx` for `(order)/menu`, `(order)/dine-in`, `/track`, `/grocery` (menu is cookie-dynamic → cold hit = blank screen) | planned:W2c |
-| F5 | high | Emoji-as-iconography (~30 functional glyphs: 🔍🗑🧾🪑♥💳🔥…) → ~20-glyph SVG set at brand stroke weight | planned:W2b |
-| F6 | med | Bilingual is name-deep: no `description_my`, EN-only modifier options + category rail, zero MY on cart→pay→track; no EN↔MY toggle | planned:W5 |
-| F7 | med | No custom tip · text-only receipt rows · **no order reference on /track for food orders** · no email receipt / print stylesheet | planned:W2d/W2e |
-| F8 | med | Redundant "Choose" pill + row double-control; ItemSheet has no qty stepper; hard 440px column on every viewport (no ≥768px tier) | planned:W2 |
-| F9 | med | First-diner confusion: bare /menu silently defaults to scango; party-code join has no re-scan shortcut; "pays the full order" caveat is 11.5px; service-charge + tip reads as a double-ask | planned:W2d |
-| F10 | low | Sold-out = 0.5 opacity + still tappable (no designed state); homepage door faces off-system (`<b>/<br>/<small>` + magic sizes); error.tsx off-system + no chunk-reload guard | planned:W2 |
+| ID  | Sev         | Item                                                                                                                                                                                            | Status                    |
+| --- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| F1  | **blocker** | 31/60 menu items without a real photo; missing-photo fallback renders an empty gradient tile + a 200px empty ItemSheet hero band                                                                | planned:W2a (photos = C5) |
+| F2  | high        | Every dish photo **hotlinks the delivery project's storage** (bucket change there silently blanks our menu); migrate bucket → QR project, then drop the extra CSP/remotePatterns host W1 pinned | planned:W2a               |
+| F3  | high        | ~360 inline `fontSize:` magic numbers vs `--fs-*` consumed in 3 rules — WORLD_CLASS slices 2–6 never shipped; add the per-sweep-scoped lint ban                                                 | planned:W2c               |
+| F4  | high        | No `loading.tsx` for `(order)/menu`, `(order)/dine-in`, `/track`, `/grocery` (menu is cookie-dynamic → cold hit = blank screen)                                                                 | planned:W2c               |
+| F5  | high        | Emoji-as-iconography (~30 functional glyphs: 🔍🗑🧾🪑♥💳🔥…) → ~20-glyph SVG set at brand stroke weight                                                                                         | planned:W2b               |
+| F6  | med         | Bilingual is name-deep: no `description_my`, EN-only modifier options + category rail, zero MY on cart→pay→track; no EN↔MY toggle                                                               | planned:W5                |
+| F7  | med         | No custom tip · text-only receipt rows · **no order reference on /track for food orders** · no email receipt / print stylesheet                                                                 | planned:W2d/W2e           |
+| F8  | med         | Redundant "Choose" pill + row double-control; ItemSheet has no qty stepper; hard 440px column on every viewport (no ≥768px tier)                                                                | planned:W2                |
+| F9  | med         | First-diner confusion: bare /menu silently defaults to scango; party-code join has no re-scan shortcut; "pays the full order" caveat is 11.5px; service-charge + tip reads as a double-ask      | planned:W2d               |
+| F10 | low         | Sold-out = 0.5 opacity + still tappable (no designed state); homepage door faces off-system (`<b>/<br>/<small>` + magic sizes); error.tsx off-system + no chunk-reload guard                    | planned:W2                |
 
 ## Kitchen / staff ops (W3)
 
-| ID | Sev | Item | Status |
-| --- | --- | --- | --- |
-| K1 | **blocker** | KDS typography phone-scale (15px items / 13px muted modifiers) — unreadable at 1–2m; 1100px cap wastes the display | planned:W3b |
-| K2 | **blocker** | Zero ticket aging/SLA (`firedAt` documented as "the stalled-ticket cue", nothing consumes it) | planned:W3b |
-| K3 | **blocker** | No new-ticket attention (no sound/flash; new tickets mount at the bottom, offscreen in a rush) | planned:W3c |
-| K4 | **blocker** | **Paid pickup/scango orders never reach the KDS** (`kitchen.ts:70` dinein-only); expo sorts by `created_at`, not due time | planned:W3a |
-| K5 | high | No allergy/notes channel to the kitchen (no `qr_cart_items.notes`; ItemSheet says "tell our staff" with nowhere to put it; modifiers are the smallest, lowest-contrast text) | planned:W3b |
-| K6 | high | **No FOH register** — walk-up/phone orders cannot be entered; staff add screen has no search, base items only; no day cash summary | planned:W6a |
-| K7 | high | Per-line two-stage bump only; no ticket bump, no recall, mis-tap unrecoverable from the board | planned:W3d |
-| K8 | high | No all-day/aggregate view ("how many mohinga right now") | planned:W3c |
-| K9 | med | Rush = blind vertical scroll (no paging, no "+N more", no late count) | planned:W3c |
-| K10 | med | No wake lock; expired staff cookie renders as "Reconnecting…" forever; `isConsoleLocked` unchecked in polled actions | planned:W3d |
-| K11 | med | Expo "Here now" is display-only (no resort/pin); pickup bags have **no customer name** to call out | planned:W3a/W3e |
-| K12 | low | No station tags/filter (single undifferentiated queue) | planned:W3d |
-| K13 | low | Feedback triage is read-only — "Needs follow-up" has no handled/assign state; back-link under 44px | open |
+| ID  | Sev    | Item                                                                                                                                                                                                                             | Status      |
+| --- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| K6  | high   | **No FOH register** — walk-up/phone orders cannot be entered; staff add screen has no search, base items only; no day cash summary                                                                                               | planned:W6a |
+| K13 | low    | Feedback triage is read-only — "Needs follow-up" has no handled/assign state; back-link under 44px                                                                                                                               | open        |
+| K14 | low    | **K10 residual:** `FloorBoard`'s polled `getFloorView` still ignores an expired cookie / locked console (no stale banner either) — extend the W3 `signin`/`locked` discriminant to the floor read when the floor is next touched | open        |
+| K15 | config | **Order-ready board Burmese headings need a native check** (`ReadyBoard.tsx`: ပြင်ဆင်နေသည် / ယူသွားနိုင်ပါပြီ) — W5 owns real localization; these two strings shipped early with the board                                       | open        |
 
 ## Grocery (W4)
 
-| ID | Sev | Item | Status |
-| --- | --- | --- | --- |
-| G1 | **blocker** | Catalog = 6 seeded SKUs, no photos, no category column; 198-SKU import deferred since June | planned:W4a (data = C6) |
-| G2 | high | No browse — the market can't be shopped like an aisle (schema + UI) | planned:W4b |
-| G3 | high | Zero bilingual: `name_my` populated in DB, never selected/rendered/searched | planned:W4a/W4b |
-| G4 | high | No offline story: no SW/manifest, scans are blocking round trips, failed scan dropped | planned:W7 |
-| G5 | high | Held item silently re-adds every 1.5s; scan feedback = small toast only (no haptic/beep/flash/reticle/torch) | planned:W4c |
-| G6 | med | Camera permission-denied = generic dead end (no `DOMException.name` branch, no retry) | planned:W4c |
-| G7 | med | Exit pass not machine-verifiable (no QR, no staff lookup by short code) + not offline-safe at the door | planned:W4d |
-| G8 | med | No price-per-unit ($/lb) and no size data to derive it | planned:W4a |
-| G9 | med | Weighed items = hard dead end; no price-embedded type-2 UPC parsing | planned:W4d |
-| G10 | med | Detection at full rAF rate; deprecated `@zxing/library` on every iPhone; no pause/resume | planned:W4c |
-| G11 | low | EBT badge but no EBT-eligible subtotal | planned:W4a |
-| G12 | low | Global one-op stepper lock (sluggish basket edits, two round trips per step) | planned:W4b |
-| G13 | low | /cart dead-end routes grocery shoppers to the restaurant menu | planned:W4b |
+| ID  | Sev         | Item                                                                                                         | Status                  |
+| --- | ----------- | ------------------------------------------------------------------------------------------------------------ | ----------------------- |
+| G1  | **blocker** | Catalog = 6 seeded SKUs, no photos, no category column; 198-SKU import deferred since June                   | planned:W4a (data = C6) |
+| G2  | high        | No browse — the market can't be shopped like an aisle (schema + UI)                                          | planned:W4b             |
+| G3  | high        | Zero bilingual: `name_my` populated in DB, never selected/rendered/searched                                  | planned:W4a/W4b         |
+| G4  | high        | No offline story: no SW/manifest, scans are blocking round trips, failed scan dropped                        | planned:W7              |
+| G5  | high        | Held item silently re-adds every 1.5s; scan feedback = small toast only (no haptic/beep/flash/reticle/torch) | planned:W4c             |
+| G6  | med         | Camera permission-denied = generic dead end (no `DOMException.name` branch, no retry)                        | planned:W4c             |
+| G7  | med         | Exit pass not machine-verifiable (no QR, no staff lookup by short code) + not offline-safe at the door       | planned:W4d             |
+| G8  | med         | No price-per-unit ($/lb) and no size data to derive it                                                       | planned:W4a             |
+| G9  | med         | Weighed items = hard dead end; no price-embedded type-2 UPC parsing                                          | planned:W4d             |
+| G10 | med         | Detection at full rAF rate; deprecated `@zxing/library` on every iPhone; no pause/resume                     | planned:W4c             |
+| G11 | low         | EBT badge but no EBT-eligible subtotal                                                                       | planned:W4a             |
+| G12 | low         | Global one-op stepper lock (sluggish basket edits, two round trips per step)                                 | planned:W4b             |
+| G13 | low         | /cart dead-end routes grocery shoppers to the restaurant menu                                                | planned:W4b             |
 
 ## Foundation / shell (W5 · W7)
 
-| ID | Sev | Item | Status |
-| --- | --- | --- | --- |
-| S1 | high | No post-pay receipt artifact (no email/print/durable link; anon history dies with the 4h TTL; `receipt_email` never set) | planned:W2e |
-| S2 | high | No EN↔MY toggle; `<html lang>` never switches; money path monolingual (the `layout.tsx` comment describes unwritten code) | planned:W5 |
-| S3 | high | No PWA manifest / SW / offline banner / chunk-reload boundary (P5.6 deferred — but table wifi makes it foundation) | planned:W7 |
-| S4 | med | Brand kit = one SVG: no OG image, no `metadataBase`, no apple-touch-icon/192/512, no twitter card; `--star` token + gold unification unshipped | planned:W7 |
-| S5 | med | Kiosk mode seam absent (no mode enum value, route guard, idle machinery) — reserve cheap seams pre-hardware | planned:W6b |
-| S6 | low | `posthog.identify` consent surface (client↔server funnel join) — deliberate defer; needs a consent banner | open |
-| S7 | info | Door-keyed funnels wired + pinned; await real diner traffic to read | gated |
+| ID  | Sev  | Item                                                                                                                                           | Status      |
+| --- | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| S1  | high | No post-pay receipt artifact (no email/print/durable link; anon history dies with the 4h TTL; `receipt_email` never set)                       | planned:W2e |
+| S2  | high | No EN↔MY toggle; `<html lang>` never switches; money path monolingual (the `layout.tsx` comment describes unwritten code)                      | planned:W5  |
+| S3  | high | No PWA manifest / SW / offline banner / chunk-reload boundary (P5.6 deferred — but table wifi makes it foundation)                             | planned:W7  |
+| S4  | med  | Brand kit = one SVG: no OG image, no `metadataBase`, no apple-touch-icon/192/512, no twitter card; `--star` token + gold unification unshipped | planned:W7  |
+| S5  | med  | Kiosk mode seam absent (no mode enum value, route guard, idle machinery) — reserve cheap seams pre-hardware                                    | planned:W6b |
+| S6  | low  | `posthog.identify` consent surface (client↔server funnel join) — deliberate defer; needs a consent banner                                      | open        |
+| S7  | info | Door-keyed funnels wired + pinned; await real diner traffic to read                                                                            | gated       |
 
 ## Closed (most recent first — keep the trail)
 
-| ID | Item | Closed by |
-| --- | --- | --- |
-| ✅ | **Grocery baskets paid the 5% service charge (SB-1524-disclosed) + were offered tip presets** — service base now excludes grocery lines; tip forced 0 on pure-grocery; UI rows honest | W1a (this PR) |
-| ✅ | Q9 — create-intent idempotency key omitted payer uid (2nd payer inherited the 1st's PI + attribution) | W1a (this PR) |
-| ✅ | Q4 — split `settle_at` never refreshed → >10-min table dead-ends with cards authorized ~7 days (+ the $0-share-settles-last sibling dead-end) | W1b (this PR) |
-| ✅ | Q6 — seven unthrottled mutations (applyReward · clearReward · releasePayLock · abortSettlement · openTab · submitFeedback · ensureProfile) | W1b (this PR) |
-| ✅ | Q7 — PIN-lockout DoS: approver pre-check + per-caller step-up rate bucket before any lockout budget is spent | W1b (this PR) |
-| ✅ | Q11 — copy-paste staff-page gates → `requireStaffPage()`; CSP Supabase hosts pinned; prefetch-header docs get a fallback CSP; `getFeedbackState` reviewed-oracle scoped to earner | W1c (this PR) |
-| ✅ | **/track refund arm** — a fully-refunded order now shows an honest terminal state (was: rail kept claiming the kitchen's on it) | W1c (this PR) |
-| ✅ | HANDOFF listed the P1.2 modifier-customization sheet as open — it shipped as the R6b ItemSheet (#97) | retired (stale) |
-| ✅ | Q1/Q2/Q3/Q8 (merge void-guards · share-intent race · fulfill cart_id · text-overload revoke) | #103 |
-| ✅ | U-Q1/U-Q4/U-Q5/U-Q6/U-Q7 + aria-live sweep (item-sheet focus · grocery richness pass · themeColor · scrim token · settle-flip focus) | #104–#106, K5 |
+| ID  | Item                                                                                                                                                                                  | Closed by         |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| ✅  | K4 — **paid pickup/scango orders never reached the KDS**; expo sorted by `created_at` not due time (+ the latent unbumpable-paid-cart-line bug found alongside)                       | W3a (this PR)     |
+| ✅  | K1 — KDS typography phone-scale / 1100px cap → full-bleed Night board with the `--kfs-*` kitchen type tier                                                                            | W3b (this PR)     |
+| ✅  | K2 — zero ticket aging → 2-threshold per-channel urgency strips (`mms_kds_config`) + mm:ss elapsed + late count                                                                       | W3b (this PR)     |
+| ✅  | K5 — no allergy/notes channel → bounded `qr_cart_items.notes` end-to-end (ItemSheet · staff editor · KDS red band · expo bag · order snapshot; noted lines never merge)               | W3b (this PR)     |
+| ✅  | K3 — no new-ticket attention → gesture-armed per-channel chime + re-chime + edge flash + "N new" pill                                                                                 | W3c (this PR)     |
+| ✅  | K8 — no all-day view → the All-Day rail (client-side reduce, largest first)                                                                                                           | W3c (this PR)     |
+| ✅  | K9 — rush = blind scroll → fixed grid, 8-per-page paging, unmissable "+N more", header late count                                                                                     | W3c (this PR)     |
+| ✅  | K7 — no ticket bump/recall → `mms_bump_ticket` (displayed-lines-only) + 6s undo + 2-min recall rail (windows enforced in SQL)                                                         | W3d (this PR)     |
+| ✅  | K10 — no wake lock + eternal "Reconnecting…" → `useWakeLock` on KDS/expo; polled reads return `signin`/`locked` discriminants and redirect honestly (floor residual → K14)            | W3d (this PR)     |
+| ✅  | K12 — no station tags → wok/cold/drinks chips (menu-category-derived, persisted, filter-scoped bumps)                                                                                 | W3d (this PR)     |
+| ✅  | K11 — expo "Here now" display-only + nameless bags → due-time sort with arrived pinned; first-name capture at takeout checkout headlines expo/KDS/the `/board` TV                     | W3a/W3e (this PR) |
+| ✅  | **Grocery baskets paid the 5% service charge (SB-1524-disclosed) + were offered tip presets** — service base now excludes grocery lines; tip forced 0 on pure-grocery; UI rows honest | W1a (this PR)     |
+| ✅  | Q9 — create-intent idempotency key omitted payer uid (2nd payer inherited the 1st's PI + attribution)                                                                                 | W1a (this PR)     |
+| ✅  | Q4 — split `settle_at` never refreshed → >10-min table dead-ends with cards authorized ~7 days (+ the $0-share-settles-last sibling dead-end)                                         | W1b (this PR)     |
+| ✅  | Q6 — seven unthrottled mutations (applyReward · clearReward · releasePayLock · abortSettlement · openTab · submitFeedback · ensureProfile)                                            | W1b (this PR)     |
+| ✅  | Q7 — PIN-lockout DoS: approver pre-check + per-caller step-up rate bucket before any lockout budget is spent                                                                          | W1b (this PR)     |
+| ✅  | Q11 — copy-paste staff-page gates → `requireStaffPage()`; CSP Supabase hosts pinned; prefetch-header docs get a fallback CSP; `getFeedbackState` reviewed-oracle scoped to earner     | W1c (this PR)     |
+| ✅  | **/track refund arm** — a fully-refunded order now shows an honest terminal state (was: rail kept claiming the kitchen's on it)                                                       | W1c (this PR)     |
+| ✅  | HANDOFF listed the P1.2 modifier-customization sheet as open — it shipped as the R6b ItemSheet (#97)                                                                                  | retired (stale)   |
+| ✅  | Q1/Q2/Q3/Q8 (merge void-guards · share-intent race · fulfill cart_id · text-overload revoke)                                                                                          | #103              |
+| ✅  | U-Q1/U-Q4/U-Q5/U-Q6/U-Q7 + aria-live sweep (item-sheet focus · grocery richness pass · themeColor · scrim token · settle-flip focus)                                                  | #104–#106, K5     |
