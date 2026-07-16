@@ -4,6 +4,17 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added — the 🏭 W-track plan: production polish across all four fronts (2026-07-16)
+
+- **[`docs/PRODUCTION_PLAN.md`](docs/PRODUCTION_PLAN.md)** — plan-of-record for the owner's brief ("nowhere
+  near production level polish"): an 8-agent audit+benchmark pass (diner path · grocery · staff/kitchen ·
+  foundation code audits + sunday/kiosk/KDS/scan-and-go world-class benchmarks), the honest diagnosis of why
+  ≈4.5 self-scores missed the felt gap, and phases W0–W7 (truth/registry → money blockers → hardware-grade
+  kitchen → flagship craft → shell → grocery market → bilingual system → FOH register + kiosk shell).
+  Verified ship-blockers logged: grocery baskets pay the 5% restaurant service charge and are offered tip
+  presets (`apps/qr/lib/totals.ts:52`), and paid pickup/scango orders never reach the KDS
+  (`apps/qr/lib/kitchen.ts:70`). ROADMAP gains the W-track board; HANDOFF banner repointed.
+
 ### Added — shared-device account experience: switch · remember · lend (2026-07-15)
 
 - **Switch back to your own account in one tap.** The signed-in account card gains a **Switch account** action, and the guest sign-in card now shows a **"Welcome back" chooser** — remembered prior sign-ins on this device (name/tier/email hints only, **never tokens**) as one-tap re-auth chips (email → pre-filled OTP; Google → one-tap). Returning to your account is now "tap your name + confirm," not "retype your email + wait." Privacy-first for a shared phone: a per-chip **×** and a **"Not you? Forget this device"** wipe the roster. See [`docs/SHARED_DEVICE.md`](docs/SHARED_DEVICE.md).
