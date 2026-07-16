@@ -11,9 +11,9 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   foundation code audits + sunday/kiosk/KDS/scan-and-go world-class benchmarks), the honest diagnosis of why
   ≈4.5 self-scores missed the felt gap, and phases W0–W7 (truth/registry → money blockers → hardware-grade
   kitchen → flagship craft → shell → grocery market → bilingual system → FOH register + kiosk shell).
-  Verified ship-blockers logged: grocery baskets pay the 5% restaurant service charge + tip
-  (`apps/qr/lib/totals.ts:52`), and paid pickup/scango orders never reach the KDS
-  (`apps/qr/lib/kitchen.ts:69`). ROADMAP gains the W-track board; HANDOFF banner repointed.
+  Verified ship-blockers logged: grocery baskets pay the 5% restaurant service charge and are offered tip
+  presets (`apps/qr/lib/totals.ts:52`), and paid pickup/scango orders never reach the KDS
+  (`apps/qr/lib/kitchen.ts:70`). ROADMAP gains the W-track board; HANDOFF banner repointed.
 
 ### Added — shared-device account experience: switch · remember · lend (2026-07-15)
 

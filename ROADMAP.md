@@ -253,7 +253,7 @@ stay hardware/FNS-gated below.
 
 - **W0** Truth & the bar — `docs/OPEN-ITEMS.md` single registry · O-axes (ops scorecard) + grocery rubric rows · design sources for the unprototyped surfaces (KDS · order-ready board · grocery · kiosk). ⬜
 - **W1** Stop the bleeding — grocery service-charge/SB-1524 + tip blockers (`totals.ts` fulfillment filter) · the verified-open hardening tail (Q4/Q6/Q7/Q9/Q11) · /track refund arm. ⬜
-- **W2** Finish the flagship — photography + designed placeholder (28/60 dishes blank today; bucket → QR project) · SVG icon set retiring emoji chrome · type-scale + skeleton sweeps (the WORLD_CLASS slices 2–6) · wallet-first Express Checkout + custom tip · order code + itemized receipt + email receipt. ⬜
+- **W2** Finish the flagship — photography + designed placeholder (31/60 dishes without a real photo; bucket → QR project) · SVG icon set retiring emoji chrome · type-scale + skeleton sweeps (the WORLD_CLASS slices 2–6) · wallet-first Express Checkout + custom tip · order code + itemized receipt + email receipt. ⬜
 - **W3** The kitchen you can trust — route pickup/scango into the KDS + HELD scheduled cards · kitchen-scale ticket type + 2-threshold aging + chime + all-day rail + grid/paging · ticket bump/recall/undo · notes/allergy channel (migration) · wake lock + honest 401 · order-ready TV board + first-name capture. ⬜
 - **W4** The market grows up — 198-SKU catalog (categories · photos · name_my · units · synonyms) · browse+scan hybrid over one catalog · scanner craft (haptic/flash/torch/leave-frame dedupe/failure ladder) · QR exit pass + staff scan view + offline pass · weighed type-2 UPCs. ⬜
 - **W5** One tongue — app-wide EN↔MY toggle · money-path localization (~20 moments) · modifier/category `name_my`. ⬜

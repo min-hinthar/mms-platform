@@ -9,7 +9,7 @@ the **kitchen/expo**, the **grocery market**, and **front-of-house (register + k
 staff/kitchen · foundation) + four world-class benchmark researches (sunday-class QR dine-in · restaurant
 kiosks · commercial KDS · scan-and-go grocery: Sam's Club, Weee!, Toast, Square, Fresh, McDonald's, Bite,
 Snackpass). Every code claim below was read from the repo, not from docs; the two ship-blockers were
-re-verified by hand (`totals.ts:52`, `kitchen.ts:69`).
+re-verified by hand (`totals.ts:52`, `kitchen.ts:70`).
 
 Companion docs: [`WORLD_CLASS_UX_PLAN.md`](WORLD_CLASS_UX_PLAN.md) (2026-07-02 — this plan resumes and
 supersedes its sequencing), [`M6_DESIGN.md`](M6_DESIGN.md) (kiosk/Terminal/EBT — W6 pulls P6.1's shell
@@ -26,8 +26,9 @@ gap survived every gate:
 
 1. **The rubric graded screens and paths — not the product.** Photography, catalog data, receipts,
    bilingual depth, and ops tooling are _product_ gaps invisible to a per-surface score. A menu whose rows
-   are beautifully token-pure still reads "unfinished" when **28 of 60 dishes render a blank gradient
-   square** (`seed.sql` fallback.jpg×28 + NULL×3; `BlurUpImage.tsx:37` returns `null` → empty tile).
+   are beautifully token-pure still reads "unfinished" when **31 of 60 dishes have no real photo**
+   (28 point at a `fallback.jpg` in the delivery bucket + 3 NULL — `seed.sql`; a missing/failed src makes
+   `BlurUpImage.tsx:37` return `null` → an empty gradient tile).
 2. **v7.2 covers only the diner path.** `grep grocery docs/prototype/v7.2.html` → 0; there is no KDS, expo,
    kiosk, or grocery-browse prototype. The fidelity gate ("strings verbatim from v7.2") had _nothing to
    check_ on exactly the surfaces the owner named — so they were de-novo styled and never held to a bar.
@@ -55,7 +56,7 @@ The distance is **shell, content, ops tooling, and follow-through** — not re-a
 | Front | Felt score | One-line verdict |
 | --- | --- | --- |
 | **Flagship diner path** | craft ≈4.3 · product ≈3.2 | Engineering strong; the three things a diner sees first are the three weakest — missing photos, emoji-as-iconography, magic-number type. Plus: no custom tip, no order # on /track for food orders, no receipt artifact, EN-only money path. |
-| **Kitchen / expo** | ≈3.2 | "A scaled-down consumer web page, not a hardware-grade ops tool." **A working kitchen would reject it in the first hour:** 15px items / 13px muted modifiers unreadable at arm's length, zero ticket aging, no sound on new tickets, no all-day counts, no recall — and **paid pickup/scango orders never reach it at all** (`kitchen.ts:69` `.eq("mode","dinein")`). |
+| **Kitchen / expo** | ≈3.2 | "A scaled-down consumer web page, not a hardware-grade ops tool." **A working kitchen would reject it in the first hour:** 15px items / 13px muted modifiers unreadable at arm's length, zero ticket aging, no sound on new tickets, no all-day counts, no recall — and **paid pickup/scango orders never reach it at all** (`kitchen.ts:70` `.eq("mode","dinein")`). |
 | **Grocery** | ≈2.8 | "A scanner demo on a 6-SKU photo-less catalog, not a store app." No browse, zero Burmese (name_my sits unused in the DB), no scan feedback, held items silently re-add every 1.5s — and **two money blockers** (below). |
 | **Foundation / FOH** | ≈3.2 | "A beautifully-crafted interior with no production shell": public/ = one SVG, no manifest/SW/OG, no receipt email, no register (walk-up/phone orders **cannot be entered**), kiosk groundwork = one comment. |
 
@@ -113,33 +114,38 @@ The 20%-effort fix for the measurement failure that let the gap survive:
 - **`docs/OPEN-ITEMS.md`** — the single severity-tagged registry. One sweep of HANDOFF "parked" +
   HOLISTIC 📋 + M6 deferrals + QR_FROM_DELIVERY leftovers + this plan's findings; retire stale entries
   (e.g. P1.2 modifier sheet = shipped R6b). Updating it joins the "Gate before done" checklist.
-- **Extend `context/RUBRIC.md`** with the two missing scorecards:
-  - **O-axes (ops surfaces):** O-A legibility-at-distance (readable at 1–2m) · O-B glanceable time/urgency ·
-    O-C attention without looking (sound/flash) · O-D rush behavior (20 tickets) · O-E fat-finger safety
-    (bump/undo/recall) · O-F always-on resilience (wake lock, auth expiry, reconnect). Same ≥4.3 bar.
-  - **Grocery rows** on the journey table (browse → scan → basket → pay → exit).
+- **Extend `context/RUBRIC.md`:**
+  - **O-axes (ops surfaces — the missing scorecard):** O-A legibility-at-distance (readable at 1–2m) ·
+    O-B glanceable time/urgency · O-C attention without looking (sound/flash) · O-D rush behavior
+    (20 tickets) · O-E fat-finger safety (bump/undo/recall) · O-F always-on resilience (wake lock, auth
+    expiry, reconnect). Same ≥4.3 bar.
+  - **Widen the existing grocery journey row** (scored 3.1 at J0) with the browse and exit stages it
+    currently skips (browse → scan → basket → pay → exit).
 - **Design sources for the unprototyped surfaces** — a `docs/prototype/` addendum (or per-surface spec
   docs): KDS ticket + board, order-ready TV, grocery browse/scan/exit-pass, kiosk attract/idle. Without
   this, W3–W6 repeat the "no bar to check against" failure.
 
-### W1 — Stop the bleeding (money + trust, 1–2 PRs)
+### W1 — Stop the bleeding (money + trust, 3–4 PRs — CODEOWNERS-flagged, don't compress)
 
-- **Grocery money:** exclude `fulfillment='grocery'` lines from the service-charge base in `getCartTotals`
-  (+ every SQL reconcile that mirrors it — cash settle, split); suppress the service-charge row + SB-1524
-  paragraph AND the tip group on pure-grocery carts; force `tipRate=0` server-side at create-intent for
-  pure-grocery. _Blocker; ships first._
+- **Grocery money (its own PR, first):** exclude `fulfillment='grocery'` lines from the service-charge base
+  in `getCartTotals` — the 5% lives **only** there (`0.05` appears once in the codebase); verify the share
+  proration (`create-share-intent`) and cash settle consume the new base rather than re-deriving; suppress
+  the service-charge row + SB-1524 paragraph AND the tip group on pure-grocery carts; force `tipRate=0`
+  server-side at create-intent for pure-grocery. _Blocker; ships first._
 - **The verified-open hardening tail** (HOLISTIC 📋, all confirmed live in code): Q4 `settle_at` refresh
   (split >10min dead-ends with cards authorized ~7 days), Q6 seven unthrottled mutations, Q7 PIN-lockout
-  DoS pre-check, Q9 uid in the intent idempotency key, Q11 `requireStaffPage()` helper. One "QR hardening"
-  PR per the plan's own ranked list.
-- **/track refund arm** — a refunded diner currently sees the tracker collapse with no explanation of where
-  their money went (`OrderTracker.tsx:58,158`). Diner-facing money surface; belongs with W1, not polish.
+  DoS pre-check, Q9 uid in the intent idempotency key, Q11 CSP fallback + host pinning +
+  `requireStaffPage()`. Split per HOLISTIC's own ranked batches — Q4 (split money) separate from the
+  hardening sweep; Q11's staff-page refactor touches every staff route and shouldn't ride a money PR.
+- **/track refund arm (its own PR)** — a refunded diner currently sees the tracker collapse with no
+  explanation of where their money went (`OrderTracker.tsx:58,158`). Diner-facing money surface; belongs
+  with W1, not polish.
 
-### W2 — Finish the flagship (the WORLD_CLASS resumption + art direction, ~5 PRs)
+### W2 — Finish the flagship (the WORLD_CLASS resumption + art direction, ~8 PRs; W2c can pair screens to compress)
 
 The abandoned slices 2–6, plus the art-direction layer the plan never had:
 
-- **W2a Photography + placeholder system.** Needs Min: one afternoon shooting the ~30 unphotographed dishes
+- **W2a Photography + placeholder system.** Needs Min: one afternoon shooting the ~31 unphotographed dishes
   (§5). Code side: migrate the photo bucket into the QR project (`fasnpdhtvqtzjlvruqcu` — today every URL
   hotlinks the **delivery** project's storage and one bucket change over there silently blanks our menu;
   narrow `remotePatterns` accordingly) · a **designed placeholder** (✦ + category glyph over the gradient,
@@ -152,6 +158,9 @@ The abandoned slices 2–6, plus the art-direction layer the plan never had:
   `--fs-*/--lh-*/--s*` (kills the 361 magic numbers; add the lint ban on numeric `fontSize` so it can't
   regress) + geometry-matched `loading.tsx` for `(order)/menu`, `(order)/dine-in`, `/track` (the `@mms/ui`
   Skeleton + the cart/account pattern already exist). Restyle `error.tsx` onto tokens + chunk-reload guard.
+  The `fontSize` lint ban is **directory-scoped and widened per sweep** (the ~360 magic numbers span staff
+  surfaces too — a repo-wide ban after a diner-only sweep fails lint everywhere else); W3b's KDS scale lands
+  on `--fs-*` tokens (or a dedicated KDS tier) so W3 adds no new violations.
 - **W2d Checkout/pay craft:** **Stripe Express Checkout Element** (Apple/Google Pay) rendered _above_ the
   card element — wallet-first is the single highest-leverage benchmark finding · **Custom tip** chip
   (dollar input, server-confirmed like the presets) · fee lines itemized above the tip ask · elevate the
@@ -188,11 +197,15 @@ The abandoned slices 2–6, plus the art-direction layer the plan never had:
   board · `navigator.wakeLock` + visibilitychange re-acquire · distinguish 401 from network in refresh()
   (an expired staff cookie currently wears "Reconnecting…" forever) · station **tags** (category chips +
   client-side filter — data station-aware, second screen stays config not schema).
-- **W3e The order-ready board.** Public read-only `/board` route on any smart-TV browser: Preparing |
-  Ready two columns, **first name + short order #**, gold flash on the transition, auto-clear 10min after
-  pickup. Driven solely by the bump via the existing realtime path. Requires capturing a **first name at
-  pickup/scango checkout** (one optional field — which also fixes expo's "nothing to call out": today the
-  bag label falls back to the raw session token). Metrics ride free: `fired_at/started_at/bumped_at` →
+- **W3e The order-ready board.** Read-only `/board` route on any smart-TV browser: Preparing | Ready two
+  columns, **first name + short order #**, gold flash on the transition, auto-clear 10min after pickup.
+  The bump is the only write that moves a card — but the TV **cannot** ride the existing realtime channels
+  (they're private, RLS-gated on `realtime.messages`; an unauthenticated browser can't subscribe).
+  **Recommend: a sanitized poll endpoint (first name + short code + status only, nothing else) behind a
+  device token in the board URL, 5s interval** — matches the house 5s-poll-backstop pattern, zero
+  `realtime.messages` policy change; a staff-authed TV login is the fallback. Requires capturing a
+  **first name at pickup/scango checkout** (one optional field — which also fixes expo's "nothing to call
+  out": today the bag label falls back to the session's raw `qr_code` label). Metrics ride free: `fired_at/started_at/bumped_at` →
   avg ticket time + late count in the board header; weekly owner rollup later.
 
 ### W4 — The market grows up (grocery, ~4 PRs + a data sprint)
@@ -200,8 +213,9 @@ The abandoned slices 2–6, plus the art-direction layer the plan never had:
 - **W4a Catalog (the 60%).** Needs Min + data work (§5): import the **198 POS SKUs** with barcodes,
   **category**, size/unit, `name_my`, photos into `grocery_items` (schema adds `category`, `size_qty`,
   `size_unit`, `synonyms text[]`). Render **unit price** ($/lb, $/oz) and pack spec on every card; EBT
-  badge stays; add the **EBT-eligible subtotal** line ("SNAP checkout arrives 2027") — makes the 2027
-  Forage landing trivial.
+  badge stays; add the **EBT-eligible subtotal** line (undated, honest copy: "EBT-eligible — SNAP checkout
+  coming; pay by card today" — FNS authorization is federally gated, never promise a date) — makes the
+  2027 Forage landing trivial.
 - **W4b Browse + scan, one catalog.** Two tabs over one surface — **Browse** (category grid, Weee!-anatomy
   cards, photos, bilingual names) and **Scan** (camera) — a scan deep-links to the same item card the
   browse path uses. Search over `name + name_my + synonyms` with `pg_trgm` fuzziness (lahpet/laphet/
@@ -267,10 +281,10 @@ W4b. Kiosk (W6) and the board (W3e) consume this for free. Consider Spanish as a
 
 | # | Item | Gates | Effort |
 | --- | --- | --- | --- |
-| 1 | **Photograph ~30 dishes** (the fallback.jpg set) — one afternoon with the kitchen; natural light, one angle, consistent plate | W2a | ~half day |
+| 1 | **Photograph the 31 dishes without a real photo** (28 fallback.jpg + 3 NULL) — one afternoon with the kitchen; natural light, one angle, consistent plate | W2a | ~half day |
 | 2 | **198-SKU grocery data**: barcode, category, size/unit, EN+MY names, EBT flag — from the POS tax map; photos per SKU (shelf shots fine to start) | W4a | 1–2 days, can be incremental by category |
-| 3 | **Confirm the service-charge rate** (prototype copy has used both 15% and 5%; code charges 5%) — lock one, everywhere | W1 | decision |
-| 4 | **Hardware buy list** (all just browsers — no vendor lock): KDS = 15.6" Android touchscreen or iPad + rugged case + VESA arm at the pass (~$200–500) · order-ready board = any smart TV ($0 if one exists) · kiosk = 21.5–24" portrait Android/Elo countertop or iPad + stand w/ reader mount (~$400–1,500) · USB HID barcode scanner (~$30–80) · label-printing scale for weighed counter items (~$200–400) · Stripe S700 when Terminal lands (M6) | W3e/W6b validation | purchase |
+| 3 | **Lock the service-charge rate — recommend 5%**: it's what the code charges and the UI legally discloses today; 15% would be a live price change with its own disclosure work (the prototype has used both) | W1 | decision |
+| 4 | **Hardware buy list** (all just browsers — no vendor lock): KDS = **recommend a 15.6" Android touchscreen on a VESA arm** at the pass, wipeable, off the wok line (~$300–500; iPad + rugged case is the fallback) · order-ready board = **the existing smart TV** ($0 — any browser) · kiosk = **recommend iPad + counter stand w/ reader mount** (~$400–700, the Square-style cheapest-credible path; a 21.5–24" portrait Elo countertop ~$1,000–1,500 only if volume earns it) · USB HID barcode scanner = any keyboard-wedge (~$40) · label-printing scale for weighed counter items (~$200–400) · Stripe S700 when Terminal lands (M6) | W3e/W6b validation | purchase |
 | 5 | **Resend from-address** for diner receipts (`RESEND_FROM` exists for staff mail; confirm the diner-facing identity) | W2e | config |
 | 6 | **Go/no-go on the paid UI kit stack** (DESIGN-RESEARCH §5, ~$790: HeroUI Pro + Motion+ + shadcnblocks + 1mo Mobbin) — recommended **yes** before W2/W6: it shortcuts the icon/large-touch/checkout component work materially | W2/W6 velocity | ~$790 |
 
