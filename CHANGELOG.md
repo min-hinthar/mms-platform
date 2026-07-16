@@ -4,6 +4,50 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W3 — the kitchen you can trust (KDS · expo · order-ready board) (2026-07-16)
+
+- **W3a (ops blocker, K4):** every channel now reaches the kitchen. `mms_fire_pending_food` drops its
+  dine-in gate — paid pickup/scango food fires at the cart's stored `fire_at` (= slot − prep, the M2
+  seam), so a scheduled order renders as a dimmed **HELD** card that turns live at fire time (no cron;
+  manual "Fire now" allowed via `mms_fire_ticket_now`, paid-carts-only so it can never eat a diner's
+  undo grace). The pg_cron reconciler learns the widened fire. Expo sorts by **effective due time**
+  (`arrived? · pickup_slot ?? created_at`) with "Here now" pinned — a 6pm slot paid at noon no longer
+  heads the queue all afternoon. **Latent bug fixed:** `mms_line_transition` guarded `status='open'`,
+  so any line fired AT checkout (paid cart) was unbumpable — kitchen edges now accept paid carts, and
+  refuse lines the board hasn't shown (`fire_at ≤ now()` on start/serve).
+- **W3b (the ticket + the board, K1/K2/K5):** full-bleed KDS with a dedicated `--kfs-*` type tier
+  (32px identity · ≥28px/800 items · 21px full-contrast modifiers · solid qty chips), Night theme
+  forced (glare/burn-in), channel badge + 2-threshold urgency header strips (config-driven
+  `mms_kds_config`, per-channel; pickup ages from fire time) + mm:ss elapsed. **The notes channel:**
+  bounded `qr_cart_items.notes` (Zod 160 + column CHECK) — ItemSheet gains "A note for the kitchen"
+  (the allergen copy finally points at a real channel), staff line editor gets draft-only note
+  set/clear (`setLineNotes`), notes ride the order snapshot to expo, render as the highest-contrast
+  red band on the ticket, and **never merge** (insertOrIncLine + `mms_merge_table_orders` treat a
+  noted line as unfoldable — "no peanuts" can't silently spread to or vanish from units).
+- **W3c (attention + rush, K3/K8/K9):** gesture-armed WebAudio chime (distinct dine-in vs counter
+  tones, volume persisted, soft re-chime on a ticket un-started past the config window) + keyed edge
+  flash + "N new →" pill; fixed grid pages at 8 with an unmissable **"+N more"** (text never shrinks);
+  the **All-Day rail** ("Mohinga ×4") reduced client-side; header shows open · oldest · late ·
+  avg-today (`mms_kds_stats`, local-midnight window off `pickup_config.tz`).
+- **W3d (bump/recall/resilience, K7/K10/K12):** ticket-level **BUMP** (64px zone; serves exactly the
+  displayed line ids — a line that fired mid-tap is never silently served) with a 6s undo toast + a
+  2-minute **recall rail** (both enforced in SQL: `mms_bump_ticket`/`mms_recall_ticket`, timestamps
+  `started_at`/`bumped_at` stamped for metrics); `navigator.wakeLock` + visibility re-acquire on
+  KDS/expo; **honest 401/lock**: the polled reads return a discriminant (`signin`/`locked`) and the
+  boards hard-redirect instead of wearing "Reconnecting…" forever; station tags (wok/cold/drinks from
+  menu category) as persisted client-side chips — a station bump serves only that station's lines.
+- **W3e (the order-ready board):** optional **"First name for pickup"** at pickup/scango checkout
+  (`qr_carts.customer_name` → order snapshot; localStorage-prefilled, never in analytics) — expo bags
+  and KDS tickets finally headline a human name + short code. Read-only **`/board`** for any smart-TV
+  browser: Preparing | Ready (bilingual EN/MY), gold flash on the ready transition, picked-up cards
+  linger 10 min then auto-clear (`togo_ready_at`/`togo_picked_up_at` stamped by the expo bump), held
+  scheduled orders stay off until fire time. The TV can't join the private realtime channels, so it
+  polls the **sanitized `/api/board`** (name + code + status only) behind a constant-time device token
+  (`BOARD_DEVICE_TOKEN`, docs/ENV.md) on the house 5s cadence.
+- Migration `20260716000000_w3_kitchen.sql` (additive; fulfill RPCs restated with only the
+  name/notes copy; idempotent; verified behaviorally on the local stack — 16 scenario checks incl.
+  grant lockdown). **⚠️ Apply to live before merge** (the PR preview shares the live DB).
+
 ### W0 + W1 — truth/registry + stop the bleeding (2026-07-16)
 
 - **W1a (money):** grocery retail lines are excluded from the SB-1524 service-charge base in

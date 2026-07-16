@@ -85,6 +85,9 @@ export type PricedLine = {
   taxCents: number;
   /** S4 routing tag — set by the caller from context (food: dinein/togo; grocery: 'grocery'). */
   fulfillment: LineFulfillment;
+  /** W3b: the kitchen note ("no peanuts — allergy"). Bounded upstream (Zod 160 + column CHECK);
+   *  empty/whitespace is normalized to undefined by the caller. Notes never merge (see below). */
+  notes?: string;
 };
 
 /**
@@ -117,13 +120,20 @@ export async function insertOrIncLine(
     .eq("cart_id", cartId)
     .eq("menu_item_id", line.menuItemId)
     .eq("fulfillment", line.fulfillment) // S4: a for-here add must NOT merge into a to-go line (different routing/tax)
-    .eq("state", "draft");
+    .eq("state", "draft")
+    // W3b: a NOTED line never merges, in either direction — folding "no peanuts" into a plain sibling
+    // (or a plain add into a noted line) would silently apply/erase an allergy instruction on units the
+    // diner didn't annotate. Notes are per-line by construction: noted adds always insert fresh, and
+    // plain adds only merge into note-less siblings.
+    .is("notes", null);
   // Per-seat scope (R5c): merge only into the SAME seat's own draft line — different diners keep separate
   // lines. NULL (staff "added by server") needs PostgREST `.is`, not `.eq`, so it merges only other null lines.
   siblingQuery =
     bySeat === null ? siblingQuery.is("by_seat", null) : siblingQuery.eq("by_seat", bySeat);
   const { data: siblings } = await siblingQuery;
-  const dup = (siblings ?? []).find((s) => modKey(s.modifiers) === modKey(line.opts));
+  const dup = line.notes
+    ? undefined
+    : (siblings ?? []).find((s) => modKey(s.modifiers) === modKey(line.opts));
   if (dup) {
     // ATOMIC `qty = qty + 1` requiring status='open' and qty<99 (can't lose an increment, can't bump a
     // paid line, can't inflate the Stripe amount). RAISES on a closed cart; a 99-cap is a silent no-op.
@@ -141,6 +151,8 @@ export async function insertOrIncLine(
       // type-gen marks it non-null, so cast. NULL is a valid provenance ("no seat").
       p_by_seat: bySeat as string,
       p_fulfillment: line.fulfillment,
+      // p_notes defaults to null in SQL — omitted entirely for a plain add.
+      ...(line.notes ? { p_notes: line.notes } : {}),
     });
     if (!insertedId) throw new Error("Cart is no longer open");
   }

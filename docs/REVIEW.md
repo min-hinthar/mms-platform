@@ -461,3 +461,30 @@ the orders tray sheet, the wallet chip + merge beat, and the grocery product row
 targets, accessible names, `role="list"`, one live region per view, reduced-motion off-switches, and
 decorative-glyph `aria-hidden` in-review. §C P2 (PostHog PII): door/table analytics carry only opaque ids;
 the `before_send` URL scrubber strips `t`/`j`/`payment_intent`. No new P0/P1 opened across the track.
+
+## W3 (the kitchen) — QA sweep close (2026-07-16)
+
+The first surface scored against the **O-axes** (`RUBRIC.md`, added at W0) — self-scored from the
+local-stack screenshots in `docs/screenshots/w3/` (real-device + owner felt-quality go still required
+per the track's definition of done):
+
+- **O-A legibility at distance** — dedicated `--kfs-*` tier: 32px identity / 28px·800 items / 21px
+  FULL-contrast modifiers; the allergy note band is the highest-contrast element on the card. ≈4.5
+- **O-B glanceable time** — per-channel 2-threshold header-strip color (config table, pickup ages from
+  fire time) + mm:ss elapsed + header oldest/late. ≈4.5
+- **O-C attention without looking** — gesture-armed per-channel chime, soft re-chime past the config
+  window, keyed edge flash, "N new →" pill. Real speakers untested until hardware (C7). ≈4.3
+- **O-D rush behavior** — fixed grid pages at 8, "+N more" in warn red, text never shrinks; All-Day
+  rail for batch cooking. ≈4.3
+- **O-E fat-finger safety** — 64px bump zone, 6s undo, 2-min recall rail (both windows enforced in
+  SQL); held lines untappable; station-filtered bumps serve only displayed lines. ≈4.5
+- **O-F always-on resilience** — wake lock + visibility re-acquire; 401/lock → honest redirect (floor
+  residual tracked K14); realtime + 5s poll self-heal unchanged. ≈4.4
+- **O-G channel triage** — one color dimension (urgency strip) + one symbolic (channel badge); HELD
+  scheduled cards never age red; the board hides them until fire time. ≈4.6
+
+QA-CHECKLIST §A items touched (44px targets · accessible names · one live region · focus-on-unmount ·
+`prefers-reduced-motion` off-switches · `role="list"`) re-checked on the new KDS/expo/board/ItemSheet
+surfaces during the pre-PR sweep; SQL invariants proven behaviorally on the local stack (16 scenario
+checks incl. grant lockdown + double-apply idempotency). Boxes in QA-CHECKLIST.md stay unchecked by
+design — this section is the record.

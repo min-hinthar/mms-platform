@@ -50,11 +50,17 @@ export const setDisplayNameInput = z.object({
   name: displayName,
 });
 
-/** addItem — the client asserts only an item id + chosen modifier OPTION ids (never a price). */
+/** A kitchen note ("no peanuts — allergy") is user-controlled free text → cap length (mirrors the
+ *  qr_cart_items.notes column CHECK, 160); JSX escapes it at render. W3b: the allergy channel. */
+const lineNotes = z.string().trim().max(160);
+
+/** addItem — the client asserts only an item id + chosen modifier OPTION ids (never a price).
+ *  `notes` (W3b) rides to the kitchen verbatim; an empty/whitespace note is dropped server-side. */
 export const addItemInput = z.object({
   cartId: uuid,
   menuItemId: uuid,
   modifierIds: z.array(uuid).max(20).default([]),
+  notes: lineNotes.optional(),
 });
 
 /** toggleFavorite (J5) — the heart on a menu item; the DB FK re-verifies the id is a real item. */
@@ -99,6 +105,10 @@ export const applyPromoInput = z.object({
 export const createIntentInput = z.object({
   cartId: uuid,
   tipRate: z.number().min(0).max(0.5).default(0),
+  // W3e: the optional pickup/scango call-out identity ("first name for pickup"). Length-capped
+  // (mirrors the qr_carts.customer_name CHECK); persisted on the CART then snapshotted to the order
+  // at fulfillment — never rendered anywhere money-bearing, and never sent to analytics (PII).
+  firstName: z.string().trim().max(40).optional(),
 });
 
 /** scanAdd (grocery) — a scanned EAN-8(8)/UPC-A(12)/EAN-13(13)/GTIN-14(14) barcode (8–14 digits),
@@ -289,6 +299,35 @@ export const bumpLineInput = z.object({
   to: z.enum(["in_progress", "served"]),
 });
 
+/** bumpTicket (W3d) — the cook bumps a WHOLE ticket served in one tap. The client passes the line ids
+ *  it displayed (so a line that fired mid-tap is never silently served) + their cart; every guard
+ *  (state, cart status, fire_at ≤ now) re-asserts in mms_bump_ticket's single UPDATE. Bounded well
+ *  above any real ticket (the queue read caps at 500 lines board-wide). */
+export const bumpTicketInput = z.object({
+  cartId: uuid,
+  lineIds: z.array(uuid).min(1).max(60),
+});
+
+/** recallTicket (W3d) — restore a mis-bumped ticket from the recall rail. Same shape as the bump;
+ *  the 2-minute window + served-state guard live in mms_recall_ticket, never the client. */
+export const recallTicketInput = z.object({
+  cartId: uuid,
+  lineIds: z.array(uuid).min(1).max(60),
+});
+
+/** fireTicketNow (W3a) — pull a HELD (scheduled pickup) ticket onto the live board early. Shape only;
+ *  mms_fire_ticket_now moves only future-fire_at fired lines on a PAID cart (a dine-in send's undo
+ *  grace lives on an OPEN cart and is untouchable from the KDS). */
+export const fireTicketNowInput = z.object({ cartId: uuid });
+
+/** setLineNotes (W3b) — staff set/clear the kitchen note on a DRAFT line ("no peanuts — allergy",
+ *  taken at the table). Empty clears. Post-fire the note is frozen — the kitchen may already be
+ *  reading it; the guard lives in the action's draft-only UPDATE. */
+export const setLineNotesInput = z.object({
+  cartItemId: uuid,
+  notes: lineNotes,
+});
+
 /** staffAddItem (S1.3) — a staff member orders FOR a guest, adding to the table's open cart. Like the
  *  diner addItem the client asserts only an item id + chosen modifier OPTION ids (never a price); the
  *  server resolves the session's open cart, re-derives every amount, and attributes the line to no seat
@@ -297,6 +336,7 @@ export const staffAddItemInput = z.object({
   sessionId: uuid,
   menuItemId: uuid,
   modifierIds: z.array(uuid).max(20).default([]),
+  notes: lineNotes.optional(),
 });
 
 /** settleCash (S1.3) — a staff member settles the table order in cash ("pay a human"). Shape only; the
@@ -400,6 +440,10 @@ export type SendToKitchenInput = z.infer<typeof sendToKitchenInput>;
 export type UndoFireInput = z.infer<typeof undoFireInput>;
 export type StaffFireInput = z.infer<typeof staffFireInput>;
 export type BumpLineInput = z.infer<typeof bumpLineInput>;
+export type BumpTicketInput = z.infer<typeof bumpTicketInput>;
+export type RecallTicketInput = z.infer<typeof recallTicketInput>;
+export type FireTicketNowInput = z.infer<typeof fireTicketNowInput>;
+export type SetLineNotesInput = z.infer<typeof setLineNotesInput>;
 export type StaffAddItemInput = z.infer<typeof staffAddItemInput>;
 export type SettleCashInput = z.infer<typeof settleCashInput>;
 export type MergeTablesInput = z.infer<typeof mergeTablesInput>;

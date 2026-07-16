@@ -28,7 +28,8 @@ import { OrdersTray } from "./OrdersTray";
  */
 export function AppHeader() {
   const pathname = usePathname();
-  const hidden = pathname?.startsWith("/staff") ?? false;
+  // Staff run their own console; /board (W3e) is a wall TV — diner wayfinding chrome on either is noise.
+  const hidden = (pathname?.startsWith("/staff") || pathname?.startsWith("/board")) ?? false;
 
   const { cartId } = useActiveOrder();
   // The order affordance is redundant where a dedicated surface already shows it: the homepage resume card

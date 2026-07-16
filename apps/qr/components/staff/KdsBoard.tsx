@@ -1,40 +1,196 @@
 "use client";
-import { useCallback, useEffect, useRef, useState, useTransition, type CSSProperties } from "react";
-import { bumpLine, getKitchenQueue } from "@/lib/kitchen";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { bumpLine, bumpTicket, fireTicketNow, getKitchenQueue, recallTicket } from "@/lib/kitchen";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
-import type { KitchenLine, KitchenQueue, KitchenTicket } from "@/lib/kitchen-types";
-import { RelativeTime } from "./RelativeTime";
-import { StaggerList } from "./StaggerList";
+import { useWakeLock } from "@/lib/useWakeLock";
+import { KdsChime, getKdsVolume, setKdsVolume } from "@/lib/kds-sound";
+import type {
+  KdsThresholds,
+  KitchenLine,
+  KitchenQueue,
+  KitchenStation,
+  KitchenTicket,
+} from "@/lib/kitchen-types";
 import { EmptyState } from "@mms/ui";
 
 /**
- * The KDS — kitchen display (S2.1b). Server-rendered initial queue, then kept live by Postgres-Changes
- * (useFloorRealtime watches every qr_cart_items change → re-fetch the server-authoritative
- * getKitchenQueue; never client state-math) with a 5s poll BACKSTOP so a dropped socket can't leave the
- * line staring at a stale board. Re-fetches are debounced so a fire-batch of 5 lines collapses to one
- * fetch. One polite live region announces the ticket count (no per-card chatter). Two-stage bump:
- * Start (fired→in_progress) then Ready (in_progress→served, drops off the board).
+ * The KDS — kitchen display (S2.1b, rebuilt by W3 to SPEC-KDS). Server-rendered initial queue, kept
+ * live by Postgres-Changes (useFloorRealtime → re-fetch the server-authoritative getKitchenQueue;
+ * never client state-math) with a 5s poll BACKSTOP. W3 adds: every channel (pickup/scango HELD cards
+ * that auto-turn live at fire time) · kitchen-scale type + 2-threshold urgency strips + mm:ss ·
+ * gesture-armed per-channel chime + re-chime + "N new" + edge flash · fixed grid with paging and an
+ * unmissable "+N more" · the All-Day rail · ticket bump with 6s undo + a 2-minute recall rail ·
+ * station chips · wake lock · and honest 401/lock redirects (never an eternal "Reconnecting…").
+ * ONE polite live region (bump errors take precedence over the count); body contrast never changes
+ * with urgency — only the header strip ages.
  */
+
+const PAGE_SIZE = 8; // the 2×4 landscape envelope (SPEC-KDS §2); smaller screens page the same set
+const STATION_KEY = "mms.kds.station";
+const RAIL_KEY = "mms.kds.rail";
+const UNDO_MS = 6_000;
+const RECALL_MS = 120_000; // mirror of the SQL 2-minute recall window (the server is the authority)
+
+type RecallEntry = { cartId: string; label: string; lineIds: string[]; expiresAt: number };
+
+const STATIONS: { key: "all" | KitchenStation; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "wok", label: "Wok" },
+  { key: "cold", label: "Cold" },
+  { key: "drinks", label: "Drinks" },
+];
+
+/** The ticket's call-out identity: dine-in = the table; pickup/scango = first name (+ short code). */
+function ticketId(t: KitchenTicket): { main: string; sub: string | null } {
+  if (t.channel === "dinein") return { main: `Table ${t.tableNumber ?? t.label}`, sub: null };
+  const code = t.shortCode ? `#${t.shortCode}` : t.label;
+  return t.customerName ? { main: t.customerName, sub: code } : { main: code, sub: null };
+}
+
+const CHANNEL_LABEL: Record<KitchenTicket["channel"], string> = {
+  dinein: "Dine-in",
+  pickup: "Pickup",
+  scango: "To-go",
+};
+
+function fmtElapsed(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function fmtSlot(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function urgency(t: KitchenTicket, ageMs: number, th: KdsThresholds): "ok" | "amber" | "red" {
+  const amber = t.channel === "dinein" ? th.dineinAmberMin : th.pickupAmberMin;
+  const red = t.channel === "dinein" ? th.dineinRedMin : th.pickupRedMin;
+  const min = ageMs / 60_000;
+  if (min >= red) return "red";
+  if (min >= amber) return "amber";
+  return "ok";
+}
+
 export function KdsBoard({ initial }: { initial: KitchenQueue }) {
   const [snap, setSnap] = useState(initial);
-  const [err, setErr] = useState<string | null>(null); // one board-level bump-error region (S8)
+  const [err, setErr] = useState<string | null>(null); // one board-level action-error region (S8)
   const [stale, setStale] = useState(false); // shown after repeated poll failures (S9)
+  const [notice, setNotice] = useState<string | null>(null); // one-shot SR announcement (bump/recall)
   const fails = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlight = useRef(false);
+
+  // W3c attention state: keyed flash nonces per new arrival + the offscreen "N new" pill.
+  const [pulses, setPulses] = useState<Map<string, number>>(new Map());
+  const pulseNonce = useRef(0);
+  const prevLive = useRef<Set<string>>(
+    new Set(initial.tickets.filter((t) => !t.held).map((t) => t.cartId)),
+  );
+  const [newCount, setNewCount] = useState(0);
+
+  // W3d recall/undo state (client mirrors of the SQL 2-minute window).
+  const [recall, setRecall] = useState<RecallEntry[]>([]);
+  const [undo, setUndo] = useState<RecallEntry | null>(null);
+
+  // Board controls (persisted per device).
+  const [station, setStation] = useState<"all" | KitchenStation>("all");
+  const [railOpen, setRailOpen] = useState(false);
+  const [page, setPage] = useState(0);
+  const [soundOn, setSoundOn] = useState(false);
+  const [volume, setVolume] = useState(0.8);
+  const chime = useRef<KdsChime | null>(null);
+
+  // The elapsed clock: 1s tick, seeded from the SERVER clock (skew-safe — never trust the tablet).
+  // clockOffset is computed inside callbacks only (Date.now() in render is impure under the compiler);
+  // until the first tick lands, nowMs = the server snapshot itself, which is within 1s of true.
+  const [nowMs, setNowMs] = useState(() => Date.parse(initial.serverNow));
+  const clockOffset = useRef<number | null>(null);
+  useEffect(() => {
+    clockOffset.current ??= Date.parse(initial.serverNow) - Date.now();
+    const id = setInterval(() => {
+      const localNow = Date.now();
+      setNowMs(localNow + (clockOffset.current ?? 0));
+      // Expire undo/recall entries on the LOCAL clock in the same tick callback (entries are minted
+      // with Date.now(); the SQL 2-minute window is the real authority — this keeps the UI honest).
+      setRecall((prev) =>
+        prev.some((r) => r.expiresAt <= localNow)
+          ? prev.filter((r) => r.expiresAt > localNow)
+          : prev,
+      );
+      setUndo((prev) => (prev && prev.expiresAt <= localNow ? null : prev));
+    }, 1000);
+    return () => clearInterval(id);
+    // initial.serverNow is a mount-time snapshot (the prop never changes identity meaningfully).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useWakeLock(); // O-F: a kitchen display that sleeps mid-rush is a downed station
+
+  useEffect(() => {
+    // Persisted controls hydrate AFTER mount via a microtask (the TableCartProvider NAME_KEY pattern):
+    // SSR + first client render agree, and the setStates run in a callback, not the effect body.
+    let active = true;
+    void Promise.resolve()
+      .then(() => ({
+        station: localStorage.getItem(STATION_KEY),
+        rail: localStorage.getItem(RAIL_KEY),
+        volume: getKdsVolume(),
+      }))
+      .then(({ station: s, rail, volume: v }) => {
+        if (!active) return;
+        if (s === "wok" || s === "cold" || s === "drinks") setStation(s);
+        if (rail === "1") setRailOpen(true);
+        setVolume(v);
+      })
+      .catch(() => {
+        /* private mode — defaults are fine */
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const refresh = useCallback(async () => {
     if (inFlight.current) return; // coalesce overlapping fetches
     inFlight.current = true;
     try {
-      setSnap(await getKitchenQueue());
-      setErr(null); // a fresh good snapshot clears a stale bump-error banner (no perma-stuck error)
+      const res = await getKitchenQueue();
+      if (!res.ok) {
+        // K10 (O-F): an expired staff session or a locked console is NOT a network blip — leave the
+        // board for the honest surface instead of wearing "Reconnecting…" until someone reboots it.
+        window.location.assign(res.reason === "locked" ? "/staff/lock" : "/staff/login");
+        return;
+      }
+      const queue = res.queue;
+      clockOffset.current = Date.parse(queue.serverNow) - Date.now();
+
+      // W3c: diff LIVE tickets (held→live counts — that's new work landing). Flash + chime + pill.
+      const liveNow = queue.tickets.filter((t) => !t.held);
+      const added = liveNow.filter((t) => !prevLive.current.has(t.cartId));
+      prevLive.current = new Set(liveNow.map((t) => t.cartId));
+      if (added.length > 0) {
+        setPulses((prev) => {
+          const next = new Map(prev);
+          for (const t of added) next.set(t.cartId, ++pulseNonce.current);
+          return next;
+        });
+        // One chime per arrival wave per channel kind — the counter tone wins if both landed.
+        const hasCounter = added.some((t) => t.channel !== "dinein");
+        const hasDinein = added.some((t) => t.channel === "dinein");
+        if (hasCounter) chime.current?.play("pickup");
+        if (hasDinein) chime.current?.play("dinein");
+        setNewCount((n) => n + added.length);
+      }
+
+      setSnap(queue);
+      setErr(null); // a fresh good snapshot clears a stale action-error banner (no perma-stuck error)
       fails.current = 0;
       setStale(false);
     } catch (e) {
-      // Don't blank the board on a transient fetch error — keep the last good queue; the poll + the
-      // realtime self-heal recover. After 2 consecutive failures, tell the line it's working a stale
-      // board (S2-audit S9 — a frozen queue mustn't look live).
+      // A transient fetch error keeps the last good queue; the poll + realtime self-heal recover.
+      // After 2 consecutive failures, tell the line it's working a stale board (S2-audit S9).
       fails.current += 1;
       if (fails.current >= 2) setStale(true);
       console.error("[KdsBoard] refresh failed", e);
@@ -58,13 +214,39 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
     };
   }, [refresh]);
 
-  // Focus catch-all (WCAG 2.4.3; the FloorDetailLive pattern): a bump that drops a line/ticket off the
-  // board unmounts the button that held focus. Edge-triggered — restore to the board heading only when
-  // focus HAD been on a real control on the previous snapshot and fell to <body> now, so an idle touch
-  // device is never focus-planted by the 5s poll. preventScroll: a continuity cue, not a viewport jump.
+  // W3c re-chime: a ticket sitting fully UN-STARTED past the config window nags softly, at most once
+  // per window per ticket — audible without being a klaxon (O-C).
+  const lastRechime = useRef<Map<string, number>>(new Map());
+  useEffect(() => {
+    if (!soundOn) return;
+    const windowMs = snap.thresholds.rechimeSec * 1000;
+    for (const t of snap.tickets) {
+      if (t.held || !t.lines.every((l) => l.state === "fired")) continue;
+      const age = nowMs - Date.parse(t.firedAt);
+      if (age < windowMs) continue;
+      const last = lastRechime.current.get(t.cartId) ?? 0;
+      if (nowMs - last >= windowMs) {
+        lastRechime.current.set(t.cartId, nowMs);
+        chime.current?.play(t.channel === "dinein" ? "dinein" : "pickup", true);
+      }
+    }
+    // Drop tracking for tickets that left the board so the map can't grow unbounded.
+    const liveIds = new Set(snap.tickets.map((t) => t.cartId));
+    for (const id of lastRechime.current.keys())
+      if (!liveIds.has(id)) lastRechime.current.delete(id);
+  }, [nowMs, snap, soundOn]);
+
+  // One-shot notices (bump/recall confirmations) yield the live region back to the count.
+  useEffect(() => {
+    if (!notice) return;
+    const id = setTimeout(() => setNotice(null), 4000);
+    return () => clearTimeout(id);
+  }, [notice]);
+
+  // Focus catch-all (WCAG 2.4.3; the FloorDetailLive pattern): a bump that drops a ticket unmounts the
+  // control that held focus. Edge-triggered — restore to the board heading only when focus HAD been on
+  // a real control and fell to <body>, so an idle touch device is never focus-planted by the 5s poll.
   const headingRef = useRef<HTMLHeadingElement>(null);
-  // Set at interaction time too (onFocusCapture on the root) — closes the blind window where the FIRST
-  // bump after load lands before any snapshot has sampled focus (Codex P2).
   const hadRealFocus = useRef(false);
   const markFocus = useCallback(() => {
     hadRealFocus.current = true;
@@ -75,46 +257,344 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
     hadRealFocus.current = document.activeElement !== document.body;
   }, [snap]);
 
-  const tickets = snap.tickets;
-  const count = tickets.length;
+  // ── Derived board state ────────────────────────────────────────────────────────────────────────
+  const filtered = useMemo(() => {
+    if (station === "all") return snap.tickets;
+    // The station chip filters LINES (a mixed ticket shows only this station's work); a ticket with
+    // nothing for this station drops. Ticket bumps send only the DISPLAYED line ids, so a wok-screen
+    // bump can never silently serve the drinks a barista hasn't made.
+    return snap.tickets
+      .map((t) => ({ ...t, lines: t.lines.filter((l) => l.station === station) }))
+      .filter((t) => t.lines.length > 0);
+  }, [snap.tickets, station]);
+
+  const live = useMemo(() => filtered.filter((t) => !t.held), [filtered]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const visible = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+  const moreAfter = filtered.length - (safePage + 1) * PAGE_SIZE;
+  // New LIVE tickets land at the tail of the live SECTION — which sorts BEFORE the held cards, so
+  // "last page" is the wrong jump target when holds exist (adversarial MED-1: the pill would send the
+  // cook to a page of held cards). The live tail's page is where an arrival actually renders.
+  const liveTailPage = Math.floor(Math.max(0, live.length - 1) / PAGE_SIZE);
+
+  const lateCount = live.filter(
+    (t) => urgency(t, nowMs - Date.parse(t.firedAt), snap.thresholds) === "red",
+  ).length;
+  const oldestMs = live.reduce((max, t) => Math.max(max, nowMs - Date.parse(t.firedAt)), 0);
+
+  // All-Day rail: pure client-side reduce over the LIVE lines (station-filtered — the rail answers
+  // "how many mohinga does THIS screen owe right now"), grouped item+modifiers, largest first.
+  const allDay = useMemo(() => {
+    const counts = new Map<string, { label: string; qty: number }>();
+    for (const t of live) {
+      for (const l of t.lines) {
+        const label = l.modifiers.length ? `${l.name} · ${l.modifiers.join(", ")}` : l.name;
+        const cur = counts.get(label);
+        if (cur) cur.qty += l.qty;
+        else counts.set(label, { label, qty: l.qty });
+      }
+    }
+    return [...counts.values()].sort((a, b) => b.qty - a.qty);
+  }, [live]);
+
+  // ── Control handlers ───────────────────────────────────────────────────────────────────────────
+  const pickStation = (key: "all" | KitchenStation) => {
+    setStation(key);
+    setPage(0);
+    try {
+      if (key === "all") localStorage.removeItem(STATION_KEY);
+      else localStorage.setItem(STATION_KEY, key);
+    } catch {
+      /* private mode */
+    }
+  };
+  const toggleRail = () => {
+    setRailOpen((open) => {
+      try {
+        localStorage.setItem(RAIL_KEY, open ? "0" : "1");
+      } catch {
+        /* private mode */
+      }
+      return !open;
+    });
+  };
+  const enableSound = async () => {
+    chime.current ??= new KdsChime();
+    const ok = await chime.current.arm();
+    setSoundOn(ok);
+    if (ok) chime.current.play("dinein"); // audible confirmation — the tap IS the volume check
+  };
+  const changeVolume = (v: number) => {
+    setVolume(v);
+    setKdsVolume(v);
+  };
+  const jumpToNew = () => {
+    setPage(liveTailPage);
+    setNewCount(0);
+  };
+
+  const onBumped = useCallback(
+    (entry: RecallEntry, label: string) => {
+      setRecall((prev) => [entry, ...prev].slice(0, 5)); // last 5 (SPEC-KDS §4)
+      setUndo({ ...entry, expiresAt: Date.now() + UNDO_MS });
+      setNotice(`${label} bumped — undo available.`);
+      void refresh();
+    },
+    [refresh],
+  );
+
+  const [recallPending, startRecall] = useTransition();
+  const doRecall = (entry: RecallEntry) => {
+    setErr(null);
+    startRecall(async () => {
+      try {
+        const res = await recallTicket({ cartId: entry.cartId, lineIds: entry.lineIds });
+        if (!res.ok) setErr(res.error);
+        else {
+          setNotice(`${entry.label} restored to the board.`);
+          // Filter by CART, not object identity — the undo toast holds a spread COPY of the rail's
+          // entry, so an identity filter would leave a dead rail button behind (adversarial LOW-1).
+          setRecall((prev) => prev.filter((r) => r.cartId !== entry.cartId));
+          if (undo && undo.cartId === entry.cartId) setUndo(null);
+          await refresh();
+        }
+      } catch {
+        setErr(`Couldn’t recall ${entry.label} — try again.`);
+      }
+    });
+  };
+
+  const count = live.length;
+  const heldCount = filtered.length - live.length;
 
   return (
-    <section aria-labelledby="kds-h" onFocusCapture={markFocus}>
-      <div style={headRow}>
-        <h2 id="kds-h" ref={headingRef} tabIndex={-1} style={{ fontSize: 16, margin: 0 }}>
-          Fire queue
-        </h2>
-        {/* ONE board-level live region (S2-audit S8): the bump error takes precedence over the count, so
-            a flaky socket / failed bump surfaces here instead of N per-line alert regions flooding the SR.
-            Bare role="status" — it implies aria-live=polite (the codebase idiom). */}
+    <section className="kds-root dark" aria-labelledby="kds-h" onFocusCapture={markFocus}>
+      <header className="kds-head">
+        <h1 id="kds-h" ref={headingRef} tabIndex={-1} className="kds-title">
+          Kitchen
+        </h1>
+        <a
+          href="/staff"
+          style={{
+            color: "var(--t2)",
+            fontSize: 15,
+            fontWeight: 700,
+            textDecoration: "none",
+            minHeight: 44,
+            display: "inline-flex",
+            alignItems: "center",
+          }}
+        >
+          ← Floor
+        </a>
+
+        <div className="kds-stats" aria-label="Service stats">
+          <p className="kds-stat" style={{ margin: 0 }}>
+            <b>{count}</b>
+            <span>Open</span>
+          </p>
+          <p className="kds-stat" style={{ margin: 0 }}>
+            <b>{count === 0 ? "—" : fmtElapsed(oldestMs)}</b>
+            <span>Oldest</span>
+          </p>
+          <p className={`kds-stat${lateCount > 0 ? " kds-stat-late" : ""}`} style={{ margin: 0 }}>
+            <b>{lateCount}</b>
+            <span>Late</span>
+          </p>
+          <p className="kds-stat" style={{ margin: 0 }}>
+            <b>{snap.stats.servedToday === 0 ? "—" : fmtElapsed(snap.stats.avgSecs * 1000)}</b>
+            <span>Avg today</span>
+          </p>
+        </div>
+
+        {/* ONE board-level live region (S2-audit S8): action errors take precedence, then the poll
+            state, then one-shot bump/recall notices, then the count. Bare role="status" implies
+            aria-live=polite (the codebase idiom). */}
         <p
           role="status"
-          style={{ margin: 0, fontSize: 13, color: err || stale ? "var(--warn)" : "var(--t2)" }}
+          style={{ margin: 0, fontSize: 15, color: err || stale ? "var(--warn)" : "var(--t2)" }}
         >
           {err ??
             (stale
               ? "Reconnecting — showing the last known queue"
-              : count === 0
-                ? "All clear"
-                : `${count} open ${count === 1 ? "ticket" : "tickets"}`)}
+              : (notice ??
+                (count === 0
+                  ? "All clear"
+                  : `${count} open ${count === 1 ? "ticket" : "tickets"}${heldCount > 0 ? ` · ${heldCount} held` : ""}`)))}
         </p>
+
+        <div className="kds-controls">
+          <div role="group" aria-label="Station filter" style={{ display: "flex", gap: 8 }}>
+            {STATIONS.map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                className="kds-chip"
+                aria-pressed={station === s.key}
+                onClick={() => pickStation(s.key)}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+          <button type="button" className="kds-chip" aria-pressed={railOpen} onClick={toggleRail}>
+            All-day
+          </button>
+          {soundOn ? (
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 14 }}>
+              <span aria-hidden="true">🔊</span>
+              <span className="sr-only">Chime volume</span>
+              <input
+                type="range"
+                className="kds-vol"
+                min={0}
+                max={1}
+                step={0.1}
+                value={volume}
+                onChange={(e) => changeVolume(Number(e.target.value))}
+              />
+            </label>
+          ) : (
+            // Browsers gate audio behind a gesture — this tap at shift start IS the arming (O-C).
+            <button type="button" className="kds-chip" onClick={enableSound}>
+              Enable sound
+            </button>
+          )}
+          {/* Offscreen-arrival pill: only when the live tail (where arrivals render) is NOT the page
+              being watched — never for held-card overflow alone (MED-1). */}
+          {newCount > 0 && safePage !== liveTailPage && (
+            <button type="button" className="kds-new-pill" onClick={jumpToNew}>
+              {newCount} new →
+            </button>
+          )}
+        </div>
+      </header>
+
+      <div className="kds-body">
+        {filtered.length === 0 ? (
+          <div style={{ flex: 1 }}>
+            <EmptyState
+              title="Nothing on the line"
+              subtitle="Tickets appear the moment an order is sent or paid — dine-in sends, pickup and to-go land at checkout, scheduled orders wait as held cards until their fire time."
+            />
+          </div>
+        ) : (
+          <ul className="kds-grid" role="list" aria-label="Open kitchen tickets">
+            {visible.map((t) => (
+              <TicketCard
+                key={t.cartId}
+                ticket={t}
+                nowMs={nowMs}
+                thresholds={snap.thresholds}
+                pulse={pulses.get(t.cartId) ?? null}
+                onBumped={onBumped}
+                onError={setErr}
+                onRefresh={refresh}
+              />
+            ))}
+          </ul>
+        )}
+
+        {railOpen && (
+          <aside className="kds-rail" aria-label="All-day counts">
+            <h3>All day</h3>
+            {allDay.length === 0 ? (
+              <p style={{ margin: 0, fontSize: 15, color: "var(--t2)" }}>Nothing live.</p>
+            ) : (
+              <ul role="list">
+                {allDay.map((row) => (
+                  <li key={row.label}>
+                    <span style={{ minWidth: 0 }}>{row.label}</span>
+                    <b>×{row.qty}</b>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </aside>
+        )}
       </div>
 
-      {count === 0 ? (
-        <EmptyState
-          title="Nothing on the line"
-          subtitle="Tickets appear here the moment a table sends its order to the kitchen — oldest first, so you can work the queue top-down."
-        />
-      ) : (
-        <StaggerList
-          items={tickets}
-          getKey={(t) => t.sessionId}
-          ariaLabel="Open kitchen tickets"
-          style={grid}
-          renderItem={(t) => (
-            <TicketCard ticket={t} serverNow={snap.serverNow} onBumped={refresh} onError={setErr} />
+      {(pageCount > 1 || recall.length > 0) && (
+        <footer style={{ display: "grid", gap: 8 }}>
+          {pageCount > 1 && (
+            <nav className="kds-pager" aria-label="Ticket pages">
+              <button
+                type="button"
+                className="kds-page-btn"
+                onClick={() => {
+                  const p = Math.max(0, safePage - 1);
+                  setPage(p);
+                  if (p === liveTailPage) setNewCount(0); // stepping back onto the live tail counts too
+                }}
+                disabled={safePage === 0}
+                aria-label="Previous page"
+              >
+                ‹
+              </button>
+              <span className="kds-dots" aria-hidden="true">
+                {Array.from({ length: pageCount }, (_, i) => (
+                  <span key={i} className="kds-dot" data-current={i === safePage} />
+                ))}
+              </span>
+              <span className="sr-only">
+                Page {safePage + 1} of {pageCount}
+              </span>
+              <button
+                type="button"
+                className="kds-page-btn"
+                onClick={() => {
+                  const p = Math.min(pageCount - 1, safePage + 1);
+                  setPage(p);
+                  // Reaching the live tail = you've seen the newest arrivals; the pill's debt is paid.
+                  if (p === liveTailPage) setNewCount(0);
+                }}
+                disabled={safePage >= pageCount - 1}
+                aria-label="Next page"
+              >
+                ›
+              </button>
+              {moreAfter > 0 && <span className="kds-more">+{moreAfter} more</span>}
+            </nav>
           )}
-        />
+
+          {recall.length > 0 && (
+            <div className="kds-recall" role="group" aria-label="Recall a bumped ticket">
+              <span
+                style={{
+                  fontSize: 13,
+                  fontWeight: 800,
+                  color: "var(--t2)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.07em",
+                  flex: "none",
+                }}
+              >
+                Recall
+              </span>
+              {recall.map((r) => (
+                <button
+                  key={`${r.cartId}-${r.expiresAt}`}
+                  type="button"
+                  className="kds-recall-btn"
+                  onClick={() => doRecall(r)}
+                  disabled={recallPending}
+                >
+                  ↩ {r.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </footer>
+      )}
+
+      {undo && (
+        <div className="kds-undo">
+          <span>{undo.label} bumped</span>
+          <button type="button" onClick={() => doRecall(undo)} disabled={recallPending}>
+            Undo
+          </button>
+        </div>
       )}
     </section>
   );
@@ -122,176 +602,193 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
 
 function TicketCard({
   ticket,
-  serverNow,
+  nowMs,
+  thresholds,
+  pulse,
   onBumped,
   onError,
+  onRefresh,
 }: {
   ticket: KitchenTicket;
-  serverNow: string;
-  onBumped: () => void;
+  nowMs: number;
+  thresholds: KdsThresholds;
+  pulse: number | null;
+  onBumped: (entry: RecallEntry, label: string) => void;
   onError: (msg: string | null) => void;
+  onRefresh: () => Promise<void> | void;
 }) {
+  const [pending, startTransition] = useTransition();
+  const id = ticketId(ticket);
+  const ageMs = nowMs - Date.parse(ticket.firedAt);
+  const level = ticket.held ? "ok" : urgency(ticket, ageMs, thresholds);
+  const stripClass =
+    level === "red"
+      ? "kds-strip kds-strip-red kds-strip-pulse"
+      : level === "amber"
+        ? "kds-strip kds-strip-amber"
+        : "kds-strip";
+
+  const bumpAll = () => {
+    onError(null);
+    startTransition(async () => {
+      try {
+        const lineIds = ticket.lines.map((l) => l.id);
+        const res = await bumpTicket({ cartId: ticket.cartId, lineIds });
+        if (!res.ok) onError(res.error);
+        else
+          onBumped(
+            { cartId: ticket.cartId, label: id.main, lineIds, expiresAt: Date.now() + RECALL_MS },
+            id.main,
+          );
+      } catch {
+        onError(`Couldn’t bump ${id.main} — try again.`);
+      }
+    });
+  };
+
+  const fireNow = () => {
+    onError(null);
+    startTransition(async () => {
+      try {
+        const res = await fireTicketNow({ cartId: ticket.cartId });
+        if (!res.ok) onError(res.error);
+        else await onRefresh();
+      } catch {
+        onError(`Couldn’t fire ${id.main} — try again.`);
+      }
+    });
+  };
+
   return (
-    <article
-      className="card card-textured"
-      style={cardStyle}
-      aria-label={`Table ${ticket.tableNumber ?? ticket.label}`}
+    // The <li> IS the card (never display:contents — Safari drops listitem semantics). Long tickets
+    // span two grid rows so text never shrinks to fit a slot (Toast Grid rule).
+    <li
+      className={`kds-ticket${ticket.held ? " kds-ticket-held" : ""}`}
+      aria-label={`${id.main} — ${CHANNEL_LABEL[ticket.channel]}${ticket.held ? ", held" : ""}`}
+      style={ticket.lines.length > 5 ? { gridRow: "span 2" } : undefined}
     >
-      <header style={cardHead}>
-        {/* K2: the real table number the cook calls out (falls back to the raw sticker if unregistered). */}
-        <span style={tableLabel}>Table {ticket.tableNumber ?? ticket.label}</span>
-        <span style={{ fontSize: 12, color: "var(--t2)" }}>
-          <RelativeTime iso={ticket.firedAt} serverNow={serverNow} />
+      {pulse != null && <span key={pulse} className="kds-flash" aria-hidden="true" />}
+      <header className={stripClass}>
+        <span className="kds-id">
+          {id.main}
+          {id.sub && <small>{id.sub}</small>}
+        </span>
+        <span className="kds-strip-side">
+          <span className="kds-clock" aria-hidden="true">
+            {ticket.held ? fmtSlot(ticket.firedAt) : fmtElapsed(ageMs)}
+          </span>
+          <span className="sr-only">
+            {ticket.held
+              ? `fires at ${fmtSlot(ticket.firedAt)}`
+              : `${Math.floor(ageMs / 60000)} minutes ${Math.floor((ageMs % 60000) / 1000)} seconds elapsed`}
+          </span>
+          <span className="kds-badge">
+            {ticket.held ? "Held · " : ""}
+            {CHANNEL_LABEL[ticket.channel]}
+          </span>
         </span>
       </header>
-      <ul role="list" style={lineList}>
+
+      {ticket.held && ticket.pickupSlot && (
+        <p className="kds-slot">Pickup {fmtSlot(ticket.pickupSlot)} — fires automatically</p>
+      )}
+
+      <ul className="kds-lines" role="list">
         {ticket.lines.map((l) => (
-          <KdsLineRow key={l.id} line={l} onBumped={onBumped} onError={onError} />
+          <KdsLineRow
+            key={l.id}
+            line={l}
+            held={ticket.held}
+            onError={onError}
+            onRefresh={onRefresh}
+          />
         ))}
       </ul>
-    </article>
+
+      {ticket.held ? (
+        <button
+          type="button"
+          className="kds-bump kds-bump-fire"
+          onClick={fireNow}
+          disabled={pending}
+        >
+          {pending ? "…" : "Fire now"}
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="kds-bump"
+          onClick={bumpAll}
+          disabled={pending}
+          aria-label={`Bump ${id.main} — all ${ticket.lines.length} items done`}
+        >
+          {pending ? "…" : "BUMP ✓"}
+        </button>
+      )}
+    </li>
   );
 }
 
 function KdsLineRow({
   line,
-  onBumped,
+  held,
   onError,
+  onRefresh,
 }: {
   line: KitchenLine;
-  onBumped: () => void | Promise<void>;
+  held: boolean;
   onError: (msg: string | null) => void;
+  onRefresh: () => Promise<void> | void;
 }) {
   const [pending, startTransition] = useTransition();
   const to = line.state === "fired" ? "in_progress" : "served";
-  const label = line.state === "fired" ? "Start" : "Ready";
 
-  const bump = () => {
+  const tap = () => {
     onError(null); // clear any prior board-level error as we retry
     startTransition(async () => {
       try {
         const res = await bumpLine({ lineId: line.id, to });
         if (!res.ok) onError(res.error);
         // AWAIT the refresh so `pending` covers the refetch — releasing on the write alone flickered
-        // the button back to its stale enabled label for a beat before the new snapshot landed.
-        else await onBumped();
+        // the row back to its stale state for a beat before the new snapshot landed.
+        else await onRefresh();
       } catch {
-        // S2-audit B3: a thrown action must not silently no-op the bump — surface it on the board region.
+        // S2-audit B3: a thrown action must not silently no-op the tap — surface it on the board region.
         onError(`Couldn’t update ${line.name} — try again.`);
       }
     });
   };
 
   return (
-    <li style={lineRow}>
-      <div style={{ minWidth: 0 }}>
-        <p style={lineName}>
-          <span aria-hidden="true" style={qtyBadge}>
-            {line.qty}×
-          </span>{" "}
-          {line.name}
-          {line.fulfillment === "togo" && (
-            // S4.2: tells the cook/expo to bag it, not run it to the table. Text (not colour-only) for a11y;
-            // the bag glyph is decorative (aria-hidden) so SRs read just "To-go".
-            <span style={togoTag}>
-              {" · To-go "}
-              <span aria-hidden="true">🥡</span>
-            </span>
-          )}
-          {line.state === "in_progress" && <span style={cookingTag}> cooking</span>}
-        </p>
-        {line.modifiers.length > 0 && <p style={modLine}>{line.modifiers.join(" · ")}</p>}
-      </div>
+    <li>
+      {/* Per-line check-off: the whole row is the tap. Held lines aren't tappable — the kitchen
+          hasn't been handed them yet (the SQL guards refuse it anyway; don't offer what can't act). */}
       <button
         type="button"
-        onClick={bump}
-        disabled={pending}
-        aria-label={`${label} — ${line.qty} ${line.name} for the kitchen`}
-        className="staff-btn"
-        style={{ ...bumpBtn, ...(line.state === "fired" ? startBtn : readyBtn) }}
+        className="kds-line"
+        data-state={line.state}
+        onClick={tap}
+        disabled={pending || held}
+        aria-label={`${line.state === "fired" ? "Start" : "Done"} — ${line.qty} ${line.name}${line.modifiers.length ? `, ${line.modifiers.join(", ")}` : ""}`}
       >
-        {pending ? "…" : label}
+        <span className="kds-qty" aria-hidden="true">
+          {line.qty}
+        </span>
+        <span className="kds-line-main">
+          <p className="kds-line-name">{line.name}</p>
+          {line.modifiers.length > 0 && (
+            <p className="kds-line-mods">{line.modifiers.join(" · ")}</p>
+          )}
+          {(line.fulfillment === "togo" || line.state === "in_progress") && (
+            <p className="kds-line-tag">
+              {line.fulfillment === "togo" ? "Bag it" : ""}
+              {line.fulfillment === "togo" && line.state === "in_progress" ? " · " : ""}
+              {line.state === "in_progress" ? "Cooking" : ""}
+            </p>
+          )}
+        </span>
       </button>
+      {line.notes && <p className="kds-note">{line.notes}</p>}
     </li>
   );
 }
-
-const headRow: CSSProperties = {
-  display: "flex",
-  alignItems: "baseline",
-  justifyContent: "space-between",
-  gap: "var(--s4)",
-  marginBottom: "var(--s4)",
-};
-const grid: CSSProperties = {
-  listStyle: "none",
-  margin: 0,
-  padding: 0,
-  display: "grid",
-  gap: "var(--s3)",
-  gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 320px), 1fr))",
-};
-const cardStyle: CSSProperties = { padding: "var(--s4)", display: "grid", gap: "var(--s3)" };
-const cardHead: CSSProperties = {
-  display: "flex",
-  alignItems: "baseline",
-  justifyContent: "space-between",
-  gap: "var(--s3)",
-};
-const tableLabel: CSSProperties = { fontWeight: 700, fontSize: 16 };
-const lineList: CSSProperties = {
-  listStyle: "none",
-  margin: 0,
-  padding: 0,
-  display: "grid",
-  gap: "var(--s2)",
-};
-const lineRow: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: "var(--s3)",
-  paddingTop: "var(--s2)",
-  borderTop: "1px solid var(--bd)",
-};
-const lineName: CSSProperties = { margin: 0, fontSize: 15, fontWeight: 600, lineHeight: 1.3 };
-const qtyBadge: CSSProperties = { color: "var(--t2)", fontWeight: 700 };
-const cookingTag: CSSProperties = {
-  fontSize: 11,
-  fontWeight: 700,
-  textTransform: "uppercase",
-  letterSpacing: "0.04em",
-  color: "var(--ac-strong)",
-};
-const togoTag: CSSProperties = {
-  fontSize: 11,
-  fontWeight: 700,
-  textTransform: "uppercase",
-  letterSpacing: "0.04em",
-  color: "var(--t2)",
-};
-const modLine: CSSProperties = {
-  margin: "2px 0 0",
-  fontSize: 13,
-  color: "var(--t2)",
-  lineHeight: 1.4,
-};
-const bumpBtn: CSSProperties = {
-  flexShrink: 0,
-  minWidth: 88,
-  minHeight: 44,
-  borderRadius: "var(--r-sm)",
-  border: "1px solid transparent",
-  fontWeight: 700,
-  fontSize: 15,
-  cursor: "pointer",
-};
-const startBtn: CSSProperties = {
-  background: "var(--sf)",
-  color: "var(--tx)",
-  borderColor: "var(--bd)",
-};
-const readyBtn: CSSProperties = {
-  background: "var(--ac)",
-  color: "var(--oa)",
-};

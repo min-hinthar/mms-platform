@@ -295,6 +295,36 @@ export type Database = {
         }
         Relationships: []
       }
+      mms_kds_config: {
+        Row: {
+          dinein_amber_min: number
+          dinein_red_min: number
+          id: boolean
+          pickup_amber_min: number
+          pickup_red_min: number
+          rechime_sec: number
+          updated_at: string
+        }
+        Insert: {
+          dinein_amber_min?: number
+          dinein_red_min?: number
+          id?: boolean
+          pickup_amber_min?: number
+          pickup_red_min?: number
+          rechime_sec?: number
+          updated_at?: string
+        }
+        Update: {
+          dinein_amber_min?: number
+          dinein_red_min?: number
+          id?: boolean
+          pickup_amber_min?: number
+          pickup_red_min?: number
+          rechime_sec?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       mms_loss_config: {
         Row: {
           id: boolean
@@ -858,6 +888,7 @@ export type Database = {
       }
       qr_cart_items: {
         Row: {
+          bumped_at: string | null
           by_seat: string | null
           cart_id: string
           comped: boolean
@@ -869,12 +900,15 @@ export type Database = {
           menu_item_id: string
           modifiers: Json
           name: string
+          notes: string | null
           qty: number
+          started_at: string | null
           state: string
           tax_cents: number
           unit_price_cents: number
         }
         Insert: {
+          bumped_at?: string | null
           by_seat?: string | null
           cart_id: string
           comped?: boolean
@@ -886,12 +920,15 @@ export type Database = {
           menu_item_id: string
           modifiers?: Json
           name: string
+          notes?: string | null
           qty: number
+          started_at?: string | null
           state?: string
           tax_cents?: number
           unit_price_cents: number
         }
         Update: {
+          bumped_at?: string | null
           by_seat?: string | null
           cart_id?: string
           comped?: boolean
@@ -903,7 +940,9 @@ export type Database = {
           menu_item_id?: string
           modifiers?: Json
           name?: string
+          notes?: string | null
           qty?: number
+          started_at?: string | null
           state?: string
           tax_cents?: number
           unit_price_cents?: number
@@ -991,6 +1030,7 @@ export type Database = {
         Row: {
           applied_reward_id: string | null
           created_at: string
+          customer_name: string | null
           fire_at: string | null
           id: string
           locked: boolean
@@ -1009,6 +1049,7 @@ export type Database = {
         Insert: {
           applied_reward_id?: string | null
           created_at?: string
+          customer_name?: string | null
           fire_at?: string | null
           id?: string
           locked?: boolean
@@ -1027,6 +1068,7 @@ export type Database = {
         Update: {
           applied_reward_id?: string | null
           created_at?: string
+          customer_name?: string | null
           fire_at?: string | null
           id?: string
           locked?: boolean
@@ -1093,6 +1135,7 @@ export type Database = {
           menu_item_id: string
           modifiers: Json
           name: string
+          notes: string | null
           order_id: string
           qty: number
           tax_cents: number
@@ -1105,6 +1148,7 @@ export type Database = {
           menu_item_id: string
           modifiers?: Json
           name: string
+          notes?: string | null
           order_id: string
           qty: number
           tax_cents: number
@@ -1117,6 +1161,7 @@ export type Database = {
           menu_item_id?: string
           modifiers?: Json
           name?: string
+          notes?: string | null
           order_id?: string
           qty?: number
           tax_cents?: number
@@ -1137,6 +1182,7 @@ export type Database = {
           arrived_at: string | null
           cart_id: string | null
           created_at: string
+          customer_name: string | null
           discount_cents: number
           earned_by: string | null
           fire_at: string | null
@@ -1152,6 +1198,8 @@ export type Database = {
           tax_cents: number
           tender: string
           tip_cents: number
+          togo_picked_up_at: string | null
+          togo_ready_at: string | null
           togo_status: string | null
           total_cents: number
         }
@@ -1159,6 +1207,7 @@ export type Database = {
           arrived_at?: string | null
           cart_id?: string | null
           created_at?: string
+          customer_name?: string | null
           discount_cents?: number
           earned_by?: string | null
           fire_at?: string | null
@@ -1174,6 +1223,8 @@ export type Database = {
           tax_cents: number
           tender?: string
           tip_cents?: number
+          togo_picked_up_at?: string | null
+          togo_ready_at?: string | null
           togo_status?: string | null
           total_cents: number
         }
@@ -1181,6 +1232,7 @@ export type Database = {
           arrived_at?: string | null
           cart_id?: string | null
           created_at?: string
+          customer_name?: string | null
           discount_cents?: number
           earned_by?: string | null
           fire_at?: string | null
@@ -1196,6 +1248,8 @@ export type Database = {
           tax_cents?: number
           tender?: string
           tip_cents?: number
+          togo_picked_up_at?: string | null
+          togo_ready_at?: string | null
           togo_status?: string | null
           total_cents?: number
         }
@@ -1464,6 +1518,10 @@ export type Database = {
         Args: { p_cart: string; p_code: string; p_user: string }
         Returns: string
       }
+      mms_bump_ticket: {
+        Args: { p_cart: string; p_lines: string[] }
+        Returns: number
+      }
       mms_cart_item_inc_qty: { Args: { p_id: string }; Returns: undefined }
       mms_cart_item_insert_if_open: {
         Args: {
@@ -1473,6 +1531,7 @@ export type Database = {
           p_menu_item_id: string
           p_modifiers: Json
           p_name: string
+          p_notes?: string
           p_tax_cents: number
           p_unit_price_cents: number
         }
@@ -1497,6 +1556,7 @@ export type Database = {
       }
       mms_fire_line: { Args: { p_line: string }; Returns: string }
       mms_fire_pending_food: { Args: { p_cart_id: string }; Returns: number }
+      mms_fire_ticket_now: { Args: { p_cart: string }; Returns: number }
       mms_fulfill_cash_order: {
         Args: {
           p_cart_id: string
@@ -1529,6 +1589,13 @@ export type Database = {
       mms_init_togo_status: {
         Args: { p_cart: string; p_order: string }
         Returns: string
+      }
+      mms_kds_stats: {
+        Args: never
+        Returns: {
+          avg_secs: number
+          served_count: number
+        }[]
       }
       mms_line_tax: {
         Args: { amount_cents: number; category: string; dine_in: boolean }
@@ -1586,6 +1653,10 @@ export type Database = {
           p_window_seconds: number
         }
         Returns: boolean
+      }
+      mms_recall_ticket: {
+        Args: { p_cart: string; p_lines: string[] }
+        Returns: number
       }
       mms_reconcile_settled_fulfillment: { Args: never; Returns: number }
       mms_record_refund: {

@@ -2,7 +2,12 @@
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { serviceClient } from "@mms/db/server";
-import { setQtyInput, settleCashInput, staffAddItemInput } from "@mms/db/schemas";
+import {
+  setLineNotesInput,
+  setQtyInput,
+  settleCashInput,
+  staffAddItemInput,
+} from "@mms/db/schemas";
 import { requireStaff } from "./staff";
 import { lineTax } from "./tax";
 import { getCartTotals } from "./totals";
@@ -61,7 +66,7 @@ export async function staffAddItem(raw: unknown): Promise<StaffWriteResult> {
   if (!caller) return { ok: false, error: "Staff sign-in required." };
   const parsed = staffAddItemInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
-  const { sessionId, menuItemId, modifierIds } = parsed.data;
+  const { sessionId, menuItemId, modifierIds, notes } = parsed.data;
 
   const { session, cart } = await openCartFor(sessionId);
   if (!session) return { ok: false, error: "That table is closed." };
@@ -77,9 +82,18 @@ export async function staffAddItem(raw: unknown): Promise<StaffWriteResult> {
     // later via the existing by-person flow). The status-atomic insert throws if the cart isn't open.
     // S4: fulfillment defaults from the session mode. Re-routing today is the DINER's per-line toggle
     // (setLineFulfillment, member-gated); a staff re-route action is S4.2+ (not built here).
+    // W3b: `notes` = the allergy/request the guest told the server at the table.
     await insertOrIncLine(
       cart.id,
-      { menuItemId, name, opts, unitPriceCents, taxCents, fulfillment: dineIn ? "dinein" : "togo" },
+      {
+        menuItemId,
+        name,
+        opts,
+        unitPriceCents,
+        taxCents,
+        fulfillment: dineIn ? "dinein" : "togo",
+        notes: notes || undefined,
+      },
       null,
     );
     await touchCart(cart.id, "staffAddItem");
@@ -144,6 +158,40 @@ export async function staffSetQty(sessionId: string, raw: unknown): Promise<Staf
   });
   if (!affected) return { ok: false, error: "This table’s order is no longer open." };
   await touchCart(cart.id, "staffSetQty");
+  revalidatePath(`/staff/table/${sessionId}`);
+  return { ok: true };
+}
+
+/**
+ * W3b: set/clear the kitchen note on a DRAFT line ("no peanuts — allergy", taken at the table). DRAFT
+ * only, enforced in the UPDATE's WHERE — once fired, the cook may already be reading the note, so a
+ * post-fire change is refused rather than silently diverging from the board. Empty clears. Same
+ * table-scope + mid-payment guards as the other staff line edits.
+ */
+export async function setLineNotes(sessionId: string, raw: unknown): Promise<StaffWriteResult> {
+  const caller = await requireStaff().catch(() => null);
+  if (!caller) return { ok: false, error: "Staff sign-in required." };
+  const parsed = setLineNotesInput.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "Invalid request." };
+  const { cartItemId, notes } = parsed.data;
+
+  const { session, cart } = await openCartFor(sessionId);
+  if (!session) return { ok: false, error: "That table is closed." };
+  if (!cart) return { ok: false, error: "This table has no open order." };
+  if (await paymentInFlightReason(cart))
+    return { ok: false, error: "This table is mid-payment — wait until they’ve finished." };
+
+  // One statement carries every guard: this table's cart + still-draft. 0 rows ⇒ fired/removed under us.
+  const { data: updated } = await serviceClient()
+    .from("qr_cart_items")
+    .update({ notes: notes || null })
+    .eq("id", cartItemId)
+    .eq("cart_id", cart.id)
+    .eq("state", "draft")
+    .select("id");
+  if (!updated || updated.length === 0)
+    return { ok: false, error: "That item already went to the kitchen — its note is frozen." };
+  await touchCart(cart.id, "setLineNotes");
   revalidatePath(`/staff/table/${sessionId}`);
   return { ok: true };
 }
