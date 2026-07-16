@@ -36,7 +36,10 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >   W1 money blockers (grocery pays the 5% service charge + is offered tip presets today; `totals.ts:52`)
 >   → W3 kitchen (KDS never sees pickup orders; `kitchen.ts:70`) → W2 flagship craft → W7 shell → W4 grocery →
 >   W5 bilingual → W6 register + kiosk shell. Photography + 198-SKU data sprints (needs Min, §5) start
->   in parallel now.
+>   in parallel now. **W0 ✅ + W1 ✅ shipped (2026-07-16, same PR as this banner):** the money/hardening
+>   blockers are closed (grocery service-charge/tip · Q4/Q6/Q7/Q9/Q11 · the /track refund arm), the
+>   OPEN-ITEMS registry + O-axes + the three SPEC design sources exist. **Next: W3 (the kitchen).**
+>   Read `docs/OPEN-ITEMS.md` for everything still open, and `docs/context/SPEC-KDS.md` before W3.
 >
 > _(The 2026-06-29 banner below is kept as history — it pointed at the Richness track, now shipped.)_
 
