@@ -7,14 +7,18 @@ import { withinStepUpRate } from "./rate";
  * verifyStaffPin counts every wrong try against THAT id's 5-try/15-min lockout — so without this,
  * any staff account could serially wrong-PIN every manager/owner and keep the floor's approvals,
  * voids, and refunds locked out. Refuse to spend ANY lockout budget until: the approver isn't the
- * caller themself, the CALLER is within the step-up rate bucket, and the approver id resolves to an
- * ACTIVE manager/owner. The RPCs re-check role + self atomically — this just stops the DoS upstream.
+ * action's INITIATOR (for voidLine the caller IS the initiator — the default; for resolveApproval
+ * the initiator is the REQUEST's `initiator_staff_id`, and the caller — a manager resolving a
+ * server's request with their OWN PIN — may legitimately BE the approver), the CALLER is within the
+ * step-up rate bucket, and the approver id resolves to an ACTIVE manager/owner. The RPCs re-check
+ * role + self atomically — this just stops the DoS upstream.
  */
 export async function approverStepUpAllowed(
   approverStaffId: string,
   callerStaffId: string,
+  initiatorStaffId: string = callerStaffId,
 ): Promise<"ok" | "bad_approver" | "step_up_rate_limited"> {
-  if (approverStaffId === callerStaffId) return "bad_approver";
+  if (approverStaffId === initiatorStaffId) return "bad_approver";
   if (!(await withinStepUpRate(callerStaffId))) return "step_up_rate_limited";
   const { data } = await serviceClient()
     .from("staff")

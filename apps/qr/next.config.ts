@@ -24,12 +24,21 @@ const securityHeaders = [
 // NO CSP at all. No nonce here (a static header can't mint one), so no 'unsafe-inline' either —
 // inline script in a prefetched document simply doesn't run, which is exactly right for a payload
 // that should never need it. The real per-request nonce CSP still lands on the actual navigation.
+// Supabase hosts derive from the same env the proxy pins (wildcard fallback = the pre-Q11 status
+// quo); img keeps the delivery host until the W2a bucket migration, mirroring proxy.ts.
+const supaHost = (() => {
+  try {
+    return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").host;
+  } catch {
+    return "*.supabase.co";
+  }
+})();
 const fallbackCsp = [
   "default-src 'self'",
   "script-src 'self' https://js.stripe.com https://*.js.stripe.com",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https://*.supabase.co",
-  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com",
+  `img-src 'self' data: blob: https://${supaHost} https://ukuzkhuppqwtrdkjqrkv.supabase.co`,
+  `connect-src 'self' https://${supaHost} wss://${supaHost} https://api.stripe.com`,
   "frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com",
   "object-src 'none'",
   "base-uri 'self'",

@@ -132,7 +132,7 @@ export async function resolveApproval(raw: unknown): Promise<ResolveApprovalResu
   // Read the request first (for the revalidate/touch targets + a fast not-found).
   const { data: appr } = await db
     .from("mms_approvals")
-    .select("id,cart_id,session_id,status")
+    .select("id,cart_id,session_id,status,initiator_staff_id")
     .eq("id", approvalId)
     .maybeSingle();
   if (!appr) return { ok: false, reason: "not_found" };
@@ -154,8 +154,11 @@ export async function resolveApproval(raw: unknown): Promise<ResolveApprovalResu
   // Verify the manager's PIN server-side (lockout-counted) BEFORE the RPC. mms_resolve_approval re-checks
   // the approver's role + self + that the row is still pending.
   // W1·Q7: pre-flight first — never spend the target's lockout budget on an invalid approver or a
-  // caller who's burning the step-up rate bucket (the manager-lockout DoS vector).
-  const pre = await approverStepUpAllowed(approverStaffId, caller.staffId);
+  // caller who's burning the step-up rate bucket (the manager-lockout DoS vector). The self-check
+  // compares the approver to the REQUEST's INITIATOR (mirrors mms_resolve_approval's
+  // `p_approver = v_initiator` rule) — NOT the caller: a manager resolving a server's request with
+  // their own PIN is the normal case and must pass.
+  const pre = await approverStepUpAllowed(approverStaffId, caller.staffId, appr.initiator_staff_id);
   if (pre !== "ok") return { ok: false, reason: pre };
   const v = await verifyStaffPin(approverStaffId, pin);
   if (v.status === "wrong")

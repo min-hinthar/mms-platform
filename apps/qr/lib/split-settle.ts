@@ -132,7 +132,15 @@ export async function onShareCaptured(piId: string): Promise<string | null> {
     .select("status,amount_cents")
     .eq("cart_id", cartId);
   const shares = (data ?? []) as Pick<ShareRow, "status" | "amount_cents">[];
-  if (shares.length === 0 || !shares.every((s) => s.status === "captured")) return null;
+  if (shares.length === 0) return null;
+  if (!shares.every((s) => s.status === "captured")) {
+    // W1·Q4 straggler re-drive: if a previous capture-all pass died mid-loop (e.g. the $0-share
+    // request path hit a transient Stripe error), some shares sit 'authorized' with no future
+    // webhook to re-trigger them — THIS redelivered/next succeeded event is the retry. Idempotent:
+    // it only captures when the table is fully covered, and a captured PI re-capture is tolerated.
+    await captureAllIfReady(db, cartId);
+    return null;
+  }
 
   // Fire the order's side-effects (QBO + analytics) only on the call that actually CREATES it: read the
   // cart's pre-state — the fn's atomic open→paid flip is the real claim, so a redelivery (cart already

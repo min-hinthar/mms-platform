@@ -93,7 +93,14 @@ export async function POST(req: NextRequest) {
       // W1·Q4: a $0 share takes no PI, so no webhook will ever re-run the all-covered check — if
       // this was the LAST unsettled share, trigger capture-all here or the table dead-ends with
       // every other card authorized and nothing capturing. Idempotent; no-op when others remain.
-      await captureAllIfReady(db, cartId);
+      // Best-effort in the REQUEST path (unlike the webhook, a throw here has no Stripe retry and
+      // the share is already honestly 'captured') — a transient failure is re-driven by the next
+      // succeeded-webhook delivery (onShareCaptured's straggler pass), so log and don't 500.
+      try {
+        await captureAllIfReady(db, cartId);
+      } catch (e) {
+        console.error("[create-share-intent] $0-path capture-all failed (webhook will re-drive)", e);
+      }
       return NextResponse.json({ settled: true, amountCents: 0, tipCents: 0 });
     }
 
