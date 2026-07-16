@@ -12,6 +12,7 @@ const REASON: Record<ApplyRewardReason, string> = {
   in_use: "That reward is already on another order.",
   busy: "The order’s being paid — you can’t change it right now.",
   cart_closed: "This order is already being paid.",
+  rate_limited: "Too many tries — wait a minute, then try again.",
   error: "Couldn’t apply that reward — please try again.",
 };
 

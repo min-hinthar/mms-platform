@@ -180,6 +180,9 @@ function RequestCard({
         case "bad_approver":
           setMsg("Pick a manager other than whoever requested this.");
           break;
+        case "step_up_rate_limited":
+          setMsg("Too many PIN attempts — wait a few minutes, then try again.");
+          break;
         case "already":
           setMsg("Already resolved — refreshing.");
           onResolved();

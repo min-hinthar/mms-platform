@@ -4,7 +4,7 @@ import { after } from "next/server";
 import { serviceClient } from "@mms/db/server";
 import { requestApprovalInput, resolveApprovalInput } from "@mms/db/schemas";
 import { requireStaff } from "./staff";
-import { verifyStaffPin } from "./staff-pin";
+import { approverStepUpAllowed, verifyStaffPin } from "./staff-pin";
 import { paymentInFlightReason } from "./pay-guard";
 import { touchCart } from "./order-lines";
 import { getPostHogClient } from "./posthog-server";
@@ -107,6 +107,7 @@ export type ResolveApprovalResult =
       reason:
         | "pin_no_pin"
         | "bad_approver"
+        | "step_up_rate_limited"
         | "already"
         | "stale"
         | "not_open"
@@ -152,6 +153,10 @@ export async function resolveApproval(raw: unknown): Promise<ResolveApprovalResu
 
   // Verify the manager's PIN server-side (lockout-counted) BEFORE the RPC. mms_resolve_approval re-checks
   // the approver's role + self + that the row is still pending.
+  // W1·Q7: pre-flight first — never spend the target's lockout budget on an invalid approver or a
+  // caller who's burning the step-up rate bucket (the manager-lockout DoS vector).
+  const pre = await approverStepUpAllowed(approverStaffId, caller.staffId);
+  if (pre !== "ok") return { ok: false, reason: pre };
   const v = await verifyStaffPin(approverStaffId, pin);
   if (v.status === "wrong")
     return { ok: false, reason: "pin_wrong", attemptsRemaining: v.attemptsRemaining };

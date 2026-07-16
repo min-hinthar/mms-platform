@@ -1,6 +1,6 @@
 import "server-only";
 import { serviceClient } from "@mms/db/server";
-import { JOIN_RATE, MUTATE_RATE } from "./limits";
+import { JOIN_RATE, MUTATE_RATE, STEPUP_RATE } from "./limits";
 
 /**
  * Per-device rate limiting (M3·P3.4). The join/mutation/pay paths are public POSTs (IDOR-by-default —
@@ -41,6 +41,13 @@ export function withinJoinRate(seat: string): Promise<boolean> {
  *  it to a 429; Server Action callers use assertMutationRate, which throws). */
 export function withinMutationRate(seat: string): Promise<boolean> {
   return withinRate("mutate", seat, MUTATE_RATE.max, MUTATE_RATE.windowSeconds);
+}
+
+/** Gate a manager-PIN step-up attempt per CALLING staff account (W1·Q7) — bounds the lockout-griefing
+ *  vector where one staff account serially wrong-PINs every manager. Keyed by the resolved staff row
+ *  id of the INITIATOR, not the target. */
+export function withinStepUpRate(callerStaffId: string): Promise<boolean> {
+  return withinRate("stepup", callerStaffId, STEPUP_RATE.max, STEPUP_RATE.windowSeconds);
 }
 
 /**

@@ -109,6 +109,26 @@ export async function releaseSettlement(cartId: string): Promise<void> {
 }
 
 /**
+ * Extend a LIVE settlement freeze (W1·Q4): slide `settle_at` forward only while it is STILL FRESH.
+ * Called on payer activity (a share PI mint, a share authorization) so a table that takes longer
+ * than the TTL to cover the bill can't dead-end with every card authorized and capture refused.
+ * The `.gt(settle_at, cutoff)` predicate is the safety hinge — this NEVER revives a settlement
+ * that is null (host aborted: shares are being canceled) or stale (a single payer may have taken
+ * over via acquireCartLock, whose takeover branch requires exactly that staleness). `settle_by`
+ * is untouched (the host keeps ownership). Best-effort + idempotent.
+ */
+export async function extendSettlement(cartId: string): Promise<void> {
+  const db = serviceClient();
+  const cutoff = new Date(Date.now() - SETTLE_TTL_MS).toISOString();
+  await db
+    .from("qr_carts")
+    .update({ settle_at: new Date().toISOString() })
+    .eq("id", cartId)
+    .eq("status", "open")
+    .gt("settle_at", cutoff);
+}
+
+/**
  * Release the lock. `uid` scopes it to the locker (the "Edit order" path — a member can only release
  * THEIR OWN lock, never unlock another payer mid-checkout). Pass `null` for an unconditional release
  * (the webhook on a declined payment — the charge failed, so free the cart for everyone). Idempotent.

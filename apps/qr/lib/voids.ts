@@ -4,7 +4,7 @@ import { after } from "next/server";
 import { serviceClient } from "@mms/db/server";
 import { voidLineInput } from "@mms/db/schemas";
 import { requireStaff } from "./staff";
-import { verifyStaffPin } from "./staff-pin";
+import { approverStepUpAllowed, verifyStaffPin } from "./staff-pin";
 import { paymentInFlightReason } from "./pay-guard";
 import { touchCart } from "./order-lines";
 import { getPostHogClient } from "./posthog-server";
@@ -53,6 +53,7 @@ export type VoidLineResult =
       reason:
         | "pin_no_pin"
         | "bad_approver"
+        | "step_up_rate_limited"
         | "not_open"
         | "not_found"
         | "in_flight"
@@ -99,6 +100,11 @@ export async function voidLine(raw: unknown): Promise<VoidLineResult> {
   // undefined (not null) so an omitted approver falls through to the RPC's `p_approver default null`.
   let approver: string | undefined;
   if (approverStaffId && pin) {
+    // W1·Q7: refuse to spend the target's lockout budget until the approver id resolves to an active
+    // manager/owner ≠ the caller AND the CALLER is within the step-up rate bucket — otherwise any
+    // staff account can serially wrong-PIN every manager and lock approvals floor-wide.
+    const pre = await approverStepUpAllowed(approverStaffId, caller.staffId);
+    if (pre !== "ok") return { ok: false, reason: pre };
     const v = await verifyStaffPin(approverStaffId, pin);
     if (v.status === "wrong")
       return { ok: false, reason: "pin_wrong", attemptsRemaining: v.attemptsRemaining };

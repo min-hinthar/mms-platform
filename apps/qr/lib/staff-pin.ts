@@ -1,5 +1,30 @@
 import "server-only";
 import { serviceClient } from "@mms/db/server";
+import { withinStepUpRate } from "./rate";
+
+/**
+ * W1·Q7 pre-flight for a manager-PIN step-up. The client supplies the approver's staff id, and
+ * verifyStaffPin counts every wrong try against THAT id's 5-try/15-min lockout — so without this,
+ * any staff account could serially wrong-PIN every manager/owner and keep the floor's approvals,
+ * voids, and refunds locked out. Refuse to spend ANY lockout budget until: the approver isn't the
+ * caller themself, the CALLER is within the step-up rate bucket, and the approver id resolves to an
+ * ACTIVE manager/owner. The RPCs re-check role + self atomically — this just stops the DoS upstream.
+ */
+export async function approverStepUpAllowed(
+  approverStaffId: string,
+  callerStaffId: string,
+): Promise<"ok" | "bad_approver" | "step_up_rate_limited"> {
+  if (approverStaffId === callerStaffId) return "bad_approver";
+  if (!(await withinStepUpRate(callerStaffId))) return "step_up_rate_limited";
+  const { data } = await serviceClient()
+    .from("staff")
+    .select("user_id,role,active")
+    .eq("user_id", approverStaffId)
+    .maybeSingle();
+  if (!data || data.active !== true || (data.role !== "manager" && data.role !== "owner"))
+    return "bad_approver";
+  return "ok";
+}
 
 /**
  * Staff-PIN primitive (S1.1b) — the server-side wrapper over the atomic SQL functions

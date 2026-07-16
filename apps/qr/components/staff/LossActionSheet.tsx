@@ -124,6 +124,9 @@ export function LossActionSheet({
       case "bad_approver":
         setMsg("Pick a manager other than yourself to approve.");
         break;
+      case "step_up_rate_limited":
+        setMsg("Too many PIN attempts — wait a few minutes, then try again.");
+        break;
       case "in_flight":
         setMsg("This table is mid-payment — wait until they’ve finished.");
         break;
