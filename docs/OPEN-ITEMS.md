@@ -65,6 +65,7 @@ prerequisite). Closed items move to the Closed section with the closing PR — d
 | K13 | low    | Feedback triage is read-only — "Needs follow-up" has no handled/assign state; back-link under 44px                                                                                                                               | open        |
 | K14 | low    | **K10 residual:** `FloorBoard`'s polled `getFloorView` still ignores an expired cookie / locked console (no stale banner either) — extend the W3 `signin`/`locked` discriminant to the floor read when the floor is next touched | open        |
 | K15 | config | **Order-ready board Burmese headings need a native check** (`ReadyBoard.tsx`: ပြင်ဆင်နေသည် / ယူသွားနိုင်ပါပြီ) — W5 owns real localization; these two strings shipped early with the board                                       | open        |
+| K16 | low    | **SPEC-KDS §1 seat-suffix not implemented** — group-cart seats aren't shown on dine-in ticket identities (needs a by_seat→seat-name resolve in the queue read); adversarial LOW-7                                                | open        |
 
 ## Grocery (W4)
 

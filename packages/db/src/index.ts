@@ -55,6 +55,10 @@ export type CartItem = {
    *  checkout) · `grocery` (no kitchen, bagged). Drives routing + per-line tax (cold food is taxable only
    *  dine-in). The diner groups the cart by this; a food line can toggle dinein↔togo. */
   fulfillment: LineFulfillment;
+  /** W3b: the kitchen note ("no peanuts — allergy") the diner attached at add time. Read-only in the
+   *  cart (remove/re-add to change it) but VISIBLE — a safety-adjacent channel must be verifiable, and
+   *  it's what tells a noted line apart from an identical-looking plain sibling (notes never merge). */
+  notes?: string | null;
 };
 
 /** A cart line's destination/routing tag (S4). Grocery is auto-tagged; food toggles dinein↔togo. */

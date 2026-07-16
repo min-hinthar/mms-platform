@@ -34,6 +34,7 @@ export function ReadyBoard({ token }: { token: string }) {
   const [flashes, setFlashes] = useState<Map<string, number>>(new Map());
   const flashNonce = useRef(0);
   const prevReady = useRef<Set<string>>(new Set());
+  const seeded = useRef(false); // first poll = baseline only, never a flash storm (LOW-2)
   const fails = useRef(0);
   const [soundOn, setSoundOn] = useState(false);
   const chime = useRef<KdsChime | null>(null);
@@ -54,9 +55,14 @@ export function ReadyBoard({ token }: { token: string }) {
 
       // Gold-flash the NEWLY ready. The card remounts as it moves columns (same key, different <ul>),
       // so the flash class animates once on arrival; prune departed codes so the map stays bounded.
+      // The FIRST successful poll only seeds the baseline — a TV reboot must not flash (and chime for)
+      // the whole existing Ready column as if every bag just came up (adversarial LOW-2).
       const codesNow = new Set(data.orders.map((o) => o.code));
       const readyNow = new Set(data.orders.filter((o) => o.status === "ready").map((o) => o.code));
-      const newlyReady = [...readyNow].filter((c) => !prevReady.current.has(c));
+      const newlyReady = seeded.current
+        ? [...readyNow].filter((c) => !prevReady.current.has(c))
+        : [];
+      seeded.current = true;
       prevReady.current = readyNow;
       setFlashes((prev) => {
         if (newlyReady.length === 0 && prev.size === 0) return prev;

@@ -39,10 +39,14 @@ export async function GET(req: NextRequest) {
   const db = serviceClient();
   const nowIso = new Date().toISOString();
   const since = new Date(Date.now() - 10 * 60 * 1000).toISOString(); // the picked-up linger window
+  // Bound the scan to today's service (parity with the reconciler's 24h window) — an unbumped stray
+  // "ready" from the morning must never crowd a just-ready customer off the ASC + limit read.
+  const dayFloor = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const { data, error } = await db
     .from("qr_orders")
-    .select("id,togo_status,customer_name,togo_ready_at,togo_picked_up_at,created_at")
+    .select("id,session_id,togo_status,customer_name,togo_ready_at,togo_picked_up_at,created_at")
     .is("table_number", null)
+    .gte("created_at", dayFloor)
     .or(
       `togo_status.in.(preparing,ready),and(togo_status.eq.picked_up,togo_picked_up_at.gte.${since})`,
     )
@@ -57,13 +61,27 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Board read failed" }, { status: 500 });
   }
 
-  const orders = (data ?? []).map((o) => ({
-    code: o.id.slice(-6).toUpperCase(), // the same uuid-tail code the diner's /track + exit pass show
-    name: o.customer_name ?? null,
-    // A just-picked-up bag stays visible under Ready for its linger window, then drops.
-    status: o.togo_status === "preparing" ? ("preparing" as const) : ("ready" as const),
-    readyAt: o.togo_ready_at ?? null,
-  }));
+  // Takeout + grocery ONLY (SPEC-KDS §6: dine-in status stays on the diner's phone). `table_number
+  // is null` alone isn't sufficient — a dine-in session at an UNREGISTERED sticker stamps null too,
+  // and its to-go box gets a togo_status (adversarial MED-2). Resolve the session's mode (sessions
+  // are closed, never deleted — the read is durable; the expo does the same) and drop dine-in rows.
+  const sessionIds = [
+    ...new Set((data ?? []).map((o) => o.session_id).filter((s): s is string => !!s)),
+  ];
+  const { data: sessions } = sessionIds.length
+    ? await db.from("table_sessions").select("id,mode").in("id", sessionIds)
+    : { data: [] as { id: string; mode: string }[] };
+  const modeBySession = new Map((sessions ?? []).map((s) => [s.id, s.mode]));
+
+  const orders = (data ?? [])
+    .filter((o) => (o.session_id ? modeBySession.get(o.session_id) !== "dinein" : true))
+    .map((o) => ({
+      code: o.id.slice(-6).toUpperCase(), // the same uuid-tail code the diner's /track + exit pass show
+      name: o.customer_name ?? null,
+      // A just-picked-up bag stays visible under Ready for its linger window, then drops.
+      status: o.togo_status === "preparing" ? ("preparing" as const) : ("ready" as const),
+      readyAt: o.togo_ready_at ?? null,
+    }));
 
   return NextResponse.json(
     { orders, serverNow: new Date().toISOString() },

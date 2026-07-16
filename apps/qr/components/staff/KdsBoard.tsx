@@ -1,19 +1,6 @@
 "use client";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useTransition,
-} from "react";
-import {
-  bumpLine,
-  bumpTicket,
-  fireTicketNow,
-  getKitchenQueue,
-  recallTicket,
-} from "@/lib/kitchen";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { bumpLine, bumpTicket, fireTicketNow, getKitchenQueue, recallTicket } from "@/lib/kitchen";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { useWakeLock } from "@/lib/useWakeLock";
 import { KdsChime, getKdsVolume, setKdsVolume } from "@/lib/kds-sound";
@@ -55,8 +42,7 @@ const STATIONS: { key: "all" | KitchenStation; label: string }[] = [
 
 /** The ticket's call-out identity: dine-in = the table; pickup/scango = first name (+ short code). */
 function ticketId(t: KitchenTicket): { main: string; sub: string | null } {
-  if (t.channel === "dinein")
-    return { main: `Table ${t.tableNumber ?? t.label}`, sub: null };
+  if (t.channel === "dinein") return { main: `Table ${t.tableNumber ?? t.label}`, sub: null };
   const code = t.shortCode ? `#${t.shortCode}` : t.label;
   return t.customerName ? { main: t.customerName, sub: code } : { main: code, sub: null };
 }
@@ -129,7 +115,9 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
       // Expire undo/recall entries on the LOCAL clock in the same tick callback (entries are minted
       // with Date.now(); the SQL 2-minute window is the real authority — this keeps the UI honest).
       setRecall((prev) =>
-        prev.some((r) => r.expiresAt <= localNow) ? prev.filter((r) => r.expiresAt > localNow) : prev,
+        prev.some((r) => r.expiresAt <= localNow)
+          ? prev.filter((r) => r.expiresAt > localNow)
+          : prev,
       );
       setUndo((prev) => (prev && prev.expiresAt <= localNow ? null : prev));
     }, 1000);
@@ -285,6 +273,10 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
   const safePage = Math.min(page, pageCount - 1);
   const visible = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
   const moreAfter = filtered.length - (safePage + 1) * PAGE_SIZE;
+  // New LIVE tickets land at the tail of the live SECTION — which sorts BEFORE the held cards, so
+  // "last page" is the wrong jump target when holds exist (adversarial MED-1: the pill would send the
+  // cook to a page of held cards). The live tail's page is where an arrival actually renders.
+  const liveTailPage = Math.floor(Math.max(0, live.length - 1) / PAGE_SIZE);
 
   const lateCount = live.filter(
     (t) => urgency(t, nowMs - Date.parse(t.firedAt), snap.thresholds) === "red",
@@ -338,7 +330,7 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
     setKdsVolume(v);
   };
   const jumpToNew = () => {
-    setPage(pageCount - 1); // new tickets land at the tail of the live set
+    setPage(liveTailPage);
     setNewCount(0);
   };
 
@@ -361,7 +353,9 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
         if (!res.ok) setErr(res.error);
         else {
           setNotice(`${entry.label} restored to the board.`);
-          setRecall((prev) => prev.filter((r) => r !== entry));
+          // Filter by CART, not object identity — the undo toast holds a spread COPY of the rail's
+          // entry, so an identity filter would leave a dead rail button behind (adversarial LOW-1).
+          setRecall((prev) => prev.filter((r) => r.cartId !== entry.cartId));
           if (undo && undo.cartId === entry.cartId) setUndo(null);
           await refresh();
         }
@@ -382,7 +376,15 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
         </h1>
         <a
           href="/staff"
-          style={{ color: "var(--t2)", fontSize: 15, fontWeight: 700, textDecoration: "none", minHeight: 44, display: "inline-flex", alignItems: "center" }}
+          style={{
+            color: "var(--t2)",
+            fontSize: 15,
+            fontWeight: 700,
+            textDecoration: "none",
+            minHeight: 44,
+            display: "inline-flex",
+            alignItems: "center",
+          }}
         >
           ← Floor
         </a>
@@ -409,7 +411,10 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
         {/* ONE board-level live region (S2-audit S8): action errors take precedence, then the poll
             state, then one-shot bump/recall notices, then the count. Bare role="status" implies
             aria-live=polite (the codebase idiom). */}
-        <p role="status" style={{ margin: 0, fontSize: 15, color: err || stale ? "var(--warn)" : "var(--t2)" }}>
+        <p
+          role="status"
+          style={{ margin: 0, fontSize: 15, color: err || stale ? "var(--warn)" : "var(--t2)" }}
+        >
           {err ??
             (stale
               ? "Reconnecting — showing the last known queue"
@@ -456,7 +461,9 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
               Enable sound
             </button>
           )}
-          {newCount > 0 && moreAfter > 0 && (
+          {/* Offscreen-arrival pill: only when the live tail (where arrivals render) is NOT the page
+              being watched — never for held-card overflow alone (MED-1). */}
+          {newCount > 0 && safePage !== liveTailPage && (
             <button type="button" className="kds-new-pill" onClick={jumpToNew}>
               {newCount} new →
             </button>
@@ -515,7 +522,11 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
               <button
                 type="button"
                 className="kds-page-btn"
-                onClick={() => setPage(Math.max(0, safePage - 1))}
+                onClick={() => {
+                  const p = Math.max(0, safePage - 1);
+                  setPage(p);
+                  if (p === liveTailPage) setNewCount(0); // stepping back onto the live tail counts too
+                }}
                 disabled={safePage === 0}
                 aria-label="Previous page"
               >
@@ -535,8 +546,8 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
                 onClick={() => {
                   const p = Math.min(pageCount - 1, safePage + 1);
                   setPage(p);
-                  // Reaching the tail = you've seen the newest arrivals; the pill's debt is paid.
-                  if (p >= pageCount - 1) setNewCount(0);
+                  // Reaching the live tail = you've seen the newest arrivals; the pill's debt is paid.
+                  if (p === liveTailPage) setNewCount(0);
                 }}
                 disabled={safePage >= pageCount - 1}
                 aria-label="Next page"
@@ -549,7 +560,16 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
 
           {recall.length > 0 && (
             <div className="kds-recall" role="group" aria-label="Recall a bumped ticket">
-              <span style={{ fontSize: 13, fontWeight: 800, color: "var(--t2)", textTransform: "uppercase", letterSpacing: "0.07em", flex: "none" }}>
+              <span
+                style={{
+                  fontSize: 13,
+                  fontWeight: 800,
+                  color: "var(--t2)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.07em",
+                  flex: "none",
+                }}
+              >
                 Recall
               </span>
               {recall.map((r) => (
@@ -648,26 +668,26 @@ function TicketCard({
       style={ticket.lines.length > 5 ? { gridRow: "span 2" } : undefined}
     >
       {pulse != null && <span key={pulse} className="kds-flash" aria-hidden="true" />}
-        <header className={stripClass}>
-          <span className="kds-id">
-            {id.main}
-            {id.sub && <small>{id.sub}</small>}
+      <header className={stripClass}>
+        <span className="kds-id">
+          {id.main}
+          {id.sub && <small>{id.sub}</small>}
+        </span>
+        <span className="kds-strip-side">
+          <span className="kds-clock" aria-hidden="true">
+            {ticket.held ? fmtSlot(ticket.firedAt) : fmtElapsed(ageMs)}
           </span>
-          <span className="kds-strip-side">
-            <span className="kds-clock" aria-hidden="true">
-              {ticket.held ? fmtSlot(ticket.firedAt) : fmtElapsed(ageMs)}
-            </span>
-            <span className="sr-only">
-              {ticket.held
-                ? `fires at ${fmtSlot(ticket.firedAt)}`
-                : `${Math.floor(ageMs / 60000)} minutes ${Math.floor((ageMs % 60000) / 1000)} seconds elapsed`}
-            </span>
-            <span className="kds-badge">
-              {ticket.held ? "Held · " : ""}
-              {CHANNEL_LABEL[ticket.channel]}
-            </span>
+          <span className="sr-only">
+            {ticket.held
+              ? `fires at ${fmtSlot(ticket.firedAt)}`
+              : `${Math.floor(ageMs / 60000)} minutes ${Math.floor((ageMs % 60000) / 1000)} seconds elapsed`}
           </span>
-        </header>
+          <span className="kds-badge">
+            {ticket.held ? "Held · " : ""}
+            {CHANNEL_LABEL[ticket.channel]}
+          </span>
+        </span>
+      </header>
 
       {ticket.held && ticket.pickupSlot && (
         <p className="kds-slot">Pickup {fmtSlot(ticket.pickupSlot)} — fires automatically</p>
@@ -675,12 +695,23 @@ function TicketCard({
 
       <ul className="kds-lines" role="list">
         {ticket.lines.map((l) => (
-          <KdsLineRow key={l.id} line={l} held={ticket.held} onError={onError} onRefresh={onRefresh} />
+          <KdsLineRow
+            key={l.id}
+            line={l}
+            held={ticket.held}
+            onError={onError}
+            onRefresh={onRefresh}
+          />
         ))}
       </ul>
 
       {ticket.held ? (
-        <button type="button" className="kds-bump kds-bump-fire" onClick={fireNow} disabled={pending}>
+        <button
+          type="button"
+          className="kds-bump kds-bump-fire"
+          onClick={fireNow}
+          disabled={pending}
+        >
           {pending ? "…" : "Fire now"}
         </button>
       ) : (
@@ -745,7 +776,9 @@ function KdsLineRow({
         </span>
         <span className="kds-line-main">
           <p className="kds-line-name">{line.name}</p>
-          {line.modifiers.length > 0 && <p className="kds-line-mods">{line.modifiers.join(" · ")}</p>}
+          {line.modifiers.length > 0 && (
+            <p className="kds-line-mods">{line.modifiers.join(" · ")}</p>
+          )}
           {(line.fulfillment === "togo" || line.state === "in_progress") && (
             <p className="kds-line-tag">
               {line.fulfillment === "togo" ? "Bag it" : ""}

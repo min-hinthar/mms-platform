@@ -532,7 +532,7 @@ export async function getCartView(cartId: string): Promise<{
   const { data: rows } = await db
     .from("qr_cart_items")
     .select(
-      "id,menu_item_id,name,qty,modifiers,unit_price_cents,tax_cents,by_seat,state,fire_at,comped,fulfillment",
+      "id,menu_item_id,name,qty,modifiers,unit_price_cents,tax_cents,by_seat,state,fire_at,comped,fulfillment,notes",
     )
     .eq("cart_id", id)
     .order("created_at", { ascending: true });
@@ -571,6 +571,9 @@ export async function getCartView(cartId: string): Promise<{
     comped: r.comped ?? false,
     // S4 routing tag — drives the cart's destination grouping + the per-food-line for-here/to-go toggle.
     fulfillment: (r.fulfillment ?? "dinein") as CartItem["fulfillment"],
+    // W3b: the diner's own kitchen note — visible so it's verifiable (and so a noted line reads
+    // differently from an identical plain sibling; the two never merge).
+    notes: r.notes ?? null,
   }));
   return {
     items,

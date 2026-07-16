@@ -301,9 +301,12 @@ function ItemSheetBody({
           rows={2}
           placeholder="e.g. No peanuts — allergy"
           onChange={(e) => setNotes(e.target.value)}
+          aria-describedby={notes.length >= 120 ? `item-note-count-${item.id}` : undefined}
         />
+        {/* SR-reachable via aria-describedby (maxLength hard-stops silently otherwise) but NOT a live
+            region — per-keystroke announcements would be noise, and the sheet keeps one region max. */}
         {notes.length >= 120 && (
-          <p className="item-note-count" aria-hidden="true">
+          <p id={`item-note-count-${item.id}`} className="item-note-count">
             {160 - notes.length} characters left
           </p>
         )}

@@ -84,14 +84,16 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // W3e: persist the pickup/scango call-out name on the CART (member+lock already asserted; the
+    // W3e: persist the takeout call-out name on the CART (member+lock already asserted; the
     // open-status guard rides in the statement). Fulfillment snapshots it onto the order for expo/the
-    // order-ready board; never analytics (PII). Dine-in has no use for it — the table is the identity —
-    // so it's only stored off-table. Non-fatal: a name write must never block a payment.
-    if (firstName && sess?.mode !== "dinein") {
+    // order-ready board; never analytics (PII). Mode is an ALLOWLIST (pickup/scango) — a missed
+    // session read must fail to no-name, never fail-open onto a table order. An empty string CLEARS
+    // (the diner deleted the field on a retry — a stale name must not keep getting called out).
+    // Non-fatal: a name write must never block a payment.
+    if (firstName !== undefined && (sess?.mode === "pickup" || sess?.mode === "scango")) {
       const { error: nameErr } = await db
         .from("qr_carts")
-        .update({ customer_name: firstName })
+        .update({ customer_name: firstName || null })
         .eq("id", cartId)
         .eq("status", "open");
       if (nameErr) console.error("[create-intent] customer_name write failed:", nameErr.message);

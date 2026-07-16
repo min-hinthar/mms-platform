@@ -355,7 +355,9 @@ export function Checkout({
     try {
       // Member-gated (cookie session); the route re-derives the amount from getCartTotals and locks
       // the cart for the pay window. Same-origin fetch carries the auth cookie. The takeout call-out
-      // name (W3e) rides along; remember it for next time (same key the group-cart name uses).
+      // name (W3e) always rides on takeout — an EMPTY value clears a previously-stored name (a diner
+      // who deleted the field on a retry must not keep getting called by the stale one); remember a
+      // real name for next time (same key the group-cart name uses).
       const name = isTakeout ? firstName.trim().slice(0, 40) : "";
       if (name) {
         try {
@@ -367,7 +369,7 @@ export function Checkout({
       const res = await fetch("/api/stripe/create-intent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cartId, tipRate, ...(name ? { firstName: name } : {}) }),
+        body: JSON.stringify({ cartId, tipRate, ...(isTakeout ? { firstName: name } : {}) }),
       });
       const data = (await res.json()) as {
         clientSecret?: string;
@@ -561,6 +563,15 @@ export function Checkout({
                           {i.modifiers.join(", ")}
                         </div>
                       )}
+                      {/* W3b: the diner's own kitchen note — visible so it's verifiable (a safety
+                          channel can't be write-only), and so a noted line reads apart from an
+                          identical plain sibling (the two never merge). Full text color: allergy-
+                          adjacent, never muted. Read-only — remove/re-add to change it. */}
+                      {i.notes && (
+                        <div style={{ fontSize: 13, fontWeight: 600, marginTop: 2 }}>
+                          “{i.notes}”
+                        </div>
+                      )}
                       {owner && (
                         <div
                           style={{
@@ -750,7 +761,9 @@ export function Checkout({
                   style={{ display: "block", fontWeight: 700, fontSize: 14, marginBottom: 4 }}
                 >
                   First name for pickup{" "}
-                  <span style={{ fontWeight: 600, color: "var(--t3)", fontSize: 12 }}>Optional</span>
+                  <span style={{ fontWeight: 600, color: "var(--t3)", fontSize: 12 }}>
+                    Optional
+                  </span>
                 </label>
                 <input
                   id="pickup-name"
@@ -769,8 +782,10 @@ export function Checkout({
                     color: "var(--tx)",
                   }}
                 />
+                {/* No board promise here — the ready TV is opt-in config (BOARD_DEVICE_TOKEN);
+                    only promise what every store setup keeps (adversarial LOW-6). */}
                 <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--t3)" }}>
-                  We’ll call it out — and show it on the ready board — when your order’s up.
+                  We’ll call your name when your order’s up.
                 </p>
               </div>
             )}
@@ -778,49 +793,51 @@ export function Checkout({
             {/* Tip selector (server confirms the exact tip at create-intent). Hidden on a
                 pure-grocery basket — self-scanned retail is not table service (W1). */}
             {!pureGrocery && (
-            <div
-              role="group"
-              aria-label="Add a tip"
-              style={{ display: "flex", gap: 8, margin: "14px 0 4px" }}
-            >
-              {TIPS.map(([label, rate]) => {
-                const on = tipRate === rate;
-                const previewCents = tipPreview(rate);
-                return (
-                  <button
-                    key={rate}
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() => setTipRate(rate)}
-                    className="checkout-tip"
-                    style={{
-                      flex: 1,
-                      minHeight: 44,
-                      padding: "10px 4px",
-                      borderRadius: 13,
-                      border: `1.5px solid ${on ? "var(--ac)" : "var(--bd)"}`,
-                      background: on ? "color-mix(in oklab, var(--ac) 9%, var(--cd))" : "var(--cd)",
-                      color: on ? "var(--ac-strong)" : "var(--tx)",
-                      textAlign: "center",
-                      fontWeight: 800,
-                      cursor: "pointer",
-                    }}
-                  >
-                    {label}
-                    <small
+              <div
+                role="group"
+                aria-label="Add a tip"
+                style={{ display: "flex", gap: 8, margin: "14px 0 4px" }}
+              >
+                {TIPS.map(([label, rate]) => {
+                  const on = tipRate === rate;
+                  const previewCents = tipPreview(rate);
+                  return (
+                    <button
+                      key={rate}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => setTipRate(rate)}
+                      className="checkout-tip"
                       style={{
-                        display: "block",
-                        fontSize: 10,
-                        fontWeight: 700,
-                        color: on ? "var(--ac-strong)" : "var(--t3)",
+                        flex: 1,
+                        minHeight: 44,
+                        padding: "10px 4px",
+                        borderRadius: 13,
+                        border: `1.5px solid ${on ? "var(--ac)" : "var(--bd)"}`,
+                        background: on
+                          ? "color-mix(in oklab, var(--ac) 9%, var(--cd))"
+                          : "var(--cd)",
+                        color: on ? "var(--ac-strong)" : "var(--tx)",
+                        textAlign: "center",
+                        fontWeight: 800,
+                        cursor: "pointer",
                       }}
                     >
-                      {rate ? `$${(previewCents / 100).toFixed(2)}` : "—"}
-                    </small>
-                  </button>
-                );
-              })}
-            </div>
+                      {label}
+                      <small
+                        style={{
+                          display: "block",
+                          fontSize: 10,
+                          fontWeight: 700,
+                          color: on ? "var(--ac-strong)" : "var(--t3)",
+                        }}
+                      >
+                        {rate ? `$${(previewCents / 100).toFixed(2)}` : "—"}
+                      </small>
+                    </button>
+                  );
+                })}
+              </div>
             )}
 
             <div className="card card-textured checkout-receipt">
