@@ -14,9 +14,10 @@ import "server-only";
 export function siteUrl(): string {
   const explicit = process.env.NEXT_PUBLIC_SITE_URL;
   if (explicit) {
-    const trimmed = explicit.replace(/\/+$/, "");
-    // Guarantee a scheme: `metadataBase: new URL(siteUrl())` throws (500s EVERY route) on a bare host,
-    // and email links would be malformed — so a schemeless override is normalized to https, not trusted.
+    // `.trim()` FIRST: `metadataBase: new URL(siteUrl())` throws (500s EVERY route) on a whitespace-
+    // padded OR bare host, and email links would be malformed — so a stray-space/schemeless override is
+    // normalized (trimmed + https-prefixed), not trusted, closing every `new URL()` throw path.
+    const trimmed = explicit.trim().replace(/\/+$/, "");
     return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
   }
   const prod = process.env.VERCEL_PROJECT_PRODUCTION_URL;

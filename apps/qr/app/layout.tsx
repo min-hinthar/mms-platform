@@ -27,7 +27,8 @@ const padauk = Padauk({
 
 export const metadata: Metadata = {
   // Resolves the relative OG / twitter / manifest asset URLs (opengraph-image.tsx, apple-icon.tsx,
-  // manifest.ts) to absolute ones — env-derived (preview vs prod) via the shared siteUrl helper (W7).
+  // manifest.ts) to absolute ones. Origin = an explicit NEXT_PUBLIC_SITE_URL, else the stable Vercel
+  // PRODUCTION host (so previews resolve OG assets to prod — the canonical share card) via siteUrl (W7).
   metadataBase: new URL(siteUrl()),
   applicationName: "Mandalay Morning Star",
   title: "Mandalay Morning Star — Order",

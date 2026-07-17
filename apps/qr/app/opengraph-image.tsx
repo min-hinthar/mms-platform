@@ -8,6 +8,9 @@ import { readFileSync } from "node:fs";
 export const alt = "Mandalay Morning Star — order at the teahouse";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
+// Explicitly static — the woff is read + Satori renders the PNG ONCE at build; the baked bytes are
+// CDN-served, never re-rendered per crawler hit (and never inherit the root layout's force-dynamic).
+export const dynamic = "force-static";
 
 // Bundled Fraunces (OFL) subset — `new URL(..., import.meta.url)` makes Next trace + include the file.
 const fraunces600 = readFileSync(new URL("./_og/Fraunces-600.woff", import.meta.url));

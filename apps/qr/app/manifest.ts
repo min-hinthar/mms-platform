@@ -1,7 +1,8 @@
 import type { MetadataRoute } from "next";
 
-// W7 shell — the PWA manifest (installable "add to home screen"). Static: it's the same for every
-// request, so opt out of the layout's force-dynamic and let it cache. `theme_color`/`background_color`
+// W7 shell — the PWA manifest (installable "add to home screen"). Explicitly static (same JSON every
+// request → baked + CDN-cached); metadata routes don't inherit the root force-dynamic, this makes it
+// belt-and-suspenders. `theme_color`/`background_color`
 // MUST match the light page background `--pg` (#faf9f5, tokens.css) — the same value the `viewport`
 // themeColor uses — so the splash + address bar never seam against the app on launch (audit U-Q5).
 export const dynamic = "force-static";

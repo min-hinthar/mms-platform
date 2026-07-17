@@ -6,6 +6,8 @@ import { ImageResponse } from "next/og";
 // the field is full-bleed with the mark centered inside a safe margin.
 export const size = { width: 180, height: 180 };
 export const contentType = "image/png";
+// Explicitly static — baked once at build, CDN-served (never per-request).
+export const dynamic = "force-static";
 
 // The ✦ mark, gold on the brand-dark field (matches public/icon.svg). Inlined as a data-URI so Satori
 // rasterizes it — the center "hole" is the dark field so the star reads as a cut four-point star.
