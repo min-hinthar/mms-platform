@@ -268,9 +268,9 @@ export function OrderTracker({
         >
           <div>
             <div className="eyebrow">{modeLabel}</div>
-            <h1 style={{ fontSize: 28, margin: "2px 0 0" }}>Your order</h1>
+            <h1 style={{ fontSize: "var(--fs-h1)", margin: "2px 0 0" }}>Your order</h1>
             {eta && (
-              <div style={{ marginTop: 6, fontWeight: 800, color: "var(--ac)", fontSize: 14 }}>
+              <div style={{ marginTop: 6, fontWeight: 800, color: "var(--ac)", fontSize: "var(--fs-sm)" }}>
                 {eta}
               </div>
             )}
@@ -326,11 +326,11 @@ export function OrderTracker({
           <p style={{ margin: "6px 0 0", fontWeight: 800 }}>
             Your money is on its way back.
           </p>
-          <p style={{ margin: "6px 0 0", fontSize: 13.5, color: "var(--t2)" }}>
+          <p style={{ margin: "6px 0 0", fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
             This order was refunded to your original payment method — banks typically post it within
             5–10 business days.
           </p>
-          <p style={{ margin: "10px 0 0", fontSize: 13.5, color: "var(--t2)" }}>
+          <p style={{ margin: "10px 0 0", fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
             Order reference{" "}
             <strong style={{ color: "var(--tx)", letterSpacing: "0.04em" }}>
               #{order.id.slice(-6).toUpperCase()}
@@ -422,13 +422,13 @@ export function OrderTracker({
                   <div
                     style={{
                       fontWeight: 700,
-                      fontSize: 14.5,
+                      fontSize: "var(--fs-sm)",
                       color: state === "pending" ? "var(--t3)" : "var(--tx)",
                     }}
                   >
                     {title}
                   </div>
-                  <div style={{ fontSize: 12, color: "var(--t2)", marginTop: 1 }}>
+                  <div style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", marginTop: 1 }}>
                     {subtitle}
                     {last && <span aria-hidden> 🍵</span>}
                   </div>
@@ -456,12 +456,12 @@ export function OrderTracker({
           }}
         >
           <div
-            style={{ fontWeight: 800, fontSize: 15, display: "flex", alignItems: "center", gap: 8 }}
+            style={{ fontWeight: 800, fontSize: "var(--fs-body)", display: "flex", alignItems: "center", gap: 8 }}
           >
             <Icon name="bag" size={18} />
             {isPickup ? "Ready for pickup" : "Your order’s ready"}
           </div>
-          <div style={{ fontSize: 13, color: "var(--t2)", marginTop: 4 }}>
+          <div style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", marginTop: 4 }}>
             Grab it from the counter before you head out.
           </div>
           {/* J5 — "I'm here" (pickup only; a scan&go diner is already in the room). One tap pings the
@@ -470,7 +470,7 @@ export function OrderTracker({
               inline AND through the tracker's single role="status" region above (one live region). */}
           {isPickup &&
             (announced ? (
-              <div style={{ fontWeight: 700, fontSize: 13.5, marginTop: 10 }}>
+              <div style={{ fontWeight: 700, fontSize: "var(--fs-sm)", marginTop: 10 }}>
                 <span aria-hidden>✦ </span>The counter knows you’re here — hang tight.
               </div>
             ) : (
@@ -488,14 +488,14 @@ export function OrderTracker({
                     background: "var(--cd)",
                     color: "var(--tx)",
                     fontWeight: 800,
-                    fontSize: 14,
+                    fontSize: "var(--fs-sm)",
                     cursor: arriveBusy ? "default" : "pointer",
                   }}
                 >
                   {arriveBusy ? "Letting them know…" : "I’m here"}
                 </button>
                 {arriveErr && (
-                  <div style={{ fontSize: 12.5, color: "var(--warn)", marginTop: 6 }}>
+                  <div style={{ fontSize: "var(--fs-sm)", color: "var(--warn)", marginTop: 6 }}>
                     {arriveErr}
                   </div>
                 )}
@@ -516,8 +516,8 @@ export function OrderTracker({
             background: "var(--warnb)",
           }}
         >
-          <div style={{ fontWeight: 700, fontSize: 14 }}>This is taking longer than usual</div>
-          <div style={{ fontSize: 13, color: "var(--t2)", margin: "4px 0 10px" }}>
+          <div style={{ fontWeight: 700, fontSize: "var(--fs-sm)" }}>This is taking longer than usual</div>
+          <div style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", margin: "4px 0 10px" }}>
             {processing
               ? "We’re still confirming your payment — refresh to check, or come back shortly."
               : "Your payment went through; your order just hasn’t appeared here yet. Refresh to check."}
@@ -565,11 +565,11 @@ export function OrderTracker({
             <Icon name="receipt" size={20} />
           </span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 700, fontSize: 14, fontVariantNumeric: "tabular-nums" }}>
+            <div style={{ fontWeight: 700, fontSize: "var(--fs-sm)", fontVariantNumeric: "tabular-nums" }}>
               {order.itemCount} {order.itemCount === 1 ? "item" : "items"} · $
               {(order.totalCents / 100).toFixed(2)}
             </div>
-            <div style={{ fontSize: 12, color: "var(--t2)" }}>
+            <div style={{ fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
               Paid in full
               {/* K2: dine-in receipts name the table (null for to-go/pickup — no table). */}
               {order.tableNumber != null && ` · Table ${order.tableNumber}`}
@@ -585,7 +585,7 @@ export function OrderTracker({
             <div
               aria-hidden
               style={{
-                fontSize: 10,
+                fontSize: "var(--fs-xs)",
                 fontWeight: 700,
                 letterSpacing: "0.06em",
                 textTransform: "uppercase",
@@ -596,7 +596,7 @@ export function OrderTracker({
             </div>
             <div
               aria-hidden
-              style={{ fontWeight: 800, fontSize: 13, letterSpacing: "0.04em", color: "var(--tx)" }}
+              style={{ fontWeight: 800, fontSize: "var(--fs-sm)", letterSpacing: "0.04em", color: "var(--tx)" }}
             >
               #{order.id.slice(-6).toUpperCase()}
             </div>
@@ -626,7 +626,7 @@ export function OrderTracker({
         <FeedbackPrompt orderId={order.id} />
       )}
 
-      <p style={{ fontSize: 12, color: "var(--t3)", margin: "14px 0 0" }}>
+      <p style={{ fontSize: "var(--fs-sm)", color: "var(--t3)", margin: "14px 0 0" }}>
         {refunded
           ? "This order is closed — the refund above is its final state."
           : pureGrocery
@@ -658,7 +658,7 @@ export function OrderTracker({
 }
 
 const chip: CSSProperties = {
-  fontSize: 12,
+  fontSize: "var(--fs-sm)",
   fontWeight: 800,
   padding: "5px 10px",
   borderRadius: 999,

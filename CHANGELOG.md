@@ -4,6 +4,23 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W2c (part 2) — type-scale sweep: inline font-sizes → --fs-* tokens + lint ban (2026-07-17)
+
+Kills the inline `fontSize` magic numbers (F3) on the checkout → track → rewards **hero path** and makes
+them un-regressable. The owner chose "adopt the disciplined scale" (vs. preserving pixels).
+
+- **Snapped each element to the nearest `--fs-*` by role** — `10–11.5→xs(11)` · `12–14.5→sm(13)` ·
+  `15–16→body(16)` · `17–19→h3(17)` · `20–24→h2(21)` · `26–31→h1(26)` · `32+→display`. Mostly ±1px
+  unifications (before/after verified); the largest single shift is the checkout grand-total figure
+  `24→h2(21)` (still the hero). One decorative hero glyph (`34`) mapped to `display`, not h1.
+- **Swept:** `Checkout.tsx`, `PaymentSection.tsx`, `OrderTracker.tsx`, `RewardsHub.tsx` (the four biggest
+  offenders — the checkout/pay/track/rewards path).
+- **Added an ESLint ban** on numeric inline `fontSize` (`no-restricted-syntax`, matching any numeric
+  literal in a `fontSize` value) — **directory-scoped and widened per swept file** so it can't regress,
+  without failing lint on the not-yet-swept surfaces. Verified: it errors on a numeric, passes on tokens.
+- **Remaining** (per the one-screen-per-PR cadence): the menu, account, the smaller diner components, and
+  the staff surfaces.
+
 ### W2d — checkout / pay craft (wallet-first · custom tip · fees-before-tip) (2026-07-17)
 
 The money-path slice of W2. **Server-authority invariant preserved:** the client never sends an amount —

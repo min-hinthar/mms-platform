@@ -482,7 +482,7 @@ export function Checkout({
       : "/menu";
     return (
       <main style={{ padding: "24px 20px 40px", maxWidth: 440, margin: "0 auto" }}>
-        <h1 style={{ fontSize: 28, marginBottom: 16 }}>Your order</h1>
+        <h1 style={{ fontSize: "var(--fs-h1)", marginBottom: 16 }}>Your order</h1>
         <EmptyState
           icon={<Icon name="cart" size={30} style={{ color: "var(--ac)" }} />}
           title="Nothing in your cart yet"
@@ -499,7 +499,7 @@ export function Checkout({
                 padding: "0 22px",
                 borderRadius: 12,
                 fontWeight: 800,
-                fontSize: 15,
+                fontSize: "var(--fs-body)",
                 textDecoration: "none",
               }}
             >
@@ -559,7 +559,7 @@ export function Checkout({
       <div
         style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}
       >
-        <h1 ref={headingRef} tabIndex={-1} style={{ fontSize: 28 }}>
+        <h1 ref={headingRef} tabIndex={-1} style={{ fontSize: "var(--fs-h1)" }}>
           Your order
         </h1>
         <WalletChip badge={rewardsBadge} />
@@ -584,7 +584,7 @@ export function Checkout({
             <p
               role="status"
               aria-atomic="true"
-              style={{ minHeight: 16, margin: "12px 0 0", fontSize: 13, color: "var(--t2)" }}
+              style={{ minHeight: 16, margin: "12px 0 0", fontSize: "var(--fs-sm)", color: "var(--t2)" }}
             >
               {status}
             </p>
@@ -652,7 +652,7 @@ export function Checkout({
                     <div style={{ flex: 1 }}>
                       <div style={{ fontWeight: 600 }}>{i.name}</div>
                       {i.modifiers.length > 0 && (
-                        <div style={{ fontSize: 12, color: "var(--t2)" }}>
+                        <div style={{ fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
                           {i.modifiers.join(", ")}
                         </div>
                       )}
@@ -661,7 +661,7 @@ export function Checkout({
                           identical plain sibling (the two never merge). Full text color: allergy-
                           adjacent, never muted. Read-only — remove/re-add to change it. */}
                       {i.notes && (
-                        <div style={{ fontSize: 13, fontWeight: 600, marginTop: 2 }}>
+                        <div style={{ fontSize: "var(--fs-sm)", fontWeight: 600, marginTop: 2 }}>
                           “{i.notes}”
                         </div>
                       )}
@@ -672,7 +672,7 @@ export function Checkout({
                             alignItems: "center",
                             gap: 6,
                             marginTop: 4,
-                            fontSize: 12,
+                            fontSize: "var(--fs-sm)",
                             color: "var(--t2)",
                           }}
                         >
@@ -768,7 +768,7 @@ export function Checkout({
                   {showHeadings && (
                     <h3
                       style={{
-                        fontSize: 12,
+                        fontSize: "var(--fs-sm)",
                         fontWeight: 800,
                         letterSpacing: 0.3,
                         textTransform: "uppercase",
@@ -783,7 +783,7 @@ export function Checkout({
                     config-driven estimate — shown only while a to-go line is still waiting (draft). */}
                   {key === "togo" &&
                     viewItems.some((i) => i.fulfillment === "togo" && i.lineState === "draft") && (
-                      <p style={{ fontSize: 12, color: "var(--t2)", margin: "0 0 8px" }}>
+                      <p style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", margin: "0 0 8px" }}>
                         Made fresh when you check out — ready in about {prepMinutes} min. Want it
                         sooner? Tap “Make it now.”
                       </p>
@@ -851,10 +851,10 @@ export function Checkout({
               <div style={{ margin: "12px 0" }}>
                 <label
                   htmlFor="pickup-name"
-                  style={{ display: "block", fontWeight: 700, fontSize: 14, marginBottom: 4 }}
+                  style={{ display: "block", fontWeight: 700, fontSize: "var(--fs-sm)", marginBottom: 4 }}
                 >
                   First name for pickup{" "}
-                  <span style={{ fontWeight: 600, color: "var(--t3)", fontSize: 12 }}>
+                  <span style={{ fontWeight: 600, color: "var(--t3)", fontSize: "var(--fs-sm)" }}>
                     Optional
                   </span>
                 </label>
@@ -877,7 +877,7 @@ export function Checkout({
                 />
                 {/* No board promise here — the ready TV is opt-in config (BOARD_DEVICE_TOKEN);
                     only promise what every store setup keeps (adversarial LOW-6). */}
-                <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--t3)" }}>
+                <p style={{ margin: "4px 0 0", fontSize: "var(--fs-sm)", color: "var(--t3)" }}>
                   We’ll call your name when your order’s up.
                 </p>
               </div>
@@ -905,7 +905,7 @@ export function Checkout({
             </div>
 
             {totals.serviceChargeCents > 0 && (
-              <p style={{ fontSize: 11, color: "var(--t3)", margin: "8px 2px 0" }}>
+              <p style={{ fontSize: "var(--fs-xs)", color: "var(--t3)", margin: "8px 2px 0" }}>
                 A 5% service charge supports fair kitchen wages and is shared with the team (CA
                 SB-1524). It is not a tip — anything extra above is yours to give. Card fees are
                 built into menu prices; we never add a surcharge on debit.
@@ -986,7 +986,7 @@ export function Checkout({
                       />
                     </div>
                     {tipNet > 0 && parseFloat(customTip) * 100 > tipNet && (
-                      <p style={{ margin: "4px 2px 0", fontSize: 12, color: "var(--t3)" }}>
+                      <p style={{ margin: "4px 2px 0", fontSize: "var(--fs-sm)", color: "var(--t3)" }}>
                         Capped at ${(tipNet / 100).toFixed(2)} — 100% of your order.
                       </p>
                     )}
@@ -1011,11 +1011,11 @@ export function Checkout({
               }}
             >
               <div>
-                <div style={{ fontWeight: 800, fontSize: 15 }}>
+                <div style={{ fontWeight: 800, fontSize: "var(--fs-body)" }}>
                   {tipPreviewCents > 0 ? "Estimated total" : "Total"}
                 </div>
                 {tipPreviewCents > 0 && (
-                  <div style={{ fontSize: 12, color: "var(--t3)", marginTop: 1 }}>
+                  <div style={{ fontSize: "var(--fs-sm)", color: "var(--t3)", marginTop: 1 }}>
                     includes ${(tipPreviewCents / 100).toFixed(2)} tip
                   </div>
                 )}
@@ -1025,7 +1025,7 @@ export function Checkout({
                 style={{
                   fontVariantNumeric: "tabular-nums",
                   fontFamily: "var(--font-display)",
-                  fontSize: 24,
+                  fontSize: "var(--fs-h2)",
                   fontWeight: 800,
                 }}
               >
@@ -1059,7 +1059,7 @@ export function Checkout({
                 borderRadius: 12,
                 border: "none",
                 fontWeight: 800,
-                fontSize: 16,
+                fontSize: "var(--fs-body)",
                 cursor: loadingPay ? "default" : "pointer",
                 opacity: loadingPay ? 0.7 : 1,
               }}
@@ -1135,7 +1135,7 @@ export function Checkout({
               // trust-critical line). Per-card share payment is P3.3b — stated as a fact, not a promise.
               <p
                 style={{
-                  fontSize: 12.5,
+                  fontSize: "var(--fs-sm)",
                   color: "var(--t2)",
                   margin: "8px 0 0",
                   textAlign: "center",
@@ -1153,7 +1153,7 @@ export function Checkout({
               style={{
                 minHeight: 16,
                 margin: "8px 0 0",
-                fontSize: 13,
+                fontSize: "var(--fs-sm)",
                 color: payError || tabError ? "var(--warn)" : "var(--t2)",
               }}
             >
@@ -1167,7 +1167,7 @@ export function Checkout({
 }
 
 const tabNote: CSSProperties = {
-  fontSize: 12.5,
+  fontSize: "var(--fs-sm)",
   color: "var(--t2)",
   margin: "10px 0 0",
   textAlign: "center",
@@ -1185,14 +1185,14 @@ const tipChipStyle = (on: boolean): CSSProperties => ({
   background: on ? "color-mix(in oklab, var(--ac) 9%, var(--cd))" : "var(--cd)",
   color: on ? "var(--ac-strong)" : "var(--tx)",
   textAlign: "center",
-  fontSize: 13, // explicit so the label never inherits a larger size and wraps
+  fontSize: "var(--fs-sm)", // explicit so the label never inherits a larger size and wraps
   fontWeight: 800,
   whiteSpace: "nowrap",
   cursor: "pointer",
 });
 const tipChipSmall = (on: boolean): CSSProperties => ({
   display: "block",
-  fontSize: 10,
+  fontSize: "var(--fs-xs)",
   fontWeight: 700,
   color: on ? "var(--ac-strong)" : "var(--t3)",
 });
@@ -1240,7 +1240,7 @@ function LineStateChip({ state, comped }: { state: CartItem["lineState"]; comped
         border: "1px solid var(--bd)",
         background: "color-mix(in oklab, var(--ac) 8%, var(--cd))",
         color: "var(--ac-strong)",
-        fontSize: 12.5,
+        fontSize: "var(--fs-sm)",
         fontWeight: 800,
         whiteSpace: "nowrap",
       }}
@@ -1300,7 +1300,7 @@ function Row({
           margin: 0,
           fontVariantNumeric: "tabular-nums",
           // The total reads as the hero figure (display serif, larger) — presentation only.
-          fontSize: strong ? 20 : undefined,
+          fontSize: strong ? "var(--fs-h2)" : undefined,
           fontFamily: strong ? "var(--font-display)" : undefined,
         }}
       >

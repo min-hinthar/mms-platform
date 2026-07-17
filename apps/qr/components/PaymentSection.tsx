@@ -42,7 +42,7 @@ export function PaymentSection({
 
   if (!stripePromise)
     return (
-      <p role="alert" style={{ fontSize: 13, color: "var(--warn)", marginTop: 12 }}>
+      <p role="alert" style={{ fontSize: "var(--fs-sm)", color: "var(--warn)", marginTop: 12 }}>
         Card checkout is temporarily unavailable. Please try again shortly.
       </p>
     );
@@ -126,7 +126,7 @@ function PayForm({
       <p
         role="status"
         aria-atomic="true"
-        style={{ minHeight: 16, margin: "10px 0 0", fontSize: 13, color: "var(--warn)" }}
+        style={{ minHeight: 16, margin: "10px 0 0", fontSize: "var(--fs-sm)", color: "var(--warn)" }}
       >
         {error}
       </p>
@@ -145,7 +145,7 @@ function PayForm({
           // bg/color come from .checkout-cta (gold-warmed gradient + sheen + one-sweep shine) — parity
           // with the "Continue to payment" CTA. The label rides above the ::after sweep on its own layer.
           fontWeight: 800,
-          fontSize: 16,
+          fontSize: "var(--fs-body)",
           cursor: !stripe || submitting ? "default" : "pointer",
           opacity: !stripe || submitting ? 0.7 : 1,
         }}
