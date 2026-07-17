@@ -201,7 +201,9 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
             </button>
             <div style={dividerRow} aria-hidden>
               <span style={dividerLine} />
-              <span style={{ fontSize: 12, color: "var(--t3)" }}>or use your email</span>
+              <span style={{ fontSize: "var(--fs-sm)", color: "var(--t3)" }}>
+                or use your email
+              </span>
               <span style={dividerLine} />
             </div>
           </>
@@ -285,9 +287,9 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
             Also the email field's aria-describedby target — read on focus after a send error. */}
         <p id="staff-auth-msg" role="status" style={{ margin: 0, minHeight: 20 }}>
           {error ? (
-            <span style={{ color: "var(--warn)", fontSize: 13 }}>{error}</span>
+            <span style={{ color: "var(--warn)", fontSize: "var(--fs-sm)" }}>{error}</span>
           ) : notice ? (
-            <span style={{ color: "var(--t2)", fontSize: 13 }}>{notice}</span>
+            <span style={{ color: "var(--t2)", fontSize: "var(--fs-sm)" }}>{notice}</span>
           ) : null}
         </p>
       </div>
@@ -313,7 +315,7 @@ const googleBtn: CSSProperties = {
   borderRadius: "var(--r-full)",
   background: "var(--cd)",
   color: "var(--tx)",
-  fontSize: 15,
+  fontSize: "var(--fs-body)",
   fontWeight: 600,
   cursor: "pointer",
 };
@@ -331,14 +333,18 @@ const deniedBox: CSSProperties = {
   borderRadius: "var(--r-sm)",
   padding: "12px 14px",
   marginBottom: "var(--s5)",
-  fontSize: 13,
+  fontSize: "var(--fs-sm)",
   lineHeight: 1.5,
 };
-const h1: CSSProperties = { fontSize: 24, margin: "0 0 6px" };
-const sub: CSSProperties = { color: "var(--t2)", fontSize: 14, margin: "0 0 var(--s5)" };
+const h1: CSSProperties = { fontSize: "var(--fs-h1)", margin: "0 0 6px" };
+const sub: CSSProperties = {
+  color: "var(--t2)",
+  fontSize: "var(--fs-sm)",
+  margin: "0 0 var(--s5)",
+};
 const label: CSSProperties = {
   display: "block",
-  fontSize: 13,
+  fontSize: "var(--fs-sm)",
   fontWeight: 600,
   marginBottom: 6,
   color: "var(--tx)",
@@ -348,7 +354,7 @@ const input: CSSProperties = {
   minHeight: 48,
   boxSizing: "border-box",
   padding: "0 14px",
-  fontSize: 16, // ≥16px so iOS doesn't zoom the field on focus
+  fontSize: "var(--fs-body)", // ≥16px so iOS doesn't zoom the field on focus
   borderRadius: "var(--r-sm)",
   border: "1px solid var(--bd)",
   background: "var(--cd)",
@@ -362,7 +368,7 @@ const primaryBtn: CSSProperties = {
   borderRadius: "var(--r-full)",
   background: "var(--ac)",
   color: "var(--oa)",
-  fontSize: 15,
+  fontSize: "var(--fs-body)",
   fontWeight: 700,
   cursor: "pointer",
 };
@@ -373,7 +379,7 @@ const linkBtn: CSSProperties = {
   border: "none",
   background: "transparent",
   color: "var(--ac)",
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   fontWeight: 600,
   cursor: "pointer",
 };

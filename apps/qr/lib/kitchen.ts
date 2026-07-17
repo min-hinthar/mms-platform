@@ -202,8 +202,7 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
         label: sess.qr_code,
         tableNumber: channel === "dinein" ? (sess.table_number ?? null) : null,
         customerName: channel === "dinein" ? null : (cart.customer_name ?? null),
-        shortCode:
-          channel === "dinein" || !orderId ? null : orderId.slice(-6).toUpperCase(),
+        shortCode: channel === "dinein" || !orderId ? null : orderId.slice(-6).toUpperCase(),
         pickupSlot: cart.pickup_slot ?? null,
         held: channel !== "dinein" && fireMs > nowMs,
         lines: [line],

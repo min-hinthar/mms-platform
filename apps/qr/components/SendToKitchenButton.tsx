@@ -151,7 +151,7 @@ export function SendToKitchenButton({
           {pending ? "Sending…" : "Send to kitchen"}
         </button>
       ) : (
-        <p style={{ margin: 0, fontSize: 13, color: "var(--t2)", textAlign: "center" }}>
+        <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)", textAlign: "center" }}>
           Your order’s with the kitchen.
         </p>
       )}
@@ -163,7 +163,7 @@ export function SendToKitchenButton({
         style={{
           minHeight: 16,
           margin: "8px 0 0",
-          fontSize: 13,
+          fontSize: "var(--fs-sm)",
           color: msg?.kind === "err" ? "var(--warn)" : "var(--t2)",
         }}
       >
@@ -193,5 +193,5 @@ const btn: CSSProperties = {
   background: "transparent",
   color: "var(--ac)",
   fontWeight: 800,
-  fontSize: 16,
+  fontSize: "var(--fs-body)",
 };

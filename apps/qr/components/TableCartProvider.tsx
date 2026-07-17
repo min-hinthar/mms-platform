@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import type { CartItem, CartTotals } from "@mms/db";
+import { Icon } from "@mms/ui";
 import { addItem as addItemAction, setQty as setQtyAction, getCartView } from "@/lib/cart";
 import { setDisplayName } from "@/lib/members";
 import { useTableSession } from "@/lib/useTableSession";
@@ -508,13 +509,18 @@ export function TableCartProvider({
             background: "var(--warnb)",
             color: "var(--warn)",
             fontWeight: 700,
-            fontSize: 12.5,
+            fontSize: "var(--fs-sm)",
             // Token (not a literal): the Night `--sh-md` is near-black-heavy so this floating alert
             // keeps its lift on the dark page; a hardcoded light shadow vanished on Night (R2 audit).
             boxShadow: "var(--sh-md)",
           }}
         >
-          <span aria-hidden>⚠️</span> Couldn’t reach your order.{" "}
+          <Icon
+            name="alert"
+            size={15}
+            style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }}
+          />
+          Couldn’t reach your order.{" "}
           <button
             type="button"
             onClick={() => revalidate()}
@@ -525,7 +531,7 @@ export function TableCartProvider({
               border: "none",
               color: "var(--warn)",
               fontWeight: 800,
-              fontSize: 13,
+              fontSize: "var(--fs-sm)",
               textDecoration: "underline",
               cursor: "pointer",
             }}
@@ -563,7 +569,7 @@ export function TableCartProvider({
               color: "var(--pg)",
               padding: "8px 14px",
               borderRadius: 999,
-              fontSize: 13,
+              fontSize: "var(--fs-sm)",
               fontWeight: 700,
             }}
           >

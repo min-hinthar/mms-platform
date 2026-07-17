@@ -44,7 +44,12 @@ export function EmptyState({
 
 const iconRow: CSSProperties = { fontSize: 28, marginBottom: "var(--s2)", lineHeight: 1 };
 // Body font + weight 600 regardless of element, so a heading `titleAs` doesn't pull the display serif.
-const titleStyle: CSSProperties = { margin: 0, fontFamily: "var(--font-body)", fontWeight: 600, fontSize: 16 };
+const titleStyle: CSSProperties = {
+  margin: 0,
+  fontFamily: "var(--font-body)",
+  fontWeight: 600,
+  fontSize: 16,
+};
 const subtitleStyle: CSSProperties = {
   margin: "4px 0 0",
   fontSize: 14,

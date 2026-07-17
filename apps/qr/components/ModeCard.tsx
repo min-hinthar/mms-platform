@@ -17,7 +17,7 @@ const tileStyle: CSSProperties = {
   flex: "none",
   borderRadius: 14,
   background: "var(--grad)", // gradient tile behind the emoji — a small depth detail, flips per theme
-  fontSize: 28,
+  fontSize: "var(--fs-h1)",
 };
 
 /** The card interior shared by every door. `trailing` overrides the default chevron (To-go swaps in
@@ -42,7 +42,7 @@ export function DoorFace({
         {emoji}
       </span>
       <span style={{ minWidth: 0 }}>
-        <b style={{ fontSize: 17 }}>
+        <b style={{ fontSize: "var(--fs-h3)" }}>
           {name}
           {my ? (
             <>
@@ -60,7 +60,10 @@ export function DoorFace({
         <small style={{ color: "var(--t2)" }}>{description}</small>
       </span>
       {trailing ?? (
-        <span aria-hidden style={{ marginLeft: "auto", color: "var(--ac)", fontSize: 20 }}>
+        <span
+          aria-hidden
+          style={{ marginLeft: "auto", color: "var(--ac)", fontSize: "var(--fs-h2)" }}
+        >
           ›
         </span>
       )}

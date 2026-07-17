@@ -4,7 +4,7 @@ import { type FloorTable, tableDisplay } from "@/lib/floor-types";
 import { FloorStatusChip } from "./FloorStatusChip";
 import { RelativeTime } from "./RelativeTime";
 import { LiveMoney } from "./LiveMoney";
-import { Badge, Card } from "@mms/ui";
+import { Badge, Card, Icon } from "@mms/ui";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const MODE_LABEL: Record<FloorTable["mode"], string> = {
@@ -62,7 +62,7 @@ export function TableCard({
               style={{
                 marginLeft: 6,
                 fontFamily: "var(--font-body)",
-                fontSize: 11,
+                fontSize: "var(--fs-xs)",
                 color: "var(--warn)",
                 fontWeight: 700,
               }}
@@ -74,10 +74,16 @@ export function TableCard({
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
           {table.tab !== "none" && (
             // Decorative: the card's aria-label already says "tab open" / "over tab limit".
-            // Warn keeps a non-color cue (⚠) too — never color-alone, for color-blind floor staff.
+            // Warn keeps a non-color shape cue (alert glyph) too — never color-alone, for color-blind floor staff.
             // `bordered` matches the sibling FloorStatusChip's outlined look.
             <Badge tone={table.tabOverCeiling ? "warn" : "accent"} bordered decorative>
-              {table.tabOverCeiling ? "Tab ⚠" : "Tab"}
+              {table.tabOverCeiling ? (
+                <>
+                  Tab <Icon name="alert" size={13} strokeWidth={2} />
+                </>
+              ) : (
+                "Tab"
+              )}
             </Badge>
           )}
           <FloorStatusChip status={table.status} />
@@ -101,24 +107,28 @@ export function TableCard({
       </div>
 
       <div style={bottomRow}>
-        <span style={{ fontWeight: 700, fontSize: 15 }}>
+        <span style={{ fontWeight: 700, fontSize: "var(--fs-body)" }}>
           {showRunning ? (
             <>
               <LiveMoney cents={table.runningSubtotalCents} srHidden />{" "}
-              <span style={{ fontWeight: 500, color: "var(--t2)", fontSize: 13 }}>
+              <span style={{ fontWeight: 500, color: "var(--t2)", fontSize: "var(--fs-sm)" }}>
                 so far · {table.itemCount} {table.itemCount === 1 ? "item" : "items"}
               </span>
             </>
           ) : table.paidTotalCents != null ? (
             <>
               {fmt(table.paidTotalCents)}{" "}
-              <span style={{ fontWeight: 500, color: "var(--ok)", fontSize: 13 }}>paid</span>
+              <span style={{ fontWeight: 500, color: "var(--ok)", fontSize: "var(--fs-sm)" }}>
+                paid
+              </span>
             </>
           ) : (
-            <span style={{ fontWeight: 500, color: "var(--t3)", fontSize: 13 }}>No items yet</span>
+            <span style={{ fontWeight: 500, color: "var(--t3)", fontSize: "var(--fs-sm)" }}>
+              No items yet
+            </span>
           )}
         </span>
-        <span style={{ fontSize: 12, color: "var(--t3)" }}>
+        <span style={{ fontSize: "var(--fs-sm)", color: "var(--t3)" }}>
           <RelativeTime iso={table.lastActivityAt} serverNow={serverNow} />
         </span>
       </div>
@@ -142,13 +152,17 @@ const topRow: CSSProperties = {
   justifyContent: "space-between",
   gap: 10,
 };
-const label: CSSProperties = { fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 700 };
+const label: CSSProperties = {
+  fontFamily: "var(--font-display)",
+  fontSize: "var(--fs-h2)",
+  fontWeight: 700,
+};
 const metaRow: CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: 7,
   flexWrap: "wrap",
-  fontSize: 13,
+  fontSize: "var(--fs-sm)",
   color: "var(--t2)",
 };
 const bottomRow: CSSProperties = {

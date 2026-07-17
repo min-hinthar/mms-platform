@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 import { TransitionLink as Link } from "./nav/TransitionNav"; // J1 journey grammar
 import type { OrderHistoryEntry } from "@/lib/rewards";
 import { formatSlotLong } from "@/lib/pickupTime";
-import { Card } from "@mms/ui";
+import { Card, Icon, type IconName } from "@mms/ui";
 
 /**
  * Order history (M4 P4.2 · elevated) — the diner's own past PAID orders, server-rendered from the uid-scoped
@@ -14,7 +14,7 @@ import { Card } from "@mms/ui";
  */
 const dollars = (c: number) => `$${(c / 100).toFixed(2)}`;
 const TENDER_LABEL: Record<string, string> = { card: "Card", cash: "Cash" };
-const TENDER_ICON: Record<string, string> = { card: "💳", cash: "💵" };
+const TENDER_ICON: Record<string, IconName> = { card: "card", cash: "cash" };
 const FULFILL_LABEL: Record<string, string> = { togo: "To go", grocery: "Grocery" };
 
 // The Covina teahouse's local time — dates + month grouping reflect the RESTAURANT's day regardless of the
@@ -121,7 +121,7 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
                       </div>
                       <div style={chipRow}>
                         <span className="history-badge">
-                          <span aria-hidden>{TENDER_ICON[o.tender] ?? "✓"}</span>
+                          <Icon name={TENDER_ICON[o.tender] ?? "check"} size={13} />
                           Paid · {TENDER_LABEL[o.tender] ?? o.tender}
                         </span>
                         {kind && <span className="history-fulfill">{FULFILL_LABEL[kind]}</span>}
@@ -224,7 +224,7 @@ function TotalRow({ label, value, grand }: { label: string; value: string; grand
 const card: CSSProperties = { padding: "var(--s5)", marginBottom: "var(--s4)" };
 const cardH: CSSProperties = {
   margin: "0 0 4px",
-  fontSize: 13,
+  fontSize: "var(--fs-sm)",
   fontWeight: 800,
   letterSpacing: 0.3,
   textTransform: "uppercase",
@@ -255,7 +255,7 @@ const totalStyle: CSSProperties = {
 const codeStyle: CSSProperties = {
   fontFamily: "var(--font-body)",
   fontWeight: 600,
-  fontSize: 11.5,
+  fontSize: "var(--fs-xs)",
   color: "var(--t3)",
   letterSpacing: 0.4,
 };
@@ -266,7 +266,7 @@ const rowMid: CSSProperties = {
   alignItems: "center",
 };
 const summaryStyle: CSSProperties = {
-  fontSize: 12.5,
+  fontSize: "var(--fs-sm)",
   color: "var(--t2)",
   lineHeight: 1.45,
   overflow: "hidden",
@@ -275,13 +275,22 @@ const summaryStyle: CSSProperties = {
   minWidth: 0,
 };
 const chipRow: CSSProperties = { display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 };
-const itemCountStyle: CSSProperties = { fontSize: 11.5, color: "var(--t3)" };
+const itemCountStyle: CSSProperties = { fontSize: "var(--fs-xs)", color: "var(--t3)" };
 const linePrice: CSSProperties = { color: "var(--t2)", fontVariantNumeric: "tabular-nums" };
-const detailMeta: CSSProperties = { margin: "10px 0 0", fontSize: 11.5, color: "var(--t3)" };
-const emptyTitle: CSSProperties = { margin: 0, fontSize: 16, fontWeight: 800, color: "var(--tx)" };
+const detailMeta: CSSProperties = {
+  margin: "10px 0 0",
+  fontSize: "var(--fs-xs)",
+  color: "var(--t3)",
+};
+const emptyTitle: CSSProperties = {
+  margin: 0,
+  fontSize: "var(--fs-body)",
+  fontWeight: 800,
+  color: "var(--tx)",
+};
 const emptySub: CSSProperties = {
   margin: "4px 0 12px",
-  fontSize: 13,
+  fontSize: "var(--fs-sm)",
   color: "var(--t2)",
   lineHeight: 1.5,
 };

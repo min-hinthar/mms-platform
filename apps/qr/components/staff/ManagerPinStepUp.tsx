@@ -127,18 +127,18 @@ export function ManagerPinFields({
 
 const label: CSSProperties = {
   display: "block",
-  fontSize: 13,
+  fontSize: "var(--fs-sm)",
   fontWeight: 600,
   marginBottom: 6,
   color: "var(--tx)",
 };
-const noteCopy: CSSProperties = { margin: "6px 0 0", fontSize: 12.5, color: "var(--t2)" };
+const noteCopy: CSSProperties = { margin: "6px 0 0", fontSize: "var(--fs-sm)", color: "var(--t2)" };
 const select: CSSProperties = {
   width: "100%",
   minHeight: 48,
   boxSizing: "border-box",
   padding: "0 12px",
-  fontSize: 16,
+  fontSize: "var(--fs-body)",
   borderRadius: "var(--r-sm)",
   border: "1px solid var(--bd)",
   background: "var(--cd)",
@@ -149,7 +149,7 @@ const input: CSSProperties = {
   minHeight: 48,
   boxSizing: "border-box",
   padding: "0 14px",
-  fontSize: 16,
+  fontSize: "var(--fs-body)",
   letterSpacing: "0.3em",
   borderRadius: "var(--r-sm)",
   border: "1px solid var(--bd)",

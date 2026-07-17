@@ -53,7 +53,12 @@ export function RewardsHub({ state }: { state: RewardsState }) {
         {/* Visible caption — the ring's role="img" label already states it for AT, so hide this copy. */}
         <p
           aria-hidden
-          style={{ margin: "10px 0 0", textAlign: "center", fontSize: 13.5, color: "var(--t2)" }}
+          style={{
+            margin: "10px 0 0",
+            textAlign: "center",
+            fontSize: "var(--fs-sm)",
+            color: "var(--t2)",
+          }}
         >
           {ringCaption}
         </p>
@@ -65,15 +70,15 @@ export function RewardsHub({ state }: { state: RewardsState }) {
           Your tier
         </h2>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ fontSize: 34, lineHeight: 1 }} aria-hidden>
+          <span style={{ fontSize: "var(--fs-display)", lineHeight: 1 }} aria-hidden>
             {current.emoji}
           </span>
           <div style={{ minWidth: 0, flex: 1 }}>
-            <p style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "var(--tx)" }}>
+            <p style={{ margin: 0, fontSize: "var(--fs-h2)", fontWeight: 800, color: "var(--tx)" }}>
               {current.name}{" "}
               <span style={{ color: "var(--t2)", fontWeight: 600 }}>· {current.english}</span>
             </p>
-            <p style={{ margin: "2px 0 0", fontSize: 13, color: "var(--t2)" }}>
+            <p style={{ margin: "2px 0 0", fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
               {nxt
                 ? `${dollars(toNextSpend)} more to ${nxt.english} ${nxt.emoji}`
                 : "Top tier — thank you!"}
@@ -89,13 +94,16 @@ export function RewardsHub({ state }: { state: RewardsState }) {
           role="group"
           aria-label={`Lifetime spend ${dollars(state.spendCents)}`}
         >
-          <span aria-hidden style={{ fontSize: 12.5, color: "var(--t2)", fontWeight: 700 }}>
+          <span
+            aria-hidden
+            style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", fontWeight: 700 }}
+          >
             Lifetime spend
           </span>
           <span
             aria-hidden
             style={{
-              fontSize: 16,
+              fontSize: "var(--fs-body)",
               fontWeight: 800,
               color: "var(--tx)",
               fontVariantNumeric: "tabular-nums",
@@ -131,10 +139,10 @@ export function RewardsHub({ state }: { state: RewardsState }) {
                 }
                 aria-label={`${t.english}${isCurrent ? " — your tier" : reached ? " — reached" : ` — ${dollars(t.minSpendCents)}`}`}
               >
-                <span aria-hidden style={{ fontSize: 18 }}>
+                <span aria-hidden style={{ fontSize: "var(--fs-h3)" }}>
                   {t.emoji}
                 </span>
-                <span style={{ fontSize: 10.5, color: "var(--t2)", fontWeight: 700 }}>
+                <span style={{ fontSize: "var(--fs-xs)", color: "var(--t2)", fontWeight: 700 }}>
                   {t.english}
                 </span>
               </li>
@@ -198,21 +206,21 @@ export function RewardsHub({ state }: { state: RewardsState }) {
           >
             {state.coupons.map((c) => (
               <li key={c.code} className="reward-coupon">
-                <span style={{ fontSize: 18 }} aria-hidden>
+                <span style={{ fontSize: "var(--fs-h3)" }} aria-hidden>
                   🎁
                 </span>
                 <div style={{ minWidth: 0 }}>
                   <p style={{ margin: 0, fontWeight: 800, color: "var(--tx)" }}>
                     {dollars(c.amountCents)} reward
                   </p>
-                  <p style={{ margin: "1px 0 0", fontSize: 12, color: "var(--t2)" }}>
+                  <p style={{ margin: "1px 0 0", fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
                     Code {c.code} · expires {new Date(c.expiresAt).toLocaleDateString()}
                   </p>
                 </div>
               </li>
             ))}
           </ul>
-          <p style={{ margin: "10px 0 0", fontSize: 12, color: "var(--t3)" }}>
+          <p style={{ margin: "10px 0 0", fontSize: "var(--fs-sm)", color: "var(--t3)" }}>
             Apply a reward at checkout — tap “Use a reward” on your order.
           </p>
         </Card>
@@ -228,7 +236,7 @@ const card: CSSProperties = {
 };
 const cardH: CSSProperties = {
   margin: "0 0 12px",
-  fontSize: 13,
+  fontSize: "var(--fs-sm)",
   fontWeight: 800,
   letterSpacing: 0.3,
   textTransform: "uppercase",
@@ -268,7 +276,7 @@ const benefit: CSSProperties = {
   gap: 12,
 };
 const benefitE: CSSProperties = {
-  fontSize: 22,
+  fontSize: "var(--fs-h2)",
   lineHeight: 1.1,
   flex: "none",
   width: 28,
@@ -277,11 +285,11 @@ const benefitE: CSSProperties = {
 const benefitN: CSSProperties = {
   margin: 0,
   fontWeight: 700,
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   color: "var(--tx)",
 };
 const benefitD: CSSProperties = {
   margin: "2px 0 0",
-  fontSize: 12.5,
+  fontSize: "var(--fs-sm)",
   color: "var(--t2)",
 };

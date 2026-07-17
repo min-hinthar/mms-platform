@@ -1,6 +1,12 @@
 "use client";
 import { useMemo, useState, type FormEvent } from "react";
-import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
+import {
+  Elements,
+  ExpressCheckoutElement,
+  PaymentElement,
+  useElements,
+  useStripe,
+} from "@stripe/react-stripe-js";
 import type { Appearance, StripeElementsOptions } from "@stripe/stripe-js";
 import type { CartTotals } from "@mms/db";
 import { getStripePromise, stripeAppearance } from "@/lib/stripe-client";
@@ -36,7 +42,7 @@ export function PaymentSection({
 
   if (!stripePromise)
     return (
-      <p role="alert" style={{ fontSize: 13, color: "var(--warn)", marginTop: 12 }}>
+      <p role="alert" style={{ fontSize: "var(--fs-sm)", color: "var(--warn)", marginTop: 12 }}>
         Card checkout is temporarily unavailable. Please try again shortly.
       </p>
     );
@@ -61,14 +67,18 @@ function PayForm({
   const elements = useElements();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // W2d — whether the browser/domain surfaced any wallet (Apple/Google Pay/Link). Drives the "or pay
+  // with card" divider; false ⇒ the Express element rendered nothing and the card flow stands alone.
+  const [walletReady, setWalletReady] = useState(false);
 
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
+  // Shared confirm — used by BOTH the card form submit and the Express (wallet) onConfirm. The Elements
+  // is clientSecret-initialized (server-authoritative amount), so we confirm directly (no elements.submit
+  // — that's the deferred-intent flow). On success Stripe redirects to return_url; only an immediate
+  // (validation / declined-inline) error returns here, and `error.message` is user-facing + safe to show.
+  async function confirm() {
     if (!stripe || !elements) return; // Stripe.js still loading
     setSubmitting(true);
     setError(null);
-    // On success Stripe redirects to return_url; only an immediate (validation / declined-inline)
-    // error returns here. `error.message` from Stripe IS user-facing and safe to show.
     const { error: payErr } = await stripe.confirmPayment({
       elements,
       confirmParams: {
@@ -81,17 +91,47 @@ function PayForm({
     }
   }
 
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    await confirm();
+  }
+
   const dollars = `$${(totals.totalCents / 100).toFixed(2)}`;
 
   return (
     <form onSubmit={onSubmit}>
+      {/* W2d — wallet-first: Apple/Google Pay/Link ABOVE the card (the single highest-leverage
+          benchmark finding — 83% scan-to-pay). Pays the SAME server-authoritative PaymentIntent via the
+          shared confirm(). Renders NOTHING until the browser has a wallet AND the domain is registered in
+          Stripe (Apple/Google Pay) — the card flow below is untouched meanwhile, so it's safe to ship
+          before the domain is verified. `onLoadError` fails closed to the card path. */}
+      <ExpressCheckoutElement
+        options={{ buttonHeight: 48 }}
+        onReady={({ availablePaymentMethods }) =>
+          // Stripe passes `undefined` when no wallet is available; guard the (unlikely) all-false object
+          // too, so the "or pay with card" divider never orphans above the card with no wallet above it.
+          setWalletReady(Object.values(availablePaymentMethods ?? {}).some(Boolean))
+        }
+        onConfirm={() => void confirm()}
+        onLoadError={() => setWalletReady(false)}
+      />
+      {walletReady && (
+        <div className="checkout-pay-divider" aria-hidden>
+          <span>or pay with card</span>
+        </div>
+      )}
       <PaymentElement options={{ layout: "tabs" }} />
 
       {/* Polite, atomic live region for the pay error (the only announced status here). */}
       <p
         role="status"
         aria-atomic="true"
-        style={{ minHeight: 16, margin: "10px 0 0", fontSize: 13, color: "var(--warn)" }}
+        style={{
+          minHeight: 16,
+          margin: "10px 0 0",
+          fontSize: "var(--fs-sm)",
+          color: "var(--warn)",
+        }}
       >
         {error}
       </p>
@@ -110,7 +150,7 @@ function PayForm({
           // bg/color come from .checkout-cta (gold-warmed gradient + sheen + one-sweep shine) — parity
           // with the "Continue to payment" CTA. The label rides above the ::after sweep on its own layer.
           fontWeight: 800,
-          fontSize: 16,
+          fontSize: "var(--fs-body)",
           cursor: !stripe || submitting ? "default" : "pointer",
           opacity: !stripe || submitting ? 0.7 : 1,
         }}

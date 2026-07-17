@@ -11,7 +11,7 @@ import {
 } from "react";
 import { TransitionLink as Link } from "./nav/TransitionNav"; // J1 journey grammar
 import type { CartItem, CartTotals } from "@mms/db";
-import { Avatar, NumberFlow, Stepper } from "@mms/ui";
+import { Avatar, EmptyState, Icon, NumberFlow, Stepper } from "@mms/ui";
 import {
   applyPromo as applyPromoAction,
   getCartView,
@@ -56,12 +56,23 @@ const PROMO_MESSAGES: Record<PromoReason, string> = {
 
 // Tip presets (v7.2 prototype). The <small> shows a client PREVIEW of the tip; the AUTHORITATIVE
 // tip + grand total come back from create-intent (server) on the pay step — never the charge.
+// "None" (not v7.2's "No extra") so five chips — the four presets + W2d's Custom — fit one row at
+// 320–375px without wrapping to uneven heights (mobile-first bar).
 const TIPS: [label: string, rate: number][] = [
-  ["No extra", 0],
+  ["None", 0],
   ["15%", 0.15],
   ["18%", 0.18],
   ["20%", 0.2],
 ];
+
+// W2d — a typed custom-tip dollar string → the rate the server applies. `round(net · rate)` then equals
+// the entered cents exactly (rate = cents/net). Clamped to 100% of net (the schema cap is 1.0), so it
+// can't fat-finger a $500 tip on a $5 order or exceed what create-intent will accept. 0 when unparseable.
+function customTipRateFromDollars(raw: string, net: number): number {
+  const dollars = parseFloat(raw);
+  if (!Number.isFinite(dollars) || dollars <= 0 || net <= 0) return 0;
+  return Math.min(Math.round(dollars * 100), net) / net;
+}
 
 // Optimistic cart edits — a qty / destination / make-now tap reflects INSTANTLY, then the server action
 // + refresh() reconcile the base underneath (and correct a refused edit). Money stays server-authoritative:
@@ -141,6 +152,33 @@ export function Checkout({
   // instant meanwhile. Keyed by cart-item id; a stale entry just resolves and is harmless.
   const qtyChain = useRef<Map<string, Promise<void>>>(new Map());
   const [tipRate, setTipRate] = useState(0);
+  // W2d — custom tip: an open flag + the raw dollar string the diner types. The tip stays a RATE under
+  // the hood (customCents / netCents) so the server path is identical to the presets — server-confirmed,
+  // webhook-reconciled, the client never sends an amount.
+  const [customTipOpen, setCustomTipOpen] = useState(false);
+  const [customTip, setCustomTip] = useState("");
+  const customTipRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (customTipOpen) customTipRef.current?.focus();
+  }, [customTipOpen]);
+  // Pure-grocery basket (W1): every chargeable line is self-scanned retail — no tip ask, no SB-1524
+  // service copy (the server excludes grocery lines from the service base + forces tip to 0). Computed
+  // here (early) so the tip rate can be zeroed for it too. Voided/comped lines are $0 and don't count.
+  const chargeableItems = viewItems.filter((i) => i.lineState !== "voided" && !i.comped);
+  const pureGrocery =
+    chargeableItems.length > 0 && chargeableItems.every((i) => i.fulfillment === "grocery");
+  // W2d — the tip base (subtotal − discount) and the EFFECTIVE rate. When custom is open the rate is
+  // DERIVED (during render, not stored) from the typed dollars + the CURRENT net, so the diner's absolute
+  // amount stays fixed if the net moves (a group peer edits the cart) instead of silently re-scaling;
+  // otherwise the preset `tipRate` state wins. Pure derived state — no effect, no setState-in-effect.
+  // Forced 0 on a pure-grocery basket so a lingering custom-tip state can't send a rate the server would
+  // discard (defense-in-depth — the server also force-zeros grocery tips).
+  const tipNet = totals.subtotalCents - totals.discountCents;
+  const effectiveTipRate = pureGrocery
+    ? 0
+    : customTipOpen
+      ? customTipRateFromDollars(customTip, tipNet)
+      : tipRate;
   const [step, setStep] = useState<"review" | "pay">("review");
   // W3e: the pickup/scango call-out name — optional, rides create-intent → qr_carts.customer_name →
   // the order snapshot, so expo + the order-ready board can call a human instead of a code. Dine-in
@@ -369,7 +407,13 @@ export function Checkout({
       const res = await fetch("/api/stripe/create-intent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cartId, tipRate, ...(isTakeout ? { firstName: name } : {}) }),
+        // effectiveTipRate = preset OR the derived custom rate (customCents / net) — server re-derives
+        // the amount from it via getCartTotals; the client never sends a dollar figure.
+        body: JSON.stringify({
+          cartId,
+          tipRate: effectiveTipRate,
+          ...(isTakeout ? { firstName: name } : {}),
+        }),
       });
       const data = (await res.json()) as {
         clientSecret?: string;
@@ -430,16 +474,47 @@ export function Checkout({
     await refresh();
   }
 
-  if (viewItems.length === 0)
+  if (viewItems.length === 0) {
+    // W2d — designed empty-cart state. The menu link carries the session mode: a bare /menu defaults
+    // to scan-&-go and would orphan a dine-in/pickup diner (F9). titleAs="p" — the <h1> names the region.
+    const menuHref = splitContext?.mode
+      ? `/menu?mode=${encodeURIComponent(splitContext.mode)}`
+      : "/menu";
     return (
-      <main style={{ padding: 24, maxWidth: 440, margin: "0 auto" }}>
-        <h1 style={{ fontSize: 28 }}>Your order</h1>
-        <p style={{ color: "var(--t2)" }}>Nothing here yet.</p>
-        <Link href="/menu" style={{ color: "var(--ac)", fontWeight: 700 }}>
-          <span aria-hidden>←</span> Back to menu
-        </Link>
+      <main style={{ padding: "24px 20px 40px", maxWidth: 440, margin: "0 auto" }}>
+        <h1 style={{ fontSize: "var(--fs-h1)", marginBottom: 16 }}>Your order</h1>
+        <EmptyState
+          icon={<Icon name="cart" size={30} style={{ color: "var(--ac)" }} />}
+          title="Nothing in your cart yet"
+          subtitle="Add a dish from the menu and it’ll show up here."
+          action={
+            <Link
+              href={menuHref}
+              className="checkout-cta"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                minHeight: 48,
+                padding: "0 22px",
+                borderRadius: 12,
+                fontWeight: 800,
+                fontSize: "var(--fs-body)",
+                textDecoration: "none",
+              }}
+            >
+              <span style={{ position: "relative", zIndex: 1 }}>
+                Browse the menu
+                <span aria-hidden className="checkout-cta-arrow">
+                  →
+                </span>
+              </span>
+            </Link>
+          }
+        />
       </main>
     );
+  }
 
   // Client tip PREVIEW (a hint, not the charge) — identical formula to the server's
   // `Math.round(netCents * rate)` (lib/totals.ts), so the previewed "Estimated total" reconciles
@@ -447,16 +522,34 @@ export function Checkout({
   const tipPreview = (rate: number) =>
     Math.round((totals.subtotalCents - totals.discountCents) * rate);
 
-  // Pure-grocery basket (W1): every chargeable line is a self-scanned retail item — no tip ask
-  // (no grocery self-checkout prompts one) and no SB-1524 service copy (the server excludes
-  // grocery lines from the service base + forces tip to 0, so the receipt rows go honest here
-  // too). Voided/comped lines are charged $0 and don't count against the predicate. The preview
-  // is zeroed as well so a mixed cart that BECOMES pure grocery (restaurant line removed after a
+  // `pureGrocery`/`effectiveTipRate` are computed at the top (before the empty-cart return). The preview
+  // is zeroed for pure-grocery so a mixed cart that BECOMES pure grocery (restaurant line removed after a
   // tip was picked) can't show an "Estimated total" the server will honestly refuse to charge.
-  const chargeableItems = viewItems.filter((i) => i.lineState !== "voided" && !i.comped);
-  const pureGrocery =
-    chargeableItems.length > 0 && chargeableItems.every((i) => i.fulfillment === "grocery");
-  const tipPreviewCents = pureGrocery ? 0 : tipPreview(tipRate);
+  // Uses the EFFECTIVE rate (preset OR derived custom) so the preview matches what create-intent charges.
+  const tipPreviewCents = pureGrocery ? 0 : tipPreview(effectiveTipRate);
+  // W2d — the estimated tip-inclusive total shown on the primary CTA (presentation only; the pay step
+  // confirms the server-authoritative amount).
+  const ctaTotal = `$${((totals.totalCents + tipPreviewCents) / 100).toFixed(2)}`;
+
+  // W2d — tip controls. The custom tip rides as a rate (customCents / net) so create-intent + the webhook
+  // apply the SAME `round(net · rate)` — the diner types dollars, the server derives the amount.
+  function selectPresetTip(rate: number) {
+    setCustomTipOpen(false);
+    setCustomTip("");
+    setTipRate(rate);
+  }
+  function openCustomTip() {
+    setCustomTipOpen(true); // the effective rate derives from `customTip` (empty ⇒ 0) while open
+  }
+  function onCustomTipChange(raw: string) {
+    // Digits + a single dot, max 2 decimals — a plain money field. The effective rate is DERIVED from
+    // this during render (survives a net change, e.g. a peer editing a group cart).
+    const cleaned = raw
+      .replace(/[^\d.]/g, "")
+      .replace(/(\..*)\./g, "$1")
+      .replace(/(\.\d\d).+/, "$1");
+    setCustomTip(cleaned);
+  }
 
   return (
     <main style={{ padding: "24px 20px 40px", maxWidth: 440, margin: "0 auto" }}>
@@ -466,7 +559,7 @@ export function Checkout({
       <div
         style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}
       >
-        <h1 ref={headingRef} tabIndex={-1} style={{ fontSize: 28 }}>
+        <h1 ref={headingRef} tabIndex={-1} style={{ fontSize: "var(--fs-h1)" }}>
           Your order
         </h1>
         <WalletChip badge={rewardsBadge} />
@@ -491,7 +584,12 @@ export function Checkout({
             <p
               role="status"
               aria-atomic="true"
-              style={{ minHeight: 16, margin: "12px 0 0", fontSize: 13, color: "var(--t2)" }}
+              style={{
+                minHeight: 16,
+                margin: "12px 0 0",
+                fontSize: "var(--fs-sm)",
+                color: "var(--t2)",
+              }}
             >
               {status}
             </p>
@@ -559,7 +657,7 @@ export function Checkout({
                     <div style={{ flex: 1 }}>
                       <div style={{ fontWeight: 600 }}>{i.name}</div>
                       {i.modifiers.length > 0 && (
-                        <div style={{ fontSize: 12, color: "var(--t2)" }}>
+                        <div style={{ fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
                           {i.modifiers.join(", ")}
                         </div>
                       )}
@@ -568,7 +666,7 @@ export function Checkout({
                           identical plain sibling (the two never merge). Full text color: allergy-
                           adjacent, never muted. Read-only — remove/re-add to change it. */}
                       {i.notes && (
-                        <div style={{ fontSize: 13, fontWeight: 600, marginTop: 2 }}>
+                        <div style={{ fontSize: "var(--fs-sm)", fontWeight: 600, marginTop: 2 }}>
                           “{i.notes}”
                         </div>
                       )}
@@ -579,7 +677,7 @@ export function Checkout({
                             alignItems: "center",
                             gap: 6,
                             marginTop: 4,
-                            fontSize: 12,
+                            fontSize: "var(--fs-sm)",
                             color: "var(--t2)",
                           }}
                         >
@@ -659,7 +757,7 @@ export function Checkout({
                         disabled={!canEdit}
                         soldOut={i.soldOut}
                         name={i.name}
-                        removeGlyph="🗑"
+                        removeGlyph={<Icon name="trash" size={18} />}
                         showCount
                         incrementLabel={`Add another ${i.name}`}
                         onChange={(q) => changeQty(i.id, q)}
@@ -675,7 +773,7 @@ export function Checkout({
                   {showHeadings && (
                     <h3
                       style={{
-                        fontSize: 12,
+                        fontSize: "var(--fs-sm)",
                         fontWeight: 800,
                         letterSpacing: 0.3,
                         textTransform: "uppercase",
@@ -690,7 +788,9 @@ export function Checkout({
                     config-driven estimate — shown only while a to-go line is still waiting (draft). */}
                   {key === "togo" &&
                     viewItems.some((i) => i.fulfillment === "togo" && i.lineState === "draft") && (
-                      <p style={{ fontSize: 12, color: "var(--t2)", margin: "0 0 8px" }}>
+                      <p
+                        style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", margin: "0 0 8px" }}
+                      >
                         Made fresh when you check out — ready in about {prepMinutes} min. Want it
                         sooner? Tap “Make it now.”
                       </p>
@@ -758,10 +858,15 @@ export function Checkout({
               <div style={{ margin: "12px 0" }}>
                 <label
                   htmlFor="pickup-name"
-                  style={{ display: "block", fontWeight: 700, fontSize: 14, marginBottom: 4 }}
+                  style={{
+                    display: "block",
+                    fontWeight: 700,
+                    fontSize: "var(--fs-sm)",
+                    marginBottom: 4,
+                  }}
                 >
                   First name for pickup{" "}
-                  <span style={{ fontWeight: 600, color: "var(--t3)", fontSize: 12 }}>
+                  <span style={{ fontWeight: 600, color: "var(--t3)", fontSize: "var(--fs-sm)" }}>
                     Optional
                   </span>
                 </label>
@@ -784,62 +889,17 @@ export function Checkout({
                 />
                 {/* No board promise here — the ready TV is opt-in config (BOARD_DEVICE_TOKEN);
                     only promise what every store setup keeps (adversarial LOW-6). */}
-                <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--t3)" }}>
+                <p style={{ margin: "4px 0 0", fontSize: "var(--fs-sm)", color: "var(--t3)" }}>
                   We’ll call your name when your order’s up.
                 </p>
               </div>
             )}
 
-            {/* Tip selector (server confirms the exact tip at create-intent). Hidden on a
-                pure-grocery basket — self-scanned retail is not table service (W1). */}
-            {!pureGrocery && (
-              <div
-                role="group"
-                aria-label="Add a tip"
-                style={{ display: "flex", gap: 8, margin: "14px 0 4px" }}
-              >
-                {TIPS.map(([label, rate]) => {
-                  const on = tipRate === rate;
-                  const previewCents = tipPreview(rate);
-                  return (
-                    <button
-                      key={rate}
-                      type="button"
-                      aria-pressed={on}
-                      onClick={() => setTipRate(rate)}
-                      className="checkout-tip"
-                      style={{
-                        flex: 1,
-                        minHeight: 44,
-                        padding: "10px 4px",
-                        borderRadius: 13,
-                        border: `1.5px solid ${on ? "var(--ac)" : "var(--bd)"}`,
-                        background: on
-                          ? "color-mix(in oklab, var(--ac) 9%, var(--cd))"
-                          : "var(--cd)",
-                        color: on ? "var(--ac-strong)" : "var(--tx)",
-                        textAlign: "center",
-                        fontWeight: 800,
-                        cursor: "pointer",
-                      }}
-                    >
-                      {label}
-                      <small
-                        style={{
-                          display: "block",
-                          fontSize: 10,
-                          fontWeight: 700,
-                          color: on ? "var(--ac-strong)" : "var(--t3)",
-                        }}
-                      >
-                        {rate ? `$${(previewCents / 100).toFixed(2)}` : "—"}
-                      </small>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
+            {/* W2d — fees BEFORE the tip ask. The diner sees every charge (service charge + tax) and
+                the SB-1524 disclosure BEFORE deciding a tip, so the tip is never stacked on a surprise
+                fee (surprise fees are the #1 benchmark complaint — the disclosure must sit above the
+                ask). The tip-inclusive total lands below the ask. All figures stay server-authoritative
+                (the tip preview is a hint reconciled at create-intent). */}
             <div className="card card-textured checkout-receipt">
               <dl>
                 <Row k="Subtotal" cents={totals.subtotalCents} />
@@ -853,26 +913,152 @@ export function Checkout({
                   <Row k="Service charge (5%)" cents={totals.serviceChargeCents} />
                 )}
                 <Row k="Sales tax" cents={totals.taxCents} />
-                {/* Tip is previewed here so the review total matches the pay-step total — labeled
-                  "Estimated" until create-intent confirms it server-side. */}
-                {tipPreviewCents > 0 && <Row k="Tip" cents={tipPreviewCents} />}
-                <Row
-                  k={tipPreviewCents > 0 ? "Estimated total" : "Total"}
-                  cents={totals.totalCents + tipPreviewCents}
-                  strong
-                  roll
-                  vt
-                />
               </dl>
             </div>
 
             {totals.serviceChargeCents > 0 && (
-              <p style={{ fontSize: 11, color: "var(--t3)" }}>
+              <p style={{ fontSize: "var(--fs-xs)", color: "var(--t3)", margin: "8px 2px 0" }}>
                 A 5% service charge supports fair kitchen wages and is shared with the team (CA
                 SB-1524). It is not a tip — anything extra above is yours to give. Card fees are
                 built into menu prices; we never add a surcharge on debit.
               </p>
             )}
+
+            {/* Tip selector (server confirms the exact tip at create-intent) — now AFTER the fee
+                breakdown (W2d). Presets + a Custom chip (W2d): tapping Custom reveals a dollar field;
+                the amount rides as a rate (customCents / net) so the server path is identical. Hidden on
+                a pure-grocery basket — self-scanned retail is not table service (W1). */}
+            {!pureGrocery && (
+              <>
+                <div
+                  role="group"
+                  aria-label="Add a tip"
+                  style={{ display: "flex", gap: 8, margin: "14px 0 4px" }}
+                >
+                  {TIPS.map(([label, rate]) => {
+                    const on = !customTipOpen && tipRate === rate;
+                    const previewCents = tipPreview(rate);
+                    return (
+                      <button
+                        key={rate}
+                        type="button"
+                        aria-pressed={on}
+                        onClick={() => selectPresetTip(rate)}
+                        className="checkout-tip"
+                        style={tipChipStyle(on)}
+                      >
+                        {label}
+                        <small style={tipChipSmall(on)}>
+                          {rate ? `$${(previewCents / 100).toFixed(2)}` : "—"}
+                        </small>
+                      </button>
+                    );
+                  })}
+                  {/* Custom chip — reveals the dollar field; "on" while it's open. */}
+                  <button
+                    type="button"
+                    aria-pressed={customTipOpen}
+                    aria-expanded={customTipOpen}
+                    // Only reference the field while it's mounted (below) — no dangling IDREF when closed.
+                    aria-controls={customTipOpen ? "custom-tip-field" : undefined}
+                    onClick={openCustomTip}
+                    className="checkout-tip"
+                    style={tipChipStyle(customTipOpen)}
+                  >
+                    Custom
+                    <small style={tipChipSmall(customTipOpen)}>
+                      {customTipOpen && tipPreviewCents > 0
+                        ? `$${(tipPreviewCents / 100).toFixed(2)}`
+                        : "—"}
+                    </small>
+                  </button>
+                </div>
+                {customTipOpen && (
+                  <div id="custom-tip-field" style={{ margin: "2px 0 4px" }}>
+                    <div style={customTipWrap}>
+                      <span aria-hidden style={{ fontWeight: 800, color: "var(--t2)" }}>
+                        $
+                      </span>
+                      <input
+                        ref={customTipRef}
+                        inputMode="decimal"
+                        aria-label="Custom tip amount in dollars"
+                        aria-describedby={
+                          tipNet > 0 && parseFloat(customTip) * 100 > tipNet
+                            ? "custom-tip-cap"
+                            : undefined
+                        }
+                        value={customTip}
+                        onChange={(e) => onCustomTipChange(e.target.value)}
+                        placeholder="0.00"
+                        style={{
+                          flex: 1,
+                          border: "none",
+                          background: "transparent",
+                          color: "var(--tx)",
+                          fontWeight: 800,
+                          outline: "none",
+                          minWidth: 0,
+                        }}
+                      />
+                    </div>
+                    {tipNet > 0 && parseFloat(customTip) * 100 > tipNet && (
+                      <p
+                        id="custom-tip-cap"
+                        style={{
+                          margin: "4px 2px 0",
+                          fontSize: "var(--fs-sm)",
+                          color: "var(--t3)",
+                        }}
+                      >
+                        Capped at ${(tipNet / 100).toFixed(2)} — 100% of your order.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* The tip-inclusive total lands below the ask — it rolls as the tip changes (R7a). A
+                standalone grand-total bar (not a second receipt card) so the total reads as the hero
+                figure; the tip is folded into a subline. `.vt-cart-total` makes THIS the single
+                cart-total morph target (J1). Presentation only — the charge stays server-authoritative. */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "baseline",
+                gap: 12,
+                marginTop: 14,
+                paddingTop: 14,
+                borderTop: "1px solid var(--bd)",
+              }}
+            >
+              <div>
+                <div style={{ fontWeight: 800, fontSize: "var(--fs-body)" }}>
+                  {tipPreviewCents > 0 ? "Estimated total" : "Total"}
+                </div>
+                {tipPreviewCents > 0 && (
+                  <div style={{ fontSize: "var(--fs-sm)", color: "var(--t3)", marginTop: 1 }}>
+                    includes ${(tipPreviewCents / 100).toFixed(2)} tip
+                  </div>
+                )}
+              </div>
+              <span
+                className="vt-cart-total"
+                style={{
+                  fontVariantNumeric: "tabular-nums",
+                  fontFamily: "var(--font-display)",
+                  fontSize: "var(--fs-h2)",
+                  fontWeight: 800,
+                }}
+              >
+                <NumberFlow
+                  value={(totals.totalCents + tipPreviewCents) / 100}
+                  format={{ style: "currency", currency: "USD" }}
+                />
+              </span>
+            </div>
 
             {canSendToKitchen && viewItems.length > 0 && (
               // onChanged re-syncs the cart after a send (steppers → chips) or an undo (chips → steppers),
@@ -897,18 +1083,25 @@ export function Checkout({
                 borderRadius: 12,
                 border: "none",
                 fontWeight: 800,
-                fontSize: 16,
+                fontSize: "var(--fs-body)",
                 cursor: loadingPay ? "default" : "pointer",
                 opacity: loadingPay ? 0.7 : 1,
               }}
             >
-              {/* The label rides above the ::after shine sweep on its own relative layer. */}
+              {/* The label rides above the ::after shine sweep on its own relative layer. W2d: the CTA
+                  carries the amount (fees are visible above it) — and for a GROUP it says "Pay the whole
+                  order · $X", elevating the honesty caveat (a guest who read "your share" isn't surprised
+                  by the full charge). The amount is the server-reconciled estimate; the pay step confirms. */}
               <span style={{ position: "relative", zIndex: 1 }}>
                 {loadingPay ? (
                   "Starting checkout…"
                 ) : (
                   <>
-                    {tabType !== "none" ? "Settle tab" : "Continue to payment"}
+                    {tabType !== "none"
+                      ? `Settle tab · ${ctaTotal}`
+                      : isGroup
+                        ? `Pay the whole order · ${ctaTotal}`
+                        : `Continue · ${ctaTotal}`}
                     <span aria-hidden className="checkout-cta-arrow">
                       →
                     </span>
@@ -949,8 +1142,16 @@ export function Checkout({
               </div>
             )}
             {tabType === "secure" ? (
-              <p style={tabNote}>
-                <span aria-hidden>✓ </span>
+              <p
+                style={{
+                  ...tabNote,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                }}
+              >
+                <Icon name="check" size={15} />
                 Tab secured · card on file — settle anytime, or just leave and we’ll close it.
               </p>
             ) : tabType === "trust" ? (
@@ -961,19 +1162,18 @@ export function Checkout({
             ) : null}
 
             {isGroup && (
-              // Honesty (P3.3a): the split above is a reference; this button pays the WHOLE order, so a
-              // guest who read "your share" isn't surprised. Per-card share payment is P3.3b — stated as
-              // a fact, not a promise.
+              // Honesty (P3.3a): the CTA above now carries "Pay the whole order · $X" (W2d), so this
+              // just clarifies what the split rows are for. Bumped off 11.5px (F9 — too small for a
+              // trust-critical line). Per-card share payment is P3.3b — stated as a fact, not a promise.
               <p
                 style={{
-                  fontSize: 11.5,
-                  color: "var(--t3)",
+                  fontSize: "var(--fs-sm)",
+                  color: "var(--t2)",
                   margin: "8px 0 0",
                   textAlign: "center",
                 }}
               >
-                This pays the full order. The split above is a reference for settling among
-                yourselves.
+                The split above is just a reference for settling up among yourselves.
               </p>
             )}
             {/* The ONE polite live region for the review step (QA §A P1) — carries the pay-start
@@ -985,7 +1185,7 @@ export function Checkout({
               style={{
                 minHeight: 16,
                 margin: "8px 0 0",
-                fontSize: 13,
+                fontSize: "var(--fs-sm)",
                 color: payError || tabError ? "var(--warn)" : "var(--t2)",
               }}
             >
@@ -999,11 +1199,43 @@ export function Checkout({
 }
 
 const tabNote: CSSProperties = {
-  fontSize: 12.5,
+  fontSize: "var(--fs-sm)",
   color: "var(--t2)",
   margin: "10px 0 0",
   textAlign: "center",
   lineHeight: 1.5,
+};
+
+// W2d — shared tip-chip styling (presets + the Custom chip), so the two paths can't drift.
+const tipChipStyle = (on: boolean): CSSProperties => ({
+  flex: 1,
+  minWidth: 0, // let 5 chips shrink to fit a 320px row instead of overflowing
+  minHeight: 44,
+  padding: "10px 2px",
+  borderRadius: 13,
+  border: `1.5px solid ${on ? "var(--ac)" : "var(--bd)"}`,
+  background: on ? "color-mix(in oklab, var(--ac) 9%, var(--cd))" : "var(--cd)",
+  color: on ? "var(--ac-strong)" : "var(--tx)",
+  textAlign: "center",
+  fontSize: "var(--fs-sm)", // explicit so the label never inherits a larger size and wraps
+  fontWeight: 800,
+  whiteSpace: "nowrap",
+  cursor: "pointer",
+});
+const tipChipSmall = (on: boolean): CSSProperties => ({
+  display: "block",
+  fontSize: "var(--fs-xs)",
+  fontWeight: 700,
+  color: on ? "var(--ac-strong)" : "var(--t3)",
+});
+const customTipWrap: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+  padding: "10px 12px",
+  borderRadius: "var(--r-sm)",
+  border: "1px solid var(--bd)",
+  background: "var(--cd)",
 };
 // The honest replacement for a stepper once a line has gone to the kitchen (S2.2) or been comped/voided
 // by a server (S2.3). Shows the line's state in place of the (now-forbidden) edit control. Static text —
@@ -1012,7 +1244,15 @@ const tabNote: CSSProperties = {
 // "Comped" to the diner).
 function LineStateChip({ state, comped }: { state: CartItem["lineState"]; comped: boolean }) {
   const label = comped ? "Comped" : DINER_STATE_COPY[state]; // S12: one shared vocabulary
-  const glyph = comped ? "🎁" : state === "served" ? "✓" : state === "voided" ? "✕" : "🔥";
+  const glyph = comped ? (
+    <Icon name="gift" size={15} />
+  ) : state === "served" ? (
+    <Icon name="check" size={15} />
+  ) : state === "voided" ? (
+    <Icon name="close" size={15} />
+  ) : (
+    <Icon name="flame" size={15} />
+  );
   // The context is REAL (visually-hidden) text, not an aria-label on this non-interactive span (which
   // SRs may drop) — so a SR reaching this control-slot reliably hears WHY there's no stepper.
   const hint = comped
@@ -1032,7 +1272,7 @@ function LineStateChip({ state, comped }: { state: CartItem["lineState"]; comped
         border: "1px solid var(--bd)",
         background: "color-mix(in oklab, var(--ac) 8%, var(--cd))",
         color: "var(--ac-strong)",
-        fontSize: 12.5,
+        fontSize: "var(--fs-sm)",
         fontWeight: 800,
         whiteSpace: "nowrap",
       }}
@@ -1063,16 +1303,11 @@ function Row({
   cents,
   strong,
   roll,
-  vt,
 }: {
   k: string;
   cents: number;
   strong?: boolean;
   roll?: boolean;
-  /** J1 shared element: marks THIS row's figure as the `cart-total` morph target (the CartBar total
-   *  morphs into it on the menu→cart cut). Set on exactly one row per rendered view — the review-step
-   *  hero total (the landing view) — so the view-transition name is never duplicated in one document. */
-  vt?: boolean;
 }) {
   return (
     <div
@@ -1093,12 +1328,11 @@ function Row({
     >
       <dt>{k}</dt>
       <dd
-        className={vt ? "vt-cart-total" : undefined}
         style={{
           margin: 0,
           fontVariantNumeric: "tabular-nums",
           // The total reads as the hero figure (display serif, larger) — presentation only.
-          fontSize: strong ? 20 : undefined,
+          fontSize: strong ? "var(--fs-h2)" : undefined,
           fontFamily: strong ? "var(--font-display)" : undefined,
         }}
       >

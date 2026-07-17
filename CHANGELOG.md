@@ -4,6 +4,103 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W2 (part 3) — staff surfaces: type-scale + icon sweep; numeric-fontSize ban now repo-wide (2026-07-17)
+
+Closes the W2b/W2c tail on the **staff** surfaces (KDS · expo · floor · orders · approvals · team · PIN/
+lock · login · feedback), completing F3 and F5 for the whole app. Presentational only — no totals/refund/
+PIN/auth logic touched; gate green (lint · typecheck · build).
+
+- **Type-scale.** ~23 staff files' inline `fontSize` magic numbers → tokens. Diner-tier chrome → `--fs-*`;
+  **KDS/kitchen reads stay on the ops `--kfs-*` tier** (id 32 · item 28 · mod 21 · clock 24 · meta 15) so
+  no kitchen number ever SHRANK — the 13/14px KDS chrome grew to `--kfs-meta` (15), never down (staff read
+  the board at 1–2 m; a shrink would be an ops regression).
+- **Icons.** Retired the last functional emoji-as-chrome with `@mms/ui` `<Icon>`: 🔊→`volume` · ↩→`undo` ·
+  BUMP ✓→`check` · Added ✓→`check` · ▲▼→`chevron-up`/`-down` · ⚠→`alert` · ☆→`star` · 🔒→`lock` · 🥡→`bag`;
+  the staff feedback star-rating (`★`/`☆` repeats) → five lucide stars (filled/outline) behind an existing
+  `role="img"` "N of 5 stars" name. Four glyphs added to the curated set (volume/undo/chevron-up/-down).
+- **Lint ban now repo-wide.** Dropped the `**/staff/**` `ignores` from the `no-restricted-syntax`
+  numeric-`fontSize` ban — it now covers every `.tsx` with no exclusions, so the type scale can't regress
+  anywhere in the app.
+
+### W2c (part 2) — type-scale sweep: inline font-sizes → --fs-\* tokens + lint ban (2026-07-17)
+
+Kills the inline `fontSize` magic numbers (F3) on the checkout → track → rewards **hero path** and makes
+them un-regressable. The owner chose "adopt the disciplined scale" (vs. preserving pixels).
+
+- **Snapped each element to the nearest `--fs-*` by role** — `10–11.5→xs(11)` · `12–14.5→sm(13)` ·
+  `15–16→body(16)` · `17–19→h3(17)` · `20–24→h2(21)` · `26–31→h1(26)` · `32+→display`. Mostly ±1px
+  unifications (before/after verified); the largest single shift is the checkout grand-total figure
+  `24→h2(21)` (still the hero). One decorative hero glyph (`34`) mapped to `display`, not h1.
+- **The ENTIRE diner path is now swept** (~30 files, 192 inline font-sizes → tokens): checkout/pay/track/
+  rewards · menu (`MenuBrowser` flagship title `34→display`) · account · cart/grocery/error pages · the
+  group/split/tab/invite/feedback components · mode doors · barcode scanner. Decorative mascots (36/40)
+  and hero glyphs (34) → `display`; page titles (26–30) → `h1`; a vestigial `fontSize` on the (now
+  `<Icon>`-rendered) feedback stars was dropped.
+- **ESLint ban** on numeric inline `fontSize` (`no-restricted-syntax`, matching any numeric literal in a
+  `fontSize` value) now covers the **whole diner path** (`components/**` + `app/**`), excluding only the
+  not-yet-swept **staff** surfaces (`**/staff/**`). Verified: it errors on a numeric, passes on tokens.
+- **Remaining:** the **staff** surfaces (KDS/expo/floor) — drop the `ignores` once they're swept too.
+
+### W2d — checkout / pay craft (wallet-first · custom tip · fees-before-tip) (2026-07-17)
+
+The money-path slice of W2. **Server-authority invariant preserved:** the client never sends an amount —
+`create-intent` re-derives it from `getCartTotals(cartId, tipRate)` and the webhook recomputes identically
+from `metadata.tipRate`. No RLS/DB/migration change.
+
+- **Wallet-first (Express Checkout).** `<ExpressCheckoutElement>` (Apple/Google Pay/Link) rendered ABOVE
+  the card element in `PaymentSection`, sharing ONE `confirm()` with the card form — it pays the **same**
+  PaymentIntent (no second intent, no client amount). Renders nothing until a wallet is present AND the
+  domain is registered in Stripe; `onLoadError`/no-wallet fails closed to the card flow, so it's safe to
+  ship before the domain is verified. An "or pay with card" divider shows only when a wallet is available.
+- **Custom tip.** A "Custom" chip reveals a dollar field; the amount rides as a **rate** (`customCents /
+net`, derived during render via `customTipRateFromDollars` → `effectiveTipRate`) so `create-intent` and
+  the webhook apply the identical `round(net·rate)` — the diner types dollars, the server derives the
+  amount. Clamped to 100% of the order (schema `tipRate` cap widened `0.5 → 1.0`; a stray rate is rejected
+  server-side); re-derived from the CURRENT net so a group peer's edit can't silently re-scale a fixed-$
+  tip. Focus moves to the field on open; `aria-pressed`/`-expanded`/`-controls` + a labelled input.
+- **Fees before the tip ask.** The review receipt now shows the fee breakdown (subtotal → service charge →
+  tax) and the **SB-1524 disclosure ABOVE** the tip selector (surprise fees are the #1 benchmark
+  complaint); a standalone grand-total bar (tip-inclusive, `NumberFlow` roll, the single `.vt-cart-total`
+  morph target) lands below. Presentation only — no math change.
+- **The amount on the CTA + honest group caveat.** The primary CTA carries the estimate — "Continue · $X",
+  or for a group **"Pay the whole order · $X"** (elevating the trust caveat a guest who read "your share"
+  needs), or "Settle tab · $X". The residual caveat reworded + bumped off 11.5px (F9).
+- **Designed empty-cart.** `EmptyState` (cart glyph + copy + a "Browse the menu" CTA) replacing the bare
+  "Nothing here yet"; the menu link carries the session mode (a bare /menu defaulted to scan-&-go, F9).
+
+### W2 — flagship craft foundation (icons · placeholder · perceived-perf · order code) (2026-07-17)
+
+The buildable-now, non-money slices of W2 — the three things a diner sees first (missing photos,
+emoji-as-iconography, the blank-frame wait) plus a quotable order code. No money/auth/RLS surface changes.
+
+- **W2b — the brand icon set.** New `@mms/ui` `<Icon>` (`packages/ui/src/icon.tsx`): a curated,
+  bounded **lucide-react** set (the delivery app's set too — M5 "learn from delivery"; Next
+  auto-optimizes the imports so only used glyphs ship) at one brand stroke weight (1.75), decorative
+  (`aria-hidden`) by default with a `label` escape for standalone controls, and a filled variant via
+  `fill`. Retires **~30 functional emoji-chrome glyphs across the diner path** (search · trash · receipt ·
+  favorite · card/cash · flame · bag · cart · gift · close · pin · alert · info · lock · people · star ·
+  check + `cat-*` placeholder glyphs) — `sheet` close, `Stepper` remove (`removeGlyph` widened to
+  `ReactNode`), `AppHeader` cart, menu search/info/empty, `ItemSheet`/`FavoritesRail` heart,
+  `Checkout` line-state chips, `OrderTracker`/`OrderHistory` receipt+tender, pickup pin/bag, feedback
+  stars, guest lock/people, reward gift, settlement/secure-tab checks, recovery alert. The `✦` wordmark
+  mark stays a text glyph; content/mascot emoji (🍵 flourish, 🫖 error/track medallions, mode-door
+  tiles, reward-tier emblems) stay. Staff surfaces (KDS/expo/floor) deferred to a staff pass.
+- **W2a — the designed missing-photo placeholder.** `BlurUpImage` gains a `fallback` prop; a new
+  `PhotoPlaceholder` (the dish's **category glyph + ✦** over the item gradient) fills it — so a
+  photoless **or broken-hotlink** dish (28 point at a `fallback.jpg`, and every URL hotlinks the
+  delivery bucket) reads intentional instead of an empty tile. Wired into the menu grid, ItemSheet hero
+  - suggestions, favorites, start-here, and grocery. (The bucket migration + real photos stay gated on
+    live Supabase + Min.)
+- **W2c — perceived performance + recovery.** Geometry-matched `loading.tsx` for the four cold-hit-blank
+  routes (`(order)/menu`, `(order)/dine-in`, `/track`, `/grocery` — `/menu` is cookie-dynamic so it
+  Server-renders on demand). `error.tsx` gains a **stale-deploy ChunkLoadError guard** (a one-shot,
+  cooldown-guarded hard reload — `reset()` just re-requests the dead chunk) + type migrated onto the
+  `--fs-*`/`--lh-*` scale. (The ~360 inline-`fontSize` type-scale sweep is a separate per-screen PR.)
+- **W2e — the quotable order code.** The food `/track` receipt card now shows the short `#ABCDEF`
+  reference (grocery/refund already had one) — a dine-in/pickup diner finally has something to quote at
+  the counter. Visible tail `aria-hidden` + an `sr-only` spaced sibling (matches the exit-pass pattern).
+  Itemized rows / email receipt / print stylesheet stay in W2d/W2e.
+
 ### W3 — the kitchen you can trust (KDS · expo · order-ready board) (2026-07-16)
 
 - **W3a (ops blocker, K4):** every channel now reaches the kitchen. `mms_fire_pending_food` drops its

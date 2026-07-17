@@ -82,7 +82,7 @@ export function SplitSection({
 
   return (
     <section aria-labelledby="split-h" style={{ marginTop: 18 }}>
-      <h2 id="split-h" style={{ fontSize: 16, margin: "0 0 8px" }}>
+      <h2 id="split-h" style={{ fontSize: "var(--fs-body)", margin: "0 0 8px" }}>
         Split the bill
       </h2>
 
@@ -125,7 +125,7 @@ export function SplitSection({
                 : ownerMember.name;
             return (
               <li key={line.id}>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>
+                <div style={{ fontWeight: 600, fontSize: "var(--fs-sm)" }}>
                   {line.qty}× {line.name}
                 </div>
                 {canAssign ? (
@@ -164,7 +164,7 @@ export function SplitSection({
                       initial={seatInitial(ownerMember?.name ?? "Guest")}
                       color={seatColor(owner)}
                     />
-                    <span style={{ fontSize: 12.5, color: "var(--t2)" }}>
+                    <span style={{ fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
                       Assigned to {ownerName}
                     </span>
                   </div>
@@ -172,7 +172,7 @@ export function SplitSection({
               </li>
             );
           })}
-          <li style={{ fontSize: 11.5, color: "var(--t3)" }}>
+          <li style={{ fontSize: "var(--fs-xs)", color: "var(--t3)" }}>
             Tap a guest to assign your items; the host can assign any.
           </li>
         </ul>
@@ -184,7 +184,14 @@ export function SplitSection({
             key={s.seat}
             style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}
           >
-            <dt style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 14 }}>
+            <dt
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: "var(--fs-sm)",
+              }}
+            >
               <Avatar size="sm" initial={seatInitial(s.name)} color={seatColor(s.seat)} />
               {s.seat === ctx.mySeat ? `${s.name} (you)` : s.name}
             </dt>
@@ -199,7 +206,7 @@ export function SplitSection({
         ))}
       </dl>
 
-      <p style={{ fontSize: 11.5, color: "var(--t3)", marginTop: 8, lineHeight: 1.5 }}>
+      <p style={{ fontSize: "var(--fs-xs)", color: "var(--t3)", marginTop: 8, lineHeight: 1.5 }}>
         Each person’s share of the order, including tax &amp; service. Tip is added per person at
         their pay step.
       </p>
@@ -214,14 +221,14 @@ export function SplitSection({
             width: "100%",
             marginTop: 12,
             minHeight: 48,
-            fontSize: 15,
+            fontSize: "var(--fs-body)",
             opacity: splitting ? 0.7 : 1,
           }}
         >
           {splitting ? "Starting…" : "Split & pay separately"}
         </button>
       ) : (
-        <p style={{ fontSize: 12, color: "var(--t2)", marginTop: 12, lineHeight: 1.5 }}>
+        <p style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", marginTop: 12, lineHeight: 1.5 }}>
           The host can start a split so everyone pays their own card — or pay as one bill below.
         </p>
       )}
@@ -240,7 +247,7 @@ const aav = (on: boolean, seat: string): CSSProperties => ({
   // 44px tap-target avatar (the primitive's discs are 22/30px), so it carries the exception inline.
   color: "#fff",
   fontWeight: 800,
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   display: "grid",
   placeItems: "center",
   opacity: on ? 1 : 0.5,

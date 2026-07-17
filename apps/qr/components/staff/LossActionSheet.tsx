@@ -279,7 +279,7 @@ export function LossActionSheet({
           {reasonInvalid && (
             <p
               id="loss-reason-err"
-              style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--warn)" }}
+              style={{ margin: "6px 0 0", fontSize: "var(--fs-sm)", color: "var(--warn)" }}
             >
               Pick a reason to continue.
             </p>
@@ -345,7 +345,9 @@ export function LossActionSheet({
         {/* One live region (QA §A): the lockout countdown takes precedence over a transient message. */}
         <p id="loss-msg" role="status" style={{ margin: "12px 0 0", minHeight: 18 }}>
           {(lockCopy ?? msg) && (
-            <span style={{ fontSize: 13, color: "var(--warn)" }}>{lockCopy ?? msg}</span>
+            <span style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
+              {lockCopy ?? msg}
+            </span>
           )}
         </p>
       </form>
@@ -353,7 +355,11 @@ export function LossActionSheet({
   );
 }
 
-const lineSummary: CSSProperties = { margin: "0 0 14px", fontSize: 14, fontWeight: 600 };
+const lineSummary: CSSProperties = {
+  margin: "0 0 14px",
+  fontSize: "var(--fs-sm)",
+  fontWeight: 600,
+};
 const seg: CSSProperties = { display: "flex", gap: 6, marginBottom: 8 };
 const segBtn: CSSProperties = {
   flex: 1,
@@ -362,7 +368,7 @@ const segBtn: CSSProperties = {
   border: "1px solid var(--bd)",
   background: "var(--cd)",
   color: "var(--tx)",
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   fontWeight: 700,
   cursor: "pointer",
 };
@@ -371,9 +377,14 @@ const segBtnOn: CSSProperties = {
   color: "var(--oa)",
   borderColor: "var(--ac)",
 };
-const hint: CSSProperties = { margin: "0 0 6px", fontSize: 12.5, color: "var(--t2)" };
+const hint: CSSProperties = { margin: "0 0 6px", fontSize: "var(--fs-sm)", color: "var(--t2)" };
 const fieldset: CSSProperties = { border: "none", padding: 0, margin: "12px 0 0" };
-const legend: CSSProperties = { padding: 0, fontSize: 13, fontWeight: 700, marginBottom: 8 };
+const legend: CSSProperties = {
+  padding: 0,
+  fontSize: "var(--fs-sm)",
+  fontWeight: 700,
+  marginBottom: 8,
+};
 const reasonBtn: CSSProperties = {
   width: "100%",
   minHeight: 44,
@@ -383,7 +394,7 @@ const reasonBtn: CSSProperties = {
   border: "1px solid var(--bd)",
   background: "var(--cd)",
   color: "var(--tx)",
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   cursor: "pointer",
 };
 const reasonBtnOn: CSSProperties = {
@@ -399,7 +410,7 @@ const primaryBtn: CSSProperties = {
   borderRadius: "var(--r-full)",
   background: "var(--ac)",
   color: "var(--oa)",
-  fontSize: 15,
+  fontSize: "var(--fs-body)",
   fontWeight: 700,
   cursor: "pointer",
 };
@@ -411,7 +422,7 @@ const secondaryBtn: CSSProperties = {
   border: "1px solid var(--bd)",
   background: "var(--cd)",
   color: "var(--ac)",
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   fontWeight: 700,
   cursor: "pointer",
 };

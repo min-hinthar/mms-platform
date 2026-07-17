@@ -4,7 +4,7 @@ import type { SplitContext, SettlementShare } from "@/lib/split";
 import { getSettlement, abortSettlement } from "@/lib/split";
 import { useSettlementRealtime } from "@/lib/realtime";
 import { seatColor, seatInitial } from "@/lib/avatars";
-import { Avatar, NumberFlow, Skeleton } from "@mms/ui";
+import { Avatar, Icon, NumberFlow, Skeleton } from "@mms/ui";
 import { SharePay } from "./SharePay";
 
 /**
@@ -162,23 +162,30 @@ export function SettlementBoard({
 
   return (
     <section aria-labelledby="settle-h" style={{ marginTop: 18 }}>
-      <h2 id="settle-h" style={{ fontSize: 18, margin: "0 0 4px" }}>
+      <h2 id="settle-h" style={{ fontSize: "var(--fs-h3)", margin: "0 0 4px" }}>
         Everyone pays their share
         {/* K2: anchor the split to the real table. */}
         {ctx.tableNumber != null && (
-          <span style={{ color: "var(--t3)", fontWeight: 600, fontSize: 14 }}>
+          <span style={{ color: "var(--t3)", fontWeight: 600, fontSize: "var(--fs-sm)" }}>
             {" "}
             · Table {ctx.tableNumber}
           </span>
         )}
       </h2>
-      <p style={{ fontSize: 11.5, color: "var(--t3)", margin: "0 0 12px", lineHeight: 1.5 }}>
+      <p
+        style={{
+          fontSize: "var(--fs-xs)",
+          color: "var(--t3)",
+          margin: "0 0 12px",
+          lineHeight: 1.5,
+        }}
+      >
         No one’s card is charged until everyone has paid; then the whole order is captured together.
       </p>
 
       {!loaded ? (
         loadError ? (
-          <p role="alert" style={{ fontSize: 13, color: "var(--warn)" }}>
+          <p role="alert" style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
             Couldn’t load the split.{" "}
             <button
               type="button"
@@ -238,7 +245,7 @@ export function SettlementBoard({
             </div>
           ) : (
             <>
-              <p style={{ fontSize: 13, color: "var(--t2)", margin: "0 0 8px" }}>
+              <p style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", margin: "0 0 8px" }}>
                 {/* The paid figure ROLLS as shares land (live-board language); the frozen total stays static. */}
                 <strong style={{ fontVariantNumeric: "tabular-nums" }}>
                   <NumberFlow
@@ -350,7 +357,7 @@ function StatusBadge({ status }: { status: SettlementShare["status"] }) {
   return (
     <span
       style={{
-        fontSize: 11.5,
+        fontSize: "var(--fs-xs)",
         fontWeight: 800,
         padding: "3px 9px",
         borderRadius: 999,
@@ -364,7 +371,13 @@ function StatusBadge({ status }: { status: SettlementShare["status"] }) {
             : "inset 0 1px 0 var(--sheen)",
       }}
     >
-      {(status === "captured" || status === "authorized") && <span aria-hidden>✓ </span>}
+      {(status === "captured" || status === "authorized") && (
+        <Icon
+          name="check"
+          size={13}
+          style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }}
+        />
+      )}
       {s.label}
     </span>
   );

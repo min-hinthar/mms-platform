@@ -16,11 +16,11 @@ primitives and beyond), so it never reintroduces the prod **iOS WebKit OOM crash
 Import from the package root: `import { useAnimationPreference, useInView, useDeviceTier } from "@mms/ui"`.
 They are intentionally lean (no in-app motion-settings store yet — add one when QR has that UI).
 
-| Primitive | Returns | Use for |
-|---|---|---|
+| Primitive                  | Returns                                   | Use for                                                                                                                     |
+| -------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `useAnimationPreference()` | `{ shouldAnimate, prefersReducedMotion }` | The JS off-switch for **JS-driven** motion (CSS motion uses the `@media` query instead). SSR-safe + reactive to OS changes. |
-| `useInView(opts?)` | `{ ref, inView }` | **Offscreen-pause.** Put `ref` on a STABLE wrapper; gate the loop with `shouldAnimate && inView`. |
-| `useDeviceTier()` | `"low" \| "mid" \| "high" \| "desktop"` | Capability gate for **expensive** FX. SSR-safe (`"low"` first paint). |
+| `useInView(opts?)`         | `{ ref, inView }`                         | **Offscreen-pause.** Put `ref` on a STABLE wrapper; gate the loop with `shouldAnimate && inView`.                           |
+| `useDeviceTier()`          | `"low" \| "mid" \| "high" \| "desktop"`   | Capability gate for **expensive** FX. SSR-safe (`"low"` first paint).                                                       |
 
 ## The rules
 

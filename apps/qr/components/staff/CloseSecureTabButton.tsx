@@ -58,7 +58,7 @@ export function CloseSecureTabButton({
           aria-label="Confirm charging the card on file"
           style={{ ...confirmCard, outline: "none" }}
         >
-          <p style={{ margin: 0, fontSize: 14 }}>
+          <p style={{ margin: 0, fontSize: "var(--fs-sm)" }}>
             Charge the card on file <strong>{fmt(totalCents)}</strong>? This closes the tab.
           </p>
           <div style={{ display: "flex", gap: "var(--s3)" }}>
@@ -105,7 +105,7 @@ const payBtn: CSSProperties = {
   border: "1px solid transparent",
   background: "var(--ac)",
   color: "var(--oa)",
-  fontSize: 15,
+  fontSize: "var(--fs-body)",
   fontWeight: 700,
   cursor: "pointer",
 };
@@ -116,7 +116,7 @@ const cancelBtn: CSSProperties = {
   border: "1px solid var(--bd)",
   background: "var(--cd)",
   color: "var(--tx)",
-  fontSize: 15,
+  fontSize: "var(--fs-body)",
   fontWeight: 600,
   cursor: "pointer",
 };
@@ -129,7 +129,7 @@ const confirmCard: CSSProperties = {
 };
 const hint: CSSProperties = {
   margin: "8px 0 0",
-  fontSize: 12.5,
+  fontSize: "var(--fs-sm)",
   color: "var(--t3)",
   minHeight: 16,
 };

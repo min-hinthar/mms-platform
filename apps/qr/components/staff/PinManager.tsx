@@ -62,7 +62,7 @@ export function PinManager({ hasPin }: { hasPin: boolean }) {
 
   return (
     <section className="card" style={card} aria-labelledby="pin-h">
-      <h2 id="pin-h" style={{ fontSize: 16, margin: "0 0 4px" }}>
+      <h2 id="pin-h" style={{ fontSize: "var(--fs-body)", margin: "0 0 4px" }}>
         {hasPin ? "Change your PIN" : "Set a tablet PIN"}
       </h2>
       <p style={sub}>
@@ -114,7 +114,7 @@ export function PinManager({ hasPin }: { hasPin: boolean }) {
       {/* One live region for the form (QA §A). Also the PIN field's aria-describedby target. */}
       <p id="pin-msg" role="status" style={{ minHeight: 20, margin: "var(--s4) 0 0" }}>
         {msg && (
-          <span style={{ fontSize: 13, color: msg.ok ? "var(--ok)" : "var(--warn)" }}>
+          <span style={{ fontSize: "var(--fs-sm)", color: msg.ok ? "var(--ok)" : "var(--warn)" }}>
             {msg.text}
           </span>
         )}
@@ -126,13 +126,13 @@ export function PinManager({ hasPin }: { hasPin: boolean }) {
 const card: CSSProperties = { padding: "var(--s5)" };
 const sub: CSSProperties = {
   color: "var(--t2)",
-  fontSize: 13,
+  fontSize: "var(--fs-sm)",
   lineHeight: 1.5,
   margin: "0 0 var(--s4)",
 };
 const label: CSSProperties = {
   display: "block",
-  fontSize: 13,
+  fontSize: "var(--fs-sm)",
   fontWeight: 600,
   marginBottom: 6,
   color: "var(--tx)",
@@ -142,7 +142,7 @@ const input: CSSProperties = {
   minHeight: 48,
   boxSizing: "border-box",
   padding: "0 14px",
-  fontSize: 16, // ≥16px so iOS doesn't zoom on focus
+  fontSize: "var(--fs-body)", // ≥16px so iOS doesn't zoom on focus
   letterSpacing: "0.3em",
   borderRadius: "var(--r-sm)",
   border: "1px solid var(--bd)",
@@ -157,7 +157,7 @@ const primaryBtn: CSSProperties = {
   borderRadius: "var(--r-full)",
   background: "var(--ac)",
   color: "var(--oa)",
-  fontSize: 15,
+  fontSize: "var(--fs-body)",
   fontWeight: 700,
   cursor: "pointer",
 };
@@ -169,7 +169,7 @@ const removeBtn: CSSProperties = {
   borderRadius: "var(--r-full)",
   background: "var(--cd)",
   color: "var(--warn)",
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   fontWeight: 600,
   cursor: "pointer",
 };

@@ -50,8 +50,25 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >   **⚠️ Before merge: apply `20260716000000_w3_kitchen.sql` to live** (`fasnpdhtvqtzjlvruqcu` — the
 >   preview shares the live DB; the Supabase MCP was unauthenticated in the build session, so this is
 >   still pending) **and set `BOARD_DEVICE_TOKEN` in Vercel** (docs/ENV.md) or `/board` stays 503.
->   Hardware to buy stays C7. **Next: W2 (flagship craft)** — photography (C5) gates W2a.
->   Read `docs/OPEN-ITEMS.md` for everything still open (K14/K15 are the new W3 residuals).
+>   Hardware to buy stays C7.
+>
+>   **W2 🚧 foundation shipped (2026-07-17) — flagship craft (icons · placeholder · perceived-perf ·
+>   order code).** The buildable-now, non-money slices: ✅ **W2b** the `@mms/ui` `<Icon>` lucide set
+>   retiring ~30 emoji-chrome glyphs across the diner path (staff surfaces deferred to a staff pass) ·
+>   ✅ **W2a** the designed `PhotoPlaceholder` (category glyph + ✦ over the gradient) via a new
+>   `BlurUpImage` `fallback` — a photoless/broken-hotlink dish never reads broken (real photos still
+>   gate on C5; the bucket move still needs live Supabase + Min) · ✅ **W2c** `loading.tsx` skeletons
+>   for menu/dine-in/track/grocery + `error.tsx` ChunkLoadError guard · ✅ **W2e** the short order code
+>   on the food /track receipt. ✅ **W2d — checkout/pay craft (money-path):** wallet-first Express
+>   Checkout (`<ExpressCheckoutElement>` above the card, same PaymentIntent — needs the Stripe
+>   wallet-domain registration to SHOW wallets, C10; fails closed to card meanwhile) · custom tip
+>   (server-confirmed **rate** `customCents/net`, schema cap `0.5→1.0`, re-derived so a group edit can't
+>   re-scale a fixed-$ tip) · fees + SB-1524 shown ABOVE the tip ask · amount-on-CTA + "Pay the whole
+>   order · $X" group caveat · designed empty-cart. **Server-authority invariant preserved** — the
+>   client never sends an amount; create-intent + the webhook recompute from `metadata.tipRate`. **Still
+>   open in W2:** the ~360-`fontSize` **type-scale sweep** + lint ban (W2c part 2) · itemized + email
+>   receipt + print (W2e — order-lines data + C8) · real photography (C5) + bucket move.
+>   Read `docs/OPEN-ITEMS.md` for everything still open (K14/K15 are the W3 residuals; F-items track W2).
 >
 > _(The 2026-06-29 banner below is kept as history — it pointed at the Richness track, now shipped.)_
 

@@ -615,6 +615,35 @@ h3 {
   }
 }
 
+/* W2a — designed missing-photo state: fills the photo slot (over the parent gradient) with the dish's
+   category glyph + the ✦ mark, so a photoless dish reads intentional, never broken. Decorative.
+   Absolute-fills the slot (robust vs. a parent whose height comes from `aspect-ratio` rather than an
+   explicit px — the two rail slots below); every slot it renders in is a positioning context. */
+.photo-ph {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: color-mix(in oklab, var(--ac) 42%, var(--t3));
+}
+/* The two placeholder slots that weren't already `position: relative` (the others — menu thumb,
+   item-hero, item-upsell-thumb — already are), so the absolute placeholder anchors to them. */
+.start-here-photo,
+.grocery-thumb {
+  position: relative;
+}
+.photo-ph-glyph {
+  opacity: 0.5;
+}
+.photo-ph-mark {
+  position: absolute;
+  right: 6px;
+  bottom: 4px;
+  font-size: 12px;
+  line-height: 1;
+  color: color-mix(in oklab, var(--ac) 55%, transparent);
+}
+
 /* Sticky toolbar shell (search + rail + chips) — pins UNDER the persistent app-header (which owns the notch
    clearance now), opaque so rows scroll cleanly under. `top` offsets by the header height + the notch inset
    so the two chrome layers stack instead of overlapping; the header's own safe-area padding means this no
@@ -1319,6 +1348,25 @@ h3 {
    sheen lip + accent lift, a hover glow, a ONE-sweep diagonal shine, and an arrow that nudges. bg/color
    live HERE now (not inline) so the gradient + the ::after sweep can layer; the label rides above the
    sweep on its own relative span (z-index 1). */
+/* W2d — "or pay with card" divider between the wallet (Express Checkout) and the card element.
+   Rendered only when a wallet is available; the flanking hairlines are pseudo-elements. */
+.checkout-pay-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0;
+  color: var(--t3);
+  font-size: 12px;
+  font-weight: 700;
+}
+.checkout-pay-divider::before,
+.checkout-pay-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--bd);
+}
+
 .checkout-cta {
   position: relative;
   overflow: hidden;

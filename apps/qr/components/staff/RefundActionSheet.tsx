@@ -110,21 +110,21 @@ export function RefundActionSheet({
       }}
     >
       <div ref={dialogRef} className="card" style={sheet} onClick={(e) => e.stopPropagation()}>
-        <h2 style={{ margin: 0, fontSize: 18 }}>Refund a line</h2>
-        <p style={{ margin: "4px 0 0", fontSize: 14, color: "var(--t2)" }}>
+        <h2 style={{ margin: 0, fontSize: "var(--fs-h3)" }}>Refund a line</h2>
+        <p style={{ margin: "4px 0 0", fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
           {orderLabel} · {line.qty}× {line.name}
         </p>
         <p
           style={{
             margin: "8px 0 0",
             fontWeight: 800,
-            fontSize: 20,
+            fontSize: "var(--fs-h2)",
             fontVariantNumeric: "tabular-nums",
           }}
         >
           Refund ${amount.toFixed(2)}
         </p>
-        <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--t3)" }}>
+        <p style={{ margin: "2px 0 0", fontSize: "var(--fs-sm)", color: "var(--t3)" }}>
           Price + tax, back to the card. Service charge &amp; tip aren’t included.
         </p>
 
@@ -161,7 +161,12 @@ export function RefundActionSheet({
         {/* One live region for the sheet's error (polite — the failure text changes so AT announces it). */}
         <p
           role="status"
-          style={{ minHeight: 18, margin: "8px 0 0", fontSize: 13, color: "var(--warn)" }}
+          style={{
+            minHeight: 18,
+            margin: "8px 0 0",
+            fontSize: "var(--fs-sm)",
+            color: "var(--warn)",
+          }}
         >
           {error}
         </p>
@@ -213,7 +218,7 @@ const sheet: CSSProperties = {
 const lbl: CSSProperties = {
   display: "block",
   margin: "14px 0 4px",
-  fontSize: 12,
+  fontSize: "var(--fs-sm)",
   fontWeight: 700,
   color: "var(--t2)",
 };
@@ -225,7 +230,7 @@ const field: CSSProperties = {
   border: "1px solid var(--bd)",
   background: "var(--cd)",
   color: "var(--tx)",
-  fontSize: 15,
+  fontSize: "var(--fs-body)",
 };
 const primaryBtn: CSSProperties = {
   flex: 1,

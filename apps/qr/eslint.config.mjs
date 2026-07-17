@@ -5,5 +5,24 @@
 import base from "@mms/config/eslint";
 import next from "eslint-config-next/core-web-vitals";
 
-const config = [...base, ...next];
+// W2c type-scale sweep — ban NUMERIC inline `fontSize` so the tokens can't regress. The selector
+// matches any numeric literal that is the (or part of the) value of a `fontSize` property, so
+// `fontSize: 14` and `fontSize: strong ? 20 : undefined` both fail, while `fontSize: "var(--fs-sm)"`
+// passes. The WHOLE app — diner AND staff surfaces — is now swept (staff chrome → `--fs-*`, KDS reads
+// stay on the kitchen-scale `--kfs-*` tier), so the ban covers every `.tsx` with no exclusions.
+const noNumericFontSize = {
+  files: ["components/**/*.tsx", "app/**/*.tsx"],
+  rules: {
+    "no-restricted-syntax": [
+      "error",
+      {
+        selector: "Property[key.name='fontSize'] Literal[raw=/^-?[0-9.]+$/]",
+        message:
+          "Use a --fs-* token (e.g. fontSize: 'var(--fs-sm)'), not a numeric fontSize — the type scale is tokenized (W2c).",
+      },
+    ],
+  },
+};
+
+const config = [...base, ...next, noNumericFontSize];
 export default config;

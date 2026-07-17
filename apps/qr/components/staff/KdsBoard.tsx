@@ -11,7 +11,7 @@ import type {
   KitchenStation,
   KitchenTicket,
 } from "@/lib/kitchen-types";
-import { EmptyState } from "@mms/ui";
+import { EmptyState, Icon } from "@mms/ui";
 
 /**
  * The KDS — kitchen display (S2.1b, rebuilt by W3 to SPEC-KDS). Server-rendered initial queue, kept
@@ -378,7 +378,7 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
           href="/staff"
           style={{
             color: "var(--t2)",
-            fontSize: 15,
+            fontSize: "var(--kfs-meta)",
             fontWeight: 700,
             textDecoration: "none",
             minHeight: 44,
@@ -413,7 +413,11 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
             aria-live=polite (the codebase idiom). */}
         <p
           role="status"
-          style={{ margin: 0, fontSize: 15, color: err || stale ? "var(--warn)" : "var(--t2)" }}
+          style={{
+            margin: 0,
+            fontSize: "var(--kfs-meta)",
+            color: err || stale ? "var(--warn)" : "var(--t2)",
+          }}
         >
           {err ??
             (stale
@@ -442,8 +446,15 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
             All-day
           </button>
           {soundOn ? (
-            <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 14 }}>
-              <span aria-hidden="true">🔊</span>
+            <label
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: "var(--kfs-meta)",
+              }}
+            >
+              <Icon name="volume" size={18} />
               <span className="sr-only">Chime volume</span>
               <input
                 type="range"
@@ -500,7 +511,9 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
           <aside className="kds-rail" aria-label="All-day counts">
             <h3>All day</h3>
             {allDay.length === 0 ? (
-              <p style={{ margin: 0, fontSize: 15, color: "var(--t2)" }}>Nothing live.</p>
+              <p style={{ margin: 0, fontSize: "var(--kfs-meta)", color: "var(--t2)" }}>
+                Nothing live.
+              </p>
             ) : (
               <ul role="list">
                 {allDay.map((row) => (
@@ -562,7 +575,7 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
             <div className="kds-recall" role="group" aria-label="Recall a bumped ticket">
               <span
                 style={{
-                  fontSize: 13,
+                  fontSize: "var(--kfs-meta)",
                   fontWeight: 800,
                   color: "var(--t2)",
                   textTransform: "uppercase",
@@ -580,7 +593,8 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
                   onClick={() => doRecall(r)}
                   disabled={recallPending}
                 >
-                  ↩ {r.label}
+                  <Icon name="undo" size={16} style={{ verticalAlign: "-2px", marginRight: 3 }} />
+                  {r.label}
                 </button>
               ))}
             </div>
@@ -722,7 +736,14 @@ function TicketCard({
           disabled={pending}
           aria-label={`Bump ${id.main} — all ${ticket.lines.length} items done`}
         >
-          {pending ? "…" : "BUMP ✓"}
+          {pending ? (
+            "…"
+          ) : (
+            <>
+              BUMP{" "}
+              <Icon name="check" size={22} strokeWidth={2.25} style={{ verticalAlign: "-3px" }} />
+            </>
+          )}
         </button>
       )}
     </li>

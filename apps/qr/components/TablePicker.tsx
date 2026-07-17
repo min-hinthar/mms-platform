@@ -39,7 +39,7 @@ export function TablePicker({ tables }: { tables: DineInTable[] }) {
   return (
     <main style={{ maxWidth: 440, margin: "0 auto", padding: "28px 20px 40px" }}>
       <p className="eyebrow">Dine-in</p>
-      <h1 style={{ fontSize: 30, marginBottom: 4 }}>Which table are you at?</h1>
+      <h1 style={{ fontSize: "var(--fs-h1)", marginBottom: 4 }}>Which table are you at?</h1>
       <p style={{ color: "var(--t2)", marginTop: 0, lineHeight: 1.5 }}>
         Scan your table’s sticker, or pick your number.{" "}
         <span lang="my" style={{ fontFamily: "var(--font-my)" }}>
@@ -50,7 +50,7 @@ export function TablePicker({ tables }: { tables: DineInTable[] }) {
       {tables.length === 0 ? (
         // The registry read failed or is empty — never dead-end the dine-in door; offer the sticker
         // scan + a plain host-start (a session with no table number, exactly today's behavior).
-        <p style={{ color: "var(--t2)", fontSize: 14, marginTop: 20 }}>
+        <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", marginTop: 20 }}>
           Couldn’t load the tables. Scan your table’s sticker, or{" "}
           <button
             type="button"
@@ -107,14 +107,21 @@ export function TablePicker({ tables }: { tables: DineInTable[] }) {
         onOpenChange={(o) => !o && setSeatedNum(null)}
         title={seatedNum != null ? `Join Table ${seatedNum}` : "Join a table"}
       >
-        <p style={{ color: "var(--t2)", fontSize: 13.5, lineHeight: 1.5, margin: "0 0 12px" }}>
+        <p
+          style={{
+            color: "var(--t2)",
+            fontSize: "var(--fs-sm)",
+            lineHeight: 1.5,
+            margin: "0 0 12px",
+          }}
+        >
           Table {seatedNum} is seated. Enter the code the party shares (or scan the table’s sticker)
           to order together on one cart.
         </p>
         <form onSubmit={submitJoin}>
           <label
             htmlFor={codeId}
-            style={{ fontSize: 13, fontWeight: 700, display: "block", marginBottom: 6 }}
+            style={{ fontSize: "var(--fs-sm)", fontWeight: 700, display: "block", marginBottom: 6 }}
           >
             Party code
           </label>
@@ -151,7 +158,7 @@ const inlineLink: CSSProperties = {
   border: "none",
   color: "var(--ac)",
   fontWeight: 700,
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   cursor: "pointer",
 };
 const input: CSSProperties = {
@@ -162,7 +169,7 @@ const input: CSSProperties = {
   border: "1.5px solid var(--bd)",
   background: "var(--pg)",
   color: "var(--tx)",
-  fontSize: 16,
+  fontSize: "var(--fs-body)",
   font: "inherit",
   letterSpacing: ".08em",
   textTransform: "uppercase",
@@ -175,6 +182,6 @@ const joinBtn: CSSProperties = {
   background: "var(--ac)",
   color: "var(--oa)",
   fontWeight: 800,
-  fontSize: 15,
+  fontSize: "var(--fs-body)",
   cursor: "pointer",
 };

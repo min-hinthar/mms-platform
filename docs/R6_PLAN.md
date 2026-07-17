@@ -26,7 +26,7 @@
 - **Modifiers are real + seeded.** 7 groups across the 7 items that have them (most of ~60 items have none):
   required single-select curry styles (`min_select=1`), optional multi-select add-ons (`min_select=0`,
   e.g. Brains **+$2**). `min_select` decides required (radio) vs optional (checkbox). `priceItem(menuItemId,
-  modifierIds)` is the server-authoritative engine; `addItem(cartId, menuItemId, modifierIds)` already takes
+modifierIds)` is the server-authoritative engine; `addItem(cartId, menuItemId, modifierIds)` already takes
   the ids. Modifier names are **EN-only** (no `name_my`).
 - **Dietary data is real.** `menu_items.tags` (`vegan`/`vegetarian`/`vegan-optional`/`allergen-reviewed`/
   `spicy`/`popular`) + `menu_items.allergens` (`shellfish`/`fish`/`egg`/`soy`/`peanuts`/`dairy`/`tree_nuts`/

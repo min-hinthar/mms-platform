@@ -158,7 +158,7 @@ export function AccountStatus({
               className="account-oauth"
               style={lendBtn}
             >
-              <span aria-hidden style={{ fontSize: 16 }}>
+              <span aria-hidden style={{ fontSize: "var(--fs-body)" }}>
                 ✦
               </span>
               Order for a friend
@@ -177,7 +177,9 @@ export function AccountStatus({
         <div
           style={{ marginTop: 4 }}
           role="group"
-          aria-label={pending === "lend" ? "Confirm ordering for a friend" : "Confirm switching account"}
+          aria-label={
+            pending === "lend" ? "Confirm ordering for a friend" : "Confirm switching account"
+          }
           aria-describedby="acct-confirm-copy"
         >
           <p id="acct-confirm-copy" style={confirmCopy}>
@@ -193,7 +195,11 @@ export function AccountStatus({
               aria-busy={busy}
               style={proceedBtn}
             >
-              {busy ? "One moment…" : pending === "lend" ? "Yes, order for a friend" : "Yes, switch"}
+              {busy
+                ? "One moment…"
+                : pending === "lend"
+                  ? "Yes, order for a friend"
+                  : "Yes, switch"}
             </button>
             <button
               ref={cancelRef}
@@ -215,14 +221,14 @@ export function AccountStatus({
 const card: CSSProperties = { padding: "var(--s5)" };
 const h2: CSSProperties = {
   margin: "0 0 6px",
-  fontSize: 18,
+  fontSize: "var(--fs-h3)",
   fontWeight: 800,
   color: "var(--tx)",
   overflowWrap: "anywhere", // a long email must wrap, never overflow the card
 };
 const emailLine: CSSProperties = {
   margin: "1px 0 0",
-  fontSize: 13,
+  fontSize: "var(--fs-sm)",
   color: "var(--t2)",
   overflowWrap: "anywhere", // a long email wraps, never overflows the card
 };
@@ -234,12 +240,12 @@ const tierChip: CSSProperties = {
   padding: "3px 11px",
   borderRadius: 999,
   border: "1px solid transparent", // color set inline from the tier tint
-  fontSize: 12.5,
+  fontSize: "var(--fs-sm)",
   fontWeight: 800,
 };
 const sub: CSSProperties = {
   margin: "0 0 14px",
-  fontSize: 13.5,
+  fontSize: "var(--fs-sm)",
   color: "var(--t2)",
   lineHeight: 1.5,
 };
@@ -255,7 +261,7 @@ const lendBtn: CSSProperties = {
   background: "var(--sf)",
   color: "var(--tx)",
   fontWeight: 700,
-  fontSize: 15,
+  fontSize: "var(--fs-body)",
   cursor: "pointer",
 };
 const switchBtn: CSSProperties = {
@@ -268,7 +274,7 @@ const switchBtn: CSSProperties = {
 };
 const confirmCopy: CSSProperties = {
   margin: "0 0 10px",
-  fontSize: 13,
+  fontSize: "var(--fs-sm)",
   color: "var(--t2)",
   lineHeight: 1.5,
 };
@@ -281,7 +287,7 @@ const proceedBtn: CSSProperties = {
   background: "transparent",
   color: "var(--ac)",
   fontWeight: 800,
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   cursor: "pointer",
 };
 const cancelBtn: CSSProperties = {
@@ -292,6 +298,6 @@ const cancelBtn: CSSProperties = {
   background: "var(--sf)",
   color: "var(--tx)",
   fontWeight: 800,
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   cursor: "pointer",
 };

@@ -4,7 +4,7 @@ import { useCart } from "./TableCartProvider";
 import { InviteSheet } from "./InviteSheet";
 import { seatColor, seatInitial } from "@/lib/avatars";
 import { MAX_PARTY_SIZE } from "@/lib/limits";
-import { Avatar } from "@mms/ui";
+import { Avatar, Icon } from "@mms/ui";
 
 /**
  * Dine-in group cart guest list (M3·P3.1). Renders the live presence party (real second phones —
@@ -24,8 +24,13 @@ export function GuestList() {
   if (locked)
     return (
       <p style={lockBar}>
-        <span aria-hidden>🔒</span> {lockedByName === "You" ? "You’re" : `${lockedByName} is`}{" "}
-        checking out — the order’s locked for a moment.
+        <Icon
+          name="lock"
+          size={14}
+          style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }}
+        />
+        {lockedByName === "You" ? "You’re" : `${lockedByName} is`} checking out — the order’s locked
+        for a moment.
       </p>
     );
 
@@ -37,7 +42,7 @@ export function GuestList() {
     if (!error) return null; // still establishing the session — the menu renders meanwhile
     const full = error.includes("table is full");
     return (
-      <p role="alert" style={{ fontSize: 13, color: "var(--warn)", marginTop: 10 }}>
+      <p role="alert" style={{ fontSize: "var(--fs-sm)", color: "var(--warn)", marginTop: 10 }}>
         {full ? error : "Couldn’t join this table."}{" "}
         {!full && (
           <button type="button" onClick={() => window.location.reload()} style={retryBtn}>
@@ -82,14 +87,19 @@ export function GuestList() {
           );
         })}
       </ul>
-      <span style={{ fontSize: 13, color: "var(--t2)", fontWeight: 600 }}>
+      <span style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", fontWeight: 600 }}>
         {/* K2: lead with the real table when it's registered — "Table 7 · Party of 3". */}
         {tableNumber != null ? `Table ${tableNumber} · ` : ""}
         {list.length === 1 ? "Just you" : `Party of ${list.length}`}
       </span>
       {atCap ? (
         <span aria-label={`Table is full, up to ${MAX_PARTY_SIZE} guests`} style={fullNote}>
-          <span aria-hidden>✓</span> Table’s full
+          <Icon
+            name="check"
+            size={13}
+            style={{ display: "inline", verticalAlign: "-2px", marginRight: 2 }}
+          />{" "}
+          Table’s full
         </span>
       ) : (
         <button
@@ -98,7 +108,7 @@ export function GuestList() {
           aria-label="Invite people to your table"
           style={inviteChip}
         >
-          <span aria-hidden>👥</span> Invite
+          <Icon name="people" size={15} /> Invite
         </button>
       )}
       <InviteSheet open={inviteOpen} onOpenChange={setInviteOpen} />
@@ -123,7 +133,7 @@ const lockBar: CSSProperties = {
   background: "var(--warnb)",
   color: "var(--warn)",
   fontWeight: 700,
-  fontSize: 12.5,
+  fontSize: "var(--fs-sm)",
 };
 const retryBtn: CSSProperties = {
   minHeight: 44,
@@ -132,7 +142,7 @@ const retryBtn: CSSProperties = {
   border: "none",
   color: "var(--ac)",
   fontWeight: 800,
-  fontSize: 13,
+  fontSize: "var(--fs-sm)",
   textDecoration: "underline",
   cursor: "pointer",
 };
@@ -148,7 +158,7 @@ const inviteChip: CSSProperties = {
   background: "color-mix(in oklab, var(--ac) 9%, var(--cd))",
   color: "var(--ac-strong)",
   fontWeight: 800,
-  fontSize: 13,
+  fontSize: "var(--fs-sm)",
   cursor: "pointer",
 };
 const fullNote: CSSProperties = {
@@ -156,7 +166,7 @@ const fullNote: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   gap: 6,
-  fontSize: 12.5,
+  fontSize: "var(--fs-sm)",
   fontWeight: 700,
   color: "var(--t2)",
 };

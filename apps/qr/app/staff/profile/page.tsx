@@ -48,7 +48,7 @@ const header: CSSProperties = {
   marginBottom: "var(--s6)",
 };
 const h1: CSSProperties = {
-  fontSize: 22,
+  fontSize: "var(--fs-h2)",
   margin: 0,
   display: "flex",
   alignItems: "center",

@@ -44,7 +44,7 @@ The "live-notice" signature: a saturated server registers a change **peripherall
   action buttons → `.staff-btn` (quiet press + hover). Each board keeps its single existing live region.
 - **`globals.css`** R9 block — `.floor-live/-up/-down` (background wash, no layout shift) + `floorFlashUp/Down`,
   `.floor-card-pulse` + `floorCardPulse`, `.staff-btn` press/hover; every one with a `@media
-  (prefers-reduced-motion)` off-switch. Transform/opacity/color + one-shot box-shadow only — no
+(prefers-reduced-motion)` off-switch. Transform/opacity/color + one-shot box-shadow only — no
   blur/backdrop-filter (mobile GPU). Built-CSS grep confirms all emit.
 
 ### Pre-PR review fixes (5 P2, all fixed)
@@ -55,7 +55,7 @@ exit now carries its own zero-delay transition. (2) **LiveMoney flash** + (3) **
 on a rapid same-target repeat (unchanged class → no keyframe restart); both are now **keyed decorative
 overlays** that remount per change. (4) **Cross-table pulse truncation** — the shared Set+timer yanked one
 table's ring when another changed; replaced with a per-session nonce map + per-session timers (merged, not
-replaced). (5) **Fabricated liveness** — the pulse fired on TTL-derived status *self-reverts*
+replaced). (5) **Fabricated liveness** — the pulse fired on TTL-derived status _self-reverts_
 (`paying`/`settling` → `ordering`/`seated` when the 5-/10-min window elapsed with no real event); a status
 change is now only "real" if it isn't such a revert.
 
@@ -65,16 +65,16 @@ A deeper pass (6 finders → perspective-diverse double-verify → completeness 
 but surfaced worthwhile refinements, all applied:
 
 - **Honesty (over-suppression) — the important one.** The `paying/settling → ordering/seated` pulse
-  exclusion was a status-*pair* test, so it also swallowed a REAL void/edit that lands on the same pair (a
-  server *wants* that flagged). Extracted to `lib/floor-pulse.ts` `isRealTransition(prev, now)` which now
+  exclusion was a status-_pair_ test, so it also swallowed a REAL void/edit that lands on the same pair (a
+  server _wants_ that flagged). Extracted to `lib/floor-pulse.ts` `isRealTransition(prev, now)` which now
   suppresses only a **passive** TTL revert (same pair AND `lastActivityAt` unchanged) — a real void/edit
   advances `lastActivityAt`, so it still pulses. Pinned by `lib/floor-pulse.test.ts` (the honesty invariant).
-- **Down-flash visibility.** A subtotal *decrease* is money-negative (void/comp); the wash moved from the
+- **Down-flash visibility.** A subtotal _decrease_ is money-negative (void/comp); the wash moved from the
   near-invisible muted-text token to a visible `--warn` tint.
 - **Unmount guard.** `FloorBoard.refresh` now early-returns after its `await` if unmounted (an `alive` ref),
   so a fetch resolving post-unmount can't schedule orphan pulse timers (matches `useFloorRealtime`).
 - Accepted (documented, no change): `paying→settling→paid` can collapse in one 5s poll (inherent to
-  polling); NumberFlow on every card is bounded (it only *animates* on a real value change — idle instances
+  polling); NumberFlow on every card is bounded (it only _animates_ on a real value change — idle instances
   just reconcile), consistent with the "full enrichment" directive.
 
 ## R9b — homepage hero (maximal) ✅ shipped 2026-07-01

@@ -102,7 +102,9 @@ export function MergeTableButton({
           style={{ ...panel, outline: "none" }}
         >
           <div style={panelHead}>
-            <span style={{ fontSize: 14, fontWeight: 600 }}>Merge Table {sourceLabel} into…</span>
+            <span style={{ fontSize: "var(--fs-sm)", fontWeight: 600 }}>
+              Merge Table {sourceLabel} into…
+            </span>
             <button
               className="staff-btn"
               type="button"
@@ -131,7 +133,7 @@ export function MergeTableButton({
                     style={candidateBtn}
                   >
                     <span style={{ fontWeight: 700 }}>Table {tableDisplay(c).text}</span>
-                    <span style={{ color: "var(--t2)", fontSize: 13 }}>
+                    <span style={{ color: "var(--t2)", fontSize: "var(--fs-sm)" }}>
                       {c.itemCount} {c.itemCount === 1 ? "item" : "items"} · party of {c.partySize}
                     </span>
                   </button>
@@ -150,7 +152,7 @@ export function MergeTableButton({
           aria-label="Confirm merge"
           style={{ ...panel, outline: "none" }}
         >
-          <p style={{ margin: 0, fontSize: 14 }}>
+          <p style={{ margin: 0, fontSize: "var(--fs-sm)" }}>
             Move {sourceItemCount} {sourceItemCount === 1 ? "item" : "items"} from{" "}
             <strong>Table {sourceLabel}</strong> into{" "}
             <strong>Table {tableDisplay(target).text}</strong>? This closes Table {sourceLabel}.
@@ -194,7 +196,7 @@ const mergeBtn: CSSProperties = {
   border: "1px solid var(--bd)",
   background: "var(--cd)",
   color: "var(--ac)",
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   fontWeight: 700,
   cursor: "pointer",
 };
@@ -205,7 +207,7 @@ const cancelBtn: CSSProperties = {
   border: "1px solid var(--bd)",
   background: "var(--cd)",
   color: "var(--tx)",
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   fontWeight: 600,
   cursor: "pointer",
 };
@@ -215,7 +217,7 @@ const linkBtn: CSSProperties = {
   border: "none",
   background: "none",
   color: "var(--ac)",
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   fontWeight: 600,
   cursor: "pointer",
 };
@@ -253,4 +255,4 @@ const candidateBtn: CSSProperties = {
   color: "var(--tx)",
   cursor: "pointer",
 };
-const muted: CSSProperties = { margin: 0, color: "var(--t3)", fontSize: 13 };
+const muted: CSSProperties = { margin: 0, color: "var(--t3)", fontSize: "var(--fs-sm)" };

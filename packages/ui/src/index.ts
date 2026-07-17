@@ -17,3 +17,6 @@ export { Avatar } from "./avatar";
 export { Skeleton } from "./skeleton";
 export { Stepper } from "./stepper";
 export { Card } from "./card";
+// Brand icon set (W2b) — curated lucide glyphs at one stroke weight; retires emoji-as-chrome
+export { Icon, categoryIconName } from "./icon";
+export type { IconName } from "./icon";

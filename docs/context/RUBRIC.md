@@ -26,30 +26,30 @@ The scorecard that makes "world-class" objective. **Grade against it after each 
 
 ## Journey axes — score the PATH, not the screen (J0)
 
-The ten dimensions above grade a *surface*; three initiatives proved you can max them and still ship an
-app that feels assembled. These seven grade a *path* — one score per axis per mode's end-to-end journey
+The ten dimensions above grade a _surface_; three initiatives proved you can max them and still ship an
+app that feels assembled. These seven grade a _path_ — one score per axis per mode's end-to-end journey
 (scan→paid), same 1–5 scale, same **≥ 4.3 shippable** bar. Every J-phase PR reports before/after. Full
 rationale: [`../JOURNEY_PLAN.md`](../JOURNEY_PLAN.md).
 
-| #   | Axis             | Good                                | World-class (the target)                                                                    |
-| --- | ---------------- | ----------------------------------- | ------------------------------------------------------------------------------------------- |
-| J-A | Continuity       | Screens share tokens/type           | Route changes are choreographed: shared elements persist/move, direction has grammar, chrome never re-animates — one camera move, not cuts |
-| J-B | Progress clarity | Each screen is self-explanatory     | At every step the diner knows where they are, what just happened, and what happens next — without reading |
-| J-C | Effort           | Everything is reachable             | Taps/decisions per step at the theoretical floor; the next likely action is always the nearest one |
-| J-D | Emotional arc    | Pleasant throughout                 | Designed peak-*start* (arrival) and peak-*end* (goodbye) per the peak-end rule; the middle breathes |
-| J-E | Dead-time        | Waiting shows a status              | Waiting is *designed*: real-data narration, anticipation, a right-moment next action — never a spinner-shaped void |
-| J-F | Recognition      | Returning users aren't broken       | Visit N ≠ visit 1: welcomed back, remembered, one tap to the usual                           |
-| J-G | Recovery         | Errors have retry                   | No dead ends anywhere on the path; every failure names its way out (extends QA §D to the journey) |
+| #   | Axis             | Good                            | World-class (the target)                                                                                                                   |
+| --- | ---------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| J-A | Continuity       | Screens share tokens/type       | Route changes are choreographed: shared elements persist/move, direction has grammar, chrome never re-animates — one camera move, not cuts |
+| J-B | Progress clarity | Each screen is self-explanatory | At every step the diner knows where they are, what just happened, and what happens next — without reading                                  |
+| J-C | Effort           | Everything is reachable         | Taps/decisions per step at the theoretical floor; the next likely action is always the nearest one                                         |
+| J-D | Emotional arc    | Pleasant throughout             | Designed peak-_start_ (arrival) and peak-_end_ (goodbye) per the peak-end rule; the middle breathes                                        |
+| J-E | Dead-time        | Waiting shows a status          | Waiting is _designed_: real-data narration, anticipation, a right-moment next action — never a spinner-shaped void                         |
+| J-F | Recognition      | Returning users aren't broken   | Visit N ≠ visit 1: welcomed back, remembered, one tap to the usual                                                                         |
+| J-G | Recovery         | Errors have retry               | No dead ends anywhere on the path; every failure names its way out (extends QA §D to the journey)                                          |
 
 **Baseline (2026-07-11, scored against shipped code — the J0 "before"):**
 
-| Path | J-A | J-B | J-C | J-D | J-E | J-F | J-G | Avg |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Dine-in (scan→send→pay→track) | 2 | 3.5 | 4 | 2.5 | 1.5 | 1 | 4.5 | **2.7** |
-| Pickup (scan→slot→pay→track) | 2 | 3.5 | 4 | 2.5 | 2 | 1 | 4.5 | **2.9** |
-| Grocery (scan→basket→pay) | 2.5 | 4 | 4 | 2 | 4.5¹ | 1 | 4 | **3.1** |
+| Path                          | J-A | J-B | J-C | J-D | J-E  | J-F | J-G | Avg     |
+| ----------------------------- | --- | --- | --- | --- | ---- | --- | --- | ------- |
+| Dine-in (scan→send→pay→track) | 2   | 3.5 | 4   | 2.5 | 1.5  | 1   | 4.5 | **2.7** |
+| Pickup (scan→slot→pay→track)  | 2   | 3.5 | 4   | 2.5 | 2    | 1   | 4.5 | **2.9** |
+| Grocery (scan→basket→pay)     | 2.5 | 4   | 4   | 2   | 4.5¹ | 1   | 4   | **3.1** |
 
-¹ Grocery's dead-time score is high *by design absence* — the mode's job is to have no wait; J6 protects that.
+¹ Grocery's dead-time score is high _by design absence_ — the mode's job is to have no wait; J6 protects that.
 
 The spread tells the story: **J-G (recovery) is already world-class** (the hardening sessions worked) and
 **J-C (effort) is close** — while **J-A/J-D/J-E/J-F are the gap** — exactly the four the Journey track
@@ -66,7 +66,7 @@ deferred to J5**, not an analytics default.
 
 ## O-axes — score the OPS SURFACE, not the screen (W0)
 
-The ten dimensions and the J-axes grade *diner* surfaces. Staff tools (KDS · expo · floor · register ·
+The ten dimensions and the J-axes grade _diner_ surfaces. Staff tools (KDS · expo · floor · register ·
 order-ready board) fail in ways neither catches: a board can be token-pure, AA-contrast, reduced-motion
 clean — and still be useless from two metres with wet hands during a rush. These seven grade a surface
 **as operational equipment**; same 1–5 scale, same **≥ 4.3 shippable** bar. Score them for any W3/W6
@@ -74,12 +74,12 @@ surface (and any later staff-facing change), from **real hardware at real distan
 Design sources: [`SPEC-KDS.md`](SPEC-KDS.md) · [`SPEC-GROCERY.md`](SPEC-GROCERY.md) ·
 [`SPEC-KIOSK.md`](SPEC-KIOSK.md).
 
-| #   | Axis                    | Good                               | World-class (the target)                                                                     |
-| --- | ----------------------- | ---------------------------------- | -------------------------------------------------------------------------------------------- |
-| O-A | Legibility at distance  | Readable at arm's length           | Item lines ≥28px/800 weight read at 1–2m; safety-critical text (allergy/notes) is the MOST legible element, never the least |
-| O-B | Glanceable time         | An age string exists               | Urgency is pre-attentive: 2-threshold header-strip color per channel + mm:ss elapsed — a late ticket found without reading |
-| O-C | Attention without looking | New items appear                  | A cook facing the wok KNOWS a ticket landed: chime (gesture-armed, volume-set, per-channel), edge flash, "N new" pill; re-alert if un-started |
-| O-D | Rush behavior           | Scrolls without breaking           | 20 tickets: fixed grid + paging with an unmissable "+N more" + late count — text never shrinks, nothing hides silently |
-| O-E | Fat-finger safety       | Targets ≥44px                      | Bump zones ~60px+; destructive taps two-step or undoable; recall restores the last N bumped — a greasy mis-tap is never unrecoverable |
-| O-F | Always-on resilience    | Recovers on reload                 | Wake lock held + re-acquired; auth expiry says "sign in" (never wears "reconnecting"); realtime self-heals; burn-in-aware theme |
-| O-G | Channel triage          | Order type is visible              | One color dimension (urgency) + one symbolic dimension (channel badge); scheduled orders HELD until fire time, never aging red for hours |
+| #   | Axis                      | Good                     | World-class (the target)                                                                                                                      |
+| --- | ------------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| O-A | Legibility at distance    | Readable at arm's length | Item lines ≥28px/800 weight read at 1–2m; safety-critical text (allergy/notes) is the MOST legible element, never the least                   |
+| O-B | Glanceable time           | An age string exists     | Urgency is pre-attentive: 2-threshold header-strip color per channel + mm:ss elapsed — a late ticket found without reading                    |
+| O-C | Attention without looking | New items appear         | A cook facing the wok KNOWS a ticket landed: chime (gesture-armed, volume-set, per-channel), edge flash, "N new" pill; re-alert if un-started |
+| O-D | Rush behavior             | Scrolls without breaking | 20 tickets: fixed grid + paging with an unmissable "+N more" + late count — text never shrinks, nothing hides silently                        |
+| O-E | Fat-finger safety         | Targets ≥44px            | Bump zones ~60px+; destructive taps two-step or undoable; recall restores the last N bumped — a greasy mis-tap is never unrecoverable         |
+| O-F | Always-on resilience      | Recovers on reload       | Wake lock held + re-acquired; auth expiry says "sign in" (never wears "reconnecting"); realtime self-heals; burn-in-aware theme               |
+| O-G | Channel triage            | Order type is visible    | One color dimension (urgency) + one symbolic dimension (channel badge); scheduled orders HELD until fire time, never aging red for hours      |

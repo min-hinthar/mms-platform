@@ -23,8 +23,10 @@ export default async function TablePage({ params }: { params: Promise<{ id: stri
         <Link href="/staff" style={back}>
           ← Floor
         </Link>
-        <h1 style={{ fontSize: 22, margin: "var(--s4) 0 8px" }}>This table is closed</h1>
-        <p style={{ color: "var(--t2)", fontSize: 14, margin: 0 }}>
+        <h1 style={{ fontSize: "var(--fs-h2)", margin: "var(--s4) 0 8px" }}>
+          This table is closed
+        </h1>
+        <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: 0 }}>
           It was cleared or its session expired. Head back to the floor for active tables.
         </p>
       </main>
@@ -40,7 +42,7 @@ const back: CSSProperties = {
   minHeight: 44,
   alignItems: "center",
   color: "var(--ac)",
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   fontWeight: 600,
   textDecoration: "none",
 };

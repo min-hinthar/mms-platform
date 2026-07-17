@@ -33,17 +33,31 @@ export default async function Account() {
         <p className="eyebrow" style={{ margin: 0 }}>
           <span aria-hidden>✦ </span>Mandalay Morning Star
         </p>
-        <h1 style={{ fontSize: 26, fontWeight: 900, margin: "2px 0 0", color: "var(--tx)" }}>
+        <h1
+          style={{
+            fontSize: "var(--fs-h1)",
+            fontWeight: 900,
+            margin: "2px 0 0",
+            color: "var(--tx)",
+          }}
+        >
           Rewards &amp; account
         </h1>
-        <p style={{ margin: "6px 0 0", fontSize: 14, color: "var(--t2)", lineHeight: 1.5 }}>
+        <p
+          style={{
+            margin: "6px 0 0",
+            fontSize: "var(--fs-sm)",
+            color: "var(--t2)",
+            lineHeight: 1.5,
+          }}
+        >
           Earn Stars as you order — climb the gem tiers and unlock Kyay-Zu-Par! rewards.
         </p>
         <div className="account-masthead-rule" aria-hidden />
       </header>
 
       {!state ? (
-        <p role="alert" style={{ fontSize: 14, color: "var(--warn)" }}>
+        <p role="alert" style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
           We couldn’t load your rewards just now. Pull to refresh, or try again in a moment.
         </p>
       ) : (
@@ -74,7 +88,7 @@ export default async function Account() {
           {history === null ? (
             <p
               style={{
-                fontSize: 13,
+                fontSize: "var(--fs-sm)",
                 color: "var(--t2)",
                 margin: "0 0 var(--s4)",
                 padding: "0 2px",

@@ -60,15 +60,15 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
         <Link href={`/staff/table/${id}`} style={back}>
           ← Table {detail.label}
         </Link>
-        <h1 style={{ fontSize: 24, margin: "var(--s3) 0 0" }}>Add items</h1>
-        <p style={{ color: "var(--t2)", fontSize: 14, margin: "4px 0 0" }}>
+        <h1 style={{ fontSize: "var(--fs-h1)", margin: "var(--s3) 0 0" }}>Add items</h1>
+        <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: "4px 0 0" }}>
           Ordering for table {detail.label}. Tap to add — it lands on the table’s order instantly.
         </p>
       </header>
 
       {cats.map((c) => (
         <section key={c} style={{ padding: "var(--s4) 0" }}>
-          <h2 style={{ fontSize: 17, margin: "0 0 var(--s3)" }}>{c}</h2>
+          <h2 style={{ fontSize: "var(--fs-h3)", margin: "0 0 var(--s3)" }}>{c}</h2>
           <ul
             role="list"
             aria-label={`${c} items`}
@@ -103,7 +103,11 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
                     </div>
                     {i.name_my && (
                       <div
-                        style={{ fontFamily: "var(--font-my)", fontSize: 12, color: "var(--t2)" }}
+                        style={{
+                          fontFamily: "var(--font-my)",
+                          fontSize: "var(--fs-sm)",
+                          color: "var(--t2)",
+                        }}
                         lang="my"
                       >
                         {i.name_my}
@@ -141,7 +145,7 @@ const back: CSSProperties = {
   minHeight: 44,
   alignItems: "center",
   color: "var(--ac)",
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   fontWeight: 600,
   textDecoration: "none",
 };

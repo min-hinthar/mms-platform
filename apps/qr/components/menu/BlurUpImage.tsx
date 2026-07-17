@@ -1,12 +1,14 @@
 "use client";
 import Image from "next/image";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 /**
  * Blur-up thumbnail (R6a). `next/image` that fades + un-blurs on load (`filter: blur(8px) scale(1.05)` →
  * clear), over the parent's gradient placeholder — no broken-image flash. transform/opacity/filter only
  * (GPU-safe, one-shot — not a loop); the `.blur-up` CSS carries a `prefers-reduced-motion` off-switch.
- * A failed load removes the img so the gradient placeholder shows through (the caller sets the bg).
+ * W2a: when there is no src OR the load fails, render `fallback` (the designed `PhotoPlaceholder`) instead
+ * of nothing — so a photoless/broken dish reads intentional, not broken. Callers that pass no fallback keep
+ * the old behaviour (the caller's bare gradient shows through).
  */
 export function BlurUpImage({
   src,
@@ -14,12 +16,15 @@ export function BlurUpImage({
   width,
   height,
   sizes,
+  fallback = null,
 }: {
   src: string | null;
   alt: string;
   width: number;
   height: number;
   sizes: string;
+  /** Designed placeholder shown when src is null/empty or the image errors (W2a). */
+  fallback?: ReactNode;
 }) {
   const [loaded, setLoaded] = useState(false);
   const [errored, setErrored] = useState(false);
@@ -34,7 +39,7 @@ export function BlurUpImage({
     if (el?.complete && el.naturalWidth > 0) setLoaded(true);
   }, [src]);
 
-  if (!src || errored) return null;
+  if (!src || errored) return <>{fallback}</>;
   return (
     <Image
       ref={imgRef}

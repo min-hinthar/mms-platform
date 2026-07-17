@@ -92,7 +92,7 @@ const header: CSSProperties = {
   marginBottom: "var(--s6)",
 };
 const h1: CSSProperties = {
-  fontSize: 24,
+  fontSize: "var(--fs-h1)",
   margin: 0,
   display: "flex",
   alignItems: "center",
@@ -107,7 +107,7 @@ const ownerLink: CSSProperties = {
   border: "1px solid var(--bd)",
   background: "var(--cd)",
   color: "var(--ac)",
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   fontWeight: 700,
   textDecoration: "none",
 };

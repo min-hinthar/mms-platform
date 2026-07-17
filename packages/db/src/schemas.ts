@@ -100,15 +100,33 @@ export const applyPromoInput = z.object({
 
 /**
  * create-intent — the client sends a cart id + a tip RATE only; the amount is derived by
- * getCartTotals. Tip is capped at 50% so a hostile client can't inflate the charge via metadata.
+ * getCartTotals. Tip is capped at 100% of the order (W2d custom tips ride the same rate) so a hostile
+ * client can't inflate the charge via metadata.
  */
 export const createIntentInput = z.object({
   cartId: uuid,
-  tipRate: z.number().min(0).max(0.5).default(0),
+  // Presets top out at 0.20; W2d's custom tip rides the SAME rate (customCents / netCents), so the cap
+  // is 1.0 = a tip up to 100% of the order (anti-fat-finger; a $50 tip on a $5 order is almost surely an
+  // error). Server-authoritative: getCartTotals applies round(net·rate) and the webhook recomputes it
+  // identically from metadata.tipRate — the client never sends an amount.
+  tipRate: z.number().min(0).max(1).default(0),
   // W3e: the optional pickup/scango call-out identity ("first name for pickup"). Length-capped
   // (mirrors the qr_carts.customer_name CHECK); persisted on the CART then snapshotted to the order
   // at fulfillment — never rendered anywhere money-bearing, and never sent to analytics (PII).
   firstName: z.string().trim().max(40).optional(),
+});
+
+/**
+ * create-share-intent (split-tender) — same server-authoritative rule (the client sends a rate, never an
+ * amount), but the tip cap here is 0.5, NOT the single-pay 1.0: this rate is written to the
+ * `qr_cart_shares.tip_rate` column, whose CHECK is `<= 0.5`, so the Zod bound MUST match the column (the
+ * split path only ever needs presets ≤ 0.20). Kept SEPARATE from `createIntentInput` so single-pay's
+ * custom-tip widening (→1.0) can't loosen the split path past its DB CHECK. (`firstName` is single-pay
+ * only — the split call-out identity comes from the seat, so it's omitted here.)
+ */
+export const shareIntentInput = z.object({
+  cartId: uuid,
+  tipRate: z.number().min(0).max(0.5).default(0),
 });
 
 /** scanAdd (grocery) — a scanned EAN-8(8)/UPC-A(12)/EAN-13(13)/GTIN-14(14) barcode (8–14 digits),

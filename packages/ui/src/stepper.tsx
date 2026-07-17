@@ -1,6 +1,7 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import { Icon } from "./icon";
 
 /**
  * Stepper — a quantity −/+ control (P5.4). Interactive (client). Presentational only: the parent owns
@@ -27,7 +28,7 @@ export function Stepper({
   max = 99,
   disabled = false,
   soldOut = false,
-  removeGlyph = "✕",
+  removeGlyph = <Icon name="close" size={18} />,
   removeTone,
   showCount = false,
   incrementLabel,
@@ -46,8 +47,9 @@ export function Stepper({
   disabled?: boolean;
   /** 86'd item — disables + dims "+" (the "−"/remove stays enabled to clear the line). */
   soldOut?: boolean;
-  /** Glyph for the remove (at-min) state. Default "✕"; the customer cart passes "🗑". */
-  removeGlyph?: string;
+  /** Glyph for the remove (at-min) state. Defaults to the close icon; the customer cart passes the trash
+   *  icon. Any ReactNode (icon or text). */
+  removeGlyph?: ReactNode;
   /** Color token for the remove-state glyph (e.g. `var(--warn)` for the staff editor's red ✕). */
   removeTone?: string;
   /** Show a center quantity readout between the buttons (the customer cart). */

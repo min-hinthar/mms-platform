@@ -115,7 +115,7 @@ export function BarcodeScanner({ onScan }: { onScan: (code: string) => void }) {
         }}
       />
       {err && (
-        <p role="alert" style={{ color: "var(--warn)", fontSize: 13 }}>
+        <p role="alert" style={{ color: "var(--warn)", fontSize: "var(--fs-sm)" }}>
           {err}
         </p>
       )}

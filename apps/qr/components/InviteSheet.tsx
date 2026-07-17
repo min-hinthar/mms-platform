@@ -87,10 +87,13 @@ export function InviteSheet({
             aria-label={`Copy table code, ${joinCode.split("").join(" ")}`}
             style={codeBtn}
           >
-            <span style={{ fontSize: 26, fontWeight: 800, letterSpacing: ".14em" }}>
+            <span style={{ fontSize: "var(--fs-h1)", fontWeight: 800, letterSpacing: ".14em" }}>
               {joinCode}
             </span>
-            <span aria-hidden style={{ fontSize: 12, color: "var(--t2)", fontWeight: 700 }}>
+            <span
+              aria-hidden
+              style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", fontWeight: 700 }}
+            >
               Tap to copy
             </span>
           </button>
@@ -139,7 +142,7 @@ export function InviteSheet({
 
 const muted: CSSProperties = {
   color: "var(--t2)",
-  fontSize: 13.5,
+  fontSize: "var(--fs-sm)",
   lineHeight: 1.5,
   margin: "0 0 14px",
 };
@@ -151,7 +154,7 @@ const codeCard: CSSProperties = {
   marginBottom: 12,
 };
 const codeLabel: CSSProperties = {
-  fontSize: 11,
+  fontSize: "var(--fs-xs)",
   fontWeight: 800,
   letterSpacing: ".08em",
   textTransform: "uppercase",
@@ -178,11 +181,11 @@ const primaryBtn: CSSProperties = {
   background: "var(--ac)",
   color: "var(--oa)",
   fontWeight: 800,
-  fontSize: 15,
+  fontSize: "var(--fs-body)",
   cursor: "pointer",
 };
 const fieldLabel: CSSProperties = {
-  fontSize: 13,
+  fontSize: "var(--fs-sm)",
   fontWeight: 700,
   display: "block",
   marginBottom: 6,
@@ -195,7 +198,7 @@ const input: CSSProperties = {
   border: "1.5px solid var(--bd)",
   background: "var(--pg)",
   color: "var(--tx)",
-  fontSize: 15,
+  fontSize: "var(--fs-body)",
   font: "inherit",
 };
 const saveBtn: CSSProperties = {
@@ -206,14 +209,14 @@ const saveBtn: CSSProperties = {
   background: "var(--sf)",
   color: "var(--tx)",
   fontWeight: 800,
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   cursor: "pointer",
 };
 const statusLine: CSSProperties = {
   minHeight: 18,
   marginTop: 12,
   marginBottom: 0,
-  fontSize: 13,
+  fontSize: "var(--fs-sm)",
   fontWeight: 700,
   color: "var(--ac)",
 };

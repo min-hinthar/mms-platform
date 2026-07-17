@@ -1,6 +1,7 @@
 "use client";
 import type { MenuItem } from "./MenuBrowser";
 import { BlurUpImage } from "./BlurUpImage";
+import { PhotoPlaceholder } from "./PhotoPlaceholder";
 
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -37,7 +38,9 @@ export function StartHereBand({
     >
       <h2 id="start-here-h" className="start-here-h">
         Start here <span aria-hidden>✦</span>
-        <span className="start-here-sub">{dataBacked ? "what tables love" : "our picks to start"}</span>
+        <span className="start-here-sub">
+          {dataBacked ? "what tables love" : "our picks to start"}
+        </span>
       </h2>
       <ul role="list" className="start-here-rail" aria-labelledby="start-here-h">
         {items.map((i) => (
@@ -45,7 +48,14 @@ export function StartHereBand({
             <button type="button" className="start-here-card" onClick={() => onSelect(i)}>
               {i.image_url && (
                 <span className="start-here-photo" aria-hidden>
-                  <BlurUpImage src={i.image_url} alt="" width={128} height={88} sizes="128px" />
+                  <BlurUpImage
+                    src={i.image_url}
+                    alt=""
+                    width={128}
+                    height={88}
+                    sizes="128px"
+                    fallback={<PhotoPlaceholder category={i.category} />}
+                  />
                 </span>
               )}
               <span className="start-here-name">{i.name_en}</span>

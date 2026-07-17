@@ -47,27 +47,30 @@ export function AccountUpgrade({ stars }: { stars: number }) {
   // guest saving their own Stars (typed a taken email / used Google) mints the K3b merge token to carry them
   // over; an explicit SWITCH (a remembered-identity chip, or a lend-mode resume) passes false so the current
   // session's guest Stars are NEVER swept onto the account being switched to — and clears any stale token.
-  const sendSignInCode = useCallback(async (addr: string, bringStars: boolean): Promise<boolean> => {
-    const supa = browserClient();
-    if (bringStars) {
-      const mtoken = await mintMergeToken();
-      if (mtoken) stashMergeToken(mtoken);
-    } else {
-      clearMergeToken();
-    }
-    const { error: e0 } = await supa.auth.signInWithOtp({
-      email: addr,
-      options: { shouldCreateUser: false }, // sign in to the EXISTING account — never silently mint a new one
-    });
-    if (e0) {
-      setError(e0.message || "Couldn’t send the sign-in code — try again.");
-      return false;
-    }
-    setEmail(addr);
-    setCodeMode("email");
-    setPhase("code");
-    return true;
-  }, []);
+  const sendSignInCode = useCallback(
+    async (addr: string, bringStars: boolean): Promise<boolean> => {
+      const supa = browserClient();
+      if (bringStars) {
+        const mtoken = await mintMergeToken();
+        if (mtoken) stashMergeToken(mtoken);
+      } else {
+        clearMergeToken();
+      }
+      const { error: e0 } = await supa.auth.signInWithOtp({
+        email: addr,
+        options: { shouldCreateUser: false }, // sign in to the EXISTING account — never silently mint a new one
+      });
+      if (e0) {
+        setError(e0.message || "Couldn’t send the sign-in code — try again.");
+        return false;
+      }
+      setEmail(addr);
+      setCodeMode("email");
+      setPhase("code");
+      return true;
+    },
+    [],
+  );
 
   const startGoogleSignIn = useCallback(async (bringStars: boolean): Promise<void> => {
     const supa = browserClient();
@@ -508,16 +511,21 @@ export function AccountUpgrade({ stars }: { stars: number }) {
 const card: CSSProperties = {
   padding: "var(--s5)",
 };
-const h2: CSSProperties = { margin: "0 0 6px", fontSize: 18, fontWeight: 800, color: "var(--tx)" };
+const h2: CSSProperties = {
+  margin: "0 0 6px",
+  fontSize: "var(--fs-h3)",
+  fontWeight: 800,
+  color: "var(--tx)",
+};
 const sub: CSSProperties = {
   margin: "0 0 14px",
-  fontSize: 13.5,
+  fontSize: "var(--fs-sm)",
   color: "var(--t2)",
   lineHeight: 1.5,
 };
 const label: CSSProperties = {
   display: "block",
-  fontSize: 12.5,
+  fontSize: "var(--fs-sm)",
   fontWeight: 700,
   color: "var(--t2)",
   margin: "0 0 6px",
@@ -530,7 +538,7 @@ const input: CSSProperties = {
   borderRadius: 12,
   background: "var(--sf)",
   color: "var(--tx)",
-  fontSize: 16, // ≥16px → no iOS zoom-on-focus
+  fontSize: "var(--fs-body)", // ≥16px → no iOS zoom-on-focus
   marginBottom: 12,
 };
 // bg/color/gradient/sheen/shine live in `.checkout-cta`; this is layout only (label rides above the
@@ -541,7 +549,7 @@ const primaryBtn: CSSProperties = {
   borderRadius: 12,
   border: "none",
   fontWeight: 800,
-  fontSize: 16,
+  fontSize: "var(--fs-body)",
   cursor: "pointer",
 };
 const ctaLabel: CSSProperties = { position: "relative", zIndex: 1 };
@@ -557,7 +565,7 @@ const googleBtn: CSSProperties = {
   background: "var(--sf)",
   color: "var(--tx)",
   fontWeight: 700,
-  fontSize: 15,
+  fontSize: "var(--fs-body)",
   cursor: "pointer",
 };
 // color/weight/size/underline/arrow come from `.nav-link`; content-width so the underline hugs the text
@@ -572,7 +580,7 @@ const divider: CSSProperties = { margin: "16px 0" };
 const errorLine: CSSProperties = {
   minHeight: 16,
   margin: "10px 0 0",
-  fontSize: 13,
+  fontSize: "var(--fs-sm)",
   color: "var(--warn)",
   textAlign: "center",
 };

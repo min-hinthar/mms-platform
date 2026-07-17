@@ -111,7 +111,7 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
                 background: on ? "color-mix(in oklab, var(--ac) 9%, var(--cd))" : "var(--cd)",
                 color: on ? "var(--ac-strong)" : "var(--tx)",
                 fontWeight: 800,
-                fontSize: 13,
+                fontSize: "var(--fs-sm)",
                 cursor: "pointer",
               }}
             >
@@ -122,7 +122,7 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
       </div>
 
       {error ? (
-        <p role="alert" style={{ fontSize: 13, color: "var(--warn)", marginTop: 10 }}>
+        <p role="alert" style={{ fontSize: "var(--fs-sm)", color: "var(--warn)", marginTop: 10 }}>
           {error}{" "}
           <button
             type="button"
@@ -142,13 +142,15 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
           </button>
         </p>
       ) : !stripePromise ? (
-        <p role="alert" style={{ fontSize: 13, color: "var(--warn)", marginTop: 10 }}>
+        <p role="alert" style={{ fontSize: "var(--fs-sm)", color: "var(--warn)", marginTop: 10 }}>
           Card payment is temporarily unavailable. Please try again shortly.
         </p>
       ) : loading || !options ? (
         // Plain text (not a live region): the disabled flow + visible label convey loading, and the
         // settlement view already has its status region — no redundant aria-live (QA §A).
-        <p style={{ fontSize: 13, color: "var(--t2)", marginTop: 12 }}>Preparing your payment…</p>
+        <p style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", marginTop: 12 }}>
+          Preparing your payment…
+        </p>
       ) : (
         <Elements key={clientSecret} stripe={stripePromise} options={options}>
           <ShareForm amountCents={amountCents} onAuthorized={onAuthorized} />
@@ -212,7 +214,12 @@ function ShareForm({
           view's polite status region belongs to the parent (one per view). */}
       <p
         role="alert"
-        style={{ minHeight: 16, margin: "10px 0 0", fontSize: 13, color: "var(--warn)" }}
+        style={{
+          minHeight: 16,
+          margin: "10px 0 0",
+          fontSize: "var(--fs-sm)",
+          color: "var(--warn)",
+        }}
       >
         {error}
       </p>
@@ -229,14 +236,14 @@ function ShareForm({
           background: "var(--ac)",
           color: "var(--oa)",
           fontWeight: 800,
-          fontSize: 16,
+          fontSize: "var(--fs-body)",
           cursor: !stripe || submitting ? "default" : "pointer",
           opacity: !stripe || submitting ? 0.7 : 1,
         }}
       >
         {submitting ? "Authorizing…" : `Authorize ${dollars}`}
       </button>
-      <p style={{ fontSize: 11, color: "var(--t3)", marginTop: 8, lineHeight: 1.5 }}>
+      <p style={{ fontSize: "var(--fs-xs)", color: "var(--t3)", marginTop: 8, lineHeight: 1.5 }}>
         You’re only authorized now — your card is charged when everyone at the table has paid their
         share.
       </p>

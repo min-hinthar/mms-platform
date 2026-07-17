@@ -13,8 +13,8 @@ the mature, live delivery app.** Rationale:
 
 1. **The headline monorepo win — a shared `@mms/ui` — is unrealized today.** Two grounded audits found the apps
    run **different design lineages**: QR's `@mms/ui/tokens.css` is a tight, WCAG-AA-verified 107-line system;
-   delivery's is a 34 KB accreted "Pepper + warm-paper" system. Sharing UI requires *converging the design
-   languages first* — itself a project — so co-location buys little now.
+   delivery's is a 34 KB accreted "Pepper + warm-paper" system. Sharing UI requires _converging the design
+   languages first_ — itself a project — so co-location buys little now.
 2. **The real asset delivery offers QR is craft + scars, not code to import wholesale** — 599 components, 81
    hooks, and an enormous production-learnings list (iOS WebKit OOM, Serwist update flow, sheet sizing, RLS FK
    traps, offline-queue idempotency). That is a **knowledge/pattern transfer**, which does not need a repo merge.
@@ -34,7 +34,7 @@ monolith merge.
 - **One Stripe account, shared** (config, not code — works fine across separate repos; each webhook filters to
   its own PaymentIntents by metadata).
 - **`@mms/ui` / `@mms/db` / `@mms/config`** remain the QR monorepo's internal packages. They are **not**
-  consumed by delivery (separate repo). If a *truly* shared component layer is ever wanted, publish `@mms/ui` as
+  consumed by delivery (separate repo). If a _truly_ shared component layer is ever wanted, publish `@mms/ui` as
   a versioned package then — out of scope for M5.
 
 ## Scope
@@ -74,7 +74,7 @@ reconsidered at M6.
 ## Risks (reshaped)
 
 1. **Pattern drift over time (P2).** A one-time transfer decays — delivery and QR can re-diverge. Mitigation:
-   fold the *learnings* into `.claude/LEARNINGS.md` (durable), and prefer promoting shared primitives into
+   fold the _learnings_ into `.claude/LEARNINGS.md` (durable), and prefer promoting shared primitives into
    `@mms/ui` (a real artifact) over copy-paste.
 2. **Over-porting / aesthetic mismatch (P1).** Delivery's catalog over-indexes on "copy our design system."
    Mitigation: every transfer is rebuilt to **QR's** tokens; reject wholesale CSS/token imports.

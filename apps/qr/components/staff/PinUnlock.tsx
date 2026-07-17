@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { browserClient } from "@mms/db";
+import { Icon } from "@mms/ui";
 import { unlockConsole } from "@/lib/staff-pin-actions";
 import { PIN_MIN_LENGTH, PIN_MAX_LENGTH } from "@/lib/limits";
 
@@ -93,7 +94,8 @@ export function PinUnlock({ displayName }: { displayName: string }) {
     <main style={wrap}>
       <div className="card" style={card}>
         <p className="eyebrow" style={{ marginBottom: 6 }}>
-          <span aria-hidden>🔒</span> Tablet locked
+          <Icon name="lock" size={14} style={{ verticalAlign: "-2px", marginRight: 4 }} />
+          Tablet locked
         </p>
         <h1 style={h1}>Welcome back, {displayName}</h1>
         <p style={sub}>Enter your PIN to resume.</p>
@@ -128,7 +130,9 @@ export function PinUnlock({ displayName }: { displayName: string }) {
         {/* One live region (QA §A): the lockout countdown takes precedence over a transient message. */}
         <p id="unlock-msg" role="status" style={{ margin: "var(--s4) 0 0", minHeight: 20 }}>
           {(lockCopy ?? msg) && (
-            <span style={{ fontSize: 13, color: "var(--warn)" }}>{lockCopy ?? msg}</span>
+            <span style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
+              {lockCopy ?? msg}
+            </span>
           )}
         </p>
       </div>
@@ -143,11 +147,15 @@ const wrap: CSSProperties = {
   padding: "var(--s6)",
 };
 const card: CSSProperties = { width: "100%", maxWidth: 360, padding: "var(--s6)" };
-const h1: CSSProperties = { fontSize: 22, margin: "0 0 6px" };
-const sub: CSSProperties = { color: "var(--t2)", fontSize: 14, margin: "0 0 var(--s5)" };
+const h1: CSSProperties = { fontSize: "var(--fs-h2)", margin: "0 0 6px" };
+const sub: CSSProperties = {
+  color: "var(--t2)",
+  fontSize: "var(--fs-sm)",
+  margin: "0 0 var(--s5)",
+};
 const label: CSSProperties = {
   display: "block",
-  fontSize: 13,
+  fontSize: "var(--fs-sm)",
   fontWeight: 600,
   marginBottom: 6,
   color: "var(--tx)",
@@ -157,7 +165,7 @@ const input: CSSProperties = {
   minHeight: 48,
   boxSizing: "border-box",
   padding: "0 14px",
-  fontSize: 16,
+  fontSize: "var(--fs-body)",
   letterSpacing: "0.3em",
   borderRadius: "var(--r-sm)",
   border: "1px solid var(--bd)",
@@ -172,7 +180,7 @@ const primaryBtn: CSSProperties = {
   borderRadius: "var(--r-full)",
   background: "var(--ac)",
   color: "var(--oa)",
-  fontSize: 15,
+  fontSize: "var(--fs-body)",
   fontWeight: 700,
   cursor: "pointer",
 };
@@ -183,7 +191,7 @@ const linkBtn: CSSProperties = {
   border: "none",
   background: "transparent",
   color: "var(--ac)",
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   fontWeight: 600,
   cursor: "pointer",
 };
