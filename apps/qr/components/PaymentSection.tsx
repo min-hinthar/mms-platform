@@ -107,7 +107,11 @@ function PayForm({
           before the domain is verified. `onLoadError` fails closed to the card path. */}
       <ExpressCheckoutElement
         options={{ buttonHeight: 48 }}
-        onReady={({ availablePaymentMethods }) => setWalletReady(!!availablePaymentMethods)}
+        onReady={({ availablePaymentMethods }) =>
+          // Stripe passes `undefined` when no wallet is available; guard the (unlikely) all-false object
+          // too, so the "or pay with card" divider never orphans above the card with no wallet above it.
+          setWalletReady(Object.values(availablePaymentMethods ?? {}).some(Boolean))
+        }
         onConfirm={() => void confirm()}
         onLoadError={() => setWalletReady(false)}
       />

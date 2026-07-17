@@ -56,8 +56,10 @@ const PROMO_MESSAGES: Record<PromoReason, string> = {
 
 // Tip presets (v7.2 prototype). The <small> shows a client PREVIEW of the tip; the AUTHORITATIVE
 // tip + grand total come back from create-intent (server) on the pay step — never the charge.
+// "None" (not v7.2's "No extra") so five chips — the four presets + W2d's Custom — fit one row at
+// 320–375px without wrapping to uneven heights (mobile-first bar).
 const TIPS: [label: string, rate: number][] = [
-  ["No extra", 0],
+  ["None", 0],
   ["15%", 0.15],
   ["18%", 0.18],
   ["20%", 0.2],
@@ -159,12 +161,24 @@ export function Checkout({
   useEffect(() => {
     if (customTipOpen) customTipRef.current?.focus();
   }, [customTipOpen]);
+  // Pure-grocery basket (W1): every chargeable line is self-scanned retail — no tip ask, no SB-1524
+  // service copy (the server excludes grocery lines from the service base + forces tip to 0). Computed
+  // here (early) so the tip rate can be zeroed for it too. Voided/comped lines are $0 and don't count.
+  const chargeableItems = viewItems.filter((i) => i.lineState !== "voided" && !i.comped);
+  const pureGrocery =
+    chargeableItems.length > 0 && chargeableItems.every((i) => i.fulfillment === "grocery");
   // W2d — the tip base (subtotal − discount) and the EFFECTIVE rate. When custom is open the rate is
   // DERIVED (during render, not stored) from the typed dollars + the CURRENT net, so the diner's absolute
   // amount stays fixed if the net moves (a group peer edits the cart) instead of silently re-scaling;
   // otherwise the preset `tipRate` state wins. Pure derived state — no effect, no setState-in-effect.
+  // Forced 0 on a pure-grocery basket so a lingering custom-tip state can't send a rate the server would
+  // discard (defense-in-depth — the server also force-zeros grocery tips).
   const tipNet = totals.subtotalCents - totals.discountCents;
-  const effectiveTipRate = customTipOpen ? customTipRateFromDollars(customTip, tipNet) : tipRate;
+  const effectiveTipRate = pureGrocery
+    ? 0
+    : customTipOpen
+      ? customTipRateFromDollars(customTip, tipNet)
+      : tipRate;
   const [step, setStep] = useState<"review" | "pay">("review");
   // W3e: the pickup/scango call-out name — optional, rides create-intent → qr_carts.customer_name →
   // the order snapshot, so expo + the order-ready board can call a human instead of a code. Dine-in
@@ -508,15 +522,9 @@ export function Checkout({
   const tipPreview = (rate: number) =>
     Math.round((totals.subtotalCents - totals.discountCents) * rate);
 
-  // Pure-grocery basket (W1): every chargeable line is a self-scanned retail item — no tip ask
-  // (no grocery self-checkout prompts one) and no SB-1524 service copy (the server excludes
-  // grocery lines from the service base + forces tip to 0, so the receipt rows go honest here
-  // too). Voided/comped lines are charged $0 and don't count against the predicate. The preview
-  // is zeroed as well so a mixed cart that BECOMES pure grocery (restaurant line removed after a
+  // `pureGrocery`/`effectiveTipRate` are computed at the top (before the empty-cart return). The preview
+  // is zeroed for pure-grocery so a mixed cart that BECOMES pure grocery (restaurant line removed after a
   // tip was picked) can't show an "Estimated total" the server will honestly refuse to charge.
-  const chargeableItems = viewItems.filter((i) => i.lineState !== "voided" && !i.comped);
-  const pureGrocery =
-    chargeableItems.length > 0 && chargeableItems.every((i) => i.fulfillment === "grocery");
   // Uses the EFFECTIVE rate (preset OR derived custom) so the preview matches what create-intent charges.
   const tipPreviewCents = pureGrocery ? 0 : tipPreview(effectiveTipRate);
   // W2d — the estimated tip-inclusive total shown on the primary CTA (presentation only; the pay step
@@ -939,7 +947,8 @@ export function Checkout({
                     type="button"
                     aria-pressed={customTipOpen}
                     aria-expanded={customTipOpen}
-                    aria-controls="custom-tip-field"
+                    // Only reference the field while it's mounted (below) — no dangling IDREF when closed.
+                    aria-controls={customTipOpen ? "custom-tip-field" : undefined}
                     onClick={openCustomTip}
                     className="checkout-tip"
                     style={tipChipStyle(customTipOpen)}
@@ -1168,14 +1177,17 @@ const tabNote: CSSProperties = {
 // W2d — shared tip-chip styling (presets + the Custom chip), so the two paths can't drift.
 const tipChipStyle = (on: boolean): CSSProperties => ({
   flex: 1,
+  minWidth: 0, // let 5 chips shrink to fit a 320px row instead of overflowing
   minHeight: 44,
-  padding: "10px 4px",
+  padding: "10px 2px",
   borderRadius: 13,
   border: `1.5px solid ${on ? "var(--ac)" : "var(--bd)"}`,
   background: on ? "color-mix(in oklab, var(--ac) 9%, var(--cd))" : "var(--cd)",
   color: on ? "var(--ac-strong)" : "var(--tx)",
   textAlign: "center",
+  fontSize: 13, // explicit so the label never inherits a larger size and wraps
   fontWeight: 800,
+  whiteSpace: "nowrap",
   cursor: "pointer",
 });
 const tipChipSmall = (on: boolean): CSSProperties => ({
@@ -1259,16 +1271,11 @@ function Row({
   cents,
   strong,
   roll,
-  vt,
 }: {
   k: string;
   cents: number;
   strong?: boolean;
   roll?: boolean;
-  /** J1 shared element: marks THIS row's figure as the `cart-total` morph target (the CartBar total
-   *  morphs into it on the menu→cart cut). Set on exactly one row per rendered view — the review-step
-   *  hero total (the landing view) — so the view-transition name is never duplicated in one document. */
-  vt?: boolean;
 }) {
   return (
     <div
@@ -1289,7 +1296,6 @@ function Row({
     >
       <dt>{k}</dt>
       <dd
-        className={vt ? "vt-cart-total" : undefined}
         style={{
           margin: 0,
           fontVariantNumeric: "tabular-nums",

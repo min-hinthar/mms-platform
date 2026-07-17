@@ -100,7 +100,8 @@ export const applyPromoInput = z.object({
 
 /**
  * create-intent — the client sends a cart id + a tip RATE only; the amount is derived by
- * getCartTotals. Tip is capped at 50% so a hostile client can't inflate the charge via metadata.
+ * getCartTotals. Tip is capped at 100% of the order (W2d custom tips ride the same rate) so a hostile
+ * client can't inflate the charge via metadata.
  */
 export const createIntentInput = z.object({
   cartId: uuid,
