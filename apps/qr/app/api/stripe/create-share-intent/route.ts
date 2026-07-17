@@ -71,7 +71,8 @@ export async function POST(req: NextRequest) {
       );
 
     // Re-derive server-side: base = the stored breakdown; tip = the payer's rate on THEIR net (subtotal
-    // − discount), mirroring getCartTotals' tipCents. The client's tipRate is bounded by Zod (≤ 0.5).
+    // − discount), mirroring getCartTotals' tipCents. The client's tipRate is bounded by Zod (≤ 1.0 —
+    // W2d widened the shared cap for custom tips; SharePay still only sends presets ≤ 0.20).
     const base =
       share.subtotal_cents - share.discount_cents + share.service_charge_cents + share.tax_cents;
     const tip = Math.round((share.subtotal_cents - share.discount_cents) * tipRate);

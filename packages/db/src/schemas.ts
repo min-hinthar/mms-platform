@@ -104,7 +104,11 @@ export const applyPromoInput = z.object({
  */
 export const createIntentInput = z.object({
   cartId: uuid,
-  tipRate: z.number().min(0).max(0.5).default(0),
+  // Presets top out at 0.20; W2d's custom tip rides the SAME rate (customCents / netCents), so the cap
+  // is 1.0 = a tip up to 100% of the order (anti-fat-finger; a $50 tip on a $5 order is almost surely an
+  // error). Server-authoritative: getCartTotals applies round(net·rate) and the webhook recomputes it
+  // identically from metadata.tipRate — the client never sends an amount.
+  tipRate: z.number().min(0).max(1).default(0),
   // W3e: the optional pickup/scango call-out identity ("first name for pickup"). Length-capped
   // (mirrors the qr_carts.customer_name CHECK); persisted on the CART then snapshotted to the order
   // at fulfillment — never rendered anywhere money-bearing, and never sent to analytics (PII).

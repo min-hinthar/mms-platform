@@ -59,10 +59,15 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >   `BlurUpImage` `fallback` — a photoless/broken-hotlink dish never reads broken (real photos still
 >   gate on C5; the bucket move still needs live Supabase + Min) · ✅ **W2c** `loading.tsx` skeletons
 >   for menu/dine-in/track/grocery + `error.tsx` ChunkLoadError guard · ✅ **W2e** the short order code
->   on the food /track receipt. **Still open in W2:** the ~360-`fontSize` **type-scale sweep** + lint
->   ban (W2c part 2) · **W2d** wallet-first Express Checkout + custom tip (money-path — needs owner-go +
->   Stripe wallet-domain config) · itemized + email receipt + print (W2e — order-lines data + C8). No
->   money/auth/RLS surface changed in this PR.
+>   on the food /track receipt. ✅ **W2d — checkout/pay craft (money-path):** wallet-first Express
+>   Checkout (`<ExpressCheckoutElement>` above the card, same PaymentIntent — needs the Stripe
+>   wallet-domain registration to SHOW wallets, C10; fails closed to card meanwhile) · custom tip
+>   (server-confirmed **rate** `customCents/net`, schema cap `0.5→1.0`, re-derived so a group edit can't
+>   re-scale a fixed-$ tip) · fees + SB-1524 shown ABOVE the tip ask · amount-on-CTA + "Pay the whole
+>   order · $X" group caveat · designed empty-cart. **Server-authority invariant preserved** — the
+>   client never sends an amount; create-intent + the webhook recompute from `metadata.tipRate`. **Still
+>   open in W2:** the ~360-`fontSize` **type-scale sweep** + lint ban (W2c part 2) · itemized + email
+>   receipt + print (W2e — order-lines data + C8) · real photography (C5) + bucket move.
 >   Read `docs/OPEN-ITEMS.md` for everything still open (K14/K15 are the W3 residuals; F-items track W2).
 >
 > _(The 2026-06-29 banner below is kept as history — it pointed at the Richness track, now shipped.)_

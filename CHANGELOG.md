@@ -4,6 +4,33 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W2d — checkout / pay craft (wallet-first · custom tip · fees-before-tip) (2026-07-17)
+
+The money-path slice of W2. **Server-authority invariant preserved:** the client never sends an amount —
+`create-intent` re-derives it from `getCartTotals(cartId, tipRate)` and the webhook recomputes identically
+from `metadata.tipRate`. No RLS/DB/migration change.
+
+- **Wallet-first (Express Checkout).** `<ExpressCheckoutElement>` (Apple/Google Pay/Link) rendered ABOVE
+  the card element in `PaymentSection`, sharing ONE `confirm()` with the card form — it pays the **same**
+  PaymentIntent (no second intent, no client amount). Renders nothing until a wallet is present AND the
+  domain is registered in Stripe; `onLoadError`/no-wallet fails closed to the card flow, so it's safe to
+  ship before the domain is verified. An "or pay with card" divider shows only when a wallet is available.
+- **Custom tip.** A "Custom" chip reveals a dollar field; the amount rides as a **rate** (`customCents /
+  net`, derived during render via `customTipRateFromDollars` → `effectiveTipRate`) so `create-intent` and
+  the webhook apply the identical `round(net·rate)` — the diner types dollars, the server derives the
+  amount. Clamped to 100% of the order (schema `tipRate` cap widened `0.5 → 1.0`; a stray rate is rejected
+  server-side); re-derived from the CURRENT net so a group peer's edit can't silently re-scale a fixed-$
+  tip. Focus moves to the field on open; `aria-pressed`/`-expanded`/`-controls` + a labelled input.
+- **Fees before the tip ask.** The review receipt now shows the fee breakdown (subtotal → service charge →
+  tax) and the **SB-1524 disclosure ABOVE** the tip selector (surprise fees are the #1 benchmark
+  complaint); a standalone grand-total bar (tip-inclusive, `NumberFlow` roll, the single `.vt-cart-total`
+  morph target) lands below. Presentation only — no math change.
+- **The amount on the CTA + honest group caveat.** The primary CTA carries the estimate — "Continue · $X",
+  or for a group **"Pay the whole order · $X"** (elevating the trust caveat a guest who read "your share"
+  needs), or "Settle tab · $X". The residual caveat reworded + bumped off 11.5px (F9).
+- **Designed empty-cart.** `EmptyState` (cart glyph + copy + a "Browse the menu" CTA) replacing the bare
+  "Nothing here yet"; the menu link carries the session mode (a bare /menu defaulted to scan-&-go, F9).
+
 ### W2 — flagship craft foundation (icons · placeholder · perceived-perf · order code) (2026-07-17)
 
 The buildable-now, non-money slices of W2 — the three things a diner sees first (missing photos,
