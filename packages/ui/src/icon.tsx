@@ -3,7 +3,15 @@ import {
   AlertTriangle,
   Armchair,
   Banknote,
+  Candy,
   Check,
+  Cherry,
+  CookingPot,
+  Fish,
+  HeartPulse,
+  House,
+  Leaf,
+  Package,
   ChevronDown,
   ChevronUp,
   CreditCard,
@@ -80,6 +88,15 @@ const ICONS = {
   "cat-breakfast": Croissant,
   "cat-grocery": ShoppingBasket,
   "cat-dish": Utensils,
+  // grocery aisle glyphs (W4b browse grid — apps/qr/lib/grocery-aisles.ts is the sole consumer map)
+  "cat-fish": Fish,
+  "cat-leaf": Leaf,
+  "cat-candy": Candy,
+  "cat-fruit": Cherry,
+  "cat-jar": Package,
+  "cat-pot": CookingPot,
+  "cat-health": HeartPulse,
+  "cat-home": House,
 } satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof ICONS;

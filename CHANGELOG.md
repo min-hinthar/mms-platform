@@ -4,6 +4,37 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W4a+W4b — the market grows up: real 395-SKU catalog + Browse|Scan (2026-07-17)
+
+The grocery door becomes a shoppable market. Data source: the owner's wholesale/retail price lists
+(Nov 2021 – Apr 2022), parsed + normalized into `supabase/data/grocery_catalog.json` (the committed
+source of truth) and rendered into the seed + a live-import artifact. **No money-path change** —
+browse adds ride the existing authorized `scanAdd`; steppers ride `setQty`; totals stay
+server-derived.
+
+- **W4a catalog** — migration `20260717000000`: `grocery_items` gains `category` (10-aisle CHECK) ·
+  `brand` · `sku` (unique) · `size_qty`/`size_unit` · `synonyms text[]`, pg_trgm GIN on both names,
+  and `mms_grocery_search(p_q)` (ILIKE over name/name_my/synonyms + trigram similarity, rank-ordered,
+  available+non-weighed only; service-role-only grants). **395 real SKUs** seeded — bilingual names
+  (100% MY / 96% EN), brand, aisle, pack size, EBT/tax by aisle (food = `grocery_food`+EBT; personal
+  care/household/herbal = `retail_nonfood`), romanization synonyms as data (laphet/lahpet,
+  mohinga/mohingar…). Barcodes are **GS1 store-internal EAN-13s (prefix 299)** derived from the SKU
+  until real shelf UPCs are captured. ⚠️ Prices are 2021-22 vintage — the live import
+  (`supabase/data/grocery_catalog_import.sql`) waits on Min's price confirmation.
+- **W4b Browse|Scan** — one catalog, two doors: a manual-activation tablist (Browse default — the
+  camera permission ask waits for an explicit Scan choice; choice persists per visit); bilingual
+  aisle tiles (8 new curated `Icon` glyphs); Weee!-anatomy cards (placeholder-photo tile · EN+MY
+  names · brand + pack size · price + honest $/100g unit price · EBT tag · one-tap Add that swaps to
+  the shared stepper once carted, double-tap-serialized); search upgraded to the trgm RPC with
+  bilingual hit rows + per-glyph Padauk fallback. The **session gates the basket, not the market**
+  (catalog is a public read — aisles render while the scango session mints). K5's cart-truth
+  discipline extends across tabs: the pre-hydration "couldn't check your basket" strip is visible
+  from BOTH doors (an invisible basket + a browse re-add would double server qty), and the
+  EBT-eligible subtotal line lands with undated honest copy.
+- Verified on the local stack: migration + seed apply clean; `lahpet`→tea-leaf and
+  `mohingar`→mohinga search hits; browse add → cart line → CTA total end-to-end. Full gate green;
+  knip's two flags pre-date this change.
+
 ### W7 hotfix — OG font load crashed EVERY page (prod homepage outage) (2026-07-17)
 
 Immediately after the W7 brand-kit merge (#136), the prod homepage — and every page — began returning a

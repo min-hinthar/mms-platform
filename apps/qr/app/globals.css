@@ -3802,6 +3802,260 @@ html[data-seen-surface] .mms-stagger {
   opacity: 0.55;
 }
 
+/* ── W4b · The market grows up (Browse + Scan over one catalog, docs/PRODUCTION_PLAN.md §W4) ─────── */
+/* Browse|Scan tabs — the active state (fill + text) lives ON the tab button itself: never a
+   separately-measured indicator element (a measurement race leaves selected text on the bare rail). */
+.grocery-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-top: 14px;
+  padding: 4px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: var(--sf);
+}
+.grocery-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  border: none;
+  border-radius: var(--r-full);
+  background: none;
+  color: var(--t2);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-in-out), color var(--dur-fast) var(--ease-in-out); /* prettier-ignore */
+}
+.grocery-tab[aria-selected="true"] {
+  background: var(--ac);
+  color: var(--oa);
+  box-shadow: inset 0 1px 0 var(--sheen);
+}
+@media (prefers-reduced-motion: reduce) {
+  .grocery-tab {
+    transition: none;
+  }
+}
+
+/* Aisle rail — bilingual tiles, horizontally scrollable; the pressed tile is self-contained
+   (fill + ink on one element). */
+.aisle-rail {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  padding-bottom: 6px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.aisle-rail::-webkit-scrollbar {
+  display: none;
+}
+.aisle-tile {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 86px;
+  max-width: 112px;
+  min-height: 68px;
+  padding: 9px 10px;
+  border-radius: var(--r-card);
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  color: var(--t2);
+  font: inherit;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 var(--sheen);
+}
+.aisle-tile[aria-pressed="true"] {
+  border-color: color-mix(in oklab, var(--ac) 55%, var(--bd));
+  background: color-mix(in oklab, var(--ac) 10%, var(--cd));
+  color: var(--tx);
+}
+.aisle-tile-en {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.15;
+  text-align: center;
+}
+.aisle-tile-my {
+  font-family: var(--font-my);
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--t3);
+  text-align: center;
+}
+.aisle-tile[aria-pressed="true"] .aisle-tile-my {
+  color: var(--t2);
+}
+
+.aisle-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 20px 0 10px;
+  font-size: var(--fs-h3);
+}
+.aisle-heading-my {
+  font-family: var(--font-my);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--t2);
+}
+.aisle-heading-count {
+  margin-left: auto;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--t3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Product cards — Weee!-anatomy: photo · bilingual name · brand + pack size · price + honest
+   unit price + EBT · one-tap add (or the shared stepper once carted). */
+.gcard-grid {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.gcard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+.gcard-photo {
+  aspect-ratio: 1;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--grad);
+}
+.gcard-photo > * {
+  width: 100%;
+  height: 100%;
+}
+.gcard-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  flex: 1;
+}
+.gcard-name {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.gcard-name-my {
+  font-family: var(--font-my);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--t2);
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.gcard-meta {
+  font-size: 12px;
+  color: var(--t3);
+}
+.gcard-price-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: auto;
+  padding-top: 2px;
+}
+.gcard-price {
+  font-size: var(--fs-body);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.gcard-unit {
+  font-size: 11px;
+  color: var(--t3);
+  font-variant-numeric: tabular-nums;
+}
+.gcard-ebt {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ok);
+}
+.gcard-add {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: none;
+  border-radius: var(--r-full);
+  background: var(--ac);
+  color: var(--oa);
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 var(--sheen);
+}
+.gcard-add[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: default;
+}
+.gcard-stepper {
+  justify-content: center;
+}
+.gcard-qty {
+  min-width: 22px;
+  text-align: center;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.gb-retry {
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: var(--r-full);
+  border: 1.5px solid var(--bd);
+  background: var(--cd);
+  color: var(--tx);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* The EBT-eligible subtotal line (W4a) — informational, undated-honest copy. */
+.grocery-ebt-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 8px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+  line-height: 1.5;
+}
+.grocery-ebt-tag {
+  flex: none;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  color: var(--ok);
+  border: 1px solid color-mix(in oklab, var(--ok) 45%, var(--bd));
+  border-radius: 6px;
+  padding: 1px 6px;
+}
+
 /* ── K1 · The To-go door (three-door entry, docs/JOURNEY2_PLAN.md) ───────────────────────────────── */
 /* The disclosure trigger: a real <button> wearing the .card door face (reset button chrome; .card
    supplies the surface). Full-width, left-aligned, same padding as the ModeCard link doors. */

@@ -1,0 +1,63 @@
+import type { IconName } from "@mms/ui";
+
+/**
+ * W4b — the shopper-facing aisle registry. Slugs match the `grocery_items.category` CHECK
+ * (migration 20260717000000) and the import artifact (supabase/data/grocery_catalog.json), which
+ * folds the ~40 wholesale price-list categories into these ten aisles. Bilingual by design — the
+ * Myanmar name renders beside the English on every chip (W5 makes the pair toggleable app-wide).
+ * Order = merchandising order (signature Burmese aisles first), not alphabetical.
+ */
+export type Aisle = { slug: string; en: string; my: string; icon: IconName };
+
+export const AISLES: Aisle[] = [
+  { slug: "tea-laphet", en: "Tea Leaf & Laphet", my: "လက်ဖက်", icon: "cat-leaf" },
+  {
+    slug: "noodles-mohinga",
+    en: "Noodles & Mohinga",
+    my: "ခေါက်ဆွဲ / မုန့်ဟင်းခါး",
+    icon: "cat-noodles",
+  },
+  { slug: "canned-fish", en: "Canned Fish & Meat", my: "ငါးဗူး / အသားဗူး", icon: "cat-fish" },
+  { slug: "cooking", en: "Cooking Essentials", my: "ချက်ပြုတ်ရန်", icon: "cat-pot" },
+  { slug: "snacks-sweets", en: "Snacks & Sweets", my: "မုန့်နှင့် သရေစာ", icon: "cat-candy" },
+  {
+    slug: "preserved-fruit",
+    en: "Preserved Fruit & Pickles",
+    my: "ယိုနှင့် အချဉ်",
+    icon: "cat-fruit",
+  },
+  { slug: "canned-vegetables", en: "Canned Vegetables", my: "ဟင်းသီးဟင်းရွက်ဗူး", icon: "cat-jar" },
+  { slug: "coffee-drinks", en: "Coffee & Drinks", my: "ကော်ဖီနှင့် ဖျော်ရည်", icon: "cat-drink" },
+  { slug: "health", en: "Health & Nutrition", my: "ကျန်းမာရေး", icon: "cat-health" },
+  { slug: "home-personal", en: "Home & Personal", my: "အိမ်သုံးပစ္စည်း", icon: "cat-home" },
+];
+
+export const aisleBySlug = new Map(AISLES.map((a) => [a.slug, a]));
+
+/** Pack-size label ("400g") — grams stay grams (the catalog is metric); other units pass through. */
+export function sizeLabel(qty: number | null, unit: string | null): string | null {
+  if (!qty || !unit) return null;
+  return `${qty}${unit}`;
+}
+
+/**
+ * Honest unit price for comparison shopping (W4a: "$/lb, $/oz on every card"). Metric sizes render
+ * as $/100g|ml (the natural unit at these pack sizes); count packs as $/ct. Null when size is
+ * unknown — never a fabricated rate.
+ */
+export function unitPriceLabel(
+  priceCents: number,
+  qty: number | null,
+  unit: string | null,
+): string | null {
+  if (!qty || !unit || priceCents <= 0) return null;
+  if (unit === "g" || unit === "ml") {
+    const per100 = (priceCents / qty) * 100;
+    return `$${(per100 / 100).toFixed(2)}/100${unit}`;
+  }
+  if (unit === "oz" || unit === "lb" || unit === "ct") {
+    const per = priceCents / qty;
+    return `$${(per / 100).toFixed(2)}/${unit}`;
+  }
+  return null;
+}
