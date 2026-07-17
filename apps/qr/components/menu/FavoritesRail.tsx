@@ -1,6 +1,8 @@
 "use client";
+import { Icon } from "@mms/ui";
 import type { MenuItem } from "./MenuBrowser";
 import { BlurUpImage } from "./BlurUpImage";
+import { PhotoPlaceholder } from "./PhotoPlaceholder";
 
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -30,7 +32,8 @@ export function FavoritesRail({
       style={{ padding: "10px 0 2px", animationDelay: "90ms" }}
     >
       <h2 id="favorites-h" className="start-here-h">
-        Your favorites <span aria-hidden>♥</span>
+        Your favorites{" "}
+        <Icon name="favorite" size={16} fill="currentColor" style={{ display: "inline", verticalAlign: "-2px" }} />
         <span className="start-here-sub">one tap back to the good stuff</span>
       </h2>
       <ul role="list" className="start-here-rail" aria-labelledby="favorites-h">
@@ -39,7 +42,14 @@ export function FavoritesRail({
             <button type="button" className="start-here-card" onClick={() => onSelect(i)}>
               {i.image_url && (
                 <span className="start-here-photo" aria-hidden>
-                  <BlurUpImage src={i.image_url} alt="" width={128} height={88} sizes="128px" />
+                  <BlurUpImage
+                    src={i.image_url}
+                    alt=""
+                    width={128}
+                    height={88}
+                    sizes="128px"
+                    fallback={<PhotoPlaceholder category={i.category} />}
+                  />
                 </span>
               )}
               <span className="start-here-name">{i.name_en}</span>

@@ -11,7 +11,7 @@ import {
 } from "react";
 import { TransitionLink as Link } from "./nav/TransitionNav"; // J1 journey grammar
 import type { CartItem, CartTotals } from "@mms/db";
-import { Avatar, NumberFlow, Stepper } from "@mms/ui";
+import { Avatar, Icon, NumberFlow, Stepper } from "@mms/ui";
 import {
   applyPromo as applyPromoAction,
   getCartView,
@@ -659,7 +659,7 @@ export function Checkout({
                         disabled={!canEdit}
                         soldOut={i.soldOut}
                         name={i.name}
-                        removeGlyph="🗑"
+                        removeGlyph={<Icon name="trash" size={18} />}
                         showCount
                         incrementLabel={`Add another ${i.name}`}
                         onChange={(q) => changeQty(i.id, q)}
@@ -949,8 +949,8 @@ export function Checkout({
               </div>
             )}
             {tabType === "secure" ? (
-              <p style={tabNote}>
-                <span aria-hidden>✓ </span>
+              <p style={{ ...tabNote, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                <Icon name="check" size={15} />
                 Tab secured · card on file — settle anytime, or just leave and we’ll close it.
               </p>
             ) : tabType === "trust" ? (
@@ -1012,7 +1012,15 @@ const tabNote: CSSProperties = {
 // "Comped" to the diner).
 function LineStateChip({ state, comped }: { state: CartItem["lineState"]; comped: boolean }) {
   const label = comped ? "Comped" : DINER_STATE_COPY[state]; // S12: one shared vocabulary
-  const glyph = comped ? "🎁" : state === "served" ? "✓" : state === "voided" ? "✕" : "🔥";
+  const glyph = comped ? (
+    <Icon name="gift" size={15} />
+  ) : state === "served" ? (
+    <Icon name="check" size={15} />
+  ) : state === "voided" ? (
+    <Icon name="close" size={15} />
+  ) : (
+    <Icon name="flame" size={15} />
+  );
   // The context is REAL (visually-hidden) text, not an aria-label on this non-interactive span (which
   // SRs may drop) — so a SR reaching this control-slot reliably hears WHY there's no stepper.
   const hint = comped

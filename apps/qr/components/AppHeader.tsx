@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 // J1: header navs ride the journey grammar (direction-stamped view transitions) — drop-in Link swap.
 import { TransitionLink as Link } from "./nav/TransitionNav";
 import { browserClient } from "@mms/db";
+import { Icon } from "@mms/ui";
 import { useActiveOrder } from "./ActiveOrderProvider";
 import { useActiveOrderStatus } from "./useActiveOrderStatus";
 import { useLiveOrders } from "@/lib/useLiveOrders";
@@ -178,7 +179,7 @@ export function AppHeader() {
             className="app-header-cart"
             aria-label="Back to your cart"
           >
-            <span aria-hidden>🛒</span>
+            <Icon name="cart" size={18} />
             <span>Cart</span>
           </Link>
         )}

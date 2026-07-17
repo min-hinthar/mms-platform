@@ -3,9 +3,10 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 import { useRouter } from "next/navigation";
 import { useJourneyRouter } from "@/components/nav/TransitionNav"; // J1 journey grammar
 import posthog from "posthog-js";
-import { NumberFlow } from "@mms/ui";
+import { Icon, NumberFlow } from "@mms/ui";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
 import { BlurUpImage } from "@/components/menu/BlurUpImage";
+import { PhotoPlaceholder } from "@/components/menu/PhotoPlaceholder";
 import {
   scanAdd,
   searchGroceryItems,
@@ -272,7 +273,7 @@ export default function Grocery() {
           <BarcodeScanner onScan={onScan} />
 
           <div className="card" role="search" style={searchWrap}>
-            <span aria-hidden="true">🔍</span>
+            <Icon name="search" size={18} />
             <input
               ref={searchRef}
               type="search"
@@ -339,7 +340,14 @@ export default function Grocery() {
           <li key={l.lineId} className="card card-textured mms-rise" style={scannedLineStyle}>
             {l.imageUrl && (
               <span className="grocery-thumb" aria-hidden>
-                <BlurUpImage src={l.imageUrl} alt="" width={56} height={56} sizes="56px" />
+                <BlurUpImage
+                  src={l.imageUrl}
+                  alt=""
+                  width={56}
+                  height={56}
+                  sizes="56px"
+                  fallback={<PhotoPlaceholder category="grocery" />}
+                />
               </span>
             )}
             <span style={{ minWidth: 0, flex: 1 }}>

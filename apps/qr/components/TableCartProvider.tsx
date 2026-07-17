@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import type { CartItem, CartTotals } from "@mms/db";
+import { Icon } from "@mms/ui";
 import { addItem as addItemAction, setQty as setQtyAction, getCartView } from "@/lib/cart";
 import { setDisplayName } from "@/lib/members";
 import { useTableSession } from "@/lib/useTableSession";
@@ -514,7 +515,8 @@ export function TableCartProvider({
             boxShadow: "var(--sh-md)",
           }}
         >
-          <span aria-hidden>⚠️</span> Couldn’t reach your order.{" "}
+          <Icon name="alert" size={15} style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }} />
+          Couldn’t reach your order.{" "}
           <button
             type="button"
             onClick={() => revalidate()}

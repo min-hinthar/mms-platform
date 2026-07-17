@@ -4,6 +4,39 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W2 — flagship craft foundation (icons · placeholder · perceived-perf · order code) (2026-07-17)
+
+The buildable-now, non-money slices of W2 — the three things a diner sees first (missing photos,
+emoji-as-iconography, the blank-frame wait) plus a quotable order code. No money/auth/RLS surface changes.
+
+- **W2b — the brand icon set.** New `@mms/ui` `<Icon>` (`packages/ui/src/icon.tsx`): a curated,
+  bounded **lucide-react** set (the delivery app's set too — M5 "learn from delivery"; Next
+  auto-optimizes the imports so only used glyphs ship) at one brand stroke weight (1.75), decorative
+  (`aria-hidden`) by default with a `label` escape for standalone controls, and a filled variant via
+  `fill`. Retires **~30 functional emoji-chrome glyphs across the diner path** (search · trash · receipt ·
+  favorite · card/cash · flame · bag · cart · gift · close · pin · alert · info · lock · people · star ·
+  check + `cat-*` placeholder glyphs) — `sheet` close, `Stepper` remove (`removeGlyph` widened to
+  `ReactNode`), `AppHeader` cart, menu search/info/empty, `ItemSheet`/`FavoritesRail` heart,
+  `Checkout` line-state chips, `OrderTracker`/`OrderHistory` receipt+tender, pickup pin/bag, feedback
+  stars, guest lock/people, reward gift, settlement/secure-tab checks, recovery alert. The `✦` wordmark
+  mark stays a text glyph; content/mascot emoji (🍵 flourish, 🫖 error/track medallions, mode-door
+  tiles, reward-tier emblems) stay. Staff surfaces (KDS/expo/floor) deferred to a staff pass.
+- **W2a — the designed missing-photo placeholder.** `BlurUpImage` gains a `fallback` prop; a new
+  `PhotoPlaceholder` (the dish's **category glyph + ✦** over the item gradient) fills it — so a
+  photoless **or broken-hotlink** dish (28 point at a `fallback.jpg`, and every URL hotlinks the
+  delivery bucket) reads intentional instead of an empty tile. Wired into the menu grid, ItemSheet hero
+  + suggestions, favorites, start-here, and grocery. (The bucket migration + real photos stay gated on
+  live Supabase + Min.)
+- **W2c — perceived performance + recovery.** Geometry-matched `loading.tsx` for the four cold-hit-blank
+  routes (`(order)/menu`, `(order)/dine-in`, `/track`, `/grocery` — `/menu` is cookie-dynamic so it
+  Server-renders on demand). `error.tsx` gains a **stale-deploy ChunkLoadError guard** (a one-shot,
+  cooldown-guarded hard reload — `reset()` just re-requests the dead chunk) + type migrated onto the
+  `--fs-*`/`--lh-*` scale. (The ~360 inline-`fontSize` type-scale sweep is a separate per-screen PR.)
+- **W2e — the quotable order code.** The food `/track` receipt card now shows the short `#ABCDEF`
+  reference (grocery/refund already had one) — a dine-in/pickup diner finally has something to quote at
+  the counter. Visible tail `aria-hidden` + an `sr-only` spaced sibling (matches the exit-pass pattern).
+  Itemized rows / email receipt / print stylesheet stay in W2d/W2e.
+
 ### W3 — the kitchen you can trust (KDS · expo · order-ready board) (2026-07-16)
 
 - **W3a (ops blocker, K4):** every channel now reaches the kitchen. `mms_fire_pending_food` drops its

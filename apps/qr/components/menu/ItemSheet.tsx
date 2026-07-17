@@ -1,8 +1,9 @@
 "use client";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { Badge, Sheet, useAnimationPreference } from "@mms/ui";
+import { Badge, Icon, Sheet, useAnimationPreference } from "@mms/ui";
 import { useCart } from "@/components/TableCartProvider";
 import { BlurUpImage } from "./BlurUpImage";
+import { PhotoPlaceholder } from "./PhotoPlaceholder";
 import { itemBadges } from "@/lib/menu/badges";
 import { goesWellWith } from "@/lib/menu/upsell";
 import { passesDiets, type Diet } from "@/lib/menu/dietary";
@@ -202,6 +203,7 @@ function ItemSheetBody({
           width={440}
           height={248}
           sizes="(max-width: 440px) 100vw, 440px"
+          fallback={<PhotoPlaceholder category={item.category} variant="hero" />}
         />
         {/* J5 — the heart (uid-scoped favorite). A true toggle (aria-pressed), 44px, optimistic via the
             parent; state is conveyed by aria-pressed so no announcement is needed (no second region). */}
@@ -213,7 +215,7 @@ function ItemSheetBody({
             aria-label="Save to your favorites"
             onClick={() => onToggleHeart(item.id)}
           >
-            <span aria-hidden>{hearted ? "♥" : "♡"}</span>
+            <Icon name="favorite" size={22} fill={hearted ? "currentColor" : "none"} />
           </button>
         )}
       </div>
@@ -325,7 +327,14 @@ function ItemSheetBody({
                   aria-label={`${u.name_en}, ${dollars(u.base_price_cents)} — open to customize`}
                 >
                   <span className="item-upsell-thumb" style={{ background: "var(--grad)" }}>
-                    <BlurUpImage src={u.image_url} alt="" width={120} height={84} sizes="120px" />
+                    <BlurUpImage
+                      src={u.image_url}
+                      alt=""
+                      width={120}
+                      height={84}
+                      sizes="120px"
+                      fallback={<PhotoPlaceholder category={u.category} />}
+                    />
                   </span>
                   <span className="item-upsell-name">{u.name_en}</span>
                   <span className="item-upsell-price">{dollars(u.base_price_cents)}</span>

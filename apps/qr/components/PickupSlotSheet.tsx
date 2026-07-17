@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState, useTransition } from "react";
-import { Sheet, Skeleton } from "@mms/ui";
+import { Icon, Sheet, Skeleton } from "@mms/ui";
 import { getPickupSlots, setPickupSlot, type PickupSlot } from "@/lib/pickup";
 import { dayLabel, formatSlot } from "@/lib/pickupTime";
 
@@ -83,7 +83,8 @@ export function PickupSlotSheet({
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title="Pick a pickup time">
       <p style={{ color: "var(--t2)", fontSize: 13, margin: "0 0 14px" }}>
-        <span aria-hidden>📍 </span>750 Terrado Plaza, Covina
+        <Icon name="pin" size={14} style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }} />
+        750 Terrado Plaza, Covina
       </p>
       {slots === null ? (
         // Skeleton mirror of the day rail + time grid. Decorative (aria-hidden) — no live region here, so

@@ -615,6 +615,35 @@ h3 {
   }
 }
 
+/* W2a — designed missing-photo state: fills the photo slot (over the parent gradient) with the dish's
+   category glyph + the ✦ mark, so a photoless dish reads intentional, never broken. Decorative.
+   Absolute-fills the slot (robust vs. a parent whose height comes from `aspect-ratio` rather than an
+   explicit px — the two rail slots below); every slot it renders in is a positioning context. */
+.photo-ph {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: color-mix(in oklab, var(--ac) 42%, var(--t3));
+}
+/* The two placeholder slots that weren't already `position: relative` (the others — menu thumb,
+   item-hero, item-upsell-thumb — already are), so the absolute placeholder anchors to them. */
+.start-here-photo,
+.grocery-thumb {
+  position: relative;
+}
+.photo-ph-glyph {
+  opacity: 0.5;
+}
+.photo-ph-mark {
+  position: absolute;
+  right: 6px;
+  bottom: 4px;
+  font-size: 12px;
+  line-height: 1;
+  color: color-mix(in oklab, var(--ac) 55%, transparent);
+}
+
 /* Sticky toolbar shell (search + rail + chips) — pins UNDER the persistent app-header (which owns the notch
    clearance now), opaque so rows scroll cleanly under. `top` offsets by the header height + the notch inset
    so the two chrome layers stack instead of overlapping; the header's own safe-area padding means this no

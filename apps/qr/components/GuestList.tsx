@@ -4,7 +4,7 @@ import { useCart } from "./TableCartProvider";
 import { InviteSheet } from "./InviteSheet";
 import { seatColor, seatInitial } from "@/lib/avatars";
 import { MAX_PARTY_SIZE } from "@/lib/limits";
-import { Avatar } from "@mms/ui";
+import { Avatar, Icon } from "@mms/ui";
 
 /**
  * Dine-in group cart guest list (M3·P3.1). Renders the live presence party (real second phones —
@@ -24,8 +24,9 @@ export function GuestList() {
   if (locked)
     return (
       <p style={lockBar}>
-        <span aria-hidden>🔒</span> {lockedByName === "You" ? "You’re" : `${lockedByName} is`}{" "}
-        checking out — the order’s locked for a moment.
+        <Icon name="lock" size={14} style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }} />
+        {lockedByName === "You" ? "You’re" : `${lockedByName} is`} checking out — the order’s locked
+        for a moment.
       </p>
     );
 
@@ -89,7 +90,8 @@ export function GuestList() {
       </span>
       {atCap ? (
         <span aria-label={`Table is full, up to ${MAX_PARTY_SIZE} guests`} style={fullNote}>
-          <span aria-hidden>✓</span> Table’s full
+          <Icon name="check" size={13} style={{ display: "inline", verticalAlign: "-2px", marginRight: 2 }} />{" "}
+          Table’s full
         </span>
       ) : (
         <button
@@ -98,7 +100,7 @@ export function GuestList() {
           aria-label="Invite people to your table"
           style={inviteChip}
         >
-          <span aria-hidden>👥</span> Invite
+          <Icon name="people" size={15} /> Invite
         </button>
       )}
       <InviteSheet open={inviteOpen} onOpenChange={setInviteOpen} />

@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 import { TransitionLink as Link } from "./nav/TransitionNav"; // J1 journey grammar
 import type { OrderHistoryEntry } from "@/lib/rewards";
 import { formatSlotLong } from "@/lib/pickupTime";
-import { Card } from "@mms/ui";
+import { Card, Icon, type IconName } from "@mms/ui";
 
 /**
  * Order history (M4 P4.2 · elevated) — the diner's own past PAID orders, server-rendered from the uid-scoped
@@ -14,7 +14,7 @@ import { Card } from "@mms/ui";
  */
 const dollars = (c: number) => `$${(c / 100).toFixed(2)}`;
 const TENDER_LABEL: Record<string, string> = { card: "Card", cash: "Cash" };
-const TENDER_ICON: Record<string, string> = { card: "💳", cash: "💵" };
+const TENDER_ICON: Record<string, IconName> = { card: "card", cash: "cash" };
 const FULFILL_LABEL: Record<string, string> = { togo: "To go", grocery: "Grocery" };
 
 // The Covina teahouse's local time — dates + month grouping reflect the RESTAURANT's day regardless of the
@@ -121,7 +121,7 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
                       </div>
                       <div style={chipRow}>
                         <span className="history-badge">
-                          <span aria-hidden>{TENDER_ICON[o.tender] ?? "✓"}</span>
+                          <Icon name={TENDER_ICON[o.tender] ?? "check"} size={13} />
                           Paid · {TENDER_LABEL[o.tender] ?? o.tender}
                         </span>
                         {kind && <span className="history-fulfill">{FULFILL_LABEL[kind]}</span>}

@@ -1,11 +1,12 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Badge } from "@mms/ui";
+import { Badge, Icon } from "@mms/ui";
 import { AddButton } from "@/components/AddButton";
 import { CartBar } from "@/components/CartBar";
 import { GuestList } from "@/components/GuestList";
 import { PickupSlotChip } from "@/components/PickupSlotChip";
 import { BlurUpImage } from "./BlurUpImage";
+import { PhotoPlaceholder } from "./PhotoPlaceholder";
 import { DIETS, hasFreeFrom, passesDiets, type Diet } from "@/lib/menu/dietary";
 import type { ModGroup } from "@/lib/menu/modifiers";
 import { itemBadges } from "@/lib/menu/badges";
@@ -356,7 +357,7 @@ export function MenuBrowser({
                 menuHeadingRef.current?.focus({ preventScroll: true });
               }}
             >
-              <span aria-hidden>✕</span>
+              <Icon name="close" size={16} />
             </button>
           </p>
         )}
@@ -364,7 +365,7 @@ export function MenuBrowser({
 
       <div className="menu-toolbar" ref={toolbarRef}>
         <div className="menu-search">
-          <span aria-hidden>🔍</span>
+          <Icon name="search" size={18} />
           <input
             ref={searchRef}
             type="search"
@@ -421,7 +422,7 @@ export function MenuBrowser({
             role="note"
             style={{ margin: "8px 2px 0", fontSize: 12, color: "var(--t2)", lineHeight: 1.4 }}
           >
-            <span aria-hidden>ⓘ </span>
+            <Icon name="info" size={13} style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }} />
             Allergen info is a guide — please tell our staff about any allergy.
           </p>
         )}
@@ -500,7 +501,14 @@ export function MenuBrowser({
                           display: "block",
                         }}
                       >
-                        <BlurUpImage src={i.image_url} alt="" width={88} height={88} sizes="88px" />
+                        <BlurUpImage
+                          src={i.image_url}
+                          alt=""
+                          width={88}
+                          height={88}
+                          sizes="88px"
+                          fallback={<PhotoPlaceholder category={i.category} />}
+                        />
                       </span>
                       <span style={{ flex: 1, minWidth: 0 }}>
                         <span style={{ fontWeight: 600, display: "block" }}>
@@ -568,8 +576,19 @@ export function MenuBrowser({
 
       {empty && (
         <div role="status" style={{ padding: "32px 24px", textAlign: "center" }}>
-          <p style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>
-            <span aria-hidden>🔎 </span>Nothing matches
+          <p
+            style={{
+              fontSize: 22,
+              fontWeight: 700,
+              marginBottom: 4,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+            }}
+          >
+            <Icon name="search" size={22} />
+            Nothing matches
           </p>
           <p style={{ color: "var(--t2)", marginBottom: 14 }}>
             {items.length

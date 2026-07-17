@@ -1,4 +1,5 @@
 "use client";
+import { Icon } from "@mms/ui";
 import { useCart } from "./TableCartProvider";
 import { formatSlotLong } from "@/lib/pickupTime";
 
@@ -32,7 +33,7 @@ export function PickupSlotChip() {
         cursor: "pointer",
       }}
     >
-      <span aria-hidden>🛍️</span>
+      <Icon name="bag" size={16} />
       {pickupSlot ? `Pickup · ${formatSlotLong(pickupSlot)}` : "Pick a pickup time"}
       <span aria-hidden style={{ color: "var(--ac)", fontWeight: 800 }}>
         {pickupSlot ? "Change" : "Choose ›"}

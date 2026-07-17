@@ -3,6 +3,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import * as React from "react";
 import { m, useDragControls } from "framer-motion";
 import { DomMaxProvider } from "./dom-max-provider";
+import { Icon } from "./icon";
 
 /**
  * Accessible bottom sheet built on Radix Dialog — replaces the prototype's hand-rolled
@@ -120,7 +121,7 @@ function SheetContent({
         <Dialog.Title className="mms-sheet-title">{title}</Dialog.Title>
         {children}
         <Dialog.Close aria-label="Close" className="mms-sheet-close">
-          ✕
+          <Icon name="close" size={18} />
         </Dialog.Close>
       </m.div>
     </Dialog.Content>

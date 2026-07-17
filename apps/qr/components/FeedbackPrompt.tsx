@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { getFeedbackState, submitFeedback } from "@/lib/feedback";
-import { Card } from "@mms/ui";
+import { Card, Icon } from "@mms/ui";
 
 /**
  * Post-order feedback (M4 P4.3) — at peak goodwill on /track. UNGATED (docs/M4_DESIGN R9): ask for an
@@ -96,7 +96,7 @@ export function FeedbackPrompt({ orderId }: { orderId: string }) {
             onClick={() => setRating(n)}
             style={{ ...starBtn, color: n <= rating ? "var(--ac)" : "var(--t3)" }}
           >
-            <span aria-hidden>{n <= rating ? "★" : "☆"}</span>
+            <Icon name="star" size={28} fill={n <= rating ? "currentColor" : "none"} />
           </button>
         ))}
       </div>

@@ -3,7 +3,7 @@ import { useMemo, useState, type CSSProperties, type FormEvent } from "react";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import type { StripeElementsOptions } from "@stripe/stripe-js";
 import { getStripePromise, stripeAppearance } from "@/lib/stripe-client";
-import { Card } from "@mms/ui";
+import { Card, Icon } from "@mms/ui";
 
 /**
  * Secure-tab card-save (S3.2). Lets a diner save a card so the tab can settle off-session at close —
@@ -62,7 +62,8 @@ export function SecureTabButton({
     return (
       // In the tray, wrap to a full-width line below the pill row (flex-basis:100%).
       <p style={compact ? { ...doneNote, flex: "1 0 100%", margin: "6px 0 0" } : doneNote} role="status">
-        <span aria-hidden>✓ </span>Card saved — your tab is secured. Settle anytime.
+        <Icon name="check" size={14} style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }} />
+        Card saved — your tab is secured. Settle anytime.
       </p>
     );
 

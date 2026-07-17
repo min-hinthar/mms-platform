@@ -4,7 +4,7 @@ import { TransitionLink as Link } from "./nav/TransitionNav"; // J1 journey gram
 import { useOrderStatus } from "@/lib/useOrderStatus";
 import { useActiveOrder } from "./ActiveOrderProvider";
 import { formatSlotLong } from "@/lib/pickupTime";
-import { useAnimationPreference, useInView } from "@mms/ui";
+import { Icon, useAnimationPreference, useInView } from "@mms/ui";
 import { getRewardsProgress, type RewardsProgress } from "@/lib/rewards";
 import { announceArrival } from "@/lib/arrival";
 import { FeedbackPrompt } from "./FeedbackPrompt";
@@ -340,8 +340,17 @@ export function OrderTracker({
         </section>
       ) : pureGrocery ? (
         <section className="exit-pass mms-rise" aria-label="Exit pass">
-          <p className="exit-pass-kicker">
-            <span aria-hidden>✓ </span>Paid — you’re all set
+          <p
+            className="exit-pass-kicker"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+            }}
+          >
+            <Icon name="check" size={16} />
+            Paid — you’re all set
           </p>
           {/* ARIA prohibits naming a paragraph — the visual code is hidden and an sr-only sibling
               reads the reference as spaced characters (a hex tail read as one word is useless). The
@@ -446,8 +455,10 @@ export function OrderTracker({
             outline: "none",
           }}
         >
-          <div style={{ fontWeight: 800, fontSize: 15 }}>
-            <span aria-hidden>🥡 </span>
+          <div
+            style={{ fontWeight: 800, fontSize: 15, display: "flex", alignItems: "center", gap: 8 }}
+          >
+            <Icon name="bag" size={18} />
             {isPickup ? "Ready for pickup" : "Your order’s ready"}
           </div>
           <div style={{ fontSize: 13, color: "var(--t2)", marginTop: 4 }}>
@@ -548,12 +559,12 @@ export function OrderTracker({
               background: "var(--grad)",
               display: "grid",
               placeItems: "center",
-              fontSize: 20,
+              color: "var(--ac)",
             }}
           >
-            🧾
+            <Icon name="receipt" size={20} />
           </span>
-          <div style={{ flex: 1 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 700, fontSize: 14, fontVariantNumeric: "tabular-nums" }}>
               {order.itemCount} {order.itemCount === 1 ? "item" : "items"} · $
               {(order.totalCents / 100).toFixed(2)}
@@ -563,6 +574,35 @@ export function OrderTracker({
               {/* K2: dine-in receipts name the table (null for to-go/pickup — no table). */}
               {order.tableNumber != null && ` · Table ${order.tableNumber}`}
             </div>
+          </div>
+          {/* W2e — the short order code on every food receipt card: a dine-in/pickup diner now has a
+              reference to quote at the counter (grocery already gets one on the exit pass). The visible
+              tail is aria-hidden; an sr-only sibling reads it as spaced characters (a hex tail read as
+              one word is useless), matching the exit-pass pattern. Same uuid-tail the exit pass + refund
+              card print. The whole visible block is aria-hidden — the sr-only sibling carries the full
+              "Order reference …" label, so AT hears it once, not "Order" then "Order reference". */}
+          <div style={{ textAlign: "right", flex: "none" }}>
+            <div
+              aria-hidden
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
+                color: "var(--t3)",
+              }}
+            >
+              Order
+            </div>
+            <div
+              aria-hidden
+              style={{ fontWeight: 800, fontSize: 13, letterSpacing: "0.04em", color: "var(--tx)" }}
+            >
+              #{order.id.slice(-6).toUpperCase()}
+            </div>
+            <span className="sr-only">
+              {`Order reference ${order.id.slice(-6).toUpperCase().split("").join(" ")}`}
+            </span>
           </div>
         </div>
       )}

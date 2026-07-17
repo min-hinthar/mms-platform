@@ -4,7 +4,7 @@ import type { SplitContext, SettlementShare } from "@/lib/split";
 import { getSettlement, abortSettlement } from "@/lib/split";
 import { useSettlementRealtime } from "@/lib/realtime";
 import { seatColor, seatInitial } from "@/lib/avatars";
-import { Avatar, NumberFlow, Skeleton } from "@mms/ui";
+import { Avatar, Icon, NumberFlow, Skeleton } from "@mms/ui";
 import { SharePay } from "./SharePay";
 
 /**
@@ -364,7 +364,9 @@ function StatusBadge({ status }: { status: SettlementShare["status"] }) {
             : "inset 0 1px 0 var(--sheen)",
       }}
     >
-      {(status === "captured" || status === "authorized") && <span aria-hidden>✓ </span>}
+      {(status === "captured" || status === "authorized") && (
+        <Icon name="check" size={13} style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }} />
+      )}
       {s.label}
     </span>
   );

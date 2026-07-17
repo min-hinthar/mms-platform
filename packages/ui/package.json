@@ -22,7 +22,8 @@
     "@radix-ui/react-dialog": "^1.1.17",
     "@number-flow/react": "^0.6.0",
     "clsx": "^2.1.1",
-    "framer-motion": "^12.26.1"
+    "framer-motion": "^12.26.1",
+    "lucide-react": "^0.562.0"
   },
   "peerDependencies": {
     "react": "^19",

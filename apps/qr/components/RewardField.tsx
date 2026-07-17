@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { Icon } from "@mms/ui";
 import { applyReward, clearReward, type ApplyRewardReason } from "@/lib/cart";
 import { getMyRewardCoupons, type RewardCoupon } from "@/lib/rewards";
 
@@ -88,7 +89,8 @@ export function RewardField({
       // content rides above the ::after shimmer on its own z-layer.
       <div className="checkout-reward-applied" style={appliedRow}>
         <span style={{ position: "relative", zIndex: 1, fontSize: 14, color: "var(--tx)" }}>
-          <span aria-hidden>🎁 </span>Reward applied ·{" "}
+          <Icon name="gift" size={14} style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }} />
+          Reward applied ·{" "}
           <strong>−{dollars(appliedRewardCents)}</strong>
         </span>
         <button
@@ -115,7 +117,8 @@ export function RewardField({
           className="checkout-reward-add"
           style={applyBtn}
         >
-          <span aria-hidden>🎁 </span>Use a reward ({coupons.length})
+          <Icon name="gift" size={15} style={{ display: "inline", verticalAlign: "-2px", marginRight: 4 }} />
+          Use a reward ({coupons.length})
         </button>
       ) : (
         <div style={panel}>
