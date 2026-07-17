@@ -1,6 +1,6 @@
 import "./globals.css";
 import type { ReactNode } from "react";
-import type { Viewport } from "next";
+import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
 import { Fraunces, Hanken_Grotesk, Padauk } from "next/font/google";
 import { ViewTransitions } from "next-view-transitions";
@@ -12,6 +12,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { LendModeBanner } from "@/components/LendModeBanner";
 import { NavDirectionSync } from "@/components/nav/TransitionNav";
 import { SurfaceMemory } from "@/components/nav/SurfaceMemory";
+import { siteUrl } from "@/lib/site-url";
 
 const fraunces = Fraunces({ subsets: ["latin"], variable: "--font-fraunces" });
 const hanken = Hanken_Grotesk({ subsets: ["latin"], variable: "--font-hanken" });
@@ -24,17 +25,31 @@ const padauk = Padauk({
   variable: "--font-padauk",
 });
 
-export const metadata = {
+export const metadata: Metadata = {
+  // Resolves the relative OG / twitter / manifest asset URLs (opengraph-image.tsx, apple-icon.tsx,
+  // manifest.ts) to absolute ones. Origin = an explicit NEXT_PUBLIC_SITE_URL, else the stable Vercel
+  // PRODUCTION host (so previews resolve OG assets to prod — the canonical share card) via siteUrl (W7).
+  metadataBase: new URL(siteUrl()),
+  applicationName: "Mandalay Morning Star",
   title: "Mandalay Morning Star — Order",
   description: "Order at the teahouse: dine-in, to-go, or grocery.",
-  // The ✦ Morning Star mark (apps/qr/public/icon.svg) is QR's first brand asset — replaces the emoji
-  // identity. SVG favicon scales crisply on every tab/PWA surface.
+  // The ✦ Morning Star mark (apps/qr/public/icon.svg) is QR's brand mark — the SVG favicon scales
+  // crisply on every tab surface. `apple-icon.tsx` adds the PNG iOS touch icon; `manifest.ts` the PWA
+  // (any + maskable) icons + install metadata; `opengraph-image.tsx`/`twitter-image.tsx` the share card.
   icons: { icon: [{ url: "/icon.svg", type: "image/svg+xml" }] },
+  // iOS standalone (installed) chrome: show the short brand title on the home screen.
+  appleWebApp: { capable: true, title: "Morning Star", statusBarStyle: "default" },
   openGraph: {
     title: "Mandalay Morning Star",
     description: "Order at the teahouse: dine-in, to-go, or grocery.",
     siteName: "Mandalay Morning Star",
+    url: "/",
     type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Mandalay Morning Star",
+    description: "Order at the teahouse: dine-in, to-go, or grocery.",
   },
 };
 

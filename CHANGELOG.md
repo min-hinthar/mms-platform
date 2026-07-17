@@ -4,6 +4,30 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W7 (brand kit) — social / PWA shell: OG card · metadataBase · apple-touch · manifest (2026-07-17)
+
+The first W7 "shell" slice — the brand-asset kit, closing most of OPEN-ITEMS S4. No app-UI or money
+change; all page metadata + generated images. Gate green.
+
+- **Social share card** — `app/opengraph-image.tsx` (+ `twitter-image.tsx` re-exporting it): a next/og
+  (Satori) wordmark lockup — the ✦ mark over "Mandalay Morning Star" in Fraunces Black on paper cream, a
+  clay hairline, the honest tagline. Fraunces is **bundled** (latin-subset OFL woff in `app/_og/`) so the
+  image prerenders at build with **no** request-time font fetch.
+- **`metadataBase`** — extracted the env-resolved origin (`NEXT_PUBLIC_SITE_URL` → Vercel prod → prod
+  domain) out of `email.tsx` into a shared `lib/site-url.ts`, and set `metadataBase` from it so the OG /
+  twitter / manifest URLs resolve absolute. Added `twitter: summary_large_image`, `appleWebApp`,
+  `applicationName`.
+- **Icons + PWA** — `app/apple-icon.tsx` (next/og 180×180 gold ✦ on brand-dark — the iOS home-screen
+  icon iOS won't take from an SVG) · `app/manifest.ts` (installable: name/short_name/standalone/portrait,
+  `theme_color`/`background_color` from `--pg` #faf9f5) · `public/icon-maskable.svg` (full-bleed field +
+  safe-zone mark so Android's adaptive mask can't clip it). The `/icon.svg` favicon is unchanged.
+- **Lint** — the next/og image routes (Satori needs literal-px `fontSize` + a raw `<img>`) are exempted
+  from the numeric-`fontSize` token ban + `no-img-element`; they aren't app UI.
+- **C10 closed** — the Stripe wallet-domain registration landed (`pmd_1Tu6…`, live/prod); W2d's Express
+  Checkout wallets now render (card path unchanged).
+- **Deferred to a focused follow-up:** the `--star` token + gold unification — a cross-app color-token
+  refactor kept out of this asset PR to bound the regression surface.
+
 ### W2 (part 3) — staff surfaces: type-scale + icon sweep; numeric-fontSize ban now repo-wide (2026-07-17)
 
 Closes the W2b/W2c tail on the **staff** surfaces (KDS · expo · floor · orders · approvals · team · PIN/

@@ -24,5 +24,22 @@ const noNumericFontSize = {
   },
 };
 
-const config = [...base, ...next, noNumericFontSize];
+// next/og (Satori) image routes — NOT app UI. Satori needs literal px fontSizes (it can't resolve the
+// `var(--fs-*)` CSS-var tokens) and requires a raw <img> (next/image doesn't render under Satori). Exempt
+// the brand-kit image generators from the token ban + the img rule so they lint clean. Must come AFTER
+// noNumericFontSize to override it.
+const ogImageRoutes = {
+  files: [
+    "app/**/opengraph-image.tsx",
+    "app/**/twitter-image.tsx",
+    "app/**/apple-icon.tsx",
+    "app/**/icon.tsx",
+  ],
+  rules: {
+    "no-restricted-syntax": "off",
+    "@next/next/no-img-element": "off",
+  },
+};
+
+const config = [...base, ...next, noNumericFontSize, ogImageRoutes];
 export default config;

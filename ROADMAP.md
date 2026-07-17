@@ -258,7 +258,7 @@ stay hardware/FNS-gated below.
 - **W4** The market grows up — 198-SKU catalog (categories · photos · name_my · units · synonyms) · browse+scan hybrid over one catalog · scanner craft (haptic/flash/torch/leave-frame dedupe/failure ladder) · QR exit pass + staff scan view + offline pass · weighed type-2 UPCs. ⬜
 - **W5** One tongue — app-wide EN↔MY toggle · money-path localization (~20 moments) · modifier/category `name_my`. ⬜
 - **W6** Front of house — staff register first (walk-up/phone orders can't be entered today; search + modifiers + day cash summary) · kiosk shell mode (attract/idle-reset/EN-MY tiles/HID scan/one upsell) · Terminal stays M6·P6.2. ⬜
-- **W7** The shell — brand asset kit (OG/manifest/apple-touch/192-512) · Serwist SW + offline banner + grocery scan queue + chunk-reload boundary. ⬜
+- **W7** The shell — brand asset kit 🚧 (OG/twitter · `metadataBase` · apple-touch · `manifest` + maskable; `--star` token a follow-up) · Serwist SW + offline banner + grocery scan queue + chunk-reload boundary ⬜
 
 **Order:** W0 → W1 → W3 → W2 → W7 → W4 → W5 → W6 (photography + SKU data sprints start now in parallel —
 [`docs/PRODUCTION_PLAN.md`](docs/PRODUCTION_PLAN.md) §5). **Exit:** every surface ≥4.3 on its applicable

@@ -23,7 +23,7 @@ prerequisite). Closed items move to the Closed section with the closing PR — d
 | C7  | config   | Hardware: KDS 15.6" Android touchscreen + VESA arm · order-ready smart TV · kiosk iPad + stand · HID scanner · label-printing scale · S700 (M6)                                                                                                                       | PRODUCTION_PLAN §5       |
 | C8  | config   | Resend diner-facing from-address for receipts (gates W2e email receipt)                                                                                                                                                                                               | PRODUCTION_PLAN §5       |
 | C9  | config   | Paid UI kit go/no-go (~$790 — HeroUI Pro · Motion+ · shadcnblocks · 1mo Mobbin)                                                                                                                                                                                       | DESIGN-RESEARCH §5       |
-| C10 | config   | **Register the payment domain in Stripe** (Settings → Payment Methods → Apple/Google Pay) so W2d's wallet-first Express Checkout shows Apple/Google Pay — the element is live + safe now (fails closed to card), but wallets stay hidden until the domain is verified | W2d / PaymentSection     |
+| C10 | config   | ✅ **DONE** — Apple Pay/wallet domain registered in Stripe (`pmd_1Tu6OnD7LsBxOcnNv8zPuCTf`; prod domain `qr.mandalaymorningstar.com`, live mode) → W2d's Express Checkout wallets now render; card path unchanged. Owner: confirm Apple Pay shows "active" for the prod domain (live) in the Dashboard | W2d / PaymentSection     |
 
 ## Money / security / hardening
 
@@ -93,7 +93,7 @@ prerequisite). Closed items move to the Closed section with the closing PR — d
 | S1  | high | No post-pay receipt artifact (no email/print/durable link; anon history dies with the 4h TTL; `receipt_email` never set)                       | planned:W2e |
 | S2  | high | No EN↔MY toggle; `<html lang>` never switches; money path monolingual (the `layout.tsx` comment describes unwritten code)                      | planned:W5  |
 | S3  | high | No PWA manifest / SW / offline banner / chunk-reload boundary (P5.6 deferred — but table wifi makes it foundation)                             | planned:W7  |
-| S4  | med  | Brand kit = one SVG: no OG image, no `metadataBase`, no apple-touch-icon/192/512, no twitter card; `--star` token + gold unification unshipped | planned:W7  |
+| S4  | med  | Brand kit — ✅ **W7 assets shipped**: OG + twitter share card (next/og Fraunces lockup), `metadataBase`, apple-touch icon, PWA `manifest` + maskable icon. **Remaining (own follow-up):** the `--star` token + gold unification (cross-app color-token refactor, kept out of the asset PR to bound regression surface) · raster 192/512 PWA icons (Android splash / Lighthouse polish — SVG installability + the iOS apple-icon PNG already cover install) | ⚑ W7 (assets done; `--star` + PNG-icon follow-up) |
 | S5  | med  | Kiosk mode seam absent (no mode enum value, route guard, idle machinery) — reserve cheap seams pre-hardware                                    | planned:W6b |
 | S6  | low  | `posthog.identify` consent surface (client↔server funnel join) — deliberate defer; needs a consent banner                                      | open        |
 | S7  | info | Door-keyed funnels wired + pinned; await real diner traffic to read                                                                            | gated       |

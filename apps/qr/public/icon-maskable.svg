@@ -1,0 +1,10 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Mandalay Morning Star">
+  <!-- Maskable PWA icon (W7): FULL-BLEED brand-dark field (no rounded corners — Android's adaptive mask
+       supplies them), with the ✦ Morning Star held inside the maskable safe zone (central ~60%, well
+       within the 80% safe circle) so no mask shape clips it. Same path as icon.svg, scaled + centered. -->
+  <rect width="512" height="512" fill="#1b1714"/>
+  <g transform="translate(256 256) scale(6) translate(-32 -32)">
+    <path d="M32 8 C34 21, 43 30, 56 32 C43 34, 34 43, 32 56 C30 43, 21 34, 8 32 C21 30, 30 21, 32 8 Z" fill="#e8a83c"/>
+    <circle cx="32" cy="32" r="3.4" fill="#1b1714"/>
+  </g>
+</svg>
