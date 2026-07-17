@@ -7,7 +7,7 @@ import { formatSlotLong } from "@/lib/pickupTime";
 import type { ExpoLine, ExpoQueue, ExpoTicket } from "@/lib/expo-types";
 import { RelativeTime } from "./RelativeTime";
 import { StaggerList } from "./StaggerList";
-import { EmptyState } from "@mms/ui";
+import { EmptyState, Icon } from "@mms/ui";
 
 /**
  * Expo / bagging station (S4.3a, W3a) — the takeaway counterpart to the KDS. Server-rendered initial
@@ -87,12 +87,21 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
   return (
     <section aria-labelledby="expo-h" onFocusCapture={markFocus}>
       <div style={headRow}>
-        <h2 id="expo-h" ref={headingRef} tabIndex={-1} style={{ fontSize: 16, margin: 0 }}>
+        <h2
+          id="expo-h"
+          ref={headingRef}
+          tabIndex={-1}
+          style={{ fontSize: "var(--fs-body)", margin: 0 }}
+        >
           Takeaway bags
         </h2>
         <p
           role="status"
-          style={{ margin: 0, fontSize: 13, color: err || stale ? "var(--warn)" : "var(--t2)" }}
+          style={{
+            margin: 0,
+            fontSize: "var(--fs-sm)",
+            color: err || stale ? "var(--warn)" : "var(--t2)",
+          }}
         >
           {err ??
             (stale
@@ -107,7 +116,7 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
         <EmptyState
           title="Nothing to bag"
           subtitle="Bags appear here once a to-go or grocery order is paid."
-          icon="🥡"
+          icon={<Icon name="bag" size={30} style={{ color: "var(--ac)" }} />}
         />
       ) : (
         <StaggerList
@@ -176,13 +185,13 @@ function ExpoCard({
               outranks bag age; hand this one over first. Rendered only from the real stamp. */}
           {ticket.arrivedAt && <span style={hereTag}>Here now</span>}
           {ticket.status === "ready" && <span style={readyTag}>Ready</span>}
-          <span style={{ fontSize: 12, color: "var(--t2)" }}>
+          <span style={{ fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
             <RelativeTime iso={ticket.createdAt} serverNow={serverNow} />
           </span>
         </span>
       </header>
       {ticket.pickupSlot && (
-        <p style={{ margin: 0, fontSize: 12, color: "var(--t2)" }}>
+        <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
           Pickup {formatSlotLong(ticket.pickupSlot)}
         </p>
       )}
@@ -246,12 +255,12 @@ const cardHead: CSSProperties = {
   justifyContent: "space-between",
   gap: "var(--s3)",
 };
-const tableLabel: CSSProperties = { fontWeight: 700, fontSize: 16 };
-const codeSuffix: CSSProperties = { fontWeight: 700, fontSize: 12, color: "var(--t2)" };
+const tableLabel: CSSProperties = { fontWeight: 700, fontSize: "var(--fs-body)" };
+const codeSuffix: CSSProperties = { fontWeight: 700, fontSize: "var(--fs-sm)", color: "var(--t2)" };
 // The note is safety-adjacent — full text color (not muted), quoted so it reads as the diner's words.
 const noteInline: CSSProperties = { display: "block", fontWeight: 700, color: "var(--tx)" };
 const readyTag: CSSProperties = {
-  fontSize: 11,
+  fontSize: "var(--fs-xs)",
   fontWeight: 800,
   textTransform: "uppercase",
   letterSpacing: "0.04em",
@@ -259,7 +268,7 @@ const readyTag: CSSProperties = {
 };
 // "Here now" (J5) — accent, not success-green: it flags a waiting person, not a completed step.
 const hereTag: CSSProperties = {
-  fontSize: 11,
+  fontSize: "var(--fs-xs)",
   fontWeight: 800,
   textTransform: "uppercase",
   letterSpacing: "0.04em",
@@ -276,12 +285,12 @@ const lineRow: CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: "var(--s2)",
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
 };
 const qtyBadge: CSSProperties = { fontWeight: 800, color: "var(--ac-strong)", flex: "none" };
 const destTag: CSSProperties = {
   flex: "none",
-  fontSize: 11,
+  fontSize: "var(--fs-xs)",
   fontWeight: 700,
   textTransform: "uppercase",
   letterSpacing: "0.04em",
@@ -292,7 +301,7 @@ const bumpBtn: CSSProperties = {
   borderRadius: "var(--r-sm)",
   border: "1px solid var(--bd)",
   fontWeight: 700,
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   cursor: "pointer",
 };
 const readyBtn: CSSProperties = {

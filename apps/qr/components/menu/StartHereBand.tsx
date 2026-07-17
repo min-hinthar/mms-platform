@@ -38,7 +38,9 @@ export function StartHereBand({
     >
       <h2 id="start-here-h" className="start-here-h">
         Start here <span aria-hidden>✦</span>
-        <span className="start-here-sub">{dataBacked ? "what tables love" : "our picks to start"}</span>
+        <span className="start-here-sub">
+          {dataBacked ? "what tables love" : "our picks to start"}
+        </span>
       </h2>
       <ul role="list" className="start-here-rail" aria-labelledby="start-here-h">
         {items.map((i) => (

@@ -8,7 +8,7 @@ import { type TableDetail, tableDisplay } from "@/lib/floor-types";
 import { FloorStatusChip } from "./FloorStatusChip";
 import { RelativeTime } from "./RelativeTime";
 import { LiveMoney } from "./LiveMoney";
-import { Badge } from "@mms/ui";
+import { Badge, Icon } from "@mms/ui";
 import { ClearTableButton } from "./ClearTableButton";
 import { StaffLineEditor } from "./StaffLineEditor";
 import { CashSettleButton } from "./CashSettleButton";
@@ -158,7 +158,7 @@ export function FloorDetailLive({
           check in or suggest it. Plain banners (not live regions — one view already owns aria-live). */}
       {detail.tabOverCeiling && (
         <div style={ceilingBanner}>
-          <span aria-hidden>⚠ </span>
+          <Icon name="alert" size={16} />
           <span>
             <strong>Tab at {fmt(detail.runningSubtotalCents)}</strong> — past the{" "}
             {fmt(detail.ceilingCents)} mark. Check in with the table, or ask them to secure the tab
@@ -168,7 +168,7 @@ export function FloorDetailLive({
       )}
       {detail.nudgeSecure && detail.tab !== "secure" && (
         <div style={nudgeBanner}>
-          <span aria-hidden>☆ </span>
+          <Icon name="star" size={16} />
           <span>
             {detail.nudgeSecure === "party"
               ? "Large party — consider suggesting a secure tab (a card on file) so they can order freely and settle once."
@@ -189,7 +189,9 @@ export function FloorDetailLive({
             {detail.members.map((m) => (
               <li key={m.seatId} style={guestChip}>
                 {m.name}
-                {m.isHost && <span style={{ color: "var(--ac)", fontSize: 12 }}> · host</span>}
+                {m.isHost && (
+                  <span style={{ color: "var(--ac)", fontSize: "var(--fs-sm)" }}> · host</span>
+                )}
               </li>
             ))}
           </ul>
@@ -197,7 +199,7 @@ export function FloorDetailLive({
         {/* Host-of-record (S3.3 / T14): on a secure tab, the host who opened it is cardholder-of-record —
             the off-session close charges their saved card (or the table splits). */}
         {detail.tab === "secure" && detail.members.some((m) => m.isHost) && (
-          <p style={{ ...muted, marginTop: 8, fontSize: 12.5 }}>
+          <p style={{ ...muted, marginTop: 8, fontSize: "var(--fs-sm)" }}>
             Card on file — host of record:{" "}
             <strong style={{ color: "var(--tx)" }}>
               {detail.members.find((m) => m.isHost)?.name}
@@ -259,7 +261,10 @@ export function FloorDetailLive({
                     {l.state === "voided" && <span style={offBadge}> · Voided</span>}
                     {l.comped && <span style={offBadge}> · Comped</span>}
                     {l.bySeatName && (
-                      <span style={{ color: "var(--t3)", fontSize: 12 }}> · {l.bySeatName}</span>
+                      <span style={{ color: "var(--t3)", fontSize: "var(--fs-sm)" }}>
+                        {" "}
+                        · {l.bySeatName}
+                      </span>
                     )}
                   </span>
                   <span
@@ -284,7 +289,7 @@ export function FloorDetailLive({
               <span style={{ fontWeight: 700 }}>
                 <LiveMoney cents={detail.runningSubtotalCents} />
               </span>{" "}
-              <span style={{ color: "var(--t2)", fontSize: 13 }}>
+              <span style={{ color: "var(--t2)", fontSize: "var(--fs-sm)" }}>
                 subtotal so far · {detail.itemCount} {detail.itemCount === 1 ? "item" : "items"}
               </span>
             </span>
@@ -295,7 +300,7 @@ export function FloorDetailLive({
             </span>
           )}
         </div>
-        <p style={{ ...muted, marginTop: 8, fontSize: 12 }}>
+        <p style={{ ...muted, marginTop: 8, fontSize: "var(--fs-sm)" }}>
           Running pre-tax subtotal — tax and the service charge are added at settle.
         </p>
         {/* One shared live region for staff line-edit feedback + the stale-poll signal (S2-audit S9): a
@@ -305,7 +310,7 @@ export function FloorDetailLive({
           style={{
             ...muted,
             marginTop: 6,
-            fontSize: 12.5,
+            fontSize: "var(--fs-sm)",
             minHeight: writeError || stale ? 16 : 0,
             color: writeError || stale ? "var(--warn)" : "var(--t3)",
           }}
@@ -339,7 +344,7 @@ export function FloorDetailLive({
             isTab={detail.tab !== "none"}
           />
           {detail.tab === "trust" && (
-            <p style={{ ...muted, marginTop: 8, fontSize: 12.5 }}>
+            <p style={{ ...muted, marginTop: 8, fontSize: "var(--fs-sm)" }}>
               Paying by card? The guest closes the tab from their phone — it settles when that
               payment lands.
             </p>
@@ -347,7 +352,7 @@ export function FloorDetailLive({
         </section>
       )}
       {detail.paymentInFlight && (
-        <p style={{ ...muted, marginTop: "var(--s4)", fontSize: 13 }}>
+        <p style={{ ...muted, marginTop: "var(--s4)", fontSize: "var(--fs-sm)" }}>
           A guest is paying on their phone — editing and{" "}
           {detail.tab !== "none" ? "tab close" : "cash settle"} are paused until that finishes.
         </p>
@@ -381,7 +386,7 @@ const addLink: CSSProperties = {
   minHeight: 44,
   alignItems: "center",
   color: "var(--ac)",
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   fontWeight: 700,
   textDecoration: "none",
 };
@@ -392,14 +397,14 @@ const back: CSSProperties = {
   minHeight: 44,
   alignItems: "center",
   color: "var(--ac)",
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   fontWeight: 600,
   textDecoration: "none",
   marginBottom: "var(--s3)",
 };
 const header: CSSProperties = { marginBottom: "var(--s5)" };
-const h1: CSSProperties = { fontSize: 24, margin: 0 };
-const sub: CSSProperties = { color: "var(--t2)", fontSize: 14, margin: "6px 0 0" };
+const h1: CSSProperties = { fontSize: "var(--fs-h1)", margin: 0 };
+const sub: CSSProperties = { color: "var(--t2)", fontSize: "var(--fs-sm)", margin: "6px 0 0" };
 const ceilingBanner: CSSProperties = {
   display: "flex",
   gap: "var(--s2)",
@@ -410,7 +415,7 @@ const ceilingBanner: CSSProperties = {
   border: "1px solid color-mix(in oklab, var(--warn) 35%, transparent)",
   background: "color-mix(in oklab, var(--warn) 9%, var(--cd))",
   color: "var(--tx)",
-  fontSize: 13.5,
+  fontSize: "var(--fs-sm)",
   lineHeight: 1.5,
 };
 const nudgeBanner: CSSProperties = {
@@ -423,12 +428,16 @@ const nudgeBanner: CSSProperties = {
   border: "1px solid var(--bd)",
   background: "color-mix(in oklab, var(--ac) 7%, var(--cd))",
   color: "var(--t2)",
-  fontSize: 13,
+  fontSize: "var(--fs-sm)",
   lineHeight: 1.5,
 };
 const sectionCard: CSSProperties = { padding: "var(--s5)", marginBottom: "var(--s4)" };
-const sectionH: CSSProperties = { fontSize: 13, margin: "0 0 var(--s3)", color: "var(--t2)" };
-const muted: CSSProperties = { margin: 0, color: "var(--t3)", fontSize: 14 };
+const sectionH: CSSProperties = {
+  fontSize: "var(--fs-sm)",
+  margin: "0 0 var(--s3)",
+  color: "var(--t2)",
+};
+const muted: CSSProperties = { margin: 0, color: "var(--t3)", fontSize: "var(--fs-sm)" };
 const chipList: CSSProperties = {
   listStyle: "none",
   margin: 0,
@@ -442,7 +451,7 @@ const guestChip: CSSProperties = {
   borderRadius: "var(--r-full)",
   border: "1px solid var(--bd)",
   background: "var(--cd)",
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
 };
 const lineRow: CSSProperties = {
   display: "flex",
@@ -451,9 +460,9 @@ const lineRow: CSSProperties = {
   gap: "var(--s4)",
   padding: "8px 0",
   borderTop: "1px solid var(--bd)",
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
 };
-const offBadge: CSSProperties = { color: "var(--t3)", fontSize: 12, fontWeight: 700 };
+const offBadge: CSSProperties = { color: "var(--t3)", fontSize: "var(--fs-sm)", fontWeight: 700 };
 const totalRow: CSSProperties = {
   display: "flex",
   alignItems: "center",

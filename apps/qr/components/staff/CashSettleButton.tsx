@@ -63,7 +63,7 @@ export function CashSettleButton({
           aria-label="Confirm cash settlement"
           style={{ ...confirmCard, outline: "none" }}
         >
-          <p style={{ margin: 0, fontSize: 14 }}>
+          <p style={{ margin: 0, fontSize: "var(--fs-sm)" }}>
             Take <strong>{fmt(totalCents)}</strong> in cash?{" "}
             {isTab ? "This closes the tab." : "This closes the order."}
           </p>
@@ -122,7 +122,7 @@ const payBtn: CSSProperties = {
   border: "1px solid transparent",
   background: "var(--ac)",
   color: "var(--oa)",
-  fontSize: 15,
+  fontSize: "var(--fs-body)",
   fontWeight: 700,
   cursor: "pointer",
 };
@@ -133,7 +133,7 @@ const cancelBtn: CSSProperties = {
   border: "1px solid var(--bd)",
   background: "var(--cd)",
   color: "var(--tx)",
-  fontSize: 15,
+  fontSize: "var(--fs-body)",
   fontWeight: 600,
   cursor: "pointer",
 };
@@ -146,7 +146,7 @@ const confirmCard: CSSProperties = {
 };
 const hint: CSSProperties = {
   margin: "8px 0 0",
-  fontSize: 12.5,
+  fontSize: "var(--fs-sm)",
   color: "var(--t3)",
   minHeight: 16,
 };

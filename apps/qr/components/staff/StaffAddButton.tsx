@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, useTransition, type CSSProperties } from "react";
+import { Icon } from "@mms/ui";
 import { staffAddItem } from "@/lib/staff-cart";
 
 /**
@@ -70,12 +71,21 @@ export function StaffAddButton({
           color: soldOut ? "var(--t3)" : "var(--oa)",
         }}
       >
-        {soldOut ? "Sold out" : added ? "Added ✓" : "Add"}
+        {soldOut ? (
+          "Sold out"
+        ) : added ? (
+          <>
+            Added{" "}
+            <Icon name="check" size={16} strokeWidth={2.25} style={{ verticalAlign: "-3px" }} />
+          </>
+        ) : (
+          "Add"
+        )}
       </button>
       {/* role="alert" (not status): an alert announces reliably when it MOUNTS with content — the exact
           shape here (the region appears with the error). Conditional per-item, like a form field error. */}
       {error && (
-        <span role="alert" style={{ fontSize: 11, color: "var(--warn)", maxWidth: 96 }}>
+        <span role="alert" style={{ fontSize: "var(--fs-xs)", color: "var(--warn)", maxWidth: 96 }}>
           {error}
         </span>
       )}
@@ -90,7 +100,7 @@ const btn: CSSProperties = {
   borderRadius: 999,
   border: "none",
   fontWeight: 800,
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   cursor: "pointer",
   alignSelf: "center",
 };

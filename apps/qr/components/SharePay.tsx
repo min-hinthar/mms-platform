@@ -148,7 +148,9 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
       ) : loading || !options ? (
         // Plain text (not a live region): the disabled flow + visible label convey loading, and the
         // settlement view already has its status region — no redundant aria-live (QA §A).
-        <p style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", marginTop: 12 }}>Preparing your payment…</p>
+        <p style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", marginTop: 12 }}>
+          Preparing your payment…
+        </p>
       ) : (
         <Elements key={clientSecret} stripe={stripePromise} options={options}>
           <ShareForm amountCents={amountCents} onAuthorized={onAuthorized} />
@@ -212,7 +214,12 @@ function ShareForm({
           view's polite status region belongs to the parent (one per view). */}
       <p
         role="alert"
-        style={{ minHeight: 16, margin: "10px 0 0", fontSize: "var(--fs-sm)", color: "var(--warn)" }}
+        style={{
+          minHeight: 16,
+          margin: "10px 0 0",
+          fontSize: "var(--fs-sm)",
+          color: "var(--warn)",
+        }}
       >
         {error}
       </p>

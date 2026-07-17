@@ -27,7 +27,7 @@
   `getRewardsProgress(orderId)` server-checks `earned_by === auth.uid()` (`earnedThisOrder`) and the pill is
   gated on it, so we never claim a Star a diner didn't get.
 - **Race-correct fetch.** `mms_reward_on_fulfill` + the `earned_by`/`status=paid` stamp happen in the webhook
-  *before* the order row becomes visible to the client — so fetching once the order has **arrived** (Realtime-
+  _before_ the order row becomes visible to the client — so fetching once the order has **arrived** (Realtime-
   confirmed) guarantees `stars` counts it. No off-by-one.
 - **The prototype perks are demo fiction.** Free milk tea / 10% off snacks / birthday sweet / skip-the-line
   are not deliverable (QR ships only the milestone reward coupon + spend tiers; `isEarlyAccess` has **zero
@@ -47,7 +47,7 @@
   `.pay-success-gems` → `.pay-success-stars` + new `.pay-success-progress`.
 - **`components/OrderTracker.tsx`** — removed `gems = round(total)`; fetches `getRewardsProgress(order.id)`
   once (ref-guarded) when `justPaid` and the order lands; passes `starsEarned` (gated on `earnedThisOrder`)
-  + `ordersToNext`. The single `role="status"` live region stays the only announcer.
+  - `ordersToNext`. The single `role="status"` live region stays the only announcer.
 
 ### Slice B — Stars ring ✅
 
@@ -77,7 +77,7 @@
 ## Deferred (tracked, not in this PR)
 
 The plan's remaining **/track motion polish** — a connector shimmer down the completed rail and a `NumberFlow`
-on the receipt total — is held back: the receipt total is a *final* figure, so rolling it would imply a
+on the receipt total — is held back: the receipt total is a _final_ figure, so rolling it would imply a
 changing total (honesty), and the "your food's up" pulse already exists (`mms-track-now`, `useInView`-gated).
 Fold into R9 if still wanted.
 

@@ -58,13 +58,13 @@ const btn: CSSProperties = {
   border: "1px solid var(--bd)",
   background: "var(--cd)",
   color: "var(--tx)",
-  fontSize: 15,
+  fontSize: "var(--fs-body)",
   fontWeight: 700,
   cursor: "pointer",
 };
 const hint: CSSProperties = {
   margin: "8px 0 0",
-  fontSize: 12.5,
+  fontSize: "var(--fs-sm)",
   color: "var(--t3)",
   minHeight: 16,
 };

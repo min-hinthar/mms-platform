@@ -584,7 +584,12 @@ export function Checkout({
             <p
               role="status"
               aria-atomic="true"
-              style={{ minHeight: 16, margin: "12px 0 0", fontSize: "var(--fs-sm)", color: "var(--t2)" }}
+              style={{
+                minHeight: 16,
+                margin: "12px 0 0",
+                fontSize: "var(--fs-sm)",
+                color: "var(--t2)",
+              }}
             >
               {status}
             </p>
@@ -783,7 +788,9 @@ export function Checkout({
                     config-driven estimate — shown only while a to-go line is still waiting (draft). */}
                   {key === "togo" &&
                     viewItems.some((i) => i.fulfillment === "togo" && i.lineState === "draft") && (
-                      <p style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", margin: "0 0 8px" }}>
+                      <p
+                        style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", margin: "0 0 8px" }}
+                      >
                         Made fresh when you check out — ready in about {prepMinutes} min. Want it
                         sooner? Tap “Make it now.”
                       </p>
@@ -851,7 +858,12 @@ export function Checkout({
               <div style={{ margin: "12px 0" }}>
                 <label
                   htmlFor="pickup-name"
-                  style={{ display: "block", fontWeight: 700, fontSize: "var(--fs-sm)", marginBottom: 4 }}
+                  style={{
+                    display: "block",
+                    fontWeight: 700,
+                    fontSize: "var(--fs-sm)",
+                    marginBottom: 4,
+                  }}
                 >
                   First name for pickup{" "}
                   <span style={{ fontWeight: 600, color: "var(--t3)", fontSize: "var(--fs-sm)" }}>
@@ -986,7 +998,13 @@ export function Checkout({
                       />
                     </div>
                     {tipNet > 0 && parseFloat(customTip) * 100 > tipNet && (
-                      <p style={{ margin: "4px 2px 0", fontSize: "var(--fs-sm)", color: "var(--t3)" }}>
+                      <p
+                        style={{
+                          margin: "4px 2px 0",
+                          fontSize: "var(--fs-sm)",
+                          color: "var(--t3)",
+                        }}
+                      >
                         Capped at ${(tipNet / 100).toFixed(2)} — 100% of your order.
                       </p>
                     )}
@@ -1118,7 +1136,15 @@ export function Checkout({
               </div>
             )}
             {tabType === "secure" ? (
-              <p style={{ ...tabNote, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+              <p
+                style={{
+                  ...tabNote,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                }}
+              >
                 <Icon name="check" size={15} />
                 Tab secured · card on file — settle anytime, or just leave and we’ll close it.
               </p>

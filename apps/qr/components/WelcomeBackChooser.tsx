@@ -75,7 +75,12 @@ export function WelcomeBackChooser({
           const masked = maskEmail(id.email);
           const loading = !!selectedEmail && selectedEmail.toLowerCase() === id.email.toLowerCase();
           return (
-            <li key={id.email} className="wb-row" role="listitem" style={{ ["--wb-i" as string]: i }}>
+            <li
+              key={id.email}
+              className="wb-row"
+              role="listitem"
+              style={{ ["--wb-i" as string]: i }}
+            >
               <button
                 type="button"
                 className="wb-chip"

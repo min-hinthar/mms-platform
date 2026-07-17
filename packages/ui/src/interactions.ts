@@ -118,7 +118,9 @@ export function useHeroParallax(
     // layout (getBoundingClientRect) per scroll event.
     const onScroll = () => {
       cancelAnimationFrame(scrollFrame.current);
-      scrollFrame.current = requestAnimationFrame(() => scrollY.set(-el.getBoundingClientRect().top));
+      scrollFrame.current = requestAnimationFrame(() =>
+        scrollY.set(-el.getBoundingClientRect().top),
+      );
     };
     const onOrient = (e: DeviceOrientationEvent) => {
       if (e.gamma == null || e.beta == null) return;

@@ -107,7 +107,14 @@ export function TablePicker({ tables }: { tables: DineInTable[] }) {
         onOpenChange={(o) => !o && setSeatedNum(null)}
         title={seatedNum != null ? `Join Table ${seatedNum}` : "Join a table"}
       >
-        <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", lineHeight: 1.5, margin: "0 0 12px" }}>
+        <p
+          style={{
+            color: "var(--t2)",
+            fontSize: "var(--fs-sm)",
+            lineHeight: 1.5,
+            margin: "0 0 12px",
+          }}
+        >
           Table {seatedNum} is seated. Enter the code the party shares (or scan the table’s sticker)
           to order together on one cart.
         </p>

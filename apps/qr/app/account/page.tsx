@@ -33,10 +33,24 @@ export default async function Account() {
         <p className="eyebrow" style={{ margin: 0 }}>
           <span aria-hidden>✦ </span>Mandalay Morning Star
         </p>
-        <h1 style={{ fontSize: "var(--fs-h1)", fontWeight: 900, margin: "2px 0 0", color: "var(--tx)" }}>
+        <h1
+          style={{
+            fontSize: "var(--fs-h1)",
+            fontWeight: 900,
+            margin: "2px 0 0",
+            color: "var(--tx)",
+          }}
+        >
           Rewards &amp; account
         </h1>
-        <p style={{ margin: "6px 0 0", fontSize: "var(--fs-sm)", color: "var(--t2)", lineHeight: 1.5 }}>
+        <p
+          style={{
+            margin: "6px 0 0",
+            fontSize: "var(--fs-sm)",
+            color: "var(--t2)",
+            lineHeight: 1.5,
+          }}
+        >
           Earn Stars as you order — climb the gem tiers and unlock Kyay-Zu-Par! rewards.
         </p>
         <div className="account-masthead-rule" aria-hidden />

@@ -37,9 +37,7 @@ export default function TrackLoading() {
                 }}
               >
                 <Skeleton width={18} height={18} circle />
-                {i < 3 && (
-                  <Skeleton width={2} height={34} radius={2} style={{ margin: "2px 0" }} />
-                )}
+                {i < 3 && <Skeleton width={2} height={34} radius={2} style={{ margin: "2px 0" }} />}
               </div>
               <div style={{ paddingBottom: 18, flex: 1 }}>
                 <Skeleton width="42%" height={15} style={{ marginBottom: 7 }} />

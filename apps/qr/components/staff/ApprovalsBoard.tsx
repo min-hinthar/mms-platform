@@ -86,12 +86,21 @@ export function ApprovalsBoard({
   return (
     <section aria-labelledby="appr-h" onFocusCapture={markFocus}>
       <div style={headRow}>
-        <h2 id="appr-h" ref={headingRef} tabIndex={-1} style={{ fontSize: 16, margin: 0 }}>
+        <h2
+          id="appr-h"
+          ref={headingRef}
+          tabIndex={-1}
+          style={{ fontSize: "var(--fs-body)", margin: 0 }}
+        >
           Open requests
         </h2>
         <p
           role="status"
-          style={{ margin: 0, fontSize: 13, color: stale ? "var(--warn)" : "var(--t2)" }}
+          style={{
+            margin: 0,
+            fontSize: "var(--fs-sm)",
+            color: stale ? "var(--warn)" : "var(--t2)",
+          }}
         >
           {stale
             ? "Reconnecting — showing the last known list"
@@ -212,20 +221,20 @@ function RequestCard({
       aria-label={`${verb} request for ${request.lineName}`}
     >
       <header style={cardHead}>
-        <span style={{ fontWeight: 700, fontSize: 15 }}>
+        <span style={{ fontWeight: 700, fontSize: "var(--fs-body)" }}>
           {request.tableLabel ? `Table ${request.tableLabel}` : "Table"}
         </span>
-        <span style={{ fontSize: 12, color: "var(--t2)" }}>
+        <span style={{ fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
           <RelativeTime iso={request.createdAt} serverNow={serverNow} />
         </span>
       </header>
 
-      <p style={{ margin: 0, fontSize: 15 }}>
+      <p style={{ margin: 0, fontSize: "var(--fs-body)" }}>
         <span style={kindBadge}>{verb}</span> {request.qty}× {request.lineName}
         <span style={{ color: "var(--t2)" }}> · {fmt(request.amountCents)}</span>
         {request.cooked && <span style={{ color: "var(--warn)", fontWeight: 700 }}> · cooked</span>}
       </p>
-      <p style={{ margin: "2px 0 0", fontSize: 13, color: "var(--t2)" }}>
+      <p style={{ margin: "2px 0 0", fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
         {REASON_LABEL[request.reasonCode] ?? request.reasonCode} · from {request.initiatorName}
       </p>
 
@@ -250,7 +259,7 @@ function RequestCard({
         </div>
       ) : (
         <form onSubmit={confirm} style={{ marginTop: 4 }} noValidate>
-          <p style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 600 }}>
+          <p style={{ margin: "0 0 8px", fontSize: "var(--fs-sm)", fontWeight: 600 }}>
             {decision === "approve" ? `Approve this ${request.kind}` : "Deny this request"} —
             confirm with your PIN
           </p>
@@ -291,7 +300,7 @@ function RequestCard({
 
       <p id={`appr-msg-${request.id}`} role="status" style={{ margin: "8px 0 0", minHeight: 16 }}>
         {(lockCopy ?? msg) && (
-          <span style={{ fontSize: 13, color: "var(--warn)" }}>{lockCopy ?? msg}</span>
+          <span style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>{lockCopy ?? msg}</span>
         )}
       </p>
     </article>
@@ -321,7 +330,7 @@ const cardHead: CSSProperties = {
   gap: "var(--s3)",
 };
 const kindBadge: CSSProperties = {
-  fontSize: 11,
+  fontSize: "var(--fs-xs)",
   fontWeight: 800,
   textTransform: "uppercase",
   letterSpacing: "0.04em",
@@ -333,7 +342,7 @@ const actionBtn: CSSProperties = {
   minHeight: 44,
   borderRadius: "var(--r-full)",
   border: "1px solid var(--bd)",
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   fontWeight: 700,
   cursor: "pointer",
 };

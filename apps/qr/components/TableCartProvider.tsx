@@ -515,7 +515,11 @@ export function TableCartProvider({
             boxShadow: "var(--sh-md)",
           }}
         >
-          <Icon name="alert" size={15} style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }} />
+          <Icon
+            name="alert"
+            size={15}
+            style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }}
+          />
           Couldn’t reach your order.{" "}
           <button
             type="button"

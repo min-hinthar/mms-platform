@@ -244,7 +244,9 @@ export function MenuBrowser({
     const el = toolbarRef.current;
     if (!el) return;
     const lendOffset = () => {
-      const n = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--lend-offset"));
+      const n = parseFloat(
+        getComputedStyle(document.documentElement).getPropertyValue("--lend-offset"),
+      );
       return Number.isFinite(n) ? n : 0;
     };
     const measure = () => setToolbarH(el.getBoundingClientRect().height + lendOffset());
@@ -330,7 +332,11 @@ export function MenuBrowser({
         <p className="eyebrow">
           {mode === "dinein" ? "Dine-in" : mode === "pickup" ? "Pickup" : "To-go"}
         </p>
-        <h1 ref={menuHeadingRef} tabIndex={-1} style={{ fontSize: "var(--fs-display)", outline: "none" }}>
+        <h1
+          ref={menuHeadingRef}
+          tabIndex={-1}
+          style={{ fontSize: "var(--fs-display)", outline: "none" }}
+        >
           Menu
         </h1>
         {/* J2 arrival beat — the bilingual place-setting greeting; premieres once per session (J1's
@@ -420,9 +426,18 @@ export function MenuBrowser({
         {freeFrom && (
           <p
             role="note"
-            style={{ margin: "8px 2px 0", fontSize: "var(--fs-sm)", color: "var(--t2)", lineHeight: 1.4 }}
+            style={{
+              margin: "8px 2px 0",
+              fontSize: "var(--fs-sm)",
+              color: "var(--t2)",
+              lineHeight: 1.4,
+            }}
           >
-            <Icon name="info" size={13} style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }} />
+            <Icon
+              name="info"
+              size={13}
+              style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }}
+            />
             Allergen info is a guide — please tell our staff about any allergy.
           </p>
         )}

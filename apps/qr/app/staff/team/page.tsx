@@ -17,8 +17,8 @@ export default async function TeamPage() {
   if (caller.role !== "owner") {
     return (
       <main style={wrap}>
-        <h1 style={{ fontSize: 22, margin: "0 0 8px" }}>Owners only</h1>
-        <p style={{ color: "var(--t2)", fontSize: 14, marginBottom: "var(--s5)" }}>
+        <h1 style={{ fontSize: "var(--fs-h2)", margin: "0 0 8px" }}>Owners only</h1>
+        <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", marginBottom: "var(--s5)" }}>
           Managing the team is limited to owners.
         </p>
         <Link href="/staff" style={back}>
@@ -34,8 +34,8 @@ export default async function TeamPage() {
       <Link href="/staff" style={{ ...back, marginBottom: "var(--s4)" }}>
         ← Floor
       </Link>
-      <h1 style={{ fontSize: 24, margin: "0 0 4px" }}>Team</h1>
-      <p style={{ color: "var(--t2)", fontSize: 14, margin: "0 0 var(--s6)" }}>
+      <h1 style={{ fontSize: "var(--fs-h1)", margin: "0 0 4px" }}>Team</h1>
+      <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: "0 0 var(--s6)" }}>
         Add staff by email — they’ll sign in with a one-time code. Deactivate to offboard without
         losing history.
       </p>
@@ -50,7 +50,7 @@ const back: CSSProperties = {
   minHeight: 44,
   alignItems: "center",
   color: "var(--ac)",
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   fontWeight: 600,
   textDecoration: "none",
 };

@@ -143,7 +143,12 @@ const card: CSSProperties = {
   marginTop: "var(--s5)",
   padding: "var(--s5)",
 };
-const h2: CSSProperties = { margin: "0 0 4px", fontSize: "var(--fs-h3)", fontWeight: 800, color: "var(--tx)" };
+const h2: CSSProperties = {
+  margin: "0 0 4px",
+  fontSize: "var(--fs-h3)",
+  fontWeight: 800,
+  color: "var(--tx)",
+};
 const sub: CSSProperties = {
   margin: "0 0 12px",
   fontSize: "var(--fs-sm)",

@@ -172,7 +172,14 @@ export function SettlementBoard({
           </span>
         )}
       </h2>
-      <p style={{ fontSize: "var(--fs-xs)", color: "var(--t3)", margin: "0 0 12px", lineHeight: 1.5 }}>
+      <p
+        style={{
+          fontSize: "var(--fs-xs)",
+          color: "var(--t3)",
+          margin: "0 0 12px",
+          lineHeight: 1.5,
+        }}
+      >
         No one’s card is charged until everyone has paid; then the whole order is captured together.
       </p>
 
@@ -365,7 +372,11 @@ function StatusBadge({ status }: { status: SettlementShare["status"] }) {
       }}
     >
       {(status === "captured" || status === "authorized") && (
-        <Icon name="check" size={13} style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }} />
+        <Icon
+          name="check"
+          size={13}
+          style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }}
+        />
       )}
       {s.label}
     </span>

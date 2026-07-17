@@ -38,7 +38,7 @@ const wrap: CSSProperties = {
   padding: "var(--s5) var(--s4) var(--s8)",
 };
 const back: CSSProperties = {
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   fontWeight: 600,
   color: "var(--ac-strong)",
   textDecoration: "none",
@@ -49,6 +49,10 @@ const back: CSSProperties = {
 const h1: CSSProperties = {
   margin: "var(--s3) 0 0",
   fontFamily: "var(--font-display)",
-  fontSize: 26,
+  fontSize: "var(--fs-h1)",
 };
-const sub: CSSProperties = { color: "var(--t2)", fontSize: 14, margin: "var(--s2) 0 var(--s5)" };
+const sub: CSSProperties = {
+  color: "var(--t2)",
+  fontSize: "var(--fs-sm)",
+  margin: "var(--s2) 0 var(--s5)",
+};

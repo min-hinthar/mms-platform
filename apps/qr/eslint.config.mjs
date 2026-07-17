@@ -8,11 +8,10 @@ import next from "eslint-config-next/core-web-vitals";
 // W2c type-scale sweep — ban NUMERIC inline `fontSize` so the tokens can't regress. The selector
 // matches any numeric literal that is the (or part of the) value of a `fontSize` property, so
 // `fontSize: 14` and `fontSize: strong ? 20 : undefined` both fail, while `fontSize: "var(--fs-sm)"`
-// passes. The WHOLE diner path is now swept, so the ban covers all diner `.tsx` and only EXCLUDES the
-// not-yet-swept staff surfaces (KDS/expo/floor) — drop the `ignores` once staff is swept too.
+// passes. The WHOLE app — diner AND staff surfaces — is now swept (staff chrome → `--fs-*`, KDS reads
+// stay on the kitchen-scale `--kfs-*` tier), so the ban covers every `.tsx` with no exclusions.
 const noNumericFontSize = {
   files: ["components/**/*.tsx", "app/**/*.tsx"],
-  ignores: ["components/staff/**", "app/staff/**"],
   rules: {
     "no-restricted-syntax": [
       "error",

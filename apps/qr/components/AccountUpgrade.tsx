@@ -47,27 +47,30 @@ export function AccountUpgrade({ stars }: { stars: number }) {
   // guest saving their own Stars (typed a taken email / used Google) mints the K3b merge token to carry them
   // over; an explicit SWITCH (a remembered-identity chip, or a lend-mode resume) passes false so the current
   // session's guest Stars are NEVER swept onto the account being switched to — and clears any stale token.
-  const sendSignInCode = useCallback(async (addr: string, bringStars: boolean): Promise<boolean> => {
-    const supa = browserClient();
-    if (bringStars) {
-      const mtoken = await mintMergeToken();
-      if (mtoken) stashMergeToken(mtoken);
-    } else {
-      clearMergeToken();
-    }
-    const { error: e0 } = await supa.auth.signInWithOtp({
-      email: addr,
-      options: { shouldCreateUser: false }, // sign in to the EXISTING account — never silently mint a new one
-    });
-    if (e0) {
-      setError(e0.message || "Couldn’t send the sign-in code — try again.");
-      return false;
-    }
-    setEmail(addr);
-    setCodeMode("email");
-    setPhase("code");
-    return true;
-  }, []);
+  const sendSignInCode = useCallback(
+    async (addr: string, bringStars: boolean): Promise<boolean> => {
+      const supa = browserClient();
+      if (bringStars) {
+        const mtoken = await mintMergeToken();
+        if (mtoken) stashMergeToken(mtoken);
+      } else {
+        clearMergeToken();
+      }
+      const { error: e0 } = await supa.auth.signInWithOtp({
+        email: addr,
+        options: { shouldCreateUser: false }, // sign in to the EXISTING account — never silently mint a new one
+      });
+      if (e0) {
+        setError(e0.message || "Couldn’t send the sign-in code — try again.");
+        return false;
+      }
+      setEmail(addr);
+      setCodeMode("email");
+      setPhase("code");
+      return true;
+    },
+    [],
+  );
 
   const startGoogleSignIn = useCallback(async (bringStars: boolean): Promise<void> => {
     const supa = browserClient();
@@ -508,7 +511,12 @@ export function AccountUpgrade({ stars }: { stars: number }) {
 const card: CSSProperties = {
   padding: "var(--s5)",
 };
-const h2: CSSProperties = { margin: "0 0 6px", fontSize: "var(--fs-h3)", fontWeight: 800, color: "var(--tx)" };
+const h2: CSSProperties = {
+  margin: "0 0 6px",
+  fontSize: "var(--fs-h3)",
+  fontWeight: 800,
+  color: "var(--tx)",
+};
 const sub: CSSProperties = {
   margin: "0 0 14px",
   fontSize: "var(--fs-sm)",

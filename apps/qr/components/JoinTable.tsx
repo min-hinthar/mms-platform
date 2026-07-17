@@ -28,7 +28,14 @@ export function JoinTable() {
         Have a table code? Join a table
       </button>
       <Sheet open={open} onOpenChange={setOpen} title="Join a table">
-        <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", lineHeight: 1.5, margin: "0 0 12px" }}>
+        <p
+          style={{
+            color: "var(--t2)",
+            fontSize: "var(--fs-sm)",
+            lineHeight: 1.5,
+            margin: "0 0 12px",
+          }}
+        >
           Enter the code your host shared to order together on one cart.
         </p>
         <form onSubmit={submit}>

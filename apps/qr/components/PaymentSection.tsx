@@ -126,7 +126,12 @@ function PayForm({
       <p
         role="status"
         aria-atomic="true"
-        style={{ minHeight: 16, margin: "10px 0 0", fontSize: "var(--fs-sm)", color: "var(--warn)" }}
+        style={{
+          minHeight: 16,
+          margin: "10px 0 0",
+          fontSize: "var(--fs-sm)",
+          color: "var(--warn)",
+        }}
       >
         {error}
       </p>

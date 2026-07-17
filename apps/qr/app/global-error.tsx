@@ -41,10 +41,21 @@ export default function GlobalError({
           <p aria-hidden style={{ fontSize: "var(--fs-display)", margin: 0 }}>
             🫖
           </p>
-          <h1 ref={headingRef} tabIndex={-1} style={{ fontSize: "var(--fs-h2)", margin: "12px 0 6px" }}>
+          <h1
+            ref={headingRef}
+            tabIndex={-1}
+            style={{ fontSize: "var(--fs-h2)", margin: "12px 0 6px" }}
+          >
             Something went wrong
           </h1>
-          <p style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", lineHeight: 1.5, margin: "0 0 20px" }}>
+          <p
+            style={{
+              fontSize: "var(--fs-sm)",
+              color: "var(--t2)",
+              lineHeight: 1.5,
+              margin: "0 0 20px",
+            }}
+          >
             We hit an unexpected error. Your order is safe — let’s try that again.
           </p>
           <button

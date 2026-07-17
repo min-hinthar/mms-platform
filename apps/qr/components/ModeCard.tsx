@@ -60,7 +60,10 @@ export function DoorFace({
         <small style={{ color: "var(--t2)" }}>{description}</small>
       </span>
       {trailing ?? (
-        <span aria-hidden style={{ marginLeft: "auto", color: "var(--ac)", fontSize: "var(--fs-h2)" }}>
+        <span
+          aria-hidden
+          style={{ marginLeft: "auto", color: "var(--ac)", fontSize: "var(--fs-h2)" }}
+        >
           ›
         </span>
       )}

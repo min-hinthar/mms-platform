@@ -177,7 +177,9 @@ export function AccountStatus({
         <div
           style={{ marginTop: 4 }}
           role="group"
-          aria-label={pending === "lend" ? "Confirm ordering for a friend" : "Confirm switching account"}
+          aria-label={
+            pending === "lend" ? "Confirm ordering for a friend" : "Confirm switching account"
+          }
           aria-describedby="acct-confirm-copy"
         >
           <p id="acct-confirm-copy" style={confirmCopy}>
@@ -193,7 +195,11 @@ export function AccountStatus({
               aria-busy={busy}
               style={proceedBtn}
             >
-              {busy ? "One moment…" : pending === "lend" ? "Yes, order for a friend" : "Yes, switch"}
+              {busy
+                ? "One moment…"
+                : pending === "lend"
+                  ? "Yes, order for a friend"
+                  : "Yes, switch"}
             </button>
             <button
               ref={cancelRef}

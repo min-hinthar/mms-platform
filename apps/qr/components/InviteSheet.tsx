@@ -90,7 +90,10 @@ export function InviteSheet({
             <span style={{ fontSize: "var(--fs-h1)", fontWeight: 800, letterSpacing: ".14em" }}>
               {joinCode}
             </span>
-            <span aria-hidden style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", fontWeight: 700 }}>
+            <span
+              aria-hidden
+              style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", fontWeight: 700 }}
+            >
               Tap to copy
             </span>
           </button>

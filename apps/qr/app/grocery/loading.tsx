@@ -21,7 +21,13 @@ export default function GroceryLoading() {
           <div
             key={i}
             className="card"
-            style={{ display: "flex", gap: 12, alignItems: "center", padding: 12, marginBottom: 12 }}
+            style={{
+              display: "flex",
+              gap: 12,
+              alignItems: "center",
+              padding: 12,
+              marginBottom: 12,
+            }}
           >
             <Skeleton width={56} height={56} radius={12} />
             <div style={{ flex: 1, minWidth: 0 }}>

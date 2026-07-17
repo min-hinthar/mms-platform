@@ -57,13 +57,13 @@ const header: CSSProperties = {
 const h1: CSSProperties = {
   margin: 0,
   fontFamily: "var(--font-display)",
-  fontSize: 26,
+  fontSize: "var(--fs-h1)",
   display: "flex",
   alignItems: "center",
   gap: "var(--s3)",
 };
 const backLink: CSSProperties = {
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   fontWeight: 600,
   color: "var(--ac-strong)",
   textDecoration: "none",

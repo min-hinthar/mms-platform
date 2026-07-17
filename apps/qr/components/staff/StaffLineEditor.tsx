@@ -92,7 +92,10 @@ export function StaffLineEditor({
         <span style={{ minWidth: 0, flex: 1 }}>
           {line.qty}× {line.name}
           {line.bySeatName && (
-            <span style={{ color: "var(--t3)", fontSize: 12 }}> · {line.bySeatName}</span>
+            <span style={{ color: "var(--t3)", fontSize: "var(--fs-sm)" }}>
+              {" "}
+              · {line.bySeatName}
+            </span>
           )}
         </span>
         <span style={{ ...badge, color: "var(--ac-strong)" }}>Comped · free</span>
@@ -108,7 +111,7 @@ export function StaffLineEditor({
       <li style={row}>
         <span style={{ minWidth: 0, flex: 1 }}>
           {line.qty}× {line.name}
-          <span style={{ color: "var(--t3)", fontSize: 12 }}> · {stateLabel}</span>
+          <span style={{ color: "var(--t3)", fontSize: "var(--fs-sm)" }}> · {stateLabel}</span>
         </span>
         <span style={{ display: "flex", alignItems: "center", gap: "var(--s3)" }}>
           <span style={priceCell}>{fmt(line.unitPriceCents * line.qty)}</span>
@@ -153,14 +156,15 @@ export function StaffLineEditor({
       <span style={{ minWidth: 0, flex: 1 }}>
         <span style={{ fontWeight: 600 }}>{qty}×</span> {line.name}
         {line.soldOut && (
-          <span style={{ color: "var(--t3)", fontSize: 12, fontWeight: 400 }}> · Sold out</span>
+          <span style={{ color: "var(--t3)", fontSize: "var(--fs-sm)", fontWeight: 400 }}>
+            {" "}
+            · Sold out
+          </span>
         )}
         {line.bySeatName && (
-          <span style={{ color: "var(--t3)", fontSize: 12 }}> · {line.bySeatName}</span>
+          <span style={{ color: "var(--t3)", fontSize: "var(--fs-sm)" }}> · {line.bySeatName}</span>
         )}
-        {line.notes && noteDraft === null && (
-          <span style={noteText}>“{line.notes}”</span>
-        )}
+        {line.notes && noteDraft === null && <span style={noteText}>“{line.notes}”</span>}
       </span>
       <span style={{ display: "flex", alignItems: "center", gap: "var(--s3)" }}>
         <span style={priceCell}>{fmt(line.unitPriceCents * qty)}</span>
@@ -221,7 +225,7 @@ const row: CSSProperties = {
   gap: "var(--s3)",
   padding: "8px 0",
   borderTop: "1px solid var(--bd)",
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
 };
 const priceCell: CSSProperties = {
   fontVariantNumeric: "tabular-nums",
@@ -236,19 +240,19 @@ const lossBtn: CSSProperties = {
   border: "1px solid var(--bd)",
   background: "var(--cd)",
   color: "var(--warn)",
-  fontSize: 13,
+  fontSize: "var(--fs-sm)",
   fontWeight: 700,
   cursor: "pointer",
   whiteSpace: "nowrap",
 };
 const badge: CSSProperties = {
-  fontSize: 12,
+  fontSize: "var(--fs-sm)",
   fontWeight: 700,
   color: "var(--t2)",
   whiteSpace: "nowrap",
 };
 // The saved note reads at FULL text color (safety-adjacent, never muted) in the diner's own words.
-const noteText: CSSProperties = { display: "block", fontSize: 13, fontWeight: 600 };
+const noteText: CSSProperties = { display: "block", fontSize: "var(--fs-sm)", fontWeight: 600 };
 const noteBtn: CSSProperties = {
   minHeight: 44,
   padding: "0 12px",
@@ -256,7 +260,7 @@ const noteBtn: CSSProperties = {
   border: "1px solid var(--bd)",
   background: "var(--cd)",
   color: "var(--tx)",
-  fontSize: 13,
+  fontSize: "var(--fs-sm)",
   fontWeight: 700,
   cursor: "pointer",
   whiteSpace: "nowrap",
@@ -277,7 +281,7 @@ const noteInput: CSSProperties = {
   background: "var(--sf)",
   color: "var(--tx)",
   font: "inherit",
-  fontSize: 16, // iOS input-zoom floor (P5.2)
+  fontSize: "var(--fs-body)", // iOS input-zoom floor (P5.2)
 };
 const noteSave: CSSProperties = {
   minHeight: 44,
@@ -286,7 +290,7 @@ const noteSave: CSSProperties = {
   border: "1px solid var(--ac)",
   background: "var(--ac)",
   color: "var(--oa)",
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   fontWeight: 700,
   cursor: "pointer",
 };

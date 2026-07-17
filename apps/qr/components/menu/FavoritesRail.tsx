@@ -33,7 +33,12 @@ export function FavoritesRail({
     >
       <h2 id="favorites-h" className="start-here-h">
         Your favorites{" "}
-        <Icon name="favorite" size={16} fill="currentColor" style={{ display: "inline", verticalAlign: "-2px" }} />
+        <Icon
+          name="favorite"
+          size={16}
+          fill="currentColor"
+          style={{ display: "inline", verticalAlign: "-2px" }}
+        />
         <span className="start-here-sub">one tap back to the good stuff</span>
       </h2>
       <ul role="list" className="start-here-rail" aria-labelledby="favorites-h">

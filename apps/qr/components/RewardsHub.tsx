@@ -53,7 +53,12 @@ export function RewardsHub({ state }: { state: RewardsState }) {
         {/* Visible caption — the ring's role="img" label already states it for AT, so hide this copy. */}
         <p
           aria-hidden
-          style={{ margin: "10px 0 0", textAlign: "center", fontSize: "var(--fs-sm)", color: "var(--t2)" }}
+          style={{
+            margin: "10px 0 0",
+            textAlign: "center",
+            fontSize: "var(--fs-sm)",
+            color: "var(--t2)",
+          }}
         >
           {ringCaption}
         </p>
@@ -89,7 +94,10 @@ export function RewardsHub({ state }: { state: RewardsState }) {
           role="group"
           aria-label={`Lifetime spend ${dollars(state.spendCents)}`}
         >
-          <span aria-hidden style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", fontWeight: 700 }}>
+          <span
+            aria-hidden
+            style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", fontWeight: 700 }}
+          >
             Lifetime spend
           </span>
           <span

@@ -60,7 +60,7 @@ export function TeamManager({
   return (
     <div>
       <form onSubmit={add} className="card" style={formCard} aria-labelledby="add-staff-h">
-        <h2 id="add-staff-h" style={{ fontSize: 16, margin: "0 0 var(--s4)" }}>
+        <h2 id="add-staff-h" style={{ fontSize: "var(--fs-body)", margin: "0 0 var(--s4)" }}>
           Add a staff member
         </h2>
         <div style={{ display: "grid", gap: "var(--s4)" }}>
@@ -124,7 +124,7 @@ export function TeamManager({
       {/* One live region for both add + toggle feedback (QA §A: a single region per view). */}
       <p role="status" style={{ minHeight: 20, margin: "var(--s4) 0" }}>
         {msg && (
-          <span style={{ fontSize: 13, color: msg.ok ? "var(--ok)" : "var(--warn)" }}>
+          <span style={{ fontSize: "var(--fs-sm)", color: msg.ok ? "var(--ok)" : "var(--warn)" }}>
             {msg.text}
           </span>
         )}
@@ -145,17 +145,21 @@ export function TeamManager({
             >
               <div style={{ minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span style={{ fontWeight: 600, fontSize: 15 }}>{row.displayName}</span>
+                  <span style={{ fontWeight: 600, fontSize: "var(--fs-body)" }}>
+                    {row.displayName}
+                  </span>
                   <RoleBadge role={row.role} />
-                  {isSelf && <span style={{ fontSize: 12, color: "var(--t2)" }}>(you)</span>}
+                  {isSelf && (
+                    <span style={{ fontSize: "var(--fs-sm)", color: "var(--t2)" }}>(you)</span>
+                  )}
                   {!row.active && (
-                    <span style={{ fontSize: 12, color: "var(--warn)" }}>Inactive</span>
+                    <span style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>Inactive</span>
                   )}
                 </div>
                 {row.email && (
                   <div
                     style={{
-                      fontSize: 12,
+                      fontSize: "var(--fs-sm)",
                       color: "var(--t2)",
                       marginTop: 2,
                       overflow: "hidden",
@@ -168,7 +172,7 @@ export function TeamManager({
                 )}
               </div>
               {isSelf ? (
-                <span style={{ fontSize: 12, color: "var(--t3)" }} aria-hidden>
+                <span style={{ fontSize: "var(--fs-sm)", color: "var(--t3)" }} aria-hidden>
                   —
                 </span>
               ) : (
@@ -196,7 +200,7 @@ export function TeamManager({
 const formCard: CSSProperties = { padding: "var(--s5)" };
 const label: CSSProperties = {
   display: "block",
-  fontSize: 13,
+  fontSize: "var(--fs-sm)",
   fontWeight: 600,
   marginBottom: 6,
   color: "var(--tx)",
@@ -206,7 +210,7 @@ const input: CSSProperties = {
   minHeight: 48,
   boxSizing: "border-box",
   padding: "0 14px",
-  fontSize: 16,
+  fontSize: "var(--fs-body)",
   borderRadius: "var(--r-sm)",
   border: "1px solid var(--bd)",
   background: "var(--cd)",
@@ -218,7 +222,7 @@ const primaryBtn: CSSProperties = {
   borderRadius: "var(--r-full)",
   background: "var(--ac)",
   color: "var(--oa)",
-  fontSize: 15,
+  fontSize: "var(--fs-body)",
   fontWeight: 700,
   cursor: "pointer",
 };
@@ -240,7 +244,7 @@ const baseToggle: CSSProperties = {
   minHeight: 44,
   padding: "0 14px",
   borderRadius: "var(--r-full)",
-  fontSize: 13,
+  fontSize: "var(--fs-sm)",
   fontWeight: 600,
   cursor: "pointer",
   flexShrink: 0,

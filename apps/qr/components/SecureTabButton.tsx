@@ -61,8 +61,15 @@ export function SecureTabButton({
   if (phase === "done")
     return (
       // In the tray, wrap to a full-width line below the pill row (flex-basis:100%).
-      <p style={compact ? { ...doneNote, flex: "1 0 100%", margin: "6px 0 0" } : doneNote} role="status">
-        <Icon name="check" size={14} style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }} />
+      <p
+        style={compact ? { ...doneNote, flex: "1 0 100%", margin: "6px 0 0" } : doneNote}
+        role="status"
+      >
+        <Icon
+          name="check"
+          size={14}
+          style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }}
+        />
         Card saved — your tab is secured. Settle anytime.
       </p>
     );
@@ -70,7 +77,14 @@ export function SecureTabButton({
   if (phase === "form" && options && stripePromise)
     return (
       <Card style={compact ? { ...panel, flex: "1 0 100%", marginTop: 4 } : panel}>
-        <p style={{ margin: "0 0 10px", fontSize: "var(--fs-sm)", color: "var(--t2)", lineHeight: 1.5 }}>
+        <p
+          style={{
+            margin: "0 0 10px",
+            fontSize: "var(--fs-sm)",
+            color: "var(--t2)",
+            lineHeight: 1.5,
+          }}
+        >
           Save a card to keep your tab open — we’ll charge it when you’re ready to close. No charge
           now.
         </p>
@@ -103,7 +117,10 @@ export function SecureTabButton({
           {phase === "loading" ? "Starting…" : "Secure your tab"}
         </button>
         {(error || !stripePromise) && (
-          <p role="alert" style={{ ...hint, flex: "1 0 100%", margin: "6px 0 0", color: "var(--warn)" }}>
+          <p
+            role="alert"
+            style={{ ...hint, flex: "1 0 100%", margin: "6px 0 0", color: "var(--warn)" }}
+          >
             {error ?? "Card save is temporarily unavailable."}
           </p>
         )}
@@ -167,7 +184,12 @@ function SetupForm({ cartId, onDone }: { cartId: string; onDone: () => void }) {
       <p
         role="status"
         aria-atomic="true"
-        style={{ minHeight: 16, margin: "10px 0 0", fontSize: "var(--fs-sm)", color: "var(--warn)" }}
+        style={{
+          minHeight: 16,
+          margin: "10px 0 0",
+          fontSize: "var(--fs-sm)",
+          color: "var(--warn)",
+        }}
       >
         {error}
       </p>

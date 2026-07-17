@@ -99,7 +99,9 @@ export function rememberIdentity(entry: Omit<DeviceIdentity, "lastSeen">): void 
 /** Drop one remembered identity (the per-chip "×"). */
 export function forgetIdentity(email: string): void {
   try {
-    const next = readIdentities().filter((i) => i.email.toLowerCase() !== email.trim().toLowerCase());
+    const next = readIdentities().filter(
+      (i) => i.email.toLowerCase() !== email.trim().toLowerCase(),
+    );
     if (next.length) window.localStorage.setItem(IDENTITIES_KEY, JSON.stringify(next));
     else window.localStorage.removeItem(IDENTITIES_KEY);
   } catch {
@@ -138,7 +140,11 @@ export function setLend(owner: { ownerEmail: string; ownerFirstName: string | nu
   const email = owner.ownerEmail.trim();
   if (!email) return;
   try {
-    const state: LendState = { ownerEmail: email, ownerFirstName: owner.ownerFirstName, since: Date.now() };
+    const state: LendState = {
+      ownerEmail: email,
+      ownerFirstName: owner.ownerFirstName,
+      since: Date.now(),
+    };
     window.localStorage.setItem(LEND_KEY, JSON.stringify(state));
     notifyLendChange();
   } catch {

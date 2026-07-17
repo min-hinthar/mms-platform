@@ -2,7 +2,7 @@ import { type CSSProperties } from "react";
 import Link from "next/link";
 import { requireStaffPage } from "@/lib/staff";
 import { getStaffFeedback } from "@/lib/feedback";
-import { Card } from "@mms/ui";
+import { Card, Icon } from "@mms/ui";
 
 export const metadata = { title: "Feedback — Mandalay Morning Star" };
 export const dynamic = "force-dynamic";
@@ -55,16 +55,28 @@ export default async function FeedbackPage() {
                   }}
                 >
                   <span
-                    style={{ fontWeight: 800, color: low ? "var(--warn)" : "var(--ac)" }}
+                    role="img"
                     aria-label={`${r.rating} of 5 stars`}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 2,
+                      color: low ? "var(--warn)" : "var(--ac)",
+                    }}
                   >
-                    <span aria-hidden>
-                      {"★".repeat(r.rating)}
-                      {"☆".repeat(5 - r.rating)}
-                    </span>
+                    {Array.from({ length: 5 }, (_, i) => (
+                      <Icon
+                        key={i}
+                        name="star"
+                        size={15}
+                        fill={i < r.rating ? "currentColor" : "none"}
+                      />
+                    ))}
                   </span>
                   {low && <span style={followChip}>Needs follow-up</span>}
-                  <span style={{ marginLeft: "auto", fontSize: 11.5, color: "var(--t3)" }}>
+                  <span
+                    style={{ marginLeft: "auto", fontSize: "var(--fs-xs)", color: "var(--t3)" }}
+                  >
                     {new Date(r.createdAt).toLocaleString(undefined, {
                       month: "short",
                       day: "numeric",
@@ -77,7 +89,7 @@ export default async function FeedbackPage() {
                   <p
                     style={{
                       margin: "6px 0 0",
-                      fontSize: 13.5,
+                      fontSize: "var(--fs-sm)",
                       color: "var(--tx)",
                       lineHeight: 1.5,
                     }}
@@ -102,18 +114,18 @@ const back: CSSProperties = {
   padding: "12px 0",
 };
 const h1: CSSProperties = {
-  fontSize: 24,
+  fontSize: "var(--fs-h1)",
   fontWeight: 900,
   margin: "4px 0 2px",
   color: "var(--tx)",
 };
-const sub: CSSProperties = { margin: 0, fontSize: 14, color: "var(--t2)" };
+const sub: CSSProperties = { margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" };
 // Surface comes from `.card` via <Card>; this is layout only (borderColor is overridden per-row).
 const rowCard: CSSProperties = {
   padding: "12px 14px",
 };
 const followChip: CSSProperties = {
-  fontSize: 11,
+  fontSize: "var(--fs-xs)",
   fontWeight: 800,
   color: "var(--warn)",
   border: "1px solid var(--warn)",

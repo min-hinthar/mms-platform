@@ -21,11 +21,11 @@ is both the correct security posture and how good shared-device account pickers 
 
 ```ts
 type DeviceIdentity = {
-  email: string;              // PII, but the user's own device; "Forget this device" wipes it
-  firstName: string | null;   // greeting only
-  tierId: string;             // tier emoji/label on the chip (display hint)
+  email: string; // PII, but the user's own device; "Forget this device" wipes it
+  firstName: string | null; // greeting only
+  tierId: string; // tier emoji/label on the chip (display hint)
   method: "email" | "google"; // drives the fast re-auth path
-  lastSeen: number;           // LRU ordering (cap 3)
+  lastSeen: number; // LRU ordering (cap 3)
 };
 ```
 
@@ -56,12 +56,12 @@ re-auth **suppresses the K3b merge token** — the current session's guest Stars
 bring. Only a genuine first-time guest who _types_ an email/uses Google to **save their own Stars** mints a
 merge token. (Upgrading the same anon uid in place already keeps Stars with no merge.)
 
-| Path | uid change | Merge token? |
-| --- | --- | --- |
-| Upgrade in place (new email on this anon uid) | no | no (same user) |
-| Typed email is taken → sign into it ("save my Stars") | yes | **yes** — bring guest Stars |
-| Tap a **Welcome back** chip (switch) | yes | **no** — Stars aren't assumed mine |
-| Lend-mode **Done → back to owner** | yes | **no** — the guest Stars are the friend's |
+| Path                                                  | uid change | Merge token?                              |
+| ----------------------------------------------------- | ---------- | ----------------------------------------- |
+| Upgrade in place (new email on this anon uid)         | no         | no (same user)                            |
+| Typed email is taken → sign into it ("save my Stars") | yes        | **yes** — bring guest Stars               |
+| Tap a **Welcome back** chip (switch)                  | yes        | **no** — Stars aren't assumed mine        |
+| Lend-mode **Done → back to owner**                    | yes        | **no** — the guest Stars are the friend's |
 
 ### 3 — "Ordering for a friend?" lend-device mode
 
@@ -94,16 +94,16 @@ account, and the owner can never inherit the friend's Stars.
 
 ## Files
 
-| File | Role |
-| --- | --- |
-| `apps/qr/lib/deviceIdentity.ts` | localStorage store — identities (hints, no tokens) + lend flag, all try/catch |
-| `apps/qr/components/WelcomeBackChooser.tsx` | remembered-identity chips + "Forget this device" |
-| `apps/qr/components/LendModeBanner.tsx` | global lend ribbon + "Done — back to [owner]" |
-| `apps/qr/components/RememberIdentity.tsx` | records the signed-in identity hint + clears lend on any real sign-in |
-| `apps/qr/components/AccountStatus.tsx` | + Switch account · Order for a friend actions |
-| `apps/qr/components/AccountUpgrade.tsx` | integrates the chooser, fast re-auth, merge-suppression, `?resume=` |
-| `apps/qr/app/layout.tsx` | mounts the global `LendModeBanner` |
-| `apps/qr/app/globals.css` | chip + banner vocabulary |
+| File                                        | Role                                                                          |
+| ------------------------------------------- | ----------------------------------------------------------------------------- |
+| `apps/qr/lib/deviceIdentity.ts`             | localStorage store — identities (hints, no tokens) + lend flag, all try/catch |
+| `apps/qr/components/WelcomeBackChooser.tsx` | remembered-identity chips + "Forget this device"                              |
+| `apps/qr/components/LendModeBanner.tsx`     | global lend ribbon + "Done — back to [owner]"                                 |
+| `apps/qr/components/RememberIdentity.tsx`   | records the signed-in identity hint + clears lend on any real sign-in         |
+| `apps/qr/components/AccountStatus.tsx`      | + Switch account · Order for a friend actions                                 |
+| `apps/qr/components/AccountUpgrade.tsx`     | integrates the chooser, fast re-auth, merge-suppression, `?resume=`           |
+| `apps/qr/app/layout.tsx`                    | mounts the global `LendModeBanner`                                            |
+| `apps/qr/app/globals.css`                   | chip + banner vocabulary                                                      |
 
 ## Honest limits
 

@@ -270,7 +270,14 @@ export function OrderTracker({
             <div className="eyebrow">{modeLabel}</div>
             <h1 style={{ fontSize: "var(--fs-h1)", margin: "2px 0 0" }}>Your order</h1>
             {eta && (
-              <div style={{ marginTop: 6, fontWeight: 800, color: "var(--ac)", fontSize: "var(--fs-sm)" }}>
+              <div
+                style={{
+                  marginTop: 6,
+                  fontWeight: 800,
+                  color: "var(--ac)",
+                  fontSize: "var(--fs-sm)",
+                }}
+              >
                 {eta}
               </div>
             )}
@@ -285,26 +292,26 @@ export function OrderTracker({
         {refunded
           ? "This order was refunded — the amount returns to your original payment method, typically within five to ten business days."
           : pureGrocery
-          ? "Paid — you’re all set. Show your exit pass on the way out if asked."
-          : arriveErr && ready
-            ? arriveErr
-            : ready
-              ? announced
-                ? "The counter knows you’re here — hang tight."
-                : "Your order is ready for pickup — grab it before you go."
-              : arrived
-                ? togo === "picked_up"
-                  ? "Order picked up — enjoy!"
-                  : togo === "preparing"
-                    ? "Your order is being prepared."
-                    : "Payment confirmed — your order is in."
-                : timedOut
-                  ? "Your order is taking longer than expected — use the Refresh button to check."
-                  : justPaid
-                    ? "Payment confirmed — finalizing your order."
-                    : processing
-                      ? "Confirming your payment."
-                      : "Confirming your order."}
+            ? "Paid — you’re all set. Show your exit pass on the way out if asked."
+            : arriveErr && ready
+              ? arriveErr
+              : ready
+                ? announced
+                  ? "The counter knows you’re here — hang tight."
+                  : "Your order is ready for pickup — grab it before you go."
+                : arrived
+                  ? togo === "picked_up"
+                    ? "Order picked up — enjoy!"
+                    : togo === "preparing"
+                      ? "Your order is being prepared."
+                      : "Payment confirmed — your order is in."
+                  : timedOut
+                    ? "Your order is taking longer than expected — use the Refresh button to check."
+                    : justPaid
+                      ? "Payment confirmed — finalizing your order."
+                      : processing
+                        ? "Confirming your payment."
+                        : "Confirming your order."}
       </p>
 
       {/* J6 — the exit pass replaces the step rail for a pure grocery basket: nothing is cooking and
@@ -323,9 +330,7 @@ export function OrderTracker({
           <p className="eyebrow" style={{ color: "var(--warn)", margin: 0 }}>
             Refunded
           </p>
-          <p style={{ margin: "6px 0 0", fontWeight: 800 }}>
-            Your money is on its way back.
-          </p>
+          <p style={{ margin: "6px 0 0", fontWeight: 800 }}>Your money is on its way back.</p>
           <p style={{ margin: "6px 0 0", fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
             This order was refunded to your original payment method — banks typically post it within
             5–10 business days.
@@ -456,7 +461,13 @@ export function OrderTracker({
           }}
         >
           <div
-            style={{ fontWeight: 800, fontSize: "var(--fs-body)", display: "flex", alignItems: "center", gap: 8 }}
+            style={{
+              fontWeight: 800,
+              fontSize: "var(--fs-body)",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
           >
             <Icon name="bag" size={18} />
             {isPickup ? "Ready for pickup" : "Your order’s ready"}
@@ -516,7 +527,9 @@ export function OrderTracker({
             background: "var(--warnb)",
           }}
         >
-          <div style={{ fontWeight: 700, fontSize: "var(--fs-sm)" }}>This is taking longer than usual</div>
+          <div style={{ fontWeight: 700, fontSize: "var(--fs-sm)" }}>
+            This is taking longer than usual
+          </div>
           <div style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", margin: "4px 0 10px" }}>
             {processing
               ? "We’re still confirming your payment — refresh to check, or come back shortly."
@@ -565,7 +578,13 @@ export function OrderTracker({
             <Icon name="receipt" size={20} />
           </span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 700, fontSize: "var(--fs-sm)", fontVariantNumeric: "tabular-nums" }}>
+            <div
+              style={{
+                fontWeight: 700,
+                fontSize: "var(--fs-sm)",
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
               {order.itemCount} {order.itemCount === 1 ? "item" : "items"} · $
               {(order.totalCents / 100).toFixed(2)}
             </div>
@@ -596,7 +615,12 @@ export function OrderTracker({
             </div>
             <div
               aria-hidden
-              style={{ fontWeight: 800, fontSize: "var(--fs-sm)", letterSpacing: "0.04em", color: "var(--tx)" }}
+              style={{
+                fontWeight: 800,
+                fontSize: "var(--fs-sm)",
+                letterSpacing: "0.04em",
+                color: "var(--tx)",
+              }}
             >
               #{order.id.slice(-6).toUpperCase()}
             </div>

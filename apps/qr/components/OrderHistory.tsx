@@ -277,8 +277,17 @@ const summaryStyle: CSSProperties = {
 const chipRow: CSSProperties = { display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 };
 const itemCountStyle: CSSProperties = { fontSize: "var(--fs-xs)", color: "var(--t3)" };
 const linePrice: CSSProperties = { color: "var(--t2)", fontVariantNumeric: "tabular-nums" };
-const detailMeta: CSSProperties = { margin: "10px 0 0", fontSize: "var(--fs-xs)", color: "var(--t3)" };
-const emptyTitle: CSSProperties = { margin: 0, fontSize: "var(--fs-body)", fontWeight: 800, color: "var(--tx)" };
+const detailMeta: CSSProperties = {
+  margin: "10px 0 0",
+  fontSize: "var(--fs-xs)",
+  color: "var(--t3)",
+};
+const emptyTitle: CSSProperties = {
+  margin: 0,
+  fontSize: "var(--fs-body)",
+  fontWeight: 800,
+  color: "var(--tx)",
+};
 const emptySub: CSSProperties = {
   margin: "4px 0 12px",
   fontSize: "var(--fs-sm)",

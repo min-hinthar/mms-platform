@@ -4,7 +4,25 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
-### W2c (part 2) — type-scale sweep: inline font-sizes → --fs-* tokens + lint ban (2026-07-17)
+### W2 (part 3) — staff surfaces: type-scale + icon sweep; numeric-fontSize ban now repo-wide (2026-07-17)
+
+Closes the W2b/W2c tail on the **staff** surfaces (KDS · expo · floor · orders · approvals · team · PIN/
+lock · login · feedback), completing F3 and F5 for the whole app. Presentational only — no totals/refund/
+PIN/auth logic touched; gate green (lint · typecheck · build).
+
+- **Type-scale.** ~23 staff files' inline `fontSize` magic numbers → tokens. Diner-tier chrome → `--fs-*`;
+  **KDS/kitchen reads stay on the ops `--kfs-*` tier** (id 32 · item 28 · mod 21 · clock 24 · meta 15) so
+  no kitchen number ever SHRANK — the 13/14px KDS chrome grew to `--kfs-meta` (15), never down (staff read
+  the board at 1–2 m; a shrink would be an ops regression).
+- **Icons.** Retired the last functional emoji-as-chrome with `@mms/ui` `<Icon>`: 🔊→`volume` · ↩→`undo` ·
+  BUMP ✓→`check` · Added ✓→`check` · ▲▼→`chevron-up`/`-down` · ⚠→`alert` · ☆→`star` · 🔒→`lock` · 🥡→`bag`;
+  the staff feedback star-rating (`★`/`☆` repeats) → five lucide stars (filled/outline) behind an existing
+  `role="img"` "N of 5 stars" name. Four glyphs added to the curated set (volume/undo/chevron-up/-down).
+- **Lint ban now repo-wide.** Dropped the `**/staff/**` `ignores` from the `no-restricted-syntax`
+  numeric-`fontSize` ban — it now covers every `.tsx` with no exclusions, so the type scale can't regress
+  anywhere in the app.
+
+### W2c (part 2) — type-scale sweep: inline font-sizes → --fs-\* tokens + lint ban (2026-07-17)
 
 Kills the inline `fontSize` magic numbers (F3) on the checkout → track → rewards **hero path** and makes
 them un-regressable. The owner chose "adopt the disciplined scale" (vs. preserving pixels).
@@ -35,7 +53,7 @@ from `metadata.tipRate`. No RLS/DB/migration change.
   domain is registered in Stripe; `onLoadError`/no-wallet fails closed to the card flow, so it's safe to
   ship before the domain is verified. An "or pay with card" divider shows only when a wallet is available.
 - **Custom tip.** A "Custom" chip reveals a dollar field; the amount rides as a **rate** (`customCents /
-  net`, derived during render via `customTipRateFromDollars` → `effectiveTipRate`) so `create-intent` and
+net`, derived during render via `customTipRateFromDollars` → `effectiveTipRate`) so `create-intent` and
   the webhook apply the identical `round(net·rate)` — the diner types dollars, the server derives the
   amount. Clamped to 100% of the order (schema `tipRate` cap widened `0.5 → 1.0`; a stray rate is rejected
   server-side); re-derived from the CURRENT net so a group peer's edit can't silently re-scale a fixed-$
@@ -71,8 +89,8 @@ emoji-as-iconography, the blank-frame wait) plus a quotable order code. No money
   `PhotoPlaceholder` (the dish's **category glyph + ✦** over the item gradient) fills it — so a
   photoless **or broken-hotlink** dish (28 point at a `fallback.jpg`, and every URL hotlinks the
   delivery bucket) reads intentional instead of an empty tile. Wired into the menu grid, ItemSheet hero
-  + suggestions, favorites, start-here, and grocery. (The bucket migration + real photos stay gated on
-  live Supabase + Min.)
+  - suggestions, favorites, start-here, and grocery. (The bucket migration + real photos stay gated on
+    live Supabase + Min.)
 - **W2c — perceived performance + recovery.** Geometry-matched `loading.tsx` for the four cold-hit-blank
   routes (`(order)/menu`, `(order)/dine-in`, `/track`, `/grocery` — `/menu` is cookie-dynamic so it
   Server-renders on demand). `error.tsx` gains a **stale-deploy ChunkLoadError guard** (a one-shot,

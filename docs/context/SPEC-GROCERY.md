@@ -4,7 +4,7 @@ The design source v7.2 never had for the market (its "scango" is a restaurant fl
 0). Grounded in the W-track benchmark pass: **Sam's Club Scan & Go** (the scan-flow model — NPS >90,
 ~75% opt-in), **Weee!** (the Asian-grocery catalog gold standard), Walmart Scan & Go, and Amazon's
 Just-Walk-Out retreat. Build W4 to this. The governing lesson: **a visible, itemized cart beats
-invisible magic** — Amazon's JWO was the *fastest* exit and still lost to the Dash Cart's live ledger,
+invisible magic** — Amazon's JWO was the _fastest_ exit and still lost to the Dash Cart's live ledger,
 because trust beat speed. Never hide the ledger; display exactly what the server derived.
 
 ## 1 · One catalog, two doors (browse + scan)
@@ -20,7 +20,7 @@ rice.
 photo · **bilingual name** (EN + MY in Padauk, `lang="my"`) · price (+ struck-through original and a
 %-off badge when a promo is live, tokens not hardcoded reds) · **unit price** ("$2.50/lb", "$0.34/oz" —
 requires `size_qty`/`size_unit` from the W4a import) · pack spec ("200ml × 6") · EBT tag (undated
-copy: *"EBT-eligible — SNAP checkout coming; pay by card today"*) · later, honest social proof from
+copy: _"EBT-eligible — SNAP checkout coming; pay by card today"_) · later, honest social proof from
 real order counts only ("12 sold this week" — never fabricated). Variable-weight items show a weight
 RANGE with the fixed price, honest about variance.
 
@@ -52,9 +52,9 @@ tolerance. Searching "လက်ဖက်" must find the pickled tea leaf the sto
 1. ~3s of no read → hint: "move closer / flatten the barcode" + auto-retry.
 2. → "Search the catalog instead" + manual barcode entry.
 3. → **"Ask us — we'll ring it up"** — flags the order for counter assist.
-Restricted/weighed items say their path immediately (never error late). Camera permission-denied
-branches on `DOMException.name`: `NotAllowedError` → Settings guidance + a Retry button that re-runs
-`getUserMedia`; anything else → the search fallback.
+   Restricted/weighed items say their path immediately (never error late). Camera permission-denied
+   branches on `DOMException.name`: `NotAllowedError` → Settings guidance + a Retry button that re-runs
+   `getUserMedia`; anything else → the search fallback.
 
 ## 6 · Weighed items
 
@@ -78,8 +78,8 @@ pure-grocery basket** (shipped W1a). Checkout = the shared wallet-first pay path
   concrete-walled door can't strand the shopper; screen-brightness/wake hint while showing.
 - **Staff scan view:** one scan → line items + total + a green check; done. Spot-check flow lists
   3 random lines to sight-verify with a one-tap OK (server-flagged: first grocery order / high total /
-  N-random floor — the flag lives in the lookup, never in the QR). Copy is brand-voice: *"Quick
-  check — takes a few seconds."* Never "audit," never "verification failed."
+  N-random floor — the flag lives in the lookup, never in the QR). Copy is brand-voice: _"Quick
+  check — takes a few seconds."_ Never "audit," never "verification failed."
 - Age-restricted SKUs (if stocked): warn at scan ("ID check on the way out"), fulfillment blocked
   server-side (status guard in SQL) until staff taps "ID verified" on the scan view.
 

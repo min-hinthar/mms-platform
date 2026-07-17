@@ -4,6 +4,8 @@ import {
   Armchair,
   Banknote,
   Check,
+  ChevronDown,
+  ChevronUp,
   CreditCard,
   CupSoda,
   Croissant,
@@ -23,9 +25,11 @@ import {
   Soup,
   Star,
   Trash2,
+  Undo2,
   Users,
   Utensils,
   UtensilsCrossed,
+  Volume2,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -63,6 +67,11 @@ const ICONS = {
   refresh: RotateCcw,
   star: Star,
   check: Check,
+  // staff ops chrome (W2b staff tail)
+  volume: Volume2,
+  undo: Undo2,
+  "chevron-up": ChevronUp,
+  "chevron-down": ChevronDown,
   // food-category glyphs (placeholder)
   "cat-noodles": Soup,
   "cat-curry": UtensilsCrossed,

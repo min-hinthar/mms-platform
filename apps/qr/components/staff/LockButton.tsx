@@ -1,6 +1,7 @@
 "use client";
 import { useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
+import { Icon } from "@mms/ui";
 import { lockConsole } from "@/lib/staff-pin-actions";
 
 /**
@@ -30,10 +31,11 @@ export function LockButton() {
     <>
       <button type="button" onClick={lock} disabled={busy} style={btn}>
         {/* Decorative lock glyph — the text label carries the meaning. */}
-        <span aria-hidden>🔒</span> {busy ? "Locking…" : "Lock"}
+        <Icon name="lock" size={16} />
+        {busy ? "Locking…" : "Lock"}
       </button>
       {err && (
-        <span role="alert" style={{ fontSize: 12, color: "var(--warn)" }}>
+        <span role="alert" style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
           {err}
         </span>
       )}
@@ -51,7 +53,7 @@ const btn: CSSProperties = {
   border: "1px solid var(--bd)",
   background: "var(--cd)",
   color: "var(--tx)",
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   fontWeight: 600,
   cursor: "pointer",
 };

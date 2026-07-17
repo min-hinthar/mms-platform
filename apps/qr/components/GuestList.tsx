@@ -24,7 +24,11 @@ export function GuestList() {
   if (locked)
     return (
       <p style={lockBar}>
-        <Icon name="lock" size={14} style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }} />
+        <Icon
+          name="lock"
+          size={14}
+          style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }}
+        />
         {lockedByName === "You" ? "You’re" : `${lockedByName} is`} checking out — the order’s locked
         for a moment.
       </p>
@@ -90,7 +94,11 @@ export function GuestList() {
       </span>
       {atCap ? (
         <span aria-label={`Table is full, up to ${MAX_PARTY_SIZE} guests`} style={fullNote}>
-          <Icon name="check" size={13} style={{ display: "inline", verticalAlign: "-2px", marginRight: 2 }} />{" "}
+          <Icon
+            name="check"
+            size={13}
+            style={{ display: "inline", verticalAlign: "-2px", marginRight: 2 }}
+          />{" "}
           Table’s full
         </span>
       ) : (

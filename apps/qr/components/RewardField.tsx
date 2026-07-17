@@ -88,10 +88,15 @@ export function RewardField({
       // Warm gold-wash pill + a one-sweep shimmer on mount — a small delight when a reward lands. The
       // content rides above the ::after shimmer on its own z-layer.
       <div className="checkout-reward-applied" style={appliedRow}>
-        <span style={{ position: "relative", zIndex: 1, fontSize: "var(--fs-sm)", color: "var(--tx)" }}>
-          <Icon name="gift" size={14} style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }} />
-          Reward applied ·{" "}
-          <strong>−{dollars(appliedRewardCents)}</strong>
+        <span
+          style={{ position: "relative", zIndex: 1, fontSize: "var(--fs-sm)", color: "var(--tx)" }}
+        >
+          <Icon
+            name="gift"
+            size={14}
+            style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }}
+          />
+          Reward applied · <strong>−{dollars(appliedRewardCents)}</strong>
         </span>
         <button
           ref={removeBtnRef}
@@ -117,7 +122,11 @@ export function RewardField({
           className="checkout-reward-add"
           style={applyBtn}
         >
-          <Icon name="gift" size={15} style={{ display: "inline", verticalAlign: "-2px", marginRight: 4 }} />
+          <Icon
+            name="gift"
+            size={15}
+            style={{ display: "inline", verticalAlign: "-2px", marginRight: 4 }}
+          />
           Use a reward ({coupons.length})
         </button>
       ) : (

@@ -83,7 +83,11 @@ export function PickupSlotSheet({
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title="Pick a pickup time">
       <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: "0 0 14px" }}>
-        <Icon name="pin" size={14} style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }} />
+        <Icon
+          name="pin"
+          size={14}
+          style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }}
+        />
         750 Terrado Plaza, Covina
       </p>
       {slots === null ? (

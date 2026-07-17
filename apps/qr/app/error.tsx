@@ -6,7 +6,8 @@ import posthog from "posthog-js";
 // throws a ChunkLoadError. `reset()` just re-requests the same dead URL, so the boundary would loop — a
 // one-shot hard reload fetches the new build instead (the delivery repo's learning). Cooldown-guarded via
 // sessionStorage so a non-chunk error that happens to match can't reload-loop.
-const CHUNK_RE = /ChunkLoadError|Loading chunk|Loading CSS chunk|dynamically imported module|Failed to fetch dynamically/i;
+const CHUNK_RE =
+  /ChunkLoadError|Loading chunk|Loading CSS chunk|dynamically imported module|Failed to fetch dynamically/i;
 const RELOAD_KEY = "mms.chunkReloadAt";
 
 function tryChunkReload(error: Error): boolean {

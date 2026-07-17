@@ -100,7 +100,10 @@ export async function POST(req: NextRequest) {
       try {
         await captureAllIfReady(db, cartId);
       } catch (e) {
-        console.error("[create-share-intent] $0-path capture-all failed (webhook will re-drive)", e);
+        console.error(
+          "[create-share-intent] $0-path capture-all failed (webhook will re-drive)",
+          e,
+        );
       }
       return NextResponse.json({ settled: true, amountCents: 0, tipCents: 0 });
     }

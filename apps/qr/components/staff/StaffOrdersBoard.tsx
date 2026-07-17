@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, useTransition, type CSSProperties } from "react";
-import { EmptyState } from "@mms/ui";
+import { EmptyState, Icon } from "@mms/ui";
 import { getStaffOrders, type StaffOrder, type StaffOrderLine } from "@/lib/refunds";
 import { RefundActionSheet } from "./RefundActionSheet";
 import { StaggerList } from "./StaggerList";
@@ -89,7 +89,7 @@ export function StaffOrdersBoard({ initial }: { initial: StaffOrder[] }) {
               >
                 <span style={{ display: "grid", gap: 2, textAlign: "left" }}>
                   <span style={{ fontWeight: 700 }}>{o.label}</span>
-                  <span style={{ fontSize: 12, color: "var(--t2)" }}>
+                  <span style={{ fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
                     {new Date(o.createdAt).toLocaleString()} · {o.tender}
                   </span>
                 </span>
@@ -98,16 +98,18 @@ export function StaffOrdersBoard({ initial }: { initial: StaffOrder[] }) {
                   <span style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
                     ${(o.totalCents / 100).toFixed(2)}
                   </span>
-                  <span aria-hidden style={{ color: "var(--t2)" }}>
-                    {isOpen ? "▲" : "▼"}
-                  </span>
+                  <Icon
+                    name={isOpen ? "chevron-up" : "chevron-down"}
+                    size={16}
+                    style={{ color: "var(--t2)" }}
+                  />
                 </span>
               </button>
 
               {isOpen && (
                 <ul role="list" style={lineList}>
                   {o.isSplit && (
-                    <li style={{ fontSize: 12, color: "var(--t2)", padding: "6px 0" }}>
+                    <li style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", padding: "6px 0" }}>
                       Split-tender order — refund via the Stripe dashboard (per-payer cards).
                     </li>
                   )}
@@ -172,7 +174,7 @@ export function StaffOrdersBoard({ initial }: { initial: StaffOrder[] }) {
 const confirmBanner: CSSProperties = {
   minHeight: 18,
   margin: "0 0 10px",
-  fontSize: 13,
+  fontSize: "var(--fs-sm)",
   fontWeight: 700,
   color: "var(--ac-strong)",
 };
@@ -197,7 +199,12 @@ const lineList: CSSProperties = {
   display: "grid",
   gap: 8,
 };
-const lineRow: CSSProperties = { display: "flex", alignItems: "center", gap: 10, fontSize: 14 };
+const lineRow: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  fontSize: "var(--fs-sm)",
+};
 const refundBtn: CSSProperties = {
   flex: "none",
   minHeight: 44,
@@ -207,12 +214,12 @@ const refundBtn: CSSProperties = {
   background: "transparent",
   color: "var(--tx)",
   fontWeight: 700,
-  fontSize: 13,
+  fontSize: "var(--fs-sm)",
   cursor: "pointer",
 };
 const refundedTag: CSSProperties = {
   flex: "none",
-  fontSize: 11,
+  fontSize: "var(--fs-xs)",
   fontWeight: 800,
   textTransform: "uppercase",
   letterSpacing: "0.04em",

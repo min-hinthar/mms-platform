@@ -184,7 +184,14 @@ export function SplitSection({
             key={s.seat}
             style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}
           >
-            <dt style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: "var(--fs-sm)" }}>
+            <dt
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: "var(--fs-sm)",
+              }}
+            >
               <Avatar size="sm" initial={seatInitial(s.name)} color={seatColor(s.seat)} />
               {s.seat === ctx.mySeat ? `${s.name} (you)` : s.name}
             </dt>

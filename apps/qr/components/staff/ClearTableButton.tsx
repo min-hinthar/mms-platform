@@ -70,7 +70,7 @@ export function ClearTableButton({
           aria-label={`Confirm clearing table ${label}`}
           style={{ ...confirmRow, outline: "none" }}
         >
-          <span style={{ fontSize: 14 }}>Clear table {label}?</span>
+          <span style={{ fontSize: "var(--fs-sm)" }}>Clear table {label}?</span>
           <div style={{ display: "flex", gap: "var(--s3)" }}>
             <button
               type="button"
@@ -108,7 +108,7 @@ const clearBtn: CSSProperties = {
   border: "1px solid var(--bd)",
   background: "var(--cd)",
   color: "var(--warn)",
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   fontWeight: 700,
   cursor: "pointer",
 };
@@ -119,7 +119,7 @@ const cancelBtn: CSSProperties = {
   border: "1px solid var(--bd)",
   background: "var(--cd)",
   color: "var(--tx)",
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   fontWeight: 600,
   cursor: "pointer",
 };
@@ -130,4 +130,4 @@ const confirmRow: CSSProperties = {
   gap: "var(--s4)",
   flexWrap: "wrap",
 };
-const hint: CSSProperties = { margin: "8px 0 0", fontSize: 12.5, color: "var(--t3)" };
+const hint: CSSProperties = { margin: "8px 0 0", fontSize: "var(--fs-sm)", color: "var(--t3)" };

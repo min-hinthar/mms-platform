@@ -15,7 +15,11 @@ import { DoorFace } from "./ModeCard";
 // you open, not a mode toggle. The panel is `inert` + row-collapsed when closed (removed from tab
 // order + AT + hit-testing), so the choices can't be tabbed into or announced behind a shut door.
 
-const choiceArrow: CSSProperties = { marginLeft: "auto", color: "var(--ac)", fontSize: "var(--fs-h3)" };
+const choiceArrow: CSSProperties = {
+  marginLeft: "auto",
+  color: "var(--ac)",
+  fontSize: "var(--fs-h3)",
+};
 
 export function TogoDoor({ index = 0 }: { index?: number }) {
   const [open, setOpen] = useState(false);
