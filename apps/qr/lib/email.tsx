@@ -4,6 +4,7 @@ import { render } from "@react-email/render";
 import { AuthCodeEmail } from "@/emails/AuthCodeEmail";
 import { StaffInviteEmail } from "@/emails/StaffInviteEmail";
 import { StaffDeactivatedEmail } from "@/emails/StaffDeactivatedEmail";
+import { siteUrl } from "@/lib/site-url";
 
 /**
  * Email via Resend (`resend` SDK) with **React Email** templates (same stack as the delivery app).
@@ -15,14 +16,6 @@ import { StaffDeactivatedEmail } from "@/emails/StaffDeactivatedEmail";
  * `sendEmail` never throws (returns {ok}); unset keys ⇒ skip + log. The AUTH path treats a failed send
  * as an error to surface (the user is waiting on the code); the lifecycle path is best-effort.
  */
-
-function siteUrl(): string {
-  const explicit = process.env.NEXT_PUBLIC_SITE_URL;
-  if (explicit) return explicit.replace(/\/+$/, "");
-  const prod = process.env.VERCEL_PROJECT_PRODUCTION_URL;
-  if (prod) return `https://${prod}`;
-  return "https://qr.mandalaymorningstar.com";
-}
 
 export type EmailResult = { ok: boolean; error?: string };
 
