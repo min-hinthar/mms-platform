@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceClient } from "@mms/db/server";
-import { createIntentInput } from "@mms/db/schemas";
+import { shareIntentInput } from "@mms/db/schemas";
 import { getStripe } from "@/lib/stripe";
 import { assertCartMember, AuthzError } from "@/lib/authz";
 import { withinMutationRate } from "@/lib/rate";
@@ -18,7 +18,7 @@ import { getPostHogClient } from "@/lib/posthog-server";
  */
 export async function POST(req: NextRequest) {
   try {
-    const { cartId, tipRate } = createIntentInput.parse(await req.json());
+    const { cartId, tipRate } = shareIntentInput.parse(await req.json());
 
     // Only a verified member may pay, and only THEIR own seat's share (uid is the authorized seat).
     const { uid, settling } = await assertCartMember(cartId);
@@ -71,8 +71,8 @@ export async function POST(req: NextRequest) {
       );
 
     // Re-derive server-side: base = the stored breakdown; tip = the payer's rate on THEIR net (subtotal
-    // − discount), mirroring getCartTotals' tipCents. The client's tipRate is bounded by Zod (≤ 1.0 —
-    // W2d widened the shared cap for custom tips; SharePay still only sends presets ≤ 0.20).
+    // − discount), mirroring getCartTotals' tipCents. The client's tipRate is bounded by Zod (≤ 0.5 via
+    // shareIntentInput — matches the qr_cart_shares.tip_rate CHECK; SharePay only sends presets ≤ 0.20).
     const base =
       share.subtotal_cents - share.discount_cents + share.service_charge_cents + share.tax_cents;
     const tip = Math.round((share.subtotal_cents - share.discount_cents) * tipRate);

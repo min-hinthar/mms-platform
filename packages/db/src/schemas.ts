@@ -116,6 +116,19 @@ export const createIntentInput = z.object({
   firstName: z.string().trim().max(40).optional(),
 });
 
+/**
+ * create-share-intent (split-tender) — same server-authoritative rule (the client sends a rate, never an
+ * amount), but the tip cap here is 0.5, NOT the single-pay 1.0: this rate is written to the
+ * `qr_cart_shares.tip_rate` column, whose CHECK is `<= 0.5`, so the Zod bound MUST match the column (the
+ * split path only ever needs presets ≤ 0.20). Kept SEPARATE from `createIntentInput` so single-pay's
+ * custom-tip widening (→1.0) can't loosen the split path past its DB CHECK. (`firstName` is single-pay
+ * only — the split call-out identity comes from the seat, so it's omitted here.)
+ */
+export const shareIntentInput = z.object({
+  cartId: uuid,
+  tipRate: z.number().min(0).max(0.5).default(0),
+});
+
 /** scanAdd (grocery) — a scanned EAN-8(8)/UPC-A(12)/EAN-13(13)/GTIN-14(14) barcode (8–14 digits),
  *  never a price. An unknown-length match just misses the catalog lookup (handled honestly). */
 export const scanInput = z.object({

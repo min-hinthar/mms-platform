@@ -983,6 +983,11 @@ export function Checkout({
                         ref={customTipRef}
                         inputMode="decimal"
                         aria-label="Custom tip amount in dollars"
+                        aria-describedby={
+                          tipNet > 0 && parseFloat(customTip) * 100 > tipNet
+                            ? "custom-tip-cap"
+                            : undefined
+                        }
                         value={customTip}
                         onChange={(e) => onCustomTipChange(e.target.value)}
                         placeholder="0.00"
@@ -999,6 +1004,7 @@ export function Checkout({
                     </div>
                     {tipNet > 0 && parseFloat(customTip) * 100 > tipNet && (
                       <p
+                        id="custom-tip-cap"
                         style={{
                           margin: "4px 2px 0",
                           fontSize: "var(--fs-sm)",

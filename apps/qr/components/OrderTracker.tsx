@@ -427,7 +427,7 @@ export function OrderTracker({
                   <div
                     style={{
                       fontWeight: 700,
-                      fontSize: "var(--fs-sm)",
+                      fontSize: "var(--fs-body)",
                       color: state === "pending" ? "var(--t3)" : "var(--tx)",
                     }}
                   >
