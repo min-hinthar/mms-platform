@@ -4,6 +4,24 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W7 hotfix — OG font load crashed EVERY page (prod homepage outage) (2026-07-17)
+
+Immediately after the W7 brand-kit merge (#136), the prod homepage — and every page — began returning a
+500 ("This page couldn't load"). Root cause: `opengraph-image.tsx` read its fonts via
+`readFileSync(new URL("./_og/*.woff", import.meta.url))`, which throws in the **prod server bundle**
+(`ERR_INVALID_ARG_TYPE` / `Invalid URL` — the bundled `URL` class fails Node `fs`/`url`'s native
+`instanceof URL` check). Because the OG image lives in the **root-layout metadata**, every page imported
+that module to emit `og:image` and faulted. It escaped all reviews because it degrades to a cached 200 +
+a logged error under local `next start`; it's only fatal in the Vercel bundle.
+
+- **Fix:** embed the Fraunces (OFL) subset woffs as base64 `Buffer`s in `app/_og/fonts.ts` and import them
+  — **zero** file-path / URL / asset-tracing dependency, so it can't crash on any runtime. `fileURLToPath(URL)`
+  hit the same instanceof crash; `fetch(new URL(file://))` isn't supported on the Node build runtime — base64
+  is the runtime-agnostic fix. Verified against `next start`: `/ · /menu · /track · /opengraph-image` all 200
+  with zero runtime errors; the OG renders byte-identically in Fraunces.
+- **Learning** (`.claude/LEARNINGS.md`): never `readFileSync(new URL(...))` a bundled asset in a route that
+  feeds root-layout metadata — the bundled URL fails Node's `instanceof` and 500s every page; embed or fetch.
+
 ### W7 (brand kit) — social / PWA shell: OG card · metadataBase · apple-touch · manifest (2026-07-17)
 
 The first W7 "shell" slice — the brand-asset kit, closing most of OPEN-ITEMS S4. No app-UI or money
