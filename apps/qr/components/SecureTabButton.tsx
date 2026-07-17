@@ -70,7 +70,7 @@ export function SecureTabButton({
   if (phase === "form" && options && stripePromise)
     return (
       <Card style={compact ? { ...panel, flex: "1 0 100%", marginTop: 4 } : panel}>
-        <p style={{ margin: "0 0 10px", fontSize: 13, color: "var(--t2)", lineHeight: 1.5 }}>
+        <p style={{ margin: "0 0 10px", fontSize: "var(--fs-sm)", color: "var(--t2)", lineHeight: 1.5 }}>
           Save a card to keep your tab open — we’ll charge it when you’re ready to close. No charge
           now.
         </p>
@@ -167,7 +167,7 @@ function SetupForm({ cartId, onDone }: { cartId: string; onDone: () => void }) {
       <p
         role="status"
         aria-atomic="true"
-        style={{ minHeight: 16, margin: "10px 0 0", fontSize: 13, color: "var(--warn)" }}
+        style={{ minHeight: 16, margin: "10px 0 0", fontSize: "var(--fs-sm)", color: "var(--warn)" }}
       >
         {error}
       </p>
@@ -192,7 +192,7 @@ const secureBtn: CSSProperties = {
   background: "var(--cd)",
   color: "var(--tx)",
   fontWeight: 700,
-  fontSize: 15,
+  fontSize: "var(--fs-body)",
   cursor: "pointer",
 };
 // Surface (bg/border/radius/shadow) comes from `.card` via <Card>; this is layout only.
@@ -201,13 +201,13 @@ const panel: CSSProperties = {
   padding: "var(--s4)",
 };
 const hint: CSSProperties = {
-  fontSize: 11.5,
+  fontSize: "var(--fs-xs)",
   color: "var(--t3)",
   margin: "6px 0 0",
   textAlign: "center",
 };
 const doneNote: CSSProperties = {
-  fontSize: 12.5,
+  fontSize: "var(--fs-sm)",
   color: "var(--t2)",
   margin: "10px 0 0",
   textAlign: "center",

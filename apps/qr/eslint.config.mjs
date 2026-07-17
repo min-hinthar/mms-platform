@@ -5,28 +5,14 @@
 import base from "@mms/config/eslint";
 import next from "eslint-config-next/core-web-vitals";
 
-// W2c type-scale sweep — ban NUMERIC inline `fontSize` on swept files so the tokens can't regress. The
-// selector matches any numeric literal that is the (or part of the) value of a `fontSize` property, so
+// W2c type-scale sweep — ban NUMERIC inline `fontSize` so the tokens can't regress. The selector
+// matches any numeric literal that is the (or part of the) value of a `fontSize` property, so
 // `fontSize: 14` and `fontSize: strong ? 20 : undefined` both fail, while `fontSize: "var(--fs-sm)"`
-// passes. Directory-/file-scoped and WIDENED as each screen is swept (a repo-wide ban would fail lint on
-// the not-yet-swept staff surfaces). Add a file here only once it's fully on `--fs-*` tokens.
+// passes. The WHOLE diner path is now swept, so the ban covers all diner `.tsx` and only EXCLUDES the
+// not-yet-swept staff surfaces (KDS/expo/floor) — drop the `ignores` once staff is swept too.
 const noNumericFontSize = {
-  files: [
-    "components/Checkout.tsx",
-    "components/PaymentSection.tsx",
-    "components/OrderTracker.tsx",
-    "components/RewardsHub.tsx",
-    // menu + account sweep
-    "components/menu/MenuBrowser.tsx",
-    "components/TablePicker.tsx",
-    "components/PickupSlotSheet.tsx",
-    "components/PickupSlotChip.tsx",
-    "app/account/page.tsx",
-    "components/AccountStatus.tsx",
-    "components/AccountUpgrade.tsx",
-    "components/OrderHistory.tsx",
-    "components/RewardField.tsx",
-  ],
+  files: ["components/**/*.tsx", "app/**/*.tsx"],
+  ignores: ["components/staff/**", "app/staff/**"],
   rules: {
     "no-restricted-syntax": [
       "error",

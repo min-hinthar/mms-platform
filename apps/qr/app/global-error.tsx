@@ -38,13 +38,13 @@ export default function GlobalError({
         }}
       >
         <main style={{ maxWidth: 360, textAlign: "center" }}>
-          <p aria-hidden style={{ fontSize: 40, margin: 0 }}>
+          <p aria-hidden style={{ fontSize: "var(--fs-display)", margin: 0 }}>
             🫖
           </p>
-          <h1 ref={headingRef} tabIndex={-1} style={{ fontSize: 22, margin: "12px 0 6px" }}>
+          <h1 ref={headingRef} tabIndex={-1} style={{ fontSize: "var(--fs-h2)", margin: "12px 0 6px" }}>
             Something went wrong
           </h1>
-          <p style={{ fontSize: 14, color: "var(--t2)", lineHeight: 1.5, margin: "0 0 20px" }}>
+          <p style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", lineHeight: 1.5, margin: "0 0 20px" }}>
             We hit an unexpected error. Your order is safe — let’s try that again.
           </p>
           <button
@@ -58,7 +58,7 @@ export default function GlobalError({
               background: "var(--ac)",
               color: "var(--oa)",
               fontWeight: 800,
-              fontSize: 15,
+              fontSize: "var(--fs-body)",
               cursor: "pointer",
             }}
           >

@@ -55,7 +55,7 @@ export default function Error({
       }}
     >
       <div style={{ maxWidth: 340 }}>
-        <p aria-hidden style={{ fontSize: 36, margin: 0 }}>
+        <p aria-hidden style={{ fontSize: "var(--fs-display)", margin: 0 }}>
           🫖
         </p>
         <h1

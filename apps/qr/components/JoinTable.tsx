@@ -28,13 +28,13 @@ export function JoinTable() {
         Have a table code? Join a table
       </button>
       <Sheet open={open} onOpenChange={setOpen} title="Join a table">
-        <p style={{ color: "var(--t2)", fontSize: 13.5, lineHeight: 1.5, margin: "0 0 12px" }}>
+        <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", lineHeight: 1.5, margin: "0 0 12px" }}>
           Enter the code your host shared to order together on one cart.
         </p>
         <form onSubmit={submit}>
           <label
             htmlFor={id}
-            style={{ fontSize: 13, fontWeight: 700, display: "block", marginBottom: 6 }}
+            style={{ fontSize: "var(--fs-sm)", fontWeight: 700, display: "block", marginBottom: 6 }}
           >
             Table code
           </label>
@@ -69,7 +69,7 @@ const linkBtn: CSSProperties = {
   border: "none",
   color: "var(--ac)",
   fontWeight: 700,
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   cursor: "pointer",
 };
 const input: CSSProperties = {
@@ -80,7 +80,7 @@ const input: CSSProperties = {
   border: "1.5px solid var(--bd)",
   background: "var(--pg)",
   color: "var(--tx)",
-  fontSize: 16,
+  fontSize: "var(--fs-body)",
   font: "inherit",
   letterSpacing: ".08em",
   textTransform: "uppercase",
@@ -93,6 +93,6 @@ const joinBtn: CSSProperties = {
   background: "var(--ac)",
   color: "var(--oa)",
   fontWeight: 800,
-  fontSize: 15,
+  fontSize: "var(--fs-body)",
   cursor: "pointer",
 };

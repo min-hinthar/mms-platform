@@ -509,7 +509,7 @@ export function TableCartProvider({
             background: "var(--warnb)",
             color: "var(--warn)",
             fontWeight: 700,
-            fontSize: 12.5,
+            fontSize: "var(--fs-sm)",
             // Token (not a literal): the Night `--sh-md` is near-black-heavy so this floating alert
             // keeps its lift on the dark page; a hardcoded light shadow vanished on Night (R2 audit).
             boxShadow: "var(--sh-md)",
@@ -527,7 +527,7 @@ export function TableCartProvider({
               border: "none",
               color: "var(--warn)",
               fontWeight: 800,
-              fontSize: 13,
+              fontSize: "var(--fs-sm)",
               textDecoration: "underline",
               cursor: "pointer",
             }}
@@ -565,7 +565,7 @@ export function TableCartProvider({
               color: "var(--pg)",
               padding: "8px 14px",
               borderRadius: 999,
-              fontSize: 13,
+              fontSize: "var(--fs-sm)",
               fontWeight: 700,
             }}
           >

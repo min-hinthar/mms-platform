@@ -38,7 +38,7 @@ export function GuestList() {
     if (!error) return null; // still establishing the session — the menu renders meanwhile
     const full = error.includes("table is full");
     return (
-      <p role="alert" style={{ fontSize: 13, color: "var(--warn)", marginTop: 10 }}>
+      <p role="alert" style={{ fontSize: "var(--fs-sm)", color: "var(--warn)", marginTop: 10 }}>
         {full ? error : "Couldn’t join this table."}{" "}
         {!full && (
           <button type="button" onClick={() => window.location.reload()} style={retryBtn}>
@@ -83,7 +83,7 @@ export function GuestList() {
           );
         })}
       </ul>
-      <span style={{ fontSize: 13, color: "var(--t2)", fontWeight: 600 }}>
+      <span style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", fontWeight: 600 }}>
         {/* K2: lead with the real table when it's registered — "Table 7 · Party of 3". */}
         {tableNumber != null ? `Table ${tableNumber} · ` : ""}
         {list.length === 1 ? "Just you" : `Party of ${list.length}`}
@@ -125,7 +125,7 @@ const lockBar: CSSProperties = {
   background: "var(--warnb)",
   color: "var(--warn)",
   fontWeight: 700,
-  fontSize: 12.5,
+  fontSize: "var(--fs-sm)",
 };
 const retryBtn: CSSProperties = {
   minHeight: 44,
@@ -134,7 +134,7 @@ const retryBtn: CSSProperties = {
   border: "none",
   color: "var(--ac)",
   fontWeight: 800,
-  fontSize: 13,
+  fontSize: "var(--fs-sm)",
   textDecoration: "underline",
   cursor: "pointer",
 };
@@ -150,7 +150,7 @@ const inviteChip: CSSProperties = {
   background: "color-mix(in oklab, var(--ac) 9%, var(--cd))",
   color: "var(--ac-strong)",
   fontWeight: 800,
-  fontSize: 13,
+  fontSize: "var(--fs-sm)",
   cursor: "pointer",
 };
 const fullNote: CSSProperties = {
@@ -158,7 +158,7 @@ const fullNote: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   gap: 6,
-  fontSize: 12.5,
+  fontSize: "var(--fs-sm)",
   fontWeight: 700,
   color: "var(--t2)",
 };

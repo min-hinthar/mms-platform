@@ -252,7 +252,7 @@ export default function Grocery() {
   return (
     <main style={{ maxWidth: 440, margin: "0 auto", padding: 20, paddingBottom: 120 }}>
       <p className="eyebrow">Grocery</p>
-      <h1 style={{ fontSize: 30 }}>Scan your basket</h1>
+      <h1 style={{ fontSize: "var(--fs-h1)" }}>Scan your basket</h1>
       <p style={{ color: "var(--t2)", marginTop: 0 }}>
         Point at a barcode to add it. EBT-eligible items are tagged (SNAP checkout arrives 2027).
       </p>
@@ -267,7 +267,7 @@ export default function Grocery() {
           </button>
         </div>
       ) : !cartId ? (
-        <p style={{ color: "var(--t2)", fontSize: 14 }}>Starting grocery scanning…</p>
+        <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)" }}>Starting grocery scanning…</p>
       ) : (
         <>
           <BarcodeScanner onScan={onScan} />
@@ -471,7 +471,7 @@ const searchInput: CSSProperties = {
   minHeight: 22,
   color: "var(--tx)",
   fontFamily: "inherit",
-  fontSize: 15,
+  fontSize: "var(--fs-body)",
 };
 const resultList: CSSProperties = {
   listStyle: "none",
@@ -483,7 +483,7 @@ const resultList: CSSProperties = {
 const hintRow: CSSProperties = {
   listStyle: "none",
   color: "var(--t3)",
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   padding: "4px 2px",
 };
 const resultBtn: CSSProperties = {
@@ -499,7 +499,7 @@ const resultBtn: CSSProperties = {
   borderRadius: 12,
   color: "var(--tx)",
   fontWeight: 600,
-  fontSize: 15,
+  fontSize: "var(--fs-body)",
   textAlign: "left",
   cursor: "pointer",
 };

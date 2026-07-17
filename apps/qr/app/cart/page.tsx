@@ -21,7 +21,7 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
   if (!cart || !view)
     return (
       <main style={{ padding: 24, maxWidth: 440, margin: "0 auto" }}>
-        <h1 style={{ fontSize: 28 }}>Your order</h1>
+        <h1 style={{ fontSize: "var(--fs-h1)" }}>Your order</h1>
         <p style={{ color: "var(--t2)" }}>
           This order isn’t available on this device. Start from the menu.
         </p>
@@ -51,7 +51,7 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
   if (view.settling && !split)
     return (
       <main style={{ padding: 24, maxWidth: 440, margin: "0 auto" }}>
-        <h1 style={{ fontSize: 28 }}>Your order</h1>
+        <h1 style={{ fontSize: "var(--fs-h1)" }}>Your order</h1>
         <p style={{ color: "var(--t2)" }}>
           Your table is splitting the bill — we couldn’t load the split just now.
         </p>

@@ -143,10 +143,10 @@ const card: CSSProperties = {
   marginTop: "var(--s5)",
   padding: "var(--s5)",
 };
-const h2: CSSProperties = { margin: "0 0 4px", fontSize: 17, fontWeight: 800, color: "var(--tx)" };
+const h2: CSSProperties = { margin: "0 0 4px", fontSize: "var(--fs-h3)", fontWeight: 800, color: "var(--tx)" };
 const sub: CSSProperties = {
   margin: "0 0 12px",
-  fontSize: 13.5,
+  fontSize: "var(--fs-sm)",
   color: "var(--t2)",
   lineHeight: 1.5,
 };
@@ -156,7 +156,7 @@ const starBtn: CSSProperties = {
   minHeight: 44,
   border: "none",
   background: "transparent",
-  fontSize: 30,
+  // the star is an <Icon size={28}> SVG (W2b) — no fontSize needed (it sized the old ★ emoji)
   lineHeight: 1,
   cursor: "pointer",
   padding: 0,
@@ -168,7 +168,7 @@ const textarea: CSSProperties = {
   border: "1px solid var(--bd)",
   background: "var(--sf)",
   color: "var(--tx)",
-  fontSize: 16, // ≥16px → no iOS zoom-on-focus
+  fontSize: "var(--fs-body)", // ≥16px → no iOS zoom-on-focus
   resize: "vertical",
   fontFamily: "inherit",
 };
@@ -181,7 +181,7 @@ const submitBtn: CSSProperties = {
   background: "var(--ac)",
   color: "var(--oa)",
   fontWeight: 800,
-  fontSize: 15,
+  fontSize: "var(--fs-body)",
   cursor: "pointer",
 };
 const linkBtn: CSSProperties = {
@@ -191,13 +191,13 @@ const linkBtn: CSSProperties = {
   lineHeight: "44px",
   color: "var(--ac)",
   fontWeight: 700,
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   textDecoration: "none",
 };
 const errLine: CSSProperties = {
   minHeight: 16,
   margin: "8px 0 0",
-  fontSize: 12.5,
+  fontSize: "var(--fs-sm)",
   color: "var(--warn)",
 };
 const srOnly: CSSProperties = {
