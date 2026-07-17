@@ -82,7 +82,7 @@ export function PickupSlotSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title="Pick a pickup time">
-      <p style={{ color: "var(--t2)", fontSize: 13, margin: "0 0 14px" }}>
+      <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: "0 0 14px" }}>
         <Icon name="pin" size={14} style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }} />
         750 Terrado Plaza, Covina
       </p>
@@ -106,7 +106,7 @@ export function PickupSlotSheet({
           </div>
         </>
       ) : slots.length === 0 ? (
-        <p style={{ color: "var(--t2)", fontSize: 14 }}>
+        <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)" }}>
           No pickup times available right now — please check back soon.
         </p>
       ) : (
@@ -165,7 +165,7 @@ export function PickupSlotSheet({
         </>
       )}
       {error && (
-        <p role="alert" style={{ color: "var(--warn)", fontSize: 13, marginTop: 12 }}>
+        <p role="alert" style={{ color: "var(--warn)", fontSize: "var(--fs-sm)", marginTop: 12 }}>
           {error}
         </p>
       )}

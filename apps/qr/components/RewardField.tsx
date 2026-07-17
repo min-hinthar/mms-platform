@@ -88,7 +88,7 @@ export function RewardField({
       // Warm gold-wash pill + a one-sweep shimmer on mount — a small delight when a reward lands. The
       // content rides above the ::after shimmer on its own z-layer.
       <div className="checkout-reward-applied" style={appliedRow}>
-        <span style={{ position: "relative", zIndex: 1, fontSize: 14, color: "var(--tx)" }}>
+        <span style={{ position: "relative", zIndex: 1, fontSize: "var(--fs-sm)", color: "var(--tx)" }}>
           <Icon name="gift" size={14} style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }} />
           Reward applied ·{" "}
           <strong>−{dollars(appliedRewardCents)}</strong>
@@ -122,7 +122,7 @@ export function RewardField({
         </button>
       ) : (
         <div style={panel}>
-          <p style={{ margin: "0 0 8px", fontSize: 12.5, color: "var(--t2)" }}>
+          <p style={{ margin: "0 0 8px", fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
             Tap a reward to apply it to this order:
           </p>
           <ul
@@ -139,7 +139,7 @@ export function RewardField({
                   style={couponBtn}
                 >
                   <span style={{ fontWeight: 800 }}>{dollars(c.amountCents)} off</span>
-                  <span style={{ fontSize: 11.5, color: "var(--t2)" }}>
+                  <span style={{ fontSize: "var(--fs-xs)", color: "var(--t2)" }}>
                     expires {new Date(c.expiresAt).toLocaleDateString()}
                   </span>
                 </button>
@@ -181,7 +181,7 @@ const applyBtn: CSSProperties = {
   background: "color-mix(in srgb, var(--ac) 6%, transparent)",
   color: "var(--ac)",
   fontWeight: 700,
-  fontSize: 14,
+  fontSize: "var(--fs-sm)",
   cursor: "pointer",
 };
 const panel: CSSProperties = {
@@ -210,12 +210,12 @@ const linkBtn: CSSProperties = {
   background: "transparent",
   color: "var(--t2)",
   fontWeight: 700,
-  fontSize: 13,
+  fontSize: "var(--fs-sm)",
   cursor: "pointer",
 };
 const errLine: CSSProperties = {
   minHeight: 16,
   margin: "6px 0 0",
-  fontSize: 12.5,
+  fontSize: "var(--fs-sm)",
   color: "var(--warn)",
 };

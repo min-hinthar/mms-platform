@@ -330,7 +330,7 @@ export function MenuBrowser({
         <p className="eyebrow">
           {mode === "dinein" ? "Dine-in" : mode === "pickup" ? "Pickup" : "To-go"}
         </p>
-        <h1 ref={menuHeadingRef} tabIndex={-1} style={{ fontSize: 34, outline: "none" }}>
+        <h1 ref={menuHeadingRef} tabIndex={-1} style={{ fontSize: "var(--fs-display)", outline: "none" }}>
           Menu
         </h1>
         {/* J2 arrival beat — the bilingual place-setting greeting; premieres once per session (J1's
@@ -420,7 +420,7 @@ export function MenuBrowser({
         {freeFrom && (
           <p
             role="note"
-            style={{ margin: "8px 2px 0", fontSize: 12, color: "var(--t2)", lineHeight: 1.4 }}
+            style={{ margin: "8px 2px 0", fontSize: "var(--fs-sm)", color: "var(--t2)", lineHeight: 1.4 }}
           >
             <Icon name="info" size={13} style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }} />
             Allergen info is a guide — please tell our staff about any allergy.
@@ -459,7 +459,7 @@ export function MenuBrowser({
           }}
           style={{ padding: "8px 20px", scrollMarginTop: Math.round(toolbarH) }}
         >
-          <h2 style={{ fontSize: 18 }}>{c}</h2>
+          <h2 style={{ fontSize: "var(--fs-h3)" }}>{c}</h2>
           <ul
             role="list"
             aria-label={`${c} items`}
@@ -521,7 +521,7 @@ export function MenuBrowser({
                           <span
                             style={{
                               fontFamily: "var(--font-my)",
-                              fontSize: 12,
+                              fontSize: "var(--fs-sm)",
                               color: "var(--t2)",
                               display: "block",
                             }}
@@ -578,7 +578,7 @@ export function MenuBrowser({
         <div role="status" style={{ padding: "32px 24px", textAlign: "center" }}>
           <p
             style={{
-              fontSize: 22,
+              fontSize: "var(--fs-h2)",
               fontWeight: 700,
               marginBottom: 4,
               display: "flex",

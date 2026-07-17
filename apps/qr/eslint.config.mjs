@@ -16,6 +16,16 @@ const noNumericFontSize = {
     "components/PaymentSection.tsx",
     "components/OrderTracker.tsx",
     "components/RewardsHub.tsx",
+    // menu + account sweep
+    "components/menu/MenuBrowser.tsx",
+    "components/TablePicker.tsx",
+    "components/PickupSlotSheet.tsx",
+    "components/PickupSlotChip.tsx",
+    "app/account/page.tsx",
+    "components/AccountStatus.tsx",
+    "components/AccountUpgrade.tsx",
+    "components/OrderHistory.tsx",
+    "components/RewardField.tsx",
   ],
   rules: {
     "no-restricted-syntax": [

@@ -508,16 +508,16 @@ export function AccountUpgrade({ stars }: { stars: number }) {
 const card: CSSProperties = {
   padding: "var(--s5)",
 };
-const h2: CSSProperties = { margin: "0 0 6px", fontSize: 18, fontWeight: 800, color: "var(--tx)" };
+const h2: CSSProperties = { margin: "0 0 6px", fontSize: "var(--fs-h3)", fontWeight: 800, color: "var(--tx)" };
 const sub: CSSProperties = {
   margin: "0 0 14px",
-  fontSize: 13.5,
+  fontSize: "var(--fs-sm)",
   color: "var(--t2)",
   lineHeight: 1.5,
 };
 const label: CSSProperties = {
   display: "block",
-  fontSize: 12.5,
+  fontSize: "var(--fs-sm)",
   fontWeight: 700,
   color: "var(--t2)",
   margin: "0 0 6px",
@@ -530,7 +530,7 @@ const input: CSSProperties = {
   borderRadius: 12,
   background: "var(--sf)",
   color: "var(--tx)",
-  fontSize: 16, // ≥16px → no iOS zoom-on-focus
+  fontSize: "var(--fs-body)", // ≥16px → no iOS zoom-on-focus
   marginBottom: 12,
 };
 // bg/color/gradient/sheen/shine live in `.checkout-cta`; this is layout only (label rides above the
@@ -541,7 +541,7 @@ const primaryBtn: CSSProperties = {
   borderRadius: 12,
   border: "none",
   fontWeight: 800,
-  fontSize: 16,
+  fontSize: "var(--fs-body)",
   cursor: "pointer",
 };
 const ctaLabel: CSSProperties = { position: "relative", zIndex: 1 };
@@ -557,7 +557,7 @@ const googleBtn: CSSProperties = {
   background: "var(--sf)",
   color: "var(--tx)",
   fontWeight: 700,
-  fontSize: 15,
+  fontSize: "var(--fs-body)",
   cursor: "pointer",
 };
 // color/weight/size/underline/arrow come from `.nav-link`; content-width so the underline hugs the text
@@ -572,7 +572,7 @@ const divider: CSSProperties = { margin: "16px 0" };
 const errorLine: CSSProperties = {
   minHeight: 16,
   margin: "10px 0 0",
-  fontSize: 13,
+  fontSize: "var(--fs-sm)",
   color: "var(--warn)",
   textAlign: "center",
 };

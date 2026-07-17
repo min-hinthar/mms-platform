@@ -29,7 +29,7 @@ export function PickupSlotChip() {
         background: "var(--cd)",
         color: "var(--tx)",
         fontWeight: 700,
-        fontSize: 13.5,
+        fontSize: "var(--fs-sm)",
         cursor: "pointer",
       }}
     >

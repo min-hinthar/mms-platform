@@ -13,13 +13,15 @@ them un-regressable. The owner chose "adopt the disciplined scale" (vs. preservi
   `15–16→body(16)` · `17–19→h3(17)` · `20–24→h2(21)` · `26–31→h1(26)` · `32+→display`. Mostly ±1px
   unifications (before/after verified); the largest single shift is the checkout grand-total figure
   `24→h2(21)` (still the hero). One decorative hero glyph (`34`) mapped to `display`, not h1.
-- **Swept:** `Checkout.tsx`, `PaymentSection.tsx`, `OrderTracker.tsx`, `RewardsHub.tsx` (the four biggest
-  offenders — the checkout/pay/track/rewards path).
+- **Swept (13 files):** the checkout/pay/track/rewards path (`Checkout.tsx`, `PaymentSection.tsx`,
+  `OrderTracker.tsx`, `RewardsHub.tsx`) + the **menu** (`MenuBrowser.tsx` — its flagship title `34→display`,
+  `TablePicker.tsx`, `PickupSlotSheet.tsx`, `PickupSlotChip.tsx`) + **account** (`account/page.tsx`,
+  `AccountStatus.tsx`, `AccountUpgrade.tsx`, `OrderHistory.tsx`, `RewardField.tsx`).
 - **Added an ESLint ban** on numeric inline `fontSize` (`no-restricted-syntax`, matching any numeric
   literal in a `fontSize` value) — **directory-scoped and widened per swept file** so it can't regress,
   without failing lint on the not-yet-swept surfaces. Verified: it errors on a numeric, passes on tokens.
-- **Remaining** (per the one-screen-per-PR cadence): the menu, account, the smaller diner components, and
-  the staff surfaces.
+- **Remaining** (per the one-screen-per-PR cadence): the remaining smaller diner components and the staff
+  surfaces (KDS/expo/floor).
 
 ### W2d — checkout / pay craft (wallet-first · custom tip · fees-before-tip) (2026-07-17)
 
