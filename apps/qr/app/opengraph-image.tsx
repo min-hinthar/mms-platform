@@ -1,20 +1,16 @@
 import { ImageResponse } from "next/og";
-import { readFileSync } from "node:fs";
+import { fraunces600, fraunces900 } from "./_og/fonts";
 
 // W7 shell — the social share card (Open Graph; twitter-image.tsx re-exports this for the Twitter card).
 // A wordmark lockup on paper cream: the ✦ mark over "Mandalay Morning Star" in the brand serif (Fraunces,
-// bundled as a subset woff so nothing is fetched at request time), a gold hairline, and the honest tagline.
-// Node runtime (default) — `readFileSync` needs it; do NOT switch this route to the edge runtime.
+// bundled as a subset woff), a gold hairline, and the honest tagline. `force-static` (below) renders the
+// PNG ONCE at build, so the font is never fetched at request time.
 export const alt = "Mandalay Morning Star — order at the teahouse";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 // Explicitly static — the woff is read + Satori renders the PNG ONCE at build; the baked bytes are
 // CDN-served, never re-rendered per crawler hit (and never inherit the root layout's force-dynamic).
 export const dynamic = "force-static";
-
-// Bundled Fraunces (OFL) subset — `new URL(..., import.meta.url)` makes Next trace + include the file.
-const fraunces600 = readFileSync(new URL("./_og/Fraunces-600.woff", import.meta.url));
-const fraunces900 = readFileSync(new URL("./_og/Fraunces-900.woff", import.meta.url));
 
 // The ✦ mark, brand gold with a cream center (punched through to the cream field, not the dark one).
 const STAR = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 64 64"><path d="M32 8 C34 21, 43 30, 56 32 C43 34, 34 43, 32 56 C30 43, 21 34, 8 32 C21 30, 30 21, 32 8 Z" fill="#e8a83c"/><circle cx="32" cy="32" r="3.4" fill="#faf9f5"/></svg>`;
