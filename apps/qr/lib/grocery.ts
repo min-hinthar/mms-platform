@@ -172,9 +172,11 @@ export type GroceryHit = {
  */
 export async function searchGroceryItems(query: string): Promise<GroceryHit[]> {
   const { query: q } = grocerySearchInput.parse({ query });
-  // Escape LIKE metacharacters so a stray % / _ searches literally, not as a wildcard.
-  const safe = q.replace(/[\\%_]/g, "\\$&");
-  const { data, error } = await serviceClient().rpc("mms_grocery_search", { p_q: safe });
+  // The query goes to the RPC RAW (parameterized — no injection surface): the fn feeds it to both
+  // ILIKE and trigram `similarity()`, and escaping LIKE metacharacters would leave literal
+  // backslashes in the similarity input, distorting the ranking. A stray % simply widens the ILIKE
+  // arm (bounded: limit 20, 40-char Zod cap); no catalog name contains LIKE metacharacters.
+  const { data, error } = await serviceClient().rpc("mms_grocery_search", { p_q: q });
   if (error) {
     // Throw (not return []) so the caller can tell a lookup FAILURE from a genuine zero-result search
     // and say so honestly. Log the real cause server-side; Next redacts the thrown message in prod.

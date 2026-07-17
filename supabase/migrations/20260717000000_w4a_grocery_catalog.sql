@@ -1,5 +1,6 @@
 -- W4a — the grocery catalog grows up (PRODUCTION_PLAN §W4a).
--- Adds the browse/merchandising fields the 396-SKU import carries (category aisle, brand, internal
+-- Adds the browse/merchandising fields the 395-SKU import carries (category aisle, brand, internal
+-- SKU; 395 sellable of 396 parsed — CT0403 has no price in any source list and is excluded)
 -- SKU, pack size, romanization synonyms) and the pg_trgm fuzzy search the W4b Browse tab uses.
 -- Additive + idempotent; no money column changes (price_cents/tax_category/ebt_eligible untouched).
 

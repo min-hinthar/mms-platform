@@ -4014,6 +4014,9 @@ html[data-seen-surface] .mms-stagger {
   opacity: 0.55;
   cursor: default;
 }
+.gcard-add[data-busy] {
+  opacity: 0.55;
+}
 .gcard-stepper {
   justify-content: center;
 }

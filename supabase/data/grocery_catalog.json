@@ -451,52 +451,6 @@
    "price_source": "new_price_apr2022"
   },
   {
-   "sku": "TB0120",
-   "barcode": "2990200201209",
-   "name": "Tea Lvs H&S Bot - Zayan (Sein Hinthar)-120g",
-   "name_my": "ဇယန်းလက်ဖက်ချိုနှပ်သံဗူး-120g",
-   "brand": "Grandma",
-   "category": "canned-fish",
-   "size_qty": 120.0,
-   "size_unit": "g",
-   "price_cents": 286,
-   "tax_category": "grocery_food",
-   "ebt_eligible": true,
-   "synonyms": [
-    "laphet",
-    "lahpet",
-    "letphet",
-    "pickled tea"
-   ],
-   "case_pack": 90.0,
-   "wholesale_usd": 2.2,
-   "retail_basis": "retail30_explicit",
-   "price_source": "new_price_apr2022"
-  },
-  {
-   "sku": "TB0118",
-   "barcode": "2990200201186",
-   "name": "Tea Lvs H&S Bot - Zayan Chilli(Sein Hinthar)-120g",
-   "name_my": "ဇယန်းလက်ဖက်ချဉ်စပ်သံဗူး-120g",
-   "brand": "Grandma",
-   "category": "canned-fish",
-   "size_qty": 120.0,
-   "size_unit": "g",
-   "price_cents": 286,
-   "tax_category": "grocery_food",
-   "ebt_eligible": true,
-   "synonyms": [
-    "laphet",
-    "lahpet",
-    "letphet",
-    "pickled tea"
-   ],
-   "case_pack": 90.0,
-   "wholesale_usd": 2.2,
-   "retail_basis": "retail30_explicit",
-   "price_source": "new_price_apr2022"
-  },
-  {
    "sku": "CF0407",
    "barcode": "2990030604072",
    "name": "Tomato and Drumstick Curry-400g",
@@ -7340,6 +7294,52 @@
    ],
    "case_pack": 36.0,
    "wholesale_usd": 4.95,
+   "retail_basis": "retail30_explicit",
+   "price_source": "new_price_apr2022"
+  },
+  {
+   "sku": "TB0120",
+   "barcode": "2990200201209",
+   "name": "Tea Lvs H&S Bot - Zayan (Sein Hinthar)-120g",
+   "name_my": "ဇယန်းလက်ဖက်ချိုနှပ်သံဗူး-120g",
+   "brand": "Grandma",
+   "category": "tea-laphet",
+   "size_qty": 120.0,
+   "size_unit": "g",
+   "price_cents": 286,
+   "tax_category": "grocery_food",
+   "ebt_eligible": true,
+   "synonyms": [
+    "laphet",
+    "lahpet",
+    "letphet",
+    "pickled tea"
+   ],
+   "case_pack": 90.0,
+   "wholesale_usd": 2.2,
+   "retail_basis": "retail30_explicit",
+   "price_source": "new_price_apr2022"
+  },
+  {
+   "sku": "TB0118",
+   "barcode": "2990200201186",
+   "name": "Tea Lvs H&S Bot - Zayan Chilli(Sein Hinthar)-120g",
+   "name_my": "ဇယန်းလက်ဖက်ချဉ်စပ်သံဗူး-120g",
+   "brand": "Grandma",
+   "category": "tea-laphet",
+   "size_qty": 120.0,
+   "size_unit": "g",
+   "price_cents": 286,
+   "tax_category": "grocery_food",
+   "ebt_eligible": true,
+   "synonyms": [
+    "laphet",
+    "lahpet",
+    "letphet",
+    "pickled tea"
+   ],
+   "case_pack": 90.0,
+   "wholesale_usd": 2.2,
    "retail_basis": "retail30_explicit",
    "price_source": "new_price_apr2022"
   },

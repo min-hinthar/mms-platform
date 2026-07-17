@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@mms/ui";
 import { BlurUpImage } from "@/components/menu/BlurUpImage";
 import { PhotoPlaceholder } from "@/components/menu/PhotoPlaceholder";
@@ -12,22 +12,37 @@ import { AISLES, aisleBySlug, sizeLabel, unitPriceLabel } from "@/lib/grocery-ai
  * tag) with one-tap add. Cards are cart-AWARE (an in-cart item swaps its Add for the same stepper
  * the basket rows use) but never cart-AUTHORITATIVE: every add/step rides the parent's existing
  * scanAdd/setQty money path — browse is a different door into the same server-priced cart line.
+ *
+ * memo'd with stable parent callbacks so typing in the page-level search box (or the toast's
+ * mount/unmount) doesn't re-render the ~400-card grid — only cart/busy changes do.
  */
-export function GroceryBrowse({
+export const GroceryBrowse = memo(function GroceryBrowse({
   lines,
-  busy,
+  canAdd,
+  addingBarcode,
+  busyLineId,
   onAdd,
   onStep,
 }: {
   lines: GroceryLine[];
-  /** True while any line op is in flight — steppers/adds early-return (parent's one-op discipline). */
-  busy: boolean;
+  /** False while the session is still minting or the first basket read FAILED (adding while the
+   *  server basket is invisible could double a qty the shopper can't see) — Adds render
+   *  aria-disabled; the parent handler is the real enforcement. */
+  canAdd: boolean;
+  /** Barcode of the one in-flight browse/search add — only that card dims. */
+  addingBarcode: string | null;
+  /** lineId of the one in-flight stepper op — only that card's stepper dims. */
+  busyLineId: string | null;
   onAdd: (item: GroceryCatalogItem) => void;
   onStep: (line: GroceryLine, nextQty: number) => void;
 }) {
   const [catalog, setCatalog] = useState<GroceryCatalogItem[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [aisle, setAisle] = useState<string | null>(null);
+  // MED-1 (adversarial review): when a card's Add lands, its button unmounts and the stepper takes
+  // its place — park keyboard/SR focus on the new "+" instead of dropping it to <body>. The ref
+  // holds the barcode whose stepper should claim focus on mount.
+  const pendingFocus = useRef<string | null>(null);
 
   // One catalog read per visit (a public, slow-moving ~400-row list). Failure renders an honest
   // Retry — never an empty market. `cancelled` guards the post-unmount setState.
@@ -189,19 +204,20 @@ export function GroceryBrowse({
                     </span>
                   </div>
                   {line ? (
-                    // In the cart → the same stepper anatomy/handlers as the basket rows (busy =
-                    // aria-disabled + early-return, never `disabled` — keeps keyboard focus alive).
+                    // In the cart → the same stepper anatomy/handlers as the basket rows (per-CARD
+                    // busy = aria-disabled + parent early-return, never `disabled` — keeps keyboard
+                    // focus alive and doesn't dim the other 394 cards during one op).
                     <span
                       className="grocery-stepper gcard-stepper"
                       role="group"
                       aria-label={`${item.name} quantity`}
-                      data-busy={busy || undefined}
+                      data-busy={busyLineId === line.lineId || undefined}
                     >
                       <button
                         type="button"
                         className="grocery-step-btn"
                         aria-label={line.qty <= 1 ? `Remove ${item.name}` : `One less ${item.name}`}
-                        aria-disabled={busy}
+                        aria-disabled={busyLineId !== null}
                         onClick={() => onStep(line, line.qty - 1)}
                       >
                         <span aria-hidden>−</span>
@@ -211,7 +227,15 @@ export function GroceryBrowse({
                         type="button"
                         className="grocery-step-btn"
                         aria-label={`One more ${item.name}`}
-                        aria-disabled={busy || line.qty >= 99}
+                        aria-disabled={busyLineId !== null || line.qty >= 99}
+                        // Claims focus when this stepper just replaced the Add button the shopper
+                        // activated (MED-1) — the callback ref runs exactly once, on mount.
+                        ref={(el) => {
+                          if (el && pendingFocus.current === item.barcode) {
+                            pendingFocus.current = null;
+                            el.focus();
+                          }
+                        }}
                         onClick={() => onStep(line, line.qty + 1)}
                       >
                         <span aria-hidden>+</span>
@@ -222,8 +246,12 @@ export function GroceryBrowse({
                       type="button"
                       className="gcard-add"
                       aria-label={`Add ${item.name} — ${price}`}
-                      aria-disabled={busy}
-                      onClick={() => onAdd(item)}
+                      aria-disabled={!canAdd || addingBarcode !== null}
+                      data-busy={addingBarcode === item.barcode || undefined}
+                      onClick={() => {
+                        pendingFocus.current = item.barcode;
+                        onAdd(item);
+                      }}
                     >
                       <span aria-hidden>+</span> Add
                     </button>
@@ -236,4 +264,4 @@ export function GroceryBrowse({
       ))}
     </>
   );
-}
+});

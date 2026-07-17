@@ -188,7 +188,16 @@ export default function Grocery() {
   // scanner effect (keyed on `onScan`) doesn't tear down + restart the camera on every re-render.
   const add = useCallback(
     async (barcode: string, via: "scan" | "search" | "browse") => {
-      if (!cartId) return;
+      if (!cartId) {
+        // The market renders before the basket exists (W4b) — a scan/tap here must SAY why nothing
+        // happened, never silently no-op (adversarial HIGH-1).
+        flash(
+          sessionError
+            ? "Basket unavailable — use Retry above, then add again."
+            : "Still starting your basket — try again in a moment.",
+        );
+        return;
+      }
       const seq = ++reqSeq.current; // ticket at issue time — the response carries a server view
       let r;
       try {
@@ -226,16 +235,22 @@ export default function Grocery() {
         flash(`Not found: ${barcode} — try searching by name`);
       }
     },
-    [cartId, flash, applyLines],
+    [cartId, sessionError, flash, applyLines],
   );
 
   const onScan = useCallback((code: string) => void add(code, "scan"), [add]);
 
   // W4b — a browse card's one-tap add: the same authorized scanAdd path, serialized so a double-tap
-  // can't double-add (the card swaps to a stepper as soon as the returned cart view lands).
+  // can't double-add (the card swaps to a stepper as soon as the returned cart view lands). When the
+  // first basket read FAILED, adds are refused with the why — an add against an invisible basket
+  // could double a qty the shopper can't see (adversarial MED-5).
   const addFromBrowse = useCallback(
     async (item: GroceryCatalogItem) => {
       if (addingBarcode || busyLine) return;
+      if (cartId && syncFailed && !hydrated) {
+        flash("Couldn’t check your basket — use Retry above before adding.");
+        return;
+      }
       setAddingBarcode(item.barcode);
       try {
         await add(item.barcode, "browse");
@@ -243,7 +258,7 @@ export default function Grocery() {
         setAddingBarcode(null);
       }
     },
-    [add, addingBarcode, busyLine],
+    [add, addingBarcode, busyLine, cartId, syncFailed, hydrated, flash],
   );
 
   // Debounced name search. All setState lives in the async timeout callback — never synchronously in
@@ -280,8 +295,21 @@ export default function Grocery() {
     };
   }, [query]);
 
+  // Search-hit add — same serialization as the browse cards (adversarial MED-3: an unguarded
+  // double-tap on a result row was two server adds). Pre-basket, `add` flashes the honest notice
+  // and the results STAY (clearing them would read as success).
   async function addHit(h: GroceryHit) {
-    await add(h.barcode, "search");
+    if (!cartId) {
+      void add(h.barcode, "search");
+      return;
+    }
+    if (addingBarcode || busyLine) return;
+    setAddingBarcode(h.barcode);
+    try {
+      await add(h.barcode, "search");
+    } finally {
+      setAddingBarcode(null);
+    }
     setQuery("");
     setHits(null);
     // Tapping a hit unmounts the result button that held focus — return focus to the search input
@@ -298,9 +326,10 @@ export default function Grocery() {
     <main style={{ maxWidth: 440, margin: "0 auto", padding: 20, paddingBottom: 120 }}>
       <p className="eyebrow">Grocery</p>
       <h1 style={{ fontSize: "var(--fs-h1)" }}>Shop the market</h1>
+      {/* Undated EBT copy (W4a rule): FNS authorization is federally gated — never promise a date. */}
       <p style={{ color: "var(--t2)", marginTop: 0 }}>
-        Browse the aisles or scan shelf barcodes. EBT-eligible items are tagged (SNAP checkout
-        arrives 2027).
+        Browse the aisles or scan shelf barcodes. EBT-eligible items are tagged — SNAP checkout is
+        coming; pay by card today.
       </p>
 
       {/* W4b — the session gates the BASKET, not the MARKET: the catalog is a public read, so the
@@ -369,6 +398,7 @@ export default function Grocery() {
           onChange={(e) => setQuery(e.target.value)}
           aria-label="Search grocery items by name"
           placeholder="Search in English or မြန်မာ…"
+          maxLength={40}
           style={searchInput}
         />
       </div>
@@ -384,7 +414,15 @@ export default function Grocery() {
           ) : (
             hits.map((h) => (
               <li key={h.barcode}>
-                <button type="button" onClick={() => addHit(h)} style={resultBtn}>
+                <button
+                  type="button"
+                  aria-disabled={addingBarcode !== null || busyLine !== null}
+                  onClick={() => void addHit(h)}
+                  style={{
+                    ...resultBtn,
+                    ...(addingBarcode === h.barcode ? { opacity: 0.55 } : null),
+                  }}
+                >
                   <span style={{ minWidth: 0 }}>
                     {h.name}{" "}
                     {h.ebt && <small style={{ color: "var(--ok)", fontWeight: 700 }}>EBT</small>}
@@ -413,18 +451,27 @@ export default function Grocery() {
         aria-labelledby="grocery-tab-browse"
         hidden={tab !== "browse"}
       >
+        {/* Stable callback identities + memo'd child: typing in the search box above no longer
+            re-renders the ~400-card grid (adversarial MED-2). */}
         <GroceryBrowse
           lines={lines}
-          busy={!cartId || busyLine !== null || addingBarcode !== null}
-          onAdd={(item) => void addFromBrowse(item)}
-          onStep={(line, next) => void stepQty(line, next)}
+          canAdd={!!cartId && (hydrated || !syncFailed)}
+          addingBarcode={addingBarcode}
+          busyLineId={busyLine}
+          onAdd={addFromBrowse}
+          onStep={stepQty}
         />
       </div>
-      {tab === "scan" && (
-        <div id="grocery-panel-scan" role="tabpanel" aria-labelledby="grocery-tab-scan">
-          <BarcodeScanner onScan={onScan} />
-        </div>
-      )}
+      {/* The tabpanel stays mounted so the Scan tab's aria-controls never dangles (L3); the
+          SCANNER inside still unmounts, releasing the camera the moment the shopper leaves. */}
+      <div
+        id="grocery-panel-scan"
+        role="tabpanel"
+        aria-labelledby="grocery-tab-scan"
+        hidden={tab !== "scan"}
+      >
+        {tab === "scan" && <BarcodeScanner onScan={onScan} />}
+      </div>
 
       {/* K5 pre-hydration truth strip — OUTSIDE the tabs, because it must be visible from BOTH
           doors: on a failed first read, an invisible server basket isn't just a display lie — a
@@ -549,11 +596,12 @@ export default function Grocery() {
         )}
       </ul>
 
-      {toast && (
-        <div role="status" style={toastStyle}>
-          {toast}
-        </div>
-      )}
+      {/* ALWAYS-mounted live region (adversarial MED-6): several SR/browser pairs skip a region
+          born WITH its text — the container persists, only the text swaps; visibility hides the
+          empty pill without removing it from the accessibility tree's region registry. */}
+      <div role="status" style={{ ...toastStyle, ...(toast ? null : { visibility: "hidden" }) }}>
+        {toast}
+      </div>
 
       {lines.length > 0 && cartId && (
         // A real <button> (Enter AND Space), matching CartBar — the prior <a> only activated on Enter. The
