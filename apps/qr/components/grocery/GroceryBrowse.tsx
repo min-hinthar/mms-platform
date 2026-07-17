@@ -133,6 +133,17 @@ export const GroceryBrowse = memo(function GroceryBrowse({
     );
   }
 
+  // Honest empty market — live runs in exactly this state between the schema migration and the
+  // price-confirmed catalog import (rows exist but carry no aisle), and a categorized-but-empty
+  // filter result must never read as "we sell nothing".
+  if (catalog.length === 0 || stockedAisles.length === 0) {
+    return (
+      <p style={{ color: "var(--t3)", marginTop: 14 }}>
+        The aisles are being stocked — search above, or scan a shelf barcode from the Scan tab.
+      </p>
+    );
+  }
+
   return (
     <>
       <nav className="aisle-rail" aria-label="Grocery aisles">
