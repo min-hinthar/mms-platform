@@ -154,7 +154,7 @@ const topRow: CSSProperties = {
 };
 const label: CSSProperties = {
   fontFamily: "var(--font-display)",
-  fontSize: "var(--fs-h3)",
+  fontSize: "var(--fs-h2)",
   fontWeight: 700,
 };
 const metaRow: CSSProperties = {

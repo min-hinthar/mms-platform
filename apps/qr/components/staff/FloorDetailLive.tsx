@@ -158,7 +158,7 @@ export function FloorDetailLive({
           check in or suggest it. Plain banners (not live regions — one view already owns aria-live). */}
       {detail.tabOverCeiling && (
         <div style={ceilingBanner}>
-          <Icon name="alert" size={16} />
+          <Icon name="alert" size={16} style={{ marginTop: 2 }} />
           <span>
             <strong>Tab at {fmt(detail.runningSubtotalCents)}</strong> — past the{" "}
             {fmt(detail.ceilingCents)} mark. Check in with the table, or ask them to secure the tab
@@ -168,7 +168,7 @@ export function FloorDetailLive({
       )}
       {detail.nudgeSecure && detail.tab !== "secure" && (
         <div style={nudgeBanner}>
-          <Icon name="star" size={16} />
+          <Icon name="star" size={16} style={{ marginTop: 2 }} />
           <span>
             {detail.nudgeSecure === "party"
               ? "Large party — consider suggesting a secure tab (a card on file) so they can order freely and settle once."
@@ -408,7 +408,7 @@ const sub: CSSProperties = { color: "var(--t2)", fontSize: "var(--fs-sm)", margi
 const ceilingBanner: CSSProperties = {
   display: "flex",
   gap: "var(--s2)",
-  alignItems: "baseline",
+  alignItems: "flex-start",
   padding: "var(--s3) var(--s4)",
   marginBottom: "var(--s4)",
   borderRadius: "var(--r-card)",
@@ -421,7 +421,7 @@ const ceilingBanner: CSSProperties = {
 const nudgeBanner: CSSProperties = {
   display: "flex",
   gap: "var(--s2)",
-  alignItems: "baseline",
+  alignItems: "flex-start",
   padding: "var(--s3) var(--s4)",
   marginBottom: "var(--s4)",
   borderRadius: "var(--r-card)",
