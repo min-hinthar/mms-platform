@@ -13,7 +13,12 @@ import "server-only";
  */
 export function siteUrl(): string {
   const explicit = process.env.NEXT_PUBLIC_SITE_URL;
-  if (explicit) return explicit.replace(/\/+$/, "");
+  if (explicit) {
+    const trimmed = explicit.replace(/\/+$/, "");
+    // Guarantee a scheme: `metadataBase: new URL(siteUrl())` throws (500s EVERY route) on a bare host,
+    // and email links would be malformed — so a schemeless override is normalized to https, not trusted.
+    return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  }
   const prod = process.env.VERCEL_PROJECT_PRODUCTION_URL;
   if (prod) return `https://${prod}`;
   return "https://qr.mandalaymorningstar.com";

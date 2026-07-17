@@ -17,6 +17,8 @@ const fraunces900 = readFileSync(new URL("./_og/Fraunces-900.woff", import.meta.
 const STAR = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 64 64"><path d="M32 8 C34 21, 43 30, 56 32 C43 34, 34 43, 32 56 C30 43, 21 34, 8 32 C21 30, 30 21, 32 8 Z" fill="#e8a83c"/><circle cx="32" cy="32" r="3.4" fill="#faf9f5"/></svg>`;
 
 export default function OpengraphImage() {
+  // Palette mirrors tokens.css (Satori can't resolve CSS vars, so these are literal): #faf9f5=--pg ·
+  // #1b1714=--tx (ink) · #e8a83c=--gold · #a65f10=--ac · #6e6358=--t2. Keep in sync if the tokens change.
   return new ImageResponse(
     <div
       style={{
@@ -27,7 +29,7 @@ export default function OpengraphImage() {
         alignItems: "center",
         justifyContent: "center",
         background: "#faf9f5",
-        color: "#141413",
+        color: "#1b1714",
         position: "relative",
       }}
     >
@@ -77,7 +79,7 @@ export default function OpengraphImage() {
           fontFamily: "Fraunces",
           fontWeight: 600,
           fontSize: 34,
-          color: "#6b6a66",
+          color: "#6e6358",
           textAlign: "center",
         }}
       >
