@@ -7,12 +7,12 @@ Competitive teardowns run 2026-07-17 (live-site research; sources inline).
 
 ## 1 · Market read — the vertical is unowned
 
-| Player | Model | Catalog | Shipping/delivery | Weakness we exploit |
-| --- | --- | --- | --- | --- |
-| **Myanmar Food USA** (myanmarfoodusa.com, MD, since 2008) | Shopify (stock Canopy theme), nationwide USPS Priority | **~2,680 SKUs** — the deepest US Burmese catalog; bilingual EN+MY titles; 15–20 direct-import brands (Yuzana, Shan Shwe Taung, OBO…); dish-centric collections (Tea Leaf Salad 56, Mohinga 40) | 4–5 day USPS; **no published rates, no free-ship threshold, the shipping-policy page is literally empty** | Cost-shock at checkout · content-desert PDPs (no ingredients/allergens/prep) · zero reviews (broken widgets) · stale merchandising (spring sale live in July) · no local delivery, no cold chain |
-| **Shop Myanmar Food** (shopmyanmarfood.com, SF Bay Area, ~4 yrs) | WooCommerce/Elementor, nationwide | **~400 SKUs**; fully bilingual nav + Burmese-script category URLs; brand + category + sale sections | Ship: $35+ reduced, **$80+ free**; $10 off $100+ | Small catalog · template-grade UX · no local same-week delivery outside Bay Area events · thin PDPs |
-| **Amazon channel** (incl. our A3JK79JD48OQZQ storefront) | Marketplace | Hero SKUs only — laphet jars/kits, dressings, tea mixes (Shan Shwe Taung, Yellow Cheek, Pintaya…) with bilingual titles | Prime speed | Marketplace fees force premium prices · no basket economics (one jar, not a pantry) · no brand loyalty accrues to the seller · discovery limited to shoppers who already search "laphet" |
-| **Weee!** (sayweee.com — the ethnic-grocery benchmark) | Vertical e-grocer | Chinese/JP/KR/Viet/Thai/Filipino/Indian **storefronts; Myanmar exists only as long-tail SEO keyword pages** — no Burmese vertical, no Burmese-language UX | Nationwide, free-ship minimums, local next-day in metros | **The gap in one line: the Weee! playbook has not been run for the Burmese diaspora.** |
+| Player                                                           | Model                                                  | Catalog                                                                                                                                                                                        | Shipping/delivery                                                                                         | Weakness we exploit                                                                                                                                                                              |
+| ---------------------------------------------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Myanmar Food USA** (myanmarfoodusa.com, MD, since 2008)        | Shopify (stock Canopy theme), nationwide USPS Priority | **~2,680 SKUs** — the deepest US Burmese catalog; bilingual EN+MY titles; 15–20 direct-import brands (Yuzana, Shan Shwe Taung, OBO…); dish-centric collections (Tea Leaf Salad 56, Mohinga 40) | 4–5 day USPS; **no published rates, no free-ship threshold, the shipping-policy page is literally empty** | Cost-shock at checkout · content-desert PDPs (no ingredients/allergens/prep) · zero reviews (broken widgets) · stale merchandising (spring sale live in July) · no local delivery, no cold chain |
+| **Shop Myanmar Food** (shopmyanmarfood.com, SF Bay Area, ~4 yrs) | WooCommerce/Elementor, nationwide                      | **~400 SKUs**; fully bilingual nav + Burmese-script category URLs; brand + category + sale sections                                                                                            | Ship: $35+ reduced, **$80+ free**; $10 off $100+                                                          | Small catalog · template-grade UX · no local same-week delivery outside Bay Area events · thin PDPs                                                                                              |
+| **Amazon channel** (incl. our A3JK79JD48OQZQ storefront)         | Marketplace                                            | Hero SKUs only — laphet jars/kits, dressings, tea mixes (Shan Shwe Taung, Yellow Cheek, Pintaya…) with bilingual titles                                                                        | Prime speed                                                                                               | Marketplace fees force premium prices · no basket economics (one jar, not a pantry) · no brand loyalty accrues to the seller · discovery limited to shoppers who already search "laphet"         |
+| **Weee!** (sayweee.com — the ethnic-grocery benchmark)           | Vertical e-grocer                                      | Chinese/JP/KR/Viet/Thai/Filipino/Indian **storefronts; Myanmar exists only as long-tail SEO keyword pages** — no Burmese vertical, no Burmese-language UX                                      | Nationwide, free-ship minimums, local next-day in metros                                                  | **The gap in one line: the Weee! playbook has not been run for the Burmese diaspora.**                                                                                                           |
 
 Read: the incumbents prove demand (18 years, 2,680 SKUs) but compete on assortment alone. Nobody
 combines **local delivery + in-store tech + bilingual-first UX + content-rich PDPs + honest
@@ -81,3 +81,31 @@ _Research sources: myanmarfoodusa.com (site + collections + FAQ/policy pages), s
 (site, sitemaps, about — "Ship: $35+ reduced · $80+ FREE"), amazon.com Burmese-food listings
 (Shan Shwe Taung / Yellow Cheek / Pintaya laphet PDPs), sayweee.com explore pages (Myanmar as
 keyword-only coverage)._
+
+## Pricing — the Sale layer (W4e, 2026-07-18)
+
+The 2022 price list is our **charged** price (`price_cents`) — genuinely below today's market because
+it's 3–4 years old. We surface that as a value story honestly:
+
+- **"Compare at $X", not "Was $X".** The struck reference (`grocery_items.compare_at_cents`) is a
+  **market comparison**, never a former price of ours — the FTC-defensible construction (the
+  TJ-Maxx "Compare At" pattern). We never imply the item once sold here at the higher price.
+- **Grounded in real sampled competitor prices**, not invented markups (the house "never fabricate"
+  bar). Per-category multipliers were derived from live 2026-07 sampling of myanmarfoodusa.com +
+  shopmyanmarfood.com (size-comparable products): tea-laphet ≈1.75, noodles-mohinga ≈1.6,
+  canned-fish ≈1.35, snacks ≈1.35, preserved-fruit ≈1.4, canned-veg ≈1.5, coffee ≈1.45,
+  cooking ≈1.3. **health + home-personal are excluded** — their sampled market wasn't clearly above
+  ours, so no defensible compare-at exists.
+- **Guardrails (all in `gen_seed.py compare_at_for`):** advertised discount capped at **≤40%**
+  (within observed competitor homepage sales); an absolute **per-category ceiling** = the real
+  sampled competitor high, so a compare-at can never exceed a price a competitor was actually seen
+  charging (a premium/above-median item that can't clear the bar honestly simply shows no sale);
+  **bulk multipacks** (>3× the category single-unit median) are skipped (no comparable single-unit
+  reference); charm-rounded; and the **DB CHECK `compare_at_cents > price_cents`** guarantees a sale
+  is always a real discount. Result: **313/396 SKUs on sale, 11–40% off (avg ~29%)**.
+- **Popular aisles** (tea-laphet · noodles-mohinga · canned-fish · snacks · preserved-fruit) badge
+  broadly; the other food aisles badge only where they clearly beat market (≥15%). The **charged
+  price is unchanged** — the Sale layer is display-only; checkout still re-derives every amount
+  server-side. The basket shows a real **"You're saving $X vs. typical market prices."**
+- **Owner review:** the compare-at values are a category-model estimate; confirm they read fairly
+  for your catalog, and refresh the multipliers when you capture direct per-SKU competitor prices.

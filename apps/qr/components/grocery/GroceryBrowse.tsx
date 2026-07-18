@@ -4,7 +4,14 @@ import { Icon } from "@mms/ui";
 import { BlurUpImage } from "@/components/menu/BlurUpImage";
 import { PhotoPlaceholder } from "@/components/menu/PhotoPlaceholder";
 import { getGroceryCatalog, type GroceryCatalogItem, type GroceryLine } from "@/lib/grocery";
-import { AISLES, aisleBySlug, sizeLabel, unitPriceLabel } from "@/lib/grocery-aisles";
+import {
+  AISLES,
+  aisleBySlug,
+  dollars,
+  saleInfo,
+  sizeLabel,
+  unitPriceLabel,
+} from "@/lib/grocery-aisles";
 
 /**
  * W4b — the Browse half of the grocery market: aisle tiles over the full catalog, Weee!-anatomy
@@ -190,10 +197,16 @@ export const GroceryBrowse = memo(function GroceryBrowse({
               const line = lineByBarcode.get(item.barcode);
               const size = sizeLabel(item.sizeQty, item.sizeUnit);
               const unit = unitPriceLabel(item.priceCents, item.sizeQty, item.sizeUnit);
-              const price = `$${(item.priceCents / 100).toFixed(2)}`;
+              const price = dollars(item.priceCents);
+              const sale = saleInfo(item.priceCents, item.compareAtCents);
               return (
                 <li key={item.barcode} className="card card-textured gcard">
                   <div className="gcard-photo">
+                    {sale && (
+                      <span className="gcard-sale" aria-hidden>
+                        Save {sale.pct}%
+                      </span>
+                    )}
                     {item.imageUrl ? (
                       <BlurUpImage
                         src={item.imageUrl}
@@ -220,7 +233,21 @@ export const GroceryBrowse = memo(function GroceryBrowse({
                       </span>
                     )}
                     <span className="gcard-price-row">
+                      {/* On sale: the charged price stays the prominent number; the market reference
+                          sits struck beside it as "Compare at $X". The sr-only text carries the full
+                          honest phrasing so a screen reader never hears a bare struck number. */}
                       <b className="gcard-price">{price}</b>
+                      {sale && (
+                        <>
+                          <s className="gcard-compare" aria-hidden>
+                            {dollars(sale.compareAtCents)}
+                          </s>
+                          <span className="sr-only">
+                            {" "}
+                            — {price}, compare at {dollars(sale.compareAtCents)}, save {sale.pct}%
+                          </span>
+                        </>
+                      )}
                       {unit && <small className="gcard-unit">{unit}</small>}
                       {item.ebt && <small className="gcard-ebt">EBT</small>}
                     </span>

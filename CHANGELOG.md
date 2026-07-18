@@ -4,6 +4,29 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W4e — the Sale layer: honest "Compare at" market pricing (2026-07-18)
+
+The 2022 price list becomes a value story: the charged price stays the (below-market) 2022 number,
+and a real competitor-market reference sits above it as **"Compare at $X"**. No charge changes —
+this is a display layer; checkout still re-derives every amount server-side.
+
+- **Schema** (`20260718000000`): `grocery_items.compare_at_cents` with a **DB CHECK `> price_cents`**
+  (a sale can never be fabricated as ≤ what we charge); `mms_grocery_search` returns it too
+  (drop+recreate for the new column, grants re-asserted service-role-only).
+- **Grounded pricing, not invented** (the house "never fabricate" bar): per-category multipliers
+  derived from **live 2026-07 competitor sampling** (myanmarfoodusa.com + shopmyanmarfood.com,
+  size-comparable). Guardrails in `gen_seed.py`: **≤40% discount cap**, a **per-category absolute
+  ceiling** = the real sampled competitor high (a compare-at never exceeds a price a competitor was
+  actually seen charging), **bulk multipacks excluded**, **health + home-personal excluded** (their
+  market wasn't clearly above ours — no defensible ref), charm-rounded. Result: **313/396 on sale,
+  11–40% off (avg ~29%)**. Framing is **"Compare at" (market comparison)**, never "Was" (FTC-safe).
+- **UI:** a "Save X%" chip on the card photo + struck `compare_at` beside the price (sr-only carries
+  "$X, compare at $Y, save Z%"), the same on search hits, and a basket **"You're saving $X vs.
+  typical market prices"** line (real, only genuinely-discounted lines count). Import artifact
+  refreshes `compare_at_cents` on re-run (derived) while the charged columns stay INSERT-only.
+- Methodology + defensibility recorded in `docs/GROCERY_MARKET_PLAN.md §pricing`. Gate 6/6 green;
+  migration applied to live; the grounded catalog import (with sale prices) run against live.
+
 ### W4a+W4b — the market grows up: real 395-SKU catalog + Browse|Scan (2026-07-17)
 
 The grocery door becomes a shoppable market. Data source: the owner's wholesale/retail price lists

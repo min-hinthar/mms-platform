@@ -3938,7 +3938,9 @@ html[data-seen-surface] .mms-stagger {
   overflow: hidden;
   background: var(--grad);
 }
-.gcard-photo > * {
+/* Size the media child (image / placeholder) to fill — but NOT the corner Sale pill, which is a
+   positioned overlay that must keep its intrinsic size (else it stretches into a full clay disc). */
+.gcard-photo > *:not(.gcard-sale) {
   width: 100%;
   height: 100%;
 }
@@ -4036,6 +4038,49 @@ html[data-seen-surface] .mms-stagger {
   font: inherit;
   font-weight: 700;
   cursor: pointer;
+}
+
+/* W4e Sale layer — a corner "Save X%" pill on the photo + a struck "compare at" market ref.
+   The charged price stays the prominent number; the compare-at is clearly secondary. */
+.gcard-sale {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 1;
+  /* Opt out of `.gcard-photo > *` (which sizes the image/placeholder to fill) — without this the
+     pill stretches to 148×148 and its pill-radius renders as a full clay disc over the photo. */
+  width: auto;
+  height: auto;
+  padding: 2px 7px;
+  border-radius: var(--r-full);
+  background: var(--ac);
+  color: var(--oa);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  line-height: 1.4;
+  /* Cream ring separates the clay chip from a same-clay background (the placeholder disc) and any
+     future photo; the drop shadow lifts it off light surfaces. Reads on anything. */
+  box-shadow: 0 0 0 1.5px var(--oa), inset 0 1px 0 var(--sheen), var(--sh);
+}
+.gcard-photo {
+  position: relative;
+}
+.gcard-compare {
+  font-size: 12px;
+  color: var(--t3);
+  font-variant-numeric: tabular-nums;
+  text-decoration-thickness: 1px;
+}
+/* Basket savings line — positive, honest framing of the real discount total. */
+.grocery-saved {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--ac-strong);
 }
 
 /* The EBT-eligible subtotal line (W4a) — informational, undated-honest copy. */

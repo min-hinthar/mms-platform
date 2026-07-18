@@ -16,7 +16,7 @@ import {
   type GroceryLine,
 } from "@/lib/grocery";
 import { GroceryBrowse } from "@/components/grocery/GroceryBrowse";
-import { sizeLabel } from "@/lib/grocery-aisles";
+import { saleInfo, sizeLabel } from "@/lib/grocery-aisles";
 import { setQty } from "@/lib/cart";
 import { useTableSession } from "@/lib/useTableSession";
 
@@ -327,6 +327,12 @@ export default function Grocery() {
   const totalCents = lines.reduce((a, l) => a + l.unitPriceCents * l.qty, 0);
   // Display-only, like totalCents — the EBT flags rode in on the server's own cart view.
   const ebtCents = lines.reduce((a, l) => a + (l.ebt ? l.unitPriceCents * l.qty : 0), 0);
+  // W4e — real basket savings vs the market compare-at (only lines whose compare-at strictly
+  // exceeds the charged price contribute; display only).
+  const savedCents = lines.reduce(
+    (a, l) => a + (l.compareAtCents ? (l.compareAtCents - l.unitPriceCents) * l.qty : 0),
+    0,
+  );
 
   return (
     <main style={{ maxWidth: 440, margin: "0 auto", padding: 20, paddingBottom: 120 }}>
@@ -440,9 +446,29 @@ export default function Grocery() {
                       {[h.brand, sizeLabel(h.sizeQty, h.sizeUnit)].filter(Boolean).join(" · ")}
                     </small>
                   </span>
-                  <b style={{ fontVariantNumeric: "tabular-nums" }}>
-                    ${(h.unitPriceCents / 100).toFixed(2)}
-                  </b>
+                  <span
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "flex-end",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <b style={{ fontVariantNumeric: "tabular-nums" }}>
+                      ${(h.unitPriceCents / 100).toFixed(2)}
+                    </b>
+                    {(() => {
+                      const s = saleInfo(h.unitPriceCents, h.compareAtCents);
+                      return s ? (
+                        <small aria-hidden style={{ color: "var(--ac-strong)", fontWeight: 700 }}>
+                          <s style={{ color: "var(--t3)", fontWeight: 500 }}>
+                            ${(s.compareAtCents / 100).toFixed(2)}
+                          </s>{" "}
+                          −{s.pct}%
+                        </small>
+                      ) : null;
+                    })()}
+                  </span>
                 </button>
               </li>
             ))
@@ -535,6 +561,13 @@ export default function Grocery() {
             <NumberFlow value={totalCents / 100} format={{ style: "currency", currency: "USD" }} />
           </span>
         </div>
+      )}
+      {/* W4e — real savings vs the market compare-at (honest: only genuinely-discounted lines
+          contribute). aria-hidden decorative; not a live region (the toast owns announcements). */}
+      {savedCents > 0 && (
+        <p className="grocery-saved" aria-hidden>
+          You’re saving ${(savedCents / 100).toFixed(2)} vs. typical market prices
+        </p>
       )}
       {/* W4a — the EBT-eligible subtotal: informational + undated-honest (FNS authorization is
           federally gated — never promise a date). Rendered only when an EBT-tagged item is in the

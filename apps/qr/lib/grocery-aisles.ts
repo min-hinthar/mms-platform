@@ -41,6 +41,24 @@ export function sizeLabel(qty: number | null, unit: string | null): string | nul
 }
 
 /**
+ * W4e sale math (display only). A row is "on sale" when the catalog carries a compare-at ABOVE the
+ * charged price (the server + DB CHECK guarantee compare_at_cents > price_cents when present, but we
+ * re-assert here so a bad row can never render a fake or negative discount). `compareAt` is a market
+ * reference ("Compare at $X"), not a former price of ours.
+ */
+export type SaleInfo = { compareAtCents: number; saveCents: number; pct: number };
+export function saleInfo(priceCents: number, compareAtCents: number | null): SaleInfo | null {
+  if (compareAtCents == null || compareAtCents <= priceCents) return null;
+  return {
+    compareAtCents,
+    saveCents: compareAtCents - priceCents,
+    pct: Math.round((1 - priceCents / compareAtCents) * 100),
+  };
+}
+
+export const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+
+/**
  * Honest unit price for comparison shopping (W4a: "$/lb, $/oz on every card"). Metric sizes render
  * as $/100g|ml (the natural unit at these pack sizes); count packs as $/ct. Null when size is
  * unknown — never a fabricated rate.
