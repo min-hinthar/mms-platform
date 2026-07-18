@@ -16,7 +16,7 @@ import {
   type GroceryLine,
 } from "@/lib/grocery";
 import { GroceryBrowse } from "@/components/grocery/GroceryBrowse";
-import { sizeLabel } from "@/lib/grocery-aisles";
+import { saleInfo, sizeLabel } from "@/lib/grocery-aisles";
 import { setQty } from "@/lib/cart";
 import { useTableSession } from "@/lib/useTableSession";
 
@@ -327,6 +327,12 @@ export default function Grocery() {
   const totalCents = lines.reduce((a, l) => a + l.unitPriceCents * l.qty, 0);
   // Display-only, like totalCents — the EBT flags rode in on the server's own cart view.
   const ebtCents = lines.reduce((a, l) => a + (l.ebt ? l.unitPriceCents * l.qty : 0), 0);
+  // W4e — real basket savings vs the market compare-at (only lines whose compare-at strictly
+  // exceeds the charged price contribute; display only).
+  const savedCents = lines.reduce(
+    (a, l) => a + (l.compareAtCents ? (l.compareAtCents - l.unitPriceCents) * l.qty : 0),
+    0,
+  );
 
   return (
     <main style={{ maxWidth: 440, margin: "0 auto", padding: 20, paddingBottom: 120 }}>
@@ -440,9 +446,39 @@ export default function Grocery() {
                       {[h.brand, sizeLabel(h.sizeQty, h.sizeUnit)].filter(Boolean).join(" · ")}
                     </small>
                   </span>
-                  <b style={{ fontVariantNumeric: "tabular-nums" }}>
-                    ${(h.unitPriceCents / 100).toFixed(2)}
-                  </b>
+                  <span
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "flex-end",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <b style={{ fontVariantNumeric: "tabular-nums" }}>
+                      ${(h.unitPriceCents / 100).toFixed(2)}
+                    </b>
+                    {(() => {
+                      const s = saleInfo(h.unitPriceCents, h.compareAtCents);
+                      if (!s) return null;
+                      // Visible "Compare at" (market-comparison framing, not a bare struck number)
+                      // + an sr-only companion so the sale reaches screen readers too.
+                      return (
+                        <>
+                          <small aria-hidden style={{ color: "var(--ac-strong)", fontWeight: 700 }}>
+                            Compare at{" "}
+                            <s style={{ color: "var(--t3)", fontWeight: 500 }}>
+                              ${(s.compareAtCents / 100).toFixed(2)}
+                            </s>{" "}
+                            −{s.pct}%
+                          </small>
+                          <span className="sr-only">
+                            {" "}
+                            compare at ${(s.compareAtCents / 100).toFixed(2)}, save {s.pct}%
+                          </span>
+                        </>
+                      );
+                    })()}
+                  </span>
                 </button>
               </li>
             ))
@@ -525,10 +561,10 @@ export default function Grocery() {
       )}
 
       {/* J6 — the GIANT running total: scan-and-go's one number, big enough to read at arm's length
-          while the other hand scans. Presentation of the same client-side sum the checkout CTA
-          carries (display only — the charge is re-derived server-side at checkout, as everywhere);
-          NOT a live region (the toast announces each add; the CTA's label carries the total for AT). */}
-      {lines.length > 0 && (
+          while the other hand scans. Its arm's-length purpose only holds on the SCAN door (where the
+          basket list lives); on Browse the fixed checkout CTA's rolling total carries it, so the big
+          figure doesn't sit buried under the whole aisle grid. Display only; NOT a live region. */}
+      {tab === "scan" && lines.length > 0 && (
         <div className="grocery-total mms-rise" aria-hidden>
           <span className="grocery-total-label">Running total</span>
           <span className="grocery-total-figure">
@@ -536,10 +572,18 @@ export default function Grocery() {
           </span>
         </div>
       )}
+      {/* W4e — real savings vs the market compare-at (honest: only genuinely-discounted lines
+          contribute). Part of the basket summary → shown on the Scan door with the total. */}
+      {tab === "scan" && savedCents > 0 && (
+        // Not aria-hidden — honest static text a screen-reader shopper should hear (unlike the
+        // animated total, whose amount the CTA already carries). Not a live region.
+        <p className="grocery-saved">
+          You’re saving ${(savedCents / 100).toFixed(2)} vs. typical market prices
+        </p>
+      )}
       {/* W4a — the EBT-eligible subtotal: informational + undated-honest (FNS authorization is
-          federally gated — never promise a date). Rendered only when an EBT-tagged item is in the
-          basket; makes the 2027 Forage landing a copy change, not a redesign. */}
-      {ebtCents > 0 && (
+          federally gated — never promise a date). Basket summary → shown on the Scan door. */}
+      {tab === "scan" && ebtCents > 0 && (
         <p className="grocery-ebt-line">
           <span className="grocery-ebt-tag" aria-hidden>
             EBT

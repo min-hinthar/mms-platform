@@ -4,7 +4,14 @@ import { Icon } from "@mms/ui";
 import { BlurUpImage } from "@/components/menu/BlurUpImage";
 import { PhotoPlaceholder } from "@/components/menu/PhotoPlaceholder";
 import { getGroceryCatalog, type GroceryCatalogItem, type GroceryLine } from "@/lib/grocery";
-import { AISLES, aisleBySlug, sizeLabel, unitPriceLabel } from "@/lib/grocery-aisles";
+import {
+  AISLES,
+  aisleBySlug,
+  dollars,
+  saleInfo,
+  sizeLabel,
+  unitPriceLabel,
+} from "@/lib/grocery-aisles";
 
 /**
  * W4b — the Browse half of the grocery market: aisle tiles over the full catalog, Weee!-anatomy
@@ -186,14 +193,29 @@ export const GroceryBrowse = memo(function GroceryBrowse({
             <span className="aisle-heading-count">{items.length}</span>
           </h2>
           <ul role="list" className="gcard-grid">
-            {items.map((item) => {
+            {items.map((item, i) => {
               const line = lineByBarcode.get(item.barcode);
               const size = sizeLabel(item.sizeQty, item.sizeUnit);
               const unit = unitPriceLabel(item.priceCents, item.sizeQty, item.sizeUnit);
-              const price = `$${(item.priceCents / 100).toFixed(2)}`;
+              const price = dollars(item.priceCents);
+              const sale = saleInfo(item.priceCents, item.compareAtCents);
               return (
-                <li key={item.barcode} className="card card-textured gcard">
+                <li
+                  key={item.barcode}
+                  className="card card-textured gcard mms-stagger"
+                  // Capped entrance cascade — the first rows stagger, the rest arrive together
+                  // (don't delay off-screen cards). RM off-switch rides `.mms-stagger`.
+                  style={{ animationDelay: `${Math.min(i, 6) * 35}ms` }}
+                >
                   <div className="gcard-photo">
+                    {/* Loud "Save %" pill only for a meaningful markdown (≥15%) so the market doesn't
+                        read as a wall of uniform bargains; the honest inline "Compare at" strike
+                        below still shows on every real sale. */}
+                    {sale && sale.pct >= 15 && (
+                      <span className="gcard-sale" aria-hidden>
+                        Save {sale.pct}%
+                      </span>
+                    )}
                     {item.imageUrl ? (
                       <BlurUpImage
                         src={item.imageUrl}
@@ -201,10 +223,10 @@ export const GroceryBrowse = memo(function GroceryBrowse({
                         width={160}
                         height={160}
                         sizes="(max-width: 440px) 45vw, 160px"
-                        fallback={<PhotoPlaceholder icon={a!.icon} />}
+                        fallback={<PhotoPlaceholder icon={a!.icon} variant="hero" />}
                       />
                     ) : (
-                      <PhotoPlaceholder icon={a!.icon} />
+                      <PhotoPlaceholder icon={a!.icon} variant="hero" />
                     )}
                   </div>
                   <div className="gcard-body">
@@ -219,11 +241,31 @@ export const GroceryBrowse = memo(function GroceryBrowse({
                         {[item.brand, size].filter(Boolean).join(" · ")}
                       </span>
                     )}
-                    <span className="gcard-price-row">
-                      <b className="gcard-price">{price}</b>
-                      {unit && <small className="gcard-unit">{unit}</small>}
-                      {item.ebt && <small className="gcard-ebt">EBT</small>}
-                    </span>
+                    <div className="gcard-foot">
+                      {/* VISIBLE "Compare at $X" caption (market-comparison framing on the sighted
+                          surface — a bare struck number reads as our own former price, which we
+                          never claim). */}
+                      {sale && (
+                        <span className="gcard-compare" aria-hidden>
+                          Compare at <s>{dollars(sale.compareAtCents)}</s>
+                        </span>
+                      )}
+                      <span className="gcard-price-row">
+                        <b className={sale ? "gcard-price gcard-price-sale" : "gcard-price"}>
+                          {price}
+                        </b>
+                        {/* sr-only: the visible <b> already voices the charged price, so this omits
+                            it (matches the search-hit companion) — no double-speak. */}
+                        {sale && (
+                          <span className="sr-only">
+                            {" "}
+                            compare at {dollars(sale.compareAtCents)}, save {sale.pct}%
+                          </span>
+                        )}
+                        {unit && <small className="gcard-unit">{unit}</small>}
+                        {item.ebt && <small className="gcard-ebt">EBT</small>}
+                      </span>
+                    </div>
                   </div>
                   {line ? (
                     // In the cart → the same stepper anatomy/handlers as the basket rows (per-CARD

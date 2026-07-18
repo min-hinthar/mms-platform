@@ -84,6 +84,10 @@ export type GroceryLine = {
   name: string;
   qty: number;
   unitPriceCents: number;
+  /** W4e: the catalog's current compare-at (market ref) for this barcode — drives the basket's
+   *  "you save" line. Display only; the charged unitPriceCents is the cart's own snapshot. Null if
+   *  the item isn't on sale (or its catalog row went away). */
+  compareAtCents: number | null;
   ebt: boolean;
   imageUrl: string | null;
 };
@@ -110,7 +114,7 @@ async function readGroceryLines(cartId: string): Promise<GroceryLine[]> {
   const barcodes = [...new Set(lines.map((l) => l.menu_item_id))];
   const { data: items, error: catErr } = await db
     .from("grocery_items")
-    .select("barcode,ebt_eligible,image_url")
+    .select("barcode,ebt_eligible,image_url,compare_at_cents")
     .in("barcode", barcodes);
   if (catErr) {
     console.error("[grocery] readGroceryLines catalog read failed", catErr);
@@ -126,6 +130,12 @@ async function readGroceryLines(cartId: string): Promise<GroceryLine[]> {
       name: l.name,
       qty: l.qty,
       unitPriceCents: l.unit_price_cents,
+      // Only a genuine discount (compare-at strictly above the CHARGED unit price) counts — a stale
+      // catalog compare-at at/below what the line actually charges shows no phantom saving.
+      compareAtCents:
+        cat?.compare_at_cents != null && cat.compare_at_cents > l.unit_price_cents
+          ? cat.compare_at_cents
+          : null,
       ebt: cat?.ebt_eligible ?? false,
       // Contain a bad catalog URL: next/image THROWS at render on a non-allowlisted host (only
       // relative paths + *.supabase.co pass next.config remotePatterns) — a broken thumb must
@@ -157,6 +167,8 @@ export type GroceryHit = {
   sizeQty: number | null;
   sizeUnit: string | null;
   unitPriceCents: number;
+  /** W4e: the "Compare at" market reference (> unitPriceCents) — null = not on sale. Display only. */
+  compareAtCents: number | null;
   ebt: boolean;
 };
 
@@ -191,6 +203,10 @@ export async function searchGroceryItems(query: string): Promise<GroceryHit[]> {
     sizeQty: i.size_qty === null ? null : Number(i.size_qty),
     sizeUnit: i.size_unit,
     unitPriceCents: Number(i.price_cents),
+    // NOTE: the generated RPC type declares compare_at_cents non-nullable (Supabase types every
+    // RETURNS-TABLE column non-null), but the fn CAN return null — keep this `=== null` guard even
+    // though the type says it's always-false; it's the real runtime protection.
+    compareAtCents: i.compare_at_cents === null ? null : Number(i.compare_at_cents),
     ebt: i.ebt_eligible,
   }));
 }
@@ -205,6 +221,8 @@ export type GroceryCatalogItem = {
   sizeQty: number | null;
   sizeUnit: string | null;
   priceCents: number;
+  /** W4e: the "Compare at" market reference (> priceCents) — null = not on sale. Display only. */
+  compareAtCents: number | null;
   ebt: boolean;
   imageUrl: string | null;
 };
@@ -219,7 +237,7 @@ export async function getGroceryCatalog(): Promise<GroceryCatalogItem[]> {
   const { data, error } = await publicClient()
     .from("grocery_items")
     .select(
-      "barcode,name,name_my,brand,category,size_qty,size_unit,price_cents,ebt_eligible,image_url",
+      "barcode,name,name_my,brand,category,size_qty,size_unit,price_cents,compare_at_cents,ebt_eligible,image_url",
     )
     .eq("available", true)
     .eq("weighed", false)
@@ -240,6 +258,7 @@ export async function getGroceryCatalog(): Promise<GroceryCatalogItem[]> {
     sizeQty: i.size_qty === null ? null : Number(i.size_qty),
     sizeUnit: i.size_unit,
     priceCents: Number(i.price_cents),
+    compareAtCents: i.compare_at_cents === null ? null : Number(i.compare_at_cents),
     ebt: i.ebt_eligible,
     // Same containment as readGroceryLines: only relative or *.supabase.co URLs reach next/image.
     imageUrl:

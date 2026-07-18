@@ -3828,7 +3828,9 @@ html[data-seen-surface] .mms-stagger {
   font: inherit;
   font-weight: 700;
   cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-in-out), color var(--dur-fast) var(--ease-in-out); /* prettier-ignore */
+  transition:
+    background var(--dur-fast) var(--ease-in-out),
+    color var(--dur-fast) var(--ease-in-out); /* prettier-ignore */
 }
 .grocery-tab[aria-selected="true"] {
   background: var(--ac);
@@ -3848,6 +3850,11 @@ html[data-seen-surface] .mms-stagger {
   gap: 8px;
   margin-top: 14px;
   padding-bottom: 6px;
+  /* Fade the trailing edge so the ~4-of-11 visible tiles cue "more →"; extra end padding lets the
+     next tile peek. */
+  padding-right: 18px;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
@@ -3874,9 +3881,13 @@ html[data-seen-surface] .mms-stagger {
   box-shadow: inset 0 1px 0 var(--sheen);
 }
 .aisle-tile[aria-pressed="true"] {
-  border-color: color-mix(in oklab, var(--ac) 55%, var(--bd));
-  background: color-mix(in oklab, var(--ac) 10%, var(--cd));
-  color: var(--tx);
+  /* A solid lit cap (not a 10% tint that vanishes on Night) — the selected aisle reads at a glance. */
+  border-color: var(--ac);
+  background: var(--ac);
+  color: var(--oa);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh);
 }
 .aisle-tile-en {
   font-size: 12px;
@@ -3892,7 +3903,7 @@ html[data-seen-surface] .mms-stagger {
   text-align: center;
 }
 .aisle-tile[aria-pressed="true"] .aisle-tile-my {
-  color: var(--t2);
+  color: color-mix(in oklab, var(--oa) 75%, transparent);
 }
 
 .aisle-heading {
@@ -3938,7 +3949,9 @@ html[data-seen-surface] .mms-stagger {
   overflow: hidden;
   background: var(--grad);
 }
-.gcard-photo > * {
+/* Size the media child (image / placeholder) to fill — but NOT the corner Sale pill, which is a
+   positioned overlay that must keep its intrinsic size (else it stretches into a full clay disc). */
+.gcard-photo > *:not(.gcard-sale) {
   width: 100%;
   height: 100%;
 }
@@ -3972,28 +3985,47 @@ html[data-seen-surface] .mms-stagger {
   font-size: 12px;
   color: var(--t3);
 }
+/* The card foot pins the whole price block (compare-at caption + price row) to the bottom with ONE
+   `margin-top:auto` — the previous double-auto (on caption AND row) split the flex slack and floated
+   the caption off the price (pre-merge review defect). */
+.gcard-foot {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 4px;
+}
 .gcard-price-row {
   display: flex;
   align-items: baseline;
   gap: 6px;
   flex-wrap: wrap;
-  margin-top: auto;
-  padding-top: 2px;
 }
 .gcard-price {
   font-size: var(--fs-body);
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
+/* On sale, the DISCOUNTED price is the typographic hero — larger + deep-clay so a sale card is
+   instantly distinguishable from a full-price one (the whole point of W4e). */
+.gcard-price-sale {
+  font-size: 1.075rem;
+  color: var(--ac-strong);
+}
 .gcard-unit {
   font-size: 11px;
   color: var(--t3);
   font-variant-numeric: tabular-nums;
 }
+/* EBT demoted to a neutral outline micro-chip so its green no longer reads as a second CTA. */
 .gcard-ebt {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
-  color: var(--ok);
+  letter-spacing: 0.02em;
+  color: var(--t2);
+  border: 1px solid var(--bd);
+  border-radius: 5px;
+  padding: 0 4px;
 }
 .gcard-add {
   min-height: 44px;
@@ -4009,16 +4041,43 @@ html[data-seen-surface] .mms-stagger {
   font-weight: 800;
   cursor: pointer;
   box-shadow: inset 0 1px 0 var(--sheen);
+  /* Press answers with a spring scale-down (CSS, not 395 framer buttons — keeps the memo'd grid
+     cheap; RM-gated below). Brings the menu's tactile Add to the grocery grid. */
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out),
+    opacity var(--dur-fast) var(--ease-out);
+}
+.gcard-add:active {
+  transform: scale(0.95);
 }
 .gcard-add[aria-disabled="true"] {
   opacity: 0.55;
   cursor: default;
 }
+.gcard-add[aria-disabled="true"]:active {
+  transform: none;
+}
 .gcard-add[data-busy] {
   opacity: 0.55;
 }
+@media (prefers-reduced-motion: reduce) {
+  .gcard-add {
+    transition: none;
+  }
+  .gcard-add:active {
+    transform: none;
+  }
+}
+/* The stepper that replaces Add on first add pops in (mounts fresh, so the animation plays once). */
 .gcard-stepper {
   justify-content: center;
+  animation: mmsPop var(--dur-fast) var(--ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .gcard-stepper {
+    animation: none;
+  }
 }
 .gcard-qty {
   min-width: 22px;
@@ -4036,6 +4095,61 @@ html[data-seen-surface] .mms-stagger {
   font: inherit;
   font-weight: 700;
   cursor: pointer;
+}
+
+/* W4e Sale layer — a corner "Save X%" pill on the photo + a struck "compare at" market ref.
+   The charged price stays the prominent number; the compare-at is clearly secondary. */
+.gcard-sale {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 1;
+  /* Opt out of `.gcard-photo > *` (which sizes the image/placeholder to fill) — without this the
+     pill stretches to 148×148 and its pill-radius renders as a full clay disc over the photo. */
+  width: auto;
+  height: auto;
+  padding: 2px 7px;
+  border-radius: var(--r-full);
+  background: var(--ac);
+  color: var(--oa);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  line-height: 1.4;
+  /* GOLD + constant INK — a distinct "savings" value-language, so the deal signal never wears the
+     same clay as the Add CTA (the eye couldn't tell "on sale" from "buy me"). A hairline ink ring +
+     drop shadow separate it from the photo/placeholder behind. --ink is constant across themes so
+     the dark ink stays legible on the constant-bright gold in both light and Night. */
+  background: var(--gold);
+  color: var(--ink);
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--ink) 16%, transparent),
+    inset 0 1px 0 var(--sheen),
+    var(--sh);
+}
+.gcard-photo {
+  position: relative;
+}
+/* "Compare at $X" caption directly above the price — the market-comparison label is visible (not
+   sr-only), only the NUMBER is struck (words stay legible). Lives in `.gcard-foot`, so no margin. */
+.gcard-compare {
+  display: block;
+  font-size: 11px;
+  color: var(--t3);
+  font-variant-numeric: tabular-nums;
+}
+.gcard-compare s {
+  text-decoration-thickness: 1px;
+}
+/* Basket savings line — positive, honest framing of the real discount total. */
+.grocery-saved {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--ac-strong);
 }
 
 /* The EBT-eligible subtotal line (W4a) — informational, undated-honest copy. */

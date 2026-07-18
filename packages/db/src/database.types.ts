@@ -15,6 +15,7 @@ export type Database = {
           barcode: string
           brand: string | null
           category: string | null
+          compare_at_cents: number | null
           ebt_eligible: boolean
           image_url: string | null
           name: string
@@ -32,6 +33,7 @@ export type Database = {
           barcode: string
           brand?: string | null
           category?: string | null
+          compare_at_cents?: number | null
           ebt_eligible?: boolean
           image_url?: string | null
           name: string
@@ -49,6 +51,7 @@ export type Database = {
           barcode?: string
           brand?: string | null
           category?: string | null
+          compare_at_cents?: number | null
           ebt_eligible?: boolean
           image_url?: string | null
           name?: string
@@ -1610,6 +1613,7 @@ export type Database = {
           barcode: string
           brand: string
           category: string
+          compare_at_cents: number
           ebt_eligible: boolean
           image_url: string
           name: string
