@@ -13,33 +13,51 @@ export type Database = {
         Row: {
           available: boolean
           barcode: string
+          brand: string | null
+          category: string | null
           ebt_eligible: boolean
           image_url: string | null
           name: string
           name_my: string | null
           price_cents: number
+          size_qty: number | null
+          size_unit: string | null
+          sku: string | null
+          synonyms: string[]
           tax_category: string
           weighed: boolean
         }
         Insert: {
           available?: boolean
           barcode: string
+          brand?: string | null
+          category?: string | null
           ebt_eligible?: boolean
           image_url?: string | null
           name: string
           name_my?: string | null
           price_cents: number
+          size_qty?: number | null
+          size_unit?: string | null
+          sku?: string | null
+          synonyms?: string[]
           tax_category: string
           weighed?: boolean
         }
         Update: {
           available?: boolean
           barcode?: string
+          brand?: string | null
+          category?: string | null
           ebt_eligible?: boolean
           image_url?: string | null
           name?: string
           name_my?: string | null
           price_cents?: number
+          size_qty?: number | null
+          size_unit?: string | null
+          sku?: string | null
+          synonyms?: string[]
           tax_category?: string
           weighed?: boolean
         }
@@ -1585,6 +1603,21 @@ export type Database = {
       mms_fulfill_split_order: {
         Args: { p_cart_id: string; p_expected_total_cents: number }
         Returns: string
+      }
+      mms_grocery_search: {
+        Args: { p_q: string }
+        Returns: {
+          barcode: string
+          brand: string
+          category: string
+          ebt_eligible: boolean
+          image_url: string
+          name: string
+          name_my: string
+          price_cents: number
+          size_qty: number
+          size_unit: string
+        }[]
       }
       mms_init_togo_status: {
         Args: { p_cart: string; p_order: string }

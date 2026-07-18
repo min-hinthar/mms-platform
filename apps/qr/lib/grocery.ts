@@ -149,28 +149,34 @@ export async function getGroceryLines(cartId: string): Promise<GroceryLine[]> {
   return readGroceryLines(id);
 }
 
-export type GroceryHit = { barcode: string; name: string; unitPriceCents: number; ebt: boolean };
+export type GroceryHit = {
+  barcode: string;
+  name: string;
+  nameMy: string | null;
+  brand: string | null;
+  sizeQty: number | null;
+  sizeUnit: string | null;
+  unitPriceCents: number;
+  ebt: boolean;
+};
 
 /**
- * Name-search fallback for Scan & Go (M2·P2.3): when a barcode won't scan or isn't in the catalog,
- * the diner finds the item by name. This is a PUBLIC catalog read — `grocery_items` has public-read
- * RLS and no price/PII is asserted by the client — so it needs no membership (adding a hit still
- * goes through the authorized `scanAdd`, which re-derives the price + tax server-side). Only
- * available, non-weighed items are returned: a weighed item needs a scale, so it can't be added
- * anyway (don't surface a dead-end result). Read-only failure → empty list (the UI says "no matches").
+ * Name-search fallback for Scan & Go (M2·P2.3, upgraded W4b): when a barcode won't scan or isn't in
+ * the catalog, the shopper finds the item by name — English, Myanmar script, or a romanization
+ * variant (laphet/lahpet/letphet live in `synonyms` as DATA; pg_trgm similarity catches the typos).
+ * The lookup runs through `mms_grocery_search` (service-role-only fn; this Zod-bounded action is its
+ * public surface — same posture as the old public-read query: no price/PII is asserted by the
+ * client, and adding a hit still goes through the authorized `scanAdd`, which re-derives price +
+ * tax server-side). Only available, non-weighed items return (a weighed item needs a scale — don't
+ * surface a dead-end result).
  */
 export async function searchGroceryItems(query: string): Promise<GroceryHit[]> {
   const { query: q } = grocerySearchInput.parse({ query });
-  // Escape LIKE metacharacters so a stray % / _ searches literally, not as a wildcard.
-  const safe = q.replace(/[\\%_]/g, "\\$&");
-  const { data, error } = await publicClient()
-    .from("grocery_items")
-    .select("barcode,name,price_cents,ebt_eligible")
-    .eq("available", true)
-    .eq("weighed", false)
-    .ilike("name", `%${safe}%`)
-    .order("name")
-    .limit(12);
+  // The query goes to the RPC RAW (parameterized — no injection surface): the fn feeds it to both
+  // ILIKE and trigram `similarity()`, and escaping LIKE metacharacters would leave literal
+  // backslashes in the similarity input, distorting the ranking. A stray % simply widens the ILIKE
+  // arm (bounded: limit 20, 40-char Zod cap); no catalog name contains LIKE metacharacters.
+  const { data, error } = await serviceClient().rpc("mms_grocery_search", { p_q: q });
   if (error) {
     // Throw (not return []) so the caller can tell a lookup FAILURE from a genuine zero-result search
     // and say so honestly. Log the real cause server-side; Next redacts the thrown message in prod.
@@ -178,9 +184,68 @@ export async function searchGroceryItems(query: string): Promise<GroceryHit[]> {
     throw new Error("grocery search failed");
   }
   return (data ?? []).map((i) => ({
-    barcode: i.barcode as string,
-    name: i.name as string,
+    barcode: i.barcode,
+    name: i.name,
+    nameMy: i.name_my,
+    brand: i.brand,
+    sizeQty: i.size_qty === null ? null : Number(i.size_qty),
+    sizeUnit: i.size_unit,
     unitPriceCents: Number(i.price_cents),
-    ebt: i.ebt_eligible as boolean,
+    ebt: i.ebt_eligible,
+  }));
+}
+
+/** W4b Browse — one catalog item as the browse grid renders it (no cart state; that joins client-side). */
+export type GroceryCatalogItem = {
+  barcode: string;
+  name: string;
+  nameMy: string | null;
+  brand: string | null;
+  category: string | null;
+  sizeQty: number | null;
+  sizeUnit: string | null;
+  priceCents: number;
+  ebt: boolean;
+  imageUrl: string | null;
+};
+
+/**
+ * W4b Browse — the full sellable catalog for the aisle grid. A PUBLIC catalog read (public-read RLS,
+ * no price/PII asserted by the client, no membership needed — the add still rides the authorized
+ * `scanAdd`). Weighed/unavailable items are excluded for the same no-dead-end reason as search.
+ * ~400 rows of presentation fields: one round trip, ordered for stable aisle grouping.
+ */
+export async function getGroceryCatalog(): Promise<GroceryCatalogItem[]> {
+  const { data, error } = await publicClient()
+    .from("grocery_items")
+    .select(
+      "barcode,name,name_my,brand,category,size_qty,size_unit,price_cents,ebt_eligible,image_url",
+    )
+    .eq("available", true)
+    .eq("weighed", false)
+    .order("category", { ascending: true, nullsFirst: false })
+    .order("name", { ascending: true });
+  if (error) {
+    // Throw (not []) — the Browse tab must render an honest "couldn't load" + Retry, never an
+    // empty market that reads as "we sell nothing".
+    console.error("[grocery] getGroceryCatalog failed", error);
+    throw new Error("grocery catalog read failed");
+  }
+  return (data ?? []).map((i) => ({
+    barcode: i.barcode,
+    name: i.name,
+    nameMy: i.name_my,
+    brand: i.brand,
+    category: i.category,
+    sizeQty: i.size_qty === null ? null : Number(i.size_qty),
+    sizeUnit: i.size_unit,
+    priceCents: Number(i.price_cents),
+    ebt: i.ebt_eligible,
+    // Same containment as readGroceryLines: only relative or *.supabase.co URLs reach next/image.
+    imageUrl:
+      i.image_url &&
+      (i.image_url.startsWith("/") || /^https:\/\/[^/]+\.supabase\.co\//.test(i.image_url))
+        ? i.image_url
+        : null,
   }));
 }

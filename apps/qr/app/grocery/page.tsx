@@ -11,18 +11,21 @@ import {
   scanAdd,
   searchGroceryItems,
   getGroceryLines,
+  type GroceryCatalogItem,
   type GroceryHit,
   type GroceryLine,
 } from "@/lib/grocery";
+import { GroceryBrowse } from "@/components/grocery/GroceryBrowse";
+import { sizeLabel } from "@/lib/grocery-aisles";
 import { setQty } from "@/lib/cart";
 import { useTableSession } from "@/lib/useTableSession";
 
-// Grocery Scan & Go — scan shelf barcodes (or search by name) into a cart, then check out (reuses
-// /cart + Stripe). K5 (Journey II): the list renders the CART's truth — hydrated from the server on
-// mount and on tab re-focus, reconciled from every scan's own returned view — fixing the live
-// money-display bug where a refresh showed "Nothing scanned yet" while the server cart still held
-// (and would charge) the items. Product-grade rows: photo, EBT tag, qty steppers on CART-LINE ids
-// (the existing setQty path — no new money surface), line totals.
+// The grocery market (W4b) — TWO doors over ONE catalog + ONE cart: Browse (aisle tiles, bilingual
+// Weee!-anatomy cards, one-tap add) and Scan (camera on shelf barcodes), with the shared name-search
+// fallback above both. K5's discipline is unchanged: the basket renders the CART's truth — hydrated
+// from the server on mount and on tab re-focus, reconciled from every add's own returned view — so a
+// refresh can never hide items the cart will charge. Every path (scan / search / browse card) adds
+// through the same server-priced scanAdd; steppers ride the existing setQty. No new money surface.
 
 export default function Grocery() {
   const router = useRouter(); // prefetch only — the checkout push rides the journey grammar
@@ -64,6 +67,31 @@ export default function Grocery() {
   const [searching, setSearching] = useState(false);
   const [searchFailed, setSearchFailed] = useState(false); // a failed search ≠ an empty one — say so
   const searchRef = useRef<HTMLInputElement>(null);
+
+  // W4b — the Browse|Scan tab. Browse is the default door (discovery-first; the camera permission
+  // ask waits until the shopper actually chooses Scan). The choice sticks for the visit via
+  // sessionStorage, read AFTER mount (an initializer read would diverge from the SSR'd markup).
+  const [tab, setTab] = useState<"browse" | "scan">("browse");
+  useEffect(() => {
+    // Microtask defer (the TableCartProvider pattern) — the restore setState lands async, so the
+    // effect body itself schedules no render.
+    void Promise.resolve(window.sessionStorage.getItem("mms-grocery-tab")).then((stored) => {
+      if (stored === "scan") setTab("scan");
+    });
+  }, []);
+  const pickTab = useCallback((t: "browse" | "scan") => {
+    setTab(t);
+    try {
+      window.sessionStorage.setItem("mms-grocery-tab", t);
+    } catch {
+      /* deliberate: storage full/blocked only loses tab persistence, never function */
+    }
+  }, []);
+  const browseTabRef = useRef<HTMLButtonElement>(null);
+  const scanTabRef = useRef<HTMLButtonElement>(null);
+  // One in-flight browse add at a time (the stepper's one-op discipline, extended to the Add
+  // buttons — a scan can stay rapid-fire, but a double-tapped card must not double-add).
+  const [addingBarcode, setAddingBarcode] = useState<string | null>(null);
 
   // ONE toast timer, cancelled before each re-arm — scanning is rapid-fire, so racing independent timers
   // could blank a fresh notice (incl. an error like "Weighed item — see staff") ~100 ms after it appears.
@@ -159,8 +187,17 @@ export default function Grocery() {
   // The ONE add path — a scan and a tapped search hit both go through here. Memoized on cartId so the
   // scanner effect (keyed on `onScan`) doesn't tear down + restart the camera on every re-render.
   const add = useCallback(
-    async (barcode: string, via: "scan" | "search") => {
-      if (!cartId) return;
+    async (barcode: string, via: "scan" | "search" | "browse") => {
+      if (!cartId) {
+        // The market renders before the basket exists (W4b) — a scan/tap here must SAY why nothing
+        // happened, never silently no-op (adversarial HIGH-1).
+        flash(
+          sessionError
+            ? "Basket unavailable — use Retry above, then add again."
+            : "Still starting your basket — try again in a moment.",
+        );
+        return;
+      }
       const seq = ++reqSeq.current; // ticket at issue time — the response carries a server view
       let r;
       try {
@@ -198,10 +235,31 @@ export default function Grocery() {
         flash(`Not found: ${barcode} — try searching by name`);
       }
     },
-    [cartId, flash, applyLines],
+    [cartId, sessionError, flash, applyLines],
   );
 
   const onScan = useCallback((code: string) => void add(code, "scan"), [add]);
+
+  // W4b — a browse card's one-tap add: the same authorized scanAdd path, serialized so a double-tap
+  // can't double-add (the card swaps to a stepper as soon as the returned cart view lands). When the
+  // first basket read FAILED, adds are refused with the why — an add against an invisible basket
+  // could double a qty the shopper can't see (adversarial MED-5).
+  const addFromBrowse = useCallback(
+    async (item: GroceryCatalogItem) => {
+      if (addingBarcode || busyLine) return;
+      if (cartId && syncFailed && !hydrated) {
+        flash("Couldn’t check your basket — use Retry above before adding.");
+        return;
+      }
+      setAddingBarcode(item.barcode);
+      try {
+        await add(item.barcode, "browse");
+      } finally {
+        setAddingBarcode(null);
+      }
+    },
+    [add, addingBarcode, busyLine, cartId, syncFailed, hydrated, flash],
+  );
 
   // Debounced name search. All setState lives in the async timeout callback — never synchronously in
   // the effect body (cascading-render lint). A query under 2 chars clears results without a round-trip;
@@ -237,8 +295,27 @@ export default function Grocery() {
     };
   }, [query]);
 
+  // Search-hit add — same serialization as the browse cards (adversarial MED-3: an unguarded
+  // double-tap on a result row was two server adds). Pre-basket, `add` flashes the honest notice
+  // and the results STAY (clearing them would read as success).
   async function addHit(h: GroceryHit) {
-    await add(h.barcode, "search");
+    if (!cartId) {
+      void add(h.barcode, "search");
+      return;
+    }
+    if (addingBarcode || busyLine) return;
+    // Same invisible-basket refusal as the browse cards (pre-merge review) — an add against a
+    // basket whose truth failed to load could double a qty the shopper can't see.
+    if (syncFailed && !hydrated) {
+      flash("Couldn’t check your basket — use Retry above before adding.");
+      return;
+    }
+    setAddingBarcode(h.barcode);
+    try {
+      await add(h.barcode, "search");
+    } finally {
+      setAddingBarcode(null);
+    }
     setQuery("");
     setHits(null);
     // Tapping a hit unmounts the result button that held focus — return focus to the search input
@@ -248,71 +325,203 @@ export default function Grocery() {
 
   const itemCount = lines.reduce((a, l) => a + l.qty, 0);
   const totalCents = lines.reduce((a, l) => a + l.unitPriceCents * l.qty, 0);
+  // Display-only, like totalCents — the EBT flags rode in on the server's own cart view.
+  const ebtCents = lines.reduce((a, l) => a + (l.ebt ? l.unitPriceCents * l.qty : 0), 0);
 
   return (
     <main style={{ maxWidth: 440, margin: "0 auto", padding: 20, paddingBottom: 120 }}>
       <p className="eyebrow">Grocery</p>
-      <h1 style={{ fontSize: "var(--fs-h1)" }}>Scan your basket</h1>
+      <h1 style={{ fontSize: "var(--fs-h1)" }}>Shop the market</h1>
+      {/* Undated EBT copy (W4a rule): FNS authorization is federally gated — never promise a date. */}
       <p style={{ color: "var(--t2)", marginTop: 0 }}>
-        Point at a barcode to add it. EBT-eligible items are tagged (SNAP checkout arrives 2027).
+        Browse the aisles or scan shelf barcodes. EBT-eligible items are tagged — SNAP checkout is
+        coming; pay by card today.
       </p>
 
+      {/* W4b — the session gates the BASKET, not the MARKET: the catalog is a public read, so the
+          aisles render immediately while the scango session mints (or even if it fails) — only
+          adding needs the cart, and every add path already refuses without one. */}
       {sessionError ? (
-        <div className="card" role="alert" style={{ padding: 16 }}>
+        <div className="card" role="alert" style={{ padding: 16, marginTop: 4 }}>
           <p style={{ margin: "0 0 12px", color: "var(--warn)", fontWeight: 600 }}>
-            Couldn’t start grocery scanning. Check your connection and try again.
+            Couldn’t start your grocery basket — you can browse, but adding needs a connection.
           </p>
           <button type="button" onClick={() => window.location.reload()} style={retryBtn}>
             Retry
           </button>
         </div>
       ) : !cartId ? (
-        <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)" }}>Starting grocery scanning…</p>
-      ) : (
-        <>
-          <BarcodeScanner onScan={onScan} />
+        <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: "4px 0 0" }}>
+          Starting your basket…
+        </p>
+      ) : null}
+      {/* Browse | Scan — a manual-activation tablist (arrow keys move focus between the two
+          tabs; Enter/Space activates). The active state lives ON the tab button (bg + text on
+          one element — never a separately-positioned indicator). */}
+      <div className="grocery-tabs" role="tablist" aria-label="Shop by">
+        <button
+          ref={browseTabRef}
+          type="button"
+          role="tab"
+          id="grocery-tab-browse"
+          aria-selected={tab === "browse"}
+          aria-controls="grocery-panel-browse"
+          tabIndex={tab === "browse" ? 0 : -1}
+          className="grocery-tab"
+          onClick={() => pickTab("browse")}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowRight" || e.key === "ArrowLeft") scanTabRef.current?.focus();
+          }}
+        >
+          <Icon name="cat-grocery" size={18} />
+          Browse
+        </button>
+        <button
+          ref={scanTabRef}
+          type="button"
+          role="tab"
+          id="grocery-tab-scan"
+          aria-selected={tab === "scan"}
+          aria-controls="grocery-panel-scan"
+          tabIndex={tab === "scan" ? 0 : -1}
+          className="grocery-tab"
+          onClick={() => pickTab("scan")}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowRight" || e.key === "ArrowLeft") browseTabRef.current?.focus();
+          }}
+        >
+          <Icon name="cart" size={18} />
+          Scan
+        </button>
+      </div>
 
-          <div className="card" role="search" style={searchWrap}>
-            <Icon name="search" size={18} />
-            <input
-              ref={searchRef}
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              aria-label="Search grocery items by name"
-              placeholder="Can’t scan it? Search by name…"
-              style={searchInput}
-            />
-          </div>
+      <div className="card" role="search" style={searchWrap}>
+        <Icon name="search" size={18} />
+        <input
+          ref={searchRef}
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          aria-label="Search grocery items by name"
+          placeholder="Search in English or မြန်မာ…"
+          maxLength={40}
+          style={searchInput}
+        />
+      </div>
 
-          {hits !== null && (
-            <ul role="list" aria-label="Search results" style={resultList}>
-              {searching && hits.length === 0 ? (
-                <li style={hintRow}>Searching…</li>
-              ) : searchFailed ? (
-                <li style={hintRow}>Search unavailable — please try again.</li>
-              ) : hits.length === 0 ? (
-                <li style={hintRow}>No matches — try fewer letters.</li>
-              ) : (
-                hits.map((h) => (
-                  <li key={h.barcode}>
-                    <button type="button" onClick={() => addHit(h)} style={resultBtn}>
-                      <span>
-                        {h.name}{" "}
-                        {h.ebt && (
-                          <small style={{ color: "var(--ok)", fontWeight: 700 }}>EBT</small>
-                        )}
-                      </span>
-                      <b style={{ fontVariantNumeric: "tabular-nums" }}>
-                        ${(h.unitPriceCents / 100).toFixed(2)}
-                      </b>
-                    </button>
-                  </li>
-                ))
-              )}
-            </ul>
+      {hits !== null && (
+        <ul role="list" aria-label="Search results" style={resultList}>
+          {searching && hits.length === 0 ? (
+            <li style={hintRow}>Searching…</li>
+          ) : searchFailed ? (
+            <li style={hintRow}>Search unavailable — please try again.</li>
+          ) : hits.length === 0 ? (
+            <li style={hintRow}>No matches — try fewer letters.</li>
+          ) : (
+            hits.map((h) => (
+              <li key={h.barcode}>
+                <button
+                  type="button"
+                  aria-disabled={addingBarcode !== null || busyLine !== null}
+                  onClick={() => void addHit(h)}
+                  style={{
+                    ...resultBtn,
+                    ...(addingBarcode === h.barcode ? { opacity: 0.55 } : null),
+                  }}
+                >
+                  <span style={{ minWidth: 0 }}>
+                    {h.name}{" "}
+                    {h.ebt && <small style={{ color: "var(--ok)", fontWeight: 700 }}>EBT</small>}
+                    <small style={{ display: "block", color: "var(--t3)", fontWeight: 500 }}>
+                      {/* Burmese name carries lang="my" so a screen reader picks the right voice;
+                          the roman meta (brand · size) is appended outside the tag. */}
+                      {h.nameMy && <span lang="my">{h.nameMy}</span>}
+                      {h.nameMy && (h.brand || h.sizeQty) ? " · " : ""}
+                      {[h.brand, sizeLabel(h.sizeQty, h.sizeUnit)].filter(Boolean).join(" · ")}
+                    </small>
+                  </span>
+                  <b style={{ fontVariantNumeric: "tabular-nums" }}>
+                    ${(h.unitPriceCents / 100).toFixed(2)}
+                  </b>
+                </button>
+              </li>
+            ))
           )}
-        </>
+        </ul>
+      )}
+
+      {/* Browse panel stays mounted while hidden (keeps the fetched catalog + scroll/filter
+              state); the Scan panel fully unmounts so the camera is RELEASED the moment the
+              shopper leaves it. */}
+      <div
+        id="grocery-panel-browse"
+        role="tabpanel"
+        aria-labelledby="grocery-tab-browse"
+        hidden={tab !== "browse"}
+      >
+        {/* Stable callback identities + memo'd child: typing in the search box above no longer
+            re-renders the ~400-card grid (adversarial MED-2). */}
+        <GroceryBrowse
+          lines={lines}
+          canAdd={!!cartId && (hydrated || !syncFailed)}
+          addingBarcode={addingBarcode}
+          busyLineId={busyLine}
+          onAdd={addFromBrowse}
+          onStep={stepQty}
+        />
+      </div>
+      {/* The tabpanel stays mounted so the Scan tab's aria-controls never dangles (L3); the
+          SCANNER inside still unmounts, releasing the camera the moment the shopper leaves. */}
+      <div
+        id="grocery-panel-scan"
+        role="tabpanel"
+        aria-labelledby="grocery-tab-scan"
+        hidden={tab !== "scan"}
+      >
+        {/* Don't open the camera until the basket exists — a scan without a cart only flashes an
+            error. Gate on cartId with an inline note (pre-merge review). */}
+        {tab === "scan" &&
+          (cartId ? (
+            <BarcodeScanner onScan={onScan} />
+          ) : (
+            <p style={{ color: "var(--t3)", marginTop: 12 }}>
+              {sessionError
+                ? "Basket unavailable — use Retry above, then scan."
+                : "Starting your basket… scanning opens in a moment."}
+            </p>
+          ))}
+      </div>
+
+      {/* K5 pre-hydration truth strip — OUTSIDE the tabs, because it must be visible from BOTH
+          doors: on a failed first read, an invisible server basket isn't just a display lie — a
+          Browse re-add of an "invisible" item would increment the server qty (the exact doubling
+          bug K5 exists to prevent). */}
+      {cartId && !hydrated && !lines.length && (
+        <p style={{ color: "var(--t3)", marginTop: 14 }}>
+          {syncFailed ? (
+            // role="status" (polite), not "alert": it's paired with a Retry and must not
+            // double-assert with the Browse catalog-failure alert when both reads fail at once
+            // (one live region per view — pre-merge review).
+            <span
+              role="status"
+              style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}
+            >
+              Couldn’t check your basket.
+              <button
+                type="button"
+                onClick={() => {
+                  setSyncFailed(false);
+                  syncNow();
+                }}
+                style={retryBtn}
+              >
+                Retry
+              </button>
+            </span>
+          ) : (
+            "Checking your basket…"
+          )}
+        </p>
       )}
 
       {/* J6 — the GIANT running total: scan-and-go's one number, big enough to read at arm's length
@@ -327,11 +536,25 @@ export default function Grocery() {
           </span>
         </div>
       )}
+      {/* W4a — the EBT-eligible subtotal: informational + undated-honest (FNS authorization is
+          federally gated — never promise a date). Rendered only when an EBT-tagged item is in the
+          basket; makes the 2027 Forage landing a copy change, not a redesign. */}
+      {ebtCents > 0 && (
+        <p className="grocery-ebt-line">
+          <span className="grocery-ebt-tag" aria-hidden>
+            EBT
+          </span>
+          ${(ebtCents / 100).toFixed(2)} of your basket is EBT-eligible — SNAP checkout coming; pay
+          by card today.
+        </p>
+      )}
 
-      {/* Scanned lines — NOT a live region: the toast (role="status") announces each add, so one
-          live region per view (a second `aria-live` here would double-announce). */}
+      {/* Scanned lines (the Scan door's basket view; Browse shows the same truth on its cards) —
+          NOT a live region: the toast (role="status") announces each add, so one live region per
+          view (a second `aria-live` here would double-announce). */}
       <ul
         role="list"
+        hidden={tab !== "scan"}
         style={{ listStyle: "none", padding: 0, marginTop: 16, display: "grid", gap: 8 }}
       >
         {lines.map((l) => (
@@ -390,38 +613,17 @@ export default function Grocery() {
             </b>
           </li>
         ))}
-        {!lines.length && cartId && (
-          <li style={{ color: "var(--t3)" }}>
-            {hydrated ? (
-              "Nothing scanned yet."
-            ) : syncFailed ? (
-              // The pre-hydration check failed — say so and offer a real retry ("checking…" with
-              // nothing in flight would be a lie; scanning still works either way).
-              <span style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                Couldn’t check your basket.
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSyncFailed(false);
-                    syncNow();
-                  }}
-                  style={retryBtn}
-                >
-                  Retry
-                </button>
-              </span>
-            ) : (
-              "Checking your basket…"
-            )}
-          </li>
+        {!lines.length && cartId && hydrated && (
+          <li style={{ color: "var(--t3)" }}>Nothing scanned yet.</li>
         )}
       </ul>
 
-      {toast && (
-        <div role="status" style={toastStyle}>
-          {toast}
-        </div>
-      )}
+      {/* ALWAYS-mounted live region (adversarial MED-6): several SR/browser pairs skip a region
+          born WITH its text — the container persists, only the text swaps; visibility hides the
+          empty pill without removing it from the accessibility tree's region registry. */}
+      <div role="status" style={{ ...toastStyle, ...(toast ? null : { visibility: "hidden" }) }}>
+        {toast}
+      </div>
 
       {lines.length > 0 && cartId && (
         // A real <button> (Enter AND Space), matching CartBar — the prior <a> only activated on Enter. The
@@ -470,7 +672,9 @@ const searchInput: CSSProperties = {
   flex: 1,
   minHeight: 22,
   color: "var(--tx)",
-  fontFamily: "inherit",
+  // Per-glyph fallback: Latin renders in the body face, Myanmar script (typed queries AND the
+  // placeholder's "မြန်မာ") falls through to Padauk instead of the body font's missing glyphs.
+  fontFamily: "var(--font-body), var(--font-my)",
   fontSize: "var(--fs-body)",
 };
 const resultList: CSSProperties = {
@@ -487,6 +691,8 @@ const hintRow: CSSProperties = {
   padding: "4px 2px",
 };
 const resultBtn: CSSProperties = {
+  // Same per-glyph fallback as the input — hit rows carry the Myanmar name.
+  fontFamily: "var(--font-body), var(--font-my)",
   width: "100%",
   minHeight: 48,
   display: "flex",

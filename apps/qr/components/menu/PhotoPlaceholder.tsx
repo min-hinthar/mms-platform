@@ -1,4 +1,4 @@
-import { Icon, categoryIconName } from "@mms/ui";
+import { Icon, categoryIconName, type IconName } from "@mms/ui";
 
 /**
  * Designed missing-photo state (W2a). ~31/60 dishes have no real photo yet (they point at a
@@ -13,15 +13,19 @@ import { Icon, categoryIconName } from "@mms/ui";
  */
 export function PhotoPlaceholder({
   category,
+  icon,
   variant = "thumb",
 }: {
   category?: string | null;
+  /** Exact glyph override — the grocery aisles (W4b) carry their own icon mapping, which the
+   *  menu-name heuristic `categoryIconName` can't infer from slugs like `tea-laphet`. */
+  icon?: IconName;
   variant?: "thumb" | "hero";
 }) {
   return (
     <div className="photo-ph" aria-hidden>
       <Icon
-        name={category ? categoryIconName(category) : "cat-dish"}
+        name={icon ?? (category ? categoryIconName(category) : "cat-dish")}
         size={variant === "hero" ? 46 : 26}
         strokeWidth={1.5}
         className="photo-ph-glyph"

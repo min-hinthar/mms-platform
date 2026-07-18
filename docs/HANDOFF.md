@@ -70,6 +70,17 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >   receipt + print (W2e — order-lines data + C8) · real photography (C5) + bucket move.
 >   Read `docs/OPEN-ITEMS.md` for everything still open (K14/K15 are the W3 residuals; F-items track W2).
 >
+>   **W4a+W4b ✅ shipped (2026-07-17, the PR carrying this banner) — the market grows up.** The owner's
+>   wholesale/retail price lists became a **real 395-SKU bilingual catalog** (`supabase/data/grocery_catalog.json`
+>   + import artifact; migration `20260717000000` adds category/brand/sku/size/synonyms + `mms_grocery_search`
+>   pg_trgm), and `/grocery` became **Browse|Scan over one cart** (bilingual aisle tiles + unit-priced cards +
+>   EBT subtotal; every add rides the existing `scanAdd`). **Competitive plan-of-record:
+>   [`docs/GROCERY_MARKET_PLAN.md`](GROCERY_MARKET_PLAN.md)** (the road to #1 online Burmese grocery; the
+>   delivery-repo half is `mandalay-morning-star-delivery-app/docs/grocery-delivery-plan.md`, G-track).
+>   **⚠️ Needs Min before the LIVE catalog import:** confirm current prices (seed prices are 2022 vintage),
+>   real shelf UPCs (synthetic 299-prefix EAN-13s hold browse/search meanwhile), per-SKU photos (C5/C6).
+>   W4c (scanner craft) + W4d (exit pass) remain.
+>
 > _(The 2026-06-29 banner below is kept as history — it pointed at the Richness track, now shipped.)_
 
 > ## ⏭️ NEXT SESSION — start here (2026-06-29)
