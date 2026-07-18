@@ -4066,10 +4066,16 @@ html[data-seen-surface] .mms-stagger {
 .gcard-photo {
   position: relative;
 }
+/* "Compare at $X" caption above the price — the market-comparison label is visible (not sr-only),
+   and only the NUMBER is struck (the words stay legible). */
 .gcard-compare {
-  font-size: 12px;
+  display: block;
+  margin-top: auto;
+  font-size: 11px;
   color: var(--t3);
   font-variant-numeric: tabular-nums;
+}
+.gcard-compare s {
   text-decoration-thickness: 1px;
 }
 /* Basket savings line — positive, honest framing of the real discount total. */

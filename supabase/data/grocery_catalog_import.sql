@@ -3,9 +3,6 @@
 -- ⚠️ PRICES NEED OWNER CONFIRMATION before this runs against the LIVE project — see
 -- docs/GROCERY_MARKET_PLAN.md §catalog. Barcodes are GS1 store-internal EAN-13 (prefix 299),
 -- deterministic per SKU; when a real shelf UPC is captured, insert/update that row's barcode.
--- compare_at_cents = 'Compare at $X' market reference (grounded in real 2026-07 competitor
--- sampling; ≤40% off, ceiling-capped, health/home-personal + bulk multipacks excluded). It is
--- NOT a former price of ours. The CHARGED price_cents is the unchanged 2022 selling price.
 insert into grocery_items
   (barcode, name, name_my, price_cents, tax_category, ebt_eligible, category, brand, sku, size_qty, size_unit, synonyms, compare_at_cents)
 values
@@ -408,9 +405,13 @@ values
 -- deliberately omitted from the DO UPDATE: once a row exists they are owner-owned, so a re-run
 -- refreshes browse fields without reverting a hand-corrected live price to the 2021-22 estimate.
 -- compare_at_cents IS refreshed — it's a derived market reference (regenerated from competitor
--- sampling), not a charged amount; the DB CHECK guarantees it stays strictly above price_cents.
+-- sampling), not a charged amount. The CASE guards the CHECK (compare_at > price): if an owner
+-- hand-RAISED a live price above this row's seed compare-at, refreshing it verbatim would violate
+-- the CHECK and abort the ENTIRE batch upsert — so we null it instead (no fake sale on that row).
 on conflict (barcode) do update set
   name = excluded.name, name_my = excluded.name_my,
   category = excluded.category, brand = excluded.brand, sku = excluded.sku,
   size_qty = excluded.size_qty, size_unit = excluded.size_unit, synonyms = excluded.synonyms,
-  compare_at_cents = excluded.compare_at_cents;
+  compare_at_cents = case
+    when excluded.compare_at_cents > grocery_items.price_cents then excluded.compare_at_cents
+    else null end;

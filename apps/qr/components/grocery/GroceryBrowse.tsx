@@ -232,21 +232,22 @@ export const GroceryBrowse = memo(function GroceryBrowse({
                         {[item.brand, size].filter(Boolean).join(" · ")}
                       </span>
                     )}
+                    {/* On sale: a VISIBLE "Compare at $X" caption above the price — the market-
+                        comparison framing must be on the sighted surface, not only sr-only, or a
+                        bare struck number reads as our own former price ("Was"), which we never
+                        claim. */}
+                    {sale && (
+                      <span className="gcard-compare" aria-hidden>
+                        Compare at <s>{dollars(sale.compareAtCents)}</s>
+                      </span>
+                    )}
                     <span className="gcard-price-row">
-                      {/* On sale: the charged price stays the prominent number; the market reference
-                          sits struck beside it as "Compare at $X". The sr-only text carries the full
-                          honest phrasing so a screen reader never hears a bare struck number. */}
                       <b className="gcard-price">{price}</b>
                       {sale && (
-                        <>
-                          <s className="gcard-compare" aria-hidden>
-                            {dollars(sale.compareAtCents)}
-                          </s>
-                          <span className="sr-only">
-                            {" "}
-                            — {price}, compare at {dollars(sale.compareAtCents)}, save {sale.pct}%
-                          </span>
-                        </>
+                        <span className="sr-only">
+                          {" "}
+                          — {price}, compare at {dollars(sale.compareAtCents)}, save {sale.pct}%
+                        </span>
                       )}
                       {unit && <small className="gcard-unit">{unit}</small>}
                       {item.ebt && <small className="gcard-ebt">EBT</small>}

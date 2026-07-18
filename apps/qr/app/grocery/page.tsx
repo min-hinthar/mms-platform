@@ -459,14 +459,24 @@ export default function Grocery() {
                     </b>
                     {(() => {
                       const s = saleInfo(h.unitPriceCents, h.compareAtCents);
-                      return s ? (
-                        <small aria-hidden style={{ color: "var(--ac-strong)", fontWeight: 700 }}>
-                          <s style={{ color: "var(--t3)", fontWeight: 500 }}>
-                            ${(s.compareAtCents / 100).toFixed(2)}
-                          </s>{" "}
-                          −{s.pct}%
-                        </small>
-                      ) : null;
+                      if (!s) return null;
+                      // Visible "Compare at" (market-comparison framing, not a bare struck number)
+                      // + an sr-only companion so the sale reaches screen readers too.
+                      return (
+                        <>
+                          <small aria-hidden style={{ color: "var(--ac-strong)", fontWeight: 700 }}>
+                            Compare at{" "}
+                            <s style={{ color: "var(--t3)", fontWeight: 500 }}>
+                              ${(s.compareAtCents / 100).toFixed(2)}
+                            </s>{" "}
+                            −{s.pct}%
+                          </small>
+                          <span className="sr-only">
+                            {" "}
+                            compare at ${(s.compareAtCents / 100).toFixed(2)}, save {s.pct}%
+                          </span>
+                        </>
+                      );
                     })()}
                   </span>
                 </button>
@@ -565,7 +575,10 @@ export default function Grocery() {
       {/* W4e — real savings vs the market compare-at (honest: only genuinely-discounted lines
           contribute). aria-hidden decorative; not a live region (the toast owns announcements). */}
       {savedCents > 0 && (
-        <p className="grocery-saved" aria-hidden>
+        // Not aria-hidden — the savings is honest static text a screen-reader shopper should hear
+        // (unlike the animated running-total figure above, whose amount the CTA already carries).
+        // Not a live region: it's read in document order, never announced on change.
+        <p className="grocery-saved">
           You’re saving ${(savedCents / 100).toFixed(2)} vs. typical market prices
         </p>
       )}
