@@ -75,6 +75,9 @@
      on those fills; keep --ac for borders + solid-accent buttons (--oa on --ac passes). */
   --ac-strong: #8f5009;
   --oa: #fffdf8;
+  /* CONSTANT deep ink — intentionally NOT re-declared in `.dark`, so dark text on a constant-bright
+     fill (e.g. the gold sale badge) stays legible in both themes (unlike --tx/--oa, which flip). */
+  --ink: #1b1714;
   --jade: #1f6e63;
   --gold: #e8a83c;
   /* Vivid --gold/--jade stay on the decorative dot; their TEXT on a 16% tint over --cd needs a darker

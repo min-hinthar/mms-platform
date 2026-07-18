@@ -4,6 +4,25 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W4e design pass — the sale actually reads as a sale (2026-07-18)
+
+Pre-merge design-weighted adversarial pass (verdict PASS, 0 blockers; money/legal clean). Applied the
+P1 craft wins that were the point of W4e — a sale card was visually identical to a full-price one:
+
+- **Gold + constant-ink "Save X%" badge** (new `--ink` token, theme-constant) — the savings signal no
+  longer wears the clay of the Add CTA, so the eye tells "on sale" from "buy me". Loud pill reserved
+  for **≥15%** markdowns; the honest inline "Compare at" strike shows on every real sale.
+- **Escalated discounted price** (`.gcard-price-sale`: larger + deep-clay) — the sale price is the
+  typographic hero. Compare-at + price share one `.gcard-foot` (fixes the double-`margin-top` defect).
+- **Add-button press** (CSS spring, RM-gated — not 395 framer buttons) + **stepper mount pop**;
+  **entrance stagger** on cards; **solid lit active aisle tile** (was a Night-invisible 10% tint);
+  **rail edge-fade** scroll cue; **bigger placeholder glyph**; **EBT demoted** to a neutral outline
+  chip (its green no longer reads as a second CTA); basket **total/savings/EBT moved to the Scan door**
+  (the arm's-length total was buried under the aisle grid on Browse).
+- **a11y/defect fixes:** browse-card sr-only no longer double-speaks the price; `saleInfo` floors at
+  1% (no "Save 0%" from a hand-entered near-equal compare-at); RPC-nullability comment. Deferred
+  P2/P3 polish → OPEN-ITEMS G17. Gate 6/6 + 76 tests green; contrast-audit clean.
+
 ### W4e — the Sale layer: honest "Compare at" market pricing (2026-07-18)
 
 The 2022 price list becomes a value story: the charged price stays the (below-market) 2022 number,

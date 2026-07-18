@@ -561,10 +561,10 @@ export default function Grocery() {
       )}
 
       {/* J6 — the GIANT running total: scan-and-go's one number, big enough to read at arm's length
-          while the other hand scans. Presentation of the same client-side sum the checkout CTA
-          carries (display only — the charge is re-derived server-side at checkout, as everywhere);
-          NOT a live region (the toast announces each add; the CTA's label carries the total for AT). */}
-      {lines.length > 0 && (
+          while the other hand scans. Its arm's-length purpose only holds on the SCAN door (where the
+          basket list lives); on Browse the fixed checkout CTA's rolling total carries it, so the big
+          figure doesn't sit buried under the whole aisle grid. Display only; NOT a live region. */}
+      {tab === "scan" && lines.length > 0 && (
         <div className="grocery-total mms-rise" aria-hidden>
           <span className="grocery-total-label">Running total</span>
           <span className="grocery-total-figure">
@@ -573,19 +573,17 @@ export default function Grocery() {
         </div>
       )}
       {/* W4e — real savings vs the market compare-at (honest: only genuinely-discounted lines
-          contribute). aria-hidden decorative; not a live region (the toast owns announcements). */}
-      {savedCents > 0 && (
-        // Not aria-hidden — the savings is honest static text a screen-reader shopper should hear
-        // (unlike the animated running-total figure above, whose amount the CTA already carries).
-        // Not a live region: it's read in document order, never announced on change.
+          contribute). Part of the basket summary → shown on the Scan door with the total. */}
+      {tab === "scan" && savedCents > 0 && (
+        // Not aria-hidden — honest static text a screen-reader shopper should hear (unlike the
+        // animated total, whose amount the CTA already carries). Not a live region.
         <p className="grocery-saved">
           You’re saving ${(savedCents / 100).toFixed(2)} vs. typical market prices
         </p>
       )}
       {/* W4a — the EBT-eligible subtotal: informational + undated-honest (FNS authorization is
-          federally gated — never promise a date). Rendered only when an EBT-tagged item is in the
-          basket; makes the 2027 Forage landing a copy change, not a redesign. */}
-      {ebtCents > 0 && (
+          federally gated — never promise a date). Basket summary → shown on the Scan door. */}
+      {tab === "scan" && ebtCents > 0 && (
         <p className="grocery-ebt-line">
           <span className="grocery-ebt-tag" aria-hidden>
             EBT

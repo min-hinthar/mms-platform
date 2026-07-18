@@ -203,6 +203,9 @@ export async function searchGroceryItems(query: string): Promise<GroceryHit[]> {
     sizeQty: i.size_qty === null ? null : Number(i.size_qty),
     sizeUnit: i.size_unit,
     unitPriceCents: Number(i.price_cents),
+    // NOTE: the generated RPC type declares compare_at_cents non-nullable (Supabase types every
+    // RETURNS-TABLE column non-null), but the fn CAN return null — keep this `=== null` guard even
+    // though the type says it's always-false; it's the real runtime protection.
     compareAtCents: i.compare_at_cents === null ? null : Number(i.compare_at_cents),
     ebt: i.ebt_eligible,
   }));

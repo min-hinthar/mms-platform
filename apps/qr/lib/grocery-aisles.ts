@@ -49,11 +49,12 @@ export function sizeLabel(qty: number | null, unit: string | null): string | nul
 export type SaleInfo = { compareAtCents: number; saveCents: number; pct: number };
 export function saleInfo(priceCents: number, compareAtCents: number | null): SaleInfo | null {
   if (compareAtCents == null || compareAtCents <= priceCents) return null;
-  return {
-    compareAtCents,
-    saveCents: compareAtCents - priceCents,
-    pct: Math.round((1 - priceCents / compareAtCents) * 100),
-  };
+  const pct = Math.round((1 - priceCents / compareAtCents) * 100);
+  // A rounded-to-0% "sale" (a hand-entered compare-at a cent or two above price — the DB CHECK only
+  // enforces `>`, not a minimum gap) would render a "Compare at" badge advertising "Save 0%". Show
+  // no sale below 1%. (The generated catalog floors at 10%, so this only guards owner-entered rows.)
+  if (pct < 1) return null;
+  return { compareAtCents, saveCents: compareAtCents - priceCents, pct };
 }
 
 export const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
