@@ -3918,13 +3918,14 @@ html[data-seen-surface] .mms-stagger {
 .aisle-fan {
   position: fixed;
   right: 0;
-  /* Bounded between the sticky header and above the fixed checkout CTA band (not vh-centered) so the
-     column can never reach the header or the money CTA; `justify-content:center` centers the ticks in
-     that band. The CTA carries a matching z-index and sits later in the DOM, so it still wins any
-     corner overlap on a short viewport. */
+  /* Bounded between the sticky header and above the fixed checkout CTA band; `justify-content:center`
+     centres the ticks there. On a short/landscape viewport the 10-tick column is taller than the band
+     and overflows past both ends — so it sits ONE z below the chrome it could reach: the opaque
+     `.app-header` and the checkout CTA (both var(--z-toolbar)) paint over any bleeding tick AND
+     swallow its taps, so an overflowing tick can never steal the header's cart button or the CTA. */
   top: calc(var(--header-height) + env(safe-area-inset-top, 0px) + 8px);
   bottom: calc(84px + env(safe-area-inset-bottom, 0px));
-  z-index: var(--z-toolbar);
+  z-index: calc(var(--z-toolbar) - 1);
   display: flex;
   flex-direction: column;
   justify-content: center;

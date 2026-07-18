@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Icon } from "@mms/ui";
 import type { Aisle } from "@/lib/grocery-aisles";
 import { useAisleSpy } from "@/lib/hooks/useAisleSpy";
@@ -15,11 +15,14 @@ import { useAisleSpy } from "@/lib/hooks/useAisleSpy";
  * when ≥2 sections are stacked (the "All aisles" view), so it hides the moment the filter narrows
  * to a single aisle (nothing to jump between).
  *
- * Interaction, by input modality:
- *  - fine pointer (desktop): CSS `:hover` fans the labels open; a click jumps.
- *  - keyboard: `:focus-within` fans the labels; Enter/Space jumps.
- *  - coarse pointer (touch): the first tap on the collapsed strip fans it open (no jump); a second
- *    tap on a labelled aisle jumps and collapses. An outside tap or ~3.2s idle also collapses.
+ * Interaction, by input modality (kept separate so one never sabotages the other):
+ *  - fine pointer (desktop): CSS `:hover` fans the labels open; a click jumps + blurs.
+ *  - keyboard: CSS `:focus-within` fans the labels; Enter/Space jumps and KEEPS focus on the tick
+ *    (never blurs — matching MenuBrowser + the focus-on-route rule, so focus is never stranded).
+ *  - coarse pointer (touch): the first tap fans the strip open via the `open` (data-open) state (no
+ *    jump); a second tap jumps. `open` is TOUCH-ONLY, so the idle/outside collapse — which blurs the
+ *    incidentally-focused tick to release the `:focus-within` that would otherwise pin it open on
+ *    Android — never fires for a keyboard user and so can't steal their focus.
  */
 export function AisleFanNav({ aisles }: { aisles: Aisle[] }) {
   // Hooks run unconditionally (the render can early-return below); `enabled` no-ops the observer
@@ -34,25 +37,34 @@ export function AisleFanNav({ aisles }: { aisles: Aisle[] }) {
   // Timestamp of the pointerdown that just fanned a collapsed touch strip open. A click within a
   // short window after it only revealed the labels, so it must NOT jump. Using a timestamp (not a
   // sticky boolean) means a press that never yields a click — a drag-scroll that starts on a tick
-  // and ends in `pointercancel` — can't leave the next real tap wrongly swallowed. Cleared on cancel
-  // and after the first swallowed/real click. (A mouse press has pointerType "mouse" and is never
-  // captured here, so desktop clicks always jump; CSS :hover handles the fan there.)
+  // and ends in `pointercancel` — can't leave the next real tap wrongly swallowed. (A mouse press
+  // has pointerType "mouse" and is never captured here, so desktop clicks always jump.)
   const openPressAt = useRef(0);
 
-  // Collapse the touch-opened fan on an outside tap or after a short idle. (Fine pointers use CSS
-  // `:hover`, so `open` only ever drives the coarse-pointer path.)
+  // Collapse the touch-opened strip: drop `open` AND blur any focused tick inside the nav, so the
+  // `:focus-within` that Android leaves after a focus-on-tap can't hold the labels open + live over
+  // the cards. Only ever reached from the touch `open` path (below), never from keyboard focus.
+  const close = useCallback(() => {
+    setOpen(false);
+    const nav = navRef.current;
+    const active = typeof document !== "undefined" ? document.activeElement : null;
+    if (nav && active instanceof HTMLElement && nav.contains(active)) active.blur();
+  }, []);
+
+  // Only runs while `open` (touch) is true — a keyboard user reveals labels via CSS `:focus-within`
+  // and never sets `open`, so no idle timer starts for them and their focus is never blurred.
   useEffect(() => {
     if (!open) return;
     const onDown = (e: PointerEvent) => {
-      if (navRef.current && !navRef.current.contains(e.target as Node)) setOpen(false);
+      if (navRef.current && !navRef.current.contains(e.target as Node)) close();
     };
     document.addEventListener("pointerdown", onDown);
-    const idle = setTimeout(() => setOpen(false), 3200);
+    const idle = setTimeout(close, 3200);
     return () => {
       document.removeEventListener("pointerdown", onDown);
       clearTimeout(idle);
     };
-  }, [open]);
+  }, [open, close]);
 
   // Nothing to navigate between — the horizontal filter already isolates a single aisle.
   if (aisles.length < 2) return null;
@@ -76,9 +88,9 @@ export function AisleFanNav({ aisles }: { aisles: Aisle[] }) {
       onPointerCancel={() => {
         openPressAt.current = 0;
       }}
-      // Keyboard: focus fans the labels (also via CSS :focus-within) and the first Enter jumps
-      // (there's no press within the window to swallow); blur out collapses.
-      onFocus={() => setOpen(true)}
+      // Focus leaving the nav collapses the touch `open` state (keyboard reveal rides CSS
+      // :focus-within and needs no JS state — deliberately no onFocus setter, so an idle keyboard
+      // focus never starts the blur-on-collapse timer).
       onBlur={(e) => {
         if (!navRef.current?.contains(e.relatedTarget as Node)) setOpen(false);
       }}
@@ -103,10 +115,10 @@ export function AisleFanNav({ aisles }: { aisles: Aisle[] }) {
               openPressAt.current = 0;
               jumpTo(a.slug);
               setOpen(false);
-              // Drop focus so :focus-within can't keep the labels (and their pointer-events) alive
-              // over the cards after a touch jump — Android retains button focus on tap, which would
-              // otherwise turn a follow-up card tap into an aisle jump (MED-2).
-              e.currentTarget.blur();
+              // Collapse after a POINTER jump (touch/mouse → e.detail ≥ 1) by dropping focus so
+              // :focus-within can't keep the labels alive over the cards. A KEYBOARD activation
+              // (e.detail === 0) keeps focus on the tick — never stranded on <body> (WCAG 2.4.3).
+              if (e.detail > 0) e.currentTarget.blur();
             }}
           >
             {/* The visible bilingual label IS the accessible name (EN + lang-tagged MY, no aria-label

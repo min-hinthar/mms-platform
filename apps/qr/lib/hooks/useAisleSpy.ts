@@ -33,8 +33,9 @@ function prefersReducedMotion(): boolean {
  * smooth-scrolls to one. Pure navigation state — it never reads or writes the cart.
  *
  * Pattern is lifted from `MenuBrowser`'s in-app spy (same tokens, same lend-offset handling) rather
- * than the delivery repo's hook, per the one-way-deps rule — hardened with a full-set visibility map
- * (so the topmost pick can't be wrong when only one entry changes in a callback batch).
+ * than the delivery repo's hook, per the one-way-deps rule — hardened so it tracks the FULL observed
+ * set (not just the changed callback batch) and reads LIVE section rects at compute time (a section
+ * that spans the band never re-fires the observer, so a stored top would go stale).
  *
  * @param slugs   the aisle slugs currently on screen, in render order.
  * @param enabled false when there's nothing to navigate (a single filtered aisle) — the observer is
@@ -45,6 +46,12 @@ export function useAisleSpy(slugs: string[], enabled: boolean) {
   // While a click-jump animates, freeze the spy so the lit marker doesn't flicker through every
   // section the smooth-scroll passes over — it stays on the target set synchronously in jumpTo.
   const jumping = useRef(false);
+  // `recompute` closes over the effect's intersecting-set; expose it so jumpTo can reconcile the
+  // "you are here" the moment a jump settles (a tail jump can't scroll its target to the top).
+  const reconcileRef = useRef<() => void>(() => {});
+  // Teardown for the in-flight jump's scrollend listener + fallback timeout, so a new jump or an
+  // unmount can cancel it (no orphaned listener/timeout, no stacking on rapid taps).
+  const pendingUnfreeze = useRef<(() => void) | null>(null);
 
   // Re-run the effect only when the SET of slugs changes, not on every render's fresh array identity.
   const slugKey = slugs.join("|");
@@ -52,21 +59,26 @@ export function useAisleSpy(slugs: string[], enabled: boolean) {
   useEffect(() => {
     if (!enabled || slugs.length === 0 || typeof window === "undefined") return;
 
-    // slug -> viewport top while intersecting, or null when off. Keyed across ALL observed sections
-    // so a callback that only reports one changed entry still picks the true topmost.
-    const tops = new Map<string, number | null>();
+    // slug -> is it currently intersecting the top band. recompute reads LIVE rects so a section
+    // that spans the whole band (and never re-fires the observer) can't pin a stale coordinate.
+    const intersecting = new Map<string, boolean>();
     const recompute = () => {
       if (jumping.current) return;
       let bestSlug: string | null = null;
       let bestTop = Infinity;
-      tops.forEach((top, slug) => {
-        if (top !== null && top < bestTop) {
+      intersecting.forEach((isInt, slug) => {
+        if (!isInt) return;
+        const el = document.getElementById(`aisle-sec-${slug}`);
+        if (!el) return;
+        const top = el.getBoundingClientRect().top;
+        if (top < bestTop) {
           bestTop = top;
           bestSlug = slug;
         }
       });
       if (bestSlug) setActiveSlug(bestSlug);
     };
+    reconcileRef.current = recompute;
 
     let io: IntersectionObserver | null = null;
     let lastInset = -1;
@@ -77,7 +89,7 @@ export function useAisleSpy(slugs: string[], enabled: boolean) {
         (entries) => {
           for (const e of entries) {
             const slug = e.target.getAttribute("data-aisle");
-            if (slug) tops.set(slug, e.isIntersecting ? e.boundingClientRect.top : null);
+            if (slug) intersecting.set(slug, e.isIntersecting);
           }
           recompute();
         },
@@ -104,23 +116,35 @@ export function useAisleSpy(slugs: string[], enabled: boolean) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slugKey, enabled]);
 
+  // Cancel any in-flight jump teardown on unmount (e.g. the filter narrows to one aisle mid-scroll).
+  useEffect(() => () => pendingUnfreeze.current?.(), []);
+
   const jumpTo = useCallback((slug: string) => {
     const el = document.getElementById(`aisle-sec-${slug}`);
     if (!el) return;
+    // Cancel a still-pending previous jump so listeners/timeouts can't stack.
+    pendingUnfreeze.current?.();
+
     setActiveSlug(slug); // light the target immediately — don't wait for the observer
-    // Freeze the spy until the smooth-scroll settles. `scrollend` ends it precisely (any length of
-    // jump); a 1.5s timeout is the fallback where scrollend isn't supported (older Safari) or the
-    // scroll is a no-op (already in view / reduced-motion).
     jumping.current = true;
     let done = false;
+    let timeoutId = 0;
+    // Freeze the spy until the smooth-scroll settles. `scrollend` ends it precisely (any length of
+    // jump); the 1.5s timeout is the fallback where scrollend isn't supported (older Safari) or the
+    // scroll is a no-op (already in view / reduced-motion). On unfreeze, reconcile: a tail jump that
+    // can't reach the top leaves its target below the band, so the real topmost should light.
     const unfreeze = () => {
       if (done) return;
       done = true;
       jumping.current = false;
       window.removeEventListener("scrollend", unfreeze);
+      window.clearTimeout(timeoutId);
+      pendingUnfreeze.current = null;
+      reconcileRef.current();
     };
+    timeoutId = window.setTimeout(unfreeze, 1500);
+    pendingUnfreeze.current = unfreeze;
     window.addEventListener("scrollend", unfreeze);
-    window.setTimeout(unfreeze, 1500);
     el.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
   }, []);
 
