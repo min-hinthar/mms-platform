@@ -4,6 +4,24 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W4g — grocery editorial polish (2026-07-18)
+
+First pass of a world-class design refinement on the grocery Browse surface — it was built
+function-first in W4 and never got the editorial pass the menu did (RUBRIC north star: type-led,
+warm, unhurried). Targets the "junky / bloated / unrefined" gaps:
+
+- **Editorial masthead** — a display-serif (Fraunces) title over one quiet subline replaces the
+  eyebrow + generic `h1` + a 2-line EBT text-wall. The honest EBT/SNAP disclosure is **demoted** to
+  one quiet tagged line under the toolbar (undated per the W4a rule; per-item chips + the Scan-door
+  EBT subtotal carry the detail).
+- **One token system for the chrome** — the 9 ad-hoc inline `CSSProperties` objects (search field,
+  results, hint rows, scanned row, retry buttons, toast, checkout CTA) are replaced by token-pure
+  `globals.css` classes (`.grocery-search/-results/-result/-hint/-scanned-row/-retry/-toast/-cta`),
+  so the surface is consistent, dark-mode-clean, and free of magic numbers.
+- **Cohesive toolbar** — the Browse|Scan segmented control + search read as one grouped cluster
+  (`.grocery-toolbar`), and the checkout CTA is a lit clay pill (was a rectangle). No behaviour,
+  a11y, or money change — pure presentation over the same server-priced cart.
+
 ### W4f — right-edge aisle fan-out section nav (2026-07-18)
 
 A "you are here" aisle minimap for the grocery Browse view — the vertical companion to the
