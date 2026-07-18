@@ -3930,9 +3930,52 @@ html[data-seen-surface] .mms-stagger {
   flex-direction: column;
   justify-content: center;
   align-items: flex-end;
-  gap: 2px;
   padding: 8px 6px;
   pointer-events: none;
+}
+/* Content-sized column so the rail hugs the dots (the nav box itself is bounded tall for the
+   overflow-vs-chrome safety the W4f pass established). */
+.aisle-fan-inner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 6px 0;
+}
+/* One cohesive rail behind the dots so the nav reads as a single designed object — not scattered
+   ticks (the "junky" root). Subtle at rest, a touch more defined while expanded. No blur (mobile GPU
+   budget): a translucent warm fill + a gold hairline. */
+.aisle-fan-inner::before {
+  content: "";
+  position: absolute;
+  inset: 0 3px 0 auto;
+  width: 24px;
+  border-radius: var(--r-full);
+  background: color-mix(in oklab, var(--cd) 76%, transparent);
+  border: 1px solid color-mix(in oklab, var(--gold) 20%, var(--bd));
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh);
+  pointer-events: none;
+  transition:
+    background var(--dur-base) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .aisle-fan:hover .aisle-fan-inner::before {
+    background: color-mix(in oklab, var(--cd) 92%, transparent);
+    box-shadow:
+      inset 0 1px 0 var(--sheen),
+      var(--sh-md);
+  }
+}
+.aisle-fan[data-open="true"] .aisle-fan-inner::before,
+.aisle-fan:focus-within .aisle-fan-inner::before {
+  background: color-mix(in oklab, var(--cd) 92%, transparent);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-md);
 }
 .aisle-fan-tick {
   position: relative;
@@ -3951,54 +3994,56 @@ html[data-seen-surface] .mms-stagger {
   font: inherit;
   cursor: pointer;
 }
-/* Resting tick glyph (aria-hidden); grows into a lit gold→clay cap when its aisle is in view. */
+/* Resting marker = a soft dot; the in-view aisle springs into an elongated lit clay pill with a soft
+   halo (the classic active-indicator morph), so the current position reads at a glance. */
 .aisle-fan-mark {
-  width: 14px;
-  height: 3px;
+  width: 6px;
+  height: 6px;
   border-radius: var(--r-full);
-  background: var(--t3);
-  opacity: 0.5;
+  background: color-mix(in oklab, var(--tx) 42%, transparent);
   transition:
-    width var(--dur-fast) var(--ease-out),
-    height var(--dur-fast) var(--ease-out),
+    width var(--dur-base) var(--spring),
+    height var(--dur-base) var(--spring),
     background var(--dur-fast) var(--ease-out),
-    opacity var(--dur-fast) var(--ease-out);
+    box-shadow var(--dur-fast) var(--ease-out);
 }
 .aisle-fan-tick[aria-current="true"] .aisle-fan-mark {
-  width: 22px;
-  height: 4px;
+  width: 5px;
+  height: 20px;
   background: var(--ac);
-  opacity: 1;
-  box-shadow: var(--sh-lift);
+  box-shadow:
+    0 0 0 3px color-mix(in oklab, var(--ac) 14%, transparent),
+    var(--sh-lift);
 }
 .aisle-fan-tick:active .aisle-fan-mark {
-  transform: scale(0.92);
+  transform: scale(0.9);
 }
 /* Fan-out label — absolutely positioned so revealing it never widens the 44px slot (no reflow). It
    opens on hover (fine pointer), keyboard focus-within, or the touch `data-open` state. */
 .aisle-fan-label {
   position: absolute;
   right: 100%;
-  margin-right: 8px;
+  margin-right: 11px;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 12px;
+  gap: 9px;
+  padding: 8px 13px;
   max-width: min(72vw, 260px);
   border-radius: var(--r-full);
-  border: 1px solid var(--bd);
-  background: var(--cd);
-  color: var(--t2);
+  border: 1px solid color-mix(in oklab, var(--gold) 26%, var(--bd));
+  background: var(--surface-elevated);
+  color: var(--tx);
   box-shadow:
     inset 0 1px 0 var(--sheen),
-    var(--sh);
+    var(--sh-md);
   opacity: 0;
-  transform: translateX(12px);
+  transform: translateX(14px) scale(0.96);
+  transform-origin: right center;
   pointer-events: none;
   transition:
     opacity var(--dur-base) var(--ease-out),
-    transform var(--dur-base) var(--ease-out);
-  transition-delay: calc(var(--i, 0) * 18ms);
+    transform var(--dur-base) var(--spring);
+  transition-delay: calc(var(--i, 0) * 22ms);
 }
 @media (hover: hover) and (pointer: fine) {
   .aisle-fan:hover .aisle-fan-label {
@@ -4018,6 +4063,10 @@ html[data-seen-surface] .mms-stagger {
   background: var(--ac);
   border-color: var(--ac);
   color: var(--oa);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-md),
+    var(--glow-ac);
 }
 .aisle-fan-label-icon {
   display: inline-flex;

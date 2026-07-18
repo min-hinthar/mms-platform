@@ -95,7 +95,10 @@ export function AisleFanNav({ aisles }: { aisles: Aisle[] }) {
         if (!navRef.current?.contains(e.relatedTarget as Node)) setOpen(false);
       }}
     >
-      {aisles.map((a, i) => {
+      {/* Inner wrapper is content-sized (the nav box is bounded tall for overflow safety), so the
+          unifying rail (::before) hugs the dots instead of stretching into an empty capsule. */}
+      <div className="aisle-fan-inner">
+        {aisles.map((a, i) => {
         const on = a.slug === activeSlug;
         return (
           <button
@@ -137,8 +140,9 @@ export function AisleFanNav({ aisles }: { aisles: Aisle[] }) {
             </span>
             <span className="aisle-fan-mark" aria-hidden />
           </button>
-        );
-      })}
+          );
+        })}
+      </div>
     </nav>
   );
 }

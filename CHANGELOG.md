@@ -21,6 +21,12 @@ section currently under the header and fans out to bilingual EN/MY labels to jum
   isolates a single aisle. Floats in the gutter (`pointer-events` only on the 44px ticks) so it costs
   zero grid width. Token-pure active cap + `prefers-reduced-motion` off-switch; `.aisle-section`
   `scroll-margin-top` lands a jump below the sticky header.
+- **Editorial design pass** — the resting state is now one cohesive vellum **rail** (a `::before` on
+  a content-sized inner wrapper, so it hugs the dots) with soft dots that **spring into an elongated
+  lit clay pill** for the in-view aisle, instead of scattered hairline ticks. The fan-out labels are
+  refined `surface-elevated` pills with a gold hairline + `--sh-md`, springing in (`--spring`) with a
+  stagger; the active label carries a clay fill + `--glow-ac`. No-blur (mobile GPU budget) — depth
+  from tokens only. Interaction unchanged (CSS + an inert inner wrapper).
 
 ### W4e hardening — post-merge adversarial follow-up (2026-07-18)
 
