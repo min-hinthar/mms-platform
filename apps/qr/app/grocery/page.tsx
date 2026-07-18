@@ -304,6 +304,12 @@ export default function Grocery() {
       return;
     }
     if (addingBarcode || busyLine) return;
+    // Same invisible-basket refusal as the browse cards (pre-merge review) — an add against a
+    // basket whose truth failed to load could double a qty the shopper can't see.
+    if (syncFailed && !hydrated) {
+      flash("Couldn’t check your basket — use Retry above before adding.");
+      return;
+    }
     setAddingBarcode(h.barcode);
     try {
       await add(h.barcode, "search");
@@ -427,9 +433,11 @@ export default function Grocery() {
                     {h.name}{" "}
                     {h.ebt && <small style={{ color: "var(--ok)", fontWeight: 700 }}>EBT</small>}
                     <small style={{ display: "block", color: "var(--t3)", fontWeight: 500 }}>
-                      {[h.nameMy, h.brand, sizeLabel(h.sizeQty, h.sizeUnit)]
-                        .filter(Boolean)
-                        .join(" · ")}
+                      {/* Burmese name carries lang="my" so a screen reader picks the right voice;
+                          the roman meta (brand · size) is appended outside the tag. */}
+                      {h.nameMy && <span lang="my">{h.nameMy}</span>}
+                      {h.nameMy && (h.brand || h.sizeQty) ? " · " : ""}
+                      {[h.brand, sizeLabel(h.sizeQty, h.sizeUnit)].filter(Boolean).join(" · ")}
                     </small>
                   </span>
                   <b style={{ fontVariantNumeric: "tabular-nums" }}>
@@ -470,7 +478,18 @@ export default function Grocery() {
         aria-labelledby="grocery-tab-scan"
         hidden={tab !== "scan"}
       >
-        {tab === "scan" && <BarcodeScanner onScan={onScan} />}
+        {/* Don't open the camera until the basket exists — a scan without a cart only flashes an
+            error. Gate on cartId with an inline note (pre-merge review). */}
+        {tab === "scan" &&
+          (cartId ? (
+            <BarcodeScanner onScan={onScan} />
+          ) : (
+            <p style={{ color: "var(--t3)", marginTop: 12 }}>
+              {sessionError
+                ? "Basket unavailable — use Retry above, then scan."
+                : "Starting your basket… scanning opens in a moment."}
+            </p>
+          ))}
       </div>
 
       {/* K5 pre-hydration truth strip — OUTSIDE the tabs, because it must be visible from BOTH
@@ -480,8 +499,11 @@ export default function Grocery() {
       {cartId && !hydrated && !lines.length && (
         <p style={{ color: "var(--t3)", marginTop: 14 }}>
           {syncFailed ? (
+            // role="status" (polite), not "alert": it's paired with a Retry and must not
+            // double-assert with the Browse catalog-failure alert when both reads fail at once
+            // (one live region per view — pre-merge review).
             <span
-              role="alert"
+              role="status"
               style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}
             >
               Couldn’t check your basket.

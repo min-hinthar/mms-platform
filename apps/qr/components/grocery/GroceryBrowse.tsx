@@ -155,7 +155,9 @@ export const GroceryBrowse = memo(function GroceryBrowse({
         >
           <Icon name="cat-grocery" size={22} strokeWidth={1.5} />
           <span className="aisle-tile-en">All aisles</span>
-          <span className="aisle-tile-my">အားလုံး</span>
+          <span className="aisle-tile-my" lang="my">
+            အားလုံး
+          </span>
         </button>
         {stockedAisles.map((a) => (
           <button
@@ -167,7 +169,9 @@ export const GroceryBrowse = memo(function GroceryBrowse({
           >
             <Icon name={a.icon} size={22} strokeWidth={1.5} />
             <span className="aisle-tile-en">{a.en}</span>
-            <span className="aisle-tile-my">{a.my}</span>
+            <span className="aisle-tile-my" lang="my">
+              {a.my}
+            </span>
           </button>
         ))}
       </nav>
@@ -175,7 +179,10 @@ export const GroceryBrowse = memo(function GroceryBrowse({
       {sections.map(({ aisle: a, items }) => (
         <section key={a!.slug} aria-labelledby={`aisle-h-${a!.slug}`}>
           <h2 id={`aisle-h-${a!.slug}`} className="aisle-heading">
-            {a!.en} <span className="aisle-heading-my">{a!.my}</span>
+            {a!.en}{" "}
+            <span className="aisle-heading-my" lang="my">
+              {a!.my}
+            </span>
             <span className="aisle-heading-count">{items.length}</span>
           </h2>
           <ul role="list" className="gcard-grid">
@@ -202,7 +209,11 @@ export const GroceryBrowse = memo(function GroceryBrowse({
                   </div>
                   <div className="gcard-body">
                     <span className="gcard-name">{item.name}</span>
-                    {item.nameMy && <span className="gcard-name-my">{item.nameMy}</span>}
+                    {item.nameMy && (
+                      <span className="gcard-name-my" lang="my">
+                        {item.nameMy}
+                      </span>
+                    )}
                     {(item.brand || size) && (
                       <span className="gcard-meta">
                         {[item.brand, size].filter(Boolean).join(" · ")}
@@ -260,7 +271,11 @@ export const GroceryBrowse = memo(function GroceryBrowse({
                       aria-disabled={!canAdd || addingBarcode !== null}
                       data-busy={addingBarcode === item.barcode || undefined}
                       onClick={() => {
-                        pendingFocus.current = item.barcode;
+                        // Arm the focus handoff ONLY when this add will actually be attempted
+                        // (same gate the parent enforces) — else a refused tap leaves the barcode
+                        // armed and a LATER legit cart of that item would steal focus (WCAG 3.2.1).
+                        if (canAdd && addingBarcode === null && busyLineId === null)
+                          pendingFocus.current = item.barcode;
                         onAdd(item);
                       }}
                     >
