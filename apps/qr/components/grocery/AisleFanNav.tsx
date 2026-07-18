@@ -31,10 +31,13 @@ export function AisleFanNav({ aisles }: { aisles: Aisle[] }) {
 
   const navRef = useRef<HTMLElement>(null);
   const [open, setOpen] = useState(false);
-  // Marks the click that FOLLOWS the pointerdown which just opened a collapsed touch strip — that
-  // click only revealed the fan, so it must not also jump. (A mouse press has pointerType "mouse"
-  // and is never captured here, so desktop clicks always jump; CSS :hover handles the fan there.)
-  const openedByThisPress = useRef(false);
+  // Timestamp of the pointerdown that just fanned a collapsed touch strip open. A click within a
+  // short window after it only revealed the labels, so it must NOT jump. Using a timestamp (not a
+  // sticky boolean) means a press that never yields a click — a drag-scroll that starts on a tick
+  // and ends in `pointercancel` — can't leave the next real tap wrongly swallowed. Cleared on cancel
+  // and after the first swallowed/real click. (A mouse press has pointerType "mouse" and is never
+  // captured here, so desktop clicks always jump; CSS :hover handles the fan there.)
+  const openPressAt = useRef(0);
 
   // Collapse the touch-opened fan on an outside tap or after a short idle. (Fine pointers use CSS
   // `:hover`, so `open` only ever drives the coarse-pointer path.)
@@ -64,12 +67,17 @@ export function AisleFanNav({ aisles }: { aisles: Aisle[] }) {
       // so a touch shopper reads the labels before committing.
       onPointerDown={(e) => {
         if (e.pointerType !== "mouse" && !open) {
-          openedByThisPress.current = true;
+          openPressAt.current = e.timeStamp;
           setOpen(true);
         }
       }}
+      // A press that becomes a scroll (or is otherwise cancelled) produced no click to disarm the
+      // open-press window — clear it here so the next genuine tap isn't swallowed.
+      onPointerCancel={() => {
+        openPressAt.current = 0;
+      }}
       // Keyboard: focus fans the labels (also via CSS :focus-within) and the first Enter jumps
-      // (there's no press to swallow); blur out collapses.
+      // (there's no press within the window to swallow); blur out collapses.
       onFocus={() => setOpen(true)}
       onBlur={(e) => {
         if (!navRef.current?.contains(e.relatedTarget as Node)) setOpen(false);
@@ -83,23 +91,31 @@ export function AisleFanNav({ aisles }: { aisles: Aisle[] }) {
             type="button"
             className="aisle-fan-tick"
             aria-current={on ? "true" : undefined}
-            // Stable accessible name even while collapsed (the visible EN/MY spans are aria-hidden
-            // visual echoes, so they don't double-speak).
-            aria-label={`${a.en} aisle`}
             // Capped stagger index for the fan-out reveal; late ticks don't lag.
             style={{ "--i": Math.min(i, 6) } as CSSProperties}
-            onClick={() => {
-              // The press that opened a collapsed touch strip only revealed the labels — don't jump.
-              if (openedByThisPress.current) {
-                openedByThisPress.current = false;
+            onClick={(e) => {
+              // A click within ~600ms of the press that OPENED a collapsed touch strip only revealed
+              // the labels — don't jump (the shopper is still reading them).
+              if (openPressAt.current && e.timeStamp - openPressAt.current < 600) {
+                openPressAt.current = 0;
                 return;
               }
+              openPressAt.current = 0;
               jumpTo(a.slug);
               setOpen(false);
+              // Drop focus so :focus-within can't keep the labels (and their pointer-events) alive
+              // over the cards after a touch jump — Android retains button focus on tap, which would
+              // otherwise turn a follow-up card tap into an aisle jump (MED-2).
+              e.currentTarget.blur();
             }}
           >
-            <span className="aisle-fan-label" aria-hidden>
-              <Icon name={a.icon} size={18} strokeWidth={1.5} />
+            {/* The visible bilingual label IS the accessible name (EN + lang-tagged MY, no aria-label
+                override), so a screen reader hears both scripts — the app is bilingual throughout.
+                The icon + resting mark are decorative. */}
+            <span className="aisle-fan-label">
+              <span className="aisle-fan-label-icon" aria-hidden>
+                <Icon name={a.icon} size={18} strokeWidth={1.5} />
+              </span>
               <span className="aisle-fan-label-text">
                 <span className="aisle-fan-label-en">{a.en}</span>
                 <span className="aisle-fan-label-my" lang="my">
@@ -107,7 +123,6 @@ export function AisleFanNav({ aisles }: { aisles: Aisle[] }) {
                 </span>
               </span>
             </span>
-            {/* Decorative resting tick (the lit "you are here" cap when active). */}
             <span className="aisle-fan-mark" aria-hidden />
           </button>
         );

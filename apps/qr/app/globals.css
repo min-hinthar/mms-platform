@@ -3918,17 +3918,20 @@ html[data-seen-surface] .mms-stagger {
 .aisle-fan {
   position: fixed;
   right: 0;
-  top: 50%;
-  transform: translateY(-50%);
+  /* Bounded between the sticky header and above the fixed checkout CTA band (not vh-centered) so the
+     column can never reach the header or the money CTA; `justify-content:center` centers the ticks in
+     that band. The CTA carries a matching z-index and sits later in the DOM, so it still wins any
+     corner overlap on a short viewport. */
+  top: calc(var(--header-height) + env(safe-area-inset-top, 0px) + 8px);
+  bottom: calc(84px + env(safe-area-inset-bottom, 0px));
   z-index: var(--z-toolbar);
   display: flex;
   flex-direction: column;
+  justify-content: center;
   align-items: flex-end;
   gap: 2px;
   padding: 8px 6px;
   pointer-events: none;
-  /* Keep clear of the fixed bottom checkout CTA + the iOS home indicator. */
-  max-height: calc(100dvh - var(--header-height) - env(safe-area-inset-top, 0px) - 96px);
 }
 .aisle-fan-tick {
   position: relative;
@@ -3936,6 +3939,9 @@ html[data-seen-surface] .mms-stagger {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  /* ≥44px BOTH ways per the QA-CHECKLIST §A bar; the grid reserves a matching right gutter
+     (.aisle-section-fanpad) so the wider target never overlaps a card. */
+  min-width: 44px;
   min-height: 44px;
   padding: 0 6px;
   border: none;
@@ -4012,6 +4018,11 @@ html[data-seen-surface] .mms-stagger {
   border-color: var(--ac);
   color: var(--oa);
 }
+.aisle-fan-label-icon {
+  display: inline-flex;
+  flex: none;
+  line-height: 0;
+}
 .aisle-fan-label-text {
   display: flex;
   flex-direction: column;
@@ -4049,6 +4060,17 @@ html[data-seen-surface] .mms-stagger {
   scroll-margin-top: calc(
     var(--header-height) + env(safe-area-inset-top, 0px) + var(--lend-offset, 0px) + 8px
   );
+}
+/* Reserve the fan-nav's gutter on narrow screens so the ≥44px ticks never sit over a card's Add
+   button (the fan floats over the right edge where there's no desktop gutter). Desktop centres the
+   440px column with real gutters, so no reserve is needed there. */
+.aisle-section-fanpad {
+  padding-right: 40px;
+}
+@media (min-width: 768px) {
+  .aisle-section-fanpad {
+    padding-right: 0;
+  }
 }
 
 .aisle-heading {

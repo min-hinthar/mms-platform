@@ -789,6 +789,9 @@ const checkoutCta: CSSProperties = {
   right: 12,
   // clear the iOS home-bar inset (position, not padding) so the CTA isn't hidden behind it
   bottom: "calc(16px + env(safe-area-inset-bottom, 0px))",
+  // Match the aisle fan-nav's z-index; the CTA is later in the DOM, so it wins any corner overlap on
+  // a short viewport (the money control must never sit under a nav tick).
+  zIndex: "var(--z-toolbar)" as CSSProperties["zIndex"],
   maxWidth: 416,
   margin: "0 auto",
   background: "var(--ac)",

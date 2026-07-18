@@ -191,7 +191,10 @@ export const GroceryBrowse = memo(function GroceryBrowse({
           // scroll-margin-top that lands a jump below the sticky AppHeader (not under it).
           id={`aisle-sec-${a!.slug}`}
           data-aisle={a!.slug}
-          className="aisle-section"
+          // Reserve a right gutter for the fan nav ONLY while it's showing (≥2 sections) and only on
+          // narrow screens (desktop has real gutter) — so the ≥44px ticks never sit over a card's Add
+          // button. `.aisle-section` carries the jump scroll-margin.
+          className={sections.length > 1 ? "aisle-section aisle-section-fanpad" : "aisle-section"}
           aria-labelledby={`aisle-h-${a!.slug}`}
         >
           <h2 id={`aisle-h-${a!.slug}`} className="aisle-heading">
