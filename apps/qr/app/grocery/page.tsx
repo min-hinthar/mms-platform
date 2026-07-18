@@ -327,12 +327,13 @@ export default function Grocery() {
   const totalCents = lines.reduce((a, l) => a + l.unitPriceCents * l.qty, 0);
   // Display-only, like totalCents — the EBT flags rode in on the server's own cart view.
   const ebtCents = lines.reduce((a, l) => a + (l.ebt ? l.unitPriceCents * l.qty : 0), 0);
-  // W4e — real basket savings vs the market compare-at (only lines whose compare-at strictly
-  // exceeds the charged price contribute; display only).
-  const savedCents = lines.reduce(
-    (a, l) => a + (l.compareAtCents ? (l.compareAtCents - l.unitPriceCents) * l.qty : 0),
-    0,
-  );
+  // W4e — real basket savings vs the market compare-at. Routed through the SAME `saleInfo` floor the
+  // cards/hits use (≥1%), so the aggregate can never advertise a saving from a sub-1% gap that shows
+  // no on-card sale anywhere (the DB CHECK only enforces `>`, not a minimum gap). Display only.
+  const savedCents = lines.reduce((a, l) => {
+    const s = saleInfo(l.unitPriceCents, l.compareAtCents);
+    return a + (s ? s.saveCents * l.qty : 0);
+  }, 0);
 
   return (
     <main style={{ maxWidth: 440, margin: "0 auto", padding: 20, paddingBottom: 120 }}>

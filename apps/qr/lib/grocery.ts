@@ -204,9 +204,10 @@ export async function searchGroceryItems(query: string): Promise<GroceryHit[]> {
     sizeUnit: i.size_unit,
     unitPriceCents: Number(i.price_cents),
     // NOTE: the generated RPC type declares compare_at_cents non-nullable (Supabase types every
-    // RETURNS-TABLE column non-null), but the fn CAN return null — keep this `=== null` guard even
-    // though the type says it's always-false; it's the real runtime protection.
-    compareAtCents: i.compare_at_cents === null ? null : Number(i.compare_at_cents),
+    // RETURNS-TABLE column non-null), but the fn CAN return null — keep this guard even though the
+    // type says it's always-false; it's the real runtime protection. Loose `== null` (not `===`) so
+    // an `undefined` from an un-migrated RPC collapses to null too (never `Number(undefined)` = NaN).
+    compareAtCents: i.compare_at_cents == null ? null : Number(i.compare_at_cents),
     ebt: i.ebt_eligible,
   }));
 }
@@ -258,7 +259,7 @@ export async function getGroceryCatalog(): Promise<GroceryCatalogItem[]> {
     sizeQty: i.size_qty === null ? null : Number(i.size_qty),
     sizeUnit: i.size_unit,
     priceCents: Number(i.price_cents),
-    compareAtCents: i.compare_at_cents === null ? null : Number(i.compare_at_cents),
+    compareAtCents: i.compare_at_cents == null ? null : Number(i.compare_at_cents),
     ebt: i.ebt_eligible,
     // Same containment as readGroceryLines: only relative or *.supabase.co URLs reach next/image.
     imageUrl:

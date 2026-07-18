@@ -3853,11 +3853,16 @@ html[data-seen-surface] .mms-stagger {
   /* Fade the trailing edge so the ~4-of-11 visible tiles cue "more →"; extra end padding lets the
      next tile peek. */
   padding-right: 18px;
-  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
-  mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
+}
+/* The trailing edge-fade is DROPPED while a tile inside is keyboard-focused — the parent mask also
+   clips the focused tile's `:focus-visible` ring (the browser scroll-aligns it to the right edge,
+   under the fade), erasing the focus indicator (WCAG 2.4.7). Decorative cue < visible focus. */
+.aisle-rail:not(:focus-within) {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
 }
 .aisle-rail::-webkit-scrollbar {
   display: none;
@@ -4110,8 +4115,6 @@ html[data-seen-surface] .mms-stagger {
   height: auto;
   padding: 2px 7px;
   border-radius: var(--r-full);
-  background: var(--ac);
-  color: var(--oa);
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.01em;
