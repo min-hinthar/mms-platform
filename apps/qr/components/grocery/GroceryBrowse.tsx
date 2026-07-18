@@ -12,6 +12,7 @@ import {
   sizeLabel,
   unitPriceLabel,
 } from "@/lib/grocery-aisles";
+import { AisleFanNav } from "@/components/grocery/AisleFanNav";
 
 /**
  * W4b — the Browse half of the grocery market: aisle tiles over the full catalog, Weee!-anatomy
@@ -184,7 +185,15 @@ export const GroceryBrowse = memo(function GroceryBrowse({
       </nav>
 
       {sections.map(({ aisle: a, items }) => (
-        <section key={a!.slug} aria-labelledby={`aisle-h-${a!.slug}`}>
+        <section
+          key={a!.slug}
+          // W4f — the scroll-spy anchor + jump target for AisleFanNav; `.aisle-section` carries the
+          // scroll-margin-top that lands a jump below the sticky AppHeader (not under it).
+          id={`aisle-sec-${a!.slug}`}
+          data-aisle={a!.slug}
+          className="aisle-section"
+          aria-labelledby={`aisle-h-${a!.slug}`}
+        >
           <h2 id={`aisle-h-${a!.slug}`} className="aisle-heading">
             {a!.en}{" "}
             <span className="aisle-heading-my" lang="my">
@@ -330,6 +339,11 @@ export const GroceryBrowse = memo(function GroceryBrowse({
           </ul>
         </section>
       ))}
+
+      {/* W4f — right-edge fan-out section nav over the rendered aisles. Self-hides when the filter
+          narrows to a single aisle (nothing to jump between). Its own state re-renders only itself,
+          never the memo'd card grid. */}
+      <AisleFanNav aisles={sections.map((s) => s.aisle!)} />
     </>
   );
 });

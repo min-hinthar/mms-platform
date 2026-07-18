@@ -4,6 +4,24 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W4f — right-edge aisle fan-out section nav (2026-07-18)
+
+A "you are here" aisle minimap for the grocery Browse view — the vertical companion to the
+horizontal filter rail (which is kept). A fixed right-edge strip of aisle ticks scroll-spies the
+section currently under the header and fans out to bilingual EN/MY labels to jump between aisles.
+
+- **Scroll-spy + jump** (`useAisleSpy`) mirrors the in-app `MenuBrowser` pattern — an
+  `IntersectionObserver` over the `data-aisle` sections (topmost-intersecting under the header wins),
+  `--lend-offset`-aware inset, `LEND_CHANGE_EVENT`/resize rebuild, and a 600ms jump-freeze so the lit
+  marker doesn't flicker through sections during a smooth-scroll.
+- **Input-aware fan** (`AisleFanNav`): desktop `:hover`, keyboard `:focus-within`, and a touch
+  tap-to-open (first tap fans the labels, second jumps) — outside-tap / idle collapse. Pure
+  navigation; never touches the cart/money path.
+- **Self-hiding**: renders only when ≥2 sections are stacked, so it disappears the moment the filter
+  isolates a single aisle. Floats in the gutter (`pointer-events` only on the 44px ticks) so it costs
+  zero grid width. Token-pure active cap + `prefers-reduced-motion` off-switch; `.aisle-section`
+  `scroll-margin-top` lands a jump below the sticky header.
+
 ### W4e hardening — post-merge adversarial follow-up (2026-07-18)
 
 The three adversarial-pass findings that didn't land with the W4e design pass, shipped alone (#141):

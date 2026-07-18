@@ -3911,6 +3911,146 @@ html[data-seen-surface] .mms-stagger {
   color: color-mix(in oklab, var(--oa) 75%, transparent);
 }
 
+/* W4f — right-edge aisle fan-out section nav (jump + scroll-spy over the browse sections). Fixed in
+   the gutter so it costs zero grid width; only the 44px ticks take pointer events, so the dead space
+   between them never eats a card/Add tap. Active state = a self-contained lit cap on ONE element
+   (per the no-measured-indicator rule). */
+.aisle-fan {
+  position: fixed;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: var(--z-toolbar);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 8px 6px;
+  pointer-events: none;
+  /* Keep clear of the fixed bottom checkout CTA + the iOS home indicator. */
+  max-height: calc(100dvh - var(--header-height) - env(safe-area-inset-top, 0px) - 96px);
+}
+.aisle-fan-tick {
+  position: relative;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 44px;
+  padding: 0 6px;
+  border: none;
+  background: none;
+  color: var(--t2);
+  font: inherit;
+  cursor: pointer;
+}
+/* Resting tick glyph (aria-hidden); grows into a lit gold→clay cap when its aisle is in view. */
+.aisle-fan-mark {
+  width: 14px;
+  height: 3px;
+  border-radius: var(--r-full);
+  background: var(--t3);
+  opacity: 0.5;
+  transition:
+    width var(--dur-fast) var(--ease-out),
+    height var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out),
+    opacity var(--dur-fast) var(--ease-out);
+}
+.aisle-fan-tick[aria-current="true"] .aisle-fan-mark {
+  width: 22px;
+  height: 4px;
+  background: var(--ac);
+  opacity: 1;
+  box-shadow: var(--sh-lift);
+}
+.aisle-fan-tick:active .aisle-fan-mark {
+  transform: scale(0.92);
+}
+/* Fan-out label — absolutely positioned so revealing it never widens the 44px slot (no reflow). It
+   opens on hover (fine pointer), keyboard focus-within, or the touch `data-open` state. */
+.aisle-fan-label {
+  position: absolute;
+  right: 100%;
+  margin-right: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  max-width: min(72vw, 260px);
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  color: var(--t2);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh);
+  opacity: 0;
+  transform: translateX(12px);
+  pointer-events: none;
+  transition:
+    opacity var(--dur-base) var(--ease-out),
+    transform var(--dur-base) var(--ease-out);
+  transition-delay: calc(var(--i, 0) * 18ms);
+}
+@media (hover: hover) and (pointer: fine) {
+  .aisle-fan:hover .aisle-fan-label {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
+}
+.aisle-fan:focus-within .aisle-fan-label,
+.aisle-fan[data-open="true"] .aisle-fan-label {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+/* Self-contained active fill + ink on the SAME element (never a separate measured indicator). */
+.aisle-fan-tick[aria-current="true"] .aisle-fan-label {
+  background: var(--ac);
+  border-color: var(--ac);
+  color: var(--oa);
+}
+.aisle-fan-label-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.15;
+}
+.aisle-fan-label-en {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.15;
+}
+.aisle-fan-label-my {
+  font-family: var(--font-my);
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--t3);
+}
+.aisle-fan-tick[aria-current="true"] .aisle-fan-label-my {
+  color: color-mix(in oklab, var(--oa) 75%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .aisle-fan-mark,
+  .aisle-fan-label {
+    transition: none;
+  }
+  .aisle-fan-label {
+    transform: none;
+  }
+  .aisle-fan-tick:active .aisle-fan-mark {
+    transform: none;
+  }
+}
+/* A jump lands the heading below the sticky AppHeader (+ lend ribbon + safe area), not under it. */
+.aisle-section {
+  scroll-margin-top: calc(
+    var(--header-height) + env(safe-area-inset-top, 0px) + var(--lend-offset, 0px) + 8px
+  );
+}
+
 .aisle-heading {
   display: flex;
   align-items: baseline;
