@@ -4,6 +4,18 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W4e hardening — post-merge adversarial follow-up (2026-07-18)
+
+The three adversarial-pass findings that didn't land with the W4e design pass, shipped alone (#141):
+
+- **Basket "You're saving" now floors with the cards** — routed through the same `saleInfo` ≥1%
+  gate the cards/hits use, so a sub-1% `compare_at` gap (the DB CHECK only enforces `>`, not a
+  minimum) can no longer advertise a phantom aggregate saving with no visibly-discounted line.
+- **Aisle-rail focus ring un-clipped** — the trailing `mask-image` edge-fade is dropped on
+  `:focus-within`; it was clipping the rightmost tile's `:focus-visible` ring (WCAG 2.4.7).
+- **Compare-at null-safety** — RPC/catalog reads use loose `== null` so an `undefined` from an
+  un-migrated RPC collapses to null instead of rendering `$NaN`; dead `.gcard-sale` override removed.
+
 ### W4e design pass — the sale actually reads as a sale (2026-07-18)
 
 Pre-merge design-weighted adversarial pass (verdict PASS, 0 blockers; money/legal clean). Applied the
