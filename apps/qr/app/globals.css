@@ -3864,7 +3864,9 @@ html[data-seen-surface] .mms-stagger {
   /* Auto-hide: tucks up out of view while scrolling down (data-hidden), slides back on scroll-up. */
   transition: transform var(--dur-base) var(--ease-out);
 }
-.aisle-rail[data-hidden] {
+/* `:not(:focus-within)` — a keyboard user who Shift+Tabs back into the rail while it's tucked away
+   reveals it (never focus on an off-screen chip). */
+.aisle-rail[data-hidden]:not(:focus-within) {
   transform: translateY(calc(-100% - var(--header-height) - env(safe-area-inset-top, 0px)));
 }
 .aisle-rail-scroll {
