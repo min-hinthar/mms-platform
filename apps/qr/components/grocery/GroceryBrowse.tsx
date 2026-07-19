@@ -154,34 +154,39 @@ export const GroceryBrowse = memo(function GroceryBrowse({
 
   return (
     <>
+      {/* Filter rail — pins under the header on scroll on MOBILE (the category nav there, since the
+          vertical fan-nav is desktop-only). The opaque sticky bg lives on the <nav>; the trailing
+          edge-fade mask lives on the inner scroller so it never eats the sticky background. */}
       <nav className="aisle-rail" aria-label="Grocery aisles">
-        <button
-          type="button"
-          className="aisle-tile"
-          aria-pressed={aisle === null}
-          onClick={() => setAisle(null)}
-        >
-          <Icon name="cat-grocery" size={22} strokeWidth={1.5} />
-          <span className="aisle-tile-en">All aisles</span>
-          <span className="aisle-tile-my" lang="my">
-            အားလုံး
-          </span>
-        </button>
-        {stockedAisles.map((a) => (
+        <div className="aisle-rail-scroll">
           <button
-            key={a.slug}
             type="button"
             className="aisle-tile"
-            aria-pressed={aisle === a.slug}
-            onClick={() => setAisle((cur) => (cur === a.slug ? null : a.slug))}
+            aria-pressed={aisle === null}
+            onClick={() => setAisle(null)}
           >
-            <Icon name={a.icon} size={22} strokeWidth={1.5} />
-            <span className="aisle-tile-en">{a.en}</span>
+            <Icon name="cat-grocery" size={22} strokeWidth={1.5} />
+            <span className="aisle-tile-en">All aisles</span>
             <span className="aisle-tile-my" lang="my">
-              {a.my}
+              အားလုံး
             </span>
           </button>
-        ))}
+          {stockedAisles.map((a) => (
+            <button
+              key={a.slug}
+              type="button"
+              className="aisle-tile"
+              aria-pressed={aisle === a.slug}
+              onClick={() => setAisle((cur) => (cur === a.slug ? null : a.slug))}
+            >
+              <Icon name={a.icon} size={22} strokeWidth={1.5} />
+              <span className="aisle-tile-en">{a.en}</span>
+              <span className="aisle-tile-my" lang="my">
+                {a.my}
+              </span>
+            </button>
+          ))}
+        </div>
       </nav>
 
       {sections.map(({ aisle: a, items }) => (
@@ -191,10 +196,10 @@ export const GroceryBrowse = memo(function GroceryBrowse({
           // scroll-margin-top that lands a jump below the sticky AppHeader (not under it).
           id={`aisle-sec-${a!.slug}`}
           data-aisle={a!.slug}
-          // Reserve a right gutter for the fan nav ONLY while it's showing (≥2 sections) and only on
-          // narrow screens (desktop has real gutter) — so the ≥44px ticks never sit over a card's Add
-          // button. `.aisle-section` carries the jump scroll-margin.
-          className={sections.length > 1 ? "aisle-section aisle-section-fanpad" : "aisle-section"}
+          // `.aisle-section` carries the scroll-margin-top so a fan-nav jump (desktop) lands the
+          // heading below the sticky header. No gutter reserve needed: the fan is desktop-only now
+          // and floats in the wide gutter beside the centred column, never over a card.
+          className="aisle-section"
           aria-labelledby={`aisle-h-${a!.slug}`}
         >
           <h2 id={`aisle-h-${a!.slug}`} className="aisle-heading">

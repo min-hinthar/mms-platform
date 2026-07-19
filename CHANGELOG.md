@@ -27,6 +27,11 @@ section currently under the header and fans out to bilingual EN/MY labels to jum
   refined `surface-elevated` pills with a gold hairline + `--sh-md`, springing in (`--spring`) with a
   stagger; the active label carries a clay fill + `--glow-ac`. No-blur (mobile GPU budget) — depth
   from tokens only. Interaction unchanged (CSS + an inert inner wrapper).
+- **Responsive split** — the vertical fan-nav is now **desktop-only** (`≥ md`, where the centred
+  column leaves real gutter for it). On **mobile** the horizontal aisle FILTER rail is **sticky**
+  instead (full-bleed bar that pins under the header on scroll; tiles in an inner scroller so the
+  opaque bg isn't eaten by the edge-fade mask). The old gutter-reserve is dropped — cards are
+  full-width on mobile.
 
 ### W4e hardening — post-merge adversarial follow-up (2026-07-18)
 

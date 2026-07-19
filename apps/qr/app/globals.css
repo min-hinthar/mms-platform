@@ -3843,29 +3843,53 @@ html[data-seen-surface] .mms-stagger {
   }
 }
 
-/* Aisle rail — bilingual tiles, horizontally scrollable; the pressed tile is self-contained
-   (fill + ink on one element). */
+/* Aisle FILTER rail — bilingual tiles, horizontally scrollable; the pressed tile is self-contained
+   (fill + ink on one element). On MOBILE it pins under the sticky AppHeader on scroll (the category
+   nav there — the vertical fan-nav is desktop-only); on desktop it's a normal in-flow row (the
+   fan-nav handles jump-navigation). The opaque sticky background lives on the <nav> so the trailing
+   edge-fade (masked on the inner scroller) never eats it, and cards scroll cleanly underneath. */
 .aisle-rail {
+  position: sticky;
+  top: calc(var(--header-height) + env(safe-area-inset-top, 0px) + var(--lend-offset, 0px));
+  z-index: calc(var(--z-toolbar) - 1);
+  /* Full-bleed the sticky bar past the page's 20px inset so its background reaches the viewport
+     edges; the inner scroller re-insets the tiles. */
+  margin: 14px -20px 6px;
+  padding: 8px 20px 0;
+  background: var(--pg);
+  border-bottom: 1px solid var(--bd);
+  box-shadow: 0 6px 16px -14px color-mix(in oklab, var(--tx) 55%, transparent);
+}
+.aisle-rail-scroll {
   display: flex;
   gap: 8px;
-  margin-top: 14px;
   padding-bottom: 6px;
-  /* Fade the trailing edge so the ~4-of-11 visible tiles cue "more →"; extra end padding lets the
-     next tile peek. */
+  /* extra end padding lets the next tile peek ("more →") */
   padding-right: 18px;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
 }
-/* The trailing edge-fade is DROPPED while a tile inside is keyboard-focused — the parent mask also
-   clips the focused tile's `:focus-visible` ring (the browser scroll-aligns it to the right edge,
-   under the fade), erasing the focus indicator (WCAG 2.4.7). Decorative cue < visible focus. */
-.aisle-rail:not(:focus-within) {
+/* The trailing edge-fade is DROPPED while a tile inside is keyboard-focused — the mask would clip the
+   focused tile's `:focus-visible` ring at the right edge (WCAG 2.4.7). Decorative cue < visible focus. */
+.aisle-rail-scroll:not(:focus-within) {
   -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
   mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
 }
-.aisle-rail::-webkit-scrollbar {
+.aisle-rail-scroll::-webkit-scrollbar {
   display: none;
+}
+/* Desktop: a normal in-flow row — no sticky, no full-bleed, no bar chrome (the fan-nav owns
+   jump-navigation there). */
+@media (min-width: 768px) {
+  .aisle-rail {
+    position: static;
+    margin: 14px 0 0;
+    padding: 0;
+    background: none;
+    border-bottom: none;
+    box-shadow: none;
+  }
 }
 .aisle-tile {
   flex: none;
@@ -3932,6 +3956,14 @@ html[data-seen-surface] .mms-stagger {
   align-items: flex-end;
   padding: 8px 6px;
   pointer-events: none;
+}
+/* Desktop-only: on mobile the sticky horizontal filter rail is the category nav; the fan would
+   float over the narrow card column with no gutter to live in. Shows from the md breakpoint where
+   the centred 440 column leaves real gutter for it. */
+@media (max-width: 767.98px) {
+  .aisle-fan {
+    display: none;
+  }
 }
 /* Content-sized column so the rail hugs the dots (the nav box itself is bounded tall for the
    overflow-vs-chrome safety the W4f pass established). */
@@ -4110,17 +4142,6 @@ html[data-seen-surface] .mms-stagger {
   scroll-margin-top: calc(
     var(--header-height) + env(safe-area-inset-top, 0px) + var(--lend-offset, 0px) + 8px
   );
-}
-/* Reserve the fan-nav's gutter on narrow screens so the ≥44px ticks never sit over a card's Add
-   button (the fan floats over the right edge where there's no desktop gutter). Desktop centres the
-   440px column with real gutters, so no reserve is needed there. */
-.aisle-section-fanpad {
-  padding-right: 40px;
-}
-@media (min-width: 768px) {
-  .aisle-section-fanpad {
-    padding-right: 0;
-  }
 }
 
 .aisle-heading {
