@@ -13,6 +13,7 @@ import {
   unitPriceLabel,
 } from "@/lib/grocery-aisles";
 import { AisleFanNav } from "@/components/grocery/AisleFanNav";
+import { useHideOnScrollDown } from "@/lib/hooks/useHideOnScrollDown";
 
 /**
  * W4b — the Browse half of the grocery market: aisle tiles over the full catalog, Weee!-anatomy
@@ -51,6 +52,10 @@ export const GroceryBrowse = memo(function GroceryBrowse({
   // its place — park keyboard/SR focus on the new "+" instead of dropping it to <body>. The ref
   // holds the barcode whose stepper should claim focus on mount.
   const pendingFocus = useRef<string | null>(null);
+  // W4f — the sticky mobile filter rail tucks away while scrolling DOWN (full-screen grid) and
+  // reappears on scroll-up, so it never permanently eats ~20% of a phone screen. Desktop ignores it
+  // (the rail is static there). Reduced-motion keeps it visible.
+  const railHidden = useHideOnScrollDown();
 
   // One catalog read per visit (a public, slow-moving ~400-row list). Failure renders an honest
   // Retry — never an empty market. `cancelled` guards the post-unmount setState.
@@ -157,7 +162,7 @@ export const GroceryBrowse = memo(function GroceryBrowse({
       {/* Filter rail — pins under the header on scroll on MOBILE (the category nav there, since the
           vertical fan-nav is desktop-only). The opaque sticky bg lives on the <nav>; the trailing
           edge-fade mask lives on the inner scroller so it never eats the sticky background. */}
-      <nav className="aisle-rail" aria-label="Grocery aisles">
+      <nav className="aisle-rail" aria-label="Grocery aisles" data-hidden={railHidden || undefined}>
         <div className="aisle-rail-scroll">
           <button
             type="button"
@@ -165,11 +170,8 @@ export const GroceryBrowse = memo(function GroceryBrowse({
             aria-pressed={aisle === null}
             onClick={() => setAisle(null)}
           >
-            <Icon name="cat-grocery" size={22} strokeWidth={1.5} />
+            <Icon name="cat-grocery" size={18} strokeWidth={1.5} />
             <span className="aisle-tile-en">All aisles</span>
-            <span className="aisle-tile-my" lang="my">
-              အားလုံး
-            </span>
           </button>
           {stockedAisles.map((a) => (
             <button
@@ -179,11 +181,8 @@ export const GroceryBrowse = memo(function GroceryBrowse({
               aria-pressed={aisle === a.slug}
               onClick={() => setAisle((cur) => (cur === a.slug ? null : a.slug))}
             >
-              <Icon name={a.icon} size={22} strokeWidth={1.5} />
+              <Icon name={a.icon} size={18} strokeWidth={1.5} />
               <span className="aisle-tile-en">{a.en}</span>
-              <span className="aisle-tile-my" lang="my">
-                {a.my}
-              </span>
             </button>
           ))}
         </div>

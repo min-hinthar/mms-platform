@@ -3861,6 +3861,11 @@ html[data-seen-surface] .mms-stagger {
   /* --ink is a CONSTANT dark token (not cream-in-Night like --tx), so the drop shadow stays a real
      shadow in both themes instead of inverting to a light halo on dark. */
   box-shadow: 0 6px 16px -14px color-mix(in oklab, var(--ink) 45%, transparent);
+  /* Auto-hide: tucks up out of view while scrolling down (data-hidden), slides back on scroll-up. */
+  transition: transform var(--dur-base) var(--ease-out);
+}
+.aisle-rail[data-hidden] {
+  transform: translateY(calc(-100% - var(--header-height) - env(safe-area-inset-top, 0px)));
 }
 .aisle-rail-scroll {
   display: flex;
@@ -3891,25 +3896,32 @@ html[data-seen-surface] .mms-stagger {
     background: none;
     border-bottom: none;
     box-shadow: none;
+    transition: none;
+  }
+  /* The rail never auto-hides on desktop (it's a static in-flow row there; the fan-nav is the
+     persistent nav). Reset the attribute-selector transform so a scrolled-down state can't tuck it. */
+  .aisle-rail[data-hidden] {
+    transform: none;
   }
 }
+/* Slim single-line filter CHIP (was a 90px icon+EN+MY tile — too tall for a nav bar). Icon + English
+   only; the bilingual name lives on the cards + aisle headings. Keeps the ≥44px tap target. */
 .aisle-tile {
   flex: none;
-  display: flex;
-  flex-direction: column;
+  display: inline-flex;
+  flex-direction: row;
   align-items: center;
-  gap: 3px;
-  min-width: 86px;
-  max-width: 112px;
-  min-height: 68px;
-  padding: 9px 10px;
-  border-radius: var(--r-card);
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: var(--r-full);
   border: 1px solid var(--bd);
   background: var(--cd);
   color: var(--t2);
   font: inherit;
   cursor: pointer;
   box-shadow: inset 0 1px 0 var(--sheen);
+  white-space: nowrap;
 }
 .aisle-tile[aria-pressed="true"] {
   /* A solid lit cap (not a 10% tint that vanishes on Night) — the selected aisle reads at a glance. */
@@ -3921,20 +3933,9 @@ html[data-seen-surface] .mms-stagger {
     var(--sh);
 }
 .aisle-tile-en {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
-  line-height: 1.15;
-  text-align: center;
-}
-.aisle-tile-my {
-  font-family: var(--font-my);
-  font-size: 11px;
-  line-height: 1.3;
-  color: var(--t3);
-  text-align: center;
-}
-.aisle-tile[aria-pressed="true"] .aisle-tile-my {
-  color: color-mix(in oklab, var(--oa) 75%, transparent);
+  line-height: 1;
 }
 
 /* W4f — right-edge aisle fan-out section nav (jump + scroll-spy over the browse sections). Fixed in

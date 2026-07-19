@@ -32,6 +32,12 @@ section currently under the header and fans out to bilingual EN/MY labels to jum
   instead (full-bleed bar that pins under the header on scroll; tiles in an inner scroller so the
   opaque bg isn't eaten by the edge-fade mask). The old gutter-reserve is dropped — cards are
   full-width on mobile.
+- **Slim, self-tucking mobile rail** — the sticky rail no longer eats ~20% of the screen: the chunky
+  90px icon+EN+MY tiles are now single-line **chips** (icon + English, ≥44px) ~half the height, and
+  the bar **auto-hides while scrolling down** (full-screen grid) and **slides back on scroll-up**
+  (`useHideOnScrollDown`, rAF-throttled passive listener; stays visible under `prefers-reduced-motion`;
+  desktop unaffected). So category nav costs zero space while browsing and returns the instant it's
+  reached for.
 
 ### W4e hardening — post-merge adversarial follow-up (2026-07-18)
 
