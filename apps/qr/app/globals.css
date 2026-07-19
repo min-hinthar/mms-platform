@@ -3858,7 +3858,9 @@ html[data-seen-surface] .mms-stagger {
   padding: 8px 20px 0;
   background: var(--pg);
   border-bottom: 1px solid var(--bd);
-  box-shadow: 0 6px 16px -14px color-mix(in oklab, var(--tx) 55%, transparent);
+  /* --ink is a CONSTANT dark token (not cream-in-Night like --tx), so the drop shadow stays a real
+     shadow in both themes instead of inverting to a light halo on dark. */
+  box-shadow: 0 6px 16px -14px color-mix(in oklab, var(--ink) 45%, transparent);
 }
 .aisle-rail-scroll {
   display: flex;
@@ -4142,6 +4144,18 @@ html[data-seen-surface] .mms-stagger {
   scroll-margin-top: calc(
     var(--header-height) + env(safe-area-inset-top, 0px) + var(--lend-offset, 0px) + 8px
   );
+}
+/* WCAG 2.4.11 — on mobile the FILTER rail is sticky, so header + rail form ~140px of pinned chrome.
+   Focus-scroll keys off the focused element's OWN scroll-margin, so the in-card Add / stepper buttons
+   need one too, or Shift+Tabbing up the grid parks a focused control behind the pinned bar. Only on
+   mobile (the rail is static ≥ md, where these reset to 0). ~90px ≈ the rail's height. */
+@media (max-width: 767.98px) {
+  .gcard-add,
+  .gcard-stepper .grocery-step-btn {
+    scroll-margin-top: calc(
+      var(--header-height) + env(safe-area-inset-top, 0px) + var(--lend-offset, 0px) + 90px
+    );
+  }
 }
 
 .aisle-heading {

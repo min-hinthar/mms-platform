@@ -25,11 +25,25 @@ import { useAisleSpy } from "@/lib/hooks/useAisleSpy";
  *    Android — never fires for a keyboard user and so can't steal their focus.
  */
 export function AisleFanNav({ aisles }: { aisles: Aisle[] }) {
+  // The fan is CSS-hidden below md, so don't run the scroll-spy observer there — pure battery/CPU
+  // waste feeding a display:none nav on the mobile scroll path. Lazy-init keeps SSR/first-paint
+  // markup identical (activeSlug seeds slugs[0] regardless of `enabled`, so no hydration mismatch);
+  // the listener re-gates on a resize across the breakpoint. No synchronous set-state in the effect.
+  const [isDesktop, setIsDesktop] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)");
+    const onChange = () => setIsDesktop(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
   // Hooks run unconditionally (the render can early-return below); `enabled` no-ops the observer
-  // when there's nothing to navigate.
+  // when there's nothing to navigate OR on mobile where the fan is hidden.
   const { activeSlug, jumpTo } = useAisleSpy(
     aisles.map((a) => a.slug),
-    aisles.length > 1,
+    aisles.length > 1 && isDesktop,
   );
 
   const navRef = useRef<HTMLElement>(null);
