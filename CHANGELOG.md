@@ -37,7 +37,12 @@ section currently under the header and fans out to bilingual EN/MY labels to jum
   the bar **auto-hides while scrolling down** (full-screen grid) and **slides back on scroll-up**
   (`useHideOnScrollDown`, rAF-throttled passive listener; stays visible under `prefers-reduced-motion`;
   desktop unaffected). So category nav costs zero space while browsing and returns the instant it's
-  reached for.
+  reached for. Chips carry the **bilingual EN-over-MY** label (icon + stacked EN/MY).
+- **Pre-merge deep adversarial pass** (2 confirmed LOW findings, both folded in): a keyboard/SR jump
+  now announces the arrived aisle via a nav-owned polite `sr-only` live region (focus stays on the
+  tick — the silent scroll was imperceptible to non-sighted users); and the touch open-press window is
+  now also disarmed on `pointerup` when the finger lifts off the pressed tick (a release onto the gap
+  fires neither `click` nor `pointercancel`, so a genuine re-tap could otherwise be swallowed).
 
 ### W4e hardening — post-merge adversarial follow-up (2026-07-18)
 

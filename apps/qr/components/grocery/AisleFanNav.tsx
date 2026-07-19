@@ -54,6 +54,14 @@ export function AisleFanNav({ aisles }: { aisles: Aisle[] }) {
   // and ends in `pointercancel` — can't leave the next real tap wrongly swallowed. (A mouse press
   // has pointerType "mouse" and is never captured here, so desktop clicks always jump.)
   const openPressAt = useRef(0);
+  // The tick the open-press started on. A `click` only follows when pointerdown AND pointerup land
+  // on the SAME element; if the finger lifts off the tick (onto the gap, or a different tick) no
+  // click fires to disarm `openPressAt`, so we disarm it on `pointerup` instead (below).
+  const openPressTick = useRef<Element | null>(null);
+  // Polite live region: a keyboard/SR user activates a tick, focus deliberately STAYS on it (never
+  // stranded on <body>), so the silent scroll is otherwise imperceptible — announce the arrival.
+  const [announce, setAnnounce] = useState("");
+  const announceNonce = useRef(0);
 
   // Collapse the touch-opened strip: drop `open` AND blur any focused tick inside the nav, so the
   // `:focus-within` that Android leaves after a focus-on-tap can't hold the labels open + live over
@@ -94,7 +102,18 @@ export function AisleFanNav({ aisles }: { aisles: Aisle[] }) {
       onPointerDown={(e) => {
         if (e.pointerType !== "mouse" && !open) {
           openPressAt.current = e.timeStamp;
+          openPressTick.current = (e.target as HTMLElement).closest(".aisle-fan-tick");
           setOpen(true);
+        }
+      }}
+      // If the release didn't land on the SAME tick the open-press started on, no `click` will fire
+      // on that tick to disarm the open window — clear it here so a genuine re-tap (finger lifted a
+      // few px off the edge onto the gap) isn't swallowed by the 600ms guard. A same-tick release
+      // keeps it armed so the immediately-following click still only reveals (doesn't jump).
+      onPointerUp={(e) => {
+        if (openPressAt.current) {
+          const upTick = (e.target as HTMLElement).closest(".aisle-fan-tick");
+          if (upTick !== openPressTick.current) openPressAt.current = 0;
         }
       }}
       // A press that becomes a scroll (or is otherwise cancelled) produced no click to disarm the
@@ -132,6 +151,12 @@ export function AisleFanNav({ aisles }: { aisles: Aisle[] }) {
               openPressAt.current = 0;
               jumpTo(a.slug);
               setOpen(false);
+              // Announce the arrival for SR users (focus stays on the tick, so nothing else speaks).
+              // The nonce toggles a trailing NBSP (a regular space is trimmed by the accessible-name
+              // computation) so re-jumping to the SAME aisle still re-announces (identical text isn't
+              // re-read).
+              announceNonce.current += 1;
+              setAnnounce(`${a.en} ${a.my}${announceNonce.current % 2 ? " " : ""}`);
               // Collapse after a POINTER jump (touch/mouse → e.detail ≥ 1) by dropping focus so
               // :focus-within can't keep the labels alive over the cards. A KEYBOARD activation
               // (e.detail === 0) keeps focus on the tick — never stranded on <body> (WCAG 2.4.3).
@@ -157,6 +182,11 @@ export function AisleFanNav({ aisles }: { aisles: Aisle[] }) {
           );
         })}
       </div>
+      {/* Polite, visually-hidden announcement of the jumped-to aisle — makes the otherwise-silent
+          scroll perceivable to SR users while keeping focus on the activated tick. */}
+      <span className="sr-only" aria-live="polite">
+        {announce}
+      </span>
     </nav>
   );
 }
