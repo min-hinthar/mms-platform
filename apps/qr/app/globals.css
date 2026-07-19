@@ -3843,6 +3843,224 @@ html[data-seen-surface] .mms-stagger {
   }
 }
 
+/* ===== W4g — grocery editorial polish: one type-led masthead + one token system for the chrome
+   (replaces the eyebrow + generic h1 + EBT text-wall and a pile of ad-hoc inline styles). ===== */
+
+/* Masthead: a display-serif title over one quiet bilingual subline. Space, not rules, sets it off. */
+.grocery-head {
+  margin: 2px 0 18px;
+}
+.grocery-title {
+  margin: 4px 0 6px;
+  font-family: var(--font-display);
+  font-size: var(--fs-display);
+  font-weight: 600;
+  line-height: 1.02;
+  letter-spacing: -0.015em;
+  color: var(--tx);
+}
+.grocery-sub {
+  margin: 0;
+  max-width: 32ch;
+  color: var(--t2);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+
+/* Toolbar cluster: the Browse|Scan segmented control + the search field read as one group. */
+.grocery-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.grocery-toolbar .grocery-tabs {
+  margin-top: 0;
+}
+
+/* Demoted EBT disclosure — one quiet line under the toolbar (was a 2-line body-colour text-wall at
+   the very top). */
+.grocery-ebt-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 10px 2px 2px;
+  color: var(--t3);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+}
+.grocery-ebt-note-tag {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--bd);
+  background: var(--okb);
+  color: var(--ok);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
+/* Search field — one clean pill on the card surface (was two inline-styled objects). */
+.grocery-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  color: var(--t3);
+  box-shadow: inset 0 1px 0 var(--sheen);
+}
+.grocery-search input {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  border: none;
+  background: none;
+  outline: none;
+  color: var(--tx);
+  /* Per-glyph fallback: Latin in the body face, Myanmar (typed queries + the placeholder) → Padauk. */
+  font-family: var(--font-body), var(--font-my);
+  font-size: var(--fs-body);
+}
+.grocery-search input::placeholder {
+  color: var(--t3);
+}
+
+/* Search results — cards on the same token surface as the browse tiles (no bespoke inline look). */
+.grocery-results {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 0;
+  display: grid;
+  gap: 6px;
+}
+.grocery-hint {
+  list-style: none;
+  color: var(--t3);
+  font-size: var(--fs-sm);
+  padding: 8px 4px;
+}
+.grocery-result {
+  width: 100%;
+  min-height: 56px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--r-card);
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  box-shadow: inset 0 1px 0 var(--sheen);
+  color: var(--tx);
+  font-family: var(--font-body), var(--font-my);
+  font-weight: 600;
+  font-size: var(--fs-body);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+.grocery-result:hover {
+  border-color: color-mix(in oklab, var(--ac) 45%, var(--bd));
+}
+.grocery-result:active {
+  transform: scale(0.99);
+}
+@media (prefers-reduced-motion: reduce) {
+  .grocery-result {
+    transition: none;
+  }
+  .grocery-result:active {
+    transform: none;
+  }
+}
+
+/* Scanned basket row (Scan door) — a token class, no longer an inline object. */
+.grocery-scanned-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 13px;
+}
+
+/* Recovery buttons (session/basket retry) — one shared pill. */
+.grocery-retry {
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  color: var(--tx);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* The pinned checkout CTA — a lit clay pill, one number, arm's-length legible. Matches the fan-nav
+   z so the header/CTA layering the W4f pass established is preserved. */
+.grocery-cta {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: var(--z-toolbar);
+  max-width: 416px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 0 20px;
+  border: none;
+  border-radius: var(--r-full);
+  background: var(--ac);
+  color: var(--oa);
+  font: inherit;
+  font-weight: 800;
+  font-size: var(--fs-body);
+  box-shadow:
+    var(--sh-md),
+    inset 0 1px 0 var(--sheen);
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.grocery-cta:active {
+  transform: translateY(1px);
+}
+.grocery-cta-total {
+  font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+  .grocery-cta {
+    transition: none;
+  }
+  .grocery-cta:active {
+    transform: none;
+  }
+}
+
+/* Add/remove toast — token pill (was an inline object). */
+.grocery-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 90px;
+  transform: translateX(-50%);
+  z-index: var(--z-toast);
+  padding: 10px 18px;
+  border-radius: var(--r-full);
+  background: var(--tx);
+  color: var(--pg);
+  font-weight: 700;
+  font-size: var(--fs-sm);
+  box-shadow: var(--sh-md);
+}
+
 /* Aisle FILTER rail — bilingual tiles, horizontally scrollable; the pressed tile is self-contained
    (fill + ink on one element). On MOBILE it pins under the sticky AppHeader on scroll (the category
    nav there — the vertical fan-nav is desktop-only); on desktop it's a normal in-flow row (the

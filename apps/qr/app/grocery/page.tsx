@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useJourneyRouter } from "@/components/nav/TransitionNav"; // J1 journey grammar
 import posthog from "posthog-js";
@@ -337,13 +337,20 @@ export default function Grocery() {
 
   return (
     <main style={{ maxWidth: 440, margin: "0 auto", padding: 20, paddingBottom: 120 }}>
-      <p className="eyebrow">Grocery</p>
-      <h1 style={{ fontSize: "var(--fs-h1)" }}>Shop the market</h1>
-      {/* Undated EBT copy (W4a rule): FNS authorization is federally gated — never promise a date. */}
-      <p style={{ color: "var(--t2)", marginTop: 0 }}>
-        Browse the aisles or scan shelf barcodes. EBT-eligible items are tagged — SNAP checkout is
-        coming; pay by card today.
-      </p>
+      {/* W4g — editorial masthead: display-serif title + one quiet subline. The EBT disclaimer
+          moved off the top (it lived here as a text-wall) — the honest "SNAP coming; pay by card
+          today" copy still rides the per-item EBT chips and the Scan-door EBT-eligible line. */}
+      <header className="grocery-head">
+        {/* SR reads just "Grocery"; the bilingual flourish is decorative. */}
+        <p className="eyebrow">
+          Grocery{" "}
+          <span aria-hidden>
+            · <span lang="my">စျေး</span>
+          </span>
+        </p>
+        <h1 className="grocery-title">Shop the market</h1>
+        <p className="grocery-sub">Browse the aisles or scan shelf barcodes as you shop.</p>
+      </header>
 
       {/* W4b — the session gates the BASKET, not the MARKET: the catalog is a public read, so the
           aisles render immediately while the scango session mints (or even if it fails) — only
@@ -353,7 +360,7 @@ export default function Grocery() {
           <p style={{ margin: "0 0 12px", color: "var(--warn)", fontWeight: 600 }}>
             Couldn’t start your grocery basket — you can browse, but adding needs a connection.
           </p>
-          <button type="button" onClick={() => window.location.reload()} style={retryBtn}>
+          <button type="button" onClick={() => window.location.reload()} className="grocery-retry">
             Retry
           </button>
         </div>
@@ -365,7 +372,8 @@ export default function Grocery() {
       {/* Browse | Scan — a manual-activation tablist (arrow keys move focus between the two
           tabs; Enter/Space activates). The active state lives ON the tab button (bg + text on
           one element — never a separately-positioned indicator). */}
-      <div className="grocery-tabs" role="tablist" aria-label="Shop by">
+      <div className="grocery-toolbar">
+        <div className="grocery-tabs" role="tablist" aria-label="Shop by">
         <button
           ref={browseTabRef}
           type="button"
@@ -402,39 +410,47 @@ export default function Grocery() {
         </button>
       </div>
 
-      <div className="card" role="search" style={searchWrap}>
-        <Icon name="search" size={18} />
-        <input
-          ref={searchRef}
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          aria-label="Search grocery items by name"
-          placeholder="Search in English or မြန်မာ…"
-          maxLength={40}
-          style={searchInput}
-        />
+        <div className="grocery-search" role="search">
+          <Icon name="search" size={18} />
+          <input
+            ref={searchRef}
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Search grocery items by name"
+            placeholder="Search in English or မြန်မာ…"
+            maxLength={40}
+          />
+        </div>
       </div>
 
+      {/* Honest EBT/SNAP disclosure — demoted from the old top-of-page text-wall to one quiet line
+          under the toolbar (undated per the W4a rule; the per-item EBT chips + the Scan-door
+          EBT-eligible subtotal carry the detail). */}
+      <p className="grocery-ebt-note">
+        <span className="grocery-ebt-note-tag" aria-hidden>
+          EBT
+        </span>
+        EBT-eligible items are tagged — SNAP checkout coming; pay by card today.
+      </p>
+
       {hits !== null && (
-        <ul role="list" aria-label="Search results" style={resultList}>
+        <ul role="list" aria-label="Search results" className="grocery-results">
           {searching && hits.length === 0 ? (
-            <li style={hintRow}>Searching…</li>
+            <li className="grocery-hint">Searching…</li>
           ) : searchFailed ? (
-            <li style={hintRow}>Search unavailable — please try again.</li>
+            <li className="grocery-hint">Search unavailable — please try again.</li>
           ) : hits.length === 0 ? (
-            <li style={hintRow}>No matches — try fewer letters.</li>
+            <li className="grocery-hint">No matches — try fewer letters.</li>
           ) : (
             hits.map((h) => (
               <li key={h.barcode}>
                 <button
                   type="button"
+                  className="grocery-result"
                   aria-disabled={addingBarcode !== null || busyLine !== null}
                   onClick={() => void addHit(h)}
-                  style={{
-                    ...resultBtn,
-                    ...(addingBarcode === h.barcode ? { opacity: 0.55 } : null),
-                  }}
+                  style={addingBarcode === h.barcode ? { opacity: 0.55 } : undefined}
                 >
                   <span style={{ minWidth: 0 }}>
                     {h.name}{" "}
@@ -550,7 +566,7 @@ export default function Grocery() {
                   setSyncFailed(false);
                   syncNow();
                 }}
-                style={retryBtn}
+                className="grocery-retry"
               >
                 Retry
               </button>
@@ -605,7 +621,7 @@ export default function Grocery() {
         {lines.map((l) => (
           // Product-grade row (K5): photo · name · EBT · unit math · stepper · line total. Keyed by
           // CART-LINE id; `.mms-rise` (dynamic-mount variant) + `.card-textured` are RM/token-safe.
-          <li key={l.lineId} className="card card-textured mms-rise" style={scannedLineStyle}>
+          <li key={l.lineId} className="card card-textured mms-rise grocery-scanned-row">
             {l.imageUrl && (
               <span className="grocery-thumb" aria-hidden>
                 <BlurUpImage
@@ -666,7 +682,11 @@ export default function Grocery() {
       {/* ALWAYS-mounted live region (adversarial MED-6): several SR/browser pairs skip a region
           born WITH its text — the container persists, only the text swaps; visibility hides the
           empty pill without removing it from the accessibility tree's region registry. */}
-      <div role="status" style={{ ...toastStyle, ...(toast ? null : { visibility: "hidden" }) }}>
+      <div
+        role="status"
+        className="grocery-toast"
+        style={toast ? undefined : { visibility: "hidden" }}
+      >
         {toast}
       </div>
 
@@ -676,8 +696,7 @@ export default function Grocery() {
         // (not announced per scan).
         <button
           type="button"
-          className="card"
-          style={checkoutCta}
+          className="grocery-cta"
           aria-label={`Check out — ${itemCount} ${itemCount === 1 ? "item" : "items"}, total $${(
             totalCents / 100
           ).toFixed(2)}`}
@@ -694,7 +713,7 @@ export default function Grocery() {
           <span>
             Check out · {itemCount} {itemCount === 1 ? "item" : "items"}
           </span>
-          <span style={{ fontVariantNumeric: "tabular-nums" }}>
+          <span className="grocery-cta-total">
             <NumberFlow value={totalCents / 100} format={{ style: "currency", currency: "USD" }} />
           </span>
         </button>
@@ -702,106 +721,3 @@ export default function Grocery() {
     </main>
   );
 }
-
-const searchWrap: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  padding: "11px 13px",
-  marginTop: 12,
-};
-const searchInput: CSSProperties = {
-  border: "none",
-  background: "none",
-  outline: "none",
-  flex: 1,
-  minHeight: 22,
-  color: "var(--tx)",
-  // Per-glyph fallback: Latin renders in the body face, Myanmar script (typed queries AND the
-  // placeholder's "မြန်မာ") falls through to Padauk instead of the body font's missing glyphs.
-  fontFamily: "var(--font-body), var(--font-my)",
-  fontSize: "var(--fs-body)",
-};
-const resultList: CSSProperties = {
-  listStyle: "none",
-  padding: 0,
-  margin: "8px 0 0",
-  display: "grid",
-  gap: 6,
-};
-const hintRow: CSSProperties = {
-  listStyle: "none",
-  color: "var(--t3)",
-  fontSize: "var(--fs-sm)",
-  padding: "4px 2px",
-};
-const resultBtn: CSSProperties = {
-  // Same per-glyph fallback as the input — hit rows carry the Myanmar name.
-  fontFamily: "var(--font-body), var(--font-my)",
-  width: "100%",
-  minHeight: 48,
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: 12,
-  padding: "10px 13px",
-  background: "var(--cd)",
-  border: "1px solid var(--bd)",
-  borderRadius: 12,
-  color: "var(--tx)",
-  fontWeight: 600,
-  fontSize: "var(--fs-body)",
-  textAlign: "left",
-  cursor: "pointer",
-};
-const scannedLineStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: 12,
-  padding: "10px 13px",
-};
-const retryBtn: CSSProperties = {
-  minHeight: 44,
-  padding: "0 18px",
-  borderRadius: 999,
-  border: "1.5px solid var(--bd)",
-  background: "var(--cd)",
-  color: "var(--tx)",
-  fontWeight: 700,
-  cursor: "pointer",
-};
-const toastStyle: CSSProperties = {
-  position: "fixed",
-  left: "50%",
-  bottom: 90,
-  transform: "translateX(-50%)",
-  background: "var(--tx)",
-  color: "var(--pg)",
-  padding: "10px 16px",
-  borderRadius: 999,
-  fontWeight: 700,
-  zIndex: "var(--z-toast)" as CSSProperties["zIndex"],
-};
-const checkoutCta: CSSProperties = {
-  position: "fixed",
-  left: 12,
-  right: 12,
-  // clear the iOS home-bar inset (position, not padding) so the CTA isn't hidden behind it
-  bottom: "calc(16px + env(safe-area-inset-bottom, 0px))",
-  // Match the aisle fan-nav's z-index; the CTA is later in the DOM, so it wins any corner overlap on
-  // a short viewport (the money control must never sit under a nav tick).
-  zIndex: "var(--z-toolbar)" as CSSProperties["zIndex"],
-  maxWidth: 416,
-  margin: "0 auto",
-  background: "var(--ac)",
-  color: "var(--oa)",
-  padding: "14px 18px",
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  border: "none",
-  font: "inherit",
-  fontWeight: 800,
-  cursor: "pointer",
-};
