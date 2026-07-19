@@ -12,6 +12,8 @@ import {
   sizeLabel,
   unitPriceLabel,
 } from "@/lib/grocery-aisles";
+import { AisleFanNav } from "@/components/grocery/AisleFanNav";
+import { useHideOnScrollDown } from "@/lib/hooks/useHideOnScrollDown";
 
 /**
  * W4b — the Browse half of the grocery market: aisle tiles over the full catalog, Weee!-anatomy
@@ -50,6 +52,10 @@ export const GroceryBrowse = memo(function GroceryBrowse({
   // its place — park keyboard/SR focus on the new "+" instead of dropping it to <body>. The ref
   // holds the barcode whose stepper should claim focus on mount.
   const pendingFocus = useRef<string | null>(null);
+  // W4f — the sticky mobile filter rail tucks away while scrolling DOWN (full-screen grid) and
+  // reappears on scroll-up, so it never permanently eats ~20% of a phone screen. Desktop ignores it
+  // (the rail is static there). Reduced-motion keeps it visible.
+  const railHidden = useHideOnScrollDown();
 
   // One catalog read per visit (a public, slow-moving ~400-row list). Failure renders an honest
   // Retry — never an empty market. `cancelled` guards the post-unmount setState.
@@ -153,38 +159,58 @@ export const GroceryBrowse = memo(function GroceryBrowse({
 
   return (
     <>
-      <nav className="aisle-rail" aria-label="Grocery aisles">
-        <button
-          type="button"
-          className="aisle-tile"
-          aria-pressed={aisle === null}
-          onClick={() => setAisle(null)}
-        >
-          <Icon name="cat-grocery" size={22} strokeWidth={1.5} />
-          <span className="aisle-tile-en">All aisles</span>
-          <span className="aisle-tile-my" lang="my">
-            အားလုံး
-          </span>
-        </button>
-        {stockedAisles.map((a) => (
+      {/* Filter rail — pins under the header on scroll on MOBILE (the category nav there, since the
+          vertical fan-nav is desktop-only). The opaque sticky bg lives on the <nav>; the trailing
+          edge-fade mask lives on the inner scroller so it never eats the sticky background. */}
+      <nav className="aisle-rail" aria-label="Grocery aisles" data-hidden={railHidden || undefined}>
+        <div className="aisle-rail-scroll">
           <button
-            key={a.slug}
             type="button"
             className="aisle-tile"
-            aria-pressed={aisle === a.slug}
-            onClick={() => setAisle((cur) => (cur === a.slug ? null : a.slug))}
+            aria-pressed={aisle === null}
+            onClick={() => setAisle(null)}
           >
-            <Icon name={a.icon} size={22} strokeWidth={1.5} />
-            <span className="aisle-tile-en">{a.en}</span>
-            <span className="aisle-tile-my" lang="my">
-              {a.my}
+            <Icon name="cat-grocery" size={18} strokeWidth={1.5} />
+            <span className="aisle-tile-label">
+              <span className="aisle-tile-en">All aisles</span>
+              <span className="aisle-tile-my" lang="my">
+                အားလုံး
+              </span>
             </span>
           </button>
-        ))}
+          {stockedAisles.map((a) => (
+            <button
+              key={a.slug}
+              type="button"
+              className="aisle-tile"
+              aria-pressed={aisle === a.slug}
+              onClick={() => setAisle((cur) => (cur === a.slug ? null : a.slug))}
+            >
+              <Icon name={a.icon} size={18} strokeWidth={1.5} />
+              <span className="aisle-tile-label">
+                <span className="aisle-tile-en">{a.en}</span>
+                <span className="aisle-tile-my" lang="my">
+                  {a.my}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
       </nav>
 
       {sections.map(({ aisle: a, items }) => (
-        <section key={a!.slug} aria-labelledby={`aisle-h-${a!.slug}`}>
+        <section
+          key={a!.slug}
+          // W4f — the scroll-spy anchor + jump target for AisleFanNav; `.aisle-section` carries the
+          // scroll-margin-top that lands a jump below the sticky AppHeader (not under it).
+          id={`aisle-sec-${a!.slug}`}
+          data-aisle={a!.slug}
+          // `.aisle-section` carries the scroll-margin-top so a fan-nav jump (desktop) lands the
+          // heading below the sticky header. No gutter reserve needed: the fan is desktop-only now
+          // and floats in the wide gutter beside the centred column, never over a card.
+          className="aisle-section"
+          aria-labelledby={`aisle-h-${a!.slug}`}
+        >
           <h2 id={`aisle-h-${a!.slug}`} className="aisle-heading">
             {a!.en}{" "}
             <span className="aisle-heading-my" lang="my">
@@ -330,6 +356,11 @@ export const GroceryBrowse = memo(function GroceryBrowse({
           </ul>
         </section>
       ))}
+
+      {/* W4f — right-edge fan-out section nav over the rendered aisles. Self-hides when the filter
+          narrows to a single aisle (nothing to jump between). Its own state re-renders only itself,
+          never the memo'd card grid. */}
+      <AisleFanNav aisles={sections.map((s) => s.aisle!)} />
     </>
   );
 });

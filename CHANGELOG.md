@@ -4,6 +4,46 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W4f — right-edge aisle fan-out section nav (2026-07-18)
+
+A "you are here" aisle minimap for the grocery Browse view — the vertical companion to the
+horizontal filter rail (which is kept). A fixed right-edge strip of aisle ticks scroll-spies the
+section currently under the header and fans out to bilingual EN/MY labels to jump between aisles.
+
+- **Scroll-spy + jump** (`useAisleSpy`) mirrors the in-app `MenuBrowser` pattern — an
+  `IntersectionObserver` over the `data-aisle` sections (topmost-intersecting under the header wins),
+  `--lend-offset`-aware inset, `LEND_CHANGE_EVENT`/resize rebuild, and a 600ms jump-freeze so the lit
+  marker doesn't flicker through sections during a smooth-scroll.
+- **Input-aware fan** (`AisleFanNav`): desktop `:hover`, keyboard `:focus-within`, and a touch
+  tap-to-open (first tap fans the labels, second jumps) — outside-tap / idle collapse. Pure
+  navigation; never touches the cart/money path.
+- **Self-hiding**: renders only when ≥2 sections are stacked, so it disappears the moment the filter
+  isolates a single aisle. Floats in the gutter (`pointer-events` only on the 44px ticks) so it costs
+  zero grid width. Token-pure active cap + `prefers-reduced-motion` off-switch; `.aisle-section`
+  `scroll-margin-top` lands a jump below the sticky header.
+- **Editorial design pass** — the resting state is now one cohesive vellum **rail** (a `::before` on
+  a content-sized inner wrapper, so it hugs the dots) with soft dots that **spring into an elongated
+  lit clay pill** for the in-view aisle, instead of scattered hairline ticks. The fan-out labels are
+  refined `surface-elevated` pills with a gold hairline + `--sh-md`, springing in (`--spring`) with a
+  stagger; the active label carries a clay fill + `--glow-ac`. No-blur (mobile GPU budget) — depth
+  from tokens only. Interaction unchanged (CSS + an inert inner wrapper).
+- **Responsive split** — the vertical fan-nav is now **desktop-only** (`≥ md`, where the centred
+  column leaves real gutter for it). On **mobile** the horizontal aisle FILTER rail is **sticky**
+  instead (full-bleed bar that pins under the header on scroll; tiles in an inner scroller so the
+  opaque bg isn't eaten by the edge-fade mask). The old gutter-reserve is dropped — cards are
+  full-width on mobile.
+- **Slim, self-tucking mobile rail** — the sticky rail no longer eats ~20% of the screen: the chunky
+  90px icon+EN+MY tiles are now single-line **chips** (icon + English, ≥44px) ~half the height, and
+  the bar **auto-hides while scrolling down** (full-screen grid) and **slides back on scroll-up**
+  (`useHideOnScrollDown`, rAF-throttled passive listener; stays visible under `prefers-reduced-motion`;
+  desktop unaffected). So category nav costs zero space while browsing and returns the instant it's
+  reached for. Chips carry the **bilingual EN-over-MY** label (icon + stacked EN/MY).
+- **Pre-merge deep adversarial pass** (2 confirmed LOW findings, both folded in): a keyboard/SR jump
+  now announces the arrived aisle via a nav-owned polite `sr-only` live region (focus stays on the
+  tick — the silent scroll was imperceptible to non-sighted users); and the touch open-press window is
+  now also disarmed on `pointerup` when the finger lifts off the pressed tick (a release onto the gap
+  fires neither `click` nor `pointercancel`, so a genuine re-tap could otherwise be swallowed).
+
 ### W4e hardening — post-merge adversarial follow-up (2026-07-18)
 
 The three adversarial-pass findings that didn't land with the W4e design pass, shipped alone (#141):

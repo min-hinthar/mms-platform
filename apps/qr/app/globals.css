@@ -3843,47 +3843,87 @@ html[data-seen-surface] .mms-stagger {
   }
 }
 
-/* Aisle rail — bilingual tiles, horizontally scrollable; the pressed tile is self-contained
-   (fill + ink on one element). */
+/* Aisle FILTER rail — bilingual tiles, horizontally scrollable; the pressed tile is self-contained
+   (fill + ink on one element). On MOBILE it pins under the sticky AppHeader on scroll (the category
+   nav there — the vertical fan-nav is desktop-only); on desktop it's a normal in-flow row (the
+   fan-nav handles jump-navigation). The opaque sticky background lives on the <nav> so the trailing
+   edge-fade (masked on the inner scroller) never eats it, and cards scroll cleanly underneath. */
 .aisle-rail {
+  position: sticky;
+  top: calc(var(--header-height) + env(safe-area-inset-top, 0px) + var(--lend-offset, 0px));
+  z-index: calc(var(--z-toolbar) - 1);
+  /* Full-bleed the sticky bar past the page's 20px inset so its background reaches the viewport
+     edges; the inner scroller re-insets the tiles. */
+  margin: 14px -20px 6px;
+  padding: 8px 20px 0;
+  background: var(--pg);
+  border-bottom: 1px solid var(--bd);
+  /* --ink is a CONSTANT dark token (not cream-in-Night like --tx), so the drop shadow stays a real
+     shadow in both themes instead of inverting to a light halo on dark. */
+  box-shadow: 0 6px 16px -14px color-mix(in oklab, var(--ink) 45%, transparent);
+  /* Auto-hide: tucks up out of view while scrolling down (data-hidden), slides back on scroll-up. */
+  transition: transform var(--dur-base) var(--ease-out);
+}
+/* `:not(:focus-within)` — a keyboard user who Shift+Tabs back into the rail while it's tucked away
+   reveals it (never focus on an off-screen chip). */
+.aisle-rail[data-hidden]:not(:focus-within) {
+  transform: translateY(calc(-100% - var(--header-height) - env(safe-area-inset-top, 0px)));
+}
+.aisle-rail-scroll {
   display: flex;
   gap: 8px;
-  margin-top: 14px;
   padding-bottom: 6px;
-  /* Fade the trailing edge so the ~4-of-11 visible tiles cue "more →"; extra end padding lets the
-     next tile peek. */
+  /* extra end padding lets the next tile peek ("more →") */
   padding-right: 18px;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
 }
-/* The trailing edge-fade is DROPPED while a tile inside is keyboard-focused — the parent mask also
-   clips the focused tile's `:focus-visible` ring (the browser scroll-aligns it to the right edge,
-   under the fade), erasing the focus indicator (WCAG 2.4.7). Decorative cue < visible focus. */
-.aisle-rail:not(:focus-within) {
+/* The trailing edge-fade is DROPPED while a tile inside is keyboard-focused — the mask would clip the
+   focused tile's `:focus-visible` ring at the right edge (WCAG 2.4.7). Decorative cue < visible focus. */
+.aisle-rail-scroll:not(:focus-within) {
   -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
   mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
 }
-.aisle-rail::-webkit-scrollbar {
+.aisle-rail-scroll::-webkit-scrollbar {
   display: none;
 }
+/* Desktop: a normal in-flow row — no sticky, no full-bleed, no bar chrome (the fan-nav owns
+   jump-navigation there). */
+@media (min-width: 768px) {
+  .aisle-rail {
+    position: static;
+    margin: 14px 0 0;
+    padding: 0;
+    background: none;
+    border-bottom: none;
+    box-shadow: none;
+    transition: none;
+  }
+  /* The rail never auto-hides on desktop (it's a static in-flow row there; the fan-nav is the
+     persistent nav). Reset the attribute-selector transform so a scrolled-down state can't tuck it. */
+  .aisle-rail[data-hidden] {
+    transform: none;
+  }
+}
+/* Slim single-line filter CHIP (was a 90px icon+EN+MY tile — too tall for a nav bar). Icon + English
+   only; the bilingual name lives on the cards + aisle headings. Keeps the ≥44px tap target. */
 .aisle-tile {
   flex: none;
-  display: flex;
-  flex-direction: column;
+  display: inline-flex;
+  flex-direction: row;
   align-items: center;
-  gap: 3px;
-  min-width: 86px;
-  max-width: 112px;
-  min-height: 68px;
-  padding: 9px 10px;
-  border-radius: var(--r-card);
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: var(--r-full);
   border: 1px solid var(--bd);
   background: var(--cd);
   color: var(--t2);
   font: inherit;
   cursor: pointer;
   box-shadow: inset 0 1px 0 var(--sheen);
+  white-space: nowrap;
 }
 .aisle-tile[aria-pressed="true"] {
   /* A solid lit cap (not a 10% tint that vanishes on Night) — the selected aisle reads at a glance. */
@@ -3894,21 +3934,248 @@ html[data-seen-surface] .mms-stagger {
     inset 0 1px 0 var(--sheen),
     var(--sh);
 }
+/* Bilingual label sits BESIDE the icon as a tight EN-over-MY stack — narrower than an inline
+   EN+MY run (chip width tracks the longer line, not their sum) and still ~44px tall. */
+.aisle-tile-label {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  text-align: left;
+}
 .aisle-tile-en {
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.aisle-tile-my {
+  font-family: var(--font-my);
+  font-size: 10.5px;
+  line-height: 1.15;
+  color: var(--t3);
+}
+.aisle-tile[aria-pressed="true"] .aisle-tile-my {
+  color: color-mix(in oklab, var(--oa) 78%, transparent);
+}
+
+/* W4f — right-edge aisle fan-out section nav (jump + scroll-spy over the browse sections). Fixed in
+   the gutter so it costs zero grid width; only the 44px ticks take pointer events, so the dead space
+   between them never eats a card/Add tap. Active state = a self-contained lit cap on ONE element
+   (per the no-measured-indicator rule). */
+.aisle-fan {
+  position: fixed;
+  right: 0;
+  /* Bounded between the sticky header and above the fixed checkout CTA band; `justify-content:center`
+     centres the ticks there. On a short/landscape viewport the 10-tick column is taller than the band
+     and overflows past both ends — so it sits ONE z below the chrome it could reach: the opaque
+     `.app-header` and the checkout CTA (both var(--z-toolbar)) paint over any bleeding tick AND
+     swallow its taps, so an overflowing tick can never steal the header's cart button or the CTA. */
+  top: calc(var(--header-height) + env(safe-area-inset-top, 0px) + 8px);
+  bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+  z-index: calc(var(--z-toolbar) - 1);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-end;
+  padding: 8px 6px;
+  pointer-events: none;
+}
+/* Desktop-only: on mobile the sticky horizontal filter rail is the category nav; the fan would
+   float over the narrow card column with no gutter to live in. Shows from the md breakpoint where
+   the centred 440 column leaves real gutter for it. */
+@media (max-width: 767.98px) {
+  .aisle-fan {
+    display: none;
+  }
+}
+/* Content-sized column so the rail hugs the dots (the nav box itself is bounded tall for the
+   overflow-vs-chrome safety the W4f pass established). */
+.aisle-fan-inner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 6px 0;
+}
+/* One cohesive rail behind the dots so the nav reads as a single designed object — not scattered
+   ticks (the "junky" root). Subtle at rest, a touch more defined while expanded. No blur (mobile GPU
+   budget): a translucent warm fill + a gold hairline. */
+.aisle-fan-inner::before {
+  content: "";
+  position: absolute;
+  inset: 0 3px 0 auto;
+  width: 24px;
+  border-radius: var(--r-full);
+  background: color-mix(in oklab, var(--cd) 76%, transparent);
+  border: 1px solid color-mix(in oklab, var(--gold) 20%, var(--bd));
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh);
+  pointer-events: none;
+  transition:
+    background var(--dur-base) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .aisle-fan:hover .aisle-fan-inner::before {
+    background: color-mix(in oklab, var(--cd) 92%, transparent);
+    box-shadow:
+      inset 0 1px 0 var(--sheen),
+      var(--sh-md);
+  }
+}
+.aisle-fan[data-open="true"] .aisle-fan-inner::before,
+.aisle-fan:focus-within .aisle-fan-inner::before {
+  background: color-mix(in oklab, var(--cd) 92%, transparent);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-md);
+}
+.aisle-fan-tick {
+  position: relative;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  /* ≥44px BOTH ways per the QA-CHECKLIST §A bar; the grid reserves a matching right gutter
+     (.aisle-section-fanpad) so the wider target never overlaps a card. */
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 6px;
+  border: none;
+  background: none;
+  color: var(--t2);
+  font: inherit;
+  cursor: pointer;
+}
+/* Resting marker = a soft dot; the in-view aisle springs into an elongated lit clay pill with a soft
+   halo (the classic active-indicator morph), so the current position reads at a glance. */
+.aisle-fan-mark {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-full);
+  background: color-mix(in oklab, var(--tx) 42%, transparent);
+  transition:
+    width var(--dur-base) var(--spring),
+    height var(--dur-base) var(--spring),
+    background var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+.aisle-fan-tick[aria-current="true"] .aisle-fan-mark {
+  width: 5px;
+  height: 20px;
+  background: var(--ac);
+  box-shadow:
+    0 0 0 3px color-mix(in oklab, var(--ac) 14%, transparent),
+    var(--sh-lift);
+}
+.aisle-fan-tick:active .aisle-fan-mark {
+  transform: scale(0.9);
+}
+/* Fan-out label — absolutely positioned so revealing it never widens the 44px slot (no reflow). It
+   opens on hover (fine pointer), keyboard focus-within, or the touch `data-open` state. */
+.aisle-fan-label {
+  position: absolute;
+  right: 100%;
+  margin-right: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 13px;
+  max-width: min(72vw, 260px);
+  border-radius: var(--r-full);
+  border: 1px solid color-mix(in oklab, var(--gold) 26%, var(--bd));
+  background: var(--surface-elevated);
+  color: var(--tx);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-md);
+  opacity: 0;
+  transform: translateX(14px) scale(0.96);
+  transform-origin: right center;
+  pointer-events: none;
+  transition:
+    opacity var(--dur-base) var(--ease-out),
+    transform var(--dur-base) var(--spring);
+  transition-delay: calc(var(--i, 0) * 22ms);
+}
+@media (hover: hover) and (pointer: fine) {
+  .aisle-fan:hover .aisle-fan-label {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
+}
+.aisle-fan:focus-within .aisle-fan-label,
+.aisle-fan[data-open="true"] .aisle-fan-label {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+/* Self-contained active fill + ink on the SAME element (never a separate measured indicator). */
+.aisle-fan-tick[aria-current="true"] .aisle-fan-label {
+  background: var(--ac);
+  border-color: var(--ac);
+  color: var(--oa);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-md),
+    var(--glow-ac);
+}
+.aisle-fan-label-icon {
+  display: inline-flex;
+  flex: none;
+  line-height: 0;
+}
+.aisle-fan-label-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.15;
+}
+.aisle-fan-label-en {
   font-size: 12px;
   font-weight: 700;
   line-height: 1.15;
-  text-align: center;
 }
-.aisle-tile-my {
+.aisle-fan-label-my {
   font-family: var(--font-my);
   font-size: 11px;
   line-height: 1.3;
   color: var(--t3);
-  text-align: center;
 }
-.aisle-tile[aria-pressed="true"] .aisle-tile-my {
+.aisle-fan-tick[aria-current="true"] .aisle-fan-label-my {
   color: color-mix(in oklab, var(--oa) 75%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .aisle-fan-mark,
+  .aisle-fan-label {
+    transition: none;
+  }
+  .aisle-fan-label {
+    transform: none;
+  }
+  .aisle-fan-tick:active .aisle-fan-mark {
+    transform: none;
+  }
+}
+/* A jump lands the heading below the sticky AppHeader (+ lend ribbon + safe area), not under it. */
+.aisle-section {
+  scroll-margin-top: calc(
+    var(--header-height) + env(safe-area-inset-top, 0px) + var(--lend-offset, 0px) + 8px
+  );
+}
+/* WCAG 2.4.11 — on mobile the FILTER rail is sticky, so header + rail form ~140px of pinned chrome.
+   Focus-scroll keys off the focused element's OWN scroll-margin, so the in-card Add / stepper buttons
+   need one too, or Shift+Tabbing up the grid parks a focused control behind the pinned bar. Only on
+   mobile (the rail is static ≥ md, where these reset to 0). ~90px ≈ the rail's height. */
+@media (max-width: 767.98px) {
+  .gcard-add,
+  .gcard-stepper .grocery-step-btn {
+    scroll-margin-top: calc(
+      var(--header-height) + env(safe-area-inset-top, 0px) + var(--lend-offset, 0px) + 90px
+    );
+  }
 }
 
 .aisle-heading {
