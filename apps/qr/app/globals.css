@@ -3934,10 +3934,27 @@ html[data-seen-surface] .mms-stagger {
     inset 0 1px 0 var(--sheen),
     var(--sh);
 }
+/* Bilingual label sits BESIDE the icon as a tight EN-over-MY stack — narrower than an inline
+   EN+MY run (chip width tracks the longer line, not their sum) and still ~44px tall. */
+.aisle-tile-label {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  text-align: left;
+}
 .aisle-tile-en {
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 700;
-  line-height: 1;
+  line-height: 1.1;
+}
+.aisle-tile-my {
+  font-family: var(--font-my);
+  font-size: 10.5px;
+  line-height: 1.15;
+  color: var(--t3);
+}
+.aisle-tile[aria-pressed="true"] .aisle-tile-my {
+  color: color-mix(in oklab, var(--oa) 78%, transparent);
 }
 
 /* W4f — right-edge aisle fan-out section nav (jump + scroll-spy over the browse sections). Fixed in

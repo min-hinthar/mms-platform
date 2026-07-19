@@ -171,7 +171,12 @@ export const GroceryBrowse = memo(function GroceryBrowse({
             onClick={() => setAisle(null)}
           >
             <Icon name="cat-grocery" size={18} strokeWidth={1.5} />
-            <span className="aisle-tile-en">All aisles</span>
+            <span className="aisle-tile-label">
+              <span className="aisle-tile-en">All aisles</span>
+              <span className="aisle-tile-my" lang="my">
+                အားလုံး
+              </span>
+            </span>
           </button>
           {stockedAisles.map((a) => (
             <button
@@ -182,7 +187,12 @@ export const GroceryBrowse = memo(function GroceryBrowse({
               onClick={() => setAisle((cur) => (cur === a.slug ? null : a.slug))}
             >
               <Icon name={a.icon} size={18} strokeWidth={1.5} />
-              <span className="aisle-tile-en">{a.en}</span>
+              <span className="aisle-tile-label">
+                <span className="aisle-tile-en">{a.en}</span>
+                <span className="aisle-tile-my" lang="my">
+                  {a.my}
+                </span>
+              </span>
             </button>
           ))}
         </div>
