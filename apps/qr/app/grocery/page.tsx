@@ -431,7 +431,7 @@ export default function Grocery() {
         <span className="grocery-ebt-note-tag" aria-hidden>
           EBT
         </span>
-        Eligible items are tagged — SNAP checkout coming; pay by card today.
+        EBT-eligible items are tagged — SNAP checkout coming; pay by card today.
       </p>
 
       {hits !== null && (
