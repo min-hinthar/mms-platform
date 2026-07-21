@@ -6,6 +6,7 @@ import { BlurUpImage } from "./BlurUpImage";
 import { PhotoPlaceholder } from "./PhotoPlaceholder";
 import { Rail } from "../Rail";
 import { itemBadges } from "@/lib/menu/badges";
+import { optionGlyph } from "@/lib/menu/optionGlyph";
 import { goesWellWith } from "@/lib/menu/upsell";
 import { passesDiets, type Diet } from "@/lib/menu/dietary";
 import {
@@ -293,6 +294,11 @@ function ItemSheetBody({
                       single && g.minSelect === 0 && isOn ? () => choose(g, o.id) : undefined
                     }
                   />
+                  {optionGlyph(o.slug) && (
+                    <span className="item-opt-glyph" aria-hidden>
+                      {optionGlyph(o.slug)}
+                    </span>
+                  )}
                   <span className="item-opt-name">
                     {o.name}
                     {o.nameMy && (

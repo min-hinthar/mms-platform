@@ -7,6 +7,8 @@
 
 export type ModOption = {
   id: string;
+  /** W5c·r2: stable data key for the code-side glyph map (never rendered). */
+  slug: string;
   name: string;
   /** W5c: bilingual option label (nullable — absent Burmese simply doesn't render). */
   nameMy: string | null;
@@ -15,6 +17,8 @@ export type ModOption = {
 
 export type ModGroup = {
   id: string;
+  /** W5c·r2: stable data key (never rendered). */
+  slug: string;
   name: string;
   /** W5c: bilingual group label (nullable — absent Burmese simply doesn't render). */
   nameMy: string | null;

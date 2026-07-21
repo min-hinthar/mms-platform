@@ -628,7 +628,7 @@ update modifier_groups set name_my = v.m from (values
   ('beef_curry_style','အမဲဟင်း ချက်နည်း'),
   ('chicken_curry_style','ကြက်ဟင်း ချက်နည်း'),
   ('goat_curry_cut','ဆိတ်သား ရွေးချယ်မှု'),
-  ('kyay_o_addons','ထပ်ထည့်စရာ'),
+  ('kyay_o_addons','ကြေးအိုး ထပ်ထည့်စရာ'),
   ('kyay_o_protein','အသား ရွေးချယ်မှု'),
   ('kyay_o_style','ပုံစံ'),
   ('tom_yum_base','အခြေခံရွေး')
@@ -651,6 +651,10 @@ update modifier_options set name_my = v.m from (values
   ('tom_yum_base__fried_noodles','ခေါက်ဆွဲကြော်')
 ) as v(slug, m) where modifier_options.slug = v.slug;
 
+-- Kyay-O's own add-on group keeps its Brains option but takes a distinct name, so it never reads as
+-- a duplicate of the universal "Choose your add-ons" group on the same sheet.
+update modifier_groups set name = 'Kyay-O add-ons' where slug = 'kyay_o_addons';
+
 -- ── NEW modifier groups (v7.2 MODS + description-promised choices) ──────────────────────────────────
 -- All OPTIONAL except drink temperature (Coffee's own description promises "Hot or cold" — the kitchen
 -- must know, so it's required; that puts the two drinks on the "Choose" pill, everything else keeps
@@ -660,22 +664,26 @@ insert into modifier_groups (id, slug, name, name_my, selection_type, min_select
   ('d5cd2b17-fc24-401e-ae41-563ba61008d3','spice_level','Spice level','အစပ်အဆင့်','single',0,1),
   ('3d89569d-673a-4f9d-a199-95adc1d674de','sweetness','Sweetness','အချိုအဆင့်','single',0,1),
   ('817e6de9-9ab6-4a9e-b9d5-fcfaffb4f6fa','drink_temp','Temperature','ပူ/အေး','single',1,1),
-  ('f4cb6689-cdee-450a-bea5-cc86ac9a092a','add_rice','Add rice','ထမင်း ထပ်ထည့်','single',0,1),
-  ('ffd897cc-e755-4a0d-b626-1e9c6262183d','add_egg','Add a soft egg','ဘဲဥပျော့ ထပ်ထည့်','single',0,1)
+  ('ad144971-f0d5-4095-8d24-43d2bf774fe5','addons','Choose your add-ons','ထပ်ထည့်စရာ ရွေးပါ','multiple',0,8)
 on conflict (id) do nothing;
 
 insert into modifier_options (id, group_id, slug, name, name_my, price_delta_cents, sort_order, is_active) values
   ('f5404218-dc4d-4717-9527-d88996ea708c','d5cd2b17-fc24-401e-ae41-563ba61008d3','spice_level__mild','Mild','အစပ်လျှော့',0,0,true),
-  ('9fb0557d-1d1e-439a-853d-93e467534047','d5cd2b17-fc24-401e-ae41-563ba61008d3','spice_level__medium','Medium','အစပ်လတ်',0,1,true),
+  ('9fb0557d-1d1e-439a-853d-93e467534047','d5cd2b17-fc24-401e-ae41-563ba61008d3','spice_level__medium','Medium','ပုံမှန်အစပ်',0,1,true),
   ('8fdbce8c-8356-47cb-adaa-e0be4710471c','d5cd2b17-fc24-401e-ae41-563ba61008d3','spice_level__burmese_hot','Burmese hot','မြန်မာအစပ်',0,2,true),
   ('a115864a-61f5-4c12-a419-3dd919cdb9c7','3d89569d-673a-4f9d-a199-95adc1d674de','sweetness__less_sweet','Less sweet','အချိုလျှော့',0,0,true),
   ('61a615a7-c7a6-4350-8585-b02cb3898eaa','3d89569d-673a-4f9d-a199-95adc1d674de','sweetness__normal','Normal','ပုံမှန်',0,1,true),
   ('0b03c9ea-332f-41b5-9835-7521734f8c3a','3d89569d-673a-4f9d-a199-95adc1d674de','sweetness__extra_sweet','Extra sweet','အချိုပို',0,2,true),
   ('af086083-d010-416d-aff9-d970afb58346','817e6de9-9ab6-4a9e-b9d5-fcfaffb4f6fa','drink_temp__hot','Hot','ပူပူ',0,0,true),
   ('ccc7309d-c771-4403-8536-36208b6db8e4','817e6de9-9ab6-4a9e-b9d5-fcfaffb4f6fa','drink_temp__iced','Iced','ရေခဲထည့်',0,1,true),
-  ('472a59ec-29d7-4755-b08d-6eadd77ed64b','f4cb6689-cdee-450a-bea5-cc86ac9a092a','add_rice__steamed','Steamed rice','ထမင်းဖြူ',200,0,true),
-  ('23e39b59-a4f4-4d5b-b57a-85caf7e4fdd9','f4cb6689-cdee-450a-bea5-cc86ac9a092a','add_rice__coconut','Coconut rice','အုန်းထမင်း',300,1,true),
-  ('5faa7c54-2ce4-49fc-a7f9-2802ccb5b5a0','ffd897cc-e755-4a0d-b626-1e9c6262183d','add_egg__soft_boiled','Soft-boiled egg','ဘဲဥပျော့ပြုတ်',150,0,true)
+  ('f3693d6a-690b-4129-aaa6-a403496f65ad','ad144971-f0d5-4095-8d24-43d2bf774fe5','addons__steamed_white_rice','Steamed White Rice','ထမင်းဖြူ',200,0,true),
+  ('206a7668-925d-45e7-a631-3a73fcbacd13','ad144971-f0d5-4095-8d24-43d2bf774fe5','addons__coconut_rice','Coconut Rice','အုန်းထမင်း',300,1,true),
+  ('e2d2b664-1bd0-4830-865d-5491f4f8b7d9','ad144971-f0d5-4095-8d24-43d2bf774fe5','addons__boiled_egg','Boiled Egg (1 pc)','ဥပြုတ် (၁ လုံး)',150,2,true),
+  ('5472eb0f-5833-4cff-b398-b4b3254d0c4b','ad144971-f0d5-4095-8d24-43d2bf774fe5','addons__sunny_egg','Sunny Egg (1 pc)','ကြက်ဥ တစ်ဖက်ကြော် (၁ လုံး)',200,3,true),
+  ('a00996d2-e440-4c66-9bfc-12e4d468fe1e','ad144971-f0d5-4095-8d24-43d2bf774fe5','addons__mohinga_soup','Mohinga Soup','မုန့်ဟင်းခါးဟင်းရည်',400,4,true),
+  ('95972310-fec3-4d24-8f01-0be2702c647c','ad144971-f0d5-4095-8d24-43d2bf774fe5','addons__ohn_noh_soup','Ohn-Noh Soup','အုန်းနို့ဟင်းရည်',400,5,true),
+  ('8f73d056-3928-4905-a81b-11a6451a6b9a','ad144971-f0d5-4095-8d24-43d2bf774fe5','addons__balachaung','Balachaung','ဘာလချောင်',200,6,true),
+  ('9f594b18-33a2-4722-ac88-6f8ea93e01a8','ad144971-f0d5-4095-8d24-43d2bf774fe5','addons__veggie_fritters','Veggie Fritters (2 pcs)','ဟင်းသီးဟင်းရွက်ကြော် (၂ ခု)',300,7,true)
 on conflict (id) do nothing;
 
 -- Spice level → made-to-order noodle/stir-fry dishes, hand-mixed salads, + owner-tagged spicy_optional.
@@ -695,14 +703,77 @@ cross join (values ('3d89569d-673a-4f9d-a199-95adc1d674de'::uuid), ('817e6de9-9a
 where mi.slug in ('burmese-milk-tea','coffee')
 on conflict do nothing;
 
--- Add rice → every à-la-carte curry (the category name says it: curries come without rice).
+-- Add-ons → every main (the owner's real add-on menu: rice, eggs, side soups, balachaung, fritters).
+-- Drinks and plain sides sit them out; salads keep them (tea salad + mohinga soup is the classic pairing).
 insert into item_modifier_groups (item_id, group_id)
-select mi.id, 'f4cb6689-cdee-450a-bea5-cc86ac9a092a'::uuid from menu_items mi
-where mi.category_id in (select id from menu_categories where slug in ('curries-a-la-carte','seafood-curries','vegetables'))
+select mi.id, 'ad144971-f0d5-4095-8d24-43d2bf774fe5'::uuid from menu_items mi
+where mi.category_id in (select id from menu_categories where slug in
+  ('all-day-breakfast','rice-noodles-soups','curries-a-la-carte','seafood-curries','vegetables','appetizers-salads'))
 on conflict do nothing;
 
--- Soft egg → the noodle bowls (v7.2's add-on; Kyay-O keeps its own richer add-on group instead).
-insert into item_modifier_groups (item_id, group_id)
-select mi.id, 'ffd897cc-e755-4a0d-b626-1e9c6262183d'::uuid from menu_items mi where mi.slug in (
-  'mohinga','ohno-khao-swe','rakhine-mont-ti','mee-shay','shan-noodles','nan-gyi-mont-ti'
-) on conflict do nothing;
+-- ── W5c·r2 — engaging EN descriptions (owner feedback: "more elaborate, engaging, fun") ─────────────
+-- Voice: sensory + warm, honest (no invented ingredients/claims); a few lines adapt the owner's own
+-- customer-review phrasing (parata, pork curry, tea salad). Overrides the terse originals everywhere
+-- (fresh seed AND live re-run — value-stable, idempotent).
+update menu_items set description_en = v.d from (values
+  ('acacia-with-shrimp-curry','Tangy acacia leaves and sweet shrimp — sour, savory, and green all at once. A village classic you rarely find stateside.'),
+  ('balachaung','The crunchy, garlicky, shrimpy condiment that makes everything better. Spoon it over rice and watch the table go quiet.'),
+  ('bamboo-shoot-mushroom-soup','Young bamboo shoots and mushrooms in a clean, savory broth — earthy, gentle, quietly addictive.'),
+  ('bamboo-shoot-with-pork-soup','Tender pork and sour bamboo shoots in a tamarind broth — bright, tangy comfort in a bowl.'),
+  ('beef-curry','Slow-braised until the beef gives up completely — deep Burmese-Indian spices in a rich, clinging gravy.'),
+  ('beef-pounded-deep-fried','Braised beef pulled, pounded, and crisped in chili oil — intensely beefy, with a slow-building heat.'),
+  ('biriyani-dan-pauk','Burmese-style biriyani slow-cooked until every grain turns golden and fragrant, with tender chicken throughout.'),
+  ('boneless-catfish-curry','Silky boneless catfish in a gently spiced tamarind sauce — bright, mellow, made for spooning over rice.'),
+  ('burmese-fried-rice','Golden fried rice with eggs and buttery boiled yellow peas — simple, comforting, exactly what you want it to be.'),
+  ('burmese-milk-tea','Strong black tea pulled with condensed and evaporated milk — the teahouse staple, sweet and silky.'),
+  ('century-egg-salad','Creamy century egg tossed with tomato, shallot, and chickpea powder — savory, punchy, unlike any salad you''ve met. (Peanuts + dried shrimp inside.)'),
+  ('chicken-curry','Farm-raised chicken three ways — comforting original, punchy masala, or sweet coconut. Pick your lane.'),
+  ('chicken-giblets-curry','Gizzards and liver simmered in classic Burmese curry spices — rich, old-school, for people who know.'),
+  ('chicken-gourd-curry','Chicken and bottle gourd stewed soft and mellow — a homestyle curry straight out of a Burmese kitchen.'),
+  ('coconut-chicken-and-rice','Coconut rice, coconut-oil chicken curry, and balachaung crunch on one plate — creamy, salty, unstoppable.'),
+  ('coconut-rice','Rice steamed in coconut cream — subtly sweet, fragrant, the upgrade your curry deserves.'),
+  ('coffee','Hot or iced, 10 oz — roasted deep, poured fresh.'),
+  ('crab-masala-curry','A whole Dungeness crab, happily drowned in masala chili-tamarind curry — messy, fiery, worth every napkin.'),
+  ('duck-egg-curry','Boiled duck eggs in a glossy tomato curry — golden yolks, tangy sauce, pure comfort.'),
+  ('everything-salad','Seaweed, noodles, potato, banana shoots, papaya, lettuce — the salad that couldn''t choose and chose right. (Peanuts + dried shrimp inside.)'),
+  ('faluda','The Burmese sundae: pudding, jelly, and assorted nuts in glorious layers — dessert and drink at the same time.'),
+  ('fermented-fish-paste-ngapi','The bold one — pungent nga-pi dip with a garden of vegetables for dunking. Fearless eaters, this is your table.'),
+  ('fish-paste-tomato-curry','Fish paste mellowed into a tomato, ginger, and garlic curry — deep umami with a bright edge.'),
+  ('fishcake-stuffed-salad','Fried fishcake stuffed with herby vegetable fillings and crowned with fried garlic — crispy outside, garden inside.'),
+  ('fried-catfish-curry','Catfish fried first, then simmered back into a rich sauce — twice the flavor, zero apologies.'),
+  ('fried-fish-cake-curry','Crispy fish cakes soaked in mildly spiced tamarind sauce until plump and savory-sour.'),
+  ('goat-curry','Goat braised low and slow in Burmese-Indian masala until it surrenders — choose tender meat or go full offal.'),
+  ('goat-marrow-soup','Goat stew with bone marrow, chickpeas, and potatoes in a soul-warming broth. Order the parata — you''ll be dipping.'),
+  ('grilled-aubergine-salad','Smoky grilled eggplant with shallot, chili, lime, and peanuts, topped with crispy shallots and coriander — bright and addictive.'),
+  ('hilsa-fish','Hilsa — the beloved king of fish — simmered in a rich tomato curry.'),
+  ('kyay-o','The works: rice vermicelli with pork, meatballs, intestines, egg, and bok choy — brothy Kyay-O or dry-tossed Si-Chat, your call.'),
+  ('lemon-salad','Fresh lemon tossed with shallots, shrimp powder, and fried garlic — puckery, crunchy, impossible to stop eating.'),
+  ('mee-shay','Mandalay''s signature noodle: sweet soybean pork sauce, crunchy rind, pickled mustard — chewy, tangy, iconic.'),
+  ('mixed-veggie-shrimp-stir-fry-rice','Crisp vegetables, tender quail eggs, and plump shrimp stir-fried over steamed rice — a full-color, full-flavor plate.'),
+  ('mixed-veggie-soup','Assorted vegetables in a gently spicy Burmese-Indian soup — cozy, warming, secretly the table favorite.'),
+  ('mohinga','The national breakfast: catfish-lemongrass broth, rice noodles, crispy fritters, egg slices — Myanmar in a bowl.'),
+  ('nan-gyi-mont-ti','Thick rice noodles tossed in Mandalay chicken curry sauce with fish cake and crunch on top — comfort food, Burmese-style.'),
+  ('ngapi-rice-salad','Rice tossed through savory nga-pi curry, topped with a sunny-side-up egg — funky, golden, gloriously Burmese.'),
+  ('ohno-khao-swe','Coconut-chickpea curry broth over wheat noodles with chicken, egg, and all the crunchy garnishes — silky, rich, legendary.'),
+  ('parata','Two pieces, flaming hot off the griddle — flaky, crispy, the things that curry dreams are made of.'),
+  ('peas-naan-pyar','Slow-cooked buttery Burmese peas scooped up with pillowy naan — humble, hearty, beloved.'),
+  ('peas-parata','Slow-cooked Burmese peas with two crispy paratas — the teahouse breakfast that built a nation.'),
+  ('peas-steamed','Slow-steamed brown peas, seasoned just right — the quintessential Burmese breakfast side.'),
+  ('pickled-tea-salad','Fermented tea leaves with lettuce, crunchy beans, sesame, and peanuts — tart, nutty, super flavorful, and famously hard to share.'),
+  ('pinto-beans','Pinto beans stir-fried Burmese-style with onions, garlic, and spices — creamy inside, savory all over.'),
+  ('pork-curry','Pork braised in a sweet, gently spiced sauce — tender with a bite, flavor through every piece, not just where the sauce touches.'),
+  ('pork-horsegram-bean-curry','Pork simmered with earthy horse-gram beans — nutty, deep, mildly spiced. A countryside classic.'),
+  ('pork-offals-curry','Pork offal, intestines, and liver in a mildly spiced sauce — rich, honest, nose-to-tail cooking.'),
+  ('pork-skewers','Pork, intestines, and liver slow-simmered in herbal spices, skewer-style with a punchy dipping sauce — Burmese street food, done right.'),
+  ('rakhine-mont-ti','Rakhine-style fish soup with rice noodles, fish cakes, and onions — peppery, clean, coastal.'),
+  ('rice','Steamed white rice — the faithful companion.'),
+  ('rice-with-pickled-tea-salad','Pickled tea salad tossed through warm rice with a sunny-side-up egg — tart, nutty laphet in full-meal form.'),
+  ('river-prawns-curry','Whole river prawns simmered with aromatics and glossy prawn oil — sweet, deep, decadent.'),
+  ('roselle-with-shrimp-curry','Sour roselle leaves and shrimp in a bright, tangy stir-fry — the green that tastes like home.'),
+  ('shan-noodles','Rice noodles in savory tomato-pork sauce with peanuts, fried garlic, pickled mustard, and chili paste — Shan State''s greatest export.'),
+  ('snakehead-innards-curry','Snakehead innards in a boldly spiced sauce — a delicacy for the adventurous.'),
+  ('swai-fish-curry','Swai simmered gently in a mildly spiced sauce — flaky, light, easy to love.'),
+  ('sweet-shrimps-curry','Shrimp glazed in a sweet, mildly spiced sauce — glossy, juicy, gone in minutes.'),
+  ('tom-yum-fried-rice-or-noodles','Shrimp and vegetables stir-fried with lemongrass, galangal, and kaffir lime — tom yum''s zing in fried-rice or noodle form.'),
+  ('tomato-salad','Organic tomatoes, shallots, chickpea powder, and Thai chili over lettuce — juicy, tangy, quietly spicy.')
+) as v(slug, d) where menu_items.slug = v.slug;

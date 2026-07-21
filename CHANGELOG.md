@@ -32,6 +32,23 @@ groups, zero Burmese below the name line, and the sheet had no quantity control 
   announces the unit count ("Added 3 to your order"); MY descriptions join the menu search the
   same way EN ones already did. The server still re-prices everything.
 
+### W5c·r2 — owner feedback round (2026-07-21)
+
+Min's preview feedback on #146, all four points:
+
+- **The real add-ons menu** replaces the conservative rice/egg pair: one "Choose your add-ons"
+  group (multiple, up to 8) with the owner's exact list + prices — Steamed White Rice +$2 ·
+  Coconut Rice +$3 · Boiled Egg +$1.50 · Sunny Egg +$2 · Mohinga Soup +$4 · Ohn-Noh Soup +$4 ·
+  Balachaung +$2 · Veggie Fritters +$3 — on every main (all six food categories; drinks + sides
+  sit out). Kyay-O's own Brains group renamed "Kyay-O add-ons" to disambiguate.
+- **Option glyphs** — slug-keyed emoji-as-content map (`lib/menu/optionGlyph.ts`, aria-hidden,
+  fixed slot): 🌶/🌶🌶/🌶🌶🌶 spice scale, ☕/🧊 temperature, dish glyphs on the add-ons pantry.
+  Spice-medium Burmese corrected to ပုံမှန်အစပ် (owner).
+- **Engaging EN descriptions** — all 60 rewritten to the sensory/fun voice (a few lines adapt the
+  owner's own review phrasing); value-stable UPDATE block in seed §W5c·r2, live-applied.
+- **Official logo** — the Morning Star badge (the delivery app's shipped asset) replaces the ✦ in
+  the header brand lockup; the ✦ stays the in-app accent mark elsewhere.
+
 ### W5b — desktop rail affordances (2026-07-21)
 
 The app is a fixed phone column even on desktop, so every horizontal rail overflows there too — but

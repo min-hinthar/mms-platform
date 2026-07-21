@@ -18,6 +18,7 @@ export const revalidate = 300;
 type RawModLink = {
   modifier_groups: {
     id: string;
+    slug: string;
     name: string;
     name_my: string | null;
     selection_type: string;
@@ -25,6 +26,7 @@ type RawModLink = {
     max_select: number;
     modifier_options: {
       id: string;
+      slug: string;
       name: string;
       name_my: string | null;
       price_delta_cents: number;
@@ -42,6 +44,7 @@ function shapeModifierGroups(links: RawModLink[] | null | undefined): ModGroup[]
     .filter((g): g is NonNullable<RawModLink["modifier_groups"]> => g != null)
     .map((g) => ({
       id: g.id,
+      slug: g.slug,
       name: g.name,
       nameMy: g.name_my,
       selectionType: g.selection_type === "multiple" ? ("multiple" as const) : ("single" as const),
@@ -52,6 +55,7 @@ function shapeModifierGroups(links: RawModLink[] | null | undefined): ModGroup[]
         .sort((a, b) => a.sort_order - b.sort_order)
         .map((o) => ({
           id: o.id,
+          slug: o.slug,
           name: o.name,
           nameMy: o.name_my,
           priceDeltaCents: o.price_delta_cents,
@@ -104,7 +108,7 @@ export default async function Menu({
   const { data } = await db
     .from("menu_items")
     .select(
-      "id,name_en,name_my,description_en,description_my,base_price_cents,image_url,is_sold_out,tags,allergens,menu_categories(name,sort_order),item_modifier_groups(modifier_groups(id,name,name_my,selection_type,min_select,max_select,modifier_options(id,name,name_my,price_delta_cents,sort_order,is_active)))",
+      "id,name_en,name_my,description_en,description_my,base_price_cents,image_url,is_sold_out,tags,allergens,menu_categories(name,sort_order),item_modifier_groups(modifier_groups(id,slug,name,name_my,selection_type,min_select,max_select,modifier_options(id,slug,name,name_my,price_delta_cents,sort_order,is_active)))",
     )
     .eq("is_active", true)
     .order("name_en");

@@ -1092,6 +1092,14 @@ h3 {
   accent-color: var(--jade);
   cursor: inherit;
 }
+/* W5c·r2: option glyph — emoji-as-content (aria-hidden), fixed slot so rows align with/without one. */
+.item-opt-glyph {
+  flex: none;
+  width: 24px;
+  text-align: center;
+  font-size: 15px;
+  letter-spacing: -2px; /* the 🌶🌶🌶 scale reads as one mark, not three spaced glyphs */
+}
 .item-opt-name {
   flex: 1;
   min-width: 0;
@@ -2998,6 +3006,13 @@ h3 {
 .app-header-star {
   flex: none;
   color: var(--ac);
+}
+/* W5c·r2: the official badge in the brand lockup — fixed box so the row never jumps while it loads. */
+.app-header-logo {
+  flex: none;
+  width: 51px;
+  height: 34px;
+  object-fit: contain;
 }
 .app-header-brand-word {
   overflow: hidden;
