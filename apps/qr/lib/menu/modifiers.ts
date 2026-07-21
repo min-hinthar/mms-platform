@@ -13,6 +13,10 @@ export type ModOption = {
   /** W5c: bilingual option label (nullable — absent Burmese simply doesn't render). */
   nameMy: string | null;
   priceDeltaCents: number;
+  /** W5c pre-merge: allergens this add-on introduces (e.g. Balachaung → shellfish). The sheet surfaces
+   *  them on the option row + folds a CHOSEN add-on's allergens into the item's Contains line, so a
+   *  free-from claim can't be silently violated by an add-on. Empty = none declared. */
+  allergens: string[];
 };
 
 export type ModGroup = {

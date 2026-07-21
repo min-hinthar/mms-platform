@@ -169,8 +169,18 @@ function ItemSheetBody({
   );
 
   const badges = itemBadges(item.tags, tableFavorite);
+  // W5c pre-merge (safety): a chosen add-on can introduce an allergen the base item doesn't declare
+  // (Balachaung → shellfish on an otherwise shellfish-free curry). Fold the SELECTED add-ons' allergens
+  // into the Contains line so the fail-safe "declared allergen-free" claim can never be silently broken —
+  // the line re-renders as the diner toggles options. Base allergens first, then any add-on-introduced ones.
+  const selectedAllergens = groups.flatMap((g) =>
+    g.options.filter((o) => (selected[g.id] ?? []).includes(o.id)).flatMap((o) => o.allergens),
+  );
+  const allAllergenCodes = [...new Set([...item.allergens, ...selectedAllergens])];
   const contains =
-    item.allergens.length > 0 ? item.allergens.map((a) => ALLERGEN_LABEL[a] ?? a).join(", ") : null;
+    allAllergenCodes.length > 0
+      ? allAllergenCodes.map((a) => ALLERGEN_LABEL[a] ?? a).join(", ")
+      : null;
 
   function choose(group: ModGroup, optionId: string) {
     setSelected((s) => ({ ...s, [group.id]: toggleOption(group, s[group.id] ?? [], optionId) }));
@@ -315,6 +325,15 @@ function ItemSheetBody({
                         {o.nameMy}
                       </span>
                     )}
+                    {/* W5c pre-merge (safety): an add-on that introduces an allergen the base dish
+                        doesn't declare says so ON the row — VISIBLE (not aria-hidden), so a free-from
+                        diner sees "contains shellfish" before choosing Balachaung. Also folded into the
+                        item's Contains line above when selected. */}
+                    {o.allergens.length > 0 && (
+                      <span className="item-opt-allergen">
+                        Contains {o.allergens.map((a) => ALLERGEN_LABEL[a] ?? a).join(", ")}
+                      </span>
+                    )}
                   </span>
                   {o.priceDeltaCents !== 0 && (
                     <span className="item-opt-delta">{delta(o.priceDeltaCents)}</span>
@@ -390,14 +409,16 @@ function ItemSheetBody({
             delete a customized cart line (QA §D); the CTA's accessible name re-reads the qty + total on
             activation, so no live region is needed (the sheet keeps one region max). */}
         {!soldOut && (
-          <div className="item-qty" role="group" aria-label="Quantity">
+          <div className="item-qty">
             {/* aria-disabled (focusable no-op), NOT native disabled: pressing "−" at qty 2 lands on the
                 bound, and a natively-disabled button would drop keyboard/SR focus to <body> mid-
-                interaction (WCAG 2.4.3) — the same pattern the sold-out Add pill uses. */}
+                interaction (WCAG 2.4.3) — the same pattern the sold-out Add pill uses. aria-controls
+                points at the spinbutton so the −/+ read as its controls. */}
             <button
               type="button"
               className="item-qty-btn"
               aria-label={`One fewer ${item.name_en}`}
+              aria-controls={`item-qty-${item.id}`}
               aria-disabled={blocked || qty <= 1 || undefined}
               onClick={() => {
                 if (blocked || qty <= 1) return;
@@ -406,8 +427,19 @@ function ItemSheetBody({
             >
               <span aria-hidden>−</span>
             </button>
-            <span className="item-qty-count">
-              <span className="sr-only">Quantity {qty}</span>
+            {/* spinbutton: the AT announces the new value on each change WITHOUT a second live region
+                (aria-valuenow), so an SR user hears "3" as they step up — the sheet keeps one live region.
+                The visible digit is aria-hidden; the spinbutton's aria-valuetext carries the spoken value. */}
+            <span
+              id={`item-qty-${item.id}`}
+              className="item-qty-count"
+              role="spinbutton"
+              aria-label="Quantity"
+              aria-valuenow={qty}
+              aria-valuemin={1}
+              aria-valuemax={9}
+              aria-valuetext={`Quantity ${qty}`}
+            >
               {/* Keyed remount replays the count-bounce per change (same pattern as the @mms/ui Stepper);
                   inline-block so the transform actually applies (transforms are no-ops on inline spans). */}
               <span
@@ -422,6 +454,7 @@ function ItemSheetBody({
               type="button"
               className="item-qty-btn"
               aria-label={`One more ${item.name_en}`}
+              aria-controls={`item-qty-${item.id}`}
               aria-disabled={blocked || qty >= 9 || undefined}
               onClick={() => {
                 if (blocked || qty >= 9) return;

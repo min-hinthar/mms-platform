@@ -777,3 +777,31 @@ update menu_items set description_en = v.d from (values
   ('tom-yum-fried-rice-or-noodles','Shrimp and vegetables stir-fried with lemongrass, galangal, and kaffir lime — tom yum''s zing in fried-rice or noodle form.'),
   ('tomato-salad','Organic tomatoes, shallots, chickpea powder, and Thai chili over lettuce — juicy, tangy, quietly spicy.')
 ) as v(slug, d) where menu_items.slug = v.slug;
+
+-- ── W5c pre-merge hardening — add-on allergens · tax category · self-pairing unlinks ────────────────
+-- Requires migration 20260721120000_w5c_modifier_allergen_tax.sql. Value-stable + idempotent.
+-- Allergen tags are CONSERVATIVE (over-warn is the safe direction; kitchen refines in the C11 pass):
+--   Balachaung→shellfish, eggs→egg, Mohinga Soup→fish+egg, Ohn-Noh Soup + Veggie Fritters→gluten.
+-- All 8 add-ons are HOT prepared food → tax_category='hot_prepared' so a hot add-on on a COLD to-go
+-- parent is taxed correctly (priceItem taxes each delta at its own category).
+update modifier_options set tax_category = 'hot_prepared'
+  where group_id = 'ad144971-f0d5-4095-8d24-43d2bf774fe5';
+
+update modifier_options set allergens = v.a from (values
+  ('addons__boiled_egg', array['egg']),
+  ('addons__sunny_egg', array['egg']),
+  ('addons__mohinga_soup', array['fish','egg']),
+  ('addons__ohn_noh_soup', array['gluten_wheat']),
+  ('addons__balachaung', array['shellfish']),
+  ('addons__veggie_fritters', array['gluten_wheat'])
+) as v(slug, a) where modifier_options.slug = v.slug;
+
+-- Self-pairing unlinks (product-UX finding): a soup dish must not offer its OWN soup as a side, and a
+-- dish whose recipe already lists a component must not upsell that component. Unlink the add-ons GROUP
+-- from these three flagship dishes (the schema links at group level — no per-option suppression). The
+-- seed's earlier blanket link uses `on conflict do nothing`, so on a FRESH reset these rows would be
+-- (re)created by that block and this DELETE removes them; on live the same rows are deleted directly.
+delete from item_modifier_groups
+  where group_id = 'ad144971-f0d5-4095-8d24-43d2bf774fe5'
+    and item_id in (select id from menu_items where slug in
+      ('mohinga','ohno-khao-swe','coconut-chicken-and-rice'));

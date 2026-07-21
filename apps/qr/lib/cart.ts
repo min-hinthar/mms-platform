@@ -14,7 +14,7 @@ import {
   undoFireInput,
 } from "@mms/db/schemas";
 import type { LineState } from "@mms/db";
-import { lineTax } from "./tax";
+import { sumLineTax } from "./tax";
 import { getCartTotals } from "./totals";
 import { assertCartItemMember, assertCartMember } from "./authz";
 import { assertMutationRate, withinMutationRate } from "./rate";
@@ -57,12 +57,14 @@ export async function addItem(
   const dineIn = sess?.mode === "dinein";
   // Diner add: enforce modifier requiredness/cardinality SERVER-side (the client "Choose" gate is advisory)
   // — a forged/stale client can't add a required-modifier item without its required choice.
-  const { name, unitPriceCents, category, opts } = await priceItem(
+  const { name, unitPriceCents, taxParts, opts } = await priceItem(
     input.menuItemId,
     input.modifierIds,
     { enforceCardinality: true },
   );
-  const taxCents = lineTax(unitPriceCents, category, dineIn);
+  // W5c: tax each part on its own category (a hot add-on on a cold to-go salad is taxable even though
+  // the salad isn't) — same-category lines round exactly as the old single lineTax did.
+  const taxCents = sumLineTax(taxParts, dineIn);
   // S4 unified basket: a food line's fulfillment defaults from context — a dine-in table → 'dinein', any
   // other entry (pickup/scan) → 'togo'. The diner can toggle it per line; the tag (not the session mode)
   // then drives routing + per-line tax. taxCents above already matches this default (same dineIn).

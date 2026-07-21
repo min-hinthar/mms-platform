@@ -4,7 +4,7 @@ import { serviceClient } from "@mms/db/server";
 import { reorderInput } from "@mms/db/schemas";
 import { assertCartMember } from "./authz";
 import { assertMutationRate } from "./rate";
-import { lineTax } from "./tax";
+import { sumLineTax } from "./tax";
 import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
 import { getPostHogClient } from "./posthog-server";
 
@@ -142,7 +142,7 @@ export async function reorderOrder(raw: {
       // Empty selection + enforceCardinality: a required-choice item throws here → honest skip. The
       // returned price is TODAY's base price; tax re-derives from today's category + this session's
       // dine-in context (same formula as addItem).
-      const { name, unitPriceCents, category } = await priceItem(l.menu_item_id, [], {
+      const { name, unitPriceCents, taxParts } = await priceItem(l.menu_item_id, [], {
         enforceCardinality: true,
       });
       await insertOrIncLine(
@@ -152,7 +152,8 @@ export async function reorderOrder(raw: {
           name,
           opts: [],
           unitPriceCents,
-          taxCents: lineTax(unitPriceCents, category, dineIn),
+          // Reorder passes no modifiers, so taxParts is just the base — identical to the old lineTax.
+          taxCents: sumLineTax(taxParts, dineIn),
           fulfillment: dineIn ? "dinein" : "togo",
         },
         uid,

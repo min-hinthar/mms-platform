@@ -27,4 +27,18 @@ export function lineTax(amountCents: number, category: TaxCategory, dineIn: bool
   return isTaxable(category, dineIn) ? Math.round(amountCents * RATE) : 0;
 }
 
+// W5c: a priced line can span more than one tax category — a hot add-on (e.g. Mohinga Soup) on a
+// COLD salad is taxable to-go even though the salad isn't. `priceItem` returns the line as parts (base
+// at the item's category + each add-on delta at its OWN category, null → inherit the parent), and this
+// sums the tax per part. Same-category parts collapse into one bucket first, so a line with no
+// cross-category add-on rounds EXACTLY as the old single `lineTax(unitPrice, category)` did.
+export type TaxPart = { cents: number; category: TaxCategory };
+export function sumLineTax(parts: TaxPart[], dineIn: boolean): number {
+  const byCategory = new Map<TaxCategory, number>();
+  for (const p of parts) byCategory.set(p.category, (byCategory.get(p.category) ?? 0) + p.cents);
+  let tax = 0;
+  for (const [category, cents] of byCategory) tax += lineTax(cents, category, dineIn);
+  return tax;
+}
+
 export const taxRate = () => RATE;

@@ -14,7 +14,7 @@ import {
  * — `priceItem` — but a wrong client gate ships a confusing/invalid sheet.)
  */
 
-const opt = (id: string, d = 0) => ({ id, slug: id, name: id, nameMy: null, priceDeltaCents: d });
+const opt = (id: string, d = 0) => ({ id, slug: id, name: id, nameMy: null, priceDeltaCents: d, allergens: [] as string[] });
 
 const reqSingle: ModGroup = {
   id: "g-style",

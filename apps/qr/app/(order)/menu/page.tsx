@@ -32,6 +32,7 @@ type RawModLink = {
       price_delta_cents: number;
       sort_order: number;
       is_active: boolean;
+      allergens: string[] | null;
     }[];
   } | null;
 };
@@ -59,6 +60,7 @@ function shapeModifierGroups(links: RawModLink[] | null | undefined): ModGroup[]
           name: o.name,
           nameMy: o.name_my,
           priceDeltaCents: o.price_delta_cents,
+          allergens: o.allergens ?? [],
         })),
     }))
     .filter((g) => g.options.length > 0);
@@ -108,7 +110,7 @@ export default async function Menu({
   const { data } = await db
     .from("menu_items")
     .select(
-      "id,name_en,name_my,description_en,description_my,base_price_cents,image_url,is_sold_out,tags,allergens,menu_categories(name,sort_order),item_modifier_groups(modifier_groups(id,slug,name,name_my,selection_type,min_select,max_select,modifier_options(id,slug,name,name_my,price_delta_cents,sort_order,is_active)))",
+      "id,name_en,name_my,description_en,description_my,base_price_cents,image_url,is_sold_out,tags,allergens,menu_categories(name,sort_order),item_modifier_groups(modifier_groups(id,slug,name,name_my,selection_type,min_select,max_select,modifier_options(id,slug,name,name_my,price_delta_cents,sort_order,is_active,allergens)))",
     )
     .eq("is_active", true)
     .order("name_en");

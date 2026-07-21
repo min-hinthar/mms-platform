@@ -384,12 +384,28 @@ export function TableCartProvider({
       setPendingDelta((n) => n + qty);
       // Honest count for a multi-unit sheet add — an SR user hears how many units landed (4.1.3).
       flash(qty > 1 ? `Added ${qty} to your order` : "Added to your order", 2000);
+      // Authoritative unit count BEFORE this add (from the ref, never a stale render closure) so we can
+      // tell how many units ACTUALLY landed — a merge into a line near the 99 cap can fill fewer than
+      // requested, and the optimistic "Added N" above would then overstate it (W5c pre-merge honesty).
+      const beforeUnits = itemsRef.current.reduce((a, i) => a + i.qty, 0);
       try {
         // Modifier ids only (R6b sheet) — `addItem`→`priceItem` validates them against the item's groups
         // and re-derives the charge; a client-sent price is never trusted. ONE round-trip returns the view.
         // `notes` (W3b) is the kitchen note — free text, length-bounded server-side, never a price.
         const view = await addItemAction(cartId, menuItemId, modifierIds, notes, qty);
         applyView(view);
+        // If the server capped the merge (landed < requested), correct the earlier optimistic announce so
+        // the SR live region and the count agree with what actually landed. Only fires at the 99-cap edge.
+        if (qty > 1) {
+          const landed = view.items.reduce((a, i) => a + i.qty, 0) - beforeUnits;
+          if (landed >= 0 && landed < qty)
+            flash(
+              landed === 0
+                ? "That line is already at our 99 max"
+                : `Added ${landed} — that line is now at our 99 max`,
+              3000,
+            );
+        }
         // Return the fresh items so a caller's serialized write-queue threads THIS add's server truth into
         // its next op (a following "−" then trims a real, current line — no stale-read snap-back).
         return view.items;

@@ -686,6 +686,7 @@ export type Database = {
       }
       modifier_options: {
         Row: {
+          allergens: string[]
           created_at: string
           group_id: string
           id: string
@@ -695,8 +696,10 @@ export type Database = {
           price_delta_cents: number
           slug: string
           sort_order: number
+          tax_category: string | null
         }
         Insert: {
+          allergens?: string[]
           created_at?: string
           group_id: string
           id?: string
@@ -706,8 +709,10 @@ export type Database = {
           price_delta_cents?: number
           slug: string
           sort_order?: number
+          tax_category?: string | null
         }
         Update: {
+          allergens?: string[]
           created_at?: string
           group_id?: string
           id?: string
@@ -717,6 +722,7 @@ export type Database = {
           price_delta_cents?: number
           slug?: string
           sort_order?: number
+          tax_category?: string | null
         }
         Relationships: [
           {

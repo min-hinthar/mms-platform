@@ -62,6 +62,31 @@ Min's preview feedback on #146, all four points:
   spice step is renamed **"Burmese 🔥"** (owner's copy — the 🔥 lives in the option name, DB +
   live), leaving 🌶️ → 🌶️🌶️ → Burmese 🔥 as the escalation.
 
+### W5c·pre-merge — deep-pass hardening (2026-07-21)
+
+The pre-merge adversarial pass (6 lenses, per-finding verification) surfaced real defects in the new
+add-ons group; all fixed before merge (migration `20260721120000`, live-applied):
+
+- **Allergen honesty (HIGH, safety)** — an add-on can introduce an allergen the base dish doesn't
+  declare (Balachaung → shellfish on an `allergen-reviewed` "contains nothing" salad). `modifier_options`
+  gains an `allergens[]` column; the item sheet now shows **"Contains shellfish"** on the option row
+  (visible, not the aria-hidden glyph) **and folds a chosen add-on's allergens into the item's Contains
+  line**, so the fail-safe free-from claim can't be silently broken. Conservative tags (over-warn is the
+  safe direction; kitchen refines in C11): Balachaung→shellfish, eggs→egg, Mohinga Soup→fish+egg,
+  Ohn-Noh Soup + Veggie Fritters→gluten.
+- **Cross-category tax (MED, money)** — the add-ons are all hot prepared food but folded into the parent
+  line's single tax category, so a hot add-on on a **cold to-go salad** rode the salad's exemption (CDTFA
+  under-collection). `modifier_options.tax_category` + `priceItem` now returns the line as **tax parts**
+  (`sumLineTax`) — each add-on delta taxed on its own category (null inherits the parent). Same-category
+  lines round identically to before; a hot side on a cold to-go salad now collects its ~39¢.
+- **Self-pairings (MED, UX)** — the blanket add-ons mapping offered flagship dishes their own component
+  (Mohinga → "Mohinga Soup", Ohn-Noh Khao Swe → "Ohn-Noh Soup", Coconut Chicken & Rice → "Coconut Rice"
+  + "Balachaung"). Unlinked from those three (50→47 item links; live + seed).
+- **Qty a11y (MED)** — the sheet qty stepper is now a `role="spinbutton"` (aria-valuenow/min/max +
+  aria-controls), so a screen reader hears the new count on each step without a second live region.
+- **Cap honesty (LOW)** — a multi-unit add that merges into a line near the 99 cap now re-announces the
+  units that actually landed instead of the optimistic requested count (only fires at the cap edge).
+
 ### W5b — desktop rail affordances (2026-07-21)
 
 The app is a fixed phone column even on desktop, so every horizontal rail overflows there too — but
