@@ -3,6 +3,7 @@ import { TogoDoor } from "@/components/TogoDoor";
 import { JoinTable } from "@/components/JoinTable";
 import { HomeHero } from "@/components/HomeHero";
 import { HomeResumeCard } from "@/components/HomeResumeCard";
+import { HomeSessionCard } from "@/components/HomeSessionCard";
 
 // Entry — the house's three doors (K1, Journey II): Dine-in · To-go · Grocery. The internal mode
 // values (dinein|scango|pickup — a DB CHECK) do NOT migrate; presentation moves, plumbing stays.
@@ -28,6 +29,9 @@ export default function Entry() {
       <HomeHero />
       {/* When a live order exists, lead with a way back to its tracker (client-gated; renders nothing otherwise). */}
       <HomeResumeCard />
+      {/* W5a — live PRE-payment state (an open table, a basket in progress): the session-level
+          resume the order card can't see. Renders nothing when there's nothing to resume. */}
+      <HomeSessionCard />
       <nav
         aria-label="Order type"
         style={{ marginTop: "var(--s6)", display: "grid", gap: "var(--s3)" }}

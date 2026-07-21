@@ -172,6 +172,27 @@ export const sessionMintOutput = z.object({
 });
 
 /**
+ * Shape of the `GET /api/session/peek` RESPONSE (W5a) — the passive "do I have a live session?"
+ * read behind the home resume card + the picker's "your table" state. Deliberately minimal
+ * disclosure: no joinCode (the caller already holds it if they're a member; the resume paths
+ * rejoin via localStorage / the member-aware claim), no seat lists, no expiry timestamps.
+ */
+export const sessionPeekOutput = z.object({
+  sessions: z.array(
+    z.object({
+      mode: z.enum(["dinein", "scango", "pickup"]),
+      // The registered table (dine-in), or null for host-mint / unregistered / solo modes.
+      tableNumber: z.number().int().nullable().default(null),
+      // The session's open cart — lets a solo resume land directly on /cart. Null if none open.
+      cartId: uuid.nullable().default(null),
+      // Line count of the open cart (display-only, never money).
+      itemCount: z.number().int().min(0),
+    }),
+  ),
+});
+export type SessionPeekOutput = z.infer<typeof sessionPeekOutput>;
+
+/**
  * provisionStaff (S1.1a) — an OWNER creates a staff account (server/manager/owner). The email is
  * the magic-link / OTP login identity; the server (service-role) creates the auth user + the staff
  * row. Owner-gated server-side (is_staff_at_least('owner')); this only shapes the input. `role` is

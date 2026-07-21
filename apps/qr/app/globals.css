@@ -4828,6 +4828,27 @@ html[data-seen-surface] .mms-stagger {
 .table-chip.is-seated:hover {
   border-color: var(--t3);
 }
+/* W5a — Mine = the warmest chip on the grid: the diner's own live table, tap to resume. A solid
+   clay ring + faint clay wash + accent "you are here" dot — reads as belonging, not availability. */
+.table-chip.is-mine {
+  border-color: var(--ac);
+  background: color-mix(in oklab, var(--ac) 9%, var(--cd));
+  box-shadow:
+    0 6px 18px -12px var(--ac),
+    inset 0 1px 0 var(--sheen);
+}
+.table-chip.is-mine .table-chip-state {
+  color: var(--ac-strong);
+}
+.table-chip.is-mine .table-dot {
+  background: var(--ac);
+}
+.table-chip.is-mine:hover {
+  transform: translateY(-2px);
+}
+.table-chip.is-mine:active {
+  transform: translateY(0);
+}
 @media (prefers-reduced-motion: reduce) {
   .table-chip {
     transition: none;
