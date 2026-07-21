@@ -1,6 +1,6 @@
 import "server-only";
 import { serviceClient } from "@mms/db/server";
-import { JOIN_RATE, MUTATE_RATE, STEPUP_RATE } from "./limits";
+import { JOIN_RATE, MUTATE_RATE, PEEK_RATE, STEPUP_RATE } from "./limits";
 
 /**
  * Per-device rate limiting (M3·P3.4). The join/mutation/pay paths are public POSTs (IDOR-by-default —
@@ -35,6 +35,12 @@ async function withinRate(
 /** Gate POST /api/session per device. Returns false once the join window is exhausted → the route 429s. */
 export function withinJoinRate(seat: string): Promise<boolean> {
   return withinRate("join", seat, JOIN_RATE.max, JOIN_RATE.windowSeconds);
+}
+
+/** Gate GET /api/session/peek per device (W5a). Exhaustion maps to an EMPTY peek (the advisory
+ *  resume surfaces just don't render), never a blocking error. */
+export function withinPeekRate(seat: string): Promise<boolean> {
+  return withinRate("peek", seat, PEEK_RATE.max, PEEK_RATE.windowSeconds);
 }
 
 /** Gate a cart mutation per device. Returns false once the mutate window is exhausted (route callers map

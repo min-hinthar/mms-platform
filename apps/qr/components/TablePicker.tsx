@@ -4,6 +4,7 @@ import { Sheet } from "@mms/ui";
 import posthog from "posthog-js";
 import { useJourneyRouter } from "./nav/TransitionNav"; // J1: dine-in→menu is a FORWARD cut
 import type { DineInTable } from "@/lib/tables";
+import { useSessionPeek } from "@/lib/useSessionPeek";
 
 /**
  * K2 (Journey II) — the dine-in table picker: the "can't scan the sticker" fallback. A grid of the
@@ -19,9 +20,19 @@ export function TablePicker({ tables }: { tables: DineInTable[] }) {
   const [seatedNum, setSeatedNum] = useState<number | null>(null); // open code-sheet for this table
   const [code, setCode] = useState("");
   const codeId = useId();
+  // W5a — is one of these "seated" tables OURS? A swipe-back diner re-entering the picker used to
+  // see their own table as a dead "Seated" chip (and the claim 409'd). The peek marks it "Your
+  // table"; tapping it goes through the same claim route, which now rejoins a member (server-side
+  // member-aware claim). Advisory-only: peek failure just leaves the plain Seated state.
+  const peeked = useSessionPeek();
+  // ALL my live tables (a seat can hold several memberships — claimed one, scanned into another):
+  // each must read "Your table"; a .find() would code-wall the diner's own second table.
+  const myTables = new Set(
+    (peeked ?? []).filter((s) => s.mode === "dinein" && s.tableNumber != null).map((s) => s.tableNumber),
+  );
 
-  function claim(n: number) {
-    posthog.capture("table_picked", { table_number: n, occupied: false });
+  function claim(n: number, resuming = false) {
+    posthog.capture("table_picked", { table_number: n, occupied: resuming, resumed: resuming });
     router.push(`/menu?mode=dinein&door=dinein&table=${n}`);
   }
   function askCode(n: number) {
@@ -63,29 +74,40 @@ export function TablePicker({ tables }: { tables: DineInTable[] }) {
         </p>
       ) : (
         <ul role="list" className="table-grid" aria-label="Choose your table">
-          {tables.map((t, i) => (
-            <li key={t.tableNumber}>
-              <button
-                type="button"
-                className={`table-chip mms-stagger ${t.occupied ? "is-seated" : "is-open"}`}
-                style={{ animationDelay: `calc(${i} * 40ms)` } as CSSProperties}
-                aria-label={
-                  t.occupied
-                    ? `Table ${t.tableNumber}, seated — join with the party’s code`
-                    : `Table ${t.tableNumber}, open — sit here`
-                }
-                onClick={() => (t.occupied ? askCode(t.tableNumber) : claim(t.tableNumber))}
-              >
-                <span className="table-chip-num" aria-hidden>
-                  {t.tableNumber}
-                </span>
-                <span className="table-chip-state">
-                  <span className="table-dot" aria-hidden />
-                  {t.occupied ? "Seated" : "Open"}
-                </span>
-              </button>
-            </li>
-          ))}
+          {tables.map((t, i) => {
+            const mine = myTables.has(t.tableNumber);
+            return (
+              <li key={t.tableNumber}>
+                <button
+                  type="button"
+                  className={`table-chip mms-stagger ${mine ? "is-mine" : t.occupied ? "is-seated" : "is-open"}`}
+                  style={{ animationDelay: `calc(${i} * 40ms)` } as CSSProperties}
+                  aria-label={
+                    mine
+                      ? `Table ${t.tableNumber}, your table — pick up where you left off`
+                      : t.occupied
+                        ? `Table ${t.tableNumber}, seated — join with the party’s code`
+                        : `Table ${t.tableNumber}, open — sit here`
+                  }
+                  onClick={() =>
+                    mine
+                      ? claim(t.tableNumber, true)
+                      : t.occupied
+                        ? askCode(t.tableNumber)
+                        : claim(t.tableNumber)
+                  }
+                >
+                  <span className="table-chip-num" aria-hidden>
+                    {t.tableNumber}
+                  </span>
+                  <span className="table-chip-state">
+                    <span className="table-dot" aria-hidden />
+                    {mine ? "Your table" : t.occupied ? "Seated" : "Open"}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
 

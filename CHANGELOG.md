@@ -4,6 +4,25 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W5a — session resume: the swipe-back dead end, closed (2026-07-21)
+
+An active table/basket was invisible outside the menu (the home surfaces were order-based only),
+and the picker refused a diner's OWN table — the "same user can't re-enter after swipe back" bug.
+
+- **Member-aware picker claim** — the `?table=N` claim path 409'd whenever the table had an active
+  session, even when the claimant was already a member of it. It now checks membership first and
+  converges (a rejoin, not a takeover); the stranger refusal is intact.
+- **`GET /api/session/peek`** (new) — a passive "do I have a live session?" read: verified Bearer
+  anon token → active, non-expired sessions this seat belongs to (the mint's own predicate), plus
+  the open cart id + line count. Read-only by design (never mints, never slides the TTL) and
+  minimal-disclosure (no join codes, members, or expiry). A failed peek is an empty peek.
+- **Home resume card for live sessions** (`HomeSessionCard`) — the session-level sibling of the
+  order-based `HomeResumeCard`: "Table 5 is still open · 3 items" → back into the menu, or "Your
+  basket · N items" → straight to the cart. Restraint: dine-in shows even empty (a claimed table is
+  live state); solo baskets only with items (solo sessions auto-exist per device).
+- **"Your table" in the picker** — the diner's own live table renders as the warmest chip on the
+  grid (clay ring + wash, "Your table") instead of a dead "Seated"; tapping it resumes.
+
 ### W4g — grocery editorial polish (2026-07-18)
 
 First pass of a world-class design refinement on the grocery Browse surface — it was built

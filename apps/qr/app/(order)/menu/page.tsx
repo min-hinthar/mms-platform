@@ -74,6 +74,7 @@ export default async function Menu({
     reorder?: string;
     door?: string;
     table?: string;
+    resume?: string;
   }>;
 }) {
   // `t` = a scanned table-sticker token (may provision a new table); `j` = the host's invite code
@@ -81,7 +82,7 @@ export default async function Menu({
   // `reorder` (J5) = a past order id to bring back once the cart is ready (validated + earner-gated
   // server-side in reorderOrder; the client only relays the id). `door` (K0/K1) = the diner-facing
   // entrance for analytics only (never authz) — the TogoDoor sends door=togo for both scango & pickup.
-  const { mode = "scango", t, j, reorder, door, table } = await searchParams;
+  const { mode = "scango", t, j, reorder, door, table, resume } = await searchParams;
   const code = t ?? j;
   const joinOnly = !t && !!j;
   const db = publicClient();
@@ -123,7 +124,14 @@ export default async function Menu({
   const heartedIds = await heartedP;
 
   return (
-    <TableCartProvider mode={mode} code={code} joinOnly={joinOnly} door={door} table={table}>
+    <TableCartProvider
+      mode={mode}
+      code={code}
+      joinOnly={joinOnly}
+      door={door}
+      table={table}
+      resume={resume === "1"}
+    >
       {/* Publishes the open-cart id to the wayfinding store so the header's "back to cart" works off-menu. */}
       <CartPublisher />
       <MenuBrowser

@@ -124,11 +124,27 @@ export async function POST(req: NextRequest) {
   // (someone claimed/sat this table between the picker's occupancy read and now), do NOT silently
   // drop this diner into a stranger's live cart — the seated-table rule requires the party's code or
   // a physical sticker scan (`?t=`, which uses the qrCode path, not this one). Refuse with guidance.
-  if (tableNumber != null && sess)
-    return NextResponse.json(
-      { error: "That table was just seated — join with the party’s code, or pick another." },
-      { status: 409 },
-    );
+  //
+  // W5a — UNLESS the "stranger" is the party itself: a swipe-back diner re-tapping their OWN table
+  // in the picker was 409'd here (the re-entry dead end). If this seat is already a member of the
+  // active session, converge on it — a rejoin, not a takeover; the stranger refusal below is intact.
+  if (tableNumber != null && sess) {
+    const { data: mine, error: mineErr } = await db
+      .from("session_members")
+      .select("id")
+      .eq("session_id", sess.id)
+      .eq("seat_id", seat)
+      .maybeSingle();
+    // A transient read failure must NOT masquerade as "that table is a stranger's" (a legit member
+    // would get the misleading party-code 409) — fail loudly so the client's retry path runs.
+    if (mineErr)
+      return NextResponse.json({ error: "Could not check the table — try again." }, { status: 500 });
+    if (!mine)
+      return NextResponse.json(
+        { error: "That table was just seated — join with the party’s code, or pick another." },
+        { status: 409 },
+      );
+  }
 
   // Turned-over table: the same physical sticker code can be reused, but the prior session may be
   // EXPIRED yet still status='active' (there's no background sweeper) — squatting on the partial unique
@@ -167,11 +183,20 @@ export async function POST(req: NextRequest) {
       // Unique violation on table_sessions_active_qr_uniq.
       // K2: a picker CLAIM that lost the insert race to a concurrent claimant must NOT converge onto
       // their session (that's a code-free join into a stranger's party) — refuse, same as above.
-      if (tableNumber != null)
+      // W5a: UNLESS the winner is THIS seat (two of the diner's own tabs racing an empty-table
+      // claim — home resume card + picker chip): converge on our own session instead of the
+      // misleading stranger 409. host_seat is deterministic (no membership-insert race to lose).
+      if (tableNumber != null) {
+        const winner = resolvedQr ? await findActive(resolvedQr) : null;
+        if (winner && winner.host_seat === seat) {
+          sess = winner;
+          break;
+        }
         return NextResponse.json(
           { error: "That table was just seated — join with the party’s code, or pick another." },
           { status: 409 },
         );
+      }
       if (resolvedQr) {
         sess = await findActive(resolvedQr); // concurrent first-joiner won → converge on their session
         break;
@@ -292,5 +317,7 @@ export async function POST(req: NextRequest) {
     // K2: the registered table (from the session row — a JOIN reads the existing session's number,
     // a fresh mint reads the just-stamped one). Null for host-mint / unregistered / solo modes.
     tableNumber: sess.table_number,
+    // W5a: fresh-session signal for resume-intent honesty (see sessionMintOutput).
+    created,
   });
 }

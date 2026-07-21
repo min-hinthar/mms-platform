@@ -169,7 +169,32 @@ export const sessionMintOutput = z.object({
   // code, an unregistered/legacy sticker, or a solo mode. Drives "Table 7" on the greeting/guest
   // list/settle; the order surfaces read the denormalized qr_orders.table_number instead.
   tableNumber: z.number().int().nullable().default(null),
+  // W5a: true when this mint CREATED a fresh session (vs rejoining an existing one). Lets a
+  // resume-intent client (the home card) tell the diner honestly when their old table had ended
+  // and a fresh empty session was started, instead of silently landing them in an empty cart.
+  created: z.boolean().default(false),
 });
+
+/**
+ * Shape of the `GET /api/session/peek` RESPONSE (W5a) — the passive "do I have a live session?"
+ * read behind the home resume card + the picker's "your table" state. Deliberately minimal
+ * disclosure: no joinCode (the caller already holds it if they're a member; the resume paths
+ * rejoin via localStorage / the member-aware claim), no seat lists, no expiry timestamps.
+ */
+export const sessionPeekOutput = z.object({
+  sessions: z.array(
+    z.object({
+      mode: z.enum(["dinein", "scango", "pickup"]),
+      // The registered table (dine-in), or null for host-mint / unregistered / solo modes.
+      tableNumber: z.number().int().nullable().default(null),
+      // The session's open cart — lets a solo resume land directly on /cart. Null if none open.
+      cartId: uuid.nullable().default(null),
+      // Line count of the open cart (display-only, never money).
+      itemCount: z.number().int().min(0),
+    }),
+  ),
+});
+export type SessionPeekOutput = z.infer<typeof sessionPeekOutput>;
 
 /**
  * provisionStaff (S1.1a) — an OWNER creates a staff account (server/manager/owner). The email is

@@ -20,6 +20,14 @@ export const MAX_PARTY_SIZE = 12;
 export const JOIN_RATE = { max: 30, windowSeconds: 60 } as const;
 
 /**
+ * Per-device (verified seat) limit on GET /api/session/peek (W5a). The peek is a cheap advisory read,
+ * but each call costs an auth verify + up to three service-role queries — bound the amplification a
+ * scripted token can drive. Exhaustion degrades to an EMPTY peek (the resume card just doesn't
+ * render), never an error UI, per the advisory-surface contract.
+ */
+export const PEEK_RATE = { max: 30, windowSeconds: 60 } as const;
+
+/**
  * Per-device (verified seat) cart-mutation limit. ~2/sec sustained — far above human tapping, well below
  * a script flood. Keyed by SEAT (not session) on purpose: a per-session cap would let one hostile member
  * exhaust the budget and DoS their co-diners' shared cart; per-seat bounds the bad actor to themselves.
