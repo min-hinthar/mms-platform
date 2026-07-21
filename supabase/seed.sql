@@ -670,7 +670,7 @@ on conflict (id) do nothing;
 insert into modifier_options (id, group_id, slug, name, name_my, price_delta_cents, sort_order, is_active) values
   ('f5404218-dc4d-4717-9527-d88996ea708c','d5cd2b17-fc24-401e-ae41-563ba61008d3','spice_level__mild','Mild','အစပ်လျှော့',0,0,true),
   ('9fb0557d-1d1e-439a-853d-93e467534047','d5cd2b17-fc24-401e-ae41-563ba61008d3','spice_level__medium','Medium','ပုံမှန်အစပ်',0,1,true),
-  ('8fdbce8c-8356-47cb-adaa-e0be4710471c','d5cd2b17-fc24-401e-ae41-563ba61008d3','spice_level__burmese_hot','Burmese hot','မြန်မာအစပ်',0,2,true),
+  ('8fdbce8c-8356-47cb-adaa-e0be4710471c','d5cd2b17-fc24-401e-ae41-563ba61008d3','spice_level__burmese_hot','Burmese 🔥','မြန်မာအစပ်',0,2,true),
   ('a115864a-61f5-4c12-a419-3dd919cdb9c7','3d89569d-673a-4f9d-a199-95adc1d674de','sweetness__less_sweet','Less sweet','အချိုလျှော့',0,0,true),
   ('61a615a7-c7a6-4350-8585-b02cb3898eaa','3d89569d-673a-4f9d-a199-95adc1d674de','sweetness__normal','Normal','ပုံမှန်',0,1,true),
   ('0b03c9ea-332f-41b5-9835-7521734f8c3a','3d89569d-673a-4f9d-a199-95adc1d674de','sweetness__extra_sweet','Extra sweet','အချိုပို',0,2,true),

@@ -1092,13 +1092,11 @@ h3 {
   accent-color: var(--jade);
   cursor: inherit;
 }
-/* W5c·r2: option glyph — emoji-as-content (aria-hidden), fixed slot so rows align with/without one. */
-.item-opt-glyph {
-  flex: none;
-  width: 24px;
-  text-align: center;
-  font-size: 15px;
-  letter-spacing: -2px; /* the 🌶🌶🌶 scale reads as one mark, not three spaced glyphs */
+/* W5c·r3: option glyph — emoji-as-content (aria-hidden), INLINE with the label (leading for the
+   add-ons pantry, trailing for the 🌶/🍯 intensity meters); native color-emoji rendering (VS16 in the
+   glyph strings), no letter-spacing tricks. */
+.item-opt-emoji {
+  font-size: 14px;
 }
 .item-opt-name {
   flex: 1;

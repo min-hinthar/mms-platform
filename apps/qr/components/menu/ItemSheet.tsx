@@ -279,6 +279,9 @@ function ItemSheetBody({
               const isOn = chosen.includes(o.id);
               // A multi-select option at the cap that isn't already chosen can't be added.
               const disabled = !single && atMax && !isOn;
+              // W5c·r3: glyphs ride INLINE with the label (owner: "in color and inline") — leading for
+              // the add-ons pantry, trailing for the 🌶/🍯 intensity meters. aria-hidden; text carries meaning.
+              const glyph = optionGlyph(o.slug);
               return (
                 <label key={o.id} className="item-opt" data-disabled={disabled || undefined}>
                   <input
@@ -294,13 +297,19 @@ function ItemSheetBody({
                       single && g.minSelect === 0 && isOn ? () => choose(g, o.id) : undefined
                     }
                   />
-                  {optionGlyph(o.slug) && (
-                    <span className="item-opt-glyph" aria-hidden>
-                      {optionGlyph(o.slug)}
-                    </span>
-                  )}
                   <span className="item-opt-name">
+                    {glyph && !glyph.trail && (
+                      <span className="item-opt-emoji" aria-hidden>
+                        {glyph.glyph}{" "}
+                      </span>
+                    )}
                     {o.name}
+                    {glyph?.trail && (
+                      <span className="item-opt-emoji" aria-hidden>
+                        {" "}
+                        {glyph.glyph}
+                      </span>
+                    )}
                     {o.nameMy && (
                       <span className="item-opt-my" lang="my">
                         {o.nameMy}

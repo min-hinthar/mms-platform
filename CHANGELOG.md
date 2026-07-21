@@ -49,6 +49,19 @@ Min's preview feedback on #146, all four points:
 - **Official logo** — the Morning Star badge (the delivery app's shipped asset) replaces the ✦ in
   the header brand lockup; the ✦ stays the in-app accent mark elsewhere.
 
+### W5c·r3 — brand-asset pass + glyph refinements (2026-07-21)
+
+- **Badge everywhere** (owner's go on the brand follow-up): favicon (`public/icon.svg` — the badge
+  embedded, letterboxed, zero config changes), maskable PWA icon (badge inside the 80% safe zone on
+  the brand-dark field), apple-touch icon, and the OG/twitter share card all now lead with the
+  official badge (`app/_og/logo.ts` — PNG twin base64-embedded for Satori, same pattern as the
+  fonts). The ✦ remains the in-app accent mark.
+- **Glyphs inline + in color** — option emoji now ride inline with the label (leading for the
+  add-ons pantry, trailing for the intensity meters) with VS16 forcing color presentation; the
+  fixed-slot column (which clipped 🌶🌶🌶) is gone. Sweetness gains a 🍯/🍯🍯/🍯🍯🍯 meter; the top
+  spice step is renamed **"Burmese 🔥"** (owner's copy — the 🔥 lives in the option name, DB +
+  live), leaving 🌶️ → 🌶️🌶️ → Burmese 🔥 as the escalation.
+
 ### W5b — desktop rail affordances (2026-07-21)
 
 The app is a fixed phone column even on desktop, so every horizontal rail overflows there too — but
