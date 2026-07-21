@@ -2,6 +2,7 @@
 import type { MenuItem } from "./MenuBrowser";
 import { BlurUpImage } from "./BlurUpImage";
 import { PhotoPlaceholder } from "./PhotoPlaceholder";
+import { Rail } from "../Rail";
 
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -42,7 +43,7 @@ export function StartHereBand({
           {dataBacked ? "what tables love" : "our picks to start"}
         </span>
       </h2>
-      <ul role="list" className="start-here-rail" aria-labelledby="start-here-h">
+      <Rail as="ul" role="list" className="start-here-rail" aria-labelledby="start-here-h">
         {items.map((i) => (
           <li key={i.id}>
             <button type="button" className="start-here-card" onClick={() => onSelect(i)}>
@@ -68,7 +69,7 @@ export function StartHereBand({
             </button>
           </li>
         ))}
-      </ul>
+      </Rail>
     </section>
   );
 }

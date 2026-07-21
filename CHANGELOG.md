@@ -4,6 +4,21 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W5b — desktop rail affordances (2026-07-21)
+
+The app is a fixed phone column even on desktop, so every horizontal rail overflows there too — but
+a mouse can't swipe, and all seven diner rails hid their scrollbar: overflow content was unreachable
+for fine-pointer users. Two tiers, both gated to hover-capable fine pointers (touch keeps the clean
+edge-to-edge look):
+
+- **Chip rails** (`.menu-rail` category chips, `.menu-diets` dietary filters, `.aisle-rail-scroll`
+  grocery aisles) — a real, slim token-colored scrollbar returns on desktop.
+- **Card carousels** (`.start-here-rail` StartHere + Favorites, `.item-upsell-row` "Goes well
+  with", `.slot-days` pickup days) — a shared `<Rail>` shell overlays chevron nudge buttons on the
+  side(s) that actually overflow (ResizeObserver + rAF-throttled scroll measure; smooth scrollBy,
+  `auto` under reduced-motion). Nudges are aria-hidden + untabbable on purpose — keyboard/AT users
+  already reach every card by tabbing (native scroll-into-view); the buttons are a pointer-only
+  affordance.
 ### W5a — session resume: the swipe-back dead end, closed (2026-07-21)
 
 An active table/basket was invisible outside the menu (the home surfaces were order-based only),

@@ -4,6 +4,7 @@ import { Badge, Icon, Sheet, useAnimationPreference } from "@mms/ui";
 import { useCart } from "@/components/TableCartProvider";
 import { BlurUpImage } from "./BlurUpImage";
 import { PhotoPlaceholder } from "./PhotoPlaceholder";
+import { Rail } from "../Rail";
 import { itemBadges } from "@/lib/menu/badges";
 import { goesWellWith } from "@/lib/menu/upsell";
 import { passesDiets, type Diet } from "@/lib/menu/dietary";
@@ -317,7 +318,7 @@ function ItemSheetBody({
       {upsell.length > 0 && (
         <section className="item-upsell" aria-label="Goes well with">
           <h3 className="item-upsell-title">Goes well with</h3>
-          <ul className="item-upsell-row" role="list">
+          <Rail as="ul" className="item-upsell-row" role="list">
             {upsell.map((u) => (
               <li key={u.id}>
                 <button
@@ -341,7 +342,7 @@ function ItemSheetBody({
                 </button>
               </li>
             ))}
-          </ul>
+          </Rail>
         </section>
       )}
 

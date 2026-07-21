@@ -3,6 +3,7 @@ import { useEffect, useState, useTransition } from "react";
 import { Icon, Sheet, Skeleton } from "@mms/ui";
 import { getPickupSlots, setPickupSlot, type PickupSlot } from "@/lib/pickup";
 import { dayLabel, formatSlot } from "@/lib/pickupTime";
+import { Rail } from "@/components/Rail";
 
 /**
  * Pickup time picker (v7.2 "Pick a pickup time" sheet). Lists the kitchen's currently-bookable slots
@@ -118,7 +119,7 @@ export function PickupSlotSheet({
           {/* Day selector — one card per bookable day, with its available-slot count. Hidden when there's
               only a single day (no choice to make). */}
           {groups.length > 1 && (
-            <div className="slot-days" role="group" aria-label="Pickup day">
+            <Rail className="slot-days" role="group" aria-label="Pickup day">
               {groups.map((g, i) => (
                 <button
                   key={g.label}
@@ -133,7 +134,7 @@ export function PickupSlotSheet({
                   </span>
                 </button>
               ))}
-            </div>
+            </Rail>
           )}
           {/* Time grid for the selected day. */}
           <div
