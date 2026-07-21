@@ -143,9 +143,13 @@ function ItemSheetBody({
   // W3b: the kitchen note (allergy/request channel). Keyed remount (item.id) resets it with the rest of
   // the selection; bounded to the schema/column cap so the server never truncates silently.
   const [notes, setNotes] = useState("");
+  // W5c: pre-add quantity (1–9, matching the Zod bound). PRE-add by design — "−" only lowers the pending
+  // count (never touches an existing cart line), so a customized line can't be silently deleted from here
+  // (QA §D); existing lines keep their own steppers in the cart. Keyed remount resets it to 1.
+  const [qty, setQty] = useState(1);
 
   const deltaCents = selectionDeltaCents(groups, selected);
-  const totalCents = item.base_price_cents + deltaCents;
+  const totalCents = (item.base_price_cents + deltaCents) * qty;
   const valid = isSelectionValid(groups, selected);
   const soldOut = item.is_sold_out;
   // The cart is frozen server-side while a member checks out (locked) or the table settles (settling); no cart
@@ -176,11 +180,12 @@ function ItemSheetBody({
     setBusy(true);
     try {
       // Option ids only — the provider's `add` forwards to `addItem`→`priceItem`, which validates the ids
-      // against this item's groups and re-derives the charge. The client never sends a price. The kitchen
-      // note (W3b) rides along — free text, trimmed here, length-bounded again server-side.
+      // against this item's groups and re-derives the charge. The client never sends a price — `qty` (W5c)
+      // only multiplies the SERVER-priced unit, bounded again by Zod + the SQL. The kitchen note (W3b)
+      // rides along — free text, trimmed here, length-bounded again server-side.
       // Close only on SUCCESS — a refused add (expired session / locked cart / invalid selection) keeps the
       // sheet open with the diner's choices intact (the provider's live region shows the recovery message).
-      const ok = await add(item.id, selectedIds(groups, selected), notes.trim() || undefined);
+      const ok = await add(item.id, selectedIds(groups, selected), notes.trim() || undefined, qty);
       if (ok) onClose(); // Radix restores focus to the trigger row
     } finally {
       setBusy(false);
@@ -232,6 +237,11 @@ function ItemSheetBody({
       )}
 
       {item.description_en && <p className="item-sheet-desc">{item.description_en}</p>}
+      {item.description_my && (
+        <p className="item-sheet-desc-my" lang="my">
+          {item.description_my}
+        </p>
+      )}
 
       {/* Fail-safe allergen note: declared allergens (when any) + the always-on disclaimer — never
           asserts a free-from claim from absent data. W3b: the note now points at a REAL channel (the
@@ -254,7 +264,14 @@ function ItemSheetBody({
         return (
           <fieldset key={g.id} className="item-modgroup">
             <legend className="item-modgroup-legend">
-              {g.name}
+              <span className="item-modgroup-name">
+                {g.name}
+                {g.nameMy && (
+                  <span className="item-modgroup-my" lang="my">
+                    {g.nameMy}
+                  </span>
+                )}
+              </span>
               <span className="item-modgroup-hint">{hint}</span>
             </legend>
             {g.options.map((o) => {
@@ -276,7 +293,14 @@ function ItemSheetBody({
                       single && g.minSelect === 0 && isOn ? () => choose(g, o.id) : undefined
                     }
                   />
-                  <span className="item-opt-name">{o.name}</span>
+                  <span className="item-opt-name">
+                    {o.name}
+                    {o.nameMy && (
+                      <span className="item-opt-my" lang="my">
+                        {o.nameMy}
+                      </span>
+                    )}
+                  </span>
                   {o.priceDeltaCents !== 0 && (
                     <span className="item-opt-delta">{delta(o.priceDeltaCents)}</span>
                   )}
@@ -347,14 +371,55 @@ function ItemSheetBody({
       )}
 
       <div className="item-cta-bar">
-        <span className="item-cta-price">
-          {/* sr-only carries the real amount; the visible figure isn't a live region (no per-tap re-read) */}
-          <span className="sr-only">Total {dollars(totalCents)}</span>
-          <span aria-hidden>{dollars(totalCents)}</span>
-        </span>
+        {/* W5c pre-add quantity — "−" only lowers the PENDING count (min 1), so it can never silently
+            delete a customized cart line (QA §D); the CTA's accessible name re-reads the qty + total on
+            activation, so no live region is needed (the sheet keeps one region max). */}
+        {!soldOut && (
+          <div className="item-qty" role="group" aria-label="Quantity">
+            {/* aria-disabled (focusable no-op), NOT native disabled: pressing "−" at qty 2 lands on the
+                bound, and a natively-disabled button would drop keyboard/SR focus to <body> mid-
+                interaction (WCAG 2.4.3) — the same pattern the sold-out Add pill uses. */}
+            <button
+              type="button"
+              className="item-qty-btn"
+              aria-label={`One fewer ${item.name_en}`}
+              aria-disabled={blocked || qty <= 1 || undefined}
+              onClick={() => {
+                if (blocked || qty <= 1) return;
+                setQty((q) => Math.max(1, q - 1));
+              }}
+            >
+              <span aria-hidden>−</span>
+            </button>
+            <span className="item-qty-count">
+              <span className="sr-only">Quantity {qty}</span>
+              {/* Keyed remount replays the count-bounce per change (same pattern as the @mms/ui Stepper);
+                  inline-block so the transform actually applies (transforms are no-ops on inline spans). */}
+              <span
+                key={qty}
+                aria-hidden
+                className={`item-qty-digit${shouldAnimate ? " mms-pop" : ""}`}
+              >
+                {qty}
+              </span>
+            </span>
+            <button
+              type="button"
+              className="item-qty-btn"
+              aria-label={`One more ${item.name_en}`}
+              aria-disabled={blocked || qty >= 9 || undefined}
+              onClick={() => {
+                if (blocked || qty >= 9) return;
+                setQty((q) => Math.min(9, q + 1));
+              }}
+            >
+              <span aria-hidden>+</span>
+            </button>
+          </div>
+        )}
         <button
           type="button"
-          className={`item-add-btn${shouldAnimate ? " item-add-btn-anim" : ""}`}
+          className={`item-add-btn${soldOut ? " item-add-btn-solo" : ""}${shouldAnimate ? " item-add-btn-anim" : ""}`}
           disabled={blocked || !valid}
           aria-disabled={soldOut || undefined}
           aria-label={
@@ -362,14 +427,18 @@ function ItemSheetBody({
               ? `${item.name_en} is sold out`
               : !valid
                 ? `Choose your options to add ${item.name_en}`
-                : `Add ${item.name_en} to your order, ${dollars(totalCents)}`
+                : qty > 1
+                  ? `Add ${qty} × ${item.name_en} to your order, ${dollars(totalCents)}`
+                  : `Add ${item.name_en} to your order, ${dollars(totalCents)}`
           }
           onClick={() => {
             if (!canAdd) return;
             void addToOrder();
           }}
         >
-          {busy ? "Adding…" : soldOut ? "Sold out" : "Add to order"}
+          {/* v7.2 CTA anatomy: label left, live (advisory) total right, inside the one 48px button. */}
+          <span>{busy ? "Adding…" : soldOut ? "Sold out" : "Add to order"}</span>
+          {!soldOut && <span className="item-add-btn-price">{dollars(totalCents)}</span>}
         </button>
       </div>
     </div>

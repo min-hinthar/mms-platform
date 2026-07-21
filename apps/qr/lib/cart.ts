@@ -39,8 +39,9 @@ export async function addItem(
   menuItemId: string,
   modifierIds: string[] = [],
   notes?: string,
+  qty?: number,
 ) {
-  const input = addItemInput.parse({ cartId, menuItemId, modifierIds, notes });
+  const input = addItemInput.parse({ cartId, menuItemId, modifierIds, notes, qty });
   // AuthZ first: a verified member of this cart's active session, and the host hasn't locked it.
   const { uid, sessionId, locked, settling } = await assertCartMember(input.cartId);
   await assertMutationRate(uid); // per-device flood guard (P3.4) — after authz, before the write
@@ -82,6 +83,7 @@ export async function addItem(
       notes: input.notes || undefined,
     },
     uid,
+    input.qty,
   );
   await touchCart(input.cartId, "addItem");
 

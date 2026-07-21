@@ -5,11 +5,19 @@
 // MONEY RULE: every cents value here is for an ADVISORY client preview only. The charge is re-derived
 // server-side by `priceItem` on add (the client sends modifier-OPTION ids, never a price). Keep it that way.
 
-export type ModOption = { id: string; name: string; priceDeltaCents: number };
+export type ModOption = {
+  id: string;
+  name: string;
+  /** W5c: bilingual option label (nullable — absent Burmese simply doesn't render). */
+  nameMy: string | null;
+  priceDeltaCents: number;
+};
 
 export type ModGroup = {
   id: string;
   name: string;
+  /** W5c: bilingual group label (nullable — absent Burmese simply doesn't render). */
+  nameMy: string | null;
   /** "single" ⇒ radio (replace on pick); "multiple" ⇒ checkbox (up to maxSelect). */
   selectionType: "single" | "multiple";
   /** ≥1 ⇒ a choice is required (the CTA is gated until satisfied). */

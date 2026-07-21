@@ -55,12 +55,15 @@ export const setDisplayNameInput = z.object({
 const lineNotes = z.string().trim().max(160);
 
 /** addItem — the client asserts only an item id + chosen modifier OPTION ids (never a price).
- *  `notes` (W3b) rides to the kitchen verbatim; an empty/whitespace note is dropped server-side. */
+ *  `notes` (W3b) rides to the kitchen verbatim; an empty/whitespace note is dropped server-side.
+ *  `qty` (W5c, the item sheet's pre-add stepper) multiplies the SERVER-priced unit — bounded here
+ *  AND in the SQL (`mms_cart_item_inc_qty`/`insert_if_open` reject/no-op out-of-range; column CHECK ≤99). */
 export const addItemInput = z.object({
   cartId: uuid,
   menuItemId: uuid,
   modifierIds: z.array(uuid).max(20).default([]),
   notes: lineNotes.optional(),
+  qty: z.number().int().min(1).max(9).default(1),
 });
 
 /** toggleFavorite (J5) — the heart on a menu item; the DB FK re-verifies the id is a real item. */

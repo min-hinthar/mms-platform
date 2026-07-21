@@ -37,7 +37,12 @@ type CartCtx = {
    *  successful add (so the caller's serialized write-queue can thread a deterministic snapshot to its next
    *  op), or `null` if the add was refused/recovered (the item sheet stays OPEN, keeping the diner's
    *  modifier choices). A non-empty array and `null` are still truthy/falsy, so `if (await add(...))` holds. */
-  add: (menuItemId: string, modifierIds?: string[], notes?: string) => Promise<CartItem[] | null>;
+  add: (
+    menuItemId: string,
+    modifierIds?: string[],
+    notes?: string,
+    qty?: number,
+  ) => Promise<CartItem[] | null>;
   /** Set a cart line's quantity (server-authoritative `setQty`; `qty<=0` removes). Used by the menu's
    *  inline quick-qty stepper (R5c) to decrement/remove the viewer's own line without leaving the menu.
    *  Re-syncs from the returned view; a refused write (locked/closed) recovers like `add`. `announce` (the
@@ -369,18 +374,21 @@ export function TableCartProvider({
       menuItemId: string,
       modifierIds: string[] = [],
       notes?: string,
+      qty: number = 1,
     ): Promise<CartItem[] | null> => {
       if (!cartId) return null;
       // Optimistic: bump the visible count + confirm on tap, so the cart bar responds immediately
       // instead of after the round-trip. The total stays server-authoritative (no client price math),
-      // so it settles when the view returns — the count is the instant feedback.
-      setPendingDelta((n) => n + 1);
-      flash("Added to your order", 2000);
+      // so it settles when the view returns — the count is the instant feedback. `qty` (W5c sheet
+      // stepper) bumps the count by the whole pre-add quantity — one write, one flash.
+      setPendingDelta((n) => n + qty);
+      // Honest count for a multi-unit sheet add — an SR user hears how many units landed (4.1.3).
+      flash(qty > 1 ? `Added ${qty} to your order` : "Added to your order", 2000);
       try {
         // Modifier ids only (R6b sheet) — `addItem`→`priceItem` validates them against the item's groups
         // and re-derives the charge; a client-sent price is never trusted. ONE round-trip returns the view.
         // `notes` (W3b) is the kitchen note — free text, length-bounded server-side, never a price.
-        const view = await addItemAction(cartId, menuItemId, modifierIds, notes);
+        const view = await addItemAction(cartId, menuItemId, modifierIds, notes, qty);
         applyView(view);
         // Return the fresh items so a caller's serialized write-queue threads THIS add's server truth into
         // its next op (a following "−" then trims a real, current line — no stale-read snap-back).
@@ -396,7 +404,7 @@ export function TableCartProvider({
         revalidate();
         return null;
       } finally {
-        setPendingDelta((n) => n - 1);
+        setPendingDelta((n) => n - qty);
       }
     },
     [cartId, applyView, flash, revalidate],

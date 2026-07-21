@@ -549,3 +549,160 @@ on conflict (barcode) do update set
   compare_at_cents = case
     when excluded.compare_at_cents > grocery_items.price_cents then excluded.compare_at_cents
     else null end;
+
+-- ============ W5c — menu depth: bilingual descriptions + modifier labels + real modifier coverage ============
+-- Requires migration 20260721000000_w5c_menu_depth.sql (description_my / name_my columns).
+-- Idempotent both ways: value-stable UPDATEs + ON CONFLICT DO NOTHING inserts — safe to re-run locally
+-- and to apply verbatim to live (the live rows predate the seed, so the earlier inserts no-op there).
+-- ⚠️ Burmese strings are Claude-authored diaspora register — pending Min's native check (OPEN-ITEMS K15/K16).
+-- ⚠️ The NEW modifier coverage (spice on made-to-order/salad dishes, drink sweetness + temperature,
+--    rice pairing at real side prices, v7.2's soft-egg add-on) mirrors docs/prototype/v7.2.html MODS +
+--    description-promised choices (e.g. Coffee "Hot or cold") — kitchen confirmation before real service.
+
+-- ── Bilingual descriptions (all 60 items) ───────────────────────────────────────────────────────────
+update menu_items set description_my = v.d from (values
+  ('acacia-with-shrimp-curry','ပုစွန်ထည့် ကင်ပွန်းရွက်ချဥ် ကြော်ချက်။'),
+  ('balachaung','ကြက်သွန်ကြော်၊ ပုစွန်ခြောက်၊ ချင်း၊ ငရုတ်သီးနီတို့ဖြင့် ကြော်ထားသော ဘာလချောင်။'),
+  ('bamboo-shoot-mushroom-soup','မျှစ်နုနှင့် မှိုကို အရသာရှိရှိ ချက်ထားသော တောချက်ဟင်း။'),
+  ('bamboo-shoot-with-pork-soup','ဝက်သားနှင့် မျှစ်ချဥ်ကို မန်ကျည်းရည်ဖြင့် ချက်သော အချဥ်ဟင်း။'),
+  ('beef-curry','ဖြည်းဖြည်းနှပ်ချက်ထားသော မြန်မာ့အိန္ဒိယဟန် အမဲသားဟင်း။'),
+  ('beef-pounded-deep-fried','နှပ်ပြီးထောင်းထားသော အမဲသားကို ငရုတ်ဆီစပ်စပ်ဖြင့် ကြော်ချက်။'),
+  ('biriyani-dan-pauk','ကြက်သားနှင့် ဖြည်းဖြည်းချက် ဒံပေါက်ထမင်း။'),
+  ('boneless-catfish-curry','အရိုးမပါ ငါးခူကို မန်ကျည်းအနှစ်ဖြင့် မွှေချက်ထားသည်။'),
+  ('burmese-fried-rice','ကြက်ဥ၊ ကြက်သွန်၊ ပဲပြုတ်တို့ဖြင့် ကြော်ထားသော မြန်မာထမင်းကြော်။'),
+  ('burmese-milk-tea','နို့ဆီနှင့် နို့စိမ်းရောဖျော်ထားသော မြန်မာလက်ဖက်ရည် — လက်ဖက်ရည်ဆိုင်အရသာ။'),
+  ('century-egg-salad','ဆေးဘဲဥ၊ ခရမ်းချဥ်သီး၊ ကြက်သွန်နီ၊ ပဲမှုန့်တို့ဖြင့် သုပ်ထားသည် (မြေပဲနှင့် ပုစွန်ခြောက်မှုန့် ပါသည်)။'),
+  ('chicken-curry','ခြံမွေးကြက်ဖြင့် ချက်သော ကြက်သားဟင်း — ရိုးရိုး၊ မဆလာ၊ အုန်းနို့ ရွေးနိုင်သည်။'),
+  ('chicken-giblets-curry','ကြက်အသဲအမြစ်ကို ရိုးရာဟန်ချက်ထားသော ဟင်း။'),
+  ('chicken-gourd-curry','ကြက်သားနှင့် ဗူးသီးကို မြန်မာဟန် ချက်ထားသည်။'),
+  ('coconut-chicken-and-rice','အုန်းထမင်း၊ ဘာလချောင်နှင့် အုန်းဆီချက် ကြက်သားဟင်း တွဲဖက်။'),
+  ('coconut-rice','အုန်းနို့ဖြင့် ချက်ထားသော ထမင်းမွှေး။'),
+  ('coffee','ပူပူ သို့မဟုတ် ရေခဲထည့် ကော်ဖီ (၁၀ အောင်စ)။'),
+  ('crab-masala-curry','ဂဏန်းတစ်ကောင်လုံးကို မဆလာငရုတ်အနှစ်နှင့် မန်ကျည်းဖြင့် ပြုတ်ချက်။'),
+  ('duck-egg-curry','ဘဲဥပြုတ်ကို ခရမ်းချဥ်သီးအနှစ်ဖြင့် ချက်ထားသော ဟင်း။'),
+  ('everything-salad','ရေမှော်၊ ခေါက်ဆွဲ၊ အာလူး၊ ငှက်ပျောဖူး၊ သင်္ဘောသီးပါ အသုပ်စုံ (မြေပဲနှင့် ပုစွန်ခြောက်မှုန့် ပါသည်)။'),
+  ('faluda','ပူတင်း၊ ကျောက်ကျော၊ အခွံမာသီးစုံပါ မြန်မာဖါလူဒါ။'),
+  ('fermented-fish-paste-ngapi','ငပိရည်ကျိုနှင့် စားဖွယ်ဟင်းသီးဟင်းရွက်စုံ။'),
+  ('fish-paste-tomato-curry','ငါးပိကို ခရမ်းချဥ်သီး၊ ချင်း၊ ကြက်သွန်ဖြင့် ချက်ထားသည်။'),
+  ('fishcake-stuffed-salad','ဟင်းသီးဟင်းရွက်အစာသွပ် ငါးဖယ်ကြော်နှင့် ကြက်သွန်ဖြူကြော်။'),
+  ('fried-catfish-curry','ငါးခူကြော်ကို အနှစ်ဖြင့် ပြန်နှပ်ချက်ထားသည်။'),
+  ('fried-fish-cake-curry','ငါးဖယ်ကြော်ကို မန်ကျည်းအနှစ်ဖြင့် နှပ်ချက်ထားသည်။'),
+  ('goat-curry','ဆိတ်သားကို မြန်မာ့အိန္ဒိယ မဆလာဟန် နှပ်ချက် (အသား သို့ ကလီစာ ရွေးနိုင်သည်)။'),
+  ('goat-marrow-soup','ဆိတ်ရိုးတွင်းဆီ၊ ကုလားပဲ၊ အာလူးပါ စွပ်ပြုတ် — ပလာတာနှင့် အတွဲညီသည်။'),
+  ('grilled-aubergine-salad','မီးဖုတ်ခရမ်းသီးကို ကြက်သွန်၊ ငရုတ်၊ သံပရာ၊ မြေပဲဖြင့် သုပ်ထားသည်။'),
+  ('hilsa-fish','ငါးသလောက်ကို ခရမ်းချဥ်သီးအနှစ်ဖြင့် ပေါင်းချက်။'),
+  ('kyay-o','ဆန်ကြာဇံ၊ ဝက်သား၊ အသားလုံး၊ အူ၊ ဘဲဥ၊ ဟင်းနုနွယ်ပါ ကြေးအိုး — ဟင်းရည် သို့ ဆီချက်။'),
+  ('lemon-salad','ရှောက်သီးလတ်ဆတ်ဆတ်ကို ကြက်သွန်၊ ပုစွန်ခြောက်မှုန့်၊ ကြက်သွန်ဖြူကြော်ဖြင့် သုပ်ထားသည်။'),
+  ('mee-shay','မန္တလေးမြှီးရှည် — ပဲငံပြာရည်အချို၊ ဝက်သား၊ အခေါက်ကြွပ်၊ မုန်ညင်းချဥ်။'),
+  ('mixed-veggie-shrimp-stir-fry-rice','ဟင်းသီးဟင်းရွက်စုံ၊ ငုံးဥ၊ ပုစွန်တို့ကို ကြော်ချက်ကာ ထမင်းဖြူပေါ် တင်ပေးသည်။'),
+  ('mixed-veggie-soup','ဟင်းသီးဟင်းရွက်စုံကို ကုလားဟင်းဟန် အနည်းငယ်စပ်စပ် ချက်ထားသည်။'),
+  ('mohinga','ငါးဟင်းရည်နှင့် မုန့်ဖတ်၊ အကြော်စုံ၊ ဘဲဥလှီး — မြန်မာ့နံနက်စာ ဂန္ထဝင်။'),
+  ('nan-gyi-mont-ti','နန်းကြီးမုန့်ဖတ်ကို မန္တလေးကြက်သားဟင်းအနှစ်၊ ငါးဖယ်၊ အကြွပ်စုံဖြင့် သုပ်ထားသည်။'),
+  ('ngapi-rice-salad','ငပိအနှစ်နှင့် ထမင်းသုပ် — ကြက်ဥတစ်ဖက်ကြော် ပါသည်။'),
+  ('ohno-khao-swe','အုန်းနို့ကုလားပဲဟင်းရည်၊ ဂျုံခေါက်ဆွဲ၊ ကြက်ပေါင်၊ ဘဲဥ၊ အကြော်စုံပါ အုန်းနို့ခေါက်ဆွဲ။'),
+  ('parata','နှစ်ချပ်။ ဆိတ်ရိုးစွပ်ပြုတ်နှင့်ဖြစ်စေ ဟင်းများနှင့်ဖြစ်စေ တွဲစားလို့ကောင်းသည်။'),
+  ('peas-naan-pyar','ဖြည်းဖြည်းပြုတ် စားတော်ပဲနှင့် နံပြား။'),
+  ('peas-parata','စားတော်ပဲပြုတ်နှင့် ပလာတာကြွပ်ကြွပ် နှစ်ချပ်။'),
+  ('peas-steamed','ဖြည်းဖြည်းပေါင်းပြုတ်ထားသော စားတော်ပဲ — မြန်မာ့နံနက်စာ အမယ်စစ်စစ်။'),
+  ('pickled-tea-salad','လက်ဖက်နှင့် ဆလတ်၊ ပဲကြော်အကြွပ်စုံ (မြေပဲနှင့် ပုစွန်ခြောက်မှုန့် ပါသည်)။'),
+  ('pinto-beans','ပဲရေပွကို ကြက်သွန်၊ ကြက်သွန်ဖြူ၊ ဟင်းခတ်အမွှေးဖြင့် မြန်မာဟန် ကြော်ချက်။'),
+  ('pork-curry','ဝက်သနီ — အချိုအနှစ်နှင့် အစပ်သင့်ရုံချက်ထားသော ဂန္ထဝင်ဝက်သားဟင်း။'),
+  ('pork-horsegram-bean-curry','ဝက်သားကို ပုန်းရည်ကြီးနှင့် ချက်ထားသော အနံ့မွှေးဟင်း။'),
+  ('pork-offals-curry','ဝက်ကလီစာ၊ အူ၊ အသဲတို့ကို အစပ်သင့်ရုံ ချက်ထားသည်။'),
+  ('pork-skewers','ဝက်သား၊ အူ၊ အသဲကို ဆေးဖက်အမွှေးအကြိုင်ဖြင့် ဖြည်းဖြည်းနှပ်ထားသော ဒုတ်ထိုး — နှစ်စရာအနှစ်ရည် ပါသည်။'),
+  ('rakhine-mont-ti','ရခိုင်ရိုးရာ ငါးဟင်းရည်နှင့် မုန့်ဖတ်၊ ငါးဖယ်၊ ကြက်သွန်။'),
+  ('rice','ပေါင်းချက်ထားသော ထမင်းဖြူ။'),
+  ('rice-with-pickled-tea-salad','လက်ဖက်သုပ်နှင့် ထမင်းရော — ကြက်ဥတစ်ဖက်ကြော် ပါသည်။'),
+  ('river-prawns-curry','မြစ်ပုစွန်တစ်ကောင်လုံးကို ပုစွန်ဆီထွက်နှင့် မွှေးမွှေးချက်ထားသည်။'),
+  ('roselle-with-shrimp-curry','ပုစွန်ထည့် ချဥ်ပေါင်ရွက် ကြော်ချက်။'),
+  ('shan-noodles','ရှမ်းခေါက်ဆွဲ — ခရမ်းချဥ်သီးဝက်သားအနှစ်၊ မြေပဲ၊ ကြက်သွန်ဖြူကြော်၊ မုန်ညင်းချဥ်၊ ငရုတ်သီးအနှစ်။'),
+  ('snakehead-innards-curry','ငါးရံ့အူကို အနှစ်စပ်စပ်ဖြင့် ချက်ထားသည်။'),
+  ('swai-fish-curry','ငါးမြင်းကို အစပ်သင့်ရုံ အနှစ်ဖြင့် ချက်ထားသည်။'),
+  ('sweet-shrimps-curry','ပုစွန်ကို အချိုအနှစ်ဖြင့် ကြော်နှပ်ချက်။'),
+  ('tom-yum-fried-rice-or-noodles','ပုစွန်၊ ဟင်းသီးဟင်းရွက်နှင့် တုန်ရန်းအမွှေး (စပါးလင်၊ ချင်းခါး၊ ရှောက်ရွက်) ကြော်ချက်။'),
+  ('tomato-salad','အော်ဂဲနစ်ခရမ်းချဥ်သီး၊ ကြက်သွန်နီ၊ ပဲမှုန့်၊ ဆလတ်၊ ယိုးဒယားငရုတ်သီး သုပ်။')
+) as v(slug, d) where menu_items.slug = v.slug;
+
+-- ── Bilingual labels for the EXISTING modifier groups + options ─────────────────────────────────────
+update modifier_groups set name_my = v.m from (values
+  ('beef_curry_style','အမဲဟင်း ချက်နည်း'),
+  ('chicken_curry_style','ကြက်ဟင်း ချက်နည်း'),
+  ('goat_curry_cut','ဆိတ်သား ရွေးချယ်မှု'),
+  ('kyay_o_addons','ထပ်ထည့်စရာ'),
+  ('kyay_o_protein','အသား ရွေးချယ်မှု'),
+  ('kyay_o_style','ပုံစံ'),
+  ('tom_yum_base','အခြေခံရွေး')
+) as v(slug, m) where modifier_groups.slug = v.slug;
+
+update modifier_options set name_my = v.m from (values
+  ('beef_curry_style__spiced','အစပ်ချက်'),
+  ('beef_curry_style__non_spicy_braised','အစပ်မပါ ကြော်နှပ်'),
+  ('chicken_curry_style__original','ရိုးရိုး'),
+  ('chicken_curry_style__masala','မဆလာ'),
+  ('chicken_curry_style__coconut','အုန်းနို့'),
+  ('goat_curry_cut__original','ရိုးရိုးအသား'),
+  ('goat_curry_cut__offal','ကလီစာ'),
+  ('kyay_o_addons__brains','ဦးနှောက် ထပ်ထည့်'),
+  ('kyay_o_protein__pork_default','ဝက်သား (ပုံမှန်)'),
+  ('kyay_o_protein__chicken_plus_egg','ကြက်သား + ဘဲဥ'),
+  ('kyay_o_style__soup','ကြေးအိုး (ဟင်းရည်)'),
+  ('kyay_o_style__si_chat','ဆီချက် (အခြောက်)'),
+  ('tom_yum_base__fried_rice','ထမင်းကြော်'),
+  ('tom_yum_base__fried_noodles','ခေါက်ဆွဲကြော်')
+) as v(slug, m) where modifier_options.slug = v.slug;
+
+-- ── NEW modifier groups (v7.2 MODS + description-promised choices) ──────────────────────────────────
+-- All OPTIONAL except drink temperature (Coffee's own description promises "Hot or cold" — the kitchen
+-- must know, so it's required; that puts the two drinks on the "Choose" pill, everything else keeps
+-- one-tap add). Spice level rides only on made-to-order dishes (noodles/stir-fries/hand-mixed salads)
+-- and the owner-tagged spicy_optional items — batch-pot curries can't honestly promise a per-order heat.
+insert into modifier_groups (id, slug, name, name_my, selection_type, min_select, max_select) values
+  ('d5cd2b17-fc24-401e-ae41-563ba61008d3','spice_level','Spice level','အစပ်အဆင့်','single',0,1),
+  ('3d89569d-673a-4f9d-a199-95adc1d674de','sweetness','Sweetness','အချိုအဆင့်','single',0,1),
+  ('817e6de9-9ab6-4a9e-b9d5-fcfaffb4f6fa','drink_temp','Temperature','ပူ/အေး','single',1,1),
+  ('f4cb6689-cdee-450a-bea5-cc86ac9a092a','add_rice','Add rice','ထမင်း ထပ်ထည့်','single',0,1),
+  ('ffd897cc-e755-4a0d-b626-1e9c6262183d','add_egg','Add a soft egg','ဘဲဥပျော့ ထပ်ထည့်','single',0,1)
+on conflict (id) do nothing;
+
+insert into modifier_options (id, group_id, slug, name, name_my, price_delta_cents, sort_order, is_active) values
+  ('f5404218-dc4d-4717-9527-d88996ea708c','d5cd2b17-fc24-401e-ae41-563ba61008d3','spice_level__mild','Mild','အစပ်လျှော့',0,0,true),
+  ('9fb0557d-1d1e-439a-853d-93e467534047','d5cd2b17-fc24-401e-ae41-563ba61008d3','spice_level__medium','Medium','အစပ်လတ်',0,1,true),
+  ('8fdbce8c-8356-47cb-adaa-e0be4710471c','d5cd2b17-fc24-401e-ae41-563ba61008d3','spice_level__burmese_hot','Burmese hot','မြန်မာအစပ်',0,2,true),
+  ('a115864a-61f5-4c12-a419-3dd919cdb9c7','3d89569d-673a-4f9d-a199-95adc1d674de','sweetness__less_sweet','Less sweet','အချိုလျှော့',0,0,true),
+  ('61a615a7-c7a6-4350-8585-b02cb3898eaa','3d89569d-673a-4f9d-a199-95adc1d674de','sweetness__normal','Normal','ပုံမှန်',0,1,true),
+  ('0b03c9ea-332f-41b5-9835-7521734f8c3a','3d89569d-673a-4f9d-a199-95adc1d674de','sweetness__extra_sweet','Extra sweet','အချိုပို',0,2,true),
+  ('af086083-d010-416d-aff9-d970afb58346','817e6de9-9ab6-4a9e-b9d5-fcfaffb4f6fa','drink_temp__hot','Hot','ပူပူ',0,0,true),
+  ('ccc7309d-c771-4403-8536-36208b6db8e4','817e6de9-9ab6-4a9e-b9d5-fcfaffb4f6fa','drink_temp__iced','Iced','ရေခဲထည့်',0,1,true),
+  ('472a59ec-29d7-4755-b08d-6eadd77ed64b','f4cb6689-cdee-450a-bea5-cc86ac9a092a','add_rice__steamed','Steamed rice','ထမင်းဖြူ',200,0,true),
+  ('23e39b59-a4f4-4d5b-b57a-85caf7e4fdd9','f4cb6689-cdee-450a-bea5-cc86ac9a092a','add_rice__coconut','Coconut rice','အုန်းထမင်း',300,1,true),
+  ('5faa7c54-2ce4-49fc-a7f9-2802ccb5b5a0','ffd897cc-e755-4a0d-b626-1e9c6262183d','add_egg__soft_boiled','Soft-boiled egg','ဘဲဥပျော့ပြုတ်',150,0,true)
+on conflict (id) do nothing;
+
+-- Spice level → made-to-order noodle/stir-fry dishes, hand-mixed salads, + owner-tagged spicy_optional.
+insert into item_modifier_groups (item_id, group_id)
+select mi.id, 'd5cd2b17-fc24-401e-ae41-563ba61008d3'::uuid from menu_items mi where mi.slug in (
+  'shan-noodles','nan-gyi-mont-ti','mee-shay','rakhine-mont-ti','kyay-o','mohinga','ohno-khao-swe',
+  'burmese-fried-rice','mixed-veggie-shrimp-stir-fry-rice','tom-yum-fried-rice-or-noodles',
+  'pickled-tea-salad','lemon-salad','tomato-salad','grilled-aubergine-salad','century-egg-salad',
+  'everything-salad','ngapi-rice-salad','rice-with-pickled-tea-salad','fishcake-stuffed-salad',
+  'crab-masala-curry','goat-curry','mixed-veggie-soup'
+) on conflict do nothing;
+
+-- Sweetness + Temperature → the two made-to-order drinks (Faluda's build is fixed).
+insert into item_modifier_groups (item_id, group_id)
+select mi.id, g.id from menu_items mi
+cross join (values ('3d89569d-673a-4f9d-a199-95adc1d674de'::uuid), ('817e6de9-9ab6-4a9e-b9d5-fcfaffb4f6fa'::uuid)) as g(id)
+where mi.slug in ('burmese-milk-tea','coffee')
+on conflict do nothing;
+
+-- Add rice → every à-la-carte curry (the category name says it: curries come without rice).
+insert into item_modifier_groups (item_id, group_id)
+select mi.id, 'f4cb6689-cdee-450a-bea5-cc86ac9a092a'::uuid from menu_items mi
+where mi.category_id in (select id from menu_categories where slug in ('curries-a-la-carte','seafood-curries','vegetables'))
+on conflict do nothing;
+
+-- Soft egg → the noodle bowls (v7.2's add-on; Kyay-O keeps its own richer add-on group instead).
+insert into item_modifier_groups (item_id, group_id)
+select mi.id, 'ffd897cc-e755-4a0d-b626-1e9c6262183d'::uuid from menu_items mi where mi.slug in (
+  'mohinga','ohno-khao-swe','rakhine-mont-ti','mee-shay','shan-noodles','nan-gyi-mont-ti'
+) on conflict do nothing;

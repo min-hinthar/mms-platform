@@ -19,12 +19,14 @@ type RawModLink = {
   modifier_groups: {
     id: string;
     name: string;
+    name_my: string | null;
     selection_type: string;
     min_select: number;
     max_select: number;
     modifier_options: {
       id: string;
       name: string;
+      name_my: string | null;
       price_delta_cents: number;
       sort_order: number;
       is_active: boolean;
@@ -41,13 +43,19 @@ function shapeModifierGroups(links: RawModLink[] | null | undefined): ModGroup[]
     .map((g) => ({
       id: g.id,
       name: g.name,
+      nameMy: g.name_my,
       selectionType: g.selection_type === "multiple" ? ("multiple" as const) : ("single" as const),
       minSelect: g.min_select,
       maxSelect: g.max_select,
       options: [...(g.modifier_options ?? [])]
         .filter((o) => o.is_active)
         .sort((a, b) => a.sort_order - b.sort_order)
-        .map((o) => ({ id: o.id, name: o.name, priceDeltaCents: o.price_delta_cents })),
+        .map((o) => ({
+          id: o.id,
+          name: o.name,
+          nameMy: o.name_my,
+          priceDeltaCents: o.price_delta_cents,
+        })),
     }))
     .filter((g) => g.options.length > 0);
   // Required (radio) groups before optional (checkbox) ones; stable within each.
@@ -96,7 +104,7 @@ export default async function Menu({
   const { data } = await db
     .from("menu_items")
     .select(
-      "id,name_en,name_my,description_en,base_price_cents,image_url,is_sold_out,tags,allergens,menu_categories(name,sort_order),item_modifier_groups(modifier_groups(id,name,selection_type,min_select,max_select,modifier_options(id,name,price_delta_cents,sort_order,is_active)))",
+      "id,name_en,name_my,description_en,description_my,base_price_cents,image_url,is_sold_out,tags,allergens,menu_categories(name,sort_order),item_modifier_groups(modifier_groups(id,name,name_my,selection_type,min_select,max_select,modifier_options(id,name,name_my,price_delta_cents,sort_order,is_active)))",
     )
     .eq("is_active", true)
     .order("name_en");
@@ -109,6 +117,7 @@ export default async function Menu({
       name_en: i.name_en,
       name_my: i.name_my,
       description_en: i.description_en,
+      description_my: i.description_my,
       base_price_cents: i.base_price_cents,
       image_url: i.image_url,
       // Unavailable if flagged sold-out OR a required modifier group has no active options to choose from.

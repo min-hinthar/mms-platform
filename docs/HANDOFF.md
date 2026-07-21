@@ -81,6 +81,17 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >   real shelf UPCs (synthetic 299-prefix EAN-13s hold browse/search meanwhile), per-SKU photos (C5/C6).
 >   W4c (scanner craft) + W4d (exit pass) remain.
 >
+>   **W4c–W4g + W5a–W5c shipped (2026-07-18 → 07-21).** W4 closed out with the scanner craft, exit
+>   pass, sale layer (compare-at pricing, real-competitor-grounded), right-edge aisle fan-out, and the
+>   grocery editorial polish. The W5 UX-gap arc then landed: **W5a** session resume (peek endpoint,
+>   home resume cards, member-aware picker re-claim — the swipe-back dead end closed, #144),
+>   **W5b** desktop rail affordances (scrollbars + `<Rail>` chevron nudges, #145), **W5c** menu item
+>   depth (this PR): bilingual `description_my`/modifier `name_my` columns + 60/60 authored Burmese
+>   descriptions, real modifier coverage (spice/sweetness/temperature/rice/soft-egg per the honesty
+>   rules in the CHANGELOG entry), and the sheet's pre-add qty stepper (bounded Zod+SQL+CHECK).
+>   ⚠️ Needs Min: native-check the W5c Burmese batch (K15) + kitchen-confirm the modifier coverage
+>   (C11). **Next: W5d** grocery detail sheet + card density, **W5e** to-go ASAP↔scheduled at checkout.
+>
 > _(The 2026-06-29 banner below is kept as history — it pointed at the Richness track, now shipped.)_
 
 > ## ⏭️ NEXT SESSION — start here (2026-06-29)

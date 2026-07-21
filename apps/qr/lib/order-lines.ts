@@ -107,6 +107,9 @@ export async function insertOrIncLine(
   cartId: string,
   line: PricedLine,
   bySeat: string | null,
+  // W5c: the item sheet's pre-add quantity (bounded 1–9 by Zod upstream, 1–99 again in the SQL).
+  // Every other caller (quick-add, grocery scan, staff, reorder) stays at the default single unit.
+  qty: number = 1,
 ): Promise<void> {
   const db = serviceClient();
   // Merge ONLY into a still-'draft' sibling (S2.1b): an add must never fold into a line that's already
@@ -135,9 +138,15 @@ export async function insertOrIncLine(
     ? undefined
     : (siblings ?? []).find((s) => modKey(s.modifiers) === modKey(line.opts));
   if (dup) {
-    // ATOMIC `qty = qty + 1` requiring status='open' and qty<99 (can't lose an increment, can't bump a
-    // paid line, can't inflate the Stripe amount). RAISES on a closed cart; a 99-cap is a silent no-op.
-    const { error: incErr } = await db.rpc("mms_cart_item_inc_qty", { p_id: dup.id });
+    // ATOMIC `qty = least(qty + p_by, 99)` requiring status='open' and qty<99 (can't lose an increment,
+    // can't bump a paid line, can't inflate the Stripe amount). RAISES on a closed cart or an out-of-range
+    // bump; hitting the 99-cap is a silent (partial) fill — same semantics the single-unit path always had.
+    // `p_by` is spread ONLY for qty>1 (the W3 p_notes pattern): a DB that hasn't taken 20260721000000 yet
+    // still resolves every default-qty caller (quick-add, grocery, staff, reorder) — deploy-order safety.
+    const { error: incErr } = await db.rpc("mms_cart_item_inc_qty", {
+      p_id: dup.id,
+      ...(qty !== 1 ? { p_by: qty } : {}),
+    });
     if (incErr) throw new Error("Cart is no longer open");
   } else {
     const { data: insertedId } = await db.rpc("mms_cart_item_insert_if_open", {
@@ -151,7 +160,9 @@ export async function insertOrIncLine(
       // type-gen marks it non-null, so cast. NULL is a valid provenance ("no seat").
       p_by_seat: bySeat as string,
       p_fulfillment: line.fulfillment,
-      // p_notes defaults to null in SQL — omitted entirely for a plain add.
+      // p_qty/p_notes default in SQL — omitted for a plain single add, so a pre-20260721000000 DB
+      // still resolves the call (deploy-order safety; see the migration header).
+      ...(qty !== 1 ? { p_qty: qty } : {}),
       ...(line.notes ? { p_notes: line.notes } : {}),
     });
     if (!insertedId) throw new Error("Cart is no longer open");

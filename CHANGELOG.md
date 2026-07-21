@@ -4,6 +4,34 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W5c — menu item depth: bilingual data + real modifier coverage + sheet quantity (2026-07-21)
+
+The R6b item sheet + R5c stepper existed but ran on a hollow catalog: 5/60 items had modifier
+groups, zero Burmese below the name line, and the sheet had no quantity control (F8).
+
+- **Bilingual catalog columns** (migration `20260721000000`): `menu_items.description_my`,
+  `modifier_groups.name_my`, `modifier_options.name_my` — all nullable/additive. The sheet renders
+  the Burmese description under the EN line and stacked MY labels on every modifier group + option
+  (`lang="my"`, Padauk, token colors). ⚠️ All 60 descriptions + 12 group + 25 option labels are
+  Claude-authored diaspora register — pending Min's native check (OPEN-ITEMS K15).
+- **Real modifier coverage** (seed + live import): spice level (Mild/Medium/Burmese hot) on the 22
+  made-to-order noodle/stir-fry/hand-mixed-salad dishes + owner-tagged `spicy_optional` items —
+  deliberately NOT on batch-pot curries (can't honestly promise per-order heat); sweetness + a
+  required Hot/Iced choice on the two made-to-order drinks (Coffee's own description promises it);
+  "Add rice" (steamed +$2 / coconut +$3 — the real side prices) on every à-la-carte curry; v7.2's
+  soft-egg add-on (+$1.50) on the six noodle bowls. Only the two drinks move to the "Choose" pill;
+  everything else keeps one-tap add. ⚠️ Kitchen confirmation before real service (OPEN-ITEMS).
+- **Sheet quantity** (F8): a pre-add 1–9 stepper in the CTA bar — "−" only lowers the *pending*
+  count, so it can never silently delete a customized cart line (QA §D); bound buttons are
+  `aria-disabled` focusable no-ops (native `disabled` would drop keyboard/SR focus at the bound).
+  One write lands "2 × Mohinga": `addItem` gains a bounded `qty` (Zod 1–9 **+** SQL bounds; the
+  existing `qr_cart_items_qty_range 1–99` CHECK already backstops the column); the two write RPCs
+  gain defaulted `p_by`/`p_qty` params, sent **only when qty>1** (the W3 `p_notes` pattern — a
+  pre-migration DB still resolves every default caller, pinning deploy-order safety). The CTA
+  adopts v7.2's anatomy — label left, live advisory total right, inside the one button; the flash
+  announces the unit count ("Added 3 to your order"); MY descriptions join the menu search the
+  same way EN ones already did. The server still re-prices everything.
+
 ### W5b — desktop rail affordances (2026-07-21)
 
 The app is a fixed phone column even on desktop, so every horizontal rail overflows there too — but
