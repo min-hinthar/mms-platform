@@ -14,6 +14,9 @@ export type TableSession = {
   /** K2: the registered table number (1–10) this dine-in session is seated at, or null for a
    *  host-mint code / unregistered sticker / solo mode. Drives "Table 7" on the greeting + guest list. */
   tableNumber: number | null;
+  /** W5a: true when the mint CREATED a fresh session (vs rejoined) — lets a resume-intent entry
+   *  tell the diner their old table had ended instead of silently landing in an empty cart. */
+  created: boolean;
 };
 
 const DINEIN_KEY = "mms.qr.dinein";
@@ -153,6 +156,7 @@ export function useTableSession(
           role: d.role,
           joinCode: d.joinCode,
           tableNumber: d.tableNumber,
+          created: d.created,
         });
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Could not start session"))

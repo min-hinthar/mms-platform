@@ -30,9 +30,11 @@ export function useSessionPeek(): PeekSession[] | null {
           if (active) setSessions(d.sessions);
         })
         .catch(() => {
-          // Deliberate swallow: the peek is decorative (a resume card) — on failure the card just
-          // doesn't render; the diner still has every door. The mint path keeps loud errors.
-          if (active) setSessions([]);
+          // Deliberate swallow: the peek is decorative (a resume card) — on an INITIAL failure the
+          // card just doesn't render; the diner still has every door. But a failed RE-peek (tab
+          // wake on flaky wifi) must NOT wipe a rendered card / flip "Your table" back to "Seated"
+          // mid-view — keep the last-known-good list and let the next wake retry.
+          if (active) setSessions((prev) => prev ?? []);
         });
     };
     load();

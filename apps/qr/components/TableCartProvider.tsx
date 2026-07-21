@@ -97,6 +97,7 @@ export function TableCartProvider({
   joinOnly,
   door,
   table,
+  resume,
   children,
 }: {
   mode: string;
@@ -105,6 +106,10 @@ export function TableCartProvider({
   door?: string;
   /** K2: the dine-in picker's `?table=` claim param (free text — parsed to a bounded int below). */
   table?: string;
+  /** W5a: the entry came from a RESUME affordance (the home session card) — if the mint then
+   *  CREATES a fresh session (the old one expired / was cleared by staff), say so instead of
+   *  silently landing the diner in an empty cart that contradicts the card they tapped. */
+  resume?: boolean;
   children: ReactNode;
 }) {
   // Narrow the free-text `?door=` param to the analytics enum (K0) — an arbitrary query value never
@@ -264,6 +269,19 @@ export function TableCartProvider({
     setNotice(msg);
     noticeTimer.current = window.setTimeout(() => setNotice(null), ms);
   }, []);
+  // W5a — resume-intent honesty: the home card promised an existing table, but the mint CREATED a
+  // fresh session (the old one expired, or staff cleared the table — the advisory card can't know).
+  // Say so once, through the SAME single live region every notice uses (microtask-deferred, the
+  // established no-sync-setState-in-effect pattern). Without this the diner taps "Table 5 · 3 items"
+  // and silently lands in an empty cart — the opposite of the card's promise.
+  const resumeNoticed = useRef(false);
+  useEffect(() => {
+    if (!resume || !session?.created || resumeNoticed.current) return;
+    resumeNoticed.current = true;
+    void Promise.resolve().then(() =>
+      flash("That table session had ended — we’ve started a fresh one for you.", 4200),
+    );
+  }, [resume, session, flash]);
   // Cancel a pending clear-timer on unmount so it can't fire setState on an unmounted component
   // (same cancel-guard discipline as the load effects above).
   useEffect(

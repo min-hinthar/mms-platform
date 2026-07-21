@@ -183,11 +183,20 @@ export async function POST(req: NextRequest) {
       // Unique violation on table_sessions_active_qr_uniq.
       // K2: a picker CLAIM that lost the insert race to a concurrent claimant must NOT converge onto
       // their session (that's a code-free join into a stranger's party) — refuse, same as above.
-      if (tableNumber != null)
+      // W5a: UNLESS the winner is THIS seat (two of the diner's own tabs racing an empty-table
+      // claim — home resume card + picker chip): converge on our own session instead of the
+      // misleading stranger 409. host_seat is deterministic (no membership-insert race to lose).
+      if (tableNumber != null) {
+        const winner = resolvedQr ? await findActive(resolvedQr) : null;
+        if (winner && winner.host_seat === seat) {
+          sess = winner;
+          break;
+        }
         return NextResponse.json(
           { error: "That table was just seated — join with the party’s code, or pick another." },
           { status: 409 },
         );
+      }
       if (resolvedQr) {
         sess = await findActive(resolvedQr); // concurrent first-joiner won → converge on their session
         break;
@@ -308,5 +317,7 @@ export async function POST(req: NextRequest) {
     // K2: the registered table (from the session row — a JOIN reads the existing session's number,
     // a fresh mint reads the just-stamped one). Null for host-mint / unregistered / solo modes.
     tableNumber: sess.table_number,
+    // W5a: fresh-session signal for resume-intent honesty (see sessionMintOutput).
+    created,
   });
 }

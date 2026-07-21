@@ -24,9 +24,12 @@ export function TablePicker({ tables }: { tables: DineInTable[] }) {
   // see their own table as a dead "Seated" chip (and the claim 409'd). The peek marks it "Your
   // table"; tapping it goes through the same claim route, which now rejoins a member (server-side
   // member-aware claim). Advisory-only: peek failure just leaves the plain Seated state.
-  const myTable =
-    useSessionPeek()?.find((s) => s.mode === "dinein" && s.tableNumber != null)?.tableNumber ??
-    null;
+  const peeked = useSessionPeek();
+  // ALL my live tables (a seat can hold several memberships — claimed one, scanned into another):
+  // each must read "Your table"; a .find() would code-wall the diner's own second table.
+  const myTables = new Set(
+    (peeked ?? []).filter((s) => s.mode === "dinein" && s.tableNumber != null).map((s) => s.tableNumber),
+  );
 
   function claim(n: number, resuming = false) {
     posthog.capture("table_picked", { table_number: n, occupied: resuming, resumed: resuming });
@@ -72,7 +75,7 @@ export function TablePicker({ tables }: { tables: DineInTable[] }) {
       ) : (
         <ul role="list" className="table-grid" aria-label="Choose your table">
           {tables.map((t, i) => {
-            const mine = t.tableNumber === myTable;
+            const mine = myTables.has(t.tableNumber);
             return (
               <li key={t.tableNumber}>
                 <button

@@ -169,6 +169,10 @@ export const sessionMintOutput = z.object({
   // code, an unregistered/legacy sticker, or a solo mode. Drives "Table 7" on the greeting/guest
   // list/settle; the order surfaces read the denormalized qr_orders.table_number instead.
   tableNumber: z.number().int().nullable().default(null),
+  // W5a: true when this mint CREATED a fresh session (vs rejoining an existing one). Lets a
+  // resume-intent client (the home card) tell the diner honestly when their old table had ended
+  // and a fresh empty session was started, instead of silently landing them in an empty cart.
+  created: z.boolean().default(false),
 });
 
 /**

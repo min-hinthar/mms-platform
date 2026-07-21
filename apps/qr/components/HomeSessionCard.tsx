@@ -18,7 +18,11 @@ export function HomeSessionCard() {
   const sessions = useSessionPeek();
   if (!sessions || sessions.length === 0) return null;
 
-  const dinein = sessions.find((s) => s.mode === "dinein");
+  // Only a REGISTERED-table dine-in session gets a card: the ?table anchor is the authoritative
+  // rejoin. A null-table session (host-mint code) can only resume via localStorage, which may have
+  // been cleared/overwritten — a card promising resume that could mint a fresh empty session is a
+  // lie; those sessions keep their in-menu resume path instead.
+  const dinein = sessions.find((s) => s.mode === "dinein" && s.tableNumber != null);
   const solo = sessions.find((s) => s.mode !== "dinein" && s.itemCount > 0);
   const cards = [dinein, solo].filter((s): s is PeekSession => !!s);
   if (cards.length === 0) return null;
@@ -40,7 +44,7 @@ export function HomeSessionCard() {
         // the claim path is the authoritative rejoin). A solo basket with items lands on the cart
         // review directly (menu-door fallback if the open cart somehow vanished).
         const href = isDinein
-          ? `/menu?mode=dinein&door=dinein${s.tableNumber != null ? `&table=${s.tableNumber}` : ""}`
+          ? `/menu?mode=dinein&door=dinein&resume=1${s.tableNumber != null ? `&table=${s.tableNumber}` : ""}`
           : s.cartId
             ? `/cart?cart=${encodeURIComponent(s.cartId)}`
             : `/menu?mode=${s.mode}&door=togo`;
