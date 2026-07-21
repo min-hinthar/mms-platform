@@ -5482,3 +5482,83 @@ html[data-seen-surface] .mms-stagger {
     animation: none;
   }
 }
+
+/* ── W5b · Desktop rail affordances — mouse users can reach overflowing rails ─────────────────────
+   The app is a fixed phone column even on desktop, so every horizontal rail overflows there too —
+   but a mouse can't swipe, and all the rails hide their scrollbar. Two tiers, both gated to
+   hover-capable fine pointers so touch keeps the clean edge-to-edge look:
+   1) CHIP rails (.menu-rail, .menu-diets, .aisle-rail-scroll) — restore a real, slim scrollbar.
+   2) CARD carousels (.slot-days, .item-upsell-row, .start-here-rail) — chevron nudges via the
+      shared <Rail> shell (below), shown only on the side(s) that actually overflow. */
+@media (hover: hover) and (pointer: fine) {
+  .menu-rail,
+  .menu-diets,
+  .aisle-rail-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--t3) 55%, transparent) transparent;
+  }
+  .menu-rail::-webkit-scrollbar,
+  .menu-diets::-webkit-scrollbar,
+  .aisle-rail-scroll::-webkit-scrollbar {
+    display: block;
+    height: 6px;
+    background: transparent;
+  }
+  .menu-rail::-webkit-scrollbar-thumb,
+  .menu-diets::-webkit-scrollbar-thumb,
+  .aisle-rail-scroll::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--t3) 55%, transparent);
+    border-radius: var(--r-full);
+  }
+}
+
+/* The <Rail> shell: a plain positioning context around a carousel scroller; the nudges overlay the
+   visual edges. Touch never sees them (display gate below), so their 34px size is a MOUSE target —
+   the 44px touch rule doesn't apply to a control that can't render on touch. */
+.rail-shell {
+  position: relative;
+}
+.rail-nudge {
+  display: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .rail-nudge {
+    position: absolute;
+    top: 50%;
+    z-index: 1;
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border-radius: var(--r-full);
+    border: 1px solid var(--bd);
+    background: var(--cd);
+    color: var(--tx);
+    font-size: 20px;
+    line-height: 1;
+    box-shadow: var(--sh-md);
+    cursor: pointer;
+    transform: translateY(-50%);
+    transition:
+      transform var(--dur-fast) var(--ease-out),
+      box-shadow var(--dur-fast) var(--ease-out);
+  }
+  .rail-nudge-l {
+    left: -8px;
+  }
+  .rail-nudge-r {
+    right: -8px;
+  }
+  .rail-nudge:hover {
+    transform: translateY(-50%) scale(1.08);
+    box-shadow: var(--sh-lift);
+  }
+  .rail-nudge:active {
+    transform: translateY(-50%) scale(0.98);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rail-nudge {
+    transition: none;
+  }
+}

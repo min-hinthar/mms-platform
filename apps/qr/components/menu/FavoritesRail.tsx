@@ -3,6 +3,7 @@ import { Icon } from "@mms/ui";
 import type { MenuItem } from "./MenuBrowser";
 import { BlurUpImage } from "./BlurUpImage";
 import { PhotoPlaceholder } from "./PhotoPlaceholder";
+import { Rail } from "../Rail";
 
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -41,7 +42,7 @@ export function FavoritesRail({
         />
         <span className="start-here-sub">one tap back to the good stuff</span>
       </h2>
-      <ul role="list" className="start-here-rail" aria-labelledby="favorites-h">
+      <Rail as="ul" role="list" className="start-here-rail" aria-labelledby="favorites-h">
         {items.map((i) => (
           <li key={i.id}>
             <button type="button" className="start-here-card" onClick={() => onSelect(i)}>
@@ -67,7 +68,7 @@ export function FavoritesRail({
             </button>
           </li>
         ))}
-      </ul>
+      </Rail>
     </section>
   );
 }
