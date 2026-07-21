@@ -5510,6 +5510,14 @@ html[data-seen-surface] .mms-stagger {
     background: color-mix(in oklab, var(--t3) 55%, transparent);
     border-radius: var(--r-full);
   }
+
+  /* The aisle rail's decorative right edge-fade masks the element's ENTIRE painted output —
+     including this restored scrollbar (the thumb tail dissolves exactly at scroll-end). On fine
+     pointers the visible scrollbar IS the "more content" cue, so drop the fade there. */
+  .aisle-rail-scroll:not(:focus-within) {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
 }
 
 /* The <Rail> shell: a plain positioning context around a carousel scroller; the nudges overlay the
@@ -5555,6 +5563,15 @@ html[data-seen-surface] .mms-stagger {
   }
   .rail-nudge:active {
     transform: translateY(-50%) scale(0.98);
+  }
+
+  /* Asymmetric block padding on these rails (bottom-heavy for snap/scroll room) drags the 50%
+     anchor below the cards' visual center — compensate so nudges sit centered on the CARDS. */
+  .rail-shell:has(> .slot-days) .rail-nudge {
+    top: calc(50% - 6px);
+  }
+  .rail-shell:has(> .start-here-rail) .rail-nudge {
+    top: calc(50% - 4px);
   }
 }
 @media (prefers-reduced-motion: reduce) {
