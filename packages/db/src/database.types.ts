@@ -1678,6 +1678,14 @@ export type Database = {
       }
       mms_now: { Args: never; Returns: string }
       mms_open_tab: { Args: { p_cart: string }; Returns: string }
+      mms_pickup_asap: {
+        Args: { p_cart_id: string }
+        Returns: {
+          ok: boolean
+          reason: string
+        }[]
+      }
+      mms_pickup_asap_ok: { Args: never; Returns: boolean }
       mms_pickup_slots: {
         Args: { p_exclude_cart?: string }
         Returns: {

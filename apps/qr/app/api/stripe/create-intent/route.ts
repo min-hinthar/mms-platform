@@ -49,11 +49,13 @@ export async function POST(req: NextRequest) {
       );
     acquired = { cartId, uid }; // release on any post-acquire failure (below) so nothing strands
 
-    // Pickup honesty (P2.2 · W5e): a pickup order is EITHER ASAP (no slot — fires immediately at
-    // settlement via mms_fire_pending_food's null-fire_at path) OR scheduled to a still-available slot.
-    // ASAP is always valid, so the pay boundary only re-validates a slot that's actually SET — a slot can
-    // fill between selection and checkout, and capacity is server-authoritative. A null slot is no longer
-    // a rejection (the W5e checkout choice makes ASAP a first-class option, not a "pick a time first" gap).
+    // Pickup honesty (P2.2 · W5e): a pickup order is EITHER scheduled (a slot the diner picked) OR ASAP
+    // (no slot yet — "make it now"). Both are gated HERE, at the charge boundary, so a client can't dodge
+    // the kitchen's open-hours + per-slot capacity limits by forging state.
+    //   • Scheduled → re-validate the held slot still has room (it can fill between pick and pay).
+    //   • ASAP (null slot) → mms_pickup_asap atomically SNAPS the earliest bookable slot (consuming its
+    //     capacity, only within open hours / while capacity remains) and fires now (fire_at=null). If the
+    //     kitchen is closed or fully booked, ASAP is refused — never take a paid order we can't fulfill.
     const db = serviceClient();
     const { data: sess } = await db
       .from("table_sessions")
@@ -82,6 +84,22 @@ export async function POST(req: NextRequest) {
             { error: "That pickup time just filled — please pick another." },
             { status: 409 },
           );
+        }
+      } else {
+        // ASAP: snap the earliest bookable slot atomically (open-hours + capacity gate) and fire now.
+        const { data: asap, error: asapErr } = await db.rpc("mms_pickup_asap", { p_cart_id: cartId });
+        const row = asap?.[0];
+        if (asapErr || !row?.ok) {
+          await releaseCartLock(cartId, uid);
+          const msg =
+            row?.reason === "closed"
+              ? "The kitchen’s closed right now — please order during open hours."
+              : row?.reason === "full"
+                ? "Pickup’s fully booked for today — please check back tomorrow."
+                : "We couldn’t start a pickup order just now — please try again.";
+          // 409 for a genuine capacity/hours refusal (retryable state), 400 for a config/cart-state miss.
+          const status = row?.reason === "closed" || row?.reason === "full" ? 409 : 400;
+          return NextResponse.json({ error: msg }, { status });
         }
       }
     }

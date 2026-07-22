@@ -82,9 +82,26 @@ export async function setPickupSlot(cartId: string, slot: string): Promise<SetSl
 }
 
 /**
- * W5e — choose ASAP ("make it now"): clear any scheduled slot so the order fires immediately at
- * settlement (mms_fire_pending_food fires a null-fire_at to-go line now). Authorized like every
- * mutation (member + not host-locked + rate). Touches no amount — pickup_slot/fire_at are fulfillment.
+ * W5e — is the kitchen taking ASAP orders right now? (open NOW + at least one slot has room). Drives the
+ * checkout control's pre-warning so the ASAP pill never offers what the pay boundary (mms_pickup_asap)
+ * would reject. Public availability read (no diner data); server-only like getPickupSlots. Fail-CLOSED
+ * on a read miss (a false "come now" is worse than steering to Schedule) — false, not true.
+ */
+export async function getPickupAsapOk(): Promise<boolean> {
+  const { data, error } = await serviceClient().rpc("mms_pickup_asap_ok");
+  if (error) {
+    console.error("[pickup] mms_pickup_asap_ok failed", error);
+    return false;
+  }
+  return data ?? false;
+}
+
+/**
+ * W5e — toggle the cart back to ASAP ("make it now"): clear any scheduled slot to null. The actual
+ * capacity + open-hours SNAP (earliest bookable slot, fire-now) happens server-side at the CHARGE
+ * boundary (mms_pickup_asap in create-intent) so a client can't dodge it — this only records the diner's
+ * intent by clearing a stale scheduled slot. Authorized like every mutation (member + not host-locked +
+ * rate). Touches no amount — pickup_slot/fire_at are fulfillment metadata, never price.
  */
 export async function setPickupAsap(cartId: string): Promise<SetSlotResult> {
   const input = clearPickupSlotInput.parse({ cartId });

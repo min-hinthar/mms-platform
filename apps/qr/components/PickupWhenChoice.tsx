@@ -21,12 +21,17 @@ export function PickupWhenChoice({
   cartId,
   prepMinutes,
   initialSlot,
+  asapAvailable,
   onStatus,
 }: {
   cartId: string;
   prepMinutes: number;
   /** The cart's current scheduled slot (ISO), or null = ASAP. Seeds the choice from the server view. */
   initialSlot: string | null;
+  /** Server-computed: is the kitchen taking ASAP right now (open + capacity)? When false, the ASAP pill
+   *  is disabled and the diner is steered to Schedule — the pay boundary (mms_pickup_asap) would reject
+   *  ASAP anyway, so we never offer what it can't honor. */
+  asapAvailable: boolean;
   /** Route a failure into the checkout's ONE review-step live region (never a new region). */
   onStatus: (message: string | null) => void;
 }) {
@@ -37,6 +42,11 @@ export function PickupWhenChoice({
 
   function chooseAsap() {
     if (asap || busy) return; // already ASAP → no needless round-trip
+    if (!asapAvailable) {
+      // Kitchen closed / fully booked — can't go ASAP; keep the current slot and nudge to Schedule.
+      onStatus("The kitchen isn’t taking ASAP orders right now — please schedule a time.");
+      return;
+    }
     onStatus(null); // single review live region — clear any prior message first
     startAsap(async () => {
       try {
@@ -68,8 +78,15 @@ export function PickupWhenChoice({
           type="button"
           aria-pressed={asap}
           aria-busy={busy || undefined}
+          // aria-disabled (not native disabled) keeps the control focusable so a keyboard/SR user can
+          // reach it and hear WHY (the onStatus nudge) instead of the pill vanishing from the tab order.
+          aria-disabled={!asapAvailable || undefined}
           // Explicit accessible name (the visible "ASAP" initialism + emoji are decorative here).
-          aria-label={`As soon as possible — ready in about ${prepMinutes} minutes`}
+          aria-label={
+            asapAvailable
+              ? `As soon as possible — ready in about ${prepMinutes} minutes`
+              : "As soon as possible — unavailable right now, the kitchen is closed or fully booked"
+          }
           className={`checkout-pill${asap ? " checkout-pill-on" : ""}`}
           style={segStyle}
           onClick={chooseAsap}
@@ -77,7 +94,7 @@ export function PickupWhenChoice({
           <span>
             <span aria-hidden>⚡ </span>ASAP
           </span>
-          <small style={subStyle}>~{prepMinutes} min</small>
+          <small style={subStyle}>{asapAvailable ? `~${prepMinutes} min` : "Unavailable"}</small>
         </button>
         <button
           type="button"
@@ -102,10 +119,13 @@ export function PickupWhenChoice({
         </button>
       </div>
       {/* Honest confirmation of what each choice means — no fabricated countdown, just the config
-          estimate for ASAP and the chosen wall-clock time for scheduled. */}
+          estimate for ASAP and the chosen wall-clock time for scheduled. When ASAP is unavailable and no
+          slot is chosen yet, say so and steer to Schedule (the pay boundary would otherwise reject it). */}
       <p style={hintStyle}>
         {asap
-          ? `We’ll start your order right away — ready in about ${prepMinutes} minutes.`
+          ? asapAvailable
+            ? `We’ll start your order right away — ready in about ${prepMinutes} minutes.`
+            : "ASAP isn’t available right now — please schedule a pickup time above."
           : `Ready for pickup ${formatSlotLong(slot)}.`}
       </p>
       <PickupSlotSheet

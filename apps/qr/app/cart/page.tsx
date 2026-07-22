@@ -1,6 +1,6 @@
 import { TransitionLink as Link } from "@/components/nav/TransitionNav"; // J1 journey grammar
 import { getCartView } from "@/lib/cart";
-import { getPrepMinutes } from "@/lib/pickup";
+import { getPrepMinutes, getPickupAsapOk } from "@/lib/pickup";
 import { getSplitContext, type SplitContext } from "@/lib/split";
 import { Checkout } from "@/components/Checkout";
 
@@ -44,6 +44,11 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
   // live countdown). Best-effort with a sane fallback so the cart always renders.
   const prepMinutes = await getPrepMinutes().catch(() => 12);
 
+  // W5e: can the kitchen take an ASAP pickup right now (open + capacity)? Gates the checkout ASAP pill so
+  // it never offers what the pay boundary would reject. Only read for pickup carts; fail-closed elsewhere.
+  const asapAvailable =
+    split?.mode === "pickup" ? await getPickupAsapOk().catch(() => false) : false;
+
   // A settling cart with NO split context is unwinnable in the plain flow: the cart is frozen
   // table-wide, so "Continue to payment" 409s ("pay your share on the split screen") but the board
   // can't render without the context. Rather than strand the payer in that loop on a transient read
@@ -78,6 +83,7 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
       canTab={split?.mode === "dinein"}
       prepMinutes={prepMinutes}
       initialPickupSlot={view.pickupSlot}
+      asapAvailable={asapAvailable}
     />
   );
 }

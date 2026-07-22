@@ -114,6 +114,7 @@ export function Checkout({
   canTab = false,
   prepMinutes = 12,
   initialPickupSlot = null,
+  asapAvailable = true,
 }: {
   cartId: string;
   initialItems: CartItem[];
@@ -130,6 +131,8 @@ export function Checkout({
   /** W5e: the cart's scheduled pickup slot (ISO) from the server view, or null = ASAP. Seeds the
    *  checkout ASAP↔scheduled choice (pickup only). */
   initialPickupSlot?: string | null;
+  /** W5e: is the kitchen taking ASAP right now (open + capacity)? Server-computed; gates the ASAP pill. */
+  asapAvailable?: boolean;
 }) {
   const [items, setItems] = useState<CartItem[]>(initialItems);
   // Optimistic overlay on top of the server `items`: an edit shows instantly and the delta re-applies over
@@ -867,6 +870,7 @@ export function Checkout({
                 cartId={cartId}
                 prepMinutes={prepMinutes}
                 initialSlot={initialPickupSlot}
+                asapAvailable={asapAvailable}
                 onStatus={setStatus}
               />
             )}
