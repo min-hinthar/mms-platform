@@ -1,6 +1,6 @@
 "use server";
 import { serviceClient } from "@mms/db/server";
-import { setPickupSlotInput } from "@mms/db/schemas";
+import { setPickupSlotInput, clearPickupSlotInput } from "@mms/db/schemas";
 import { assertCartMember } from "./authz";
 import { withinMutationRate } from "./rate";
 import { getPostHogClient } from "./posthog-server";
@@ -77,6 +77,53 @@ export async function setPickupSlot(cartId: string, slot: string): Promise<SetSl
     distinctId: uid,
     event: "pickup_slot_set",
     properties: { cart_id: input.cartId, slot: input.slot },
+  });
+  return { ok: true };
+}
+
+/**
+ * W5e — is the kitchen taking ASAP orders right now? (open NOW + at least one slot has room TODAY). Drives
+ * the checkout control's pre-warning so the ASAP pill never offers what the pay boundary (mms_pickup_asap)
+ * would reject. `cartId` excludes THIS cart's own slot hold from the capacity check, so a diner holding the
+ * last seat of the earliest slot isn't falsely told ASAP is full. Public availability read (no diner data);
+ * server-only. Fail-CLOSED on a read miss (a false "come now" is worse than steering to Schedule).
+ */
+export async function getPickupAsapOk(cartId: string): Promise<boolean> {
+  const { data, error } = await serviceClient().rpc("mms_pickup_asap_ok", { p_cart_id: cartId });
+  if (error) {
+    console.error("[pickup] mms_pickup_asap_ok failed", error);
+    return false;
+  }
+  return data ?? false;
+}
+
+/**
+ * W5e — toggle the cart back to ASAP ("make it now"): clear any scheduled slot to null. The actual
+ * capacity + open-hours SNAP (earliest bookable slot, fire-now) happens server-side at the CHARGE
+ * boundary (mms_pickup_asap in create-intent) so a client can't dodge it — this only records the diner's
+ * intent by clearing a stale scheduled slot. Authorized like every mutation (member + not host-locked +
+ * rate). Touches no amount — pickup_slot/fire_at are fulfillment metadata, never price.
+ */
+export async function setPickupAsap(cartId: string): Promise<SetSlotResult> {
+  const input = clearPickupSlotInput.parse({ cartId });
+  const { uid, locked } = await assertCartMember(input.cartId);
+  if (!(await withinMutationRate(uid))) return { ok: false, reason: "error" };
+  if (locked) return { ok: false, reason: "locked" };
+
+  const { data, error } = await serviceClient().rpc("mms_clear_pickup_slot", {
+    p_cart_id: input.cartId,
+  });
+  if (error) {
+    console.error("[pickup] mms_clear_pickup_slot failed", error);
+    return { ok: false, reason: "error" };
+  }
+  const row = data?.[0];
+  if (!row?.ok) return { ok: false, reason: (row?.reason as "cart_closed") ?? "error" };
+
+  getPostHogClient().capture({
+    distinctId: uid,
+    event: "pickup_asap_set",
+    properties: { cart_id: input.cartId },
   });
   return { ok: true };
 }

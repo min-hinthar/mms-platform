@@ -155,6 +155,11 @@ export const setPickupSlotInput = z.object({
   slot: z.string().datetime({ offset: true }),
 });
 
+/** clearPickupSlot (W5e) — the client asks to go ASAP ("make it now"): clear any scheduled slot so the
+ *  order fires at settlement. Shape only; the server re-derives membership + the open-cart guard (in the
+ *  RPC's UPDATE). No amount — pickup_slot/fire_at are fulfillment metadata, never price. */
+export const clearPickupSlotInput = z.object({ cartId: uuid });
+
 /**
  * Shape of the `POST /api/session` RESPONSE — parsed on the client so a contract drift (a deploy
  * skew, a missing `cartId`) surfaces as a hard parse error instead of silently degrading to "no

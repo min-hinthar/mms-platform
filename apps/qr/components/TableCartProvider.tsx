@@ -146,7 +146,6 @@ export function TableCartProvider({
   const [lockedBy, setLockedBy] = useState<string | null>(null);
   const [settling, setSettling] = useState(false); // split-tender settlement freeze (P3.3b) — read-only cart
   const [slotSheetOpen, setSlotSheetOpen] = useState(false);
-  const autoOpened = useRef(false); // only auto-prompt for a slot once per mount
 
   // The diner's own display name (presence). Default "Guest"; hydrate from localStorage AFTER mount
   // (not in the initializer) so SSR and first client render agree — no hydration mismatch. The read
@@ -239,11 +238,10 @@ export function TableCartProvider({
         setLocked(v.locked);
         setLockedBy(v.lockedBy);
         setSettling(v.settling);
-        // Pickup with no slot yet → prompt once (the diner schedules before ordering, per v7.2).
-        if (isPickup && !v.pickupSlot && !autoOpened.current) {
-          autoOpened.current = true;
-          setSlotSheetOpen(true);
-        }
+        // W5e: no longer force-open the slot sheet at the menu. Pickup timing is now an explicit
+        // ASAP↔scheduled choice at CHECKOUT (ASAP is a first-class default — a null slot fires
+        // immediately at settlement), so a diner is never blocked behind "pick a time" before ordering.
+        // The slot sheet stays available on demand via `openSlotSheet` (e.g. a rail affordance).
       })
       .catch(() => {
         // Cart paid/closed between session mint and first load — leave the view empty (no throw).
@@ -251,7 +249,7 @@ export function TableCartProvider({
     return () => {
       active = false;
     };
-  }, [cartId, isPickup]);
+  }, [cartId]);
 
   // One polite live region for transactional feedback (RED-TEAM/QA). We announce a brief, STATIC
   // confirmation on success and a generic message on failure (WCAG 4.1.3 status messages) — but

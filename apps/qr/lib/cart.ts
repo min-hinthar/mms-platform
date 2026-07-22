@@ -511,6 +511,9 @@ export async function getCartView(cartId: string): Promise<{
   items: CartItem[];
   totals: CartTotals;
   pickupSlot: string | null;
+  /** The cart's fire-time (W2 pickup). NULL with a set `pickupSlot` marks an ASAP snap (fire now);
+   *  a non-null value is an intentional schedule (`slot - prep`). Lets the checkout seed ASAP vs scheduled. */
+  fireAt: string | null;
   /** Effective pay-window lock (P3.2-lock): true while a member is checking out → the UI goes
    *  read-only; `lockedBy` is that seat (map to a name via presence). null/false otherwise. */
   locked: boolean;
@@ -528,7 +531,7 @@ export async function getCartView(cartId: string): Promise<{
   const db = serviceClient();
   const { data: cart } = await db
     .from("qr_carts")
-    .select("pickup_slot,tab_type")
+    .select("pickup_slot,fire_at,tab_type")
     .eq("id", id)
     .single();
   const { data: rows } = await db
@@ -581,6 +584,7 @@ export async function getCartView(cartId: string): Promise<{
     items,
     totals: await getCartTotals(id),
     pickupSlot: cart?.pickup_slot ?? null,
+    fireAt: cart?.fire_at ?? null,
     locked,
     lockedBy,
     settling,

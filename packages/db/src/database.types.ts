@@ -1581,6 +1581,13 @@ export type Database = {
         Args: { p_id: string; p_qty: number }
         Returns: number
       }
+      mms_clear_pickup_slot: {
+        Args: { p_cart_id: string }
+        Returns: {
+          ok: boolean
+          reason: string
+        }[]
+      }
       mms_clear_reward: { Args: { p_cart: string }; Returns: undefined }
       mms_earn_on_fulfill: {
         Args: { p_earner: string; p_order: string }
@@ -1671,6 +1678,14 @@ export type Database = {
       }
       mms_now: { Args: never; Returns: string }
       mms_open_tab: { Args: { p_cart: string }; Returns: string }
+      mms_pickup_asap: {
+        Args: { p_cart_id: string }
+        Returns: {
+          ok: boolean
+          reason: string
+        }[]
+      }
+      mms_pickup_asap_ok: { Args: { p_cart_id?: string }; Returns: boolean }
       mms_pickup_slots: {
         Args: { p_exclude_cart?: string }
         Returns: {

@@ -4,6 +4,29 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W5e — to-go ASAP↔scheduled pickup choice at checkout (2026-07-22)
+
+Pickup ordering FORCED a capacity slot before the diner could order (the menu auto-opened the slot
+sheet). W5e makes **ASAP a first-class default** and moves the timing decision to an explicit choice at
+checkout — but ASAP stays honestly gated by the same open-hours + capacity limits scheduling enforces.
+
+- **`PickupWhenChoice`** (new) — a segmented **ASAP · make it now ⇆ Schedule a time** control on
+  `/cart` (pickup only; scango is self-scanned grocery, no kitchen fire). Reuses the `.checkout-pill`
+  lit-cap language; errors route into the checkout's single review-step live region (no new region);
+  the Scheduled pill's accessible name carries the full day+time; both emoji `aria-hidden`; 44px.
+- **ASAP is hours- + capacity-gated, not "no slot".** `mms_pickup_asap` (new RPC) SNAPS the earliest
+  bookable slot (consuming its capacity, only within open hours / while capacity remains — via the
+  existing `mms_pickup_slots`) yet fires **immediately** (`fire_at = null` → `mms_fire_pending_food`
+  fires it at settlement). Enforced at the **charge boundary** (create-intent) so a client can't dodge
+  it: a closed kitchen or fully-booked day refuses ASAP with an honest message rather than taking a
+  paid order it can't fulfill. `mms_pickup_asap_ok` (new) pre-warns the pill so it never offers an ASAP
+  the pay boundary would reject; `mms_clear_pickup_slot` (new) toggles a scheduled slot back to ASAP.
+- **Menu no longer force-opens the slot sheet.** `PickupSlotChip` now reads **"Pickup · ASAP · Schedule ›"**
+  — an optional upgrade, not a required gate; a diner is never blocked behind "pick a time" to order.
+
+Money-invariant held: `pickup_slot`/`fire_at` are fulfillment metadata, never read by `getCartTotals` —
+choosing ASAP vs scheduled moves no amount. Migration `20260722000000`.
+
 ### W5d — grocery detail sheet + denser cards (2026-07-22)
 
 The grocery card carried everything (photo + name + brand/size + price + unit + EBT + a full-width
