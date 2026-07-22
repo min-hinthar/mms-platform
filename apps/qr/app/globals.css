@@ -4480,7 +4480,8 @@ html[data-seen-surface] .mms-stagger {
    need one too, or Shift+Tabbing up the grid parks a focused control behind the pinned bar. Only on
    mobile (the rail is static ≥ md, where these reset to 0). ~90px ≈ the rail's height. */
 @media (max-width: 767.98px) {
-  .gcard-add,
+  .gcard-fab,
+  .gcard-open,
   .gcard-stepper .grocery-step-btn {
     scroll-margin-top: calc(
       var(--header-height) + env(safe-area-inset-top, 0px) + var(--lend-offset, 0px) + 90px
@@ -4517,16 +4518,51 @@ html[data-seen-surface] .mms-stagger {
   margin: 0;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  /* W5d density: tighter gutter than the W4 10px so more of the ~400-SKU market lands above the fold. */
+  gap: 8px;
 }
 .gcard {
+  /* W5d layout vars — the FAB/stepper anchor off these, so the float tracks the photo automatically
+     (no magic offset). --gcard-pad = card padding, --gcard-photo-h = the (capped) photo height. */
+  --gcard-pad: 8px;
+  --gcard-photo-h: 132px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  /* Gap for the loading SKELETON (its .gcard-photo + .gcard-body are direct children). A real card's
+     only in-flow child is the single .gcard-open button (FAB/stepper are absolute), so this is a no-op
+     there — .gcard-open carries its own 8px gap. */
+  gap: 8px;
+  padding: var(--gcard-pad);
+}
+/* W5d — the whole card is one button that opens the detail sheet (the FAB/stepper is a non-nested
+   sibling floating over the photo). Button reset + the old card column layout. */
+.gcard-open {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 10px;
+  width: 100%;
+  /* flex:1 so the button fills the grid-stretched card, and its `.gcard-body` (flex:1) + `.gcard-foot`
+     (margin-top:auto) still pin the price block to the card bottom — the chain the wrapper interrupts. */
+  flex: 1;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.gcard-open:focus-visible {
+  outline: 2px solid var(--ac);
+  outline-offset: 3px;
+  border-radius: 12px;
 }
 .gcard-photo {
-  aspect-ratio: 1;
+  display: block;
+  /* W5d: a fixed, less-dominant photo (was a full 1:1 square ≈52% of the card) — drops photo share to
+     ~44% so more price/unit/CTA enters the first viewport, and gives the FAB a deterministic anchor. */
+  height: var(--gcard-photo-h);
   border-radius: 12px;
   overflow: hidden;
   background: var(--grad);
@@ -4545,7 +4581,9 @@ html[data-seen-surface] .mms-stagger {
   flex: 1;
 }
 .gcard-name {
-  font-size: var(--fs-sm);
+  /* W5d (G17 "name-weight bump to menu scale"): 13px → 15px for scannability, keeping the 2-line
+     clamp + 700 weight (a dense card leads with a legible name). */
+  font-size: 15px;
   font-weight: 700;
   line-height: 1.25;
   display: -webkit-box;
@@ -4594,8 +4632,10 @@ html[data-seen-surface] .mms-stagger {
   font-size: 1.075rem;
   color: var(--ac-strong);
 }
+/* W5d (G17): unit price on its OWN line under the price (was inline in the wrap-prone price row). */
 .gcard-unit {
-  font-size: 11px;
+  display: block;
+  font-size: 12px;
   color: var(--t3);
   font-variant-numeric: tabular-nums;
 }
@@ -4609,48 +4649,136 @@ html[data-seen-surface] .mms-stagger {
   border-radius: 5px;
   padding: 0 4px;
 }
-.gcard-add {
-  min-height: 44px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
+/* ── W5d · quick-add FAB + floating stepper (density: no full-width CTA row) ─────────────────────── */
+/* Both anchor to the card (position:relative) and sit fully INSIDE the photo's bottom-right corner —
+   computed off the layout vars so they track the photo, never overlapping the body text below. As
+   siblings of `.gcard-open` (not nested), tapping them adds; tapping the card opens the sheet. */
+.gcard-action {
+  position: absolute;
+  right: var(--gcard-pad);
+  top: calc(var(--gcard-pad) + var(--gcard-photo-h) - 44px - 6px);
+  z-index: 1;
+}
+.gcard-fab {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
   border: none;
   border-radius: var(--r-full);
   background: var(--ac);
   color: var(--oa);
-  font: inherit;
+  font-size: 24px;
   font-weight: 800;
+  line-height: 1;
   cursor: pointer;
-  box-shadow: inset 0 1px 0 var(--sheen);
-  /* Press answers with a spring scale-down (CSS, not 395 framer buttons — keeps the memo'd grid
-     cheap; RM-gated below). Brings the menu's tactile Add to the grocery grid. */
+  /* A solid accent disc reads on ANY photo; a ring lifts it off busy imagery (no blur — mobile GPU). */
+  box-shadow:
+    0 0 0 2px var(--pg),
+    var(--sh);
   transition:
     transform var(--dur-fast) var(--ease-out),
-    background var(--dur-fast) var(--ease-out),
     opacity var(--dur-fast) var(--ease-out);
 }
-.gcard-add:active {
-  transform: scale(0.95);
+.gcard-fab:active {
+  transform: scale(0.92);
 }
-.gcard-add[aria-disabled="true"] {
+.gcard-fab[aria-disabled="true"] {
   opacity: 0.55;
   cursor: default;
 }
-.gcard-add[aria-disabled="true"]:active {
+.gcard-fab[aria-disabled="true"]:active {
   transform: none;
 }
-.gcard-add[data-busy] {
+.gcard-fab[data-busy] {
   opacity: 0.55;
 }
+/* Carted → the stepper floats in the same corner on a solid pill so it's legible over the photo.
+   The −/+ stay a full 44px (touch-target minimum — never shrink them); the pill reclaims corner space
+   by dropping its own gap/padding instead. Pill height ≈ 44 + 2·2 = 48px, still seated inside the
+   132px photo band via the shared `.gcard-action` top offset. */
+.gcard-stepper.gcard-action {
+  gap: 0;
+  padding: 2px;
+  border-radius: var(--r-full);
+  background: var(--pg);
+  box-shadow:
+    0 0 0 1px var(--bd),
+    var(--sh);
+}
+.gcard-stepper.gcard-action .grocery-step-btn {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
 @media (prefers-reduced-motion: reduce) {
-  .gcard-add {
+  .gcard-fab {
     transition: none;
   }
-  .gcard-add:active {
+  .gcard-fab:active {
     transform: none;
   }
 }
+
+/* ── W5d · grocery detail sheet (sheet-scale twin of the card; reuses .item-hero/.item-cta-bar) ──── */
+/* Aisle badge + brand·size line. */
+.gsheet-facts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.gsheet-meta {
+  font-size: 13px;
+  color: var(--t2);
+}
+/* The Save% pill on the sheet hero sits top-left like the card's, at hero scale. */
+.gsheet-sale {
+  top: 12px;
+  left: 12px;
+  font-size: 12px;
+}
+/* Price block at sheet scale — bigger than the card's, price on its own line, unit beneath. */
+.gsheet-price {
+  margin-top: 14px;
+}
+.gsheet-price-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.gsheet-price-num {
+  font-size: 1.6rem;
+}
+.gsheet-unit {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--t3);
+  font-variant-numeric: tabular-nums;
+}
+/* EBT eligibility stated as a FACT (not a payment method — tender is 2027). */
+.gsheet-ebt {
+  margin: 14px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--t2);
+}
+/* The sheet CTA fills the sticky bar (Add) or centres the stepper (carted). */
+.gsheet-add {
+  width: 100%;
+}
+.gsheet-stepper {
+  width: 100%;
+  justify-content: center;
+  gap: 8px;
+}
+.gsheet-qty {
+  min-width: 40px;
+  font-size: 18px;
+}
+
 /* The stepper that replaces Add on first add pops in (mounts fresh, so the animation plays once). */
 .gcard-stepper {
   justify-content: center;

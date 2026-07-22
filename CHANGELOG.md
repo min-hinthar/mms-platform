@@ -4,6 +4,31 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W5d — grocery detail sheet + denser cards (2026-07-22)
+
+The grocery card carried everything (photo + name + brand/size + price + unit + EBT + a full-width
+Add pill), making it tall + sparse for a ~400-SKU market, and there was no detail view. W5d adds a
+detail sheet and reclaims the card density it enables.
+
+- **`GroceryItemSheet`** (new, sibling of the menu `ItemSheet`) — reuses the `@mms/ui` Sheet
+  (Radix focus-trap + swipe-to-close) + the `.item-hero`/`.item-cta-bar` CSS + the keyed-body /
+  focus-on-swap choreography. Shows the hero photo (aisle-icon fallback), bilingual name, aisle
+  Badge, brand·size, a sheet-scale price block (compare-at strike + Save% + unit price, all via the
+  honest `saleInfo`/`unitPriceLabel`), and **EBT as an eligibility fact** ("Eligible for EBT/SNAP",
+  never "pay with EBT" — 2027 tender). Add/step route through the **same `onAdd`/`onStep`** the cards
+  use — one server-priced money path, no second add surface; kept open on add (swaps to the stepper).
+- **Card density** — the whole card is a `.gcard-open` button (opens the sheet); a **44px circular
+  quick-add FAB** (non-nested sibling) floats in the photo corner, replacing the full-width Add pill;
+  **unit price on its own line** (G17); **name 13→15px** to menu scale (G17); photo capped 1:1→132px
+  (less dominant); grid/pad tightened. Card ~335→305px, more of the market above the fold.
+- **a11y (pre-PR adversarial pass, all fixed before PR):** the card button's accessible name folds in
+  the glanceable scan facts (price · sale% · unit · EBT) so an SR user scanning for sales/EBT staples
+  doesn't have to open every sheet; the carted floating stepper keeps **full 44px** buttons (the pill
+  reclaims corner space, not the targets); the sheet mirrors the card's Add→stepper focus handoff;
+  `PhotoPlaceholder` is a `<span>` (valid inside the card button); the last-unit-remove search-refocus
+  no longer fights the open sheet's focus trap.
+
+
 ### W5c — menu item depth: bilingual data + real modifier coverage + sheet quantity (2026-07-21)
 
 The R6b item sheet + R5c stepper existed but ran on a hollow catalog: 5/60 items had modifier

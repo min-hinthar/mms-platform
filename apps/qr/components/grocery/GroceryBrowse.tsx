@@ -13,6 +13,7 @@ import {
   unitPriceLabel,
 } from "@/lib/grocery-aisles";
 import { AisleFanNav } from "@/components/grocery/AisleFanNav";
+import { GroceryItemSheet } from "@/components/grocery/GroceryItemSheet";
 import { useHideOnScrollDown } from "@/lib/hooks/useHideOnScrollDown";
 
 /**
@@ -48,6 +49,10 @@ export const GroceryBrowse = memo(function GroceryBrowse({
   const [catalog, setCatalog] = useState<GroceryCatalogItem[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [aisle, setAisle] = useState<string | null>(null);
+  // W5d — the item the detail sheet is showing (null = closed). Lives INSIDE the memo'd grid (the
+  // catalog does too), so opening re-renders this grid once on a deliberate tap — not per keystroke
+  // (the parent's search box can't reach in; the memo still guards typing). Mirrors MenuBrowser.
+  const [sheetItem, setSheetItem] = useState<GroceryCatalogItem | null>(null);
   // MED-1 (adversarial review): when a card's Add lands, its button unmounts and the stepper takes
   // its place — park keyboard/SR focus on the new "+" instead of dropping it to <body>. The ref
   // holds the barcode whose stepper should claim focus on mount.
@@ -233,72 +238,94 @@ export const GroceryBrowse = memo(function GroceryBrowse({
                   // (don't delay off-screen cards). RM off-switch rides `.mms-stagger`.
                   style={{ animationDelay: `${Math.min(i, 6) * 35}ms` }}
                 >
-                  <div className="gcard-photo">
-                    {/* Loud "Save %" pill only for a meaningful markdown (≥15%) so the market doesn't
-                        read as a wall of uniform bargains; the honest inline "Compare at" strike
-                        below still shows on every real sale. */}
-                    {sale && sale.pct >= 15 && (
-                      <span className="gcard-sale" aria-hidden>
-                        Save {sale.pct}%
-                      </span>
-                    )}
-                    {item.imageUrl ? (
-                      <BlurUpImage
-                        src={item.imageUrl}
-                        alt=""
-                        width={160}
-                        height={160}
-                        sizes="(max-width: 440px) 45vw, 160px"
-                        fallback={<PhotoPlaceholder icon={a!.icon} variant="hero" />}
-                      />
-                    ) : (
-                      <PhotoPlaceholder icon={a!.icon} variant="hero" />
-                    )}
-                  </div>
-                  <div className="gcard-body">
-                    <span className="gcard-name">{item.name}</span>
-                    {item.nameMy && (
-                      <span className="gcard-name-my" lang="my">
-                        {item.nameMy}
-                      </span>
-                    )}
-                    {(item.brand || size) && (
-                      <span className="gcard-meta">
-                        {[item.brand, size].filter(Boolean).join(" · ")}
-                      </span>
-                    )}
-                    <div className="gcard-foot">
-                      {/* VISIBLE "Compare at $X" caption (market-comparison framing on the sighted
-                          surface — a bare struck number reads as our own former price, which we
-                          never claim). */}
-                      {sale && (
-                        <span className="gcard-compare" aria-hidden>
-                          Compare at <s>{dollars(sale.compareAtCents)}</s>
+                  {/* W5d — the whole card opens the detail sheet. ONE button wraps photo + body; the
+                      quick-add FAB / stepper is a SIBLING below (never nested — no button-in-button),
+                      and floats over the photo corner via CSS. A button collapses its subtree for the
+                      a11y name, so the glanceable scan facts a sighted shopper sees (price, sale, EBT,
+                      unit price) are folded into the accessible NAME — else an SR user scanning the
+                      ~400-SKU grid for sales/EBT staples would have to open every sheet (W4e/W4a
+                      glanceability holds for SR too). MY name stays visual (EN carries the name here,
+                      mirroring the menu row) to avoid an English SR mispronouncing the Burmese. */}
+                  <button
+                    type="button"
+                    className="gcard-open"
+                    aria-label={[
+                      item.name,
+                      [item.brand, size].filter(Boolean).join(" · ") || null,
+                      price,
+                      sale ? `on sale, compare at ${dollars(sale.compareAtCents)}, save ${sale.pct}%` : null,
+                      unit,
+                      item.ebt ? "EBT eligible" : null,
+                    ]
+                      .filter(Boolean)
+                      .join(", ") + " — view details"}
+                    onClick={() => setSheetItem(item)}
+                  >
+                    <span className="gcard-photo">
+                      {/* Loud "Save %" pill only for a meaningful markdown (≥15%) so the market doesn't
+                          read as a wall of uniform bargains; the honest inline "Compare at" strike
+                          below still shows on every real sale. */}
+                      {sale && sale.pct >= 15 && (
+                        <span className="gcard-sale" aria-hidden>
+                          Save {sale.pct}%
                         </span>
                       )}
-                      <span className="gcard-price-row">
-                        <b className={sale ? "gcard-price gcard-price-sale" : "gcard-price"}>
-                          {price}
-                        </b>
-                        {/* sr-only: the visible <b> already voices the charged price, so this omits
-                            it (matches the search-hit companion) — no double-speak. */}
+                      {item.imageUrl ? (
+                        <BlurUpImage
+                          src={item.imageUrl}
+                          alt=""
+                          width={160}
+                          height={160}
+                          sizes="(max-width: 440px) 45vw, 160px"
+                          fallback={<PhotoPlaceholder icon={a!.icon} variant="hero" />}
+                        />
+                      ) : (
+                        <PhotoPlaceholder icon={a!.icon} variant="hero" />
+                      )}
+                    </span>
+                    <span className="gcard-body">
+                      <span className="gcard-name">{item.name}</span>
+                      {item.nameMy && (
+                        <span className="gcard-name-my" lang="my">
+                          {item.nameMy}
+                        </span>
+                      )}
+                      {(item.brand || size) && (
+                        <span className="gcard-meta">
+                          {[item.brand, size].filter(Boolean).join(" · ")}
+                        </span>
+                      )}
+                      <span className="gcard-foot">
+                        {/* VISIBLE "Compare at $X" caption (market-comparison framing on the sighted
+                            surface — a bare struck number reads as our own former price, which we
+                            never claim). */}
                         {sale && (
-                          <span className="sr-only">
-                            {" "}
-                            compare at {dollars(sale.compareAtCents)}, save {sale.pct}%
+                          <span className="gcard-compare" aria-hidden>
+                            Compare at <s>{dollars(sale.compareAtCents)}</s>
                           </span>
                         )}
-                        {unit && <small className="gcard-unit">{unit}</small>}
-                        {item.ebt && <small className="gcard-ebt">EBT</small>}
+                        {/* aria-hidden: all of this (price, sale, EBT) is announced via the open
+                            button's accessible name above — inside a button the subtree is not
+                            separately reachable, so exposing it here would be dead markup. Kept purely
+                            visual for sighted shoppers. */}
+                        <span className="gcard-price-row" aria-hidden>
+                          <b className={sale ? "gcard-price gcard-price-sale" : "gcard-price"}>
+                            {price}
+                          </b>
+                          {item.ebt && <small className="gcard-ebt">EBT</small>}
+                        </span>
+                        {/* W5d (G17): unit price on its OWN line under the price — deterministic, never
+                            wrap-shuffled inline. Null-honest: renders nothing when size is unknown. */}
+                        {unit && <span className="gcard-unit">{unit}</span>}
                       </span>
-                    </div>
-                  </div>
+                    </span>
+                  </button>
                   {line ? (
                     // In the cart → the same stepper anatomy/handlers as the basket rows (per-CARD
                     // busy = aria-disabled + parent early-return, never `disabled` — keeps keyboard
                     // focus alive and doesn't dim the other 394 cards during one op).
                     <span
-                      className="grocery-stepper gcard-stepper"
+                      className="grocery-stepper gcard-stepper gcard-action"
                       role="group"
                       aria-label={`${item.name} quantity`}
                       data-busy={busyLineId === line.lineId || undefined}
@@ -334,8 +361,8 @@ export const GroceryBrowse = memo(function GroceryBrowse({
                   ) : (
                     <button
                       type="button"
-                      className="gcard-add"
-                      aria-label={`Add ${item.name} — ${price}`}
+                      className="gcard-fab gcard-action"
+                      aria-label={`Add ${item.name} to basket — ${price}`}
                       aria-disabled={!canAdd || addingBarcode !== null}
                       data-busy={addingBarcode === item.barcode || undefined}
                       onClick={() => {
@@ -347,7 +374,7 @@ export const GroceryBrowse = memo(function GroceryBrowse({
                         onAdd(item);
                       }}
                     >
-                      <span aria-hidden>+</span> Add
+                      <span aria-hidden>+</span>
                     </button>
                   )}
                 </li>
@@ -361,6 +388,21 @@ export const GroceryBrowse = memo(function GroceryBrowse({
           narrows to a single aisle (nothing to jump between). Its own state re-renders only itself,
           never the memo'd card grid. */}
       <AisleFanNav aisles={sections.map((s) => s.aisle!)} />
+
+      {/* W5d — one shared detail sheet fed the tapped item (mirrors MenuBrowser). Its Add/step route
+          through the SAME onAdd/onStep the cards use — one money path, no second add surface. Fed the
+          live cart line so its CTA is Add-vs-stepper reactive; busy flags mirror the card's. */}
+      <GroceryItemSheet
+        item={sheetItem}
+        line={(sheetItem && lineByBarcode.get(sheetItem.barcode)) || null}
+        canAdd={canAdd}
+        adding={!!sheetItem && addingBarcode === sheetItem.barcode}
+        stepping={busyLineId !== null}
+        open={sheetItem !== null}
+        onClose={() => setSheetItem(null)}
+        onAdd={onAdd}
+        onStep={onStep}
+      />
     </>
   );
 });
