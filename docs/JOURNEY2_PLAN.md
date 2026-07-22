@@ -274,9 +274,15 @@ re-pin is a `breakdown: session_created.door` on the existing insights:
 | Funnel                    | Steps (verbatim events)                                                                                       | Split     |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------- | --------- |
 | Dine-in commitment        | `session_created` → `item_added_to_cart` → `send_to_kitchen` → `payment_intent_created` → `payment_succeeded` | by `door` |
-| Pickup commitment         | `session_created` → `item_added_to_cart` → `pickup_slot_set` → `payment_intent_created` → `payment_succeeded` | by `door` |
+| Pickup commitment         | `session_created` → `item_added_to_cart` → `pickup_when_confirmed` → `payment_intent_created` → `payment_succeeded` | by `door` |
 | Grocery speed-run         | `session_created` → `grocery_item_scanned` → `grocery_checkout_clicked` → `payment_succeeded`                 | by `door` |
 | Client entry (cookieless) | `mode_selected` → `menu_item_add_clicked`                                                                     | by `door` |
+
+> **W5g note:** the Pickup-commitment timing step is `pickup_when_confirmed` (emitted at the create-intent
+> pay boundary with `when: asap|scheduled`), **not** `pickup_slot_set`. Since W5e made ASAP the default and
+> W5f routes all To-go through pickup, the common path picks ASAP and fires no client-side slot event — so
+> the old `pickup_slot_set` step showed a false drop-off. `pickup_when_confirmed` is hit by BOTH the ASAP
+> (server-snapped) and scheduled paths, and its `when` property gives the ASAP-vs-scheduled split for free.
 
 **Known honest gaps (unchanged posture from J0/J6):**
 
