@@ -4689,10 +4689,13 @@ html[data-seen-surface] .mms-stagger {
 .gcard-fab[data-busy] {
   opacity: 0.55;
 }
-/* Carted → the stepper floats in the same corner on a solid pill so it's legible over the photo. */
+/* Carted → the stepper floats in the same corner on a solid pill so it's legible over the photo.
+   The −/+ stay a full 44px (touch-target minimum — never shrink them); the pill reclaims corner space
+   by dropping its own gap/padding instead. Pill height ≈ 44 + 2·2 = 48px, still seated inside the
+   132px photo band via the shared `.gcard-action` top offset. */
 .gcard-stepper.gcard-action {
-  gap: 2px;
-  padding: 3px;
+  gap: 0;
+  padding: 2px;
   border-radius: var(--r-full);
   background: var(--pg);
   box-shadow:
@@ -4700,8 +4703,6 @@ html[data-seen-surface] .mms-stagger {
     var(--sh);
 }
 .gcard-stepper.gcard-action .grocery-step-btn {
-  width: 40px;
-  height: 40px;
   border: none;
   background: transparent;
   box-shadow: none;

@@ -90,7 +90,13 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >   descriptions, real modifier coverage (spice/sweetness/temperature/rice/soft-egg per the honesty
 >   rules in the CHANGELOG entry), and the sheet's pre-add qty stepper (bounded Zod+SQL+CHECK).
 >   ⚠️ Needs Min: native-check the W5c Burmese batch (K15) + kitchen-confirm the modifier coverage
->   (C11). **Next: W5d** grocery detail sheet + card density, **W5e** to-go ASAP↔scheduled at checkout.
+>   (C11). **W5d shipped (2026-07-22):** the grocery **detail sheet** (`GroceryItemSheet`, reuses the
+>   menu Sheet + hero/CTA CSS; hero · bilingual name · aisle badge · brand·size · honest price/compare-at/
+>   unit block · EBT-as-eligibility; one money path via the same `onAdd`/`onStep`) + a **card-density**
+>   pass (whole-card `.gcard-open` button → sheet, 44px quick-add FAB replacing the full-width pill, unit
+>   price on its own line, name 13→15px, photo 1:1→132px). Closes the G17 density asks; **G18** (grocery
+>   desktop-widen past the 440 phone column) deferred as its own slice. **Next: W5e** to-go ASAP↔scheduled
+>   at checkout (the last of the W5 UX-gap arc).
 >
 > _(The 2026-06-29 banner below is kept as history — it pointed at the Richness track, now shipped.)_
 

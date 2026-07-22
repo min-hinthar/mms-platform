@@ -240,12 +240,24 @@ export const GroceryBrowse = memo(function GroceryBrowse({
                 >
                   {/* W5d — the whole card opens the detail sheet. ONE button wraps photo + body; the
                       quick-add FAB / stepper is a SIBLING below (never nested — no button-in-button),
-                      and floats over the photo corner via CSS. Concise accessible name (the sheet has
-                      the full facts); the price rides along so the name isn't a bare word. */}
+                      and floats over the photo corner via CSS. A button collapses its subtree for the
+                      a11y name, so the glanceable scan facts a sighted shopper sees (price, sale, EBT,
+                      unit price) are folded into the accessible NAME — else an SR user scanning the
+                      ~400-SKU grid for sales/EBT staples would have to open every sheet (W4e/W4a
+                      glanceability holds for SR too). MY name stays visual (EN carries the name here,
+                      mirroring the menu row) to avoid an English SR mispronouncing the Burmese. */}
                   <button
                     type="button"
                     className="gcard-open"
-                    aria-label={`${item.name}, ${price} — view details`}
+                    aria-label={[
+                      item.name,
+                      price,
+                      sale ? `on sale, compare at ${dollars(sale.compareAtCents)}, save ${sale.pct}%` : null,
+                      unit,
+                      item.ebt ? "EBT eligible" : null,
+                    ]
+                      .filter(Boolean)
+                      .join(", ") + " — view details"}
                     onClick={() => setSheetItem(item)}
                   >
                     <span className="gcard-photo">
@@ -291,18 +303,14 @@ export const GroceryBrowse = memo(function GroceryBrowse({
                             Compare at <s>{dollars(sale.compareAtCents)}</s>
                           </span>
                         )}
-                        <span className="gcard-price-row">
+                        {/* aria-hidden: all of this (price, sale, EBT) is announced via the open
+                            button's accessible name above — inside a button the subtree is not
+                            separately reachable, so exposing it here would be dead markup. Kept purely
+                            visual for sighted shoppers. */}
+                        <span className="gcard-price-row" aria-hidden>
                           <b className={sale ? "gcard-price gcard-price-sale" : "gcard-price"}>
                             {price}
                           </b>
-                          {/* sr-only: the visible <b> already voices the charged price, so this omits
-                              it (matches the search-hit companion) — no double-speak. */}
-                          {sale && (
-                            <span className="sr-only">
-                              {" "}
-                              compare at {dollars(sale.compareAtCents)}, save {sale.pct}%
-                            </span>
-                          )}
                           {item.ebt && <small className="gcard-ebt">EBT</small>}
                         </span>
                         {/* W5d (G17): unit price on its OWN line under the price — deterministic, never

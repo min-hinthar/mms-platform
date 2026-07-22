@@ -160,8 +160,10 @@ export default function Grocery() {
           : cur.map((l) => (l.lineId === line.lineId ? { ...l, qty: nextQty } : l)),
       );
       // A removed row unmounts under the finger/focus — park focus on the stable search input
-      // (the addHit pattern) so keyboard/SR diners aren't dropped to <body>.
-      if (nextQty <= 0) searchRef.current?.focus();
+      // (the addHit pattern) so keyboard/SR diners aren't dropped to <body>. BUT not while the W5d
+      // detail sheet is open: its Radix FocusScope owns focus and swaps the sheet's stepper→Add in
+      // place, so yanking focus to the (inert, background) search input would fight the trap.
+      if (nextQty <= 0 && !document.querySelector(".mms-sheet")) searchRef.current?.focus();
       flash(nextQty <= 0 ? `Removed ${line.name}` : `${line.name} × ${nextQty}`);
       let wrote = false;
       try {

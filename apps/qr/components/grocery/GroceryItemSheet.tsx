@@ -102,6 +102,12 @@ function GroceryItemSheetBody({
     rootRef.current?.closest<HTMLElement>(".mms-sheet")?.scrollTo({ top: 0 });
   }, [rootRef]);
 
+  // W5d — when the shopper taps Add IN the sheet, that button unmounts and the stepper takes its
+  // place; park focus on the new "+" instead of dropping it to <body> (WCAG 2.4.3, the card's MED-1
+  // handoff). Armed only on a real add attempt (same gate the CTA enforces); the "+" callback ref
+  // claims it once, on mount.
+  const pendingFocus = useRef(false);
+
   const aisle = item.category ? aisleBySlug.get(item.category) : undefined;
   const size = sizeLabel(item.sizeQty, item.sizeUnit);
   const unit = unitPriceLabel(item.priceCents, item.sizeQty, item.sizeUnit);
@@ -201,6 +207,14 @@ function GroceryItemSheetBody({
               className="grocery-step-btn"
               aria-label={`One more ${item.name}`}
               aria-disabled={stepping || line.qty >= 99}
+              // Claims focus when this stepper just replaced the sheet's Add button the shopper
+              // activated (runs once, on mount) — mirrors the card's MED-1 handoff.
+              ref={(el) => {
+                if (el && pendingFocus.current) {
+                  pendingFocus.current = false;
+                  el.focus();
+                }
+              }}
               onClick={() => {
                 if (stepping || line.qty >= 99) return;
                 onStep(line, line.qty + 1);
@@ -217,6 +231,9 @@ function GroceryItemSheetBody({
             aria-label={`Add ${item.name} to your basket, ${price}`}
             onClick={() => {
               if (!canAdd || adding) return;
+              // Arm the focus handoff only on a real attempt — the "+" that mounts after this add
+              // claims focus (so a refused add can't leave it armed to steal focus later).
+              pendingFocus.current = true;
               onAdd(item);
             }}
           >

@@ -23,7 +23,10 @@ export function PhotoPlaceholder({
   variant?: "thumb" | "hero";
 }) {
   return (
-    <div className="photo-ph" aria-hidden>
+    // A <span> (not a div) so the placeholder is valid PHRASING content when it renders inside a
+    // button — the W5d grocery card wraps the photo in a `.gcard-open` button, and a flow <div> there
+    // is an invalid content model. `.photo-ph` already sets `display: grid`, so the layout is unchanged.
+    <span className="photo-ph" aria-hidden>
       <Icon
         name={icon ?? (category ? categoryIconName(category) : "cat-dish")}
         size={variant === "hero" ? 46 : 26}
@@ -31,6 +34,6 @@ export function PhotoPlaceholder({
         className="photo-ph-glyph"
       />
       <span className="photo-ph-mark">✦</span>
-    </div>
+    </span>
   );
 }
