@@ -34,6 +34,7 @@ import { TimelineStrip } from "./TableTimeline";
 import { SendToKitchenButton } from "./SendToKitchenButton";
 import { SecureTabButton } from "./SecureTabButton";
 import { RewardField } from "./RewardField";
+import { PickupWhenChoice } from "./PickupWhenChoice";
 import { WalletChip } from "./WalletChip";
 import { useRewardsBadge } from "@/lib/useRewardsBadge";
 import { openTab } from "@/lib/tabs";
@@ -112,6 +113,7 @@ export function Checkout({
   initialTabType = "none",
   canTab = false,
   prepMinutes = 12,
+  initialPickupSlot = null,
 }: {
   cartId: string;
   initialItems: CartItem[];
@@ -125,6 +127,9 @@ export function Checkout({
   canTab?: boolean;
   /** S4.2: configured kitchen prep estimate (min) for the to-go "ready in ~X" copy. Honest config value. */
   prepMinutes?: number;
+  /** W5e: the cart's scheduled pickup slot (ISO) from the server view, or null = ASAP. Seeds the
+   *  checkout ASAP↔scheduled choice (pickup only). */
+  initialPickupSlot?: string | null;
 }) {
   const [items, setItems] = useState<CartItem[]>(initialItems);
   // Optimistic overlay on top of the server `items`: an edit shows instantly and the delta re-applies over
@@ -185,6 +190,9 @@ export function Checkout({
   // never shows it (the table IS the identity). Prefilled from the diner's saved display name.
   const sessionMode = splitContext?.mode ?? null;
   const isTakeout = sessionMode === "pickup" || sessionMode === "scango";
+  // W5e — the ASAP↔scheduled timing choice is pickup-only: pickup lines fire to the KITCHEN (so timing
+  // matters), whereas scango is self-scanned grocery retail (no kitchen fire to schedule).
+  const isPickupMode = sessionMode === "pickup";
   const [firstName, setFirstName] = useState("");
   useEffect(() => {
     if (!isTakeout) return;
@@ -850,6 +858,18 @@ export function Checkout({
               appliedRewardCents={totals.rewardCents}
               onChanged={() => void refresh()}
             />
+
+            {/* W5e: the pickup timing choice — ASAP (fire now, ready ~prep min) ⇆ a scheduled slot.
+                Pickup only (scango is self-scanned grocery, no kitchen fire to schedule). Errors route
+                into the single review-step live region below via onStatus. */}
+            {isPickupMode && (
+              <PickupWhenChoice
+                cartId={cartId}
+                prepMinutes={prepMinutes}
+                initialSlot={initialPickupSlot}
+                onStatus={setStatus}
+              />
+            )}
 
             {/* W3e: the takeout call-out name — one optional field, so the expo and the ready board
                 can call "Aye Aye" instead of a hex code. Never shown for dine-in (the table is the

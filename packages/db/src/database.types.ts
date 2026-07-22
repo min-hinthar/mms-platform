@@ -1581,6 +1581,13 @@ export type Database = {
         Args: { p_id: string; p_qty: number }
         Returns: number
       }
+      mms_clear_pickup_slot: {
+        Args: { p_cart_id: string }
+        Returns: {
+          ok: boolean
+          reason: string
+        }[]
+      }
       mms_clear_reward: { Args: { p_cart: string }; Returns: undefined }
       mms_earn_on_fulfill: {
         Args: { p_earner: string; p_order: string }

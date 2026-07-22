@@ -49,8 +49,11 @@ export async function POST(req: NextRequest) {
       );
     acquired = { cartId, uid }; // release on any post-acquire failure (below) so nothing strands
 
-    // Pickup honesty (P2.2): a pickup order must hold a still-available slot. Re-check at the pay
-    // boundary — a slot can fill between selection and checkout, and capacity is server-authoritative.
+    // Pickup honesty (P2.2 · W5e): a pickup order is EITHER ASAP (no slot — fires immediately at
+    // settlement via mms_fire_pending_food's null-fire_at path) OR scheduled to a still-available slot.
+    // ASAP is always valid, so the pay boundary only re-validates a slot that's actually SET — a slot can
+    // fill between selection and checkout, and capacity is server-authoritative. A null slot is no longer
+    // a rejection (the W5e checkout choice makes ASAP a first-class option, not a "pick a time first" gap).
     const db = serviceClient();
     const { data: sess } = await db
       .from("table_sessions")
@@ -63,24 +66,23 @@ export async function POST(req: NextRequest) {
         .select("pickup_slot")
         .eq("id", cartId)
         .single();
-      if (!cart?.pickup_slot) {
-        await releaseCartLock(cartId, uid);
-        return NextResponse.json({ error: "Pick a pickup time first." }, { status: 400 });
-      }
-      // Exclude THIS cart's own hold so we're asking "is there still room for me", not double-counting.
-      // NOTE(soft-cap): this is a plain read, not advisory-locked like mms_set_pickup_slot — under a
-      // last-seat race two carts can both pass here and both pay. That's the deliberate accepted soft-cap
-      // (a hard cap at fulfillment would strand an already-charged diner; see migration 0100's note); the
-      // lead time makes the overlap window small. We over-accept by design rather than reject a paid order.
-      const { data: slots } = await db.rpc("mms_pickup_slots", { p_exclude_cart: cartId });
-      const slotMs = new Date(cart.pickup_slot).getTime();
-      const open = (slots ?? []).some((s) => new Date(s.slot_time).getTime() === slotMs);
-      if (!open) {
-        await releaseCartLock(cartId, uid);
-        return NextResponse.json(
-          { error: "That pickup time just filled — please pick another." },
-          { status: 409 },
-        );
+      if (cart?.pickup_slot) {
+        // Scheduled: re-validate the held slot still has room. Exclude THIS cart's own hold so we're
+        // asking "is there still room for me", not double-counting.
+        // NOTE(soft-cap): this is a plain read, not advisory-locked like mms_set_pickup_slot — under a
+        // last-seat race two carts can both pass here and both pay. That's the deliberate accepted soft-cap
+        // (a hard cap at fulfillment would strand an already-charged diner; see migration 0100's note); the
+        // lead time makes the overlap window small. We over-accept by design rather than reject a paid order.
+        const { data: slots } = await db.rpc("mms_pickup_slots", { p_exclude_cart: cartId });
+        const slotMs = new Date(cart.pickup_slot).getTime();
+        const open = (slots ?? []).some((s) => new Date(s.slot_time).getTime() === slotMs);
+        if (!open) {
+          await releaseCartLock(cartId, uid);
+          return NextResponse.json(
+            { error: "That pickup time just filled — please pick another." },
+            { status: 409 },
+          );
+        }
       }
     }
 

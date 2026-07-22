@@ -77,6 +77,7 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
       initialTabType={view.tabType}
       canTab={split?.mode === "dinein"}
       prepMinutes={prepMinutes}
+      initialPickupSlot={view.pickupSlot}
     />
   );
 }

@@ -1,6 +1,6 @@
 "use server";
 import { serviceClient } from "@mms/db/server";
-import { setPickupSlotInput } from "@mms/db/schemas";
+import { setPickupSlotInput, clearPickupSlotInput } from "@mms/db/schemas";
 import { assertCartMember } from "./authz";
 import { withinMutationRate } from "./rate";
 import { getPostHogClient } from "./posthog-server";
@@ -77,6 +77,35 @@ export async function setPickupSlot(cartId: string, slot: string): Promise<SetSl
     distinctId: uid,
     event: "pickup_slot_set",
     properties: { cart_id: input.cartId, slot: input.slot },
+  });
+  return { ok: true };
+}
+
+/**
+ * W5e — choose ASAP ("make it now"): clear any scheduled slot so the order fires immediately at
+ * settlement (mms_fire_pending_food fires a null-fire_at to-go line now). Authorized like every
+ * mutation (member + not host-locked + rate). Touches no amount — pickup_slot/fire_at are fulfillment.
+ */
+export async function setPickupAsap(cartId: string): Promise<SetSlotResult> {
+  const input = clearPickupSlotInput.parse({ cartId });
+  const { uid, locked } = await assertCartMember(input.cartId);
+  if (!(await withinMutationRate(uid))) return { ok: false, reason: "error" };
+  if (locked) return { ok: false, reason: "locked" };
+
+  const { data, error } = await serviceClient().rpc("mms_clear_pickup_slot", {
+    p_cart_id: input.cartId,
+  });
+  if (error) {
+    console.error("[pickup] mms_clear_pickup_slot failed", error);
+    return { ok: false, reason: "error" };
+  }
+  const row = data?.[0];
+  if (!row?.ok) return { ok: false, reason: (row?.reason as "cart_closed") ?? "error" };
+
+  getPostHogClient().capture({
+    distinctId: uid,
+    event: "pickup_asap_set",
+    properties: { cart_id: input.cartId },
   });
   return { ok: true };
 }
