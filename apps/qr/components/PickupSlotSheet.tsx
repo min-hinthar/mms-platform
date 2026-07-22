@@ -82,7 +82,8 @@ export function PickupSlotSheet({
   const dayTimes = groups[activeDay]?.slots ?? [];
   // Organize the selected day's times into daypart sections (🌅 Morning · ☀️ Afternoon · 🌆 Evening)
   // so a long 15-min grid reads as scannable blocks. `soonestSlot` = the single earliest bookable slot
-  // across all days (groups[0].slots[0]) — only surfaced while its own day (Today) is selected.
+  // (groups[0].slots[0]) — surfaced only while the FIRST bookable day is selected (usually Today, but
+  // Tomorrow if today's slots are all gone; either way it's the genuinely-soonest pickup).
   const dayParts = groupByPart(dayTimes);
   const soonestSlot = activeDay === 0 ? groups[0]?.slots[0]?.slot : undefined;
 
