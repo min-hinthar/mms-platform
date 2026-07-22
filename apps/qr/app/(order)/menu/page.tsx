@@ -95,7 +95,7 @@ export default async function Menu({
   // (join-only — a wrong code must NOT mint a phantom table). Both are the dine-in session key (M3·P3.1).
   // `reorder` (J5) = a past order id to bring back once the cart is ready (validated + earner-gated
   // server-side in reorderOrder; the client only relays the id). `door` (K0/K1) = the diner-facing
-  // entrance for analytics only (never authz) — the TogoDoor sends door=togo for both scango & pickup.
+  // entrance for analytics only (never authz) — the To-go door sends door=togo on the pickup mode.
   const { mode = "scango", t, j, reorder, door, table, resume } = await searchParams;
   const code = t ?? j;
   const joinOnly = !t && !!j;

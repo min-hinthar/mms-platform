@@ -1,5 +1,4 @@
 import { ModeCard } from "@/components/ModeCard";
-import { TogoDoor } from "@/components/TogoDoor";
 import { JoinTable } from "@/components/JoinTable";
 import { HomeHero } from "@/components/HomeHero";
 import { HomeResumeCard } from "@/components/HomeResumeCard";
@@ -7,10 +6,15 @@ import { HomeSessionCard } from "@/components/HomeSessionCard";
 
 // Entry — the house's three doors (K1, Journey II): Dine-in · To-go · Grocery. The internal mode
 // values (dinein|scango|pickup — a DB CHECK) do NOT migrate; presentation moves, plumbing stays.
-// To-go is one door with Now/Schedule decided inside it (see TogoDoor). Grocery is a first-class
-// peer door (no longer a separated afterthought). The `door` param rides to the menu → session mint
-// (K0) so the three-door IA stays funnel-able even where two doors share an internal mode. A scanned
-// table sticker still deep-links straight past this to /menu?mode=dinein&t=<token>.
+// To-go is ONE door → the pickup menu; the now-vs-scheduled decision lives at CHECKOUT (W5e's
+// PickupWhenChoice), not up front. It used to fork Now (scango) / Schedule (pickup) inside a
+// disclosure, but that split predated W5e: pickup couldn't do ASAP, so "Now" had to route to scango.
+// W5e made pickup fire immediately (ASAP snaps the earliest slot), so "Now" is just pickup-ASAP —
+// the door fork was asking "when" before the diner had seen the menu AND re-asking it at checkout.
+// Collapsing it defers "when" to the one place it's actionable. Grocery stays its own scan-and-go
+// door. The `door` param rides to the menu → session mint (K0) so the IA stays funnel-able even
+// where two doors share an internal mode. A scanned table sticker still deep-links straight past
+// this to /menu?mode=dinein&t=<token>.
 export default function Entry() {
   return (
     <main
@@ -47,7 +51,16 @@ export default function Entry() {
           description="Pick your table, invite friends, order together"
           index={3}
         />
-        <TogoDoor index={4} />
+        <ModeCard
+          mode="pickup"
+          door="togo"
+          href="/menu?mode=pickup&door=togo"
+          emoji="🥡"
+          name="To-go"
+          my="ပါဆယ်ယူရန်"
+          description="Order ahead for pickup — now or scheduled"
+          index={4}
+        />
         <ModeCard
           mode="grocery"
           door="grocery"

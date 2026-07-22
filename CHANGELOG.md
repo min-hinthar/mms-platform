@@ -4,6 +4,22 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W5f — collapse the To-go door fork (decide "when" at checkout) (2026-07-22)
+
+The To-go door was a disclosure that forked **Now** (→ scango) vs **Schedule for later** (→ pickup)
+*before* the diner had seen the menu — then W5e re-asked the same question at checkout. That fork
+predated W5e: pickup couldn't fire immediately, so "Now" had to route to scango. W5e removed that
+constraint (ASAP snaps the earliest slot and fires now), making "Now" just pickup-ASAP — so the door
+fork was redundant, and choosing "Schedule for later" then landed on an ASAP-defaulted checkout.
+
+- **To-go is now one door** → the pickup menu; the ASAP↔scheduled decision lives solely at **checkout**
+  (`PickupWhenChoice`, W5e) — the one place it's actionable. Model: doors = *what you're doing*
+  (Dine-in · To-go · Grocery), checkout = *when*.
+- `TogoDoor` (disclosure component) + all `.togo-*` CSS removed; the door is now a plain `ModeCard`
+  link, identical to Dine-in/Grocery. The **"Now → scango" food path is dropped** (owner-confirmed
+  workaround); scango mode stays for the separate Grocery scan-and-go door.
+- Net −172 lines. No money/DB/RLS surface touched — pure entry-IA simplification.
+
 ### W5e — to-go ASAP↔scheduled pickup choice at checkout (2026-07-22)
 
 Pickup ordering FORCED a capacity slot before the diner could order (the menu auto-opened the slot
