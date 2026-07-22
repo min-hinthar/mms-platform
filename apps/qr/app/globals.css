@@ -871,6 +871,61 @@ h3 {
   font-weight: 600;
   color: var(--warn);
 }
+/* Daypart sections (🌅 Morning · ☀️ Afternoon · 🌆 Evening) — organize the flat time grid into
+   scannable blocks. Header = emoji + label + a muted count pushed to the right. */
+.slot-parts {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.slot-part {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.slot-part-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+.slot-part-emoji {
+  font-size: 15px;
+  line-height: 1;
+}
+.slot-part-label {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  color: var(--tx);
+}
+.slot-part-count {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--t3);
+}
+.slot-time-h {
+  font-variant-numeric: tabular-nums; /* even column widths as the meridian/minutes change */
+}
+/* Soonest slot — the single earliest bookable time, lit as a lightly-filled accent chip with a small
+   ⚡ tag above the time, so a diner who wants "as soon as I can schedule it" spots it instantly. */
+.slot-time-soonest {
+  min-height: 56px; /* room for the tag line above the time (and a "left" badge if also low) */
+  border-color: var(--ac);
+  background: color-mix(in srgb, var(--ac) 12%, var(--cd));
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    0 0 14px -8px var(--glow-gold);
+}
+.slot-soonest-tag {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ac-strong);
+  line-height: 1;
+}
 @media (prefers-reduced-motion: reduce) {
   .slot-day,
   .slot-time {

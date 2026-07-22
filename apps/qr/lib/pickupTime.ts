@@ -32,3 +32,21 @@ export function formatSlotLong(iso: string): string {
   const day = dayLabel(iso);
   return day === "Today" ? formatSlot(iso) : `${day} ${formatSlot(iso)}`;
 }
+
+export type DayPart = { key: "morning" | "afternoon" | "evening"; label: string; emoji: string };
+
+/** Which part of the day a slot falls in (shop tz), for grouping the picker into scannable sections.
+ *  Morning < 12pm · Afternoon 12–5pm · Evening 5pm+. The emoji is decorative (aria-hidden at render). */
+export function dayPart(iso: string): DayPart {
+  // hour12:false → 0–23 in the shop's wall clock (pickup hours are ~10–19, so no midnight edge here).
+  const hour = Number(
+    new Date(iso).toLocaleString("en-US", {
+      hour: "numeric",
+      hour12: false,
+      timeZone: RESTAURANT_TZ,
+    }),
+  );
+  if (hour < 12) return { key: "morning", label: "Morning", emoji: "🌅" };
+  if (hour < 17) return { key: "afternoon", label: "Afternoon", emoji: "☀️" };
+  return { key: "evening", label: "Evening", emoji: "🌆" };
+}
