@@ -74,11 +74,15 @@ add-ons group; all fixed before merge (migration `20260721120000`, live-applied)
   line**, so the fail-safe free-from claim can't be silently broken. Conservative tags (over-warn is the
   safe direction; kitchen refines in C11): Balachaung→shellfish, eggs→egg, Mohinga Soup→fish+egg,
   Ohn-Noh Soup + Veggie Fritters→gluten.
-- **Cross-category tax (MED, money)** — the add-ons are all hot prepared food but folded into the parent
-  line's single tax category, so a hot add-on on a **cold to-go salad** rode the salad's exemption (CDTFA
-  under-collection). `modifier_options.tax_category` + `priceItem` now returns the line as **tax parts**
-  (`sumLineTax`) — each add-on delta taxed on its own category (null inherits the parent). Same-category
-  lines round identically to before; a hot side on a cold to-go salad now collects its ~39¢.
+- **Cross-category tax (MED, money) — documented, not code-fixed** — the add-ons are all hot prepared
+  food but a line carries ONE tax category, so a hot add-on on a **cold to-go salad** rides the salad's
+  exemption (small CDTFA under-collection). The first attempt fed a per-part `tax_cents` into the line,
+  but `getCartTotals` (the charge authority) reads `tax_cents` only as a **boolean** taxable flag and
+  taxes the **whole** `unit_price_cents` — so that would have **over-charged** the entire salad+add-on
+  line. Reverted to the single-category-per-line model (correct in 3 of 4 cases; under-collects only the
+  hot-side-on-cold-to-go case). `modifier_options.tax_category` is **staged** for the real fix (a per-line
+  taxable-base engine — its own milestone); the residual is now a documented known limitation (OPEN-ITEMS
+  C11), same class as the accepted iced-drink nuance. _(Caught by the Codex PR review — credit where due.)_
 - **Self-pairings (MED, UX)** — the blanket add-ons mapping offered flagship dishes their own component
   (Mohinga → "Mohinga Soup", Ohn-Noh Khao Swe → "Ohn-Noh Soup", Coconut Chicken & Rice → "Coconut Rice"
   + "Balachaung"). Unlinked from those three (50→47 item links; live + seed).

@@ -1,7 +1,6 @@
 import "server-only";
 import { serviceClient } from "@mms/db/server";
 import type { TaxCategory, LineFulfillment } from "@mms/db";
-import type { TaxPart } from "./tax";
 
 /**
  * Server-authoritative line pricing + insert, shared by the diner cart (lib/cart.ts addItem) and the
@@ -47,19 +46,11 @@ export async function priceItem(
 
   let addCents = 0;
   let optLabels: string[] = [];
-  let chosen: {
-    id: string;
-    name: string;
-    price_delta_cents: number;
-    group_id: string;
-    tax_category: string | null;
-  }[] = [];
+  let chosen: { id: string; name: string; price_delta_cents: number; group_id: string }[] = [];
   if (modifierIds.length) {
     const { data: opts } = await db
       .from("modifier_options")
-      // W5c: tax_category rides each option so a hot add-on can be taxed on its OWN category (a hot
-      // side on a cold to-go salad is taxable even though the salad isn't). null ⇒ inherit the parent.
-      .select("id,name,price_delta_cents,group_id,tax_category")
+      .select("id,name,price_delta_cents,group_id")
       .eq("is_active", true)
       .in("id", modifierIds);
     chosen = (opts ?? []).filter((m) => allowedGroups.has(m.group_id));
@@ -78,19 +69,12 @@ export async function priceItem(
     }
   }
 
-  const parentCategory = item.tax_category as TaxCategory;
-  // W5c: the line as tax PARTS — base at the item's category + each add-on delta at its own category
-  // (null ⇒ inherit the parent). `sumLineTax` buckets same-category parts, so a line with no
-  // cross-category add-on taxes EXACTLY as before; only a hot side on a cold parent now taxes correctly.
-  const taxParts: TaxPart[] = [{ cents: item.base_price_cents, category: parentCategory }];
-  for (const m of chosen)
-    taxParts.push({ cents: m.price_delta_cents, category: (m.tax_category as TaxCategory) ?? parentCategory });
-
   return {
     name: item.name_en,
     unitPriceCents: item.base_price_cents + addCents,
-    category: parentCategory,
-    taxParts,
+    // Single tax category per line (see lib/tax.ts): a modifier's price delta inherits the parent
+    // item's category — the charge authority (getCartTotals) can't express a partial taxable base.
+    category: item.tax_category as TaxCategory,
     opts: optLabels,
   };
 }

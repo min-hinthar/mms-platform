@@ -23,22 +23,18 @@ export function isTaxable(category: TaxCategory, dineIn: boolean): boolean {
 }
 
 // amountCents → taxCents (integer), rounded to the nearest cent.
+//
+// ⚠️ Tax is SINGLE-CATEGORY PER LINE by architecture: `getCartTotals` (the charge authority) reads
+// each cart line's stored `tax_cents` only as a BOOLEAN taxable-or-not flag and taxes the FULL
+// `unit_price_cents` — it has no per-line taxable-base breakdown, and the SQL fulfillment-toggle
+// recompute (`mms_set_line_fulfillment`) can't reconstruct one (modifiers fold into `unit_price_cents`
+// at insert; only their labels persist). So a modifier's price delta inherits its PARENT line's tax
+// category. Known limitation: a HOT add-on on a COLD to-go parent (Mohinga Soup on a to-go salad) rides
+// the parent's exemption and is under-taxed — see docs/OPEN-ITEMS.md C11; the correct fix is a per-line
+// taxable-base engine change (own milestone), not a line-storage tweak (which would only mislead the
+// boolean authority — the W5c pre-merge attempt did exactly that and OVER-charged the whole line).
 export function lineTax(amountCents: number, category: TaxCategory, dineIn: boolean): number {
   return isTaxable(category, dineIn) ? Math.round(amountCents * RATE) : 0;
-}
-
-// W5c: a priced line can span more than one tax category — a hot add-on (e.g. Mohinga Soup) on a
-// COLD salad is taxable to-go even though the salad isn't. `priceItem` returns the line as parts (base
-// at the item's category + each add-on delta at its OWN category, null → inherit the parent), and this
-// sums the tax per part. Same-category parts collapse into one bucket first, so a line with no
-// cross-category add-on rounds EXACTLY as the old single `lineTax(unitPrice, category)` did.
-export type TaxPart = { cents: number; category: TaxCategory };
-export function sumLineTax(parts: TaxPart[], dineIn: boolean): number {
-  const byCategory = new Map<TaxCategory, number>();
-  for (const p of parts) byCategory.set(p.category, (byCategory.get(p.category) ?? 0) + p.cents);
-  let tax = 0;
-  for (const [category, cents] of byCategory) tax += lineTax(cents, category, dineIn);
-  return tax;
 }
 
 export const taxRate = () => RATE;

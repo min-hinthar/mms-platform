@@ -782,8 +782,9 @@ update menu_items set description_en = v.d from (values
 -- Requires migration 20260721120000_w5c_modifier_allergen_tax.sql. Value-stable + idempotent.
 -- Allergen tags are CONSERVATIVE (over-warn is the safe direction; kitchen refines in the C11 pass):
 --   Balachaung→shellfish, eggs→egg, Mohinga Soup→fish+egg, Ohn-Noh Soup + Veggie Fritters→gluten.
--- All 8 add-ons are HOT prepared food → tax_category='hot_prepared' so a hot add-on on a COLD to-go
--- parent is taxed correctly (priceItem taxes each delta at its own category).
+-- All 8 add-ons are HOT prepared food → tax_category='hot_prepared'. STAGED metadata only (records the
+-- add-on category for a future per-line taxable-base tax engine); NOT yet consumed — the charge authority
+-- taxes per-line single-category today, so a hot add-on on a cold to-go parent is under-taxed (OPEN-ITEMS C11).
 update modifier_options set tax_category = 'hot_prepared'
   where group_id = 'ad144971-f0d5-4095-8d24-43d2bf774fe5';
 

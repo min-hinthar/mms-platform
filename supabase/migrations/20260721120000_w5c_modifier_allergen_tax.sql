@@ -7,9 +7,13 @@
 --     Fix: carry per-option `allergens` so the item sheet can surface "contains shellfish" on the option
 --     row + fold a chosen add-on's allergens into the item's Contains line (fail-safe honesty preserved).
 --  2) TAX (MED): the add-ons are all HOT prepared food, but they fold into the parent line's single
---     tax_category — so a hot add-on on a COLD to-go salad rode the salad's to-go exemption (CDTFA under-
---     collection, restaurant-unfavorable). Fix: `tax_category` per option; `priceItem` taxes each add-on
---     delta at its OWN category (null = inherit the parent, so nothing changes for same-category adds).
+--     tax_category — so a hot add-on on a COLD to-go salad rides the salad's to-go exemption (CDTFA under-
+--     collection, restaurant-unfavorable). `tax_category` per option is STAGED here for the real fix but
+--     is NOT yet consumed: the charge authority (`getCartTotals`) reads each line's `tax_cents` only as a
+--     boolean taxable flag and taxes the full `unit_price_cents`, so a partial taxable base can't be
+--     expressed without a per-line taxable-base engine change (its own milestone — docs/OPEN-ITEMS.md C11).
+--     Feeding a per-part `tax_cents` into that boolean authority OVER-charges the whole line, so the code
+--     keeps the single-category-per-line model for now; this column records the intended add-on category.
 --
 -- Both columns are nullable/defaulted + additive — no read path changes shape, every existing row is valid.
 

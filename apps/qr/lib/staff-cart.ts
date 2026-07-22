@@ -9,7 +9,7 @@ import {
   staffAddItemInput,
 } from "@mms/db/schemas";
 import { requireStaff } from "./staff";
-import { sumLineTax } from "./tax";
+import { lineTax } from "./tax";
 import { getCartTotals } from "./totals";
 import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
 import { paymentInFlightReason } from "./pay-guard";
@@ -76,9 +76,8 @@ export async function staffAddItem(raw: unknown): Promise<StaffWriteResult> {
 
   try {
     const dineIn = session.mode === "dinein";
-    const { name, unitPriceCents, taxParts, opts } = await priceItem(menuItemId, modifierIds);
-    // W5c: per-part tax (a hot add-on on a cold to-go item is taxable independent of the parent).
-    const taxCents = sumLineTax(taxParts, dineIn);
+    const { name, unitPriceCents, category, opts } = await priceItem(menuItemId, modifierIds);
+    const taxCents = lineTax(unitPriceCents, category, dineIn);
     // by_seat = null: a staff-added line isn't pre-attributed to a guest's split (the host can assign it
     // later via the existing by-person flow). The status-atomic insert throws if the cart isn't open.
     // S4: fulfillment defaults from the session mode. Re-routing today is the DINER's per-line toggle
