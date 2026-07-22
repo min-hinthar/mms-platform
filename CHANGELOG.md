@@ -4,6 +4,93 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W5c — menu item depth: bilingual data + real modifier coverage + sheet quantity (2026-07-21)
+
+The R6b item sheet + R5c stepper existed but ran on a hollow catalog: 5/60 items had modifier
+groups, zero Burmese below the name line, and the sheet had no quantity control (F8).
+
+- **Bilingual catalog columns** (migration `20260721000000`): `menu_items.description_my`,
+  `modifier_groups.name_my`, `modifier_options.name_my` — all nullable/additive. The sheet renders
+  the Burmese description under the EN line and stacked MY labels on every modifier group + option
+  (`lang="my"`, Padauk, token colors). ⚠️ All 60 descriptions + 12 group + 25 option labels are
+  Claude-authored diaspora register — pending Min's native check (OPEN-ITEMS K15).
+- **Real modifier coverage** (seed + live import): spice level (Mild/Medium/Burmese hot) on the 22
+  made-to-order noodle/stir-fry/hand-mixed-salad dishes + owner-tagged `spicy_optional` items —
+  deliberately NOT on batch-pot curries (can't honestly promise per-order heat); sweetness + a
+  required Hot/Iced choice on the two made-to-order drinks (Coffee's own description promises it);
+  "Add rice" (steamed +$2 / coconut +$3 — the real side prices) on every à-la-carte curry; v7.2's
+  soft-egg add-on (+$1.50) on the six noodle bowls. Only the two drinks move to the "Choose" pill;
+  everything else keeps one-tap add. ⚠️ Kitchen confirmation before real service (OPEN-ITEMS).
+- **Sheet quantity** (F8): a pre-add 1–9 stepper in the CTA bar — "−" only lowers the *pending*
+  count, so it can never silently delete a customized cart line (QA §D); bound buttons are
+  `aria-disabled` focusable no-ops (native `disabled` would drop keyboard/SR focus at the bound).
+  One write lands "2 × Mohinga": `addItem` gains a bounded `qty` (Zod 1–9 **+** SQL bounds; the
+  existing `qr_cart_items_qty_range 1–99` CHECK already backstops the column); the two write RPCs
+  gain defaulted `p_by`/`p_qty` params, sent **only when qty>1** (the W3 `p_notes` pattern — a
+  pre-migration DB still resolves every default caller, pinning deploy-order safety). The CTA
+  adopts v7.2's anatomy — label left, live advisory total right, inside the one button; the flash
+  announces the unit count ("Added 3 to your order"); MY descriptions join the menu search the
+  same way EN ones already did. The server still re-prices everything.
+
+### W5c·r2 — owner feedback round (2026-07-21)
+
+Min's preview feedback on #146, all four points:
+
+- **The real add-ons menu** replaces the conservative rice/egg pair: one "Choose your add-ons"
+  group (multiple, up to 8) with the owner's exact list + prices — Steamed White Rice +$2 ·
+  Coconut Rice +$3 · Boiled Egg +$1.50 · Sunny Egg +$2 · Mohinga Soup +$4 · Ohn-Noh Soup +$4 ·
+  Balachaung +$2 · Veggie Fritters +$3 — on every main (all six food categories; drinks + sides
+  sit out). Kyay-O's own Brains group renamed "Kyay-O add-ons" to disambiguate.
+- **Option glyphs** — slug-keyed emoji-as-content map (`lib/menu/optionGlyph.ts`, aria-hidden,
+  fixed slot): 🌶/🌶🌶/🌶🌶🌶 spice scale, ☕/🧊 temperature, dish glyphs on the add-ons pantry.
+  Spice-medium Burmese corrected to ပုံမှန်အစပ် (owner).
+- **Engaging EN descriptions** — all 60 rewritten to the sensory/fun voice (a few lines adapt the
+  owner's own review phrasing); value-stable UPDATE block in seed §W5c·r2, live-applied.
+- **Official logo** — the Morning Star badge (the delivery app's shipped asset) replaces the ✦ in
+  the header brand lockup; the ✦ stays the in-app accent mark elsewhere.
+
+### W5c·r3 — brand-asset pass + glyph refinements (2026-07-21)
+
+- **Badge everywhere** (owner's go on the brand follow-up): favicon (`public/icon.svg` — the badge
+  embedded, letterboxed, zero config changes), maskable PWA icon (badge inside the 80% safe zone on
+  the brand-dark field), apple-touch icon, and the OG/twitter share card all now lead with the
+  official badge (`app/_og/logo.ts` — PNG twin base64-embedded for Satori, same pattern as the
+  fonts). The ✦ remains the in-app accent mark.
+- **Glyphs inline + in color** — option emoji now ride inline with the label (leading for the
+  add-ons pantry, trailing for the intensity meters) with VS16 forcing color presentation; the
+  fixed-slot column (which clipped 🌶🌶🌶) is gone. Sweetness gains a 🍯/🍯🍯/🍯🍯🍯 meter; the top
+  spice step is renamed **"Burmese 🔥"** (owner's copy — the 🔥 lives in the option name, DB +
+  live), leaving 🌶️ → 🌶️🌶️ → Burmese 🔥 as the escalation.
+
+### W5c·pre-merge — deep-pass hardening (2026-07-21)
+
+The pre-merge adversarial pass (6 lenses, per-finding verification) surfaced real defects in the new
+add-ons group; all fixed before merge (migration `20260721120000`, live-applied):
+
+- **Allergen honesty (HIGH, safety)** — an add-on can introduce an allergen the base dish doesn't
+  declare (Balachaung → shellfish on an `allergen-reviewed` "contains nothing" salad). `modifier_options`
+  gains an `allergens[]` column; the item sheet now shows **"Contains shellfish"** on the option row
+  (visible, not the aria-hidden glyph) **and folds a chosen add-on's allergens into the item's Contains
+  line**, so the fail-safe free-from claim can't be silently broken. Conservative tags (over-warn is the
+  safe direction; kitchen refines in C11): Balachaung→shellfish, eggs→egg, Mohinga Soup→fish+egg,
+  Ohn-Noh Soup + Veggie Fritters→gluten.
+- **Cross-category tax (MED, money) — documented, not code-fixed** — the add-ons are all hot prepared
+  food but a line carries ONE tax category, so a hot add-on on a **cold to-go salad** rides the salad's
+  exemption (small CDTFA under-collection). The first attempt fed a per-part `tax_cents` into the line,
+  but `getCartTotals` (the charge authority) reads `tax_cents` only as a **boolean** taxable flag and
+  taxes the **whole** `unit_price_cents` — so that would have **over-charged** the entire salad+add-on
+  line. Reverted to the single-category-per-line model (correct in 3 of 4 cases; under-collects only the
+  hot-side-on-cold-to-go case). `modifier_options.tax_category` is **staged** for the real fix (a per-line
+  taxable-base engine — its own milestone); the residual is now a documented known limitation (OPEN-ITEMS
+  C11), same class as the accepted iced-drink nuance. _(Caught by the Codex PR review — credit where due.)_
+- **Self-pairings (MED, UX)** — the blanket add-ons mapping offered flagship dishes their own component
+  (Mohinga → "Mohinga Soup", Ohn-Noh Khao Swe → "Ohn-Noh Soup", Coconut Chicken & Rice → "Coconut Rice"
+  + "Balachaung"). Unlinked from those three (50→47 item links; live + seed).
+- **Qty a11y (MED)** — the sheet qty stepper is now a `role="spinbutton"` (aria-valuenow/min/max +
+  aria-controls), so a screen reader hears the new count on each step without a second live region.
+- **Cap honesty (LOW)** — a multi-unit add that merges into a line near the 99 cap now re-announces the
+  units that actually landed instead of the optimistic requested count (only fires at the cap edge).
+
 ### W5b — desktop rail affordances (2026-07-21)
 
 The app is a fixed phone column even on desktop, so every horizontal rail overflows there too — but

@@ -5,11 +5,27 @@
 // MONEY RULE: every cents value here is for an ADVISORY client preview only. The charge is re-derived
 // server-side by `priceItem` on add (the client sends modifier-OPTION ids, never a price). Keep it that way.
 
-export type ModOption = { id: string; name: string; priceDeltaCents: number };
+export type ModOption = {
+  id: string;
+  /** W5c·r2: stable data key for the code-side glyph map (never rendered). */
+  slug: string;
+  name: string;
+  /** W5c: bilingual option label (nullable — absent Burmese simply doesn't render). */
+  nameMy: string | null;
+  priceDeltaCents: number;
+  /** W5c pre-merge: allergens this add-on introduces (e.g. Balachaung → shellfish). The sheet surfaces
+   *  them on the option row + folds a CHOSEN add-on's allergens into the item's Contains line, so a
+   *  free-from claim can't be silently violated by an add-on. Empty = none declared. */
+  allergens: string[];
+};
 
 export type ModGroup = {
   id: string;
+  /** W5c·r2: stable data key (never rendered). */
+  slug: string;
   name: string;
+  /** W5c: bilingual group label (nullable — absent Burmese simply doesn't render). */
+  nameMy: string | null;
   /** "single" ⇒ radio (replace on pick); "multiple" ⇒ checkbox (up to maxSelect). */
   selectionType: "single" | "multiple";
   /** ≥1 ⇒ a choice is required (the CTA is gated until satisfied). */

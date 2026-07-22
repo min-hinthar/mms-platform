@@ -14,11 +14,13 @@ import {
  * — `priceItem` — but a wrong client gate ships a confusing/invalid sheet.)
  */
 
-const opt = (id: string, d = 0) => ({ id, name: id, priceDeltaCents: d });
+const opt = (id: string, d = 0) => ({ id, slug: id, name: id, nameMy: null, priceDeltaCents: d, allergens: [] as string[] });
 
 const reqSingle: ModGroup = {
   id: "g-style",
+  slug: "g-style",
   name: "Curry style",
+  nameMy: null,
   selectionType: "single",
   minSelect: 1,
   maxSelect: 1,
@@ -26,7 +28,9 @@ const reqSingle: ModGroup = {
 };
 const optMulti: ModGroup = {
   id: "g-addons",
+  slug: "g-addons",
   name: "Add-ons",
+  nameMy: null,
   selectionType: "multiple",
   minSelect: 0,
   maxSelect: 2,
@@ -34,7 +38,9 @@ const optMulti: ModGroup = {
 };
 const reqMulti: ModGroup = {
   id: "g-pick2",
+  slug: "g-pick2",
   name: "Pick two",
+  nameMy: null,
   selectionType: "multiple",
   minSelect: 2,
   maxSelect: 2,

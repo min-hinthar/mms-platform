@@ -964,6 +964,14 @@ h3 {
   font-size: 14px;
   line-height: 1.5;
 }
+/* W5c: the bilingual description — Padauk, quieter, tucked under the EN line. */
+.item-sheet-desc-my {
+  margin: 4px 0 0;
+  font-family: var(--font-my);
+  color: var(--t3);
+  font-size: 13px;
+  line-height: 1.6;
+}
 .item-sheet-allergens {
   margin: 10px 0 4px;
   color: var(--t3);
@@ -992,6 +1000,33 @@ h3 {
   font-weight: 600;
   font-size: 12px;
   color: var(--t3);
+}
+/* W5c: bilingual group/option labels — the MY line stacks under its EN sibling in Padauk. */
+.item-modgroup-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.item-modgroup-my {
+  font-family: var(--font-my);
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--t3);
+}
+.item-opt-my {
+  display: block;
+  font-family: var(--font-my);
+  font-size: 12px;
+  color: var(--t3);
+}
+/* W5c pre-merge (safety): an add-on that introduces an allergen the base dish doesn't declare flags it
+   on the row — VISIBLE (not decorative), warm-amber so it reads as a caution without alarming. */
+.item-opt-allergen {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ac);
+  margin-top: 2px;
 }
 
 /* W3b: the kitchen-note field — the allergy/request channel (mirrors the modgroup rhythm). */
@@ -1065,6 +1100,12 @@ h3 {
   flex: none;
   accent-color: var(--jade);
   cursor: inherit;
+}
+/* W5c·r3: option glyph — emoji-as-content (aria-hidden), INLINE with the label (leading for the
+   add-ons pantry, trailing for the 🌶/🍯 intensity meters); native color-emoji rendering (VS16 in the
+   glyph strings), no letter-spacing tricks. */
+.item-opt-emoji {
+  font-size: 14px;
 }
 .item-opt-name {
   flex: 1;
@@ -1159,17 +1200,51 @@ h3 {
   background: var(--pg);
   border-top: 1px solid var(--bd);
 }
-.item-cta-price {
-  font-family: var(--font-display);
-  font-size: 20px;
-  font-weight: 800;
-  color: var(--tx);
+/* W5c: pre-add quantity — 44px targets, tabular count, the same .mms-pop count-bounce as the cart
+   Stepper (keyed remount replays it; reduced-motion collapses it via the .mms-pop RM rule). */
+.item-qty {
+  display: flex;
+  align-items: center;
+  gap: 2px;
   flex: none;
+}
+.item-qty-btn {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid var(--bd);
+  border-radius: var(--r-full);
+  background: var(--sf);
+  color: var(--tx);
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.item-qty-btn[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.item-qty-count {
+  min-width: 22px;
+  text-align: center;
+  font-weight: 800;
+  font-size: 16px;
+  color: var(--tx);
+  font-variant-numeric: tabular-nums;
+}
+/* inline-block so the .mms-pop transform actually animates (transforms no-op on inline spans). */
+.item-qty-digit {
+  display: inline-block;
 }
 .item-add-btn {
   flex: 1;
   min-height: 48px;
   padding: 0 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   border: none;
   border-radius: var(--r-full);
   background: var(--ac);
@@ -1177,6 +1252,16 @@ h3 {
   font-weight: 800;
   font-size: 15px;
   cursor: pointer;
+}
+/* v7.2 CTA anatomy — the advisory total rides INSIDE the button, right-aligned, tabular. */
+.item-add-btn-price {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+}
+/* Sold out: the lone label centers (space-between with one child would pin it left). */
+.item-add-btn-solo {
+  justify-content: center;
 }
 .item-add-btn:disabled,
 .item-add-btn[aria-disabled="true"] {
@@ -2928,6 +3013,13 @@ h3 {
 .app-header-star {
   flex: none;
   color: var(--ac);
+}
+/* W5c·r2: the official badge in the brand lockup — fixed box so the row never jumps while it loads. */
+.app-header-logo {
+  flex: none;
+  width: 51px;
+  height: 34px;
+  object-fit: contain;
 }
 .app-header-brand-word {
   overflow: hidden;

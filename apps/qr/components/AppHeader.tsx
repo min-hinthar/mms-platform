@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 // J1: header navs ride the journey grammar (direction-stamped view transitions) — drop-in Link swap.
 import { TransitionLink as Link } from "./nav/TransitionNav";
@@ -134,9 +135,17 @@ export function AppHeader() {
   return (
     <header className={`app-header${hasOrderPill ? " app-header--has-order" : ""}`}>
       <Link href="/" className="app-header-brand" aria-label="Mandalay Morning Star — home">
-        <span className="app-header-star" aria-hidden>
-          ✦
-        </span>
+        {/* W5c·r2: the official Morning Star badge (same asset the delivery app ships) replaces the ✦
+            glyph in the brand lockup — the ✦ stays the in-app accent mark everywhere else. Decorative
+            here (alt="") — the Link's aria-label + the wordmark carry the name. */}
+        <Image
+          src="/logo.png"
+          alt=""
+          width={51}
+          height={34}
+          className="app-header-logo"
+          priority
+        />
         <span className="app-header-brand-word">Morning Star</span>
       </Link>
 

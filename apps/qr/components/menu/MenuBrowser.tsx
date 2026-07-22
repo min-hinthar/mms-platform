@@ -26,6 +26,8 @@ export type MenuItem = {
   name_en: string;
   name_my: string | null;
   description_en: string | null;
+  /** W5c: bilingual description for the item sheet (nullable — EN renders alone until authored). */
+  description_my: string | null;
   base_price_cents: number;
   image_url: string | null;
   is_sold_out: boolean;
@@ -222,7 +224,9 @@ export function MenuBrowser({
       return (
         i.name_en.toLowerCase().includes(needle) ||
         (i.name_my?.toLowerCase().includes(needle) ?? false) ||
-        (i.description_en?.toLowerCase().includes(needle) ?? false)
+        (i.description_en?.toLowerCase().includes(needle) ?? false) ||
+        // W5c: MY speakers get the same ingredient-level search EN speakers already had.
+        (i.description_my?.toLowerCase().includes(needle) ?? false)
       );
     });
   }, [items, q, diets]);

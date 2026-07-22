@@ -130,6 +130,7 @@ export type Database = {
           category_id: string
           created_at: string
           description_en: string | null
+          description_my: string | null
           id: string
           image_updated_at: string | null
           image_url: string | null
@@ -148,6 +149,7 @@ export type Database = {
           category_id: string
           created_at?: string
           description_en?: string | null
+          description_my?: string | null
           id?: string
           image_updated_at?: string | null
           image_url?: string | null
@@ -166,6 +168,7 @@ export type Database = {
           category_id?: string
           created_at?: string
           description_en?: string | null
+          description_my?: string | null
           id?: string
           image_updated_at?: string | null
           image_url?: string | null
@@ -655,6 +658,7 @@ export type Database = {
           max_select: number
           min_select: number
           name: string
+          name_my: string | null
           selection_type: string
           slug: string
         }
@@ -664,6 +668,7 @@ export type Database = {
           max_select?: number
           min_select?: number
           name: string
+          name_my?: string | null
           selection_type?: string
           slug: string
         }
@@ -673,6 +678,7 @@ export type Database = {
           max_select?: number
           min_select?: number
           name?: string
+          name_my?: string | null
           selection_type?: string
           slug?: string
         }
@@ -680,34 +686,43 @@ export type Database = {
       }
       modifier_options: {
         Row: {
+          allergens: string[]
           created_at: string
           group_id: string
           id: string
           is_active: boolean
           name: string
+          name_my: string | null
           price_delta_cents: number
           slug: string
           sort_order: number
+          tax_category: string | null
         }
         Insert: {
+          allergens?: string[]
           created_at?: string
           group_id: string
           id?: string
           is_active?: boolean
           name: string
+          name_my?: string | null
           price_delta_cents?: number
           slug: string
           sort_order?: number
+          tax_category?: string | null
         }
         Update: {
+          allergens?: string[]
           created_at?: string
           group_id?: string
           id?: string
           is_active?: boolean
           name?: string
+          name_my?: string | null
           price_delta_cents?: number
           slug?: string
           sort_order?: number
+          tax_category?: string | null
         }
         Relationships: [
           {
@@ -1543,7 +1558,10 @@ export type Database = {
         Args: { p_cart: string; p_lines: string[] }
         Returns: number
       }
-      mms_cart_item_inc_qty: { Args: { p_id: string }; Returns: undefined }
+      mms_cart_item_inc_qty: {
+        Args: { p_by?: number; p_id: string }
+        Returns: undefined
+      }
       mms_cart_item_insert_if_open: {
         Args: {
           p_by_seat: string
@@ -1553,6 +1571,7 @@ export type Database = {
           p_modifiers: Json
           p_name: string
           p_notes?: string
+          p_qty?: number
           p_tax_cents: number
           p_unit_price_cents: number
         }

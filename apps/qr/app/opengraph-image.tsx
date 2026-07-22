@@ -1,5 +1,6 @@
 import { ImageResponse } from "next/og";
 import { fraunces600, fraunces900 } from "./_og/fonts";
+import { logoPng } from "./_og/logo";
 
 // W7 shell — the social share card (Open Graph; twitter-image.tsx re-exports this for the Twitter card).
 // A wordmark lockup on paper cream: the ✦ mark over "Mandalay Morning Star" in the brand serif (Fraunces,
@@ -12,8 +13,6 @@ export const contentType = "image/png";
 // CDN-served, never re-rendered per crawler hit (and never inherit the root layout's force-dynamic).
 export const dynamic = "force-static";
 
-// The ✦ mark, brand gold with a cream center (punched through to the cream field, not the dark one).
-const STAR = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 64 64"><path d="M32 8 C34 21, 43 30, 56 32 C43 34, 34 43, 32 56 C30 43, 21 34, 8 32 C21 30, 30 21, 32 8 Z" fill="#e8a83c"/><circle cx="32" cy="32" r="3.4" fill="#faf9f5"/></svg>`;
 
 export default function OpengraphImage() {
   // Palette mirrors tokens.css (Satori can't resolve CSS vars, so these are literal): #faf9f5=--pg ·
@@ -44,13 +43,8 @@ export default function OpengraphImage() {
           background: "radial-gradient(circle, rgba(232,168,60,0.20), rgba(232,168,60,0))",
         }}
       />
-      <img
-        width={124}
-        height={124}
-        src={`data:image/svg+xml;utf8,${encodeURIComponent(STAR)}`}
-        alt=""
-        style={{ marginBottom: 14 }}
-      />
+      {/* W5c·r3: the official Morning Star badge leads the card (was the ✦ mark). */}
+      <img width={288} height={180} src={logoPng} alt="" style={{ marginBottom: 18 }} />
       <div
         style={{
           fontFamily: "Fraunces",
