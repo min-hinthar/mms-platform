@@ -48,15 +48,16 @@ The entry becomes three honest doors; the internal mode values (`dinein|scango|p
 constraint) do NOT migrate. Presentation moves; plumbing stays.
 
 - **Dine-in** — unchanged flow (sticker deep-link or host-start), now landing on K2's table identity.
-- **To-go** — one door for "food I'll carry out": **Now or scheduled** decided INSIDE the door, not
-  by picking a different app mode. **Wiring decided by plan-critique recon (not deferred): the door
-  offers Now → `scango` menu / Schedule → `pickup` menu as its first interaction.** The "ASAP slot"
-  alternative is DEAD on evidence: create-intent hard-400s a slotless pickup cart and re-validates
-  against `mms_pickup_slots` (capacity-checked real slots only) — ASAP is unrepresentable there
-  without editing the money path + a migration, which would falsify this phase's "presentation moves,
-  plumbing stays" claim. To-go-Now's real semantics ARE today's scango counter-food flow (orders
-  reach staff via the expo at pay; the KDS is dine-in-only), so this wiring delivers them with zero
-  money-path risk.
+- **To-go** — one door for "food I'll carry out". **⚠️ Superseded by W5e/W5f/W5g — the paragraph below is
+  the historical K1 rationale, kept for context but no longer how it works.** _Original K1 (2026-07-13):
+  Now vs scheduled decided INSIDE the door (Now → `scango` menu / Schedule → `pickup` menu), because "the
+  ASAP slot alternative is DEAD on evidence: create-intent hard-400s a slotless pickup cart ... ASAP is
+  unrepresentable without editing the money path + a migration."_ **That constraint no longer holds: W5e
+  (migration `20260722000000` + `mms_pickup_asap`) made ASAP representable in the pickup path — create-intent
+  SNAPS the earliest bookable slot and fires now — so W5f collapsed the door to ONE plain pickup `ModeCard`
+  and moved the Now↔Schedule choice to CHECKOUT (`PickupWhenChoice`). The "Now → scango" food path was
+  dropped (owner-confirmed workaround); `scango` mode now serves only the Grocery scan-and-go door. Timing
+  is measured at the pay boundary via `pickup_when_confirmed` (see the funnel table below).**
 - **Grocery** — its own first-class door straight to the scanner (K5 gives it a worthy surface).
 - The entry page is a designed moment, not a utility switch: three doors with the same card language
   as the menu (photo, bilingual line each), because the front door is a first impression too.
@@ -65,12 +66,13 @@ constraint) do NOT migrate. Presentation moves; plumbing stays.
 - **Honesty rule for the funnels:** the `door` property (K0) keeps To-go-ASAP distinguishable from
   grocery even if they share `scango` plumbing in wiring (b).
 
-> **Shipped (2026-07-13).** Entry = three doors (Dine-in · To-go · Grocery), bilingual EN/MY, grocery
-> promoted to a peer. `TogoDoor` is a disclosure (`aria-expanded` + `inert`/row-collapsed closed panel,
-> RM-safe) revealing Now→`scango` / Schedule→`pickup`. K0 `?door=` threaded entry→menu→`TableCartProvider`
+> **Shipped (2026-07-13; To-go door revised 2026-07-22, W5f).** Entry = three doors (Dine-in · To-go ·
+> Grocery), bilingual EN/MY, grocery promoted to a peer. K0 `?door=` threaded entry→menu→`TableCartProvider`
 > →`useTableSession`→mint, narrowed to the enum server-side. "Scan & Go" retired diner-facing (menu
 > eyebrow, /track label, grocery H1); staff surfaces keep `scango`. Doors use the emoji-tile card
-> language, not photos (no assets exist — a broken/stock image would be worse). Funnel re-pin at K6.
+> language, not photos. **W5f: `TogoDoor` (the `aria-expanded`/`inert` disclosure that revealed
+> Now→`scango` / Schedule→`pickup`) was RETIRED — the To-go door is now a plain `ModeCard` link →
+> `mode=pickup`, and the Now↔Schedule choice moved to checkout (W5e `PickupWhenChoice`).** Funnel re-pin at K6.
 
 ## K2 — The table registry (the track's one migration) `apps/qr + 1 migration, one PR`
 
@@ -274,9 +276,15 @@ re-pin is a `breakdown: session_created.door` on the existing insights:
 | Funnel                    | Steps (verbatim events)                                                                                       | Split     |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------- | --------- |
 | Dine-in commitment        | `session_created` → `item_added_to_cart` → `send_to_kitchen` → `payment_intent_created` → `payment_succeeded` | by `door` |
-| Pickup commitment         | `session_created` → `item_added_to_cart` → `pickup_slot_set` → `payment_intent_created` → `payment_succeeded` | by `door` |
+| Pickup commitment         | `session_created` → `item_added_to_cart` → `pickup_when_confirmed` → `payment_intent_created` → `payment_succeeded` | by `door` |
 | Grocery speed-run         | `session_created` → `grocery_item_scanned` → `grocery_checkout_clicked` → `payment_succeeded`                 | by `door` |
 | Client entry (cookieless) | `mode_selected` → `menu_item_add_clicked`                                                                     | by `door` |
+
+> **W5g note:** the Pickup-commitment timing step is `pickup_when_confirmed` (emitted at the create-intent
+> pay boundary with `when: asap|scheduled`), **not** `pickup_slot_set`. Since W5e made ASAP the default and
+> W5f routes all To-go through pickup, the common path picks ASAP and fires no client-side slot event — so
+> the old `pickup_slot_set` step showed a false drop-off. `pickup_when_confirmed` is hit by BOTH the ASAP
+> (server-snapped) and scheduled paths, and its `when` property gives the ASAP-vs-scheduled split for free.
 
 **Known honest gaps (unchanged posture from J0/J6):**
 
@@ -294,7 +302,8 @@ re-pin is a `breakdown: session_created.door` on the existing insights:
 
 **QA sweep (the K-surfaces vs `docs/context/QA-CHECKLIST.md`).** Every new surface was swept in its phase's
 pre-PR + pre-merge adversarial passes (verdicts on #123–128); the K-track touch-points against the gate:
-§A a11y — the three doors + `TogoDoor` disclosure (`inert` closed panel, 44px, labels), the table picker
+§A a11y — the three doors + `TogoDoor` disclosure (`inert` closed panel, 44px, labels — _`TogoDoor`
+retired in W5f; To-go is now a plain `ModeCard` link_), the table picker
 grid (44px, open/seated names), the orders tray (Radix `Sheet` focus-trap + `aria-haspopup`, `role="list"`,
 named rows), the wallet chip + merge beat (`role="status"`, reduced-motion off-switch), grocery product
 rows (44px steppers, aria-labels) — all ticked in-review. §C P2 — the PostHog PII rule: door/table events

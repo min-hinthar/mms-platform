@@ -62,6 +62,10 @@ export async function POST(req: NextRequest) {
       .select("mode")
       .eq("id", sessionId)
       .single();
+    // W5g: the timing the diner actually committed to at the pay boundary — 'scheduled' (a slot they
+    // picked) or 'asap' (server-snapped now). Emitted as ONE event below that BOTH paths hit, so the
+    // pickup funnel isn't blind to the default-ASAP path (which fires no client-side timing event).
+    let pickupWhen: "asap" | "scheduled" | undefined;
     if (sess?.mode === "pickup") {
       const { data: cart } = await db
         .from("qr_carts")
@@ -90,6 +94,7 @@ export async function POST(req: NextRequest) {
             { status: 409 },
           );
         }
+        pickupWhen = "scheduled";
       } else {
         // ASAP (fire_at null, snapped-or-not): snap the CURRENT earliest bookable slot atomically
         // (open-hours + capacity gate, today-bounded) and fire now. mms_pickup_asap excludes this cart's
@@ -108,6 +113,16 @@ export async function POST(req: NextRequest) {
           const status = row?.reason === "closed" || row?.reason === "full" ? 409 : 400;
           return NextResponse.json({ error: msg }, { status });
         }
+        pickupWhen = "asap";
+      }
+      // One timing-confirmation event both paths reach (the default-ASAP path fires no client-side
+      // pickup event). distinctId=uid mirrors pickup_slot_set so the pickup funnel stays connected.
+      if (pickupWhen) {
+        getPostHogClient().capture({
+          distinctId: uid,
+          event: "pickup_when_confirmed",
+          properties: { cart_id: cartId, when: pickupWhen },
+        });
       }
     }
 

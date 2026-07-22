@@ -2,7 +2,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { Icon, Sheet, Skeleton } from "@mms/ui";
 import { getPickupSlots, setPickupSlot, type PickupSlot } from "@/lib/pickup";
-import { dayLabel, formatSlot } from "@/lib/pickupTime";
+import { dayLabel, dayPart, formatSlot, type DayPart } from "@/lib/pickupTime";
 import { Rail } from "@/components/Rail";
 
 /**
@@ -80,6 +80,12 @@ export function PickupSlotSheet({
   const groups = slots ? groupByDay(slots) : [];
   const activeDay = Math.min(dayIdx, Math.max(0, groups.length - 1));
   const dayTimes = groups[activeDay]?.slots ?? [];
+  // Organize the selected day's times into daypart sections (🌅 Morning · ☀️ Afternoon · 🌆 Evening)
+  // so a long 15-min grid reads as scannable blocks. `soonestSlot` = the single earliest bookable slot
+  // (groups[0].slots[0]) — surfaced only while the FIRST bookable day is selected (usually Today, but
+  // Tomorrow if today's slots are all gone; either way it's the genuinely-soonest pickup).
+  const dayParts = groupByPart(dayTimes);
+  const soonestSlot = activeDay === 0 ? groups[0]?.slots[0]?.slot : undefined;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title="Pick a pickup time">
@@ -136,36 +142,63 @@ export function PickupSlotSheet({
               ))}
             </Rail>
           )}
-          {/* Time grid for the selected day. */}
-          <div
-            className="slot-grid"
-            role="group"
-            aria-label={`Pickup times — ${groups[activeDay]?.label ?? ""}`}
-          >
-            {dayTimes.map((s) => {
-              const setting = pendingSlot === s.slot;
-              return (
-                <button
-                  key={s.slot}
-                  type="button"
-                  disabled={pending}
-                  aria-busy={setting}
-                  className={`slot-time${setting ? " slot-time-on" : ""}`}
-                  onClick={() => choose(s.slot)}
-                >
-                  {setting ? (
-                    "Setting…"
-                  ) : (
-                    <>
-                      <span>{formatSlot(s.slot)}</span>
-                      {s.remaining <= 2 && (
-                        <span className="slot-time-low">{s.remaining} left</span>
-                      )}
-                    </>
-                  )}
-                </button>
-              );
-            })}
+          {/* Times for the selected day, in daypart sections. Each section is its own labeled group so a
+              screen-reader hears "Afternoon pickup times, Today" before its chips; the emoji is decorative. */}
+          <div className="slot-parts">
+            {dayParts.map(({ part, slots: partSlots }) => (
+              <section
+                key={part.key}
+                className="slot-part"
+                role="group"
+                aria-label={`${part.label} pickup times — ${groups[activeDay]?.label ?? ""}`}
+              >
+                <p className="slot-part-head">
+                  <span className="slot-part-emoji" aria-hidden>
+                    {part.emoji}
+                  </span>
+                  <span className="slot-part-label">{part.label}</span>
+                  <span className="slot-part-count">
+                    {partSlots.length} {partSlots.length === 1 ? "time" : "times"}
+                  </span>
+                </p>
+                <div className="slot-grid">
+                  {partSlots.map((s) => {
+                    const setting = pendingSlot === s.slot;
+                    const soonest = s.slot === soonestSlot;
+                    return (
+                      <button
+                        key={s.slot}
+                        type="button"
+                        disabled={pending}
+                        aria-busy={setting}
+                        className={`slot-time${setting ? " slot-time-on" : ""}${soonest ? " slot-time-soonest" : ""}`}
+                        onClick={() => choose(s.slot)}
+                      >
+                        {setting ? (
+                          "Setting…"
+                        ) : (
+                          <>
+                            {soonest && (
+                              <span className="slot-soonest-tag" aria-hidden>
+                                ⚡ Soonest
+                              </span>
+                            )}
+                            {soonest && <span className="sr-only">Soonest available, </span>}
+                            <span className="slot-time-h">{formatSlot(s.slot)}</span>
+                            {s.remaining <= 2 && (
+                              <span className="slot-time-low">
+                                <span aria-hidden>🔥 </span>
+                                {s.remaining} left
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
           </div>
         </>
       )}
@@ -188,4 +221,16 @@ function groupByDay(slots: PickupSlot[]): { label: string; slots: PickupSlot[] }
     else groups.push({ label, slots: [s] });
   }
   return groups;
+}
+
+// Collapse ONE day's time-sorted slots into consecutive daypart sections (Morning → Afternoon → Evening).
+function groupByPart(slots: PickupSlot[]): { part: DayPart; slots: PickupSlot[] }[] {
+  const parts: { part: DayPart; slots: PickupSlot[] }[] = [];
+  for (const s of slots) {
+    const part = dayPart(s.slot);
+    const last = parts[parts.length - 1];
+    if (last && last.part.key === part.key) last.slots.push(s);
+    else parts.push({ part, slots: [s] });
+  }
+  return parts;
 }

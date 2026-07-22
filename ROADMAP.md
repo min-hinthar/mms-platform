@@ -214,9 +214,11 @@ pre-merge, per-PR merge go).
 - **K0** Track spine — plan doc + `door` property on session_created + door-keyed funnels. ✅ (plan
   #122; `door` shipped with K5 — grocery emits it; menu-page wiring lands with the K1 doors;
   funnel re-pin at K6)
-- **K1** Three doors — Dine-in · To-go (Now→scango / Schedule→pickup, one door) · Grocery; "Scan & Go"
-  retired diner-facing; no mode migration (presentation moves, plumbing stays); `?door=` threaded to
-  the session mint (K0 menu wiring). ✅
+- **K1** Three doors — Dine-in · To-go · Grocery; "Scan & Go" retired diner-facing; no mode migration
+  (presentation moves, plumbing stays); `?door=` threaded to the session mint (K0 menu wiring). ✅
+  _(W5f: To-go collapsed from a Now/Schedule disclosure to ONE door → pickup menu; the now-vs-scheduled
+  choice moved to checkout (W5e's `PickupWhenChoice`) — the door fork predated pickup-ASAP and became
+  redundant. The "Now → scango" food path was dropped; scango stays for the Grocery scan-and-go door.)_
 - **K2** Table registry — `qr_tables` (1–10, sticker-mapped, RLS-locked) + session `table_number` +
   denormalized `qr_orders.table_number`; picker (`/dine-in`) with honest occupancy (open→claim,
   seated→party-code join, per owner's call); mint resolves number→token server-side + race guards;

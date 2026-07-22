@@ -1,13 +1,13 @@
 "use client";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties } from "react";
 import { TransitionLink as Link } from "./nav/TransitionNav"; // J1 journey grammar
 import posthog from "posthog-js";
 
-// K1 (Journey II) — the three-door entry. `DoorFace` is the shared inner visual (emoji tile ·
-// bilingual EN/MY name · description · trailing affordance) so a LINK door (ModeCard) and the
-// expandable To-go door (TogoDoor) render an identical face. The doors are the front door of the
-// house — a first impression, not a utility switch — so they carry the menu's card language + a
-// real Burmese line each (the app is bilingual everywhere).
+// K1 (Journey II) — the three-door entry (Dine-in · To-go · Grocery), each a ModeCard link. `DoorFace`
+// is the shared inner visual (emoji tile · bilingual EN/MY name · description · a trailing chevron).
+// The doors are the front door of the house — a first impression, not a utility switch — so they carry
+// the menu's card language + a real Burmese line each (the app is bilingual everywhere). To-go's
+// now-vs-scheduled choice moved to checkout (W5e); the door no longer forks it up front.
 
 const tileStyle: CSSProperties = {
   display: "grid",
@@ -20,21 +20,19 @@ const tileStyle: CSSProperties = {
   fontSize: "var(--fs-h1)",
 };
 
-/** The card interior shared by every door. `trailing` overrides the default chevron (To-go swaps in
- *  a rotating disclosure caret). `my` is the Burmese companion to the English name (lang="my" Padauk
- *  for correct SR pronunciation per WCAG 3.1.2 — the same bilingual idiom as the menu item rows). */
-export function DoorFace({
+/** The card interior shared by every door. `my` is the Burmese companion to the English name
+ *  (lang="my" Padauk for correct SR pronunciation per WCAG 3.1.2 — the same bilingual idiom as the
+ *  menu item rows). */
+function DoorFace({
   emoji,
   name,
   my,
   description,
-  trailing,
 }: {
   emoji: string;
   name: string;
   my?: string;
   description: string;
-  trailing?: ReactNode;
 }) {
   return (
     <>
@@ -59,14 +57,12 @@ export function DoorFace({
         <br />
         <small style={{ color: "var(--t2)" }}>{description}</small>
       </span>
-      {trailing ?? (
-        <span
-          aria-hidden
-          style={{ marginLeft: "auto", color: "var(--ac)", fontSize: "var(--fs-h2)" }}
-        >
-          ›
-        </span>
-      )}
+      <span
+        aria-hidden
+        style={{ marginLeft: "auto", color: "var(--ac)", fontSize: "var(--fs-h2)" }}
+      >
+        ›
+      </span>
     </>
   );
 }

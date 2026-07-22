@@ -871,6 +871,61 @@ h3 {
   font-weight: 600;
   color: var(--warn);
 }
+/* Daypart sections (🌅 Morning · ☀️ Afternoon · 🌆 Evening) — organize the flat time grid into
+   scannable blocks. Header = emoji + label + a muted count pushed to the right. */
+.slot-parts {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.slot-part {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.slot-part-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+.slot-part-emoji {
+  font-size: 15px;
+  line-height: 1;
+}
+.slot-part-label {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  color: var(--tx);
+}
+.slot-part-count {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--t3);
+}
+.slot-time-h {
+  font-variant-numeric: tabular-nums; /* even column widths as the meridian/minutes change */
+}
+/* Soonest slot — the single earliest bookable time, lit as a lightly-filled accent chip with a small
+   ⚡ tag above the time, so a diner who wants "as soon as I can schedule it" spots it instantly. */
+.slot-time-soonest {
+  min-height: 56px; /* room for the tag line above the time (and a "left" badge if also low) */
+  border-color: var(--ac);
+  background: color-mix(in srgb, var(--ac) 12%, var(--cd));
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    0 0 14px -8px var(--glow-gold);
+}
+.slot-soonest-tag {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ac-strong);
+  line-height: 1;
+}
 @media (prefers-reduced-motion: reduce) {
   .slot-day,
   .slot-time {
@@ -4882,97 +4937,6 @@ html[data-seen-surface] .mms-stagger {
   border: 1px solid color-mix(in oklab, var(--ok) 45%, var(--bd));
   border-radius: 6px;
   padding: 1px 6px;
-}
-
-/* ── K1 · The To-go door (three-door entry, docs/JOURNEY2_PLAN.md) ───────────────────────────────── */
-/* The disclosure trigger: a real <button> wearing the .card door face (reset button chrome; .card
-   supplies the surface). Full-width, left-aligned, same padding as the ModeCard link doors. */
-.togo-door {
-  width: 100%;
-  display: flex;
-  gap: 14px;
-  align-items: center;
-  padding: 18px;
-  text-align: left;
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
-  appearance: none;
-}
-/* The chevron rotates ›→▾ to signal open/closed (decorative, aria-hidden — aria-expanded is the
-   real state for AT). */
-.togo-caret {
-  margin-left: auto;
-  color: var(--ac);
-  font-size: 20px;
-  transition: transform 280ms var(--ease-out, ease); /* synced to the panel reveal */
-}
-.togo-caret[data-open] {
-  transform: rotate(90deg);
-}
-/* Auto-height disclosure via grid-template-rows 0fr→1fr (animatable; no magic max-height). The inner
-   is overflow-hidden + min-height:0 so it clips cleanly while collapsed. */
-.togo-panel {
-  display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows 280ms var(--ease-out, ease);
-}
-.togo-panel[data-open] {
-  grid-template-rows: 1fr;
-}
-.togo-panel-inner {
-  overflow: hidden;
-  min-height: 0;
-  display: grid;
-  gap: 8px;
-  /* A left rail nests the choices under To-go — "these belong to this door". Even top+bottom padding so
-     the choices (border + inset sheen) are never clipped tight against the collapse edge (was 2px bottom
-     — the source of the "cutoff" look); the rail + pad show only when open (clipped to 0 while 0fr). */
-  margin: 0 0 0 24px;
-  padding: 10px 0 10px 14px;
-  border-left: 2px solid var(--bd);
-  /* The grid-rows reflow is a LAYOUT animation (can read steppy on lower-end phones); layer a GPU
-     opacity + slide on the CONTENT so the reveal always feels smooth and the choices fade in rather than
-     pop. Reduced-motion turns both off below (content stays visible-when-open, hidden-when-closed). */
-  opacity: 0;
-  transform: translateY(-4px);
-  transition:
-    opacity 220ms var(--ease-out, ease),
-    transform 280ms var(--ease-out, ease);
-}
-.togo-panel[data-open] .togo-panel-inner {
-  opacity: 1;
-  transform: none;
-}
-.togo-choice {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 48px;
-  padding: 10px 14px;
-  border-radius: 12px;
-  border: 1px solid var(--bd);
-  background: var(--cd);
-  color: inherit;
-  text-decoration: none;
-  box-shadow: inset 0 1px 0 var(--sheen);
-  transition:
-    border-color 160ms var(--ease-out, ease),
-    background 160ms var(--ease-out, ease);
-}
-.togo-choice:hover {
-  border-color: var(--ac);
-}
-.togo-choice b {
-  font-size: 15px;
-}
-@media (prefers-reduced-motion: reduce) {
-  .togo-caret,
-  .togo-panel,
-  .togo-panel-inner,
-  .togo-choice {
-    transition: none;
-  }
 }
 
 /* ── K2 · Dine-in table picker (docs/JOURNEY2_PLAN.md) ───────────────────────────────────────────── */
