@@ -102,11 +102,13 @@ function GroceryItemSheetBody({
     rootRef.current?.closest<HTMLElement>(".mms-sheet")?.scrollTo({ top: 0 });
   }, [rootRef]);
 
-  // W5d — when the shopper taps Add IN the sheet, that button unmounts and the stepper takes its
-  // place; park focus on the new "+" instead of dropping it to <body> (WCAG 2.4.3, the card's MED-1
-  // handoff). Armed only on a real add attempt (same gate the CTA enforces); the "+" callback ref
-  // claims it once, on mount.
+  // W5d — focus handoffs across the Add⇄stepper swap so a keyboard/SR shopper is never dropped to
+  // <body> (WCAG 2.4.3). `pendingFocus`: tapping Add → the new "+" claims focus. `pendingAddFocus`:
+  // removing the last unit (qty 1→0) inside the sheet → the re-mounted Add button claims focus (the
+  // symmetric reverse; page.tsx skips its search-refocus while a sheet is open). Each armed only on a
+  // real attempt; the target's callback ref claims it once, on mount.
   const pendingFocus = useRef(false);
+  const pendingAddFocus = useRef(false);
 
   const aisle = item.category ? aisleBySlug.get(item.category) : undefined;
   const size = sizeLabel(item.sizeQty, item.sizeUnit);
@@ -193,6 +195,9 @@ function GroceryItemSheetBody({
               aria-disabled={stepping}
               onClick={() => {
                 if (stepping) return;
+                // Removing the last unit swaps the stepper back to Add — arm the reverse handoff so
+                // focus lands on that Add button (else Radix only re-homes to the sheet root).
+                if (line.qty <= 1) pendingAddFocus.current = true;
                 onStep(line, line.qty - 1);
               }}
             >
@@ -229,6 +234,13 @@ function GroceryItemSheetBody({
             className="item-add-btn gsheet-add"
             aria-disabled={!canAdd || adding || undefined}
             aria-label={`Add ${item.name} to your basket, ${price}`}
+            // Claims focus when Add re-mounts after a sheet-initiated remove-to-zero (the reverse handoff).
+            ref={(el) => {
+              if (el && pendingAddFocus.current) {
+                pendingAddFocus.current = false;
+                el.focus();
+              }
+            }}
             onClick={() => {
               if (!canAdd || adding) return;
               // Arm the focus handoff only on a real attempt — the "+" that mounts after this add

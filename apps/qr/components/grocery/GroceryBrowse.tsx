@@ -251,6 +251,7 @@ export const GroceryBrowse = memo(function GroceryBrowse({
                     className="gcard-open"
                     aria-label={[
                       item.name,
+                      [item.brand, size].filter(Boolean).join(" · ") || null,
                       price,
                       sale ? `on sale, compare at ${dollars(sale.compareAtCents)}, save ${sale.pct}%` : null,
                       unit,

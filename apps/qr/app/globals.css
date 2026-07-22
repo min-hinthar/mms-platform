@@ -4529,6 +4529,10 @@ html[data-seen-surface] .mms-stagger {
   position: relative;
   display: flex;
   flex-direction: column;
+  /* Gap for the loading SKELETON (its .gcard-photo + .gcard-body are direct children). A real card's
+     only in-flow child is the single .gcard-open button (FAB/stepper are absolute), so this is a no-op
+     there — .gcard-open carries its own 8px gap. */
+  gap: 8px;
   padding: var(--gcard-pad);
 }
 /* W5d — the whole card is one button that opens the detail sheet (the FAB/stepper is a non-nested
