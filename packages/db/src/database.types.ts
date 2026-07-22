@@ -1685,7 +1685,7 @@ export type Database = {
           reason: string
         }[]
       }
-      mms_pickup_asap_ok: { Args: never; Returns: boolean }
+      mms_pickup_asap_ok: { Args: { p_cart_id?: string }; Returns: boolean }
       mms_pickup_slots: {
         Args: { p_exclude_cart?: string }
         Returns: {

@@ -35,11 +35,26 @@ end; $$;
 revoke all on function public.mms_clear_pickup_slot(uuid) from public, anon, authenticated;
 grant execute on function public.mms_clear_pickup_slot(uuid) to service_role;
 
+-- ── Config invariant: ASAP fires NOW and its /track "ready by" is the snapped slot (>= now + lead), so
+-- the earliest slot must never be promised BEFORE the food can physically be ready (now + prep). Enforce
+-- lead_minutes >= prep_minutes at the DB so a mis-tuned config can't make /track over-promise an ASAP ETA.
+-- Idempotent add (CHECK IF NOT EXISTS isn't portable; guard via pg_constraint). Defaults (20 >= 12) pass.
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'pickup_config_lead_ge_prep') then
+    alter table public.pickup_config
+      add constraint pickup_config_lead_ge_prep check (lead_minutes >= prep_minutes);
+  end if;
+end $$;
+
 -- ── ASAP snap (the charge-boundary gate). Only honest while the kitchen is OPEN NOW; snaps the soonest
--- bookable slot (mms_pickup_slots already encodes lead + capacity, excluding this cart's own hold) so ASAP
--- consumes real capacity; fires immediately (fire_at = null). A per-slot advisory lock serializes the pick
--- so concurrent ASAP callers can't overbook the last seat. Status-atomic. Reasons: 'closed' (kitchen not
--- open now), 'full' (open but no capacity left today), 'cart_closed', 'unavailable' (no config).
+-- bookable slot TODAY (mms_pickup_slots is MULTI-DAY — it rolls to future days — so bound the snap to
+-- s.slot_time <= v_close, today's close instant; otherwise a booked/near-close TODAY would silently snap
+-- TOMORROW's slot yet fire NOW, promising a next-day pickup for food cooked tonight AND letting today's
+-- capacity exert zero back-pressure on the ASAP lane). Consumes real capacity; fires immediately
+-- (fire_at = null). A per-slot advisory lock serializes the pick so concurrent ASAP callers can't overbook
+-- the last seat. Status-atomic. Reasons: 'closed' (kitchen not open now), 'full' (open but no room left
+-- TODAY), 'cart_closed', 'unavailable' (no config).
 create or replace function public.mms_pickup_asap(p_cart_id uuid)
 returns table(ok boolean, reason text)
 language plpgsql volatile security definer set search_path = '' as $$
@@ -60,16 +75,21 @@ begin
   if v_now < v_open or v_now > v_close then
     return query select false, 'closed'; return;
   end if;
-  -- Snap the soonest bookable slot (excludes this cart's own hold via p_exclude_cart).
+  -- Snap the soonest bookable slot TODAY (<= today's close; excludes this cart's own hold via p_exclude_cart).
   select s.slot_time into v_slot
-    from public.mms_pickup_slots(p_cart_id) s order by s.slot_time limit 1;
+    from public.mms_pickup_slots(p_cart_id) s
+   where s.slot_time <= v_close
+   order by s.slot_time limit 1;
   if v_slot is null then
-    return query select false, 'full'; return;   -- open, but every remaining slot today is full
+    return query select false, 'full'; return;   -- open, but every remaining slot TODAY is full
   end if;
   -- Serialize the pick of THIS slot so two concurrent ASAP callers can't overbook its last seat.
   perform pg_advisory_xact_lock(hashtext(v_slot::text));
   -- Re-verify under the lock (a concurrent pick may have taken the last seat between select and lock).
-  if not exists (select 1 from public.mms_pickup_slots(p_cart_id) s where s.slot_time = v_slot) then
+  if not exists (
+    select 1 from public.mms_pickup_slots(p_cart_id) s
+     where s.slot_time = v_slot and s.slot_time <= v_close
+  ) then
     return query select false, 'full'; return;
   end if;
   update public.qr_carts
@@ -84,9 +104,10 @@ revoke all on function public.mms_pickup_asap(uuid) from public, anon, authentic
 grant execute on function public.mms_pickup_asap(uuid) to service_role;
 
 -- ── Read-only "can a diner choose ASAP right now?" for the checkout control's pre-warning: open NOW and
--- at least one slot has room. Same tz/hours math as the snap, so the pill never offers an ASAP that the
--- pay boundary would reject.
-create or replace function public.mms_pickup_asap_ok()
+-- at least one slot has room TODAY. Same tz/hours + today-bound math as the snap, so the pill never offers
+-- an ASAP the pay boundary would reject. Takes the caller's cart so it EXCLUDES that cart's own hold —
+-- else a diner holding the last seat of the earliest slot would see ASAP falsely disabled.
+create or replace function public.mms_pickup_asap_ok(p_cart_id uuid default null)
 returns boolean
 language plpgsql stable security definer set search_path = '' as $$
 declare
@@ -102,7 +123,9 @@ begin
   v_open  := (v_today + cfg.open_time)  at time zone cfg.tz;
   v_close := (v_today + cfg.close_time) at time zone cfg.tz;
   if v_now < v_open or v_now > v_close then return false; end if;
-  return exists (select 1 from public.mms_pickup_slots(null) s);
+  return exists (
+    select 1 from public.mms_pickup_slots(p_cart_id) s where s.slot_time <= v_close
+  );
 end; $$;
-revoke all on function public.mms_pickup_asap_ok() from public, anon, authenticated;
-grant execute on function public.mms_pickup_asap_ok() to service_role;
+revoke all on function public.mms_pickup_asap_ok(uuid) from public, anon, authenticated;
+grant execute on function public.mms_pickup_asap_ok(uuid) to service_role;

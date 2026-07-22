@@ -82,13 +82,14 @@ export async function setPickupSlot(cartId: string, slot: string): Promise<SetSl
 }
 
 /**
- * W5e — is the kitchen taking ASAP orders right now? (open NOW + at least one slot has room). Drives the
- * checkout control's pre-warning so the ASAP pill never offers what the pay boundary (mms_pickup_asap)
- * would reject. Public availability read (no diner data); server-only like getPickupSlots. Fail-CLOSED
- * on a read miss (a false "come now" is worse than steering to Schedule) — false, not true.
+ * W5e — is the kitchen taking ASAP orders right now? (open NOW + at least one slot has room TODAY). Drives
+ * the checkout control's pre-warning so the ASAP pill never offers what the pay boundary (mms_pickup_asap)
+ * would reject. `cartId` excludes THIS cart's own slot hold from the capacity check, so a diner holding the
+ * last seat of the earliest slot isn't falsely told ASAP is full. Public availability read (no diner data);
+ * server-only. Fail-CLOSED on a read miss (a false "come now" is worse than steering to Schedule).
  */
-export async function getPickupAsapOk(): Promise<boolean> {
-  const { data, error } = await serviceClient().rpc("mms_pickup_asap_ok");
+export async function getPickupAsapOk(cartId: string): Promise<boolean> {
+  const { data, error } = await serviceClient().rpc("mms_pickup_asap_ok", { p_cart_id: cartId });
   if (error) {
     console.error("[pickup] mms_pickup_asap_ok failed", error);
     return false;

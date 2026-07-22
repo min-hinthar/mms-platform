@@ -87,7 +87,9 @@ export function PickupWhenChoice({
               ? `As soon as possible — ready in about ${prepMinutes} minutes`
               : "As soon as possible — unavailable right now, the kitchen is closed or fully booked"
           }
-          className={`checkout-pill${asap ? " checkout-pill-on" : ""}`}
+          // Only render the lit-gold selected cap when ASAP is both chosen AND fulfillable — a disabled
+          // ASAP must never read as the active selection (the .checkout-pill[aria-disabled] rule dims it).
+          className={`checkout-pill${asap && asapAvailable ? " checkout-pill-on" : ""}`}
           style={segStyle}
           onClick={chooseAsap}
         >
@@ -124,7 +126,9 @@ export function PickupWhenChoice({
       <p style={hintStyle}>
         {asap
           ? asapAvailable
-            ? `We’ll start your order right away — ready in about ${prepMinutes} minutes.`
+            ? // Frame ~prep as the cook estimate and point to /track for the confirmed pickup time, so the
+              // two surfaces read as one story (create-intent snaps a slot for capacity; /track echoes it).
+              `We’ll start it the moment you pay — ready in about ${prepMinutes} min; we’ll confirm your pickup time next.`
             : "ASAP isn’t available right now — please schedule a pickup time above."
           : `Ready for pickup ${formatSlotLong(slot)}.`}
       </p>

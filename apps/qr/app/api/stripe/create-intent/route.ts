@@ -65,10 +65,15 @@ export async function POST(req: NextRequest) {
     if (sess?.mode === "pickup") {
       const { data: cart } = await db
         .from("qr_carts")
-        .select("pickup_slot")
+        .select("pickup_slot,fire_at")
         .eq("id", cartId)
         .single();
-      if (cart?.pickup_slot) {
+      // Discriminate on fire_at, NOT pickup_slot: a SCHEDULED cart always carries fire_at = slot - prep
+      // (non-null); an ASAP cart carries fire_at = null WHETHER OR NOT it already holds a snapped
+      // pickup_slot from an earlier pay attempt. Keying on pickup_slot would route a retry of a
+      // snapped-then-declined ASAP order into the scheduled validator and 409 it on a slot the diner
+      // never chose (and could no longer clear); keying on fire_at re-snaps the current earliest instead.
+      if (cart?.fire_at) {
         // Scheduled: re-validate the held slot still has room. Exclude THIS cart's own hold so we're
         // asking "is there still room for me", not double-counting.
         // NOTE(soft-cap): this is a plain read, not advisory-locked like mms_set_pickup_slot — under a
@@ -76,7 +81,7 @@ export async function POST(req: NextRequest) {
         // (a hard cap at fulfillment would strand an already-charged diner; see migration 0100's note); the
         // lead time makes the overlap window small. We over-accept by design rather than reject a paid order.
         const { data: slots } = await db.rpc("mms_pickup_slots", { p_exclude_cart: cartId });
-        const slotMs = new Date(cart.pickup_slot).getTime();
+        const slotMs = cart.pickup_slot ? new Date(cart.pickup_slot).getTime() : NaN;
         const open = (slots ?? []).some((s) => new Date(s.slot_time).getTime() === slotMs);
         if (!open) {
           await releaseCartLock(cartId, uid);
@@ -86,7 +91,9 @@ export async function POST(req: NextRequest) {
           );
         }
       } else {
-        // ASAP: snap the earliest bookable slot atomically (open-hours + capacity gate) and fire now.
+        // ASAP (fire_at null, snapped-or-not): snap the CURRENT earliest bookable slot atomically
+        // (open-hours + capacity gate, today-bounded) and fire now. mms_pickup_asap excludes this cart's
+        // own hold, so a re-snap safely overwrites a stale earlier snap with the fresh earliest.
         const { data: asap, error: asapErr } = await db.rpc("mms_pickup_asap", { p_cart_id: cartId });
         const row = asap?.[0];
         if (asapErr || !row?.ok) {
