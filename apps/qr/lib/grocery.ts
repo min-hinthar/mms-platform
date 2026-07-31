@@ -4,6 +4,7 @@ import type { TaxCategory } from "@mms/db";
 import { scanInput, grocerySearchInput, cartViewInput } from "@mms/db/schemas";
 import { lineTax } from "./tax";
 import { assertCartMember } from "./authz";
+import { whyCartUnavailable, type CartUnavailable } from "./cart-failure";
 import { assertMutationRate } from "./rate";
 import { insertOrIncLine, touchCart } from "./order-lines";
 
@@ -18,15 +19,44 @@ import { insertOrIncLine, touchCart } from "./order-lines";
  * (ROADMAP P2.3) is a prerequisite for a working scan; the demo's client-minted cart id is
  * rejected by design (a client-asserted session id was the very thing P1.1 closes).
  */
-export async function scanAdd(cartId: string, barcode: string) {
+/** W9d — every way a scan can fail, named. The catalog reasons (this barcode) and the cart-
+ *  availability reasons (this basket) share ONE union so the page has a single exhaustive switch and
+ *  can never fall through to "check your connection" for a cart that is simply finished. */
+export type ScanAddFailure = "unknown_barcode" | "unavailable" | "weighed_item" | CartUnavailable;
+
+export type ScanAddResult =
+  | {
+      ok: true;
+      name: string;
+      unitPriceCents: number;
+      ebt: boolean;
+      /** null = the post-write read failed. NEVER [] — see the catch below. */
+      lines: GroceryLine[] | null;
+    }
+  | { ok: false; reason: ScanAddFailure; barcode?: string };
+
+export async function scanAdd(cartId: string, barcode: string): Promise<ScanAddResult> {
   const input = scanInput.parse({ cartId, barcode });
-  const { uid, locked, settling } = await assertCartMember(input.cartId);
+  // W9d — the authorization guard still runs FIRST and unchanged; only the SHAPE of its refusal
+  // changes. Every throw used to surface on /grocery as "check your connection", so a shopper whose
+  // basket had been paid for retried a dead cart forever. `whyCartUnavailable` re-derives the reason
+  // behind its own membership gate (a non-member always gets `unreadable`), so nothing here answers
+  // a question the caller wasn't already entitled to ask.
+  let authz;
+  try {
+    authz = await assertCartMember(input.cartId);
+  } catch {
+    return { ok: false as const, reason: await whyCartUnavailable(input.cartId) };
+  }
+  const { uid, locked, settling } = authz;
   await assertMutationRate(uid); // per-device flood guard (P3.4)
-  if (locked) throw new Error("Order is locked while someone checks out");
+  // Both freezes return BEFORE any write, exactly as the throws did — this is a shape change, not a
+  // guard change. Naming them lets the page say "someone's checking out" instead of blaming the radio.
+  if (locked) return { ok: false as const, reason: "locked" as const };
   // Parity with the restaurant mutations (cart.ts) — never edit while the table settles a split.
   // Unreachable in the solo grocery flow today (no split), but keep the guard so a future
   // multi-device grocery cart can't slip an edit mid-settlement (defense-in-depth, LEARNINGS #72).
-  if (settling) throw new Error("The table is settling up — you can’t edit while everyone pays");
+  if (settling) return { ok: false as const, reason: "settling" as const };
 
   const db = serviceClient();
   const { data: item } = await db
@@ -148,15 +178,32 @@ async function readGroceryLines(cartId: string): Promise<GroceryLine[]> {
   });
 }
 
+/** W9d — the hydrate read's result. `ok:false` carries WHY (behind cart-failure's membership gate)
+ *  so the page can tell "this basket is finished" from "the radio dropped" — the page's blanket
+ *  catches used to blame the connection for both. A THROWN error still means transport/unexpected. */
+export type GroceryLinesResult =
+  | { ok: true; lines: GroceryLine[] }
+  | { ok: false; reason: CartUnavailable };
+
 /**
  * K5 — the member-gated grocery cart read: the source of truth the /grocery page hydrates from (on
  * mount and on tab re-focus), fixing the live money-display bug where a refresh showed "Nothing
  * scanned yet" while the server cart still held (and would charge) the items. Read-only.
+ *
+ * ⚠️ Availability failures (paid/cancelled/expired/frozen) come back as `ok:false`, NOT as a throw —
+ * and never as `{ ok:true, lines: [] }`: a refusal must not pose as an empty basket (the cart may
+ * still charge lines this caller can't see). The `locked` freeze does NOT refuse this READ (a
+ * tablemate in the pay window shouldn't blank the list) — assertCartMember only throws on it for
+ * writes, so a locked cart lands in the ok arm here.
  */
-export async function getGroceryLines(cartId: string): Promise<GroceryLine[]> {
+export async function getGroceryLines(cartId: string): Promise<GroceryLinesResult> {
   const { cartId: id } = cartViewInput.parse({ cartId }); // every Server Action parses before the DB
-  await assertCartMember(id); // membership is the gate; throws on non-members/unknown carts
-  return readGroceryLines(id);
+  try {
+    await assertCartMember(id); // membership is the gate; throws on non-members/unknown carts
+  } catch {
+    return { ok: false as const, reason: await whyCartUnavailable(id) };
+  }
+  return { ok: true as const, lines: await readGroceryLines(id) };
 }
 
 export type GroceryHit = {
@@ -224,6 +271,11 @@ export type GroceryCatalogItem = {
   priceCents: number;
   /** W4e: the "Compare at" market reference (> priceCents) — null = not on sale. Display only. */
   compareAtCents: number | null;
+  /** W9d: show the LOUD "Save N%" pill. A stored merchandising DECISION, never a percentage rule —
+   *  306 of 396 SKUs cleared the old `pct >= 15` gate (77% of the market), so a computed threshold
+   *  made the badge wallpaper. The quiet "Compare at" strike is independent and still shows on every
+   *  genuine discount. */
+  featuredDeal: boolean;
   ebt: boolean;
   imageUrl: string | null;
 };
@@ -238,7 +290,7 @@ export async function getGroceryCatalog(): Promise<GroceryCatalogItem[]> {
   const { data, error } = await publicClient()
     .from("grocery_items")
     .select(
-      "barcode,name,name_my,brand,category,size_qty,size_unit,price_cents,compare_at_cents,ebt_eligible,image_url",
+      "barcode,name,name_my,brand,category,size_qty,size_unit,price_cents,compare_at_cents,ebt_eligible,image_url,is_featured_deal",
     )
     .eq("available", true)
     .eq("weighed", false)
@@ -260,6 +312,7 @@ export async function getGroceryCatalog(): Promise<GroceryCatalogItem[]> {
     sizeUnit: i.size_unit,
     priceCents: Number(i.price_cents),
     compareAtCents: i.compare_at_cents == null ? null : Number(i.compare_at_cents),
+    featuredDeal: i.is_featured_deal === true,
     ebt: i.ebt_eligible,
     // Same containment as readGroceryLines: only relative or *.supabase.co URLs reach next/image.
     imageUrl:

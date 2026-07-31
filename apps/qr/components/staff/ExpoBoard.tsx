@@ -83,6 +83,14 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
 
   const tickets = snap.tickets;
   const count = tickets.length;
+  // W9d — a PURE-grocery (scan-&-go) order has nothing to bag: the shopper already holds the goods,
+  // and the counter's job is to check the exit pass. Counting it as a "bag waiting" handed staff
+  // phantom bagging work, so the header names the two kinds separately. Vocabulary only — the
+  // status machine (mms_set_togo_status / mms_init_togo_status) is untouched.
+  const verifyCount = tickets.filter((t) =>
+    t.lines.every((l) => l.fulfillment === "grocery"),
+  ).length;
+  const bagCount = count - verifyCount;
 
   return (
     <section aria-labelledby="expo-h" onFocusCapture={markFocus}>
@@ -108,7 +116,12 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
               ? "Reconnecting…"
               : count === 0
                 ? "No bags waiting"
-                : `${count} bag${count === 1 ? "" : "s"} waiting`)}
+                : [
+                    bagCount > 0 ? `${bagCount} bag${bagCount === 1 ? "" : "s"} waiting` : null,
+                    verifyCount > 0 ? `${verifyCount} to verify` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · "))}
         </p>
       </div>
 
@@ -146,7 +159,12 @@ function ExpoCard({
 }) {
   const [pending, startTransition] = useTransition();
   const to = ticket.status === "preparing" ? "ready" : "picked_up";
-  const label = ticket.status === "preparing" ? "Bagged & ready" : "Picked up";
+  // W9d — a pure-grocery (scan-&-go) order: the shopper already HOLDS the goods, so "Bagged & ready"
+  // is fiction. The counter verifies the exit pass and the shopper walks — same two-stage status
+  // machine (untouched), honest words: the first bump records the hand-over, the second clears it.
+  const grocery = ticket.lines.every((l) => l.fulfillment === "grocery");
+  const label =
+    ticket.status === "preparing" ? (grocery ? "Handed over" : "Bagged & ready") : "Picked up";
 
   // K2 + W3e call-out identity: a dine-in to-go bag calls out its real table; a pickup/scango bag
   // headlines the first name captured at checkout (short code as the collision-safe suffix), falling
@@ -166,13 +184,21 @@ function ExpoCard({
         if (!res.ok) onError(res.error);
         else await onBumped(); // pending covers the refetch — no stale-label flicker
       } catch {
-        onError(`Couldn’t update the bag for ${callOut} — try again.`);
+        onError(
+          grocery
+            ? `Couldn’t update #${ticket.shortCode} — try again.`
+            : `Couldn’t update the bag for ${callOut} — try again.`,
+        );
       }
     });
   };
 
   return (
-    <article className="card card-textured" style={cardStyle} aria-label={`Bag for ${callOut}`}>
+    <article
+      className="card card-textured"
+      style={cardStyle}
+      aria-label={grocery ? `Verify · #${ticket.shortCode}` : `Bag for ${callOut}`}
+    >
       <header style={cardHead}>
         <span style={tableLabel}>
           {callOut}
@@ -195,6 +221,13 @@ function ExpoCard({
           Pickup {formatSlotLong(ticket.pickupSlot)}
         </p>
       )}
+      {/* W9d — the honest job description: the shopper already holds these items, so the counter's
+          work is the exit-pass check, not bagging. */}
+      {grocery && (
+        <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
+          Scan &amp; Go — verify the exit pass; nothing to bag.
+        </p>
+      )}
       <ul role="list" style={lineList}>
         {ticket.lines.map((l) => (
           <ExpoLineRow key={l.id} line={l} />
@@ -204,7 +237,7 @@ function ExpoCard({
         type="button"
         onClick={bump}
         disabled={pending}
-        aria-label={`${label} — bag for ${callOut}`}
+        aria-label={grocery ? `${label} — #${ticket.shortCode}` : `${label} — bag for ${callOut}`}
         className="staff-btn"
         style={{ ...bumpBtn, ...(ticket.status === "preparing" ? readyBtn : pickedBtn) }}
       >

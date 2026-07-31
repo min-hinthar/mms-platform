@@ -4151,9 +4151,9 @@ html[data-seen-surface] .mms-stagger {
   cursor: pointer;
 }
 
-/* The pinned checkout CTA — a lit clay pill, one number, arm's-length legible. Matches the fan-nav
-   z so the header/CTA layering the W4f pass established is preserved. */
-.grocery-cta {
+/* W9d — the pinned bar now holds TWO controls: the basket-review sheet trigger + the checkout CTA.
+   The fixed positioning moved from the CTA pill onto this wrapper; the pills lay out inside it. */
+.grocery-cta-bar {
   position: fixed;
   left: 12px;
   right: 12px;
@@ -4161,6 +4161,41 @@ html[data-seen-surface] .mms-stagger {
   z-index: var(--z-toolbar);
   max-width: 416px;
   margin: 0 auto;
+  display: flex;
+  gap: 8px;
+}
+
+/* The basket trigger — a quiet card-toned pill beside the lit CTA (count + bag; the sheet holds
+   the detail). Same 56px height + press affordance as the CTA so the bar reads as one control row. */
+.grocery-basket-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 56px;
+  padding: 0 18px;
+  border: 1px solid var(--bd);
+  border-radius: var(--r-full);
+  background: var(--cd);
+  color: var(--tx);
+  font: inherit;
+  font-weight: 800;
+  font-size: var(--fs-body);
+  box-shadow:
+    var(--sh-md),
+    inset 0 1px 0 var(--sheen);
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.grocery-basket-btn:active {
+  transform: translateY(1px);
+}
+
+/* The pinned checkout CTA — a lit clay pill, one number, arm's-length legible. Matches the fan-nav
+   z so the header/CTA layering the W4f pass established is preserved. W9d: now positioned by
+   .grocery-cta-bar (it fills the remaining row); the pill itself is no longer fixed. */
+.grocery-cta {
+  flex: 1;
+  min-width: 0;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -4187,12 +4222,41 @@ html[data-seen-surface] .mms-stagger {
   font-variant-numeric: tabular-nums;
 }
 @media (prefers-reduced-motion: reduce) {
-  .grocery-cta {
+  .grocery-cta,
+  .grocery-basket-btn {
     transition: none;
   }
-  .grocery-cta:active {
+  .grocery-cta:active,
+  .grocery-basket-btn:active {
     transform: none;
   }
+}
+
+/* W9d — the basket review sheet's body (rows reuse .grocery-scanned-row; steppers are the shared
+   44px .grocery-step-btn). Bottom padding clears the sheet's own safe-area. */
+.gbasket {
+  display: grid;
+  gap: 8px;
+  padding: 4px 0 8px;
+}
+.gbasket:focus {
+  outline: none; /* focus parking target (row removal) — not an interactive control */
+}
+.gbasket-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.gbasket-qty {
+  min-width: 18px;
+  text-align: center;
+  font-weight: 800;
+}
+.gbasket-empty {
+  margin: 8px 0 16px;
+  color: var(--t3);
 }
 
 /* Add/remove toast — token pill (was an inline object). */

@@ -18,6 +18,7 @@ export type Database = {
           compare_at_cents: number | null
           ebt_eligible: boolean
           image_url: string | null
+          is_featured_deal: boolean
           name: string
           name_my: string | null
           price_cents: number
@@ -36,6 +37,7 @@ export type Database = {
           compare_at_cents?: number | null
           ebt_eligible?: boolean
           image_url?: string | null
+          is_featured_deal?: boolean
           name: string
           name_my?: string | null
           price_cents: number
@@ -54,6 +56,7 @@ export type Database = {
           compare_at_cents?: number | null
           ebt_eligible?: boolean
           image_url?: string | null
+          is_featured_deal?: boolean
           name?: string
           name_my?: string | null
           price_cents?: number

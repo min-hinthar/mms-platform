@@ -127,9 +127,10 @@ function GroceryItemSheetBody({
       )}
 
       <div className="item-hero" style={{ background: "var(--grad)" }}>
-        {/* Loud "Save %" pill only for a meaningful markdown (≥15%) — matches the card rule so the
-            sheet doesn't over-shout a small deal. Decorative: the price block below states it in text. */}
-        {sale && sale.pct >= 15 && (
+        {/* W9d — same STORED gate as the card (`is_featured_deal`), so the two surfaces cannot drift:
+            an item that shouts on the grid must shout here and nowhere else. Decorative — the price
+            block below states the discount in text. */}
+        {sale && item.featuredDeal && (
           <span className="gcard-sale gsheet-sale" aria-hidden>
             Save {sale.pct}%
           </span>
