@@ -4,6 +4,31 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### tooling — `pnpm verify:slice`, the mechanical pre-PR gate (2026-07-31)
+
+Three adversarial review rounds across W9a and W8 each returned BLOCK, and nearly every finding reduced
+to one thing: **a guard was written and never made to fail.** The reviews cost ~1M tokens and 30–56
+minutes each; the mutation battery that finds the same class runs in about a minute for free. So it now
+runs FIRST, and the review spends its attention on what only a reader can judge.
+
+`scripts/verify-slice.mjs` runs the gate, applies **18 semantic mutations** to `totals-math` · `tax` ·
+`split-math` · `permissions` (each must turn its owning suite red), and mirrors CI's orphan-suite check.
+Design points that came straight from this session's failures:
+
+- **A STALE mutant is a failure, not a skip.** If a `find` pattern no longer matches, the code moved and
+  that guard is now fiction — the exact silent rot the script exists to prevent.
+- **It refuses to run on a dirty target file.** It rewrites files in place; a crash must never eat work.
+- **It aborts on a red baseline**, since every mutant would otherwise look "caught" for the wrong reason.
+- **A survivor's message names the real cause** — a degenerate fixture where two code paths produce
+  identical numbers — and says to search for separating inputs rather than add assertions.
+
+**All four failure modes were demonstrated, not asserted:** a gutted suite → 3 SURVIVED + exit 1; a
+broken pattern → STALE + exit 1; a planted `.test.tsx` → orphan + exit 1; an uncommitted target file →
+refusal. Clean run: 18/18 caught.
+
+`CLAUDE.md` gains the **red-first rule** (never write a guard you have not watched fail) and the
+**never-transcribe-a-number rule** — the two habits behind every defect the reviews caught.
+
 ### W8 — Proof: the money path is now mechanically enforced (2026-07-31)
 
 The charge authority had **zero** executable coverage. It now has **161 tests across 8 files** (up from
