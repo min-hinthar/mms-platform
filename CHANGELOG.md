@@ -4,6 +4,57 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W8 — Proof: the money path is now mechanically enforced (2026-07-31)
+
+The charge authority had **zero** executable coverage. It now has 153 tests across 8 files (up from 35
+across 5), and — more importantly — every guard in this slice was **proven able to fail**, not asserted
+to work. **No charged amount changed.**
+
+- **`lib/totals-math.ts` (new) — a pure `computeTotals` seam** extracted from under `getCartTotals`'s
+  three I/O reads. `getCartTotals` keeps its signature and does the reads; the arithmetic moves
+  verbatim. **Proven behaviour-preserving by differential-testing the new seam against the
+  pre-extraction arithmetic (transcribed from `origin/main`) over 200,000 random baskets — 0
+  divergences.** The three reads stay sequential; parallelising them is not behaviour-preserving in the
+  failure case.
+- **`lib/totals-math.test.ts`** — the 7 charge invariants, every expected value a hand-computed
+  literal. **Mutation-tested:** six deliberate breakages (reward clamping to subtotal instead of
+  remaining · service reusing the tax pro-rata — the "DRY" refactor that moves a charge by 1¢ ·
+  tip gated on every-line-is-grocery · only-draft-is-chargeable · tip on subtotal instead of net ·
+  rounding _inside_ the ratio) were each injected and confirmed to turn the suite red. The last one
+  **escaped the first draft**, so a fixture that separates it (100¢ taxable + 1395¢ exempt, promo 500
+  → tax 7 correct vs 6 mutant) was added.
+- **`lib/tax.test.ts` + `supabase/tests/tax_parity_test.sql`** — the TS↔SQL mirror, pinned from BOTH
+  sides. The halves deliberately do not read each other: a TS test that parsed the migration would be
+  a turbo-cache trap (turbo hashes only files inside the workspace, so editing a migration leaves
+  `@mms/qr:test` a cache hit replaying a green log against drifted SQL). **All four drift drills run
+  for real** against a local Postgres 16: TS rate → red, SQL rate → red, SQL category flip → red, and
+  the `check_asserts`-off run demonstrated exiting 0 having proved nothing (which is why every SQL test
+  file now sets the GUC, `rls_membership_test.sql` included).
+- **`lib/permissions.test.ts`** — the complete 5 × 5 × 2 authority matrix (50 cells), exhaustive by
+  construction via `Record<LineState, …>` so widening the union breaks the build. Exactly 7 cells are
+  allowed. This gate is what stops a guest mutating a fired ticket and had never been tested.
+- **`lib/split-math.test.ts`** — `allocate`'s sum invariant over 5,000 randomised cases including
+  fractional weights (real: `owned + unassigned/n` repeats for n = 3, 6, 7). That invariant is what
+  `mms_fulfill_split_order` hard-raises on, so a rounding drift there makes a paid table unfulfillable.
+- **CI wiring, both traps closed.** The SQL step hard-coded ONE filename — a new `.sql` would have
+  "passed by not existing"; it is now a `nullglob` loop with a count floor. And a new **orphan-suite
+  guard** fails the build on any `*.test.ts` outside a runnable glob, because `vitest run` exits 1 only
+  when ZERO files match, so a single misplaced suite is otherwise invisible forever.
+
+**Corrections to this repo's own docs, found by the spec pass:** `CLAUDE.md` and `W8_PLAN.md` cited
+`packages/db/migrations/0001`, which does not exist (the tax engine is
+`supabase/migrations/20260618000000_qr_platform_init.sql`); `W8_PLAN.md` named a `settled` `LineState`
+(not a member), a CI `verify` job (that is the delivery repo's name), and claimed `lib/pickup.ts`
+computes the slot grid (it contains zero arithmetic — the grid is entirely SQL, so **W8d is deferred as
+an SQL slice**). The plan's own drift-proof recipe was also broken: 1400¢ rounds to 137 under both
+0.0975 and 0.098, so the suggested probe would have stayed green through the exact drift it tests for.
+
+**Twelve findings filed rather than fixed** (`M17`–`M26`, `T4`–`T5`) — including a reward that is
+burned at less than face value when it overflows the remaining base (`M22`), the split path
+re-implementing the money rules without W1a's grocery exclusion (`M23`), `split.ts` swallowing both
+PostgREST errors into a permanently stuck table (`M24`), and `allocate(total, [])` silently dropping
+the total (pinned).
+
 ### W9a — One door, carried all the way through (mode identity, scan → reorder) (2026-07-31)
 
 A 14-agent happy-path + craft audit ([`docs/W9_PLAN.md`](docs/W9_PLAN.md); 84 raw → 32 deduped → 24

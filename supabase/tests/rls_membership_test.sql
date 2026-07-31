@@ -14,6 +14,9 @@
 -- request.jwt.claims` makes the very same policies a real anon-auth diner hits evaluate here.
 
 begin;
+-- W8: without this GUC every ASSERT below compiles out and the file exits 0 having proved
+-- nothing. It is settable per session, so do not rely on the server default.
+set local plpgsql.check_asserts = on;
 
 -- ── fixtures (inserted as the privileged role, which bypasses RLS) ──────────────────────────────────
 -- Two unrelated tables. Alice hosts A; Bob hosts B. Bob is the "attacker" probing table A he's not in.
