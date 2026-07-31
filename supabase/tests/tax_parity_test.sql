@@ -100,15 +100,30 @@ begin
   assert v_rate = 0.0975, format('PARITY: SQL tax rate is %s, expected 0.0975 (Covina combined)', v_rate);
 end $$;
 
--- ── 4 · rounding MODE, not just rounding results ───────────────────────────────────────────────────
--- Guards a numeric -> float8 regression, which a value table cannot see: float8 would still produce
--- the same integers for these inputs. `round(numeric)` is half-AWAY-from-zero; `round(double)` is
--- banker's rounding (half-to-even) in some builds. 19.5 -> 20 and 20.5 -> 21 together prove
--- half-away-from-zero; half-to-even would give 20 and 20 (both to the even neighbour).
+-- ── 4 · rounding MODE, asserted THROUGH the function under test ────────────────────────────────────
+-- ⚠️ An earlier draft asserted `round(19.5::numeric) = 20` on hardcoded literals. That tested
+-- PostgreSQL itself: it never referenced mms_line_tax/mms_taxable/mms_tax_rate, so it was green for
+-- EVERY possible state of the code under test — including the numeric->float8 regression its own
+-- comment claimed it existed to catch. Its premise was also backwards.
+--
+-- The truth: the VALUE TABLE in section 2 is what catches a numeric->float8 regression, because the
+-- exact .5 ties are where the two modes differ. `round(numeric)` is half-AWAY-from-zero, so 58.5 -> 59
+-- and 136.5 -> 137. `round(double precision)` is half-to-EVEN, so the same inputs give 58 and 136.
+-- These assertions restate those two rows explicitly, so the intent survives even if the table above
+-- is ever trimmed.
 do $$
 begin
-  assert round(19.5::numeric) = 20, 'PARITY: round(numeric) must be half-away-from-zero, got half-to-even';
-  assert round(20.5::numeric) = 21, 'PARITY: round(numeric) must be half-away-from-zero, got half-to-even';
+  -- 600 x 0.0975 = 58.5 exactly. numeric -> 59; float8 (banker's) -> 58.
+  assert public.mms_line_tax(600, 'hot_prepared', true) = 59,
+    'PARITY: 600c must be 59 — a 58 here means the tax path went float8 (half-to-even)';
+  -- 1400 x 0.0975 = 136.5 exactly. numeric -> 137; float8 -> 136.
+  assert public.mms_line_tax(1400, 'hot_prepared', true) = 137,
+    'PARITY: 1400c must be 137 — a 136 here means the tax path went float8 (half-to-even)';
+  -- And the rate must still be exact numeric, not a float approximation: 1,000,000c is exact under
+  -- numeric and would drift under repeated float8 multiplication.
+  assert public.mms_line_tax(1000000, 'hot_prepared', true) = 97500,
+    'PARITY: 1000000c must be exactly 97500 (exact numeric arithmetic)';
+
   -- T4 (known-open, PINNED not fixed): the negative side genuinely diverges from TS. SQL rounds a
   -- negative tie AWAY from zero (-19.5 -> -20); TS Math.round rounds it toward +inf (-19). Reachable
   -- because unit_price_cents carries no `>= 0` CHECK. See docs/OPEN-ITEMS.md T4 — when that is fixed,

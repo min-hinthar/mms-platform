@@ -12,6 +12,23 @@ import { allocate, computeShares, deriveShareBreakdowns } from "./split-math";
  * output. Nothing re-implements the formula.
  */
 
+/**
+ * mulberry32 — a real PRNG. The obvious `seed * 1103515245 % 2^31` LCG is WRONG in JS: the product
+ * reaches ~2.4e18, far past `Number.MAX_SAFE_INTEGER` (9.0e15), so the low bits are lost to double
+ * rounding and the generator degenerates — measured, it yields **374 distinct values in 5,000 draws**
+ * and short-cycles. Every arithmetic step below stays inside 32 bits (`Math.imul`, `>>> 0`).
+ */
+function mulberry32(seed: number): () => number {
+  let a = seed;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 const SEATS = [
   { seat: "a", name: "Aye" },
   { seat: "b", name: "Bo" },
@@ -21,8 +38,7 @@ const SEATS = [
 
 describe("allocate — the sum invariant that fulfillment depends on", () => {
   it("sums EXACTLY to the total across a deterministic sweep of totals and weights", () => {
-    let seed = 20260731;
-    const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+    const rnd = mulberry32(20260731);
     for (let t = 0; t < 5000; t++) {
       const n = 1 + Math.floor(rnd() * 8);
       // Weights are NOT always integers: `deriveShareBreakdowns` builds them as
@@ -200,23 +216,147 @@ describe("J14 (known-open) — the preview diverges from what is actually charge
   });
 });
 
-describe("M23 (known-open) — a grocery-only seat is billed the restaurant service charge", () => {
-  it("allocates SB-1524 service to a seat whose lines owe none", () => {
-    // PINNED, NOT FIXED. `getCartTotals` excludes grocery lines from the service base (W1a) because
-    // the disclosed "supports fair kitchen wages" copy would be false on self-scanned retail. The
-    // split path re-implements the allocation and cannot apply that rule: `deriveShareBreakdowns`
-    // spreads the service charge pro-rata to every seat's NET, and its `lines` type has no
-    // `fulfillment` field at all — so seat A, who bought only groceries, is billed 75¢ of it.
-    // Sums still reconcile, which is exactly why nothing has ever caught this. See OPEN-ITEMS M23.
-    const grand = {
-      subtotalCents: 8000,
-      discountCents: 0,
-      serviceChargeCents: 300,
-      taxCents: 585,
+describe("deriveShareBreakdowns — the limbs that write real per-card money", () => {
+  // GRAND with a DISCOUNT. The discount limb feeds `baseCents` (what each card is charged) AND `net`
+  // (which weights the service allocation), and every fixture above leaves it at 0 — so deleting the
+  // allocation outright was invisible. Hand-computed below.
+  const GRAND_DISC = {
+    subtotalCents: 8000,
+    discountCents: 1000,
+    serviceChargeCents: 350,
+    taxCents: 500,
+  };
+
+  it("allocates the DISCOUNT pro-rata to each seat's subtotal", () => {
+    // by-person, 4 seats each owning 2000¢ → subtotal allocation [2000,2000,2000,2000].
+    // discount 1000 over equal weights → exact 250 each → [250,250,250,250].
+    const out = deriveShareBreakdowns(GRAND_DISC, SEATS, LINES_J14, "by_person");
+    expect(out.map((s) => s.discountCents)).toEqual([250, 250, 250, 250]);
+    expect(out.reduce((a, s) => a + s.discountCents, 0)).toBe(1000);
+  });
+
+  it("gives a $0-subtotal seat NO discount and NO service", () => {
+    // Seat D owns nothing. subtotal weights [2000,2000,2000,0] → discount follows the allocated
+    // subtotal, so D gets 0 of both; the other three split 1000 → exact 333.33 each →
+    // floors [333,333,333] = 999, leftover 1 → index 0 → [334,333,333,0].
+    const lines = LINES_J14.filter((l) => l.bySeat !== "d");
+    const out = deriveShareBreakdowns(GRAND_DISC, SEATS, lines, "by_person");
+    expect(out[3]!.subtotalCents).toBe(0);
+    expect(out[3]!.discountCents).toBe(0);
+    expect(out[3]!.serviceChargeCents).toBe(0);
+    expect(out.map((s) => s.discountCents)).toEqual([334, 333, 333, 0]);
+  });
+
+  it("EVEN mode splits equally even when ownership is LOPSIDED", () => {
+    // ⚠️ The ownership must be UNEQUAL or this test proves nothing: with 4 seats each owning 2000¢,
+    // the by-person weights are already equal, so a mutant that ignores `even` and uses by-person
+    // weights produces identical output. (Verified — that mutant passed the first draft.)
+    // Here seat A owns 3000¢ and B/C own 1000¢ each, so the two modes genuinely diverge:
+    //   even       → subtotal 5000 split 3 ways: exact 1666.67 → [1667,1667,1666]
+    //   by-person  → would be [3000,1000,1000]
+    // service 300 over equal nets → exact 100 each → [100,100,100].
+    const lopsided = [
+      { bySeat: "a", qty: 3, unitPriceCents: 1000, taxCents: 0 },
+      { bySeat: "b", qty: 1, unitPriceCents: 1000, taxCents: 0 },
+      { bySeat: "c", qty: 1, unitPriceCents: 1000, taxCents: 0 },
+    ];
+    const out = deriveShareBreakdowns(
+      { subtotalCents: 5000, discountCents: 0, serviceChargeCents: 300, taxCents: 0 },
+      SEATS.slice(0, 3),
+      lopsided,
+      "even",
+    );
+    expect(out.map((s) => s.subtotalCents)).toEqual([1667, 1667, 1666]);
+    expect(out.map((s) => s.subtotalCents)).not.toEqual([3000, 1000, 1000]); // the by-person mutant
+    expect(out.map((s) => s.serviceChargeCents)).toEqual([100, 100, 100]);
+  });
+
+  it("SPREADS an unassigned line across seats rather than dropping it", () => {
+    // ⚠️ The fixture must MIX owned and unassigned lines. With only an unassigned line, dropping it
+    // zeroes every weight and `allocate` falls back to an even split — producing the same answer as
+    // spreading it, so the mutant passes. (Verified against the first draft.)
+    // Here seat A owns 3000¢ and a 3000¢ line is unowned, across 3 seats:
+    //   correct: weights [3000+1000, 1000, 1000] = [4000,1000,1000] → subtotal [4000,1000,1000]
+    //   mutant (drops unassigned): weights [3000,0,0] → [6000,0,0]
+    const out = deriveShareBreakdowns(
+      { subtotalCents: 6000, discountCents: 0, serviceChargeCents: 0, taxCents: 0 },
+      SEATS.slice(0, 3),
+      [
+        { bySeat: "a", qty: 1, unitPriceCents: 3000, taxCents: 0 },
+        { bySeat: null, qty: 1, unitPriceCents: 3000, taxCents: 0 },
+      ],
+      "by_person",
+    );
+    expect(out.map((s) => s.subtotalCents)).toEqual([4000, 1000, 1000]);
+    expect(out.map((s) => s.subtotalCents)).not.toEqual([6000, 0, 0]); // the drop mutant
+    expect(out.reduce((a, s) => a + s.subtotalCents, 0)).toBe(6000);
+  });
+
+  it("weights SERVICE by NET (subtotal − discount), not by raw subtotal", () => {
+    // ⚠️ Separating these two requires a discount whose largest-remainder allocation makes net
+    // NON-proportional to subtotal — otherwise both weightings give the same answer. Found by
+    // search: subtotals [5500,4500], discount 1234, service 450.
+    //   discount 1234 pro-rata to subtotal → exact [678.7, 555.3] → floors [678,555] = 1233,
+    //     leftover 1 → larger frac (0.7, index 0) → [679,555]
+    //   net = [5500−679, 4500−555] = [4821, 3945]
+    //   service 450 over net → exact [246.60…, 203.39…] → floors [246,203] = 449, leftover 1 →
+    //     larger frac (0.60) → [247,203]
+    //   the mutant (weighting by subtotal) gives [248,202]
+    const out = deriveShareBreakdowns(
+      { subtotalCents: 10000, discountCents: 1234, serviceChargeCents: 450, taxCents: 0 },
+      SEATS.slice(0, 2),
+      [
+        { bySeat: "a", qty: 1, unitPriceCents: 5500, taxCents: 0 },
+        { bySeat: "b", qty: 1, unitPriceCents: 4500, taxCents: 0 },
+      ],
+      "by_person",
+    );
+    expect(out.map((s) => s.subtotalCents)).toEqual([5500, 4500]);
+    expect(out.map((s) => s.discountCents)).toEqual([679, 555]);
+    expect(out.map((s) => s.serviceChargeCents)).toEqual([247, 203]);
+    expect(out.map((s) => s.serviceChargeCents)).not.toEqual([248, 202]); // the by-subtotal mutant
+  });
+
+  it("Σ baseCents === the cart total even with a discount in play", () => {
+    const out = deriveShareBreakdowns(GRAND_DISC, SEATS, LINES_J14, "by_person");
+    // 8000 − 1000 + 350 + 500 = 7850
+    expect(out.reduce((a, s) => a + s.baseCents, 0)).toBe(7850);
+  });
+});
+
+describe("M23 (known-open) — the split path CANNOT apply W1a's grocery exclusion", () => {
+  it("has no `fulfillment` field to exclude on, so service reaches every seat with net > 0", () => {
+    // PINNED, NOT FIXED — and stated STRUCTURALLY, because that is the actual defect. An earlier
+    // draft of this pin asserted "seat A is billed 75¢ of service", which was green for the wrong
+    // reason: `deriveShareBreakdowns`'s `lines` type has no `fulfillment` field at all (split-math.ts:99),
+    // so nothing in the fixture ever marked seat A as a grocery buyer — the 75¢ was just "service
+    // pro-rata to net", true for any seat, and the pin would have stayed green after M23 was fixed.
+    //
+    // The real content of M23: `getCartTotals` excludes grocery lines from the service base (W1a,
+    // because the disclosed "supports fair kitchen wages" copy is false on self-scanned retail), and
+    // the split path re-implements the allocation over a line type that cannot express that. So a
+    // grocery-only seat is billed part of a charge their lines do not owe. Sums still reconcile,
+    // which is why nothing has ever caught it.
+    //
+    // This assertion is a TYPE-LEVEL statement of the gap: if a `fulfillment` field is ever added to
+    // the split line type (the fix), this line stops compiling and the pin must be revisited.
+    const probe: Parameters<typeof deriveShareBreakdowns>[2][number] = {
+      bySeat: "a",
+      qty: 1,
+      unitPriceCents: 2000,
+      taxCents: 0,
     };
-    const out = deriveShareBreakdowns(grand, SEATS, LINES_J14, "by_person");
-    expect(out[0]!.serviceChargeCents).toBe(75);
-    expect(out[0]!.taxCents).toBe(0); // tax IS correctly excluded — only service leaks
-    expect(out[0]!.baseCents).toBe(2075);
+    expect(Object.keys(probe)).not.toContain("fulfillment");
+
+    // And behaviourally: every seat with net > 0 receives service, including one whose only line is
+    // tax-exempt (the closest the type can come to representing a grocery buyer).
+    const out = deriveShareBreakdowns(
+      { subtotalCents: 8000, discountCents: 0, serviceChargeCents: 300, taxCents: 585 },
+      SEATS,
+      LINES_J14,
+      "by_person",
+    );
+    expect(out[0]!.taxCents).toBe(0); // tax IS correctly excluded for an exempt seat …
+    expect(out[0]!.serviceChargeCents).toBe(75); // … but service is not, and cannot be
   });
 });

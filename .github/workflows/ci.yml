@@ -23,20 +23,26 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # Turborepo runs lint, typecheck, build, test across the affected workspaces (cached).
       # W8 — orphan-suite guard. `vitest run` exits 1 only when ZERO files match its include glob, so
-      # a single test file dropped outside a workspace's glob is INVISIBLE: it never runs and nothing
-      # reports it. (Verified: `packages/db`/`packages/config` have no `test` script at all, and
-      # `packages/ui` includes only `src/**`.) A plain shell check, not a vitest test — a test that
-      # reads outside its own workspace is itself turbo-cache-exposed and would defeat the purpose.
+      # a test file dropped outside a workspace's glob is INVISIBLE: it never runs and nothing reports
+      # it. A plain shell check, not a vitest test — a test that reads outside its own workspace is
+      # itself turbo-cache-exposed and would defeat the purpose.
+      #
+      # ⚠️ `.test.tsx` is an orphan ANYWHERE. Neither config matches it (apps/qr is `**/*.test.ts`,
+      # packages/ui is `src/**/*.test.ts`), so a React component test — the single most likely future
+      # orphan — would otherwise be whitelisted by directory and silently never run. When jsdom lands,
+      # widen the vitest include FIRST, then relax this.
       - name: No orphaned test files
         run: |
-          orphans=$(find . -name '*.test.ts' -o -name '*.test.tsx' \
-            | grep -v -E '/(node_modules|\.next|\.git)/' \
+          ts_orphans=$(find . -name '*.test.ts' -not -path '*/node_modules/*' -not -path '*/.next/*' -not -path '*/.git/*' \
             | grep -v -E '^\./(apps/qr/|packages/ui/src/)' || true)
-          if [ -n "$orphans" ]; then
-            echo "::error::Test file(s) outside a runnable glob — these NEVER execute:"
-            echo "$orphans"
+          tsx_any=$(find . -name '*.test.tsx' -not -path '*/node_modules/*' -not -path '*/.next/*' -not -path '*/.git/*' || true)
+          if [ -n "$ts_orphans" ] || [ -n "$tsx_any" ]; then
+            echo "::error::Test file(s) that NO vitest config runs — they never execute:"
+            [ -n "$ts_orphans" ] && echo "$ts_orphans"
+            [ -n "$tsx_any" ] && echo "$tsx_any  (no config includes *.test.tsx — see the note in ci.yml)"
             exit 1
           fi
+          echo "No orphaned test files."
       - run: pnpm turbo run lint typecheck build test
 
   # Proves the DB layer can't drift: the migrations apply cleanly and the committed types match.
@@ -82,12 +88,17 @@ jobs:
       - name: SQL tests (RLS · tax parity)
         run: |
           shopt -s nullglob
+          # REQUIRED files are named explicitly. A bare count is not enough: once a third file lands,
+          # deleting or renaming one of these would still leave the count satisfied and the job green
+          # with a whole guard silently gone — the same "passed by not existing" trap this replaced.
+          for required in supabase/tests/rls_membership_test.sql supabase/tests/tax_parity_test.sql; do
+            if [ ! -f "$required" ]; then
+              echo "::error::Required SQL test missing: $required (renamed or deleted?)"
+              exit 1
+            fi
+          done
           files=(supabase/tests/*.sql)
-          echo "Found ${#files[@]} SQL test file(s): ${files[*]}"
-          if [ "${#files[@]}" -lt 2 ]; then
-            echo "::error::Expected at least 2 SQL test files in supabase/tests/, found ${#files[@]} — did one get renamed or deleted?"
-            exit 1
-          fi
+          echo "Running ${#files[@]} SQL test file(s): ${files[*]}"
           for f in "${files[@]}"; do
             echo "── $f"
             psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -v ON_ERROR_STOP=1 -f "$f"

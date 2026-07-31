@@ -6,15 +6,22 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ### W8 — Proof: the money path is now mechanically enforced (2026-07-31)
 
-The charge authority had **zero** executable coverage. It now has 153 tests across 8 files (up from 35
-across 5), and — more importantly — every guard in this slice was **proven able to fail**, not asserted
-to work. **No charged amount changed.**
+The charge authority had **zero** executable coverage. It now has **161 tests across 8 files** (up from
+35 across 5), and every guard is **proven able to fail**, not asserted to work. **No charged amount
+changed.**
+
+> **The pre-PR adversarial review returned BLOCK from all four lenses, and it was right.** The money
+> path was sound, but **five of this slice's own guards could not fail** — a suite that licenses future
+> change while silently green is exactly the failure mode W8 exists to prevent. All are fixed below;
+> the review's findings are recorded on the PR.
 
 - **`lib/totals-math.ts` (new) — a pure `computeTotals` seam** extracted from under `getCartTotals`'s
   three I/O reads. `getCartTotals` keeps its signature and does the reads; the arithmetic moves
   verbatim. **Proven behaviour-preserving by differential-testing the new seam against the
-  pre-extraction arithmetic (transcribed from `origin/main`) over 200,000 random baskets — 0
-  divergences.** The three reads stay sequential; parallelising them is not behaviour-preserving in the
+  pre-extraction arithmetic (transcribed from `origin/main`) over 200,000 runs / 199,997 DISTINCT
+  baskets — 0 divergences.** (The first run used a naive LCG whose product overflows 2^53; it yielded
+  only 374 distinct values in 5,000 draws, so the original "200,000 baskets" claim was inflated. Both
+  the differential harness and the in-suite sweeps now use mulberry32.) The three reads stay sequential; parallelising them is not behaviour-preserving in the
   failure case.
 - **`lib/totals-math.test.ts`** — the 7 charge invariants, every expected value a hand-computed
   literal. **Mutation-tested:** six deliberate breakages (reward clamping to subtotal instead of
@@ -33,13 +40,30 @@ to work. **No charged amount changed.**
 - **`lib/permissions.test.ts`** — the complete 5 × 5 × 2 authority matrix (50 cells), exhaustive by
   construction via `Record<LineState, …>` so widening the union breaks the build. Exactly 7 cells are
   allowed. This gate is what stops a guest mutating a fired ticket and had never been tested.
-- **`lib/split-math.test.ts`** — `allocate`'s sum invariant over 5,000 randomised cases including
-  fractional weights (real: `owned + unassigned/n` repeats for n = 3, 6, 7). That invariant is what
-  `mms_fulfill_split_order` hard-raises on, so a rounding drift there makes a paid table unfulfillable.
-- **CI wiring, both traps closed.** The SQL step hard-coded ONE filename — a new `.sql` would have
-  "passed by not existing"; it is now a `nullglob` loop with a count floor. And a new **orphan-suite
-  guard** fails the build on any `*.test.ts` outside a runnable glob, because `vitest run` exits 1 only
-  when ZERO files match, so a single misplaced suite is otherwise invisible forever.
+- **`lib/split-math.test.ts`** — `allocate`'s sum invariant (the one `mms_fulfill_split_order`
+  hard-raises on, so a drift there makes a paid table unfulfillable) **plus the per-seat charge limbs
+  the first draft left degenerate.** The review proved six mutations to `deriveShareBreakdowns` — the
+  function that writes what each card is actually charged — all passed 15/15: its discount limb was
+  never exercised (every fixture had `discountCents: 0`), even-mode was tested with equal ownership so
+  it was indistinguishable from by-person, and the unassigned-line fixture had _only_ unassigned lines
+  so dropping them fell back to the same even split. Separating fixtures were found by search and all
+  **6/6 mutations are now caught**. The M23 pin was also rewritten: it claimed "a grocery-only seat is
+  billed 75¢" on a fixture with no grocery marker at all — `deriveShareBreakdowns`' line type has no
+  `fulfillment` field — so it would have stayed green after M23 was fixed. It now states the gap
+  **structurally**, and stops compiling if that field is ever added.
+- **CI wiring, three traps closed.** The SQL step hard-coded ONE filename — a new `.sql` would have
+  "passed by not existing"; it now globs _and_ checks each required file by name (a bare count floor
+  would still pass after a rename once a third file lands). The **orphan-suite guard** fails the build
+  on any test file no vitest config runs — including **any `.test.tsx` anywhere**, since neither config
+  matches `.tsx` and a React component test is the most likely future orphan; the first draft
+  whitelisted it by directory, and the review proved it by dropping a deliberately-failing `.test.tsx`
+  into `apps/qr/components/` and watching the guard print PASS.
+- **`tax_parity_test.sql` §4 rewritten.** It asserted `round(19.5::numeric) = 20` on hardcoded
+  literals — a statement about PostgreSQL itself that never referenced the functions under test, so it
+  was green for every possible state of the code, _including_ the numeric→float8 regression its comment
+  claimed to catch. Its premise was also inverted: the **value table** is what catches float8, because
+  58.5 → 59 under numeric and 58 under banker's rounding. §4 now asserts through `mms_line_tax`, and
+  was **verified to go red under an induced float8 regression** on a real Postgres 16.
 
 **Corrections to this repo's own docs, found by the spec pass:** `CLAUDE.md` and `W8_PLAN.md` cited
 `packages/db/migrations/0001`, which does not exist (the tax engine is

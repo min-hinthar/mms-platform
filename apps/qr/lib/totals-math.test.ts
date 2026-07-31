@@ -27,6 +27,23 @@ function line(over: Partial<TotalsLine> & Pick<TotalsLine, "unitPriceCents">): T
   };
 }
 
+/**
+ * mulberry32 — a real PRNG. The obvious `seed * 1103515245 % 2^31` LCG is WRONG in JS: the product
+ * reaches ~2.4e18, far past `Number.MAX_SAFE_INTEGER` (9.0e15), so the low bits are lost to double
+ * rounding and the generator degenerates — measured, it yields **374 distinct values in 5,000 draws**
+ * and short-cycles. Every arithmetic step below stays inside 32 bits (`Math.imul`, `>>> 0`).
+ */
+function mulberry32(seed: number): () => number {
+  let a = seed;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 // `taxCents` is a PER-UNIT figure everywhere in the app and is read only as a boolean `> 0` flag.
 // 1¢ is used as the "this line is taxable" marker so no fixture implies a real per-line tax.
 const TAXABLE = 1;
@@ -249,8 +266,11 @@ describe("invariant 4 — the service base EXCLUDES grocery, with its OWN pro-ra
     expect(totals.serviceChargeCents).toBe(0);
   });
 
-  it("uses a service pro-rata INDEPENDENT of the tax pro-rata", () => {
-    // The regression this guards is a DRY refactor that shares one `discOn…` variable.
+  it("computes both pro-ratas on a mixed basket (does NOT discriminate — see the next test)", () => {
+    // ⚠️ HONESTY NOTE: on this basket the taxable base and the service base are the SAME 4550¢, so
+    // both pro-ratas are 695 and collapsing them into one shared variable leaves every value here
+    // byte-identical. This fixture pins the ARITHMETIC; the test BELOW is the one that actually
+    // catches the DRY collapse, because there the two bases differ.
     // Basket: dine-in taxable 4550¢ (service base AND taxable base) + grocery exempt 2000¢.
     // subtotal 6550. Promo 1000 → net 5550.
     //   taxable base   = 4550 → discOnTaxable = round(1000 × (4550/6550)) = round(694.65…) = 695
@@ -351,35 +371,79 @@ describe("invariant 5 — a basket with no restaurant VALUE is never tipped", ()
   });
 });
 
-describe("invariant 6 — the total identity holds in integer cents", () => {
-  it("total === net + service + tax + tip over a wide deterministic sweep", () => {
-    // A property, not a formula re-implementation: it asserts the RELATIONSHIP between returned
-    // fields, never recomputing any of them from the inputs.
-    let seed = 20260731;
-    const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
-    const FUL = ["dinein", "togo", "grocery"] as const;
+describe("invariant 6 — a randomised sweep against an INDEPENDENT oracle", () => {
+  /**
+   * A second implementation of the documented rules, written from the SPEC rather than from
+   * `totals-math.ts`. This is the honest form of a sweep: asserting `total === net + service + tax +
+   * tip` would merely re-state the function's own `return` expression and therefore hold for ANY
+   * change to the components — the first draft of this file did exactly that and survived all six
+   * charge mutations that the hand-written fixtures caught.
+   *
+   * If you change the engine, this oracle must change too — deliberately, in a diff a reviewer sees.
+   */
+  function oracle(
+    lines: TotalsLine[],
+    promoRaw: number,
+    rewardRaw: number,
+    tipRate: number,
+  ): Record<string, number> {
+    const live = lines.filter((l) => l.state !== "voided" && !l.comped);
+    const amount = (l: TotalsLine) => l.unitPriceCents * l.qty;
+    const subtotal = live.reduce((a, l) => a + amount(l), 0);
+    const promo = Math.min(promoRaw, subtotal);
+    const reward = Math.min(rewardRaw, Math.max(subtotal - promo, 0));
+    const discount = promo + reward;
+    const net = subtotal - discount;
+    const taxable = live.reduce((a, l) => a + (l.taxCents > 0 ? amount(l) : 0), 0);
+    const service = live.reduce((a, l) => a + (l.fulfillment === "grocery" ? 0 : amount(l)), 0);
+    const share = (base: number) => (subtotal > 0 ? Math.round(discount * (base / subtotal)) : 0);
+    const tax = Math.round((taxable - share(taxable)) * 0.0975);
+    const svc = Math.round((service - share(service)) * 0.05);
+    const tip = service === 0 ? 0 : Math.round(net * tipRate);
+    return {
+      subtotalCents: subtotal,
+      discountCents: discount,
+      rewardCents: reward,
+      serviceChargeCents: svc,
+      taxCents: tax,
+      tipCents: tip,
+      totalCents: net + svc + tax + tip,
+    };
+  }
 
-    for (let t = 0; t < 500; t++) {
+  it("matches the oracle on 2,000 distinct random baskets", () => {
+    const rnd = mulberry32(20260731);
+    const FUL = ["dinein", "togo", "grocery"] as const;
+    const STATES = ["draft", "fired", "in_progress", "served", "voided"] as const;
+    for (let t = 0; t < 2000; t++) {
       const lines: TotalsLine[] = [];
-      for (let i = 0; i < Math.floor(rnd() * 5); i++) {
+      for (let i = 0; i < Math.floor(rnd() * 6); i++) {
         lines.push(
           line({
             unitPriceCents: Math.floor(rnd() * 9999),
             qty: 1 + Math.floor(rnd() * 9),
             taxCents: rnd() < 0.5 ? 0 : TAXABLE,
             fulfillment: FUL[Math.floor(rnd() * 3)]!,
+            state: STATES[Math.floor(rnd() * 5)]!,
+            comped: rnd() < 0.15,
           }),
         );
       }
+      const promo = Math.floor(rnd() * 3000);
+      const reward = Math.floor(rnd() * 3000);
+      const tip = [0, 0.15, 0.18, 0.2][Math.floor(rnd() * 4)]!;
+      expect(computeTotals(lines, promo, reward, tip)).toEqual(oracle(lines, promo, reward, tip));
+    }
+  });
+
+  it("returns only integer cents, and never a negative total", () => {
+    const rnd = mulberry32(99);
+    for (let t = 0; t < 500; t++) {
       const totals = computeTotals(
-        lines,
+        [line({ unitPriceCents: Math.floor(rnd() * 9999), qty: 1 + Math.floor(rnd() * 9) })],
         Math.floor(rnd() * 3000),
         Math.floor(rnd() * 3000),
-        [0, 0.15, 0.18, 0.2][Math.floor(rnd() * 4)]!,
-      );
-      const net = totals.subtotalCents - totals.discountCents;
-      expect(totals.totalCents).toBe(
-        net + totals.serviceChargeCents + totals.taxCents + totals.tipCents,
+        0.18,
       );
       for (const v of Object.values(totals)) expect(Number.isInteger(v)).toBe(true);
       expect(totals.totalCents).toBeGreaterThanOrEqual(0);
@@ -401,6 +465,22 @@ describe("invariant 7 — quantity multiplies the base, not the rounded tax", ()
     );
     expect(totals.subtotalCents).toBe(3750);
     expect(totals.taxCents).toBe(366);
+  });
+
+  it("catches a per-unit rounding refactor — 105¢ × 7 is 72¢, not 70¢", () => {
+    // The discriminating fixture. Rounding per UNIT then multiplying is a plausible refactor and it
+    // changes real charges: round(105 × 0.0975) = round(10.2375) = 10, × 7 = 70 — but the correct
+    // single rounding over the summed base is round(735 × 0.0975) = round(71.6625) = 72. A 2¢
+    // under-collection per line. The qty-3 fixture above cannot see it (both give 366).
+    const totals = computeTotals(
+      [line({ unitPriceCents: 105, qty: 7, taxCents: TAXABLE })],
+      0,
+      0,
+      0,
+    );
+    expect(totals.subtotalCents).toBe(735);
+    expect(totals.taxCents).toBe(72);
+    expect(totals.taxCents).not.toBe(70); // the per-unit-rounded mutant
   });
 });
 
