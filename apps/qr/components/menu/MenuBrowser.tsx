@@ -202,6 +202,16 @@ export function MenuBrowser({
               ? `${unavailable[0]?.name ?? "1 item"} isn’t available today`
               : `${unavailable.length} items aren’t available today`,
           );
+        // W9c — a dropped kitchen note goes FIRST among the caveats and names every dish. The item
+        // sheet promises "add any allergy in the note below and the kitchen will see it"; if that note
+        // could not come back, silence is the one outcome here that can actually hurt someone. Phrased
+        // as an instruction, not a status, because the diner has to re-add it themselves.
+        if (res.notesDropped.length > 0)
+          bits.push(
+            res.notesDropped.length === 1
+              ? `your note for ${res.notesDropped[0]} didn’t come back — tap it to add it again`
+              : `notes for ${res.notesDropped.join(", ")} didn’t come back — tap each to add them again`,
+          );
         if (res.capped) bits.push("only the first 30 lines were brought back");
         const msg = bits.length > 0 ? bits.join(" · ") : "Nothing to bring back from that order.";
         setReorderNote(msg);

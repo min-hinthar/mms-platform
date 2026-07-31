@@ -76,6 +76,25 @@ export const reorderInput = z.object({ cartId: uuid, orderId: uuid });
 /** announceArrival (J5) — the pickup "I'm here" ping; stamps qr_orders.arrived_at once. */
 export const announceArrivalInput = z.object({ orderId: uuid });
 
+/**
+ * W9c — the /track post-session fallback lookup. EXACTLY ONE key: a split order is keyed by its
+ * resolved order id, a single-pay order by its Stripe PaymentIntent. Neither key AUTHORIZES anything
+ * — the read is additionally scoped to `earned_by = auth.uid()` — but bounding the shape here keeps a
+ * garbage value out of the query in the first place.
+ */
+export const trackFallbackInput = z
+  .object({
+    orderId: uuid.nullish(),
+    paymentIntent: z
+      .string()
+      .max(255)
+      .regex(/^pi_[A-Za-z0-9_]+$/, "not a PaymentIntent id")
+      .nullish(),
+  })
+  .refine((v) => !!v.orderId !== !!v.paymentIntent, {
+    message: "provide exactly one of orderId / paymentIntent",
+  });
+
 /** setQty — `0` deletes the line; cap qty so one line can't balloon the order. */
 export const setQtyInput = z.object({
   cartItemId: uuid,

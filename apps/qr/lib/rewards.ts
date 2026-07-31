@@ -53,7 +53,19 @@ export async function getRewardsState(): Promise<RewardsState | null> {
   const isUpgraded = user.is_anonymous !== true;
 
   const db = serviceClient();
-  const { data: summary } = await db.rpc("mms_rewards_summary", { p_user: uid });
+  const { data: summary, error: summaryErr } = await db.rpc("mms_rewards_summary", { p_user: uid });
+  // W9c — a FAILED read is not "you have nothing". Swallowing it left `summary` null, `s` an empty
+  // object, and the `?? 0` fallbacks below rendered an authoritative-looking **zeroed hub**: 0 Stars,
+  // $0 lifetime, tier `new` — to a diner who may be sitting on Gold. Worse, `TierUpCelebration` writes
+  // that fabricated rank to localStorage as its baseline, so the NEXT healthy visit fires a full-screen
+  // "Tier unlocked" for a climb that never happened. `null` routes /account to its honest alert.
+  //
+  // ⚠️ Deliberately NOT `if (!summary) return null` — a brand-new diner legitimately has no row, and the
+  // `?? 0` fallbacks below are exactly what renders their first visit.
+  if (summaryErr) {
+    console.error("[rewards] mms_rewards_summary failed", summaryErr);
+    return null;
+  }
   const s = (summary ?? {}) as {
     stars?: number;
     spend_cents?: number;
@@ -119,7 +131,16 @@ export async function getRewardsBadge(): Promise<RewardsBadge | null> {
   } = await supa.auth.getUser();
   if (!user) return null;
   const db = serviceClient();
-  const { data: summary } = await db.rpc("mms_rewards_summary", { p_user: user.id });
+  const { data: summary, error: summaryErr } = await db.rpc("mms_rewards_summary", {
+    p_user: user.id,
+  });
+  // W9c — same rule as `getRewardsState`, and this one rides the PERSISTENT header on every route: a
+  // swallowed error showed every diner "0 ★" as fact. Returning null makes the header fall back to its
+  // plain "Rewards" label (a stable-width affordance — no layout shift), which claims nothing.
+  if (summaryErr) {
+    console.error("[rewards] mms_rewards_summary failed (badge)", summaryErr);
+    return null;
+  }
   const s = (summary ?? {}) as { stars?: number; tier_id?: string };
   return {
     stars: Number(s.stars ?? 0),

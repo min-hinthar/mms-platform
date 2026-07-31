@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { TransitionLink as Link } from "./nav/TransitionNav"; // J1 journey grammar
 import { useOrderStatus } from "@/lib/useOrderStatus";
+import { getMyOrderFallback, type TrackFallback } from "@/lib/orders";
 import { useActiveOrder } from "./ActiveOrderProvider";
 import { formatSlotLong } from "@/lib/pickupTime";
 import { menuHref, menuLinkText, modeFromOrder } from "@/lib/menu-href";
@@ -49,7 +50,35 @@ export function OrderTracker({
   // one-shot pay-success celebration. False on a revisit/processing/direct-visit (no celebration).
   justPaid?: boolean;
 }) {
-  const { order, timedOut } = useOrderStatus(paymentIntent, orderId);
+  const { order: liveOrder, timedOut } = useOrderStatus(paymentIntent, orderId);
+  // W9c — the tracker's live read is browser-side, so its authorization is `is_member(session_id)`.
+  // That lapses when a server clears the table or the ~4h session TTL sweeps — routinely, minutes
+  // after a dine-in diner paid and while they're still sitting there. The row is fine; they just
+  // can't see it. So once the live read gives up, ask the SERVER for the same order the uid-scoped
+  // way (`earned_by`, stamped at fulfillment, outlives every session).
+  //
+  // Only after `timedOut`: the live path is better when it works (Realtime keeps the rail moving),
+  // and this must not race it on the happy path.
+  const [fallback, setFallback] = useState<TrackFallback | null>(null);
+  useEffect(() => {
+    if (!timedOut || liveOrder || fallback) return;
+    let active = true;
+    void getMyOrderFallback({ orderId, paymentIntent })
+      .then((r) => active && setFallback(r))
+      .catch(() => active && setFallback({ ok: false, reason: "error" }));
+    return () => {
+      active = false;
+    };
+  }, [timedOut, liveOrder, fallback, orderId, paymentIntent]);
+  // The live order wins; the fallback fills in only where RLS has gone dark. Note the fallback is a
+  // SNAPSHOT — no Realtime behind it — which is honest for a table that has already been cleared.
+  const order = liveOrder ?? (fallback?.ok ? fallback.order : null);
+  const staleSnapshot = !liveOrder && !!fallback?.ok;
+  const sharePayer = fallback?.ok === false && fallback.reason === "share_payer";
+  // Has the server fallback answered at all? Until it has, a Refresh is still worth offering (we may
+  // simply be waiting on a slow webhook); once it has, the session has closed and reloading re-runs
+  // the same lapsed read.
+  const fallbackSettled = fallback !== null;
   // Pulse the active step only while the timeline is on-screen AND motion is allowed (P5.3): a
   // box-shadow `infinite` loop shouldn't keep ticking when scrolled out of view. The ref sits on the
   // STABLE <ul>, not the moving active dot (a ref on a conditional/moving target breaks the observer).
@@ -587,30 +616,84 @@ export function OrderTracker({
           }}
         >
           <div style={{ fontWeight: 700, fontSize: "var(--fs-sm)" }}>
-            This is taking longer than usual
+            {processing
+              ? "This is taking longer than usual"
+              : sharePayer
+                ? "Your share is paid"
+                : "Live updates have stopped for this order"}
           </div>
+          {/* W9c — the old copy told a diner whose PAID, EATEN meal was sitting in the database that
+              their "order just hasn't appeared here yet". It had appeared; the table was cleared and
+              the live read's `is_member` authorization lapsed with it. Say what is actually true, and
+              point at /account, where the uid-scoped history can always reach it. */}
           <div style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", margin: "4px 0 10px" }}>
             {processing
               ? "We’re still confirming your payment — refresh to check, or come back shortly."
-              : "Your payment went through; your order just hasn’t appeared here yet. Refresh to check."}
+              : sharePayer
+                ? "Your table’s bill is recorded under the person who started the split, so live updates don’t reach this screen. Your receipt is safe in your account."
+                : "Your payment went through. This tracker only follows an order while your table’s session is open, and yours has closed — the order itself is safe."}
           </div>
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            style={{
-              minHeight: 44,
-              padding: "0 18px",
-              borderRadius: 10,
-              border: "1px solid var(--bd)",
-              background: "var(--cd)",
-              color: "var(--tx)",
-              fontWeight: 700,
-              cursor: "pointer",
-            }}
-          >
-            Refresh
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            {/* Refresh is only worth offering while refreshing could still help — i.e. we're waiting on
+                a webhook. Once the fallback has told us the session simply closed, reloading re-runs
+                the same lapsed read; offering it would be a control that cannot work. */}
+            {(processing || !fallbackSettled) && (
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                style={{
+                  minHeight: 44,
+                  padding: "0 18px",
+                  borderRadius: 10,
+                  border: "1px solid var(--bd)",
+                  background: "var(--cd)",
+                  color: "var(--tx)",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                Refresh
+              </button>
+            )}
+            {/* /account reads orders uid-scoped (`earned_by`), which outlives every session — so it is
+                the one route that always reaches a paid order. Shown for the share payer too: their
+                own receipt is there even though the order is stamped to the host. */}
+            <Link href="/account" className="nav-link">
+              Find it in your account
+              <span aria-hidden className="nav-arrow nav-arrow-fwd">
+                {" "}
+                →
+              </span>
+            </Link>
+          </div>
         </div>
+      )}
+
+      {/* W9c — this order came from the uid-scoped SERVER fallback, not the live subscription: the
+          table's session has closed, so nothing below will move again on its own. The rail and the
+          status word are a snapshot of the moment it was read, and saying so is the difference between
+          a receipt and a tracker that has quietly stopped tracking. Plain static text — the view's one
+          role="status" region owns announcements. */}
+      {staleSnapshot && (
+        <p
+          style={{
+            fontSize: "var(--fs-sm)",
+            color: "var(--t2)",
+            background: "var(--sf)",
+            border: "1px solid var(--bd)",
+            borderRadius: 12,
+            padding: "10px 12px",
+            margin: "8px 0 0",
+            lineHeight: 1.5,
+          }}
+        >
+          Your table’s session has closed, so this is a snapshot rather than a live view — it won’t
+          update on its own. The full receipt is in{" "}
+          <Link href="/account" className="nav-link">
+            your account
+          </Link>
+          .
+        </p>
       )}
 
       {arrived && (

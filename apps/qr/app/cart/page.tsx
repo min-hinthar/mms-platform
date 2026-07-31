@@ -1,5 +1,6 @@
 import { TransitionLink as Link } from "@/components/nav/TransitionNav"; // J1 journey grammar
 import { getCartView } from "@/lib/cart";
+import { AuthzError } from "@/lib/authz";
 import { getPrepMinutes, getPickupAsapOk } from "@/lib/pickup";
 import { getSplitContext, type SplitContext } from "@/lib/split";
 import { Checkout } from "@/components/Checkout";
@@ -11,21 +12,54 @@ import { menuHref, menuLinkText } from "@/lib/menu-href";
 export default async function Cart({ searchParams }: { searchParams: Promise<{ cart?: string }> }) {
   const { cart } = await searchParams;
   let view: Awaited<ReturnType<typeof getCartView>> | null = null;
+  // W9c — WHY the cart is unreadable, for copy only. `assertCartMember` already knows, and its answer
+  // is the difference between "this order is finished" (a diner back-navigating from /track onto their
+  // own paid cart — the single most likely way to land here) and "we can't reach it".
+  //
+  // ⚠️ `no_cart` (404) and `not_member` (403) MUST stay indistinguishable. Splitting them would turn
+  // this page into a cart-id oracle: probe a uuid, read the copy, learn whether that cart exists. They
+  // share the `unavailable` arm below, and NOTHING reads `qr_carts` before membership is established —
+  // the discriminator is the authorization error itself, not a pre-emptive service-role peek.
+  let why: "paid" | "expired" | "unavailable" = "unavailable";
   if (cart) {
     try {
       view = await getCartView(cart);
-    } catch {
-      view = null; // not a member / no session / unknown cart → placeholder below
+    } catch (e) {
+      view = null;
+      if (e instanceof AuthzError) {
+        if (e.code === "cart_closed") why = "paid";
+        else if (e.code === "session_expired") why = "expired";
+        // no_cart / not_member / unauthenticated all stay `unavailable` — see above.
+      }
     }
   }
 
   if (!cart || !view)
     return (
       <main style={{ padding: 24, maxWidth: 440, margin: "0 auto" }}>
-        <h1 style={{ fontSize: "var(--fs-h1)" }}>Your order</h1>
+        <h1 style={{ fontSize: "var(--fs-h1)" }}>
+          {why === "paid" ? "This order is complete" : "Your order"}
+        </h1>
         <p style={{ color: "var(--t2)" }}>
-          This order isn’t available on this device. Start from the menu.
+          {why === "paid"
+            ? "It’s already paid for — there’s nothing left to check out here. Your receipt is in your account."
+            : why === "expired"
+              ? "Your table’s session has closed, so this order can’t be opened here any more. Anything you paid for is in your account."
+              : "This order isn’t available on this device. Start from the menu."}
         </p>
+        {/* Both terminal arms have somewhere real to go: /account reads orders uid-scoped, which
+            outlives the session that just closed. */}
+        {why !== "unavailable" && (
+          <p style={{ margin: "0 0 14px" }}>
+            <Link href="/account" className="nav-link">
+              See it in your account
+              <span aria-hidden className="nav-arrow nav-arrow-fwd">
+                {" "}
+                →
+              </span>
+            </Link>
+          </p>
+        )}
         {/* W9a — the exit used to be a bare `/menu`, which defaults to scan-&-go: a diner who
             back-navigated here from /track was dropped into a grocery session. With no readable cart
             there is no mode to carry, so route to the door picker. Promoted from an inline-styled

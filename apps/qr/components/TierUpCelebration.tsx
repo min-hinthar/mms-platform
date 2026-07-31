@@ -44,15 +44,27 @@ export function TierUpCelebration({ tierId }: { tierId: string }) {
   useEffect(() => {
     if (evaluated.current) return;
     evaluated.current = true;
+    // W9c — `RANK[tierId] ?? 0` silently ranks an UNKNOWN tier as the bottom of the ladder, and the
+    // baseline write below then persists that guess. Add a tier to the DB without adding it here and
+    // the next healthy visit fires a full-screen "Tier unlocked" for a climb that never happened. We
+    // can only record a baseline for a rank we actually know.
+    //
+    // `new` stays a KNOWN rank (0) on purpose: a genuinely new diner must record it, or their first
+    // real climb goes uncelebrated. The zeroed-state hazard this pairs with is fixed at the source —
+    // `getRewardsState` now returns null on a failed read instead of fabricating tier `new`, so this
+    // component never mounts on an unverified tier.
+    const known = Object.prototype.hasOwnProperty.call(RANK, tierId);
     const now = RANK[tierId] ?? 0;
     let seen: number | null;
     try {
       const raw = localStorage.getItem(SEEN_KEY);
       seen = raw == null ? null : Number(raw);
-      localStorage.setItem(SEEN_KEY, String(now)); // record the new baseline once, regardless of outcome
+      // Record the new baseline once — but never from a rank we had to guess.
+      if (known) localStorage.setItem(SEEN_KEY, String(now));
     } catch {
       return; // storage unavailable → skip the celebration entirely (never block the hub)
     }
+    if (!known) return; // an unrankable tier can't be a "climb" — stay silent rather than guess
     if (seen != null && Number.isFinite(seen) && now > seen) {
       // Defer to the next frame: async setState (lint-safe) + lets the hub paint before the card animates in.
       const id = requestAnimationFrame(() => setShow(true));

@@ -63,7 +63,7 @@ export function useActiveOrderStatus(track: boolean): ActiveOrderStatus {
   // single-pay or a different order (orderId takes precedence over the PI in useOrderStatus).
   const oid =
     track && order && !order.paymentIntent && resolved?.cartId === cartId ? resolved.id : null;
-  const { order: tracked } = useOrderStatus(pi, oid);
+  const { order: tracked, timedOut } = useOrderStatus(pi, oid);
 
   const ready = tracked?.togoStatus === "ready";
   const isDone =
@@ -77,6 +77,19 @@ export function useActiveOrderStatus(track: boolean): ActiveOrderStatus {
     if (order && isDone) clearOrder();
   }, [order, isDone, clearOrder]);
 
+  // W9c — the pill used to fall back to "Confirming" for as long as `tracked` was null, which is
+  // FOREVER once the live read gives up: the poll exhausts at ~30s and, on a cleared table, the
+  // `is_member` RLS never lets the row through again. A diner who has paid, eaten and left carried a
+  // header pill still claiming their payment was being confirmed.
+  //
+  // `timedOut` is the honest boundary. We hold a client record of a placed order, so "Placed" is the
+  // floor we can actually stand on; what we no longer know is the KITCHEN state, and "Confirming" was
+  // never about the kitchen anyway.
+  //
+  // ⚠️ Label only. Deliberately NOT `clearOrder()` here: `useOrderStatus` gives up POLLING at ~30s but
+  // deliberately keeps its Realtime subscription open, so a merely-slow webhook still resolves — and
+  // retiring the order would destroy a just-paid SPLIT order's only route back to /track (it has no
+  // `payment_intent` in any URL). The pill must go quiet, not disappear.
   const statusWord = !order
     ? null
     : tracked
@@ -85,7 +98,9 @@ export function useActiveOrderStatus(track: boolean): ActiveOrderStatus {
         : tracked.togoStatus === "preparing"
           ? "Preparing"
           : "Placed"
-      : "Confirming";
+      : timedOut
+        ? "Placed"
+        : "Confirming";
 
   return { order, tracked, statusWord, ready, isDone };
 }
