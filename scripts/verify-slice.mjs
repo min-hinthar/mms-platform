@@ -195,6 +195,28 @@ const MUTANTS = [
     find: 'return actor.role === "host" || actor.isOwner;',
     replace: "return true;",
   },
+  // W9c — not money, but the one SAFETY rule in the diner path: an allergy note that cannot be
+  // carried into a reorder must be dropped and disclosed, never shortened. "Just truncate it" is the
+  // plausible future edit, so it is the mutation that has to stay red.
+  {
+    id: "reorder-notes/truncate-instead-of-drop",
+    file: "apps/qr/lib/reorder-notes.ts",
+    suite: "lib/reorder-notes.test.ts",
+    why: "a cut allergy list reads as complete and is not — over-cap notes DROP, never truncate",
+    find: "if (s.length > NOTES_MAX) return { carry: false, dropped: true };",
+    replace: "if (s.length > NOTES_MAX) return { carry: true, note: s.slice(0, NOTES_MAX) };",
+  },
+  {
+    // A DIFFERENT rule from the one above — the earlier pair shared a `find`, so the second killed on
+    // the same assertion and proved nothing extra. This one guards the trim-before-measure order: with
+    // it reversed, trailing whitespace alone pushes a valid note over the cap and silently drops it.
+    id: "reorder-notes/measure-before-trim",
+    file: "apps/qr/lib/reorder-notes.ts",
+    suite: "lib/reorder-notes.test.ts",
+    why: "trailing spaces must not push a within-cap allergy note over the limit",
+    find: 'const s = typeof raw === "string" ? raw.trim() : "";',
+    replace: 'const s = typeof raw === "string" ? raw : "";',
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

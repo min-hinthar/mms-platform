@@ -2,6 +2,7 @@
 import { after } from "next/server";
 import { serviceClient } from "@mms/db/server";
 import { reorderInput } from "@mms/db/schemas";
+import { carryNote } from "./reorder-notes";
 import { assertCartMember } from "./authz";
 import { assertMutationRate } from "./rate";
 import { lineTax } from "./tax";
@@ -43,6 +44,11 @@ export type ReorderResult =
       quantitiesReset: boolean;
       /** True when the order had more lines than the cap — the outcome message discloses it. */
       capped: boolean;
+      /** W9c — dishes whose kitchen note could NOT be carried over (a legacy note longer than today's
+       *  160-char cap). Named out loud rather than dropped quietly: the item sheet promises "add any
+       *  allergy in the note below and the kitchen will see it", so a silently-lost allergy note is
+       *  the one failure on this path that can hurt someone. */
+      notesDropped: string[];
       skipped: { name: string; reason: ReorderSkipReason }[];
     }
   | { ok: false; error: string };
@@ -92,7 +98,9 @@ export async function reorderOrder(raw: {
 
   const { data: lines } = await db
     .from("qr_order_items")
-    .select("menu_item_id,name,qty,modifiers,fulfillment")
+    // `notes` IS snapshotted onto the order at fulfillment (w3_kitchen.sql) — it was simply never
+    // selected here, so every reorder silently dropped the diner's allergy note (W9c).
+    .select("menu_item_id,name,qty,modifiers,fulfillment,notes")
     .eq("order_id", orderId)
     .order("id") // deterministic under the cap — never a different 30 on retry
     .limit(LINE_CAP + 1); // +1 = exact truncation detection (an exactly-at-cap order isn't "capped")
@@ -121,6 +129,7 @@ export async function reorderOrder(raw: {
 
   let added = 0;
   const optionsReset: string[] = [];
+  const notesDropped: string[] = [];
   const skipped: { name: string; reason: ReorderSkipReason }[] = [];
   let quantitiesReset = false;
 
@@ -145,6 +154,13 @@ export async function reorderOrder(raw: {
       const { name, unitPriceCents, category } = await priceItem(l.menu_item_id, [], {
         enforceCardinality: true,
       });
+      // Re-clamp against TODAY's rule (Zod `.max(160)` + the qr_cart_items.notes column CHECK). A
+      // legacy note from before the cap would otherwise raise inside `mms_cart_item_insert_if_open`
+      // and be caught below as an availability failure — turning one long note into a skipped dish.
+      //
+      // Over-cap notes are DROPPED, never truncated: cutting "no peanuts, no shellfish…" mid-sentence
+      // produces a note that reads as complete and is not. The diner is told instead (`notesDropped`).
+      const carried = carryNote(l.notes);
       await insertOrIncLine(
         cartId,
         {
@@ -154,10 +170,19 @@ export async function reorderOrder(raw: {
           unitPriceCents,
           taxCents: lineTax(unitPriceCents, category, dineIn),
           fulfillment: dineIn ? "dinein" : "togo",
+          // ⚠️ A noted line never merges in either direction (order-lines.ts) — so reordering three
+          // identical NOTED lines now inserts three rows where it used to fold them into one. That is
+          // the correct trade: the note is per-line kitchen instruction, and folding would attach one
+          // diner's allergy note to another diner's plate.
+          notes: carried.carry ? carried.note : undefined,
         },
         uid,
       );
       added += 1;
+      // Reported only AFTER the insert lands — a dish that threw is already surfaced as `skipped`, and
+      // telling the diner to "tap it to add the note again" for a line that isn't in their cart is a
+      // instruction to nowhere.
+      if (!carried.carry && carried.dropped) notesDropped.push(name);
       if (Array.isArray(l.modifiers) && l.modifiers.length > 0) optionsReset.push(name);
       if (l.qty > 1) quantitiesReset = true;
     } catch (e) {
@@ -189,5 +214,5 @@ export async function reorderOrder(raw: {
     });
   }
 
-  return { ok: true, added, optionsReset, quantitiesReset, capped, skipped };
+  return { ok: true, added, optionsReset, quantitiesReset, capped, skipped, notesDropped };
 }

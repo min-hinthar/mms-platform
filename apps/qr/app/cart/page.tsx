@@ -1,5 +1,6 @@
 import { TransitionLink as Link } from "@/components/nav/TransitionNav"; // J1 journey grammar
 import { getCartView } from "@/lib/cart";
+import { didIPayForCart } from "@/lib/orders";
 import { getPrepMinutes, getPickupAsapOk } from "@/lib/pickup";
 import { getSplitContext, type SplitContext } from "@/lib/split";
 import { Checkout } from "@/components/Checkout";
@@ -11,21 +12,54 @@ import { menuHref, menuLinkText } from "@/lib/menu-href";
 export default async function Cart({ searchParams }: { searchParams: Promise<{ cart?: string }> }) {
   const { cart } = await searchParams;
   let view: Awaited<ReturnType<typeof getCartView>> | null = null;
+  // W9c — a diner back-navigating from /track onto their OWN finished order is the most likely way to
+  // land here, and "This order isn't available on this device" is the wrong thing to tell them.
+  //
+  // ⚠️ The obvious implementation is unsafe and was rejected. Branching on `AuthzError.code` looks
+  // clean, but `assertCartMember` raises `cart_closed` and `session_expired` from a service-role
+  // `qr_carts` read that runs BEFORE the membership check — so those codes are answerable for a cart
+  // the caller has nothing to do with. Splitting on them turns this page into a lifecycle oracle:
+  // probe a uuid on a forwarded URL, read the copy, learn whether that table's order exists and
+  // whether it is paid. (`no_cart` vs `not_member` was never the only leak.)
+  //
+  // `didIPayForCart` asks a question the caller is entitled to have answered — is there an order of
+  // MY OWN behind this cart — so a non-member always falls to the generic copy. It is also `earned_by`
+  // scoped, which is what makes the "see it in your account" route it unlocks actually true.
+  let mine = false;
   if (cart) {
     try {
       view = await getCartView(cart);
     } catch {
-      view = null; // not a member / no session / unknown cart → placeholder below
+      view = null;
+      mine = await didIPayForCart(cart).catch(() => false);
     }
   }
 
   if (!cart || !view)
     return (
       <main style={{ padding: 24, maxWidth: 440, margin: "0 auto" }}>
-        <h1 style={{ fontSize: "var(--fs-h1)" }}>Your order</h1>
+        <h1 style={{ fontSize: "var(--fs-h1)" }}>
+          {mine ? "This order is complete" : "Your order"}
+        </h1>
         <p style={{ color: "var(--t2)" }}>
-          This order isn’t available on this device. Start from the menu.
+          {mine
+            ? "It’s already paid for — there’s nothing left to check out here."
+            : "This order isn’t available on this device. Start from the menu."}
         </p>
+        {/* ⚠️ `mine` is also true for a SPLIT payer, whom `getOrderHistory` (earned_by-scoped) will NOT
+            find — so this says "see it" rather than promising a receipt, and the split gap is tracked
+            as OPEN-ITEMS M29. The headline above is true for both: they did pay, and it is complete. */}
+        {mine && (
+          <p style={{ margin: "0 0 14px" }}>
+            <Link href="/account" className="nav-link">
+              See it in your account
+              <span aria-hidden className="nav-arrow nav-arrow-fwd">
+                {" "}
+                →
+              </span>
+            </Link>
+          </p>
+        )}
         {/* W9a — the exit used to be a bare `/menu`, which defaults to scan-&-go: a diner who
             back-navigated here from /track was dropped into a grocery session. With no readable cart
             there is no mode to carry, so route to the door picker. Promoted from an inline-styled

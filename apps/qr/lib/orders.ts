@@ -1,6 +1,7 @@
 "use server";
 import { cookies } from "next/headers";
 import { serverClient, serviceClient } from "@mms/db/server";
+import { cartViewInput, trackFallbackInput } from "@mms/db/schemas";
 import { liveOrderStatusWord, type LiveOrder, type LiveOrderKind } from "./live-order";
 
 const LIVE_WINDOW_MS = 12 * 60 * 60 * 1000; // 12h — an order older than a shift isn't "live" wayfinding
@@ -99,4 +100,175 @@ export async function getMyLiveOrders(): Promise<LiveOrder[]> {
     });
   }
   return out;
+}
+
+/**
+ * W9c — the /track order read that survives the table being cleared.
+ *
+ * The live tracker reads `qr_orders` from the BROWSER, so its authorization is the `qr_order_read`
+ * RLS: `is_member(session_id)`. That membership lapses the moment a server clears the table
+ * (`floor.ts` `clearTable`) or the ~4h session TTL sweeps — routinely, minutes after a dine-in diner
+ * has paid and is still sitting there. The row is fine; the diner simply can't see it any more, so the
+ * tracker polls itself out and tells them their paid meal "hasn't appeared yet".
+ *
+ * This is the same order, read the way `getOrderHistory` reads it: **uid-scoped on `earned_by`**,
+ * which is stamped at fulfillment and outlives every session. Service-role does the fetch; the
+ * authorization decision is ours and it is the uid.
+ *
+ * ⚠️ The key (order id / PaymentIntent) is a LOOKUP, never a credential. Both branches AND `earned_by
+ * = uid`, so holding a /track URL grants nothing — which is the whole reason this can't simply key off
+ * `stripe_payment_intent_id` the way the client subscription does.
+ */
+export type TrackFallback =
+  | { ok: true; order: FallbackOrder }
+  /** The caller paid a SHARE of this split order but isn't its earner — see the reason below. */
+  | { ok: false; reason: "share_payer" }
+  /** No order of the caller's own matches. Says nothing about whether one exists for someone else. */
+  | { ok: false; reason: "not_found" }
+  | { ok: false; reason: "error" };
+
+/** The same field set `useOrderStatus` builds, so the tracker renders a fallback order identically. */
+export type FallbackOrder = {
+  id: string;
+  status: string;
+  totalCents: number;
+  itemCount: number;
+  pickupSlot: string | null;
+  togoStatus: string | null;
+  hasTogoFood: boolean;
+  hasDineInFood: boolean;
+  arrivedAt: string | null;
+  hasGrocery: boolean;
+  tableNumber: number | null;
+};
+
+export async function getMyOrderFallback(input: {
+  orderId?: string | null;
+  paymentIntent?: string | null;
+}): Promise<TrackFallback> {
+  const parsed = trackFallbackInput.safeParse(input);
+  if (!parsed.success) return { ok: false, reason: "not_found" };
+  const { orderId, paymentIntent } = parsed.data;
+
+  const supa = serverClient(await cookies());
+  const {
+    data: { user },
+  } = await supa.auth.getUser();
+  if (!user) return { ok: false, reason: "not_found" };
+  const db = serviceClient();
+
+  const q = db
+    .from("qr_orders")
+    .select(
+      "id,status,total_cents,table_number,pickup_slot,togo_status,arrived_at,qr_order_items(qty,fulfillment)",
+    )
+    .eq("earned_by", user.id); // ← the authorization. The key below only narrows it.
+  const { data, error } = await (
+    orderId ? q.eq("id", orderId) : q.eq("stripe_payment_intent_id", paymentIntent!)
+  ).maybeSingle();
+
+  if (error) {
+    console.error("[orders] track fallback read failed", error);
+    return { ok: false, reason: "error" };
+  }
+
+  if (!data) {
+    // ⚠️ The known split gap: `mms_fulfill_split_order` stamps only the HOST as `earned_by`, so every
+    // OTHER share payer legitimately fails the read above on an order they really did pay into. Their
+    // own share row proves it — `seat_id = uid`, so this reveals nothing they don't already own — and
+    // it earns them honest copy instead of the generic "we couldn't find it".
+    if (orderId) {
+      const { data: mine } = await db
+        .from("qr_cart_shares")
+        .select("id")
+        .eq("order_id", orderId)
+        .eq("seat_id", user.id)
+        .limit(1)
+        .maybeSingle();
+      if (mine) return { ok: false, reason: "share_payer" };
+    }
+    return { ok: false, reason: "not_found" };
+  }
+
+  const items = (data.qr_order_items ?? []) as { qty: number; fulfillment: string }[];
+  return {
+    ok: true,
+    order: {
+      id: data.id,
+      status: data.status,
+      totalCents: data.total_cents,
+      itemCount: items.reduce((a, i) => a + i.qty, 0),
+      pickupSlot: data.pickup_slot ?? null,
+      togoStatus: data.togo_status ?? null,
+      hasTogoFood: items.some((i) => i.fulfillment === "togo"),
+      hasDineInFood: items.some((i) => i.fulfillment === "dinein"),
+      arrivedAt: data.arrived_at ?? null,
+      hasGrocery: items.some((i) => i.fulfillment === "grocery"),
+      tableNumber: data.table_number ?? null,
+    },
+  };
+}
+
+/**
+ * W9c — did the CALLER themselves pay for this cart? Uid-scoped, and that is the entire point.
+ *
+ * `/cart` wants to tell a diner who back-navigated onto their own finished order that it is complete,
+ * rather than the flat "isn't available on this device". The obvious route — discriminating
+ * `AuthzError.code` — is unsafe: `assertCartMember` raises `cart_closed` and `session_expired` BEFORE
+ * it checks membership, so branching on them tells any visitor whether an arbitrary cart id exists and
+ * what state it is in. That is a cart-lifecycle oracle on a forwarded URL.
+ *
+ * This asks a question the caller is entitled to have answered: is there an order of MY OWN behind
+ * this cart? A non-member always gets `false` and therefore the generic copy, so nothing leaks.
+ *
+ * TWO uid-scoped proofs, because `earned_by` alone covers only single-pay card orders:
+ *   • `qr_orders.earned_by = uid` — the diner who paid by card. Also guarantees the "see it in your
+ *     account" route this unlocks will find the order (`getOrderHistory` reads the same column).
+ *   • `qr_cart_shares.seat_id = uid` — a SPLIT payer. `mms_fulfill_split_order` stamps only the host
+ *     as `earned_by` (OPEN-ITEMS M29), so without this every other share payer — who paid real money —
+ *     fell to "This order isn't available on this device" on their own finished bill.
+ *
+ * ⚠️ KNOWN GAP: a CASH-settled order carries no diner uid at all (`mms_fulfill_cash_order` records
+ * `settled_by`, which is the STAFF member) and no share rows. There is nothing to match on, so a cash
+ * diner keeps the generic copy. Fail-closed is the right direction here, and inventing a match would
+ * mean trusting something the caller sent.
+ */
+export async function didIPayForCart(cartId: string): Promise<boolean> {
+  const parsed = cartViewInput.safeParse({ cartId });
+  if (!parsed.success) return false;
+  const supa = serverClient(await cookies());
+  const {
+    data: { user },
+  } = await supa.auth.getUser();
+  if (!user) return false;
+  const db = serviceClient();
+  const { data: own, error } = await db
+    .from("qr_orders")
+    .select("id")
+    .eq("cart_id", parsed.data.cartId)
+    .eq("earned_by", user.id)
+    .eq("status", "paid")
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.error("[orders] didIPayForCart failed", error);
+    return false; // fail closed — the generic copy is always safe to show
+  }
+  if (own) return true;
+
+  // Split payer: their own share row. Scoped to `seat_id = uid`, so this reads nothing the caller does
+  // not already own and cannot reveal whether anyone ELSE paid.
+  const { data: share, error: shareErr } = await db
+    .from("qr_cart_shares")
+    .select("id")
+    .eq("cart_id", parsed.data.cartId)
+    .eq("seat_id", user.id)
+    .not("order_id", "is", null)
+    .limit(1)
+    .maybeSingle();
+  if (shareErr) {
+    console.error("[orders] didIPayForCart share probe failed", shareErr);
+    return false;
+  }
+  return !!share;
 }

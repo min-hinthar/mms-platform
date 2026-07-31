@@ -177,6 +177,16 @@ export function MenuBrowser({
               ? "Brought back 1 dish from your order"
               : `Brought back ${res.added} dishes from your order`,
           );
+        // W9c — a dropped kitchen note goes FIRST among the caveats and names every dish. The item
+        // sheet promises "add any allergy in the note below and the kitchen will see it"; if that note
+        // could not come back, silence is the one outcome here that can actually hurt someone. Phrased
+        // as an instruction, not a status, because the diner has to re-add it themselves.
+        if (res.notesDropped.length > 0)
+          bits.push(
+            res.notesDropped.length === 1
+              ? `your note for ${res.notesDropped[0] ?? "1 dish"} didn’t come back — tap it to add it again`
+              : `notes for ${res.notesDropped.join(", ")} didn’t come back — tap each to add them again`,
+          );
         if (res.quantitiesReset) bits.push("quantities start at one");
         if (res.optionsReset.length > 0)
           bits.push(

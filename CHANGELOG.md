@@ -4,6 +4,45 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W9c — Your paid order stays yours (2026-07-31)
+
+Five findings from the W9 audit about what happens **after** the money moves. Nothing here changes a
+charged amount.
+
+- **/track survives the table being cleared.** The tracker reads `qr_orders` from the browser, so its
+  authorization is `is_member(session_id)` — and that lapses the moment a server clears the table or the
+  ~4h session TTL sweeps, routinely while a dine-in diner is still sitting there. The row was fine; they
+  just couldn't see it, so the tracker polled itself out and told them their paid, eaten meal "just
+  hasn't appeared here yet". A new uid-scoped server fallback (`earned_by`, stamped at fulfillment,
+  outlives every session) resolves the same order. The key is a LOOKUP, never a credential — both
+  branches AND `earned_by = uid`, so holding a /track URL grants nothing.
+- **The known split gap gets its own words.** `mms_fulfill_split_order` stamps only the HOST as earner,
+  so every other share payer legitimately fails that read on an order they really did pay into. Their
+  own share row proves it (`seat_id = uid` — nothing they don't already own), and they get honest copy
+  instead of a false alarm.
+- **A resolved-by-fallback tracker says it's a snapshot.** There is no Realtime behind it, and a rail
+  that has quietly stopped moving while still looking live is the same dishonesty in a nicer outfit.
+- **The rewards RPC error stops fabricating a zeroed hub.** `mms_rewards_summary`'s `{ error }` was
+  dropped in all THREE readers, so a failed read rendered 0 Stars / $0 / tier `new` as fact to a diner
+  possibly sitting on Gold — and `TierUpCelebration` then wrote that fabricated rank to localStorage as
+  its baseline, firing a full-screen "Tier unlocked" on the next healthy visit for a climb that never
+  happened. The third reader feeds the POST-PAYMENT screen, so it congratulated diners with "0 Stars".
+  All return null on error, never on empty (a new diner legitimately has no row). A rewards failure now
+  shows a banner and keeps the order history — the rest of this slice points diners there for receipts.
+- **The header pill stops saying "Confirming" forever.** It fell back to that label whenever the live
+  read had no order, which is permanent once the poll exhausts on a cleared table. Now bounded by
+  `timedOut` — label only: no `clearOrder()`, which would destroy a just-paid split order's only route
+  back to /track.
+- **The paid-cart dead end names itself.** Back-navigating onto your own paid cart said "This order
+  isn't available on this device"; it now says the order is complete and points at /account. Unknown-cart
+  and non-member deliberately stay **indistinguishable** so cart ids remain un-enumerable.
+- **Reorder carries the allergy note.** `notes` is snapshotted at fulfillment and was simply never
+  selected, so every reorder silently dropped it — under an item sheet that promises "add any allergy in
+  the note below and the kitchen will see it". An over-cap legacy note is **dropped and disclosed by
+  name, never truncated**: cutting "no peanuts, no shellfish, no sesame" at 160 chars yields a note that
+  reads as complete and is not. Pinned by `reorder-notes.test.ts` (9 tests, 5 mutations caught —
+  including the plausible "just truncate it" fix).
+
 ### W9b — every dead control says why (2026-07-31)
 
 Eight confirmed findings from the W9 audit, all one shape: **a control goes inert and nothing says why.**
