@@ -2,6 +2,7 @@
 import { useState, type CSSProperties } from "react";
 import { useCart } from "./TableCartProvider";
 import { InviteSheet } from "./InviteSheet";
+import { JoinTable } from "./JoinTable";
 import { seatColor, seatInitial } from "@/lib/avatars";
 import { MAX_PARTY_SIZE } from "@/lib/limits";
 import { Avatar, Icon } from "@mms/ui";
@@ -35,21 +36,41 @@ export function GuestList() {
     );
 
   // The dine-in join is the whole point of this screen — if the session mint failed, don't silently
-  // drop the group UI; surface a retry (reload re-runs the mint) so the diner isn't stranded. A
-  // party-full 409 (P3.4) is terminal, though — retrying can't free a seat, so show the honest server
-  // copy WITHOUT a retry that would just re-fail.
+  // drop the group UI; surface a retry (reload re-runs the mint) so the diner isn't stranded.
+  //
+  // W9a — but "retry" is only honest for a TRANSIENT failure. Two arms are terminal, and reloading
+  // through them is actively harmful:
+  //   • party-full 409 (P3.4) — retrying can't free a seat.
+  //   • **no table for that code (404)** — the reload lands on a URL whose `?j=` has already been
+  //     consumed, so the mint is no longer join-only and PROVISIONS a phantom table with this diner
+  //     as host. They then order a whole meal onto a cart their party can't see. The recovery a
+  //     wrong code actually needs is entering a different one, so offer exactly that.
+  // The server's own reason is shown verbatim on both (it is specific and diner-safe); the generic
+  // fallback stays for the transient arm, where naming the cause would be a guess.
   if (!me) {
     if (!error) return null; // still establishing the session — the menu renders meanwhile
     const full = error.includes("table is full");
+    const noTable = error.includes("No table found");
+    const terminal = full || noTable;
     return (
-      <p role="alert" style={{ fontSize: "var(--fs-sm)", color: "var(--warn)", marginTop: 10 }}>
-        {full ? error : "Couldn’t join this table."}{" "}
-        {!full && (
-          <button type="button" onClick={() => window.location.reload()} style={retryBtn}>
-            Try again
-          </button>
+      <div style={{ marginTop: 10 }}>
+        <p role="alert" style={{ fontSize: "var(--fs-sm)", color: "var(--warn)", margin: 0 }}>
+          {terminal ? error : "Couldn’t join this table."}{" "}
+          {!terminal && (
+            <button type="button" onClick={() => window.location.reload()} style={retryBtn}>
+              Try again
+            </button>
+          )}
+        </p>
+        {/* Not a live region — the alert above already announced the failure; this is the way out.
+            JoinTable owns its own sheet + routes with a fresh `?j=`, so a corrected code takes the
+            join-only path instead of provisioning a table. */}
+        {noTable && (
+          <div style={{ marginTop: 6 }}>
+            <JoinTable />
+          </div>
         )}
-      </p>
+      </div>
     );
   }
 

@@ -10,6 +10,26 @@ import next from "eslint-config-next/core-web-vitals";
 // `fontSize: 14` and `fontSize: strong ? 20 : undefined` both fail, while `fontSize: "var(--fs-sm)"`
 // passes. The WHOLE app — diner AND staff surfaces — is now swept (staff chrome → `--fs-*`, KDS reads
 // stay on the kitchen-scale `--kfs-*` tier), so the ban covers every `.tsx` with no exclusions.
+// W9a — ban a BARE `/menu` destination. `/menu` with no `?mode=` is not neutral: `useTableSession`
+// falls through to the scan-&-go default, so every such link silently converted a dine-in or pickup
+// diner into a grocery shopper (orphaning their table). Six reachable links did this, including the
+// only forward affordance on the post-pay screen. Use `menuHref(mode)` from `lib/menu-href.ts`, which
+// carries the mode or routes to the door picker.
+//
+// Scoped to JSX `href` values and `router.push()` arguments ONLY — the string is legitimate as an
+// object KEY (TransitionNav's journey-depth map) and in a pathname COMPARISON (AppHeader), and
+// neither of those selectors matches those positions.
+const noBareMenuHref = {
+  selector: "JSXAttribute[name.name='href'] > Literal[value='/menu']",
+  message:
+    "Bare '/menu' defaults to scan-&-go and silently changes the diner's mode — use menuHref(mode) from lib/menu-href (W9a).",
+};
+const noBareMenuPush = {
+  selector: "CallExpression[callee.property.name='push'] > Literal[value='/menu']",
+  message:
+    "Bare '/menu' defaults to scan-&-go and silently changes the diner's mode — use menuHref(mode) from lib/menu-href (W9a).",
+};
+
 const noNumericFontSize = {
   files: ["components/**/*.tsx", "app/**/*.tsx"],
   rules: {
@@ -20,6 +40,8 @@ const noNumericFontSize = {
         message:
           "Use a --fs-* token (e.g. fontSize: 'var(--fs-sm)'), not a numeric fontSize — the type scale is tokenized (W2c).",
       },
+      noBareMenuHref,
+      noBareMenuPush,
     ],
   },
 };

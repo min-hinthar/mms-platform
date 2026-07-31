@@ -33,10 +33,13 @@ const NAME_KEY = "mms.name";
  */
 function resolveQrCode(mode: string, code: string | undefined): string | undefined {
   if (mode === "dinein") {
-    if (code) {
-      window.localStorage.setItem(DINEIN_KEY, code);
-      return code;
-    }
+    // W9a — do NOT persist the code here. This runs BEFORE the mint, so a mistyped or stale `?j=`
+    // code used to be written to localStorage even when the server rejected it with a 404 — and it
+    // then drove every LATER bare `/menu?mode=dinein`, where `joinOnly` is false, so the server
+    // provisioned a brand-new table keyed to the typo with this diner as host. The menu looked
+    // completely normal (party of one, no error) while their order accumulated on a cart the real
+    // party could never see. Only a code the server ACCEPTED is persisted (post-mint, below).
+    if (code) return code;
     return window.localStorage.getItem(DINEIN_KEY) ?? undefined; // undefined → server mints one
   }
   const key = `mms.qr.${mode}`;

@@ -4,6 +4,7 @@ import { TransitionLink as Link } from "./nav/TransitionNav"; // J1 journey gram
 import { useOrderStatus } from "@/lib/useOrderStatus";
 import { useActiveOrder } from "./ActiveOrderProvider";
 import { formatSlotLong } from "@/lib/pickupTime";
+import { menuHref, menuLinkText, modeFromOrder } from "@/lib/menu-href";
 import { Icon, useAnimationPreference, useInView } from "@mms/ui";
 import { getRewardsProgress, type RewardsProgress } from "@/lib/rewards";
 import { announceArrival } from "@/lib/arrival";
@@ -63,6 +64,12 @@ export function OrderTracker({
   // A pickup order carries a slot → use the pickup lifecycle + echo the slot as the honest ETA (no
   // fabricated countdown). Until the order lands we don't know the mode, so default to the To-go rail.
   const isPickup = !!order?.pickupSlot;
+  // W9a — a DINE-IN order (the diner is at a table). Derived from the order's own line-fulfillment
+  // snapshot, not `tableNumber` (null on an unregistered sticker) and not the session (routine
+  // turnover closes it minutes after payment). Before this, every dine-in diner ended their visit on
+  // a screen headed "To-go" running a four-step takeaway rail that can never advance past step 1 —
+  // nothing bags a dine-in plate, so `togo_status` stays null forever.
+  const isDineIn = !!order?.hasDineInFood && !isPickup;
   const STEPS = isPickup ? PICKUP_STEPS : SCANGO_STEPS;
   // Takeaway fulfillment status (S4.3a, expo-driven) — declared here because the countdown below and
   // the step rail both key off it.
@@ -121,6 +128,16 @@ export function OrderTracker({
   // rail — surfacing per-line refunds to the diner needs a diner-safe read of the manager-read
   // mms_refunds ledger (tracked follow-up, PRODUCTION_PLAN W2e).
   const refunded = arrived && order.status === "refunded";
+  // W9a — a settled DINE-IN table with no takeaway portion. Nothing is bagged for them and nothing
+  // will ever bump `togo_status`, so the takeaway rail is structurally frozen at step 1: it promised
+  // "status updates as the kitchen works on it" and then never moved again. Show the true terminal
+  // state instead. A table that also bought groceries keeps the exit pass above (that bag really does
+  // leave the building); a table with a to-go box keeps the rail (that bag really is being made).
+  // W9a — where "back to ordering" goes for THIS order (see lib/menu-href.ts). Null until the order
+  // lands, which routes to the door picker rather than guessing a mode.
+  const backMode = order ? modeFromOrder(order) : null;
+  const dineInSettled =
+    arrived && order.status === "paid" && isDineIn && !order.hasTogoFood && !pureGrocery;
   const ready = arrived && togo === "ready" && !pureGrocery && !refunded;
 
   // J5 — the pickup "I'm here" ping (deferred from J3 to the migration window; qr_orders.arrived_at
@@ -209,7 +226,15 @@ export function OrderTracker({
     };
   }, [justPaid, resolvedOrderId]);
   const starsEarned = progress?.earnedThisOrder ? 1 : 0;
-  const modeLabel = isPickup ? "Pickup" : "To-go";
+  // W9a — name the channel the diner is actually in. `Table 4` when the sticker is registered;
+  // plain "Dine-in" when it isn't (never a fabricated table number).
+  const modeLabel = isPickup
+    ? "Pickup"
+    : isDineIn
+      ? order && order.tableNumber != null
+        ? `Table ${order.tableNumber}`
+        : "Dine-in"
+      : "To-go";
   const statusChip = (
     // `.vt-order-status` (J1): the header order pill morphs into THIS chip on the pill→/track cut —
     // the status the diner tapped lands as the status they're now watching. Rendered once per branch
@@ -293,25 +318,27 @@ export function OrderTracker({
           ? "This order was refunded — the amount returns to your original payment method, typically within five to ten business days."
           : pureGrocery
             ? "Paid — you’re all set. Show your exit pass on the way out if asked."
-            : arriveErr && ready
-              ? arriveErr
-              : ready
-                ? announced
-                  ? "The counter knows you’re here — hang tight."
-                  : "Your order is ready for pickup — grab it before you go."
-                : arrived
-                  ? togo === "picked_up"
-                    ? "Order picked up — enjoy!"
-                    : togo === "preparing"
-                      ? "Your order is being prepared."
-                      : "Payment confirmed — your order is in."
-                  : timedOut
-                    ? "Your order is taking longer than expected — use the Refresh button to check."
-                    : justPaid
-                      ? "Payment confirmed — finalizing your order."
-                      : processing
-                        ? "Confirming your payment."
-                        : "Confirming your order."}
+            : dineInSettled
+              ? "Paid in full — thanks for dining with us."
+              : arriveErr && ready
+                ? arriveErr
+                : ready
+                  ? announced
+                    ? "The counter knows you’re here — hang tight."
+                    : "Your order is ready for pickup — grab it before you go."
+                  : arrived
+                    ? togo === "picked_up"
+                      ? "Order picked up — enjoy!"
+                      : togo === "preparing"
+                        ? "Your order is being prepared."
+                        : "Payment confirmed — your order is in."
+                    : timedOut
+                      ? "Your order is taking longer than expected — use the Refresh button to check."
+                      : justPaid
+                        ? "Payment confirmed — finalizing your order."
+                        : processing
+                          ? "Confirming your payment."
+                          : "Confirming your order."}
       </p>
 
       {/* J6 — the exit pass replaces the step rail for a pure grocery basket: nothing is cooking and
@@ -367,6 +394,33 @@ export function OrderTracker({
             {`Order reference ${order.id.slice(-6).toUpperCase().split("").join(" ")}`}
           </span>
           <p className="exit-pass-sub">Show this on your way out if asked.</p>
+        </section>
+      ) : dineInSettled ? (
+        // W9a — the settled-table arm. Terminal, honest, and it does NOT promise a status that can
+        // never arrive. Same card grammar as the refund arm (tokens only, `--ok` rule instead of
+        // `--warn`); not a live region — the single role="status" above carries the announcement.
+        <section
+          className="card mms-rise"
+          aria-label="Order paid"
+          style={{ marginTop: 20, padding: "18px 16px", borderLeft: "3px solid var(--ok)" }}
+        >
+          <p className="eyebrow" style={{ color: "var(--ok)", margin: 0 }}>
+            Paid
+          </p>
+          <p style={{ margin: "6px 0 0", fontWeight: 800 }}>
+            Paid in full — thanks for dining with us.
+          </p>
+          <p style={{ margin: "6px 0 0", fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
+            {order.tableNumber != null
+              ? `Table ${order.tableNumber} is settled — take your time.`
+              : "Your table is settled — take your time."}
+          </p>
+          <p style={{ margin: "10px 0 0", fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
+            Order reference{" "}
+            <strong style={{ color: "var(--tx)", letterSpacing: "0.04em" }}>
+              #{order.id.slice(-6).toUpperCase()}
+            </strong>
+          </p>
         </section>
       ) : (
         <ul
@@ -655,14 +709,23 @@ export function OrderTracker({
           ? "This order is closed — the refund above is its final state."
           : pureGrocery
             ? "You’re free to go — this receipt lives in your order history."
-            : "Status updates here as the kitchen works on it — keep this open, or check back anytime."}
+            : dineInSettled
+              ? // W9a — the old string promised live kitchen updates on a screen whose rail can never
+                // move again. State what is actually true: the visit is paid for and the receipt keeps.
+                "Your table’s all settled — this receipt lives in your order history."
+              : "Status updates here as the kitchen works on it — keep this open, or check back anytime."}
       </p>
       <div style={{ display: "flex", gap: 20, alignItems: "center", marginTop: 4 }}>
-        <Link href="/menu" className="nav-link">
+        {/* W9a — the ONLY forward affordance on the post-pay screen, and it used to be a bare
+            `/menu`: `useTableSession` defaults a mode-less menu to scan-&-go, so the tap that was
+            meant to say "order something else" silently minted a fresh grocery session and orphaned
+            the diner's table. The destination now comes from the ORDER's own line fulfillments —
+            server truth that outlives both the table session and the device's "last door" memory. */}
+        <Link href={menuHref(backMode)} className="nav-link">
           <span aria-hidden className="nav-arrow nav-arrow-back">
             ←
           </span>{" "}
-          Back to menu
+          {menuLinkText(backMode)}
         </Link>
         {/* The rewards hub's diner-facing entry point on a REVISIT (viewport-prefetched by <Link>).
             On a fresh payment the goodbye beat carries the rewards door for everyone instead — one

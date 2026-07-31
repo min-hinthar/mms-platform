@@ -4,6 +4,57 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W9a — One door, carried all the way through (mode identity, scan → reorder) (2026-07-31)
+
+A 14-agent happy-path + craft audit ([`docs/W9_PLAN.md`](docs/W9_PLAN.md); 84 raw → 32 deduped → 24
+CONFIRMED, 0 refuted) found the money machinery sound but **not one diner journey finished end to
+end**, under one theme: _the app already computed the answer and drops it at the last hop_. W9a
+closes the mode-identity half of that.
+
+- **The phantom table, root-caused (J1, high).** `resolveQrCode` wrote the dine-in join code to
+  localStorage **before** the mint. So a mistyped or stale `?j=` that the server 404'd was still
+  persisted — and the failure arm's "Try again" reloaded a URL whose `?j=` was already stripped, so
+  the mint was no longer join-only and **provisioned a brand-new table keyed to the typo, with that
+  guest as host**. The menu then looked entirely normal (party of one, no error) while their whole
+  meal accumulated on a cart the real party could never see. Now only a code the server ACCEPTED is
+  persisted (the existing post-mint write). `GuestList` surfaces the server's own reason and treats
+  **"No table found"** as terminal — offering `<JoinTable />` to enter a different code instead of a
+  retry that re-mints. The transient arm keeps its reload (a network blip must still recover).
+- **Two table-only controls, off the pickup cart (J2, high).** "Make it now" and "For here / To go"
+  rendered on every pickup cart. "Make it now" fires a line the KDS deliberately refuses for a
+  pre-paid channel — leaving it non-draft, so the diner could **never edit that line again**;
+  flipping to "For here" re-routed the order off the expo board and froze `/track` at "Order placed"
+  forever. Both now gate on `isDineIn`, **not** `!isTakeout`: `cart/page.tsx` nulls `splitContext` on
+  any read failure, so `!isTakeout` is also true for _unknown mode_ — and a missing control costs a
+  tap where a wrong one costs the order.
+- **`/track` stops calling Table 4 "To-go" (J3).** `qr_orders` carries no mode column and
+  `table_number` is null for an unregistered sticker, so a new `hasDineInFood` derives the mode from
+  the order's own `qr_order_items.fulfillment` snapshot — the same truth routing and tax use, and the
+  only one that survives the table session being closed by routine turnover or the 4h anon TTL. The
+  header reads `Table 4` (or plain `Dine-in`), and the 4-step takeaway rail — structurally frozen at
+  step 1, because nothing ever bumps `togo_status` for a plate eaten at the table — is replaced by a
+  terminal settled-table card. A table with a to-go box keeps the rail; one with groceries keeps the
+  exit pass.
+- **Six bare `/menu` links (F9/G13).** New `lib/menu-href.ts` (`menuHref` · `menuLinkText` ·
+  `modeFromOrder`): carry the mode, or route to the **door picker** — never guess. `scango` →
+  `/grocery` (closes G13). Fixed at `OrderTracker` (the only forward affordance on the post-pay
+  screen), `track/page` ×3, `account/page`, `OrderHistory`, `cart/page`, `Checkout` ×2. Link TEXT
+  moves with the destination — a link to `/` no longer says "Back to menu". `cart/page`'s exit is
+  promoted from an inline-styled ~20px link to `nav-link-strong` (≥44px, QA §A).
+- **Two dishonest strings retired.** "Made fresh when you check out — ready in about 12 min. Want it
+  sooner? Tap 'Make it now.'" rendered on pickup carts (whose lines are also `togo`) — four sections
+  above the control that was about to schedule the order for tomorrow, pointing at a button pickup no
+  longer shows. Now dine-in only; `PickupWhenChoice` is the single owner of the pickup timing promise
+  (it holds the live ASAP⇆scheduled state, which this paragraph never saw). And "First name for
+  pickup / we'll call your name when your order's up" no longer renders on a pure-grocery basket —
+  the shopper is holding the bag they scanned; there is no counter handoff to name.
+- **An ESLint ban on the bare literal**, scoped to JSX `href` + `router.push` so `TransitionNav`'s
+  journey-depth map and `AppHeader`'s pathname compare stay legal. Verified by inducing a violation
+  (red) and reverting (green) rather than assuming.
+
+No migration, no schema change, **no charged amount touched** — `hasDineInFood` reads a column the
+query already selected. Gate 8/8.
+
 ### docs — W8 plan-of-record: the money-path test harness, then the register (2026-07-31)
 
 A full-repo audit ("what's left to refine · is every customer path validated · are we ready for the

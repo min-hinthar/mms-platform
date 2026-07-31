@@ -23,6 +23,7 @@ import {
 } from "@/lib/cart";
 import type { SplitContext } from "@/lib/split";
 import { canMutateLine } from "@/lib/permissions";
+import { menuHref } from "@/lib/menu-href";
 import { DINER_STATE_COPY } from "@/lib/line-state-copy";
 import { seatColor, seatInitial } from "@/lib/avatars";
 import { useAnonSession } from "@/lib/useAnonSession";
@@ -193,6 +194,14 @@ export function Checkout({
   // never shows it (the table IS the identity). Prefilled from the diner's saved display name.
   const sessionMode = splitContext?.mode ?? null;
   const isTakeout = sessionMode === "pickup" || sessionMode === "scango";
+  // W9a — the two TABLE-only line controls ("For here / To go", "Make it now") gate on this, NOT on
+  // `!isTakeout`. The distinction is load-bearing: `splitContext` is nulled by cart/page.tsx on ANY
+  // read failure, so `!isTakeout` is true for "unknown mode" too — and rendering either control on a
+  // pickup cart is not cosmetic. "Make it now" fires a line the KDS deliberately refuses for a
+  // pre-paid channel (leaving it non-draft, so the diner can never edit it again), and flipping to
+  // "For here" re-routes the order off the expo board and freezes /track at "Order placed" forever.
+  // Unknown mode must hide them: a missing control costs a tap, a wrong one costs the order.
+  const isDineIn = sessionMode === "dinein";
   // W5e — the ASAP↔scheduled timing choice is pickup-only: pickup lines fire to the KITCHEN (so timing
   // matters), whereas scango is self-scanned grocery retail (no kitchen fire to schedule).
   const isPickupMode = sessionMode === "pickup";
@@ -488,9 +497,9 @@ export function Checkout({
   if (viewItems.length === 0) {
     // W2d — designed empty-cart state. The menu link carries the session mode: a bare /menu defaults
     // to scan-&-go and would orphan a dine-in/pickup diner (F9). titleAs="p" — the <h1> names the region.
-    const menuHref = splitContext?.mode
-      ? `/menu?mode=${encodeURIComponent(splitContext.mode)}`
-      : "/menu";
+    // W9a — the fallback is now the DOOR PICKER, not `/menu`: an unknown mode used to route here as
+    // scan-&-go, which is the same silent conversion the link was written to prevent.
+    const backHref = menuHref(sessionMode);
     return (
       <main style={{ padding: "24px 20px 40px", maxWidth: 440, margin: "0 auto" }}>
         <h1 style={{ fontSize: "var(--fs-h1)", marginBottom: 16 }}>Your order</h1>
@@ -500,7 +509,7 @@ export function Checkout({
           subtitle="Add a dish from the menu and it’ll show up here."
           action={
             <Link
-              href={menuHref}
+              href={backHref}
               className="checkout-cta"
               style={{
                 display: "inline-flex",
@@ -633,12 +642,7 @@ export function Checkout({
                 kitchen, right where the mid-meal diner reviews the table's order. viewItems (not items)
                 so a "Make it now" tap and the strip agree instantly; the menu link carries the session
                 mode — a bare /menu defaults to scan-&-go and would orphan a dine-in dessert. */}
-            <TimelineStrip
-              items={viewItems}
-              menuHref={
-                splitContext?.mode ? `/menu?mode=${encodeURIComponent(splitContext.mode)}` : "/menu"
-              }
-            />
+            <TimelineStrip items={viewItems} menuHref={menuHref(sessionMode)} />
             {/* S4 unified basket: group lines by destination (At your table / To-go / Grocery). Headings
               show only when the basket actually spans 2+ destinations, so a plain dine-in cart stays clean.
               The renderLine body is the S2 per-line card + an S4 for-here/to-go toggle on editable food. */}
@@ -720,45 +724,51 @@ export function Checkout({
                       {/* For-here / To-go (S4): food only, draft + editable. Grocery routing is fixed. The
                         server recomputes per-line tax (cold food flips taxability) — the toggle is optimistic
                         (instant re-group), reconciled on refresh. Unified `.checkout-pill` segmented control. */}
-                      {i.fulfillment !== "grocery" && i.lineState === "draft" && canEdit && (
-                        <div
-                          role="group"
-                          aria-label={`Where ${i.name} goes`}
-                          className="checkout-pill-row"
-                          style={{ marginTop: 8 }}
-                        >
-                          {(["dinein", "togo"] as const).map((f) => {
-                            const on = i.fulfillment === f;
-                            return (
-                              <button
-                                key={f}
-                                type="button"
-                                data-ful-line={i.id}
-                                data-ful-val={f}
-                                aria-pressed={on}
-                                onClick={() => toggleFulfillment(i.id, f)}
-                                className={`checkout-pill${on ? " checkout-pill-on" : ""}`}
-                              >
-                                {f === "dinein" ? "For here" : "To go"}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
+                      {isDineIn &&
+                        i.fulfillment !== "grocery" &&
+                        i.lineState === "draft" &&
+                        canEdit && (
+                          <div
+                            role="group"
+                            aria-label={`Where ${i.name} goes`}
+                            className="checkout-pill-row"
+                            style={{ marginTop: 8 }}
+                          >
+                            {(["dinein", "togo"] as const).map((f) => {
+                              const on = i.fulfillment === f;
+                              return (
+                                <button
+                                  key={f}
+                                  type="button"
+                                  data-ful-line={i.id}
+                                  data-ful-val={f}
+                                  aria-pressed={on}
+                                  onClick={() => toggleFulfillment(i.id, f)}
+                                  className={`checkout-pill${on ? " checkout-pill-on" : ""}`}
+                                >
+                                  {f === "dinein" ? "For here" : "To go"}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
                       {/* Make it now (S4.2): a to-go food line waits for checkout by default; this fires it to
                         the kitchen early. Draft + editable + togo only (a dinein line fires via Send to
                         kitchen; grocery never fires). Optimistic; the server gates it, refused → no-ops on
                         refresh. Accent-outline action pill. */}
-                      {i.fulfillment === "togo" && i.lineState === "draft" && canEdit && (
-                        <button
-                          type="button"
-                          onClick={() => makeNow(i.id)}
-                          className="checkout-pill checkout-pill-accent"
-                          style={{ display: "flex", width: "100%", marginTop: 8 }}
-                        >
-                          Make it now · ready in ~{prepMinutes} min
-                        </button>
-                      )}
+                      {isDineIn &&
+                        i.fulfillment === "togo" &&
+                        i.lineState === "draft" &&
+                        canEdit && (
+                          <button
+                            type="button"
+                            onClick={() => makeNow(i.id)}
+                            className="checkout-pill checkout-pill-accent"
+                            style={{ display: "flex", width: "100%", marginTop: 8 }}
+                          >
+                            Make it now · ready in ~{prepMinutes} min
+                          </button>
+                        )}
                     </div>
                     {i.comped ? (
                       <LineStateChip state={i.lineState} comped />
@@ -796,8 +806,16 @@ export function Checkout({
                     </h3>
                   )}
                   {/* S4.2: to-go food is made fresh at checkout (not fired with the dine-in batch). Honest,
-                    config-driven estimate — shown only while a to-go line is still waiting (draft). */}
+                    config-driven estimate — shown only while a to-go line is still waiting (draft).
+                    W9a — DINE-IN ONLY. A pickup cart's lines are also `togo`, so this rendered there too:
+                    it announced "ready in about 12 min" on an order the diner was about to schedule for
+                    tomorrow evening, four sections above the "When would you like it?" control that
+                    actually decides the time — and it pointed at "Make it now," which pickup carts no
+                    longer show. On pickup, `PickupWhenChoice` is the SINGLE owner of the timing promise
+                    (it holds the live ASAP⇆scheduled state; this paragraph only sees the server-seeded
+                    value and would go stale the moment the diner switched). */}
                   {key === "togo" &&
+                    isDineIn &&
                     viewItems.some((i) => i.fulfillment === "togo" && i.lineState === "draft") && (
                       <p
                         style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", margin: "0 0 8px" }}
@@ -877,8 +895,14 @@ export function Checkout({
 
             {/* W3e: the takeout call-out name — one optional field, so the expo and the ready board
                 can call "Aye Aye" instead of a hex code. Never shown for dine-in (the table is the
-                identity); never required (the short order code is the fallback). */}
-            {isTakeout && (
+                identity); never required (the short order code is the fallback).
+                W9a — and never on a PURE-GROCERY basket: a scan-&-go shopper is standing in the aisle
+                holding the bag they already scanned. There is no counter handoff to name, so asking
+                for a "First name for pickup" and promising "we'll call your name when your order's up"
+                described an event that will never happen. (`pureGrocery` is stable for a scango
+                session — every line is scanned retail — so this gate can't unmount a focused field
+                mid-edit; a mixed basket only exists on a dine-in table, where `isTakeout` is false.) */}
+            {isTakeout && !pureGrocery && (
               <div style={{ margin: "12px 0" }}>
                 <label
                   htmlFor="pickup-name"
