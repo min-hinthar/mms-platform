@@ -92,15 +92,24 @@ export async function getSettlement(cartId: string): Promise<SettlementResult> {
     // Treating that as settled would announce "Everyone's paid" and send the whole table to a receipt
     // that will never exist. So ask the DB which ending it was, and only 'paid' may navigate.
     if (e instanceof AuthzError && e.code === "cart_closed") {
-      const { data: closed } = await serviceClient()
+      const { data: closed, error: statusErr } = await serviceClient()
         .from("qr_carts")
         .select("status")
         .eq("id", id)
         .maybeSingle();
-      // Unreadable status → `cart_gone`, never `settled`: the board must not guess its way to a receipt.
-      return closed?.status === "paid"
-        ? { ok: false, reason: "settled" }
-        : { ok: false, reason: "cart_gone" };
+      // ⚠️ An UNREADABLE status is not evidence of anything. Dropping this error would repeat, 30 lines
+      // above the comment that names it, exactly the M24 class it warns about: `cart_gone` is TERMINAL
+      // on the client (poll stopped, no retry, host cancel hidden) and asserts "nobody was charged", so
+      // a transient blip on a table that just PAID would tell them their money never moved — and leave
+      // them no way back. Both unknown cases fall to the retryable `error`.
+      if (statusErr || !closed) {
+        console.error("[split] cart status re-read failed", statusErr);
+        return { ok: false, reason: "error" };
+      }
+      if (closed.status === "paid") return { ok: false, reason: "settled" };
+      if (closed.status === "cancelled") return { ok: false, reason: "cart_gone" };
+      // Any other terminal status is one this code has never seen — refuse to narrate it.
+      return { ok: false, reason: "error" };
     }
     if (e instanceof AuthzError) return { ok: false, reason: "not_member" };
     return { ok: false, reason: "error" };

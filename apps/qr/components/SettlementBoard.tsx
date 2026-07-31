@@ -53,7 +53,10 @@ export function SettlementBoard({
     // Once we've sent the table to the receipt, stop fetching: window.location.assign navigates but
     // doesn't synchronously unmount, so without this the 5s poll + realtime callbacks keep calling
     // getSettlement on a now-paid cart (swallowed 403s / dead work) until the navigation completes.
-    if (redirected.current) return;
+    if (redirected.current) {
+      setRetrying(false); // W9b pre-merge — every exit of load() clears it, or the button latches
+      return;
+    }
     void getSettlement(cartId)
       .then((r) => {
         // W9b — a failed read is NOT an empty board (M24). Only the server-typed `settled` may
@@ -68,6 +71,7 @@ export function SettlementBoard({
             setLoadError(false);
             setLoaded(true);
             setGone(true);
+            setRetrying(false);
             redirected.current = true; // stop the 5s poll — there is nothing left to watch
             onStatus("This table’s order was closed — nobody was charged.");
             return;
@@ -79,6 +83,7 @@ export function SettlementBoard({
           }
           if (redirected.current) return;
           redirected.current = true;
+          setRetrying(false);
           setLoaded(true); // the cart is gone; show the beat, not the skeleton
           setLoadError(false);
           setComplete(true);
@@ -135,9 +140,9 @@ export function SettlementBoard({
   // (WCAG 2.4.3; same convention as the share-row restore above).
   const completeRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (complete && document.activeElement === document.body)
+    if ((complete || gone) && document.activeElement === document.body)
       completeRef.current?.focus({ preventScroll: true });
-  }, [complete]);
+  }, [complete, gone]);
   useSettlementRealtime(cartId, accessToken, true, load);
 
   // Poll backstop (payment-critical screen): re-fetch every 5s while settling so progress shows even if
@@ -336,7 +341,7 @@ export function SettlementBoard({
           {gone ? (
             // W9b — the honest terminal state for a table that was closed without paying. Not a live
             // region: `onStatus` (the settle view's one announcer) carries the message below.
-            <div className="settle-complete">
+            <div ref={completeRef} tabIndex={-1} className="settle-complete">
               <p className="settle-complete-line">This table’s order was closed</p>
               <p className="settle-complete-sub">
                 Nobody was charged. Ask your server if that wasn’t expected.
@@ -404,44 +409,49 @@ export function SettlementBoard({
             </p>
           )}
 
-          <ul
-            role="list"
-            style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 10 }}
-          >
-            {shares.map((s, i) => {
-              const isMe = s.seat === ctx.mySeat;
-              const name = isMe ? "You" : nameOf(s.seat);
-              const canPay = isMe && (s.status === "pending" || s.status === "failed");
-              const settled = s.status === "authorized" || s.status === "captured";
-              return (
-                // Textured + rise-in (keys are stable seats — status flips re-render, never re-animate).
-                // A settled share gets a warm accent left-edge (.settle-row-paid). tabIndex -1 on the
-                // viewer's own row = the focus target when their pay form unmounts.
-                <li
-                  key={s.seat}
-                  ref={isMe ? myRowRef : undefined}
-                  tabIndex={isMe ? -1 : undefined}
-                  aria-label={isMe ? `Your share` : undefined}
-                  className={`card card-textured mms-rise${settled ? " settle-row-paid" : ""}`}
-                  style={{ padding: 12, animationDelay: `${Math.min(i, 6) * 45}ms` }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <Avatar
-                      size="md"
-                      initial={seatInitial(nameOf(s.seat))}
-                      color={seatColor(s.seat)}
-                    />
-                    <span style={{ flex: 1, fontWeight: 700 }}>{name}</span>
-                    <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>
-                      ${(s.amountCents / 100).toFixed(2)}
-                    </span>
-                    <StatusBadge status={s.status} />
-                  </div>
-                  {canPay && <SharePay cartId={cartId} onAuthorized={load} />}
-                </li>
-              );
-            })}
-          </ul>
+          {/* ⚠️ `gone` gates the LIST too, not just the header above it. Leaving the rows mounted put a
+              live "Pay $X" Payment Element directly under "Nobody was charged" — a control that can
+              falsify the sentence sitting on top of it, against a cart that no longer exists. */}
+          {!gone && (
+            <ul
+              role="list"
+              style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 10 }}
+            >
+              {shares.map((s, i) => {
+                const isMe = s.seat === ctx.mySeat;
+                const name = isMe ? "You" : nameOf(s.seat);
+                const canPay = isMe && (s.status === "pending" || s.status === "failed");
+                const settled = s.status === "authorized" || s.status === "captured";
+                return (
+                  // Textured + rise-in (keys are stable seats — status flips re-render, never re-animate).
+                  // A settled share gets a warm accent left-edge (.settle-row-paid). tabIndex -1 on the
+                  // viewer's own row = the focus target when their pay form unmounts.
+                  <li
+                    key={s.seat}
+                    ref={isMe ? myRowRef : undefined}
+                    tabIndex={isMe ? -1 : undefined}
+                    aria-label={isMe ? `Your share` : undefined}
+                    className={`card card-textured mms-rise${settled ? " settle-row-paid" : ""}`}
+                    style={{ padding: 12, animationDelay: `${Math.min(i, 6) * 45}ms` }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <Avatar
+                        size="md"
+                        initial={seatInitial(nameOf(s.seat))}
+                        color={seatColor(s.seat)}
+                      />
+                      <span style={{ flex: 1, fontWeight: 700 }}>{name}</span>
+                      <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>
+                        ${(s.amountCents / 100).toFixed(2)}
+                      </span>
+                      <StatusBadge status={s.status} />
+                    </div>
+                    {canPay && <SharePay cartId={cartId} onAuthorized={load} />}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </>
       )}
 

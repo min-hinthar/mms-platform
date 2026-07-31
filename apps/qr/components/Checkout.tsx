@@ -320,6 +320,11 @@ export function Checkout({
     const prev = prevAnnouncedLock.current;
     prevAnnouncedLock.current = lockedByPeer;
     if (prev === null || prev === lockedByPeer) return; // seed on first run; only edges announce
+    // The region renders `payError ?? tabError ?? status`, so a stale error would swallow this
+    // announcement entirely — and while locked the diner cannot retry the action that produced it, so
+    // it would never clear on its own. A lock transition supersedes both.
+    setPayError(null);
+    setTabError(null);
     setStatus(
       lockedByPeer
         ? `${lockedByName ?? "Someone"} is checking out — the order’s locked for a moment.`
