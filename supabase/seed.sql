@@ -558,7 +558,10 @@ on conflict (barcode) do update set
 --
 -- Top 2 per aisle by ABSOLUTE savings among real ≥20% markdowns (dollars off beats percent off for a
 -- shopper), barcode breaking ties so the set is reproducible. 8 aisles clear the bar → 16 of 396 SKUs.
--- Guarded on `= false` so a re-run never clobbers the owner's own curation.
+-- ⚠️ The `= false` guard is one-directional: an owner-ADDED feature survives a re-run (already true →
+-- untouched), but an owner who UN-features a seeded top-2 item gets it re-featured — the flag can't
+-- tell default-false from deliberate-false. Don't re-run this block against a live DB the owner has
+-- curated (G19); it exists for FRESH environments.
 with ranked as (
   select
     barcode,

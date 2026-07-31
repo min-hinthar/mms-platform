@@ -132,6 +132,39 @@ export default function Grocery() {
     if (cartId) router.prefetch(`/cart?cart=${encodeURIComponent(cartId)}`);
   }, [cartId, router]);
 
+  // W9d — the ONE place a terminal answer (paid / cancelled / session expired) lands, so its four
+  // consequences can't drift apart across the three paths that can discover it (sync, add, stepper
+  // reconcile) — the pre-merge review caught each drifting in a different way:
+  //  · seq-guarded like every other server response: a slow read from the OLD cart resolving after
+  //    a recovery re-mint must not resurrect the banner over a working fresh basket;
+  //  · the list empties (an authoritative answer, not a misread — the never-`[]`-on-failure rule
+  //    protects against reads that FAILED, and this one succeeded);
+  //  · the basket sheet's own state resets — the render gate alone force-closes Radix without
+  //    firing onOpenChange, so a stale `basketOpen: true` would pop an empty modal, uninvited,
+  //    the moment the shopper taps "Start a fresh basket";
+  //  · the toast (the page's one live region) announces the transition — the banner is deliberately
+  //    NOT a live region, so without this the sync/refocus path emptied the basket in silence.
+  const markCartGone = useCallback(
+    (seq: number, reason: CartUnavailable) => {
+      if (seq <= appliedSeq.current) return; // stale — a fresher view already applied
+      applyLines(seq, []);
+      setHydrated(true);
+      setSyncFailed(false);
+      setCartGone(reason);
+      setBasketOpen(false);
+      // Direction-neutral copy — the recovery banner sits at the top of the page, the toast at the
+      // bottom; "below"/"above" would point one of them the wrong way.
+      flash(
+        reason === "paid"
+          ? "This basket’s already paid for — start a fresh one to keep shopping."
+          : reason === "cancelled"
+            ? "This basket was closed — start a fresh one to keep shopping."
+            : "Your market session ended — start a fresh basket to keep shopping.",
+      );
+    },
+    [applyLines, flash],
+  );
+
   // K5 — hydrate from the CART (the truth) on session-ready and on tab re-focus (the J3 freshness
   // pattern): a refresh or a backgrounded phone never hides items the cart will charge. A failure
   // AFTER first hydration is a deliberate read-only swallow (keep the last-known list; the next
@@ -150,15 +183,10 @@ export default function Grocery() {
           setCartGone(null);
           return;
         }
-        // W9d — a refusal WITH a reason. Terminal (paid/cancelled/expired) is an authoritative
-        // answer, not a failed read: the basket is finished, so emptying the list is the truth
-        // (the never-`[]`-on-failure rule protects against a MISREAD, and this isn't one). The
-        // sequence ticket still applies — a stale response must not clobber a fresher view.
+        // W9d — a refusal WITH a reason. Terminal (paid/cancelled/expired) → the shared,
+        // seq-guarded transition (see markCartGone).
         if (isTerminal(r.reason)) {
-          applyLines(seq, []);
-          setHydrated(true);
-          setSyncFailed(false);
-          setCartGone(r.reason);
+          markCartGone(seq, r.reason);
           return;
         }
         // Transient (locked-race / settling / unreadable) → the same honest Retry as a network
@@ -168,7 +196,7 @@ export default function Grocery() {
       .catch(() => {
         if (mountedRef.current) setSyncFailed(true); // transport failure — same Retry strip
       });
-  }, [cartId, applyLines]);
+  }, [cartId, applyLines, markCartGone]);
   useEffect(() => {
     if (!cartId) return;
     syncNow();
@@ -214,10 +242,9 @@ export default function Grocery() {
         if (r.ok) {
           applyLines(seq, r.lines);
         } else if (isTerminal(r.reason)) {
-          // The write's failure had a terminal cause — the basket is finished, say so (see syncNow).
-          applyLines(seq, []);
-          setHydrated(true);
-          setCartGone(r.reason);
+          // The write's failure had a terminal cause — the basket is finished; the shared
+          // transition also overwrites the "try again" flash above with the honest reason.
+          markCartGone(seq, r.reason);
         } else if (!wrote && appliedSeq.current === appliedAtFlip) {
           setLines(snapshot); // transient refusal after a refused write — same rollback as the catch
         }
@@ -229,7 +256,7 @@ export default function Grocery() {
       }
       setBusyLine(null);
     },
-    [cartId, busyLine, lines, flash, applyLines],
+    [cartId, busyLine, lines, flash, applyLines, markCartGone],
   );
 
   // The ONE add path — a scan and a tapped search hit both go through here. Memoized on cartId so the
@@ -282,19 +309,9 @@ export default function Grocery() {
       } else if (r.reason === "unknown_barcode") {
         flash(`Not found: ${barcode} — try searching by name`);
       } else if (isTerminal(r.reason)) {
-        // W9d — the add failed because the BASKET is finished, not because of the radio. Empty the
-        // list (an authoritative terminal answer, not a misread — see syncNow) and raise the
-        // recovery banner; the toast is the one live region, so it carries the announcement.
-        applyLines(++reqSeq.current, []);
-        setHydrated(true);
-        setCartGone(r.reason);
-        flash(
-          r.reason === "paid"
-            ? "This basket’s already paid for — start a fresh one below."
-            : r.reason === "cancelled"
-              ? "This basket was closed — start a fresh one below."
-              : "Your market session ended — start a fresh basket below.",
-        );
+        // W9d — the add failed because the BASKET is finished, not because of the radio: the
+        // shared, seq-guarded transition (list empties · banner · sheet reset · toast).
+        markCartGone(++reqSeq.current, r.reason);
       } else if (r.reason === "locked") {
         flash("Hang on — this basket’s being checked out.");
       } else if (r.reason === "settling") {
@@ -305,7 +322,7 @@ export default function Grocery() {
         flash("Couldn’t add that — check your connection and try again.");
       }
     },
-    [cartId, sessionError, flash, applyLines],
+    [cartId, sessionError, flash, applyLines, markCartGone],
   );
 
   const onScan = useCallback((code: string) => void add(code, "scan"), [add]);
@@ -593,19 +610,22 @@ export default function Grocery() {
                       const s = saleInfo(h.unitPriceCents, h.compareAtCents);
                       if (!s) return null;
                       // Visible "Compare at" (market-comparison framing, not a bare struck number)
-                      // + an sr-only companion so the sale reaches screen readers too.
+                      // + an sr-only companion so the sale reaches screen readers too. W9d: the
+                      // "−N%" shout is GONE here — search hits are the QUIET surface, like the
+                      // cards' inline strike (the loud percentage now belongs only to featured
+                      // deals, and `mms_grocery_search` doesn't carry the flag; 306 of 396 SKUs
+                      // would otherwise shout on 77% of results — the wallpaper this slice removed).
                       return (
                         <>
                           <small aria-hidden style={{ color: "var(--ac-strong)", fontWeight: 700 }}>
                             Compare at{" "}
                             <s style={{ color: "var(--t3)", fontWeight: 500 }}>
                               ${(s.compareAtCents / 100).toFixed(2)}
-                            </s>{" "}
-                            −{s.pct}%
+                            </s>
                           </small>
                           <span className="sr-only">
                             {" "}
-                            compare at ${(s.compareAtCents / 100).toFixed(2)}, save {s.pct}%
+                            compare at ${(s.compareAtCents / 100).toFixed(2)}
                           </span>
                         </>
                       );
@@ -823,6 +843,7 @@ export default function Grocery() {
           <button
             type="button"
             className="grocery-basket-btn"
+            aria-haspopup="dialog"
             aria-label={`Review basket — ${itemCount} ${itemCount === 1 ? "item" : "items"}`}
             onClick={() => setBasketOpen(true)}
           >
@@ -868,6 +889,16 @@ export default function Grocery() {
           itemCount={itemCount}
           onStep={stepQty}
           onCheckout={checkout}
+          onCloseAutoFocus={(e) => {
+            // The sheet's trigger (the CTA bar) unmounts at zero lines — removing the last row in
+            // the sheet, or a terminal force-close, would let Radix restore focus to a dead node
+            // and drop it on <body>. Park it on the stable search input instead (the page's
+            // remove-row pattern). With lines still present the trigger exists — default restore.
+            if (lines.length === 0) {
+              e.preventDefault();
+              searchRef.current?.focus();
+            }
+          }}
         />
       )}
     </main>

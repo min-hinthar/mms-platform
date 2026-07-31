@@ -27,6 +27,11 @@ import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock";
  *
  * The `CartUnavailable` type + `isTerminal` predicate live in `cart-unavailable.ts` (client-safe —
  * the /grocery page needs them at render time, and this module is `server-only`).
+ *
+ * Known, accepted residual: an unknown cart answers after one query and a real-but-not-yours cart
+ * after two — a timing side channel on cart EXISTENCE (never state). Accepted because cart ids are
+ * unguessable uuids and serverless latency jitter swamps one indexed read; the string oracle is the
+ * one that matters, and it is sealed.
  */
 export type { CartUnavailable } from "./cart-unavailable";
 

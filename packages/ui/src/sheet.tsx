@@ -22,18 +22,28 @@ export function Sheet({
   onOpenChange,
   title,
   children,
+  onCloseAutoFocus,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   title: string;
   children: React.ReactNode;
+  /** W9d — Radix restores focus to the TRIGGER on close; when the trigger can unmount while the
+   *  sheet is open (the grocery basket bar disappears at zero lines), that restore lands on a dead
+   *  node and focus drops to <body>. Pass this to `e.preventDefault()` and park focus on a stable
+   *  element instead (WCAG 2.4.3). Optional — every other sheet keeps the default restore. */
+  onCloseAutoFocus?: (event: Event) => void;
 }) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="mms-scrim" />
         <DomMaxProvider>
-          <SheetContent title={title} onClose={() => onOpenChange(false)}>
+          <SheetContent
+            title={title}
+            onClose={() => onOpenChange(false)}
+            onCloseAutoFocus={onCloseAutoFocus}
+          >
             {children}
           </SheetContent>
         </DomMaxProvider>
@@ -58,10 +68,12 @@ function SheetContent({
   title,
   onClose,
   children,
+  onCloseAutoFocus,
 }: {
   title: string;
   onClose: () => void;
   children: React.ReactNode;
+  onCloseAutoFocus?: (event: Event) => void;
 }) {
   const controls = useDragControls();
   // Keyboard-aware lift: while the sheet is mounted (open), track the on-screen keyboard via the
@@ -95,7 +107,7 @@ function SheetContent({
     };
   }, []);
   return (
-    <Dialog.Content asChild aria-describedby={undefined}>
+    <Dialog.Content asChild aria-describedby={undefined} onCloseAutoFocus={onCloseAutoFocus}>
       <m.div
         className="mms-sheet"
         // Handle-initiated drag only (dragListener=false): the body keeps its native scroll; the grab

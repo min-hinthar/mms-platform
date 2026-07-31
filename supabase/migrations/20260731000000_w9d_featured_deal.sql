@@ -33,8 +33,10 @@ comment on column public.grocery_items.is_featured_deal is
 --
 -- Computed against supabase/data/grocery_catalog.json: 8 aisles clear the ≥20% bar, so 16 of 396 SKUs
 -- (4.0%) — few enough that the pill reads as a real pick.
--- Guarded: only ever sets true where the flag is still at its default, so re-running never clobbers
--- the owner's own curation.
+-- ⚠️ The `= false` guard is one-directional: an owner-ADDED feature survives a re-run, but an owner
+-- who UN-features a seeded top-2 item would get it re-featured (default-false and deliberate-false
+-- are indistinguishable). Migrations apply once, so this is only a hazard if the block is ever
+-- re-run by hand against a curated live DB — don't (G19 tracks the owner's curation pass).
 --
 -- ⚠️ This UPDATE is a NO-OP on a fresh database: `supabase/config.toml [db.seed]` loads seed.sql AFTER
 -- migrations, so `grocery_items` is still empty here on a `db reset`. It exists for databases whose

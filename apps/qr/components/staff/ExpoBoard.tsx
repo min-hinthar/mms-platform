@@ -175,6 +175,12 @@ function ExpoCard({
       : ticket.customerName
         ? ticket.customerName
         : `#${ticket.shortCode}`;
+  // Who to verify (grocery accessible names): keep the NAME when we have one — an SR staffer needs
+  // WHOSE exit pass to match, not just a code — with the code as the collision-safe suffix,
+  // mirroring the visible header (callOut + codeSuffix).
+  const verifyWho = ticket.customerName
+    ? `${callOut} · #${ticket.shortCode}`
+    : `#${ticket.shortCode}`;
 
   const bump = () => {
     onError(null);
@@ -186,7 +192,7 @@ function ExpoCard({
       } catch {
         onError(
           grocery
-            ? `Couldn’t update #${ticket.shortCode} — try again.`
+            ? `Couldn’t update ${verifyWho} — try again.`
             : `Couldn’t update the bag for ${callOut} — try again.`,
         );
       }
@@ -197,7 +203,7 @@ function ExpoCard({
     <article
       className="card card-textured"
       style={cardStyle}
-      aria-label={grocery ? `Verify · #${ticket.shortCode}` : `Bag for ${callOut}`}
+      aria-label={grocery ? `Verify · ${verifyWho}` : `Bag for ${callOut}`}
     >
       <header style={cardHead}>
         <span style={tableLabel}>
@@ -237,7 +243,7 @@ function ExpoCard({
         type="button"
         onClick={bump}
         disabled={pending}
-        aria-label={grocery ? `${label} — #${ticket.shortCode}` : `${label} — bag for ${callOut}`}
+        aria-label={grocery ? `${label} — ${verifyWho}` : `${label} — bag for ${callOut}`}
         className="staff-btn"
         style={{ ...bumpBtn, ...(ticket.status === "preparing" ? readyBtn : pickedBtn) }}
       >

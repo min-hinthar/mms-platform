@@ -29,6 +29,7 @@ export function GroceryBasketSheet({
   itemCount,
   onStep,
   onCheckout,
+  onCloseAutoFocus,
 }: {
   open: boolean;
   onClose: () => void;
@@ -42,6 +43,9 @@ export function GroceryBasketSheet({
   itemCount: number;
   onStep: (line: GroceryLine, nextQty: number) => void;
   onCheckout: () => void;
+  /** Forwarded to the Sheet — the page redirects Radix's close-restore when this sheet's own
+   *  trigger (the CTA bar) has unmounted (zero lines / terminal basket). */
+  onCloseAutoFocus?: (event: Event) => void;
 }) {
   // Removing a row unmounts the "−" that held focus, and the page's search-input parking is
   // (correctly) skipped while a sheet owns focus — so park it on the sheet body instead of letting
@@ -49,7 +53,12 @@ export function GroceryBasketSheet({
   const bodyRef = useRef<HTMLDivElement>(null);
 
   return (
-    <Sheet open={open} onOpenChange={(o) => !o && onClose()} title="Your basket">
+    <Sheet
+      open={open}
+      onOpenChange={(o) => !o && onClose()}
+      title="Your basket"
+      onCloseAutoFocus={onCloseAutoFocus}
+    >
       <div className="gbasket" ref={bodyRef} tabIndex={-1}>
         {lines.length === 0 ? (
           // Reachable: the last row can be removed right here. The page CTA bar (this sheet's own
