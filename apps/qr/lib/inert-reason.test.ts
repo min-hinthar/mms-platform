@@ -27,6 +27,16 @@ describe("inertReason — each state names itself", () => {
     );
   });
 
+  it("locked BY THE VIEWER says so — a diner is never told 'someone' about themselves", () => {
+    expect(inertReason(state({ locked: true, lockedByYou: true }))).toBe(
+      "the order’s locked while you check out",
+    );
+  });
+
+  it("lockedByYou is inert unless the cart is actually locked", () => {
+    expect(inertReason(state({ lockedByYou: true }))).toBeNull();
+  });
+
   it("minting is the mint window — a wait, not a refusal", () => {
     expect(inertReason(state({ minting: true }))).toBe("setting up your table…");
   });
@@ -34,7 +44,12 @@ describe("inertReason — each state names itself", () => {
   it("every reason is a clause that reads after a dish name, never a bare sentence", () => {
     // The components render `${name} — ${reason}`, so a reason that starts capitalised or ends in a
     // full stop produces "Tea Leaf Salad — The order's locked." Guard the shape, not just the text.
-    for (const s of [{ settling: true }, { locked: true }, { minting: true }] as const) {
+    for (const s of [
+      { settling: true },
+      { locked: true },
+      { locked: true, lockedByYou: true },
+      { minting: true },
+    ] as const) {
       const r = inertReason(state(s));
       expect(r).not.toBeNull();
       expect(r![0]).toBe(r![0]!.toLowerCase());

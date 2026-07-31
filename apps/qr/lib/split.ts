@@ -74,7 +74,7 @@ export async function getSplitContext(cartId: string): Promise<SplitContext> {
  */
 export type SettlementResult =
   | { ok: true; shares: SettlementShare[] }
-  | { ok: false; reason: "settled" | "not_member" | "error" };
+  | { ok: false; reason: "settled" | "cart_gone" | "not_member" | "error" };
 
 /**
  * Member-gated read of the live settlement board (M3·P3.3b) — every payer's share + status. The client
@@ -85,10 +85,23 @@ export async function getSettlement(cartId: string): Promise<SettlementResult> {
   try {
     await assertCartMember(id); // authz only — any member may watch the board
   } catch (e) {
-    // The cart leaving 'open' IS the happy ending — mms_fulfill_split_order took it. Everything else
-    // (not a member, expired session, unauthenticated, an unknown throw) leaves the board where it is
-    // with a retry; it must never navigate.
-    if (e instanceof AuthzError && e.code === "cart_closed") return { ok: false, reason: "settled" };
+    // ⚠️ `cart_closed` is NOT "the split completed". `assertCartMember` raises it for ANY
+    // `status !== 'open'`, and `qr_carts.status` is ('open','paid','cancelled') — a table whose stale
+    // freeze let a server merge or clear it (`mms_merge_table_orders` / `clearTable`; both permitted
+    // once `settle_at` ages out with no authorized share) lands on 'cancelled' having paid NOTHING.
+    // Treating that as settled would announce "Everyone's paid" and send the whole table to a receipt
+    // that will never exist. So ask the DB which ending it was, and only 'paid' may navigate.
+    if (e instanceof AuthzError && e.code === "cart_closed") {
+      const { data: closed } = await serviceClient()
+        .from("qr_carts")
+        .select("status")
+        .eq("id", id)
+        .maybeSingle();
+      // Unreadable status → `cart_gone`, never `settled`: the board must not guess its way to a receipt.
+      return closed?.status === "paid"
+        ? { ok: false, reason: "settled" }
+        : { ok: false, reason: "cart_gone" };
+    }
     if (e instanceof AuthzError) return { ok: false, reason: "not_member" };
     return { ok: false, reason: "error" };
   }

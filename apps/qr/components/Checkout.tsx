@@ -113,6 +113,7 @@ export function Checkout({
   initialSettling = false,
   initialLocked = false,
   initialLockedBy = null,
+  initialMySeat = null,
   initialTabType = "none",
   canTab = false,
   prepMinutes = 12,
@@ -129,6 +130,9 @@ export function Checkout({
    *  here with no explanation: the steppers simply snapped back. Synced onward by `refresh()`. */
   initialLocked?: boolean;
   initialLockedBy?: string | null;
+  /** W9b — the viewer's own seat, from `getCartView` (NOT `splitContext`, which is nulled on any read
+   *  failure). Decides whether `lockedBy` is a peer's lock or the viewer's own. */
+  initialMySeat?: string | null;
   /** Tab lifecycle (S3.1): `none` until someone opens a tab on this table. When open, the cart reads
    *  "Tab open" and the pay CTA settles/closes the tab. Synced from getCartView (initial + realtime). */
   initialTabType?: "none" | "trust" | "secure";
@@ -154,6 +158,13 @@ export function Checkout({
   // W9b — who (if anyone) holds the pay-window lock. Distinct from `settling`: a lock is ONE member
   // checking out for a moment; settling is the whole table paying its shares.
   const [locked, setLocked] = useState(initialLocked);
+  // ⚠️ `mySeat` comes from the CART VIEW, not `splitContext`. `cart/page.tsx` nulls the split context on
+  // ANY read failure, and sourcing the seat from it meant a transient miss on a dine-in group cart left
+  // `lockedByPeer` permanently false — no lockbar, every control live, each edit snapping back: exactly
+  // the defect this slice exists to retire, on the path most likely to hit it. `getCartView` returns the
+  // seat from the same `assertCartMember` call that produced `lockedBy`, so the comparison cannot be
+  // defeated by a second read. Declared beside the lock state because `refresh()` writes it.
+  const [mySeat, setMySeat] = useState<string | null>(initialMySeat);
   const [lockedBy, setLockedBy] = useState<string | null>(initialLockedBy);
   // Dine-in group → show per-line owner + split; solo/duo stays the plain cart.
   const isGroup =
@@ -258,6 +269,7 @@ export function Checkout({
       // clientSecret/payTotals/step, so the mounted Stripe Element is untouched by a lock flip.
       setLocked(v.locked);
       setLockedBy(v.lockedBy);
+      setMySeat(v.mySeat);
       setTabType(v.tabType); // a server (or a peer) opening the tab reflects here too
     } catch {
       // Swallow: the EXPECTED failure here is the post-payment 403 (the cart flipped to paid → the
@@ -294,15 +306,34 @@ export function Checkout({
   // `editOrder` released it — telling either "someone's checking out" would be a lie about themselves.
   // It also requires a KNOWN seat: `cart/page.tsx` nulls `splitContext` on ANY read failure, and a
   // viewer who doesn't know their own seat cannot honestly claim the lock belongs to a peer.
-  const mySeat = splitContext?.mySeat ?? null;
   const lockedByPeer = locked && !!lockedBy && !!mySeat && lockedBy !== mySeat;
   const lockedByName = lockedByPeer
     ? (splitContext?.members.find((m) => m.seat === lockedBy)?.name ?? "Someone")
     : null;
+
+  // W9b — announce the lock edge. The lockbar is plain visual, and this view's ONE status region is
+  // `status` (rendered below) — the provider's announcer that handles this on /menu is mounted on the
+  // menu subtree only, so without this a screen-reader user on /cart hears NOTHING as every control
+  // around them goes dead. Edge-triggered via a ref so it fires on the transition, not every render.
+  const prevAnnouncedLock = useRef<boolean | null>(null);
+  useEffect(() => {
+    const prev = prevAnnouncedLock.current;
+    prevAnnouncedLock.current = lockedByPeer;
+    if (prev === null || prev === lockedByPeer) return; // seed on first run; only edges announce
+    setStatus(
+      lockedByPeer
+        ? `${lockedByName ?? "Someone"} is checking out — the order’s locked for a moment.`
+        : "The order’s unlocked — you can edit again.",
+    );
+  }, [lockedByPeer, lockedByName]);
   // W9b — true while a PaymentIntent confirm is in flight (lifted out of PayForm). The pay step's
   // back control freezes on it: releasing the pay-window lock mid-authorization would let the table
   // edit the cart out from under a live intent.
   const [paying, setPaying] = useState(false);
+  // W9b review — `editOrder()` is two round-trips (releasePayLock + refresh) fired as a void. Without a
+  // busy state the back control looks dead for seconds and invites a second tap, on the one screen this
+  // slice exists to keep honest.
+  const [leavingPay, setLeavingPay] = useState(false);
 
   // Focus management: when a stepper removes the last unit of a line, the <li> unmounts and focus
   // would fall to <body>. Move it to the heading so keyboard/SR users keep their place.
@@ -335,35 +366,57 @@ export function Checkout({
     prevLockedByPeer.current = lockedByPeer;
   }, [lockedByPeer]);
 
-  // W9b — release the pay-window lock if the diner leaves the pay step by closing the tab / navigating
-  // away. `pagehide` is the only unload event mobile Safari reliably fires, and `sendBeacon` the only
-  // request that outlives the document — a Server Action started here dies with the page, which is why
-  // this posts to a thin route instead of calling `releasePayLock`.
+  // W9b — release the pay-window lock when the diner ABANDONS the pay step. The lock makes the whole
+  // table read-only, so a diner who wanders off holds every tablemate hostage for the full TTL.
   //
-  // ⚠️ Deliberately NOT `visibilitychange`: that fires every time the diner app-switches to approve
-  // Apple/Google Pay, and dropping the lock there re-opens the peer-mutation-mid-checkout hole the
-  // lock exists to close. Only a real page teardown releases.
+  // Two exits, because they are genuinely different events:
+  //   • `pagehide` — the document is torn down (tab closed, hard navigation away). A Server Action
+  //     started here dies with the page, so this posts via `sendBeacon` to a thin route.
+  //   • unmount — an App Router SOFT navigation (browser Back to /menu, a header link). No `pagehide`
+  //     fires for these at all, which is why the beacon alone left the lock riding its TTL on the very
+  //     journey this slice is named for. Deps are `[]` so the cleanup runs on unmount ONLY, never on a
+  //     re-render; the refs below carry the live values into it.
+  //
+  // Three states must NOT release, and each has bitten somewhere:
+  //   • `paying` — a confirm is in flight. `pagehide` fires on the SUCCESSFUL redirect too, and
+  //     releasing there unlocks a cart whose PaymentIntent is already authorized.
+  //   • `event.persisted` — a bfcache freeze. The page is not being destroyed; it comes back with the
+  //     same mounted Element and the same clientSecret, so releasing would hand tablemates a cart the
+  //     diner is about to pay a now-stale amount for.
+  //   • not on the pay step — nothing to release.
+  //
+  // Deliberately NOT `visibilitychange`: it fires on every app-switch to a wallet.
+  const payAbandonRef = useRef({ onPay: false, paying: false, cartId });
+  // Synced in an effect, not during render (a render-phase ref write is a React Compiler violation).
+  // The listener below only ever reads this on a real teardown, which is always after a commit.
   useEffect(() => {
-    if (!onPay) return;
-    const onPageHide = () => {
-      // ⚠️ `pagehide` also fires on the SUCCESSFUL redirect to /track — `confirmPayment` navigates the
-      // document. Releasing there would unlock a cart whose PaymentIntent is already authorized but
-      // whose webhook hasn't flipped it to 'paid' yet, letting a tablemate edit the order out from
-      // under a live authorization: the very hole the lock exists to close, reached through the happy
-      // path instead of a visibilitychange. Only an abandonment releases.
-      if (paying) return;
-      try {
-        navigator.sendBeacon?.(
-          "/api/cart/release-lock",
-          new Blob([JSON.stringify({ cartId })], { type: "application/json" }),
-        );
-      } catch {
-        // Beacon unavailable/refused — the lock TTL is the backstop, and there is no UI left to tell.
-      }
+    payAbandonRef.current = { onPay: !!onPay, paying, cartId };
+  }, [onPay, paying, cartId]);
+  const releaseLockBeacon = useCallback(() => {
+    const { onPay: active, paying: mid, cartId: id } = payAbandonRef.current;
+    if (!active || mid) return;
+    try {
+      navigator.sendBeacon?.(
+        "/api/cart/release-lock",
+        new Blob([JSON.stringify({ cartId: id })], { type: "application/json" }),
+      );
+    } catch {
+      // Beacon unavailable/refused — the lock TTL is the backstop, and there is no UI left to tell.
+    }
+  }, []);
+  useEffect(() => {
+    const onPageHide = (e: PageTransitionEvent) => {
+      if (e.persisted) return; // bfcache freeze — the page (and its live Element) is coming back
+      releaseLockBeacon();
     };
     window.addEventListener("pagehide", onPageHide);
-    return () => window.removeEventListener("pagehide", onPageHide);
-  }, [onPay, cartId, paying]);
+    // Cleanup order matters: drop the listener FIRST, then release for the soft-navigation case, so a
+    // teardown that is both (a real unload during unmount) can't beacon twice.
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      releaseLockBeacon();
+    };
+  }, [releaseLockBeacon]);
 
   // On ANY view change (review↔pay tap OR a realtime settling flip) the subtree that held focus unmounts
   // → focus would drop to <body> with no cue (WCAG 2.4.3). The heading is mounted across all views, so
@@ -721,23 +774,25 @@ export function Checkout({
             <button
               type="button"
               className="nav-link"
-              aria-disabled={paying || undefined}
+              aria-disabled={paying || leavingPay || undefined}
+              aria-busy={leavingPay}
               onClick={() => {
-                if (paying) return;
-                void editOrder();
+                if (paying || leavingPay) return;
+                setLeavingPay(true);
+                void editOrder().finally(() => setLeavingPay(false));
               }}
               style={{
                 background: "none",
                 border: "none",
                 marginBottom: 4,
-                cursor: paying ? "default" : "pointer",
-                opacity: paying ? 0.6 : 1,
+                cursor: paying || leavingPay ? "default" : "pointer",
+                opacity: paying || leavingPay ? 0.6 : 1,
               }}
             >
               <span aria-hidden className="nav-arrow nav-arrow-back">
                 ←
               </span>{" "}
-              Back to review
+              {leavingPay ? "Going back…" : "Back to review"}
             </button>
             <div className="card card-textured checkout-receipt">
               <dl>
@@ -769,8 +824,9 @@ export function Checkout({
             {/* W9b — the v7.2 lockbar, on the screen the lock actually bites. `getCartView` has always
                 known the cart was locked; this component never received it, so the diner's steppers just
                 snapped back with no explanation (the menu's GuestList has shown this banner since P3.2 —
-                the checkout was the gap). PLAIN visual, not a live region: the transition is announced
-                through this view's one status region, and the disabled controls carry the state for AT.
+                the checkout was the gap). PLAIN visual, not a live region: the edge effect above pushes the
+                transition through this view's one status region (the provider's announcer is mounted on
+                /menu only), and the disabled controls carry the state for AT.
                 Gated on `lockedByPeer`, never bare `locked` — the payer holds their own lock. */}
             {lockedByPeer && (
               <p
@@ -1028,9 +1084,7 @@ export function Checkout({
                 onChange={(e) => setPromo(e.target.value)}
                 placeholder="Promo code"
                 aria-label={
-                  lockedByPeer
-                    ? `Promo code — ${lockedByName} is checking out`
-                    : "Promo code"
+                  lockedByPeer ? `Promo code — ${lockedByName} is checking out` : "Promo code"
                 }
                 readOnly={lockedByPeer}
                 autoCapitalize="characters"

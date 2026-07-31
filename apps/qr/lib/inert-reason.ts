@@ -17,6 +17,10 @@ export type CartInertState = {
   minting: boolean;
   /** A member holds the pay-window lock (M3·P3.2-lock): one diner is checking out. */
   locked: boolean;
+  /** Is that member the VIEWER? A diner who tapped "Continue to payment" and walked back to the menu
+   *  still holds their own lock — telling them "someone is checking out" contradicts the GuestList
+   *  banner two elements away, which correctly reads "You're checking out". */
+  lockedByYou?: boolean;
   /** The table is settling its split shares (M3·P3.3b) — the whole cart is frozen table-wide. */
   settling: boolean;
 };
@@ -33,7 +37,10 @@ export type CartInertState = {
  */
 export function inertReason(s: CartInertState): string | null {
   if (s.settling) return "the order’s locked while your table pays";
-  if (s.locked) return "the order’s locked while someone checks out";
+  if (s.locked)
+    return s.lockedByYou
+      ? "the order’s locked while you check out"
+      : "the order’s locked while someone checks out";
   if (s.minting) return "setting up your table…";
   return null;
 }

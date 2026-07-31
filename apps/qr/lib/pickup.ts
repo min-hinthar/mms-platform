@@ -34,7 +34,10 @@ export async function getPickupSlots(excludeCart?: string): Promise<PickupSlotsR
     console.error("[pickup] mms_pickup_slots failed", error);
     return { ok: false };
   }
-  return { ok: true, slots: (data ?? []).map((r) => ({ slot: r.slot_time, remaining: r.remaining })) };
+  return {
+    ok: true,
+    slots: (data ?? []).map((r) => ({ slot: r.slot_time, remaining: r.remaining })),
+  };
 }
 
 /**

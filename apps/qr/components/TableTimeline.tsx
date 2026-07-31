@@ -186,14 +186,18 @@ export function TimelineStrip({
  *  invitations — the menu can't accept an add and the moment passes on its own. Settling is passed
  *  through separately (W9b): it isn't a quiet moment, it's a call to go pay. */
 export function MenuTimeline() {
-  const { items, cartId, locked, settling } = useCart();
+  const { items, cartId, locked, settling, isGroup } = useCart();
   return (
     <TimelineStrip
       items={items}
       onMenu
       cartHref={cartId ? `/cart?cart=${encodeURIComponent(cartId)}` : null}
       quiet={locked}
-      settling={settling}
+      // W9b review — GuestList already renders a settling banner with the SAME "go pay your share"
+      // link, and it renders whenever `isGroup`. Passing settling here too put two near-identical
+      // sentences and two links to /cart on one screen. So this covers only the case GuestList can't:
+      // a dine-in cart that isn't a group (GuestList returns null), where the note is the sole signal.
+      settling={settling && !isGroup}
     />
   );
 }

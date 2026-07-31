@@ -99,6 +99,7 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
       // stepper snap silently back, with nothing on screen saying why.
       initialLocked={view.locked}
       initialLockedBy={view.lockedBy}
+      initialMySeat={view.mySeat}
       initialTabType={view.tabType}
       canTab={split?.mode === "dinein"}
       prepMinutes={prepMinutes}

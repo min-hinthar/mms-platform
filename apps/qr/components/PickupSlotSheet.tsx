@@ -26,6 +26,10 @@ export function PickupSlotSheet({
     { s: "loading" } | { s: "ok"; slots: PickupSlot[] } | { s: "failed" }
   >({ s: "loading" });
   const [reloadNonce, setReloadNonce] = useState(0); // bumped by "Try again" to re-run the effect
+  // W9b review — the retry must NOT unmount itself. Swapping straight back to the skeleton deletes the
+  // button the user just pressed, dropping focus to <body> with nothing announced: verbatim the defect
+  // W9a fixed in GuestList. The card stays mounted and the label narrates the attempt instead.
+  const [retrying, setRetrying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingSlot, setPendingSlot] = useState<string | null>(null); // the chip being set (instant feedback)
   const [dayIdx, setDayIdx] = useState(0); // which day section is shown in the time grid
@@ -44,11 +48,13 @@ export function PickupSlotSheet({
         setLoad(r.ok ? { s: "ok", slots: r.slots } : { s: "failed" });
         setDayIdx(0); // each open starts on the first day (Today)
         setError(null);
+        setRetrying(false);
       })
       .catch(() => {
         if (!active) return;
         setLoad({ s: "failed" });
         setError(null);
+        setRetrying(false);
       });
     return () => {
       active = false;
@@ -133,11 +139,15 @@ export function PickupSlotSheet({
         // branch only fires when the availability read itself failed, so it offers the way out (retry in
         // place) instead of quietly reporting a closed kitchen. Mirrors the SettlementBoard retry.
         <p role="alert" style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
-          Couldn’t load pickup times.{" "}
+          {retrying ? "Looking for pickup times…" : "Couldn’t load pickup times."}{" "}
           <button
             type="button"
+            // aria-disabled, not `disabled`: a natively-disabled button leaves the focus order, so the
+            // keyboard user who just pressed it would lose their place mid-retry.
+            aria-disabled={retrying}
             onClick={() => {
-              setLoad({ s: "loading" });
+              if (retrying) return;
+              setRetrying(true);
               setReloadNonce((n) => n + 1);
             }}
             style={{
@@ -151,7 +161,7 @@ export function PickupSlotSheet({
               cursor: "pointer",
             }}
           >
-            Try again
+            {retrying ? "Retrying…" : "Try again"}
           </button>
         </p>
       ) : load.slots.length === 0 ? (

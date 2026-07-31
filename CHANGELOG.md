@@ -39,13 +39,21 @@ Nothing here changes a charged amount.
 - **Pickup availability is a three-state answer.** A failed `mms_pickup_slots` read returned `[]`, which the
   sheet rendered as the calm "No pickup times available right now" — telling a diner the kitchen was closed
   when we simply couldn't ask. `ok:false` now earns a retry; `ok:true` with an empty list keeps the calm copy.
+- **The board never celebrates a payment that didn’t happen.** `assertCartMember` raises `cart_closed`
+  for any `status != 'open'`, and `qr_carts.status` includes `'cancelled'` — so a table whose stale freeze
+  let a server merge or clear it would have been told **“Everyone’s paid”** and sent to a receipt that will
+  never exist, having paid nothing. `getSettlement` now re-reads the status and emits `settled` only for
+  `'paid'`; anything else renders “This table’s order was closed — nobody was charged” and never navigates.
+- **The lock release can’t fire on a bfcache freeze, and now does fire on a soft navigation.** `pagehide`
+  skips `event.persisted` (the page comes back with the same mounted Payment Element and the same
+  clientSecret — releasing would hand tablemates a cart the diner is about to pay a stale amount for), and
+  an unmount arm covers App Router back-navigation, which fires no unload event at all.
 - **`openSettlement` no longer swallows its derive reads (OPEN-ITEMS M24, closed).** A failed
   `session_members` read produced zero share rows behind an acquired freeze — a permanently stuck table —
   and a failed `qr_cart_items` read zeroed every by-person weight, so `allocate`'s all-zero fallback served
   an **even split to a host who chose by-person, and charged it.** Both now release the freeze and fail
   loudly; `SplitSection`'s catch re-syncs (it previously refreshed only on success, leaving a stale review
   screen offering edits the freeze would refuse).
-
 
 ### tooling — `pnpm verify:slice`, the mechanical pre-PR gate (2026-07-31)
 

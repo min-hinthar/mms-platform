@@ -7,18 +7,20 @@ import { withinMutationRate } from "@/lib/rate";
 /**
  * W9b — release the pay-window lock on page unload.
  *
- * Why a ROUTE and not the existing `releasePayLock` Server Action: the only unload event a browser
- * reliably delivers is `pagehide`, and the only request that survives it is `navigator.sendBeacon`,
- * which needs a real URL. A Server Action call started in `pagehide` is cancelled with the document.
+ * Why a ROUTE and not the existing `releasePayLock` Server Action: on a real document teardown the
+ * only request that survives is `navigator.sendBeacon`, which needs a URL — a Server Action started
+ * in `pagehide` is cancelled with the document. (A SOFT navigation off the pay step unmounts without
+ * any unload event; `Checkout` handles that case from its effect cleanup, through this same route so
+ * both exits behave identically.)
  *
- * Why it matters: a diner who leaves /cart from the pay step (closes the tab, hits Back out of the
- * app, gets a phone call) keeps holding the lock that makes the WHOLE TABLE read-only. The TTL frees
- * it eventually; until then their tablemates watch every Add sit disabled for a checkout nobody is
- * doing. This is the cheap, immediate release.
+ * Why it matters: a diner who leaves /cart from the pay step keeps holding the lock that makes the
+ * WHOLE TABLE read-only. The TTL frees it eventually; until then their tablemates watch every Add sit
+ * disabled for a checkout nobody is doing.
  *
- * ⚠️ NOT wired to `visibilitychange` — that fires every time a diner app-switches to their wallet to
- * approve Apple/Google Pay, and dropping the lock there would re-open the peer-mutation-mid-checkout
- * hole the lock exists to close (the cart could be edited out from under a live PaymentIntent).
+ * ⚠️ The caller — not this route — decides when NOT to release: never during a confirm, never on a
+ * bfcache freeze (`pagehide` with `persisted`), and never on `visibilitychange` (that fires on every
+ * app-switch to a wallet). Each of those would re-open the peer-mutation-mid-checkout hole the lock
+ * exists to close.
  *
  * Authorization is the same as every mutation: the caller must be a verified member of the cart's
  * active session (`assertCartMember` reads the anon-auth cookie, which sendBeacon sends same-origin),
@@ -26,14 +28,12 @@ import { withinMutationRate } from "@/lib/rate";
  * their OWN lock, never a tablemate's.
  */
 export async function POST(req: NextRequest) {
-  // Defense in depth against a cross-site POST. The blast radius is small — an attacker would need a
-  // cart UUID, and the worst outcome is a member's own advisory, TTL-backed lock ending early — but a
-  // state-changing endpoint should still refuse a request that plainly came from another origin. A
-  // browser that sends no Origin at all is allowed through rather than breaking the release.
-  const origin = req.headers.get("origin");
-  if (origin && origin !== new URL(req.url).origin)
-    return NextResponse.json({ error: "Bad origin" }, { status: 403 });
-
+  // No Origin check here, deliberately. The session cookie is `SameSite=Lax`, so a cross-site POST
+  // carries no session at all and `assertCartMember` refuses it — the cookie IS the CSRF guard. An
+  // added `origin !== new URL(req.url).origin` comparison can disagree with the browser behind a proxy
+  // that normalizes protocol/host, and because `sendBeacon` discards the response, that failure mode is
+  // INVISIBLE: every release would 403 and nobody would ever learn. A guard nobody can watch fail is
+  // worse than no guard (see the red-first rule in CLAUDE.md).
   let cartId: string;
   try {
     // sendBeacon can't set headers, so the body arrives as whatever Blob type we gave it; parse the
@@ -49,11 +49,11 @@ export async function POST(req: NextRequest) {
     // no-ops — the TTL is the backstop, and this path must never throw at a page that's unloading.
     if (await withinMutationRate(uid)) await releaseCartLock(cartId, uid);
   } catch (e) {
-    // A cart that already closed (paid) has no lock left to release — that's the success case, not a
-    // failure. Everything else is a genuine refusal.
-    if (e instanceof AuthzError && e.code === "cart_closed")
-      return new NextResponse(null, { status: 204 });
-    if (e instanceof AuthzError) return NextResponse.json({ error: "Not allowed" }, { status: 403 });
+    // Every authorization outcome answers 204. There is nothing for the caller to do with a refusal —
+    // `sendBeacon` discards the response and the page is gone — and a distinct 403 would turn this into
+    // an oracle telling any authenticated diner whether a given cart UUID exists and is closed. A cart
+    // that already closed genuinely has no lock left to release, which is the success case anyway.
+    if (e instanceof AuthzError) return new NextResponse(null, { status: 204 });
     console.error("[cart] release-lock failed", e);
     return NextResponse.json({ error: "Release failed" }, { status: 500 });
   }

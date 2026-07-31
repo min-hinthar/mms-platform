@@ -255,6 +255,11 @@ export function TableCartProvider({
       })
       .catch(() => {
         // Cart paid/closed between session mint and first load — leave the view empty (no throw).
+        // W9b review — but DO seed the settle baseline: it is only written by `applyView`, so a failed
+        // first load left it null and the edge effect then swallowed the next genuine transition
+        // (it returns on `prev === null`). `settling` is still its initial `false` here, which is the
+        // honest baseline for a view we never got.
+        if (active && prevSettling.current === null) prevSettling.current = false;
       });
     return () => {
       active = false;

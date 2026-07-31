@@ -58,7 +58,8 @@ export function AddButton({
   name: string;
   soldOut?: boolean;
 }) {
-  const { add, setItemQty, items, cartId, loading, locked, settling, isGroup, me } = useCart();
+  const { add, setItemQty, items, cartId, loading, locked, lockedByName, settling, isGroup, me } =
+    useCart();
   const [busy, setBusy] = useState(false);
   // Optimistic add delta (R7 perf): the button morphs to the stepper the INSTANT it's tapped, before the
   // server round-trip returns, so a tap never sits at "…" waiting on the network. Reconciled to server
@@ -106,7 +107,7 @@ export function AddButton({
   // Why this control is inert — from the SHARED ladder (lib/inert-reason), so the Add pill, the
   // stepper and the item sheet can't drift into telling a screen-reader user different stories about
   // the same frozen cart. Precedence + copy are pinned by `inert-reason.test.ts`.
-  const reason = inertReason({ minting, locked, settling });
+  const reason = inertReason({ minting, locked, lockedByYou: lockedByName === "You", settling });
 
   // Serialize THIS button's stepper writes so rapid taps can't race on a stale server read: a "+" merges via
   // `add` (relative — order-independent), a "−" trims a specific line by id, and each op reads the FRESHEST
@@ -319,11 +320,7 @@ export function AddButton({
       aria-disabled={soldOut || undefined}
       aria-busy={busy || minting}
       aria-label={
-        soldOut
-          ? `${name}, sold out`
-          : reason
-            ? `${name} — ${reason}`
-            : `Add ${name} to your order`
+        soldOut ? `${name}, sold out` : reason ? `${name} — ${reason}` : `Add ${name} to your order`
       }
       // Spring press feedback — reduced-motion-gated; never on an inactive (disabled/sold-out) button.
       whileTap={shouldAnimate && !inactive ? { scale: 0.94 } : undefined}
