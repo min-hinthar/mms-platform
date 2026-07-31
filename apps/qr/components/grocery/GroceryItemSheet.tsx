@@ -55,7 +55,8 @@ export function GroceryItemSheet({
     const cur = open ? (item?.barcode ?? null) : null;
     const prev = prevBarcodeRef.current;
     prevBarcodeRef.current = cur;
-    if (prev != null && cur != null && prev !== cur) bodyRef.current?.focus({ preventScroll: true });
+    if (prev != null && cur != null && prev !== cur)
+      bodyRef.current?.focus({ preventScroll: true });
   }, [item?.barcode, open]);
 
   return (
@@ -159,7 +160,13 @@ function GroceryItemSheetBody({
           </span>
         )}
         <span className="gsheet-price-row">
-          <b className={sale ? "gcard-price gcard-price-sale gsheet-price-num" : "gcard-price gsheet-price-num"}>
+          <b
+            className={
+              sale
+                ? "gcard-price gcard-price-sale gsheet-price-num"
+                : "gcard-price gsheet-price-num"
+            }
+          >
             {price}
           </b>
           {sale && (
@@ -187,7 +194,12 @@ function GroceryItemSheetBody({
           // Already in the cart → the same stepper the card + basket rows use, at sheet scale. The
           // sheet stays OPEN so the shopper can keep adjusting (grocery is add-multiple), unlike the
           // dish sheet which closes on add. aria-disabled (not native disabled) keeps focus alive.
-          <div className="grocery-stepper gsheet-stepper" role="group" aria-label={`${item.name} quantity`} data-busy={stepping || undefined}>
+          <div
+            className="grocery-stepper gsheet-stepper"
+            role="group"
+            aria-label={`${item.name} quantity`}
+            data-busy={stepping || undefined}
+          >
             <button
               type="button"
               className="grocery-step-btn"

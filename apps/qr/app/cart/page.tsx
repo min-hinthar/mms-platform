@@ -3,6 +3,7 @@ import { getCartView } from "@/lib/cart";
 import { getPrepMinutes, getPickupAsapOk } from "@/lib/pickup";
 import { getSplitContext, type SplitContext } from "@/lib/split";
 import { Checkout } from "@/components/Checkout";
+import { menuHref, menuLinkText } from "@/lib/menu-href";
 
 // Cart + checkout. The cartId comes from the URL (the cart bar links here with the server-issued
 // id); `getCartView` authorizes the viewer against the cart (member-gated — a non-member can't read
@@ -25,8 +26,15 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
         <p style={{ color: "var(--t2)" }}>
           This order isn’t available on this device. Start from the menu.
         </p>
-        <Link href="/menu" style={{ color: "var(--ac)", fontWeight: 700 }}>
-          ← Back to menu
+        {/* W9a — the exit used to be a bare `/menu`, which defaults to scan-&-go: a diner who
+            back-navigated here from /track was dropped into a grocery session. With no readable cart
+            there is no mode to carry, so route to the door picker. Promoted from an inline-styled
+            ~20px link to the shared `nav-link-strong` primitive (≥44px, QA §A). */}
+        <Link href={menuHref(null)} className="nav-link-strong">
+          <span aria-hidden className="nav-arrow nav-arrow-back">
+            ←
+          </span>{" "}
+          {menuLinkText(null)}
         </Link>
       </main>
     );
@@ -54,8 +62,7 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
   // placeholder (mms_pickup_asap sets pickup_slot for capacity + fire_at=null to fire now), NOT an
   // intentional schedule (mms_set_pickup_slot always writes fire_at = slot - prep). Treat that as ASAP so
   // a reload/retry shows "⚡ ASAP", not the snapped slot mislabeled "Scheduled".
-  const initialPickupSlot =
-    view.pickupSlot != null && view.fireAt == null ? null : view.pickupSlot;
+  const initialPickupSlot = view.pickupSlot != null && view.fireAt == null ? null : view.pickupSlot;
 
   // A settling cart with NO split context is unwinnable in the plain flow: the cart is frozen
   // table-wide, so "Continue to payment" 409s ("pay your share on the split screen") but the board

@@ -105,7 +105,9 @@ export function PickupWhenChoice({
           aria-expanded={sheetOpen}
           // When scheduled, the accessible name carries the FULL day+time (the visible <small> shows
           // time only) and signals the tap changes it; when ASAP it invites picking a time.
-          aria-label={slot ? `Scheduled for ${formatSlotLong(slot)} — change` : "Schedule a pickup time"}
+          aria-label={
+            slot ? `Scheduled for ${formatSlotLong(slot)} — change` : "Schedule a pickup time"
+          }
           className={`checkout-pill${!asap ? " checkout-pill-on" : ""}`}
           style={segStyle}
           onClick={() => {

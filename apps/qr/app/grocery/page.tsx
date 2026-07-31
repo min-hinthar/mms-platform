@@ -376,41 +376,41 @@ export default function Grocery() {
           one element — never a separately-positioned indicator). */}
       <div className="grocery-toolbar">
         <div className="grocery-tabs" role="tablist" aria-label="Shop by">
-        <button
-          ref={browseTabRef}
-          type="button"
-          role="tab"
-          id="grocery-tab-browse"
-          aria-selected={tab === "browse"}
-          aria-controls="grocery-panel-browse"
-          tabIndex={tab === "browse" ? 0 : -1}
-          className="grocery-tab"
-          onClick={() => pickTab("browse")}
-          onKeyDown={(e) => {
-            if (e.key === "ArrowRight" || e.key === "ArrowLeft") scanTabRef.current?.focus();
-          }}
-        >
-          <Icon name="cat-grocery" size={18} />
-          Browse
-        </button>
-        <button
-          ref={scanTabRef}
-          type="button"
-          role="tab"
-          id="grocery-tab-scan"
-          aria-selected={tab === "scan"}
-          aria-controls="grocery-panel-scan"
-          tabIndex={tab === "scan" ? 0 : -1}
-          className="grocery-tab"
-          onClick={() => pickTab("scan")}
-          onKeyDown={(e) => {
-            if (e.key === "ArrowRight" || e.key === "ArrowLeft") browseTabRef.current?.focus();
-          }}
-        >
-          <Icon name="cart" size={18} />
-          Scan
-        </button>
-      </div>
+          <button
+            ref={browseTabRef}
+            type="button"
+            role="tab"
+            id="grocery-tab-browse"
+            aria-selected={tab === "browse"}
+            aria-controls="grocery-panel-browse"
+            tabIndex={tab === "browse" ? 0 : -1}
+            className="grocery-tab"
+            onClick={() => pickTab("browse")}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowRight" || e.key === "ArrowLeft") scanTabRef.current?.focus();
+            }}
+          >
+            <Icon name="cat-grocery" size={18} />
+            Browse
+          </button>
+          <button
+            ref={scanTabRef}
+            type="button"
+            role="tab"
+            id="grocery-tab-scan"
+            aria-selected={tab === "scan"}
+            aria-controls="grocery-panel-scan"
+            tabIndex={tab === "scan" ? 0 : -1}
+            className="grocery-tab"
+            onClick={() => pickTab("scan")}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowRight" || e.key === "ArrowLeft") browseTabRef.current?.focus();
+            }}
+          >
+            <Icon name="cart" size={18} />
+            Scan
+          </button>
+        </div>
 
         <div className="grocery-search" role="search">
           <Icon name="search" size={18} />

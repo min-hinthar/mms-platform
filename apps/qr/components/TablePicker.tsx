@@ -28,7 +28,9 @@ export function TablePicker({ tables }: { tables: DineInTable[] }) {
   // ALL my live tables (a seat can hold several memberships — claimed one, scanned into another):
   // each must read "Your table"; a .find() would code-wall the diner's own second table.
   const myTables = new Set(
-    (peeked ?? []).filter((s) => s.mode === "dinein" && s.tableNumber != null).map((s) => s.tableNumber),
+    (peeked ?? [])
+      .filter((s) => s.mode === "dinein" && s.tableNumber != null)
+      .map((s) => s.tableNumber),
   );
 
   function claim(n: number, resuming = false) {

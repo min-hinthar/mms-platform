@@ -10,6 +10,35 @@ import next from "eslint-config-next/core-web-vitals";
 // `fontSize: 14` and `fontSize: strong ? 20 : undefined` both fail, while `fontSize: "var(--fs-sm)"`
 // passes. The WHOLE app — diner AND staff surfaces — is now swept (staff chrome → `--fs-*`, KDS reads
 // stay on the kitchen-scale `--kfs-*` tier), so the ban covers every `.tsx` with no exclusions.
+// W9a — ban a BARE `/menu` destination. `/menu` with no `?mode=` is not neutral: `useTableSession`
+// falls through to the scan-&-go default, so every such link silently converted a dine-in or pickup
+// diner into a grocery shopper (orphaning their table). Six reachable links did this, including the
+// only forward affordance on the post-pay screen. Use `menuHref(mode)` from `lib/menu-href.ts`, which
+// carries the mode or routes to the door picker.
+//
+// Scoped to the positions where the string is a DESTINATION — a JSX `href` (bare or braced), a
+// `router.push()` argument, and a `menuHref`-style default parameter (which is how one live bare
+// `/menu` survived the first sweep, in TableTimeline). The literal stays legal as an object KEY
+// (TransitionNav's journey-depth map) and in a pathname COMPARISON (AppHeader); none of these
+// selectors match those positions.
+//
+// This is a guardrail, not a proof: a hoisted `const MENU = "/menu"` or a template literal that
+// evaluates to the same string still passes. It catches the shape the six real regressions took.
+const BARE_MENU_MSG =
+  "Bare '/menu' defaults to scan-&-go and silently changes the diner's mode — use menuHref(mode) from lib/menu-href (W9a).";
+const noBareMenuHref = {
+  selector: "JSXAttribute[name.name='href'] Literal[value='/menu']",
+  message: BARE_MENU_MSG,
+};
+const noBareMenuPush = {
+  selector: "CallExpression[callee.property.name='push'] > Literal[value='/menu']",
+  message: BARE_MENU_MSG,
+};
+const noBareMenuDefault = {
+  selector: "AssignmentPattern > Literal[value='/menu']",
+  message: BARE_MENU_MSG,
+};
+
 const noNumericFontSize = {
   files: ["components/**/*.tsx", "app/**/*.tsx"],
   rules: {
@@ -20,6 +49,9 @@ const noNumericFontSize = {
         message:
           "Use a --fs-* token (e.g. fontSize: 'var(--fs-sm)'), not a numeric fontSize — the type scale is tokenized (W2c).",
       },
+      noBareMenuHref,
+      noBareMenuPush,
+      noBareMenuDefault,
     ],
   },
 };

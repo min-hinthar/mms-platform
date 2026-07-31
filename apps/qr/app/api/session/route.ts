@@ -138,7 +138,10 @@ export async function POST(req: NextRequest) {
     // A transient read failure must NOT masquerade as "that table is a stranger's" (a legit member
     // would get the misleading party-code 409) — fail loudly so the client's retry path runs.
     if (mineErr)
-      return NextResponse.json({ error: "Could not check the table — try again." }, { status: 500 });
+      return NextResponse.json(
+        { error: "Could not check the table — try again." },
+        { status: 500 },
+      );
     if (!mine)
       return NextResponse.json(
         { error: "That table was just seated — join with the party’s code, or pick another." },

@@ -2,6 +2,7 @@
 import { useState, type CSSProperties } from "react";
 import { useCart } from "./TableCartProvider";
 import { InviteSheet } from "./InviteSheet";
+import { JoinTable } from "./JoinTable";
 import { seatColor, seatInitial } from "@/lib/avatars";
 import { MAX_PARTY_SIZE } from "@/lib/limits";
 import { Avatar, Icon } from "@mms/ui";
@@ -13,8 +14,21 @@ import { Avatar, Icon } from "@mms/ui";
  * Solo modes return null (honesty — RED-TEAM #3).
  */
 export function GuestList() {
-  const { isGroup, members, me, error, locked, lockedByName, tableNumber } = useCart();
+  const { isGroup, members, me, error, loading, locked, lockedByName, tableNumber, revalidate } =
+    useCart();
   const [inviteOpen, setInviteOpen] = useState(false);
+  // W9a — `revalidate()` clears `error`, and the failure block below is gated on `error`. Without a
+  // busy state the retry button DELETES ITSELF the moment it is tapped: focus drops to <body>
+  // (WCAG 2.4.3 — the very defect this slice fixed one file over in JoinTable), nothing announces,
+  // and the block silently reappears when the re-mint fails again.
+  //
+  // DERIVED, not an effect (the React Compiler lint rightly bans setState-in-effect, and this needs
+  // no synchronization): the provider's `loading` is already `!session && !error`, so it is true for
+  // exactly the re-mint round trip and flips false on either outcome. Gating it behind a tick set in
+  // the click handler keeps the block hidden during the ordinary FIRST mount, when `loading` is also
+  // true but there is nothing to report yet.
+  const [retryTick, setRetryTick] = useState(0);
+  const retrying = retryTick > 0 && loading;
   if (!isGroup) return null;
 
   // Pay-window lock (P3.2-lock): a member is checking out → the order's read-only for the moment
@@ -35,21 +49,66 @@ export function GuestList() {
     );
 
   // The dine-in join is the whole point of this screen — if the session mint failed, don't silently
-  // drop the group UI; surface a retry (reload re-runs the mint) so the diner isn't stranded. A
-  // party-full 409 (P3.4) is terminal, though — retrying can't free a seat, so show the honest server
-  // copy WITHOUT a retry that would just re-fail.
+  // drop the group UI; surface the way out so the diner isn't stranded.
+  //
+  // W9a — three things matter here:
+  //   • **Retry re-mints IN PLACE (`revalidate`), never `window.location.reload()`.** A reload arrives
+  //     with `?t=`/`?j=` already stripped from the address bar, so the mint is no longer join-only and
+  //     the server PROVISIONS a phantom table with this diner as host — they then order a whole meal
+  //     onto a cart their party can never see. `revalidate` re-POSTs with the join code still held in
+  //     memory, so a retry can only ever rejoin the real table. That makes retry safe on every arm.
+  //   • **"No table found" also offers a different code.** `findActive` swallows its PostgREST error,
+  //     so a transient DB read failure returns the SAME 404 string as a genuinely wrong code — which
+  //     is exactly why this arm keeps a retry as well as the JoinTable escape, instead of being
+  //     treated as terminal.
+  //   • **Party-full (409) is the one truly terminal arm** — no retry can free a seat, and offering
+  //     one would just re-fail.
+  // The server's own reason is shown verbatim where it is specific and diner-safe; the generic
+  // fallback stays for the transient arm, where naming the cause would be a guess.
   if (!me) {
-    if (!error) return null; // still establishing the session — the menu renders meanwhile
-    const full = error.includes("table is full");
+    // `retrying` keeps this mounted through a re-mint (see above); without it the block — and the
+    // focused button inside it — vanishes the instant retry is tapped.
+    if (!error && !retrying) return null; // still establishing the session — the menu renders meanwhile
+    const full = error?.includes("table is full") ?? false;
+    const noTable = error?.includes("No table found") ?? false;
     return (
-      <p role="alert" style={{ fontSize: "var(--fs-sm)", color: "var(--warn)", marginTop: 10 }}>
-        {full ? error : "Couldn’t join this table."}{" "}
-        {!full && (
-          <button type="button" onClick={() => window.location.reload()} style={retryBtn}>
-            Try again
-          </button>
+      <div style={{ marginTop: 10 }}>
+        <p role="alert" style={{ fontSize: "var(--fs-sm)", color: "var(--warn)", margin: 0 }}>
+          {/* The text CHANGES on retry, so the one live region narrates the attempt — and changes
+              again when the failure returns, which is what makes a repeat of an identical error
+              audible at all. */}
+          {retrying
+            ? "Reconnecting to your table…"
+            : full || noTable
+              ? error
+              : "Couldn’t join this table."}{" "}
+          {!full && (
+            // `aria-disabled`, not `disabled`: a disabled button is removed from the focus order, so
+            // the keyboard user who just pressed it would lose their place — the same failure mode
+            // the mount-preservation above exists to prevent.
+            <button
+              type="button"
+              aria-disabled={retrying}
+              onClick={() => {
+                if (retrying) return;
+                setRetryTick((n) => n + 1);
+                revalidate();
+              }}
+              style={retryBtn}
+            >
+              {retrying ? "Reconnecting…" : "Try again"}
+            </button>
+          )}
+        </p>
+        {/* Not a live region — the alert above already announced the failure; this is the way out for
+            a code that is genuinely wrong. JoinTable owns its own sheet and routes with a fresh `?j=`,
+            so a corrected code takes the join-only path and can never provision a table. */}
+        {noTable && !retrying && (
+          <div style={{ marginTop: 6 }}>
+            <JoinTable />
+          </div>
         )}
-      </p>
+      </div>
     );
   }
 

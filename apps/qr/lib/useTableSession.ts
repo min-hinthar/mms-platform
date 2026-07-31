@@ -33,10 +33,13 @@ const NAME_KEY = "mms.name";
  */
 function resolveQrCode(mode: string, code: string | undefined): string | undefined {
   if (mode === "dinein") {
-    if (code) {
-      window.localStorage.setItem(DINEIN_KEY, code);
-      return code;
-    }
+    // W9a — do NOT persist the code here. This runs BEFORE the mint, so a mistyped or stale `?j=`
+    // code used to be written to localStorage even when the server rejected it with a 404 — and it
+    // then drove every LATER bare `/menu?mode=dinein`, where `joinOnly` is false, so the server
+    // provisioned a brand-new table keyed to the typo with this diner as host. The menu looked
+    // completely normal (party of one, no error) while their order accumulated on a cart the real
+    // party could never see. Only a code the server ACCEPTED is persisted (post-mint, below).
+    if (code) return code;
     return window.localStorage.getItem(DINEIN_KEY) ?? undefined; // undefined → server mints one
   }
   const key = `mms.qr.${mode}`;
@@ -90,22 +93,35 @@ export function useTableSession(
     setNonce((n) => n + 1);
   }, []);
 
-  // Strip the join code (`?t=`/`?j=`) from the address bar once mounted — it's already captured as the
-  // `code` prop and persisted to localStorage by resolveQrCode, so a reload still rejoins. Keeps the
-  // live session credential out of browser history + the Referer header on the next navigation
-  // (defense-in-depth alongside the PostHog before_send scrub).
+  // Strip the join code (`?t=`/`?j=`) from the address bar — it keeps the live session credential out
+  // of browser history + the Referer header on the next navigation (defense-in-depth alongside the
+  // PostHog before_send scrub).
+  //
+  // ⚠️ This runs ONLY AFTER a successful mint (`session != null`), and that ordering is load-bearing.
+  // It used to strip on MOUNT, which was safe only because `resolveQrCode` persisted the code to
+  // localStorage before the fetch. W9a removed that pre-mint write (an unaccepted code must never
+  // become the next mint's key) — and stripping on mount would then leave the code in a CLOSURE and
+  // nowhere else while the mint is in flight. A hard reload in that window (the "Try again" the
+  // failure arm offers, or a plain pull-to-refresh on slow wifi) would arrive with no `?t=` and no
+  // stored key, so `/api/session` would fall through to the mint loop and provision a BRAND-NEW table
+  // with this diner as host — the exact phantom-table orphaning W9a exists to prevent, re-created on
+  // the primary sticker path. Deferring the strip keeps the code recoverable from the URL until the
+  // server has accepted it and the durable post-mint write has landed; the credential leaves history
+  // at the same moment it stops being the only copy. A mistyped `?j=` still never reaches
+  // localStorage — its mint 404s, so this effect never runs for it.
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || !session) return;
     const url = new URL(window.location.href);
-    // K2: also strip `?table=` (the picker's claim param). A reload must NOT re-send it — the diner's
-    // own now-active session would 409 the claim; instead the persisted token (below) rejoins.
+    // K2: also strip `?table=` (the picker's claim param). Once the mint has succeeded a reload must
+    // NOT re-send it — the diner's own now-active session would 409 the claim; the code persisted by
+    // the successful mint rejoins instead.
     if (!url.searchParams.has("t") && !url.searchParams.has("j") && !url.searchParams.has("table"))
       return;
     url.searchParams.delete("t");
     url.searchParams.delete("j");
     url.searchParams.delete("table");
     window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
-  }, []);
+  }, [session]);
 
   useEffect(() => {
     // `mode` is fixed for a mounted page (each route passes a constant). A re-mint is driven by

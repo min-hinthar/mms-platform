@@ -4,6 +4,141 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W9a — One door, carried all the way through (mode identity, scan → reorder) (2026-07-31)
+
+A 14-agent happy-path + craft audit ([`docs/W9_PLAN.md`](docs/W9_PLAN.md); 84 raw → 32 deduped → 24
+CONFIRMED, 0 refuted) found the money machinery sound but **not one diner journey finished end to
+end**, under one theme: _the app already computed the answer and drops it at the last hop_. W9a
+closes the mode-identity half of that.
+
+- **The phantom table, root-caused (J1, high).** `resolveQrCode` wrote the dine-in join code to
+  localStorage **before** the mint. So a mistyped or stale `?j=` that the server 404'd was still
+  persisted — and the failure arm's "Try again" reloaded a URL whose `?j=` was already stripped, so
+  the mint was no longer join-only and **provisioned a brand-new table keyed to the typo, with that
+  guest as host**. The menu then looked entirely normal (party of one, no error) while their whole
+  meal accumulated on a cart the real party could never see. Now only a code the server ACCEPTED is
+  persisted (the existing post-mint write). `GuestList` surfaces the server's own reason and treats
+  **"No table found"** as terminal — offering `<JoinTable />` to enter a different code instead of a
+  retry that re-mints. The transient arm keeps its reload (a network blip must still recover).
+- **Two table-only controls, off the pickup cart (J2, high).** "Make it now" and "For here / To go"
+  rendered on every pickup cart. "Make it now" fires a line the KDS deliberately refuses for a
+  pre-paid channel — leaving it non-draft, so the diner could **never edit that line again**;
+  flipping to "For here" re-routed the order off the expo board and froze `/track` at "Order placed"
+  forever. Both now gate on `isDineIn`, **not** `!isTakeout`: `cart/page.tsx` nulls `splitContext` on
+  any read failure, so `!isTakeout` is also true for _unknown mode_ — and a missing control costs a
+  tap where a wrong one costs the order.
+- **`/track` stops calling Table 4 "To-go" (J3).** `qr_orders` carries no mode column and
+  `table_number` is null for an unregistered sticker, so a new `hasDineInFood` derives the mode from
+  the order's own `qr_order_items.fulfillment` snapshot — the same truth routing and tax use, and the
+  only one that survives the table session being closed by routine turnover or the 4h anon TTL. The
+  header reads `Table 4` (or plain `Dine-in`), and the 4-step takeaway rail — structurally frozen at
+  step 1, because nothing ever bumps `togo_status` for a plate eaten at the table — is replaced by a
+  terminal settled-table card. A table with a to-go box keeps the rail; one with groceries keeps the
+  exit pass.
+- **Six bare `/menu` links (F9/G13).** New `lib/menu-href.ts` (`menuHref` · `menuLinkText` ·
+  `modeFromOrder`): carry the mode, or route to the **door picker** — never guess. `scango` →
+  `/grocery` (closes G13). Fixed at `OrderTracker` (the only forward affordance on the post-pay
+  screen), `track/page` ×3, `account/page`, `OrderHistory`, `cart/page`, `Checkout` ×2. Link TEXT
+  moves with the destination — a link to `/` no longer says "Back to menu". `cart/page`'s exit is
+  promoted from an inline-styled ~20px link to `nav-link-strong` (≥44px, QA §A).
+- **Two dishonest strings retired.** "Made fresh when you check out — ready in about 12 min. Want it
+  sooner? Tap 'Make it now.'" rendered on pickup carts (whose lines are also `togo`) — four sections
+  above the control that was about to schedule the order for tomorrow, pointing at a button pickup no
+  longer shows. Now dine-in only; `PickupWhenChoice` is the single owner of the pickup timing promise
+  (it holds the live ASAP⇆scheduled state, which this paragraph never saw). And "First name for
+  pickup / we'll call your name when your order's up" no longer renders on a pure-grocery basket —
+  the shopper is holding the bag they scanned; there is no counter handoff to name.
+- **An ESLint ban on the bare literal**, scoped to JSX `href` + `router.push` so `TransitionNav`'s
+  journey-depth map and `AppHeader`'s pathname compare stay legal. Verified by inducing a violation
+  (red) and reverting (green) rather than assuming.
+
+**Pre-PR adversarial review caught a regression in the headline fix — fixed before merge.** All four
+lenses returned BLOCK on the same defect: `useTableSession`'s URL-strip effect deletes `?t=`/`?j=` on
+mount, so removing the pre-mint persist left the join code in a **closure and nowhere else** while the
+mint was in flight. A hard reload in that window — GuestList's own "Try again" is a
+`window.location.reload()` — arrived with no code in the URL and none in storage, so `/api/session`
+provisioned a phantom table: **the same orphaning, moved from a mistyped invite code onto a flaky-wifi
+sticker scan**, a path the original bug never touched. Fixes:
+
+- **The URL strip now runs only after a successful mint** (`[session]` deps). The credential leaves
+  history at the same moment it stops being the only copy; a mistyped `?j=` still never reaches
+  localStorage, because its mint 404s before the strip can fire.
+- **"Try again" re-mints in place** via a newly-exposed `revalidate()` on the cart context instead of
+  reloading — the code stays in memory, so a retry can only ever rejoin the real table. That also makes
+  retry safe on the 404 arm, which now keeps **both** a retry and the JoinTable escape: `findActive`
+  swallows its PostgREST error, so a transient DB failure returns the same "No table found" string as a
+  genuinely wrong code. Party-full stays the one terminal arm.
+- **The hidden pickup-name field no longer transmits.** Gating only the render was worse for privacy
+  than leaving it visible: `firstName` hydrates from `mms.name`, so a scan-&-go shopper with any stored
+  name still shipped it → `qr_carts.customer_name` → the order snapshot → the **wall-mounted public
+  `/board` TV**, with no surface left to see or clear it. Submit and hydrate now match the render gate.
+- **JoinTable closes its sheet before routing** — a successful join unmounted an open Radix dialog, so
+  focus restored to a trigger that unmounted with it and landed on `<body>` (WCAG 2.4.3).
+- **One bare `/menu` survived the sweep** as a default parameter in `TableTimeline`; the lint rule now
+  covers braced `href={...}` and default params, and its comment no longer overclaims (a hoisted const
+  or template literal still passes — it catches the shape the six real regressions took).
+- **The settled-table copy no longer says the meal is over.** A dine-in diner can pay _before_ sending
+  food to the kitchen (`mms_fire_pending_food` fires their draft lines at settlement), so "thanks for
+  dining with us" was a goodbye delivered before the food.
+- **A registered `tableNumber` now counts as a dine-in signal**, so an all-to-go order placed at a table
+  no longer reads "To-go" in the header while the receipt six lines below prints "Table 4".
+- **The prep-time line stays on scango carts**, which have no `PickupWhenChoice` to replace it — pre-W5f
+  the To-go door minted scango sessions, so those carts really can carry hot food. The "Make it now"
+  sentence remains dine-in only, since that is the only mode still rendering the control it names.
+
+**Pre-merge adversarial review — verdict FIX_THEN_MERGE, fixes applied.** A second four-lens pass
+(weighted toward the fix commit, which no one had reviewed) returned 32 findings; the refutation agent
+confirmed 31 and reduced them to **2 must-fix — both dishonest strings this slice itself created**:
+
+- **`menuLinkText` was never applied to Checkout's two links.** An empty scan-&-go basket showed
+  "Browse the menu" over a `/grocery` destination, and `TimelineStrip` hardcoded "Back to the menu"
+  while its default href had become the door picker. `TimelineStrip` now takes the **mode**, not a
+  pre-baked href, and derives both — the label is now structurally incapable of drifting from the
+  destination, which is the whole point of the helper pair. `menuLinkText` gained a `tone`
+  (`"back"` | `"browse"`) so a forward CTA reads "Browse the market" on scango, and the two
+  hardcoded "Choose how you're ordering" duplicates now route through it.
+- Also fixed, though the verifier ranked it below the merge bar: **the retry button deleted itself.**
+  `revalidate()` clears `error` and the failure block is gated on `error`, so tapping "Try again"
+  unmounted the focused button — the same WCAG 2.4.3 defect this slice fixed one file over in
+  JoinTable. The busy state is **derived** from the provider's existing `loading` (the React Compiler
+  lint rightly rejects setState-in-effect), gated behind a click tick so the ordinary first mount
+  stays silent, and uses `aria-disabled` rather than `disabled` so the keyboard user keeps their place.
+
+The verifier refuted the three reported "blockers" with grounded reasoning — notably the `DINEIN_KEY`
+cross-party rejoin, which is **pre-existing** (`TablePicker` already pushes a code-free
+`/menu?mode=dinein` from an always-visible button, and nothing has ever cleared that key); W9a adds one
+more entrance whose previous behaviour orphaned 100% of dine-in diners who tapped it. Six ranked
+follow-ups registered as `J15`–`J20`.
+
+No migration, no schema change, **no charged amount touched** — `hasDineInFood` reads a column the
+query already selected. Gate 8/8; both lint rules verified by inducing a violation and reverting.
+
+### docs — W8 plan-of-record: the money-path test harness, then the register (2026-07-31)
+
+A full-repo audit ("what's left to refine · is every customer path validated · are we ready for the
+staff/kiosk surface") found the answers were: real registry debt, **no**, and **console yes / register
+no**. Documented so the next session can pick it up cold.
+
+- **[`docs/W8_PLAN.md`](docs/W8_PLAN.md)** (new) — the plan-of-record. **W8 (proof)** then **W6a
+  (register)**. The finding: **5 test files monorepo-wide and zero on money/auth/journey** —
+  `totals.ts` (the charge authority), `tax.ts`, `cart.ts`, `split.ts`/`split-math.ts`, `pickup.ts`,
+  `authz.ts`, `permissions.ts`, `staff-cart.ts` all uncovered; no Playwright, no `e2e/`. Slices:
+  **W8a** extract a pure `computeTotals` seam out from under the I/O + the 7 charge invariants
+  (voided/comped exclusion · clamp order · tax on the discounted taxable base · grocery-excluded
+  service base · pure-grocery tip forced 0 · integer-cent total identity · mixed-basket flat promo)
+  - M6/M7 pinning tests · **W8b** tax TS↔SQL parity asserted in the existing `migrations-check` job
+    (the "keep them in sync" rule becomes a failing build) · **W8c** split cent-reconcile +
+    `canMutateLine` state×role matrix + the M11 pin · **W8d** pickup slot-grid regression pins ·
+    **W8e** journey smoke, **recommended deferred** (no staging project; preview + prod share one QR
+    project on live Stripe keys). **W8 changes no charged amount.** W6a detail: staff-minted sessions ·
+    search + modifier picker in the staff add screen (with the `staffAddItem` trusted-path decision
+    called out) · repeat-last-order (blocked on M3's label-not-id snapshot) · Z-report-lite.
+- **`docs/OPEN-ITEMS.md`** — new **Proof / test coverage (W8)** section: `T1` (high — no executable
+  coverage on any money/auth path), `T2` (TS↔SQL tax drift unguarded), `T3` (gated — no e2e, needs a
+  staging project). `K17` marked planned:W6a.
+- **`ROADMAP.md`** — `W8` row added to the W-track; build order now `… → W5 → W8 → W6`.
+- **`docs/HANDOFF.md`** — new "NEXT SESSION" banner carrying the three audit answers + the pointer.
+
 ### W5g — pickup slot sheet revamp (organized dayparts + soonest) (2026-07-22)
 
 The pickup time picker was a flat grid of 15-minute chips — an undifferentiated wall once a day had
@@ -25,14 +160,14 @@ deliberate choice post-W5f).
 ### W5f — collapse the To-go door fork (decide "when" at checkout) (2026-07-22)
 
 The To-go door was a disclosure that forked **Now** (→ scango) vs **Schedule for later** (→ pickup)
-*before* the diner had seen the menu — then W5e re-asked the same question at checkout. That fork
+_before_ the diner had seen the menu — then W5e re-asked the same question at checkout. That fork
 predated W5e: pickup couldn't fire immediately, so "Now" had to route to scango. W5e removed that
 constraint (ASAP snaps the earliest slot and fires now), making "Now" just pickup-ASAP — so the door
 fork was redundant, and choosing "Schedule for later" then landed on an ASAP-defaulted checkout.
 
 - **To-go is now one door** → the pickup menu; the ASAP↔scheduled decision lives solely at **checkout**
-  (`PickupWhenChoice`, W5e) — the one place it's actionable. Model: doors = *what you're doing*
-  (Dine-in · To-go · Grocery), checkout = *when*.
+  (`PickupWhenChoice`, W5e) — the one place it's actionable. Model: doors = _what you're doing_
+  (Dine-in · To-go · Grocery), checkout = _when_.
 - `TogoDoor` (disclosure component) + all `.togo-*` CSS removed; the door is now a plain `ModeCard`
   link, identical to Dine-in/Grocery. The **"Now → scango" food path is dropped** (owner-confirmed
   workaround); scango mode stays for the separate Grocery scan-and-go door.
@@ -85,7 +220,6 @@ detail sheet and reclaims the card density it enables.
   `PhotoPlaceholder` is a `<span>` (valid inside the card button); the last-unit-remove search-refocus
   no longer fights the open sheet's focus trap.
 
-
 ### W5c — menu item depth: bilingual data + real modifier coverage + sheet quantity (2026-07-21)
 
 The R6b item sheet + R5c stepper existed but ran on a hollow catalog: 5/60 items had modifier
@@ -103,7 +237,7 @@ groups, zero Burmese below the name line, and the sheet had no quantity control 
   "Add rice" (steamed +$2 / coconut +$3 — the real side prices) on every à-la-carte curry; v7.2's
   soft-egg add-on (+$1.50) on the six noodle bowls. Only the two drinks move to the "Choose" pill;
   everything else keeps one-tap add. ⚠️ Kitchen confirmation before real service (OPEN-ITEMS).
-- **Sheet quantity** (F8): a pre-add 1–9 stepper in the CTA bar — "−" only lowers the *pending*
+- **Sheet quantity** (F8): a pre-add 1–9 stepper in the CTA bar — "−" only lowers the _pending_
   count, so it can never silently delete a customized cart line (QA §D); bound buttons are
   `aria-disabled` focusable no-ops (native `disabled` would drop keyboard/SR focus at the bound).
   One write lands "2 × Mohinga": `addItem` gains a bounded `qty` (Zod 1–9 **+** SQL bounds; the
@@ -167,7 +301,7 @@ add-ons group; all fixed before merge (migration `20260721120000`, live-applied)
   C11), same class as the accepted iced-drink nuance. _(Caught by the Codex PR review — credit where due.)_
 - **Self-pairings (MED, UX)** — the blanket add-ons mapping offered flagship dishes their own component
   (Mohinga → "Mohinga Soup", Ohn-Noh Khao Swe → "Ohn-Noh Soup", Coconut Chicken & Rice → "Coconut Rice"
-  + "Balachaung"). Unlinked from those three (50→47 item links; live + seed).
+  - "Balachaung"). Unlinked from those three (50→47 item links; live + seed).
 - **Qty a11y (MED)** — the sheet qty stepper is now a `role="spinbutton"` (aria-valuenow/min/max +
   aria-controls), so a screen reader hears the new count on each step without a second live region.
 - **Cap honesty (LOW)** — a multi-unit add that merges into a line near the 99 cap now re-announces the
@@ -188,6 +322,7 @@ edge-to-edge look):
   `auto` under reduced-motion). Nudges are aria-hidden + untabbable on purpose — keyboard/AT users
   already reach every card by tabbing (native scroll-into-view); the buttons are a pointer-only
   affordance.
+
 ### W5a — session resume: the swipe-back dead end, closed (2026-07-21)
 
 An active table/basket was invisible outside the menu (the home surfaces were order-based only),

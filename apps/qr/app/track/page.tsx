@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { TransitionLink as Link } from "@/components/nav/TransitionNav"; // J1 journey grammar
 import { OrderTracker } from "@/components/OrderTracker";
 import { getSplitOrderId } from "@/lib/order";
+import { menuHref, menuLinkText } from "@/lib/menu-href";
 
 // /track — post-payment, live. Stripe appends `payment_intent` + `redirect_status` to the Payment
 // Element return_url; for succeeded/processing we mount the Realtime <OrderTracker> (the order shows
@@ -93,11 +94,14 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
               ? "We’re still confirming your payment — check back shortly for your order."
               : "Your order’s in — the kitchen has it. Check back anytime for updates."}
           </p>
-          <Link href="/menu" className="nav-link">
+          {/* W9a — no order landed here (no PI on the redirect), so the mode is genuinely unknown:
+              route to the DOOR PICKER rather than a bare `/menu`, which defaults to scan-&-go and
+              would convert a dine-in or pickup diner into a grocery shopper. */}
+          <Link href={menuHref(null)} className="nav-link">
             <span aria-hidden className="nav-arrow nav-arrow-back">
               ←
             </span>{" "}
-            Back to menu
+            {menuLinkText(null)}
           </Link>
         </div>
       </main>
@@ -114,7 +118,7 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
           <h1>Payment didn’t go through</h1>
           <p>No charge was made — you can try again from your order.</p>
           <Link
-            href={cart ? `/cart?cart=${encodeURIComponent(cart)}` : "/menu"}
+            href={cart ? `/cart?cart=${encodeURIComponent(cart)}` : menuHref(null)}
             className="nav-link-strong"
           >
             <span aria-hidden className="nav-arrow nav-arrow-back">
@@ -135,8 +139,10 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
         </div>
         <h1>Track your order</h1>
         <p>Your order timeline and ETA will appear here once you’ve placed an order.</p>
-        <Link href="/menu" className="nav-link-strong">
-          Browse the menu{" "}
+        {/* W9a — a direct visit with no order: the door picker is the honest destination (and the
+            only one that can send a grocery shopper to the market instead of the dish menu). */}
+        <Link href={menuHref(null)} className="nav-link-strong">
+          {menuLinkText(null, "browse")}{" "}
           <span aria-hidden className="nav-arrow nav-arrow-fwd">
             →
           </span>

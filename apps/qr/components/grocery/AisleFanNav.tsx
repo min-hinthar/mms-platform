@@ -132,53 +132,53 @@ export function AisleFanNav({ aisles }: { aisles: Aisle[] }) {
           unifying rail (::before) hugs the dots instead of stretching into an empty capsule. */}
       <div className="aisle-fan-inner">
         {aisles.map((a, i) => {
-        const on = a.slug === activeSlug;
-        return (
-          <button
-            key={a.slug}
-            type="button"
-            className="aisle-fan-tick"
-            aria-current={on ? "true" : undefined}
-            // Capped stagger index for the fan-out reveal; late ticks don't lag.
-            style={{ "--i": Math.min(i, 6) } as CSSProperties}
-            onClick={(e) => {
-              // A click within ~600ms of the press that OPENED a collapsed touch strip only revealed
-              // the labels — don't jump (the shopper is still reading them).
-              if (openPressAt.current && e.timeStamp - openPressAt.current < 600) {
+          const on = a.slug === activeSlug;
+          return (
+            <button
+              key={a.slug}
+              type="button"
+              className="aisle-fan-tick"
+              aria-current={on ? "true" : undefined}
+              // Capped stagger index for the fan-out reveal; late ticks don't lag.
+              style={{ "--i": Math.min(i, 6) } as CSSProperties}
+              onClick={(e) => {
+                // A click within ~600ms of the press that OPENED a collapsed touch strip only revealed
+                // the labels — don't jump (the shopper is still reading them).
+                if (openPressAt.current && e.timeStamp - openPressAt.current < 600) {
+                  openPressAt.current = 0;
+                  return;
+                }
                 openPressAt.current = 0;
-                return;
-              }
-              openPressAt.current = 0;
-              jumpTo(a.slug);
-              setOpen(false);
-              // Announce the arrival for SR users (focus stays on the tick, so nothing else speaks).
-              // The nonce toggles a trailing NBSP (a regular space is trimmed by the accessible-name
-              // computation) so re-jumping to the SAME aisle still re-announces (identical text isn't
-              // re-read).
-              announceNonce.current += 1;
-              setAnnounce(`${a.en} ${a.my}${announceNonce.current % 2 ? " " : ""}`);
-              // Collapse after a POINTER jump (touch/mouse → e.detail ≥ 1) by dropping focus so
-              // :focus-within can't keep the labels alive over the cards. A KEYBOARD activation
-              // (e.detail === 0) keeps focus on the tick — never stranded on <body> (WCAG 2.4.3).
-              if (e.detail > 0) e.currentTarget.blur();
-            }}
-          >
-            {/* The visible bilingual label IS the accessible name (EN + lang-tagged MY, no aria-label
+                jumpTo(a.slug);
+                setOpen(false);
+                // Announce the arrival for SR users (focus stays on the tick, so nothing else speaks).
+                // The nonce toggles a trailing NBSP (a regular space is trimmed by the accessible-name
+                // computation) so re-jumping to the SAME aisle still re-announces (identical text isn't
+                // re-read).
+                announceNonce.current += 1;
+                setAnnounce(`${a.en} ${a.my}${announceNonce.current % 2 ? " " : ""}`);
+                // Collapse after a POINTER jump (touch/mouse → e.detail ≥ 1) by dropping focus so
+                // :focus-within can't keep the labels alive over the cards. A KEYBOARD activation
+                // (e.detail === 0) keeps focus on the tick — never stranded on <body> (WCAG 2.4.3).
+                if (e.detail > 0) e.currentTarget.blur();
+              }}
+            >
+              {/* The visible bilingual label IS the accessible name (EN + lang-tagged MY, no aria-label
                 override), so a screen reader hears both scripts — the app is bilingual throughout.
                 The icon + resting mark are decorative. */}
-            <span className="aisle-fan-label">
-              <span className="aisle-fan-label-icon" aria-hidden>
-                <Icon name={a.icon} size={18} strokeWidth={1.5} />
-              </span>
-              <span className="aisle-fan-label-text">
-                <span className="aisle-fan-label-en">{a.en}</span>
-                <span className="aisle-fan-label-my" lang="my">
-                  {a.my}
+              <span className="aisle-fan-label">
+                <span className="aisle-fan-label-icon" aria-hidden>
+                  <Icon name={a.icon} size={18} strokeWidth={1.5} />
+                </span>
+                <span className="aisle-fan-label-text">
+                  <span className="aisle-fan-label-en">{a.en}</span>
+                  <span className="aisle-fan-label-my" lang="my">
+                    {a.my}
+                  </span>
                 </span>
               </span>
-            </span>
-            <span className="aisle-fan-mark" aria-hidden />
-          </button>
+              <span className="aisle-fan-mark" aria-hidden />
+            </button>
           );
         })}
       </div>

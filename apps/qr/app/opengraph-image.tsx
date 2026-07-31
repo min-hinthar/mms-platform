@@ -13,7 +13,6 @@ export const contentType = "image/png";
 // CDN-served, never re-rendered per crawler hit (and never inherit the root layout's force-dynamic).
 export const dynamic = "force-static";
 
-
 export default function OpengraphImage() {
   // Palette mirrors tokens.css (Satori can't resolve CSS vars, so these are literal): #faf9f5=--pg ·
   // #1b1714=--tx (ink) · #e8a83c=--gold · #a65f10=--ac · #6e6358=--t2. Keep in sync if the tokens change.

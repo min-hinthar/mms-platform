@@ -23,6 +23,7 @@ import {
 } from "@/lib/cart";
 import type { SplitContext } from "@/lib/split";
 import { canMutateLine } from "@/lib/permissions";
+import { menuHref, menuLinkText } from "@/lib/menu-href";
 import { DINER_STATE_COPY } from "@/lib/line-state-copy";
 import { seatColor, seatInitial } from "@/lib/avatars";
 import { useAnonSession } from "@/lib/useAnonSession";
@@ -193,12 +194,22 @@ export function Checkout({
   // never shows it (the table IS the identity). Prefilled from the diner's saved display name.
   const sessionMode = splitContext?.mode ?? null;
   const isTakeout = sessionMode === "pickup" || sessionMode === "scango";
+  // W9a — the two TABLE-only line controls ("For here / To go", "Make it now") gate on this, NOT on
+  // `!isTakeout`. The distinction is load-bearing: `splitContext` is nulled by cart/page.tsx on ANY
+  // read failure, so `!isTakeout` is true for "unknown mode" too — and rendering either control on a
+  // pickup cart is not cosmetic. "Make it now" fires a line the KDS deliberately refuses for a
+  // pre-paid channel (leaving it non-draft, so the diner can never edit it again), and flipping to
+  // "For here" re-routes the order off the expo board and freezes /track at "Order placed" forever.
+  // Unknown mode must hide them: a missing control costs a tap, a wrong one costs the order.
+  const isDineIn = sessionMode === "dinein";
   // W5e — the ASAP↔scheduled timing choice is pickup-only: pickup lines fire to the KITCHEN (so timing
   // matters), whereas scango is self-scanned grocery retail (no kitchen fire to schedule).
   const isPickupMode = sessionMode === "pickup";
   const [firstName, setFirstName] = useState("");
   useEffect(() => {
-    if (!isTakeout) return;
+    // W9a — never read a stored name off the device for a basket that will never show the field
+    // (pure grocery). Belt-and-braces with the submit gate: nothing to leak if nothing is hydrated.
+    if (!isTakeout || pureGrocery) return;
     let active = true;
     // Hydrate AFTER mount via a microtask (the TableCartProvider NAME_KEY pattern): SSR and the first
     // client render agree, and the setState runs in a callback, never the effect body.
@@ -213,7 +224,7 @@ export function Checkout({
     return () => {
       active = false;
     };
-  }, [isTakeout]);
+  }, [isTakeout, pureGrocery]);
   // Tab lifecycle (S3.1) — seeded from the server view, kept in step by refresh() (a peer or a server
   // opening the tab flips it here too). `tabBusy`/`tabError` drive the "Keep tab open" affordance.
   const [tabType, setTabType] = useState(initialTabType);
@@ -407,7 +418,13 @@ export function Checkout({
       // name (W3e) always rides on takeout — an EMPTY value clears a previously-stored name (a diner
       // who deleted the field on a retry must not keep getting called by the stale one); remember a
       // real name for next time (same key the group-cart name uses).
-      const name = isTakeout ? firstName.trim().slice(0, 40) : "";
+      // W9a — the SUBMIT gate must match the RENDER gate (`isTakeout && !pureGrocery`). Hiding the
+      // field alone was strictly worse for privacy than leaving it visible: `firstName` is hydrated
+      // from `mms.name` (set by a prior dine-in rename or pickup checkout), so a scan-&-go shopper
+      // with any stored name would still have shipped it → `qr_carts.customer_name` → the order
+      // snapshot → the wall-mounted public `/board` TV, with no surface left to see or clear it.
+      // Sending "" is already the intended clear-a-stale-name behaviour (see the comment above).
+      const name = isTakeout && !pureGrocery ? firstName.trim().slice(0, 40) : "";
       if (name) {
         try {
           localStorage.setItem("mms.name", name);
@@ -488,19 +505,28 @@ export function Checkout({
   if (viewItems.length === 0) {
     // W2d — designed empty-cart state. The menu link carries the session mode: a bare /menu defaults
     // to scan-&-go and would orphan a dine-in/pickup diner (F9). titleAs="p" — the <h1> names the region.
-    const menuHref = splitContext?.mode
-      ? `/menu?mode=${encodeURIComponent(splitContext.mode)}`
-      : "/menu";
+    // W9a — the fallback is now the DOOR PICKER, not `/menu`: an unknown mode used to route here as
+    // scan-&-go, which is the same silent conversion the link was written to prevent.
+    // The LABEL is derived from the same mode as the href — a CTA reading "Browse the menu" over a
+    // `/grocery` destination (scango) or the door picker (unknown mode) is exactly the small
+    // dishonesty this slice exists to retire. Same for the subtitle: a scan-&-go shopper's empty
+    // basket is not waiting on a dish.
+    const backHref = menuHref(sessionMode);
+    const backLabel = menuLinkText(sessionMode, "browse");
     return (
       <main style={{ padding: "24px 20px 40px", maxWidth: 440, margin: "0 auto" }}>
         <h1 style={{ fontSize: "var(--fs-h1)", marginBottom: 16 }}>Your order</h1>
         <EmptyState
           icon={<Icon name="cart" size={30} style={{ color: "var(--ac)" }} />}
           title="Nothing in your cart yet"
-          subtitle="Add a dish from the menu and it’ll show up here."
+          subtitle={
+            sessionMode === "scango"
+              ? "Scan or browse the aisles and your items will show up here."
+              : "Add a dish from the menu and it’ll show up here."
+          }
           action={
             <Link
-              href={menuHref}
+              href={backHref}
               className="checkout-cta"
               style={{
                 display: "inline-flex",
@@ -515,7 +541,7 @@ export function Checkout({
               }}
             >
               <span style={{ position: "relative", zIndex: 1 }}>
-                Browse the menu
+                {backLabel}
                 <span aria-hidden className="checkout-cta-arrow">
                   →
                 </span>
@@ -633,12 +659,7 @@ export function Checkout({
                 kitchen, right where the mid-meal diner reviews the table's order. viewItems (not items)
                 so a "Make it now" tap and the strip agree instantly; the menu link carries the session
                 mode — a bare /menu defaults to scan-&-go and would orphan a dine-in dessert. */}
-            <TimelineStrip
-              items={viewItems}
-              menuHref={
-                splitContext?.mode ? `/menu?mode=${encodeURIComponent(splitContext.mode)}` : "/menu"
-              }
-            />
+            <TimelineStrip items={viewItems} menuMode={sessionMode} />
             {/* S4 unified basket: group lines by destination (At your table / To-go / Grocery). Headings
               show only when the basket actually spans 2+ destinations, so a plain dine-in cart stays clean.
               The renderLine body is the S2 per-line card + an S4 for-here/to-go toggle on editable food. */}
@@ -720,45 +741,51 @@ export function Checkout({
                       {/* For-here / To-go (S4): food only, draft + editable. Grocery routing is fixed. The
                         server recomputes per-line tax (cold food flips taxability) — the toggle is optimistic
                         (instant re-group), reconciled on refresh. Unified `.checkout-pill` segmented control. */}
-                      {i.fulfillment !== "grocery" && i.lineState === "draft" && canEdit && (
-                        <div
-                          role="group"
-                          aria-label={`Where ${i.name} goes`}
-                          className="checkout-pill-row"
-                          style={{ marginTop: 8 }}
-                        >
-                          {(["dinein", "togo"] as const).map((f) => {
-                            const on = i.fulfillment === f;
-                            return (
-                              <button
-                                key={f}
-                                type="button"
-                                data-ful-line={i.id}
-                                data-ful-val={f}
-                                aria-pressed={on}
-                                onClick={() => toggleFulfillment(i.id, f)}
-                                className={`checkout-pill${on ? " checkout-pill-on" : ""}`}
-                              >
-                                {f === "dinein" ? "For here" : "To go"}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
+                      {isDineIn &&
+                        i.fulfillment !== "grocery" &&
+                        i.lineState === "draft" &&
+                        canEdit && (
+                          <div
+                            role="group"
+                            aria-label={`Where ${i.name} goes`}
+                            className="checkout-pill-row"
+                            style={{ marginTop: 8 }}
+                          >
+                            {(["dinein", "togo"] as const).map((f) => {
+                              const on = i.fulfillment === f;
+                              return (
+                                <button
+                                  key={f}
+                                  type="button"
+                                  data-ful-line={i.id}
+                                  data-ful-val={f}
+                                  aria-pressed={on}
+                                  onClick={() => toggleFulfillment(i.id, f)}
+                                  className={`checkout-pill${on ? " checkout-pill-on" : ""}`}
+                                >
+                                  {f === "dinein" ? "For here" : "To go"}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
                       {/* Make it now (S4.2): a to-go food line waits for checkout by default; this fires it to
                         the kitchen early. Draft + editable + togo only (a dinein line fires via Send to
                         kitchen; grocery never fires). Optimistic; the server gates it, refused → no-ops on
                         refresh. Accent-outline action pill. */}
-                      {i.fulfillment === "togo" && i.lineState === "draft" && canEdit && (
-                        <button
-                          type="button"
-                          onClick={() => makeNow(i.id)}
-                          className="checkout-pill checkout-pill-accent"
-                          style={{ display: "flex", width: "100%", marginTop: 8 }}
-                        >
-                          Make it now · ready in ~{prepMinutes} min
-                        </button>
-                      )}
+                      {isDineIn &&
+                        i.fulfillment === "togo" &&
+                        i.lineState === "draft" &&
+                        canEdit && (
+                          <button
+                            type="button"
+                            onClick={() => makeNow(i.id)}
+                            className="checkout-pill checkout-pill-accent"
+                            style={{ display: "flex", width: "100%", marginTop: 8 }}
+                          >
+                            Make it now · ready in ~{prepMinutes} min
+                          </button>
+                        )}
                     </div>
                     {i.comped ? (
                       <LineStateChip state={i.lineState} comped />
@@ -796,14 +823,26 @@ export function Checkout({
                     </h3>
                   )}
                   {/* S4.2: to-go food is made fresh at checkout (not fired with the dine-in batch). Honest,
-                    config-driven estimate — shown only while a to-go line is still waiting (draft). */}
+                    config-driven estimate — shown only while a to-go line is still waiting (draft).
+                    W9a — NOT on a PICKUP cart. A pickup cart's lines are also `togo`, so this rendered
+                    there too: it announced "ready in about 12 min" on an order the diner was about to
+                    schedule for tomorrow evening, four sections above the "When would you like it?"
+                    control that actually decides the time — and it pointed at "Make it now," which
+                    pickup carts no longer show. On pickup, `PickupWhenChoice` is the SINGLE owner of
+                    the timing promise (it holds the live ASAP⇆scheduled state; this paragraph only
+                    sees the server-seeded value and would go stale the moment the diner switched).
+                    It DOES stay on scango, which has no PickupWhenChoice to replace it — pre-W5f the
+                    To-go/"Now" door minted scango sessions, so those carts really can carry hot food
+                    and this is their only prep estimate. The "Make it now" sentence is dine-in only,
+                    since that is the only mode still rendering the control it names. */}
                   {key === "togo" &&
+                    (isDineIn || sessionMode === "scango") &&
                     viewItems.some((i) => i.fulfillment === "togo" && i.lineState === "draft") && (
                       <p
                         style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", margin: "0 0 8px" }}
                       >
-                        Made fresh when you check out — ready in about {prepMinutes} min. Want it
-                        sooner? Tap “Make it now.”
+                        Made fresh when you check out — ready in about {prepMinutes} min.
+                        {isDineIn ? " Want it sooner? Tap “Make it now.”" : ""}
                       </p>
                     )}
                   <ul
@@ -877,8 +916,14 @@ export function Checkout({
 
             {/* W3e: the takeout call-out name — one optional field, so the expo and the ready board
                 can call "Aye Aye" instead of a hex code. Never shown for dine-in (the table is the
-                identity); never required (the short order code is the fallback). */}
-            {isTakeout && (
+                identity); never required (the short order code is the fallback).
+                W9a — and never on a PURE-GROCERY basket: a scan-&-go shopper is standing in the aisle
+                holding the bag they already scanned. There is no counter handoff to name, so asking
+                for a "First name for pickup" and promising "we'll call your name when your order's up"
+                described an event that will never happen. (`pureGrocery` is stable for a scango
+                session — every line is scanned retail — so this gate can't unmount a focused field
+                mid-edit; a mixed basket only exists on a dine-in table, where `isTakeout` is false.) */}
+            {isTakeout && !pureGrocery && (
               <div style={{ margin: "12px 0" }}>
                 <label
                   htmlFor="pickup-name"

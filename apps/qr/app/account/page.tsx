@@ -9,6 +9,7 @@ import { AccountUpgrade } from "@/components/AccountUpgrade";
 import { AccountStatus } from "@/components/AccountStatus";
 import { RememberIdentity } from "@/components/RememberIdentity";
 import { MergeRedeemer } from "@/components/MergeRedeemer";
+import { menuHref, menuLinkText } from "@/lib/menu-href";
 
 export const metadata: Metadata = { title: "Rewards & account · Morning Star" };
 
@@ -104,11 +105,14 @@ export default async function Account() {
       )}
 
       <div style={{ marginTop: 8 }}>
-        <Link href="/menu" className="nav-link">
+        {/* W9a — /account is a side-room off every door, so there is no one mode to carry: route to
+            the DOOR PICKER instead of a bare `/menu` (which silently defaults to scan-&-go). One tap
+            more than a guess, and it can't strand a dine-in diner in a grocery session. */}
+        <Link href={menuHref(null)} className="nav-link">
           <span aria-hidden className="nav-arrow nav-arrow-back">
             ←
           </span>{" "}
-          Back to menu
+          {menuLinkText(null)}
         </Link>
       </div>
     </main>

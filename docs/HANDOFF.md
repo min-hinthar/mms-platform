@@ -5,7 +5,42 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ CURRENT STATE — start here (2026-07-15)
+> ## ⏭️ NEXT SESSION — start here (2026-07-31)
+>
+> **The W5 UX-gap arc is closed** (W5a–W5g merged; latest #149 — pickup timing UX). A full-repo audit this
+> session asked three questions and got these answers:
+>
+> 1. **Is every customer path validated?** **No — and the gap is structural.** The monorepo has **5 test
+>    files**, none on money/auth/journey: `totals.ts` (the charge authority), `tax.ts`, `cart.ts`,
+>    `split.ts`/`split-math.ts`, `pickup.ts`, `authz.ts`, `permissions.ts`, `staff-cart.ts` are all at
+>    **zero**. There is **no Playwright config and no `e2e/`**. Every validation so far has been diff review
+>    - manual preview smoke — reasoning, not execution, which is exactly how the W5c per-part `tax_cents`
+>      over-charge nearly shipped (a reviewer caught it; nothing mechanical would have).
+> 2. **What still needs refining?** The registry is honest — 33 open rows. The ones that are real customer-path
+>    defects: **M1** (a line added in the `openSettlement` race window ships **unpaid**) · **M11** (a
+>    grocery-only seat in a by-person split pays a slice of the restaurant service charge) · **M6** (sub-6¢
+>    taxable SKU reads exempt) · **M3** (reorder loses modifiers) · **G5/G6** (held item re-adds every 1.5s;
+>    camera-denied dead end) · **G13/F9** (bare `/menu` defaults to `scango`, and post-W5f every food door
+>    goes to `pickup` — so "Browse menu" drops a returning diner into a different mode) · **S3** (no
+>    PWA/SW/offline — table wifi makes it foundation, not polish) · **S1** (no receipt artifact; anon history
+>    dies with the 4h TTL).
+> 3. **Ready for the admin/staff kiosk surface?** **Staff console yes, register/kiosk no.** KDS, expo,
+>    orders, approvals, team/PIN lock, floor board, cash settle, merge, void/comp, refunds are all shipped —
+>    you can run the _kitchen_ on this today. You cannot run the _counter_: **K6 (high)** no FOH register
+>    (walk-up/phone orders cannot be entered), **K17** no staff modifier picker, **S5** kiosk seam absent,
+>    **C7** hardware unbought. `ROADMAP.md` W6 is ⬜.
+>
+> **Recommendation, and the plan-of-record: [`docs/W8_PLAN.md`](W8_PLAN.md) — W8 (proof) then W6a (register).**
+> Build the money-path test harness first (not for coverage's sake — to make server-authoritative pricing,
+> TS↔SQL tax parity, and the split cent-reconcile _mechanically_ enforced), then the register. The register
+> is a **new money surface**; landing it on an untested foundation repeats the W5c class of bug against a
+> real counter transaction. W8 is tracked as `T1`/`T2`/`T3` in [`docs/OPEN-ITEMS.md`](OPEN-ITEMS.md) and as
+> the `W8` row in `ROADMAP.md`. **W8 changes no charged amount** — its only production-code change is a
+> behaviour-preserving extraction of `computeTotals` out from under the I/O.
+>
+> _(The 2026-07-15 banner below is the state W8 builds on — read it for what shipped.)_
+
+> ## ⏭️ CURRENT STATE — (2026-07-15)
 >
 > **Journey II (the K-track) is CLOSED.** Since the 2026-06-29 banner below, three initiatives shipped &
 > merged: the 🎨 **Richness track** (R1–R9), **Journey I** (J0–J6, the mode journeys), and **Journey II**
@@ -72,14 +107,14 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 >   **W4a+W4b ✅ shipped (2026-07-17, the PR carrying this banner) — the market grows up.** The owner's
 >   wholesale/retail price lists became a **real 395-SKU bilingual catalog** (`supabase/data/grocery_catalog.json`
->   + import artifact; migration `20260717000000` adds category/brand/sku/size/synonyms + `mms_grocery_search`
->   pg_trgm), and `/grocery` became **Browse|Scan over one cart** (bilingual aisle tiles + unit-priced cards +
->   EBT subtotal; every add rides the existing `scanAdd`). **Competitive plan-of-record:
->   [`docs/GROCERY_MARKET_PLAN.md`](GROCERY_MARKET_PLAN.md)** (the road to #1 online Burmese grocery; the
->   delivery-repo half is `mandalay-morning-star-delivery-app/docs/grocery-delivery-plan.md`, G-track).
->   **⚠️ Needs Min before the LIVE catalog import:** confirm current prices (seed prices are 2022 vintage),
->   real shelf UPCs (synthetic 299-prefix EAN-13s hold browse/search meanwhile), per-SKU photos (C5/C6).
->   W4c (scanner craft) + W4d (exit pass) remain.
+>   - import artifact; migration `20260717000000` adds category/brand/sku/size/synonyms + `mms_grocery_search`
+>     pg_trgm), and `/grocery` became **Browse|Scan over one cart** (bilingual aisle tiles + unit-priced cards +
+>     EBT subtotal; every add rides the existing `scanAdd`). **Competitive plan-of-record:
+>     [`docs/GROCERY_MARKET_PLAN.md`](GROCERY_MARKET_PLAN.md)** (the road to #1 online Burmese grocery; the
+>     delivery-repo half is `mandalay-morning-star-delivery-app/docs/grocery-delivery-plan.md`, G-track).
+>     **⚠️ Needs Min before the LIVE catalog import:** confirm current prices (seed prices are 2022 vintage),
+>     real shelf UPCs (synthetic 299-prefix EAN-13s hold browse/search meanwhile), per-SKU photos (C5/C6).
+>     W4c (scanner craft) + W4d (exit pass) remain.
 >
 >   **W4c–W4g + W5a–W5c shipped (2026-07-18 → 07-21).** W4 closed out with the scanner craft, exit
 >   pass, sale layer (compare-at pricing, real-competitor-grounded), right-edge aisle fan-out, and the

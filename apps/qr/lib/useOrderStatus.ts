@@ -16,6 +16,12 @@ export type TrackedOrder = {
    *  alone can't answer this — the fulfillment trigger sets it for grocery lines too, and a pure
    *  grocery basket is already in the diner's hands at payment (no wait to respect). */
   hasTogoFood: boolean;
+  /** W9a: does the order carry DINE-IN lines? `qr_orders` has no mode column, and `table_number` is
+   *  null for an unregistered sticker — so this line-fulfillment snapshot is the only mode signal
+   *  that survives the table session being closed (routine turnover) or the 4h anon TTL. It is the
+   *  same truth routing and tax already key on. Drives the /track mode label + rail, and the
+   *  destination of every "back to ordering" link (menu-href.ts). */
+  hasDineInFood: boolean;
   /** J5: the diner's "I'm here" stamp (null until they announce). The stamping UPDATE re-fires this
    *  subscription, so the button's confirmed state survives refreshes and peers' devices agree. */
   arrivedAt: string | null;
@@ -111,6 +117,7 @@ export function useOrderStatus(
           pickupSlot: data.pickup_slot ?? null,
           togoStatus: data.togo_status ?? null,
           hasTogoFood: items.some((i) => i.fulfillment === "togo"),
+          hasDineInFood: items.some((i) => i.fulfillment === "dinein"),
           arrivedAt: data.arrived_at ?? null,
           hasGrocery: items.some((i) => i.fulfillment === "grocery"),
           tableNumber: data.table_number ?? null,
