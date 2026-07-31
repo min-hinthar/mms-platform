@@ -23,10 +23,12 @@ charged amount.
 - **A resolved-by-fallback tracker says it's a snapshot.** There is no Realtime behind it, and a rail
   that has quietly stopped moving while still looking live is the same dishonesty in a nicer outfit.
 - **The rewards RPC error stops fabricating a zeroed hub.** `mms_rewards_summary`'s `{ error }` was
-  dropped in both readers, so a failed read rendered 0 Stars / $0 / tier `new` as fact to a diner
+  dropped in all THREE readers, so a failed read rendered 0 Stars / $0 / tier `new` as fact to a diner
   possibly sitting on Gold — and `TierUpCelebration` then wrote that fabricated rank to localStorage as
   its baseline, firing a full-screen "Tier unlocked" on the next healthy visit for a climb that never
-  happened. Both return null on error (never on empty — a new diner legitimately has no row).
+  happened. The third reader feeds the POST-PAYMENT screen, so it congratulated diners with "0 Stars".
+  All return null on error, never on empty (a new diner legitimately has no row). A rewards failure now
+  shows a banner and keeps the order history — the rest of this slice points diners there for receipts.
 - **The header pill stops saying "Confirming" forever.** It fell back to that label whenever the live
   read had no order, which is permanent once the poll exhausts on a cleared table. Now bounded by
   `timedOut` — label only: no `clearOrder()`, which would destroy a just-paid split order's only route
@@ -40,7 +42,6 @@ charged amount.
   name, never truncated**: cutting "no peanuts, no shellfish, no sesame" at 160 chars yields a note that
   reads as complete and is not. Pinned by `reorder-notes.test.ts` (9 tests, 5 mutations caught —
   including the plausible "just truncate it" fix).
-
 
 ### W9b — every dead control says why (2026-07-31)
 

@@ -57,11 +57,17 @@ export default async function Account() {
         <div className="account-masthead-rule" aria-hidden />
       </header>
 
-      {!state ? (
+      {/* W9c — the alert is now a BANNER, not a replacement. Making `getRewardsState` fail loudly was
+          right, but gating the whole page on it meant one failed rewards RPC also hid the order
+          history — and /track, the /cart complete-order notice and the snapshot notice all send diners
+          here specifically to find a receipt. Degrade the hub, never the history. */}
+      {!state && (
         <p role="alert" style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
-          We couldn’t load your rewards just now. Pull to refresh, or try again in a moment.
+          We couldn’t load your rewards just now. Your orders are below; pull to refresh to try
+          again.
         </p>
-      ) : (
+      )}
+      {state && (
         <>
           {/* K3a: quiet when signed in — an upgraded diner gets an identity/sign-out status card
               instead of the "Save your Stars" upgrade pitch. */}

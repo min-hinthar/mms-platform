@@ -196,7 +196,18 @@ export async function getRewardsProgress(orderId?: string | null): Promise<Rewar
       .maybeSingle();
     earnedThisOrder = row?.earned_by === user.id;
   }
-  const { data: summary } = await db.rpc("mms_rewards_summary", { p_user: user.id });
+  const { data: summary, error: summaryErr } = await db.rpc("mms_rewards_summary", {
+    p_user: user.id,
+  });
+  // W9c — the THIRD reader of this RPC (the slice's first pass only found two), and it feeds the
+  // POST-PAYMENT screen: PaySuccess + GoodbyeBeat. Swallowing the error rendered "0 Stars · 5 orders
+  // to your next reward" as fact at the exact moment a diner is being congratulated for the order
+  // that just earned one. Same rule as the other two: null on a failed READ, never on an empty row —
+  // the caller already renders nothing when this returns null.
+  if (summaryErr) {
+    console.error("[rewards] mms_rewards_summary failed (progress)", summaryErr);
+    return null;
+  }
   const s = (summary ?? {}) as {
     stars?: number;
     tier_id?: string;

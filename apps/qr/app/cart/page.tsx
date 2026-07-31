@@ -1,6 +1,6 @@
 import { TransitionLink as Link } from "@/components/nav/TransitionNav"; // J1 journey grammar
 import { getCartView } from "@/lib/cart";
-import { AuthzError } from "@/lib/authz";
+import { didIPayForCart } from "@/lib/orders";
 import { getPrepMinutes, getPickupAsapOk } from "@/lib/pickup";
 import { getSplitContext, type SplitContext } from "@/lib/split";
 import { Checkout } from "@/components/Checkout";
@@ -12,25 +12,26 @@ import { menuHref, menuLinkText } from "@/lib/menu-href";
 export default async function Cart({ searchParams }: { searchParams: Promise<{ cart?: string }> }) {
   const { cart } = await searchParams;
   let view: Awaited<ReturnType<typeof getCartView>> | null = null;
-  // W9c — WHY the cart is unreadable, for copy only. `assertCartMember` already knows, and its answer
-  // is the difference between "this order is finished" (a diner back-navigating from /track onto their
-  // own paid cart — the single most likely way to land here) and "we can't reach it".
+  // W9c — a diner back-navigating from /track onto their OWN finished order is the most likely way to
+  // land here, and "This order isn't available on this device" is the wrong thing to tell them.
   //
-  // ⚠️ `no_cart` (404) and `not_member` (403) MUST stay indistinguishable. Splitting them would turn
-  // this page into a cart-id oracle: probe a uuid, read the copy, learn whether that cart exists. They
-  // share the `unavailable` arm below, and NOTHING reads `qr_carts` before membership is established —
-  // the discriminator is the authorization error itself, not a pre-emptive service-role peek.
-  let why: "paid" | "expired" | "unavailable" = "unavailable";
+  // ⚠️ The obvious implementation is unsafe and was rejected. Branching on `AuthzError.code` looks
+  // clean, but `assertCartMember` raises `cart_closed` and `session_expired` from a service-role
+  // `qr_carts` read that runs BEFORE the membership check — so those codes are answerable for a cart
+  // the caller has nothing to do with. Splitting on them turns this page into a lifecycle oracle:
+  // probe a uuid on a forwarded URL, read the copy, learn whether that table's order exists and
+  // whether it is paid. (`no_cart` vs `not_member` was never the only leak.)
+  //
+  // `didIPayForCart` asks a question the caller is entitled to have answered — is there an order of
+  // MY OWN behind this cart — so a non-member always falls to the generic copy. It is also `earned_by`
+  // scoped, which is what makes the "see it in your account" route it unlocks actually true.
+  let mine = false;
   if (cart) {
     try {
       view = await getCartView(cart);
-    } catch (e) {
+    } catch {
       view = null;
-      if (e instanceof AuthzError) {
-        if (e.code === "cart_closed") why = "paid";
-        else if (e.code === "session_expired") why = "expired";
-        // no_cart / not_member / unauthenticated all stay `unavailable` — see above.
-      }
+      mine = await didIPayForCart(cart).catch(() => false);
     }
   }
 
@@ -38,18 +39,17 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
     return (
       <main style={{ padding: 24, maxWidth: 440, margin: "0 auto" }}>
         <h1 style={{ fontSize: "var(--fs-h1)" }}>
-          {why === "paid" ? "This order is complete" : "Your order"}
+          {mine ? "This order is complete" : "Your order"}
         </h1>
         <p style={{ color: "var(--t2)" }}>
-          {why === "paid"
-            ? "It’s already paid for — there’s nothing left to check out here. Your receipt is in your account."
-            : why === "expired"
-              ? "Your table’s session has closed, so this order can’t be opened here any more. Anything you paid for is in your account."
-              : "This order isn’t available on this device. Start from the menu."}
+          {mine
+            ? "It’s already paid for — there’s nothing left to check out here."
+            : "This order isn’t available on this device. Start from the menu."}
         </p>
-        {/* Both terminal arms have somewhere real to go: /account reads orders uid-scoped, which
-            outlives the session that just closed. */}
-        {why !== "unavailable" && (
+        {/* Only offered when the caller is the order's own earner — `getOrderHistory` reads the same
+            `earned_by` column, so this link is guaranteed to find it rather than greeting them with
+            "No orders yet". */}
+        {mine && (
           <p style={{ margin: "0 0 14px" }}>
             <Link href="/account" className="nav-link">
               See it in your account

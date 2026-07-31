@@ -161,7 +161,6 @@ export async function reorderOrder(raw: {
       // Over-cap notes are DROPPED, never truncated: cutting "no peanuts, no shellfish…" mid-sentence
       // produces a note that reads as complete and is not. The diner is told instead (`notesDropped`).
       const carried = carryNote(l.notes);
-      if (!carried.carry && carried.dropped) notesDropped.push(name);
       await insertOrIncLine(
         cartId,
         {
@@ -180,6 +179,10 @@ export async function reorderOrder(raw: {
         uid,
       );
       added += 1;
+      // Reported only AFTER the insert lands — a dish that threw is already surfaced as `skipped`, and
+      // telling the diner to "tap it to add the note again" for a line that isn't in their cart is a
+      // instruction to nowhere.
+      if (!carried.carry && carried.dropped) notesDropped.push(name);
       if (Array.isArray(l.modifiers) && l.modifiers.length > 0) optionsReset.push(name);
       if (l.qty > 1) quantitiesReset = true;
     } catch (e) {

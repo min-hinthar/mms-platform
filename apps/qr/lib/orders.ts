@@ -1,7 +1,7 @@
 "use server";
 import { cookies } from "next/headers";
 import { serverClient, serviceClient } from "@mms/db/server";
-import { trackFallbackInput } from "@mms/db/schemas";
+import { cartViewInput, trackFallbackInput } from "@mms/db/schemas";
 import { liveOrderStatusWord, type LiveOrder, type LiveOrderKind } from "./live-order";
 
 const LIVE_WINDOW_MS = 12 * 60 * 60 * 1000; // 12h — an order older than a shift isn't "live" wayfinding
@@ -207,4 +207,41 @@ export async function getMyOrderFallback(input: {
       tableNumber: data.table_number ?? null,
     },
   };
+}
+
+/**
+ * W9c — did the CALLER themselves pay for this cart? Uid-scoped, and that is the entire point.
+ *
+ * `/cart` wants to tell a diner who back-navigated onto their own finished order that it is complete,
+ * rather than the flat "isn't available on this device". The obvious route — discriminating
+ * `AuthzError.code` — is unsafe: `assertCartMember` raises `cart_closed` and `session_expired` BEFORE
+ * it checks membership, so branching on them tells any visitor whether an arbitrary cart id exists and
+ * what state it is in. That is a cart-lifecycle oracle on a forwarded URL.
+ *
+ * This asks a question the caller is entitled to have answered: is there an order of MY OWN behind
+ * this cart? A non-member always gets `false` and therefore the generic copy, so nothing leaks — and
+ * because the check is `earned_by = uid`, a `true` answer also guarantees the "see it in your account"
+ * route it unlocks will actually find the order (`getOrderHistory` reads the same column).
+ */
+export async function didIPayForCart(cartId: string): Promise<boolean> {
+  const parsed = cartViewInput.safeParse({ cartId });
+  if (!parsed.success) return false;
+  const supa = serverClient(await cookies());
+  const {
+    data: { user },
+  } = await supa.auth.getUser();
+  if (!user) return false;
+  const { data, error } = await serviceClient()
+    .from("qr_orders")
+    .select("id")
+    .eq("cart_id", parsed.data.cartId)
+    .eq("earned_by", user.id)
+    .eq("status", "paid")
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.error("[orders] didIPayForCart failed", error);
+    return false; // fail closed — the generic copy is always safe to show
+  }
+  return !!data;
 }

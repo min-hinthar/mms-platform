@@ -195,6 +195,25 @@ const MUTANTS = [
     find: 'return actor.role === "host" || actor.isOwner;',
     replace: "return true;",
   },
+  // W9c — not money, but the one SAFETY rule in the diner path: an allergy note that cannot be
+  // carried into a reorder must be dropped and disclosed, never shortened. "Just truncate it" is the
+  // plausible future edit, so it is the mutation that has to stay red.
+  {
+    id: "reorder-notes/truncate-instead-of-drop",
+    file: "apps/qr/lib/reorder-notes.ts",
+    suite: "lib/reorder-notes.test.ts",
+    why: "a cut allergy list reads as complete and is not — over-cap notes DROP, never truncate",
+    find: "if (s.length > NOTES_MAX) return { carry: false, dropped: true };",
+    replace: "if (s.length > NOTES_MAX) return { carry: true, note: s.slice(0, NOTES_MAX) };",
+  },
+  {
+    id: "reorder-notes/drop-not-disclosed",
+    file: "apps/qr/lib/reorder-notes.ts",
+    suite: "lib/reorder-notes.test.ts",
+    why: "a silently-dropped note is worse than a dropped one — the diner must be told to re-add it",
+    find: "if (s.length > NOTES_MAX) return { carry: false, dropped: true };",
+    replace: "if (s.length > NOTES_MAX) return { carry: false, dropped: false };",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));
