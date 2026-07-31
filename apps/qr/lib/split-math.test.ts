@@ -37,8 +37,15 @@ const SEATS = [
 ];
 
 describe("allocate — the sum invariant that fulfillment depends on", () => {
+  // ⚠️ The assertions are COLLECTED and checked once at the end, not called per iteration. With an
+  // `expect()` inside the loop this sweep issued ~40,000 assertions: 3.9s locally, 5054ms on a CI
+  // runner against vitest's default 5000ms timeout — green on a dev machine, red in CI, i.e. a
+  // coin-flip guarding the invariant `mms_fulfill_split_order` HARD-RAISES on. Same 5,000 baskets and
+  // the same three invariants; the first offending case is reported verbatim so a failure stays
+  // diagnosable. The explicit timeout is belt-and-braces for a slow runner, not licence to creep back.
   it("sums EXACTLY to the total across a deterministic sweep of totals and weights", () => {
     const rnd = mulberry32(20260731);
+    const failures: string[] = [];
     for (let t = 0; t < 5000; t++) {
       const n = 1 + Math.floor(rnd() * 8);
       // Weights are NOT always integers: `deriveShareBreakdowns` builds them as
@@ -49,14 +56,17 @@ describe("allocate — the sum invariant that fulfillment depends on", () => {
       );
       const total = Math.floor(rnd() * 50000);
       const out = allocate(total, weights);
-      expect(out).toHaveLength(n);
-      expect(out.reduce((a, b) => a + b, 0)).toBe(total);
+      const sum = out.reduce((a, b) => a + b, 0);
+      if (out.length !== n) failures.push(`length ${out.length} != ${n} (total ${total})`);
+      if (sum !== total) failures.push(`sum ${sum} != ${total} on weights [${weights}]`);
       for (const v of out) {
-        expect(Number.isInteger(v)).toBe(true);
-        expect(v).toBeGreaterThanOrEqual(0);
+        if (!Number.isInteger(v)) failures.push(`non-integer ${v} (total ${total})`);
+        if (v < 0) failures.push(`negative ${v} (total ${total})`);
       }
+      if (failures.length) break; // one concrete counter-example is enough to act on
     }
-  });
+    expect(failures).toEqual([]);
+  }, 20_000);
 
   it("is deterministic — the same inputs always produce the same split", () => {
     // Leftover pennies go to the largest fractional part, ties to the lower index. A
