@@ -261,8 +261,9 @@ stay hardware/FNS-gated below.
 - **W5** One tongue — app-wide EN↔MY toggle · money-path localization (~20 moments) · modifier/category `name_my`. ⬜ _(data head-start shipped in the W5c depth slice: `description_my` 60/60 + modifier `name_my` 12 groups/25 options, rendered in the item sheet — the toggle + money-path moments remain.)_
 - **W6** Front of house — staff register first (walk-up/phone orders can't be entered today; search + modifiers + day cash summary) · kiosk shell mode (attract/idle-reset/EN-MY tiles/HID scan/one upsell) · Terminal stays M6·P6.2. ⬜
 - **W7** The shell — brand asset kit 🚧 (OG/twitter · `metadataBase` · apple-touch · `manifest` + maskable; `--star` token a follow-up) · Serwist SW + offline banner + grocery scan queue + chunk-reload boundary ⬜
+- **W8** Proof — the money-path test harness. **Plan-of-record: [`docs/W8_PLAN.md`](docs/W8_PLAN.md).** A 2026-07-31 audit found **5 test files in the monorepo and zero on money/auth/journey** (`totals.ts`/`tax.ts`/`cart.ts`/`split*.ts`/`pickup.ts`/`authz.ts`/`permissions.ts` all uncovered; no Playwright, no `e2e/`) — every validation so far has been diff-review + manual smoke, which is exactly how the W5c over-charge nearly shipped. Slices: **W8a** pure `computeTotals` seam + the 7 charge invariants (+ M6/M7 pins) · **W8b** tax TS↔SQL parity in the `migrations-check` job (the "keep them in sync" rule, enforced) · **W8c** split cent-reconcile + the `canMutateLine` state×role matrix (+ M11 pin) · **W8d** pickup slot-grid regression pins · **W8e** journey smoke (recommended **deferred** — needs a staging project; preview/prod share one QR project on live Stripe keys). **W8 changes no charged amount.** ⬜
 
-**Order:** W0 → W1 → W3 → W2 → W7 → W4 → W5 → W6 (photography + SKU data sprints start now in parallel —
+**Order:** W0 → W1 → W3 → W2 → W7 → W4 → W5 → **W8 → W6** (photography + SKU data sprints start now in parallel —
 [`docs/PRODUCTION_PLAN.md`](docs/PRODUCTION_PLAN.md) §5). **Exit:** every surface ≥4.3 on its applicable
 scorecard **scored from real-device screenshots with the owner's felt-quality go**, per-front closing
 re-scores like J6/K6.

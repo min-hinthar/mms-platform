@@ -4,6 +4,32 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### docs — W8 plan-of-record: the money-path test harness, then the register (2026-07-31)
+
+A full-repo audit ("what's left to refine · is every customer path validated · are we ready for the
+staff/kiosk surface") found the answers were: real registry debt, **no**, and **console yes / register
+no**. Documented so the next session can pick it up cold.
+
+- **[`docs/W8_PLAN.md`](docs/W8_PLAN.md)** (new) — the plan-of-record. **W8 (proof)** then **W6a
+  (register)**. The finding: **5 test files monorepo-wide and zero on money/auth/journey** —
+  `totals.ts` (the charge authority), `tax.ts`, `cart.ts`, `split.ts`/`split-math.ts`, `pickup.ts`,
+  `authz.ts`, `permissions.ts`, `staff-cart.ts` all uncovered; no Playwright, no `e2e/`. Slices:
+  **W8a** extract a pure `computeTotals` seam out from under the I/O + the 7 charge invariants
+  (voided/comped exclusion · clamp order · tax on the discounted taxable base · grocery-excluded
+  service base · pure-grocery tip forced 0 · integer-cent total identity · mixed-basket flat promo)
+  - M6/M7 pinning tests · **W8b** tax TS↔SQL parity asserted in the existing `migrations-check` job
+    (the "keep them in sync" rule becomes a failing build) · **W8c** split cent-reconcile +
+    `canMutateLine` state×role matrix + the M11 pin · **W8d** pickup slot-grid regression pins ·
+    **W8e** journey smoke, **recommended deferred** (no staging project; preview + prod share one QR
+    project on live Stripe keys). **W8 changes no charged amount.** W6a detail: staff-minted sessions ·
+    search + modifier picker in the staff add screen (with the `staffAddItem` trusted-path decision
+    called out) · repeat-last-order (blocked on M3's label-not-id snapshot) · Z-report-lite.
+- **`docs/OPEN-ITEMS.md`** — new **Proof / test coverage (W8)** section: `T1` (high — no executable
+  coverage on any money/auth path), `T2` (TS↔SQL tax drift unguarded), `T3` (gated — no e2e, needs a
+  staging project). `K17` marked planned:W6a.
+- **`ROADMAP.md`** — `W8` row added to the W-track; build order now `… → W5 → W8 → W6`.
+- **`docs/HANDOFF.md`** — new "NEXT SESSION" banner carrying the three audit answers + the pointer.
+
 ### W5g — pickup slot sheet revamp (organized dayparts + soonest) (2026-07-22)
 
 The pickup time picker was a flat grid of 15-minute chips — an undifferentiated wall once a day had
@@ -25,14 +51,14 @@ deliberate choice post-W5f).
 ### W5f — collapse the To-go door fork (decide "when" at checkout) (2026-07-22)
 
 The To-go door was a disclosure that forked **Now** (→ scango) vs **Schedule for later** (→ pickup)
-*before* the diner had seen the menu — then W5e re-asked the same question at checkout. That fork
+_before_ the diner had seen the menu — then W5e re-asked the same question at checkout. That fork
 predated W5e: pickup couldn't fire immediately, so "Now" had to route to scango. W5e removed that
 constraint (ASAP snaps the earliest slot and fires now), making "Now" just pickup-ASAP — so the door
 fork was redundant, and choosing "Schedule for later" then landed on an ASAP-defaulted checkout.
 
 - **To-go is now one door** → the pickup menu; the ASAP↔scheduled decision lives solely at **checkout**
-  (`PickupWhenChoice`, W5e) — the one place it's actionable. Model: doors = *what you're doing*
-  (Dine-in · To-go · Grocery), checkout = *when*.
+  (`PickupWhenChoice`, W5e) — the one place it's actionable. Model: doors = _what you're doing_
+  (Dine-in · To-go · Grocery), checkout = _when_.
 - `TogoDoor` (disclosure component) + all `.togo-*` CSS removed; the door is now a plain `ModeCard`
   link, identical to Dine-in/Grocery. The **"Now → scango" food path is dropped** (owner-confirmed
   workaround); scango mode stays for the separate Grocery scan-and-go door.
@@ -85,7 +111,6 @@ detail sheet and reclaims the card density it enables.
   `PhotoPlaceholder` is a `<span>` (valid inside the card button); the last-unit-remove search-refocus
   no longer fights the open sheet's focus trap.
 
-
 ### W5c — menu item depth: bilingual data + real modifier coverage + sheet quantity (2026-07-21)
 
 The R6b item sheet + R5c stepper existed but ran on a hollow catalog: 5/60 items had modifier
@@ -103,7 +128,7 @@ groups, zero Burmese below the name line, and the sheet had no quantity control 
   "Add rice" (steamed +$2 / coconut +$3 — the real side prices) on every à-la-carte curry; v7.2's
   soft-egg add-on (+$1.50) on the six noodle bowls. Only the two drinks move to the "Choose" pill;
   everything else keeps one-tap add. ⚠️ Kitchen confirmation before real service (OPEN-ITEMS).
-- **Sheet quantity** (F8): a pre-add 1–9 stepper in the CTA bar — "−" only lowers the *pending*
+- **Sheet quantity** (F8): a pre-add 1–9 stepper in the CTA bar — "−" only lowers the _pending_
   count, so it can never silently delete a customized cart line (QA §D); bound buttons are
   `aria-disabled` focusable no-ops (native `disabled` would drop keyboard/SR focus at the bound).
   One write lands "2 × Mohinga": `addItem` gains a bounded `qty` (Zod 1–9 **+** SQL bounds; the
@@ -167,7 +192,7 @@ add-ons group; all fixed before merge (migration `20260721120000`, live-applied)
   C11), same class as the accepted iced-drink nuance. _(Caught by the Codex PR review — credit where due.)_
 - **Self-pairings (MED, UX)** — the blanket add-ons mapping offered flagship dishes their own component
   (Mohinga → "Mohinga Soup", Ohn-Noh Khao Swe → "Ohn-Noh Soup", Coconut Chicken & Rice → "Coconut Rice"
-  + "Balachaung"). Unlinked from those three (50→47 item links; live + seed).
+  - "Balachaung"). Unlinked from those three (50→47 item links; live + seed).
 - **Qty a11y (MED)** — the sheet qty stepper is now a `role="spinbutton"` (aria-valuenow/min/max +
   aria-controls), so a screen reader hears the new count on each step without a second live region.
 - **Cap honesty (LOW)** — a multi-unit add that merges into a line near the 99 cap now re-announces the
@@ -188,6 +213,7 @@ edge-to-edge look):
   `auto` under reduced-motion). Nudges are aria-hidden + untabbable on purpose — keyboard/AT users
   already reach every card by tabbing (native scroll-into-view); the buttons are a pointer-only
   affordance.
+
 ### W5a — session resume: the swipe-back dead end, closed (2026-07-21)
 
 An active table/basket was invisible outside the menu (the home surfaces were order-based only),
