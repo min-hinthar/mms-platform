@@ -14,8 +14,21 @@ import { Avatar, Icon } from "@mms/ui";
  * Solo modes return null (honesty — RED-TEAM #3).
  */
 export function GuestList() {
-  const { isGroup, members, me, error, locked, lockedByName, tableNumber, revalidate } = useCart();
+  const { isGroup, members, me, error, loading, locked, lockedByName, tableNumber, revalidate } =
+    useCart();
   const [inviteOpen, setInviteOpen] = useState(false);
+  // W9a — `revalidate()` clears `error`, and the failure block below is gated on `error`. Without a
+  // busy state the retry button DELETES ITSELF the moment it is tapped: focus drops to <body>
+  // (WCAG 2.4.3 — the very defect this slice fixed one file over in JoinTable), nothing announces,
+  // and the block silently reappears when the re-mint fails again.
+  //
+  // DERIVED, not an effect (the React Compiler lint rightly bans setState-in-effect, and this needs
+  // no synchronization): the provider's `loading` is already `!session && !error`, so it is true for
+  // exactly the re-mint round trip and flips false on either outcome. Gating it behind a tick set in
+  // the click handler keeps the block hidden during the ordinary FIRST mount, when `loading` is also
+  // true but there is nothing to report yet.
+  const [retryTick, setRetryTick] = useState(0);
+  const retrying = retryTick > 0 && loading;
   if (!isGroup) return null;
 
   // Pay-window lock (P3.2-lock): a member is checking out → the order's read-only for the moment
@@ -53,23 +66,44 @@ export function GuestList() {
   // The server's own reason is shown verbatim where it is specific and diner-safe; the generic
   // fallback stays for the transient arm, where naming the cause would be a guess.
   if (!me) {
-    if (!error) return null; // still establishing the session — the menu renders meanwhile
-    const full = error.includes("table is full");
-    const noTable = error.includes("No table found");
+    // `retrying` keeps this mounted through a re-mint (see above); without it the block — and the
+    // focused button inside it — vanishes the instant retry is tapped.
+    if (!error && !retrying) return null; // still establishing the session — the menu renders meanwhile
+    const full = error?.includes("table is full") ?? false;
+    const noTable = error?.includes("No table found") ?? false;
     return (
       <div style={{ marginTop: 10 }}>
         <p role="alert" style={{ fontSize: "var(--fs-sm)", color: "var(--warn)", margin: 0 }}>
-          {full || noTable ? error : "Couldn’t join this table."}{" "}
+          {/* The text CHANGES on retry, so the one live region narrates the attempt — and changes
+              again when the failure returns, which is what makes a repeat of an identical error
+              audible at all. */}
+          {retrying
+            ? "Reconnecting to your table…"
+            : full || noTable
+              ? error
+              : "Couldn’t join this table."}{" "}
           {!full && (
-            <button type="button" onClick={() => revalidate()} style={retryBtn}>
-              Try again
+            // `aria-disabled`, not `disabled`: a disabled button is removed from the focus order, so
+            // the keyboard user who just pressed it would lose their place — the same failure mode
+            // the mount-preservation above exists to prevent.
+            <button
+              type="button"
+              aria-disabled={retrying}
+              onClick={() => {
+                if (retrying) return;
+                setRetryTick((n) => n + 1);
+                revalidate();
+              }}
+              style={retryBtn}
+            >
+              {retrying ? "Reconnecting…" : "Try again"}
             </button>
           )}
         </p>
         {/* Not a live region — the alert above already announced the failure; this is the way out for
             a code that is genuinely wrong. JoinTable owns its own sheet and routes with a fresh `?j=`,
             so a corrected code takes the join-only path and can never provision a table. */}
-        {noTable && (
+        {noTable && !retrying && (
           <div style={{ marginTop: 6 }}>
             <JoinTable />
           </div>

@@ -142,7 +142,7 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
         {/* W9a — a direct visit with no order: the door picker is the honest destination (and the
             only one that can send a grocery shopper to the market instead of the dish menu). */}
         <Link href={menuHref(null)} className="nav-link-strong">
-          Choose how you’re ordering{" "}
+          {menuLinkText(null, "browse")}{" "}
           <span aria-hidden className="nav-arrow nav-arrow-fwd">
             →
           </span>

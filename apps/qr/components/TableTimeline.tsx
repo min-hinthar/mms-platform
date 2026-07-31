@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CartItem } from "@mms/db";
 import { useCart } from "./TableCartProvider";
+import { menuHref, menuLinkText } from "@/lib/menu-href";
 import { TransitionLink as Link } from "./nav/TransitionNav"; // J1 journey grammar
 
 /**
@@ -31,11 +32,13 @@ export function TimelineStrip({
   /** Menu mount: where the settle nudge's "order" link lands (the cart NEEDS its `?cart=` id — a bare
    *  /cart renders the not-available placeholder). Null → the nudge renders linkless, never a dead end. */
   cartHref = null,
-  /** Checkout mount: where the dessert line's menu link lands. Must carry the session `mode` — a bare
-   *  /menu defaults to scan-&-go and would strand a dine-in diner's dessert in a phantom cart, so the
-   *  DEFAULT is the door picker (W9a `menuHref(null)`), never a guessed mode. Callers that know the
-   *  mode pass `menuHref(sessionMode)`. */
-  menuHref = "/",
+  /** Checkout mount: the session MODE the dessert link should carry — not a pre-baked href. W9a takes
+   *  the mode so the destination AND the label are derived together (`menuHref`/`menuLinkText`) and
+   *  cannot drift: a bare /menu defaults to scan-&-go and would strand a dine-in diner's dessert in a
+   *  phantom cart, while an unknown mode routes to the door picker, where "Back to the menu" would be
+   *  a lie. `null` (the default, and the state `cart/page.tsx` produces on ANY split-context read
+   *  failure) → door picker + honest label. */
+  menuMode = null,
   /** Suppress the invitation notes (dessert / settle) while the cart can't accept them — locked by a
    *  peer's checkout or frozen by a split. The kitchen counts stay: they're true regardless. */
   quiet = false,
@@ -43,7 +46,7 @@ export function TimelineStrip({
   items: CartItem[];
   onMenu?: boolean;
   cartHref?: string | null;
-  menuHref?: string;
+  menuMode?: string | null;
   quiet?: boolean;
 }) {
   // Real, countable kitchen states only (comped lines still cook — keep them; voided lines are gone).
@@ -126,8 +129,8 @@ export function TimelineStrip({
           ) : (
             <>
               Room for dessert or tea?{" "}
-              <Link href={menuHref} className="nav-link">
-                Back to the menu
+              <Link href={menuHref(menuMode)} className="nav-link">
+                {menuLinkText(menuMode)}
               </Link>
             </>
           )}

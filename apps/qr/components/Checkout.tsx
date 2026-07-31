@@ -23,7 +23,7 @@ import {
 } from "@/lib/cart";
 import type { SplitContext } from "@/lib/split";
 import { canMutateLine } from "@/lib/permissions";
-import { menuHref } from "@/lib/menu-href";
+import { menuHref, menuLinkText } from "@/lib/menu-href";
 import { DINER_STATE_COPY } from "@/lib/line-state-copy";
 import { seatColor, seatInitial } from "@/lib/avatars";
 import { useAnonSession } from "@/lib/useAnonSession";
@@ -507,14 +507,23 @@ export function Checkout({
     // to scan-&-go and would orphan a dine-in/pickup diner (F9). titleAs="p" — the <h1> names the region.
     // W9a — the fallback is now the DOOR PICKER, not `/menu`: an unknown mode used to route here as
     // scan-&-go, which is the same silent conversion the link was written to prevent.
+    // The LABEL is derived from the same mode as the href — a CTA reading "Browse the menu" over a
+    // `/grocery` destination (scango) or the door picker (unknown mode) is exactly the small
+    // dishonesty this slice exists to retire. Same for the subtitle: a scan-&-go shopper's empty
+    // basket is not waiting on a dish.
     const backHref = menuHref(sessionMode);
+    const backLabel = menuLinkText(sessionMode, "browse");
     return (
       <main style={{ padding: "24px 20px 40px", maxWidth: 440, margin: "0 auto" }}>
         <h1 style={{ fontSize: "var(--fs-h1)", marginBottom: 16 }}>Your order</h1>
         <EmptyState
           icon={<Icon name="cart" size={30} style={{ color: "var(--ac)" }} />}
           title="Nothing in your cart yet"
-          subtitle="Add a dish from the menu and it’ll show up here."
+          subtitle={
+            sessionMode === "scango"
+              ? "Scan or browse the aisles and your items will show up here."
+              : "Add a dish from the menu and it’ll show up here."
+          }
           action={
             <Link
               href={backHref}
@@ -532,7 +541,7 @@ export function Checkout({
               }}
             >
               <span style={{ position: "relative", zIndex: 1 }}>
-                Browse the menu
+                {backLabel}
                 <span aria-hidden className="checkout-cta-arrow">
                   →
                 </span>
@@ -650,7 +659,7 @@ export function Checkout({
                 kitchen, right where the mid-meal diner reviews the table's order. viewItems (not items)
                 so a "Make it now" tap and the strip agree instantly; the menu link carries the session
                 mode — a bare /menu defaults to scan-&-go and would orphan a dine-in dessert. */}
-            <TimelineStrip items={viewItems} menuHref={menuHref(sessionMode)} />
+            <TimelineStrip items={viewItems} menuMode={sessionMode} />
             {/* S4 unified basket: group lines by destination (At your table / To-go / Grocery). Headings
               show only when the basket actually spans 2+ destinations, so a plain dine-in cart stays clean.
               The renderLine body is the S2 per-line card + an S4 for-here/to-go toggle on editable food. */}

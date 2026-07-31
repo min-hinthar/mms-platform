@@ -3,7 +3,7 @@ import { TransitionLink as Link } from "./nav/TransitionNav"; // J1 journey gram
 import type { OrderHistoryEntry } from "@/lib/rewards";
 import { formatSlotLong } from "@/lib/pickupTime";
 import { Card, Icon, type IconName } from "@mms/ui";
-import { menuHref } from "@/lib/menu-href";
+import { menuHref, menuLinkText } from "@/lib/menu-href";
 
 /**
  * Order history (M4 P4.2 · elevated) — the diner's own past PAID orders, server-rendered from the uid-scoped
@@ -63,7 +63,7 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
           {/* W9a — an empty history has no mode to carry; the door picker is the honest destination
               (and the only one that can offer the market as well as the dish menu). */}
           <Link href={menuHref(null)} className="nav-link">
-            Choose how you’re ordering{" "}
+            {menuLinkText(null, "browse")}{" "}
             <span aria-hidden className="nav-arrow nav-arrow-fwd">
               →
             </span>

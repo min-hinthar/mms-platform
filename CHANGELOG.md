@@ -86,6 +86,30 @@ sticker scan**, a path the original bug never touched. Fixes:
   the To-go door minted scango sessions, so those carts really can carry hot food. The "Make it now"
   sentence remains dine-in only, since that is the only mode still rendering the control it names.
 
+**Pre-merge adversarial review — verdict FIX_THEN_MERGE, fixes applied.** A second four-lens pass
+(weighted toward the fix commit, which no one had reviewed) returned 32 findings; the refutation agent
+confirmed 31 and reduced them to **2 must-fix — both dishonest strings this slice itself created**:
+
+- **`menuLinkText` was never applied to Checkout's two links.** An empty scan-&-go basket showed
+  "Browse the menu" over a `/grocery` destination, and `TimelineStrip` hardcoded "Back to the menu"
+  while its default href had become the door picker. `TimelineStrip` now takes the **mode**, not a
+  pre-baked href, and derives both — the label is now structurally incapable of drifting from the
+  destination, which is the whole point of the helper pair. `menuLinkText` gained a `tone`
+  (`"back"` | `"browse"`) so a forward CTA reads "Browse the market" on scango, and the two
+  hardcoded "Choose how you're ordering" duplicates now route through it.
+- Also fixed, though the verifier ranked it below the merge bar: **the retry button deleted itself.**
+  `revalidate()` clears `error` and the failure block is gated on `error`, so tapping "Try again"
+  unmounted the focused button — the same WCAG 2.4.3 defect this slice fixed one file over in
+  JoinTable. The busy state is **derived** from the provider's existing `loading` (the React Compiler
+  lint rightly rejects setState-in-effect), gated behind a click tick so the ordinary first mount
+  stays silent, and uses `aria-disabled` rather than `disabled` so the keyboard user keeps their place.
+
+The verifier refuted the three reported "blockers" with grounded reasoning — notably the `DINEIN_KEY`
+cross-party rejoin, which is **pre-existing** (`TablePicker` already pushes a code-free
+`/menu?mode=dinein` from an always-visible button, and nothing has ever cleared that key); W9a adds one
+more entrance whose previous behaviour orphaned 100% of dine-in diners who tapped it. Six ranked
+follow-ups registered as `J15`–`J20`.
+
 No migration, no schema change, **no charged amount touched** — `hasDineInFood` reads a column the
 query already selected. Gate 8/8; both lint rules verified by inducing a violation and reverting.
 

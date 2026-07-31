@@ -32,13 +32,20 @@ export function menuHref(mode?: string | null): string {
 }
 
 /**
- * Link text that matches where the link actually goes. A link to `/` must not say "Back to menu" —
- * that is the same class of small dishonesty the destination bug came from.
+ * Link text that matches where the link actually goes. A link to `/` must not say "Back to menu", and
+ * a link to `/grocery` must not say "Browse the menu" — that is the same class of small dishonesty
+ * the destination bug came from. ALWAYS pair this with `menuHref` on the same mode so the label
+ * cannot drift from the destination.
+ *
+ * `tone` picks the phrasing for the link's direction — `"back"` for a return affordance (post-pay,
+ * account, a dead end), `"browse"` for a forward CTA (an empty cart inviting the first item). An
+ * unknown mode reads the same either way: it names the door picker, which is both where you came
+ * from and where you are going.
  */
-export function menuLinkText(mode?: string | null): string {
-  if (!known(mode)) return "Start a new order";
-  if (mode === "scango") return "Back to the market";
-  return "Back to menu";
+export function menuLinkText(mode?: string | null, tone: "back" | "browse" = "back"): string {
+  if (!known(mode)) return "Choose how you’re ordering";
+  if (mode === "scango") return tone === "browse" ? "Browse the market" : "Back to the market";
+  return tone === "browse" ? "Browse the menu" : "Back to menu";
 }
 
 /**
