@@ -518,6 +518,12 @@ export async function getCartView(cartId: string): Promise<{
    *  read-only; `lockedBy` is that seat (map to a name via presence). null/false otherwise. */
   locked: boolean;
   lockedBy: string | null;
+  /** W9b — the VIEWER's own seat. The checkout must decide whether `lockedBy` is a peer's seat or its
+   *  own, and its only previous source for that was `SplitContext`, which `app/cart/page.tsx` nulls on
+   *  ANY read failure — leaving the lockbar silent and every control live on exactly the cart that is
+   *  refusing writes. This comes from the same `assertCartMember` call that produced `lockedBy`, so the
+   *  comparison can never be defeated by a second read failing. */
+  mySeat: string;
   /** Effective split-tender settlement freeze (M3·P3.3b): true while the table pays its shares → the
    *  cart goes read-only for everyone and the UI shows the split board; `settleBy` is the host. */
   settling: boolean;
@@ -527,7 +533,7 @@ export async function getCartView(cartId: string): Promise<{
   tabType: "none" | "trust" | "secure";
 }> {
   const { cartId: id } = cartViewInput.parse({ cartId });
-  const { locked, lockedBy, settling, settleBy } = await assertCartMember(id);
+  const { uid, locked, lockedBy, settling, settleBy } = await assertCartMember(id);
   const db = serviceClient();
   const { data: cart } = await db
     .from("qr_carts")
@@ -587,6 +593,7 @@ export async function getCartView(cartId: string): Promise<{
     fireAt: cart?.fire_at ?? null,
     locked,
     lockedBy,
+    mySeat: uid,
     settling,
     settleBy,
     tabType: (cart?.tab_type ?? "none") as "none" | "trust" | "secure",

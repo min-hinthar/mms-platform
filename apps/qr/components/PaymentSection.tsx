@@ -23,11 +23,16 @@ export function PaymentSection({
   clientSecret,
   totals,
   onEdit,
+  onPayingChange,
 }: {
   cartId: string;
   clientSecret: string;
   totals: CartTotals;
   onEdit: () => void;
+  /** W9b — mirror the in-flight confirm up to Checkout, so the pay step's new top-of-view "Back to
+   *  review" can disable itself while a PaymentIntent is being confirmed. Editing then would release
+   *  the pay-window lock out from under a live authorization. */
+  onPayingChange?: (paying: boolean) => void;
 }) {
   const stripePromise = getStripePromise();
 
@@ -49,7 +54,7 @@ export function PaymentSection({
 
   return (
     <Elements stripe={stripePromise} options={options}>
-      <PayForm cartId={cartId} totals={totals} onEdit={onEdit} />
+      <PayForm cartId={cartId} totals={totals} onEdit={onEdit} onPayingChange={onPayingChange} />
     </Elements>
   );
 }
@@ -58,10 +63,12 @@ function PayForm({
   cartId,
   totals,
   onEdit,
+  onPayingChange,
 }: {
   cartId: string;
   totals: CartTotals;
   onEdit: () => void;
+  onPayingChange?: (paying: boolean) => void;
 }) {
   const stripe = useStripe();
   const elements = useElements();
@@ -78,6 +85,7 @@ function PayForm({
   async function confirm() {
     if (!stripe || !elements) return; // Stripe.js still loading
     setSubmitting(true);
+    onPayingChange?.(true); // W9b — freeze the pay step's back control for the confirm round-trip
     setError(null);
     const { error: payErr } = await stripe.confirmPayment({
       elements,
@@ -88,6 +96,7 @@ function PayForm({
     if (payErr) {
       setError(payErr.message ?? "Payment couldn’t be completed. Please try another card.");
       setSubmitting(false);
+      onPayingChange?.(false); // only an INLINE failure lands here; success redirects away
     }
   }
 

@@ -12,11 +12,19 @@ import { getPostHogClient } from "./posthog-server";
 export type PickupSlot = { slot: string; remaining: number };
 
 /**
+ * W9b — availability is a THREE-state answer, not a list. A read failure used to return `[]`, which the
+ * sheet rendered as the calm "No pickup times available right now" — telling a diner the kitchen is
+ * closed when in fact we simply couldn't ask. `ok:false` is the "we don't know" case and earns a retry;
+ * `ok:true` with an empty list is the honest sold-out.
+ */
+export type PickupSlotsResult = { ok: true; slots: PickupSlot[] } | { ok: false };
+
+/**
  * The restaurant's currently-bookable pickup slots for today, capacity-aware (full ones omitted).
  * Public availability — no membership needed (it reveals only open times, no diner data) — but it's
  * still server-only: the client can't enumerate or forge slots, only render what the kitchen can take.
  */
-export async function getPickupSlots(excludeCart?: string): Promise<PickupSlot[]> {
+export async function getPickupSlots(excludeCart?: string): Promise<PickupSlotsResult> {
   // `excludeCart` drops that cart's own hold from the capacity count, so a diner sees true availability
   // for re-picking their slot (without it, their own in-progress hold would make the slot look full).
   const { data, error } = await serviceClient().rpc("mms_pickup_slots", {
@@ -24,9 +32,12 @@ export async function getPickupSlots(excludeCart?: string): Promise<PickupSlot[]
   });
   if (error) {
     console.error("[pickup] mms_pickup_slots failed", error);
-    return [];
+    return { ok: false };
   }
-  return (data ?? []).map((r) => ({ slot: r.slot_time, remaining: r.remaining }));
+  return {
+    ok: true,
+    slots: (data ?? []).map((r) => ({ slot: r.slot_time, remaining: r.remaining })),
+  };
 }
 
 /**

@@ -76,6 +76,13 @@ export function SplitSection({
         onChanged();
       } catch (e) {
         onStatus(e instanceof Error ? e.message : "Couldn’t start the split.");
+        // W9b — `openSettlement` is NOT all-or-nothing: it acquires the table-wide freeze (split.ts,
+        // `acquireSettlement`) BEFORE the checks that can throw ("Payments are already in progress",
+        // a failed share insert re-throws after its own release). So a throw can still leave the
+        // server state changed, and a stale review screen then offers edits the freeze will refuse.
+        // Re-syncing is exactly what surfaces the board. Do NOT release the freeze here: it gates
+        // every cart mutation while live PaymentIntents are out.
+        onChanged();
       }
     });
   }

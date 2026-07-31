@@ -94,6 +94,12 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
       initialTotals={view.totals}
       splitContext={split}
       initialSettling={view.settling}
+      // W9b — the pay-window lock reaches the checkout at last. `getCartView` has returned both since
+      // P3.2 and this was the last hop: without them a diner whose tablemate is checking out saw every
+      // stepper snap silently back, with nothing on screen saying why.
+      initialLocked={view.locked}
+      initialLockedBy={view.lockedBy}
+      initialMySeat={view.mySeat}
       initialTabType={view.tabType}
       canTab={split?.mode === "dinein"}
       prepMinutes={prepMinutes}

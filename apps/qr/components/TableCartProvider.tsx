@@ -207,6 +207,13 @@ export function TableCartProvider({
     itemsRef.current = items;
   }, [items]);
 
+  // W9b — the settle announcement's baseline. `null` until the FIRST server view lands, then seeded
+  // from it: arriving at an already-settling table is a situation, not an event, so it must not be
+  // announced at mount. Seeding here (not in the effect) is what makes that exact: `applyView` runs
+  // in the fetch callback, before React re-renders, so the first `settling` state and the ref are
+  // written from the same view and the edge effect below sees no transition.
+  const prevSettling = useRef<boolean | null>(null);
+
   // One place to fan a fresh server view into the six pieces of cart state — keeps addItem/setQty/
   // refresh in lockstep so a new field can never be applied in one path and forgotten in another.
   const applyView = useCallback((v: Awaited<ReturnType<typeof getCartView>>) => {
@@ -216,6 +223,7 @@ export function TableCartProvider({
     setLocked(v.locked);
     setLockedBy(v.lockedBy);
     setSettling(v.settling);
+    if (prevSettling.current === null) prevSettling.current = v.settling;
   }, []);
 
   const refresh = useCallback(async () => {
@@ -236,12 +244,10 @@ export function TableCartProvider({
     void getCartView(cartId)
       .then((v) => {
         if (!active) return;
-        setItems(v.items);
-        setTotals(v.totals);
-        setPickupSlot(v.pickupSlot);
-        setLocked(v.locked);
-        setLockedBy(v.lockedBy);
-        setSettling(v.settling);
+        // Route the FIRST view through `applyView` too (it used to hand-copy the same six setters).
+        // The duplicate was exactly the drift the helper's own comment warns about, and W9b needs one
+        // place that also seeds the settle baseline.
+        applyView(v);
         // W5e: no longer force-open the slot sheet at the menu. Pickup timing is now an explicit
         // ASAP↔scheduled choice at CHECKOUT (ASAP is a first-class default — a null slot fires
         // immediately at settlement), so a diner is never blocked behind "pick a time" before ordering.
@@ -249,11 +255,16 @@ export function TableCartProvider({
       })
       .catch(() => {
         // Cart paid/closed between session mint and first load — leave the view empty (no throw).
+        // W9b review — but DO seed the settle baseline: it is only written by `applyView`, so a failed
+        // first load left it null and the edge effect then swallowed the next genuine transition
+        // (it returns on `prev === null`). `settling` is still its initial `false` here, which is the
+        // honest baseline for a view we never got.
+        if (active && prevSettling.current === null) prevSettling.current = false;
       });
     return () => {
       active = false;
     };
-  }, [cartId]);
+  }, [cartId, applyView]);
 
   // One polite live region for transactional feedback (RED-TEAM/QA). We announce a brief, STATIC
   // confirmation on success and a generic message on failure (WCAG 4.1.3 status messages) — but
@@ -498,6 +509,23 @@ export function TableCartProvider({
         : `${lockedByName ?? "Someone"} is checking out — the order’s locked`;
     void Promise.resolve().then(() => flash(msg, 2600));
   }, [locked, lockedByName, flash]);
+
+  // W9b — the settlement freeze is the OTHER way this cart goes read-only, and it announced nothing:
+  // a guest browsing the menu simply found every Add inert. Same single live region and the same edge
+  // discipline as the lock above — but baselined off the first server view (see `prevSettling`), so
+  // only a transition the diner actually lived through is announced.
+  //
+  // No `/cart` suppression: this provider wraps the /menu subtree ONLY (see AppHeader) — the checkout
+  // never mounts it, so a pathname guard here would be dead code, not defense.
+  useEffect(() => {
+    const prev = prevSettling.current;
+    if (prev === null || prev === settling) return;
+    prevSettling.current = settling;
+    const msg = settling
+      ? "Your table is splitting the bill — the order’s locked while everyone pays"
+      : "The split was called off — you can edit the order again";
+    void Promise.resolve().then(() => flash(msg, 2600));
+  }, [settling, flash]);
 
   return (
     <Ctx.Provider

@@ -111,6 +111,9 @@ export function Checkout({
   initialTotals,
   splitContext = null,
   initialSettling = false,
+  initialLocked = false,
+  initialLockedBy = null,
+  initialMySeat = null,
   initialTabType = "none",
   canTab = false,
   prepMinutes = 12,
@@ -122,6 +125,14 @@ export function Checkout({
   initialTotals: CartTotals;
   splitContext?: SplitContext | null;
   initialSettling?: boolean;
+  /** W9b — the pay-window lock (P3.2-lock) from the server view. `getCartView` has always returned
+   *  these two and this component never received them, so a tablemate's checkout froze every control
+   *  here with no explanation: the steppers simply snapped back. Synced onward by `refresh()`. */
+  initialLocked?: boolean;
+  initialLockedBy?: string | null;
+  /** W9b — the viewer's own seat, from `getCartView` (NOT `splitContext`, which is nulled on any read
+   *  failure). Decides whether `lockedBy` is a peer's lock or the viewer's own. */
+  initialMySeat?: string | null;
   /** Tab lifecycle (S3.1): `none` until someone opens a tab on this table. When open, the cart reads
    *  "Tab open" and the pay CTA settles/closes the tab. Synced from getCartView (initial + realtime). */
   initialTabType?: "none" | "trust" | "secure";
@@ -144,6 +155,17 @@ export function Checkout({
   // Split-tender settlement freeze (P3.3b): once the host opens a split, every member pays their share
   // on the live board instead of the review/pay flow. Synced from getCartView (initial + realtime).
   const [settling, setSettling] = useState(initialSettling);
+  // W9b — who (if anyone) holds the pay-window lock. Distinct from `settling`: a lock is ONE member
+  // checking out for a moment; settling is the whole table paying its shares.
+  const [locked, setLocked] = useState(initialLocked);
+  // ⚠️ `mySeat` comes from the CART VIEW, not `splitContext`. `cart/page.tsx` nulls the split context on
+  // ANY read failure, and sourcing the seat from it meant a transient miss on a dine-in group cart left
+  // `lockedByPeer` permanently false — no lockbar, every control live, each edit snapping back: exactly
+  // the defect this slice exists to retire, on the path most likely to hit it. `getCartView` returns the
+  // seat from the same `assertCartMember` call that produced `lockedBy`, so the comparison cannot be
+  // defeated by a second read. Declared beside the lock state because `refresh()` writes it.
+  const [mySeat, setMySeat] = useState<string | null>(initialMySeat);
+  const [lockedBy, setLockedBy] = useState<string | null>(initialLockedBy);
   // Dine-in group → show per-line owner + split; solo/duo stays the plain cart.
   const isGroup =
     !!splitContext && splitContext.mode === "dinein" && splitContext.members.length > 1;
@@ -243,6 +265,11 @@ export function Checkout({
       setItems(v.items);
       setTotals(v.totals);
       setSettling(v.settling); // a peer (host) opening/canceling a split flips the whole table here
+      // W9b — the lock moves with the same refresh. This is still NOT pay-step state: it never touches
+      // clientSecret/payTotals/step, so the mounted Stripe Element is untouched by a lock flip.
+      setLocked(v.locked);
+      setLockedBy(v.lockedBy);
+      setMySeat(v.mySeat);
       setTabType(v.tabType); // a server (or a peer) opening the tab reflects here too
     } catch {
       // Swallow: the EXPECTED failure here is the post-payment 403 (the cart flipped to paid → the
@@ -274,6 +301,45 @@ export function Checkout({
   const onPay = step === "pay" && clientSecret && payTotals;
   const viewKey = isGroup && settling && splitContext ? "settle" : onPay ? "pay" : "review";
 
+  // W9b — a lock is only worth surfacing when it is SOMEONE ELSE'S. The diner standing on their own
+  // pay step holds it (create-intent took it), and so does one who navigated back to review before
+  // `editOrder` released it — telling either "someone's checking out" would be a lie about themselves.
+  // It also requires a KNOWN seat: `cart/page.tsx` nulls `splitContext` on ANY read failure, and a
+  // viewer who doesn't know their own seat cannot honestly claim the lock belongs to a peer.
+  const lockedByPeer = locked && !!lockedBy && !!mySeat && lockedBy !== mySeat;
+  const lockedByName = lockedByPeer
+    ? (splitContext?.members.find((m) => m.seat === lockedBy)?.name ?? "Someone")
+    : null;
+
+  // W9b — announce the lock edge. The lockbar is plain visual, and this view's ONE status region is
+  // `status` (rendered below) — the provider's announcer that handles this on /menu is mounted on the
+  // menu subtree only, so without this a screen-reader user on /cart hears NOTHING as every control
+  // around them goes dead. Edge-triggered via a ref so it fires on the transition, not every render.
+  const prevAnnouncedLock = useRef<boolean | null>(null);
+  useEffect(() => {
+    const prev = prevAnnouncedLock.current;
+    prevAnnouncedLock.current = lockedByPeer;
+    if (prev === null || prev === lockedByPeer) return; // seed on first run; only edges announce
+    // The region renders `payError ?? tabError ?? status`, so a stale error would swallow this
+    // announcement entirely — and while locked the diner cannot retry the action that produced it, so
+    // it would never clear on its own. A lock transition supersedes both.
+    setPayError(null);
+    setTabError(null);
+    setStatus(
+      lockedByPeer
+        ? `${lockedByName ?? "Someone"} is checking out — the order’s locked for a moment.`
+        : "The order’s unlocked — you can edit again.",
+    );
+  }, [lockedByPeer, lockedByName]);
+  // W9b — true while a PaymentIntent confirm is in flight (lifted out of PayForm). The pay step's
+  // back control freezes on it: releasing the pay-window lock mid-authorization would let the table
+  // edit the cart out from under a live intent.
+  const [paying, setPaying] = useState(false);
+  // W9b review — `editOrder()` is two round-trips (releasePayLock + refresh) fired as a void. Without a
+  // busy state the back control looks dead for seconds and invites a second tap, on the one screen this
+  // slice exists to keep honest.
+  const [leavingPay, setLeavingPay] = useState(false);
+
   // Focus management: when a stepper removes the last unit of a line, the <li> unmounts and focus
   // would fall to <body>. Move it to the heading so keyboard/SR users keep their place.
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -294,6 +360,68 @@ export function Checkout({
       headingRef.current?.focus();
     prevDraftCount.current = draftCount;
   }, [draftCount]);
+
+  // W9b — the same focus discipline as the draft-count effect above, for the lock. A peer taking the
+  // lock disables the stepper the diner may be standing on; if focus actually fell to <body>, park it
+  // on the heading (WCAG 2.4.3). Only when it dropped — never yank focus off a control they moved to.
+  const prevLockedByPeer = useRef(lockedByPeer);
+  useEffect(() => {
+    if (lockedByPeer && !prevLockedByPeer.current && document.activeElement === document.body)
+      headingRef.current?.focus();
+    prevLockedByPeer.current = lockedByPeer;
+  }, [lockedByPeer]);
+
+  // W9b — release the pay-window lock when the diner ABANDONS the pay step. The lock makes the whole
+  // table read-only, so a diner who wanders off holds every tablemate hostage for the full TTL.
+  //
+  // Two exits, because they are genuinely different events:
+  //   • `pagehide` — the document is torn down (tab closed, hard navigation away). A Server Action
+  //     started here dies with the page, so this posts via `sendBeacon` to a thin route.
+  //   • unmount — an App Router SOFT navigation (browser Back to /menu, a header link). No `pagehide`
+  //     fires for these at all, which is why the beacon alone left the lock riding its TTL on the very
+  //     journey this slice is named for. Deps are `[]` so the cleanup runs on unmount ONLY, never on a
+  //     re-render; the refs below carry the live values into it.
+  //
+  // Three states must NOT release, and each has bitten somewhere:
+  //   • `paying` — a confirm is in flight. `pagehide` fires on the SUCCESSFUL redirect too, and
+  //     releasing there unlocks a cart whose PaymentIntent is already authorized.
+  //   • `event.persisted` — a bfcache freeze. The page is not being destroyed; it comes back with the
+  //     same mounted Element and the same clientSecret, so releasing would hand tablemates a cart the
+  //     diner is about to pay a now-stale amount for.
+  //   • not on the pay step — nothing to release.
+  //
+  // Deliberately NOT `visibilitychange`: it fires on every app-switch to a wallet.
+  const payAbandonRef = useRef({ onPay: false, paying: false, cartId });
+  // Synced in an effect, not during render (a render-phase ref write is a React Compiler violation).
+  // The listener below only ever reads this on a real teardown, which is always after a commit.
+  useEffect(() => {
+    payAbandonRef.current = { onPay: !!onPay, paying, cartId };
+  }, [onPay, paying, cartId]);
+  const releaseLockBeacon = useCallback(() => {
+    const { onPay: active, paying: mid, cartId: id } = payAbandonRef.current;
+    if (!active || mid) return;
+    try {
+      navigator.sendBeacon?.(
+        "/api/cart/release-lock",
+        new Blob([JSON.stringify({ cartId: id })], { type: "application/json" }),
+      );
+    } catch {
+      // Beacon unavailable/refused — the lock TTL is the backstop, and there is no UI left to tell.
+    }
+  }, []);
+  useEffect(() => {
+    const onPageHide = (e: PageTransitionEvent) => {
+      if (e.persisted) return; // bfcache freeze — the page (and its live Element) is coming back
+      releaseLockBeacon();
+    };
+    window.addEventListener("pagehide", onPageHide);
+    // Cleanup order matters: drop the listener FIRST, then release for the soft-navigation case, so a
+    // teardown that is both (a real unload during unmount) can't beacon twice.
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      releaseLockBeacon();
+    };
+  }, [releaseLockBeacon]);
 
   // On ANY view change (review↔pay tap OR a realtime settling flip) the subtree that held focus unmounts
   // → focus would drop to <body> with no cue (WCAG 2.4.3). The heading is mounted across all views, so
@@ -392,6 +520,10 @@ export function Checkout({
   function onPromo(e: FormEvent) {
     e.preventDefault();
     if (!promo.trim()) return;
+    // W9b — `aria-disabled` on the Apply button does NOT stop a submit: pressing Enter in the field
+    // submits the form directly. The refusal has to live here, or the "disabled" promo control would
+    // still fire a write the server rejects — the exact silent-refusal this slice exists to retire.
+    if (lockedByPeer) return;
     startTransition(async () => {
       setStatus(null); // clear any stale result so it doesn't linger through the round-trip
       setPayError(null); // single live region — don't let a prior pay error mask the promo result
@@ -633,6 +765,40 @@ export function Checkout({
           </>
         ) : onPay ? (
           <>
+            {/* W9b — the way back, where the diner reaches for it. The pay step is a STATE change, not
+                a route, so the browser Back button leaves /cart entirely (and strands the pay-window
+                lock, freezing the table for everyone else until the TTL). Pushing a same-pathname
+                history entry is NOT the fix: cart/page.tsx and track/page.tsx both document the ~4s
+                view-transition popstate hang that causes on exactly this screen. The "Edit order"
+                button at the foot of the pay form stays — this is the one above the fold, since the
+                Payment Element is taller than a phone. Frozen while a confirm is in flight: releasing
+                the lock then would open the cart under a live PaymentIntent. */}
+            {/* `.nav-link` (the quiet 44px variant), NOT `.nav-link-strong`: that one is a FILLED accent
+                pill, and a second filled CTA sitting above "Pay $X" would read as the primary action on
+                the one screen where the primary action must be unmistakable. */}
+            <button
+              type="button"
+              className="nav-link"
+              aria-disabled={paying || leavingPay || undefined}
+              aria-busy={leavingPay}
+              onClick={() => {
+                if (paying || leavingPay) return;
+                setLeavingPay(true);
+                void editOrder().finally(() => setLeavingPay(false));
+              }}
+              style={{
+                background: "none",
+                border: "none",
+                marginBottom: 4,
+                cursor: paying || leavingPay ? "default" : "pointer",
+                opacity: paying || leavingPay ? 0.6 : 1,
+              }}
+            >
+              <span aria-hidden className="nav-arrow nav-arrow-back">
+                ←
+              </span>{" "}
+              {leavingPay ? "Going back…" : "Back to review"}
+            </button>
             <div className="card card-textured checkout-receipt">
               <dl>
                 <Row k="Subtotal" cents={payTotals.subtotalCents} />
@@ -651,6 +817,7 @@ export function Checkout({
               clientSecret={clientSecret}
               totals={payTotals}
               onEdit={editOrder}
+              onPayingChange={setPaying}
             />
           </>
         ) : (
@@ -659,6 +826,32 @@ export function Checkout({
                 kitchen, right where the mid-meal diner reviews the table's order. viewItems (not items)
                 so a "Make it now" tap and the strip agree instantly; the menu link carries the session
                 mode — a bare /menu defaults to scan-&-go and would orphan a dine-in dessert. */}
+            {/* W9b — the v7.2 lockbar, on the screen the lock actually bites. `getCartView` has always
+                known the cart was locked; this component never received it, so the diner's steppers just
+                snapped back with no explanation (the menu's GuestList has shown this banner since P3.2 —
+                the checkout was the gap). PLAIN visual, not a live region: the edge effect above pushes the
+                transition through this view's one status region (the provider's announcer is mounted on
+                /menu only), and the disabled controls carry the state for AT.
+                Gated on `lockedByPeer`, never bare `locked` — the payer holds their own lock. */}
+            {lockedByPeer && (
+              <p
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  margin: "0 0 12px",
+                  padding: "9px 13px",
+                  borderRadius: 11,
+                  background: "var(--warnb)",
+                  color: "var(--warn)",
+                  fontWeight: 700,
+                  fontSize: "var(--fs-sm)",
+                }}
+              >
+                <Icon name="lock" size={14} />
+                {lockedByName} is checking out — the order’s locked for a moment.
+              </p>
+            )}
             <TimelineStrip items={viewItems} menuMode={sessionMode} />
             {/* S4 unified basket: group lines by destination (At your table / To-go / Grocery). Headings
               show only when the basket actually spans 2+ destinations, so a plain dine-in cart stays clean.
@@ -672,6 +865,10 @@ export function Checkout({
               const present = GROUPS.filter(([, k]) => viewItems.some((i) => i.fulfillment === k));
               const showHeadings = present.length > 1;
               const renderLine = (i: CartItem) => {
+                // `canEdit` stays the PERMISSION (state × role); the lock is a separate, transient
+                // refusal. Keeping them apart is what lets a locked control stay RENDERED and disabled
+                // instead of vanishing — a missing control is the red-team trap this repo names by
+                // name, and the pills below are gated on `canEdit &&`.
                 const canEdit = canMutateLine(i.lineState, {
                   kind: "diner",
                   role: splitContext?.myRole ?? "host",
@@ -760,8 +957,16 @@ export function Checkout({
                                   data-ful-line={i.id}
                                   data-ful-val={f}
                                   aria-pressed={on}
-                                  onClick={() => toggleFulfillment(i.id, f)}
+                                  // aria-disabled, not native: a peer can take the lock while this
+                                  // very button holds focus, and native-disabling would drop it to
+                                  // <body> mid-interaction (WCAG 2.4.3).
+                                  aria-disabled={lockedByPeer || undefined}
+                                  onClick={() => {
+                                    if (lockedByPeer) return;
+                                    toggleFulfillment(i.id, f);
+                                  }}
                                   className={`checkout-pill${on ? " checkout-pill-on" : ""}`}
+                                  style={lockedByPeer ? { opacity: 0.55 } : undefined}
                                 >
                                   {f === "dinein" ? "For here" : "To go"}
                                 </button>
@@ -779,9 +984,18 @@ export function Checkout({
                         canEdit && (
                           <button
                             type="button"
-                            onClick={() => makeNow(i.id)}
+                            aria-disabled={lockedByPeer || undefined}
+                            onClick={() => {
+                              if (lockedByPeer) return;
+                              makeNow(i.id);
+                            }}
                             className="checkout-pill checkout-pill-accent"
-                            style={{ display: "flex", width: "100%", marginTop: 8 }}
+                            style={{
+                              display: "flex",
+                              width: "100%",
+                              marginTop: 8,
+                              ...(lockedByPeer ? { opacity: 0.55 } : null),
+                            }}
                           >
                             Make it now · ready in ~{prepMinutes} min
                           </button>
@@ -792,7 +1006,10 @@ export function Checkout({
                     ) : i.lineState === "draft" ? (
                       <Stepper
                         qty={i.qty}
-                        disabled={!canEdit}
+                        // The shared Stepper natively-disables (packages/ui). That is right here: its
+                        // buttons are inside a card the lockbar sits above, and the focus-restore
+                        // effect parks focus on the heading if this flip drops it to <body>.
+                        disabled={!canEdit || lockedByPeer}
                         soldOut={i.soldOut}
                         name={i.name}
                         removeGlyph={<Icon name="trash" size={18} />}
@@ -871,7 +1088,10 @@ export function Checkout({
                 value={promo}
                 onChange={(e) => setPromo(e.target.value)}
                 placeholder="Promo code"
-                aria-label="Promo code"
+                aria-label={
+                  lockedByPeer ? `Promo code — ${lockedByName} is checking out` : "Promo code"
+                }
+                readOnly={lockedByPeer}
                 autoCapitalize="characters"
                 maxLength={40}
                 className="checkout-promo-input"
@@ -886,8 +1106,9 @@ export function Checkout({
               <button
                 type="submit"
                 disabled={pending || !promo.trim()}
+                aria-disabled={lockedByPeer || undefined}
                 className="checkout-pill checkout-pill-accent"
-                style={{ minHeight: 44 }}
+                style={{ minHeight: 44, ...(lockedByPeer ? { opacity: 0.55 } : null) }}
               >
                 Apply
               </button>
@@ -1012,9 +1233,16 @@ export function Checkout({
                         key={rate}
                         type="button"
                         aria-pressed={on}
-                        onClick={() => selectPresetTip(rate)}
+                        aria-disabled={lockedByPeer || undefined}
+                        onClick={() => {
+                          if (lockedByPeer) return;
+                          selectPresetTip(rate);
+                        }}
                         className="checkout-tip"
-                        style={tipChipStyle(on)}
+                        style={{
+                          ...tipChipStyle(on),
+                          ...(lockedByPeer ? { opacity: 0.55 } : null),
+                        }}
                       >
                         {label}
                         <small style={tipChipSmall(on)}>
@@ -1030,9 +1258,16 @@ export function Checkout({
                     aria-expanded={customTipOpen}
                     // Only reference the field while it's mounted (below) — no dangling IDREF when closed.
                     aria-controls={customTipOpen ? "custom-tip-field" : undefined}
-                    onClick={openCustomTip}
+                    aria-disabled={lockedByPeer || undefined}
+                    onClick={() => {
+                      if (lockedByPeer) return;
+                      openCustomTip();
+                    }}
                     className="checkout-tip"
-                    style={tipChipStyle(customTipOpen)}
+                    style={{
+                      ...tipChipStyle(customTipOpen),
+                      ...(lockedByPeer ? { opacity: 0.55 } : null),
+                    }}
                   >
                     Custom
                     <small style={tipChipSmall(customTipOpen)}>
@@ -1139,9 +1374,16 @@ export function Checkout({
               />
             )}
 
+            {/* W9b — the primary CTA is a dead control under a peer's lock: `create-intent` refuses
+                with 409 because the lock is exactly the mutex that stops two diners paying at once. It
+                stays RENDERED and says so, rather than sending the diner into a failure to find out. */}
             <button
               type="button"
-              onClick={continueToPayment}
+              aria-disabled={lockedByPeer || undefined}
+              onClick={() => {
+                if (lockedByPeer) return;
+                void continueToPayment();
+              }}
               disabled={loadingPay}
               aria-busy={loadingPay}
               className="checkout-cta"
@@ -1153,8 +1395,8 @@ export function Checkout({
                 border: "none",
                 fontWeight: 800,
                 fontSize: "var(--fs-body)",
-                cursor: loadingPay ? "default" : "pointer",
-                opacity: loadingPay ? 0.7 : 1,
+                cursor: loadingPay || lockedByPeer ? "default" : "pointer",
+                opacity: loadingPay ? 0.7 : lockedByPeer ? 0.55 : 1,
               }}
             >
               {/* The label rides above the ::after shine sweep on its own relative layer. W2d: the CTA
@@ -1164,6 +1406,8 @@ export function Checkout({
               <span style={{ position: "relative", zIndex: 1 }}>
                 {loadingPay ? (
                   "Starting checkout…"
+                ) : lockedByPeer ? (
+                  `Waiting for ${lockedByName} to finish`
                 ) : (
                   <>
                     {tabType !== "none"

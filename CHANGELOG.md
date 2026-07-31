@@ -4,6 +4,57 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W9b — every dead control says why (2026-07-31)
+
+Eight confirmed findings from the W9 audit, all one shape: **a control goes inert and nothing says why.**
+Nothing here changes a charged amount.
+
+- **The checkout finally receives the pay-window lock.** `getCartView` has returned `locked`/`lockedBy`
+  since P3.2 and `<Checkout>` never took them — so a diner whose tablemate was checking out watched every
+  stepper snap silently back. The v7.2 lockbar now renders on the review step, the line controls / promo /
+  tip / primary CTA disable with a reason, and the CTA reads "Waiting for {name} to finish" instead of
+  sending the diner into a 409 to find out. Gated on `lockedByPeer`, never bare `locked` — the payer holds
+  their own lock.
+- **A way back from the pay step, above the fold.** The pay step is a state change, not a route, so browser
+  Back leaves `/cart` entirely and strands the lock. Pushing a same-pathname history entry is not the fix
+  (both `cart/page.tsx` and `track/page.tsx` document the ~4s view-transition popstate hang it causes), so:
+  an explicit control at the top, plus a `pagehide` `sendBeacon` to a new `POST /api/cart/release-lock`
+  that frees the lock when the diner abandons the tab. **Not** wired to `visibilitychange` (that fires on
+  every wallet app-switch) and **not** on the successful-payment redirect (`pagehide` fires there too —
+  releasing then would open the cart under a live authorization).
+- **Settling says so, everywhere it bites.** The freeze had no announcement at all: the menu's Add pills
+  just stopped working. There is now an edge-triggered announcement through the provider's one live region
+  (baselined off the first server view, so arriving at an already-settling table isn't announced at mount),
+  a GuestList banner that links to the board, and the kitchen timeline's settle nudge swapped from "settle
+  up from your order" — an invitation to edit a frozen cart — to "pay your share".
+- **The mint window is audible.** `loading` had been on the cart context since M3 with **zero consumers**;
+  the Add pill and item-sheet CTA now carry `aria-busy` and a reason during it. The three reasons live in
+  one shared ladder (`lib/inert-reason.ts`, 9 tests, precedence + copy pinned) rather than a ternary
+  re-typed per component.
+- **The settlement board stops lying in three ways.** A member with no share row (joined after the split
+  opened) gets read-only copy naming the host instead of a board with no way in; a post-first-load refresh
+  failure says the rows are stale rather than passing a frozen snapshot off as live; and the board may only
+  navigate to the receipt on a **server-typed** `settled` — Server Action errors are redacted in prod, so
+  routing on "it threw" would eject a mid-authorization payer to a receipt that doesn't exist yet.
+- **Pickup availability is a three-state answer.** A failed `mms_pickup_slots` read returned `[]`, which the
+  sheet rendered as the calm "No pickup times available right now" — telling a diner the kitchen was closed
+  when we simply couldn't ask. `ok:false` now earns a retry; `ok:true` with an empty list keeps the calm copy.
+- **The board never celebrates a payment that didn’t happen.** `assertCartMember` raises `cart_closed`
+  for any `status != 'open'`, and `qr_carts.status` includes `'cancelled'` — so a table whose stale freeze
+  let a server merge or clear it would have been told **“Everyone’s paid”** and sent to a receipt that will
+  never exist, having paid nothing. `getSettlement` now re-reads the status and emits `settled` only for
+  `'paid'`; anything else renders “This table’s order was closed — nobody was charged” and never navigates.
+- **The lock release can’t fire on a bfcache freeze, and now does fire on a soft navigation.** `pagehide`
+  skips `event.persisted` (the page comes back with the same mounted Payment Element and the same
+  clientSecret — releasing would hand tablemates a cart the diner is about to pay a stale amount for), and
+  an unmount arm covers App Router back-navigation, which fires no unload event at all.
+- **`openSettlement` no longer swallows its derive reads (OPEN-ITEMS M24, closed).** A failed
+  `session_members` read produced zero share rows behind an acquired freeze — a permanently stuck table —
+  and a failed `qr_cart_items` read zeroed every by-person weight, so `allocate`'s all-zero fallback served
+  an **even split to a host who chose by-person, and charged it.** Both now release the freeze and fail
+  loudly; `SplitSection`'s catch re-syncs (it previously refreshed only on success, leaving a stale review
+  screen offering edits the freeze would refuse).
+
 ### tooling — `pnpm verify:slice`, the mechanical pre-PR gate (2026-07-31)
 
 Three adversarial review rounds across W9a and W8 each returned BLOCK, and nearly every finding reduced

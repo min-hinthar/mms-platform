@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Badge, Icon, Sheet, useAnimationPreference } from "@mms/ui";
 import { useCart } from "@/components/TableCartProvider";
+import { inertReason } from "@/lib/inert-reason";
 import { BlurUpImage } from "./BlurUpImage";
 import { PhotoPlaceholder } from "./PhotoPlaceholder";
 import { Rail } from "../Rail";
@@ -128,7 +129,7 @@ function ItemSheetBody({
   hearted?: boolean;
   onToggleHeart?: (id: string) => void;
 }) {
-  const { add, cartId, locked, settling } = useCart();
+  const { add, cartId, loading, locked, lockedByName, settling } = useCart();
   const { shouldAnimate } = useAnimationPreference();
   // On mount (each keyed remount = open OR upsell swap): reset the SHARED sheet scroll to the top so a
   // swapped-in item starts at its hero, not wherever the previous item's "Goes well with" row sat. Reading
@@ -157,6 +158,12 @@ function ItemSheetBody({
   // yet / an add in flight also block. A disabled CTA, never a missing one.
   const blocked = !cartId || busy || locked || settling;
   const canAdd = !soldOut && !blocked && valid;
+  // W9b — the same three "why is this dead?" reasons the menu pills now carry (AddButton), spoken in
+  // the same order and the same words. Without this the sheet's CTA sat greyed and mute during the
+  // mint window and behind a peer's checkout: `loading` had been on the cart context with zero
+  // consumers. It does NOT relax `blocked` — an add with no cartId still can't fire.
+  const minting = loading && !cartId;
+  const reason = inertReason({ minting, locked, lockedByYou: lockedByName === "You", settling });
   // Upsell respects the diner's ACTIVE dietary filters (fail-safe): a "No shellfish" diner must not be
   // recommended a shellfish dish the browse list just hid. Stable per item (the body is keyed on item.id).
   const upsell = useMemo(
@@ -470,14 +477,17 @@ function ItemSheetBody({
           className={`item-add-btn${soldOut ? " item-add-btn-solo" : ""}${shouldAnimate ? " item-add-btn-anim" : ""}`}
           disabled={blocked || !valid}
           aria-disabled={soldOut || undefined}
+          aria-busy={busy || minting}
           aria-label={
             soldOut
               ? `${item.name_en} is sold out`
               : !valid
                 ? `Choose your options to add ${item.name_en}`
-                : qty > 1
-                  ? `Add ${qty} × ${item.name_en} to your order, ${dollars(totalCents)}`
-                  : `Add ${item.name_en} to your order, ${dollars(totalCents)}`
+                : reason
+                  ? `${item.name_en} — ${reason}`
+                  : qty > 1
+                    ? `Add ${qty} × ${item.name_en} to your order, ${dollars(totalCents)}`
+                    : `Add ${item.name_en} to your order, ${dollars(totalCents)}`
           }
           onClick={() => {
             if (!canAdd) return;
