@@ -138,14 +138,7 @@ export function AppHeader() {
         {/* W5c·r2: the official Morning Star badge (same asset the delivery app ships) replaces the ✦
             glyph in the brand lockup — the ✦ stays the in-app accent mark everywhere else. Decorative
             here (alt="") — the Link's aria-label + the wordmark carry the name. */}
-        <Image
-          src="/logo.png"
-          alt=""
-          width={51}
-          height={34}
-          className="app-header-logo"
-          priority
-        />
+        <Image src="/logo.png" alt="" width={51} height={34} className="app-header-logo" priority />
         <span className="app-header-brand-word">Morning Star</span>
       </Link>
 

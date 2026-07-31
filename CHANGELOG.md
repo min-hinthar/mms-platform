@@ -52,8 +52,42 @@ closes the mode-identity half of that.
   journey-depth map and `AppHeader`'s pathname compare stay legal. Verified by inducing a violation
   (red) and reverting (green) rather than assuming.
 
+**Pre-PR adversarial review caught a regression in the headline fix — fixed before merge.** All four
+lenses returned BLOCK on the same defect: `useTableSession`'s URL-strip effect deletes `?t=`/`?j=` on
+mount, so removing the pre-mint persist left the join code in a **closure and nowhere else** while the
+mint was in flight. A hard reload in that window — GuestList's own "Try again" is a
+`window.location.reload()` — arrived with no code in the URL and none in storage, so `/api/session`
+provisioned a phantom table: **the same orphaning, moved from a mistyped invite code onto a flaky-wifi
+sticker scan**, a path the original bug never touched. Fixes:
+
+- **The URL strip now runs only after a successful mint** (`[session]` deps). The credential leaves
+  history at the same moment it stops being the only copy; a mistyped `?j=` still never reaches
+  localStorage, because its mint 404s before the strip can fire.
+- **"Try again" re-mints in place** via a newly-exposed `revalidate()` on the cart context instead of
+  reloading — the code stays in memory, so a retry can only ever rejoin the real table. That also makes
+  retry safe on the 404 arm, which now keeps **both** a retry and the JoinTable escape: `findActive`
+  swallows its PostgREST error, so a transient DB failure returns the same "No table found" string as a
+  genuinely wrong code. Party-full stays the one terminal arm.
+- **The hidden pickup-name field no longer transmits.** Gating only the render was worse for privacy
+  than leaving it visible: `firstName` hydrates from `mms.name`, so a scan-&-go shopper with any stored
+  name still shipped it → `qr_carts.customer_name` → the order snapshot → the **wall-mounted public
+  `/board` TV**, with no surface left to see or clear it. Submit and hydrate now match the render gate.
+- **JoinTable closes its sheet before routing** — a successful join unmounted an open Radix dialog, so
+  focus restored to a trigger that unmounted with it and landed on `<body>` (WCAG 2.4.3).
+- **One bare `/menu` survived the sweep** as a default parameter in `TableTimeline`; the lint rule now
+  covers braced `href={...}` and default params, and its comment no longer overclaims (a hoisted const
+  or template literal still passes — it catches the shape the six real regressions took).
+- **The settled-table copy no longer says the meal is over.** A dine-in diner can pay _before_ sending
+  food to the kitchen (`mms_fire_pending_food` fires their draft lines at settlement), so "thanks for
+  dining with us" was a goodbye delivered before the food.
+- **A registered `tableNumber` now counts as a dine-in signal**, so an all-to-go order placed at a table
+  no longer reads "To-go" in the header while the receipt six lines below prints "Table 4".
+- **The prep-time line stays on scango carts**, which have no `PickupWhenChoice` to replace it — pre-W5f
+  the To-go door minted scango sessions, so those carts really can carry hot food. The "Make it now"
+  sentence remains dine-in only, since that is the only mode still rendering the control it names.
+
 No migration, no schema change, **no charged amount touched** — `hasDineInFood` reads a column the
-query already selected. Gate 8/8.
+query already selected. Gate 8/8; both lint rules verified by inducing a violation and reverting.
 
 ### docs — W8 plan-of-record: the money-path test harness, then the register (2026-07-31)
 

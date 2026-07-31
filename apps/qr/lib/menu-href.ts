@@ -56,9 +56,14 @@ export function modeFromOrder(o: {
   hasDineInFood: boolean;
   hasGrocery: boolean;
   hasTogoFood: boolean;
+  tableNumber?: number | null;
 }): OrderMode | null {
   if (o.pickupSlot) return "pickup";
-  if (o.hasDineInFood) return "dinein";
+  // A registered table number is a POSITIVE dine-in signal (it is only ever stamped from a seated
+  // session), so an all-to-go order placed AT a table still routes back to that table's menu — the
+  // party is still sitting there. It is not usable as the sole test (null for an unregistered
+  // sticker), which is why it supplements the line snapshot rather than replacing it.
+  if (o.hasDineInFood || o.tableNumber != null) return "dinein";
   if (o.hasGrocery && !o.hasTogoFood) return "scango";
   if (o.hasTogoFood) return "pickup";
   return null;

@@ -93,22 +93,35 @@ export function useTableSession(
     setNonce((n) => n + 1);
   }, []);
 
-  // Strip the join code (`?t=`/`?j=`) from the address bar once mounted — it's already captured as the
-  // `code` prop and persisted to localStorage by resolveQrCode, so a reload still rejoins. Keeps the
-  // live session credential out of browser history + the Referer header on the next navigation
-  // (defense-in-depth alongside the PostHog before_send scrub).
+  // Strip the join code (`?t=`/`?j=`) from the address bar — it keeps the live session credential out
+  // of browser history + the Referer header on the next navigation (defense-in-depth alongside the
+  // PostHog before_send scrub).
+  //
+  // ⚠️ This runs ONLY AFTER a successful mint (`session != null`), and that ordering is load-bearing.
+  // It used to strip on MOUNT, which was safe only because `resolveQrCode` persisted the code to
+  // localStorage before the fetch. W9a removed that pre-mint write (an unaccepted code must never
+  // become the next mint's key) — and stripping on mount would then leave the code in a CLOSURE and
+  // nowhere else while the mint is in flight. A hard reload in that window (the "Try again" the
+  // failure arm offers, or a plain pull-to-refresh on slow wifi) would arrive with no `?t=` and no
+  // stored key, so `/api/session` would fall through to the mint loop and provision a BRAND-NEW table
+  // with this diner as host — the exact phantom-table orphaning W9a exists to prevent, re-created on
+  // the primary sticker path. Deferring the strip keeps the code recoverable from the URL until the
+  // server has accepted it and the durable post-mint write has landed; the credential leaves history
+  // at the same moment it stops being the only copy. A mistyped `?j=` still never reaches
+  // localStorage — its mint 404s, so this effect never runs for it.
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || !session) return;
     const url = new URL(window.location.href);
-    // K2: also strip `?table=` (the picker's claim param). A reload must NOT re-send it — the diner's
-    // own now-active session would 409 the claim; instead the persisted token (below) rejoins.
+    // K2: also strip `?table=` (the picker's claim param). Once the mint has succeeded a reload must
+    // NOT re-send it — the diner's own now-active session would 409 the claim; the code persisted by
+    // the successful mint rejoins instead.
     if (!url.searchParams.has("t") && !url.searchParams.has("j") && !url.searchParams.has("table"))
       return;
     url.searchParams.delete("t");
     url.searchParams.delete("j");
     url.searchParams.delete("table");
     window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
-  }, []);
+  }, [session]);
 
   useEffect(() => {
     // `mode` is fixed for a mounted page (each route passes a constant). A re-mint is driven by

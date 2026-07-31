@@ -99,7 +99,9 @@ export async function POST(req: NextRequest) {
         // ASAP (fire_at null, snapped-or-not): snap the CURRENT earliest bookable slot atomically
         // (open-hours + capacity gate, today-bounded) and fire now. mms_pickup_asap excludes this cart's
         // own hold, so a re-snap safely overwrites a stale earlier snap with the fresh earliest.
-        const { data: asap, error: asapErr } = await db.rpc("mms_pickup_asap", { p_cart_id: cartId });
+        const { data: asap, error: asapErr } = await db.rpc("mms_pickup_asap", {
+          p_cart_id: cartId,
+        });
         const row = asap?.[0];
         if (asapErr || !row?.ok) {
           await releaseCartLock(cartId, uid);

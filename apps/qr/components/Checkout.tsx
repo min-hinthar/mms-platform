@@ -207,7 +207,9 @@ export function Checkout({
   const isPickupMode = sessionMode === "pickup";
   const [firstName, setFirstName] = useState("");
   useEffect(() => {
-    if (!isTakeout) return;
+    // W9a — never read a stored name off the device for a basket that will never show the field
+    // (pure grocery). Belt-and-braces with the submit gate: nothing to leak if nothing is hydrated.
+    if (!isTakeout || pureGrocery) return;
     let active = true;
     // Hydrate AFTER mount via a microtask (the TableCartProvider NAME_KEY pattern): SSR and the first
     // client render agree, and the setState runs in a callback, never the effect body.
@@ -222,7 +224,7 @@ export function Checkout({
     return () => {
       active = false;
     };
-  }, [isTakeout]);
+  }, [isTakeout, pureGrocery]);
   // Tab lifecycle (S3.1) — seeded from the server view, kept in step by refresh() (a peer or a server
   // opening the tab flips it here too). `tabBusy`/`tabError` drive the "Keep tab open" affordance.
   const [tabType, setTabType] = useState(initialTabType);
@@ -416,7 +418,13 @@ export function Checkout({
       // name (W3e) always rides on takeout — an EMPTY value clears a previously-stored name (a diner
       // who deleted the field on a retry must not keep getting called by the stale one); remember a
       // real name for next time (same key the group-cart name uses).
-      const name = isTakeout ? firstName.trim().slice(0, 40) : "";
+      // W9a — the SUBMIT gate must match the RENDER gate (`isTakeout && !pureGrocery`). Hiding the
+      // field alone was strictly worse for privacy than leaving it visible: `firstName` is hydrated
+      // from `mms.name` (set by a prior dine-in rename or pickup checkout), so a scan-&-go shopper
+      // with any stored name would still have shipped it → `qr_carts.customer_name` → the order
+      // snapshot → the wall-mounted public `/board` TV, with no surface left to see or clear it.
+      // Sending "" is already the intended clear-a-stale-name behaviour (see the comment above).
+      const name = isTakeout && !pureGrocery ? firstName.trim().slice(0, 40) : "";
       if (name) {
         try {
           localStorage.setItem("mms.name", name);
@@ -807,21 +815,25 @@ export function Checkout({
                   )}
                   {/* S4.2: to-go food is made fresh at checkout (not fired with the dine-in batch). Honest,
                     config-driven estimate — shown only while a to-go line is still waiting (draft).
-                    W9a — DINE-IN ONLY. A pickup cart's lines are also `togo`, so this rendered there too:
-                    it announced "ready in about 12 min" on an order the diner was about to schedule for
-                    tomorrow evening, four sections above the "When would you like it?" control that
-                    actually decides the time — and it pointed at "Make it now," which pickup carts no
-                    longer show. On pickup, `PickupWhenChoice` is the SINGLE owner of the timing promise
-                    (it holds the live ASAP⇆scheduled state; this paragraph only sees the server-seeded
-                    value and would go stale the moment the diner switched). */}
+                    W9a — NOT on a PICKUP cart. A pickup cart's lines are also `togo`, so this rendered
+                    there too: it announced "ready in about 12 min" on an order the diner was about to
+                    schedule for tomorrow evening, four sections above the "When would you like it?"
+                    control that actually decides the time — and it pointed at "Make it now," which
+                    pickup carts no longer show. On pickup, `PickupWhenChoice` is the SINGLE owner of
+                    the timing promise (it holds the live ASAP⇆scheduled state; this paragraph only
+                    sees the server-seeded value and would go stale the moment the diner switched).
+                    It DOES stay on scango, which has no PickupWhenChoice to replace it — pre-W5f the
+                    To-go/"Now" door minted scango sessions, so those carts really can carry hot food
+                    and this is their only prep estimate. The "Make it now" sentence is dine-in only,
+                    since that is the only mode still rendering the control it names. */}
                   {key === "togo" &&
-                    isDineIn &&
+                    (isDineIn || sessionMode === "scango") &&
                     viewItems.some((i) => i.fulfillment === "togo" && i.lineState === "draft") && (
                       <p
                         style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", margin: "0 0 8px" }}
                       >
-                        Made fresh when you check out — ready in about {prepMinutes} min. Want it
-                        sooner? Tap “Make it now.”
+                        Made fresh when you check out — ready in about {prepMinutes} min.
+                        {isDineIn ? " Want it sooner? Tap “Make it now.”" : ""}
                       </p>
                     )}
                   <ul

@@ -50,6 +50,10 @@ type CartCtx = {
    *  the decrement is announced symmetrically with the "+"/add path (WCAG 4.1.3). */
   setItemQty: (cartItemId: string, qty: number, announce?: string) => Promise<CartItem[]>;
   refresh: () => Promise<void>;
+  /** W9a: re-run the session mint IN PLACE (keeps the in-memory join code). The dine-in join-failure
+   *  retry MUST use this rather than `window.location.reload()` — a reload arrives with the join code
+   *  already stripped from the URL, so the mint is no longer join-only and provisions a phantom table. */
+  revalidate: () => void;
   /** J5: route a one-off transactional announcement through the view's ONE polite live region (the
    *  same `flash` every cart op uses) — never mount a second aria-live region for a new feature. */
   announce: (msg: string) => void;
@@ -507,6 +511,7 @@ export function TableCartProvider({
         add,
         setItemQty,
         refresh,
+        revalidate,
         announce: flash,
         pickupSlot,
         openSlotSheet,

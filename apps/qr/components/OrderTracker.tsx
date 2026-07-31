@@ -69,7 +69,10 @@ export function OrderTracker({
   // turnover closes it minutes after payment). Before this, every dine-in diner ended their visit on
   // a screen headed "To-go" running a four-step takeaway rail that can never advance past step 1 —
   // nothing bags a dine-in plate, so `togo_status` stays null forever.
-  const isDineIn = !!order?.hasDineInFood && !isPickup;
+  // A registered `tableNumber` counts too: an ALL-to-go order placed at a seated table used to read
+  // "To-go" in the header while the receipt card six lines below printed "Table 4". Its rail is still
+  // truthful (a bag really is being made), so this only fixes the label + the back-link destination.
+  const isDineIn = !!order && (order.hasDineInFood || order.tableNumber != null) && !isPickup;
   const STEPS = isPickup ? PICKUP_STEPS : SCANGO_STEPS;
   // Takeaway fulfillment status (S4.3a, expo-driven) — declared here because the countdown below and
   // the step rail both key off it.
@@ -319,7 +322,7 @@ export function OrderTracker({
           : pureGrocery
             ? "Paid — you’re all set. Show your exit pass on the way out if asked."
             : dineInSettled
-              ? "Paid in full — thanks for dining with us."
+              ? "Paid in full — your table is settled."
               : arriveErr && ready
                 ? arriveErr
                 : ready
@@ -407,13 +410,15 @@ export function OrderTracker({
           <p className="eyebrow" style={{ color: "var(--ok)", margin: 0 }}>
             Paid
           </p>
-          <p style={{ margin: "6px 0 0", fontWeight: 800 }}>
-            Paid in full — thanks for dining with us.
-          </p>
+          <p style={{ margin: "6px 0 0", fontWeight: 800 }}>Paid in full.</p>
+          {/* Deliberately does NOT say the meal is over. A dine-in diner can pay BEFORE sending food
+              to the kitchen — `mms_fire_pending_food` fires their still-draft dine-in lines at
+              settlement — so "thanks for dining with us" would be a goodbye delivered before the
+              food. This wording is true whether they have eaten or are still waiting. */}
           <p style={{ margin: "6px 0 0", fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
             {order.tableNumber != null
-              ? `Table ${order.tableNumber} is settled — take your time.`
-              : "Your table is settled — take your time."}
+              ? `Table ${order.tableNumber} is settled — your server will take it from here.`
+              : "Your table is settled — your server will take it from here."}
           </p>
           <p style={{ margin: "10px 0 0", fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
             Order reference{" "}
@@ -711,7 +716,7 @@ export function OrderTracker({
             ? "You’re free to go — this receipt lives in your order history."
             : dineInSettled
               ? // W9a — the old string promised live kitchen updates on a screen whose rail can never
-                // move again. State what is actually true: the visit is paid for and the receipt keeps.
+                // move again. State what is actually true: the bill is paid and the receipt keeps.
                 "Your table’s all settled — this receipt lives in your order history."
               : "Status updates here as the kitchen works on it — keep this open, or check back anytime."}
       </p>

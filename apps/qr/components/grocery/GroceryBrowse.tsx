@@ -249,16 +249,20 @@ export const GroceryBrowse = memo(function GroceryBrowse({
                   <button
                     type="button"
                     className="gcard-open"
-                    aria-label={[
-                      item.name,
-                      [item.brand, size].filter(Boolean).join(" · ") || null,
-                      price,
-                      sale ? `on sale, compare at ${dollars(sale.compareAtCents)}, save ${sale.pct}%` : null,
-                      unit,
-                      item.ebt ? "EBT eligible" : null,
-                    ]
-                      .filter(Boolean)
-                      .join(", ") + " — view details"}
+                    aria-label={
+                      [
+                        item.name,
+                        [item.brand, size].filter(Boolean).join(" · ") || null,
+                        price,
+                        sale
+                          ? `on sale, compare at ${dollars(sale.compareAtCents)}, save ${sale.pct}%`
+                          : null,
+                        unit,
+                        item.ebt ? "EBT eligible" : null,
+                      ]
+                        .filter(Boolean)
+                        .join(", ") + " — view details"
+                    }
                     onClick={() => setSheetItem(item)}
                   >
                     <span className="gcard-photo">

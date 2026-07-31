@@ -19,6 +19,12 @@ export function JoinTable() {
     e.preventDefault();
     const c = code.trim().toUpperCase();
     if (!c) return;
+    // W9a — close the sheet BEFORE routing. When this is rendered inside a failed-join recovery
+    // (GuestList), a successful join unmounts the whole branch — including this component — in one
+    // commit. Radix then restores focus to a trigger that unmounted with it, so `.focus()` hits a
+    // detached node and `document.activeElement` falls back to <body> (WCAG 2.4.3). Closing first
+    // returns focus to the live trigger while it still exists.
+    setOpen(false);
     router.push(`/menu?mode=dinein&door=dinein&j=${encodeURIComponent(c)}`);
   }
 

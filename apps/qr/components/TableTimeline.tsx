@@ -32,8 +32,10 @@ export function TimelineStrip({
    *  /cart renders the not-available placeholder). Null → the nudge renders linkless, never a dead end. */
   cartHref = null,
   /** Checkout mount: where the dessert line's menu link lands. Must carry the session `mode` — a bare
-   *  /menu defaults to scan-&-go and would strand a dine-in diner's dessert in a phantom cart. */
-  menuHref = "/menu",
+   *  /menu defaults to scan-&-go and would strand a dine-in diner's dessert in a phantom cart, so the
+   *  DEFAULT is the door picker (W9a `menuHref(null)`), never a guessed mode. Callers that know the
+   *  mode pass `menuHref(sessionMode)`. */
+  menuHref = "/",
   /** Suppress the invitation notes (dessert / settle) while the cart can't accept them — locked by a
    *  peer's checkout or frozen by a split. The kitchen counts stay: they're true regardless. */
   quiet = false,

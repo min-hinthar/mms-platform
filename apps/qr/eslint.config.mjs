@@ -16,18 +16,27 @@ import next from "eslint-config-next/core-web-vitals";
 // only forward affordance on the post-pay screen. Use `menuHref(mode)` from `lib/menu-href.ts`, which
 // carries the mode or routes to the door picker.
 //
-// Scoped to JSX `href` values and `router.push()` arguments ONLY — the string is legitimate as an
-// object KEY (TransitionNav's journey-depth map) and in a pathname COMPARISON (AppHeader), and
-// neither of those selectors matches those positions.
+// Scoped to the positions where the string is a DESTINATION — a JSX `href` (bare or braced), a
+// `router.push()` argument, and a `menuHref`-style default parameter (which is how one live bare
+// `/menu` survived the first sweep, in TableTimeline). The literal stays legal as an object KEY
+// (TransitionNav's journey-depth map) and in a pathname COMPARISON (AppHeader); none of these
+// selectors match those positions.
+//
+// This is a guardrail, not a proof: a hoisted `const MENU = "/menu"` or a template literal that
+// evaluates to the same string still passes. It catches the shape the six real regressions took.
+const BARE_MENU_MSG =
+  "Bare '/menu' defaults to scan-&-go and silently changes the diner's mode — use menuHref(mode) from lib/menu-href (W9a).";
 const noBareMenuHref = {
-  selector: "JSXAttribute[name.name='href'] > Literal[value='/menu']",
-  message:
-    "Bare '/menu' defaults to scan-&-go and silently changes the diner's mode — use menuHref(mode) from lib/menu-href (W9a).",
+  selector: "JSXAttribute[name.name='href'] Literal[value='/menu']",
+  message: BARE_MENU_MSG,
 };
 const noBareMenuPush = {
   selector: "CallExpression[callee.property.name='push'] > Literal[value='/menu']",
-  message:
-    "Bare '/menu' defaults to scan-&-go and silently changes the diner's mode — use menuHref(mode) from lib/menu-href (W9a).",
+  message: BARE_MENU_MSG,
+};
+const noBareMenuDefault = {
+  selector: "AssignmentPattern > Literal[value='/menu']",
+  message: BARE_MENU_MSG,
 };
 
 const noNumericFontSize = {
@@ -42,6 +51,7 @@ const noNumericFontSize = {
       },
       noBareMenuHref,
       noBareMenuPush,
+      noBareMenuDefault,
     ],
   },
 };

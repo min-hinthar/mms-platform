@@ -14,7 +14,7 @@ import { Avatar, Icon } from "@mms/ui";
  * Solo modes return null (honesty — RED-TEAM #3).
  */
 export function GuestList() {
-  const { isGroup, members, me, error, locked, lockedByName, tableNumber } = useCart();
+  const { isGroup, members, me, error, locked, lockedByName, tableNumber, revalidate } = useCart();
   const [inviteOpen, setInviteOpen] = useState(false);
   if (!isGroup) return null;
 
@@ -36,35 +36,39 @@ export function GuestList() {
     );
 
   // The dine-in join is the whole point of this screen — if the session mint failed, don't silently
-  // drop the group UI; surface a retry (reload re-runs the mint) so the diner isn't stranded.
+  // drop the group UI; surface the way out so the diner isn't stranded.
   //
-  // W9a — but "retry" is only honest for a TRANSIENT failure. Two arms are terminal, and reloading
-  // through them is actively harmful:
-  //   • party-full 409 (P3.4) — retrying can't free a seat.
-  //   • **no table for that code (404)** — the reload lands on a URL whose `?j=` has already been
-  //     consumed, so the mint is no longer join-only and PROVISIONS a phantom table with this diner
-  //     as host. They then order a whole meal onto a cart their party can't see. The recovery a
-  //     wrong code actually needs is entering a different one, so offer exactly that.
-  // The server's own reason is shown verbatim on both (it is specific and diner-safe); the generic
+  // W9a — three things matter here:
+  //   • **Retry re-mints IN PLACE (`revalidate`), never `window.location.reload()`.** A reload arrives
+  //     with `?t=`/`?j=` already stripped from the address bar, so the mint is no longer join-only and
+  //     the server PROVISIONS a phantom table with this diner as host — they then order a whole meal
+  //     onto a cart their party can never see. `revalidate` re-POSTs with the join code still held in
+  //     memory, so a retry can only ever rejoin the real table. That makes retry safe on every arm.
+  //   • **"No table found" also offers a different code.** `findActive` swallows its PostgREST error,
+  //     so a transient DB read failure returns the SAME 404 string as a genuinely wrong code — which
+  //     is exactly why this arm keeps a retry as well as the JoinTable escape, instead of being
+  //     treated as terminal.
+  //   • **Party-full (409) is the one truly terminal arm** — no retry can free a seat, and offering
+  //     one would just re-fail.
+  // The server's own reason is shown verbatim where it is specific and diner-safe; the generic
   // fallback stays for the transient arm, where naming the cause would be a guess.
   if (!me) {
     if (!error) return null; // still establishing the session — the menu renders meanwhile
     const full = error.includes("table is full");
     const noTable = error.includes("No table found");
-    const terminal = full || noTable;
     return (
       <div style={{ marginTop: 10 }}>
         <p role="alert" style={{ fontSize: "var(--fs-sm)", color: "var(--warn)", margin: 0 }}>
-          {terminal ? error : "Couldn’t join this table."}{" "}
-          {!terminal && (
-            <button type="button" onClick={() => window.location.reload()} style={retryBtn}>
+          {full || noTable ? error : "Couldn’t join this table."}{" "}
+          {!full && (
+            <button type="button" onClick={() => revalidate()} style={retryBtn}>
               Try again
             </button>
           )}
         </p>
-        {/* Not a live region — the alert above already announced the failure; this is the way out.
-            JoinTable owns its own sheet + routes with a fresh `?j=`, so a corrected code takes the
-            join-only path instead of provisioning a table. */}
+        {/* Not a live region — the alert above already announced the failure; this is the way out for
+            a code that is genuinely wrong. JoinTable owns its own sheet and routes with a fresh `?j=`,
+            so a corrected code takes the join-only path and can never provision a table. */}
         {noTable && (
           <div style={{ marginTop: 6 }}>
             <JoinTable />
