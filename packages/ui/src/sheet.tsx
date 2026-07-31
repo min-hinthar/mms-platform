@@ -28,10 +28,12 @@ export function Sheet({
   onOpenChange: (o: boolean) => void;
   title: string;
   children: React.ReactNode;
-  /** W9d — Radix restores focus to the TRIGGER on close; when the trigger can unmount while the
-   *  sheet is open (the grocery basket bar disappears at zero lines), that restore lands on a dead
-   *  node and focus drops to <body>. Pass this to `e.preventDefault()` and park focus on a stable
-   *  element instead (WCAG 2.4.3). Optional — every other sheet keeps the default restore. */
+  /** W9d — close-restore escape hatch. ⚠️ Radix's modal content unconditionally preventDefaults its
+   *  own close event and focuses `Dialog.Trigger` — which this primitive NEVER renders (callers open
+   *  it with plain buttons + controlled `open`), so with no handler the restore targets null and
+   *  focus lands on <body> on every close. Callers should pass this, `e.preventDefault()`, and
+   *  focus their own trigger/stable element (WCAG 2.4.3). The primitive-wide gap (every existing
+   *  Sheet caller strands focus on close) is tracked as OPEN-ITEMS J21. */
   onCloseAutoFocus?: (event: Event) => void;
 }) {
   return (

@@ -102,6 +102,9 @@ export default function Grocery() {
   }, []);
   const browseTabRef = useRef<HTMLButtonElement>(null);
   const scanTabRef = useRef<HTMLButtonElement>(null);
+  // The basket sheet's close-restore target (see onCloseAutoFocus) — Radix can't restore here
+  // itself because the Sheet primitive renders no Dialog.Trigger.
+  const basketBtnRef = useRef<HTMLButtonElement>(null);
   // One in-flight browse add at a time (the stepper's one-op discipline, extended to the Add
   // buttons — a scan can stay rapid-fire, but a double-tapped card must not double-add).
   const [addingBarcode, setAddingBarcode] = useState<string | null>(null);
@@ -241,6 +244,7 @@ export default function Grocery() {
         const r = await getGroceryLines(cartId);
         if (r.ok) {
           applyLines(seq, r.lines);
+          setCartGone(null); // an alive-cart answer clears the banner on every path (see add)
         } else if (isTerminal(r.reason)) {
           // The write's failure had a terminal cause — the basket is finished; the shared
           // transition also overwrites the "try again" flash above with the honest reason.
@@ -292,6 +296,10 @@ export default function Grocery() {
           setHydrated(true);
           setSyncFailed(false);
         }
+        // A server answer proving the cart ALIVE clears the terminal banner on every path, not just
+        // syncNow's — otherwise a successful add would repopulate the list under a banner still
+        // asserting the basket is finished (pre-merge review; symmetric with the ok arms below).
+        setCartGone(null);
         flash(`Added ${r.name}${r.ebt ? " · EBT-eligible" : ""}`);
         posthog.capture("grocery_item_scanned", {
           barcode,
@@ -311,7 +319,12 @@ export default function Grocery() {
       } else if (isTerminal(r.reason)) {
         // W9d — the add failed because the BASKET is finished, not because of the radio: the
         // shared, seq-guarded transition (list empties · banner · sheet reset · toast).
-        markCartGone(++reqSeq.current, r.reason);
+        // ⚠️ The ISSUE-time ticket (`seq`, taken before the round trip), never a fresh
+        // `++reqSeq.current`: a response-time ticket is always > appliedSeq, which turns the guard
+        // into a tautology — a slow scanAdd against an ABANDONED cart resolving after the shopper
+        // recovered onto a fresh basket would blank the fresh list and resurrect the dead banner
+        // over it (pre-merge review HIGH; the guard exists for exactly that response).
+        markCartGone(seq, r.reason);
       } else if (r.reason === "locked") {
         flash("Hang on — this basket’s being checked out.");
       } else if (r.reason === "settling") {
@@ -334,8 +347,16 @@ export default function Grocery() {
   const addFromBrowse = useCallback(
     async (item: GroceryCatalogItem) => {
       if (addingBarcode || busyLine) return;
+      // A finished basket refuses locally — same rationale as the scan door unmounting the camera:
+      // don't round-trip ~400 live Add buttons just to be refused terminal on every tap.
+      if (cartGone) {
+        flash("This basket is finished — use “Start a fresh basket” to keep shopping.");
+        return;
+      }
       if (cartId && syncFailed && !hydrated) {
-        flash("Couldn’t check your basket — use Retry above before adding.");
+        // Direction-neutral (pre-merge review): the truth strip's Retry renders BELOW the browse
+        // grid, so "above" pointed the wrong way from every card.
+        flash("Couldn’t check your basket — tap Retry, then add again.");
         return;
       }
       setAddingBarcode(item.barcode);
@@ -345,7 +366,7 @@ export default function Grocery() {
         setAddingBarcode(null);
       }
     },
-    [add, addingBarcode, busyLine, cartId, syncFailed, hydrated, flash],
+    [add, addingBarcode, busyLine, cartId, cartGone, syncFailed, hydrated, flash],
   );
 
   // Debounced name search. All setState lives in the async timeout callback — never synchronously in
@@ -391,10 +412,16 @@ export default function Grocery() {
       return;
     }
     if (addingBarcode || busyLine) return;
+    // A finished basket refuses locally — the browse cards' rule, applied to hits too.
+    if (cartGone) {
+      flash("This basket is finished — use “Start a fresh basket” to keep shopping.");
+      return;
+    }
     // Same invisible-basket refusal as the browse cards (pre-merge review) — an add against a
-    // basket whose truth failed to load could double a qty the shopper can't see.
+    // basket whose truth failed to load could double a qty the shopper can't see. Direction-neutral
+    // copy: the truth strip's Retry renders below the results list.
     if (syncFailed && !hydrated) {
-      flash("Couldn’t check your basket — use Retry above before adding.");
+      flash("Couldn’t check your basket — tap Retry, then add again.");
       return;
     }
     setAddingBarcode(h.barcode);
@@ -613,8 +640,9 @@ export default function Grocery() {
                       // + an sr-only companion so the sale reaches screen readers too. W9d: the
                       // "−N%" shout is GONE here — search hits are the QUIET surface, like the
                       // cards' inline strike (the loud percentage now belongs only to featured
-                      // deals, and `mms_grocery_search` doesn't carry the flag; 306 of 396 SKUs
-                      // would otherwise shout on 77% of results — the wallpaper this slice removed).
+                      // deals, and `mms_grocery_search` doesn't carry the flag; 313 of 396 SKUs
+                      // carry a genuine discount, so ~79% of results would otherwise shout — the
+                      // wallpaper this slice removed).
                       return (
                         <>
                           <small aria-hidden style={{ color: "var(--ac-strong)", fontWeight: 700 }}>
@@ -651,7 +679,7 @@ export default function Grocery() {
             re-renders the ~400-card grid (adversarial MED-2). */}
         <GroceryBrowse
           lines={lines}
-          canAdd={!!cartId && (hydrated || !syncFailed)}
+          canAdd={!!cartId && !cartGone && (hydrated || !syncFailed)}
           addingBarcode={addingBarcode}
           busyLineId={busyLine}
           onAdd={addFromBrowse}
@@ -826,9 +854,15 @@ export default function Grocery() {
 
       {/* ALWAYS-mounted live region (adversarial MED-6): several SR/browser pairs skip a region
           born WITH its text — the container persists, only the text swaps; visibility hides the
-          empty pill without removing it from the accessibility tree's region registry. */}
+          empty pill without removing it from the accessibility tree's region registry.
+          The explicit aria-live is NOT the usual role="status" redundancy (QA §A): it's what keeps
+          this region OUT of Radix's modal aria-hidden sweep — the aria-hidden lib exempts only
+          `[aria-live]` nodes, so without the attribute a terminal answer landing while the basket
+          sheet is open would flash into a hidden node and re-enter the tree "born with" its text
+          (the exact class MED-6 fixed). Deliberate; keep it. */}
       <div
         role="status"
+        aria-live="polite"
         className="grocery-toast"
         style={toast ? undefined : { visibility: "hidden" }}
       >
@@ -842,6 +876,7 @@ export default function Grocery() {
         <div className="grocery-cta-bar">
           <button
             type="button"
+            ref={basketBtnRef}
             className="grocery-basket-btn"
             aria-haspopup="dialog"
             aria-label={`Review basket — ${itemCount} ${itemCount === 1 ? "item" : "items"}`}
@@ -890,14 +925,17 @@ export default function Grocery() {
           onStep={stepQty}
           onCheckout={checkout}
           onCloseAutoFocus={(e) => {
-            // The sheet's trigger (the CTA bar) unmounts at zero lines — removing the last row in
-            // the sheet, or a terminal force-close, would let Radix restore focus to a dead node
-            // and drop it on <body>. Park it on the stable search input instead (the page's
-            // remove-row pattern). With lines still present the trigger exists — default restore.
-            if (lines.length === 0) {
-              e.preventDefault();
-              searchRef.current?.focus();
-            }
+            // ALWAYS redirect the restore — there is no working default here. Radix's modal
+            // content unconditionally preventDefaults its own close event and focuses
+            // `triggerRef.current`, but our Sheet never renders a Dialog.Trigger, so that ref is
+            // null and EVERY close would land focus on <body> (verified mechanically against the
+            // installed @radix-ui/react-dialog — the FocusScope fallback is skipped once the
+            // event is defaultPrevented). Park on the basket button while it exists; on the
+            // stable search input once the last row was removed and the CTA bar unmounted
+            // (the page's remove-row pattern, WCAG 2.4.3).
+            e.preventDefault();
+            if (lines.length === 0) searchRef.current?.focus();
+            else basketBtnRef.current?.focus();
           }}
         />
       )}
