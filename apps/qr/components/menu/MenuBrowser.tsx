@@ -184,7 +184,7 @@ export function MenuBrowser({
         if (res.notesDropped.length > 0)
           bits.push(
             res.notesDropped.length === 1
-              ? `your note for ${res.notesDropped[0]} didn’t come back — tap it to add it again`
+              ? `your note for ${res.notesDropped[0] ?? "1 dish"} didn’t come back — tap it to add it again`
               : `notes for ${res.notesDropped.join(", ")} didn’t come back — tap each to add them again`,
           );
         if (res.quantitiesReset) bits.push("quantities start at one");

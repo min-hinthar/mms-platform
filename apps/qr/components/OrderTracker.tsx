@@ -614,11 +614,7 @@ export function OrderTracker({
           }}
         >
           <div style={{ fontWeight: 700, fontSize: "var(--fs-sm)" }}>
-            {processing
-              ? "This is taking longer than usual"
-              : sharePayer
-                ? "Your share is paid"
-                : "This is taking longer than usual"}
+            {sharePayer ? "Your share is paid" : "This is taking longer than usual"}
           </div>
           {/* W9c — the old copy told a diner whose PAID, EATEN meal was sitting in the database that
               their "order just hasn't appeared here yet". It had appeared; the table was cleared and
@@ -695,8 +691,45 @@ export function OrderTracker({
           }}
         >
           Live updates aren’t reaching this screen, so this is a snapshot rather than a live view —
-          it won’t update on its own. Refresh to check for changes; the full receipt is in your
-          account.
+          it won’t update on its own.
+          <span
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 14,
+              flexWrap: "wrap",
+              marginTop: 8,
+            }}
+          >
+            {/* ⚠️ This notice renders when the fallback RESOLVED the order, i.e. `arrived` — and the
+                Refresh button lives in the `!arrived` banner above. An earlier draft told the diner to
+                "refresh to check" with no Refresh anywhere on the page, and dropped the /account link
+                out of the sentence at the same time: two instructions, zero controls, on the screen
+                this slice exists to make honest. Both controls are right here now. */}
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              style={{
+                minHeight: 44,
+                padding: "0 16px",
+                borderRadius: 10,
+                border: "1px solid var(--bd)",
+                background: "var(--cd)",
+                color: "var(--tx)",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              Refresh
+            </button>
+            <Link href="/account" className="nav-link">
+              Full receipt in your account
+              <span aria-hidden className="nav-arrow nav-arrow-fwd">
+                {" "}
+                →
+              </span>
+            </Link>
+          </span>
         </p>
       )}
 
@@ -805,7 +838,14 @@ export function OrderTracker({
               ? // W9a — the old string promised live kitchen updates on a screen whose rail can never
                 // move again. State what is actually true: the bill is paid and the receipt keeps.
                 "Your table’s all settled — this receipt lives in your order history."
-              : "Status updates here as the kitchen works on it — keep this open, or check back anytime."}
+              : timedOut && !arrived
+                ? // W9c — "keep this open" is a promise the code cannot keep here: `exhausted` and the
+                  // server fallback are BOTH latched, so nothing on this screen will change on its own.
+                  // It also contradicted the banner directly above it.
+                  "Nothing more will load here on its own — use Refresh above, or ask us and we’ll look it up."
+                : staleSnapshot
+                  ? "This is the order as we last read it — the receipt in your account is the lasting copy."
+                  : "Status updates here as the kitchen works on it — keep this open, or check back anytime."}
       </p>
       <div style={{ display: "flex", gap: 20, alignItems: "center", marginTop: 4 }}>
         {/* W9a — the ONLY forward affordance on the post-pay screen, and it used to be a bare

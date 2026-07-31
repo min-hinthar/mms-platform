@@ -46,9 +46,9 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
             ? "It’s already paid for — there’s nothing left to check out here."
             : "This order isn’t available on this device. Start from the menu."}
         </p>
-        {/* Only offered when the caller is the order's own earner — `getOrderHistory` reads the same
-            `earned_by` column, so this link is guaranteed to find it rather than greeting them with
-            "No orders yet". */}
+        {/* ⚠️ `mine` is also true for a SPLIT payer, whom `getOrderHistory` (earned_by-scoped) will NOT
+            find — so this says "see it" rather than promising a receipt, and the split gap is tracked
+            as OPEN-ITEMS M29. The headline above is true for both: they did pay, and it is complete. */}
         {mine && (
           <p style={{ margin: "0 0 14px" }}>
             <Link href="/account" className="nav-link">

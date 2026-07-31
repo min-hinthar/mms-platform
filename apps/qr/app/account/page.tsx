@@ -63,8 +63,8 @@ export default async function Account() {
           here specifically to find a receipt. Degrade the hub, never the history. */}
       {!state && (
         <p role="alert" style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
-          We couldn’t load your rewards just now. Your orders are below; pull to refresh to try
-          again.
+          We couldn’t load your Stars and rewards just now — try again in a moment. Your orders are
+          below either way.
         </p>
       )}
       {state && (
@@ -89,25 +89,31 @@ export default async function Account() {
             )}
           </div>
           <RewardsHub state={state} />
-          {/* K4: the diner's in-flight orders (live), above their past-order history. Renders nothing
-              when nothing's in progress. */}
-          <TodayOrders orders={live} />
-          {history === null ? (
-            <p
-              style={{
-                fontSize: "var(--fs-sm)",
-                color: "var(--t2)",
-                margin: "0 0 var(--s4)",
-                padding: "0 2px",
-              }}
-            >
-              We couldn’t load your past orders just now — check back in a moment.
-            </p>
-          ) : (
-            <OrderHistory entries={history} />
-          )}
           {/* K3a: the old "Signed in as …" footer note is now the AccountStatus card above. */}
         </>
+      )}
+
+      {/* W9c — the ORDERS sit OUTSIDE the rewards gate, and that placement is the whole point. An
+          earlier attempt "fixed" this by rewriting `{!state ? alert : hub}` as `{!state && alert}` +
+          `{state && hub}` — semantically the identical tree, with the orders still inside it, while
+          the new copy promised orders that were not rendered. A failed `mms_rewards_summary` must
+          cost the diner their Stars panel, never their receipts: /track's "Find it in your account",
+          /cart's "See it in your account" and the tracker's snapshot notice all send them here for
+          exactly this list. */}
+      <TodayOrders orders={live} />
+      {history === null ? (
+        <p
+          style={{
+            fontSize: "var(--fs-sm)",
+            color: "var(--t2)",
+            margin: "0 0 var(--s4)",
+            padding: "0 2px",
+          }}
+        >
+          We couldn’t load your past orders just now — check back in a moment.
+        </p>
+      ) : (
+        <OrderHistory entries={history} />
       )}
 
       <div style={{ marginTop: 8 }}>

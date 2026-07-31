@@ -207,12 +207,15 @@ const MUTANTS = [
     replace: "if (s.length > NOTES_MAX) return { carry: true, note: s.slice(0, NOTES_MAX) };",
   },
   {
-    id: "reorder-notes/drop-not-disclosed",
+    // A DIFFERENT rule from the one above — the earlier pair shared a `find`, so the second killed on
+    // the same assertion and proved nothing extra. This one guards the trim-before-measure order: with
+    // it reversed, trailing whitespace alone pushes a valid note over the cap and silently drops it.
+    id: "reorder-notes/measure-before-trim",
     file: "apps/qr/lib/reorder-notes.ts",
     suite: "lib/reorder-notes.test.ts",
-    why: "a silently-dropped note is worse than a dropped one — the diner must be told to re-add it",
-    find: "if (s.length > NOTES_MAX) return { carry: false, dropped: true };",
-    replace: "if (s.length > NOTES_MAX) return { carry: false, dropped: false };",
+    why: "trailing spaces must not push a within-cap allergy note over the limit",
+    find: 'const s = typeof raw === "string" ? raw.trim() : "";',
+    replace: 'const s = typeof raw === "string" ? raw : "";',
   },
 ];
 

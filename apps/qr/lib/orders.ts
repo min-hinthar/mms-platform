@@ -219,9 +219,19 @@ export async function getMyOrderFallback(input: {
  * what state it is in. That is a cart-lifecycle oracle on a forwarded URL.
  *
  * This asks a question the caller is entitled to have answered: is there an order of MY OWN behind
- * this cart? A non-member always gets `false` and therefore the generic copy, so nothing leaks — and
- * because the check is `earned_by = uid`, a `true` answer also guarantees the "see it in your account"
- * route it unlocks will actually find the order (`getOrderHistory` reads the same column).
+ * this cart? A non-member always gets `false` and therefore the generic copy, so nothing leaks.
+ *
+ * TWO uid-scoped proofs, because `earned_by` alone covers only single-pay card orders:
+ *   • `qr_orders.earned_by = uid` — the diner who paid by card. Also guarantees the "see it in your
+ *     account" route this unlocks will find the order (`getOrderHistory` reads the same column).
+ *   • `qr_cart_shares.seat_id = uid` — a SPLIT payer. `mms_fulfill_split_order` stamps only the host
+ *     as `earned_by` (OPEN-ITEMS M29), so without this every other share payer — who paid real money —
+ *     fell to "This order isn't available on this device" on their own finished bill.
+ *
+ * ⚠️ KNOWN GAP: a CASH-settled order carries no diner uid at all (`mms_fulfill_cash_order` records
+ * `settled_by`, which is the STAFF member) and no share rows. There is nothing to match on, so a cash
+ * diner keeps the generic copy. Fail-closed is the right direction here, and inventing a match would
+ * mean trusting something the caller sent.
  */
 export async function didIPayForCart(cartId: string): Promise<boolean> {
   const parsed = cartViewInput.safeParse({ cartId });
@@ -231,7 +241,8 @@ export async function didIPayForCart(cartId: string): Promise<boolean> {
     data: { user },
   } = await supa.auth.getUser();
   if (!user) return false;
-  const { data, error } = await serviceClient()
+  const db = serviceClient();
+  const { data: own, error } = await db
     .from("qr_orders")
     .select("id")
     .eq("cart_id", parsed.data.cartId)
@@ -243,5 +254,21 @@ export async function didIPayForCart(cartId: string): Promise<boolean> {
     console.error("[orders] didIPayForCart failed", error);
     return false; // fail closed — the generic copy is always safe to show
   }
-  return !!data;
+  if (own) return true;
+
+  // Split payer: their own share row. Scoped to `seat_id = uid`, so this reads nothing the caller does
+  // not already own and cannot reveal whether anyone ELSE paid.
+  const { data: share, error: shareErr } = await db
+    .from("qr_cart_shares")
+    .select("id")
+    .eq("cart_id", parsed.data.cartId)
+    .eq("seat_id", user.id)
+    .not("order_id", "is", null)
+    .limit(1)
+    .maybeSingle();
+  if (shareErr) {
+    console.error("[orders] didIPayForCart share probe failed", shareErr);
+    return false;
+  }
+  return !!share;
 }
