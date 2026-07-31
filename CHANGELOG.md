@@ -35,16 +35,23 @@ The charge authority had **zero** executable coverage. It now has **161 tests ac
 35 across 5), and every guard is **proven able to fail**, not asserted to work. **No charged amount
 changed.**
 
-> **The pre-PR adversarial review returned BLOCK from all four lenses, and it was right.** The money
-> path was sound, but **five of this slice's own guards could not fail** — a suite that licenses future
-> change while silently green is exactly the failure mode W8 exists to prevent. All are fixed below;
-> the review's findings are recorded on the PR.
+> **Both review rounds returned BLOCK, and both were right.** Pre-PR: the money path was sound, but
+> **five of this slice's own guards could not fail** — a suite that licenses future change while
+> silently green is exactly the failure mode W8 exists to prevent. Pre-merge, scoped to the un-reviewed
+> delta: the M23 pin's runtime half was a **tautology** (asserting an object the test itself built
+> lacked a key the test never added) and its type claim was **overstated** — it tripped on a required
+> `fulfillment` field but not the likelier optional one; three hand-derivations reached the **right
+> answers via wrong intermediate steps**, which in a repo whose doctrine is "the comment is the proof"
+> is a defect; and the registry edit put status vocabulary in the **Sev** column while leaving `Status`
+> stale. All fixed; both verdicts are recorded on the PR.
 
 - **`lib/totals-math.ts` (new) — a pure `computeTotals` seam** extracted from under `getCartTotals`'s
   three I/O reads. `getCartTotals` keeps its signature and does the reads; the arithmetic moves
   verbatim. **Proven behaviour-preserving by differential-testing the new seam against the
   pre-extraction arithmetic (transcribed from `origin/main`) over 200,000 runs / 199,997 DISTINCT
-  baskets — 0 divergences.** (The first run used a naive LCG whose product overflows 2^53; it yielded
+  baskets — 0 divergences. The harness is committed as `scripts/w8a-extraction-equivalence.mjs` so
+  that claim is falsifiable rather than trust-me; it holds the pre-extraction arithmetic as a frozen
+  verbatim copy of `origin/main`, and re-running it reproduces the figure.** (The first run used a naive LCG whose product overflows 2^53; it yielded
   only 374 distinct values in 5,000 draws, so the original "200,000 baskets" claim was inflated. Both
   the differential harness and the in-suite sweeps now use mulberry32.) The three reads stay sequential; parallelising them is not behaviour-preserving in the
   failure case.

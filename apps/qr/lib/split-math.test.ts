@@ -236,9 +236,10 @@ describe("deriveShareBreakdowns — the limbs that write real per-card money", (
   });
 
   it("gives a $0-subtotal seat NO discount and NO service", () => {
-    // Seat D owns nothing. subtotal weights [2000,2000,2000,0] → discount follows the allocated
-    // subtotal, so D gets 0 of both; the other three split 1000 → exact 333.33 each →
-    // floors [333,333,333] = 999, leftover 1 → index 0 → [334,333,333,0].
+    // Seat D owns nothing. Weights [2000,2000,2000,0] → subtotal allocates 8000 as [2667,2667,2666,0].
+    // The discount is pro-rata to that ALLOCATED subtotal, not to the weights: exact
+    // [1000×2667/8000, 1000×2667/8000, 1000×2666/8000, 0] = [333.375, 333.375, 333.25, 0]
+    // → floors [333,333,333,0] = 999, leftover 1 → largest frac (0.375, index 0) → [334,333,333,0].
     const lines = LINES_J14.filter((l) => l.bySeat !== "d");
     const out = deriveShareBreakdowns(GRAND_DISC, SEATS, lines, "by_person");
     expect(out[3]!.subtotalCents).toBe(0);
@@ -254,7 +255,9 @@ describe("deriveShareBreakdowns — the limbs that write real per-card money", (
     // Here seat A owns 3000¢ and B/C own 1000¢ each, so the two modes genuinely diverge:
     //   even       → subtotal 5000 split 3 ways: exact 1666.67 → [1667,1667,1666]
     //   by-person  → would be [3000,1000,1000]
-    // service 300 over equal nets → exact 100 each → [100,100,100].
+    // service 300 over nets [1667,1667,1666] → exact [100.02, 100.02, 99.96] → floors [100,100,99]
+    // = 299, leftover 1 → largest frac (0.96, index 2) → [100,100,100]. (NOT "equal nets, exact
+    // 100 each" — the nets differ by a cent and the penny is what closes the gap.)
     const lopsided = [
       { bySeat: "a", qty: 3, unitPriceCents: 1000, taxCents: 0 },
       { bySeat: "b", qty: 1, unitPriceCents: 1000, taxCents: 0 },
@@ -298,9 +301,9 @@ describe("deriveShareBreakdowns — the limbs that write real per-card money", (
     // search: subtotals [5500,4500], discount 1234, service 450.
     //   discount 1234 pro-rata to subtotal → exact [678.7, 555.3] → floors [678,555] = 1233,
     //     leftover 1 → larger frac (0.7, index 0) → [679,555]
-    //   net = [5500−679, 4500−555] = [4821, 3945]
-    //   service 450 over net → exact [246.60…, 203.39…] → floors [246,203] = 449, leftover 1 →
-    //     larger frac (0.60) → [247,203]
+    //   net = [5500−679, 4500−555] = [4821, 3945]  (sum 8766)
+    //   service 450 over NET → exact [450×4821/8766, 450×3945/8766] = [247.4846…, 202.5154…]
+    //     → floors [247,202] = 449, leftover 1 → larger frac (0.5154, index 1) → [247,203]
     //   the mutant (weighting by subtotal) gives [248,202]
     const out = deriveShareBreakdowns(
       { subtotalCents: 10000, discountCents: 1234, serviceChargeCents: 450, taxCents: 0 },
@@ -324,6 +327,20 @@ describe("deriveShareBreakdowns — the limbs that write real per-card money", (
   });
 });
 
+/**
+ * M23 pin, COMPILE-TIME half. `deriveShareBreakdowns`' line type has no `fulfillment` field, so it
+ * structurally cannot apply W1a's grocery exclusion. `Pick<…, "fulfillment">` is an error today; the
+ * `@ts-expect-error` asserts that error EXISTS. Add the field — required *or* optional, and optional is
+ * the likelier real fix since it doesn't break `split.ts`'s call sites — and the error disappears, the
+ * directive becomes unused, and typecheck fails, forcing this pin to be revisited.
+ *
+ * (An earlier draft asserted `Object.keys(probe)).not.toContain("fulfillment")` on an object the test
+ * itself built — a runtime tautology that could never fail, i.e. the exact defect this slice removes.)
+ */
+type SplitLine = Parameters<typeof deriveShareBreakdowns>[2][number];
+// @ts-expect-error — M23: no `fulfillment` on the split line type. See the note above.
+type _M23FulfillmentAbsent = Pick<SplitLine, "fulfillment">;
+
 describe("M23 (known-open) — the split path CANNOT apply W1a's grocery exclusion", () => {
   it("has no `fulfillment` field to exclude on, so service reaches every seat with net > 0", () => {
     // PINNED, NOT FIXED — and stated STRUCTURALLY, because that is the actual defect. An earlier
@@ -340,13 +357,6 @@ describe("M23 (known-open) — the split path CANNOT apply W1a's grocery exclusi
     //
     // This assertion is a TYPE-LEVEL statement of the gap: if a `fulfillment` field is ever added to
     // the split line type (the fix), this line stops compiling and the pin must be revisited.
-    const probe: Parameters<typeof deriveShareBreakdowns>[2][number] = {
-      bySeat: "a",
-      qty: 1,
-      unitPriceCents: 2000,
-      taxCents: 0,
-    };
-    expect(Object.keys(probe)).not.toContain("fulfillment");
 
     // And behaviourally: every seat with net > 0 receives service, including one whose only line is
     // tax-exempt (the closest the type can come to representing a grocery buyer).
@@ -357,6 +367,6 @@ describe("M23 (known-open) — the split path CANNOT apply W1a's grocery exclusi
       "by_person",
     );
     expect(out[0]!.taxCents).toBe(0); // tax IS correctly excluded for an exempt seat …
-    expect(out[0]!.serviceChargeCents).toBe(75); // … but service is not, and cannot be
+    expect(out.map((x) => x.serviceChargeCents)).toEqual([75, 75, 75, 75]); // … service is not
   });
 });

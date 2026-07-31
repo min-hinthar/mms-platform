@@ -18,8 +18,11 @@ Turborepo monorepo for the **QR** app: `apps/qr` (dine-in/pickup + grocery scan-
 
 ```bash
 pnpm dev                 # apps/qr on :3000
-pnpm turbo lint typecheck build   # the gate — run before any PR
+pnpm turbo lint typecheck build test   # the gate — run before any PR
 pnpm verify:slice        # the MECHANICAL pre-PR gate: gate + 18 mutations + orphan check (~1 min)
+                         # ⚠️ REWRITES apps/qr/lib/{totals-math,split-math,tax,permissions}.ts IN PLACE
+                         # and restores them (originals spooled to node_modules/.cache/verify-slice,
+                         # auto-recovered next run if killed). Never run two against one checkout.
 pnpm verify:slice --no-gate --only=totals   # iterate on one module
 pnpm format              # prettier --write
 pnpm knip                # dead-code / unused deps

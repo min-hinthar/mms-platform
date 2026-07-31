@@ -88,9 +88,10 @@ jobs:
       - name: SQL tests (RLS · tax parity)
         run: |
           shopt -s nullglob
-          # REQUIRED files are named explicitly. A bare count is not enough: once a third file lands,
-          # deleting or renaming one of these would still leave the count satisfied and the job green
-          # with a whole guard silently gone — the same "passed by not existing" trap this replaced.
+          # REQUIRED files are named EXPLICITLY below — there is deliberately no count floor. A bare
+          # count is not enough: once a third file lands, deleting or renaming one of these would still
+          # satisfy the count and leave the job green with a whole guard silently gone. Add a new .sql
+          # to this list when it becomes load-bearing.
           for required in supabase/tests/rls_membership_test.sql supabase/tests/tax_parity_test.sql; do
             if [ ! -f "$required" ]; then
               echo "::error::Required SQL test missing: $required (renamed or deleted?)"

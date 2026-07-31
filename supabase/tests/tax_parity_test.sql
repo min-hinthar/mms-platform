@@ -119,10 +119,10 @@ begin
   -- 1400 x 0.0975 = 136.5 exactly. numeric -> 137; float8 -> 136.
   assert public.mms_line_tax(1400, 'hot_prepared', true) = 137,
     'PARITY: 1400c must be 137 — a 136 here means the tax path went float8 (half-to-even)';
-  -- And the rate must still be exact numeric, not a float approximation: 1,000,000c is exact under
-  -- numeric and would drift under repeated float8 multiplication.
-  assert public.mms_line_tax(1000000, 'hot_prepared', true) = 97500,
-    'PARITY: 1000000c must be exactly 97500 (exact numeric arithmetic)';
+  -- (An earlier draft asserted mms_line_tax(1000000) = 97500 here as a float8 guard. Dropped: under
+  -- float8 the product is 97500.00000000000333, which rounds to 97500 — GREEN under the very
+  -- regression it named — and it duplicated section 3's rate assertion. The two ties above are the
+  -- real discriminators.)
 
   -- T4 (known-open, PINNED not fixed): the negative side genuinely diverges from TS. SQL rounds a
   -- negative tie AWAY from zero (-19.5 -> -20); TS Math.round rounds it toward +inf (-19). Reachable
