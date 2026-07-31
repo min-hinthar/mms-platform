@@ -39,15 +39,22 @@ export function TimelineStrip({
    *  a lie. `null` (the default, and the state `cart/page.tsx` produces on ANY split-context read
    *  failure) → door picker + honest label. */
   menuMode = null,
-  /** Suppress the invitation notes (dessert / settle) while the cart can't accept them — locked by a
-   *  peer's checkout or frozen by a split. The kitchen counts stay: they're true regardless. */
+  /** Suppress the invitation notes (dessert / settle) while the cart can't accept them — a peer's
+   *  pay-window lock. The kitchen counts stay: they're true regardless. */
   quiet = false,
+  /** W9b — the table is settling its shares. This used to be folded into `quiet`, which deleted the
+   *  ONE link that still worked: with the cart frozen, "settle up from your order" is the wrong
+   *  invitation but the diner's own share is genuinely waiting for them. So it isn't quiet — it's a
+   *  DIFFERENT note, and unlike the settle nudge it isn't gated on the 20-minute timer, because the
+   *  bill is in motion now. Dessert stays suppressed: a frozen cart can't take an add. */
+  settling = false,
 }: {
   items: CartItem[];
   onMenu?: boolean;
   cartHref?: string | null;
   menuMode?: string | null;
   quiet?: boolean;
+  settling?: boolean;
 }) {
   // Real, countable kitchen states only (comped lines still cook — keep them; voided lines are gone).
   const active = items.filter((l) => l.lineState !== "draft" && l.lineState !== "voided");
@@ -122,7 +129,22 @@ export function TimelineStrip({
         {headline}
       </p>
       <p className="table-timeline-counts">{counts.join(" · ")}</p>
-      {allServed && !quiet && (
+      {settling && (
+        <p className="table-timeline-note">
+          {onMenu && cartHref ? (
+            <>
+              Your table’s splitting the bill —{" "}
+              <Link href={cartHref} className="nav-link">
+                pay your share
+              </Link>
+              .
+            </>
+          ) : (
+            <>Your table’s splitting the bill — pay your share below.</>
+          )}
+        </p>
+      )}
+      {allServed && !quiet && !settling && (
         <p className="table-timeline-note">
           {onMenu ? (
             <>Room for dessert or tea? The menu’s right here.</>
@@ -136,7 +158,7 @@ export function TimelineStrip({
           )}
         </p>
       )}
-      {settleNudge && !quiet && (
+      {settleNudge && !quiet && !settling && (
         <p className="table-timeline-note">
           {onMenu ? (
             cartHref ? (
@@ -160,8 +182,9 @@ export function TimelineStrip({
 }
 
 /** Menu mount: the provider's live items (group realtime + visibility refetch). The settle link
- *  carries the server-issued cart id (a bare /cart is a dead end); a locked/settling cart quiets the
- *  invitations — the menu can't accept an add and the bill is already in motion. */
+ *  carries the server-issued cart id (a bare /cart is a dead end). A peer's pay-window LOCK quiets the
+ *  invitations — the menu can't accept an add and the moment passes on its own. Settling is passed
+ *  through separately (W9b): it isn't a quiet moment, it's a call to go pay. */
 export function MenuTimeline() {
   const { items, cartId, locked, settling } = useCart();
   return (
@@ -169,7 +192,8 @@ export function MenuTimeline() {
       items={items}
       onMenu
       cartHref={cartId ? `/cart?cart=${encodeURIComponent(cartId)}` : null}
-      quiet={locked || settling}
+      quiet={locked}
+      settling={settling}
     />
   );
 }

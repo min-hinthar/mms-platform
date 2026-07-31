@@ -44,11 +44,26 @@ async function maybeRenewSession(
  * the row from us; the *authorization decision* is ours.
  */
 
+/**
+ * W9b — a STABLE machine-readable discriminator. `status` alone can't separate "this cart was
+ * fulfilled" from "you aren't a member": both are 403. Any UI that branches on WHY authorization
+ * failed (the settlement board routes to the receipt on `cart_closed` and only on `cart_closed`)
+ * must key on this — never on `message`, which is human copy and free to change.
+ */
+export type AuthzCode =
+  | "unauthenticated"
+  | "no_cart"
+  | "cart_closed"
+  | "session_expired"
+  | "not_member"
+  | "no_item";
+
 /** Distinguishes 401 (no/!invalid session) from 403 (valid diner, not a member) for route mapping. */
 export class AuthzError extends Error {
   constructor(
     message: string,
     readonly status: 401 | 403 | 404,
+    readonly code?: AuthzCode,
   ) {
     super(message);
     this.name = "AuthzError";
@@ -62,7 +77,7 @@ export async function getCallerUid(): Promise<string> {
     data: { user },
     error,
   } = await supa.auth.getUser();
-  if (error || !user) throw new AuthzError("Not signed in", 401);
+  if (error || !user) throw new AuthzError("Not signed in", 401, "unauthenticated");
   return user.id;
 }
 
@@ -98,10 +113,10 @@ export async function assertCartMember(cartId: string): Promise<CartAuthz> {
     .select("session_id,locked,locked_at,locked_by,settle_at,settle_by,status")
     .eq("id", cartId)
     .maybeSingle();
-  if (!cart) throw new AuthzError("No such cart", 404);
+  if (!cart) throw new AuthzError("No such cart", 404, "no_cart");
   // A paid/cancelled cart is immutable — `mms_fulfill_order` flips status to 'paid', so this stops
   // any post-payment addItem/setQty/applyPromo from desyncing the fulfilled order (defense in depth).
-  if (cart.status !== "open") throw new AuthzError("Cart is no longer open", 403);
+  if (cart.status !== "open") throw new AuthzError("Cart is no longer open", 403, "cart_closed");
 
   // Effective lock: held AND fresh. A stale lock (a diner closed the pay tab) is ignored, so the
   // cart frees itself after the TTL — the next acquire takes it over. Same cutoff as lib/lock.ts.
@@ -120,7 +135,7 @@ export async function assertCartMember(cartId: string): Promise<CartAuthz> {
     .eq("id", cart.session_id)
     .maybeSingle();
   if (!sess || sess.status === "closed" || new Date(sess.expires_at) <= new Date())
-    throw new AuthzError("Session is no longer active", 403);
+    throw new AuthzError("Session is no longer active", 403, "session_expired");
 
   const { data: member } = await db
     .from("session_members")
@@ -128,7 +143,7 @@ export async function assertCartMember(cartId: string): Promise<CartAuthz> {
     .eq("session_id", cart.session_id)
     .eq("seat_id", uid)
     .maybeSingle();
-  if (!member) throw new AuthzError("Not a member of this session", 403);
+  if (!member) throw new AuthzError("Not a member of this session", 403, "not_member");
 
   // Sliding renewal (bugfix: the 4h hard TTL stranded in-use dine-in tables). The session passed the
   // freshness check above, so any authorized touch slides expires_at forward — a table that's actually
@@ -162,7 +177,7 @@ export async function assertSessionMember(sessionId: string): Promise<{ uid: str
     .eq("id", sessionId)
     .maybeSingle();
   if (!sess || sess.status === "closed" || new Date(sess.expires_at) <= new Date())
-    throw new AuthzError("Session is no longer active", 403);
+    throw new AuthzError("Session is no longer active", 403, "session_expired");
 
   const { data: member } = await db
     .from("session_members")
@@ -170,7 +185,7 @@ export async function assertSessionMember(sessionId: string): Promise<{ uid: str
     .eq("session_id", sessionId)
     .eq("seat_id", uid)
     .maybeSingle();
-  if (!member) throw new AuthzError("Not a member of this session", 403);
+  if (!member) throw new AuthzError("Not a member of this session", 403, "not_member");
 
   // Symmetric with assertCartMember: a table kept alive by presence/renames (not just cart writes)
   // also slides its expiry forward, so a chatty-but-not-ordering table doesn't expire mid-meal.
@@ -192,7 +207,7 @@ export async function assertCartItemMember(
     .select("cart_id,by_seat,state,comped")
     .eq("id", cartItemId)
     .maybeSingle();
-  if (!item) throw new AuthzError("No such cart item", 404);
+  if (!item) throw new AuthzError("No such cart item", 404, "no_item");
   return {
     ...(await assertCartMember(item.cart_id)),
     cartId: item.cart_id,

@@ -5,6 +5,7 @@ import posthog from "posthog-js";
 import type { CartItem } from "@mms/db";
 import { useAnimationPreference, useRipple } from "@mms/ui";
 import { useCart } from "./TableCartProvider";
+import { inertReason } from "@/lib/inert-reason";
 
 const MAX_QTY = 99; // matches the cart Stepper's upper bound (setQty is the authority; this is the UI gate)
 
@@ -57,7 +58,7 @@ export function AddButton({
   name: string;
   soldOut?: boolean;
 }) {
-  const { add, setItemQty, items, cartId, locked, settling, isGroup, me } = useCart();
+  const { add, setItemQty, items, cartId, loading, locked, settling, isGroup, me } = useCart();
   const [busy, setBusy] = useState(false);
   // Optimistic add delta (R7 perf): the button morphs to the stepper the INSTANT it's tapped, before the
   // server round-trip returns, so a tap never sits at "…" waiting on the network. Reconciled to server
@@ -97,6 +98,15 @@ export function AddButton({
   // on `busy`, so rapid +/− taps stay live and never freeze mid-write — the "cart actions feel delayed" fix.
   const frozen = !cartId || locked || settling;
   const blocked = frozen || busy;
+  // W9b — the mint window. `loading` has been on the cart context since M3 with ZERO consumers, so
+  // for the second or two before the session resolves every pill on the menu is simply dead: no
+  // label, no busy state, nothing to hear. This does NOT relax `blocked`/`inactive` — a tap that
+  // reached `add()` with a null cartId would raise the session-recovery banner for a non-error (M10).
+  const minting = loading && !cartId;
+  // Why this control is inert — from the SHARED ladder (lib/inert-reason), so the Add pill, the
+  // stepper and the item sheet can't drift into telling a screen-reader user different stories about
+  // the same frozen cart. Precedence + copy are pinned by `inert-reason.test.ts`.
+  const reason = inertReason({ minting, locked, settling });
 
   // Serialize THIS button's stepper writes so rapid taps can't race on a stale server read: a "+" merges via
   // `add` (relative — order-independent), a "−" trims a specific line by id, and each op reads the FRESHEST
@@ -241,7 +251,13 @@ export function AddButton({
           type="button"
           className="mms-stepper-btn"
           disabled={frozen}
-          aria-label={qty === 1 ? `Remove ${name}` : `Remove one ${name}`}
+          aria-label={
+            reason
+              ? `${qty === 1 ? `Remove ${name}` : `Remove one ${name}`} — ${reason}`
+              : qty === 1
+                ? `Remove ${name}`
+                : `Remove one ${name}`
+          }
           onClick={decrement}
         >
           <span aria-hidden>−</span>
@@ -275,7 +291,9 @@ export function AddButton({
               ? `${name} is sold out`
               : qty >= MAX_QTY
                 ? `Maximum ${MAX_QTY} ${name}`
-                : `Add another ${name}`
+                : reason
+                  ? `Add another ${name} — ${reason}`
+                  : `Add another ${name}`
           }
           onClick={() => increment(false)}
         >
@@ -299,12 +317,12 @@ export function AddButton({
       type="button"
       disabled={nativeDisabled}
       aria-disabled={soldOut || undefined}
-      aria-busy={busy}
+      aria-busy={busy || minting}
       aria-label={
         soldOut
           ? `${name}, sold out`
-          : locked
-            ? `${name} — order locked while someone checks out`
+          : reason
+            ? `${name} — ${reason}`
             : `Add ${name} to your order`
       }
       // Spring press feedback — reduced-motion-gated; never on an inactive (disabled/sold-out) button.

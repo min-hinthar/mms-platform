@@ -1,5 +1,6 @@
 "use client";
 import { useState, type CSSProperties } from "react";
+import { TransitionLink as Link } from "@/components/nav/TransitionNav"; // J1 journey grammar
 import { useCart } from "./TableCartProvider";
 import { InviteSheet } from "./InviteSheet";
 import { JoinTable } from "./JoinTable";
@@ -14,8 +15,19 @@ import { Avatar, Icon } from "@mms/ui";
  * Solo modes return null (honesty — RED-TEAM #3).
  */
 export function GuestList() {
-  const { isGroup, members, me, error, loading, locked, lockedByName, tableNumber, revalidate } =
-    useCart();
+  const {
+    isGroup,
+    members,
+    me,
+    error,
+    loading,
+    locked,
+    lockedByName,
+    tableNumber,
+    revalidate,
+    settling,
+    cartId,
+  } = useCart();
   const [inviteOpen, setInviteOpen] = useState(false);
   // W9a — `revalidate()` clears `error`, and the failure block below is gated on `error`. Without a
   // busy state the retry button DELETES ITSELF the moment it is tapped: focus drops to <body>
@@ -112,6 +124,40 @@ export function GuestList() {
     );
   }
 
+  // W9b — the table is settling: the cart is frozen table-wide and every Add on this menu is inert.
+  // Placed AFTER the `!me` branch on purpose — the `locked` early-return above already sits ahead of
+  // it, and a second early-return alongside that one would shadow "Couldn't join this table" / the
+  // party-full copy for a diner whose session never established.
+  //
+  // Plain visual banner, not a live region: the provider announced the transition through the view's
+  // one region. Unlike `locked` (a moment that passes on its own) settling needs somewhere to GO —
+  // the diner's share is waiting on the board — so this one carries a link.
+  if (settling && cartId)
+    return (
+      <p style={settleBar}>
+        <Icon
+          name="people"
+          size={14}
+          style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }}
+        />
+        <span>Your table is splitting the bill — the order’s locked while everyone pays.</span>
+        <Link
+          href={`/cart?cart=${encodeURIComponent(cartId)}`}
+          style={{
+            marginLeft: "auto",
+            minHeight: 44,
+            display: "inline-flex",
+            alignItems: "center",
+            color: "var(--ac-strong)",
+            fontWeight: 800,
+            whiteSpace: "nowrap",
+          }}
+        >
+          Pay your share →
+        </Link>
+      </p>
+    );
+
   // Always include self first (presence may not have synced yet); dedupe peers by seat.
   const bySeat = new Map<string, { seat: string; name: string }>();
   bySeat.set(me.seat, me);
@@ -191,6 +237,23 @@ const lockBar: CSSProperties = {
   borderRadius: 11,
   background: "var(--warnb)",
   color: "var(--warn)",
+  fontWeight: 700,
+  fontSize: "var(--fs-sm)",
+};
+// W9b — the settle banner. Same shape as `lockBar` but neutral-surfaced rather than warn-coloured:
+// the table paying is the intended end of the meal, not something going wrong. `flexWrap` keeps the
+// link's 44px target from crushing the copy on a narrow phone.
+const settleBar: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  flexWrap: "wrap",
+  marginTop: 10,
+  padding: "9px 13px",
+  borderRadius: 11,
+  background: "var(--sf)",
+  border: "1px solid var(--bd)",
+  color: "var(--t2)",
   fontWeight: 700,
   fontSize: "var(--fs-sm)",
 };

@@ -48,7 +48,28 @@ export function SettlementBoard({
     // getSettlement on a now-paid cart (swallowed 403s / dead work) until the navigation completes.
     if (redirected.current) return;
     void getSettlement(cartId)
-      .then((rows) => {
+      .then((r) => {
+        // W9b — a failed read is NOT an empty board (M24). Only the server-typed `settled` may
+        // navigate: in production Server Action errors are redacted, so "it threw" can't tell a
+        // network blip from a real 403, and guessing would eject a mid-authorization payer to a
+        // receipt that doesn't exist yet.
+        if (!r.ok) {
+          if (r.reason !== "settled") {
+            setLoadError(true);
+            return;
+          }
+          if (redirected.current) return;
+          redirected.current = true;
+          setLoaded(true); // the cart is gone; show the beat, not the skeleton
+          setLoadError(false);
+          setComplete(true);
+          onStatus("Everyone’s paid — pulling up the table’s receipt…");
+          navTimer.current = window.setTimeout(() => {
+            window.location.assign(`/track?cart=${encodeURIComponent(cartId)}&paid=1`);
+          }, 1600);
+          return;
+        }
+        const rows = r.shares;
         setShares(rows);
         setLoaded(true);
         setLoadError(false);
@@ -67,9 +88,10 @@ export function SettlementBoard({
         }
       })
       .catch(() => {
-        // A post-fulfillment 403 (cart flipped to paid) after we've loaded is the expected end state —
-        // the redirect / realtime carries the diner to /track, so swallow. A FIRST-load failure leaves
-        // no data to show, so flag it (the render offers a retry rather than a permanent empty board).
+        // A throw that reaches here is a transport/runtime failure — `getSettlement` returns its
+        // authorization outcomes as data. Flag it either way: before first load the render offers a
+        // retry instead of a permanent skeleton, and AFTER first load it says the board is stale
+        // rather than passing off a frozen snapshot as live (W9b).
         setLoadError(true);
       });
   }, [cartId, onStatus]);
@@ -111,6 +133,15 @@ export function SettlementBoard({
   const totalCents = shares.reduce((a, s) => a + s.amountCents, 0);
   const allIn =
     shares.length > 0 && shares.every((s) => s.status !== "pending" && s.status !== "failed");
+
+  // W9b — a member with NO share row joined the table after the host opened the split, so the ledger
+  // has no line for them: every control on this screen is inert and nothing says why. Read-only is the
+  // correct answer, not a bug to paper over — `mms_fulfill_split_order` hard-raises when Σ(captured) ≠
+  // the expected total, so minting a share mid-flight would break fulfillment for everyone. Name the
+  // situation and give the two real ways out (restart the split, or pay together).
+  const hostName = ctx.members.find((m) => m.role === "host")?.name ?? "the host";
+  const lateJoiner =
+    loaded && !complete && shares.length > 0 && !shares.some((s) => s.seat === ctx.mySeat);
 
   // The viewer's OWN share flipping out of payable (authorized/captured lands via realtime) unmounts
   // their SharePay form silently — announce it through the settle view's ONE status region (Checkout's)
@@ -229,6 +260,46 @@ export function SettlementBoard({
         )
       ) : (
         <>
+          {/* W9b — the board loaded once and a later refresh failed. The rows below are a frozen
+              snapshot on a screen whose whole promise is "live", so say so rather than let a stale
+              status pass for the truth. Plain static text, not a live region: the 5s poll would
+              otherwise re-announce this on every flap (Checkout's status region is the view's one
+              announcer). */}
+          {loadError && (
+            <p
+              style={{
+                fontSize: "var(--fs-xs)",
+                color: "var(--t2)",
+                background: "var(--warnb)",
+                border: "1px solid var(--warn)",
+                borderRadius: 10,
+                padding: "8px 10px",
+                margin: "0 0 12px",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                flexWrap: "wrap",
+              }}
+            >
+              <span>Couldn’t refresh — showing the last update.</span>
+              <button
+                type="button"
+                onClick={load}
+                style={{
+                  minHeight: 44,
+                  padding: "0 4px",
+                  background: "none",
+                  border: "none",
+                  color: "var(--warn)",
+                  fontWeight: 800,
+                  textDecoration: "underline",
+                  cursor: "pointer",
+                }}
+              >
+                Try again
+              </button>
+            </p>
+          )}
           {complete ? (
             // J4 — the shared end-beat: the whole table sees this together for a breath before the
             // receipt. NOT a live region — the announcement went through the settle view's one status
@@ -268,6 +339,27 @@ export function SettlementBoard({
                 />
               </div>
             </>
+          )}
+
+          {/* W9b — the late joiner. Plain static text (not a live region): the rows below are still
+              worth watching, this only explains why none of them is theirs. */}
+          {lateJoiner && (
+            <p
+              style={{
+                fontSize: "var(--fs-sm)",
+                color: "var(--t2)",
+                background: "var(--sf)",
+                border: "1px solid var(--bd)",
+                borderRadius: 12,
+                padding: "10px 12px",
+                margin: "0 0 12px",
+                lineHeight: 1.5,
+              }}
+            >
+              You joined after the split started, so there’s no share here for you yet — ask{" "}
+              <strong style={{ color: "var(--t1)" }}>{hostName}</strong> to restart the split, or pay
+              together.
+            </p>
           )}
 
           <ul

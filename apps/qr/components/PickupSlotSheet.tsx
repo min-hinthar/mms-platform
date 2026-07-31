@@ -21,7 +21,11 @@ export function PickupSlotSheet({
   cartId: string;
   onChosen: (slot: string) => void;
 }) {
-  const [slots, setSlots] = useState<PickupSlot[] | null>(null);
+  // W9b — three states, not two. `failed` exists so a read miss can never wear the sold-out copy.
+  const [load, setLoad] = useState<
+    { s: "loading" } | { s: "ok"; slots: PickupSlot[] } | { s: "failed" }
+  >({ s: "loading" });
+  const [reloadNonce, setReloadNonce] = useState(0); // bumped by "Try again" to re-run the effect
   const [error, setError] = useState<string | null>(null);
   const [pendingSlot, setPendingSlot] = useState<string | null>(null); // the chip being set (instant feedback)
   const [dayIdx, setDayIdx] = useState(0); // which day section is shown in the time grid
@@ -30,21 +34,26 @@ export function PickupSlotSheet({
   // Re-fetch availability each time the sheet opens, or if the cart changes (capacity is live). setState
   // lives only in the async callbacks (the allowed "sync from an external system" pattern — no synchronous
   // setState in the effect body); a fresh load also clears any stale error from a prior failed pick.
+  // Both outcomes clear `error` so the failure card below is the view's ONLY live region (QA §A).
   useEffect(() => {
     if (!open) return;
     let active = true;
     getPickupSlots(cartId)
-      .then((s) => {
+      .then((r) => {
         if (!active) return;
-        setSlots(s);
+        setLoad(r.ok ? { s: "ok", slots: r.slots } : { s: "failed" });
         setDayIdx(0); // each open starts on the first day (Today)
         setError(null);
       })
-      .catch(() => active && setSlots([]));
+      .catch(() => {
+        if (!active) return;
+        setLoad({ s: "failed" });
+        setError(null);
+      });
     return () => {
       active = false;
     };
-  }, [open, cartId]);
+  }, [open, cartId, reloadNonce]);
 
   function choose(slot: string) {
     setPendingSlot(slot); // synchronous → the tapped chip shows "Setting…" on tap, before the round-trip
@@ -62,9 +71,12 @@ export function PickupSlotSheet({
             ? "That time just filled — pick another."
             : "Couldn’t set that time — please try again.",
         );
-        // Re-list so a filled slot drops out of the choices.
+        // Re-list so a filled slot drops out of the choices. Best-effort ONLY: on a failed re-list we
+        // keep the current (stale) grid rather than flipping to the failure card — `error` above has
+        // already told the diner what happened and owns the one live region, and a usable-if-stale grid
+        // beats replacing it with a retry for a refinement they didn't ask for.
         getPickupSlots(cartId)
-          .then(setSlots)
+          .then((r) => r.ok && setLoad({ s: "ok", slots: r.slots }))
           .catch(() => {});
       } catch {
         setError("Couldn’t set that time — check your connection and try again.");
@@ -77,7 +89,7 @@ export function PickupSlotSheet({
   // Slots arrive time-sorted → group into consecutive day sections (Today / Tomorrow / weekday). The
   // selector picks a day; the grid shows just that day's times. `activeDay` clamps so a day that fully
   // fills (and drops out on a re-list) can't leave the grid pointing past the end.
-  const groups = slots ? groupByDay(slots) : [];
+  const groups = load.s === "ok" ? groupByDay(load.slots) : [];
   const activeDay = Math.min(dayIdx, Math.max(0, groups.length - 1));
   const dayTimes = groups[activeDay]?.slots ?? [];
   // Organize the selected day's times into daypart sections (🌅 Morning · ☀️ Afternoon · 🌆 Evening)
@@ -97,7 +109,7 @@ export function PickupSlotSheet({
         />
         750 Terrado Plaza, Covina
       </p>
-      {slots === null ? (
+      {load.s === "loading" ? (
         // Skeleton mirror of the day rail + time grid. Decorative (aria-hidden) — no live region here, so
         // it can't double-announce with the error region below (one live region per view; the Radix Dialog
         // title already names the sheet). A sibling sr-only string keeps an SR loading cue.
@@ -116,7 +128,33 @@ export function PickupSlotSheet({
             </div>
           </div>
         </>
-      ) : slots.length === 0 ? (
+      ) : load.s === "failed" ? (
+        // W9b — the "we couldn't ask" state. A genuinely sold-out day keeps the calm copy below; this
+        // branch only fires when the availability read itself failed, so it offers the way out (retry in
+        // place) instead of quietly reporting a closed kitchen. Mirrors the SettlementBoard retry.
+        <p role="alert" style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
+          Couldn’t load pickup times.{" "}
+          <button
+            type="button"
+            onClick={() => {
+              setLoad({ s: "loading" });
+              setReloadNonce((n) => n + 1);
+            }}
+            style={{
+              minHeight: 44,
+              padding: "0 4px",
+              background: "none",
+              border: "none",
+              color: "var(--warn)",
+              fontWeight: 800,
+              textDecoration: "underline",
+              cursor: "pointer",
+            }}
+          >
+            Try again
+          </button>
+        </p>
+      ) : load.slots.length === 0 ? (
         <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)" }}>
           No pickup times available right now — please check back soon.
         </p>

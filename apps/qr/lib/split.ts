@@ -1,7 +1,7 @@
 "use server";
 import { serviceClient } from "@mms/db/server";
 import { cartViewInput, splitModeInput } from "@mms/db/schemas";
-import { assertCartMember } from "./authz";
+import { assertCartMember, AuthzError } from "./authz";
 import { assertMutationRate } from "./rate";
 import { getCartTotals } from "./totals";
 import { deriveShareBreakdowns } from "./split-math";
@@ -65,24 +65,55 @@ export async function getSplitContext(cartId: string): Promise<SplitContext> {
 }
 
 /**
+ * W9b — the board's read is a THREE-state answer (OPEN-ITEMS **M24**).
+ *
+ * `settled` is the only reason a client may route the table to its receipt: Server Action errors are
+ * REDACTED in production, so from the client a transient blip and a real 403 look identical — routing
+ * on "it threw" would eject a mid-authorization payer to a receipt that doesn't exist yet. The server
+ * knows the difference (`AuthzError.code`), so it says so here rather than making the client guess.
+ */
+export type SettlementResult =
+  | { ok: true; shares: SettlementShare[] }
+  | { ok: false; reason: "settled" | "not_member" | "error" };
+
+/**
  * Member-gated read of the live settlement board (M3·P3.3b) — every payer's share + status. The client
  * also subscribes to qr_cart_shares via Realtime; this is the initial fetch + a re-sync after changes.
  */
-export async function getSettlement(cartId: string): Promise<SettlementShare[]> {
+export async function getSettlement(cartId: string): Promise<SettlementResult> {
   const { cartId: id } = cartViewInput.parse({ cartId });
-  await assertCartMember(id); // authz only — any member may watch the board
+  try {
+    await assertCartMember(id); // authz only — any member may watch the board
+  } catch (e) {
+    // The cart leaving 'open' IS the happy ending — mms_fulfill_split_order took it. Everything else
+    // (not a member, expired session, unauthenticated, an unknown throw) leaves the board where it is
+    // with a retry; it must never navigate.
+    if (e instanceof AuthzError && e.code === "cart_closed") return { ok: false, reason: "settled" };
+    if (e instanceof AuthzError) return { ok: false, reason: "not_member" };
+    return { ok: false, reason: "error" };
+  }
   const db = serviceClient();
-  const { data } = await db
+  const { data, error } = await db
     .from("qr_cart_shares")
     .select("seat_id,amount_cents,tip_cents,status,created_at")
     .eq("cart_id", id)
     .order("created_at", { ascending: true });
-  return (data ?? []).map((s) => ({
-    seat: s.seat_id,
-    amountCents: s.amount_cents,
-    tipCents: s.tip_cents,
-    status: s.status as SettlementShare["status"],
-  }));
+  // ⚠️ M24 — this error used to be dropped on the floor, and `data ?? []` turned a failed read into
+  // "this table has no shares": an authoritative-looking empty board, no pay form, on a cart the
+  // freeze holds read-only. That is a permanently stuck table. A failed read is `error`, not empty.
+  if (error) {
+    console.error("[split] qr_cart_shares read failed", error);
+    return { ok: false, reason: "error" };
+  }
+  return {
+    ok: true,
+    shares: (data ?? []).map((s) => ({
+      seat: s.seat_id,
+      amountCents: s.amount_cents,
+      tipCents: s.tip_cents,
+      status: s.status as SettlementShare["status"],
+    })),
+  };
 }
 
 /**
@@ -127,15 +158,30 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
     await releaseSettlement(id);
     throw new Error("Nothing to pay");
   }
-  const { data: members } = await db
+  // ⚠️ OPEN-ITEMS **M24** — these two reads used to drop their errors on the floor, and `data ?? []`
+  // turned each failure into a plausible-looking empty set with REAL money behind it:
+  //   • a failed `session_members` read → zero seats → `deriveShareBreakdowns` returns [] → zero share
+  //     rows, while `acquireSettlement` has already frozen the cart and `split-settle.ts` bails on an
+  //     empty ledger. That is a permanently stuck table.
+  //   • a failed `qr_cart_items` read → every by-person weight 0 → `allocate`'s all-zero fallback
+  //     silently serves an EVEN split to a host who chose by-person, and each seat is CHARGED it.
+  // Neither is a state to recover from downstream — the derive simply has no input. Release the freeze
+  // we just took (nothing is written yet, so this strands nothing) and fail loudly; SplitSection's
+  // catch re-syncs and the host sees the board never opened.
+  const { data: members, error: membersErr } = await db
     .from("session_members")
     .select("seat_id,created_at")
     .eq("session_id", sessionId)
     .order("created_at", { ascending: true });
-  const { data: lineRows } = await db
+  const { data: lineRows, error: linesErr } = await db
     .from("qr_cart_items")
     .select("by_seat,qty,unit_price_cents,tax_cents,state,comped")
     .eq("cart_id", id);
+  if (membersErr || linesErr) {
+    console.error("[split] settlement derive read failed", membersErr ?? linesErr);
+    await releaseSettlement(id);
+    throw new Error("Couldn’t start the split — please try again");
+  }
   // A voided/comped line is charged at $0 (S2.3) — exclude it so no seat pays a share of a removed/comped
   // item. The grand total (getCartTotals) applies the same exclusion, so the shares still reconcile to it.
   const lines = (lineRows ?? []).filter((l) => l.state !== "voided" && !l.comped);
