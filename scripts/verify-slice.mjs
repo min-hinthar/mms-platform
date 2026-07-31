@@ -1,0 +1,363 @@
+#!/usr/bin/env node
+/**
+ * verify:slice — the pre-PR mechanical gate.
+ *
+ * WHY THIS EXISTS
+ * ---------------
+ * Across W9a and W8, three adversarial review rounds each returned BLOCK, and nearly every finding
+ * reduced to one thing: **a guard was written and never made to fail.** A green test file was shipped
+ * as proof. Examples that actually happened, all caught late and expensively:
+ *   • a randomised "property" that asserted `total === net + service + tax + tip` — literally the
+ *     function's own return expression, so it survived every charge mutation;
+ *   • split fixtures with `discountCents: 0` everywhere, so deleting the discount allocation entirely
+ *     was invisible;
+ *   • even-mode tested with equal seat ownership, making it indistinguishable from by-person;
+ *   • an ESLint rule proven for one selector shape while a real violation survived in another.
+ *
+ * A multi-agent review finds these. It also costs ~1M tokens and 30-55 minutes. Mutation testing finds
+ * the same class in ~2 minutes for free. So: run this FIRST, and let the review spend its attention on
+ * what only a reader can judge — reachability, copy honesty, cross-surface coupling.
+ *
+ * WHAT IT DOES
+ * ------------
+ *   1. the standard gate (lint · typecheck · build · test)          [skip with --no-gate]
+ *   2. a mutation battery over the money/authority modules — each mutation is applied, the suite that
+ *      OWNS it must go red, then the file is restored. A SURVIVING mutant is a failure.
+ *   3. the orphan-suite guard (mirrors ci.yml, so it fails here rather than on the runner)
+ *
+ * ADDING A MUTANT
+ * ---------------
+ * Add a row to MUTANTS. `find` must match EXACTLY ONCE in `file` — if it matches zero times the script
+ * FAILS rather than skipping, because a silently-stale mutant is the same rot it exists to prevent.
+ */
+import { execFileSync } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const QR = path.join(ROOT, "apps/qr");
+
+/**
+ * Each mutant is a semantic change a real refactor could plausibly make. `suite` is the test file
+ * that must catch it — keeping them one-to-one means a failure names the guard that is too weak,
+ * not just "something broke".
+ */
+const MUTANTS = [
+  // ── the charge authority ────────────────────────────────────────────────────────────────────────
+  {
+    id: "totals/service-rate",
+    file: "apps/qr/lib/totals-math.ts",
+    suite: "lib/totals-math.test.ts",
+    why: "the SB-1524 service rate silently changes",
+    find: "* 0.05)",
+    replace: "* 0.06)",
+  },
+  {
+    id: "totals/tax-on-undiscounted-base",
+    file: "apps/qr/lib/totals-math.ts",
+    suite: "lib/totals-math.test.ts",
+    why: "tax stops honouring the discount (CDTFA: tax is on the DISCOUNTED taxable base)",
+    find: "Math.round((taxableBaseCents - discOnTaxableCents) * taxRate())",
+    replace: "Math.round(taxableBaseCents * taxRate())",
+  },
+  {
+    id: "totals/grocery-in-service-base",
+    file: "apps/qr/lib/totals-math.ts",
+    suite: "lib/totals-math.test.ts",
+    why: "W1a — retail lines must not carry a 'supports fair kitchen wages' charge",
+    find: '(i.fulfillment === "grocery" ? 0 : Number(i.unitPriceCents) * i.qty)',
+    replace: "Number(i.unitPriceCents) * i.qty",
+  },
+  {
+    id: "totals/reward-clamp-order",
+    file: "apps/qr/lib/totals-math.ts",
+    suite: "lib/totals-math.test.ts",
+    why: "the reward must clamp to what REMAINS after the promo, or the total goes negative",
+    find: "Math.min(rewardCentsRaw, Math.max(subtotalCents - promoCents, 0))",
+    replace: "Math.min(rewardCentsRaw, subtotalCents)",
+  },
+  {
+    id: "totals/rounding-inside-the-ratio",
+    file: "apps/qr/lib/totals-math.ts",
+    suite: "lib/totals-math.test.ts",
+    why: "a transposed paren leaves a FRACTIONAL discount and moves the charge by 1¢",
+    find: "Math.round(discountCents * (taxableBaseCents / subtotalCents))",
+    replace: "Math.round(discountCents * taxableBaseCents) / subtotalCents",
+  },
+  {
+    id: "totals/tip-on-subtotal",
+    file: "apps/qr/lib/totals-math.ts",
+    suite: "lib/totals-math.test.ts",
+    why: "the tip rides the NET, not the pre-discount subtotal",
+    find: "Math.round(netCents * tipRate)",
+    replace: "Math.round(subtotalCents * tipRate)",
+  },
+  {
+    id: "totals/comped-lines-charged",
+    file: "apps/qr/lib/totals-math.ts",
+    suite: "lib/totals-math.test.ts",
+    why: "S2.3 — a comped line is a committed $0 decision and must leave every base",
+    find: 'i.state !== "voided" && !i.comped',
+    replace: 'i.state !== "voided"',
+  },
+
+  // ── the per-seat split charge (what each card is actually billed) ────────────────────────────────
+  {
+    id: "split/discount-limb-deleted",
+    file: "apps/qr/lib/split-math.ts",
+    suite: "lib/split-math.test.ts",
+    why: "per-seat discount feeds baseCents AND the net that weights service",
+    find: "const discount = allocate(grand.discountCents, subtotal);",
+    replace: "const discount = subtotal.map(() => 0);",
+  },
+  {
+    id: "split/even-mode-broken",
+    file: "apps/qr/lib/split-math.ts",
+    suite: "lib/split-math.test.ts",
+    why: "even mode must ignore ownership — needs a LOPSIDED fixture to be visible",
+    find: "const subWeights = even\n    ? seats.map(() => 1)\n    :",
+    replace: "const subWeights = false\n    ? seats.map(() => 1)\n    :",
+  },
+  {
+    id: "split/unassigned-dropped",
+    file: "apps/qr/lib/split-math.ts",
+    suite: "lib/split-math.test.ts",
+    why: "an unowned line must be spread, not dropped — needs a MIXED owned/unassigned fixture",
+    find: "(ownedSub[i] ?? 0) + unassignedSub / n",
+    replace: "(ownedSub[i] ?? 0)",
+  },
+  {
+    id: "split/service-by-subtotal",
+    file: "apps/qr/lib/split-math.ts",
+    suite: "lib/split-math.test.ts",
+    why: "service is weighted by NET; separating it needs a non-proportional discount",
+    find: "const service = allocate(grand.serviceChargeCents, net);",
+    replace: "const service = allocate(grand.serviceChargeCents, subtotal);",
+  },
+  {
+    id: "split/tax-by-subtotal",
+    file: "apps/qr/lib/split-math.ts",
+    suite: "lib/split-math.test.ts",
+    why: "a seat owning only exempt lines must not be taxed on the aggregate",
+    find: "const tax = allocate(grand.taxCents, taxWeights);",
+    replace: "const tax = allocate(grand.taxCents, subWeights);",
+  },
+  {
+    id: "split/allocate-tiebreak",
+    file: "apps/qr/lib/split-math.ts",
+    suite: "lib/split-math.test.ts",
+    why: "largest-remainder must be deterministic — mms_fulfill_split_order raises on a sum drift",
+    find: ".sort((a, b) => b.frac - a.frac || a.i - b.i)",
+    replace: ".sort((a, b) => a.frac - b.frac || a.i - b.i)",
+  },
+
+  // ── the tax engine ──────────────────────────────────────────────────────────────────────────────
+  {
+    id: "tax/rate-drift",
+    file: "apps/qr/lib/tax.ts",
+    suite: "lib/tax.test.ts",
+    why: "the Covina rate must be pinned on the TS side (the SQL half is pinned in supabase/tests/)",
+    find: "const RATE = 0.0975;",
+    replace: "const RATE = 0.098;",
+  },
+  {
+    id: "tax/cold-food-togo-taxable",
+    file: "apps/qr/lib/tax.ts",
+    suite: "lib/tax.test.ts",
+    why: "CDTFA — cold food is exempt to-go; this is the only category a diner can flip",
+    find: '    case "cold_food":\n    case "beverage_cold":\n      return dineIn;',
+    replace: '    case "cold_food":\n    case "beverage_cold":\n      return true;',
+  },
+
+  // ── the line-authority gate ─────────────────────────────────────────────────────────────────────
+  {
+    id: "permissions/post-fire-diner-edit",
+    file: "apps/qr/lib/permissions.ts",
+    suite: "lib/permissions.test.ts",
+    why: "post-fire is staff-only — this is what stops a guest mutating a fired ticket",
+    find: 'if (lineState !== "draft") return false;',
+    replace: 'if (lineState === "voided") return false;',
+  },
+  {
+    id: "permissions/comped-mutable",
+    file: "apps/qr/lib/permissions.ts",
+    suite: "lib/permissions.test.ts",
+    why: "a comped line is immutable to EVERYONE, staff included",
+    find: "if (comped) return false;",
+    replace: "if (false) return false;",
+  },
+  {
+    id: "permissions/cross-owner-guard",
+    file: "apps/qr/lib/permissions.ts",
+    suite: "lib/permissions.test.ts",
+    why: "a guest may edit only their OWN line",
+    find: 'return actor.role === "host" || actor.isOwner;',
+    replace: "return true;",
+  },
+];
+
+const args = new Set(process.argv.slice(2));
+const skipGate = args.has("--no-gate");
+const only = [...args].find((a) => a.startsWith("--only="))?.slice("--only=".length);
+
+const c = {
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+};
+
+function run(cmd, cmdArgs, cwd) {
+  return execFileSync(cmd, cmdArgs, { cwd, encoding: "utf8", stdio: "pipe" });
+}
+/** Run a vitest file; true = the suite PASSED. */
+function suitePasses(suite) {
+  try {
+    run("npx", ["vitest", "run", suite], QR);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Refuse to mutate a file that has uncommitted changes — a crash must never eat real work. */
+function assertClean(files) {
+  const dirty = run("git", ["status", "--porcelain", "--", ...files], ROOT).trim();
+  if (dirty) {
+    console.error(c.red("\n✗ Uncommitted changes in files this script mutates:\n"));
+    console.error(dirty);
+    console.error(
+      c.dim("\n  Commit or stash them first. verify:slice rewrites these files in place and\n") +
+        c.dim("  restores them; it will not risk your working copy.\n"),
+    );
+    process.exit(1);
+  }
+}
+
+const targets = MUTANTS.filter((m) => !only || m.id.includes(only));
+const files = [...new Set(targets.map((m) => m.file))];
+
+console.log(c.bold("\nverify:slice — the mechanical pre-PR gate\n"));
+
+// ── 1 · the standard gate ─────────────────────────────────────────────────────────────────────────
+if (!skipGate) {
+  process.stdout.write("gate (lint · typecheck · build · test) … ");
+  try {
+    run("pnpm", ["turbo", "run", "lint", "typecheck", "build", "test"], ROOT);
+    console.log(c.green("green"));
+  } catch (e) {
+    console.log(c.red("RED"));
+    console.error(String(e.stdout || e.message).slice(-4000));
+    process.exit(1);
+  }
+} else {
+  console.log(c.dim("gate … skipped (--no-gate)"));
+}
+
+// ── 2 · the mutation battery ──────────────────────────────────────────────────────────────────────
+assertClean(files);
+
+const originals = new Map(files.map((f) => [f, readFileSync(path.join(ROOT, f), "utf8")]));
+const restoreAll = () => {
+  for (const [f, src] of originals) writeFileSync(path.join(ROOT, f), src);
+};
+process.on("SIGINT", () => {
+  restoreAll();
+  console.log(c.red("\ninterrupted — files restored"));
+  process.exit(130);
+});
+
+// A red baseline would make every mutant look "caught" for the wrong reason.
+process.stdout.write("\nbaseline suites … ");
+const suites = [...new Set(targets.map((m) => m.suite))];
+const redBaseline = suites.filter((s) => !suitePasses(s));
+if (redBaseline.length) {
+  console.log(c.red("RED"));
+  console.error(c.red(`\n✗ These suites fail BEFORE any mutation: ${redBaseline.join(", ")}`));
+  console.error(
+    c.dim("  Every mutant would appear 'caught' for the wrong reason. Fix these first.\n"),
+  );
+  process.exit(1);
+}
+console.log(c.green(`green (${suites.length} suite${suites.length === 1 ? "" : "s"})`));
+
+console.log(c.bold(`\nmutating (${targets.length}) — each must turn its suite RED\n`));
+const survived = [];
+const stale = [];
+try {
+  for (const m of targets) {
+    const abs = path.join(ROOT, m.file);
+    const src = originals.get(m.file);
+    const hits = src.split(m.find).length - 1;
+    if (hits !== 1) {
+      // A mutant that no longer applies is NOT a pass. The code moved and this guard is now fiction —
+      // exactly the silent rot the whole script exists to prevent.
+      stale.push({ ...m, hits });
+      console.log(
+        `  ${c.red("STALE")}  ${m.id} ${c.dim(`— pattern matched ${hits}× (expected 1)`)}`,
+      );
+      continue;
+    }
+    writeFileSync(abs, src.replace(m.find, m.replace));
+    const caught = !suitePasses(m.suite);
+    writeFileSync(abs, src);
+    if (caught) {
+      console.log(`  ${c.green("caught")} ${m.id} ${c.dim(`— ${m.why}`)}`);
+    } else {
+      survived.push(m);
+      console.log(`  ${c.red("SURVIVED")} ${m.id} ${c.dim(`— ${m.why}`)}`);
+    }
+  }
+} finally {
+  restoreAll();
+}
+
+// ── 3 · the orphan-suite guard (mirrors ci.yml) ───────────────────────────────────────────────────
+process.stdout.write("\norphan-suite guard … ");
+const find = (pattern) =>
+  run(
+    "bash",
+    [
+      "-c",
+      `find . -name '${pattern}' -not -path '*/node_modules/*' -not -path '*/.next/*' -not -path '*/.git/*' || true`,
+    ],
+    ROOT,
+  )
+    .split("\n")
+    .filter(Boolean);
+const tsOrphans = find("*.test.ts").filter((p) => !/^\.\/(apps\/qr\/|packages\/ui\/src\/)/.test(p));
+const tsxAny = find("*.test.tsx"); // no vitest config includes .tsx — any is an orphan
+const orphans = [...tsOrphans, ...tsxAny];
+console.log(orphans.length ? c.red("FAIL") : c.green("clean"));
+for (const o of orphans)
+  console.log(`  ${c.red("orphan")} ${o} ${c.dim("— no vitest config runs this")}`);
+
+// ── verdict ───────────────────────────────────────────────────────────────────────────────────────
+const failed = survived.length + stale.length + orphans.length;
+if (failed === 0) {
+  console.log(
+    c.green(c.bold(`\n✓ verify:slice passed — ${targets.length} mutants caught, no orphans\n`)),
+  );
+  process.exit(0);
+}
+console.log(c.red(c.bold("\n✗ verify:slice FAILED\n")));
+if (survived.length) {
+  console.log(c.red(`  ${survived.length} mutant(s) SURVIVED — the guard for each is too weak:`));
+  for (const m of survived)
+    console.log(`    · ${m.id} — ${m.why}\n      suite: apps/qr/${m.suite}`);
+  console.log(
+    c.dim("\n  A surviving mutant means the behaviour can change with the suite still green.\n") +
+      c.dim(
+        "  Usually the fixture is DEGENERATE — two code paths produce the same numbers on it.\n",
+      ) +
+      c.dim("  Find inputs that separate them (search numerically), don't just add assertions.\n"),
+  );
+}
+if (stale.length) {
+  console.log(
+    c.red(`  ${stale.length} mutant(s) STALE — update MUTANTS in scripts/verify-slice.mjs:`),
+  );
+  for (const m of stale) console.log(`    · ${m.id} — pattern matched ${m.hits}× in ${m.file}`);
+}
+process.exit(1);

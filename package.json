@@ -14,7 +14,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "knip": "knip",
-    "db:types": "supabase gen types typescript --local --schema public > packages/db/src/database.types.ts"
+    "db:types": "supabase gen types typescript --local --schema public > packages/db/src/database.types.ts",
+    "verify:slice": "node scripts/verify-slice.mjs"
   },
   "devDependencies": {
     "@mms/config": "workspace:*",

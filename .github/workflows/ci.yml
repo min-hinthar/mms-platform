@@ -22,6 +22,27 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # Turborepo runs lint, typecheck, build, test across the affected workspaces (cached).
+      # W8 — orphan-suite guard. `vitest run` exits 1 only when ZERO files match its include glob, so
+      # a test file dropped outside a workspace's glob is INVISIBLE: it never runs and nothing reports
+      # it. A plain shell check, not a vitest test — a test that reads outside its own workspace is
+      # itself turbo-cache-exposed and would defeat the purpose.
+      #
+      # ⚠️ `.test.tsx` is an orphan ANYWHERE. Neither config matches it (apps/qr is `**/*.test.ts`,
+      # packages/ui is `src/**/*.test.ts`), so a React component test — the single most likely future
+      # orphan — would otherwise be whitelisted by directory and silently never run. When jsdom lands,
+      # widen the vitest include FIRST, then relax this.
+      - name: No orphaned test files
+        run: |
+          ts_orphans=$(find . -name '*.test.ts' -not -path '*/node_modules/*' -not -path '*/.next/*' -not -path '*/.git/*' \
+            | grep -v -E '^\./(apps/qr/|packages/ui/src/)' || true)
+          tsx_any=$(find . -name '*.test.tsx' -not -path '*/node_modules/*' -not -path '*/.next/*' -not -path '*/.git/*' || true)
+          if [ -n "$ts_orphans" ] || [ -n "$tsx_any" ]; then
+            echo "::error::Test file(s) that NO vitest config runs — they never execute:"
+            [ -n "$ts_orphans" ] && echo "$ts_orphans"
+            [ -n "$tsx_any" ] && echo "$tsx_any  (no config includes *.test.tsx — see the note in ci.yml)"
+            exit 1
+          fi
+          echo "No orphaned test files."
       - run: pnpm turbo run lint typecheck build test
 
   # Proves the DB layer can't drift: the migrations apply cleanly and the committed types match.
@@ -56,12 +77,33 @@ jobs:
           supabase gen types typescript --local --schema public > packages/db/src/database.types.ts
           git diff --exit-code -- packages/db/src/database.types.ts \
             || { echo "::error::database.types.ts is stale vs supabase/migrations — run 'pnpm db:types' (with the local stack up) and commit."; exit 1; }
-      # rls-tests — prove the session-scoped RLS holds (a non-member can't read another table's
-      # cart/shares/order). Plain-SQL asserts; ON_ERROR_STOP makes a failed assertion fail the job.
-      - name: RLS membership tests
+      # sql-tests — every file in supabase/tests/ (RLS membership, W8b tax parity, W8d pickup grid).
+      # Plain-SQL asserts; ON_ERROR_STOP makes a failed assertion fail the job.
+      #
+      # GLOBBED, not enumerated: the previous step named one file, so adding a .sql here would have
+      # "passed by not existing" — the same falsely-green trap W8 exists to close. The COUNT FLOOR is
+      # the other half: a glob alone still succeeds vacuously if the directory is empty or a file is
+      # renamed, so the run fails unless it finds at least the files we know are there. Bump the floor
+      # when you add one (2 today: rls_membership, tax_parity; W8d adds pickup_slots).
+      - name: SQL tests (RLS · tax parity)
         run: |
-          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
-            -v ON_ERROR_STOP=1 -f supabase/tests/rls_membership_test.sql
+          shopt -s nullglob
+          # REQUIRED files are named EXPLICITLY below — there is deliberately no count floor. A bare
+          # count is not enough: once a third file lands, deleting or renaming one of these would still
+          # satisfy the count and leave the job green with a whole guard silently gone. Add a new .sql
+          # to this list when it becomes load-bearing.
+          for required in supabase/tests/rls_membership_test.sql supabase/tests/tax_parity_test.sql; do
+            if [ ! -f "$required" ]; then
+              echo "::error::Required SQL test missing: $required (renamed or deleted?)"
+              exit 1
+            fi
+          done
+          files=(supabase/tests/*.sql)
+          echo "Running ${#files[@]} SQL test file(s): ${files[*]}"
+          for f in "${files[@]}"; do
+            echo "── $f"
+            psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -v ON_ERROR_STOP=1 -f "$f"
+          done
       - name: Stop stack
         if: always()
         run: supabase stop || true

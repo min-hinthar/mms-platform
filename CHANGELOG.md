@@ -4,6 +4,113 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### tooling — `pnpm verify:slice`, the mechanical pre-PR gate (2026-07-31)
+
+Three adversarial review rounds across W9a and W8 each returned BLOCK, and nearly every finding reduced
+to one thing: **a guard was written and never made to fail.** The reviews cost ~1M tokens and 30–56
+minutes each; the mutation battery that finds the same class runs in about a minute for free. So it now
+runs FIRST, and the review spends its attention on what only a reader can judge.
+
+`scripts/verify-slice.mjs` runs the gate, applies **18 semantic mutations** to `totals-math` · `tax` ·
+`split-math` · `permissions` (each must turn its owning suite red), and mirrors CI's orphan-suite check.
+Design points that came straight from this session's failures:
+
+- **A STALE mutant is a failure, not a skip.** If a `find` pattern no longer matches, the code moved and
+  that guard is now fiction — the exact silent rot the script exists to prevent.
+- **It refuses to run on a dirty target file.** It rewrites files in place; a crash must never eat work.
+- **It aborts on a red baseline**, since every mutant would otherwise look "caught" for the wrong reason.
+- **A survivor's message names the real cause** — a degenerate fixture where two code paths produce
+  identical numbers — and says to search for separating inputs rather than add assertions.
+
+**All four failure modes were demonstrated, not asserted:** a gutted suite → 3 SURVIVED + exit 1; a
+broken pattern → STALE + exit 1; a planted `.test.tsx` → orphan + exit 1; an uncommitted target file →
+refusal. Clean run: 18/18 caught.
+
+`CLAUDE.md` gains the **red-first rule** (never write a guard you have not watched fail) and the
+**never-transcribe-a-number rule** — the two habits behind every defect the reviews caught.
+
+### W8 — Proof: the money path is now mechanically enforced (2026-07-31)
+
+The charge authority had **zero** executable coverage. It now has **161 tests across 8 files** (up from
+35 across 5), and every guard is **proven able to fail**, not asserted to work. **No charged amount
+changed.**
+
+> **Both review rounds returned BLOCK, and both were right.** Pre-PR: the money path was sound, but
+> **five of this slice's own guards could not fail** — a suite that licenses future change while
+> silently green is exactly the failure mode W8 exists to prevent. Pre-merge, scoped to the un-reviewed
+> delta: the M23 pin's runtime half was a **tautology** (asserting an object the test itself built
+> lacked a key the test never added) and its type claim was **overstated** — it tripped on a required
+> `fulfillment` field but not the likelier optional one; three hand-derivations reached the **right
+> answers via wrong intermediate steps**, which in a repo whose doctrine is "the comment is the proof"
+> is a defect; and the registry edit put status vocabulary in the **Sev** column while leaving `Status`
+> stale. All fixed; both verdicts are recorded on the PR.
+
+- **`lib/totals-math.ts` (new) — a pure `computeTotals` seam** extracted from under `getCartTotals`'s
+  three I/O reads. `getCartTotals` keeps its signature and does the reads; the arithmetic moves
+  verbatim. **Proven behaviour-preserving by differential-testing the new seam against the
+  pre-extraction arithmetic (transcribed from `origin/main`) over 200,000 runs / 199,997 DISTINCT
+  baskets — 0 divergences. The harness is committed as `scripts/w8a-extraction-equivalence.mjs` so
+  that claim is falsifiable rather than trust-me; it holds the pre-extraction arithmetic as a frozen
+  verbatim copy of `origin/main`, and re-running it reproduces the figure.** (The first run used a naive LCG whose product overflows 2^53; it yielded
+  only 374 distinct values in 5,000 draws, so the original "200,000 baskets" claim was inflated. Both
+  the differential harness and the in-suite sweeps now use mulberry32.) The three reads stay sequential; parallelising them is not behaviour-preserving in the
+  failure case.
+- **`lib/totals-math.test.ts`** — the 7 charge invariants, every expected value a hand-computed
+  literal. **Mutation-tested:** six deliberate breakages (reward clamping to subtotal instead of
+  remaining · service reusing the tax pro-rata — the "DRY" refactor that moves a charge by 1¢ ·
+  tip gated on every-line-is-grocery · only-draft-is-chargeable · tip on subtotal instead of net ·
+  rounding _inside_ the ratio) were each injected and confirmed to turn the suite red. The last one
+  **escaped the first draft**, so a fixture that separates it (100¢ taxable + 1395¢ exempt, promo 500
+  → tax 7 correct vs 6 mutant) was added.
+- **`lib/tax.test.ts` + `supabase/tests/tax_parity_test.sql`** — the TS↔SQL mirror, pinned from BOTH
+  sides. The halves deliberately do not read each other: a TS test that parsed the migration would be
+  a turbo-cache trap (turbo hashes only files inside the workspace, so editing a migration leaves
+  `@mms/qr:test` a cache hit replaying a green log against drifted SQL). **All four drift drills run
+  for real** against a local Postgres 16: TS rate → red, SQL rate → red, SQL category flip → red, and
+  the `check_asserts`-off run demonstrated exiting 0 having proved nothing (which is why every SQL test
+  file now sets the GUC, `rls_membership_test.sql` included).
+- **`lib/permissions.test.ts`** — the complete 5 × 5 × 2 authority matrix (50 cells), exhaustive by
+  construction via `Record<LineState, …>` so widening the union breaks the build. Exactly 7 cells are
+  allowed. This gate is what stops a guest mutating a fired ticket and had never been tested.
+- **`lib/split-math.test.ts`** — `allocate`'s sum invariant (the one `mms_fulfill_split_order`
+  hard-raises on, so a drift there makes a paid table unfulfillable) **plus the per-seat charge limbs
+  the first draft left degenerate.** The review proved six mutations to `deriveShareBreakdowns` — the
+  function that writes what each card is actually charged — all passed 15/15: its discount limb was
+  never exercised (every fixture had `discountCents: 0`), even-mode was tested with equal ownership so
+  it was indistinguishable from by-person, and the unassigned-line fixture had _only_ unassigned lines
+  so dropping them fell back to the same even split. Separating fixtures were found by search and all
+  **6/6 mutations are now caught**. The M23 pin was also rewritten: it claimed "a grocery-only seat is
+  billed 75¢" on a fixture with no grocery marker at all — `deriveShareBreakdowns`' line type has no
+  `fulfillment` field — so it would have stayed green after M23 was fixed. It now states the gap
+  **structurally**, and stops compiling if that field is ever added.
+- **CI wiring, three traps closed.** The SQL step hard-coded ONE filename — a new `.sql` would have
+  "passed by not existing"; it now globs _and_ checks each required file by name (a bare count floor
+  would still pass after a rename once a third file lands). The **orphan-suite guard** fails the build
+  on any test file no vitest config runs — including **any `.test.tsx` anywhere**, since neither config
+  matches `.tsx` and a React component test is the most likely future orphan; the first draft
+  whitelisted it by directory, and the review proved it by dropping a deliberately-failing `.test.tsx`
+  into `apps/qr/components/` and watching the guard print PASS.
+- **`tax_parity_test.sql` §4 rewritten.** It asserted `round(19.5::numeric) = 20` on hardcoded
+  literals — a statement about PostgreSQL itself that never referenced the functions under test, so it
+  was green for every possible state of the code, _including_ the numeric→float8 regression its comment
+  claimed to catch. Its premise was also inverted: the **value table** is what catches float8, because
+  58.5 → 59 under numeric and 58 under banker's rounding. §4 now asserts through `mms_line_tax`, and
+  was **verified to go red under an induced float8 regression** on a real Postgres 16.
+
+**Corrections to this repo's own docs, found by the spec pass:** `CLAUDE.md` and `W8_PLAN.md` cited
+`packages/db/migrations/0001`, which does not exist (the tax engine is
+`supabase/migrations/20260618000000_qr_platform_init.sql`); `W8_PLAN.md` named a `settled` `LineState`
+(not a member), a CI `verify` job (that is the delivery repo's name), and claimed `lib/pickup.ts`
+computes the slot grid (it contains zero arithmetic — the grid is entirely SQL, so **W8d is deferred as
+an SQL slice**). The plan's own drift-proof recipe was also broken: 1400¢ rounds to 137 under both
+0.0975 and 0.098, so the suggested probe would have stayed green through the exact drift it tests for.
+
+**Twelve findings filed rather than fixed** (`M17`–`M26`, `T4`–`T5`) — including a reward that is
+burned at less than face value when it overflows the remaining base (`M22`), the split path
+re-implementing the money rules without W1a's grocery exclusion (`M23`), `split.ts` swallowing both
+PostgREST errors into a permanently stuck table (`M24`), and `allocate(total, [])` silently dropping
+the total (pinned).
+
 ### W9a — One door, carried all the way through (mode identity, scan → reorder) (2026-07-31)
 
 A 14-agent happy-path + craft audit ([`docs/W9_PLAN.md`](docs/W9_PLAN.md); 84 raw → 32 deduped → 24

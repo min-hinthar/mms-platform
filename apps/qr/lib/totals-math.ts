@@ -1,0 +1,117 @@
+import type { CartTotals } from "@mms/db";
+import { taxRate } from "./tax";
+
+/**
+ * W8a — the charge arithmetic, lifted VERBATIM out of `getCartTotals`.
+ *
+ * Why this file exists: `getCartTotals` (`lib/totals.ts`) is the single authority for what a diner is
+ * charged, and it was untestable — `import "server-only"` plus three I/O reads (a PostgREST select and
+ * two RPCs) meant the only way to exercise it was to mock a chained query builder, which tests the
+ * mock rather than the math. The arithmetic is 100% pure, so it moves here and `getCartTotals` keeps
+ * exactly its old signature, doing the reads and calling this.
+ *
+ * ⚠️ **This is a behaviour-preserving extraction. No charged amount may change.** Every expression
+ * below is byte-identical to what it replaced, including:
+ *   • both `Number()` coercions on the DB-typed fields,
+ *   • the CLAMP ORDER — promo clamps to the subtotal, then reward clamps to what remains AFTER it,
+ *   • `Math.round` placement OUTSIDE the ratio (`round(d * (t/s))`, never `round(d*t)/s`),
+ *   • the literal `0.05` service rate,
+ *   • the `serviceBaseCents === 0` tip guard (NOT a "pure grocery" flag — see below),
+ *   • `discOnTaxableCents` and `discOnServiceCents` as TWO INDEPENDENT computations over different
+ *     bases. Collapsing them into one shared variable looks like a DRY win and is a 1¢ change to a
+ *     charged amount: on a mixed 6550¢ basket, reusing the taxable pro-rata (221) for the service
+ *     charge yields 156 instead of 155.
+ *
+ * Tested by `totals-math.test.ts`, whose expected values are hand-computed literals — never generated
+ * by running this function.
+ */
+
+/**
+ * One chargeable cart line as the totals engine sees it — field-for-field the columns
+ * `getCartTotals` selects, with the DB's `number | string` widening already resolved by the caller.
+ *
+ * ⚠️ `taxCents` is PER UNIT, not per line (`cart.ts`/`staff-cart.ts`/`grocery.ts` all store
+ * `lineTax(unitPriceCents, …)`), and it is read here ONLY as a boolean taxable-or-not flag — which is
+ * the root of OPEN-ITEMS **M6**: a sub-6¢ taxable line rounds to `tax_cents = 0` and reads exempt.
+ */
+export type TotalsLine = {
+  qty: number;
+  unitPriceCents: number;
+  taxCents: number;
+  /** `draft | fired | in_progress | served | voided` — only `voided` is excluded from the charge. */
+  state: string;
+  comped: boolean;
+  fulfillment: "dinein" | "togo" | "grocery";
+};
+
+/**
+ * @param lines            every cart line, INCLUDING voided/comped ones (this function excludes them)
+ * @param promoCentsRaw    the raw `mms_promo_discount` return (caller applies `?? 0`)
+ * @param rewardCentsRaw   the raw `mms_reward_discount` return (caller applies `?? 0`)
+ * @param tipRate          the diner's chosen rate; forced to 0 on a basket with no restaurant lines
+ */
+export function computeTotals(
+  lines: TotalsLine[],
+  promoCentsRaw: number,
+  rewardCentsRaw: number,
+  tipRate: number,
+): CartTotals {
+  // A voided OR comped line is charged at $0 (S2.3) — exclude it from the chargeable base everywhere
+  // (mms_promo_discount + the settle reconciles apply the SAME predicate, so they all agree). A line that
+  // predates S2 has state 'draft' / comped false, so this is a no-op for an un-voided cart.
+  // NOTE: only `voided` is excluded by state — `fired`/`in_progress`/`served` lines are all charged,
+  // correctly (the food exists). Do not restate this rule as "only draft lines are charged".
+  const items = lines.filter((i) => i.state !== "voided" && !i.comped);
+  // All integer cents — no float rounding on the base sums.
+  const subtotalCents = items.reduce((a, i) => a + Number(i.unitPriceCents) * i.qty, 0);
+  // Clamp to the (voided/comped-excluded) subtotal as belt-and-suspenders: mms_promo_discount already
+  // excludes the same lines, so this only bites if the two ever drift — never letting a discount exceed
+  // the chargeable base (which would drive a negative total).
+  const promoCents = Math.min(promoCentsRaw, subtotalCents);
+  // Reward coupon (M4 P4.2) — clamped to the subtotal REMAINING after the promo so the combined
+  // discount never exceeds the chargeable base (no negative total). discountCents folds both → tax
+  // base, total, the order snapshot, and the loyalty net-spend all treat the reward as a discount
+  // uniformly.
+  // ⚠️ The clamp is correct; what it exposes is not. `mms_redeem_cart_reward` burns the coupon in
+  // FULL regardless of how much of it this clamp discarded — OPEN-ITEMS **M22**. Pinned, not fixed.
+  const rewardCents = Math.min(rewardCentsRaw, Math.max(subtotalCents - promoCents, 0));
+  const discountCents = promoCents + rewardCents;
+  const netCents = subtotalCents - discountCents;
+  // Tax on the discounted TAXABLE base only (CDTFA) — not a pro-rata of the rounded aggregate,
+  // so a flat promo across mixed taxable/exempt lines stays correct. Taxable lines have tax > 0.
+  const taxableBaseCents = items.reduce(
+    (a, i) => a + (Number(i.taxCents) > 0 ? Number(i.unitPriceCents) * i.qty : 0),
+    0,
+  );
+  const discOnTaxableCents =
+    subtotalCents > 0 ? Math.round(discountCents * (taxableBaseCents / subtotalCents)) : 0;
+  const taxCents = Math.round((taxableBaseCents - discOnTaxableCents) * taxRate());
+  // SB-1524 service charge applies to RESTAURANT service only (W1) — grocery retail lines are
+  // excluded from the base: a self-scanned bag of rice is not table service, and the disclosed
+  // "supports fair kitchen wages" copy would be false on it. Discount is pro-rated onto the
+  // service base the same way tax pro-rates onto the taxable base (never a pro-rata of the
+  // rounded aggregate).
+  const serviceBaseCents = items.reduce(
+    (a, i) => a + (i.fulfillment === "grocery" ? 0 : Number(i.unitPriceCents) * i.qty),
+    0,
+  );
+  const discOnServiceCents =
+    subtotalCents > 0 ? Math.round(discountCents * (serviceBaseCents / subtotalCents)) : 0;
+  const serviceChargeCents = Math.round((serviceBaseCents - discOnServiceCents) * 0.05);
+  // No tip ask on a pure-grocery basket (no grocery self-checkout prompts one) — forcing it to 0
+  // HERE covers every caller identically: create-intent mints the amount and the webhook
+  // recomputes the same breakdown from metadata.tipRate, so the reconcile can never mismatch.
+  // ⚠️ The gate is `serviceBaseCents === 0`, i.e. "no restaurant VALUE", not "no restaurant lines".
+  // A zero-priced non-grocery line leaves this 0 while the client's own `pureGrocery` flag says
+  // otherwise — OPEN-ITEMS **M26**. Behaviour preserved as-is.
+  const tipCents = serviceBaseCents === 0 ? 0 : Math.round(netCents * tipRate);
+  return {
+    subtotalCents,
+    discountCents,
+    rewardCents,
+    serviceChargeCents,
+    taxCents,
+    tipCents,
+    totalCents: netCents + serviceChargeCents + taxCents + tipCents,
+  };
+}

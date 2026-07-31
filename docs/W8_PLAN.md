@@ -122,14 +122,16 @@ cases, not as the default.)
 
 ### W8b — tax TS↔SQL parity (the sync rule, enforced)
 
-`lib/tax.ts` is the TS mirror of `mms_line_tax` / `mms_taxable` (packages/db migration `0001`). Nothing
+`lib/tax.ts` is the TS mirror of `mms_line_tax` / `mms_taxable` (`supabase/migrations/20260618000000_qr_platform_init.sql:14-39` — **not** `packages/db/migrations/0001`, which does not exist; CLAUDE.md carries the same stale reference). Nothing
 checks they agree.
 
 1. `lib/tax.test.ts` — the full matrix: 6 `TaxCategory` values × `dineIn ∈ {true,false}` for `isTaxable`,
    plus `lineTax` rounding at the `.5`-cent boundary and at 0.
 2. `supabase/tests/tax_parity_test.sql` — the **same matrix** asserted against the SQL functions, run in
-   the existing `migrations-check` CI job (it already does `supabase start` and psql-runs
-   `supabase/tests/rls_membership_test.sql`; add this file the same way, and add it to the same step).
+   the existing `migrations-check` CI job. **Correction (W8 build):** the step hard-coded ONE filename,
+   so a new `.sql` would have passed by not existing — it is now a `nullglob` loop over
+   `supabase/tests/*.sql` with a count floor. Every SQL test file must also `set local
+plpgsql.check_asserts = on`, or every ASSERT compiles out and the file exits 0 having proved nothing.
 3. Assert the **rate constant** matches on both sides (`0.0975`) — a rate change that lands on one side
    only is the highest-consequence drift.
 
@@ -148,24 +150,28 @@ failing build.
 - **Pinning test for M11 (known-open):** a grocery-only seat currently receives a pro-rata slice of the
   restaurant-only service charge. Assert the _current_ behaviour with the test named
   `M11 (known-open): grocery-only seat is allocated service charge` so the fix is a one-line flip.
-- `lib/permissions.ts` `canMutateLine(lineState, actor, comped)` — the full `state × actor` matrix
-  (`draft`/`fired`/`in_progress`/`served`/`settled` × host/guest/staff, plus `comped=true`). Post-fire
+- `lib/permissions.ts` `canMutateLine(lineState, actor, comped)` — the full `state × actor` matrix.
+  **Correction (W8 build):** `settled` is NOT a `LineState`; the union is
+  `draft | fired | in_progress | served | voided`, so the matrix is 5 × 5 × 2 = 50 cells, of which
+  exactly 7 are allowed at `comped=false`. Post-fire
   must be staff-only; a comped line must be immutable to diners. This gate is what stops a guest silently
   mutating a fired ticket — it has never been tested.
 
-### W8d — pickup slot grid (regression pin)
+### W8d — pickup slot grid (regression pin) — **SQL, not TS**
 
-`lib/pickup.ts` computes the slot grid. LEARNINGS records the exact bug already fixed once: _anchor the
-series at the stable day-open and filter by `now + lead`; never anchor at `now + lead`._ Nothing prevents
-its return.
+**Correction (W8 build):** `lib/pickup.ts` contains **zero arithmetic** — it is a 129-line RPC wrapper.
+The whole grid lives in `supabase/migrations/20260620000300_pickup_slots_align_fix.sql:32-52`, so this
+slice is a second file in `supabase/tests/`, not a TS extraction. Writing a TS mirror of the grid would
+manufacture exactly the second drift surface W8b exists to close.
 
-Extract the grid math if it is entangled with I/O (same pattern as W8a), then test:
+Pin, in `supabase/tests/pickup_slots_test.sql`: grid anchored at the stable day-open rather than
+`now + lead` (the LEARNINGS-recorded regression); `lead_minutes >= prep_minutes` (the W5e config
+CHECK); next-day rollover past close; capacity counting paid orders + live holds and excluding expired
+ones; `excludeCart` removing the caller's own hold.
 
-- grid anchored at day-open, not `now + lead` (the recorded regression, both mid-day and just-after-open);
-- `lead_minutes ≥ prep_minutes` holds (the W5e config CHECK);
-- next-day rollover past close;
-- capacity counts **paid orders + live holds** and excludes expired holds;
-- `excludeCart` removes the caller's own hold from its own availability read.
+**Deferred out of the first W8 PR** — it needs a fixture harness for shop hours/timezone that the tax
+parity file does not, and the two SQL findings it surfaced (`M18`, `M19`) are filed and independently
+actionable.
 
 ### W8e — journey smoke (decide, don't assume)
 
