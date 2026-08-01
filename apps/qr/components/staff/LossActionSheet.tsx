@@ -3,6 +3,7 @@ import { useEffect, useState, useTransition, type CSSProperties, type FormEvent 
 import { Sheet } from "@mms/ui";
 import { listApprovers, voidLine, type Approver, type VoidLineResult } from "@/lib/voids";
 import { requestApproval } from "@/lib/approvals";
+import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
 import type { TableLineView } from "@/lib/floor-types";
 import { ManagerPinFields, PIN_NO_PIN_COPY, pinFailureCopy, useLockout } from "./ManagerPinStepUp";
 
@@ -141,6 +142,10 @@ export function LossActionSheet({
         onDone(action);
         onOpenChange(false);
         break;
+      case "outage":
+        // W10b — nothing was voided/comped; the platform is unreachable, not the line or the PIN.
+        setMsg(STAFF_WRITE_OUTAGE);
+        break;
       default:
         setMsg("Couldn’t do that just now — please try again.");
     }
@@ -204,6 +209,10 @@ export function LossActionSheet({
           break;
         case "not_found":
           setMsg("That item isn’t on this table anymore.");
+          break;
+        case "outage":
+          // W10b — the request wasn't recorded; the platform is unreachable, not the line.
+          setMsg(STAFF_WRITE_OUTAGE);
           break;
         default:
           setMsg("Couldn’t send that request — please try again.");

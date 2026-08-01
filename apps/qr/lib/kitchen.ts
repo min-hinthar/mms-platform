@@ -9,7 +9,7 @@ import {
   recallTicketInput,
   staffFireInput,
 } from "@mms/db/schemas";
-import { requireStaff } from "./staff";
+import { getStaffAuth, staffGate, STAFF_WRITE_OUTAGE } from "./staff";
 import { isConsoleLocked } from "./staff-lock";
 import { getPostHogClient } from "./posthog-server";
 import type {
@@ -72,11 +72,11 @@ const DEFAULT_THRESHOLDS: KdsThresholds = {
  * sign-in and a locked console to /staff/lock, never an eternal "Reconnecting…".
  */
 export async function getKitchenQueue(): Promise<KitchenPoll> {
-  try {
-    await requireStaff();
-  } catch {
-    return { ok: false, reason: "signin" };
-  }
+  const auth = await getStaffAuth();
+  // W10b — an unknowable gate is not "signed out": `outage` keeps the board's last-known queue (the
+  // client freezes honestly) instead of redirecting a working kitchen to login mid-service (M32).
+  if (auth.kind === "unavailable") return { ok: false, reason: "outage" };
+  if (auth.kind !== "staff") return { ok: false, reason: "signin" };
   // The lock is an attribution affordance, not a hard boundary — but a locked shared tablet must not
   // keep polling a live board past the lock screen (K10: polled actions previously ignored it).
   if (await isConsoleLocked()) return { ok: false, reason: "locked" };
@@ -112,23 +112,29 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
   const empty = { tickets: [], serverNow: nowIso, thresholds, stats };
 
   // Live kitchen lines — HELD (future fire_at) included; the grace/held split happens per channel below.
-  const { data: lines } = await db
+  // W10b — every read that FEEDS ticket assembly (lines/carts/sessions/orders/menu) checks its error
+  // and returns `outage` instead of degrading: a failed read used to render as an EMPTY board ("all
+  // clear" over a room full of cooking food — the worst possible lie to a kitchen). The freeze-on-
+  // outage client keeps the last-known queue, so erring toward `outage` never blanks anything.
+  const { data: lines, error: linesError } = await db
     .from("qr_cart_items")
     .select("id,name,qty,modifiers,state,fire_at,cart_id,fulfillment,notes,menu_item_id")
     .in("state", ["fired", "in_progress"])
     .not("fire_at", "is", null)
     .order("fire_at", { ascending: true })
     .limit(QUEUE_LINE_CAP);
+  if (linesError) return { ok: false, reason: "outage" };
   if (!lines || lines.length === 0) return { ok: true, queue: empty };
 
   // Resolve each line's cart. W3a: carts in ('open','paid') — dine-in cooks while open (and its
   // fired-at-checkout to-go food lives on the just-paid cart); pickup/scango only ever fire paid.
   const cartIds = [...new Set(lines.map((l) => l.cart_id))];
-  const { data: carts } = await db
+  const { data: carts, error: cartsError } = await db
     .from("qr_carts")
     .select("id,session_id,status,customer_name,pickup_slot")
     .in("id", cartIds)
     .in("status", ["open", "paid"]);
+  if (cartsError) return { ok: false, reason: "outage" };
   const cartById = new Map((carts ?? []).map((c) => [c.id, c]));
   const sessionIds = [...new Set([...cartById.values()].map((c) => c.session_id))];
   if (sessionIds.length === 0) return { ok: true, queue: empty };
@@ -145,8 +151,14 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     db.from("qr_orders").select("id,cart_id").in("cart_id", cartIds).eq("status", "paid"),
     menuIds.length
       ? db.from("menu_items").select("id,menu_categories(slug)").in("id", menuIds)
-      : Promise.resolve({ data: [] as { id: string; menu_categories: { slug: string } | null }[] }),
+      : Promise.resolve({
+          data: [] as { id: string; menu_categories: { slug: string } | null }[],
+          error: null,
+        }),
   ]);
+  // Same rule as the anchor reads: a failed session read skips every ticket (false-empty); a failed
+  // order/menu read strips pickup call-out codes / station routing — misidentity, not degradation.
+  if (sessRes.error || orderRes.error || menuRes.error) return { ok: false, reason: "outage" };
   const sessById = new Map((sessRes.data ?? []).map((s) => [s.id, s]));
   const orderByCart = new Map<string, string>();
   for (const o of orderRes.data ?? []) {
@@ -232,8 +244,9 @@ export type KitchenActionResult = { ok: true } | { ok: false; error: string };
  * "already updated" rather than an error.
  */
 export async function bumpLine(raw: unknown): Promise<KitchenActionResult> {
-  const caller = await requireStaff().catch(() => null);
-  if (!caller) return { ok: false, error: "Staff sign-in required." };
+  const gate = await staffGate();
+  if (!gate.ok) return { ok: false, error: gate.error };
+  const caller = gate.caller;
   const parsed = bumpLineInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
   const { lineId, to } = parsed.data;
@@ -261,8 +274,9 @@ export async function bumpLine(raw: unknown): Promise<KitchenActionResult> {
  * recallTicket with the same ids.
  */
 export async function bumpTicket(raw: unknown): Promise<KitchenActionResult> {
-  const caller = await requireStaff().catch(() => null);
-  if (!caller) return { ok: false, error: "Staff sign-in required." };
+  const gate = await staffGate();
+  if (!gate.ok) return { ok: false, error: gate.error };
+  const caller = gate.caller;
   const parsed = bumpTicketInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
   const { cartId, lineIds } = parsed.data;
@@ -287,8 +301,9 @@ export async function bumpTicket(raw: unknown): Promise<KitchenActionResult> {
  * guard live in mms_recall_ticket — a stale recall 0-rows into an honest "window passed" message.
  */
 export async function recallTicket(raw: unknown): Promise<KitchenActionResult> {
-  const caller = await requireStaff().catch(() => null);
-  if (!caller) return { ok: false, error: "Staff sign-in required." };
+  const gate = await staffGate();
+  if (!gate.ok) return { ok: false, error: gate.error };
+  const caller = gate.caller;
   const parsed = recallTicketInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
   const { cartId, lineIds } = parsed.data;
@@ -314,8 +329,9 @@ export async function recallTicket(raw: unknown): Promise<KitchenActionResult> {
  * dine-in send's undo grace (those live on OPEN carts and belong to the diner).
  */
 export async function fireTicketNow(raw: unknown): Promise<KitchenActionResult> {
-  const caller = await requireStaff().catch(() => null);
-  if (!caller) return { ok: false, error: "Staff sign-in required." };
+  const gate = await staffGate();
+  if (!gate.ok) return { ok: false, error: gate.error };
+  const caller = gate.caller;
   const parsed = fireTicketNowInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
   const { cartId } = parsed.data;
@@ -341,19 +357,23 @@ export async function fireTicketNow(raw: unknown): Promise<KitchenActionResult> 
  * fire / the table isn't an open dine-in cart.
  */
 export async function staffFireCart(raw: unknown): Promise<KitchenActionResult> {
-  const caller = await requireStaff().catch(() => null);
-  if (!caller) return { ok: false, error: "Staff sign-in required." };
+  const gate = await staffGate();
+  if (!gate.ok) return { ok: false, error: gate.error };
+  const caller = gate.caller;
   const parsed = staffFireInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
   const { sessionId } = parsed.data;
 
   const db = serviceClient();
-  const { data: cart } = await db
+  const { data: cart, error: cartError } = await db
     .from("qr_carts")
     .select("id")
     .eq("session_id", sessionId)
     .eq("status", "open")
     .maybeSingle();
+  // W10b — an unread cart is not "no open order": that verdict sends staff hunting a phantom problem
+  // at the table while the real one is the platform.
+  if (cartError) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!cart) return { ok: false, error: "This table has no open order." };
 
   const { data: fireRows, error } = await db.rpc("mms_fire_cart", { p_cart_id: cart.id });

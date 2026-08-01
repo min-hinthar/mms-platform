@@ -2,7 +2,7 @@
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { setStaffPinInput, verifyStaffPinInput } from "@mms/db/schemas";
-import { requireStaff } from "./staff";
+import { getStaffAuth, staffGate } from "./staff";
 import { setStaffPin, clearStaffPin, verifyStaffPin, staffHasPin } from "./staff-pin";
 import { LOCK_COOKIE } from "./staff-lock";
 
@@ -20,8 +20,9 @@ export type PinActionResult = { ok: true } | { ok: false; error: string };
  *  old-PIN challenge is required to rotate — the lock affordance, not this form, is what protects a
  *  walked-away tablet. Format is gated by Zod here and the SQL CHECK as a backstop. */
 export async function setPin(raw: unknown): Promise<PinActionResult> {
-  const caller = await requireStaff().catch(() => null);
-  if (!caller) return { ok: false, error: "Staff sign-in required." };
+  const gate = await staffGate();
+  if (!gate.ok) return { ok: false, error: gate.error };
+  const caller = gate.caller;
 
   const parsed = setStaffPinInput.safeParse(raw);
   if (!parsed.success) {
@@ -37,8 +38,9 @@ export async function setPin(raw: unknown): Promise<PinActionResult> {
 
 /** Remove the caller's own PIN (turn the fast-path off). */
 export async function removePin(): Promise<PinActionResult> {
-  const caller = await requireStaff().catch(() => null);
-  if (!caller) return { ok: false, error: "Staff sign-in required." };
+  const gate = await staffGate();
+  if (!gate.ok) return { ok: false, error: gate.error };
+  const caller = gate.caller;
 
   const ok = await clearStaffPin(caller.staffId);
   if (!ok) return { ok: false, error: "Couldn’t remove your PIN. Try again." };
@@ -52,8 +54,9 @@ export async function removePin(): Promise<PinActionResult> {
  * httpOnly + path-scoped cookie so page JS can't flip it; the unlock requires the server-verified PIN.
  */
 export async function lockConsole(): Promise<PinActionResult> {
-  const caller = await requireStaff().catch(() => null);
-  if (!caller) return { ok: false, error: "Staff sign-in required." };
+  const gate = await staffGate();
+  if (!gate.ok) return { ok: false, error: gate.error };
+  const caller = gate.caller;
 
   if (!(await staffHasPin(caller.staffId)))
     return { ok: false, error: "Set a PIN before locking." };
@@ -72,7 +75,9 @@ export type UnlockResult =
   | { ok: true }
   | { ok: false; reason: "wrong"; attemptsRemaining: number }
   | { ok: false; reason: "locked"; lockedUntil: string }
-  | { ok: false; reason: "no_pin" | "error" };
+  // W10b `outage`: the platform is unreachable — NOT a wrong PIN, and the person is still staff. The
+  // lock screen says so instead of burning their attempt budget's trust on a fiction.
+  | { ok: false; reason: "no_pin" | "error" | "outage" };
 
 /**
  * Unlock the console: verify the CURRENT staff member's PIN (server-side, lockout-counted) and, only on
@@ -81,8 +86,10 @@ export type UnlockResult =
  * signed-in member (requireStaff already gates that).
  */
 export async function unlockConsole(raw: unknown): Promise<UnlockResult> {
-  const caller = await requireStaff().catch(() => null);
-  if (!caller) return { ok: false, reason: "error" };
+  const auth = await getStaffAuth();
+  if (auth.kind === "unavailable") return { ok: false, reason: "outage" };
+  if (auth.kind !== "staff") return { ok: false, reason: "error" };
+  const caller = auth.caller;
 
   const parsed = verifyStaffPinInput.safeParse(raw);
   // A malformed PIN never reaches verify (no lockout cost for a client-side typo guard); treat as wrong

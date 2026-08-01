@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, useTransition, type CSSProperties } from "react";
 import { getExpoQueue, setTogoStatus } from "@/lib/expo";
+import { frozenBoardCopy, raceTimeout } from "@/lib/staff-outage";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { useWakeLock } from "@/lib/useWakeLock";
 import { formatSlotLong } from "@/lib/pickupTime";
@@ -23,6 +24,12 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
   const [snap, setSnap] = useState(initial);
   const [err, setErr] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
+  // W10b: server-verdict outage — freeze the ledger immediately (no fails debounce), keep polling.
+  const [frozen, setFrozen] = useState(false);
+  // Clock for the frozen banner's escalation only (no 1s ticker here like the KDS): seeded from the
+  // server snapshot (Date.now() in render is impure under the compiler), advanced in the failure
+  // callbacks and a slow tick while frozen, so the ≥2min paper-flow escalation actually flips.
+  const [nowMs, setNowMs] = useState(() => Date.parse(initial.serverNow));
   const fails = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlight = useRef(false);
@@ -33,8 +40,16 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
     if (inFlight.current) return;
     inFlight.current = true;
     try {
-      const res = await getExpoQueue();
+      // raceTimeout (W10b): a hung poll must degrade into the catch path, not freeze inFlight.
+      const res = await raceTimeout(getExpoQueue());
       if (!res.ok) {
+        // W10b (M32): outage ≠ signed out — keep the last-known bags instead of redirecting the
+        // counter to login mid-service.
+        if (res.reason === "outage") {
+          setFrozen(true);
+          setNowMs(Date.now());
+          return;
+        }
         window.location.assign(res.reason === "locked" ? "/staff/lock" : "/staff/login");
         return;
       }
@@ -42,14 +57,24 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
       setErr(null);
       fails.current = 0;
       setStale(false);
+      setFrozen(false);
     } catch (e) {
       fails.current += 1;
       if (fails.current >= 2) setStale(true);
+      setNowMs(Date.now());
       console.error("[ExpoBoard] refresh failed", e);
     } finally {
       inFlight.current = false;
     }
   }, []);
+
+  // Slow escalation tick while frozen/stale — the banner's ≥2min flip needs a re-render even if
+  // every poll keeps failing silently.
+  useEffect(() => {
+    if (!(stale || frozen)) return;
+    const id = setInterval(() => setNowMs(Date.now()), 15_000);
+    return () => clearInterval(id);
+  }, [stale, frozen]);
 
   const onChange = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -117,12 +142,12 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
           style={{
             margin: 0,
             fontSize: "var(--fs-sm)",
-            color: err || stale ? "var(--warn)" : "var(--t2)",
+            color: err || stale || frozen ? "var(--warn)" : "var(--t2)",
           }}
         >
           {err ??
-            (stale
-              ? "Reconnecting…"
+            (stale || frozen
+              ? frozenBoardCopy(snap.serverNow, nowMs, "the bags")
               : count === 0
                 ? "No bags waiting"
                 : [
@@ -136,9 +161,14 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
       </div>
 
       {count === 0 ? (
+        // W10b — mid-freeze this must not read as an all-clear, nor promise bags we can't hear about.
         <EmptyState
-          title="Nothing to bag"
-          subtitle="Bags appear here once a to-go or grocery order is paid."
+          title={stale || frozen ? "Nothing to bag as of the last update" : "Nothing to bag"}
+          subtitle={
+            stale || frozen
+              ? "We can’t reach the ordering system, so new bags won’t land here until it’s back. Nothing already paid for is lost."
+              : "Bags appear here once a to-go or grocery order is paid."
+          }
           icon={<Icon name="bag" size={30} style={{ color: "var(--ac)" }} />}
         />
       ) : (

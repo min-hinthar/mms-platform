@@ -6,6 +6,7 @@ import { publicClient } from "@mms/db/server";
 import { requireStaffPage } from "@/lib/staff";
 import { getTableDetail } from "@/lib/floor";
 import { StaffAddButton } from "@/components/staff/StaffAddButton";
+import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 
 export const metadata = { title: "Add items — Mandalay Morning Star" };
 export const dynamic = "force-dynamic";
@@ -17,11 +18,17 @@ export const dynamic = "force-dynamic";
  * drill-down, which shows the honest state.
  */
 export default async function StaffAddItems({ params }: { params: Promise<{ id: string }> }) {
-  await requireStaffPage();
-
+  const caller = await requireStaffPage();
   const { id } = await params;
-  const detail = await getTableDetail(id);
-  if (!detail) redirect("/staff");
+  // W10b: an unknowable gate/read keeps the URL and renders the outage shell — never a redirect
+  // that pretends a verdict (the old `!detail → /staff` bounce fired on outage too).
+  if (!caller) return <StaffOutageShell what="this table" />;
+
+  const res = await getTableDetail(id);
+  if (res.kind === "outage") return <StaffOutageShell what="this table" />;
+  if (res.kind === "signin") redirect("/staff/login"); // gate race between requireStaffPage and the read
+  if (res.kind === "closed") redirect("/staff");
+  const detail = res.detail;
   if (detail.cartId == null) redirect(`/staff/table/${id}`); // settled/no open order — nothing to add to
 
   const db = publicClient();

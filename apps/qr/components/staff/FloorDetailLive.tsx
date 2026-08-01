@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getTableDetail } from "@/lib/floor";
+import { frozenBoardCopy, raceTimeout } from "@/lib/staff-outage";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { type TableDetail, tableDisplay } from "@/lib/floor-types";
 import { FloorStatusChip } from "./FloorStatusChip";
@@ -42,6 +43,10 @@ export function FloorDetailLive({
   const [detail, setDetail] = useState<TableDetail>(initial);
   const [writeError, setWriteError] = useState<string | null>(null);
   const [stale, setStale] = useState(false); // shown after repeated poll failures (S9)
+  // W10b: server-verdict outage — freeze this order's last-known state immediately, keep polling.
+  // Only a genuine `closed` bounces back to the floor; an unreadable table is NOT a cleared one.
+  const [frozen, setFrozen] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.parse(initial.serverNow));
   const fails = useRef(0);
   const inFlight = useRef(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -77,23 +82,41 @@ export function FloorDetailLive({
     if (inFlight.current) return;
     inFlight.current = true;
     try {
-      const next = await getTableDetail(sessionId);
-      if (next) setDetail(next);
-      else {
-        // Closed/cleared — the detail no longer exists; go back to the floor.
+      // raceTimeout (W10b): a hung poll must degrade into the catch path, not freeze inFlight.
+      const res = await raceTimeout(getTableDetail(sessionId));
+      if (res.kind === "detail") {
+        setDetail(res.detail);
+        fails.current = 0;
+        setStale(false);
+        setFrozen(false);
+      } else if (res.kind === "closed") {
+        // Genuinely closed/cleared — the detail no longer exists; go back to the floor. (The old
+        // `null` also fired on OUTAGE, kicking staff off a live table's order mid-service — M32.)
         router.replace("/staff");
         router.refresh();
+      } else if (res.kind === "signin") {
+        // An expired/invalid staff session is a verdict, not a blip — the honest surface is login.
+        window.location.assign("/staff/login");
+      } else {
+        setFrozen(true);
+        setNowMs(Date.now());
       }
-      fails.current = 0;
-      setStale(false);
     } catch (e) {
       fails.current += 1;
       if (fails.current >= 2) setStale(true); // S2-audit S9: signal a frozen detail view
+      setNowMs(Date.now());
       console.error("[FloorDetailLive] refresh failed", e);
     } finally {
       inFlight.current = false;
     }
   }, [sessionId, router]);
+
+  // Slow escalation tick while frozen/stale (the ≥2min paper-flow flip needs a re-render).
+  useEffect(() => {
+    if (!(stale || frozen)) return;
+    const id = setInterval(() => setNowMs(Date.now()), 15_000);
+    return () => clearInterval(id);
+  }, [stale, frozen]);
 
   const onChange = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -311,11 +334,12 @@ export function FloorDetailLive({
             ...muted,
             marginTop: 6,
             fontSize: "var(--fs-sm)",
-            minHeight: writeError || stale ? 16 : 0,
-            color: writeError || stale ? "var(--warn)" : "var(--t3)",
+            minHeight: writeError || stale || frozen ? 16 : 0,
+            color: writeError || stale || frozen ? "var(--warn)" : "var(--t3)",
           }}
         >
-          {writeError ?? (stale ? "Reconnecting — showing the last known order" : null)}
+          {writeError ??
+            (stale || frozen ? frozenBoardCopy(detail.serverNow, nowMs, "this order") : null)}
         </p>
       </section>
 

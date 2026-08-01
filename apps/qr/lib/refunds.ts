@@ -3,7 +3,8 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { serviceClient } from "@mms/db/server";
 import { refundLineInput } from "@mms/db/schemas";
-import { requireStaff } from "./staff";
+import { AuthzError } from "./authz";
+import { getStaffAuth, requireStaff, roleAtLeast } from "./staff";
 import { verifyStaffPin } from "./staff-pin";
 import { getStripe } from "./stripe";
 import { getPostHogClient } from "./posthog-server";
@@ -77,7 +78,12 @@ export type StaffOrder = {
 export async function getStaffOrders(): Promise<StaffOrder[]> {
   await requireStaff("manager");
   const db = serviceClient();
-  const { data: orders } = await db
+  // W10b — a failed read must not render as "no recent orders" (false-empty), and a failed REFUNDS
+  // read must not clear the `refunded` flags (re-offering a refund on an already-refunded line; the
+  // idempotency key is the backstop, not the UI). Throw to the caller's failure state instead.
+  const unavailable = () =>
+    new AuthzError("We can’t reach the ordering system right now", 503, "unavailable");
+  const { data: orders, error: ordersError } = await db
     .from("qr_orders")
     .select(
       "id,created_at,subtotal_cents,discount_cents,tax_cents,service_charge_cents,tip_cents,total_cents,status,tender,stripe_payment_intent_id,session_id,qr_order_items(id,name,qty,unit_price_cents,tax_cents,fulfillment)",
@@ -85,21 +91,24 @@ export async function getStaffOrders(): Promise<StaffOrder[]> {
     .in("status", ["paid", "refunded"])
     .order("created_at", { ascending: false })
     .limit(50);
+  if (ordersError) throw unavailable();
   if (!orders || orders.length === 0) return [];
 
   const orderIds = orders.map((o) => o.id);
-  const { data: refunds } = await db
+  const { data: refunds, error: refundsError } = await db
     .from("mms_refunds")
     .select("order_item_id")
     .in("order_id", orderIds);
+  if (refundsError) throw unavailable();
   const refundedLines = new Set(
     (refunds ?? []).map((r) => r.order_item_id).filter((x): x is string => !!x),
   );
 
   const sessionIds = [...new Set(orders.map((o) => o.session_id).filter((s): s is string => !!s))];
-  const { data: sessions } = sessionIds.length
+  const { data: sessions, error: sessionsError } = sessionIds.length
     ? await db.from("table_sessions").select("id,qr_code").in("id", sessionIds)
-    : { data: [] as { id: string; qr_code: string }[] };
+    : { data: [] as { id: string; qr_code: string }[], error: null };
+  if (sessionsError) throw unavailable();
   const labelBy = new Map((sessions ?? []).map((s) => [s.id, s.qr_code]));
 
   return orders.map((o) => {
@@ -155,7 +164,9 @@ export type RefundResult =
         | "already_refunded"
         | "fully_refunded"
         | "stripe_error"
-        | "error";
+        | "error"
+        // W10b: platform unreachable — no money moved; not a verdict about the line or the manager.
+        | "outage";
     };
 
 /**
@@ -166,7 +177,13 @@ export type RefundResult =
  * the charge.refunded webhook reconciles the status regardless (the money already moved correctly).
  */
 export async function refundLine(raw: unknown): Promise<RefundResult> {
-  const caller = await requireStaff("manager").catch(() => null);
+  const staffAuth = await getStaffAuth();
+  // W10b — unknowable ≠ "not a manager": that verdict on a money-out surface reads as a demotion.
+  if (staffAuth.kind === "unavailable") return { ok: false, reason: "outage" };
+  const caller =
+    staffAuth.kind === "staff" && roleAtLeast(staffAuth.caller.role, "manager")
+      ? staffAuth.caller
+      : null;
   if (!caller) return { ok: false, reason: "not_manager" };
   const parsed = refundLineInput.safeParse(raw);
   if (!parsed.success) return { ok: false, reason: "error" };

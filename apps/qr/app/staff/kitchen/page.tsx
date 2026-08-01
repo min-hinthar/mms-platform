@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { requireStaffPage } from "@/lib/staff";
 import { getKitchenQueue } from "@/lib/kitchen";
 import { KdsBoard } from "@/components/staff/KdsBoard";
+import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 
 export const metadata = { title: "Kitchen — Mandalay Morning Star" };
 export const dynamic = "force-dynamic";
@@ -15,9 +16,15 @@ export const dynamic = "force-dynamic";
  * on a lock/session race between requireStaffPage and the read — send it to the honest surface.
  */
 export default async function KitchenPage() {
-  await requireStaffPage();
+  const caller = await requireStaffPage();
+  // W10b: an unknowable gate keeps the URL — the outage shell's retry re-enters right here, so the
+  // kitchen tablet is one tap from its board the moment the platform returns.
+  if (!caller) return <StaffOutageShell what="the kitchen board" />;
   const res = await getKitchenQueue();
-  if (!res.ok) redirect(res.reason === "locked" ? "/staff/lock" : "/staff/login");
+  if (!res.ok) {
+    if (res.reason === "outage") return <StaffOutageShell what="the kitchen board" />;
+    redirect(res.reason === "locked" ? "/staff/lock" : "/staff/login");
+  }
 
   return (
     <main>

@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { browserClient } from "@mms/db";
+import { isRetryableAuthShape } from "@/lib/staff-outage";
 
 /**
  * Staff sign-in (S1.1a) — passwordless magic-link / email-OTP. Two steps: request a 6-digit code to
@@ -71,7 +72,12 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
     });
     if (err) {
       setBusy(false);
-      setError("Couldn’t start Google sign-in. Try again.");
+      // W10b — a transport failure is not a Google problem or a you problem: say whose fault it is.
+      setError(
+        isRetryableAuthShape(err)
+          ? "We can’t reach the sign-in service right now — it’s not you. Try again in a moment."
+          : "Couldn’t start Google sign-in. Try again.",
+      );
     }
   }
 
@@ -107,6 +113,14 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
         );
         return;
       }
+      // W10b — a transport failure is NOT a bad address: the old copy told staff to double-check an
+      // email that was fine, mid-outage, on the login they'd just been (wrongly) redirected to.
+      if (isRetryableAuthShape(err)) {
+        setError(
+          "We can’t reach the sign-in service right now — your email is fine. Try again in a moment.",
+        );
+        return;
+      }
       // Otherwise: a non-staff email or a typo — let them fix it and retry (no cooldown).
       setError(
         "We couldn’t send a code to that email. Check it’s your staff address and try again.",
@@ -131,7 +145,13 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
     });
     if (err) {
       setBusy(false);
-      setError("That code didn’t match or has expired. Request a new one.");
+      // W10b — a transport failure is NOT a wrong code: "request a new one" would burn the send
+      // budget against an outage the retry copy names instead.
+      setError(
+        isRetryableAuthShape(err)
+          ? "We can’t reach the sign-in service right now — your code may still be good. Try again in a moment."
+          : "That code didn’t match or has expired. Request a new one.",
+      );
       return;
     }
     // Session is now in cookies — let the server shell re-gate against the staff row.
@@ -140,9 +160,16 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
   }
 
   // Recovery for the "signed in but not staff" case: clear the wrong session so a different email
-  // can be tried (otherwise the server would keep bouncing them here).
+  // can be tried (otherwise the server would keep bouncing them here). W10b: a FAILED sign-out
+  // (auth plane down) leaves the session live — say so instead of refreshing into the same bounce.
   async function signOutWrong() {
-    await browserClient().auth.signOut();
+    const { error: err } = await browserClient().auth.signOut();
+    if (err && isRetryableAuthShape(err)) {
+      setError(
+        "We can’t reach the sign-in service — couldn’t sign out just now. Try again in a moment.",
+      );
+      return;
+    }
     router.refresh();
   }
 

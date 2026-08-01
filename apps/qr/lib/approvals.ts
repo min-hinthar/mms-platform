@@ -3,7 +3,8 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { serviceClient } from "@mms/db/server";
 import { requestApprovalInput, resolveApprovalInput } from "@mms/db/schemas";
-import { requireStaff } from "./staff";
+import { AuthzError } from "./authz";
+import { getStaffAuth, requireStaff } from "./staff";
 import { approverStepUpAllowed, verifyStaffPin } from "./staff-pin";
 import { paymentInFlightReason } from "./pay-guard";
 import { touchCart } from "./order-lines";
@@ -28,7 +29,9 @@ export type RequestApprovalResult =
         | "not_open"
         | "not_found"
         | "in_flight"
-        | "error";
+        | "error"
+        // W10b: platform unreachable — the request wasn't recorded; not a verdict about the line.
+        | "outage";
     };
 
 /**
@@ -37,27 +40,33 @@ export type RequestApprovalResult =
  * just run voidLine instead. `already_pending` means a request for this line is already open.
  */
 export async function requestApproval(raw: unknown): Promise<RequestApprovalResult> {
-  const caller = await requireStaff().catch(() => null);
-  if (!caller) return { ok: false, reason: "error" };
+  const auth = await getStaffAuth();
+  // W10b — unknowable ≠ unauthorized; and an unread cart/line is not "not open"/"not found" (false
+  // verdicts that end with the loss request silently dropped).
+  if (auth.kind === "unavailable") return { ok: false, reason: "outage" };
+  if (auth.kind !== "staff") return { ok: false, reason: "error" };
+  const caller = auth.caller;
   const parsed = requestApprovalInput.safeParse(raw);
   if (!parsed.success) return { ok: false, reason: "error" };
   const { sessionId, cartItemId, action, reason } = parsed.data;
 
   const db = serviceClient();
-  const { data: cart } = await db
+  const { data: cart, error: cartError } = await db
     .from("qr_carts")
     .select("id,locked,locked_at,settle_at")
     .eq("session_id", sessionId)
     .eq("status", "open")
     .maybeSingle();
+  if (cartError) return { ok: false, reason: "outage" };
   if (!cart) return { ok: false, reason: "not_open" };
   if (await paymentInFlightReason(cart)) return { ok: false, reason: "in_flight" };
-  const { data: line } = await db
+  const { data: line, error: lineError } = await db
     .from("qr_cart_items")
     .select("id")
     .eq("id", cartItemId)
     .eq("cart_id", cart.id)
     .maybeSingle();
+  if (lineError) return { ok: false, reason: "outage" };
   if (!line) return { ok: false, reason: "not_found" };
 
   const { data: status, error } = await db.rpc("mms_request_approval", {
@@ -113,7 +122,9 @@ export type ResolveApprovalResult =
         | "not_open"
         | "in_flight"
         | "not_found"
-        | "error";
+        | "error"
+        // W10b: platform unreachable — the resolution wasn't recorded; the request is still pending.
+        | "outage";
     };
 
 /**
@@ -122,19 +133,24 @@ export type ResolveApprovalResult =
  * the approver is an active manager/owner ≠ the requester and that the row is still pending.
  */
 export async function resolveApproval(raw: unknown): Promise<ResolveApprovalResult> {
-  const caller = await requireStaff().catch(() => null);
-  if (!caller) return { ok: false, reason: "error" };
+  const auth = await getStaffAuth();
+  // W10b — unknowable ≠ unauthorized; an unread request is not "not found" (the manager would read
+  // the queue as already-handled and walk away from a still-pending loss).
+  if (auth.kind === "unavailable") return { ok: false, reason: "outage" };
+  if (auth.kind !== "staff") return { ok: false, reason: "error" };
+  const caller = auth.caller;
   const parsed = resolveApprovalInput.safeParse(raw);
   if (!parsed.success) return { ok: false, reason: "error" };
   const { approvalId, decision, approverStaffId, pin } = parsed.data;
 
   const db = serviceClient();
   // Read the request first (for the revalidate/touch targets + a fast not-found).
-  const { data: appr } = await db
+  const { data: appr, error: apprError } = await db
     .from("mms_approvals")
     .select("id,cart_id,session_id,status,initiator_staff_id")
     .eq("id", approvalId)
     .maybeSingle();
+  if (apprError) return { ok: false, reason: "outage" };
   if (!appr) return { ok: false, reason: "not_found" };
   if (appr.status !== "pending") return { ok: false, reason: "already" };
 
@@ -143,11 +159,14 @@ export async function resolveApproval(raw: unknown): Promise<ResolveApprovalResu
   // RPC re-checks this atomically too; this is the app-layer parity with voidLine (and covers the
   // captured-share edge paymentInFlightReason adds beyond the SQL freshness check). Deny is always safe.
   if (decision === "approve" && appr.cart_id) {
-    const { data: cart } = await db
+    const { data: cart, error: cartError } = await db
       .from("qr_carts")
       .select("id,locked,locked_at,settle_at")
       .eq("id", appr.cart_id)
       .maybeSingle();
+    // An unread cart can't prove the pay-mutex is clear — refuse with the outage truth rather than
+    // approve a void against a base a PaymentIntent may be capturing.
+    if (cartError) return { ok: false, reason: "outage" };
     if (cart && (await paymentInFlightReason(cart))) return { ok: false, reason: "in_flight" };
   }
 
@@ -206,7 +225,9 @@ export async function resolveApproval(raw: unknown): Promise<ResolveApprovalResu
   return { ok: true, decision };
 }
 
-/** A cheap head-count of open requests for the floor-nav badge (manager+ only). 0 on any error. */
+/** A cheap head-count of open requests for the floor-nav badge (manager+ only). 0 on any error —
+ *  a DELIBERATE degrade (W10b): the badge is an ornament on a nav link, and the approvals page
+ *  itself (listPendingApprovals) refuses to render a false-empty queue. */
 export async function countPendingApprovals(): Promise<number> {
   const caller = await requireStaff("manager").catch(() => null);
   if (!caller) return 0;
@@ -239,7 +260,11 @@ export type PendingApproval = {
 export async function listPendingApprovals(): Promise<PendingApproval[]> {
   await requireStaff("manager");
   const db = serviceClient();
-  const { data: rows } = await db
+  // W10b — a failed read must not render as "queue clear" (a manager would walk away from pending
+  // losses). Throwing lands in the ApprovalsBoard catch (frozen-board banner) / the staff boundary.
+  const unavailable = () =>
+    new AuthzError("We can’t reach the ordering system right now", 503, "unavailable");
+  const { data: rows, error: rowsError } = await db
     .from("mms_approvals")
     .select(
       "id,kind,line_name,qty,amount_cents,reason_code,cooked,session_id,initiator_staff_id,created_at",
@@ -247,18 +272,22 @@ export async function listPendingApprovals(): Promise<PendingApproval[]> {
     .eq("status", "pending")
     .order("created_at", { ascending: true })
     .limit(200);
+  if (rowsError) throw unavailable();
   if (!rows || rows.length === 0) return [];
 
   const initiatorIds = [...new Set(rows.map((r) => r.initiator_staff_id))];
   const sessionIds = [...new Set(rows.map((r) => r.session_id).filter((x): x is string => !!x))];
-  const [{ data: staff }, { data: sessions }] = await Promise.all([
+  const [staffRes, sessionsRes] = await Promise.all([
     db.from("staff").select("user_id,display_name").in("user_id", initiatorIds),
     sessionIds.length
       ? db.from("table_sessions").select("id,qr_code").in("id", sessionIds)
-      : Promise.resolve({ data: [] as { id: string; qr_code: string }[] }),
+      : Promise.resolve({ data: [] as { id: string; qr_code: string }[], error: null }),
   ]);
-  const nameById = new Map((staff ?? []).map((s) => [s.user_id, s.display_name]));
-  const labelById = new Map((sessions ?? []).map((s) => [s.id, s.qr_code]));
+  // Names/labels are the queue's attribution — "A server · no table" on every row is misinformation
+  // on an audit surface, not a degrade.
+  if (staffRes.error || sessionsRes.error) throw unavailable();
+  const nameById = new Map((staffRes.data ?? []).map((s) => [s.user_id, s.display_name]));
+  const labelById = new Map((sessionsRes.data ?? []).map((s) => [s.id, s.qr_code]));
 
   return rows.map((r) => ({
     id: r.id,

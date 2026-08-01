@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { bumpLine, bumpTicket, fireTicketNow, getKitchenQueue, recallTicket } from "@/lib/kitchen";
+import { frozenBoardCopy, raceTimeout } from "@/lib/staff-outage";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { useWakeLock } from "@/lib/useWakeLock";
 import { KdsChime, getKdsVolume, setKdsVolume } from "@/lib/kds-sound";
@@ -77,6 +78,9 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
   const [snap, setSnap] = useState(initial);
   const [err, setErr] = useState<string | null>(null); // one board-level action-error region (S8)
   const [stale, setStale] = useState(false); // shown after repeated poll failures (S9)
+  // W10b: the server SAID the platform is unreachable (poll reason "outage") — no fails debounce, the
+  // board freezes on its ledger immediately. Cleared by the next good snapshot; polling never stops.
+  const [frozen, setFrozen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null); // one-shot SR announcement (bump/recall)
   const fails = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -156,8 +160,17 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
     if (inFlight.current) return; // coalesce overlapping fetches
     inFlight.current = true;
     try {
-      const res = await getKitchenQueue();
+      // raceTimeout (W10b): a HUNG poll (socket that never settles) would hold inFlight forever and
+      // stop all polling with the board still wearing its live face — turn it into the catch path.
+      const res = await raceTimeout(getKitchenQueue());
       if (!res.ok) {
+        // W10b (M32): "outage" means the platform is unreachable — NOT a verdict about the cookie.
+        // The old redirect here destroyed the queue mid-service, exactly when the kitchen needed its
+        // last-known state most. Freeze the ledger and keep polling for recovery.
+        if (res.reason === "outage") {
+          setFrozen(true);
+          return;
+        }
         // K10 (O-F): an expired staff session or a locked console is NOT a network blip — leave the
         // board for the honest surface instead of wearing "Reconnecting…" until someone reboots it.
         window.location.assign(res.reason === "locked" ? "/staff/lock" : "/staff/login");
@@ -188,6 +201,7 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
       setErr(null); // a fresh good snapshot clears a stale action-error banner (no perma-stuck error)
       fails.current = 0;
       setStale(false);
+      setFrozen(false);
     } catch (e) {
       // A transient fetch error keeps the last good queue; the poll + realtime self-heal recover.
       // After 2 consecutive failures, tell the line it's working a stale board (S2-audit S9).
@@ -416,12 +430,16 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
           style={{
             margin: 0,
             fontSize: "var(--kfs-meta)",
-            color: err || stale ? "var(--warn)" : "var(--t2)",
+            color: err || stale || frozen ? "var(--warn)" : "var(--t2)",
           }}
         >
+          {/* Frozen/stale wear the shared outage vocabulary (W10b): the ledger's own "as of" stamp,
+              escalating to the paper-flow line — snap.serverNow IS the freeze moment, and the 1s
+              nowMs tick flips the escalation live. Elapsed clocks keep ticking on the frozen cards:
+              the food really has been waiting that long — that's the truth, not fake liveness. */}
           {err ??
-            (stale
-              ? "Reconnecting — showing the last known queue"
+            (stale || frozen
+              ? frozenBoardCopy(snap.serverNow, nowMs, "the queue")
               : (notice ??
                 (count === 0
                   ? "All clear"
@@ -485,9 +503,20 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
       <div className="kds-body">
         {filtered.length === 0 ? (
           <div style={{ flex: 1 }}>
+            {/* W10b — an EMPTY board mid-freeze must not read as an all-clear, and must not promise
+                arrivals we can't deliver ("tickets appear the moment an order is sent" is false
+                while we can't hear about orders at all). */}
             <EmptyState
-              title="Nothing on the line"
-              subtitle="Tickets appear the moment an order is sent or paid — dine-in sends, pickup and to-go land at checkout, scheduled orders wait as held cards until their fire time."
+              title={
+                stale || frozen
+                  ? "Nothing on the line as of the last update"
+                  : "Nothing on the line"
+              }
+              subtitle={
+                stale || frozen
+                  ? "We can’t reach the ordering system, so new tickets won’t land here until it’s back. Take orders on paper — nothing already sent is lost."
+                  : "Tickets appear the moment an order is sent or paid — dine-in sends, pickup and to-go land at checkout, scheduled orders wait as held cards until their fire time."
+              }
             />
           </div>
         ) : (

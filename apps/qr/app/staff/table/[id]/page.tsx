@@ -1,8 +1,10 @@
 import { type CSSProperties } from "react";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { requireStaffPage } from "@/lib/staff";
 import { getTableDetail } from "@/lib/floor";
 import { FloorDetailLive } from "@/components/staff/FloorDetailLive";
+import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 
 export const metadata = { title: "Table — Mandalay Morning Star" };
 export const dynamic = "force-dynamic";
@@ -10,14 +12,19 @@ export const dynamic = "force-dynamic";
 /**
  * Read-only per-table drill-down (S1.2). Staff-gated + lock-gated like the rest of the console. A
  * missing/closed session (a cleared or expired table) renders an honest "this table is closed" with a
- * way back, never a stale order. The live detail + the turnover clear-table live in FloorDetailLive.
+ * way back, never a stale order — and ONLY a genuine `closed` says that (W10b): an unreadable table
+ * renders the outage shell in place, keeping the URL. The live detail + clear-table live in
+ * FloorDetailLive.
  */
 export default async function TablePage({ params }: { params: Promise<{ id: string }> }) {
-  await requireStaffPage();
-
+  const caller = await requireStaffPage();
   const { id } = await params;
-  const detail = await getTableDetail(id);
-  if (!detail) {
+  if (!caller) return <StaffOutageShell what="this table" />;
+
+  const res = await getTableDetail(id);
+  if (res.kind === "outage") return <StaffOutageShell what="this table" />;
+  if (res.kind === "signin") redirect("/staff/login"); // gate race between requireStaffPage and the read
+  if (res.kind === "closed") {
     return (
       <main style={wrap}>
         <Link href="/staff" style={back}>
@@ -33,7 +40,7 @@ export default async function TablePage({ params }: { params: Promise<{ id: stri
     );
   }
 
-  return <FloorDetailLive initial={detail} sessionId={id} />;
+  return <FloorDetailLive initial={res.detail} sessionId={id} />;
 }
 
 const wrap: CSSProperties = { maxWidth: 640, margin: "0 auto", padding: "var(--s6)" };
