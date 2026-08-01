@@ -983,14 +983,11 @@ export default function Grocery() {
           onStep={stepQty}
           onCheckout={checkout}
           onCloseAutoFocus={(e) => {
-            // ALWAYS redirect the restore — there is no working default here. Radix's modal
-            // content unconditionally preventDefaults its own close event and focuses
-            // `triggerRef.current`, but our Sheet never renders a Dialog.Trigger, so that ref is
-            // null and EVERY close would land focus on <body> (verified mechanically against the
-            // installed @radix-ui/react-dialog — the FocusScope fallback is skipped once the
-            // event is defaultPrevented). Park on the basket button while it exists; on the
-            // stable search input once the last row was removed and the CTA bar unmounted
-            // (the page's remove-row pattern, WCAG 2.4.3).
+            // Override the Sheet's default opener-restore (W9e): the default is fine while the
+            // trigger lives, but THIS sheet's trigger (the CTA bar) can unmount while it is open
+            // — removing the last row, or a terminal force-close — and a restore to a dead node
+            // silently no-ops to <body>. Park on the basket button while it exists; on the
+            // stable search input otherwise (the page's remove-row pattern, WCAG 2.4.3).
             e.preventDefault();
             if (lines.length === 0) searchRef.current?.focus();
             else basketBtnRef.current?.focus();
