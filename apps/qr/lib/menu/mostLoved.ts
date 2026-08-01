@@ -30,7 +30,7 @@ const WINDOW_DAYS = 60;
 const MIN_DISTINCT_ORDERS = 2;
 const ROW_CAP = 5000;
 
-export const getMostLoved = unstable_cache(
+const getMostLovedCached = unstable_cache(
   async (): Promise<MostLoved[]> => {
     // The ENTIRE body is inside try/catch — not just the query. serviceClient() itself throws on a
     // missing/rotated SUPABASE_SERVICE_ROLE_KEY, and this module made the menu's highest-traffic page
@@ -51,8 +51,11 @@ export const getMostLoved = unstable_cache(
         .order("qr_orders(created_at)", { ascending: false })
         .limit(ROW_CAP);
       if (error) {
+        // THROW, don't return [] — this body runs INSIDE the cache boundary, and a returned [] would
+        // be CACHED for the full hour: one outage-window render poisoned the "most loved" band for
+        // 60 minutes after recovery (W10a audit). The throw is caught outside the boundary below.
         console.error("[mostLoved] aggregate read failed", error.message);
-        return [];
+        throw new Error("mostLoved read failed");
       }
       const acc = new Map<string, { orders: Set<string>; qty: number }>();
       for (const r of data ?? []) {
@@ -68,9 +71,11 @@ export const getMostLoved = unstable_cache(
         .sort((a, b) => b.orders - a.orders || b.qty - a.qty)
         .slice(0, 12);
     } catch (e) {
-      // Deliberate swallow → []: the band/badge simply don't render; the menu is unaffected. A popularity
-      // signal must never be able to take the menu down. (A SQL GROUP-BY RPC — no row cap, no wide
-      // transfer — is the planned upgrade when J5 opens the track's migration.)
+      // Config-shaped failures (missing service key) still swallow INSIDE the boundary: they are
+      // stable for the process lifetime, so caching their [] is accurate, and serviceClient() throws
+      // before any query. ALL query errors (transport or otherwise) were re-thrown above and never
+      // enter the cache — a non-transport query error is transient from the cache's point of view too.
+      if (e instanceof Error && e.message === "mostLoved read failed") throw e;
       console.error("[mostLoved] aggregate unavailable", e instanceof Error ? e.message : e);
       return [];
     }
@@ -78,3 +83,17 @@ export const getMostLoved = unstable_cache(
   ["mms-most-loved"],
   { revalidate: 3600 },
 );
+
+/**
+ * W10a — the public face: failures degrade to "no band" HERE, outside the cache boundary, so the
+ * error-state [] is never cached (the pre-W10a shape cached it for the full hour) while a genuine
+ * empty aggregate still caches normally.
+ */
+export async function getMostLoved(): Promise<MostLoved[]> {
+  try {
+    return await getMostLovedCached();
+  } catch {
+    /* deliberate: the band/badge simply don't render this request; the menu is unaffected */
+    return [];
+  }
+}

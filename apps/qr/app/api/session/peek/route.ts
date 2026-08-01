@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceClient, sessionClient } from "@mms/db/server";
 import { withinPeekRate } from "@/lib/rate";
+import { isTransportFailure } from "@/lib/authz";
 
 /**
  * W5a — passive "do I have a live session?" peek. Powers the home resume card and the dine-in
@@ -25,6 +26,15 @@ export async function GET(req: NextRequest) {
     data: { user },
     error: authErr,
   } = await sessionClient(token).auth.getUser(token);
+  // W10a — transport failure ≠ invalid session (see the mint route). Honest limits: the client
+  // (useSessionPeek) resolves a failed INITIAL peek to [] — the deliberate W5a fail-to-hidden on a
+  // decorative surface — and keeps last-known-good on a failed RE-peek; the 503 exists so the
+  // status code stops lying, not because a client branch consumes it yet.
+  if (authErr && isTransportFailure(authErr))
+    return NextResponse.json(
+      { error: "We’re having trouble on our end", kind: "unavailable" },
+      { status: 503, headers: { "Retry-After": "20" } },
+    );
   if (authErr || !user) return NextResponse.json({ error: "Invalid session" }, { status: 401 });
   const seat = user.id;
 

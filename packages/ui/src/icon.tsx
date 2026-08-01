@@ -38,6 +38,7 @@ import {
   Utensils,
   UtensilsCrossed,
   Volume2,
+  WifiOff,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -75,6 +76,8 @@ const ICONS = {
   refresh: RotateCcw,
   star: Star,
   check: Check,
+  // W10a — connection truth (the ONLY offline glyph; outage states use the 🫖 medallion, not an icon)
+  offline: WifiOff,
   // staff ops chrome (W2b staff tail)
   volume: Volume2,
   undo: Undo2,

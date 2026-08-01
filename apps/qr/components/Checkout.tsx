@@ -27,6 +27,7 @@ import { menuHref, menuLinkText } from "@/lib/menu-href";
 import { DINER_STATE_COPY } from "@/lib/line-state-copy";
 import { seatColor, seatInitial } from "@/lib/avatars";
 import { useAnonSession } from "@/lib/useAnonSession";
+import { failureCopy, useConnectionTruth } from "@/lib/useConnectionTruth";
 import { useCartRealtime } from "@/lib/realtime";
 import { PaymentSection } from "./PaymentSection";
 import { SplitSection } from "./SplitSection";
@@ -285,6 +286,8 @@ export function Checkout({
   // step. Enabled for ANY dine-in cart (not just groups) — a solo diner must still see a server-opened
   // tab flip to "Tab open / Settle tab" live (the qr_carts UPDATE drives refresh → getCartView.tabType).
   const anon = useAnonSession();
+  // W10a — diagnosed failure attribution for the promo/pay copy (never blame the connection blind).
+  const { truth, diagnose } = useConnectionTruth();
   // K3a: a signed-in diner's Stars standing at the moment of payment (recognition, not a pitch —
   // WalletChip renders nothing for an anonymous diner). Balance is server-derived; a fetch failure
   // just hides the chip.
@@ -532,8 +535,12 @@ export function Checkout({
         const result = await applyPromoAction(cartId, promo.trim());
         setStatus(result.ok ? "Promo applied." : PROMO_MESSAGES[result.reason]);
       } catch {
-        // A thrown error here is a transport/redacted failure, not a known reason — one honest line.
-        setStatus("Couldn’t apply that code — check your connection and try again.");
+        // A thrown error here is a transport/redacted failure, not a known reason. W10a: attribute
+        // it from the truth we already hold — ONE line in the single status region (a second
+        // setStatus would announce the same failure twice) — and warm the cache for next time.
+        // "check your connection" only ever when the device is actually offline.
+        setStatus(failureCopy(truth, "apply that code"));
+        void diagnose();
       }
       await refresh();
     });

@@ -19,6 +19,7 @@ import { GroceryBrowse } from "@/components/grocery/GroceryBrowse";
 import { GroceryBasketSheet } from "@/components/grocery/GroceryBasketSheet";
 import { saleInfo, sizeLabel } from "@/lib/grocery-aisles";
 import { isTerminal, type CartUnavailable } from "@/lib/cart-unavailable";
+import { failureCopy, useConnectionTruth } from "@/lib/useConnectionTruth";
 import { setQty } from "@/lib/cart";
 import { useTableSession } from "@/lib/useTableSession";
 
@@ -32,6 +33,9 @@ import { useTableSession } from "@/lib/useTableSession";
 export default function Grocery() {
   const router = useRouter(); // prefetch only — the checkout push rides the journey grammar
   const journey = useJourneyRouter(); // J1: grocery→cart is a FORWARD cut
+  // W10a — the connection-truth diagnosis behind every failure toast: "check your connection" is
+  // only ever said when navigator.onLine is actually false; a paused DB says "it's on us".
+  const { truth, diagnose } = useConnectionTruth();
   // W9d — `revalidate` was returned by the hook all along and discarded here; it's the re-mint the
   // terminal-basket recovery below rides (TableCartProvider already uses it for exactly this).
   const {
@@ -318,8 +322,14 @@ export default function Grocery() {
       try {
         r = await scanAdd(cartId, barcode);
       } catch {
-        if (cartIdRef.current === cartId)
-          flash("Couldn’t add that — check your connection and try again.");
+        if (cartIdRef.current === cartId) {
+          // ONE toast, immediately, using the truth we already hold (the module-cached verdict, so
+          // the second failure in an outage is already attributed). The probe runs fire-and-forget
+          // to warm that cache — deliberately NOT awaited: a re-flash after the 1800ms toast timer
+          // would announce twice for one failure and pop a toast seconds after the tap.
+          flash(failureCopy(truth, "add that"));
+          void diagnose();
+        }
         return;
       }
       // An abandoned cart's response fires NOTHING — not the toast, not the counter, not the
@@ -373,10 +383,13 @@ export default function Grocery() {
       } else {
         // `unreadable` — we couldn't establish why. Same honest transient copy as a thrown error;
         // NEVER the fresh-basket offer (a re-mint against a merely-unreadable cart abandons lines).
-        flash("Couldn’t add that — check your connection and try again.");
+        // W10a — one toast from the truth we hold; the probe warms the cache for the next failure
+        // (see the transport catch above for why this is not awaited).
+        flash(failureCopy(truth, "add that"));
+        void diagnose();
       }
     },
-    [cartId, sessionError, flash, markCartAlive, markCartGone],
+    [cartId, sessionError, flash, markCartAlive, markCartGone, diagnose],
   );
 
   const onScan = useCallback((code: string) => void add(code, "scan"), [add]);
@@ -525,7 +538,8 @@ export default function Grocery() {
       {sessionError ? (
         <div className="card" role="alert" style={{ padding: 16, marginTop: 4 }}>
           <p style={{ margin: "0 0 12px", color: "var(--warn)", fontWeight: 600 }}>
-            Couldn’t start your grocery basket — you can browse, but adding needs a connection.
+            Couldn’t start your grocery basket — this one’s usually on our end, and adding needs it
+            working. Browsing may be spotty too.
           </p>
           <button type="button" onClick={() => window.location.reload()} className="grocery-retry">
             Retry

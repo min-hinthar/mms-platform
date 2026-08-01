@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Badge, Icon } from "@mms/ui";
+import { Badge, DegradedStrip, Icon } from "@mms/ui";
 import { AddButton } from "@/components/AddButton";
 import { CartBar } from "@/components/CartBar";
 import { GuestList } from "@/components/GuestList";
@@ -54,6 +54,7 @@ export function MenuBrowser({
   heartedIds = [],
   welcome = null,
   reorderId = null,
+  catalogStale = false,
 }: {
   items: MenuItem[];
   mode: string;
@@ -69,6 +70,9 @@ export function MenuBrowser({
   /** J5: a past order id to bring back as draft lines once the session's cart is ready (the
    *  /account "Order this again" path); validated + earner-gated server-side. */
   reorderId?: string | null;
+  /** W10a: the catalog shown is the LAST-GOOD copy (the live read failed) — render the honest
+   *  staleness strip. Prices are re-derived server-side at add time, so ordering stays safe. */
+  catalogStale?: boolean;
 }) {
   const [q, setQ] = useState("");
   const [diets, setDiets] = useState<Diet[]>([]);
@@ -343,6 +347,15 @@ export function MenuBrowser({
       {/* The persistent AppHeader now owns the notch clearance (it's sticky above this in-flow title), so
           this header must NOT add env(safe-area-inset-top) again — that double-counted the inset. */}
       <header style={{ padding: "44px 20px 4px" }}>
+        {/* W10a — the last-good catalog is on screen because the live read failed. Honest, quiet,
+            and NOT a live region (server-rendered into the initial view — nothing to announce).
+            Ordering stays safe: every add re-derives price/tax server-side at write time. */}
+        {catalogStale && (
+          <DegradedStrip live={false} style={{ marginBottom: 12 }}>
+            We’re having a little trouble on our end — this is the menu from a few minutes ago.
+            Prices are confirmed when you add a dish.
+          </DegradedStrip>
+        )}
         <p className="eyebrow">
           {mode === "dinein" ? "Dine-in" : mode === "pickup" ? "Pickup" : "To-go"}
         </p>
@@ -620,9 +633,11 @@ export function MenuBrowser({
             Nothing matches
           </p>
           <p style={{ color: "var(--t2)", marginBottom: 14 }}>
+            {/* W10a — a truly empty catalog can only be a deliberate owner state now (a failed read
+                never reaches this branch — the page serves last-good or the outage state). */}
             {items.length
               ? "Try fewer filters or a different search."
-              : "The menu catalog is empty."}
+              : "The kitchen is updating the menu — check back shortly."}
           </p>
           {(q || diets.length > 0) && (
             <button

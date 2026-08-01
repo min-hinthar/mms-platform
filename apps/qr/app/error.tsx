@@ -1,6 +1,7 @@
 "use client";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import posthog from "posthog-js";
+import { useConnectionTruth } from "@/lib/useConnectionTruth";
 
 // A stale deploy leaves the running tab pointing at chunk URLs that no longer exist; the next lazy import
 // throws a ChunkLoadError. `reset()` just re-requests the same dead URL, so the boundary would loop — a
@@ -31,6 +32,25 @@ function tryChunkReload(error: Error): boolean {
  * follows the view change; an unannounced swap would strand a SR user), with a reset. A stale-deploy
  * ChunkLoadError hard-reloads once instead of looping the (useless) reset.
  */
+// W10a — escalation memory: each error-mount inside a short window bumps the count, so a boundary
+// that keeps re-erroring stops promising "try again" and admits a sustained problem. sessionStorage
+// (not module state) so it survives the remounts reset() causes.
+const ERR_COUNT_KEY = "mms.errBoundary";
+const ERR_WINDOW_MS = 90_000;
+
+function bumpErrorCount(): number {
+  try {
+    const raw = sessionStorage.getItem(ERR_COUNT_KEY);
+    const rec = raw ? (JSON.parse(raw) as { n: number; at: number }) : null;
+    const fresh = rec && Date.now() - rec.at < ERR_WINDOW_MS;
+    const n = (fresh ? rec.n : 0) + 1;
+    sessionStorage.setItem(ERR_COUNT_KEY, JSON.stringify({ n, at: Date.now() }));
+    return n;
+  } catch {
+    return 1; // private mode — no escalation memory, first-attempt copy each time
+  }
+}
+
 export default function Error({
   error,
   reset,
@@ -39,11 +59,31 @@ export default function Error({
   reset: () => void;
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
+  // Lazy init, not an effect (the setState-in-effect lint): one bump per boundary mount — each new
+  // error mounts a fresh boundary instance. (StrictMode double-invokes initializers in dev, which
+  // only makes escalation appear one error sooner there; prod counts are exact.)
+  const [attempts] = useState(() => bumpErrorCount());
+  const { truth, diagnose } = useConnectionTruth();
   useEffect(() => {
     posthog.captureException(error);
     if (tryChunkReload(error)) return; // navigating away — don't bother moving focus
+    // W10a — ask the ONE health probe whether this is our outage, so the copy can honestly say
+    // "it's us" (or "you look offline") instead of the bug-shaped default. Best-effort.
+    void diagnose();
     headingRef.current?.focus();
-  }, [error]);
+  }, [error, diagnose]);
+
+  const sustained = attempts >= 3;
+  const body =
+    truth === "we-down"
+      ? sustained
+        ? "We’re still having trouble on our end — sorry. Nothing is lost; please give it a few minutes, or ask our staff."
+        : "We’re having trouble on our end — it’s not your connection. Your order is safe; try again in a moment."
+      : truth === "you-offline"
+        ? "You look offline. Your order is safe — reconnect and try again."
+        : sustained
+          ? "This keeps failing — sorry. Your order is safe; give it a few minutes, or ask our staff."
+          : "Something went wrong on our end. Your order is safe — try again.";
 
   return (
     <main
@@ -62,10 +102,23 @@ export default function Error({
         <h1
           ref={headingRef}
           tabIndex={-1}
-          style={{ fontSize: "var(--fs-h2)", lineHeight: "var(--lh-snug)", margin: "10px 0 6px" }}
+          style={{ fontSize: "var(--fs-h2)", lineHeight: "var(--lh-snug)", margin: "10px 0 2px" }}
         >
           This screen didn’t load
         </h1>
+        {/* Bilingual, per the v7.2 bar: every state speaks EN + MY, errors included. */}
+        <p
+          lang="my"
+          style={{
+            fontFamily: "var(--font-my)",
+            lineHeight: "var(--lh-my)",
+            fontSize: "var(--fs-sm)",
+            color: "var(--t2)",
+            margin: "0 0 6px",
+          }}
+        >
+          ခဏလေး — ပြဿနာအနည်းငယ် ရှိနေပါသည်
+        </p>
         <p
           style={{
             fontSize: "var(--fs-sm)",
@@ -74,7 +127,7 @@ export default function Error({
             margin: "0 0 18px",
           }}
         >
-          Something went wrong on our end. Your order is safe — try again.
+          {body}
         </p>
         <button
           type="button"

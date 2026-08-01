@@ -10,12 +10,16 @@ import { useActiveOrderStatus } from "./useActiveOrderStatus";
  * reached a terminal state (picked up / refunded / failed).
  */
 export function HomeResumeCard() {
-  const { order, tracked, isDone } = useActiveOrderStatus(true);
+  const { order, tracked, statusWord, isDone } = useActiveOrderStatus(true);
   if (!order || isDone) return null;
 
   const isPickup = order.mode === "pickup";
+  // W10a — `statusWord` is the hook's HONEST floor (W9c built it for the header pill; this card
+  // was the consumer that never adopted it): on a timed-out/unreachable status feed it says
+  // "Placed" — the one fact our client record proves — instead of this card's old hand-rolled
+  // "Confirming your order", which claimed active work FOREVER during the paused-DB outage.
   const statusText = !tracked
-    ? "Confirming your order"
+    ? (statusWord ?? "Order placed")
     : tracked.togoStatus === "ready"
       ? isPickup
         ? "Ready for pickup"
