@@ -89,9 +89,15 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
   // status machine (mms_set_togo_status / mms_init_togo_status) is untouched.
   // Only PREPARING grocery tickets await verification — a ready one was already verified (its
   // remaining action is recording the hand-over), so counting it here would show staff a shopper
-  // they just checked as still pending (Codex).
+  // they just checked as still pending (Codex). Verified-not-yet-cleared tickets get their OWN
+  // segment: without it, a queue of only ready grocery tickets rendered a nonzero grid under a
+  // BLANK header status (both other counts zero → empty join), silencing the live region's summary
+  // of remaining work (Codex round 3). Every ticket lands in exactly one of the three counts.
   const verifyCount = tickets.filter(
     (t) => t.status === "preparing" && t.lines.every((l) => l.fulfillment === "grocery"),
+  ).length;
+  const handOverCount = tickets.filter(
+    (t) => t.status === "ready" && t.lines.every((l) => l.fulfillment === "grocery"),
   ).length;
   const bagCount = tickets.filter((t) => t.lines.some((l) => l.fulfillment !== "grocery")).length;
 
@@ -122,6 +128,7 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
                 : [
                     bagCount > 0 ? `${bagCount} bag${bagCount === 1 ? "" : "s"} waiting` : null,
                     verifyCount > 0 ? `${verifyCount} to verify` : null,
+                    handOverCount > 0 ? `${handOverCount} to hand over` : null,
                   ]
                     .filter(Boolean)
                     .join(" · "))}
@@ -215,7 +222,13 @@ function ExpoCard({
     <article
       className="card card-textured"
       style={cardStyle}
-      aria-label={grocery ? `Verify · ${verifyWho}` : `Bag for ${callOut}`}
+      // The card's name tracks its CURRENT stage — a ready grocery ticket was already verified, so
+      // announcing "Verify" for it would read the previous workflow step to an SR staffer (Codex).
+      aria-label={
+        grocery
+          ? `${ticket.status === "preparing" ? "Verify" : "Hand over"} · ${verifyWho}`
+          : `Bag for ${callOut}`
+      }
     >
       <header style={cardHead}>
         <span style={tableLabel}>

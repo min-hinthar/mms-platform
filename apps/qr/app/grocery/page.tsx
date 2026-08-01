@@ -65,6 +65,17 @@ export default function Grocery() {
     appliedSeq.current = seq;
     setLines(ls);
   }, []);
+  // The CURRENT cart, readable from any async continuation (the mountedRef pattern — written only
+  // in its own effect, read in callbacks). The seq tickets only ORDER responses; they cannot prove
+  // a response belongs to THIS cart — an in-flight op from the abandoned cart could resolve after
+  // recovery, take a fresh-looking ticket (stepQty allocates its reconcile ticket AFTER its write
+  // await), and paint the dead cart's truth or fire its side effects over the fresh basket (Codex).
+  // Every async continuation below re-checks `cartIdRef.current === cartId` (its own closure)
+  // before touching state or firing a toast/analytics event.
+  const cartIdRef = useRef(cartId);
+  useEffect(() => {
+    cartIdRef.current = cartId;
+  }, [cartId]);
   // Set true in the effect BODY (not the initializer): StrictMode's simulated remount keeps the
   // same ref, so an initializer-only `true` would stay false after the dev-mode unmount+remount.
   const mountedRef = useRef(true);
@@ -194,7 +205,7 @@ export default function Grocery() {
     const seq = ++reqSeq.current; // ticket at issue time — see applyLines
     getGroceryLines(cartId)
       .then((r) => {
-        if (!mountedRef.current) return;
+        if (!mountedRef.current || cartIdRef.current !== cartId) return; // not this cart's page anymore
         if (r.ok) {
           markCartAlive(seq, r.lines);
           return;
@@ -206,11 +217,15 @@ export default function Grocery() {
           return;
         }
         // Transient (locked-race / settling / unreadable) → the same honest Retry as a network
-        // failure. The last-known lines stay on screen; the strip below says they may be stale.
-        setSyncFailed(true);
+        // failure — but only if nothing FRESHER already applied: a stale refresh failing after a
+        // newer response landed must not warn "may be out of date" about a basket that isn't
+        // (Codex). The last-known lines stay on screen either way.
+        if (seq > appliedSeq.current) setSyncFailed(true);
       })
       .catch(() => {
-        if (mountedRef.current) setSyncFailed(true); // transport failure — same Retry strip
+        // Transport failure — same Retry strip, same freshness + cart guards as above.
+        if (mountedRef.current && cartIdRef.current === cartId && seq > appliedSeq.current)
+          setSyncFailed(true);
       });
   }, [cartId, markCartAlive, markCartGone]);
   useEffect(() => {
@@ -251,6 +266,15 @@ export default function Grocery() {
         wrote = true;
       } catch {
         flash("Couldn’t update that — try again.");
+      }
+      // The reconcile ticket is allocated AFTER the write await — so the recovery handler's
+      // ticket fast-forward cannot void it. If the shopper swapped carts while the write was in
+      // flight, stop here: reconciling the ABANDONED cart with a post-swap ticket would paint its
+      // lines (or its terminal banner) over the fresh basket (Codex). Nothing to roll back — the
+      // swap already emptied/replaced the list.
+      if (cartIdRef.current !== cartId) {
+        setBusyLine(null);
+        return;
       }
       const seq = ++reqSeq.current; // reconcile ticket — see applyLines
       try {
@@ -294,9 +318,17 @@ export default function Grocery() {
       try {
         r = await scanAdd(cartId, barcode);
       } catch {
-        flash("Couldn’t add that — check your connection and try again.");
+        if (cartIdRef.current === cartId)
+          flash("Couldn’t add that — check your connection and try again.");
         return;
       }
+      // An abandoned cart's response fires NOTHING — not the toast, not the counter, not the
+      // analytics event, not a state transition. The seq guard alone couldn't stop these side
+      // effects (they aren't ticketed), so a pre-recovery scan resolving late would flash a false
+      // "Added" and corrupt the fresh cart's cart_size right after its reset (Codex). Note the
+      // SAME-cart stale-view case stays fully live: a later sync applying first only makes
+      // markCartAlive skip the view — the add really happened, so its toast/analytics still run.
+      if (cartIdRef.current !== cartId) return;
       if (r.ok) {
         addedRef.current += 1;
         // The scan's OWN response carries the fresh server view (one round trip, the addItem
