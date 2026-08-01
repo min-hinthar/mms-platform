@@ -21,6 +21,15 @@ const RELOAD_KEY = "mms.chunkReloadAt";
 
 export function tryChunkReload(error: Error): boolean {
   if (!CHUNK_RE.test(error.name) && !CHUNK_RE.test(error.message)) return false;
+  // CHUNK_RE also matches "Failed to fetch dynamically imported module", which a plain NETWORK DROP
+  // produces just as readily as a stale deploy. Reloading then is actively harmful: the fetch for
+  // the document fails too, so an offline device trades a recoverable error screen for the browser's
+  // own — and on the always-on kitchen tablets that means losing the very board W10b exists to keep
+  // (pre-merge review, HIGH — wiring this into the /staff boundary is what widened the blast radius).
+  // A genuine stale-deploy chunk miss happens while ONLINE, so `navigator.onLine === false` is a
+  // sufficient, evidence-based veto; `onLine` true is not proof of reachability, which is fine — the
+  // sessionStorage cooldown below still bounds a wrong guess to one reload.
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return false;
   try {
     const last = Number(sessionStorage.getItem(RELOAD_KEY) ?? 0);
     if (Date.now() - last < 10_000) return false; // already reloaded once recently — show the UI instead

@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, useTransition, type CSSProperties } from "react";
 import { getExpoQueue, setTogoStatus } from "@/lib/expo";
-import { frozenBoardCopy, raceTimeout } from "@/lib/staff-outage";
+import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { useWakeLock } from "@/lib/useWakeLock";
 import { formatSlotLong } from "@/lib/pickupTime";
@@ -26,9 +26,7 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
   // W10b — one degraded state carrying WHEN it started and WHY (see KdsBoard for the full note).
   // `since` and `nowMs` are BOTH the device clock here, so the elapsed driving the paper-flow
   // escalation is measured in one domain — a skewed tablet can't shorten or extend it.
-  const [degraded, setDegraded] = useState<{ since: number; cause: "outage" | "unknown" } | null>(
-    null,
-  );
+  const [degraded, setDegraded] = useState<StaffDegraded | null>(null);
   // Clock for the escalation only (no 1s ticker here like the KDS): Date.now() in render is impure
   // under the compiler, so it advances in the failure callbacks and a slow tick while degraded.
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -49,7 +47,7 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
         // counter to login mid-service.
         if (res.reason === "outage") {
           setNowMs(Date.now());
-          setDegraded((d) => d ?? { since: Date.now(), cause: "outage" as const });
+          setDegraded((d) => nextDegraded(d, "outage", Date.now()));
           return;
         }
         window.location.assign(res.reason === "locked" ? "/staff/lock" : "/staff/login");
@@ -63,8 +61,7 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
       // Cause `unknown` — this end failed, which isn't evidence the platform is down.
       fails.current += 1;
       setNowMs(Date.now());
-      if (fails.current >= 2)
-        setDegraded((d) => d ?? { since: Date.now(), cause: "unknown" as const });
+      if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "unknown", Date.now()));
       console.error("[ExpoBoard] refresh failed", e);
     } finally {
       inFlight.current = false;

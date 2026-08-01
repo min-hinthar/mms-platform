@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getTableDetail } from "@/lib/floor";
-import { frozenBoardCopy, raceTimeout } from "@/lib/staff-outage";
+import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { type TableDetail, tableDisplay } from "@/lib/floor-types";
 import { FloorStatusChip } from "./FloorStatusChip";
@@ -45,9 +45,7 @@ export function FloorDetailLive({
   // W10b — one degraded state carrying WHEN it started and WHY (see KdsBoard). Only a genuine
   // `closed` bounces back to the floor; an unreadable table is NOT a cleared one. `since` and
   // `nowMs` share the device clock, so the escalation elapsed is measured in one domain.
-  const [degraded, setDegraded] = useState<{ since: number; cause: "outage" | "unknown" } | null>(
-    null,
-  );
+  const [degraded, setDegraded] = useState<StaffDegraded | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const fails = useRef(0);
   const inFlight = useRef(false);
@@ -100,14 +98,13 @@ export function FloorDetailLive({
         window.location.assign("/staff/login");
       } else {
         setNowMs(Date.now());
-        setDegraded((d) => d ?? { since: Date.now(), cause: "outage" as const });
+        setDegraded((d) => nextDegraded(d, "outage", Date.now()));
       }
     } catch (e) {
       // Cause `unknown` — this end failed, which isn't evidence the platform is down.
       fails.current += 1;
       setNowMs(Date.now());
-      if (fails.current >= 2)
-        setDegraded((d) => d ?? { since: Date.now(), cause: "unknown" as const });
+      if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "unknown", Date.now()));
       console.error("[FloorDetailLive] refresh failed", e);
     } finally {
       inFlight.current = false;

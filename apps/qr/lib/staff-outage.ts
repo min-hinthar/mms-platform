@@ -32,6 +32,35 @@ export const STAFF_WRITE_OUTAGE =
  */
 export type StaffDegradedCause = "outage" | "unknown";
 
+/** What a board holds while it can't refresh: when the degrade began, and the newest evidence about
+ *  whose fault it is. `since` is in the BOARD'S OWN clock domain (see `frozenBoardCopy`). */
+export type StaffDegraded = { since: number; cause: StaffDegradedCause };
+
+/**
+ * Fold new evidence into a board's degraded state: **keep the original `since`** (the escalation
+ * must measure the whole degrade, not restart on every failed poll) but **always adopt the newest
+ * `cause`**.
+ *
+ * The first cut wrote `setDegraded((d) => d ?? next)`, which latched the cause forever and broke
+ * BOTH directions (pre-merge review, confirmed by three independent lenses):
+ *  - `unknown` → `outage` never happened, so a board that first stumbled on its own wifi kept
+ *    saying "not updating" even once the server itself reported the platform unreachable — and a
+ *    code comment claimed the upgrade worked, documenting behavior the code did not have.
+ *  - `outage` → `unknown` never happened either, which is the worse half: after the platform came
+ *    back, a tablet that then lost its own AP kept asserting "we can't reach the ordering system" —
+ *    precisely the unevidenced blame this whole layer exists to remove.
+ *
+ * Returns the SAME object when the cause is unchanged, so a steady degrade doesn't re-render.
+ */
+export function nextDegraded(
+  prev: StaffDegraded | null,
+  cause: StaffDegradedCause,
+  nowInBoardClock: number,
+): StaffDegraded {
+  if (!prev) return { since: nowInBoardClock, cause };
+  return prev.cause === cause ? prev : { since: prev.since, cause };
+}
+
 /**
  * The frozen-board banner, in the shared voice.
  *
