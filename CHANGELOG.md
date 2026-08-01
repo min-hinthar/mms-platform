@@ -26,6 +26,13 @@ last-known state, so an outage must never blank it, redirect it, or fake livenes
 - **Login/PIN/sign-out honesty**: the StaffLogin handlers, PinUnlock and both sign-out paths branch
   on the retryable-auth shape — an outage no longer reads as a wrong email, wrong code, wrong PIN,
   or "check your connection"; `app/staff/error.tsx` gives /staff routes a staff-voiced boundary.
+- **Only a server verdict assigns blame**: a board says "we can't reach the ordering system" only
+  when the SERVER answered `unavailable`; repeated failures from the device itself say "not
+  updating right now" (it could be that tablet's wifi). The 2-minute escalation is measured in a
+  single clock domain, so a skewed tablet clock can't decide when staff are told to run on paper.
+- **Shared route-boundary recovery** (`lib/error-recovery.ts`): a segment `error.tsx` SHADOWS the
+  root one, so the stale-deploy chunk reload + explicit error capture are shared rather than
+  re-implemented — the always-on kitchen tablets are the likeliest to hold replaced chunk URLs.
 
 ### W10a — The app tells the truth when the kitchen is unreachable (2026-08-01)
 
