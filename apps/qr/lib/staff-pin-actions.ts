@@ -16,11 +16,16 @@ import { LOCK_COOKIE } from "./staff-lock";
 
 export type PinActionResult = { ok: true } | { ok: false; error: string };
 
+/** W10b — the PIN/lock surfaces are NOT order flow: "keep it on paper" (the shared write-outage
+ *  sentence) is nonsense advice for a PIN change or a device lock, so they carry their own. */
+const PIN_OUTAGE =
+  "We can\u2019t reach the sign-in service \u2014 that didn\u2019t save. Try again in a moment.";
+
 /** Set or rotate the caller's own PIN. The caller is already authenticated in-session (S1.1a), so no
  *  old-PIN challenge is required to rotate — the lock affordance, not this form, is what protects a
  *  walked-away tablet. Format is gated by Zod here and the SQL CHECK as a backstop. */
 export async function setPin(raw: unknown): Promise<PinActionResult> {
-  const gate = await staffGate();
+  const gate = await staffGate("server", PIN_OUTAGE);
   if (!gate.ok) return { ok: false, error: gate.error };
   const caller = gate.caller;
 
@@ -38,7 +43,7 @@ export async function setPin(raw: unknown): Promise<PinActionResult> {
 
 /** Remove the caller's own PIN (turn the fast-path off). */
 export async function removePin(): Promise<PinActionResult> {
-  const gate = await staffGate();
+  const gate = await staffGate("server", PIN_OUTAGE);
   if (!gate.ok) return { ok: false, error: gate.error };
   const caller = gate.caller;
 
@@ -54,7 +59,7 @@ export async function removePin(): Promise<PinActionResult> {
  * httpOnly + path-scoped cookie so page JS can't flip it; the unlock requires the server-verified PIN.
  */
 export async function lockConsole(): Promise<PinActionResult> {
-  const gate = await staffGate();
+  const gate = await staffGate("server", PIN_OUTAGE);
   if (!gate.ok) return { ok: false, error: gate.error };
   const caller = gate.caller;
 

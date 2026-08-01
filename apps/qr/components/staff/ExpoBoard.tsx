@@ -23,13 +23,15 @@ import { EmptyState, Icon } from "@mms/ui";
 export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
   const [snap, setSnap] = useState(initial);
   const [err, setErr] = useState<string | null>(null);
-  const [stale, setStale] = useState(false);
-  // W10b: server-verdict outage — freeze the ledger immediately (no fails debounce), keep polling.
-  const [frozen, setFrozen] = useState(false);
-  // Clock for the frozen banner's escalation only (no 1s ticker here like the KDS): seeded from the
-  // server snapshot (Date.now() in render is impure under the compiler), advanced in the failure
-  // callbacks and a slow tick while frozen, so the ≥2min paper-flow escalation actually flips.
-  const [nowMs, setNowMs] = useState(() => Date.parse(initial.serverNow));
+  // W10b — one degraded state carrying WHEN it started and WHY (see KdsBoard for the full note).
+  // `since` and `nowMs` are BOTH the device clock here, so the elapsed driving the paper-flow
+  // escalation is measured in one domain — a skewed tablet can't shorten or extend it.
+  const [degraded, setDegraded] = useState<{ since: number; cause: "outage" | "unknown" } | null>(
+    null,
+  );
+  // Clock for the escalation only (no 1s ticker here like the KDS): Date.now() in render is impure
+  // under the compiler, so it advances in the failure callbacks and a slow tick while degraded.
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const fails = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlight = useRef(false);
@@ -46,8 +48,8 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
         // W10b (M32): outage ≠ signed out — keep the last-known bags instead of redirecting the
         // counter to login mid-service.
         if (res.reason === "outage") {
-          setFrozen(true);
           setNowMs(Date.now());
+          setDegraded((d) => d ?? { since: Date.now(), cause: "outage" as const });
           return;
         }
         window.location.assign(res.reason === "locked" ? "/staff/lock" : "/staff/login");
@@ -56,12 +58,13 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
       setSnap(res.queue);
       setErr(null);
       fails.current = 0;
-      setStale(false);
-      setFrozen(false);
+      setDegraded(null);
     } catch (e) {
+      // Cause `unknown` — this end failed, which isn't evidence the platform is down.
       fails.current += 1;
-      if (fails.current >= 2) setStale(true);
       setNowMs(Date.now());
+      if (fails.current >= 2)
+        setDegraded((d) => d ?? { since: Date.now(), cause: "unknown" as const });
       console.error("[ExpoBoard] refresh failed", e);
     } finally {
       inFlight.current = false;
@@ -71,10 +74,10 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
   // Slow escalation tick while frozen/stale — the banner's ≥2min flip needs a re-render even if
   // every poll keeps failing silently.
   useEffect(() => {
-    if (!(stale || frozen)) return;
+    if (!degraded) return;
     const id = setInterval(() => setNowMs(Date.now()), 15_000);
     return () => clearInterval(id);
-  }, [stale, frozen]);
+  }, [degraded]);
 
   const onChange = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -142,12 +145,12 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
           style={{
             margin: 0,
             fontSize: "var(--fs-sm)",
-            color: err || stale || frozen ? "var(--warn)" : "var(--t2)",
+            color: err || degraded ? "var(--warn)" : "var(--t2)",
           }}
         >
           {err ??
-            (stale || frozen
-              ? frozenBoardCopy(snap.serverNow, nowMs, "the bags")
+            (degraded
+              ? frozenBoardCopy(snap.serverNow, nowMs - degraded.since, "the bags", degraded.cause)
               : count === 0
                 ? "No bags waiting"
                 : [
@@ -163,10 +166,10 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
       {count === 0 ? (
         // W10b — mid-freeze this must not read as an all-clear, nor promise bags we can't hear about.
         <EmptyState
-          title={stale || frozen ? "Nothing to bag as of the last update" : "Nothing to bag"}
+          title={degraded ? "Nothing to bag as of the last update" : "Nothing to bag"}
           subtitle={
-            stale || frozen
-              ? "We can’t reach the ordering system, so new bags won’t land here until it’s back. Nothing already paid for is lost."
+            degraded
+              ? "New bags won’t land here until this board is updating again. Nothing already paid for is lost."
               : "Bags appear here once a to-go or grocery order is paid."
           }
           icon={<Icon name="bag" size={30} style={{ color: "var(--ac)" }} />}

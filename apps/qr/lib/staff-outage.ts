@@ -24,15 +24,47 @@ export const STAFF_WRITE_OUTAGE =
   "We can’t reach the ordering system — that change wasn’t saved. Keep it on paper for now.";
 
 /**
- * The frozen-board banner, in the shared voice. `frozenAtIso` is the LAST GOOD snapshot's serverNow
- * (never a client clock — the board's "as of" must be the ledger's own stamp); `what` names the
- * surface's object in its own vocabulary ("the queue", "the bags", "the room", "this order").
+ * Why a board is degraded — and therefore how much blame the copy is entitled to assign.
+ *  - `outage`  — the SERVER answered "unavailable": it couldn't reach the platform. We know it's us.
+ *  - `unknown` — repeated transport failures from THIS device. Could equally be the tablet's wifi,
+ *                so the copy must not assert "we can't reach the ordering system" (the W10a rule:
+ *                never blame a side you have no evidence about — pre-merge review).
  */
-export function frozenBoardCopy(frozenAtIso: string, nowMs: number, what: string): string {
-  const t = new Date(frozenAtIso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  return nowMs - Date.parse(frozenAtIso) >= STAFF_OUTAGE_ESCALATE_MS
-    ? `Still can’t reach the ordering system — ${what} is frozen at ${t}. Take new orders on paper; nothing here is lost.`
-    : `We can’t reach the ordering system — showing ${what} as of ${t}. Reconnecting…`;
+export type StaffDegradedCause = "outage" | "unknown";
+
+/**
+ * The frozen-board banner, in the shared voice.
+ *
+ * `asOfIso` is the LAST GOOD snapshot's serverNow — the ledger's own stamp — and is used ONLY for
+ * display (`toLocaleTimeString` renders that absolute instant in the device's timezone, so a wrong
+ * device *clock* can't corrupt it).
+ *
+ * `degradedForMs` is elapsed time since the board entered this state, and the caller MUST measure
+ * both endpoints in ONE clock domain. The first cut compared a SERVER instant against the tablet's
+ * `Date.now()`: on a device whose clock was minutes off, skew — not elapsed outage time — decided
+ * whether staff were told to fall back to paper (pre-merge review, confirmed independently four
+ * times). Mixing clocks to measure a duration is the bug; keeping the display instant and the
+ * elapsed measurement separate is the fix.
+ */
+export function frozenBoardCopy(
+  asOfIso: string,
+  degradedForMs: number,
+  what: string,
+  cause: StaffDegradedCause = "outage",
+): string {
+  const t = new Date(asOfIso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const escalated = degradedForMs >= STAFF_OUTAGE_ESCALATE_MS;
+  // Phrased to avoid a verb agreeing with `what` — "the bags is frozen" was the first cut's tell.
+  const head =
+    cause === "outage"
+      ? escalated
+        ? "Still can’t reach the ordering system"
+        : "We can’t reach the ordering system"
+      : escalated
+        ? "Still not updating"
+        : "Not updating right now";
+  const tail = escalated ? "Take new orders on paper; nothing here is lost." : "Reconnecting…";
+  return `${head} — showing ${what} as of ${t}. ${tail}`;
 }
 
 /**
@@ -41,8 +73,16 @@ export function frozenBoardCopy(frozenAtIso: string, nowMs: number, what: string
  * otherwise freeze the lock and silently stop all polling with the board still wearing its live
  * face. Racing a timeout turns the hang into a rejection → the ordinary catch/fails path → the
  * honest frozen banner, and the lock releases so the next poll keeps probing for recovery.
+ *
+ * 15s, not 8s: this is a HANG detector, not a latency budget. Restaurant wifi under load can take
+ * many seconds for an honest round-trip, and at 8s a slow-but-healthy poll was being called a
+ * failure (pre-merge review). Two consecutive misses are still required before the board says
+ * anything, and a timeout now reports cause `unknown` — so a congested tablet never asserts that
+ * WE are down. The raced promise is not cancellable (Server Actions take no signal); a late
+ * settlement is simply discarded, which is why the caller must be idempotent — it is: the next
+ * poll overwrites the snapshot wholesale.
  */
-export function raceTimeout<T>(p: Promise<T>, ms = 8_000): Promise<T> {
+export function raceTimeout<T>(p: Promise<T>, ms = 15_000): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const t = setTimeout(() => reject(new Error("staff-poll-timeout")), ms);
     p.then(

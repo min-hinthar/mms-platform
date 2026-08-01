@@ -42,11 +42,13 @@ export function FloorDetailLive({
   const router = useRouter();
   const [detail, setDetail] = useState<TableDetail>(initial);
   const [writeError, setWriteError] = useState<string | null>(null);
-  const [stale, setStale] = useState(false); // shown after repeated poll failures (S9)
-  // W10b: server-verdict outage — freeze this order's last-known state immediately, keep polling.
-  // Only a genuine `closed` bounces back to the floor; an unreadable table is NOT a cleared one.
-  const [frozen, setFrozen] = useState(false);
-  const [nowMs, setNowMs] = useState(() => Date.parse(initial.serverNow));
+  // W10b — one degraded state carrying WHEN it started and WHY (see KdsBoard). Only a genuine
+  // `closed` bounces back to the floor; an unreadable table is NOT a cleared one. `since` and
+  // `nowMs` share the device clock, so the escalation elapsed is measured in one domain.
+  const [degraded, setDegraded] = useState<{ since: number; cause: "outage" | "unknown" } | null>(
+    null,
+  );
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const fails = useRef(0);
   const inFlight = useRef(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -87,8 +89,7 @@ export function FloorDetailLive({
       if (res.kind === "detail") {
         setDetail(res.detail);
         fails.current = 0;
-        setStale(false);
-        setFrozen(false);
+        setDegraded(null);
       } else if (res.kind === "closed") {
         // Genuinely closed/cleared — the detail no longer exists; go back to the floor. (The old
         // `null` also fired on OUTAGE, kicking staff off a live table's order mid-service — M32.)
@@ -98,13 +99,15 @@ export function FloorDetailLive({
         // An expired/invalid staff session is a verdict, not a blip — the honest surface is login.
         window.location.assign("/staff/login");
       } else {
-        setFrozen(true);
         setNowMs(Date.now());
+        setDegraded((d) => d ?? { since: Date.now(), cause: "outage" as const });
       }
     } catch (e) {
+      // Cause `unknown` — this end failed, which isn't evidence the platform is down.
       fails.current += 1;
-      if (fails.current >= 2) setStale(true); // S2-audit S9: signal a frozen detail view
       setNowMs(Date.now());
+      if (fails.current >= 2)
+        setDegraded((d) => d ?? { since: Date.now(), cause: "unknown" as const });
       console.error("[FloorDetailLive] refresh failed", e);
     } finally {
       inFlight.current = false;
@@ -113,10 +116,10 @@ export function FloorDetailLive({
 
   // Slow escalation tick while frozen/stale (the ≥2min paper-flow flip needs a re-render).
   useEffect(() => {
-    if (!(stale || frozen)) return;
+    if (!degraded) return;
     const id = setInterval(() => setNowMs(Date.now()), 15_000);
     return () => clearInterval(id);
-  }, [stale, frozen]);
+  }, [degraded]);
 
   const onChange = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -334,12 +337,19 @@ export function FloorDetailLive({
             ...muted,
             marginTop: 6,
             fontSize: "var(--fs-sm)",
-            minHeight: writeError || stale || frozen ? 16 : 0,
-            color: writeError || stale || frozen ? "var(--warn)" : "var(--t3)",
+            minHeight: writeError || degraded ? 16 : 0,
+            color: writeError || degraded ? "var(--warn)" : "var(--t3)",
           }}
         >
           {writeError ??
-            (stale || frozen ? frozenBoardCopy(detail.serverNow, nowMs, "this order") : null)}
+            (degraded
+              ? frozenBoardCopy(
+                  detail.serverNow,
+                  nowMs - degraded.since,
+                  "this order",
+                  degraded.cause,
+                )
+              : null)}
         </p>
       </section>
 

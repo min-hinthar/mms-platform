@@ -150,9 +150,13 @@ export async function requireStaff(minRole: StaffRole = "server"): Promise<Staff
  */
 export async function staffGate(
   minRole: StaffRole = "server",
+  // The outage sentence defaults to the ORDER-flow one ("keep it on paper"), which is the right
+  // advice for a cart/table/kitchen write but nonsense for a PIN or a device lock — those callers
+  // pass their own (pre-merge review).
+  outageCopy: string = STAFF_WRITE_OUTAGE,
 ): Promise<{ ok: true; caller: StaffCaller } | { ok: false; error: string }> {
   const auth = await getStaffAuth();
-  if (auth.kind === "unavailable") return { ok: false, error: STAFF_WRITE_OUTAGE };
+  if (auth.kind === "unavailable") return { ok: false, error: outageCopy };
   if (auth.kind !== "staff") return { ok: false, error: "Staff sign-in required." };
   if (!roleAtLeast(auth.caller.role, minRole))
     return {
