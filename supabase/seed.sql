@@ -550,6 +550,38 @@ on conflict (barcode) do update set
     when excluded.compare_at_cents > grocery_items.price_cents then excluded.compare_at_cents
     else null end;
 
+-- ── W9d — seed the loud "Save N%" pill's featured set ────────────────────────────────────────────
+-- MUST live here, not only in 20260731000000_w9d_featured_deal.sql: config.toml [db.seed] loads this
+-- file AFTER migrations, so the migration's identical backfill runs against an EMPTY grocery_items on
+-- a fresh `db reset` and features nothing. Without this copy the feature would ship switched off in
+-- every local/CI/preview environment while looking fine on the live project. Keep the two in sync.
+--
+-- Top 2 per aisle by ABSOLUTE savings among real ≥20% markdowns (dollars off beats percent off for a
+-- shopper), barcode breaking ties so the set is reproducible. 8 aisles clear the bar → 16 of 396 SKUs.
+-- ⚠️ The `= false` guard is one-directional: an owner-ADDED feature survives a re-run (already true →
+-- untouched), but an owner who UN-features a seeded top-2 item gets it re-featured — the flag can't
+-- tell default-false from deliberate-false. Don't re-run this block against a live DB the owner has
+-- curated (G19); it exists for FRESH environments.
+with ranked as (
+  select
+    barcode,
+    row_number() over (
+      partition by category
+      order by (compare_at_cents - price_cents) desc, barcode
+    ) as rnk
+  from grocery_items
+  where compare_at_cents is not null
+    and compare_at_cents > price_cents
+    and available
+    and (compare_at_cents - price_cents)::numeric / compare_at_cents >= 0.20
+)
+update grocery_items g
+set is_featured_deal = true
+from ranked r
+where g.barcode = r.barcode
+  and r.rnk <= 2
+  and g.is_featured_deal = false;
+
 -- ============ W5c — menu depth: bilingual descriptions + modifier labels + real modifier coverage ============
 -- Requires migration 20260721000000_w5c_menu_depth.sql (description_my / name_my columns).
 -- Idempotent both ways: value-stable UPDATEs + ON CONFLICT DO NOTHING inserts — safe to re-run locally

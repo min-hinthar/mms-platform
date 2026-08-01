@@ -254,8 +254,14 @@ export const GroceryBrowse = memo(function GroceryBrowse({
                         item.name,
                         [item.brand, size].filter(Boolean).join(" · ") || null,
                         price,
+                        // W9d — the SR name follows the same gate as the visible pill below. It was
+                        // ungated, so a screen-reader user heard "on sale, save 30%" on 77% of the
+                        // market while the pill was (nominally) selective. Tightening only the pixels
+                        // would have widened that divergence instead of closing it.
                         sale
-                          ? `on sale, compare at ${dollars(sale.compareAtCents)}, save ${sale.pct}%`
+                          ? item.featuredDeal
+                            ? `featured deal, compare at ${dollars(sale.compareAtCents)}, save ${sale.pct}%`
+                            : `compare at ${dollars(sale.compareAtCents)}`
                           : null,
                         unit,
                         item.ebt ? "EBT eligible" : null,
@@ -266,10 +272,15 @@ export const GroceryBrowse = memo(function GroceryBrowse({
                     onClick={() => setSheetItem(item)}
                   >
                     <span className="gcard-photo">
-                      {/* Loud "Save %" pill only for a meaningful markdown (≥15%) so the market doesn't
-                          read as a wall of uniform bargains; the honest inline "Compare at" strike
-                          below still shows on every real sale. */}
-                      {sale && sale.pct >= 15 && (
+                      {/* W9d — the loud pill is a STORED decision (`is_featured_deal`), not a
+                          threshold. The old `pct >= 15` gate passed 306 of 396 SKUs — 77% of the
+                          market — because our wholesale-vs-retail basis marks nearly everything down;
+                          the catalog's discounts cluster at 25–35%, so no cut point thins it. A badge
+                          on three quarters of the shelf is wallpaper, and wallpaper on a price claim
+                          teaches shoppers to ignore the one place we say "this is genuinely a good
+                          buy". The quiet inline "Compare at" strike below is untouched and still
+                          shows on every real discount — that is the honest surface. */}
+                      {sale && item.featuredDeal && (
                         <span className="gcard-sale" aria-hidden>
                           Save {sale.pct}%
                         </span>

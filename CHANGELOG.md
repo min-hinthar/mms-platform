@@ -4,6 +4,45 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W9d — The market reads like a market (2026-07-31)
+
+Four findings from the W9 audit on the grocery door. No charged amount changes: the pill, the sheet,
+the recovery copy and the expo words are all presentation over the same server-priced paths.
+
+- **The "Save N%" pill means something again.** The old `pct >= 15` gate admitted 306 of 396 SKUs —
+  77% of the shelf shouting is wallpaper, and wallpaper on a price claim trains shoppers to ignore
+  the one place we say "this is genuinely a good buy". Featured is now a stored merchandising
+  DECISION (`grocery_items.is_featured_deal`, owner-editable), not a computed threshold — a per-aisle
+  percentile would move the badge between SKUs on every catalog refresh, a worse trust failure than
+  over-badging. Seeded deterministically in SQL: top 2 per aisle by ABSOLUTE savings among real ≥20%
+  markdowns (dollars off beats percent off), barcode tiebreak → 16 of 396 SKUs (4%). The backfill
+  lives in the migration (live DB) **and** seed.sql (fresh environments — the seed loads after
+  migrations, so the migration's copy alone would feature nothing locally/CI). The quiet inline
+  "Compare at $X" strike still shows on every genuine discount; the pill's accessible-name suffix
+  moved with the visual gate, so sighted and SR shoppers hear the same market.
+- **The Browse door finally shows the basket.** The pinned CTA is now a bar: a basket-review bottom
+  sheet trigger (count + bag) beside the checkout pill. The sheet is a thin window onto the page's
+  existing state — same `lines`, same `onStep`/one-op lock, same savings + EBT-subtotal reductions,
+  one shared checkout callback — never a second basket surface, and no new live region (the page
+  toast stays the one announcer). The Scan door's inline list is untouched (still `hidden`-gated, so
+  steppers and accessible names never duplicate).
+- **A finished basket stops blaming the radio.** Every grocery failure used to surface as "check your
+  connection", so a shopper whose cart was paid on another tab (or whose session aged out) retried a
+  dead basket forever. `scanAdd`/`getGroceryLines` now return discriminated results; the reason comes
+  from a new membership-gated describer (`whyCartUnavailable`) that asks membership FIRST — a
+  non-member or unknown cart always gets the same `unreadable`, so the action never becomes the cart
+  lifecycle oracle the W9c /cart work refused to build. Terminal reasons (paid / cancelled / session
+  expired) empty the list honestly and offer "Start a fresh basket" (the hook's re-mint, used at
+  last); transient ones only ever get Retry — a re-mint against a merely-unreadable cart would
+  find-or-create a NEW cart and silently abandon the shopper's real lines. The truth strip also
+  renders post-hydration now (its old gate made it unreachable once anything was on screen), saying
+  "what's shown may be out of date" instead of failing in silence.
+- **The expo stops handing staff phantom bagging work.** A pure-grocery scan-&-go order — the shopper
+  already holds the goods — now reads "Verify · #code" / "Handed over" instead of "Bag for X" /
+  "Bagged & ready", carries a "verify the exit pass; nothing to bag" line, and the header counts it
+  as "N to verify" instead of folding it into "N bags waiting". Vocabulary only: the
+  `preparing → ready → picked_up` status machine and `mms_init_togo_status` are untouched.
+
 ### W9c — Your paid order stays yours (2026-07-31)
 
 Five findings from the W9 audit about what happens **after** the money moves. Nothing here changes a

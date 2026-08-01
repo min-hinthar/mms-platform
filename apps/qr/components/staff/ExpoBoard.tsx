@@ -83,6 +83,23 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
 
   const tickets = snap.tickets;
   const count = tickets.length;
+  // W9d — a PURE-grocery (scan-&-go) order has nothing to bag: the shopper already holds the goods,
+  // and the counter's job is to check the exit pass. Counting it as a "bag waiting" handed staff
+  // phantom bagging work, so the header names the two kinds separately. Vocabulary only — the
+  // status machine (mms_set_togo_status / mms_init_togo_status) is untouched.
+  // Only PREPARING grocery tickets await verification — a ready one was already verified (its
+  // remaining action is recording the hand-over), so counting it here would show staff a shopper
+  // they just checked as still pending (Codex). Verified-not-yet-cleared tickets get their OWN
+  // segment: without it, a queue of only ready grocery tickets rendered a nonzero grid under a
+  // BLANK header status (both other counts zero → empty join), silencing the live region's summary
+  // of remaining work (Codex round 3). Every ticket lands in exactly one of the three counts.
+  const verifyCount = tickets.filter(
+    (t) => t.status === "preparing" && t.lines.every((l) => l.fulfillment === "grocery"),
+  ).length;
+  const handOverCount = tickets.filter(
+    (t) => t.status === "ready" && t.lines.every((l) => l.fulfillment === "grocery"),
+  ).length;
+  const bagCount = tickets.filter((t) => t.lines.some((l) => l.fulfillment !== "grocery")).length;
 
   return (
     <section aria-labelledby="expo-h" onFocusCapture={markFocus}>
@@ -108,7 +125,13 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
               ? "Reconnecting…"
               : count === 0
                 ? "No bags waiting"
-                : `${count} bag${count === 1 ? "" : "s"} waiting`)}
+                : [
+                    bagCount > 0 ? `${bagCount} bag${bagCount === 1 ? "" : "s"} waiting` : null,
+                    verifyCount > 0 ? `${verifyCount} to verify` : null,
+                    handOverCount > 0 ? `${handOverCount} to hand over` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · "))}
         </p>
       </div>
 
@@ -146,7 +169,21 @@ function ExpoCard({
 }) {
   const [pending, startTransition] = useTransition();
   const to = ticket.status === "preparing" ? "ready" : "picked_up";
-  const label = ticket.status === "preparing" ? "Bagged & ready" : "Picked up";
+  // W9d — a pure-grocery (scan-&-go) order: the shopper already HOLDS the goods, so "Bagged & ready"
+  // is fiction. Same two-stage status machine (untouched), mapped to the counter's two real moments:
+  // check the exit pass ("Verified", preparing→ready) then record the walk-out ("Handed over",
+  // ready→picked_up, drops the card). The first cut of this put "Handed over" on the FIRST bump,
+  // which left a zombie second stage still counted as unverified (Codex) — each label now names the
+  // action its own tap performs.
+  const grocery = ticket.lines.every((l) => l.fulfillment === "grocery");
+  const label =
+    ticket.status === "preparing"
+      ? grocery
+        ? "Verified"
+        : "Bagged & ready"
+      : grocery
+        ? "Handed over"
+        : "Picked up";
 
   // K2 + W3e call-out identity: a dine-in to-go bag calls out its real table; a pickup/scango bag
   // headlines the first name captured at checkout (short code as the collision-safe suffix), falling
@@ -157,6 +194,12 @@ function ExpoCard({
       : ticket.customerName
         ? ticket.customerName
         : `#${ticket.shortCode}`;
+  // Who to verify (grocery accessible names): keep the NAME when we have one — an SR staffer needs
+  // WHOSE exit pass to match, not just a code — with the code as the collision-safe suffix,
+  // mirroring the visible header (callOut + codeSuffix).
+  const verifyWho = ticket.customerName
+    ? `${callOut} · #${ticket.shortCode}`
+    : `#${ticket.shortCode}`;
 
   const bump = () => {
     onError(null);
@@ -166,13 +209,27 @@ function ExpoCard({
         if (!res.ok) onError(res.error);
         else await onBumped(); // pending covers the refetch — no stale-label flicker
       } catch {
-        onError(`Couldn’t update the bag for ${callOut} — try again.`);
+        onError(
+          grocery
+            ? `Couldn’t update ${verifyWho} — try again.`
+            : `Couldn’t update the bag for ${callOut} — try again.`,
+        );
       }
     });
   };
 
   return (
-    <article className="card card-textured" style={cardStyle} aria-label={`Bag for ${callOut}`}>
+    <article
+      className="card card-textured"
+      style={cardStyle}
+      // The card's name tracks its CURRENT stage — a ready grocery ticket was already verified, so
+      // announcing "Verify" for it would read the previous workflow step to an SR staffer (Codex).
+      aria-label={
+        grocery
+          ? `${ticket.status === "preparing" ? "Verify" : "Hand over"} · ${verifyWho}`
+          : `Bag for ${callOut}`
+      }
+    >
       <header style={cardHead}>
         <span style={tableLabel}>
           {callOut}
@@ -184,7 +241,10 @@ function ExpoCard({
           {/* J5: the diner tapped "I'm here" on /track (qr_orders.arrived_at) — a waiting HUMAN
               outranks bag age; hand this one over first. Rendered only from the real stamp. */}
           {ticket.arrivedAt && <span style={hereTag}>Here now</span>}
-          {ticket.status === "ready" && <span style={readyTag}>Ready</span>}
+          {/* Grocery's ready-stage means "pass checked", not "food ready" — tag it honestly. */}
+          {ticket.status === "ready" && (
+            <span style={readyTag}>{grocery ? "Verified" : "Ready"}</span>
+          )}
           <span style={{ fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
             <RelativeTime iso={ticket.createdAt} serverNow={serverNow} />
           </span>
@@ -193,6 +253,13 @@ function ExpoCard({
       {ticket.pickupSlot && (
         <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
           Pickup {formatSlotLong(ticket.pickupSlot)}
+        </p>
+      )}
+      {/* W9d — the honest job description: the shopper already holds these items, so the counter's
+          work is the exit-pass check, not bagging. */}
+      {grocery && (
+        <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
+          Scan &amp; Go — verify the exit pass; nothing to bag.
         </p>
       )}
       <ul role="list" style={lineList}>
@@ -204,7 +271,7 @@ function ExpoCard({
         type="button"
         onClick={bump}
         disabled={pending}
-        aria-label={`${label} — bag for ${callOut}`}
+        aria-label={grocery ? `${label} — ${verifyWho}` : `${label} — bag for ${callOut}`}
         className="staff-btn"
         style={{ ...bumpBtn, ...(ticket.status === "preparing" ? readyBtn : pickedBtn) }}
       >

@@ -16,7 +16,9 @@ import {
   type GroceryLine,
 } from "@/lib/grocery";
 import { GroceryBrowse } from "@/components/grocery/GroceryBrowse";
+import { GroceryBasketSheet } from "@/components/grocery/GroceryBasketSheet";
 import { saleInfo, sizeLabel } from "@/lib/grocery-aisles";
+import { isTerminal, type CartUnavailable } from "@/lib/cart-unavailable";
 import { setQty } from "@/lib/cart";
 import { useTableSession } from "@/lib/useTableSession";
 
@@ -30,12 +32,23 @@ import { useTableSession } from "@/lib/useTableSession";
 export default function Grocery() {
   const router = useRouter(); // prefetch only — the checkout push rides the journey grammar
   const journey = useJourneyRouter(); // J1: grocery→cart is a FORWARD cut
-  const { session, error: sessionError } = useTableSession("scango", { door: "grocery" });
+  // W9d — `revalidate` was returned by the hook all along and discarded here; it's the re-mint the
+  // terminal-basket recovery below rides (TableCartProvider already uses it for exactly this).
+  const {
+    session,
+    error: sessionError,
+    revalidate,
+  } = useTableSession("scango", { door: "grocery" });
   const cartId = session?.cartId;
 
   const [lines, setLines] = useState<GroceryLine[]>([]);
   const [hydrated, setHydrated] = useState(false); // first server read landed → empty state is TRUE
-  const [syncFailed, setSyncFailed] = useState(false); // pre-hydration read failed → honest Retry, not a fake "checking…"
+  const [syncFailed, setSyncFailed] = useState(false); // a read failed → honest Retry, not a fake "checking…"
+  // W9d — the basket is FINISHED (paid / cancelled / session expired): a terminal answer from the
+  // server, not a failed read. Gates the "Start a fresh basket" recovery — which re-mints, and a
+  // re-mint against a merely-unreadable cart would find-or-create a NEW cart and silently abandon
+  // the shopper's real lines. Only `isTerminal` reasons ever land here.
+  const [cartGone, setCartGone] = useState<CartUnavailable | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const addedRef = useRef(0); // success count for analytics cart_size — stable across the memoized adder
   const [busyLine, setBusyLine] = useState<string | null>(null); // one in-flight stepper op at a time
@@ -52,6 +65,17 @@ export default function Grocery() {
     appliedSeq.current = seq;
     setLines(ls);
   }, []);
+  // The CURRENT cart, readable from any async continuation (the mountedRef pattern — written only
+  // in its own effect, read in callbacks). The seq tickets only ORDER responses; they cannot prove
+  // a response belongs to THIS cart — an in-flight op from the abandoned cart could resolve after
+  // recovery, take a fresh-looking ticket (stepQty allocates its reconcile ticket AFTER its write
+  // await), and paint the dead cart's truth or fire its side effects over the fresh basket (Codex).
+  // Every async continuation below re-checks `cartIdRef.current === cartId` (its own closure)
+  // before touching state or firing a toast/analytics event.
+  const cartIdRef = useRef(cartId);
+  useEffect(() => {
+    cartIdRef.current = cartId;
+  }, [cartId]);
   // Set true in the effect BODY (not the initializer): StrictMode's simulated remount keeps the
   // same ref, so an initializer-only `true` would stay false after the dev-mode unmount+remount.
   const mountedRef = useRef(true);
@@ -89,9 +113,17 @@ export default function Grocery() {
   }, []);
   const browseTabRef = useRef<HTMLButtonElement>(null);
   const scanTabRef = useRef<HTMLButtonElement>(null);
+  // The basket sheet's close-restore target (see onCloseAutoFocus) — Radix can't restore here
+  // itself because the Sheet primitive renders no Dialog.Trigger.
+  const basketBtnRef = useRef<HTMLButtonElement>(null);
   // One in-flight browse add at a time (the stepper's one-op discipline, extended to the Add
   // buttons — a scan can stay rapid-fire, but a double-tapped card must not double-add).
   const [addingBarcode, setAddingBarcode] = useState<string | null>(null);
+
+  // W9d — the basket review sheet (the Browse door's window onto the lines). Derived-closed while
+  // the terminal banner owns the story (`open` && !cartGone at the render site, no effect): a basket
+  // that just finished must not keep a modal review of nothing on top of the recovery copy.
+  const [basketOpen, setBasketOpen] = useState(false);
 
   // ONE toast timer, cancelled before each re-arm — scanning is rapid-fire, so racing independent timers
   // could blank a fresh notice (incl. an error like "Weighed item — see staff") ~100 ms after it appears.
@@ -114,6 +146,55 @@ export default function Grocery() {
     if (cartId) router.prefetch(`/cart?cart=${encodeURIComponent(cartId)}`);
   }, [cartId, router]);
 
+  // W9d — the ONE place a terminal answer (paid / cancelled / session expired) lands, so its four
+  // consequences can't drift apart across the three paths that can discover it (sync, add, stepper
+  // reconcile) — the pre-merge review caught each drifting in a different way:
+  //  · seq-guarded like every other server response: a slow read from the OLD cart resolving after
+  //    a recovery re-mint must not resurrect the banner over a working fresh basket;
+  //  · the list empties (an authoritative answer, not a misread — the never-`[]`-on-failure rule
+  //    protects against reads that FAILED, and this one succeeded);
+  //  · the basket sheet's own state resets — the render gate alone force-closes Radix without
+  //    firing onOpenChange, so a stale `basketOpen: true` would pop an empty modal, uninvited,
+  //    the moment the shopper taps "Start a fresh basket";
+  //  · the toast (the page's one live region) announces the transition — the banner is deliberately
+  //    NOT a live region, so without this the sync/refocus path emptied the basket in silence.
+  // The seq-guarded ALIVE transition — markCartGone's mirror, and the guard cuts both ways (Codex
+  // P1 on the pre-merge round): a read issued while the cart was still open but resolving AFTER a
+  // fresher response proved it terminal must not clear the banner it lost the race to — the shopper
+  // would be left with an empty list, no banner, and no recovery until the next sync rediscovered
+  // it. An ok answer applies its lines and clears the terminal/failure state together, or not at all.
+  const markCartAlive = useCallback(
+    (seq: number, lines: GroceryLine[]) => {
+      if (seq <= appliedSeq.current) return; // stale — it lost the race; a fresher answer stands
+      applyLines(seq, lines);
+      setHydrated(true);
+      setSyncFailed(false);
+      setCartGone(null);
+    },
+    [applyLines],
+  );
+
+  const markCartGone = useCallback(
+    (seq: number, reason: CartUnavailable) => {
+      if (seq <= appliedSeq.current) return; // stale — a fresher view already applied
+      applyLines(seq, []);
+      setHydrated(true);
+      setSyncFailed(false);
+      setCartGone(reason);
+      setBasketOpen(false);
+      // Direction-neutral copy — the recovery banner sits at the top of the page, the toast at the
+      // bottom; "below"/"above" would point one of them the wrong way.
+      flash(
+        reason === "paid"
+          ? "This basket’s already paid for — start a fresh one to keep shopping."
+          : reason === "cancelled"
+            ? "This basket was closed — start a fresh one to keep shopping."
+            : "Your market session ended — start a fresh basket to keep shopping.",
+      );
+    },
+    [applyLines, flash],
+  );
+
   // K5 — hydrate from the CART (the truth) on session-ready and on tab re-focus (the J3 freshness
   // pattern): a refresh or a backgrounded phone never hides items the cart will charge. A failure
   // AFTER first hydration is a deliberate read-only swallow (keep the last-known list; the next
@@ -123,16 +204,30 @@ export default function Grocery() {
     if (!cartId) return;
     const seq = ++reqSeq.current; // ticket at issue time — see applyLines
     getGroceryLines(cartId)
-      .then((ls) => {
-        if (!mountedRef.current) return;
-        applyLines(seq, ls);
-        setHydrated(true);
-        setSyncFailed(false);
+      .then((r) => {
+        if (!mountedRef.current || cartIdRef.current !== cartId) return; // not this cart's page anymore
+        if (r.ok) {
+          markCartAlive(seq, r.lines);
+          return;
+        }
+        // W9d — a refusal WITH a reason. Terminal (paid/cancelled/expired) → the shared,
+        // seq-guarded transition (see markCartGone).
+        if (isTerminal(r.reason)) {
+          markCartGone(seq, r.reason);
+          return;
+        }
+        // Transient (locked-race / settling / unreadable) → the same honest Retry as a network
+        // failure — but only if nothing FRESHER already applied: a stale refresh failing after a
+        // newer response landed must not warn "may be out of date" about a basket that isn't
+        // (Codex). The last-known lines stay on screen either way.
+        if (seq > appliedSeq.current) setSyncFailed(true);
       })
       .catch(() => {
-        if (mountedRef.current) setSyncFailed(true); // only rendered pre-hydration — see empty state
+        // Transport failure — same Retry strip, same freshness + cart guards as above.
+        if (mountedRef.current && cartIdRef.current === cartId && seq > appliedSeq.current)
+          setSyncFailed(true);
       });
-  }, [cartId, applyLines]);
+  }, [cartId, markCartAlive, markCartGone]);
   useEffect(() => {
     if (!cartId) return;
     syncNow();
@@ -172,9 +267,27 @@ export default function Grocery() {
       } catch {
         flash("Couldn’t update that — try again.");
       }
+      // The reconcile ticket is allocated AFTER the write await — so the recovery handler's
+      // ticket fast-forward cannot void it. If the shopper swapped carts while the write was in
+      // flight, stop here: reconciling the ABANDONED cart with a post-swap ticket would paint its
+      // lines (or its terminal banner) over the fresh basket (Codex). Nothing to roll back — the
+      // swap already emptied/replaced the list.
+      if (cartIdRef.current !== cartId) {
+        setBusyLine(null);
+        return;
+      }
       const seq = ++reqSeq.current; // reconcile ticket — see applyLines
       try {
-        applyLines(seq, await getGroceryLines(cartId));
+        const r = await getGroceryLines(cartId);
+        if (r.ok) {
+          markCartAlive(seq, r.lines); // seq-guarded both ways — see the helper
+        } else if (isTerminal(r.reason)) {
+          // The write's failure had a terminal cause — the basket is finished; the shared
+          // transition also overwrites the "try again" flash above with the honest reason.
+          markCartGone(seq, r.reason);
+        } else if (!wrote && appliedSeq.current === appliedAtFlip) {
+          setLines(snapshot); // transient refusal after a refused write — same rollback as the catch
+        }
       } catch {
         // Reconcile failed. A refused write + optimistic view is a lie about money — roll back to
         // the snapshot (unless a fresher view already applied). A SUCCESSFUL write keeps the
@@ -183,7 +296,7 @@ export default function Grocery() {
       }
       setBusyLine(null);
     },
-    [cartId, busyLine, lines, flash, applyLines],
+    [cartId, busyLine, lines, flash, markCartAlive, markCartGone],
   );
 
   // The ONE add path — a scan and a tapped search hit both go through here. Memoized on cartId so the
@@ -205,20 +318,29 @@ export default function Grocery() {
       try {
         r = await scanAdd(cartId, barcode);
       } catch {
-        flash("Couldn’t add that — check your connection and try again.");
+        if (cartIdRef.current === cartId)
+          flash("Couldn’t add that — check your connection and try again.");
         return;
       }
+      // An abandoned cart's response fires NOTHING — not the toast, not the counter, not the
+      // analytics event, not a state transition. The seq guard alone couldn't stop these side
+      // effects (they aren't ticketed), so a pre-recovery scan resolving late would flash a false
+      // "Added" and corrupt the fresh cart's cart_size right after its reset (Codex). Note the
+      // SAME-cart stale-view case stays fully live: a later sync applying first only makes
+      // markCartAlive skip the view — the add really happened, so its toast/analytics still run.
+      if (cartIdRef.current !== cartId) return;
       if (r.ok) {
         addedRef.current += 1;
         // The scan's OWN response carries the fresh server view (one round trip, the addItem
         // pattern) — the list is cart truth, not a parallel client ledger. `lines: null` = the
         // post-write read failed: keep the current list (a failed read is never an empty basket);
         // the next scan/focus re-syncs.
-        if (r.lines) {
-          applyLines(seq, r.lines);
-          setHydrated(true);
-          setSyncFailed(false);
-        }
+        // The alive answer clears the terminal banner too — but only through the seq guard: a slow
+        // add issued pre-payment must not clear a banner a fresher read has since proven true
+        // (Codex P1 — the guard cuts both ways). `lines: null` = the post-write read failed: no
+        // view to apply and no ordering ticket to trust, so no state transition either — the next
+        // sync settles it.
+        if (r.lines) markCartAlive(seq, r.lines);
         flash(`Added ${r.name}${r.ebt ? " · EBT-eligible" : ""}`);
         posthog.capture("grocery_item_scanned", {
           barcode,
@@ -233,11 +355,28 @@ export default function Grocery() {
         flash("Weighed item — see staff");
       } else if (r.reason === "unavailable") {
         flash("Out of stock right now");
-      } else {
+      } else if (r.reason === "unknown_barcode") {
         flash(`Not found: ${barcode} — try searching by name`);
+      } else if (isTerminal(r.reason)) {
+        // W9d — the add failed because the BASKET is finished, not because of the radio: the
+        // shared, seq-guarded transition (list empties · banner · sheet reset · toast).
+        // ⚠️ The ISSUE-time ticket (`seq`, taken before the round trip), never a fresh
+        // `++reqSeq.current`: a response-time ticket is always > appliedSeq, which turns the guard
+        // into a tautology — a slow scanAdd against an ABANDONED cart resolving after the shopper
+        // recovered onto a fresh basket would blank the fresh list and resurrect the dead banner
+        // over it (pre-merge review HIGH; the guard exists for exactly that response).
+        markCartGone(seq, r.reason);
+      } else if (r.reason === "locked") {
+        flash("Hang on — this basket’s being checked out.");
+      } else if (r.reason === "settling") {
+        flash("Hang on — this basket’s being settled.");
+      } else {
+        // `unreadable` — we couldn't establish why. Same honest transient copy as a thrown error;
+        // NEVER the fresh-basket offer (a re-mint against a merely-unreadable cart abandons lines).
+        flash("Couldn’t add that — check your connection and try again.");
       }
     },
-    [cartId, sessionError, flash, applyLines],
+    [cartId, sessionError, flash, markCartAlive, markCartGone],
   );
 
   const onScan = useCallback((code: string) => void add(code, "scan"), [add]);
@@ -249,8 +388,16 @@ export default function Grocery() {
   const addFromBrowse = useCallback(
     async (item: GroceryCatalogItem) => {
       if (addingBarcode || busyLine) return;
+      // A finished basket refuses locally — same rationale as the scan door unmounting the camera:
+      // don't round-trip ~400 live Add buttons just to be refused terminal on every tap.
+      if (cartGone) {
+        flash("This basket is finished — use “Start a fresh basket” to keep shopping.");
+        return;
+      }
       if (cartId && syncFailed && !hydrated) {
-        flash("Couldn’t check your basket — use Retry above before adding.");
+        // Direction-neutral (pre-merge review): the truth strip's Retry renders BELOW the browse
+        // grid, so "above" pointed the wrong way from every card.
+        flash("Couldn’t check your basket — tap Retry, then add again.");
         return;
       }
       setAddingBarcode(item.barcode);
@@ -260,7 +407,7 @@ export default function Grocery() {
         setAddingBarcode(null);
       }
     },
-    [add, addingBarcode, busyLine, cartId, syncFailed, hydrated, flash],
+    [add, addingBarcode, busyLine, cartId, cartGone, syncFailed, hydrated, flash],
   );
 
   // Debounced name search. All setState lives in the async timeout callback — never synchronously in
@@ -306,10 +453,16 @@ export default function Grocery() {
       return;
     }
     if (addingBarcode || busyLine) return;
+    // A finished basket refuses locally — the browse cards' rule, applied to hits too.
+    if (cartGone) {
+      flash("This basket is finished — use “Start a fresh basket” to keep shopping.");
+      return;
+    }
     // Same invisible-basket refusal as the browse cards (pre-merge review) — an add against a
-    // basket whose truth failed to load could double a qty the shopper can't see.
+    // basket whose truth failed to load could double a qty the shopper can't see. Direction-neutral
+    // copy: the truth strip's Retry renders below the results list.
     if (syncFailed && !hydrated) {
-      flash("Couldn’t check your basket — use Retry above before adding.");
+      flash("Couldn’t check your basket — tap Retry, then add again.");
       return;
     }
     setAddingBarcode(h.barcode);
@@ -327,6 +480,18 @@ export default function Grocery() {
 
   const itemCount = lines.reduce((a, l) => a + l.qty, 0);
   const totalCents = lines.reduce((a, l) => a + l.unitPriceCents * l.qty, 0);
+  // W9d — ONE checkout path for the CTA pill and the basket sheet's button (same capture, same
+  // journey cut) so the sheet can never drift into a second, differently-instrumented exit.
+  const checkout = useCallback(() => {
+    if (!cartId) return;
+    posthog.capture("grocery_checkout_clicked", {
+      cart_id: cartId,
+      item_count: itemCount,
+      unique_item_count: lines.length,
+      total_cents: totalCents,
+    });
+    journey.push(`/cart?cart=${encodeURIComponent(cartId)}`);
+  }, [cartId, itemCount, lines.length, totalCents, journey]);
   // Display-only, like totalCents — the EBT flags rode in on the server's own cart view.
   const ebtCents = lines.reduce((a, l) => a + (l.ebt ? l.unitPriceCents * l.qty : 0), 0);
   // W4e — real basket savings vs the market compare-at. Routed through the SAME `saleInfo` floor the
@@ -371,6 +536,56 @@ export default function Grocery() {
           Starting your basket…
         </p>
       ) : null}
+      {/* W9d — the basket is FINISHED (a terminal server answer, not a failed read): say which, and
+          offer the one recovery that fits — a fresh basket via the hook's re-mint. NOT a live region
+          (the toast already announced the transition; one status region per view, G15). The offer
+          only ever renders for `isTerminal` reasons — a merely-unreadable basket gets Retry instead,
+          because a re-mint against a cart we simply couldn't read abandons the shopper's real lines
+          on a cart they can no longer see. */}
+      {cartGone && (
+        <div className="card" style={{ padding: 16, marginTop: 4 }}>
+          <p style={{ margin: "0 0 4px", fontWeight: 700 }}>
+            {cartGone === "paid"
+              ? "This basket’s been paid for"
+              : cartGone === "cancelled"
+                ? "This basket was closed"
+                : "Your market session ended"}
+          </p>
+          <p style={{ margin: "0 0 12px", color: "var(--t2)", fontSize: "var(--fs-sm)" }}>
+            {cartGone === "paid"
+              ? "It’s all set — nothing here is lost. Start a fresh basket to keep shopping."
+              : "Start a fresh basket to keep shopping."}
+          </p>
+          <button
+            type="button"
+            className="grocery-retry"
+            onClick={() => {
+              // This very button unmounts on the next render (the banner is gated on cartGone) —
+              // park focus on the always-mounted search input FIRST, and let the toast (the one
+              // live region) say the re-mint is underway; "Starting your basket…" below is
+              // deliberately not live (Codex P2, WCAG 2.4.3).
+              searchRef.current?.focus();
+              flash("Starting a fresh basket…");
+              // Switching carts: VOID every outstanding ticket (fast-forward appliedSeq past them)
+              // and zero the per-cart analytics counter. The seq guard alone only ORDERS responses
+              // — it can't tell a late response from the ABANDONED cart apart from a fresh one, so
+              // if the new cart's first read failed, an old-cart response could paint the dead
+              // cart's lines (or its banner) over a page whose checkout targets the new cart
+              // (Codex). This handler is the ONLY place the page swaps carts mid-life, and no new
+              // ticket can issue while cartId is null (every issuer early-returns), so the new
+              // cart's own reads all ticket AFTER this line. (In a handler, not an effect — the
+              // React Compiler forbids mutating these refs from effect bodies.)
+              appliedSeq.current = reqSeq.current;
+              addedRef.current = 0;
+              setCartGone(null);
+              setHydrated(false); // back to the honest "Checking your basket…" while the mint runs
+              revalidate(); // clears the session → the mint effect re-POSTs /api/session
+            }}
+          >
+            Start a fresh basket
+          </button>
+        </div>
+      )}
       {/* Browse | Scan — a manual-activation tablist (arrow keys move focus between the two
           tabs; Enter/Space activates). The active state lives ON the tab button (bg + text on
           one element — never a separately-positioned indicator). */}
@@ -480,19 +695,23 @@ export default function Grocery() {
                       const s = saleInfo(h.unitPriceCents, h.compareAtCents);
                       if (!s) return null;
                       // Visible "Compare at" (market-comparison framing, not a bare struck number)
-                      // + an sr-only companion so the sale reaches screen readers too.
+                      // + an sr-only companion so the sale reaches screen readers too. W9d: the
+                      // "−N%" shout is GONE here — search hits are the QUIET surface, like the
+                      // cards' inline strike (the loud percentage now belongs only to featured
+                      // deals, and `mms_grocery_search` doesn't carry the flag; 313 of 396 SKUs
+                      // carry a genuine discount, so ~79% of results would otherwise shout — the
+                      // wallpaper this slice removed).
                       return (
                         <>
                           <small aria-hidden style={{ color: "var(--ac-strong)", fontWeight: 700 }}>
                             Compare at{" "}
                             <s style={{ color: "var(--t3)", fontWeight: 500 }}>
                               ${(s.compareAtCents / 100).toFixed(2)}
-                            </s>{" "}
-                            −{s.pct}%
+                            </s>
                           </small>
                           <span className="sr-only">
                             {" "}
-                            compare at ${(s.compareAtCents / 100).toFixed(2)}, save {s.pct}%
+                            compare at ${(s.compareAtCents / 100).toFixed(2)}
                           </span>
                         </>
                       );
@@ -518,7 +737,7 @@ export default function Grocery() {
             re-renders the ~400-card grid (adversarial MED-2). */}
         <GroceryBrowse
           lines={lines}
-          canAdd={!!cartId && (hydrated || !syncFailed)}
+          canAdd={!!cartId && !cartGone && (hydrated || !syncFailed)}
           addingBarcode={addingBarcode}
           busyLineId={busyLine}
           onAdd={addFromBrowse}
@@ -536,22 +755,30 @@ export default function Grocery() {
         {/* Don't open the camera until the basket exists — a scan without a cart only flashes an
             error. Gate on cartId with an inline note (pre-merge review). */}
         {tab === "scan" &&
-          (cartId ? (
+          (cartId && !cartGone ? (
             <BarcodeScanner onScan={onScan} />
           ) : (
             <p style={{ color: "var(--t3)", marginTop: 12 }}>
-              {sessionError
-                ? "Basket unavailable — use Retry above, then scan."
-                : "Starting your basket… scanning opens in a moment."}
+              {cartGone
+                ? // W9d — don't hold the camera open against a finished basket: every scan would
+                  // round-trip just to be refused. The banner above carries the recovery.
+                  "This basket is finished — start a fresh one above to keep scanning."
+                : sessionError
+                  ? "Basket unavailable — use Retry above, then scan."
+                  : "Starting your basket… scanning opens in a moment."}
             </p>
           ))}
       </div>
 
-      {/* K5 pre-hydration truth strip — OUTSIDE the tabs, because it must be visible from BOTH
-          doors: on a failed first read, an invisible server basket isn't just a display lie — a
-          Browse re-add of an "invisible" item would increment the server qty (the exact doubling
-          bug K5 exists to prevent). */}
-      {cartId && !hydrated && !lines.length && (
+      {/* K5 truth strip — OUTSIDE the tabs, because it must be visible from BOTH doors: on a failed
+          read, an invisible server basket isn't just a display lie — a Browse re-add of an
+          "invisible" item would increment the server qty (the exact doubling bug K5 exists to
+          prevent). W9d: it now ALSO renders post-hydration — the old gate (`!hydrated &&
+          !lines.length`) made the strip structurally unreachable once anything was on screen, so a
+          refused re-sync (visibilitychange after the table locked, an expiring token) failed in
+          silence and the shopper kept shopping against a stale list. With lines on screen the copy
+          says stale, not missing. Suppressed while the terminal banner owns the story. */}
+      {cartId && !cartGone && (syncFailed || (!hydrated && !lines.length)) && (
         <p style={{ color: "var(--t3)", marginTop: 14 }}>
           {syncFailed ? (
             // role="status" (polite), not "alert": it's paired with a Retry and must not
@@ -561,7 +788,9 @@ export default function Grocery() {
               role="status"
               style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}
             >
-              Couldn’t check your basket.
+              {lines.length > 0
+                ? "Couldn’t refresh your basket — what’s shown may be out of date."
+                : "Couldn’t check your basket."}
               <button
                 type="button"
                 onClick={() => {
@@ -676,16 +905,22 @@ export default function Grocery() {
             </b>
           </li>
         ))}
-        {!lines.length && cartId && hydrated && (
+        {!lines.length && cartId && hydrated && !cartGone && (
           <li style={{ color: "var(--t3)" }}>Nothing scanned yet.</li>
         )}
       </ul>
 
       {/* ALWAYS-mounted live region (adversarial MED-6): several SR/browser pairs skip a region
           born WITH its text — the container persists, only the text swaps; visibility hides the
-          empty pill without removing it from the accessibility tree's region registry. */}
+          empty pill without removing it from the accessibility tree's region registry.
+          The explicit aria-live is NOT the usual role="status" redundancy (QA §A): it's what keeps
+          this region OUT of Radix's modal aria-hidden sweep — the aria-hidden lib exempts only
+          `[aria-live]` nodes, so without the attribute a terminal answer landing while the basket
+          sheet is open would flash into a hidden node and re-enter the tree "born with" its text
+          (the exact class MED-6 fixed). Deliberate; keep it. */}
       <div
         role="status"
+        aria-live="polite"
         className="grocery-toast"
         style={toast ? undefined : { visibility: "hidden" }}
       >
@@ -693,32 +928,74 @@ export default function Grocery() {
       </div>
 
       {lines.length > 0 && cartId && (
-        // A real <button> (Enter AND Space), matching CartBar — the prior <a> only activated on Enter. The
-        // aria-label carries the count + total on focus; the rolling NumberFlow figure is presentation only
-        // (not announced per scan).
-        <button
-          type="button"
-          className="grocery-cta"
-          aria-label={`Check out — ${itemCount} ${itemCount === 1 ? "item" : "items"}, total $${(
-            totalCents / 100
-          ).toFixed(2)}`}
-          onClick={() => {
-            posthog.capture("grocery_checkout_clicked", {
-              cart_id: cartId,
-              item_count: itemCount,
-              unique_item_count: lines.length,
-              total_cents: totalCents,
-            });
-            journey.push(`/cart?cart=${encodeURIComponent(cartId)}`);
+        // W9d — the pinned bar: basket-review trigger + checkout CTA. The Browse door (the DEFAULT)
+        // had no basket view at all — the CTA's rolling figure was the only evidence anything was in
+        // the cart, and the only way to see the items was to switch tabs or walk into checkout.
+        <div className="grocery-cta-bar">
+          <button
+            type="button"
+            ref={basketBtnRef}
+            className="grocery-basket-btn"
+            aria-haspopup="dialog"
+            aria-label={`Review basket — ${itemCount} ${itemCount === 1 ? "item" : "items"}`}
+            onClick={() => setBasketOpen(true)}
+          >
+            <Icon name="cart" size={20} />
+            <span aria-hidden>{itemCount}</span>
+          </button>
+          {/* A real <button> (Enter AND Space), matching CartBar — the prior <a> only activated on
+              Enter. The aria-label carries the count + total on focus; the rolling NumberFlow figure
+              is presentation only (not announced per scan). */}
+          <button
+            type="button"
+            className="grocery-cta"
+            aria-label={`Check out — ${itemCount} ${itemCount === 1 ? "item" : "items"}, total $${(
+              totalCents / 100
+            ).toFixed(2)}`}
+            onClick={checkout}
+          >
+            <span>
+              Check out · {itemCount} {itemCount === 1 ? "item" : "items"}
+            </span>
+            <span className="grocery-cta-total">
+              <NumberFlow
+                value={totalCents / 100}
+                format={{ style: "currency", currency: "USD" }}
+              />
+            </span>
+          </button>
+        </div>
+      )}
+
+      {/* W9d — the basket review sheet: a thin modal window onto the SAME lines/onStep/totals (never
+          a second basket surface). Rendered whenever a cart exists so an in-flight remove that
+          empties the basket shows the sheet's own empty state instead of vanishing mid-gesture. */}
+      {cartId && (
+        <GroceryBasketSheet
+          open={basketOpen && !cartGone}
+          onClose={() => setBasketOpen(false)}
+          lines={lines}
+          busyLineId={busyLine}
+          savedCents={savedCents}
+          ebtCents={ebtCents}
+          totalCents={totalCents}
+          itemCount={itemCount}
+          onStep={stepQty}
+          onCheckout={checkout}
+          onCloseAutoFocus={(e) => {
+            // ALWAYS redirect the restore — there is no working default here. Radix's modal
+            // content unconditionally preventDefaults its own close event and focuses
+            // `triggerRef.current`, but our Sheet never renders a Dialog.Trigger, so that ref is
+            // null and EVERY close would land focus on <body> (verified mechanically against the
+            // installed @radix-ui/react-dialog — the FocusScope fallback is skipped once the
+            // event is defaultPrevented). Park on the basket button while it exists; on the
+            // stable search input once the last row was removed and the CTA bar unmounted
+            // (the page's remove-row pattern, WCAG 2.4.3).
+            e.preventDefault();
+            if (lines.length === 0) searchRef.current?.focus();
+            else basketBtnRef.current?.focus();
           }}
-        >
-          <span>
-            Check out · {itemCount} {itemCount === 1 ? "item" : "items"}
-          </span>
-          <span className="grocery-cta-total">
-            <NumberFlow value={totalCents / 100} format={{ style: "currency", currency: "USD" }} />
-          </span>
-        </button>
+        />
       )}
     </main>
   );

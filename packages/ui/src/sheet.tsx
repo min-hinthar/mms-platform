@@ -22,18 +22,30 @@ export function Sheet({
   onOpenChange,
   title,
   children,
+  onCloseAutoFocus,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   title: string;
   children: React.ReactNode;
+  /** W9d — close-restore escape hatch. ⚠️ Radix's modal content unconditionally preventDefaults its
+   *  own close event and focuses `Dialog.Trigger` — which this primitive NEVER renders (callers open
+   *  it with plain buttons + controlled `open`), so with no handler the restore targets null and
+   *  focus lands on <body> on every close. Callers should pass this, `e.preventDefault()`, and
+   *  focus their own trigger/stable element (WCAG 2.4.3). The primitive-wide gap (every existing
+   *  Sheet caller strands focus on close) is tracked as OPEN-ITEMS J21. */
+  onCloseAutoFocus?: (event: Event) => void;
 }) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="mms-scrim" />
         <DomMaxProvider>
-          <SheetContent title={title} onClose={() => onOpenChange(false)}>
+          <SheetContent
+            title={title}
+            onClose={() => onOpenChange(false)}
+            onCloseAutoFocus={onCloseAutoFocus}
+          >
             {children}
           </SheetContent>
         </DomMaxProvider>
@@ -58,10 +70,12 @@ function SheetContent({
   title,
   onClose,
   children,
+  onCloseAutoFocus,
 }: {
   title: string;
   onClose: () => void;
   children: React.ReactNode;
+  onCloseAutoFocus?: (event: Event) => void;
 }) {
   const controls = useDragControls();
   // Keyboard-aware lift: while the sheet is mounted (open), track the on-screen keyboard via the
@@ -95,7 +109,7 @@ function SheetContent({
     };
   }, []);
   return (
-    <Dialog.Content asChild aria-describedby={undefined}>
+    <Dialog.Content asChild aria-describedby={undefined} onCloseAutoFocus={onCloseAutoFocus}>
       <m.div
         className="mms-sheet"
         // Handle-initiated drag only (dragListener=false): the body keeps its native scroll; the grab
