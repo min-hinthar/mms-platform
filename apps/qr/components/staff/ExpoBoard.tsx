@@ -87,10 +87,13 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
   // and the counter's job is to check the exit pass. Counting it as a "bag waiting" handed staff
   // phantom bagging work, so the header names the two kinds separately. Vocabulary only — the
   // status machine (mms_set_togo_status / mms_init_togo_status) is untouched.
-  const verifyCount = tickets.filter((t) =>
-    t.lines.every((l) => l.fulfillment === "grocery"),
+  // Only PREPARING grocery tickets await verification — a ready one was already verified (its
+  // remaining action is recording the hand-over), so counting it here would show staff a shopper
+  // they just checked as still pending (Codex).
+  const verifyCount = tickets.filter(
+    (t) => t.status === "preparing" && t.lines.every((l) => l.fulfillment === "grocery"),
   ).length;
-  const bagCount = count - verifyCount;
+  const bagCount = tickets.filter((t) => t.lines.some((l) => l.fulfillment !== "grocery")).length;
 
   return (
     <section aria-labelledby="expo-h" onFocusCapture={markFocus}>
@@ -160,11 +163,20 @@ function ExpoCard({
   const [pending, startTransition] = useTransition();
   const to = ticket.status === "preparing" ? "ready" : "picked_up";
   // W9d — a pure-grocery (scan-&-go) order: the shopper already HOLDS the goods, so "Bagged & ready"
-  // is fiction. The counter verifies the exit pass and the shopper walks — same two-stage status
-  // machine (untouched), honest words: the first bump records the hand-over, the second clears it.
+  // is fiction. Same two-stage status machine (untouched), mapped to the counter's two real moments:
+  // check the exit pass ("Verified", preparing→ready) then record the walk-out ("Handed over",
+  // ready→picked_up, drops the card). The first cut of this put "Handed over" on the FIRST bump,
+  // which left a zombie second stage still counted as unverified (Codex) — each label now names the
+  // action its own tap performs.
   const grocery = ticket.lines.every((l) => l.fulfillment === "grocery");
   const label =
-    ticket.status === "preparing" ? (grocery ? "Handed over" : "Bagged & ready") : "Picked up";
+    ticket.status === "preparing"
+      ? grocery
+        ? "Verified"
+        : "Bagged & ready"
+      : grocery
+        ? "Handed over"
+        : "Picked up";
 
   // K2 + W3e call-out identity: a dine-in to-go bag calls out its real table; a pickup/scango bag
   // headlines the first name captured at checkout (short code as the collision-safe suffix), falling
@@ -216,7 +228,10 @@ function ExpoCard({
           {/* J5: the diner tapped "I'm here" on /track (qr_orders.arrived_at) — a waiting HUMAN
               outranks bag age; hand this one over first. Rendered only from the real stamp. */}
           {ticket.arrivedAt && <span style={hereTag}>Here now</span>}
-          {ticket.status === "ready" && <span style={readyTag}>Ready</span>}
+          {/* Grocery's ready-stage means "pass checked", not "food ready" — tag it honestly. */}
+          {ticket.status === "ready" && (
+            <span style={readyTag}>{grocery ? "Verified" : "Ready"}</span>
+          )}
           <span style={{ fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
             <RelativeTime iso={ticket.createdAt} serverNow={serverNow} />
           </span>

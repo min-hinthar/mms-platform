@@ -74,19 +74,30 @@ export async function scanAdd(cartId: string, barcode: string): Promise<ScanAddR
   // mms_cart_item_insert_if_open(menu_item_id) to text, so a barcode can go through the same
   // status-atomic open-cart guard instead of the old plain insert path. This keeps the server view,
   // checkout totals, and the local Scan & Go list aligned: repeat scans increment qty.
-  await insertOrIncLine(
-    input.cartId,
-    {
-      menuItemId: item.barcode,
-      name: item.name,
-      opts: [],
-      unitPriceCents,
-      taxCents,
-      fulfillment: "grocery",
-    },
-    uid,
-  );
-  await touchCart(input.cartId, "scanAdd");
+  try {
+    await insertOrIncLine(
+      input.cartId,
+      {
+        menuItemId: item.barcode,
+        name: item.name,
+        opts: [],
+        unitPriceCents,
+        taxCents,
+        fulfillment: "grocery",
+      },
+      uid,
+    );
+    await touchCart(input.cartId, "scanAdd");
+  } catch (e) {
+    // The status-atomic write can refuse AFTER assertCartMember passed — checkout marks the cart
+    // paid in the gap, and the insert's `status='open'` guard raises. Without this reclassify the
+    // race surfaced as the generic connection error and the shopper never got the fresh-basket
+    // recovery until a later sync (Codex). Only a KNOWN availability reason converts; a genuine
+    // write failure keeps the thrown-transport path (never dress an outage up as terminal).
+    const reason = await whyCartUnavailable(input.cartId);
+    if (reason !== "unreadable") return { ok: false as const, reason };
+    throw e;
+  }
   // K5: the fresh server-authoritative grocery view in the SAME round trip (the addItem pattern) —
   // the page renders CART truth, so a refresh can never hide items the cart will charge. The WRITE
   // has already committed here, so a failed read must not fail the scan — and it must not pose as

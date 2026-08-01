@@ -51,11 +51,6 @@ export default function Grocery() {
   const [cartGone, setCartGone] = useState<CartUnavailable | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const addedRef = useRef(0); // success count for analytics cart_size — stable across the memoized adder
-  // cart_size is a PER-CART funnel dimension — a fresh basket (the W9d terminal recovery re-mints a
-  // new cartId) must not inherit the finished cart's count, or its first scan reports old+1 (Codex).
-  useEffect(() => {
-    addedRef.current = 0;
-  }, [cartId]);
   const [busyLine, setBusyLine] = useState<string | null>(null); // one in-flight stepper op at a time
 
   // K5 — reads land out of order on flaky mobile radios (a visibilitychange sync issued on a waking
@@ -539,6 +534,17 @@ export default function Grocery() {
               // deliberately not live (Codex P2, WCAG 2.4.3).
               searchRef.current?.focus();
               flash("Starting a fresh basket…");
+              // Switching carts: VOID every outstanding ticket (fast-forward appliedSeq past them)
+              // and zero the per-cart analytics counter. The seq guard alone only ORDERS responses
+              // — it can't tell a late response from the ABANDONED cart apart from a fresh one, so
+              // if the new cart's first read failed, an old-cart response could paint the dead
+              // cart's lines (or its banner) over a page whose checkout targets the new cart
+              // (Codex). This handler is the ONLY place the page swaps carts mid-life, and no new
+              // ticket can issue while cartId is null (every issuer early-returns), so the new
+              // cart's own reads all ticket AFTER this line. (In a handler, not an effect — the
+              // React Compiler forbids mutating these refs from effect bodies.)
+              appliedSeq.current = reqSeq.current;
+              addedRef.current = 0;
               setCartGone(null);
               setHydrated(false); // back to the honest "Checking your basket…" while the mint runs
               revalidate(); // clears the session → the mint effect re-POSTs /api/session
