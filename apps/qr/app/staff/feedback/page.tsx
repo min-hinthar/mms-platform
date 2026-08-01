@@ -3,6 +3,7 @@ import Link from "next/link";
 import { requireStaffPage } from "@/lib/staff";
 import { getStaffFeedback } from "@/lib/feedback";
 import { Card, Icon } from "@mms/ui";
+import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 
 export const metadata = { title: "Feedback — Mandalay Morning Star" };
 export const dynamic = "force-dynamic";
@@ -14,7 +15,9 @@ export const dynamic = "force-dynamic";
  * floor. Read-only (owner-read RLS backs the table); a server snapshot — low volume, no live poll needed.
  */
 export default async function FeedbackPage() {
-  await requireStaffPage("manager");
+  const caller = await requireStaffPage("manager");
+  // W10b: an unknowable gate keeps the URL and renders the outage shell — never a login redirect.
+  if (!caller) return <StaffOutageShell what="feedback" />;
 
   const rows = await getStaffFeedback();
   const lowCount = rows.filter((r) => r.rating <= 3).length;

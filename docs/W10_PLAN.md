@@ -47,14 +47,38 @@ every surface at once. An 8-surface audit (78 findings, full trace in
   grocery session banner got an honest static hedge (not diagnosed — it renders pre-hook). The
   REMAINING connection-blaming strings (dine-in join copy, staff PIN/login) ride W10b.
 
-## W10b — staff surfaces (planned)
+## W10b — staff surfaces ✅ (2026-08-01)
 
-The boards must NEVER redirect to login on an outage (`getStaffAuth` needs the same
-transport-vs-verdict split → keep-last-known-snapshot + stale banner everywhere; FloorBoard is
-missing the fails≥2 banner its siblings have); queue reads must stop conflating error with empty
-("All done" during an outage); StaffLogin/PinUnlock need honest outage states (a cook who locks the
-console mid-outage currently cannot get back in and is told to check their connection). Full list:
-`W10_MATRIX.md` §staff (12 findings, 5 HIGH).
+The stance: **a staff board is a ledger, not a website** — mid-service its most valuable asset is
+the last-known state, so an outage must never blank it, redirect it, or fake liveness over it.
+
+- **`StaffAuth` gains `unavailable`** — `getStaffAuth` separates transport failure from verdict at
+  `getUser()` AND both staff-row reads (an unread row is not `not_staff`); `requireStaff` throws
+  503 `code:"unavailable"`; `requireStaffPage` returns `null` → pages render `StaffOutageShell` in
+  place (URL kept, one-tap route-refresh retry) instead of a login redirect. New `staffGate()`
+  gives every mutation arm a discriminated `{ok,caller}|{ok:false,error}` with the shared
+  `STAFF_WRITE_OUTAGE` copy.
+- **One frozen-board vocabulary** (`lib/staff-outage.ts`): `frozenBoardCopy` names the freeze
+  moment from the snapshot's own server clock and escalates past 2 minutes to "take new orders on
+  paper; nothing here is lost"; `raceTimeout` turns a HUNG poll into the ordinary failure path (the
+  `inFlight` lock can no longer freeze a board wearing its live face); `isRetryableAuthShape` is
+  the client twin of `isTransportFailure` for login/PIN surfaces.
+- **Boards keep the ledger**: KDS/Expo stop redirecting on outage (reason `"outage"` freezes the
+  snapshot and keeps polling; genuine `signin`/`locked` still redirect); FloorBoard gains the
+  stale/frozen banner its siblings had; FloorDetailLive discriminates `closed` (bounce) from
+  `outage` (freeze); ApprovalsBoard inherits the vocabulary and its resolve arm says "still
+  pending" instead of a generic error.
+- **False-verdict sweep**: every queue/anchor read error-checks — a failed read can no longer
+  render "All clear" / "No bags waiting" / "the floor is quiet" / "no open order" / "no card on
+  file" / "nothing to settle" / an empty roster/approver/merge-candidate list. All 24
+  `requireStaff().catch(() => null)` arms discriminate outage from sign-out.
+- **Login/PIN/sign-out honesty**: StaffLogin's three handlers (Google, send-code, verify) branch on
+  the retryable shape ("your email/code is fine") instead of blaming the address or the code;
+  PinUnlock's outage reason says no attempt was burned; both sign-out paths stop asserting
+  "check your connection" without evidence; `app/staff/error.tsx` gives /staff routes a
+  staff-voiced boundary ("your sign-in is fine; run on paper").
+
+Deferred from the matrix: realtime channel-status surfacing (LOW, unchanged).
 
 ## W10c — money-path outage hardening (planned — REAL bugs, priority)
 

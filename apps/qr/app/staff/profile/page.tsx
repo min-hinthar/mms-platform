@@ -5,6 +5,7 @@ import { staffHasPin } from "@/lib/staff-pin";
 import { RoleBadge } from "@/components/staff/RoleBadge";
 import { PinManager } from "@/components/staff/PinManager";
 import { LockButton } from "@/components/staff/LockButton";
+import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 
 export const metadata = { title: "Your PIN — Mandalay Morning Star" };
 export const dynamic = "force-dynamic";
@@ -16,6 +17,8 @@ export const dynamic = "force-dynamic";
  */
 export default async function StaffProfile() {
   const caller = await requireStaffPage();
+  // W10b: an unknowable gate keeps the URL and renders the outage shell — never a login redirect.
+  if (!caller) return <StaffOutageShell what="your profile" />;
   const hasPin = await staffHasPin(caller.staffId);
 
   return (

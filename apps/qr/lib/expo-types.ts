@@ -49,5 +49,8 @@ export type ExpoQueue = {
 };
 
 /** W3d (K10): poll gate discriminant — an expired staff cookie / locked console redirects instead of
- *  wearing "Reconnecting…" forever (mirrors KitchenPoll). */
-export type ExpoPoll = { ok: true; queue: ExpoQueue } | { ok: false; reason: "signin" | "locked" };
+ *  wearing "Reconnecting…" forever (mirrors KitchenPoll). W10b `outage`: the platform is unreachable
+ *  (not a cookie verdict) — the board freezes on its last-known queue instead of redirecting. */
+export type ExpoPoll =
+  | { ok: true; queue: ExpoQueue }
+  | { ok: false; reason: "signin" | "locked" | "outage" };

@@ -1,5 +1,6 @@
 import { type CSSProperties } from "react";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { requireStaffPage, roleAtLeast } from "@/lib/staff";
 import { staffHasPin } from "@/lib/staff-pin";
 import { getFloorView } from "@/lib/floor";
@@ -8,6 +9,7 @@ import { RoleBadge } from "@/components/staff/RoleBadge";
 import { StaffSignOut } from "@/components/staff/StaffSignOut";
 import { LockButton } from "@/components/staff/LockButton";
 import { FloorBoard } from "@/components/staff/FloorBoard";
+import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 
 export const metadata = { title: "Floor — Mandalay Morning Star" };
 export const dynamic = "force-dynamic";
@@ -19,12 +21,18 @@ export const dynamic = "force-dynamic";
  */
 export default async function StaffHome() {
   const caller = await requireStaffPage();
+  // W10b: an unknowable gate renders the outage shell in place (URL kept) — never a login redirect.
+  if (!caller) return <StaffOutageShell what="the floor" />;
   const isManager = roleAtLeast(caller.role, "manager");
   const [hasPin, floor, pendingApprovals] = await Promise.all([
     staffHasPin(caller.staffId),
     getFloorView(),
     isManager ? countPendingApprovals() : Promise.resolve(0),
   ]);
+  if (!floor.ok) {
+    if (floor.reason === "outage") return <StaffOutageShell what="the floor" />;
+    redirect("/staff/login"); // gate race between requireStaffPage and the read
+  }
 
   return (
     <main style={wrap}>
@@ -43,7 +51,7 @@ export default async function StaffHome() {
         </div>
       </header>
 
-      <FloorBoard initial={floor} />
+      <FloorBoard initial={floor.snapshot} />
 
       <nav
         aria-label="Staff tools"

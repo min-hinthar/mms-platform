@@ -9,6 +9,7 @@ import {
   type FormEvent,
 } from "react";
 import { listPendingApprovals, resolveApproval, type PendingApproval } from "@/lib/approvals";
+import { frozenBoardCopy, raceTimeout } from "@/lib/staff-outage";
 import type { Approver } from "@/lib/voids";
 import { EmptyState } from "@mms/ui";
 import { RelativeTime } from "./RelativeTime";
@@ -40,7 +41,16 @@ export function ApprovalsBoard({
 }) {
   const [snap, setSnap] = useState(initial);
   const [serverNow] = useState(() => new Date().toISOString());
-  const [stale, setStale] = useState(false); // shown after repeated poll failures (S9)
+  // W10b — degraded state with the moment it began. This board's poll is a plain throw/resolve
+  // (listPendingApprovals now THROWS on an unreadable queue instead of returning a false "all
+  // clear"), so a rejection can be an outage OR an expired session OR this device's wifi — we
+  // genuinely cannot tell them apart here, and the cause is therefore always `unknown`: the copy
+  // says "not updating", never "we can't reach the ordering system" (pre-merge review — don't
+  // assert a side you have no evidence about). `asOfIso`/`since`/`nowMs` are all this device's
+  // clock, so the escalation elapsed is single-domain.
+  const [degraded, setDegraded] = useState<{ since: number } | null>(null);
+  const [asOfIso, setAsOfIso] = useState(() => new Date().toISOString());
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const fails = useRef(0);
   const inFlight = useRef(false);
 
@@ -48,13 +58,16 @@ export function ApprovalsBoard({
     if (inFlight.current) return;
     inFlight.current = true;
     try {
-      setSnap(await listPendingApprovals());
+      // raceTimeout (W10b): a hung poll must degrade into the catch path, not freeze inFlight.
+      setSnap(await raceTimeout(listPendingApprovals()));
+      setAsOfIso(new Date().toISOString());
       fails.current = 0;
-      setStale(false);
+      setDegraded(null);
     } catch (e) {
       // Keep the last good queue on a transient error; flag stale after 2 misses (S2-audit S9).
       fails.current += 1;
-      if (fails.current >= 2) setStale(true);
+      setNowMs(Date.now());
+      if (fails.current >= 2) setDegraded((d) => d ?? { since: Date.now() });
       console.error("[ApprovalsBoard] refresh failed", e);
     } finally {
       inFlight.current = false;
@@ -65,6 +78,13 @@ export function ApprovalsBoard({
     const id = setInterval(refresh, 5000);
     return () => clearInterval(id);
   }, [refresh]);
+
+  // Slow escalation tick while stale (the ≥2min paper-flow flip needs a re-render).
+  useEffect(() => {
+    if (!degraded) return;
+    const id = setInterval(() => setNowMs(Date.now()), 15_000);
+    return () => clearInterval(id);
+  }, [degraded]);
 
   // Focus catch-all (WCAG 2.4.3; the KdsBoard pattern): an approve/deny drops the request card —
   // restore focus to the heading only when it fell to <body> from a real control (edge-triggered).
@@ -99,11 +119,11 @@ export function ApprovalsBoard({
           style={{
             margin: 0,
             fontSize: "var(--fs-sm)",
-            color: stale ? "var(--warn)" : "var(--t2)",
+            color: degraded ? "var(--warn)" : "var(--t2)",
           }}
         >
-          {stale
-            ? "Reconnecting — showing the last known list"
+          {degraded
+            ? frozenBoardCopy(asOfIso, nowMs - degraded.since, "this list", "unknown")
             : count === 0
               ? "All clear"
               : `${count} waiting`}
@@ -111,9 +131,15 @@ export function ApprovalsBoard({
       </div>
 
       {count === 0 ? (
+        // W10b — mid-freeze this must not read as an authoritative "queue clear", nor promise
+        // arrivals this board can't currently hear about.
         <EmptyState
-          title="Nothing to approve"
-          subtitle="When a server asks to void or comp something they can’t do solo, it lands here for a manager to approve or deny — oldest first."
+          title={degraded ? "Nothing to approve as of the last update" : "Nothing to approve"}
+          subtitle={
+            degraded
+              ? "New requests won’t appear here until this list is updating again. Anything already requested is still pending."
+              : "When a server asks to void or comp something they can’t do solo, it lands here for a manager to approve or deny — oldest first."
+          }
         />
       ) : (
         <StaggerList
@@ -207,6 +233,13 @@ function RequestCard({
           break;
         case "in_flight":
           setMsg("That table is mid-payment — try again once they’ve finished.");
+          break;
+        case "outage":
+          // W10b — nothing was recorded and the request is STILL PENDING; never imply the PIN or
+          // the request was the problem.
+          setMsg(
+            "We can’t reach the ordering system — nothing was recorded. This request is still pending; try again in a moment.",
+          );
           break;
         default:
           setMsg("Couldn’t resolve that just now — please try again.");

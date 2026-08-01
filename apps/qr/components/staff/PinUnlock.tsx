@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { browserClient } from "@mms/db";
 import { Icon } from "@mms/ui";
 import { unlockConsole } from "@/lib/staff-pin-actions";
+import { isRetryableAuthShape } from "@/lib/staff-outage";
 import { PIN_MIN_LENGTH, PIN_MAX_LENGTH } from "@/lib/limits";
 
 /**
@@ -72,6 +73,14 @@ export function PinUnlock({ displayName }: { displayName: string }) {
       setMsg("No PIN is set on this account. Sign out to continue.");
       return;
     }
+    if (res.reason === "outage") {
+      // W10b — the gate refused BEFORE the PIN was checked: no attempt was burned, and the PIN is
+      // not the problem. Never let an outage read as a wrong PIN.
+      setMsg(
+        "We can’t reach the ordering system — your PIN wasn’t checked, and no attempt was used. Try again in a moment.",
+      );
+      return;
+    }
     setMsg("Couldn’t check that PIN. Try again.");
   }
 
@@ -79,7 +88,13 @@ export function PinUnlock({ displayName }: { displayName: string }) {
     setMsg(null);
     const { error } = await browserClient().auth.signOut();
     if (error) {
-      setMsg("Couldn’t sign out — check your connection and try again.");
+      // W10b — blame the connection only on a transport shape (the audit found six surfaces
+      // asserting "check your connection" with zero evidence).
+      setMsg(
+        isRetryableAuthShape(error)
+          ? "We can’t reach the sign-in service — couldn’t sign out just now. Try again in a moment."
+          : "Couldn’t sign out just now — try again.",
+      );
       return;
     }
     router.replace("/staff/login");

@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { bumpLine, bumpTicket, fireTicketNow, getKitchenQueue, recallTicket } from "@/lib/kitchen";
+import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { useWakeLock } from "@/lib/useWakeLock";
 import { KdsChime, getKdsVolume, setKdsVolume } from "@/lib/kds-sound";
@@ -76,7 +77,13 @@ function urgency(t: KitchenTicket, ageMs: number, th: KdsThresholds): "ok" | "am
 export function KdsBoard({ initial }: { initial: KitchenQueue }) {
   const [snap, setSnap] = useState(initial);
   const [err, setErr] = useState<string | null>(null); // one board-level action-error region (S8)
-  const [stale, setStale] = useState(false); // shown after repeated poll failures (S9)
+  // W10b — ONE degraded state carrying WHEN it started and WHY. `outage` = the server told us it
+  // can't reach the platform (immediate, no debounce); `unknown` = repeated transport failures from
+  // this tablet (after 2 misses), which must NOT assert whose fault it is. `since` is stamped in the
+  // SAME clock space as `nowMs` below (server-space, offset-corrected) so the elapsed used for the
+  // paper-flow escalation is skew-free — mixing a server instant with a device clock is exactly the
+  // bug the pre-merge review caught.
+  const [degraded, setDegraded] = useState<StaffDegraded | null>(null);
   const [notice, setNotice] = useState<string | null>(null); // one-shot SR announcement (bump/recall)
   const fails = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -155,9 +162,23 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
   const refresh = useCallback(async () => {
     if (inFlight.current) return; // coalesce overlapping fetches
     inFlight.current = true;
+    // Stamp the degrade in the SAME clock space as `nowMs` (server-space, offset-corrected), so the
+    // escalation elapsed cancels any device-clock skew.
+    const stampNow = () => Date.now() + (clockOffset.current ?? 0);
     try {
-      const res = await getKitchenQueue();
+      // raceTimeout (W10b): a HUNG poll (socket that never settles) would hold inFlight forever and
+      // stop all polling with the board still wearing its live face — turn it into the catch path.
+      const res = await raceTimeout(getKitchenQueue());
       if (!res.ok) {
+        // W10b (M32): "outage" means the platform is unreachable — NOT a verdict about the cookie.
+        // The old redirect here destroyed the queue mid-service, exactly when the kitchen needed its
+        // last-known state most. Freeze the ledger and keep polling for recovery.
+        if (res.reason === "outage") {
+          // Stamp `since` ONCE (keep the original moment across repeated outage polls) in the same
+          // server-space clock as `nowMs`, so the escalation measures real elapsed time.
+          setDegraded((d) => nextDegraded(d, "outage", stampNow()));
+          return;
+        }
         // K10 (O-F): an expired staff session or a locked console is NOT a network blip — leave the
         // board for the honest surface instead of wearing "Reconnecting…" until someone reboots it.
         window.location.assign(res.reason === "locked" ? "/staff/lock" : "/staff/login");
@@ -187,12 +208,14 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
       setSnap(queue);
       setErr(null); // a fresh good snapshot clears a stale action-error banner (no perma-stuck error)
       fails.current = 0;
-      setStale(false);
+      setDegraded(null);
     } catch (e) {
       // A transient fetch error keeps the last good queue; the poll + realtime self-heal recover.
       // After 2 consecutive failures, tell the line it's working a stale board (S2-audit S9).
+      // Cause `unknown`: this end failed, which is NOT evidence the platform is down (it could be
+      // this tablet's wifi) — the copy stays neutral. A later server-verdict outage upgrades it.
       fails.current += 1;
-      if (fails.current >= 2) setStale(true);
+      if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "unknown", stampNow()));
       console.error("[KdsBoard] refresh failed", e);
     } finally {
       inFlight.current = false;
@@ -226,15 +249,22 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
       if (age < windowMs) continue;
       const last = lastRechime.current.get(t.cartId) ?? 0;
       if (nowMs - last >= windowMs) {
+        // ALWAYS advance the per-ticket timer, even while degraded — then stay silent if degraded.
+        // A chime asserts "this ticket still needs you", a liveness claim a board that cannot
+        // refresh has no standing to make. But an earlier cut simply returned before this line, so
+        // every window stayed expired for the whole degrade and the recovery poll fired all of them
+        // in one synchronous pass — KdsChime schedules each tone at the same ctx.currentTime, so
+        // they sum into one blast across a kitchen (pre-merge review). Advancing keeps the state
+        // honest: after recovery a genuinely stale ticket nags again one full window later.
         lastRechime.current.set(t.cartId, nowMs);
-        chime.current?.play(t.channel === "dinein" ? "dinein" : "pickup", true);
+        if (!degraded) chime.current?.play(t.channel === "dinein" ? "dinein" : "pickup", true);
       }
     }
     // Drop tracking for tickets that left the board so the map can't grow unbounded.
     const liveIds = new Set(snap.tickets.map((t) => t.cartId));
     for (const id of lastRechime.current.keys())
       if (!liveIds.has(id)) lastRechime.current.delete(id);
-  }, [nowMs, snap, soundOn]);
+  }, [nowMs, snap, soundOn, degraded]);
 
   // One-shot notices (bump/recall confirmations) yield the live region back to the count.
   useEffect(() => {
@@ -416,12 +446,17 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
           style={{
             margin: 0,
             fontSize: "var(--kfs-meta)",
-            color: err || stale ? "var(--warn)" : "var(--t2)",
+            color: err || degraded ? "var(--warn)" : "var(--t2)",
           }}
         >
+          {/* A degraded board wears the shared vocabulary (W10b): snap.serverNow is the ledger's own
+              "as of" stamp (display), while the escalation measures elapsed from `degraded.since` —
+              BOTH in server-space, so a skewed tablet clock can't decide when staff are told to fall
+              back to paper. Elapsed clocks keep ticking on the frozen cards: the food really has
+              been waiting that long — that's the truth, not fake liveness. */}
           {err ??
-            (stale
-              ? "Reconnecting — showing the last known queue"
+            (degraded
+              ? frozenBoardCopy(snap.serverNow, nowMs - degraded.since, "the queue", degraded.cause)
               : (notice ??
                 (count === 0
                   ? "All clear"
@@ -485,9 +520,16 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
       <div className="kds-body">
         {filtered.length === 0 ? (
           <div style={{ flex: 1 }}>
+            {/* W10b — an EMPTY board mid-freeze must not read as an all-clear, and must not promise
+                arrivals we can't deliver ("tickets appear the moment an order is sent" is false
+                while we can't hear about orders at all). */}
             <EmptyState
-              title="Nothing on the line"
-              subtitle="Tickets appear the moment an order is sent or paid — dine-in sends, pickup and to-go land at checkout, scheduled orders wait as held cards until their fire time."
+              title={degraded ? "Nothing on the line as of the last update" : "Nothing on the line"}
+              subtitle={
+                degraded
+                  ? "New tickets won’t land here until this board is updating again. Take orders on paper — nothing already sent is lost."
+                  : "Tickets appear the moment an order is sent or paid — dine-in sends, pickup and to-go land at checkout, scheduled orders wait as held cards until their fire time."
+              }
             />
           </div>
         ) : (

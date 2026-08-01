@@ -2,27 +2,9 @@
 import { useEffect, useRef, useState } from "react";
 import posthog from "posthog-js";
 import { useConnectionTruth } from "@/lib/useConnectionTruth";
-
-// A stale deploy leaves the running tab pointing at chunk URLs that no longer exist; the next lazy import
-// throws a ChunkLoadError. `reset()` just re-requests the same dead URL, so the boundary would loop — a
-// one-shot hard reload fetches the new build instead (the delivery repo's learning). Cooldown-guarded via
-// sessionStorage so a non-chunk error that happens to match can't reload-loop.
-const CHUNK_RE =
-  /ChunkLoadError|Loading chunk|Loading CSS chunk|dynamically imported module|Failed to fetch dynamically/i;
-const RELOAD_KEY = "mms.chunkReloadAt";
-
-function tryChunkReload(error: Error): boolean {
-  if (!CHUNK_RE.test(error.name) && !CHUNK_RE.test(error.message)) return false;
-  try {
-    const last = Number(sessionStorage.getItem(RELOAD_KEY) ?? 0);
-    if (Date.now() - last < 10_000) return false; // already reloaded once recently — show the UI instead
-    sessionStorage.setItem(RELOAD_KEY, String(Date.now()));
-  } catch {
-    // private mode / storage disabled — fall through to a single reload without the loop guard
-  }
-  window.location.reload();
-  return true;
-}
+// W10b — chunk-reload + escalation memory live in lib/error-recovery so the /staff segment boundary
+// (which SHADOWS this one) can't ship without them.
+import { bumpErrorCount, tryChunkReload } from "@/lib/error-recovery";
 
 /**
  * Route-segment error boundary (App Router). Catches a render error below the root layout and recovers
@@ -32,25 +14,6 @@ function tryChunkReload(error: Error): boolean {
  * follows the view change; an unannounced swap would strand a SR user), with a reset. A stale-deploy
  * ChunkLoadError hard-reloads once instead of looping the (useless) reset.
  */
-// W10a — escalation memory: each error-mount inside a short window bumps the count, so a boundary
-// that keeps re-erroring stops promising "try again" and admits a sustained problem. sessionStorage
-// (not module state) so it survives the remounts reset() causes.
-const ERR_COUNT_KEY = "mms.errBoundary";
-const ERR_WINDOW_MS = 90_000;
-
-function bumpErrorCount(): number {
-  try {
-    const raw = sessionStorage.getItem(ERR_COUNT_KEY);
-    const rec = raw ? (JSON.parse(raw) as { n: number; at: number }) : null;
-    const fresh = rec && Date.now() - rec.at < ERR_WINDOW_MS;
-    const n = (fresh ? rec.n : 0) + 1;
-    sessionStorage.setItem(ERR_COUNT_KEY, JSON.stringify({ n, at: Date.now() }));
-    return n;
-  } catch {
-    return 1; // private mode — no escalation memory, first-attempt copy each time
-  }
-}
-
 export default function Error({
   error,
   reset,

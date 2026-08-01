@@ -2,6 +2,7 @@ import { type CSSProperties } from "react";
 import Link from "next/link";
 import { requireStaffPage, listStaff } from "@/lib/staff";
 import { TeamManager } from "@/components/staff/TeamManager";
+import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 
 export const metadata = { title: "Staff — Mandalay Morning Star" };
 
@@ -13,6 +14,8 @@ export const metadata = { title: "Staff — Mandalay Morning Star" };
  */
 export default async function TeamPage() {
   const caller = await requireStaffPage();
+  // W10b: an unknowable gate keeps the URL and renders the outage shell — never a login redirect.
+  if (!caller) return <StaffOutageShell what="the team page" />;
 
   if (caller.role !== "owner") {
     return (

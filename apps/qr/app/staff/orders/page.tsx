@@ -3,6 +3,7 @@ import Link from "next/link";
 import { requireStaffPage } from "@/lib/staff";
 import { getStaffOrders } from "@/lib/refunds";
 import { StaffOrdersBoard } from "@/components/staff/StaffOrdersBoard";
+import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 
 export const metadata = { title: "Orders — Mandalay Morning Star" };
 export const dynamic = "force-dynamic";
@@ -13,7 +14,10 @@ export const dynamic = "force-dynamic";
  * refund itself re-confirms with a self-PIN step-up. Server snapshot (low volume; revalidated on refund).
  */
 export default async function OrdersPage() {
-  await requireStaffPage("manager");
+  const caller = await requireStaffPage("manager");
+  // W10b: an unknowable gate keeps the URL and renders the outage shell — never a login redirect.
+  // (getStaffOrders below throws 503 on an unreadable list — the staff error boundary catches it.)
+  if (!caller) return <StaffOutageShell what="orders" />;
 
   const orders = await getStaffOrders();
 

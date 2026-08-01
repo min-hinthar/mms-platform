@@ -87,7 +87,9 @@ export type KitchenQueue = {
  * W3d (K10): the poll result discriminant. An expired staff cookie or a locked console must surface as
  * a REDIRECT, never an eternal "Reconnecting…" — the client can't tell a thrown 401 from a dropped
  * socket (prod redacts thrown Server Action errors), so the gate outcome rides the return value.
+ * W10b adds `outage`: the platform is unreachable, which is NOT a verdict about the cookie — the board
+ * keeps its last-known queue (frozen banner) instead of redirecting a working kitchen to login.
  */
 export type KitchenPoll =
   | { ok: true; queue: KitchenQueue }
-  | { ok: false; reason: "signin" | "locked" };
+  | { ok: false; reason: "signin" | "locked" | "outage" };

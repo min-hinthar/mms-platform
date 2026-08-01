@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { serviceClient } from "@mms/db/server";
 import { provisionStaffInput, setStaffActiveInput } from "@mms/db/schemas";
-import { requireStaff } from "./staff";
+import { getStaffAuth, roleAtLeast, STAFF_WRITE_OUTAGE } from "./staff";
 import { sendStaffInviteEmail, sendStaffDeactivatedEmail } from "./email";
 import { getPostHogClient } from "./posthog-server";
 
@@ -53,10 +53,13 @@ export async function provisionStaff(raw: unknown): Promise<StaffActionResult> {
   const parsed = provisionStaffInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Enter a valid email, name, and role." };
 
-  // Deliberate swallow: requireStaff throws AuthzError 401 (not staff) vs 403 (not owner); the Team UI
-  // is itself owner-gated, so a caller reaching this action who isn't an owner is an edge (a direct
-  // POST) and "Owners only." is the right answer for both — collapse them.
-  const caller = await requireStaff("owner").catch(() => null);
+  // Deliberate collapse of anon/not-staff/not-owner into "Owners only." (the Team UI is itself
+  // owner-gated, so a non-owner reaching this is a direct POST edge). W10b: the OUTAGE case is the
+  // one that must NOT collapse — it's not a verdict about the caller.
+  const auth = await getStaffAuth();
+  if (auth.kind === "unavailable") return { ok: false, error: STAFF_WRITE_OUTAGE };
+  const caller =
+    auth.kind === "staff" && roleAtLeast(auth.caller.role, "owner") ? auth.caller : null;
   if (!caller) return { ok: false, error: "Owners only." };
 
   const db = serviceClient();
@@ -127,22 +130,27 @@ export async function setStaffActive(raw: unknown): Promise<StaffActionResult> {
   const parsed = setStaffActiveInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
 
-  // Deliberate swallow of the 401/403 distinction (same rationale as provisionStaff): owner-gated UI,
-  // so "Owners only." covers both. Note: two owners can deactivate EACH OTHER down to one (the last is
+  // Deliberate collapse of the 401/403 distinction (same rationale as provisionStaff); outage stays
+  // distinct (W10b). Note: two owners can deactivate EACH OTHER down to one (the last is
   // self-protected below) — no full lockout, but recovery from an accidental over-deactivation is the
   // out-of-band `update public.staff set active=true …` documented in the bootstrap notes.
-  const caller = await requireStaff("owner").catch(() => null);
+  const auth = await getStaffAuth();
+  if (auth.kind === "unavailable") return { ok: false, error: STAFF_WRITE_OUTAGE };
+  const caller =
+    auth.kind === "staff" && roleAtLeast(auth.caller.role, "owner") ? auth.caller : null;
   if (!caller) return { ok: false, error: "Owners only." };
 
   const db = serviceClient();
   // Fetch the target row first: the self-check must compare by EMAIL (and uid), because a Google/
   // magic-link owner's session uid can differ from the uid stamped on their staff row — comparing
   // userId alone would miss "this is me" and let an owner lock themselves out.
-  const { data: target } = await db
+  const { data: target, error: targetError } = await db
     .from("staff")
     .select("user_id,email,active")
     .eq("user_id", parsed.data.userId)
     .maybeSingle();
+  // W10b — an unread row is not "no such staff member"; and the self-check below can't run blind.
+  if (targetError) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!target) return { ok: false, error: "No such staff member." };
   const isSelf =
     target.user_id === caller.uid ||

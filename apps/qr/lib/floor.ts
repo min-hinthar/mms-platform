@@ -3,19 +3,21 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { serviceClient } from "@mms/db/server";
 import { clearTableInput, mergeTablesInput } from "@mms/db/schemas";
-import { requireStaff } from "./staff";
+import { AuthzError } from "./authz";
+import { getStaffAuth, requireStaff, staffGate, STAFF_WRITE_OUTAGE } from "./staff";
 import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock";
 import { isFresh, paymentInFlightReason } from "./pay-guard";
 import { getCartTotals } from "./totals";
 import { getPostHogClient } from "./posthog-server";
 import type {
   ClearTableResult,
-  FloorSnapshot,
+  FloorPoll,
   FloorStatus,
   FloorTable,
   MergeCandidate,
   MergeResult,
   TableDetail,
+  TableDetailResult,
   TableLineView,
   TableMemberView,
 } from "./floor-types";
@@ -60,50 +62,62 @@ const laterIso = (a: string, b: string | null | undefined): string =>
  * fixed round-trip count regardless of table count. Sorted by table label (numeric-aware) so a server
  * can find a specific table fast; the status chip carries the "what's happening" scan.
  */
-export async function getFloorView(): Promise<FloorSnapshot> {
-  await requireStaff();
+export async function getFloorView(): Promise<FloorPoll> {
+  // W10b (M32): discriminated gate + error-checked reads. The old shape threw on an expired cookie
+  // (indistinguishable from a dropped socket in prod) and rendered a failed sessions read as "the
+  // floor is quiet" over a room of live tables. `outage` freezes the client on its last-known room.
+  const auth = await getStaffAuth();
+  if (auth.kind === "unavailable") return { ok: false, reason: "outage" };
+  if (auth.kind !== "staff") return { ok: false, reason: "signin" };
   const db = serviceClient();
   const nowIso = new Date().toISOString();
 
-  const { data: sessions } = await db
+  const { data: sessions, error: sessionsError } = await db
     .from("table_sessions")
     .select("id,qr_code,table_number,mode,host_seat,created_at")
     .eq("status", "active")
     .gt("expires_at", nowIso)
     .order("created_at", { ascending: true })
     .limit(ACTIVE_SESSION_CAP);
+  if (sessionsError) return { ok: false, reason: "outage" };
 
   const sessionIds = (sessions ?? []).map((s) => s.id);
-  if (sessionIds.length === 0) return { tables: [], serverNow: nowIso };
+  if (sessionIds.length === 0) return { ok: true, snapshot: { tables: [], serverNow: nowIso } };
 
   // Members (party size + host name), open carts, paid orders, and the tab policy (the silent ceiling) for
   // exactly these sessions. One singleton config read on the floor refresh (cached well enough; tiny row).
-  const [{ data: members }, { data: carts }, { data: orders }, { data: tabConfig }] =
-    await Promise.all([
-      db
-        .from("session_members")
-        .select("session_id,seat_id,display_name,role")
-        .in("session_id", sessionIds),
-      db
-        .from("qr_carts")
-        .select("id,session_id,locked,locked_at,settle_at,created_at,tab_type")
-        .in("session_id", sessionIds)
-        .eq("status", "open"),
-      db
-        .from("qr_orders")
-        .select("session_id,total_cents,created_at")
-        .in("session_id", sessionIds)
-        .eq("status", "paid"),
-      db.from("mms_tab_config").select("ceiling_cents").maybeSingle(),
-    ]);
-  const ceilingCents = tabConfig?.ceiling_cents ?? 40000;
+  const [membersRes, cartsRes, ordersRes, tabConfigRes] = await Promise.all([
+    db
+      .from("session_members")
+      .select("session_id,seat_id,display_name,role")
+      .in("session_id", sessionIds),
+    db
+      .from("qr_carts")
+      .select("id,session_id,locked,locked_at,settle_at,created_at,tab_type")
+      .in("session_id", sessionIds)
+      .eq("status", "open"),
+    db
+      .from("qr_orders")
+      .select("session_id,total_cents,created_at")
+      .in("session_id", sessionIds)
+      .eq("status", "paid"),
+    db.from("mms_tab_config").select("ceiling_cents").maybeSingle(),
+  ]);
+  // Party/cart/order reads feed the table cards — an error here misstates the room (empty parties,
+  // "seated" over an ordering table), so it's an outage, not a degrade. The tab-config read alone
+  // may fall back (deliberate): the ceiling flag is advisory and has a safe default.
+  if (membersRes.error || cartsRes.error || ordersRes.error) return { ok: false, reason: "outage" };
+  const members = membersRes.data;
+  const carts = cartsRes.data;
+  const orders = ordersRes.data;
+  const ceilingCents = tabConfigRes.data?.ceiling_cents ?? 40000;
 
   const cartRows = carts ?? [];
   const cartIds = cartRows.map((c) => c.id);
   // Lines for the open carts → aggregate count + running subtotal + latest line time per cart in TS.
   // `created_at` is the activity signal (NOT qr_carts.updated_at — nothing bumps it; the cart RPCs
   // don't write it, so it's stuck at cart creation): the most recent line add is "last activity".
-  const { data: lines } = cartIds.length
+  const { data: lines, error: linesError } = cartIds.length
     ? await db
         .from("qr_cart_items")
         .select("cart_id,qty,unit_price_cents,created_at,state,comped")
@@ -117,7 +131,9 @@ export async function getFloorView(): Promise<FloorSnapshot> {
           state: string;
           comped: boolean;
         }[],
+        error: null,
       };
+  if (linesError) return { ok: false, reason: "outage" };
 
   // Index by session for O(1) assembly.
   const cartBySession = new Map(cartRows.map((c) => [c.session_id, c]));
@@ -185,52 +201,63 @@ export async function getFloorView(): Promise<FloorSnapshot> {
     if (b.tableNumber != null) return 1;
     return a.label.localeCompare(b.label, undefined, { numeric: true });
   });
-  return { tables, serverNow: nowIso };
+  return { ok: true, snapshot: { tables, serverNow: nowIso } };
 }
 
 /**
  * Read-only drill-down for ONE table: party, the actual cart lines (what they've ordered, with split
  * attribution), running subtotal, any paid total, and whether a payment is in flight (which gates
- * clear-table). Returns null when the session doesn't exist or is already closed (a cleared table) —
- * the detail page renders an honest "this table is closed" rather than a stale snapshot.
+ * clear-table). W10b: the result DISCRIMINATES `closed` (session missing/cleared — bounce to the
+ * floor honestly) from `outage` (the answer is unknowable — the client freezes its last-known order;
+ * the old `null` conflated the two and kicked staff off a live table mid-outage).
  */
-export async function getTableDetail(sessionId: string): Promise<TableDetail | null> {
-  await requireStaff();
+export async function getTableDetail(sessionId: string): Promise<TableDetailResult> {
+  const auth = await getStaffAuth();
+  if (auth.kind === "unavailable") return { kind: "outage" };
+  if (auth.kind !== "staff") return { kind: "signin" };
   // Bound the input at the trust boundary (parity with clearTable's Zod parse) — a malformed id is a
   // not-found, never a swallowed Postgres cast error.
-  if (!UUID_RE.test(sessionId)) return null;
+  if (!UUID_RE.test(sessionId)) return { kind: "closed" };
   const db = serviceClient();
   const nowIso = new Date().toISOString();
 
-  const { data: session } = await db
+  const { data: session, error: sessionError } = await db
     .from("table_sessions")
     .select("id,qr_code,table_number,mode,status,host_seat,created_at")
     .eq("id", sessionId)
     .maybeSingle();
-  if (!session || session.status === "closed") return null;
+  // An unread session is not a cleared table — `closed` on error would bounce staff off a live order.
+  if (sessionError) return { kind: "outage" };
+  if (!session || session.status === "closed") return { kind: "closed" };
 
-  const [{ data: members }, { data: cart }, { data: paid }, { data: tabConfig }] =
-    await Promise.all([
-      db.from("session_members").select("seat_id,display_name,role").eq("session_id", sessionId),
-      db
-        .from("qr_carts")
-        .select("id,locked,locked_at,settle_at,tab_type,tab_opened_at")
-        .eq("session_id", sessionId)
-        .eq("status", "open")
-        .maybeSingle(),
-      db
-        .from("qr_orders")
-        .select("total_cents,created_at")
-        .eq("session_id", sessionId)
-        .eq("status", "paid")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      db
-        .from("mms_tab_config")
-        .select("ceiling_cents,nudge_party_size,nudge_tab_age_min")
-        .maybeSingle(),
-    ]);
+  const [membersRes, cartRes, paidRes, tabConfigRes] = await Promise.all([
+    db.from("session_members").select("seat_id,display_name,role").eq("session_id", sessionId),
+    db
+      .from("qr_carts")
+      .select("id,locked,locked_at,settle_at,tab_type,tab_opened_at")
+      .eq("session_id", sessionId)
+      .eq("status", "open")
+      .maybeSingle(),
+    db
+      .from("qr_orders")
+      .select("total_cents,created_at")
+      .eq("session_id", sessionId)
+      .eq("status", "paid")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    db
+      .from("mms_tab_config")
+      .select("ceiling_cents,nudge_party_size,nudge_tab_age_min")
+      .maybeSingle(),
+  ]);
+  // Party/cart/paid feed the order view — an error misstates the table (an empty party, a "settled"
+  // read over an open cart), so it's an outage. Tab config alone falls back (advisory, safe default).
+  if (membersRes.error || cartRes.error || paidRes.error) return { kind: "outage" };
+  const members = membersRes.data;
+  const cart = cartRes.data;
+  const paid = paidRes.data;
+  const tabConfig = tabConfigRes.data;
 
   const nameBySeat = new Map((members ?? []).map((m) => [m.seat_id, m.display_name]));
   const memberViews: TableMemberView[] = (members ?? []).map((m) => ({
@@ -244,11 +271,14 @@ export async function getTableDetail(sessionId: string): Promise<TableDetail | n
   let runningSubtotalCents = 0;
   let lastLineAt: string | null = null;
   if (cart) {
-    const { data: items } = await db
+    const { data: items, error: itemsError } = await db
       .from("qr_cart_items")
       .select("id,name,qty,unit_price_cents,by_seat,created_at,menu_item_id,state,comped,notes")
       .eq("cart_id", cart.id)
       .order("created_at", { ascending: true });
+    // An unread order is not an EMPTY order — "Nothing in the cart yet" over a live table's lines
+    // would read as a wiped order to the server standing at it.
+    if (itemsError) return { kind: "outage" };
     // Resolve which lines are 86'd so the editor can hide the "+" (S1-audit S4). One extra read on the
     // (non-hot) detail path. `menu_item_id` is a SOFT text ref — a UUID for restaurant lines but a
     // BARCODE for grocery (scan-go) — so filter to UUIDs before the `.in()` against the uuid `id`
@@ -270,6 +300,8 @@ export async function getTableDetail(sessionId: string): Promise<TableDetail | n
     // second Void/Comp button. One bounded read on the (non-hot) detail path.
     const pendingLineIds = new Set<string>();
     {
+      // Deliberate degrade (parity with the sold-out read): a failed approvals read re-shows the
+      // Void/Comp buttons on a pending line — the SQL refuses a duplicate request regardless.
       const { data: pend } = await db
         .from("mms_approvals")
         .select("line_id")
@@ -326,7 +358,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetail | n
       nudgeSecure = "age";
   }
 
-  return {
+  const detail: TableDetail = {
     sessionId: session.id,
     cartId: cart?.id ?? null,
     label: session.qr_code,
@@ -349,6 +381,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetail | n
     paymentInFlight,
     serverNow: nowIso,
   };
+  return { kind: "detail", detail };
 }
 
 /**
@@ -361,28 +394,34 @@ export async function getTableDetail(sessionId: string): Promise<TableDetail | n
  * table arrives with S2's approvals primitive.
  */
 export async function clearTable(raw: unknown): Promise<ClearTableResult> {
-  const caller = await requireStaff().catch(() => null);
-  if (!caller) return { ok: false, error: "Staff sign-in required." };
+  const gate = await staffGate();
+  if (!gate.ok) return { ok: false, error: gate.error };
+  const caller = gate.caller;
 
   const parsed = clearTableInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
   const { sessionId } = parsed.data;
 
   const db = serviceClient();
-  const { data: session } = await db
+  const { data: session, error: sessionError } = await db
     .from("table_sessions")
     .select("id,status,mode")
     .eq("id", sessionId)
     .maybeSingle();
+  // W10b — an unread session is not "no such table" (a phantom-table verdict mid-outage); and an
+  // unread cart must not let the clear proceed cart-blind (it would close the session while leaving
+  // an open cart behind).
+  if (sessionError) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!session) return { ok: false, error: "No such table." };
   if (session.status === "closed") return { ok: false, error: "That table is already cleared." };
 
-  const { data: cart } = await db
+  const { data: cart, error: cartError } = await db
     .from("qr_carts")
     .select("id,locked,locked_at,settle_at")
     .eq("session_id", sessionId)
     .eq("status", "open")
     .maybeSingle();
+  if (cartError) return { ok: false, error: STAFF_WRITE_OUTAGE };
 
   // Don't clear a table while money is moving (shared mutex with cash settle — lib/pay-guard.ts):
   // cancelling the cart out from under a live single-pay lock / split freeze / captured share would
@@ -442,21 +481,25 @@ export async function clearTable(raw: unknown): Promise<ClearTableResult> {
 }
 
 /** Resolve a session's mode/status + its open cart's pay-state in two reads (shared by the merge path).
- *  Returns nulls when the session is missing/closed or has no open cart. */
+ *  Returns nulls when the session is missing/closed or has no open cart. W10b: `unavailable` marks a
+ *  FAILED read — the caller must refuse with the outage truth, never a "that table is gone" verdict. */
 async function resolveOpenCart(db: ReturnType<typeof serviceClient>, sessionId: string) {
-  const { data: session } = await db
+  const { data: session, error: sessionError } = await db
     .from("table_sessions")
     .select("id,status,mode")
     .eq("id", sessionId)
     .maybeSingle();
-  if (!session || session.status === "closed") return { session: null, cart: null };
-  const { data: cart } = await db
+  if (sessionError) return { session: null, cart: null, unavailable: true as const };
+  if (!session || session.status === "closed")
+    return { session: null, cart: null, unavailable: false as const };
+  const { data: cart, error: cartError } = await db
     .from("qr_carts")
     .select("id,locked,locked_at,settle_at,promo_code")
     .eq("session_id", sessionId)
     .eq("status", "open")
     .maybeSingle();
-  return { session, cart };
+  if (cartError) return { session: null, cart: null, unavailable: true as const };
+  return { session, cart, unavailable: false as const };
 }
 
 /**
@@ -472,15 +515,20 @@ export async function getMergeCandidates(sourceSessionId: string): Promise<Merge
   if (!UUID_RE.test(sourceSessionId)) return [];
   const db = serviceClient();
   const nowIso = new Date().toISOString();
+  // W10b — a failed read must not render as "no other tables to merge into" (a false-empty picker).
+  // Throwing lands in MergeTableButton's existing catch ("Couldn't load tables. Try again.").
+  const unavailable = () =>
+    new AuthzError("We can’t reach the ordering system right now", 503, "unavailable");
 
-  const { data: source } = await db
+  const { data: source, error: sourceError } = await db
     .from("table_sessions")
     .select("mode,status")
     .eq("id", sourceSessionId)
     .maybeSingle();
+  if (sourceError) throw unavailable();
   if (!source || source.status !== "active") return [];
 
-  const { data: sessions } = await db
+  const { data: sessions, error: sessionsError } = await db
     .from("table_sessions")
     .select("id,qr_code,table_number,mode")
     .eq("status", "active")
@@ -488,10 +536,11 @@ export async function getMergeCandidates(sourceSessionId: string): Promise<Merge
     .gt("expires_at", nowIso)
     .neq("id", sourceSessionId)
     .limit(ACTIVE_SESSION_CAP);
+  if (sessionsError) throw unavailable();
   const sessionIds = (sessions ?? []).map((s) => s.id);
   if (sessionIds.length === 0) return [];
 
-  const [{ data: carts }, { data: members }] = await Promise.all([
+  const [cartsRes, membersRes] = await Promise.all([
     db
       .from("qr_carts")
       .select("id,session_id,locked,locked_at,settle_at,tab_type")
@@ -499,11 +548,15 @@ export async function getMergeCandidates(sourceSessionId: string): Promise<Merge
       .eq("status", "open"),
     db.from("session_members").select("session_id").in("session_id", sessionIds),
   ]);
+  if (cartsRes.error || membersRes.error) throw unavailable();
+  const carts = cartsRes.data;
+  const members = membersRes.data;
   const cartBySession = new Map((carts ?? []).map((c) => [c.session_id, c]));
   const cartIds = (carts ?? []).map((c) => c.id);
-  const { data: lines } = cartIds.length
+  const { data: lines, error: linesError } = cartIds.length
     ? await db.from("qr_cart_items").select("cart_id,qty").in("cart_id", cartIds)
-    : { data: [] as { cart_id: string; qty: number }[] };
+    : { data: [] as { cart_id: string; qty: number }[], error: null };
+  if (linesError) throw unavailable();
   const qtyByCart = new Map<string, number>();
   for (const l of lines ?? []) qtyByCart.set(l.cart_id, (qtyByCart.get(l.cart_id) ?? 0) + l.qty);
   const partyBySession = new Map<string, number>();
@@ -547,8 +600,9 @@ export async function getMergeCandidates(sourceSessionId: string): Promise<Merge
  * the atomic, row-locked mms_merge_table_orders (re-parents server-priced lines — never recomputes a price).
  */
 export async function mergeTables(raw: unknown): Promise<MergeResult> {
-  const caller = await requireStaff().catch(() => null);
-  if (!caller) return { ok: false, error: "Staff sign-in required." };
+  const gate = await staffGate();
+  if (!gate.ok) return { ok: false, error: gate.error };
+  const caller = gate.caller;
 
   const parsed = mergeTablesInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
@@ -561,6 +615,9 @@ export async function mergeTables(raw: unknown): Promise<MergeResult> {
     resolveOpenCart(db, sourceSessionId),
     resolveOpenCart(db, targetSessionId),
   ]);
+  // W10b — a failed resolve is not "that table is gone": refusing with the outage truth beats telling
+  // a server their live table was already cleared.
+  if (src.unavailable || tgt.unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!src.session) return { ok: false, error: "That table is already cleared." };
   if (!tgt.session) return { ok: false, error: "The table you picked is no longer open." };
   if (!src.cart) return { ok: false, error: "This table has no open order to merge." };

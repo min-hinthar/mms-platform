@@ -3,7 +3,8 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { serviceClient } from "@mms/db/server";
 import { voidLineInput } from "@mms/db/schemas";
-import { requireStaff } from "./staff";
+import { AuthzError } from "./authz";
+import { getStaffAuth, requireStaff } from "./staff";
 import { approverStepUpAllowed, verifyStaffPin } from "./staff-pin";
 import { paymentInFlightReason } from "./pay-guard";
 import { touchCart } from "./order-lines";
@@ -26,12 +27,16 @@ export type Approver = { staffId: string; displayName: string; role: "manager" |
  */
 export async function listApprovers(): Promise<Approver[]> {
   await requireStaff();
-  const { data } = await serviceClient()
+  const { data, error } = await serviceClient()
     .from("staff")
     .select("user_id,display_name,role,active")
     .in("role", ["manager", "owner"])
     .eq("active", true)
     .limit(100);
+  // W10b — a failed read must not render as "no managers to pick" (a false-empty step-up picker).
+  // Throwing lands in the caller's catch (LossActionSheet's load-failure copy).
+  if (error)
+    throw new AuthzError("We can’t reach the ordering system right now", 503, "unavailable");
   return (data ?? [])
     .map((r) => ({
       staffId: r.user_id,
@@ -58,7 +63,10 @@ export type VoidLineResult =
         | "not_found"
         | "in_flight"
         | "already"
-        | "error";
+        | "error"
+        // W10b: the platform is unreachable — nothing was voided, and it's not a verdict about the
+        // line or the caller. The sheet renders the wasn't-saved outage copy.
+        | "outage";
     };
 
 /**
@@ -69,30 +77,37 @@ export type VoidLineResult =
  * writes the audit row in the same transaction as the state flip.
  */
 export async function voidLine(raw: unknown): Promise<VoidLineResult> {
-  const caller = await requireStaff().catch(() => null);
-  if (!caller) return { ok: false, reason: "error" };
+  const auth = await getStaffAuth();
+  // W10b — unknowable ≠ unauthorized: `outage` says "nothing was voided, track it on paper", never a
+  // generic error that reads as a verdict about the line.
+  if (auth.kind === "unavailable") return { ok: false, reason: "outage" };
+  if (auth.kind !== "staff") return { ok: false, reason: "error" };
+  const caller = auth.caller;
   const parsed = voidLineInput.safeParse(raw);
   if (!parsed.success) return { ok: false, reason: "error" };
   const { sessionId, cartItemId, action, reason, approverStaffId, pin } = parsed.data;
 
   const db = serviceClient();
   // Resolve THIS table's open cart and refuse mid-payment (shared mutex with cash settle / split / clear)
-  // — a void mustn't change a total a diner or cashier is settling.
-  const { data: cart } = await db
+  // — a void mustn't change a total a diner or cashier is settling. W10b: an unread cart/line is not
+  // "not open"/"not found" — those false verdicts end with the loss going untracked.
+  const { data: cart, error: cartError } = await db
     .from("qr_carts")
     .select("id,locked,locked_at,settle_at")
     .eq("session_id", sessionId)
     .eq("status", "open")
     .maybeSingle();
+  if (cartError) return { ok: false, reason: "outage" };
   if (!cart) return { ok: false, reason: "not_open" };
   if (await paymentInFlightReason(cart)) return { ok: false, reason: "in_flight" };
   // The line must belong to this table's open cart (an id from another table is a not-found, not an edit).
-  const { data: line } = await db
+  const { data: line, error: lineError } = await db
     .from("qr_cart_items")
     .select("id")
     .eq("id", cartItemId)
     .eq("cart_id", cart.id)
     .maybeSingle();
+  if (lineError) return { ok: false, reason: "outage" };
   if (!line) return { ok: false, reason: "not_found" };
 
   // When the server picked a manager, verify their PIN server-side FIRST (lockout-counted). A bad/locked

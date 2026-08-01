@@ -5,6 +5,7 @@ import { requireStaffPage } from "@/lib/staff";
 import { getExpoQueue } from "@/lib/expo";
 import { RoleBadge } from "@/components/staff/RoleBadge";
 import { ExpoBoard } from "@/components/staff/ExpoBoard";
+import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 
 export const metadata = { title: "Expo — Mandalay Morning Star" };
 export const dynamic = "force-dynamic";
@@ -17,8 +18,13 @@ export const dynamic = "force-dynamic";
  */
 export default async function ExpoPage() {
   const caller = await requireStaffPage();
+  // W10b: outage keeps the URL — one tap of retry re-enters the expo the moment we're back.
+  if (!caller) return <StaffOutageShell what="the expo board" />;
   const res = await getExpoQueue();
-  if (!res.ok) redirect(res.reason === "locked" ? "/staff/lock" : "/staff/login");
+  if (!res.ok) {
+    if (res.reason === "outage") return <StaffOutageShell what="the expo board" />;
+    redirect(res.reason === "locked" ? "/staff/lock" : "/staff/login");
+  }
 
   return (
     <main style={wrap}>

@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { serviceClient } from "@mms/db/server";
 import { setTogoStatusInput } from "@mms/db/schemas";
-import { requireStaff } from "./staff";
+import { getStaffAuth, staffGate } from "./staff";
 import { isConsoleLocked } from "./staff-lock";
 import { getPostHogClient } from "./posthog-server";
 import type { ExpoLine, ExpoPoll, ExpoTicket } from "./expo-types";
@@ -30,18 +30,21 @@ const QUEUE_CAP = 200; // a teahouse has a handful of live takeaway bags; bound 
  * client can't tell from a dropped socket.
  */
 export async function getExpoQueue(): Promise<ExpoPoll> {
-  try {
-    await requireStaff();
-  } catch {
-    return { ok: false, reason: "signin" };
-  }
+  const auth = await getStaffAuth();
+  // W10b — an unknowable gate is not "signed out": `outage` keeps the board's last-known queue
+  // instead of redirecting the bagging counter to login mid-service (M32).
+  if (auth.kind === "unavailable") return { ok: false, reason: "outage" };
+  if (auth.kind !== "staff") return { ok: false, reason: "signin" };
   if (await isConsoleLocked()) return { ok: false, reason: "locked" };
 
   const db = serviceClient();
   const { data: dbNow } = await db.rpc("mms_now");
   const nowIso = dbNow ?? new Date().toISOString();
 
-  const { data: orders } = await db
+  // W10b — every read that feeds ticket assembly checks its error → `outage`: a failed orders read
+  // rendered "No bags waiting" over a counter of paid bags; a failed items/sessions read silently
+  // dropped or mislabeled them. The freeze-on-outage client keeps the last-known queue regardless.
+  const { data: orders, error: ordersError } = await db
     .from("qr_orders")
     .select(
       "id,togo_status,session_id,table_number,pickup_slot,arrived_at,created_at,customer_name",
@@ -49,16 +52,18 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
     .in("togo_status", ["preparing", "ready"])
     .order("created_at", { ascending: true })
     .limit(QUEUE_CAP);
+  if (ordersError) return { ok: false, reason: "outage" };
   if (!orders || orders.length === 0)
     return { ok: true, queue: { tickets: [], serverNow: nowIso } };
 
   const orderIds = orders.map((o) => o.id);
   // Only the TAKEAWAY lines (the bag) — a dine-in line on a mixed order stays on the table, not the counter.
-  const { data: items } = await db
+  const { data: items, error: itemsError } = await db
     .from("qr_order_items")
     .select("id,order_id,name,qty,modifiers,fulfillment,notes")
     .in("order_id", orderIds)
     .in("fulfillment", ["togo", "grocery"]);
+  if (itemsError) return { ok: false, reason: "outage" };
   const linesByOrder = new Map<string, ExpoLine[]>();
   for (const it of items ?? []) {
     const line: ExpoLine = {
@@ -75,9 +80,10 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
   }
 
   const sessionIds = [...new Set(orders.map((o) => o.session_id).filter((s): s is string => !!s))];
-  const { data: sessions } = sessionIds.length
+  const { data: sessions, error: sessionsError } = sessionIds.length
     ? await db.from("table_sessions").select("id,qr_code,mode").in("id", sessionIds)
-    : { data: [] as { id: string; qr_code: string; mode: string }[] };
+    : { data: [] as { id: string; qr_code: string; mode: string }[], error: null };
+  if (sessionsError) return { ok: false, reason: "outage" };
   const sessById = new Map((sessions ?? []).map((s) => [s.id, s]));
 
   const tickets: ExpoTicket[] = [];
@@ -126,8 +132,9 @@ export type ExpoActionResult = { ok: true } | { ok: false; error: string };
  * reflects it immediately too.
  */
 export async function setTogoStatus(raw: unknown): Promise<ExpoActionResult> {
-  const caller = await requireStaff().catch(() => null);
-  if (!caller) return { ok: false, error: "Staff sign-in required." };
+  const gate = await staffGate();
+  if (!gate.ok) return { ok: false, error: gate.error };
+  const caller = gate.caller;
   const parsed = setTogoStatusInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
   const { orderId, to } = parsed.data;

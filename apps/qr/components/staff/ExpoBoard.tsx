@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, useTransition, type CSSProperties } from "react";
 import { getExpoQueue, setTogoStatus } from "@/lib/expo";
+import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { useWakeLock } from "@/lib/useWakeLock";
 import { formatSlotLong } from "@/lib/pickupTime";
@@ -22,7 +23,13 @@ import { EmptyState, Icon } from "@mms/ui";
 export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
   const [snap, setSnap] = useState(initial);
   const [err, setErr] = useState<string | null>(null);
-  const [stale, setStale] = useState(false);
+  // W10b — one degraded state carrying WHEN it started and WHY (see KdsBoard for the full note).
+  // `since` and `nowMs` are BOTH the device clock here, so the elapsed driving the paper-flow
+  // escalation is measured in one domain — a skewed tablet can't shorten or extend it.
+  const [degraded, setDegraded] = useState<StaffDegraded | null>(null);
+  // Clock for the escalation only (no 1s ticker here like the KDS): Date.now() in render is impure
+  // under the compiler, so it advances in the failure callbacks and a slow tick while degraded.
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const fails = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlight = useRef(false);
@@ -33,23 +40,41 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
     if (inFlight.current) return;
     inFlight.current = true;
     try {
-      const res = await getExpoQueue();
+      // raceTimeout (W10b): a hung poll must degrade into the catch path, not freeze inFlight.
+      const res = await raceTimeout(getExpoQueue());
       if (!res.ok) {
+        // W10b (M32): outage ≠ signed out — keep the last-known bags instead of redirecting the
+        // counter to login mid-service.
+        if (res.reason === "outage") {
+          setNowMs(Date.now());
+          setDegraded((d) => nextDegraded(d, "outage", Date.now()));
+          return;
+        }
         window.location.assign(res.reason === "locked" ? "/staff/lock" : "/staff/login");
         return;
       }
       setSnap(res.queue);
       setErr(null);
       fails.current = 0;
-      setStale(false);
+      setDegraded(null);
     } catch (e) {
+      // Cause `unknown` — this end failed, which isn't evidence the platform is down.
       fails.current += 1;
-      if (fails.current >= 2) setStale(true);
+      setNowMs(Date.now());
+      if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "unknown", Date.now()));
       console.error("[ExpoBoard] refresh failed", e);
     } finally {
       inFlight.current = false;
     }
   }, []);
+
+  // Slow escalation tick while frozen/stale — the banner's ≥2min flip needs a re-render even if
+  // every poll keeps failing silently.
+  useEffect(() => {
+    if (!degraded) return;
+    const id = setInterval(() => setNowMs(Date.now()), 15_000);
+    return () => clearInterval(id);
+  }, [degraded]);
 
   const onChange = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -117,12 +142,12 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
           style={{
             margin: 0,
             fontSize: "var(--fs-sm)",
-            color: err || stale ? "var(--warn)" : "var(--t2)",
+            color: err || degraded ? "var(--warn)" : "var(--t2)",
           }}
         >
           {err ??
-            (stale
-              ? "Reconnecting…"
+            (degraded
+              ? frozenBoardCopy(snap.serverNow, nowMs - degraded.since, "the bags", degraded.cause)
               : count === 0
                 ? "No bags waiting"
                 : [
@@ -136,9 +161,14 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
       </div>
 
       {count === 0 ? (
+        // W10b — mid-freeze this must not read as an all-clear, nor promise bags we can't hear about.
         <EmptyState
-          title="Nothing to bag"
-          subtitle="Bags appear here once a to-go or grocery order is paid."
+          title={degraded ? "Nothing to bag as of the last update" : "Nothing to bag"}
+          subtitle={
+            degraded
+              ? "New bags won’t land here until this board is updating again. Nothing already paid for is lost."
+              : "Bags appear here once a to-go or grocery order is paid."
+          }
           icon={<Icon name="bag" size={30} style={{ color: "var(--ac)" }} />}
         />
       ) : (

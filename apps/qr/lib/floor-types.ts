@@ -50,6 +50,13 @@ export type FloorSnapshot = {
   serverNow: string;
 };
 
+/** W10b: the floor poll discriminant (K10 parity with KitchenPoll/ExpoPoll). A failed gate/read used
+ *  to render as an EMPTY room ("the floor is quiet" over live tables) — `signin` redirects honestly,
+ *  `outage` freezes the board on its last-known snapshot. */
+export type FloorPoll =
+  | { ok: true; snapshot: FloorSnapshot }
+  | { ok: false; reason: "signin" | "outage" };
+
 /** One line on the per-table drill-down. by_seat → which guest added it (split attribution). */
 export type TableLineView = {
   id: string;
@@ -129,6 +136,16 @@ export function tableDisplay(t: { tableNumber: number | null; label: string }): 
 }
 
 export type ClearTableResult = { ok: true } | { ok: false; error: string };
+
+/** W10b: the drill-down read result. `closed` is the ONLY state that bounces back to the floor — a
+ *  cleared table is gone, but an unreadable one ISN'T (the old `null` conflated them, so an outage
+ *  mid-service kicked staff off a live table's order). `signin` mirrors the boards' K10 redirect;
+ *  `outage` freezes the last-known detail. */
+export type TableDetailResult =
+  | { kind: "detail"; detail: TableDetail }
+  | { kind: "closed" }
+  | { kind: "signin" }
+  | { kind: "outage" };
 
 /** A table the current (source) table can be merged INTO (S1.4). Same mode, active, has an open cart, not
  *  mid-payment — the legible candidates a server picks from in the explicit merge tool. */

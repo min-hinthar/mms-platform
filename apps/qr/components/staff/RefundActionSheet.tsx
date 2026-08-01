@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, useTransition, type CSSProperties } from "react";
 import { refundLine, type StaffOrderLine } from "@/lib/refunds";
+import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
 
 const REASONS: [value: string, label: string][] = [
   ["unhappy", "Not happy with it"],
@@ -88,6 +89,10 @@ export function RefundActionSheet({
             break;
           case "not_manager":
             setError("Manager access is required to refund.");
+            break;
+          case "outage":
+            // W10b — no money moved; the platform is unreachable, not a verdict about the manager.
+            setError(STAFF_WRITE_OUTAGE);
             break;
           default:
             setError("Couldn’t refund that line — try again.");

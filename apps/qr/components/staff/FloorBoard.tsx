@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { getFloorView } from "@/lib/floor";
+import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import type { FloorSnapshot } from "@/lib/floor-types";
 import { EmptyState } from "@mms/ui";
@@ -22,6 +23,14 @@ const metaOf = (t: { status: string; lastActivityAt: string }): PulseMeta => ({
  */
 export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
   const [snap, setSnap] = useState(initial);
+  // W10b — outage parity with the KDS/expo boards (the floor previously had NO degraded state: a
+  // failing poll wore its live face forever). One state carrying WHEN it started and WHY: `outage`
+  // = the server said the platform is unreachable (immediate); `unknown` = repeated transport
+  // failures from this device (2 misses), which must not assert whose fault it is. `since` and
+  // `nowMs` are both the device clock, so the escalation elapsed is measured in one domain.
+  const [degraded, setDegraded] = useState<StaffDegraded | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const fails = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlight = useRef(false);
   // R9 live-notice: remember each table's last {status, activity} so a refresh can flag the ones that made a
@@ -45,8 +54,21 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
     if (inFlight.current) return; // coalesce overlapping fetches
     inFlight.current = true;
     try {
-      const next = await getFloorView();
+      // raceTimeout (W10b): a hung poll must degrade into the catch path, not freeze inFlight.
+      const res = await raceTimeout(getFloorView());
       if (!alive.current) return; // unmounted mid-fetch — don't setState / schedule timers
+      if (!res.ok) {
+        if (res.reason === "outage") {
+          // W10b (M32): platform unreachable — keep the last-known room and keep polling.
+          setNowMs(Date.now());
+          setDegraded((d) => nextDegraded(d, "outage", Date.now()));
+          return;
+        }
+        // A genuinely expired/invalid staff session: the honest surface is the login, K10-style.
+        window.location.assign("/staff/login");
+        return;
+      }
+      const next = res.snapshot;
       // Diff vs the previous snapshot → the tables that made a REAL transition (for the card pulse).
       const bumped: Array<[string, number]> = [];
       for (const t of next.tables) {
@@ -58,6 +80,8 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
       }
       prevMeta.current = new Map(next.tables.map((t) => [t.sessionId, metaOf(t)]));
       setSnap(next);
+      fails.current = 0;
+      setDegraded(null);
       if (bumped.length > 0) {
         setPulses((prev) => {
           const m = new Map(prev);
@@ -84,12 +108,26 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
       }
     } catch (e) {
       // Don't blank the floor on a transient fetch error — keep the last good snapshot; the poll + the
-      // realtime self-heal will recover. Surface for triage.
+      // realtime self-heal will recover. After 2 consecutive failures, say so (KDS/expo parity).
+      if (alive.current) {
+        // Cause `unknown` — this end failed, which isn't evidence the platform is down.
+        fails.current += 1;
+        setNowMs(Date.now());
+        if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "unknown", Date.now()));
+      }
       console.error("[FloorBoard] refresh failed", e);
     } finally {
       inFlight.current = false;
     }
   }, []);
+
+  // Slow escalation tick while frozen/stale — the ≥2min paper-flow flip needs a re-render even if
+  // every poll keeps failing silently.
+  useEffect(() => {
+    if (!degraded) return;
+    const id = setInterval(() => setNowMs(Date.now()), 15_000);
+    return () => clearInterval(id);
+  }, [degraded]);
 
   // Debounced trigger for realtime bursts.
   const onChange = useCallback(() => {
@@ -121,15 +159,31 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
         <h2 id="floor-h" style={{ fontSize: "var(--fs-body)", margin: 0 }}>
           Tables
         </h2>
-        <p role="status" style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
-          {count === 0 ? "No active tables" : `${count} active ${count === 1 ? "table" : "tables"}`}
+        <p
+          role="status"
+          style={{
+            margin: 0,
+            fontSize: "var(--fs-sm)",
+            color: degraded ? "var(--warn)" : "var(--t2)",
+          }}
+        >
+          {degraded
+            ? frozenBoardCopy(snap.serverNow, nowMs - degraded.since, "the room", degraded.cause)
+            : count === 0
+              ? "No active tables"
+              : `${count} active ${count === 1 ? "table" : "tables"}`}
         </p>
       </div>
 
       {count === 0 ? (
+        // W10b — mid-freeze "the floor is quiet" would be an authoritative lie about a full room.
         <EmptyState
-          title="The floor is quiet"
-          subtitle="Active tables appear here the moment a guest scans in — party, what they’re ordering, and how long they’ve been seated."
+          title={degraded ? "No tables as of the last update" : "The floor is quiet"}
+          subtitle={
+            degraded
+              ? "New tables won’t appear here until this board is updating again. Nothing already open is lost."
+              : "Active tables appear here the moment a guest scans in — party, what they’re ordering, and how long they’ve been seated."
+          }
         />
       ) : (
         // Card-enter on scan-in / exit on clear (keyed by sessionId → only added/removed tables animate) +

@@ -8,7 +8,7 @@ import {
   settleCashInput,
   staffAddItemInput,
 } from "@mms/db/schemas";
-import { requireStaff } from "./staff";
+import { staffGate, STAFF_WRITE_OUTAGE } from "./staff";
 import { lineTax } from "./tax";
 import { getCartTotals } from "./totals";
 import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
@@ -34,22 +34,26 @@ export type SettleCashResult =
   | { ok: false; error: string };
 
 /** Resolve the open cart for a session (the table's live order). Returns null when the session is
- *  closed or has no open cart (already settled/cancelled). */
+ *  closed or has no open cart (already settled/cancelled). W10b: `unavailable` marks a FAILED read —
+ *  callers refuse with the outage truth instead of a false "table is closed / nothing to settle". */
 async function openCartFor(sessionId: string) {
   const db = serviceClient();
-  const { data: session } = await db
+  const { data: session, error: sessionError } = await db
     .from("table_sessions")
     .select("id,status,mode")
     .eq("id", sessionId)
     .maybeSingle();
-  if (!session || session.status === "closed") return { session: null, cart: null };
-  const { data: cart } = await db
+  if (sessionError) return { session: null, cart: null, unavailable: true as const };
+  if (!session || session.status === "closed")
+    return { session: null, cart: null, unavailable: false as const };
+  const { data: cart, error: cartError } = await db
     .from("qr_carts")
     .select("id,locked,locked_at,settle_at,tab_type")
     .eq("session_id", sessionId)
     .eq("status", "open")
     .maybeSingle();
-  return { session, cart };
+  if (cartError) return { session: null, cart: null, unavailable: true as const };
+  return { session, cart, unavailable: false as const };
 }
 
 /**
@@ -62,13 +66,15 @@ async function openCartFor(sessionId: string) {
  * the same item first. The line stays unattributed and assignable to a guest later via `assignLine`.
  */
 export async function staffAddItem(raw: unknown): Promise<StaffWriteResult> {
-  const caller = await requireStaff().catch(() => null);
-  if (!caller) return { ok: false, error: "Staff sign-in required." };
+  const gate = await staffGate();
+  if (!gate.ok) return { ok: false, error: gate.error };
+  const caller = gate.caller;
   const parsed = staffAddItemInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
   const { sessionId, menuItemId, modifierIds, notes } = parsed.data;
 
-  const { session, cart } = await openCartFor(sessionId);
+  const { session, cart, unavailable } = await openCartFor(sessionId);
+  if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!session) return { ok: false, error: "That table is closed." };
   if (!cart) return { ok: false, error: "This table has no open order." };
   if (await paymentInFlightReason(cart))
@@ -128,13 +134,15 @@ export async function staffAddItem(raw: unknown): Promise<StaffWriteResult> {
  * really belongs to this table (defense against a mismatched id).
  */
 export async function staffSetQty(sessionId: string, raw: unknown): Promise<StaffWriteResult> {
-  const caller = await requireStaff().catch(() => null);
-  if (!caller) return { ok: false, error: "Staff sign-in required." };
+  // The gate IS the authorization (this action has no per-caller provenance to record).
+  const gate = await staffGate();
+  if (!gate.ok) return { ok: false, error: gate.error };
   const parsed = setQtyInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
   const { cartItemId, qty } = parsed.data;
 
-  const { session, cart } = await openCartFor(sessionId);
+  const { session, cart, unavailable } = await openCartFor(sessionId);
+  if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!session) return { ok: false, error: "That table is closed." };
   if (!cart) return { ok: false, error: "This table has no open order." };
   if (await paymentInFlightReason(cart))
@@ -142,20 +150,24 @@ export async function staffSetQty(sessionId: string, raw: unknown): Promise<Staf
 
   const db = serviceClient();
   // The line must belong to THIS table's open cart (an id from another table is a not-found, not an edit).
-  const { data: line } = await db
+  // W10b — an unread line is not "not on this table"; a failed RPC is not "no longer open": both false
+  // verdicts send staff chasing a phantom state instead of naming the outage.
+  const { data: line, error: lineError } = await db
     .from("qr_cart_items")
     .select("id")
     .eq("id", cartItemId)
     .eq("cart_id", cart.id)
     .maybeSingle();
+  if (lineError) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!line) return { ok: false, error: "That item isn’t on this table." };
 
   // Status-atomic set/delete (qty<=0 removes) — applies only while the cart is 'open' (same RPC the
   // diner path uses). 0 rows ⇒ the cart flipped paid/closed under us.
-  const { data: affected } = await db.rpc("mms_cart_item_set_qty_if_open", {
+  const { data: affected, error: rpcError } = await db.rpc("mms_cart_item_set_qty_if_open", {
     p_id: cartItemId,
     p_qty: qty,
   });
+  if (rpcError) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!affected) return { ok: false, error: "This table’s order is no longer open." };
   await touchCart(cart.id, "staffSetQty");
   revalidatePath(`/staff/table/${sessionId}`);
@@ -169,26 +181,30 @@ export async function staffSetQty(sessionId: string, raw: unknown): Promise<Staf
  * table-scope + mid-payment guards as the other staff line edits.
  */
 export async function setLineNotes(sessionId: string, raw: unknown): Promise<StaffWriteResult> {
-  const caller = await requireStaff().catch(() => null);
-  if (!caller) return { ok: false, error: "Staff sign-in required." };
+  // The gate IS the authorization (this action has no per-caller provenance to record).
+  const gate = await staffGate();
+  if (!gate.ok) return { ok: false, error: gate.error };
   const parsed = setLineNotesInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
   const { cartItemId, notes } = parsed.data;
 
-  const { session, cart } = await openCartFor(sessionId);
+  const { session, cart, unavailable } = await openCartFor(sessionId);
+  if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!session) return { ok: false, error: "That table is closed." };
   if (!cart) return { ok: false, error: "This table has no open order." };
   if (await paymentInFlightReason(cart))
     return { ok: false, error: "This table is mid-payment — wait until they’ve finished." };
 
   // One statement carries every guard: this table's cart + still-draft. 0 rows ⇒ fired/removed under us.
-  const { data: updated } = await serviceClient()
+  // W10b — a failed UPDATE is not "the note is frozen" (a false verdict); it's an unsaved change.
+  const { data: updated, error: updateError } = await serviceClient()
     .from("qr_cart_items")
     .update({ notes: notes || null })
     .eq("id", cartItemId)
     .eq("cart_id", cart.id)
     .eq("state", "draft")
     .select("id");
+  if (updateError) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!updated || updated.length === 0)
     return { ok: false, error: "That item already went to the kitchen — its note is frozen." };
   await touchCart(cart.id, "setLineNotes");
@@ -204,13 +220,15 @@ export async function setLineNotes(sessionId: string, raw: unknown): Promise<Sta
  * Refused while a card payment / split is in flight (shared mutex) so cash can't double-charge a table.
  */
 export async function settleCash(raw: unknown): Promise<SettleCashResult> {
-  const caller = await requireStaff().catch(() => null);
-  if (!caller) return { ok: false, error: "Staff sign-in required." };
+  const gate = await staffGate();
+  if (!gate.ok) return { ok: false, error: gate.error };
+  const caller = gate.caller;
   const parsed = settleCashInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
   const { sessionId } = parsed.data;
 
-  const { session, cart } = await openCartFor(sessionId);
+  const { session, cart, unavailable } = await openCartFor(sessionId);
+  if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!session) return { ok: false, error: "That table is closed." };
   if (!cart) return { ok: false, error: "This table has no open order to settle." };
   if (await paymentInFlightReason(cart))
@@ -220,10 +238,13 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
     };
 
   const db = serviceClient();
-  const { count } = await db
+  // W10b — a failed count is not an EMPTY table: "nothing to settle" on a table holding a full order
+  // is the worst false verdict on the money path.
+  const { count, error: countError } = await db
     .from("qr_cart_items")
     .select("id", { count: "exact", head: true })
     .eq("cart_id", cart.id);
+  if (countError) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if ((count ?? 0) === 0) return { ok: false, error: "There’s nothing on this table to settle." };
 
   // ATOMICALLY freeze the table before deriving totals (S1-audit B2). The early paymentInFlightReason
@@ -387,13 +408,15 @@ export type CloseSecureTabResult = { ok: true } | { ok: false; error: string };
  * stranded as paid (the fulfill only flips the cart on a succeeded webhook).
  */
 export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult> {
-  const caller = await requireStaff().catch(() => null);
-  if (!caller) return { ok: false, error: "Staff sign-in required." };
+  const gate = await staffGate();
+  if (!gate.ok) return { ok: false, error: gate.error };
+  const caller = gate.caller;
   const parsed = settleCashInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
   const { sessionId } = parsed.data;
 
-  const { session, cart } = await openCartFor(sessionId);
+  const { session, cart, unavailable } = await openCartFor(sessionId);
+  if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!session) return { ok: false, error: "That table is closed." };
   if (!cart) return { ok: false, error: "This table has no open order to settle." };
 
@@ -405,11 +428,14 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
 
   const db = serviceClient();
   // The saved card lives in the service-role-only sidecar (never the realtime-fanned cart row).
-  const { data: secure } = await db
+  // W10b — an unread sidecar is not "no card on file": that false verdict steers staff to re-collect
+  // payment from a guest whose card IS saved.
+  const { data: secure, error: secureError } = await db
     .from("mms_tab_secure")
     .select("stripe_customer_id,stripe_payment_method_id")
     .eq("cart_id", cart.id)
     .maybeSingle();
+  if (secureError) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!secure?.stripe_payment_method_id)
     return { ok: false, error: "No card on file for this tab — settle by cash or card instead." };
 

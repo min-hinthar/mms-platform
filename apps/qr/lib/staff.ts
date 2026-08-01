@@ -2,8 +2,13 @@ import "server-only";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { serverClient, serviceClient } from "@mms/db/server";
-import { AuthzError } from "./authz";
+import { AuthzError, isTransportFailure } from "./authz";
 import { isConsoleLocked } from "./staff-lock";
+import { STAFF_WRITE_OUTAGE } from "./staff-outage";
+
+// W10b — the shared write-outage sentence lives in ./staff-outage (a plain module) so client
+// reason-switches render the SAME copy; re-exported here for the server action files.
+export { STAFF_WRITE_OUTAGE };
 
 /**
  * Staff identity helpers (S1.1a) — the server-side mirror of the `is_staff` / `is_staff_at_least`
@@ -36,22 +41,31 @@ export function roleAtLeast(role: StaffRole, min: StaffRole): boolean {
 }
 
 /**
- * The auth state behind a /staff request, distinguished three ways so the shells can RECOVER, not
+ * The auth state behind a /staff request, distinguished FOUR ways so the shells can RECOVER, not
  * loop: `anon` (no/anon session → go sign in), `not_staff` (a real signed-in account with no active
  * staff row → show "not a staff account" + sign-out, never bounce them back into the login silently),
- * and `staff` (the verified identity). Identity is read from the SSR cookie session and VERIFIED by
- * getUser() (not a client claim); the role comes from a service-role lookup so RLS can't hide the row.
+ * `staff` (the verified identity), and `unavailable` (W10b — auth/DB transport failed, so the answer
+ * is UNKNOWABLE: never a verdict about the person; boards keep their last-known snapshot and pages
+ * render the outage shell instead of a login redirect that destroys mid-service state). Identity is
+ * read from the SSR cookie session and VERIFIED by getUser() (not a client claim); the role comes
+ * from a service-role lookup so RLS can't hide the row.
  */
 export type StaffAuth =
   | { kind: "anon" }
   | { kind: "not_staff" }
-  | { kind: "staff"; caller: StaffCaller };
+  | { kind: "staff"; caller: StaffCaller }
+  | { kind: "unavailable" };
 
 export async function getStaffAuth(): Promise<StaffAuth> {
   const supa = serverClient(await cookies());
   const {
     data: { user },
+    error: userError,
   } = await supa.auth.getUser();
+  // W10b — a transport failure is not "signed out": during the paused-project outage this collapsed
+  // to `anon`, and every staff surface redirected to login mid-service (audit M32, HIGH). A
+  // non-transport error (missing/invalid session) still means "go sign in".
+  if (userError && isTransportFailure(userError)) return { kind: "unavailable" };
   // Anonymous diners have a uid too — treat them as `anon` here (they belong on the diner side).
   if (!user || user.is_anonymous) return { kind: "anon" };
   // Only trust the email for the allowlist if it's CONFIRMED (email_confirmed_at is set for OTP /
@@ -72,6 +86,11 @@ export async function getStaffAuth(): Promise<StaffAuth> {
     .select("user_id,role,display_name,active")
     .eq("user_id", user.id)
     .maybeSingle();
+  // W10b — an UNREAD row is not a verdict: any read error (transport or otherwise) means we cannot
+  // know whether this person is staff, and answering `not_staff` bounces a working server to the
+  // denied-login screen mid-service. maybeSingle() never errors on zero rows, so `error` here is
+  // always a real failure, not "no such staff".
+  if (byUid.error) return { kind: "unavailable" };
   row = byUid.data;
   // Mirror the SQL `staff_session_email_match` gate (S1-audit B1): the email-allowlist FALLBACK only
   // trusts a provider-verified OAuth identity (Google), NEVER a public email/password signup — GoTrue
@@ -85,6 +104,8 @@ export async function getStaffAuth(): Promise<StaffAuth> {
       .select("user_id,role,display_name,active")
       .eq("email", email)
       .maybeSingle();
+    // Same rule as byUid: a failed allowlist read can't rule the person OUT — unknowable, not a "no".
+    if (byEmail.error) return { kind: "unavailable" };
     row = byEmail.data ?? row;
   }
   if (!row || !row.active) return { kind: "not_staff" };
@@ -100,33 +121,67 @@ export async function getStaffAuth(): Promise<StaffAuth> {
   };
 }
 
-/** The verified staff identity, or `null`. Convenience over getStaffAuth for callers that don't need
- *  to tell `anon` from `not_staff` (the Team view, requireStaff). */
-export async function getStaffCaller(): Promise<StaffCaller | null> {
-  const auth = await getStaffAuth();
-  return auth.kind === "staff" ? auth.caller : null;
-}
-
 /**
  * Throwing guard for Server Actions (public POST endpoints → IDOR by default): the caller must be an
  * active staff member, optionally at/above `minRole`. 401 when not signed in / not staff (distinct
- * from a diner's 401 path); 403 when the role is insufficient (e.g. a server hitting an owner action).
+ * from a diner's 401 path); 403 when the role is insufficient (e.g. a server hitting an owner
+ * action); 503 `code:"unavailable"` when the answer is UNKNOWABLE (W10b) — catch arms must
+ * discriminate on `code`, never collapse it into "sign-in required".
  */
 export async function requireStaff(minRole: StaffRole = "server"): Promise<StaffCaller> {
-  const caller = await getStaffCaller();
-  if (!caller) throw new AuthzError("Staff sign-in required", 401);
-  if (!roleAtLeast(caller.role, minRole)) throw new AuthzError("Insufficient role", 403);
-  return caller;
+  const auth = await getStaffAuth();
+  if (auth.kind === "unavailable")
+    throw new AuthzError("We can’t reach the ordering system right now", 503, "unavailable");
+  if (auth.kind !== "staff") throw new AuthzError("Staff sign-in required", 401);
+  if (!roleAtLeast(auth.caller.role, minRole)) throw new AuthzError("Insufficient role", 403);
+  return auth.caller;
+}
+
+/**
+ * W10b — the mutation-arm gate that keeps the WHY. The 24 `requireStaff().catch(() => null)` arms
+ * all collapsed every failure — outage included — into "Staff sign-in required.", telling a
+ * signed-in server mid-outage to go sign in (a loop that ends in a destroyed board). Arms do:
+ *
+ *   const gate = await staffGate();
+ *   if (!gate.ok) return { ok: false, error: gate.error };
+ *
+ * `error` is ready-to-render copy: the outage truth, the sign-in ask, or the role floor — each an
+ * honest, distinct sentence.
+ */
+export async function staffGate(
+  minRole: StaffRole = "server",
+  // The outage sentence defaults to the ORDER-flow one ("keep it on paper"), which is the right
+  // advice for a cart/table/kitchen write but nonsense for a PIN or a device lock — those callers
+  // pass their own (pre-merge review).
+  outageCopy: string = STAFF_WRITE_OUTAGE,
+): Promise<{ ok: true; caller: StaffCaller } | { ok: false; error: string }> {
+  const auth = await getStaffAuth();
+  if (auth.kind === "unavailable") return { ok: false, error: outageCopy };
+  if (auth.kind !== "staff") return { ok: false, error: "Staff sign-in required." };
+  if (!roleAtLeast(auth.caller.role, minRole))
+    return {
+      ok: false,
+      error:
+        minRole === "owner"
+          ? "That needs the owner — ask them to step in."
+          : "That needs a manager — ask one to step in.",
+    };
+  return { ok: true, caller: auth.caller };
 }
 
 /**
  * Redirecting gate for /staff PAGES (W1·Q11): the ONE canonical auth sequence — verified staff row →
  * console lock → optional role floor — replacing the hand-copied triplet on every staff page (a
  * drifted copy is exactly how a page silently ships ungated). Server Components only; Server Actions
- * keep the throwing `requireStaff`. Returns the resolved caller for the page header/UI.
+ * keep the throwing `requireStaff`. Returns the resolved caller for the page header/UI — or `null`
+ * (W10b) when the platform is unreachable: the page renders `StaffOutageShell` in place, KEEPING the
+ * URL, so recovery is one tap of retry instead of a login round-trip that loses where you were. The
+ * lock check is a pure cookie read (staff-lock.ts) — it cannot fail during an outage, so its
+ * position after the unavailable return never masks one.
  */
-export async function requireStaffPage(minRole: StaffRole = "server"): Promise<StaffCaller> {
+export async function requireStaffPage(minRole: StaffRole = "server"): Promise<StaffCaller | null> {
   const auth = await getStaffAuth();
+  if (auth.kind === "unavailable") return null;
   if (auth.kind === "anon") redirect("/staff/login");
   if (auth.kind === "not_staff") redirect("/staff/login?denied=1");
   if (await isConsoleLocked()) redirect("/staff/lock");
@@ -152,10 +207,14 @@ export async function listStaff(): Promise<StaffRow[]> {
   await requireStaff("owner");
   // The roster is small by design (a family-run teahouse has a handful of staff); the explicit cap
   // keeps the query bounded at the DB regardless, per the project's "bound every query" standard.
-  const { data } = await serviceClient()
+  const { data, error } = await serviceClient()
     .from("staff")
     .select("user_id,role,display_name,email,active,created_at")
     .limit(500);
+  // W10b — a failed read must not render as an EMPTY roster (the owner would read "no staff" as
+  // real). Throw to the staff error boundary, which owns the honest outage copy.
+  if (error)
+    throw new AuthzError("We can’t reach the ordering system right now", 503, "unavailable");
   const rows = (data ?? []).map((r) => ({
     userId: r.user_id,
     role: r.role as StaffRole,
