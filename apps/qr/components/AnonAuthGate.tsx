@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { browserClient } from "@mms/db";
 import { getSessionKind } from "@/lib/rewards";
+import { publishAuthPlaneStatus } from "@/lib/session-status";
 
 /**
  * Establishes the diner's anonymous-auth session on first load (Supabase Anonymous Auth, decision
@@ -34,7 +35,10 @@ export function AnonAuthGate() {
         const { data } = await supa.auth.getSession();
         const user = data.session?.user;
         // An anonymous diner is the steady state — keep it.
-        if (user && user.is_anonymous !== false) return;
+        if (user && user.is_anonymous !== false) {
+          publishAuthPlaneStatus("ok");
+          return;
+        }
         // A non-anonymous session on a diner route is EITHER an upgraded diner (M4 — same uid that earned
         // the rewards; signing it out would orphan the account) OR staff who navigated here. Distinguish
         // SERVER-SIDE (getSessionKind → getStaffAuth) — never a client-writable marker a staff user could
@@ -48,7 +52,10 @@ export function AnonAuthGate() {
           } catch {
             return; // resolver unavailable → keep the session rather than orphan it
           }
-          if (kind !== "staff") return; // upgraded diner (or anon) → keep
+          if (kind !== "staff") {
+            publishAuthPlaneStatus("ok");
+            return; // upgraded diner (or anon) → keep
+          }
           await supa.auth.signOut(); // staff on a diner route → swap to an anonymous diner session
         }
         // Establish the anonymous session, with one retry — signInAnonymously can transiently fail
@@ -58,8 +65,14 @@ export function AnonAuthGate() {
         let { error } = await supa.auth.signInAnonymously();
         if (error) ({ error } = await supa.auth.signInAnonymously());
         if (error) {
+          // W10a — publish the failure instead of dying in the console: pre-session surfaces key
+          // their honest "we can't start your session" strip (with retry) off this, ending the
+          // eternal-skeleton limbo the paused-project outage exposed. The next route change (or a
+          // surface-level retry that calls router.refresh) re-runs this gate.
           console.error("[AnonAuthGate] anonymous sign-in failed", error.message);
+          publishAuthPlaneStatus("failed");
         } else {
+          publishAuthPlaneStatus("ok");
           // A session was just MINTED client-side, but the current route's server components already
           // rendered with no session (e.g. a cold deep-link straight to /account → the "couldn't load your
           // rewards" fallback). Re-render them now that auth.uid() resolves, so the diner never lands on the

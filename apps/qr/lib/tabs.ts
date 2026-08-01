@@ -46,8 +46,13 @@ export async function openTab(raw: unknown): Promise<OpenTabResult> {
       if (!(await withinMutationRate(uid)))
         return { ok: false, error: "Too many attempts — wait a moment and try again." };
     } catch (e) {
-      if (e instanceof AuthzError)
+      if (e instanceof AuthzError) {
+        // W10a — an outage is not an authorization verdict: "you can't open a tab" for a paused
+        // DB blamed the diner for our infrastructure.
+        if (e.code === "unavailable")
+          return { ok: false, error: "We’re having trouble on our end — try again in a moment." };
         return { ok: false, error: "You can’t open a tab on this table." };
+      }
       throw e;
     }
   }

@@ -4,6 +4,34 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W10a — The app tells the truth when the kitchen is unreachable (2026-08-01)
+
+Built against a LIVE outage (the QR Supabase project's free-tier idle pause) — an 8-surface audit
+(78 findings, docs/W10_MATRIX.md) mapped what every user actually saw, and this slice ships the
+truth layer + the flagship fixes (plan: docs/W10_PLAN.md; staff + money-path follow as W10b/W10c).
+
+- **The three truths**: /api/health (DB-less probe) + useConnectionTruth → `you-offline` /
+  `we-down` / `unknown`. On the swept surfaces (grocery adds, grocery aisles, checkout promo)
+  "check your connection" is now only said when navigator.onLine is actually false; the remaining
+  connection-blaming strings (dine-in join copy, staff PIN/login) ride W10b with their surfaces.
+- **Transport failure stops masquerading as a verdict**: AuthzError gains `unavailable` (503) —
+  a paused DB no longer answers "Not signed in" / "Invalid session" / 404 no_cart; the mint + peek
+  routes return 503 + Retry-After.
+- **@mms/ui fallback primitives**: OutageState (bilingual 🫖 card, retry escalation), DegradedStrip,
+  RetryButton (survives its own tap), EmptyState tone="error", an `offline` icon.
+- **Branded not-found.tsx** (the app's only unbranded screen, on the worst journey moment) and an
+  outage-aware, bilingual error.tsx that escalates after repeated failures.
+- **The menu serves last-good during an outage** (module-state catalog cache + honest staleness
+  strip; the dead `revalidate = 300` line removed) instead of "The menu catalog is empty.";
+  getMostLoved can no longer cache its error state for an hour.
+- **/cart says the truth**: "We can't reach your order right now — it's safe" + in-place retry,
+  replacing "This order isn't available on this device" for outages.
+- **The auth plane fails loudly**: AnonAuthGate publishes its outcome; the home page renders an
+  honest session-unavailable strip with a working retry — ending the eternal-skeleton limbo where
+  anonymous sign-in failed silently and every surface looked like it was loading forever.
+- **HomeResumeCard adopts the W9c honesty floor** (statusWord) — no more indefinite "Confirming
+  your order" during an outage.
+
 ### W9e — Chrome that stays where it belongs (2026-08-01)
 
 Five findings from the W9 audit (+ J21 from W9d's pre-merge review) about chrome that drifted off

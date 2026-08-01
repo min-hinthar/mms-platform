@@ -2,6 +2,7 @@ import { ModeCard } from "@/components/ModeCard";
 import { JoinTable } from "@/components/JoinTable";
 import { HomeHero } from "@/components/HomeHero";
 import { HomeResumeCard } from "@/components/HomeResumeCard";
+import { SessionUnavailableStrip } from "@/components/SessionUnavailableStrip";
 import { HomeSessionCard } from "@/components/HomeSessionCard";
 
 // Entry — the house's three doors (K1, Journey II): Dine-in · To-go · Grocery. The internal mode
@@ -31,6 +32,10 @@ export default function Entry() {
       {/* Masked dot-texture backdrop — decorative, fixed, scoped behind main's content (no blur, mobile-safe). */}
       <div className="home-bg" aria-hidden />
       <HomeHero />
+      {/* W10a — renders ONLY when anonymous sign-in itself is failing (the auth plane is down): the
+          entry screen must say so instead of funneling diners into three doors that all fail deeper
+          in. Renders nothing on every healthy visit. */}
+      <SessionUnavailableStrip />
       {/* When a live order exists, lead with a way back to its tracker (client-gated; renders nothing otherwise). */}
       <HomeResumeCard />
       {/* W5a — live PRE-payment state (an open table, a basket in progress): the session-level

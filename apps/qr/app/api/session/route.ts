@@ -4,6 +4,7 @@ import { sessionMintInput } from "@mms/db/schemas";
 import { generateJoinCode } from "@/lib/session-code";
 import { sessionExpiryFromNow } from "@/lib/session-ttl";
 import { withinJoinRate } from "@/lib/rate";
+import { isTransportFailure } from "@/lib/authz";
 import { MAX_PARTY_SIZE } from "@/lib/limits";
 import { getPostHogClient } from "@/lib/posthog-server";
 
@@ -48,6 +49,15 @@ export async function POST(req: NextRequest) {
     data: { user },
     error: authErr,
   } = await sessionClient(token).auth.getUser(token);
+  // W10a — an auth-plane TRANSPORT failure is 503 "we're down", never 401 "Invalid session": during
+  // the paused-project outage every diner with a perfectly good token was told their session was
+  // invalid, and the client's recovery (re-mint) churned uselessly against the same dead plane.
+  // The client keys its honest we-are-down copy off this status.
+  if (authErr && isTransportFailure(authErr))
+    return NextResponse.json(
+      { error: "We’re having trouble on our end — try again in a moment", kind: "unavailable" },
+      { status: 503, headers: { "Retry-After": "20" } },
+    );
   if (authErr || !user) return NextResponse.json({ error: "Invalid session" }, { status: 401 });
   const seat = user.id; // == auth.uid() → becomes session_members.seat_id (the RLS identity)
 

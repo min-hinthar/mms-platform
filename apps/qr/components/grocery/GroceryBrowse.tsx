@@ -4,6 +4,7 @@ import { Icon } from "@mms/ui";
 import { BlurUpImage } from "@/components/menu/BlurUpImage";
 import { PhotoPlaceholder } from "@/components/menu/PhotoPlaceholder";
 import { getGroceryCatalog, type GroceryCatalogItem, type GroceryLine } from "@/lib/grocery";
+import { useConnectionTruth } from "@/lib/useConnectionTruth";
 import {
   AISLES,
   aisleBySlug,
@@ -48,6 +49,9 @@ export const GroceryBrowse = memo(function GroceryBrowse({
 }) {
   const [catalog, setCatalog] = useState<GroceryCatalogItem[] | null>(null);
   const [failed, setFailed] = useState(false);
+  // W10a — attribution for the failed card below: diagnosed on failure, never asserted. The old
+  // copy said "Check your connection" for what was, in the live incident, OUR paused database.
+  const { truth, diagnose } = useConnectionTruth();
   const [aisle, setAisle] = useState<string | null>(null);
   // W5d — the item the detail sheet is showing (null = closed). Lives INSIDE the memo'd grid (the
   // catalog does too), so opening re-renders this grid once on a deliberate tap — not per keystroke
@@ -72,12 +76,15 @@ export const GroceryBrowse = memo(function GroceryBrowse({
         if (!cancelled) setCatalog(items);
       })
       .catch(() => {
-        if (!cancelled) setFailed(true);
+        if (!cancelled) {
+          setFailed(true);
+          void diagnose(); // W10a — resolve the attribution for the failed card's copy
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [loadSeq]);
+  }, [loadSeq, diagnose]);
 
   const lineByBarcode = useMemo(() => {
     const m = new Map<string, GroceryLine>();
@@ -107,7 +114,11 @@ export const GroceryBrowse = memo(function GroceryBrowse({
     return (
       <div className="card" role="alert" style={{ padding: 16, marginTop: 12 }}>
         <p style={{ margin: "0 0 12px", color: "var(--warn)", fontWeight: 600 }}>
-          Couldn’t load the aisles. Check your connection and try again.
+          {truth === "you-offline"
+            ? "You look offline — couldn’t load the aisles. Reconnect and try again."
+            : truth === "we-down"
+              ? "We’re having trouble on our end — couldn’t load the aisles. It’s not your connection; try again in a moment."
+              : "Couldn’t load the aisles just now — try again."}
         </p>
         <button
           type="button"

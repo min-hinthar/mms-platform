@@ -18,6 +18,7 @@ export function EmptyState({
   icon,
   action,
   titleAs: TitleTag = "p",
+  tone = "empty",
 }: {
   title: ReactNode;
   subtitle?: ReactNode;
@@ -27,9 +28,13 @@ export function EmptyState({
   action?: ReactNode;
   /** Title element — `"p"` (default) when inside an already-named region; a heading when standalone. */
   titleAs?: "p" | "h2" | "h3";
+  /** W10a — "nothing here" vs "we couldn't LOOK": `error` marks a FAILED read (warn hairline; pair
+   *  with a RetryButton in `action`), so read-failure states stop being dressed as empties — the
+   *  outage audit found four surfaces rendering an outage as "all done"/"catalog is empty". */
+  tone?: "empty" | "error";
 }) {
   return (
-    <Card style={{ padding: "var(--s6)" }}>
+    <Card style={{ padding: "var(--s6)", ...(tone === "error" ? errorCard : null) }}>
       {icon ? (
         <div aria-hidden style={iconRow}>
           {icon}
@@ -41,6 +46,8 @@ export function EmptyState({
     </Card>
   );
 }
+
+const errorCard: CSSProperties = { borderColor: "var(--warn)" };
 
 const iconRow: CSSProperties = { fontSize: 28, marginBottom: "var(--s2)", lineHeight: 1 };
 // Body font + weight 600 regardless of element, so a heading `titleAs` doesn't pull the display serif.

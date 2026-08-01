@@ -1,6 +1,8 @@
 import { TransitionLink as Link } from "@/components/nav/TransitionNav"; // J1 journey grammar
 import { getCartView } from "@/lib/cart";
 import { didIPayForCart } from "@/lib/orders";
+import { AuthzError } from "@/lib/authz";
+import { OutageRefresh } from "@/components/OutageRefresh";
 import { getPrepMinutes, getPickupAsapOk } from "@/lib/pickup";
 import { getSplitContext, type SplitContext } from "@/lib/split";
 import { Checkout } from "@/components/Checkout";
@@ -26,14 +28,41 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
   // MY OWN behind this cart — so a non-member always falls to the generic copy. It is also `earned_by`
   // scoped, which is what makes the "see it in your account" route it unlocks actually true.
   let mine = false;
+  // W10a — the unknowable case, separated at last: with the DB unreachable (the paused-project
+  // outage) getCartView now throws AuthzError code "unavailable" instead of a false verdict, and
+  // this page rendered the audit's worst-rated copy — "This order isn't available on this device.
+  // Start from the menu." — for an order that was intact behind a paused database. Blaming the
+  // diner's DEVICE, implying the order was gone, offering no retry.
+  let unavailable = false;
   if (cart) {
     try {
       view = await getCartView(cart);
-    } catch {
+    } catch (e) {
       view = null;
-      mine = await didIPayForCart(cart).catch(() => false);
+      if (e instanceof AuthzError && e.code === "unavailable") {
+        // Accepted residual (pre-PR review): during PARTIAL degradation the ordering of authz
+        // reads means a probing non-member could distinguish "cart table up" from "down" — but
+        // never anything about a specific cart (ids stay unguessable uuids; the disclosure below
+        // is the same for every caller).
+        unavailable = true; // don't probe didIPayForCart — its reads hit the same dead DB
+      } else {
+        mine = await didIPayForCart(cart).catch(() => false);
+      }
     }
   }
+
+  if (unavailable)
+    return (
+      <main style={{ minHeight: "70dvh", display: "grid", placeItems: "center", padding: 24 }}>
+        <OutageRefresh
+          title="We can’t reach your order right now"
+          body="It’s on us, not your connection — your order is safe exactly as you left it. Try again in a moment."
+          escalatedBody="Still down on our end — sorry. Your order is safe; give it a few minutes, or ask our staff."
+          focusOnMount
+          headingLevel="h1"
+        />
+      </main>
+    );
 
   if (!cart || !view)
     return (

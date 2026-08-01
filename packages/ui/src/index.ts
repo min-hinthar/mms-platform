@@ -13,6 +13,7 @@ export type { Ripple } from "./interactions";
 export { Badge } from "./badge";
 export type { BadgeTone } from "./badge";
 export { EmptyState } from "./empty-state";
+export { OutageState, DegradedStrip, RetryButton } from "./fallback";
 export { Avatar } from "./avatar";
 export { Skeleton } from "./skeleton";
 export { Stepper } from "./stepper";
