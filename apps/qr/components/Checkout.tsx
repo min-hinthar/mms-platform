@@ -1220,10 +1220,19 @@ export function Checkout({
                 a pure-grocery basket — self-scanned retail is not table service (W1). */}
             {!pureGrocery && (
               <>
+                {/* W9e — the prototype's visible tip heading, restored verbatim (v7.2.html:418):
+                    the ask had no visible label, and the group's aria-label meant accessible name
+                    and visible name could never match (QA §A). The SB-1524 disclosure deliberately
+                    stays ABOVE this ask — moving it back to the prototype's below-position would
+                    re-open the F9 double-ask arm W2d closed (see the fees-before-tip comment). */}
+                {/* --fs-h3 (17), not the prototype's raw 15px — copy verbatim, size from the scale. */}
+                <h3 id="tip-h" style={{ fontSize: "var(--fs-h3)", margin: "16px 0 6px" }}>
+                  Add a little extra?
+                </h3>
                 <div
                   role="group"
-                  aria-label="Add a tip"
-                  style={{ display: "flex", gap: 8, margin: "14px 0 4px" }}
+                  aria-labelledby="tip-h"
+                  style={{ display: "flex", gap: 8, margin: "0 0 4px" }}
                 >
                   {TIPS.map(([label, rate]) => {
                     const on = !customTipOpen && tipRate === rate;

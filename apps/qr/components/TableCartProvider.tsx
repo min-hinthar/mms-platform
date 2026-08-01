@@ -628,7 +628,10 @@ export function TableCartProvider({
           position: "fixed",
           left: 0,
           right: 0,
-          bottom: 84,
+          // W9e (J12) — compose the home-bar inset like CartBar directly beneath it already does; a
+          // bare 84 collided with the pinned CTA on every notched iPhone at the app's single
+          // highest-frequency moment (the add-confirmation toast).
+          bottom: "calc(84px + env(safe-area-inset-bottom, 0px))",
           textAlign: "center",
           pointerEvents: "none",
           zIndex: "var(--z-toast)" as CSSProperties["zIndex"],

@@ -4,6 +4,36 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W9e — Chrome that stays where it belongs (2026-08-01)
+
+Five findings from the W9 audit (+ J21 from W9d's pre-merge review) about chrome that drifted off
+its post. All presentation/a11y — no money-path or data change anywhere in the slice.
+
+- **The add-confirmation toast clears the pinned bars on notched iPhones.** Both fixed toasts
+  (TableCartProvider's and `.grocery-toast`) sat on a bare `bottom: 84/90px` while the CartBar and
+  grocery CTA beneath them composed `env(safe-area-inset-bottom)` — so at the app's single
+  highest-frequency moment the toast landed ON the button the diner was about to tap. Both now
+  compose the inset.
+- **Every bottom sheet keeps its exit chrome in reach.** The grab handle, title and ✕ now live in
+  one sticky `.mms-sheet-head`, so a dish sheet with modifiers can no longer scroll its only visible
+  close control out of view (QA §A P0). The ✕'s 44×44 target with the visible 32px disc survives —
+  its offsets were re-derived against the new containing block, which coincides with the old edges.
+- **Sheets get the 440px column everything else has.** `.mms-sheet` was the one overlay with no
+  width bound; it now caps at `--w-content` centered with auto margins (never `translateX` — framer
+  owns `transform` on that element for swipe-to-close), and floats as a full-radius card ≥480px.
+  The staff `LossActionSheet` narrows too — deliberate: the form reads better at column width.
+- **Every sheet restores focus on close (J21).** The `Sheet` primitive never renders a
+  `Dialog.Trigger`, and Radix's modal content preventDefaults its own close-restore then focuses
+  that null ref — so every close in the app dropped focus on `<body>`. The primitive now captures
+  the opener at mount and restores it by default; a caller-supplied `onCloseAutoFocus` (the grocery
+  basket sheet, whose trigger can unmount) still wins.
+- **The tip ask gets its visible heading back.** "Add a little extra?" (v7.2 verbatim) now titles
+  the tip group via `aria-labelledby`, so the accessible and visible names finally match. The
+  SB-1524 disclosure deliberately stays ABOVE the ask — moving it back to the prototype's position
+  would re-open the double-ask arm W2d closed.
+- **One type-scale floor fix:** `.slot-soonest-tag` was 9px, below the scale's own 11px `--fs-xs`
+  floor, on a diner-facing pickup surface.
+
 ### W9d — The market reads like a market (2026-07-31)
 
 Four findings from the W9 audit on the grocery door. No charged amount changes: the pill, the sheet,

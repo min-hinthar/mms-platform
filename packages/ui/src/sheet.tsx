@@ -7,8 +7,9 @@ import { Icon } from "./icon";
 
 /**
  * Accessible bottom sheet built on Radix Dialog — replaces the prototype's hand-rolled
- * focus-trap + inert. Radix handles: focus trap, focus restore, Esc, aria-modal, and
- * scroll lock. Always pass `title` so the dialog has an accessible name (fixes the v7.1
+ * focus-trap + inert. Radix handles: focus trap, Esc, aria-modal, and
+ * scroll lock; focus restore is OURS (W9e — Radix's own restore targets a Dialog.Trigger this
+ * primitive never renders, see onOpen/restoreFocus below). Always pass `title` so the dialog has an accessible name (fixes the v7.1
  * "every sheet announces 'Details'" finding).
  *
  * Richness R5b — **swipe-to-close**: the grab handle drags the sheet down (the iOS-native
@@ -28,12 +29,11 @@ export function Sheet({
   onOpenChange: (o: boolean) => void;
   title: string;
   children: React.ReactNode;
-  /** W9d — close-restore escape hatch. ⚠️ Radix's modal content unconditionally preventDefaults its
-   *  own close event and focuses `Dialog.Trigger` — which this primitive NEVER renders (callers open
-   *  it with plain buttons + controlled `open`), so with no handler the restore targets null and
-   *  focus lands on <body> on every close. Callers should pass this, `e.preventDefault()`, and
-   *  focus their own trigger/stable element (WCAG 2.4.3). The primitive-wide gap (every existing
-   *  Sheet caller strands focus on close) is tracked as OPEN-ITEMS J21. */
+  /** Close-restore override. Since W9e the primitive restores the OPENER by default (it captures
+   *  `document.activeElement` at mount — Radix would otherwise focus a `Dialog.Trigger` this
+   *  primitive never renders and drop focus on <body>; J21). Pass this only when the default is
+   *  wrong — e.g. the grocery basket sheet, whose trigger can unmount while it is open — and
+   *  `e.preventDefault()` + focus your own stable element (WCAG 2.4.3). */
   onCloseAutoFocus?: (event: Event) => void;
 }) {
   return (
@@ -108,9 +108,50 @@ function SheetContent({
       }
     };
   }, []);
+  // W9e (closes OPEN-ITEMS J21) — the DEFAULT close-restore. Radix's modal content unconditionally
+  // preventDefaults its own close event and focuses `Dialog.Trigger` — which this primitive never
+  // renders — so with no handler EVERY sheet close dropped focus on <body> (verified in jsdom during
+  // the W9d pre-merge review). Capture what was focused at open (the plain-button trigger every
+  // caller uses) and restore it ourselves, exactly the FocusScope fallback the preventDefault skips.
+  // A caller-provided handler wins outright (the grocery basket sheet re-parks when its trigger has
+  // unmounted); the fallback also no-ops if the captured node has left the DOM.
+  const openerRef = React.useRef<HTMLElement | null>(null);
+  const contentRef = React.useRef<HTMLDivElement | null>(null);
+  // Records the opener + pins initial focus. ⚠️ The opener MUST be captured here, in the
+  // open-autofocus event — it fires while focus is still on the trigger. A passive effect runs
+  // after our own container-focus below and would capture the SHEET (a node that is unmounted by
+  // close time, so the restore would silently no-op to <body>). The two guards make StrictMode's
+  // double-dispatch safe: never overwrite a captured opener, never capture a node inside the sheet.
+  const onOpen = (e: Event) => {
+    e.preventDefault();
+    const ae = document.activeElement;
+    if (openerRef.current == null && ae instanceof HTMLElement && !contentRef.current?.contains(ae))
+      openerRef.current = ae;
+    contentRef.current?.focus();
+  };
+  const restoreFocus = (event: Event) => {
+    if (onCloseAutoFocus) {
+      onCloseAutoFocus(event);
+      return;
+    }
+    event.preventDefault();
+    if (openerRef.current?.isConnected) openerRef.current.focus();
+  };
   return (
-    <Dialog.Content asChild aria-describedby={undefined} onCloseAutoFocus={onCloseAutoFocus}>
+    <Dialog.Content
+      asChild
+      aria-describedby={undefined}
+      onCloseAutoFocus={restoreFocus}
+      // W9e — pin INITIAL focus to the sheet container (announces the dialog + its title), not the
+      // first tabbable. Moving the ✕ into the sticky head put it FIRST in the DOM, so Radix's
+      // default open-autofocus would land every sheet on "Close" — announcing an exit as the first
+      // thing a SR user hears (pre-PR review). Container-focus is the standard sheet pattern: Tab
+      // reaches the ✕ next, then the content in visual order. Also records the opener — see onOpen.
+      onOpenAutoFocus={onOpen}
+    >
       <m.div
+        ref={contentRef}
+        tabIndex={-1}
         className="mms-sheet"
         // Handle-initiated drag only (dragListener=false): the body keeps its native scroll; the grab
         // handle's onPointerDown starts the drag. Downward-elastic, snaps back unless the release clears
@@ -127,16 +168,23 @@ function SheetContent({
           if (info.offset.y > 120 || info.velocity.y > 700) onClose();
         }}
       >
-        {/* 44px-tall touch zone wraps the 5px visual bar so the swipe is actually triggerable on mobile
-            (dragListener=false means the drag can ONLY start here). touch-action/cursor live on .mms-grab-zone. */}
-        <div className="mms-grab-zone" aria-hidden onPointerDown={(e) => controls.start(e)}>
-          <div className="mms-grab" />
+        {/* W9e — ONE sticky head (grab zone + title + ✕) so the exit chrome never scrolls out of
+            reach on a long sheet (QA §A P0: "Each sheet has a visible, labelled ✕ close"): a dish
+            with modifiers used to scroll its only visible close button away. The grab zone stays
+            inside the sticky band — it must remain reachable for the same reason, it is the ONLY
+            drag origin (dragListener=false), and `touch-action: none` still claims the gesture
+            before the scroll does. The ✕ keeps its 44×44 target with the visible 32px disc
+            (background-clip trick) — its offsets are re-derived against the head in globals.css. */}
+        <div className="mms-sheet-head">
+          <div className="mms-grab-zone" aria-hidden onPointerDown={(e) => controls.start(e)}>
+            <div className="mms-grab" />
+          </div>
+          <Dialog.Title className="mms-sheet-title">{title}</Dialog.Title>
+          <Dialog.Close aria-label="Close" className="mms-sheet-close">
+            <Icon name="close" size={18} />
+          </Dialog.Close>
         </div>
-        <Dialog.Title className="mms-sheet-title">{title}</Dialog.Title>
         {children}
-        <Dialog.Close aria-label="Close" className="mms-sheet-close">
-          <Icon name="close" size={18} />
-        </Dialog.Close>
       </m.div>
     </Dialog.Content>
   );

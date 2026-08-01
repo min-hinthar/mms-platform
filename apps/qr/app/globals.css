@@ -90,13 +90,67 @@ h3 {
   overflow-y: auto;
   background: var(--pg);
   border-radius: var(--r-sheet) var(--r-sheet) 0 0;
+  /* W9e — the sheet was the ONE overlay with no width bound in an app whose every page column caps
+     at 440 (J13): on tablet/desktop it stretched edge to edge over a 440px page. Centered with AUTO
+     MARGINS, never translateX — framer writes `transform` on this same element for drag="y". Kept
+     at exactly --w-content (440) so ItemSheet/GroceryItemSheet's `sizes="(max-width:440px) …"`
+     stays correct. The staff LossActionSheet narrows too — deliberate: its form reads better at
+     column width even on the 15.6" KDS. */
+  max-width: var(--w-content);
+  margin-inline: auto;
+  /* The sticky head is opaque — a keyboard-focus scroll (Tab into a control near the top of the
+     body) must not park the target UNDER it (WCAG 2.4.11). 96px ≈ the head's full height
+     (8 pad + 44 grab + 2 + ~26 title + 8 pad-bottom + margins). */
+  scroll-padding-top: 96px;
   /* Lifted-paper depth: the strong drop shadow separates it from the dimmed page, and an inset top
      highlight (--sheen) gives the rounded top edge a crisp paper lip so it reads as a distinct layer. */
-  box-shadow:
-    var(--sh-xl),
-    inset 0 1px 0 var(--sheen);
-  padding: 8px 20px calc(24px + env(safe-area-inset-bottom, 0px));
+  box-shadow: var(--sh-xl);
+  /* Top padding moved into .mms-sheet-head (it must own the full sticky band — an 8px sheet
+     padding above it would leave a see-through strip content scrolls through). */
+  padding: 0 20px calc(24px + env(safe-area-inset-bottom, 0px));
   animation: up var(--dur-sheet) var(--spring);
+}
+/* W9e — once the sheet no longer spans both screen edges, bottom-flush + square bottom corners read
+   as a broken card: float it as a true card instead (small bottom gap + full radii). The keyboard
+   lift still composes — the gap rides ON TOP of --kb-inset. Threshold = the cap itself (441px =
+   27.5rem + 1px): the float must kick in at the exact width the sheet DETACHES from the side
+   edges, or the 441–479px band would show precisely the broken-card state this rule exists to
+   prevent (pre-PR review). Expressed in em, not px: --w-content is 27.5rem, and rem/em in a
+   media query both resolve against the USER's base font size — a px threshold would desync from
+   the rem cap under Android large-font / browser min-font settings, re-opening the same band
+   (pre-merge review LOW-3). 27.5625em = 27.5rem + 1px at any base size. */
+@media (min-width: 27.5625em) {
+  .mms-sheet {
+    bottom: calc(var(--kb-inset, 0px) + 12px);
+    border-radius: var(--r-sheet);
+  }
+}
+/* W9e — the sticky exit band (J13): grab handle + title + ✕ pin to the top of the sheet's own
+   scroll, so the close control is reachable at any depth (QA §A P0). Spans the sheet's 20px gutters
+   (negative margin + matching padding) so scrolling content can't peek past its background at the
+   sides; z-index sits above content but below nothing else in the sheet. */
+.mms-sheet-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--pg);
+  /* The --sheen paper-lip highlight rides the HEAD now — the head's opaque background overpaints
+     the sheet's own top edge at scroll-top, which killed the old inset line (pre-merge LOW-4). */
+  box-shadow: inset 0 1px 0 var(--sheen);
+  margin-inline: -20px;
+  /* The 8px bottom clearance lives HERE as padding, not on the title as margin — a child margin
+     would collapse straight through the head's edge, leaving the pinned band touching the content
+     that scrolls under it (pre-PR review). */
+  padding: 8px 20px 8px;
+}
+/* Short viewports (landscape phone, especially with the keyboard up): a ~96px pinned band on top
+   of the kb-inset lift and the sticky .item-cta-bar would leave almost no scrollable content —
+   there, reachability inverts, so the head returns to normal flow (the pre-W9e behavior). */
+@media (max-height: 480px) {
+  .mms-sheet-head {
+    position: static;
+    margin-inline: -20px;
+  }
 }
 /* Drag-start hit zone (R5b): since the Sheet's swipe is handle-initiated (dragListener=false), the
    gesture can ONLY begin on this element — so it must be a real ≥44px touch target, not the 5px bar.
@@ -120,7 +174,9 @@ h3 {
 .mms-sheet-title {
   font-family: var(--font-display);
   font-size: 22px;
-  margin: 4px 0 8px;
+  /* Bottom spacing is the head's padding now (see .mms-sheet-head) — a margin here would stack
+     with it (it no longer collapses once the head has bottom padding). */
+  margin: 4px 0 0;
 }
 .mms-sheet-close {
   position: absolute;
@@ -919,7 +975,8 @@ h3 {
     0 0 14px -8px var(--glow-gold);
 }
 .slot-soonest-tag {
-  font-size: 9px;
+  /* W9e — 9px sat below the scale's own --fs-xs floor (11px) on a diner-facing surface. */
+  font-size: var(--fs-xs);
   font-weight: 800;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -4263,7 +4320,9 @@ html[data-seen-surface] .mms-stagger {
 .grocery-toast {
   position: fixed;
   left: 50%;
-  bottom: 90px;
+  /* W9e (J12) — compose the home-bar inset like the pinned bars it floats above (CartBar,
+     .grocery-cta-bar) already do; a bare 90px sat the toast ON the CTA on every notched iPhone. */
+  bottom: calc(90px + env(safe-area-inset-bottom, 0px));
   transform: translateX(-50%);
   z-index: var(--z-toast);
   padding: 10px 18px;
