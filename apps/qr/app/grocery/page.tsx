@@ -51,6 +51,11 @@ export default function Grocery() {
   const [cartGone, setCartGone] = useState<CartUnavailable | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const addedRef = useRef(0); // success count for analytics cart_size — stable across the memoized adder
+  // cart_size is a PER-CART funnel dimension — a fresh basket (the W9d terminal recovery re-mints a
+  // new cartId) must not inherit the finished cart's count, or its first scan reports old+1 (Codex).
+  useEffect(() => {
+    addedRef.current = 0;
+  }, [cartId]);
   const [busyLine, setBusyLine] = useState<string | null>(null); // one in-flight stepper op at a time
 
   // K5 — reads land out of order on flaky mobile radios (a visibilitychange sync issued on a waking
@@ -147,6 +152,22 @@ export default function Grocery() {
   //    the moment the shopper taps "Start a fresh basket";
   //  · the toast (the page's one live region) announces the transition — the banner is deliberately
   //    NOT a live region, so without this the sync/refocus path emptied the basket in silence.
+  // The seq-guarded ALIVE transition — markCartGone's mirror, and the guard cuts both ways (Codex
+  // P1 on the pre-merge round): a read issued while the cart was still open but resolving AFTER a
+  // fresher response proved it terminal must not clear the banner it lost the race to — the shopper
+  // would be left with an empty list, no banner, and no recovery until the next sync rediscovered
+  // it. An ok answer applies its lines and clears the terminal/failure state together, or not at all.
+  const markCartAlive = useCallback(
+    (seq: number, lines: GroceryLine[]) => {
+      if (seq <= appliedSeq.current) return; // stale — it lost the race; a fresher answer stands
+      applyLines(seq, lines);
+      setHydrated(true);
+      setSyncFailed(false);
+      setCartGone(null);
+    },
+    [applyLines],
+  );
+
   const markCartGone = useCallback(
     (seq: number, reason: CartUnavailable) => {
       if (seq <= appliedSeq.current) return; // stale — a fresher view already applied
@@ -180,10 +201,7 @@ export default function Grocery() {
       .then((r) => {
         if (!mountedRef.current) return;
         if (r.ok) {
-          applyLines(seq, r.lines);
-          setHydrated(true);
-          setSyncFailed(false);
-          setCartGone(null);
+          markCartAlive(seq, r.lines);
           return;
         }
         // W9d — a refusal WITH a reason. Terminal (paid/cancelled/expired) → the shared,
@@ -199,7 +217,7 @@ export default function Grocery() {
       .catch(() => {
         if (mountedRef.current) setSyncFailed(true); // transport failure — same Retry strip
       });
-  }, [cartId, applyLines, markCartGone]);
+  }, [cartId, markCartAlive, markCartGone]);
   useEffect(() => {
     if (!cartId) return;
     syncNow();
@@ -243,8 +261,7 @@ export default function Grocery() {
       try {
         const r = await getGroceryLines(cartId);
         if (r.ok) {
-          applyLines(seq, r.lines);
-          setCartGone(null); // an alive-cart answer clears the banner on every path (see add)
+          markCartAlive(seq, r.lines); // seq-guarded both ways — see the helper
         } else if (isTerminal(r.reason)) {
           // The write's failure had a terminal cause — the basket is finished; the shared
           // transition also overwrites the "try again" flash above with the honest reason.
@@ -260,7 +277,7 @@ export default function Grocery() {
       }
       setBusyLine(null);
     },
-    [cartId, busyLine, lines, flash, applyLines, markCartGone],
+    [cartId, busyLine, lines, flash, markCartAlive, markCartGone],
   );
 
   // The ONE add path — a scan and a tapped search hit both go through here. Memoized on cartId so the
@@ -291,15 +308,12 @@ export default function Grocery() {
         // pattern) — the list is cart truth, not a parallel client ledger. `lines: null` = the
         // post-write read failed: keep the current list (a failed read is never an empty basket);
         // the next scan/focus re-syncs.
-        if (r.lines) {
-          applyLines(seq, r.lines);
-          setHydrated(true);
-          setSyncFailed(false);
-        }
-        // A server answer proving the cart ALIVE clears the terminal banner on every path, not just
-        // syncNow's — otherwise a successful add would repopulate the list under a banner still
-        // asserting the basket is finished (pre-merge review; symmetric with the ok arms below).
-        setCartGone(null);
+        // The alive answer clears the terminal banner too — but only through the seq guard: a slow
+        // add issued pre-payment must not clear a banner a fresher read has since proven true
+        // (Codex P1 — the guard cuts both ways). `lines: null` = the post-write read failed: no
+        // view to apply and no ordering ticket to trust, so no state transition either — the next
+        // sync settles it.
+        if (r.lines) markCartAlive(seq, r.lines);
         flash(`Added ${r.name}${r.ebt ? " · EBT-eligible" : ""}`);
         posthog.capture("grocery_item_scanned", {
           barcode,
@@ -335,7 +349,7 @@ export default function Grocery() {
         flash("Couldn’t add that — check your connection and try again.");
       }
     },
-    [cartId, sessionError, flash, applyLines, markCartGone],
+    [cartId, sessionError, flash, markCartAlive, markCartGone],
   );
 
   const onScan = useCallback((code: string) => void add(code, "scan"), [add]);
@@ -519,6 +533,12 @@ export default function Grocery() {
             type="button"
             className="grocery-retry"
             onClick={() => {
+              // This very button unmounts on the next render (the banner is gated on cartGone) —
+              // park focus on the always-mounted search input FIRST, and let the toast (the one
+              // live region) say the re-mint is underway; "Starting your basket…" below is
+              // deliberately not live (Codex P2, WCAG 2.4.3).
+              searchRef.current?.focus();
+              flash("Starting a fresh basket…");
               setCartGone(null);
               setHydrated(false); // back to the honest "Checking your basket…" while the mint runs
               revalidate(); // clears the session → the mint effect re-POSTs /api/session
