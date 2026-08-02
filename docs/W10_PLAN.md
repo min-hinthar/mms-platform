@@ -80,17 +80,60 @@ the last-known state, so an outage must never blank it, redirect it, or fake liv
 
 Deferred from the matrix: realtime channel-status surfacing (LOW, unchanged).
 
-## W10c — money-path outage hardening (planned — REAL bugs, priority)
+## W10c — money-path outage hardening ✅ (2026-08-02)
 
-- **`getCartTotals` treats an unreadable cart as an EMPTY cart (zeros)** — inside the webhook path
-  that misroutes an outage into the tamper/mismatch arm. Must throw on read failure.
-- **`split-settle` webhook handlers swallow `{ error }` on every DB write** — a DB outage converts
-  Stripe's retry durability into permanent silent loss. Must return non-2xx so Stripe redelivers.
-- SharePay unbounded spinner on a money action that succeeded at the card network; RewardField
-  missing catches (stuck `aria-busy`); create-intent client copy for 503. Full list:
-  `W10_MATRIX.md` §money-webhooks (12 findings, 4 HIGH).
-- **Runbook note:** Stripe redelivers for 72h — an outage longer than that needs a manual dashboard
-  resend after recovery.
+The half of W10 where being wrong costs money rather than goodwill. One root cause runs through it:
+**postgrest-js RESOLVES a transport failure into `{ data: null, error }` — it does not reject.** A
+destructure of only `{ data }` therefore produces a confident, perfectly-shaped, WRONG answer during
+an outage, and every finding below is a place that answer was believed.
+
+- **`getCartTotals` no longer answers with a number it isn't sure of (M30).** All three reads
+  (`qr_cart_items`, `mms_promo_discount`, `mms_reward_discount`) check `error` and throw. Two ways
+  that paid off: in the webhook's `payment_intent.succeeded` branch a zeroed total made the derived
+  amount disagree with a REAL charge, so the event was triaged as **tampering** — wrong alarm, wrong
+  `refunds_needed` reason, no retry; throwing routes it to the "Totals lookup failed; will retry" 500
+  that already existed. And in `create-intent` the **partial** failure was the worse one — items
+  readable, `mms_promo_discount` not, discount silently 0, diner charged MORE than the cart in front
+  of them showed. Pinned by `lib/totals.test.ts` (4 cases, including a happy path so a blanket-throw
+  mutant can't pass) + two `verify:slice` mutants.
+- **`split-settle` stops converting Stripe's retry durability into silent loss (M31).** Every
+  `qr_cart_shares`/`qr_carts` read and write in `cartIdForPi` · `onShareAuthorized` ·
+  `captureAllIfReady` · `onShareCaptured` · `onShareFailed` · `onShareCanceled` throws on `error`
+  (`cartIdForPi` returns null only for a genuine no-row), and the webhook's split branches 500 so
+  Stripe redelivers. The 500-and-retry machinery was already there — the libs were simply never
+  telling it anything had gone wrong. The post-capture mark is self-healing on redelivery:
+  re-capturing a captured PI raises `payment_intent_unexpected_state`, which the branch tolerates.
+- **The client surfaces stop lying about what already happened.**
+  - `RewardField` — apply/remove had **no** try/catch, and both Server Actions throw under an outage
+    (`assertCartMember` rejects before any discriminated reason exists). `setBusy(false)` never ran,
+    so `busy` latched TRUE: every coupon button, or Remove stuck on "…", disabled forever with no
+    message. `try/catch/finally` + per-direction honesty (a failed apply didn't burn the reward; a
+    failed remove left it on the order). The applied branch got its own error line — `remove()`'s
+    message was being set into a paragraph that branch never rendered.
+  - `SharePay` — a payer whose Element mounted before the outage **can** authorize: Stripe is up and
+    a real hold lands. `onAuthorized` fires, the board sync fails, and the form deliberately keeps
+    its spinner waiting for a row flip that never comes. Now bounded (25s ≈ 4 board polls), after
+    which it says the true thing — card authorized, nothing captured until the table is in, the
+    board is the part that's behind. The tip group locks at the same moment: re-minting cancels the
+    live hold, and a control that quietly falsifies the sentence beside it is the bug.
+  - `/track` — once BOTH the live read and the uid-scoped fallback give up, ask the health probe. If
+    it's us, drop the "taking longer than usual / refresh to check" vocabulary (which makes the
+    DINER'S order the thing that's wrong) for _your payment is safe, show this screen at the counter_
+    plus a payment reference taken from the page's own URL. The `/account` link is withdrawn in that
+    state — same backend, second broken screen.
+  - `SettlementBoard` — the 5s poll backs off to a 30s cap while the board can't be read and returns
+    to 5s the instant it answers. Self-scheduling off each load's outcome, so recovery is never a
+    slow tick late.
+- **`lib/lock` releases return their write error** instead of dropping it. They stay best-effort at
+  every call site (the 5-min lock / 10-min settle TTLs are the real backstop) but the webhook's
+  `payment_failed` branch now logs it. **Deliberately still 200:** Stripe's first redelivery lands
+  ~an hour out, long after both TTLs have healed the rows on their own — and the releases are
+  UNCONDITIONAL by cart, so a late redelivery would clear a live `settle_at` on a split the table
+  has since opened. A 500 here buys nothing and could cost something.
+- **Runbook note (ops):** Stripe redelivers a failed webhook for **72 hours**. A pause longer than
+  that outlives the retry window — after restoring the project, replay the failed deliveries from the
+  Stripe dashboard (Developers → Webhooks → the endpoint → failed events → Resend) and run a
+  shares-vs-orders sweep before trusting the settlement board.
 
 ## Deliberately deferred
 

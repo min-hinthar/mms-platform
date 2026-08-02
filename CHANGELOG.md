@@ -4,6 +4,40 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W10c — The money path stops answering with numbers it isn't sure of (2026-08-02)
+
+The money half of the W10 outage work (closes OPEN-ITEMS **M30** and **M31**; plan:
+docs/W10_PLAN.md §W10c). One root cause runs through all of it: **postgrest-js resolves a transport
+failure into `{ data: null, error }` — it does not reject** — so a destructure of only `{ data }`
+produced a confident, perfectly-shaped, WRONG answer during an outage.
+
+- **`getCartTotals` throws on an unreadable cart (M30).** All three reads check `error`. A zeroed
+  total used to make the webhook's derived amount disagree with a REAL charge, triaging an outage as
+  **tampering** (wrong alarm, wrong `refunds_needed` reason, no retry); it now takes the "Totals
+  lookup failed; will retry" 500 that already existed. The partial failure was worse: items
+  readable, `mms_promo_discount` not, discount silently 0 — the diner charged MORE than the cart in
+  front of them showed. Pinned by `lib/totals.test.ts` (4 cases incl. a happy path) + 2 new
+  `verify:slice` mutants (22 total).
+- **`split-settle` returns 5xx so Stripe redelivers (M31).** Every `qr_cart_shares`/`qr_carts` read
+  and write in the five split handlers throws on `error` (`cartIdForPi` returns null only for a
+  genuine no-row); the webhook's split branches, plus its `existing`-order and `cartRow` reads, 500
+  instead of logging-and-ACKing. The retry machinery already existed — the libs were never telling
+  it anything had gone wrong.
+- **Client money surfaces stop lying about what already happened.** `RewardField` gains
+  try/catch/finally (both actions throw under an outage, so `busy` latched TRUE and every coupon
+  button died silently) plus its own error line in the applied branch; `SharePay` bounds the
+  post-authorize spinner at 25s and then states the hold is real — locking the tip group, which
+  would otherwise cancel it; `/track` escalates to "your payment is safe — show this screen at the
+  counter" with a payment reference from its own URL once both the live read and the fallback give
+  up, and withdraws the `/account` link (same backend); `SettlementBoard`'s 5s poll backs off to a
+  30s cap while unreadable.
+- **`lib/lock` releases return their write error** instead of dropping it — best-effort by design at
+  every call site, but the webhook's `payment_failed` branch logs it. Still 200 deliberately: the
+  5/10-minute TTLs heal the rows long before Stripe's ~1h first redelivery, and an unconditional
+  late release could clear a live `settle_at` on a split the table has since opened.
+- **Runbook:** Stripe redelivers for 72h only — a longer pause needs a manual dashboard resend plus a
+  shares-vs-orders sweep after restore.
+
 ### W10b — Staff boards keep the ledger through an outage (2026-08-01)
 
 The staff half of the W10 outage work (closes OPEN-ITEMS **M32**; plan: docs/W10_PLAN.md §W10b).
