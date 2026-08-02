@@ -134,6 +134,38 @@ an outage, and every finding below is a place that answer was believed.
   Stripe dashboard (Developers → Webhooks → the endpoint → failed events → Resend) and run a
   shares-vs-orders sweep before trusting the settlement board.
 
+## W10d — a split table can always finish ✅ (2026-08-02)
+
+The three defects the W10c review rounds surfaced on the split-tender path but left out of scope.
+Closes OPEN-ITEMS **M1**, **M25**, **M39**, **M40**.
+
+- **A declined payer could not re-pay at the same tip (M39).** `create-share-intent` cancels the prior
+  PaymentIntent and then calls `create` under the SAME `share_<id>_<amount>` idempotency key. Stripe
+  caches a key's response for 24h, so it replayed the intent the route had just canceled — decline →
+  refresh → retry handed back a canceled client secret, every time, for the full key window. The only
+  escape was changing the tip, which no copy suggests. The key now carries the intent being REPLACED
+  (`…_after-<pi>`): a retry is a new key, a double-tap (both requests read the same previous id,
+  neither having claimed the row) still collapses onto one intent. Extracted to
+  `lib/split-intent-key.ts` so the property is testable — and its own test immediately caught that the
+  first draft's "no previous intent" sentinel could collide with a literal id of the same value.
+- **The fulfillment guard compared a number to itself (M25), and making it real would have made it
+  dangerous (M1).** `mms_fulfill_split_order` raises when the captured sum ≠ `p_expected_total_cents`,
+  but the caller produced that expectation by summing the very rows the function re-sums. Giving it a
+  real second opinion — the cart's authoritative total plus the per-payer tips — turns it into a guard;
+  but a guard at FULFILLMENT time can only fire after every card is charged, which converts a ledger
+  discrepancy into money-taken-with-no-order. So the reconcile runs in `captureAllIfReady` **before the
+  first capture**, where refusing costs nothing: the authorizations lapse on their own and the host can
+  restart the split. Drift is reachable only by a staff void/comp landing mid-settle — precisely when
+  charging against a stale ledger is worst. `lib/split-reconcile.ts` is pure so it is mutation-tested.
+- **Abort abandoned live holds (M40).** The cancel loop covered only `authorized`/`pending` rows, then
+  the delete removed every non-`captured` row — so a share marked `failed` whose PaymentIntent still
+  carried a live authorization kept it for the full ~7-day window, with no record left that could ever
+  release it. A row's status is not its PaymentIntent's status; that is the same confusion that made
+  W10c's `onShareAuthorized` predicate wrong.
+- **Deferred to W10d·2 (needs a migration + a product decision):** **M29** — only the host is stamped
+  `earned_by`, so every other share payer's paid order is invisible to them. Visibility is a bug;
+  whether they also earn a Star is a question against the "one order = one Star" model.
+
 ## Deliberately deferred
 
 - Realtime channel-status surfacing + reconnect circuit-breakers (LOW class) — fold into W10b.

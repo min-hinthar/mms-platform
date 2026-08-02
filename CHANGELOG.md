@@ -4,6 +4,23 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W10d — A split table can always finish (2026-08-02)
+
+The split-tender defects the W10c reviews surfaced but left out of scope (closes OPEN-ITEMS **M1**,
+**M25**, **M39**, **M40**).
+
+- **A declined split payer can re-pay again.** The share PaymentIntent's idempotency key was
+  `share_<id>_<amount>`, and the route cancels the prior intent before re-creating — so Stripe replayed
+  the canceled one for 24h. Decline → refresh → retry returned a dead client secret every time unless
+  the payer happened to change their tip. The key now carries the intent it replaces.
+- **The split fulfillment guard stopped comparing a number to itself**, and the real reconcile moved
+  BEFORE the first capture — a ledger check that can only fire at fulfillment time can only fire after
+  every card is charged.
+- **Aborting a split releases every hold it abandons**, not just the ones whose row happened to read
+  `authorized`/`pending`. A `failed` row can still carry a live ~7-day authorization.
+- 214 qr tests and 32 `verify:slice` mutants (from 29): two new pure modules
+  (`split-intent-key`, `split-reconcile`) carry the rules, so both are mechanically pinned.
+
 ### W10c — The money path stops answering with numbers it isn't sure of (2026-08-02)
 
 The money half of the W10 outage work (closes OPEN-ITEMS **M30** and **M31**; plan:
