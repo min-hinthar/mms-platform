@@ -54,13 +54,37 @@ async function cartIdForPi(
 /** A share's PI was authorized (capture_method=manual confirmed). Mark it, then capture-all if ready. */
 export async function onShareAuthorized(piId: string): Promise<void> {
   const db = serviceClient();
-  const { error: markError } = await db
+  const { data: marked, error: markError } = await db
     .from("qr_cart_shares")
     .update({ status: "authorized", updated_at: new Date().toISOString() })
     .eq("stripe_payment_intent_id", piId)
-    .eq("status", "pending"); // idempotent: only pending → authorized
+    // ⚠️ W10c pre-merge review — `failed` MUST be here, and `.select()` MUST be chained.
+    //
+    // With `.eq("status","pending")` a declined-then-retried share could never come back. The plain
+    // path, no race and no outage required: the card is declined → `onShareFailed` marks the row
+    // `failed` → the diner enters another card in the SAME still-mounted Element (SharePay re-enables
+    // on `payErr` and the row stays payable, so `confirmPayment` runs against the SAME PaymentIntent,
+    // never re-minting) → the hold lands → this event fires → 0 rows match → postgrest returns
+    // `{ error: null }` for a 0-row update, so nothing threw and the webhook 200-ACKed the event
+    // forever. The share sat at `failed` over a LIVE ~7-day hold, `captureAllIfReady`'s
+    // all-authorized gate could never pass, and the table was finished.
+    //
+    // This is pre-existing, but W10c is what makes it bite: before this slice the `failed` mark was
+    // swallowed on error and often never landed. Making that mark reliable is exactly what turns a
+    // rare loss into a routine dead end — so the correcting transition has to exist.
+    //
+    // Still never `captured` or `canceled`: those are terminal and money-bearing.
+    .in("status", ["pending", "failed"])
+    .select("id");
   // A lost authorization mark strands a real card hold with no record — 5xx so Stripe redelivers.
   if (markError) throw new Error(`onShareAuthorized: mark failed — ${markError.message}`);
+  // "We were told to mark and marked nothing" is not success. It is either a redelivery of an event
+  // whose row is already authorized/captured (benign, common) or a row this PI no longer owns
+  // (a tip change re-minted it) — neither is retryable, so log rather than 500, but never silently.
+  if ((marked ?? []).length === 0)
+    console.warn("[split-settle] onShareAuthorized matched no payable share", {
+      paymentIntent: piId,
+    });
   const cartId = await cartIdForPi(db, piId);
   if (!cartId) return;
   // W1·Q4: a payer just authorized — the settlement is demonstrably alive, so slide the freeze
@@ -237,20 +261,55 @@ export async function onShareFailed(piId: string): Promise<void> {
   // So ask the PaymentIntent what is true NOW — the same "confirm the real state before writing"
   // discipline `captureAllIfReady` already uses after its capture. A stale redelivery finds a
   // succeeded/still-live PI and is skipped; a genuine decline finds no live authorization and marks.
-  const pi = await getStripe().paymentIntents.retrieve(piId);
-  // succeeded = money taken · requires_capture = the hold is live · processing = in flight ·
-  // canceled = `onShareCanceled` owns it. None of these is a failure, whatever this event says.
-  if (["succeeded", "requires_capture", "processing", "canceled"].includes(pi.status)) return;
-  const { error } = await db
+  let pi;
+  try {
+    pi = await getStripe().paymentIntents.retrieve(piId);
+  } catch (e) {
+    // ⚠️ Pre-merge review — classify, the way `captureAllIfReady` classifies its capture error. A
+    // TRANSPORT failure must 5xx so Stripe redelivers; a PERMANENT one (`resource_missing` — a PI
+    // this account/mode can't see) would otherwise 500 on every one of ~15 redeliveries for 72h,
+    // burning the endpoint on an event that can never succeed. There is nothing to mark either way.
+    if ((e as { code?: string }).code === "resource_missing") {
+      console.error("[split-settle] onShareFailed: PaymentIntent not found", {
+        paymentIntent: piId,
+      });
+      return;
+    }
+    throw e;
+  }
+  // ⚠️ Pre-merge review — an ALLOW-list, not a skip-list. The question is not "is there a hold?" but
+  // "is a payment attempt still alive on this PaymentIntent?", and only ONE Stripe status answers no
+  // while leaving something to record: `requires_payment_method` (Stripe's terminal state for both a
+  // declined confirm and a declined capture). `requires_action` / `requires_confirmation` are LIVE —
+  // a 3DS step-up parks a PI there for as long as the diner takes on their bank's OTP screen, and the
+  // earlier skip-list let a redelivery landing in that window mark a share `failed` mid-challenge.
+  // `canceled` belongs to `onShareCanceled`. Phrasing it as an allow-list also means a status Stripe
+  // adds later defaults to "leave the row alone and tell us", never to a destructive write.
+  if (pi.status !== "requires_payment_method") {
+    console.warn("[split-settle] onShareFailed: PaymentIntent is not in a failed state — no mark", {
+      paymentIntent: piId,
+      status: pi.status,
+    });
+    return;
+  }
+  const { data: marked, error } = await db
     .from("qr_cart_shares")
     .update({ status: "failed", updated_at: new Date().toISOString() })
     .eq("stripe_payment_intent_id", piId)
     // Belt to the Stripe check's braces: never downgrade a terminal row. `authorized` IS included —
-    // that is the decline-at-capture case above, and the retrieve is what makes it safe.
-    .in("status", ["pending", "failed", "authorized"]);
+    // that is the decline-at-capture case above, and the retrieve is what makes it safe. The
+    // retrieve→update gap stays a (narrow) TOCTOU window; what closes its consequence is
+    // `onShareAuthorized` accepting `failed`, so a mark that raced a real authorization self-corrects.
+    .in("status", ["pending", "failed", "authorized"])
+    .select("id");
   // A lost 'failed' mark leaves the board showing that payer as still pending, so the host waits on a
   // card that already declined — the table stalls with no one able to see why.
   if (error) throw new Error(`onShareFailed: mark failed — ${error.message}`);
+  // This file's header says the one thing that must never happen is silence. An affirmative decision
+  // that wrote nothing is exactly that, so say it — a captured/canceled row is a legitimate no-op, but
+  // it must not look identical to a successful mark.
+  if ((marked ?? []).length === 0)
+    console.warn("[split-settle] onShareFailed matched no markable share", { paymentIntent: piId });
 }
 
 /** A share's PI was canceled (host abort or a tip-change replacement). Record it for the board. */

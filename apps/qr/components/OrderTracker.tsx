@@ -93,15 +93,14 @@ export function OrderTracker({
     // payment is safe" to "use the Refresh button", took the payment reference off the screen
     // mid-conversation with staff, and restored the /account link to the backend that is still down.
     // Permanently, since nothing re-ran.
-    const again = () => {
-      // ⚠️ Pre-merge review — MAKE THE PROMISE TRUE rather than soften it. The offline copy says this
-      // screen will pick the order up on reconnect; nothing did. `useOrderStatus` has latched, and the
-      // fallback effect is guarded on `fallback` being unset — which is exactly what `gaveUp` means —
-      // so reconnecting only made the Refresh button reappear for the diner to tap. Clearing the
-      // fallback re-opens that effect, so the page really does try again by itself.
-      setFallback(null);
-      void diagnose();
-    };
+    // ⚠️ Pre-merge review, round 2 — this handler ONLY re-diagnoses. An earlier attempt also cleared
+    // `fallback` here to make an auto-retry promise literally true, and that was worse: `fallback`
+    // being set is the whole of `gaveUp`, which gates `weDown`, `youOffline`, the payment reference
+    // AND the /account-link suppression. Clearing it collapsed every escalation state for the length
+    // of an unbounded server-action round-trip — on a still-down backend, exactly when the diner is
+    // holding the screen out to a member of staff — and tore down this listener with it. The copy is
+    // what gets corrected instead: the page offers Refresh again on reconnect, and says so.
+    const again = () => void diagnose();
     window.addEventListener("online", again);
     return () => window.removeEventListener("online", again);
   }, [gaveUp, diagnose]);
@@ -419,7 +418,7 @@ export function OrderTracker({
                             // out character by character in its own sr-only sibling below.
                             "We’re having trouble on our end. Your payment is safe — show this screen to staff and we’ll match it up."
                           : youOffline
-                            ? "You look offline. Your payment went through — reconnect and this screen will pick it up."
+                            ? "You look offline. Your payment went through — reconnect and you can check again from this screen."
                             : "Your order is taking longer than expected — use the Refresh button to check."
                       : justPaid
                         ? "Payment confirmed — finalizing your order."
@@ -698,7 +697,7 @@ export function OrderTracker({
                 ? // Pre-PR review — the offline diner's own branch. They were being told to tap
                   // Refresh, which is `location.reload()`: on a dead radio that replaces the only
                   // proof of payment they are holding with the browser's offline error page.
-                  "Your payment went through — this screen just can’t reach us while you’re offline. Reconnect and it’ll pick your order up; don’t reload until then."
+                  "Your payment went through — this screen just can’t reach us while you’re offline. Reconnect and the Refresh button comes back; don’t reload until then."
                 : processing
                   ? "We’re still confirming your payment — refresh to check, or come back shortly."
                   : sharePayer
@@ -978,7 +977,7 @@ export function OrderTracker({
                   // It also contradicted the banner directly above it.
                   youOffline
                   ? // …and offline there is no Refresh above to point at (it is withdrawn), so don't.
-                    "Keep this screen open — it’ll try again by itself once you’re back online."
+                    "Keep this screen open — Refresh comes back as soon as you’re online again."
                   : "Nothing more will load here on its own — use Refresh above, or ask us and we’ll look it up."
                 : staleSnapshot
                   ? "This is the order as we last read it — the receipt in your account is the lasting copy."

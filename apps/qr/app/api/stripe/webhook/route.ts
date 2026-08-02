@@ -503,15 +503,28 @@ export async function POST(req: NextRequest) {
       // available here (a release is not a state transition). The 5-minute lock TTL and 10-minute
       // settle TTL are the designed backstop and heal the rows on their own. So: surface the failure
       // to the logs (an outage here must not be invisible) and let the TTLs do their job.
-      const lockErr = await releaseCartLock(cartId, null);
-      const settleErr = await releaseSettlement(cartId);
-      if (lockErr || settleErr)
-        console.error("[stripe webhook] payment_failed release(s) failed", {
+      //
+      // ⚠️ Pre-merge review — the try/catch is what KEEPS the 200 the paragraph above argues for.
+      // Dropping the old `.catch(() => {})` when these started returning their error left a throw
+      // (a `serviceClient()` construction failure, say) free to escape into the handler's outer
+      // catch and 500 — quietly re-opening the redelivery hazard the comment says must not exist.
+      try {
+        const lockErr = await releaseCartLock(cartId, null);
+        const settleErr = await releaseSettlement(cartId);
+        if (lockErr || settleErr)
+          console.error("[stripe webhook] payment_failed release(s) failed", {
+            cartId,
+            paymentIntent: intent.id,
+            lockError: lockErr?.message,
+            settleError: settleErr?.message,
+          });
+      } catch (e) {
+        console.error("[stripe webhook] payment_failed release threw", {
           cartId,
           paymentIntent: intent.id,
-          lockError: lockErr?.message,
-          settleError: settleErr?.message,
+          error: e,
         });
+      }
     }
     posthog.capture({
       distinctId: cartId ?? intent.id,

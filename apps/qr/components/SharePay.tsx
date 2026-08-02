@@ -323,38 +323,46 @@ function ShareForm({
                 : truth === "you-offline"
                   ? "You look offline, so your row may still say Waiting — it’ll update when you reconnect."
                   : "Your row hasn’t updated yet — we’re waiting on the confirmation."}{" "}
-              {/* Pre-merge review — the button has to survive its own tap. `SettlementBoard` already
-                  wrote this lesson down: without a busy flag the control sits inert on a slow retry
-                  and the diner can't tell it did anything. Re-diagnosing too, so the sentence above
-                  can actually change when the platform comes back. */}
-              <button
-                type="button"
-                aria-disabled={rechecking || undefined}
-                onClick={() => {
-                  if (rechecking) return;
-                  setRechecking(true);
-                  onAuthorized();
-                  void diagnose().finally(() => setRechecking(false));
-                }}
-                style={{
-                  minHeight: 44,
-                  padding: "0 4px",
-                  background: "none",
-                  border: "none",
-                  color: "var(--ac-strong)",
-                  fontWeight: 800,
-                  textDecoration: "underline",
-                  cursor: rechecking ? "default" : "pointer",
-                }}
-              >
-                {rechecking ? "Checking…" : "Check again"}
-              </button>
               <span style={{ display: "block", marginTop: 4 }}>
                 If it still says Waiting in a minute, show this to your server — nothing is lost.
               </span>
             </>
           ) : null)}
       </p>
+      {/* ⚠️ Pre-merge review — the control lives OUTSIDE the alert. `role="alert"` carries an implicit
+          `aria-atomic`, so a label toggling to "Checking…" inside it re-announced the whole ~45-word
+          money statement assertively on every tap — the same over-announcement this slice removed
+          elsewhere. It also has to survive its own tap (`SettlementBoard` wrote that lesson down):
+          the busy window is held for a beat because `onAuthorized` is fire-and-forget and the health
+          probe answers from cache within a microtask, so tying the flag to the probe alone flipped it
+          back before the browser painted once. */}
+      {stalled && (
+        <button
+          type="button"
+          aria-disabled={rechecking || undefined}
+          onClick={() => {
+            if (rechecking) return;
+            setRechecking(true);
+            onAuthorized(); // the board re-sync — fire-and-forget by contract
+            void Promise.all([diagnose(), new Promise((r) => window.setTimeout(r, 600))]).finally(
+              () => setRechecking(false),
+            );
+          }}
+          style={{
+            minHeight: 44,
+            marginTop: 8,
+            padding: "0 4px",
+            background: "none",
+            border: "none",
+            color: "var(--ac-strong)",
+            fontWeight: 800,
+            textDecoration: "underline",
+            cursor: rechecking ? "default" : "pointer",
+          }}
+        >
+          {rechecking ? "Checking…" : "Check again"}
+        </button>
+      )}
       <button
         type="submit"
         disabled={!stripe || submitting}

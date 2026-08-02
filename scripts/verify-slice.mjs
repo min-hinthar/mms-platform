@@ -246,6 +246,23 @@ const MUTANTS = [
     replace: "  if (false && rewardError) throw new Error('unreachable');",
   },
   {
+    id: "split-settle/authorized-cannot-follow-failed",
+    file: "apps/qr/lib/split-settle.ts",
+    suite: "lib/split-settle.test.ts",
+    why: "a declined share must be able to come back — pending-only leaves a LIVE hold on a share the board calls declined, and capture gated forever",
+    find: '    .in("status", ["pending", "failed"])\n    .select("id");',
+    replace: '    .eq("status", "pending")\n    .select("id");',
+  },
+  {
+    id: "split-settle/failed-marks-a-live-attempt",
+    file: "apps/qr/lib/split-settle.ts",
+    suite: "lib/split-settle.test.ts",
+    why: "only requires_payment_method may mark a share failed — a 3DS step-up parks the PI at requires_action, and a redelivery there used to kill the share mid-challenge",
+    find: '  if (pi.status !== "requires_payment_method") {',
+    replace:
+      '  if (["succeeded", "requires_capture", "processing", "canceled"].includes(pi.status)) {',
+  },
+  {
     id: "totals/rpc-discounts-dropped",
     file: "apps/qr/lib/totals.ts",
     suite: "lib/totals.test.ts",

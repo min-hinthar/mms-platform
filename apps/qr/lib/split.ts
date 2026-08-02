@@ -173,7 +173,17 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
     .limit(1);
   if (live && live.length > 0) throw new Error("Payments are already in progress");
 
-  const grand = await getCartTotals(id); // grand breakdown, no tip
+  // ⚠️ W10c pre-merge review — the freeze is ALREADY HELD (acquireSettlement wrote settle_at above),
+  // and every failure path below deliberately releases it before throwing. `getCartTotals` became
+  // throw-on-unreadable in this same slice (M30), so an uncaught call here would sail past all three
+  // of those releases and strand the whole table frozen for the full 10-minute TTL — nobody able to
+  // pay, edit or split — on a read failure. Same class as `settleCash`; same answer.
+  const grand = await getCartTotals(id).catch(() => null); // grand breakdown, no tip
+  if (!grand) {
+    console.error("[split] openSettlement totals unreadable", { cartId: id });
+    await releaseSettlement(id);
+    throw new Error("Couldn’t start the split — please try again");
+  }
   // A $0 cart can't be paid (mirrors create-intent's "Empty cart") and would auto-settle every share
   // to 'captured' with nothing to ever trigger fulfillment — refuse it (and lift the just-taken freeze).
   if (grand.subtotalCents - grand.discountCents + grand.serviceChargeCents + grand.taxCents <= 0) {
