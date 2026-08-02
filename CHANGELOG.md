@@ -23,7 +23,7 @@ Two split-tender defects the W10c reviews surfaced (closes OPEN-ITEMS **M39**, *
   72h; and refusing pre-capture is not free once the straggler path has already captured some shares.
   The finding is written up in `docs/W10_PLAN.md` §W10d and M1/M25 stay open with the design that
   works (persist the expected total at open time). Three new gaps logged: **M42**, **M43**, **M44**.
-- 209 qr tests and `verify:slice` mutants.
+- 209 qr tests and 30 `verify:slice` mutants.
 
 ### W10c — The money path stops answering with numbers it isn't sure of (2026-08-02)
 
