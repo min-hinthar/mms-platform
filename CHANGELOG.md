@@ -17,7 +17,7 @@ produced a confident, perfectly-shaped, WRONG answer during an outage.
   lookup failed; will retry" 500 that already existed. The partial failure was worse: items
   readable, `mms_promo_discount` not, discount silently 0 — the diner charged MORE than the cart in
   front of them showed. Pinned by `lib/totals.test.ts` (4 cases incl. a happy path) + 2 new
-  `verify:slice` mutants (26 total, up from 20 — the four totals arms plus two that cover
+  `verify:slice` mutants (28 total, up from 20 — the four totals arms plus two that cover
   `split-settle.ts`, which had no executable coverage of any kind before this slice).
 - **`split-settle` returns 5xx so Stripe redelivers (M31).** Every `qr_cart_shares`/`qr_carts` read
   and write in the five split handlers throws on `error` (`cartIdForPi` returns null only for a
@@ -38,7 +38,7 @@ produced a confident, perfectly-shaped, WRONG answer during an outage.
   the split marks, both releases are UNCONDITIONAL by cart (no status predicate scopes them to the
   era the event belongs to), so opting into redelivery could clear a live `settle_at` on a split the
   table has since opened. The 5-minute lock and 10-minute settle TTLs are the designed backstop.
-- **Two adversarial review rounds, both BLOCK**, and every HIGH landed in the FIX layer rather than
+- **Four adversarial review rounds, all BLOCK**, and every HIGH landed in the FIX layer rather than
   the original build — including one the pre-PR fix introduced: scoping `onShareFailed`'s write to
   `pending|failed` stopped a stale redelivery downgrading a captured share, but also made
   `authorized → failed` unrepresentable. An issuer declining the CAPTURE fires `payment_failed` while
