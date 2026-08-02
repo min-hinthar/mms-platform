@@ -336,8 +336,17 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       (cart.locked && isFresh(cart.locked_at, CART_LOCK_TTL_MS)));
   // The authoritative all-in cash total (the single tax engine), so the Settle button shows the real
   // charge. Only when there's an open cart with items — one extra read on the (non-hot) detail path.
-  const settleTotalCents =
-    cart && itemCount > 0 ? (await getCartTotals(cart.id, 0)).totalCents : null;
+  // ⚠️ W10c pre-PR review — this read is now throw-on-unreadable (M30), and an escaping throw would
+  // defeat everything W10b built here: the page would hit the Next error boundary instead of rendering
+  // `StaffOutageShell` in place, and `FloorDetailLive.refresh` would land in its "this end failed —
+  // not evidence the platform is down" arm and label a proven outage `unknown`. An unreadable total is
+  // exactly the outage this function already has a discriminant for, so use it.
+  let settleTotalCents: number | null = null;
+  if (cart && itemCount > 0) {
+    const settleTotals = await getCartTotals(cart.id, 0).catch(() => null);
+    if (!settleTotals) return { kind: "outage" };
+    settleTotalCents = settleTotals.totalCents;
+  }
   let lastActivityAt = laterIso(session.created_at ?? nowIso, lastLineAt);
   if (paid) lastActivityAt = laterIso(lastActivityAt, paid.created_at);
 

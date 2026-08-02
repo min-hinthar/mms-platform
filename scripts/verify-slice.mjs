@@ -237,6 +237,22 @@ const MUTANTS = [
     find: "  if (discountError)\n    throw new Error(`getCartTotals: promo discount unreadable — ${discountError.message}`);",
     replace: "  if (false && discountError) throw new Error('unreachable');",
   },
+  {
+    id: "totals/unreadable-reward-as-zero",
+    file: "apps/qr/lib/totals.ts",
+    suite: "lib/totals.test.ts",
+    why: "the third money rule needs its own mutant — an unreadable reward coupon is not a zero reward",
+    find: "  if (rewardError)\n    throw new Error(`getCartTotals: reward discount unreadable — ${rewardError.message}`);",
+    replace: "  if (false && rewardError) throw new Error('unreachable');",
+  },
+  {
+    id: "totals/rpc-discounts-dropped",
+    file: "apps/qr/lib/totals.ts",
+    suite: "lib/totals.test.ts",
+    why: "totals.ts owns the WIRING of the two RPC discounts into computeTotals — totals-math.test pins the arithmetic, nothing else pins this",
+    find: "    discount ?? 0,\n    reward ?? 0,",
+    replace: "    0,\n    0,",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

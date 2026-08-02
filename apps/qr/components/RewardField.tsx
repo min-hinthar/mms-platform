@@ -38,8 +38,9 @@ export function RewardField({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // W10c — attribution for the two catches below, diagnosed on failure and never asserted (the same
-  // one-probe truth layer the checkout promo field uses).
-  const { truth, diagnose } = useConnectionTruth();
+  // one-probe truth layer the checkout promo field uses). The catches AWAIT `diagnose()` for the
+  // verdict rather than reading the hook's `truth` state, which lags the probe by a render.
+  const { diagnose } = useConnectionTruth();
 
   useEffect(() => {
     void getMyRewardCoupons()
@@ -64,18 +65,32 @@ export function RewardField({
     (applied ? removeBtnRef.current : useBtnRef.current)?.focus({ preventScroll: true });
   }, [applied]);
 
+  // ⚠️ Pre-PR review — focus restore on FAILURE. `setBusy(true)` disables the control the diner just
+  // tapped, and a browser blurs a focused element the moment it is disabled — so every failed apply
+  // or remove silently parked a keyboard/SR user at <body>, on the money step. The success paths hand
+  // off via `acted` above; this covers the paths that stay put. It has to run AFTER the busy=false
+  // commit, or the button is still disabled and `.focus()` is a no-op.
+  const refocusOnIdle = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (busy || !refocusOnIdle.current) return;
+    const el = refocusOnIdle.current;
+    refocusOnIdle.current = null;
+    el.focus({ preventScroll: true });
+  }, [busy]);
+
   // W10c — both actions THROW under an outage: `applyReward`/`clearReward` run `assertCartMember`
   // first, which rejects before any discriminated `reason` can exist, so the reason table above is
   // unreachable on that path. Without a catch, `setBusy(false)` never ran and `busy` latched TRUE —
   // every coupon button (or the Remove button, stuck on "…") disabled forever, with no error text
   // and an unhandled rejection in the console. Dead controls on the money path, recoverable only by
   // a full reload. `finally` is what makes that impossible; the copy says whose fault it is.
-  async function apply(code: string) {
+  async function apply(code: string, tapped: HTMLButtonElement | null) {
     setBusy(true);
     setError(null);
     try {
       const res = await applyReward(cartId, code);
       if (!res.ok) {
+        refocusOnIdle.current = tapped;
         setError(REASON[res.reason]);
         return;
       }
@@ -83,9 +98,16 @@ export function RewardField({
       acted.current = true; // hand focus to the Remove button once the applied row mounts
       onChanged();
     } catch {
-      // The reward itself is untouched by a failed apply — say so, so nobody thinks they burned it.
-      setError(`${failureCopy(truth, "apply that reward")} Your reward is still yours.`);
-      void diagnose();
+      // ⚠️ Pre-PR review — AWAIT the probe. `truth` is this hook's own state and only its own
+      // `diagnose()` writes it, so composing the string from it here always read the initial
+      // "unknown": every FIRST failure rendered the neutral sentence, and the "it's not your
+      // connection" / "you look offline" copy was effectively dead. `diagnose()` returns the verdict.
+      const t = await diagnose();
+      // And don't over-claim: a throw is not proof the write didn't land (a response lost after a
+      // committed mutation is the canonical case). Point at the server-authoritative total instead.
+      setError(`${failureCopy(t, "apply that reward")} Nothing’s charged — check the total below.`);
+      refocusOnIdle.current = tapped;
+      onChanged(); // re-read: if it DID land, the screen corrects itself
     } finally {
       setBusy(false);
     }
@@ -99,9 +121,10 @@ export function RewardField({
       acted.current = true; // hand focus back to "Use a reward" once it remounts
       onChanged();
     } catch {
-      // The opposite reassurance: nothing was removed, so the discount the diner can see is real.
-      setError(`${failureCopy(truth, "remove that reward")} It’s still on this order.`);
-      void diagnose();
+      const t = await diagnose();
+      setError(`${failureCopy(t, "remove that reward")} The total below is the one that counts.`);
+      refocusOnIdle.current = removeBtnRef.current;
+      onChanged();
     } finally {
       setBusy(false);
     }
@@ -112,8 +135,10 @@ export function RewardField({
       // Warm gold-wash pill + a one-sweep shimmer on mount — a small delight when a reward lands. The
       // content rides above the ::after shimmer on its own z-layer. W10c — the applied branch carries
       // its OWN error line: a failed Remove used to set a message into a paragraph this branch never
-      // rendered, so the button just went quiet. The two branches are exclusive, so this is still one
-      // live region per view (QA §A).
+      // rendered, so the button just went quiet. The two RewardField branches are exclusive, so this
+      // adds no second region of its own. (Pre-PR review: the review STEP still owns a `role="status"`
+      // of its own in Checkout.tsx — a pre-existing second polite region on that view, logged as an
+      // OPEN-ITEM rather than papered over with a comment claiming otherwise.)
       <>
         <div className="checkout-reward-applied" style={appliedRow}>
           <span
@@ -186,7 +211,9 @@ export function RewardField({
               <li key={c.code}>
                 <button
                   type="button"
-                  onClick={() => apply(c.code)}
+                  // Capture the tapped node synchronously — `e.currentTarget` is nulled once the
+                  // synthetic event is released, and `apply` awaits before it needs the ref.
+                  onClick={(e) => apply(c.code, e.currentTarget)}
                   disabled={busy}
                   className="checkout-reward-add"
                   style={couponBtn}

@@ -16,7 +16,7 @@ import {
 import type { LineState } from "@mms/db";
 import { lineTax } from "./tax";
 import { getCartTotals } from "./totals";
-import { assertCartItemMember, assertCartMember } from "./authz";
+import { assertCartItemMember, assertCartMember, AuthzError } from "./authz";
 import { assertMutationRate, withinMutationRate } from "./rate";
 import { canMutateLine } from "./permissions";
 import { releaseCartLock } from "./lock";
@@ -588,7 +588,19 @@ export async function getCartView(cartId: string): Promise<{
   }));
   return {
     items,
-    totals: await getCartTotals(id),
+    // ⚠️ W10c pre-PR review — retype the throw at this seam. `getCartTotals` raises a bare `Error` on
+    // an unreadable cart (M30), but `/cart` discriminates the outage on `AuthzError.code ===
+    // "unavailable"` — so a PARTIAL degradation (auth + membership reads fine, `qr_cart_items` or
+    // `mms_promo_discount` times out) fell through to `didIPayForCart` → false → the exact copy W10a
+    // exists to delete: "This order isn't available on this device. Start from the menu.", printed
+    // over an intact order. Same 503 shape every other unknowable answer in the app uses.
+    totals: await getCartTotals(id).catch(() => {
+      throw new AuthzError(
+        "We’re having trouble on our end — try again in a moment",
+        503,
+        "unavailable",
+      );
+    }),
     pickupSlot: cart?.pickup_slot ?? null,
     fireAt: cart?.fire_at ?? null,
     locked,

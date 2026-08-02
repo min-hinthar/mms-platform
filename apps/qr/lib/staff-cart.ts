@@ -271,7 +271,16 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
   try {
     // Authoritative breakdown (cents), tip=0 for cash. The RPC re-derives the subtotal from the live
     // lines and reconciles it against this — a diner racing the settle raises instead of recording stale.
-    const totals = await getCartTotals(cart.id, 0);
+    // ⚠️ W10c pre-PR review — `.catch`, matching `closeSecureTab` below. `getCartTotals` now THROWS on
+    // an unreadable cart (M30), and `settleCash` is a Server Action whose caller (CashSettleButton)
+    // awaits it with no try/catch: an escaping rejection skips `setBusy(false)`, so the button latches
+    // on "Settling…", disabled, with no error text — dead mid-cash-collection, recoverable only by a
+    // reload. A discriminated refusal is the whole point of this slice; an unhandled throw is not one.
+    const totals = await getCartTotals(cart.id, 0).catch(() => null);
+    if (!totals) {
+      console.error("[staff-cart] settleCash totals unreadable", { sessionId, cartId: cart.id });
+      return { ok: false, error: STAFF_WRITE_OUTAGE };
+    }
     const { data: orderId, error } = await db.rpc("mms_fulfill_cash_order", {
       p_cart_id: cart.id,
       p_settled_by: caller.staffId,

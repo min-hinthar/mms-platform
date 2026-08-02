@@ -269,7 +269,14 @@ export async function abortSettlement(cartId: string): Promise<void> {
   // CLAIM the abort FIRST by lifting the freeze: captureAllIfReady gates on a fresh settle_at, so any
   // capture path that hasn't started yet now bails. (A capture already past its gate finishes + fulfills;
   // we detect that below and defer to it — money taken must always become an order.)
-  await releaseSettlement(id);
+  //
+  // ⚠️ W10c pre-PR review — FAIL CLOSED. This write IS the claim; postgrest resolves a transport failure
+  // into `{ data: null, error }`, so a silently-failed release left `settle_at` live while the code below
+  // went on to cancel every hold and DELETE the share rows. A concurrent `captureAllIfReady` still sees a
+  // fresh freeze, captures, and then `cartIdForPi` finds no row on the succeeded webhook: money taken,
+  // no order. Nothing may be cancelled or deleted until the freeze is provably lifted.
+  const releaseError = await releaseSettlement(id);
+  if (releaseError) throw new Error("Couldn’t cancel the split just now — try again in a moment");
 
   const { data: shares } = await db
     .from("qr_cart_shares")

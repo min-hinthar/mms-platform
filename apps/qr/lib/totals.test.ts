@@ -65,6 +65,33 @@ describe("getCartTotals — never returns a total it isn't sure of (M30)", () =>
     expect(totals.totalCents).toBeGreaterThan(0);
   });
 
+  // ⚠️ Pre-PR review — WITHOUT this case the suite was degenerate on the half of the function it
+  // actually owns. Every other test ran promo=0 and reward=0, so replacing the mapping with
+  // `computeTotals(lines, 0, 0, tipRate)` — dropping BOTH RPC results on the floor — kept it 4/4
+  // green. `totals-math.test.ts` pins the arithmetic; nothing pinned the wiring that feeds it.
+  //
+  // No number here is transcribed: the expectations are the two RPC values themselves, and a
+  // DIFFERENCE measured against a second run of the same function. That is what separates the two
+  // code paths — an assertion on a literal total would have to be recomputed by hand every time the
+  // tax or service rule moves, and would tell us nothing about whether the discounts were wired in.
+  it("feeds BOTH RPC discounts into the total (not just reads them)", async () => {
+    const PROMO = 300; // what `mms_promo_discount` answers in this scenario
+    const REWARD = 150; // …and `mms_reward_discount`
+    const undiscounted = await getCartTotals("cart-1", 0);
+    script.promo = { data: PROMO, error: null };
+    script.reward = { data: REWARD, error: null };
+    const discounted = await getCartTotals("cart-1", 0);
+
+    // Both are definitional, per computeTotals' own contract: `discountCents` FOLDS promo+reward
+    // (it's the base tax and service pro-rate against), `rewardCents` reports the reward limb alone.
+    expect(discounted.discountCents).toBe(PROMO + REWARD);
+    expect(discounted.rewardCents).toBe(REWARD);
+    // Tax and the service charge ride the DISCOUNTED base, so the all-in drop is strictly LARGER
+    // than the discount itself — asserting an exact total here would be a transcribed number that
+    // has to be re-derived by hand every time a tax or service rule moves.
+    expect(undiscounted.totalCents - discounted.totalCents).toBeGreaterThan(PROMO + REWARD);
+  });
+
   it("throws when the cart items are unreadable — never an empty cart", async () => {
     script.items = { data: null, error: { message: "fetch failed" } };
     await expect(getCartTotals("cart-1", 0)).rejects.toThrow(/cart items unreadable/);

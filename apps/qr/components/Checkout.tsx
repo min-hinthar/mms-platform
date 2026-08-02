@@ -287,7 +287,9 @@ export function Checkout({
   // tab flip to "Tab open / Settle tab" live (the qr_carts UPDATE drives refresh → getCartView.tabType).
   const anon = useAnonSession();
   // W10a — diagnosed failure attribution for the promo/pay copy (never blame the connection blind).
-  const { truth, diagnose } = useConnectionTruth();
+  // `truth` is deliberately NOT read here — the one consumer awaits `diagnose()` for the verdict
+  // (see onPromo): the hook state lags the probe by a render, which made the attributed copy dead.
+  const { diagnose } = useConnectionTruth();
   // K3a: a signed-in diner's Stars standing at the moment of payment (recognition, not a pitch —
   // WalletChip renders nothing for an anonymous diner). Balance is server-derived; a fetch failure
   // just hides the chip.
@@ -536,11 +538,16 @@ export function Checkout({
         setStatus(result.ok ? "Promo applied." : PROMO_MESSAGES[result.reason]);
       } catch {
         // A thrown error here is a transport/redacted failure, not a known reason. W10a: attribute
-        // it from the truth we already hold — ONE line in the single status region (a second
-        // setStatus would announce the same failure twice) — and warm the cache for next time.
-        // "check your connection" only ever when the device is actually offline.
-        setStatus(failureCopy(truth, "apply that code"));
-        void diagnose();
+        // it — ONE line in the single status region (a second setStatus would announce the same
+        // failure twice). "check your connection" only ever when the device is actually offline.
+        //
+        // ⚠️ W10c pre-PR review — AWAIT the probe instead of reading `truth`. That state is written
+        // only by this hook instance's own `diagnose()`, so on a FIRST failure it is still the
+        // initial "unknown" and the attributed copy never rendered — the outage sentence this line
+        // exists for was reachable only on a second failure inside the 15s cache TTL. Unlike the
+        // grocery toast (which stays un-awaited on purpose — a late toast announces twice), this is
+        // persistent status text with no timing constraint.
+        setStatus(failureCopy(await diagnose(), "apply that code"));
       }
       await refresh();
     });

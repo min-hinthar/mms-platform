@@ -85,15 +85,39 @@ export function OrderTracker({
   const { truth, diagnose } = useConnectionTruth();
   const gaveUp = timedOut && !order && !!fallback;
   useEffect(() => {
-    if (gaveUp) void diagnose();
+    if (!gaveUp) return;
+    void diagnose();
+    // ⚠️ Pre-PR review — RE-diagnose on reconnect. `useConnectionTruth` resets `truth` to "unknown"
+    // on every online/offline transition, and this effect's deps are both stable once `gaveUp` — so
+    // one walk past a dead spot (any wifi/cell handoff) silently reverted the banner from "your
+    // payment is safe" to "use the Refresh button", took the payment reference off the screen
+    // mid-conversation with staff, and restored the /account link to the backend that is still down.
+    // Permanently, since nothing re-ran.
+    const again = () => void diagnose();
+    window.addEventListener("online", again);
+    return () => window.removeEventListener("online", again);
   }, [gaveUp, diagnose]);
-  // Only the PLATFORM verdict escalates. A share payer's answer came FROM the server (so we're up),
-  // and "you-offline" already has honest copy of its own — neither is this state.
+  // Only the PLATFORM verdict escalates: a share payer's answer came FROM the server, so we're up.
   const weDown = gaveUp && truth === "we-down" && !sharePayer;
-  // A human-verifiable token for the counter, from data this page was handed in its own URL — the
-  // PaymentIntent tail (single-pay) or the resolved order id (split). Never fabricated, and never a
-  // figure we can't read: the amount lives on the order row we just failed to fetch.
-  const counterRef = (paymentIntent ?? orderId)?.slice(-6).toUpperCase() ?? null;
+  // Pre-PR review — and the offline diner gets their OWN branch. The comment here used to claim they
+  // "already have honest copy"; they did not. They fell through to "use the Refresh button to check",
+  // and Refresh is `location.reload()` — which on a dead radio replaces the only proof of payment
+  // they hold with the browser's offline error page.
+  const youOffline = gaveUp && truth === "you-offline" && !sharePayer;
+  // A human-verifiable token for staff, from data this page was handed in its own URL. The two paths
+  // are NOT interchangeable and must not be printed the same way:
+  //   • split (`orderId`) is the order UUID — its uppercased 6-char tail is the SAME code the expo
+  //     board, the KDS, the /board TV and this page's own receipt card print, so staff can find it.
+  //   • single-pay has no order id here (failing to read it is the whole premise), only Stripe's
+  //     PaymentIntent. That id appears in NO staff view, and it is case-sensitive base62 — the
+  //     uppercasing this used to apply made it unsearchable even in the Stripe dashboard. So it is
+  //     shown verbatim and labelled as what it is: the payment, which staff reconcile in Stripe —
+  //     the one system still up when ours isn't.
+  const counterRef: { label: string; value: string; spellOut: boolean } | null = orderId
+    ? { label: "Order reference", value: `#${orderId.slice(-6).toUpperCase()}`, spellOut: true }
+    : paymentIntent
+      ? { label: "Payment reference", value: paymentIntent.slice(-10), spellOut: false }
+      : null;
   // Pulse the active step only while the timeline is on-screen AND motion is allowed (P5.3): a
   // box-shadow `infinite` loop shouldn't keep ticking when scrolled out of view. The ref sits on the
   // STABLE <ul>, not the moving active dot (a ref on a conditional/moving target breaks the observer).
@@ -385,8 +409,10 @@ export function OrderTracker({
                         : weDown
                           ? // W10c — the escalation is announced too. The reference itself is spelled
                             // out character by character in its own sr-only sibling below.
-                            "We’re having trouble on our end. Your payment is safe — show this screen at the counter and we’ll pull up your order."
-                          : "Your order is taking longer than expected — use the Refresh button to check."
+                            "We’re having trouble on our end. Your payment is safe — show this screen to staff and we’ll match it up."
+                          : youOffline
+                            ? "You look offline. Your payment went through — reconnect and this screen will pick it up."
+                            : "Your order is taking longer than expected — use the Refresh button to check."
                       : justPaid
                         ? "Payment confirmed — finalizing your order."
                         : processing
@@ -644,7 +670,9 @@ export function OrderTracker({
                   // the thing that's wrong; the probe says it's our platform, and a diner whose card
                   // was charged deserves that distinction on this of all screens.
                   "We’re having trouble on our end"
-                : "This is taking longer than usual"}
+                : youOffline
+                  ? "You look offline"
+                  : "This is taking longer than usual"}
           </div>
           {/* W9c — the old copy told a diner whose PAID, EATEN meal was sitting in the database that
               their "order just hasn't appeared here yet". It had appeared; the table was cleared and
@@ -656,17 +684,22 @@ export function OrderTracker({
                 // moment), but it is no longer the ONLY instruction on a screen where reloading
                 // can't help — the counter can look the order up by the reference and settle it.
                 processing
-                ? "Your payment is with your bank; our own systems are the part that’s down. Nothing is lost — show this screen at the counter and we’ll take it from there."
-                : "Your payment is safe — it’s our systems we can’t reach right now, not your order. Show this screen at the counter and we’ll pull it up for you."
-              : processing
-                ? "We’re still confirming your payment — refresh to check, or come back shortly."
-                : sharePayer
-                  ? // ⚠️ Do NOT promise this diner a receipt in their account. `getOrderHistory` and
-                    // `getMyLiveOrders` are BOTH scoped to `earned_by`, and a split order stamps only
-                    // the host — which is the entire premise of this branch. /account would greet them
-                    // with "No orders yet". Say what is true and point at a person who can help.
-                    "Your payment went through. The table’s bill is recorded under whoever started the split, so this screen can’t follow it — ask them for the receipt, or check with us before you go."
-                  : "Your payment went through; we just can’t reach the order from this screen yet. Refresh to try again."}
+                ? "Your payment is with your bank; our own systems are the part that’s down. Nothing is lost — show this screen to staff and we’ll take it from there."
+                : "Your payment is safe — it’s our systems we can’t reach right now, not your order. Show this screen to staff and we’ll match it to your payment."
+              : youOffline
+                ? // Pre-PR review — the offline diner's own branch. They were being told to tap
+                  // Refresh, which is `location.reload()`: on a dead radio that replaces the only
+                  // proof of payment they are holding with the browser's offline error page.
+                  "Your payment went through — this screen just can’t reach us while you’re offline. Reconnect and it’ll pick your order up; don’t reload until then."
+                : processing
+                  ? "We’re still confirming your payment — refresh to check, or come back shortly."
+                  : sharePayer
+                    ? // ⚠️ Do NOT promise this diner a receipt in their account. `getOrderHistory` and
+                      // `getMyLiveOrders` are BOTH scoped to `earned_by`, and a split order stamps only
+                      // the host — which is the entire premise of this branch. /account would greet them
+                      // with "No orders yet". Say what is true and point at a person who can help.
+                      "Your payment went through. The table’s bill is recorded under whoever started the split, so this screen can’t follow it — ask them for the receipt, or check with us before you go."
+                    : "Your payment went through; we just can’t reach the order from this screen yet. Refresh to try again."}
           </div>
           {/* The receipt token staff can look the payment up by. Same visible/sr-only split as the
               exit pass and the receipt card: a hex tail read aloud as one word is useless, so the
@@ -687,7 +720,7 @@ export function OrderTracker({
               }}
             >
               <span
-                aria-hidden
+                aria-hidden={counterRef.spellOut || undefined}
                 style={{
                   fontSize: "var(--fs-xs)",
                   fontWeight: 700,
@@ -696,17 +729,23 @@ export function OrderTracker({
                   color: "var(--t3)",
                 }}
               >
-                Payment reference
+                {counterRef.label}
               </span>
+              {/* The order-code path keeps the exit-pass/receipt convention: the visible tail is
+                  aria-hidden and an sr-only sibling spells it out (a hex tail read as one word is
+                  useless). The Stripe id does NOT — spelling out a case-sensitive base62 string
+                  loses the very thing that makes it searchable, so it is left as readable text. */}
               <strong
-                aria-hidden
+                aria-hidden={counterRef.spellOut || undefined}
                 style={{ fontSize: "var(--fs-body)", letterSpacing: "0.06em", color: "var(--tx)" }}
               >
-                #{counterRef}
+                {counterRef.value}
               </strong>
-              <span className="sr-only">
-                {`Payment reference ${counterRef.split("").join(" ")}`}
-              </span>
+              {counterRef.spellOut && (
+                <span className="sr-only">
+                  {`${counterRef.label} ${counterRef.value.replace("#", "").split("").join(" ")}`}
+                </span>
+              )}
             </div>
           )}
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
@@ -717,22 +756,28 @@ export function OrderTracker({
                 recovery: a delayed webhook that lands a minute later, or three transient fetch errors
                 on a switching mobile network (the effect latches on `fallback`, so nothing else
                 retries). Hiding it removed the one working control from the case it was built for. */}
-            <button
-              type="button"
-              onClick={() => window.location.reload()}
-              style={{
-                minHeight: 44,
-                padding: "0 18px",
-                borderRadius: 10,
-                border: "1px solid var(--bd)",
-                background: "var(--cd)",
-                color: "var(--tx)",
-                fontWeight: 700,
-                cursor: "pointer",
-              }}
-            >
-              Refresh
-            </button>
+            {/* Pre-PR review — EXCEPT while the device is offline: this button is
+                `location.reload()`, and on a dead radio that trades the diner's only proof of
+                payment for the browser's offline error page. It comes back by itself the moment
+                they reconnect (the `online` event clears the verdict, so `youOffline` goes false). */}
+            {!youOffline && (
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                style={{
+                  minHeight: 44,
+                  padding: "0 18px",
+                  borderRadius: 10,
+                  border: "1px solid var(--bd)",
+                  background: "var(--cd)",
+                  color: "var(--tx)",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                Refresh
+              </button>
+            )}
             {/* /account reads orders uid-scoped on `earned_by`, which outlives every session — so it
                 reaches a paid order long after the table is cleared. NOT shown to a share payer: they
                 are precisely the diner `earned_by` does not cover (OPEN-ITEMS M29), so this link would
@@ -740,7 +785,7 @@ export function OrderTracker({
             {/* W10c — and NOT while the platform is down: /account is served by the same backend
                 we just failed to reach, so this link would hand the diner a second broken screen at
                 the exact moment they need one working instruction. */}
-            {!sharePayer && !weDown && (
+            {!sharePayer && !weDown && !youOffline && (
               <Link href="/account" className="nav-link">
                 Find it in your account
                 <span aria-hidden className="nav-arrow nav-arrow-fwd">
@@ -923,7 +968,10 @@ export function OrderTracker({
                 ? // W9c — "keep this open" is a promise the code cannot keep here: `exhausted` and the
                   // server fallback are BOTH latched, so nothing on this screen will change on its own.
                   // It also contradicted the banner directly above it.
-                  "Nothing more will load here on its own — use Refresh above, or ask us and we’ll look it up."
+                  youOffline
+                  ? // …and offline there is no Refresh above to point at (it is withdrawn), so don't.
+                    "Keep this screen open — reconnect and you’ll be able to check again."
+                  : "Nothing more will load here on its own — use Refresh above, or ask us and we’ll look it up."
                 : staleSnapshot
                   ? "This is the order as we last read it — the receipt in your account is the lasting copy."
                   : "Status updates here as the kitchen works on it — keep this open, or check back anytime."}

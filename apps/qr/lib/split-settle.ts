@@ -219,7 +219,17 @@ export async function onShareFailed(piId: string): Promise<void> {
   const { error } = await db
     .from("qr_cart_shares")
     .update({ status: "failed", updated_at: new Date().toISOString() })
-    .eq("stripe_payment_intent_id", piId);
+    .eq("stripe_payment_intent_id", piId)
+    // ⚠️ W10c pre-PR review — this predicate is what makes the 5xx-and-retry above SAFE, and it was
+    // missing. Stripe does not order deliveries, and the 500 turns one lost event into up to 72h of
+    // redeliveries: a decline marked here, retried by the payer on the SAME clientSecret (Elements
+    // keeps the PI; `create-share-intent` is idempotent on `share_<id>_<amount>` and returns it
+    // again), authorized, and captured with the table — then the original `payment_failed` lands and
+    // an unguarded write downgrades a CAPTURED share to 'failed'. From there `onShareCaptured`'s
+    // all-captured check can never pass, so the money is taken and no order is ever fulfilled, and
+    // `create-share-intent` (which claims on `pending|failed|canceled`) lets that seat mint a second
+    // PI — a double collection. Same test the payment_failed release branch applies to itself.
+    .in("status", ["pending", "failed"]);
   // A lost 'failed' mark leaves the board showing that payer as still pending, so the host waits on a
   // card that already declined — the table stalls with no one able to see why.
   if (error) throw new Error(`onShareFailed: mark failed — ${error.message}`);

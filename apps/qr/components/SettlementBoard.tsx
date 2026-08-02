@@ -172,7 +172,12 @@ export function SettlementBoard({
     let timer: ReturnType<typeof setTimeout> | undefined;
     const run = () => {
       void load().then(() => {
-        if (cancelled) return;
+        // Pre-PR review — stop at a TERMINAL state, don't just no-op through it. `cart_gone` sets
+        // `redirected` with NO navigation behind it, so the old loop re-armed every 5s forever under
+        // a screen that reads "This table's order was closed" — on a slice whose stated point is not
+        // burning a diner's battery. (The `setInterval` it replaced did the same; this is where the
+        // fix belongs.)
+        if (cancelled || redirected.current) return;
         timer = setTimeout(run, Math.min(5000 * 2 ** failStreak.current, 30_000));
       });
     };

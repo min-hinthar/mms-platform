@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import type { Appearance, StripeElementsOptions } from "@stripe/stripe-js";
 import { getStripePromise, stripeAppearance } from "@/lib/stripe-client";
+import { useConnectionTruth } from "@/lib/useConnectionTruth";
 
 /**
  * One payer's share-pay screen (M3·P3.3b, split-tender). The diner picks their OWN tip, then authorizes
@@ -14,9 +15,11 @@ import { getStripePromise, stripeAppearance } from "@/lib/stripe-client";
  */
 /**
  * W10c — how long the form waits for the board to confirm an authorization that has ALREADY landed
- * at the card network before it stops spinning and says so. The board polls every 5s (with backoff),
- * so this is ~4 chances to flip the row; longer and the diner is staring at a spinner over a real
- * hold on their card, which is the one state the board's own honesty work can't cover.
+ * at the card network before it stops spinning and says so. Sizing: the row is flipped by the
+ * WEBHOOK (`amount_capturable_updated`), and the board's poll starts at 5s — so a healthy system has
+ * ~5 chances inside this window, and a failing one (which backs off 5→10→20→30s) has two. Either
+ * way, past this point the diner is staring at a spinner over a real hold on their card, which is
+ * the one state the board's own honesty work can't cover.
  */
 const BOARD_FLIP_GRACE_MS = 25_000;
 
@@ -107,7 +110,15 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
 
   return (
     <div style={{ marginTop: 12 }}>
-      <div role="group" aria-label="Add a tip to your share" style={{ display: "flex", gap: 8 }}>
+      {/* Pre-PR review — a locked control has to SAY it is locked. The group's name changes with its
+          state (it no longer advertises an action that has been withdrawn) and points at the visible
+          reason below, so a screen-reader user hears why "20%" is dimmed instead of just that it is. */}
+      <div
+        role="group"
+        aria-label={held ? "Tip — locked in with your authorization" : "Add a tip to your share"}
+        aria-describedby={held ? "share-tip-locked" : undefined}
+        style={{ display: "flex", gap: 8 }}
+      >
         {TIPS.map(([label, rate]) => {
           const on = tipRate === rate;
           return (
@@ -138,6 +149,15 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
           );
         })}
       </div>
+
+      {held && (
+        <p
+          id="share-tip-locked"
+          style={{ fontSize: "var(--fs-xs)", color: "var(--t3)", margin: "8px 0 0" }}
+        >
+          Your card is authorized for this amount, so the tip is set.
+        </p>
+      )}
 
       {error ? (
         <p role="alert" style={{ fontSize: "var(--fs-sm)", color: "var(--warn)", marginTop: 10 }}>
@@ -199,6 +219,11 @@ function ShareForm({
   // in-flight confirm) because only this state licenses the "your card is authorized" claim.
   const [authorized, setAuthorized] = useState(false);
   const [boardStale, setBoardStale] = useState(false);
+  // ⚠️ Pre-PR review — the stalled message must not BLAME anyone from a bare timer. The row is
+  // flipped by the webhook, not by `confirmPayment`, and a delivery that takes >25s under normal
+  // load is not an outage: asserting "we're having trouble on our end" there is exactly the
+  // evidence-free copy the W10a truth layer exists to retire. So diagnose, then choose the sentence.
+  const { truth, diagnose } = useConnectionTruth();
 
   // W10c — bound the post-authorize wait. `onAuthorized()` re-syncs the board and this form
   // deliberately keeps its spinner, because the row is about to flip to "Authorized" and unmount it.
@@ -208,9 +233,12 @@ function ShareForm({
   // (setState lives in the timer callback, not the effect body — the React Compiler lint.)
   useEffect(() => {
     if (!authorized) return;
-    const t = window.setTimeout(() => setBoardStale(true), BOARD_FLIP_GRACE_MS);
+    const t = window.setTimeout(() => {
+      void diagnose();
+      setBoardStale(true);
+    }, BOARD_FLIP_GRACE_MS);
     return () => window.clearTimeout(t);
-  }, [authorized]);
+  }, [authorized, diagnose]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -277,9 +305,40 @@ function ShareForm({
         }}
       >
         {error ??
-          (stalled
-            ? "Your card is authorized — no charge yet; nothing is captured until the whole table is in. We’re having trouble updating the board, so your row may still say Waiting. It’ll catch up."
-            : null)}
+          (stalled ? (
+            <>
+              {/* The unconditional half is the part we can prove: Stripe told us the hold landed.
+                  The second sentence is the part we had to ASK about — blaming ourselves needs the
+                  probe's verdict, and "it'll catch up" was a promise the code can't keep during a
+                  real outage. */}
+              Your card is authorized — no charge yet; nothing is captured until the whole table is
+              in.{" "}
+              {truth === "we-down"
+                ? "We’re having trouble on our end, so your row may still say Waiting."
+                : truth === "you-offline"
+                  ? "You look offline, so your row may still say Waiting — it’ll update when you reconnect."
+                  : "Your row hasn’t updated yet — we’re waiting on the confirmation."}{" "}
+              <button
+                type="button"
+                onClick={onAuthorized}
+                style={{
+                  minHeight: 44,
+                  padding: "0 4px",
+                  background: "none",
+                  border: "none",
+                  color: "var(--ac-strong)",
+                  fontWeight: 800,
+                  textDecoration: "underline",
+                  cursor: "pointer",
+                }}
+              >
+                Check again
+              </button>
+              <span style={{ display: "block", marginTop: 4 }}>
+                If it still says Waiting in a minute, show this to your server — nothing is lost.
+              </span>
+            </>
+          ) : null)}
       </p>
       <button
         type="submit"
@@ -296,7 +355,10 @@ function ShareForm({
           fontWeight: 800,
           fontSize: "var(--fs-body)",
           cursor: !stripe || submitting ? "default" : "pointer",
-          opacity: !stripe || submitting ? 0.7 : 1,
+          // Pre-PR review — the dimmed-disabled treatment is for a control you're waiting on. Once
+          // this reads "Card authorized" it is a money STATEMENT, and rendering a load-bearing one
+          // below AA on the disabled-control exemption is not a trade this screen gets to make.
+          opacity: boardStale ? 1 : !stripe || submitting ? 0.7 : 1,
         }}
       >
         {boardStale ? "Card authorized" : submitting ? "Authorizing…" : `Authorize ${dollars}`}

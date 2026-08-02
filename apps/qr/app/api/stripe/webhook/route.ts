@@ -471,9 +471,11 @@ export async function POST(req: NextRequest) {
     if (intent.metadata?.kind === "split_share") {
       // A share's auth failed — mark it; the settlement stays frozen until the host aborts or the payer
       // retries (split uses the table-wide freeze, not the single-pay lock — nothing to release here).
-      // W10c (M31): 5xx instead of logging-and-ACKing. The mark is idempotent, so a redelivery is free;
-      // swallowing it left the board showing a declined payer as still pending and the host waiting on
-      // money that was never coming.
+      // W10c (M31): 5xx instead of logging-and-ACKing — swallowing it left the board showing a declined
+      // payer as still pending and the host waiting on money that was never coming. The mark is
+      // redelivery-safe because `onShareFailed` scopes its write to `status in (pending,failed)`; an
+      // UNSCOPED write here would let a 72h-late redelivery downgrade a share that has since been
+      // authorized and captured (see the ⚠️ in split-settle.ts — that guard is what licenses this 500).
       try {
         await onShareFailed(intent.id);
       } catch (e) {
@@ -493,12 +495,13 @@ export async function POST(req: NextRequest) {
       // an async processing→failed decline would otherwise strand the table frozen for the full SETTLE_TTL.
       //
       // W10c (M31 sweep) — these two stay BEST-EFFORT, and that is now a decision rather than an
-      // oversight. A 500 here would buy nothing and could cost something: Stripe's first redelivery
-      // lands ~an hour out, by which time the 5-minute lock TTL and the 10-minute settle TTL have
-      // already healed both rows on their own — while the releases are UNCONDITIONAL by cart, so a
-      // redelivery arriving after the table opened a NEW split would clear a live `settle_at` and
-      // unfreeze a settlement that is mid-flight. So: surface the failure to the logs (an outage
-      // here must not be invisible), and let the TTLs be the backstop they were designed to be.
+      // oversight. Unlike the split marks above, BOTH releases are UNCONDITIONAL by cart (no status
+      // predicate scopes them to the era this event belongs to), so opting into redelivery would let a
+      // late retry clear a live `settle_at` and unfreeze a settlement the table has since opened —
+      // the same hazard the `onShareFailed` guard exists to prevent, but with no equivalent predicate
+      // available here (a release is not a state transition). The 5-minute lock TTL and 10-minute
+      // settle TTL are the designed backstop and heal the rows on their own. So: surface the failure
+      // to the logs (an outage here must not be invisible) and let the TTLs do their job.
       const lockErr = await releaseCartLock(cartId, null);
       const settleErr = await releaseSettlement(cartId);
       if (lockErr || settleErr)
