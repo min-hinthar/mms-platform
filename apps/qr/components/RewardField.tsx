@@ -31,9 +31,6 @@ export function RewardField({
 }: {
   cartId: string;
   appliedRewardCents: number;
-  // Returns the re-read's promise where the caller has one (Checkout passes `refresh` directly). The
-  // failure paths below use it to expire their focus claim exactly when the branch has settled —
-  // see `refocusArmed`. A caller that returns void still works; the claim just expires immediately.
   onChanged: () => void | Promise<void>;
 }) {
   const [coupons, setCoupons] = useState<RewardCoupon[]>([]);
@@ -66,12 +63,16 @@ export function RewardField({
   // A failed action's focus claim. `setBusy(true)` disables the tapped control and the browser blurs
   // it, so without this a failed apply/remove parks a keyboard/SR user at <body> on the money step.
   //
-  // ⚠️ Round 5 — the claim expires when the RE-READ that might swap the branch has settled, not after
-  // N commits. A commit counter cannot tell "my `onChanged()` landed" from "a peer changed the cart"
-  // — both are just an `applied` flip — so it always left a unit armed for the first peer flip to
-  // consume, yanking focus out of wherever the diner had moved to. That is precisely the invariant
-  // the `acted` guard exists to protect, and it is why `onChanged` now hands back its promise.
-  const refocusArmed = useRef(false);
+  // ⚠️ Round 5, third attempt — deliberately SIMPLE, after two cleverer schemes were each wrong. A
+  // commit budget could not tell "my re-read landed" from "a peer changed the cart" (both are just an
+  // `applied` flip), so it left a unit armed for the first peer flip to steal focus with. Tying the
+  // claim to the re-read's promise fails the other way: the `finally` runs as a microtask, while
+  // React flushes the branch swap AFTER it — so the claim is disarmed exactly when the re-home is
+  // needed. The claim is now consumed by the first idle commit and cannot outlive it, which is
+  // correct for every case except one: a throw whose write actually LANDED and whose re-read then
+  // succeeded swaps the branch a commit later and drops focus to <body>. Narrow (it needs the outage
+  // to clear between the two calls), never wrong in the other direction, and logged as OPEN-ITEMS
+  // M41 rather than papered over with a third guess.
 
   useEffect(() => {
     if (!acted.current) return;
@@ -89,10 +90,6 @@ export function RewardField({
   // or the button is still disabled and `.focus()` is a no-op.
   useEffect(() => {
     if (busy || !refocusOnIdle.current) return;
-    if (!refocusArmed.current) {
-      refocusOnIdle.current = null; // the re-read settled — nothing later may consume this claim
-      return;
-    }
     // Deliberately NOT cleared on a successful focus: the branch may still swap when `onChanged()`
     // resolves, detaching this node, and `.focus()` on a detached node is a silent no-op. Keeping the
     // claim (deps include `applied`) means that swap re-homes to whichever control the new branch
@@ -139,12 +136,7 @@ export function RewardField({
       // including a peer's realtime update, would steal this device's focus. That is precisely the
       // invariant the `acted` guard exists to protect. The effect below handles the detached case.
       refocusOnIdle.current = tapped;
-      refocusArmed.current = true;
-      // Disarm when the re-read resolves: by then the branch has either swapped (and the effect
-      // re-homed) or it hasn't, and either way no LATER flip may claim this focus.
-      void Promise.resolve(onChanged()).finally(() => {
-        refocusArmed.current = false;
-      }); // re-read: if it DID land, the screen corrects itself
+      onChanged(); // re-read: if it DID land, the screen corrects itself
     } finally {
       setBusy(false);
     }
@@ -161,12 +153,7 @@ export function RewardField({
       const t = await diagnose();
       setError(`${failureCopy(t, "remove that reward")} The total below is the one that counts.`);
       refocusOnIdle.current = removeBtnRef.current;
-      refocusArmed.current = true;
-      // Disarm when the re-read resolves: by then the branch has either swapped (and the effect
-      // re-homed) or it hasn't, and either way no LATER flip may claim this focus.
-      void Promise.resolve(onChanged()).finally(() => {
-        refocusArmed.current = false;
-      });
+      onChanged();
     } finally {
       setBusy(false);
     }
