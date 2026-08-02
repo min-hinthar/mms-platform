@@ -95,7 +95,7 @@ an outage, and every finding below is a place that answer was believed.
   that already existed. And in `create-intent` the **partial** failure was the worse one — items
   readable, `mms_promo_discount` not, discount silently 0, diner charged MORE than the cart in front
   of them showed. Pinned by `lib/totals.test.ts` (4 cases, including a happy path so a blanket-throw
-  mutant can't pass) + two `verify:slice` mutants.
+  mutant can't pass) + `verify:slice` mutants (26 total across the slice, from 20).
 - **`split-settle` stops converting Stripe's retry durability into silent loss (M31).** Every
   `qr_cart_shares`/`qr_carts` read and write in `cartIdForPi` · `onShareAuthorized` ·
   `captureAllIfReady` · `onShareCaptured` · `onShareFailed` · `onShareCanceled` throws on `error`
@@ -118,7 +118,7 @@ an outage, and every finding below is a place that answer was believed.
     live hold, and a control that quietly falsifies the sentence beside it is the bug.
   - `/track` — once BOTH the live read and the uid-scoped fallback give up, ask the health probe. If
     it's us, drop the "taking longer than usual / refresh to check" vocabulary (which makes the
-    DINER'S order the thing that's wrong) for _your payment is safe, show this screen at the counter_
+    DINER'S order the thing that's wrong) for _your payment is safe, show this screen to staff_
     plus a payment reference taken from the page's own URL. The `/account` link is withdrawn in that
     state — same backend, second broken screen.
   - `SettlementBoard` — the 5s poll backs off to a 30s cap while the board can't be read and returns
@@ -127,7 +127,7 @@ an outage, and every finding below is a place that answer was believed.
 - **`lib/lock` releases return their write error** instead of dropping it. They stay best-effort at
   every call site (the 5-min lock / 10-min settle TTLs are the real backstop) but the webhook's
   `payment_failed` branch now logs it. **Deliberately still 200:** Stripe's first redelivery lands
-  ~an hour out, long after both TTLs have healed the rows on their own — and the releases are
+  unscoped by any status predicate, unlike the split marks — the releases are
   UNCONDITIONAL by cart, so a late redelivery would clear a live `settle_at` on a split the table
   has since opened. A 500 here buys nothing and could cost something.
 - **Runbook note (ops):** Stripe redelivers a failed webhook for **72 hours**. A pause longer than

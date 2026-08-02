@@ -17,8 +17,8 @@ produced a confident, perfectly-shaped, WRONG answer during an outage.
   lookup failed; will retry" 500 that already existed. The partial failure was worse: items
   readable, `mms_promo_discount` not, discount silently 0 — the diner charged MORE than the cart in
   front of them showed. Pinned by `lib/totals.test.ts` (4 cases incl. a happy path) + 2 new
-  `verify:slice` mutants (24 total: `unreadable-cart-as-empty`, `unreadable-discount-as-zero`,
-  `unreadable-reward-as-zero`, `rpc-discounts-dropped`).
+  `verify:slice` mutants (26 total, up from 20 — the four totals arms plus two that cover
+  `split-settle.ts`, which had no executable coverage of any kind before this slice).
 - **`split-settle` returns 5xx so Stripe redelivers (M31).** Every `qr_cart_shares`/`qr_carts` read
   and write in the five split handlers throws on `error` (`cartIdForPi` returns null only for a
   genuine no-row); the webhook's split branches, plus its `existing`-order and `cartRow` reads, 500
@@ -45,6 +45,11 @@ produced a confident, perfectly-shaped, WRONG answer during an outage.
   the row still reads `authorized`, and that mark is what short-circuits `captureAllIfReady` and lets
   the payer re-pay; without it the table dead-ends with money taken and no order. It now asks Stripe
   what is true now instead of inferring from delivery order.
+- **Disclosed, not hidden (OPEN-ITEMS M36):** making `getCartTotals` throw means a cart write that
+  COMMITTED can still be reported to the diner as a failure when only the totals read broke, under
+  partial degradation. Accepted for this slice because what it replaced was worse (a silent $0 total
+  on a live cart, flowing into the pay button); the real fix is a `totals: "unknown"` marker on the
+  returned view rather than failing the mutation.
 - **Runbook:** Stripe redelivers for 72h only — a longer pause needs a manual dashboard resend plus a
   shares-vs-orders sweep after restore.
 
