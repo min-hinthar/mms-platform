@@ -49,15 +49,19 @@ export function SettlementBoard({
     [ctx.members],
   );
 
-  const load = useCallback(() => {
+  // W10c — consecutive load failures, for the poll backoff below. A ref, not state: the poll reads it
+  // when it schedules and nothing renders from it (the frozen-board banner is driven by `loadError`).
+  const failStreak = useRef(0);
+
+  const load = useCallback((): Promise<void> => {
     // Once we've sent the table to the receipt, stop fetching: window.location.assign navigates but
     // doesn't synchronously unmount, so without this the 5s poll + realtime callbacks keep calling
     // getSettlement on a now-paid cart (swallowed 403s / dead work) until the navigation completes.
     if (redirected.current) {
       setRetrying(false); // W9b pre-merge — every exit of load() clears it, or the button latches
-      return;
+      return Promise.resolve();
     }
-    void getSettlement(cartId)
+    return getSettlement(cartId)
       .then((r) => {
         // W9b — a failed read is NOT an empty board (M24). Only the server-typed `settled` may
         // navigate: in production Server Action errors are redacted, so "it threw" can't tell a
@@ -68,6 +72,7 @@ export function SettlementBoard({
           // table off a stale freeze). Nobody owes anything and there is no receipt to go to, so say
           // that plainly instead of celebrating a payment that never happened.
           if (r.reason === "cart_gone") {
+            failStreak.current = 0;
             setLoadError(false);
             setLoaded(true);
             setGone(true);
@@ -77,11 +82,16 @@ export function SettlementBoard({
             return;
           }
           if (r.reason !== "settled") {
+            // `error` / `not_member` — the board could not be read. (During an outage
+            // `assertCartMember` raises before any share is fetched, so this is the shape a paused
+            // platform takes here.) Counts toward the backoff below.
+            failStreak.current += 1;
             setLoadError(true);
             setRetrying(false);
             return;
           }
           if (redirected.current) return;
+          failStreak.current = 0;
           redirected.current = true;
           setRetrying(false);
           setLoaded(true); // the cart is gone; show the beat, not the skeleton
@@ -94,6 +104,7 @@ export function SettlementBoard({
           return;
         }
         const rows = r.shares;
+        failStreak.current = 0; // the board answered — back to the 5s cadence
         setShares(rows);
         setLoaded(true);
         setLoadError(false);
@@ -117,13 +128,14 @@ export function SettlementBoard({
         // authorization outcomes as data. Flag it either way: before first load the render offers a
         // retry instead of a permanent skeleton, and AFTER first load it says the board is stale
         // rather than passing off a frozen snapshot as live (W9b).
+        failStreak.current += 1;
         setLoadError(true);
         setRetrying(false);
       });
   }, [cartId, onStatus]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   // If the diner navigates away during the end-beat's breath, don't yank them back to /track later —
@@ -148,9 +160,32 @@ export function SettlementBoard({
   // Poll backstop (payment-critical screen): re-fetch every 5s while settling so progress shows even if
   // Realtime is down or the anon token never arrives (the subscription no-ops on an empty token). Stops
   // on unmount (the all-captured redirect / a host cancel returning to review both unmount this).
+  //
+  // W10c — it BACKS OFF while the board can't be read (5 → 10 → 20 → 30s cap), and returns to 5s the
+  // instant it answers. The old fixed interval kept firing a full Server Action (an auth round-trip
+  // plus reads) every 5s for as long as the platform was down, on a phone that was already fighting
+  // realtime-js's own reconnect loop — a battery cost paid by a diner who is mid-payment and can do
+  // nothing about it. Self-scheduling (not setInterval) so the next delay is chosen from the outcome
+  // of the load that just finished, and recovery is never one slow tick late. `load` never rejects.
   useEffect(() => {
-    const t = setInterval(load, 5000);
-    return () => clearInterval(t);
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const run = () => {
+      void load().then(() => {
+        // Pre-PR review — stop at a TERMINAL state, don't just no-op through it. `cart_gone` sets
+        // `redirected` with NO navigation behind it, so the old loop re-armed every 5s forever under
+        // a screen that reads "This table's order was closed" — on a slice whose stated point is not
+        // burning a diner's battery. (The `setInterval` it replaced did the same; this is where the
+        // fix belongs.)
+        if (cancelled || redirected.current) return;
+        timer = setTimeout(run, Math.min(5000 * 2 ** failStreak.current, 30_000));
+      });
+    };
+    timer = setTimeout(run, 5000);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [load]);
 
   const paidCents = shares
@@ -212,7 +247,7 @@ export function SettlementBoard({
         // capture IS the answer to the failed abort).
         if (!redirected.current)
           onStatus(e instanceof Error ? e.message : "Couldn’t cancel the split.");
-        load();
+        void load();
       }
     });
   }

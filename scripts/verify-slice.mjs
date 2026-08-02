@@ -217,6 +217,84 @@ const MUTANTS = [
     find: 'const s = typeof raw === "string" ? raw.trim() : "";',
     replace: 'const s = typeof raw === "string" ? raw : "";',
   },
+  // ── the charge authority's honesty (W10c/M30) ───────────────────────────────────────────────────
+  // Not arithmetic: these pin that the totals engine REFUSES to answer when a read failed. postgrest
+  // resolves a network failure to `{ data: null, error }`, so dropping either throw doesn't crash —
+  // it silently returns a confident wrong number on the money path.
+  {
+    id: "totals/unreadable-cart-as-empty",
+    file: "apps/qr/lib/totals.ts",
+    suite: "lib/totals.test.ts",
+    why: "an unreadable cart must never be priced as an EMPTY cart (zeros into the webhook's tamper check)",
+    find: "if (rowsError) throw new Error(`getCartTotals: cart items unreadable — ${rowsError.message}`);",
+    replace: "if (false && rowsError) throw new Error('unreachable');",
+  },
+  {
+    id: "totals/unreadable-discount-as-zero",
+    file: "apps/qr/lib/totals.ts",
+    suite: "lib/totals.test.ts",
+    why: "an unreadable promo discount must never fall back to 0 — that overcharges the diner by the discount they can see",
+    find: "  if (discountError)\n    throw new Error(`getCartTotals: promo discount unreadable — ${discountError.message}`);",
+    replace: "  if (false && discountError) throw new Error('unreachable');",
+  },
+  {
+    id: "totals/unreadable-reward-as-zero",
+    file: "apps/qr/lib/totals.ts",
+    suite: "lib/totals.test.ts",
+    why: "the third money rule needs its own mutant — an unreadable reward coupon is not a zero reward",
+    find: "  if (rewardError)\n    throw new Error(`getCartTotals: reward discount unreadable — ${rewardError.message}`);",
+    replace: "  if (false && rewardError) throw new Error('unreachable');",
+  },
+  {
+    id: "split-settle/authorized-cannot-follow-failed",
+    file: "apps/qr/lib/split-settle.ts",
+    suite: "lib/split-settle.test.ts",
+    why: "a declined share must be able to come back — pending-only leaves a LIVE hold on a share the board calls declined, and capture gated forever",
+    find: '    .in("status", ["pending", "failed"])\n    .select("id");',
+    replace: '    .eq("status", "pending")\n    .select("id");',
+  },
+  {
+    id: "split-settle/mark-not-scoped-to-its-payment-intent",
+    file: "apps/qr/lib/split-settle.ts",
+    suite: "lib/split-settle.test.ts",
+    why: "the IDENTITY predicate — without it a webhook event rewrites EVERY share row in the database, across every cart and table (a reviewer removed it from both marks and the suite stayed 16/16 green)",
+    find: '    .eq("stripe_payment_intent_id", piId)\n    // ⚠️ W10c pre-merge review — `failed` MUST be here, and `.select()` MUST be chained.',
+    replace:
+      '    .eq("id", "id")\n    // ⚠️ W10c pre-merge review — `failed` MUST be here, and `.select()` MUST be chained.',
+  },
+  {
+    id: "split-settle/revives-a-dead-payment-intent",
+    file: "apps/qr/lib/split-settle.ts",
+    suite: "lib/split-settle.test.ts",
+    why: "a stale redelivery must not re-open a share whose PI is dead — the all-authorized gate would pass again and CAPTURE every other payer against an order that can never be fulfilled",
+    find: '  if (pi.status !== "requires_capture" && pi.status !== "succeeded") {',
+    replace: "  if (false) {",
+  },
+  {
+    id: "split-settle/mark-without-readback",
+    file: "apps/qr/lib/split-settle.ts",
+    suite: "lib/split-settle.test.ts",
+    why: "postgrest returns data:null for an UPDATE without .select(), so the 0-row check degrades to constant noise and 'marked nothing' stops being distinguishable from success",
+    find: '    .in("status", ["pending", "failed"])\n    .select("id");',
+    replace: '    .in("status", ["pending", "failed"]);',
+  },
+  {
+    id: "split-settle/failed-marks-a-live-attempt",
+    file: "apps/qr/lib/split-settle.ts",
+    suite: "lib/split-settle.test.ts",
+    why: "only requires_payment_method may mark a share failed — a 3DS step-up parks the PI at requires_action, and a redelivery there used to kill the share mid-challenge",
+    find: '  if (pi.status !== "requires_payment_method") {',
+    replace:
+      '  if (["succeeded", "requires_capture", "processing", "canceled"].includes(pi.status)) {',
+  },
+  {
+    id: "totals/rpc-discounts-dropped",
+    file: "apps/qr/lib/totals.ts",
+    suite: "lib/totals.test.ts",
+    why: "totals.ts owns the WIRING of the two RPC discounts into computeTotals — totals-math.test pins the arithmetic, nothing else pins this",
+    find: "    discount ?? 0,\n    reward ?? 0,",
+    replace: "    0,\n    0,",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

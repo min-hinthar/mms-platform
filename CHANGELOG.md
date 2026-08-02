@@ -4,6 +4,55 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W10c — The money path stops answering with numbers it isn't sure of (2026-08-02)
+
+The money half of the W10 outage work (closes OPEN-ITEMS **M30** and **M31**; plan:
+docs/W10_PLAN.md §W10c). One root cause runs through all of it: **postgrest-js resolves a transport
+failure into `{ data: null, error }` — it does not reject** — so a destructure of only `{ data }`
+produced a confident, perfectly-shaped, WRONG answer during an outage.
+
+- **`getCartTotals` throws on an unreadable cart (M30).** All three reads check `error`. A zeroed
+  total used to make the webhook's derived amount disagree with a REAL charge, triaging an outage as
+  **tampering** (wrong alarm, wrong `refunds_needed` reason, no retry); it now takes the "Totals
+  lookup failed; will retry" 500 that already existed. The partial failure was worse: items
+  readable, `mms_promo_discount` not, discount silently 0 — the diner charged MORE than the cart in
+  front of them showed. Pinned by `lib/totals.test.ts` (4 cases incl. a happy path) + 2 new
+  **nine** new `verify:slice` mutants (29 total, up from 20): four totals arms plus five covering
+  `split-settle.ts`, which had no executable coverage of any kind before this slice.
+- **`split-settle` returns 5xx so Stripe redelivers (M31).** Every `qr_cart_shares`/`qr_carts` read
+  and write in the five split handlers throws on `error` (`cartIdForPi` returns null only for a
+  genuine no-row); the webhook's split branches, plus its `existing`-order and `cartRow` reads, 500
+  instead of logging-and-ACKing. The retry machinery already existed — the libs were never telling
+  it anything had gone wrong.
+- **Client money surfaces stop lying about what already happened.** `RewardField` gains
+  try/catch/finally (both actions throw under an outage, so `busy` latched TRUE and every coupon
+  button died silently) plus its own error line in the applied branch; `SharePay` bounds the
+  post-authorize spinner at 25s and then states the hold is real — locking the tip group, which
+  would otherwise cancel it; `/track` escalates to "your payment is safe — show this screen to staff
+  and we'll match it up" with a reference from its own URL once both the live read and the fallback
+  give up, withdraws the `/account` link (same backend), and gives a genuinely offline device its own
+  branch (Refresh is `location.reload()`, which offline would destroy the receipt);
+  `SettlementBoard`'s 5s poll backs off to a 30s cap while unreadable.
+- **`lib/lock` releases return their write error** instead of dropping it — best-effort by design at
+  every call site, but the webhook's `payment_failed` branch logs it. Still 200 deliberately: unlike
+  the split marks, both releases are UNCONDITIONAL by cart (no status predicate scopes them to the
+  era the event belongs to), so opting into redelivery could clear a live `settle_at` on a split the
+  table has since opened. The 5-minute lock and 10-minute settle TTLs are the designed backstop.
+- **Five adversarial review rounds, all BLOCK**, and every HIGH landed in the FIX layer rather than
+  the original build — including one the pre-PR fix introduced: scoping `onShareFailed`'s write to
+  `pending|failed` stopped a stale redelivery downgrading a captured share, but also made
+  `authorized → failed` unrepresentable. An issuer declining the CAPTURE fires `payment_failed` while
+  the row still reads `authorized`, and that mark is what short-circuits `captureAllIfReady` and lets
+  the payer re-pay; without it the table dead-ends with money taken and no order. It now asks Stripe
+  what is true now instead of inferring from delivery order.
+- **Disclosed, not hidden (OPEN-ITEMS M36):** making `getCartTotals` throw means a cart write that
+  COMMITTED can still be reported to the diner as a failure when only the totals read broke, under
+  partial degradation. Accepted for this slice because what it replaced was worse (a silent $0 total
+  on a live cart, flowing into the pay button); the real fix is a `totals: "unknown"` marker on the
+  returned view rather than failing the mutation.
+- **Runbook:** Stripe redelivers for 72h only — a longer pause needs a manual dashboard resend plus a
+  shares-vs-orders sweep after restore.
+
 ### W10b — Staff boards keep the ledger through an outage (2026-08-01)
 
 The staff half of the W10 outage work (closes OPEN-ITEMS **M32**; plan: docs/W10_PLAN.md §W10b).

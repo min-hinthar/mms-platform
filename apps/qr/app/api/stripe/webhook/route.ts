@@ -185,22 +185,44 @@ export async function POST(req: NextRequest) {
       const cartId = intent.metadata?.cartId;
       const tipRate = Number(intent.metadata?.tipRate ?? 0) || 0;
       // idempotent: unique(stripe_payment_intent_id) means a retry is a no-op
-      const { data: existing } = await db
+      const { data: existing, error: existingError } = await db
         .from("qr_orders")
         .select("id")
         .eq("stripe_payment_intent_id", intent.id)
         .maybeSingle();
+      // W10c (M30) — this read IS the idempotency check. An unreadable row used to fall through as
+      // "no order yet", so a redelivery during an outage would attempt a SECOND fulfillment for an
+      // already-recorded charge. 5xx instead: the unique index is the hard backstop, but we should
+      // never knowingly drive at it. maybeSingle() gives {null,null} for a genuine no-row.
+      if (existingError) {
+        console.error("[stripe webhook] existing-order lookup failed", {
+          paymentIntent: intent.id,
+          error: existingError.message,
+        });
+        return NextResponse.json({ error: "Order lookup failed; will retry" }, { status: 500 });
+      }
       if (!existing && cartId) {
         // Cross-tender guard (S1.3): if the cart was already settled by ANOTHER tender (a cash settle
         // taken while this PI's pay-lock was stale), this card charge is a double-collection — do NOT
         // record a duplicate order. Ack (200) so Stripe stops retrying, and alert (non-PII) for a manual
         // refund of the orphan charge (S4.3 automates line-level refunds). mms_fulfill_order also raises
         // on a non-open cart as the hard DB backstop; this is the graceful, no-retry-storm path.
-        const { data: cartRow } = await db
+        const { data: cartRow, error: cartRowError } = await db
           .from("qr_carts")
           .select("status,tab_type")
           .eq("id", cartId)
           .maybeSingle();
+        // W10c (M30) — an unreadable cart silently SKIPPED the cross-tender guard below and proceeded
+        // to fulfill, which is how a card charge gets recorded against a cart someone already settled
+        // in cash. The guard is only a guard if it fails closed.
+        if (cartRowError) {
+          console.error("[stripe webhook] cart lookup failed", {
+            cartId,
+            paymentIntent: intent.id,
+            error: cartRowError.message,
+          });
+          return NextResponse.json({ error: "Cart lookup failed; will retry" }, { status: 500 });
+        }
         if (cartRow && cartRow.status !== "open") {
           console.error("[stripe webhook] card PI for an already-settled cart — refund needed", {
             cartId,
@@ -449,19 +471,60 @@ export async function POST(req: NextRequest) {
     if (intent.metadata?.kind === "split_share") {
       // A share's auth failed — mark it; the settlement stays frozen until the host aborts or the payer
       // retries (split uses the table-wide freeze, not the single-pay lock — nothing to release here).
-      await onShareFailed(intent.id).catch((e) =>
+      // W10c (M31): 5xx instead of logging-and-ACKing — swallowing it left the board showing a declined
+      // payer as still pending and the host waiting on money that was never coming. What makes the
+      // retry safe is that `onShareFailed` re-reads the PaymentIntent and skips the mark unless Stripe
+      // itself says there is no live authorization — see the ⚠️ in split-settle.ts, where BOTH failure
+      // modes (an unguarded write downgrading a captured share, and an over-tight predicate erasing a
+      // real authorized→failed decline) are written up.
+      try {
+        await onShareFailed(intent.id);
+      } catch (e) {
         console.error("[stripe webhook] onShareFailed failed", {
           paymentIntent: intent.id,
           error: e,
-        }),
-      );
+        });
+        return NextResponse.json(
+          { error: "Share-failed mark failed; will retry" },
+          { status: 500 },
+        );
+      }
     } else if (cartId) {
       // Single-pay: free the pay-window lock (P3.2-lock) so the cart returns to editable for the table.
       // Unconditional release by cart; idempotent + best-effort; the TTL is the backstop. ALSO release the
       // settle freeze: a secure-tab off-session close (S3.2) holds settle_at (not the single-pay lock), so
       // an async processing→failed decline would otherwise strand the table frozen for the full SETTLE_TTL.
-      await releaseCartLock(cartId, null).catch(() => {});
-      await releaseSettlement(cartId).catch(() => {});
+      //
+      // W10c (M31 sweep) — these two stay BEST-EFFORT, and that is now a decision rather than an
+      // oversight. Unlike the split marks above, BOTH releases are UNCONDITIONAL by cart (no status
+      // predicate scopes them to the era this event belongs to), so opting into redelivery would let a
+      // late retry clear a live `settle_at` and unfreeze a settlement the table has since opened —
+      // the same hazard the `onShareFailed` guard exists to prevent, but with no equivalent predicate
+      // available here (a release is not a state transition). The 5-minute lock TTL and 10-minute
+      // settle TTL are the designed backstop and heal the rows on their own. So: surface the failure
+      // to the logs (an outage here must not be invisible) and let the TTLs do their job.
+      //
+      // ⚠️ Pre-merge review — the try/catch is what KEEPS the 200 the paragraph above argues for.
+      // Dropping the old `.catch(() => {})` when these started returning their error left a throw
+      // (a `serviceClient()` construction failure, say) free to escape into the handler's outer
+      // catch and 500 — quietly re-opening the redelivery hazard the comment says must not exist.
+      try {
+        const lockErr = await releaseCartLock(cartId, null);
+        const settleErr = await releaseSettlement(cartId);
+        if (lockErr || settleErr)
+          console.error("[stripe webhook] payment_failed release(s) failed", {
+            cartId,
+            paymentIntent: intent.id,
+            lockError: lockErr?.message,
+            settleError: settleErr?.message,
+          });
+      } catch (e) {
+        console.error("[stripe webhook] payment_failed release threw", {
+          cartId,
+          paymentIntent: intent.id,
+          error: e,
+        });
+      }
     }
     posthog.capture({
       distinctId: cartId ?? intent.id,
@@ -479,12 +542,21 @@ export async function POST(req: NextRequest) {
     // Split-tender: a share's hold was canceled (host abort, or a tip-change replacement). Record it.
     const intent = event.data.object;
     if (intent.metadata?.kind === "split_share") {
-      await onShareCanceled(intent.id).catch((e) =>
+      // W10c (M31): 5xx rather than swallow — an unrecorded cancellation leaves a released hold showing
+      // as live on the board, so the table believes it is still covered by money that is gone. The mark
+      // never overwrites a captured share, so a redelivery is safe.
+      try {
+        await onShareCanceled(intent.id);
+      } catch (e) {
         console.error("[stripe webhook] onShareCanceled failed", {
           paymentIntent: intent.id,
           error: e,
-        }),
-      );
+        });
+        return NextResponse.json(
+          { error: "Share-canceled mark failed; will retry" },
+          { status: 500 },
+        );
+      }
     }
   } else if (event.type === "setup_intent.succeeded") {
     // Secure tab (S3.2): the diner's card-save confirmed. Record the saved PaymentMethod token + flip the
