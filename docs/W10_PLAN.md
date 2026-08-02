@@ -126,8 +126,7 @@ an outage, and every finding below is a place that answer was believed.
     slow tick late.
 - **`lib/lock` releases return their write error** instead of dropping it. They stay best-effort at
   every call site (the 5-min lock / 10-min settle TTLs are the real backstop) but the webhook's
-  `payment_failed` branch now logs it. **Deliberately still 200:** Stripe's first redelivery lands
-  unscoped by any status predicate, unlike the split marks — the releases are
+  `payment_failed` branch now logs it. **Deliberately still 200:** unlike the split marks, these releases are
   UNCONDITIONAL by cart, so a late redelivery would clear a live `settle_at` on a split the table
   has since opened. A 500 here buys nothing and could cost something.
 - **Runbook note (ops):** Stripe redelivers a failed webhook for **72 hours**. A pause longer than

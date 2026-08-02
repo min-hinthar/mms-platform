@@ -254,6 +254,22 @@ const MUTANTS = [
     replace: '    .eq("status", "pending")\n    .select("id");',
   },
   {
+    id: "split-settle/revives-a-dead-payment-intent",
+    file: "apps/qr/lib/split-settle.ts",
+    suite: "lib/split-settle.test.ts",
+    why: "a stale redelivery must not re-open a share whose PI is dead — the all-authorized gate would pass again and CAPTURE every other payer against an order that can never be fulfilled",
+    find: '  if (pi.status !== "requires_capture" && pi.status !== "succeeded") {',
+    replace: "  if (false) {",
+  },
+  {
+    id: "split-settle/mark-without-readback",
+    file: "apps/qr/lib/split-settle.ts",
+    suite: "lib/split-settle.test.ts",
+    why: "postgrest returns data:null for an UPDATE without .select(), so the 0-row check degrades to constant noise and 'marked nothing' stops being distinguishable from success",
+    find: '    .in("status", ["pending", "failed"])\n    .select("id");',
+    replace: '    .in("status", ["pending", "failed"]);',
+  },
+  {
     id: "split-settle/failed-marks-a-live-attempt",
     file: "apps/qr/lib/split-settle.ts",
     suite: "lib/split-settle.test.ts",

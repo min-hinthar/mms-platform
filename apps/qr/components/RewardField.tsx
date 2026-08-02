@@ -60,6 +60,14 @@ export function RewardField({
   const useBtnRef = useRef<HTMLButtonElement>(null);
   const acted = useRef(false);
   const refocusOnIdle = useRef<HTMLButtonElement | null>(null);
+  // How long a failed action's focus claim stays live, counted in COMMITS rather than milliseconds
+  // (a wall-clock read in a component body is impure — the React Compiler lint rejects it, rightly).
+  // `onChanged()` is a server round-trip, so when the write DID land the branch swaps a commit LATER,
+  // after the busy=false commit already used the claim — which left focus on a detached node, i.e.
+  // <body>. Two commits covers "focus what I captured" then "re-home when the branch swaps", and the
+  // hard budget is what stops a peer's realtime flip minutes later from consuming it — the invariant
+  // the `acted` guard exists to protect.
+  const refocusBudget = useRef(0);
   useEffect(() => {
     if (!acted.current) return;
     acted.current = false;
@@ -75,16 +83,20 @@ export function RewardField({
   // off via `acted`; this covers the paths that stay put. It has to run AFTER the busy=false commit,
   // or the button is still disabled and `.focus()` is a no-op.
   useEffect(() => {
+    if (!refocusOnIdle.current) return;
+    if (refocusBudget.current <= 0) {
+      refocusOnIdle.current = null; // spent — never let a later peer-driven flip consume it
+      return;
+    }
+    refocusBudget.current -= 1; // every commit costs, so the claim cannot outlive the swap window
+    if (busy) return;
+    // Deliberately NOT cleared on a successful focus: the branch may still swap when `onChanged()`
+    // resolves, detaching this node, and `.focus()` on a detached node is a silent no-op. Keeping the
+    // claim (deps include `applied`) means that swap re-homes to whichever control the new branch
+    // mounted instead of dropping the diner at <body> on the money step.
     const el = refocusOnIdle.current;
-    if (busy || !el) return;
-    // If the re-read in the catch revealed the write DID land, the branch has swapped and `el` is
-    // detached — and `.focus()` on a detached node is a silent no-op, i.e. focus on <body> again.
-    // Fall back to whichever control the CURRENT branch mounted. `applied` is in the deps so a swap
-    // that arrives after the busy=false commit still re-homes rather than being missed.
     const target = el.isConnected ? el : applied ? removeBtnRef.current : useBtnRef.current;
-    if (!target) return; // nothing mounted yet — the next commit retries
-    refocusOnIdle.current = null;
-    target.focus({ preventScroll: true });
+    target?.focus({ preventScroll: true });
   }, [busy, applied]);
 
   // W10c — both actions THROW under an outage: `applyReward`/`clearReward` run `assertCartMember`
@@ -100,6 +112,7 @@ export function RewardField({
       const res = await applyReward(cartId, code);
       if (!res.ok) {
         refocusOnIdle.current = tapped;
+        refocusBudget.current = 2;
         setError(REASON[res.reason]);
         return;
       }
@@ -122,6 +135,7 @@ export function RewardField({
       // including a peer's realtime update, would steal this device's focus. That is precisely the
       // invariant the `acted` guard exists to protect. The effect below handles the detached case.
       refocusOnIdle.current = tapped;
+      refocusBudget.current = 2;
       onChanged(); // re-read: if it DID land, the screen corrects itself
     } finally {
       setBusy(false);
@@ -139,6 +153,7 @@ export function RewardField({
       const t = await diagnose();
       setError(`${failureCopy(t, "remove that reward")} The total below is the one that counts.`);
       refocusOnIdle.current = removeBtnRef.current;
+      refocusBudget.current = 2;
       onChanged();
     } finally {
       setBusy(false);

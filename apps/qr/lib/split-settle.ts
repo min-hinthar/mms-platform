@@ -51,9 +51,57 @@ async function cartIdForPi(
   return data?.cart_id ?? null;
 }
 
+/**
+ * What Stripe says about this PaymentIntent RIGHT NOW, or null when the PI can't exist.
+ *
+ * Both status handlers act on an event that may be up to 72h old and is not ordered relative to any
+ * other, so neither may infer the current state from the event's own name. `resource_missing` is the
+ * one permanent error worth short-circuiting: it can never succeed, so throwing would burn all ~15
+ * redeliveries. Everything else rethrows — a transport failure must 5xx and be retried, and a bad or
+ * restricted key heals on a later redelivery once it is fixed.
+ */
+async function livePaymentIntent(piId: string): Promise<{ status: string } | null> {
+  try {
+    return await getStripe().paymentIntents.retrieve(piId);
+  } catch (e) {
+    if ((e as { code?: string }).code === "resource_missing") {
+      console.error("[split-settle] PaymentIntent not found", { paymentIntent: piId });
+      return null;
+    }
+    throw e;
+  }
+}
+
 /** A share's PI was authorized (capture_method=manual confirmed). Mark it, then capture-all if ready. */
 export async function onShareAuthorized(piId: string): Promise<void> {
   const db = serviceClient();
+  // ⚠️ W10c pre-merge review, round 3 — the revival below has to be SYMMETRIC with `onShareFailed`:
+  // ask Stripe whether the hold is live before re-opening a share that is currently `failed`.
+  //
+  // Widening the predicate without this check turned a clean failure into a charged one. The trace:
+  // every share authorizes → `captureAllIfReady` captures P first and P's ISSUER declines the capture
+  // → that is not `payment_intent_unexpected_state`, so it rethrows → 500, and Q and R are untouched
+  // (nobody charged) → `payment_failed` marks P `failed` → then Stripe redelivers the ORIGINAL
+  // `amount_capturable_updated` for P, which flips P back to `authorized` on a PaymentIntent that is
+  // now DEAD → the all-authorized gate passes again → Q and R are really captured → P fails again and
+  // ends `canceled`. Two diners charged, the order unfulfillable, and the host's abort refuses
+  // ("Payment already completed — the order will finish"). It will not finish.
+  //
+  // A genuine decline-then-retry answers `requires_capture` here; a stale redelivery of a dead PI
+  // answers `requires_payment_method` and is skipped. That is the whole difference, and it is the
+  // difference between "nobody was charged" and "everyone but one was".
+  const pi = await livePaymentIntent(piId);
+  if (!pi) return;
+  // `succeeded` = already captured (a redelivery arriving after the capture); still a real
+  // authorization, and the row can only move pending/failed → authorized, so the succeeded webhook
+  // still marks it captured afterwards.
+  if (pi.status !== "requires_capture" && pi.status !== "succeeded") {
+    console.warn("[split-settle] onShareAuthorized: no live authorization — no mark", {
+      paymentIntent: piId,
+      status: pi.status,
+    });
+    return;
+  }
   const { data: marked, error: markError } = await db
     .from("qr_cart_shares")
     .update({ status: "authorized", updated_at: new Date().toISOString() })
@@ -261,22 +309,8 @@ export async function onShareFailed(piId: string): Promise<void> {
   // So ask the PaymentIntent what is true NOW — the same "confirm the real state before writing"
   // discipline `captureAllIfReady` already uses after its capture. A stale redelivery finds a
   // succeeded/still-live PI and is skipped; a genuine decline finds no live authorization and marks.
-  let pi;
-  try {
-    pi = await getStripe().paymentIntents.retrieve(piId);
-  } catch (e) {
-    // ⚠️ Pre-merge review — classify, the way `captureAllIfReady` classifies its capture error. A
-    // TRANSPORT failure must 5xx so Stripe redelivers; a PERMANENT one (`resource_missing` — a PI
-    // this account/mode can't see) would otherwise 500 on every one of ~15 redeliveries for 72h,
-    // burning the endpoint on an event that can never succeed. There is nothing to mark either way.
-    if ((e as { code?: string }).code === "resource_missing") {
-      console.error("[split-settle] onShareFailed: PaymentIntent not found", {
-        paymentIntent: piId,
-      });
-      return;
-    }
-    throw e;
-  }
+  const pi = await livePaymentIntent(piId);
+  if (!pi) return;
   // ⚠️ Pre-merge review — an ALLOW-list, not a skip-list. The question is not "is there a hold?" but
   // "is a payment attempt still alive on this PaymentIntent?", and only ONE Stripe status answers no
   // while leaving something to record: `requires_payment_method` (Stripe's terminal state for both a

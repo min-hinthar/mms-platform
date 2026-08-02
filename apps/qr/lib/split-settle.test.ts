@@ -30,6 +30,7 @@ type Call = {
   patch: Record<string, unknown>;
   eq: [string, unknown][];
   inList?: string[];
+  selected?: boolean;
 };
 const calls: Call[] = [];
 let updateResult: { data: Row[] | null; error: { message: string } | null } = {
@@ -50,10 +51,16 @@ function chain(table: string, patch: Record<string, unknown>) {
       return api;
     },
     select() {
+      call.selected = true;
       return Promise.resolve(updateResult);
     },
-    then(res: (v: typeof updateResult) => unknown) {
-      return Promise.resolve(updateResult).then(res);
+    // ⚠️ Pre-merge review — postgrest's REAL contract: an UPDATE without `.select()` is
+    // return=minimal and resolves `data: null`. An earlier mock resolved the same rows either way,
+    // so deleting `.select()` from the module under test SURVIVED this suite — a degenerate fixture
+    // pinning the exact thing the code comment calls mandatory. Model the difference, so a dropped
+    // `.select()` makes the 0-row check fire on every call and the assertions below notice.
+    then(res: (v: { data: null; error: { message: string } | null }) => unknown) {
+      return Promise.resolve({ data: null, error: updateResult.error }).then(res);
     },
   };
   return api;
@@ -111,6 +118,9 @@ describe("onShareFailed — only a genuinely dead PaymentIntent may mark a share
     // … and must never reach a terminal, money-bearing one.
     expect(marked()[0]?.inList).not.toContain("captured");
     expect(marked()[0]?.inList).not.toContain("canceled");
+    // Without `.select()` postgrest returns `data: null` for an UPDATE, so "we marked nothing" and
+    // "we marked a row" become indistinguishable — the 0-row warning degrades to constant noise.
+    expect(marked()[0]?.selected).toBe(true);
   });
 
   // The regression that shipped and was caught pre-merge: a 3DS step-up parks the PI at
@@ -151,7 +161,21 @@ describe("onShareFailed — only a genuinely dead PaymentIntent may mark a share
 });
 
 describe("onShareAuthorized — a declined share must be able to come back", () => {
+  // ⚠️ The round-4 finding, and the reason the revival is gated on Stripe. Without this, a redelivery
+  // of the ORIGINAL authorization event re-opened a share whose PaymentIntent had since died, the
+  // all-authorized gate passed again, and every OTHER payer at the table was really captured against
+  // an order that could never be fulfilled — turning "nobody was charged" into "everyone but one was".
+  it.each(["requires_payment_method", "canceled", "processing", "requires_action"])(
+    "refuses to revive a share whose PaymentIntent is %s",
+    async (status) => {
+      piStatus = status;
+      await onShareAuthorized("pi_1");
+      expect(calls.filter((c) => c.patch.status === "authorized")).toHaveLength(0);
+    },
+  );
+
   it("accepts a retry on a share that was previously marked failed", async () => {
+    piStatus = "requires_capture"; // a real, live hold — what a genuine decline→retry produces
     await onShareAuthorized("pi_1");
     const mark = calls.find((c) => c.patch.status === "authorized");
     // Without `failed` here, the plain decline→re-enter-a-card→authorize path updated 0 rows,
@@ -159,9 +183,11 @@ describe("onShareAuthorized — a declined share must be able to come back", () 
     expect(mark?.inList).toEqual(expect.arrayContaining(["pending", "failed"]));
     expect(mark?.inList).not.toContain("captured");
     expect(mark?.inList).not.toContain("canceled");
+    expect(mark?.selected).toBe(true);
   });
 
   it("throws when the authorization mark fails — a lost hold has no record", async () => {
+    piStatus = "requires_capture";
     updateResult = { data: null, error: { message: "fetch failed" } };
     await expect(onShareAuthorized("pi_1")).rejects.toThrow(/mark failed/);
   });

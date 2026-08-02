@@ -165,12 +165,23 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
   const db = serviceClient();
   // Never re-derive once money is in flight — that would orphan an authorized PaymentIntent. (The
   // freeze was just refreshed by acquire, which is harmless; we simply don't touch the shares.)
-  const { data: live } = await db
+  // ⚠️ W10c pre-merge review — this guard's error was dropped, three lines from the code this slice
+  // added, and it is the same postgrest failure mode the whole slice is about: an unreadable read
+  // yields `data: null`, the guard passes, and execution reaches the DELETE below — wiping a LIVE
+  // authorized share and orphaning its PaymentIntent, so a later capture becomes money taken with no
+  // order (`cartIdForPi` finds nothing) or a hold that sits ~7 days. Fail closed, releasing the
+  // freeze the same way the derive-read block below already does.
+  const { data: live, error: liveErr } = await db
     .from("qr_cart_shares")
     .select("id")
     .eq("cart_id", id)
     .in("status", ["authorized", "captured"])
     .limit(1);
+  if (liveErr) {
+    console.error("[split] in-flight share check failed", liveErr);
+    await releaseSettlement(id);
+    throw new Error("Couldn’t start the split — please try again");
+  }
   if (live && live.length > 0) throw new Error("Payments are already in progress");
 
   // ⚠️ W10c pre-merge review — the freeze is ALREADY HELD (acquireSettlement wrote settle_at above),
@@ -288,10 +299,17 @@ export async function abortSettlement(cartId: string): Promise<void> {
   const releaseError = await releaseSettlement(id);
   if (releaseError) throw new Error("Couldn’t cancel the split just now — try again in a moment");
 
-  const { data: shares } = await db
+  // Same rule on the abort side: an unreadable share list is not "no captured shares". Dropping this
+  // error skipped the cancel loop AND let the delete below remove rows whose holds are still live.
+  const { data: shares, error: sharesErr } = await db
     .from("qr_cart_shares")
     .select("stripe_payment_intent_id,status")
     .eq("cart_id", id);
+  if (sharesErr) {
+    console.error("[split] abort share read failed", sharesErr);
+    await refreeze(db, id); // we already lifted the freeze to claim the abort — put it back
+    throw new Error("Couldn’t cancel the split just now — try again in a moment");
+  }
   // If a capture WON the race (any captured share), money is committing — re-freeze so the cart can't be
   // edited before the succeeded webhook snapshots the order, and let fulfillment finish (don't delete).
   if ((shares ?? []).some((s) => s.status === "captured")) {
@@ -312,11 +330,18 @@ export async function abortSettlement(cartId: string): Promise<void> {
   // Conditional delete — NEVER remove a share captured in the race window (its money is taken and the
   // succeeded webhook must still fulfill it). If one survived, re-freeze + surface it rather than strand.
   await db.from("qr_cart_shares").delete().eq("cart_id", id).neq("status", "captured");
-  const { data: survivor } = await db
+  const { data: survivor, error: survivorErr } = await db
     .from("qr_cart_shares")
     .select("id")
     .eq("cart_id", id)
     .limit(1);
+  // An unreadable survivor check is not "no survivors" — that would report a clean abort over a share
+  // the delete didn't reach. Re-freeze and say so.
+  if (survivorErr) {
+    console.error("[split] abort survivor check failed", survivorErr);
+    await refreeze(db, id);
+    throw new Error("Couldn’t cancel the split just now — try again in a moment");
+  }
   if (survivor && survivor.length > 0) {
     await refreeze(db, id);
     throw new Error("Payment completed during cancel — the order will finish");
