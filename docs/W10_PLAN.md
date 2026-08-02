@@ -95,7 +95,7 @@ an outage, and every finding below is a place that answer was believed.
   that already existed. And in `create-intent` the **partial** failure was the worse one — items
   readable, `mms_promo_discount` not, discount silently 0, diner charged MORE than the cart in front
   of them showed. Pinned by `lib/totals.test.ts` (4 cases, including a happy path so a blanket-throw
-  mutant can't pass) + `verify:slice` mutants (28 total across the slice, from 20).
+  mutant can't pass) + `verify:slice` mutants (29 total across the slice, from 20).
 - **`split-settle` stops converting Stripe's retry durability into silent loss (M31).** Every
   `qr_cart_shares`/`qr_carts` read and write in `cartIdForPi` · `onShareAuthorized` ·
   `captureAllIfReady` · `onShareCaptured` · `onShareFailed` · `onShareCanceled` throws on `error`
