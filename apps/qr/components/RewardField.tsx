@@ -59,18 +59,21 @@ export function RewardField({
   const removeBtnRef = useRef<HTMLButtonElement>(null);
   const useBtnRef = useRef<HTMLButtonElement>(null);
   const acted = useRef(false);
+  const refocusOnIdle = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
     if (!acted.current) return;
     acted.current = false;
+    // The branch just swapped, so anything the failure path captured is detached — drop it rather
+    // than let the effect below focus a node that is no longer in the document (pre-merge review).
+    refocusOnIdle.current = null;
     (applied ? removeBtnRef.current : useBtnRef.current)?.focus({ preventScroll: true });
   }, [applied]);
 
   // ⚠️ Pre-PR review — focus restore on FAILURE. `setBusy(true)` disables the control the diner just
   // tapped, and a browser blurs a focused element the moment it is disabled — so every failed apply
   // or remove silently parked a keyboard/SR user at <body>, on the money step. The success paths hand
-  // off via `acted` above; this covers the paths that stay put. It has to run AFTER the busy=false
-  // commit, or the button is still disabled and `.focus()` is a no-op.
-  const refocusOnIdle = useRef<HTMLButtonElement | null>(null);
+  // off via `acted`; this covers the paths that stay put. It has to run AFTER the busy=false commit,
+  // or the button is still disabled and `.focus()` is a no-op.
   useEffect(() => {
     if (busy || !refocusOnIdle.current) return;
     const el = refocusOnIdle.current;
@@ -106,7 +109,12 @@ export function RewardField({
       // And don't over-claim: a throw is not proof the write didn't land (a response lost after a
       // committed mutation is the canonical case). Point at the server-authoritative total instead.
       setError(`${failureCopy(t, "apply that reward")} Nothing’s charged — check the total below.`);
+      // Arm BOTH handoffs, because we don't yet know which one applies: `refocusOnIdle` for the
+      // ordinary case (the write didn't land, the panel stays put), and `acted` for the case the
+      // re-read below reveals it DID land — which swaps the branch and detaches `tapped` (pre-merge
+      // review: focusing a detached node is a silent no-op, so that path dropped to <body> again).
       refocusOnIdle.current = tapped;
+      acted.current = true;
       onChanged(); // re-read: if it DID land, the screen corrects itself
     } finally {
       setBusy(false);
@@ -124,6 +132,7 @@ export function RewardField({
       const t = await diagnose();
       setError(`${failureCopy(t, "remove that reward")} The total below is the one that counts.`);
       refocusOnIdle.current = removeBtnRef.current;
+      acted.current = true; // same both-handoffs reasoning as apply()
       onChanged();
     } finally {
       setBusy(false);

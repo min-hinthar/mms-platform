@@ -216,20 +216,38 @@ export async function onShareCaptured(piId: string): Promise<string | null> {
  *  payer retries. We deliberately do NOT auto-lift the freeze — the host decides. */
 export async function onShareFailed(piId: string): Promise<void> {
   const db = serviceClient();
+  // ⚠️ W10c — decide from STRIPE, never from delivery order. Two opposite ways to get this wrong, and
+  // this function got each of them in turn:
+  //
+  //   • Unguarded (the original): the 500-and-retry this branch now uses turns one lost event into up
+  //     to 72h of redeliveries, so a decline that the payer then RETRIED on the same clientSecret
+  //     (Elements keeps the PI; `create-share-intent` is idempotent on `share_<id>_<amount>` and hands
+  //     the same one back), authorized, and captured with the table would be downgraded to 'failed' by
+  //     the original event landing late — `onShareCaptured`'s all-captured check could then never
+  //     pass, so money was taken with no order, and `create-share-intent` (claiming on
+  //     `pending|failed|canceled`) would let that seat mint a SECOND PI.
+  //   • Over-guarded (pre-PR review's fix, caught pre-merge): excluding `authorized` made
+  //     authorized→failed unrepresentable — but that is a REAL transition. A capture declined by the
+  //     issuer fires `payment_failed` while the row still reads 'authorized', and nothing else records
+  //     it (`onShareCanceled` only covers `payment_intent.canceled`). The mark is what short-circuits
+  //     `captureAllIfReady`'s all-authorized gate and what lets the payer re-pay; without it the table
+  //     dead-ends with a captured sibling, an infinite capture-retry storm, a 409 on the payer's retry
+  //     and an abort that refuses ("Payment already completed"). Worse than the bug it fixed.
+  //
+  // So ask the PaymentIntent what is true NOW — the same "confirm the real state before writing"
+  // discipline `captureAllIfReady` already uses after its capture. A stale redelivery finds a
+  // succeeded/still-live PI and is skipped; a genuine decline finds no live authorization and marks.
+  const pi = await getStripe().paymentIntents.retrieve(piId);
+  // succeeded = money taken · requires_capture = the hold is live · processing = in flight ·
+  // canceled = `onShareCanceled` owns it. None of these is a failure, whatever this event says.
+  if (["succeeded", "requires_capture", "processing", "canceled"].includes(pi.status)) return;
   const { error } = await db
     .from("qr_cart_shares")
     .update({ status: "failed", updated_at: new Date().toISOString() })
     .eq("stripe_payment_intent_id", piId)
-    // ⚠️ W10c pre-PR review — this predicate is what makes the 5xx-and-retry above SAFE, and it was
-    // missing. Stripe does not order deliveries, and the 500 turns one lost event into up to 72h of
-    // redeliveries: a decline marked here, retried by the payer on the SAME clientSecret (Elements
-    // keeps the PI; `create-share-intent` is idempotent on `share_<id>_<amount>` and returns it
-    // again), authorized, and captured with the table — then the original `payment_failed` lands and
-    // an unguarded write downgrades a CAPTURED share to 'failed'. From there `onShareCaptured`'s
-    // all-captured check can never pass, so the money is taken and no order is ever fulfilled, and
-    // `create-share-intent` (which claims on `pending|failed|canceled`) lets that seat mint a second
-    // PI — a double collection. Same test the payment_failed release branch applies to itself.
-    .in("status", ["pending", "failed"]);
+    // Belt to the Stripe check's braces: never downgrade a terminal row. `authorized` IS included —
+    // that is the decline-at-capture case above, and the retrieve is what makes it safe.
+    .in("status", ["pending", "failed", "authorized"]);
   // A lost 'failed' mark leaves the board showing that payer as still pending, so the host waits on a
   // card that already declined — the table stalls with no one able to see why.
   if (error) throw new Error(`onShareFailed: mark failed — ${error.message}`);

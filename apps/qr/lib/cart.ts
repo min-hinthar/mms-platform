@@ -594,7 +594,11 @@ export async function getCartView(cartId: string): Promise<{
     // `mms_promo_discount` times out) fell through to `didIPayForCart` → false → the exact copy W10a
     // exists to delete: "This order isn't available on this device. Start from the menu.", printed
     // over an intact order. Same 503 shape every other unknowable answer in the app uses.
-    totals: await getCartTotals(id).catch(() => {
+    totals: await getCartTotals(id).catch((e: unknown) => {
+      // Pre-merge review — retyping loses WHICH read died, and `getCartTotals` is careful to say
+      // (cart items / promo discount / reward discount). During a partial degradation — the case this
+      // 503 exists for — that sentence is the only server-side signal there is. Keep it.
+      console.error("[cart] getCartView totals unreadable", { cartId: id, error: e });
       throw new AuthzError(
         "We’re having trouble on our end — try again in a moment",
         503,

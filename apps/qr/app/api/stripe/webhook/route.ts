@@ -472,10 +472,11 @@ export async function POST(req: NextRequest) {
       // A share's auth failed — mark it; the settlement stays frozen until the host aborts or the payer
       // retries (split uses the table-wide freeze, not the single-pay lock — nothing to release here).
       // W10c (M31): 5xx instead of logging-and-ACKing — swallowing it left the board showing a declined
-      // payer as still pending and the host waiting on money that was never coming. The mark is
-      // redelivery-safe because `onShareFailed` scopes its write to `status in (pending,failed)`; an
-      // UNSCOPED write here would let a 72h-late redelivery downgrade a share that has since been
-      // authorized and captured (see the ⚠️ in split-settle.ts — that guard is what licenses this 500).
+      // payer as still pending and the host waiting on money that was never coming. What makes the
+      // retry safe is that `onShareFailed` re-reads the PaymentIntent and skips the mark unless Stripe
+      // itself says there is no live authorization — see the ⚠️ in split-settle.ts, where BOTH failure
+      // modes (an unguarded write downgrading a captured share, and an over-tight predicate erasing a
+      // real authorized→failed decline) are written up.
       try {
         await onShareFailed(intent.id);
       } catch (e) {

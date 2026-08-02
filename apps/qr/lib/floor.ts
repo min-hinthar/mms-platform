@@ -343,7 +343,13 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
   // exactly the outage this function already has a discriminant for, so use it.
   let settleTotalCents: number | null = null;
   if (cart && itemCount > 0) {
-    const settleTotals = await getCartTotals(cart.id, 0).catch(() => null);
+    const settleTotals = await getCartTotals(cart.id, 0).catch((e: unknown) => {
+      console.error("[floor] getTableDetail settle total unreadable", {
+        cartId: cart.id,
+        error: e,
+      });
+      return null;
+    });
     if (!settleTotals) return { kind: "outage" };
     settleTotalCents = settleTotals.totalCents;
   }

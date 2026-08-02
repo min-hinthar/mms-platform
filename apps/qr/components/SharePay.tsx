@@ -219,6 +219,7 @@ function ShareForm({
   // in-flight confirm) because only this state licenses the "your card is authorized" claim.
   const [authorized, setAuthorized] = useState(false);
   const [boardStale, setBoardStale] = useState(false);
+  const [rechecking, setRechecking] = useState(false); // the stalled notice's "Check again" busy flag
   // ⚠️ Pre-PR review — the stalled message must not BLAME anyone from a bare timer. The row is
   // flipped by the webhook, not by `confirmPayment`, and a delivery that takes >25s under normal
   // load is not an outage: asserting "we're having trouble on our end" there is exactly the
@@ -233,9 +234,13 @@ function ShareForm({
   // (setState lives in the timer callback, not the effect body — the React Compiler lint.)
   useEffect(() => {
     if (!authorized) return;
+    // ⚠️ Pre-merge review — AWAIT the probe before revealing the notice. Firing it un-awaited is the
+    // exact defect this same commit fixed in RewardField and Checkout: the region would mount with
+    // `truth` still "unknown" (announcing the neutral sentence), then re-render with the outage
+    // sentence and announce the WHOLE alert a second time — assertively, over a live card hold, and
+    // only in the outage case the branch exists for.
     const t = window.setTimeout(() => {
-      void diagnose();
-      setBoardStale(true);
+      void diagnose().then(() => setBoardStale(true));
     }, BOARD_FLIP_GRACE_MS);
     return () => window.clearTimeout(t);
   }, [authorized, diagnose]);
@@ -318,9 +323,19 @@ function ShareForm({
                 : truth === "you-offline"
                   ? "You look offline, so your row may still say Waiting — it’ll update when you reconnect."
                   : "Your row hasn’t updated yet — we’re waiting on the confirmation."}{" "}
+              {/* Pre-merge review — the button has to survive its own tap. `SettlementBoard` already
+                  wrote this lesson down: without a busy flag the control sits inert on a slow retry
+                  and the diner can't tell it did anything. Re-diagnosing too, so the sentence above
+                  can actually change when the platform comes back. */}
               <button
                 type="button"
-                onClick={onAuthorized}
+                aria-disabled={rechecking || undefined}
+                onClick={() => {
+                  if (rechecking) return;
+                  setRechecking(true);
+                  onAuthorized();
+                  void diagnose().finally(() => setRechecking(false));
+                }}
                 style={{
                   minHeight: 44,
                   padding: "0 4px",
@@ -329,10 +344,10 @@ function ShareForm({
                   color: "var(--ac-strong)",
                   fontWeight: 800,
                   textDecoration: "underline",
-                  cursor: "pointer",
+                  cursor: rechecking ? "default" : "pointer",
                 }}
               >
-                Check again
+                {rechecking ? "Checking…" : "Check again"}
               </button>
               <span style={{ display: "block", marginTop: 4 }}>
                 If it still says Waiting in a minute, show this to your server — nothing is lost.

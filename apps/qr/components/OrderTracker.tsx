@@ -93,7 +93,15 @@ export function OrderTracker({
     // payment is safe" to "use the Refresh button", took the payment reference off the screen
     // mid-conversation with staff, and restored the /account link to the backend that is still down.
     // Permanently, since nothing re-ran.
-    const again = () => void diagnose();
+    const again = () => {
+      // ⚠️ Pre-merge review — MAKE THE PROMISE TRUE rather than soften it. The offline copy says this
+      // screen will pick the order up on reconnect; nothing did. `useOrderStatus` has latched, and the
+      // fallback effect is guarded on `fallback` being unset — which is exactly what `gaveUp` means —
+      // so reconnecting only made the Refresh button reappear for the diner to tap. Clearing the
+      // fallback re-opens that effect, so the page really does try again by itself.
+      setFallback(null);
+      void diagnose();
+    };
     window.addEventListener("online", again);
     return () => window.removeEventListener("online", again);
   }, [gaveUp, diagnose]);
@@ -970,7 +978,7 @@ export function OrderTracker({
                   // It also contradicted the banner directly above it.
                   youOffline
                   ? // …and offline there is no Refresh above to point at (it is withdrawn), so don't.
-                    "Keep this screen open — reconnect and you’ll be able to check again."
+                    "Keep this screen open — it’ll try again by itself once you’re back online."
                   : "Nothing more will load here on its own — use Refresh above, or ask us and we’ll look it up."
                 : staleSnapshot
                   ? "This is the order as we last read it — the receipt in your account is the lasting copy."
