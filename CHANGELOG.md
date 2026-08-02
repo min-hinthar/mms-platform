@@ -17,7 +17,8 @@ produced a confident, perfectly-shaped, WRONG answer during an outage.
   lookup failed; will retry" 500 that already existed. The partial failure was worse: items
   readable, `mms_promo_discount` not, discount silently 0 — the diner charged MORE than the cart in
   front of them showed. Pinned by `lib/totals.test.ts` (4 cases incl. a happy path) + 2 new
-  `verify:slice` mutants (22 total).
+  `verify:slice` mutants (24 total: `unreadable-cart-as-empty`, `unreadable-discount-as-zero`,
+  `unreadable-reward-as-zero`, `rpc-discounts-dropped`).
 - **`split-settle` returns 5xx so Stripe redelivers (M31).** Every `qr_cart_shares`/`qr_carts` read
   and write in the five split handlers throws on `error` (`cartIdForPi` returns null only for a
   genuine no-row); the webhook's split branches, plus its `existing`-order and `cartRow` reads, 500
@@ -27,14 +28,23 @@ produced a confident, perfectly-shaped, WRONG answer during an outage.
   try/catch/finally (both actions throw under an outage, so `busy` latched TRUE and every coupon
   button died silently) plus its own error line in the applied branch; `SharePay` bounds the
   post-authorize spinner at 25s and then states the hold is real — locking the tip group, which
-  would otherwise cancel it; `/track` escalates to "your payment is safe — show this screen at the
-  counter" with a payment reference from its own URL once both the live read and the fallback give
-  up, and withdraws the `/account` link (same backend); `SettlementBoard`'s 5s poll backs off to a
-  30s cap while unreadable.
+  would otherwise cancel it; `/track` escalates to "your payment is safe — show this screen to staff
+  and we'll match it up" with a reference from its own URL once both the live read and the fallback
+  give up, withdraws the `/account` link (same backend), and gives a genuinely offline device its own
+  branch (Refresh is `location.reload()`, which offline would destroy the receipt);
+  `SettlementBoard`'s 5s poll backs off to a 30s cap while unreadable.
 - **`lib/lock` releases return their write error** instead of dropping it — best-effort by design at
-  every call site, but the webhook's `payment_failed` branch logs it. Still 200 deliberately: the
-  5/10-minute TTLs heal the rows long before Stripe's ~1h first redelivery, and an unconditional
-  late release could clear a live `settle_at` on a split the table has since opened.
+  every call site, but the webhook's `payment_failed` branch logs it. Still 200 deliberately: unlike
+  the split marks, both releases are UNCONDITIONAL by cart (no status predicate scopes them to the
+  era the event belongs to), so opting into redelivery could clear a live `settle_at` on a split the
+  table has since opened. The 5-minute lock and 10-minute settle TTLs are the designed backstop.
+- **Two adversarial review rounds, both BLOCK**, and every HIGH landed in the FIX layer rather than
+  the original build — including one the pre-PR fix introduced: scoping `onShareFailed`'s write to
+  `pending|failed` stopped a stale redelivery downgrading a captured share, but also made
+  `authorized → failed` unrepresentable. An issuer declining the CAPTURE fires `payment_failed` while
+  the row still reads `authorized`, and that mark is what short-circuits `captureAllIfReady` and lets
+  the payer re-pay; without it the table dead-ends with money taken and no order. It now asks Stripe
+  what is true now instead of inferring from delivery order.
 - **Runbook:** Stripe redelivers for 72h only — a longer pause needs a manual dashboard resend plus a
   shares-vs-orders sweep after restore.
 
