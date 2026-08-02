@@ -12,6 +12,7 @@ import { announceArrival } from "@/lib/arrival";
 import { FeedbackPrompt } from "./FeedbackPrompt";
 import { GoodbyeBeat } from "./GoodbyeBeat";
 import { PaySuccess } from "./PaySuccess";
+import { useConnectionTruth } from "@/lib/useConnectionTruth";
 
 // Lifecycle steps (verbatim v7.2). The active step is server-driven; at M1/M2 there's no kitchen
 // actor, so it rests at "Order placed" — the kitchen steps light up when S2's KDS lands (same Realtime
@@ -75,6 +76,24 @@ export function OrderTracker({
   const order = liveOrder ?? (fallback?.ok ? fallback.order : null);
   const staleSnapshot = !liveOrder && !!fallback?.ok;
   const sharePayer = fallback?.ok === false && fallback.reason === "share_payer";
+  // W10c — the timed-out banner's whole vocabulary ("a moment", "refresh to check") assumes a
+  // transient blip. When BOTH the live read and the uid-scoped server fallback have given up, ask
+  // the one health probe whether it's us; if it is, the honest thing is not "try again" but "your
+  // payment is safe, show this screen at the counter" — the diner is standing in the restaurant and
+  // a human can settle it in ten seconds. Fires once the page has actually given up, never on the
+  // happy path (the probe is passive by design). setState happens in the probe's async callback.
+  const { truth, diagnose } = useConnectionTruth();
+  const gaveUp = timedOut && !order && !!fallback;
+  useEffect(() => {
+    if (gaveUp) void diagnose();
+  }, [gaveUp, diagnose]);
+  // Only the PLATFORM verdict escalates. A share payer's answer came FROM the server (so we're up),
+  // and "you-offline" already has honest copy of its own — neither is this state.
+  const weDown = gaveUp && truth === "we-down" && !sharePayer;
+  // A human-verifiable token for the counter, from data this page was handed in its own URL — the
+  // PaymentIntent tail (single-pay) or the resolved order id (split). Never fabricated, and never a
+  // figure we can't read: the amount lives on the order row we just failed to fetch.
+  const counterRef = (paymentIntent ?? orderId)?.slice(-6).toUpperCase() ?? null;
   // Pulse the active step only while the timeline is on-screen AND motion is allowed (P5.3): a
   // box-shadow `infinite` loop shouldn't keep ticking when scrolled out of view. The ref sits on the
   // STABLE <ul>, not the moving active dot (a ref on a conditional/moving target breaks the observer).
@@ -363,7 +382,11 @@ export function OrderTracker({
                     : timedOut
                       ? sharePayer
                         ? "Your share is paid. The table’s bill is recorded under whoever started the split — details below."
-                        : "Your order is taking longer than expected — use the Refresh button to check."
+                        : weDown
+                          ? // W10c — the escalation is announced too. The reference itself is spelled
+                            // out character by character in its own sr-only sibling below.
+                            "We’re having trouble on our end. Your payment is safe — show this screen at the counter and we’ll pull up your order."
+                          : "Your order is taking longer than expected — use the Refresh button to check."
                       : justPaid
                         ? "Payment confirmed — finalizing your order."
                         : processing
@@ -614,23 +637,78 @@ export function OrderTracker({
           }}
         >
           <div style={{ fontWeight: 700, fontSize: "var(--fs-sm)" }}>
-            {sharePayer ? "Your share is paid" : "This is taking longer than usual"}
+            {sharePayer
+              ? "Your share is paid"
+              : weDown
+                ? // W10c — name the real subject. "Taking longer than usual" makes the DINER'S order
+                  // the thing that's wrong; the probe says it's our platform, and a diner whose card
+                  // was charged deserves that distinction on this of all screens.
+                  "We’re having trouble on our end"
+                : "This is taking longer than usual"}
           </div>
           {/* W9c — the old copy told a diner whose PAID, EATEN meal was sitting in the database that
               their "order just hasn't appeared here yet". It had appeared; the table was cleared and
               the live read's `is_member` authorization lapsed with it. Say what is actually true, and
               point at /account, where the uid-scoped history can always reach it. */}
           <div style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", margin: "4px 0 10px" }}>
-            {processing
-              ? "We’re still confirming your payment — refresh to check, or come back shortly."
-              : sharePayer
-                ? // ⚠️ Do NOT promise this diner a receipt in their account. `getOrderHistory` and
-                  // `getMyLiveOrders` are BOTH scoped to `earned_by`, and a split order stamps only
-                  // the host — which is the entire premise of this branch. /account would greet them
-                  // with "No orders yet". Say what is true and point at a person who can help.
-                  "Your payment went through. The table’s bill is recorded under whoever started the split, so this screen can’t follow it — ask them for the receipt, or check with us before you go."
-                : "Your payment went through; we just can’t reach the order from this screen yet. Refresh to try again."}
+            {weDown
+              ? // The escalation. Refresh stays offered below (it's free and it may work at any
+                // moment), but it is no longer the ONLY instruction on a screen where reloading
+                // can't help — the counter can look the order up by the reference and settle it.
+                processing
+                ? "Your payment is with your bank; our own systems are the part that’s down. Nothing is lost — show this screen at the counter and we’ll take it from there."
+                : "Your payment is safe — it’s our systems we can’t reach right now, not your order. Show this screen at the counter and we’ll pull it up for you."
+              : processing
+                ? "We’re still confirming your payment — refresh to check, or come back shortly."
+                : sharePayer
+                  ? // ⚠️ Do NOT promise this diner a receipt in their account. `getOrderHistory` and
+                    // `getMyLiveOrders` are BOTH scoped to `earned_by`, and a split order stamps only
+                    // the host — which is the entire premise of this branch. /account would greet them
+                    // with "No orders yet". Say what is true and point at a person who can help.
+                    "Your payment went through. The table’s bill is recorded under whoever started the split, so this screen can’t follow it — ask them for the receipt, or check with us before you go."
+                  : "Your payment went through; we just can’t reach the order from this screen yet. Refresh to try again."}
           </div>
+          {/* The receipt token staff can look the payment up by. Same visible/sr-only split as the
+              exit pass and the receipt card: a hex tail read aloud as one word is useless, so the
+              visible block is aria-hidden and a sibling spells it out. Only rendered when we have a
+              real identifier — this page is never allowed to invent one. */}
+          {weDown && counterRef && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                gap: 8,
+                flexWrap: "wrap",
+                padding: "8px 10px",
+                margin: "0 0 10px",
+                borderRadius: 10,
+                border: "1px solid var(--bd)",
+                background: "var(--cd)",
+              }}
+            >
+              <span
+                aria-hidden
+                style={{
+                  fontSize: "var(--fs-xs)",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase",
+                  color: "var(--t3)",
+                }}
+              >
+                Payment reference
+              </span>
+              <strong
+                aria-hidden
+                style={{ fontSize: "var(--fs-body)", letterSpacing: "0.06em", color: "var(--tx)" }}
+              >
+                #{counterRef}
+              </strong>
+              <span className="sr-only">
+                {`Payment reference ${counterRef.split("").join(" ")}`}
+              </span>
+            </div>
+          )}
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             {/* Refresh is ALWAYS offered here. An earlier version hid it once the fallback had
                 answered, on the reasoning that a closed session can't be reopened by reloading — but
@@ -659,7 +737,10 @@ export function OrderTracker({
                 reaches a paid order long after the table is cleared. NOT shown to a share payer: they
                 are precisely the diner `earned_by` does not cover (OPEN-ITEMS M29), so this link would
                 land them on "No orders yet". */}
-            {!sharePayer && (
+            {/* W10c — and NOT while the platform is down: /account is served by the same backend
+                we just failed to reach, so this link would hand the diner a second broken screen at
+                the exact moment they need one working instruction. */}
+            {!sharePayer && !weDown && (
               <Link href="/account" className="nav-link">
                 Find it in your account
                 <span aria-hidden className="nav-arrow nav-arrow-fwd">

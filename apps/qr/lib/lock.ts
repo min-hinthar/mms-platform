@@ -101,11 +101,28 @@ export async function acquireSettlement(cartId: string, uid: string): Promise<Se
   return "settling_other";
 }
 
+/**
+ * W10c — the two release helpers RETURN their write error instead of dropping it.
+ *
+ * They are deliberately best-effort at every call site (the TTLs above are the real backstop, and a
+ * caller that failed to release must not fail the money operation it just completed), but "we chose
+ * not to act on it" is not the same as "we never knew". postgrest-js resolves a transport failure
+ * into `{ data: null, error }` rather than rejecting, so `await q` produced a silent success during
+ * an outage — a lock left on a cart, with nothing in the logs to say so. Callers that don't care
+ * still just `await` and ignore the value; the one that should shout (the Stripe webhook's
+ * payment_failed branch) reads it and logs.
+ */
+export type ReleaseError = { message: string } | null;
+
 /** Release the settlement freeze (abort or fulfill). Unconditional by cart — the host owns it and the
- *  TTL is the backstop. Idempotent. */
-export async function releaseSettlement(cartId: string): Promise<void> {
+ *  TTL is the backstop. Idempotent. Returns the write error, or null on success. */
+export async function releaseSettlement(cartId: string): Promise<ReleaseError> {
   const db = serviceClient();
-  await db.from("qr_carts").update({ settle_at: null, settle_by: null }).eq("id", cartId);
+  const { error } = await db
+    .from("qr_carts")
+    .update({ settle_at: null, settle_by: null })
+    .eq("id", cartId);
+  return error;
 }
 
 /**
@@ -132,13 +149,15 @@ export async function extendSettlement(cartId: string): Promise<void> {
  * Release the lock. `uid` scopes it to the locker (the "Edit order" path — a member can only release
  * THEIR OWN lock, never unlock another payer mid-checkout). Pass `null` for an unconditional release
  * (the webhook on a declined payment — the charge failed, so free the cart for everyone). Idempotent.
+ * Returns the write error, or null on success (see the `ReleaseError` note above).
  */
-export async function releaseCartLock(cartId: string, uid: string | null): Promise<void> {
+export async function releaseCartLock(cartId: string, uid: string | null): Promise<ReleaseError> {
   const db = serviceClient();
   let q = db
     .from("qr_carts")
     .update({ locked: false, locked_at: null, locked_by: null })
     .eq("id", cartId);
   if (uid !== null) q = q.eq("locked_by", uid);
-  await q;
+  const { error } = await q;
+  return error;
 }

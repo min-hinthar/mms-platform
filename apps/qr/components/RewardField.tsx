@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Icon } from "@mms/ui";
 import { applyReward, clearReward, type ApplyRewardReason } from "@/lib/cart";
 import { getMyRewardCoupons, type RewardCoupon } from "@/lib/rewards";
+import { failureCopy, useConnectionTruth } from "@/lib/useConnectionTruth";
 
 const dollars = (c: number) => `$${(c / 100).toFixed(c % 100 === 0 ? 0 : 2)}`;
 
@@ -36,6 +37,9 @@ export function RewardField({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // W10c — attribution for the two catches below, diagnosed on failure and never asserted (the same
+  // one-probe truth layer the checkout promo field uses).
+  const { truth, diagnose } = useConnectionTruth();
 
   useEffect(() => {
     void getMyRewardCoupons()
@@ -60,54 +64,94 @@ export function RewardField({
     (applied ? removeBtnRef.current : useBtnRef.current)?.focus({ preventScroll: true });
   }, [applied]);
 
+  // W10c — both actions THROW under an outage: `applyReward`/`clearReward` run `assertCartMember`
+  // first, which rejects before any discriminated `reason` can exist, so the reason table above is
+  // unreachable on that path. Without a catch, `setBusy(false)` never ran and `busy` latched TRUE —
+  // every coupon button (or the Remove button, stuck on "…") disabled forever, with no error text
+  // and an unhandled rejection in the console. Dead controls on the money path, recoverable only by
+  // a full reload. `finally` is what makes that impossible; the copy says whose fault it is.
   async function apply(code: string) {
     setBusy(true);
     setError(null);
-    const res = await applyReward(cartId, code);
-    setBusy(false);
-    if (!res.ok) {
-      setError(REASON[res.reason]);
-      return;
+    try {
+      const res = await applyReward(cartId, code);
+      if (!res.ok) {
+        setError(REASON[res.reason]);
+        return;
+      }
+      setOpen(false);
+      acted.current = true; // hand focus to the Remove button once the applied row mounts
+      onChanged();
+    } catch {
+      // The reward itself is untouched by a failed apply — say so, so nobody thinks they burned it.
+      setError(`${failureCopy(truth, "apply that reward")} Your reward is still yours.`);
+      void diagnose();
+    } finally {
+      setBusy(false);
     }
-    setOpen(false);
-    acted.current = true; // hand focus to the Remove button once the applied row mounts
-    onChanged();
   }
 
   async function remove() {
     setBusy(true);
     setError(null);
-    await clearReward(cartId);
-    setBusy(false);
-    acted.current = true; // hand focus back to "Use a reward" once it remounts
-    onChanged();
+    try {
+      await clearReward(cartId);
+      acted.current = true; // hand focus back to "Use a reward" once it remounts
+      onChanged();
+    } catch {
+      // The opposite reassurance: nothing was removed, so the discount the diner can see is real.
+      setError(`${failureCopy(truth, "remove that reward")} It’s still on this order.`);
+      void diagnose();
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (applied) {
     return (
       // Warm gold-wash pill + a one-sweep shimmer on mount — a small delight when a reward lands. The
-      // content rides above the ::after shimmer on its own z-layer.
-      <div className="checkout-reward-applied" style={appliedRow}>
-        <span
-          style={{ position: "relative", zIndex: 1, fontSize: "var(--fs-sm)", color: "var(--tx)" }}
+      // content rides above the ::after shimmer on its own z-layer. W10c — the applied branch carries
+      // its OWN error line: a failed Remove used to set a message into a paragraph this branch never
+      // rendered, so the button just went quiet. The two branches are exclusive, so this is still one
+      // live region per view (QA §A).
+      <>
+        <div className="checkout-reward-applied" style={appliedRow}>
+          <span
+            style={{
+              position: "relative",
+              zIndex: 1,
+              fontSize: "var(--fs-sm)",
+              color: "var(--tx)",
+            }}
+          >
+            <Icon
+              name="gift"
+              size={14}
+              style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }}
+            />
+            Reward applied · <strong>−{dollars(appliedRewardCents)}</strong>
+          </span>
+          <button
+            ref={removeBtnRef}
+            type="button"
+            onClick={remove}
+            disabled={busy}
+            style={{ ...linkBtn, position: "relative", zIndex: 1 }}
+          >
+            {busy ? "…" : "Remove"}
+          </button>
+        </div>
+        {/* Always mounted (an aria-live region has to pre-exist its content to be announced), but it
+            reserves no space until it has something to say — the applied pill is a settled state and
+            must not carry a permanent empty gap under it. */}
+        <p
+          role="status"
+          aria-atomic="true"
+          style={{ ...errLine, minHeight: 0, margin: error ? "6px 0 0" : 0 }}
         >
-          <Icon
-            name="gift"
-            size={14}
-            style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }}
-          />
-          Reward applied · <strong>−{dollars(appliedRewardCents)}</strong>
-        </span>
-        <button
-          ref={removeBtnRef}
-          type="button"
-          onClick={remove}
-          disabled={busy}
-          style={{ ...linkBtn, position: "relative", zIndex: 1 }}
-        >
-          {busy ? "…" : "Remove"}
-        </button>
-      </div>
+          {error}
+        </p>
+      </>
     );
   }
   if (coupons.length === 0) return null; // no rewards to redeem → no affordance

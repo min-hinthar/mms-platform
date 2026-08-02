@@ -12,6 +12,14 @@ import { getStripePromise, stripeAppearance } from "@/lib/stripe-client";
  * captures every share together once the whole table has authorized. Changing the tip re-mints the PI
  * (the old one is canceled server-side). PAN lives only in Stripe's iframe (SAQ-A).
  */
+/**
+ * W10c — how long the form waits for the board to confirm an authorization that has ALREADY landed
+ * at the card network before it stops spinning and says so. The board polls every 5s (with backoff),
+ * so this is ~4 chances to flip the row; longer and the diner is staring at a spinner over a real
+ * hold on their card, which is the one state the board's own honesty work can't cover.
+ */
+const BOARD_FLIP_GRACE_MS = 25_000;
+
 const TIPS: [label: string, rate: number][] = [
   ["No tip", 0],
   ["15%", 0.15],
@@ -26,6 +34,12 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
   const [amountCents, setAmountCents] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // W10c — this payer has a LIVE HOLD on their card. Changing the tip re-mints the PaymentIntent and
+  // the route cancels the old one, which is fine while nothing is authorized — but the form below now
+  // tells a stalled diner "your card is authorized", and a tip control that would quietly cancel that
+  // authorization is a button that falsifies the sentence beside it. The board's own row is the way
+  // out from here (it flips to Authorized the moment we can read it), so the tip is settled.
+  const [held, setHeld] = useState(false);
   const stripePromise = getStripePromise();
 
   // Shared with PaymentSection (was an inline duplicate — drift risk). Resolves the theme from the
@@ -73,7 +87,7 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
   // Reset → re-mint lives in these EVENT handlers (not the effect body — the React Compiler forbids a
   // synchronous setState there); the effect only fetches + sets results in its async callbacks.
   function selectTip(rate: number) {
-    if (rate === tipRate) return;
+    if (rate === tipRate || held) return; // the hold is placed — the tip is settled with it
     setClientSecret(null);
     setLoading(true);
     setError(null);
@@ -101,6 +115,9 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
               key={rate}
               type="button"
               aria-pressed={on}
+              // `aria-disabled`, not `disabled`: the chosen tip stays readable + focusable (it is the
+              // record of what was authorized), and `selectTip` refuses the change either way.
+              aria-disabled={held || undefined}
               onClick={() => selectTip(rate)}
               className="checkout-tip"
               style={{
@@ -112,7 +129,8 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
                 color: on ? "var(--ac-strong)" : "var(--tx)",
                 fontWeight: 800,
                 fontSize: "var(--fs-sm)",
-                cursor: "pointer",
+                cursor: held ? "default" : "pointer",
+                opacity: held && !on ? 0.5 : 1,
               }}
             >
               {label}
@@ -153,7 +171,13 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
         </p>
       ) : (
         <Elements key={clientSecret} stripe={stripePromise} options={options}>
-          <ShareForm amountCents={amountCents} onAuthorized={onAuthorized} />
+          <ShareForm
+            amountCents={amountCents}
+            onAuthorized={() => {
+              setHeld(true); // freeze the tip group above — the money is committed
+              onAuthorized();
+            }}
+          />
         </Elements>
       )}
     </div>
@@ -171,6 +195,22 @@ function ShareForm({
   const elements = useElements();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The hold IS on this card — Stripe confirmed it. Distinct from `submitting` (which also covers the
+  // in-flight confirm) because only this state licenses the "your card is authorized" claim.
+  const [authorized, setAuthorized] = useState(false);
+  const [boardStale, setBoardStale] = useState(false);
+
+  // W10c — bound the post-authorize wait. `onAuthorized()` re-syncs the board and this form
+  // deliberately keeps its spinner, because the row is about to flip to "Authorized" and unmount it.
+  // During an outage that flip never comes: "Authorizing…" spun forever on top of money that had
+  // really been held, and the diner could not tell a failed authorization from our backend being
+  // down — so some re-tap, or hand the phone to the host. After the grace, say the true thing.
+  // (setState lives in the timer callback, not the effect body — the React Compiler lint.)
+  useEffect(() => {
+    if (!authorized) return;
+    const t = window.setTimeout(() => setBoardStale(true), BOARD_FLIP_GRACE_MS);
+    return () => window.clearTimeout(t);
+  }, [authorized]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -197,8 +237,9 @@ function ShareForm({
       paymentIntent &&
       (paymentIntent.status === "requires_capture" || paymentIntent.status === "succeeded")
     ) {
+      setAuthorized(true); // starts the grace timer above
       onAuthorized(); // re-sync the board; the webhook marks the share authorized
-      return; // keep the spinner — the row flips to "Authorized" on the next board sync
+      return; // keep the form unsubmittable — the row flips to "Authorized" on the next board sync
     }
     // Rare non-terminal status (e.g. still processing) with no error — re-enable + tell the diner
     // honestly rather than leaving a dead button.
@@ -207,26 +248,43 @@ function ShareForm({
   }
 
   const dollars = `$${(amountCents / 100).toFixed(2)}`;
+  // Mutually exclusive by construction: once `authorized` the form can't be submitted again, so no
+  // new `error` can arrive — which is what lets both share ONE region (QA §A, one live region).
+  const stalled = boardStale && !error;
   return (
     <form onSubmit={onSubmit} style={{ marginTop: 12 }}>
       <PaymentElement options={{ layout: "tabs" }} />
-      {/* Errors only → role=alert (announces reliably; matches the mint-failure branches) — the settle
-          view's polite status region belongs to the parent (one per view). */}
+      {/* Errors → role=alert (announces reliably; matches the mint-failure branches) — the settle
+          view's polite status region belongs to the parent (one per view). The stalled-board notice
+          rides the SAME region: it arrives ~25s after the diner's last action, about money already
+          held on their card, so it has to interrupt rather than wait to be found. */}
       <p
         role="alert"
         style={{
           minHeight: 16,
           margin: "10px 0 0",
           fontSize: "var(--fs-sm)",
-          color: "var(--warn)",
+          lineHeight: 1.5,
+          color: stalled ? "var(--t2)" : "var(--warn)",
+          ...(stalled
+            ? {
+                background: "var(--sf)",
+                border: "1px solid var(--bd)",
+                borderRadius: 10,
+                padding: "10px 12px",
+              }
+            : null),
         }}
       >
-        {error}
+        {error ??
+          (stalled
+            ? "Your card is authorized — no charge yet; nothing is captured until the whole table is in. We’re having trouble updating the board, so your row may still say Waiting. It’ll catch up."
+            : null)}
       </p>
       <button
         type="submit"
         disabled={!stripe || submitting}
-        aria-busy={submitting}
+        aria-busy={submitting && !boardStale}
         style={{
           width: "100%",
           marginTop: 12,
@@ -241,7 +299,7 @@ function ShareForm({
           opacity: !stripe || submitting ? 0.7 : 1,
         }}
       >
-        {submitting ? "Authorizing…" : `Authorize ${dollars}`}
+        {boardStale ? "Card authorized" : submitting ? "Authorizing…" : `Authorize ${dollars}`}
       </button>
       <p style={{ fontSize: "var(--fs-xs)", color: "var(--t3)", marginTop: 8, lineHeight: 1.5 }}>
         You’re only authorized now — your card is charged when everyone at the table has paid their

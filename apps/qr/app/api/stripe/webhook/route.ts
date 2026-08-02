@@ -491,8 +491,23 @@ export async function POST(req: NextRequest) {
       // Unconditional release by cart; idempotent + best-effort; the TTL is the backstop. ALSO release the
       // settle freeze: a secure-tab off-session close (S3.2) holds settle_at (not the single-pay lock), so
       // an async processing→failed decline would otherwise strand the table frozen for the full SETTLE_TTL.
-      await releaseCartLock(cartId, null).catch(() => {});
-      await releaseSettlement(cartId).catch(() => {});
+      //
+      // W10c (M31 sweep) — these two stay BEST-EFFORT, and that is now a decision rather than an
+      // oversight. A 500 here would buy nothing and could cost something: Stripe's first redelivery
+      // lands ~an hour out, by which time the 5-minute lock TTL and the 10-minute settle TTL have
+      // already healed both rows on their own — while the releases are UNCONDITIONAL by cart, so a
+      // redelivery arriving after the table opened a NEW split would clear a live `settle_at` and
+      // unfreeze a settlement that is mid-flight. So: surface the failure to the logs (an outage
+      // here must not be invisible), and let the TTLs be the backstop they were designed to be.
+      const lockErr = await releaseCartLock(cartId, null);
+      const settleErr = await releaseSettlement(cartId);
+      if (lockErr || settleErr)
+        console.error("[stripe webhook] payment_failed release(s) failed", {
+          cartId,
+          paymentIntent: intent.id,
+          lockError: lockErr?.message,
+          settleError: settleErr?.message,
+        });
     }
     posthog.capture({
       distinctId: cartId ?? intent.id,
