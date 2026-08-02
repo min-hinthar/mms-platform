@@ -121,6 +121,12 @@ describe("onShareFailed — only a genuinely dead PaymentIntent may mark a share
     // Without `.select()` postgrest returns `data: null` for an UPDATE, so "we marked nothing" and
     // "we marked a row" become indistinguishable — the 0-row warning degrades to constant noise.
     expect(marked()[0]?.selected).toBe(true);
+    // ⚠️ Round 5 — the IDENTITY predicate. Recorded from the first version of this file and asserted
+    // by none of it: a reviewer removed `.eq("stripe_payment_intent_id", piId)` from BOTH marks — an
+    // implementation that rewrites EVERY share row in the database, across every cart and every
+    // table, on each webhook event — and the suite stayed 16/16 green. A guard written and never made
+    // to fail, inside the test file added to close exactly that class.
+    expect(marked()[0]?.eq).toContainEqual(["stripe_payment_intent_id", "pi_1"]);
   });
 
   // The regression that shipped and was caught pre-merge: a 3DS step-up parks the PI at
@@ -165,14 +171,17 @@ describe("onShareAuthorized — a declined share must be able to come back", () 
   // of the ORIGINAL authorization event re-opened a share whose PaymentIntent had since died, the
   // all-authorized gate passed again, and every OTHER payer at the table was really captured against
   // an order that could never be fulfilled — turning "nobody was charged" into "everyone but one was".
-  it.each(["requires_payment_method", "canceled", "processing", "requires_action"])(
-    "refuses to revive a share whose PaymentIntent is %s",
-    async (status) => {
-      piStatus = status;
-      await onShareAuthorized("pi_1");
-      expect(calls.filter((c) => c.patch.status === "authorized")).toHaveLength(0);
-    },
-  );
+  it.each([
+    "requires_payment_method",
+    "canceled",
+    "processing",
+    "requires_action",
+    "requires_confirmation",
+  ])("refuses to revive a share whose PaymentIntent is %s", async (status) => {
+    piStatus = status;
+    await onShareAuthorized("pi_1");
+    expect(calls.filter((c) => c.patch.status === "authorized")).toHaveLength(0);
+  });
 
   it("accepts a retry on a share that was previously marked failed", async () => {
     piStatus = "requires_capture"; // a real, live hold — what a genuine decline→retry produces
@@ -184,6 +193,7 @@ describe("onShareAuthorized — a declined share must be able to come back", () 
     expect(mark?.inList).not.toContain("captured");
     expect(mark?.inList).not.toContain("canceled");
     expect(mark?.selected).toBe(true);
+    expect(mark?.eq).toContainEqual(["stripe_payment_intent_id", "pi_1"]);
   });
 
   it("throws when the authorization mark fails — a lost hold has no record", async () => {

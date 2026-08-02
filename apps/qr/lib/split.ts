@@ -178,8 +178,14 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
     .in("status", ["authorized", "captured"])
     .limit(1);
   if (liveErr) {
+    // ⚠️ Round 5 — do NOT release here. The refusal ten lines below (a share IS authorized) keeps the
+    // freeze deliberately, because lifting it over live holds is unsafe; on THIS path we don't know
+    // which case we're in, so releasing picks the unsafe one. Worse, `captureAllIfReady` will still
+    // capture a STALE freeze once the table is fully covered but can never capture a NULL one, and
+    // `extendSettlement` can't revive null either — so a released freeze here is the harder failure.
+    // Keeping it costs nothing: `acquireSettlement`'s `settle_by.eq.<uid>` disjunct lets this same
+    // host retry immediately, and the 10-minute TTL frees it for anyone else.
     console.error("[split] in-flight share check failed", liveErr);
-    await releaseSettlement(id);
     throw new Error("Couldn’t start the split — please try again");
   }
   if (live && live.length > 0) throw new Error("Payments are already in progress");
@@ -306,14 +312,21 @@ export async function abortSettlement(cartId: string): Promise<void> {
     .select("stripe_payment_intent_id,status")
     .eq("cart_id", id);
   if (sharesErr) {
-    console.error("[split] abort share read failed", sharesErr);
-    await refreeze(db, id); // we already lifted the freeze to claim the abort — put it back
+    // Nothing has been cancelled or deleted yet, so putting the freeze back restores the exact
+    // pre-abort state. If that write ALSO fails, say so — the table is now unfrozen over live holds.
+    const refreezeErr = await refreeze(db, id, uid);
+    console.error("[split] abort share read failed", {
+      error: sharesErr,
+      refreezeError: refreezeErr?.message,
+    });
     throw new Error("Couldn’t cancel the split just now — try again in a moment");
   }
   // If a capture WON the race (any captured share), money is committing — re-freeze so the cart can't be
   // edited before the succeeded webhook snapshots the order, and let fulfillment finish (don't delete).
   if ((shares ?? []).some((s) => s.status === "captured")) {
-    await refreeze(db, id);
+    const refreezeErr = await refreeze(db, id, uid);
+    if (refreezeErr)
+      console.error("[split] refreeze failed (abort lost the race to a capture)", refreezeErr);
     throw new Error("Payment already completed — the order will finish");
   }
 
@@ -338,22 +351,42 @@ export async function abortSettlement(cartId: string): Promise<void> {
   // An unreadable survivor check is not "no survivors" — that would report a clean abort over a share
   // the delete didn't reach. Re-freeze and say so.
   if (survivorErr) {
-    console.error("[split] abort survivor check failed", survivorErr);
-    await refreeze(db, id);
+    const refreezeErr = await refreeze(db, id, uid);
+    console.error("[split] abort survivor check failed", {
+      error: survivorErr,
+      refreezeError: refreezeErr?.message,
+    });
     throw new Error("Couldn’t cancel the split just now — try again in a moment");
   }
   if (survivor && survivor.length > 0) {
-    await refreeze(db, id);
+    const refreezeErr = await refreeze(db, id, uid);
+    if (refreezeErr)
+      console.error("[split] refreeze failed (survivor found after delete)", refreezeErr);
     throw new Error("Payment completed during cancel — the order will finish");
   }
 }
 
 /** Re-assert the settlement freeze on an open cart (used when an abort loses the race to a capture, so
  *  the cart stays read-only until the in-flight fulfillment snapshots the order). */
-async function refreeze(db: ReturnType<typeof serviceClient>, cartId: string): Promise<void> {
-  await db
+async function refreeze(
+  db: ReturnType<typeof serviceClient>,
+  cartId: string,
+  settleBy?: string,
+): Promise<{ message: string } | null> {
+  // ⚠️ Round 5 — two fixes. (1) RETURN the write error: this is a compensating write, and its callers
+  // now reach it precisely BECAUSE a read just failed, so it is the write most likely to fail too —
+  // a silent one leaves the table unfrozen over live holds with nothing in the logs, the exact swallow
+  // this slice exists to delete. (2) Restore `settle_by`: `releaseSettlement` nulls it, and
+  // `acquireSettlement` matches on `settle_at.is.null | settle_by.eq.<uid> | settle_at.lte.<cutoff>`
+  // — so a refreeze that left it null told the ABORTING HOST "Another host is already splitting this
+  // order" for the full TTL, on his own table.
+  const { error } = await db
     .from("qr_carts")
-    .update({ settle_at: new Date().toISOString() })
+    .update({
+      settle_at: new Date().toISOString(),
+      ...(settleBy ? { settle_by: settleBy } : {}),
+    })
     .eq("id", cartId)
     .eq("status", "open");
+  return error;
 }

@@ -17,8 +17,8 @@ produced a confident, perfectly-shaped, WRONG answer during an outage.
   lookup failed; will retry" 500 that already existed. The partial failure was worse: items
   readable, `mms_promo_discount` not, discount silently 0 — the diner charged MORE than the cart in
   front of them showed. Pinned by `lib/totals.test.ts` (4 cases incl. a happy path) + 2 new
-  `verify:slice` mutants (28 total, up from 20 — the four totals arms plus two that cover
-  `split-settle.ts`, which had no executable coverage of any kind before this slice).
+  **nine** new `verify:slice` mutants (29 total, up from 20): four totals arms plus five covering
+  `split-settle.ts`, which had no executable coverage of any kind before this slice.
 - **`split-settle` returns 5xx so Stripe redelivers (M31).** Every `qr_cart_shares`/`qr_carts` read
   and write in the five split handlers throws on `error` (`cartIdForPi` returns null only for a
   genuine no-row); the webhook's split branches, plus its `existing`-order and `cartRow` reads, 500

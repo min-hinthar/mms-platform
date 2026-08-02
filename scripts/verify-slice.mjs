@@ -254,6 +254,14 @@ const MUTANTS = [
     replace: '    .eq("status", "pending")\n    .select("id");',
   },
   {
+    id: "split-settle/mark-not-scoped-to-its-payment-intent",
+    file: "apps/qr/lib/split-settle.ts",
+    suite: "lib/split-settle.test.ts",
+    why: "the IDENTITY predicate — without it a webhook event rewrites EVERY share row in the database, across every cart and table (a reviewer removed it from both marks and the suite stayed 16/16 green)",
+    find: '    .eq("stripe_payment_intent_id", piId)\n    // ⚠️ W10c pre-merge review — `failed` MUST be here, and `.select()` MUST be chained.',
+    replace: '    .eq("id", "id")\n    // ⚠️ W10c pre-merge review — `failed` MUST be here, and `.select()` MUST be chained.',
+  },
+  {
     id: "split-settle/revives-a-dead-payment-intent",
     file: "apps/qr/lib/split-settle.ts",
     suite: "lib/split-settle.test.ts",

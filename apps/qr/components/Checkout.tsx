@@ -1133,7 +1133,7 @@ export function Checkout({
             <RewardField
               cartId={cartId}
               appliedRewardCents={totals.rewardCents}
-              onChanged={() => void refresh()}
+              onChanged={refresh}
             />
 
             {/* W5e: the pickup timing choice — ASAP (fire now, ready ~prep min) ⇆ a scheduled slot.
