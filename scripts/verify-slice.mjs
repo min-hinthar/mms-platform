@@ -254,22 +254,6 @@ const MUTANTS = [
     replace: '    .eq("status", "pending")\n    .select("id");',
   },
   {
-    id: "split-reconcile/tips-dropped",
-    file: "apps/qr/lib/split-reconcile.ts",
-    suite: "lib/split-reconcile.test.ts",
-    why: "tips live on the shares and NOT in the cart total — dropping them makes every tipped table look like a mismatch and refuses a legitimate capture",
-    find: "  const expectedCents = cartTotalCents + tipsCents;",
-    replace: "  const expectedCents = cartTotalCents;\n  void tipsCents;",
-  },
-  {
-    id: "split-reconcile/never-mismatches",
-    file: "apps/qr/lib/split-reconcile.ts",
-    suite: "lib/split-reconcile.test.ts",
-    why: "M25 — the whole point is a check that CAN fire; a reconcile that always returns ok is the tautology this replaces",
-    find: "  return { ok: ledgerCents === expectedCents, ledgerCents, expectedCents };",
-    replace: "  return { ok: true, ledgerCents, expectedCents };",
-  },
-  {
     id: "split-intent/key-ignores-the-attempt",
     file: "apps/qr/lib/split-intent-key.ts",
     suite: "lib/split-intent-key.test.ts",

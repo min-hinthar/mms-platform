@@ -136,35 +136,53 @@ an outage, and every finding below is a place that answer was believed.
 
 ## W10d — a split table can always finish ✅ (2026-08-02)
 
-The three defects the W10c review rounds surfaced on the split-tender path but left out of scope.
-Closes OPEN-ITEMS **M1**, **M25**, **M39**, **M40**.
+Two of the three defects the W10c reviews surfaced on the split-tender path. Closes OPEN-ITEMS
+**M39** and **M40**. The third (**M1/M25**) was built, reviewed, and **reverted** — that is the most
+useful thing in this slice, so it is written up below rather than quietly dropped.
 
 - **A declined payer could not re-pay at the same tip (M39).** `create-share-intent` cancels the prior
   PaymentIntent and then calls `create` under the SAME `share_<id>_<amount>` idempotency key. Stripe
-  caches a key's response for 24h, so it replayed the intent the route had just canceled — decline →
-  refresh → retry handed back a canceled client secret, every time, for the full key window. The only
-  escape was changing the tip, which no copy suggests. The key now carries the intent being REPLACED
-  (`…_after-<pi>`): a retry is a new key, a double-tap (both requests read the same previous id,
-  neither having claimed the row) still collapses onto one intent. Extracted to
-  `lib/split-intent-key.ts` so the property is testable — and its own test immediately caught that the
-  first draft's "no previous intent" sentinel could collide with a literal id of the same value.
-- **The fulfillment guard compared a number to itself (M25), and making it real would have made it
-  dangerous (M1).** `mms_fulfill_split_order` raises when the captured sum ≠ `p_expected_total_cents`,
-  but the caller produced that expectation by summing the very rows the function re-sums. Giving it a
-  real second opinion — the cart's authoritative total plus the per-payer tips — turns it into a guard;
-  but a guard at FULFILLMENT time can only fire after every card is charged, which converts a ledger
-  discrepancy into money-taken-with-no-order. So the reconcile runs in `captureAllIfReady` **before the
-  first capture**, where refusing costs nothing: the authorizations lapse on their own and the host can
-  restart the split. Drift is reachable only by a staff void/comp landing mid-settle — precisely when
-  charging against a stale ledger is worst. `lib/split-reconcile.ts` is pure so it is mutation-tested.
+  caches a key's response for 24h, so it replayed the intent the route had just canceled. The key now
+  carries the intent being REPLACED (`…_after-<pi>`): a retry is a new key, a double-tap still
+  collapses onto one intent. Extracted to `lib/split-intent-key.ts` so the property is testable — its
+  own test caught the first draft's sentinel collision, and a review caught that every retry fixture
+  passed the same previous id, so the term was never actually pinned as being READ.
+  **Reachability, stated precisely:** the common decline path re-confirms the SAME intent on the
+  still-mounted Element and never calls this route (that path was fixed in W10c). This bug is reached
+  by a remount, a tip toggle, or SharePay's own "Try again".
+  A failed claim WRITE no longer cancels the minted intent either — the row still points at the
+  previous id, so the retry derives the same key, and cancelling would recreate the exact dead end.
 - **Abort abandoned live holds (M40).** The cancel loop covered only `authorized`/`pending` rows, then
   the delete removed every non-`captured` row — so a share marked `failed` whose PaymentIntent still
-  carried a live authorization kept it for the full ~7-day window, with no record left that could ever
-  release it. A row's status is not its PaymentIntent's status; that is the same confusion that made
-  W10c's `onShareAuthorized` predicate wrong.
-- **Deferred to W10d·2 (needs a migration + a product decision):** **M29** — only the host is stamped
-  `earned_by`, so every other share payer's paid order is invisible to them. Visibility is a bug;
-  whether they also earn a Star is a question against the "one order = one Star" model.
+  carried a live authorization kept it for the full ~7-day window with no record left that could
+  release it. A row's status is not its PaymentIntent's status. Cancel failures are now reported (the
+  delete on the next line destroys the only record of the hold), and that delete checks its own error.
+
+### Reverted: the real fulfillment reconcile (M1/M25) — and why
+
+`mms_fulfill_split_order`'s sum guard compares a value to itself. Giving it a real second opinion (the
+cart's total + per-payer tips) and running that reconcile BEFORE the first capture looked correct and
+is not:
+
+- **The cart total legitimately MOVES.** The webhook burns the applied reward immediately after
+  fulfillment (`mms_reward_discount` filters `redeemed_at is null`), and a time-windowed promo can
+  expire mid-settlement. Every sibling and redelivered `succeeded` event then computed a LARGER
+  expectation than the pinned ledger, and the RPC's guard runs before its idempotent branch — so a
+  self-healing no-op became a permanent 72h failure loop.
+- **"Refusing costs nothing" is false on re-entry.** `captureAllIfReady` deliberately proceeds on a
+  stale freeze and is re-entered by the straggler path after a PARTIAL capture. Refusing there leaves
+  money already taken on the captured shares, and `abortSettlement` refuses too once any share is
+  captured — the precise dead end the slice claimed to prevent.
+
+**The design that works** (its own slice, needs a migration): persist the expected total at
+`openSettlement`, reconcile the ledger against that PINNED constant pre-capture, and give a mismatch a
+durable record plus a diner/staff surface instead of a `console.error` and a retry loop. Tracked as
+**M1**/**M25**, with the new gaps the review found as **M42** (neither call site is pinned by any
+test), **M43** (a dead-ended split tells no one) and **M44** (a released hold is never announced).
+
+**Still deferred:** **M29** — only the host is stamped `earned_by`, so every other share payer's paid
+order is invisible to them. Visibility is a bug; whether they also earn a Star is a product question
+against the "one order = one Star" model.
 
 ## Deliberately deferred
 

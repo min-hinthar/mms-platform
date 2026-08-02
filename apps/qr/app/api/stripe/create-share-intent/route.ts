@@ -170,21 +170,34 @@ export async function POST(req: NextRequest) {
         )
       : claim.or(`stripe_payment_intent_id.is.null,stripe_payment_intent_id.eq.${intent.id}`);
     const { data: claimed, error: updErr } = await claim.select("id").maybeSingle();
-    if (updErr || !claimed) {
-      // Either the write failed, or a concurrent webhook advanced this share (authorized/captured) since we
-      // read it → cancel the just-minted PI so it can't be captured, and never revert the ledger. Tell the
-      // payer their share already moved on (409) rather than returning a client secret we didn't record.
+    // ⚠️ W10d (M39, pre-PR review) — these two failures are NOT the same and must not share a cancel.
+    //
+    // A concurrent webhook advancing the share (authorized/captured) is TERMINAL: the intent we just
+    // minted can never be used, so cancel it or it lingers as a stray authorization.
+    //
+    // A failed WRITE is retryable, and cancelling there re-creates the very dead end M39 is about. The
+    // row still points at `previousIntentId`, so the payer's next attempt derives the SAME idempotency
+    // key — and Stripe replays this intent. Cancel it here and that replay hands back a canceled client
+    // secret, exactly as the old `share_<id>_<amount>` key did. Leaving it alive means the retry
+    // replays a usable intent and simply re-attempts the claim, which is the behaviour we want.
+    if (updErr) {
+      console.error("[create-share-intent] share claim write failed — leaving the intent live", {
+        shareId: share.id,
+        paymentIntent: intent.id,
+        error: updErr.message,
+      });
+      return NextResponse.json({ error: "Could not start your payment" }, { status: 500 });
+    }
+    if (!claimed) {
       try {
         await getStripe().paymentIntents.cancel(intent.id);
       } catch {
         /* best-effort */
       }
-      return updErr
-        ? NextResponse.json({ error: "Could not start your payment" }, { status: 500 })
-        : NextResponse.json(
-            { error: "Your share was just settled — refresh to see it." },
-            { status: 409 },
-          );
+      return NextResponse.json(
+        { error: "Your share was just settled — refresh to see it." },
+        { status: 409 },
+      );
     }
 
     // W1·Q4: payer activity — slide the settlement freeze forward (extend-only while still fresh;

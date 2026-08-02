@@ -342,18 +342,41 @@ export async function abortSettlement(cartId: string): Promise<void> {
   // of including a status is zero and the cost of omitting one is a week of someone's credit limit.
   //
   // Only `captured` is excluded, and it can't reach here — the branch above throws on it.
+  const abandonedHolds: string[] = [];
   for (const s of shares ?? []) {
     if (s.stripe_payment_intent_id && s.status !== "captured") {
       try {
         await getStripe().paymentIntents.cancel(s.stripe_payment_intent_id);
-      } catch {
-        // Already canceled / captured / gone — best-effort; never block the abort on Stripe.
+      } catch (e) {
+        // Best-effort by design — never block the abort on Stripe. But NOT silent: the delete on the
+        // next line removes the only row that records this PaymentIntent, so a cancel that failed for
+        // a reason other than "already dead" leaves a live hold on a diner's card that nothing on our
+        // side can ever find again. `resource_missing`/`already canceled` are the benign majority;
+        // anything else is a hold we are knowingly abandoning, and it has to be recoverable from logs.
+        if ((e as { code?: string }).code !== "payment_intent_unexpected_state")
+          abandonedHolds.push(s.stripe_payment_intent_id);
       }
     }
   }
+  if (abandonedHolds.length > 0)
+    console.error("[split] abort could not cancel these holds — they will lapse on their own", {
+      cartId: id,
+      paymentIntents: abandonedHolds,
+    });
   // Conditional delete — NEVER remove a share captured in the race window (its money is taken and the
   // succeeded webhook must still fulfill it). If one survived, re-freeze + surface it rather than strand.
-  await db.from("qr_cart_shares").delete().eq("cart_id", id).neq("status", "captured");
+  // The same unchecked-write class the W10 arc exists to delete: a silently-failed DELETE leaves the
+  // ledger intact while the code below reports a clean abort, so the host is told the split is cancelled
+  // over rows that still exist (and whose holds were just cancelled).
+  const { error: deleteErr } = await db
+    .from("qr_cart_shares")
+    .delete()
+    .eq("cart_id", id)
+    .neq("status", "captured");
+  if (deleteErr) {
+    console.error("[split] abort ledger delete failed", deleteErr);
+    throw new Error("Couldn’t cancel the split just now — try again in a moment");
+  }
   const { data: survivor, error: survivorErr } = await db
     .from("qr_cart_shares")
     .select("id")

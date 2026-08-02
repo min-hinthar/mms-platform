@@ -6,20 +6,24 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ### W10d — A split table can always finish (2026-08-02)
 
-The split-tender defects the W10c reviews surfaced but left out of scope (closes OPEN-ITEMS **M1**,
-**M25**, **M39**, **M40**).
+Two split-tender defects the W10c reviews surfaced (closes OPEN-ITEMS **M39**, **M40**).
 
 - **A declined split payer can re-pay again.** The share PaymentIntent's idempotency key was
   `share_<id>_<amount>`, and the route cancels the prior intent before re-creating — so Stripe replayed
-  the canceled one for 24h. Decline → refresh → retry returned a dead client secret every time unless
-  the payer happened to change their tip. The key now carries the intent it replaces.
-- **The split fulfillment guard stopped comparing a number to itself**, and the real reconcile moved
-  BEFORE the first capture — a ledger check that can only fire at fulfillment time can only fire after
-  every card is charged.
-- **Aborting a split releases every hold it abandons**, not just the ones whose row happened to read
-  `authorized`/`pending`. A `failed` row can still carry a live ~7-day authorization.
-- 214 qr tests and 32 `verify:slice` mutants (from 29): two new pure modules
-  (`split-intent-key`, `split-reconcile`) carry the rules, so both are mechanically pinned.
+  the canceled one for 24h. Reached by a remount, a tip toggle, or SharePay's "Try again" (the common
+  decline path re-confirms the same intent and was fixed in W10c). The key now carries the intent it
+  replaces, and a failed claim write no longer cancels the minted intent, which would recreate the
+  same dead end on the retry.
+- **Aborting a split releases every hold it abandons**, not just rows reading `authorized`/`pending` —
+  a `failed` row can still carry a live ~7-day authorization, and the delete on the next line destroys
+  the only record of it. Cancel failures are now reported; the delete checks its own error.
+- **Built and reverted: the real fulfillment reconcile (M1/M25).** Deriving the expectation from the
+  live cart is wrong — the webhook burns the applied reward right after fulfilling and a promo can
+  expire mid-settlement, so every redelivered event computed a larger total and the guard raised for
+  72h; and refusing pre-capture is not free once the straggler path has already captured some shares.
+  The finding is written up in `docs/W10_PLAN.md` §W10d and M1/M25 stay open with the design that
+  works (persist the expected total at open time). Three new gaps logged: **M42**, **M43**, **M44**.
+- 209 qr tests and `verify:slice` mutants.
 
 ### W10c — The money path stops answering with numbers it isn't sure of (2026-08-02)
 

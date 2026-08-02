@@ -31,6 +31,15 @@ describe("shareIntentKey — a retry must not replay the intent it just canceled
     );
   });
 
+  it("gives two DIFFERENT replaced intents two different keys", () => {
+    // Pre-PR review: every other retry fixture passed the same "pi_1", so the suite never pinned that
+    // the replaced-intent term is actually READ — a key that appended a constant would have passed.
+    // This is the property the whole fix rests on: attempt N+1 must not reuse attempt N's key.
+    expect(shareIntentKey("share-1", 2400, "pi_1")).not.toBe(
+      shareIntentKey("share-1", 2400, "pi_2"),
+    );
+  });
+
   it("never collides across payers at the same table", () => {
     // Every share at a table can carry an identical amount (an even split); the share id is what keeps
     // two payers from sharing one PaymentIntent.
