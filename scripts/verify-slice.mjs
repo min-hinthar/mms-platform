@@ -217,6 +217,26 @@ const MUTANTS = [
     find: 'const s = typeof raw === "string" ? raw.trim() : "";',
     replace: 'const s = typeof raw === "string" ? raw : "";',
   },
+  // ── the charge authority's honesty (W10c/M30) ───────────────────────────────────────────────────
+  // Not arithmetic: these pin that the totals engine REFUSES to answer when a read failed. postgrest
+  // resolves a network failure to `{ data: null, error }`, so dropping either throw doesn't crash —
+  // it silently returns a confident wrong number on the money path.
+  {
+    id: "totals/unreadable-cart-as-empty",
+    file: "apps/qr/lib/totals.ts",
+    suite: "lib/totals.test.ts",
+    why: "an unreadable cart must never be priced as an EMPTY cart (zeros into the webhook's tamper check)",
+    find: "if (rowsError) throw new Error(`getCartTotals: cart items unreadable — ${rowsError.message}`);",
+    replace: "if (false && rowsError) throw new Error('unreachable');",
+  },
+  {
+    id: "totals/unreadable-discount-as-zero",
+    file: "apps/qr/lib/totals.ts",
+    suite: "lib/totals.test.ts",
+    why: "an unreadable promo discount must never fall back to 0 — that overcharges the diner by the discount they can see",
+    find: "  if (discountError)\n    throw new Error(`getCartTotals: promo discount unreadable — ${discountError.message}`);",
+    replace: "  if (false && discountError) throw new Error('unreachable');",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));
