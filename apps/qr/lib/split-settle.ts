@@ -2,6 +2,8 @@ import "server-only";
 import { serviceClient } from "@mms/db/server";
 import { getStripe } from "./stripe";
 import { extendSettlement, releaseSettlement, CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock";
+import { getCartTotals } from "./totals";
+import { checkShareLedger } from "./split-reconcile";
 
 /**
  * Split-tender settlement orchestration (M3·P3.3b, Option A: authorize-all → capture-together). Driven
@@ -29,7 +31,12 @@ import { extendSettlement, releaseSettlement, CART_LOCK_TTL_MS, SETTLE_TTL_MS } 
  * The one thing that must never happen is silence.
  */
 
-type ShareRow = { stripe_payment_intent_id: string | null; status: string; amount_cents: number };
+type ShareRow = {
+  stripe_payment_intent_id: string | null;
+  status: string;
+  amount_cents: number;
+  tip_cents: number;
+};
 
 /**
  * The cart a share's PI belongs to. `null` means a GENUINE no-row (an event for a PI we don't own —
@@ -172,7 +179,7 @@ export async function captureAllIfReady(
 
   const { data, error: sharesError } = await db
     .from("qr_cart_shares")
-    .select("stripe_payment_intent_id,status,amount_cents")
+    .select("stripe_payment_intent_id,status,amount_cents,tip_cents")
     .eq("cart_id", cartId);
   // Likewise: an unreadable share list is not an empty one — treating it as empty skips the capture.
   if (sharesError) throw new Error(`captureAllIfReady: shares unreadable — ${sharesError.message}`);
@@ -194,6 +201,39 @@ export async function captureAllIfReady(
     cart.locked_at != null &&
     new Date(cart.locked_at).getTime() > Date.now() - CART_LOCK_TTL_MS;
   if (!fresh && singlePayInFlight) return;
+
+  // ⚠️ W10d (M1 + M25) — THE reconcile, and it lives HERE, before a single capture, on purpose.
+  //
+  // `mms_fulfill_split_order` already raises when the captured sum doesn't match what it was told to
+  // expect, and that check was tautological: its caller derived `expected` by summing the very rows
+  // the function then re-sums. Giving it a real number (the cart's own authoritative total plus the
+  // per-payer tips) makes it a genuine guard — but a genuine guard at FULFILLMENT time can only fire
+  // after every card has been charged, which converts a ledger discrepancy into money-taken-with-no-
+  // order. That is the precise state this whole arc exists to prevent, so the check has to run where
+  // refusing still costs nothing.
+  //
+  // Drift should be impossible: the freeze blocks diner edits, and the shares were derived from this
+  // same total when the split opened. It is reachable only by a STAFF void/comp landing mid-settle —
+  // exactly the case where charging cards against a stale ledger is worst. Refusing leaves every
+  // authorization untouched (they lapse on their own) and the host can restart the split.
+  const grand = await getCartTotals(cartId, 0);
+  const ledger = checkShareLedger(
+    shares.map((s) => ({ amountCents: s.amount_cents, tipCents: s.tip_cents ?? 0 })),
+    grand.totalCents,
+  );
+  if (!ledger.ok) {
+    // Loud and specific: this is the one condition where the ledger and the cart disagree about what
+    // the table owes, and no automated retry can reconcile it.
+    console.error("[split-settle] refusing to capture — share ledger does not match the cart", {
+      cartId,
+      ledgerCents: ledger.ledgerCents,
+      expectedCents: ledger.expectedCents,
+      cartTotalCents: grand.totalCents,
+    });
+    throw new Error(
+      `captureAllIfReady: ledger/cart mismatch — shares=${ledger.ledgerCents} cart+tips=${ledger.expectedCents}`,
+    );
+  }
 
   const nowIso = new Date().toISOString();
   for (const s of shares) {
@@ -250,12 +290,12 @@ export async function onShareCaptured(piId: string): Promise<string | null> {
 
   const { data, error: sharesError } = await db
     .from("qr_cart_shares")
-    .select("status,amount_cents")
+    .select("status,amount_cents,tip_cents")
     .eq("cart_id", cartId);
   // An unreadable share list must not read as "no shares" — that returns null and the ORDER IS NEVER
   // FULFILLED for a table whose cards have all been charged.
   if (sharesError) throw new Error(`onShareCaptured: shares unreadable — ${sharesError.message}`);
-  const shares = (data ?? []) as Pick<ShareRow, "status" | "amount_cents">[];
+  const shares = (data ?? []) as Pick<ShareRow, "status" | "amount_cents" | "tip_cents">[];
   if (shares.length === 0) return null;
   if (!shares.every((s) => s.status === "captured")) {
     // W1·Q4 straggler re-drive: if a previous capture-all pass died mid-loop (e.g. the $0-share
@@ -281,8 +321,15 @@ export async function onShareCaptured(piId: string): Promise<string | null> {
     throw new Error(`onShareCaptured: cart status unreadable — ${cartRowError.message}`);
   const wasOpen = cartRow?.status === "open";
 
-  // Σ of the captured amounts == the order total (the fn re-verifies + snapshots one order).
-  const expected = shares.reduce((a, s) => a + s.amount_cents, 0);
+  // What the fulfillment RPC reconciles the captured sum AGAINST. Deriving it from the cart (not by
+  // re-summing the same share rows the RPC will sum) is what turns that check from a tautology into a
+  // guard — see the reconcile in `captureAllIfReady`, which is what makes it safe for this one to be
+  // able to fire at all.
+  const grand = await getCartTotals(cartId, 0);
+  const expected = checkShareLedger(
+    shares.map((s) => ({ amountCents: s.amount_cents, tipCents: s.tip_cents ?? 0 })),
+    grand.totalCents,
+  ).expectedCents;
   const { data: orderId, error } = await db.rpc("mms_fulfill_split_order", {
     p_cart_id: cartId,
     p_expected_total_cents: expected,

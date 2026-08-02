@@ -330,9 +330,20 @@ export async function abortSettlement(cartId: string): Promise<void> {
     throw new Error("Payment already completed — the order will finish");
   }
 
-  // Release each authorized/pending hold so a payer isn't left with a lingering authorization.
+  // Release each still-cancelable hold so a payer isn't left with a lingering authorization.
+  //
+  // ⚠️ W10d (M40) — `failed` MUST be in this list, and the reason is the same one that made W10c's
+  // `onShareAuthorized` predicate wrong: a share's ROW STATUS is not the PaymentIntent's status. A
+  // decline at CAPTURE marks the row `failed` while its PI can still hold a live authorization, and a
+  // row marked `failed` by one attempt can have been re-authorized on a later one. The delete below
+  // then removes the row, so this loop is the last moment anything knows the hold exists — after it,
+  // the money sits on the diner's card for the full ~7-day authorization window with no record on our
+  // side that could ever release it. Cancelling an already-dead PI is a documented no-op, so the cost
+  // of including a status is zero and the cost of omitting one is a week of someone's credit limit.
+  //
+  // Only `captured` is excluded, and it can't reach here — the branch above throws on it.
   for (const s of shares ?? []) {
-    if (s.stripe_payment_intent_id && (s.status === "authorized" || s.status === "pending")) {
+    if (s.stripe_payment_intent_id && s.status !== "captured") {
       try {
         await getStripe().paymentIntents.cancel(s.stripe_payment_intent_id);
       } catch {

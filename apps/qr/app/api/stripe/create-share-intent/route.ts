@@ -6,6 +6,7 @@ import { assertCartMember, AuthzError } from "@/lib/authz";
 import { withinMutationRate } from "@/lib/rate";
 import { extendSettlement } from "@/lib/lock";
 import { captureAllIfReady } from "@/lib/split-settle";
+import { shareIntentKey } from "@/lib/split-intent-key";
 import { getPostHogClient } from "@/lib/posthog-server";
 
 /**
@@ -110,6 +111,12 @@ export async function POST(req: NextRequest) {
 
     // A tip change before authorizing replaces the PI — cancel the prior PENDING one so no stray
     // authorization lingers. (Best-effort; an already-captured/canceled PI just no-ops.)
+    //
+    // ⚠️ W10d (M39) — capture WHICH intent we are replacing BEFORE cancelling it, because it is now
+    // part of the idempotency key. Without it, cancelling and then re-creating under the same
+    // `share_<id>_<amount>` key made Stripe replay the intent we had just killed, so a declined payer
+    // retrying at the same tip got a canceled client secret every time for the full 24h key window.
+    const previousIntentId = share.stripe_payment_intent_id ?? null;
     if (share.stripe_payment_intent_id) {
       try {
         await getStripe().paymentIntents.cancel(share.stripe_payment_intent_id);
@@ -129,9 +136,11 @@ export async function POST(req: NextRequest) {
         automatic_payment_methods: { enabled: true, allow_redirects: "never" },
         metadata: { cartId, seatId: uid, shareId: share.id, kind: "split_share" },
       },
-      // Amount in the key: a tip change (new amount) mints a fresh PI; an identical re-submit (double
-      // tap) returns the same PI rather than a duplicate authorization.
-      { idempotencyKey: `share_${share.id}_${amount}` },
+      // Share + amount + the intent being REPLACED: a tip change mints a fresh PI, a retry after a
+      // decline mints a fresh PI, and an identical re-submit (double tap, which reads the same
+      // `previousIntentId` because neither request has claimed the row yet) returns the same PI rather
+      // than a duplicate authorization. See lib/split-intent-key.ts for why the third term exists.
+      { idempotencyKey: shareIntentKey(share.id, amount, previousIntentId) },
     );
 
     // Claim the row atomically: only overwrite it if it's STILL pre-authorization (pending/failed/canceled)
@@ -151,9 +160,15 @@ export async function POST(req: NextRequest) {
       })
       .eq("id", share.id)
       .in("status", ["pending", "failed", "canceled"]);
-    claim = share.stripe_payment_intent_id
-      ? claim.eq("stripe_payment_intent_id", share.stripe_payment_intent_id)
-      : claim.is("stripe_payment_intent_id", null);
+    // Accept the row either still pointing at the intent we replaced, or ALREADY pointing at the one we
+    // just minted — the second case is a concurrent double-tap whose twin won the claim with the SAME
+    // idempotent intent. Without it the loser fell into the `!claimed` arm below and cancelled the very
+    // PaymentIntent the winner had just handed the payer (W10d, alongside M39).
+    claim = previousIntentId
+      ? claim.or(
+          `stripe_payment_intent_id.eq.${previousIntentId},stripe_payment_intent_id.eq.${intent.id}`,
+        )
+      : claim.or(`stripe_payment_intent_id.is.null,stripe_payment_intent_id.eq.${intent.id}`);
     const { data: claimed, error: updErr } = await claim.select("id").maybeSingle();
     if (updErr || !claimed) {
       // Either the write failed, or a concurrent webhook advanced this share (authorized/captured) since we
