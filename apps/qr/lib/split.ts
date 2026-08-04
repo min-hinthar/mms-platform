@@ -260,7 +260,37 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
   );
 
   // Replace any prior PENDING set (a re-open before anyone paid), then write the fresh shares.
-  await db.from("qr_cart_shares").delete().eq("cart_id", id);
+  //
+  // ⚠️ W10d pre-merge review — release the holds FIRST, for the same reason `abortSettlement` does
+  // (M40): the guard above only refuses on `authorized`/`captured`, and a share's ROW STATUS is not its
+  // PaymentIntent's status. A `pending`/`failed` row can sit over a live authorization whenever the
+  // webhook that would have advanced it is delayed or 5xxing — exactly the outage class this arc is
+  // about — and past the 10-minute TTL a re-open is the table's only forward exit. This DELETE used to
+  // remove those rows and cancel nothing, stranding the hold for the full ~7-day window with no record
+  // left. The delete RETURNS what it removed (the serialization point), so a row claimed mid-re-open is
+  // covered too.
+  const { data: replaced, error: replacedErr } = await db
+    .from("qr_cart_shares")
+    .delete()
+    .eq("cart_id", id)
+    .select("stripe_payment_intent_id");
+  if (replacedErr) {
+    await releaseSettlement(id); // don't strand a freeze over a ledger we could not clear
+    console.error("[split] open could not clear the prior share set", replacedErr);
+    throw new Error("Could not start the split");
+  }
+  const strandedHolds: string[] = [];
+  for (const row of replaced ?? []) {
+    if (!row.stripe_payment_intent_id) continue;
+    const outcome = await releaseHold(row.stripe_payment_intent_id);
+    if (outcome !== "released" && outcome !== "gone")
+      strandedHolds.push(row.stripe_payment_intent_id);
+  }
+  if (strandedHolds.length > 0)
+    console.error("[split] re-open could not release these prior holds", {
+      cartId: id,
+      paymentIntents: strandedHolds,
+    });
   const { error } = await db.from("qr_cart_shares").insert(
     breakdowns.map((b) => ({
       cart_id: id,

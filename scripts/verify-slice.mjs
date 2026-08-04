@@ -267,7 +267,8 @@ const MUTANTS = [
     suite: "lib/split.test.ts",
     why: "postgrest resolves a transport failure into { data: null, error } — an unchecked ledger DELETE reports a clean abort over rows that still exist and whose holds were just cancelled",
     find: '    console.error("[split] abort ledger delete failed", deleteErr);\n    throw new Error(',
-    replace: '    console.error("[split] abort ledger delete failed", deleteErr);\n    void String(',
+    replace:
+      '    console.error("[split] abort ledger delete failed", deleteErr);\n    void String(',
   },
   {
     id: "split/abort-captured-ignores-the-payment-intent",
@@ -286,12 +287,29 @@ const MUTANTS = [
     replace: '    const outcome = "released";',
   },
   {
+    id: "split/open-replaces-without-releasing",
+    file: "apps/qr/lib/split.ts",
+    suite: "lib/split.test.ts",
+    why: "a re-open deletes the prior share set; a pending/failed row can sit over a LIVE authorization whenever its webhook is delayed, and past the TTL the re-open is the table's only forward exit",
+    find: "    const outcome = await releaseHold(row.stripe_payment_intent_id);",
+    replace: '    const outcome = "released";',
+  },
+  {
+    id: "split/open-replace-error-swallowed",
+    file: "apps/qr/lib/split.ts",
+    suite: "lib/split.test.ts",
+    why: "a silently-failed replace leaves the OLD share rows in place and inserts a second full set beside them — two ledgers for one table, both frozen",
+    find: '    console.error("[split] open could not clear the prior share set", replacedErr);\n    throw new Error("Could not start the split");',
+    replace: '    console.error("[split] open could not clear the prior share set", replacedErr);',
+  },
+  {
     id: "split-hold/unexpected-state-read-as-dead",
     file: "apps/qr/lib/split-hold.ts",
     suite: "lib/split.test.ts",
     why: "payment_intent_unexpected_state is ALSO Stripe's code for a SUCCEEDED PaymentIntent (captureAllIfReady retrieves on it for that reason) — treating it as already-dead deletes a share whose card was really charged",
     find: '    if (code !== "payment_intent_unexpected_state") return "unknown";',
-    replace: '    if (code !== "payment_intent_unexpected_state") return "unknown";\n    return "released";',
+    replace:
+      '    if (code !== "payment_intent_unexpected_state") return "unknown";\n    return "released";',
   },
   {
     id: "split-hold/unknown-rounds-to-released",

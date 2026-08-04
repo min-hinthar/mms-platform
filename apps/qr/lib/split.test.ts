@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * W10d pre-merge — `abortSettlement`, the split table's only exit.
+ * W10d pre-merge — `abortSettlement` and `openSettlement`, the split table's two exits.
  *
  * The pre-merge review's sharpest finding was mechanical, not hypothetical: the whole M40 rule shipped
  * with **zero** executable coverage. Nothing imported `lib/split.ts` from a test, and `verify:slice`'s
  * mutants target only the pure money modules — so reverting the widened cancel predicate, or deleting
- * the `deleteErr` throw, left the suite 209/209 green and `verify:slice` clean. A money rule that
- * cannot fail is not a guard; it is a comment. These are the assertions that make it one.
+ * the `deleteErr` throw, left the suite green. A money rule that cannot fail is not a guard; it is a
+ * comment. These are the assertions that make it one.
  *
  * Every test below is written against the DB/Stripe calls the module ACTUALLY makes (the mock records
  * the query, predicate included) rather than against an answer we chose, because the defects this file
@@ -19,39 +19,52 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  *     card was really charged (that code also means **succeeded**);
  *   • reading `status === "captured"` without checking for a PaymentIntent → a $0 by-person seat, which
  *     `openSettlement` auto-settles with a NULL PI, impersonates taken money and bricks the table;
- *   • cancelling from a snapshot → a share claimed mid-abort is destroyed with its intent never released.
+ *   • cancelling from a snapshot → a share claimed mid-abort is destroyed with its intent never released;
+ *   • re-opening a split → the same hold-release rule, in the sibling path that never had it.
  */
 
 vi.mock("server-only", () => ({}));
 
 type ShareRow = { stripe_payment_intent_id: string | null; status: string };
+type PiRow = { stripe_payment_intent_id: string | null };
 
 const CART = "11111111-1111-4111-8111-111111111111";
 
-// ── recorded state ────────────────────────────────────────────────────────────────────────────────
+// ── scripted state ────────────────────────────────────────────────────────────────────────────────
 type Query = {
   table: string;
-  op: "select" | "update" | "delete";
+  op: "select" | "update" | "delete" | "insert";
+  cols?: string;
   eq: [string, unknown][];
   neq: [string, unknown][];
   is: [string, unknown][];
   not: [string, string, unknown][];
   inList?: string[];
-  patch?: Record<string, unknown>;
+  patch?: unknown;
   selected?: boolean;
 };
 let queries: Query[] = [];
+
+/** abortSettlement's share snapshot. */
 let shares: ShareRow[] = [];
 let sharesError: { message: string } | null = null;
 /** Rows the ledger DELETE reports it removed — the serialization point, so it can differ from `shares`. */
-let deletedRows: { stripe_payment_intent_id: string | null }[] | null = null;
+let deletedRows: PiRow[] | null = [];
 let deleteError: { message: string } | null = null;
+let zeroSweepError: { message: string } | null = null;
 let survivors: { id: string }[] = [];
+/** openSettlement: the prior share set its replace-delete removes. */
+let replacedRows: PiRow[] | null = [];
+let replacedError: { message: string } | null = null;
+/** openSettlement: rows matching the authorized/captured in-flight probe. */
+let liveRows: { id: string }[] = [];
+
 /** PaymentIntent ids passed to `cancel`, in order. */
 let cancelled: string[] = [];
 /** Per-PI scripted Stripe behaviour: what `cancel` throws and what `retrieve` then reports. */
-let cancelThrows: Record<string, { code?: string; message?: string }> = {};
+let cancelThrows: Record<string, { code?: string }> = {};
 let retrieveStatus: Record<string, string> = {};
+let releasedFreeze = 0;
 
 function stripeError(code?: string) {
   const e = new Error(code ?? "stripe failure") as Error & { code?: string };
@@ -59,23 +72,59 @@ function stripeError(code?: string) {
   return e;
 }
 
-function builder(table: string, op: Query["op"], patch?: Record<string, unknown>) {
-  const q: Query = { table, op, eq: [], neq: [], is: [], not: [], patch };
-  queries.push(q);
-  const settle = (): { data: unknown; error: { message: string } | null } => {
-    if (op === "delete" && table === "qr_cart_shares" && q.neq.length > 0)
-      return { data: deletedRows, error: deleteError };
-    if (op === "select" && table === "qr_cart_shares") {
-      // The share read selects the PI column; the survivor check selects only `id`.
-      if (q.inList) return { data: [], error: null }; // openSettlement's in-flight probe
-      return survivors === null
-        ? { data: null, error: { message: "unreadable" } }
-        : q.selected
-          ? { data: shares, error: sharesError }
-          : { data: survivors, error: null };
+/** The single place that decides what a recorded query resolves to. */
+function respond(q: Query): { data: unknown; error: { message: string } | null } {
+  if (q.table === "qr_cart_shares") {
+    if (q.op === "select") {
+      // Three distinct reads: abort's snapshot (asks for the PI column), openSettlement's in-flight
+      // probe (carries an `in` list), and abort's survivor check (`id`, no `in`).
+      if (q.cols?.includes("stripe_payment_intent_id")) return { data: shares, error: sharesError };
+      if (q.inList) return { data: liveRows, error: null };
+      return { data: survivors, error: null };
     }
-    return { data: null, error: null };
-  };
+    if (q.op === "delete") {
+      if (q.neq.length > 0) return { data: deletedRows, error: deleteError }; // ledger delete
+      if (q.is.length > 0) return { data: null, error: zeroSweepError }; // $0 sweep
+      return { data: replacedRows, error: replacedError }; // openSettlement replace
+    }
+    return { data: null, error: null }; // insert / status marks
+  }
+  if (q.table === "session_members")
+    return {
+      data: [
+        { seat_id: "seat-host", created_at: "2026-01-01T00:00:00Z" },
+        { seat_id: "seat-b", created_at: "2026-01-01T00:01:00Z" },
+      ],
+      error: null,
+    };
+  if (q.table === "qr_cart_items")
+    return {
+      data: [
+        {
+          by_seat: "seat-host",
+          qty: 1,
+          unit_price_cents: 1800,
+          tax_cents: 173,
+          state: "sent",
+          comped: false,
+        },
+        {
+          by_seat: "seat-b",
+          qty: 1,
+          unit_price_cents: 1200,
+          tax_cents: 116,
+          state: "sent",
+          comped: false,
+        },
+      ],
+      error: null,
+    };
+  return { data: null, error: null }; // qr_carts refreeze
+}
+
+function builder(table: string, op: Query["op"], patch?: unknown, cols?: string) {
+  const q: Query = { table, op, cols, eq: [], neq: [], is: [], not: [], patch };
+  queries.push(q);
   const api = {
     eq(col: string, val: unknown) {
       q.eq.push([col, val]);
@@ -97,21 +146,25 @@ function builder(table: string, op: Query["op"], patch?: Record<string, unknown>
       q.inList = list;
       return api;
     },
-    limit() {
-      return Promise.resolve({ data: survivors, error: null });
+    order() {
+      return Promise.resolve(respond(q));
     },
-    select(cols?: string) {
+    limit() {
+      return Promise.resolve(respond(q));
+    },
+    select(selectCols?: string) {
       q.selected = true;
       // A SELECT keeps chaining (`.eq().limit()`); a DELETE/UPDATE `.select()` is the terminal
-      // representation request, which is what the delete-then-release pass reads.
+      // representation request, which is what the delete-then-release passes read.
       if (op === "select") {
-        q.patch = { cols } as Record<string, unknown>;
+        q.cols = selectCols;
         return api;
       }
-      return Promise.resolve(settle());
+      q.cols = selectCols;
+      return Promise.resolve(respond(q));
     },
     then(res: (v: { data: unknown; error: { message: string } | null }) => unknown) {
-      return Promise.resolve(settle()).then(res);
+      return Promise.resolve(respond(q)).then(res);
     },
   };
   return api;
@@ -120,14 +173,9 @@ function builder(table: string, op: Query["op"], patch?: Record<string, unknown>
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     from: (table: string) => ({
-      select: (cols: string) => {
-        const b = builder(table, "select");
-        // The share read is the only select that asks for the PaymentIntent column; flag it so the
-        // survivor check (which selects `id`) can resolve differently.
-        if (cols.includes("stripe_payment_intent_id")) return b.select(cols);
-        return b;
-      },
+      select: (cols: string) => builder(table, "select", undefined, cols),
       update: (patch: Record<string, unknown>) => builder(table, "update", patch),
+      insert: (rows: unknown) => builder(table, "insert", rows),
       delete: () => builder(table, "delete"),
     }),
   }),
@@ -139,28 +187,38 @@ vi.mock("./stripe", () => ({
       cancel: (id: string) => {
         cancelled.push(id);
         const err = cancelThrows[id];
-        return err ? Promise.reject(stripeError(err.code)) : Promise.resolve({ status: "canceled" });
+        return err
+          ? Promise.reject(stripeError(err.code))
+          : Promise.resolve({ status: "canceled" });
       },
-      retrieve: (id: string) =>
-        Promise.resolve({ status: retrieveStatus[id] ?? "canceled" }) as Promise<{
-          status: string;
-        }>,
+      retrieve: (id: string) => Promise.resolve({ status: retrieveStatus[id] ?? "canceled" }),
     },
   }),
 }));
 
 vi.mock("./authz", () => ({
-  assertCartMember: () => Promise.resolve({ uid: "seat-host", role: "host", sessionId: "s1" }),
+  assertCartMember: () => Promise.resolve({ uid: "seat-host", role: "host", sessionId: "sess-1" }),
   AuthzError: class extends Error {},
 }));
 vi.mock("./rate", () => ({ assertMutationRate: () => Promise.resolve() }));
 vi.mock("./lock", () => ({
   acquireSettlement: () => Promise.resolve("acquired"),
-  releaseSettlement: () => Promise.resolve(null),
+  releaseSettlement: () => {
+    releasedFreeze += 1;
+    return Promise.resolve(null);
+  },
 }));
-vi.mock("./totals", () => ({ getCartTotals: () => Promise.resolve({}) }));
+vi.mock("./totals", () => ({
+  getCartTotals: () =>
+    Promise.resolve({
+      subtotalCents: 3000,
+      discountCents: 0,
+      serviceChargeCents: 150,
+      taxCents: 289,
+    }),
+}));
 
-const { abortSettlement } = await import("./split");
+const { abortSettlement, openSettlement } = await import("./split");
 
 beforeEach(() => {
   queries = [];
@@ -168,15 +226,22 @@ beforeEach(() => {
   sharesError = null;
   deletedRows = [];
   deleteError = null;
+  zeroSweepError = null;
   survivors = [];
+  replacedRows = [];
+  replacedError = null;
+  liveRows = [];
   cancelled = [];
   cancelThrows = {};
   retrieveStatus = {};
+  releasedFreeze = 0;
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
 const ledgerDelete = () =>
   queries.find((q) => q.op === "delete" && q.table === "qr_cart_shares" && q.neq.length > 0);
+const loggedText = () =>
+  JSON.stringify((console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls);
 
 describe("abortSettlement — every hold it abandons must be released (M40)", () => {
   it("cancels the PaymentIntent on EVERY non-captured status, not just authorized", async () => {
@@ -219,7 +284,7 @@ describe("abortSettlement — every hold it abandons must be released (M40)", ()
 
   it("does not cancel the same PaymentIntent twice", async () => {
     // The second pass must skip what the loop already attempted — a duplicate cancel is harmless at
-    // Stripe but would mask a genuinely missed intent if this ever became a count-based assertion.
+    // Stripe but would mask a genuinely missed intent if this became a count-based assertion.
     shares = [{ stripe_payment_intent_id: "pi_1", status: "pending" }];
     deletedRows = [{ stripe_payment_intent_id: "pi_1" }];
     await abortSettlement(CART);
@@ -232,8 +297,7 @@ describe("abortSettlement — every hold it abandons must be released (M40)", ()
     shares = [{ stripe_payment_intent_id: "pi_flaky", status: "pending" }];
     cancelThrows = { pi_flaky: { code: "api_error" } };
     await abortSettlement(CART);
-    const logged = (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls;
-    expect(JSON.stringify(logged)).toContain("pi_flaky");
+    expect(loggedText()).toContain("pi_flaky");
   });
 
   it("does NOT log an already-dead hold as abandoned", async () => {
@@ -249,11 +313,8 @@ describe("abortSettlement — every hold it abandons must be released (M40)", ()
     };
     retrieveStatus = { pi_already: "canceled" };
     await abortSettlement(CART);
-    const logged = JSON.stringify(
-      (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls,
-    );
-    expect(logged).not.toContain("pi_missing");
-    expect(logged).not.toContain("pi_already");
+    expect(loggedText()).not.toContain("pi_missing");
+    expect(loggedText()).not.toContain("pi_already");
   });
 });
 
@@ -284,7 +345,7 @@ describe("abortSettlement — a succeeded PaymentIntent must survive the abort",
     retrieveStatus = { pi_paid: "succeeded" };
     await expect(abortSettlement(CART)).rejects.toThrow();
     const mark = queries.find((q) => q.op === "update" && q.table === "qr_cart_shares");
-    expect(mark?.patch?.status).toBe("captured");
+    expect((mark?.patch as { status?: string } | undefined)?.status).toBe("captured");
   });
 
   it("treats a live requires_capture hold as unreleased rather than dead", async () => {
@@ -293,10 +354,7 @@ describe("abortSettlement — a succeeded PaymentIntent must survive the abort",
     cancelThrows = { pi_live: { code: "payment_intent_unexpected_state" } };
     retrieveStatus = { pi_live: "requires_capture" };
     await abortSettlement(CART);
-    const logged = JSON.stringify(
-      (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls,
-    );
-    expect(logged).toContain("pi_live");
+    expect(loggedText()).toContain("pi_live");
   });
 });
 
@@ -335,5 +393,52 @@ describe("abortSettlement — a $0 seat is not taken money", () => {
     );
     expect(sweep).toBeDefined();
     expect(sweep?.eq).toContainEqual(["status", "captured"]);
+  });
+
+  it("rejects when the $0 sweep fails rather than deleting around it", async () => {
+    shares = [{ stripe_payment_intent_id: null, status: "captured" }];
+    zeroSweepError = { message: "connection reset" };
+    await expect(abortSettlement(CART)).rejects.toThrow(/Couldn’t cancel the split/);
+    expect(ledgerDelete()).toBeUndefined();
+  });
+});
+
+describe("openSettlement — a re-open must release the holds it replaces", () => {
+  it("cancels the PaymentIntent of every prior share it deletes", async () => {
+    // The sibling of M40, in the path that never had it. The in-flight probe above only refuses on
+    // `authorized`/`captured`, and a `pending`/`failed` row can sit over a LIVE authorization whenever
+    // the webhook that would have advanced it is delayed or 5xxing. Past the 10-minute TTL a re-open is
+    // the table's only forward exit, and it used to delete those rows and cancel nothing.
+    replacedRows = [
+      { stripe_payment_intent_id: "pi_prior_a" },
+      { stripe_payment_intent_id: null },
+      { stripe_payment_intent_id: "pi_prior_b" },
+    ];
+    await openSettlement(CART, "by_person");
+    expect(cancelled.sort()).toEqual(["pi_prior_a", "pi_prior_b"]);
+  });
+
+  it("refuses to re-derive over a live authorized share", async () => {
+    // The pre-existing guard, pinned so the `.not(stripe_payment_intent_id …)` narrowing can't widen
+    // into deleting a share whose money is genuinely in flight.
+    liveRows = [{ id: "share-live" }];
+    await expect(openSettlement(CART, "even")).rejects.toThrow(/Payments are already in progress/);
+    expect(cancelled).toEqual([]);
+  });
+
+  it("rejects and lifts the freeze when the replace-delete fails", async () => {
+    // A silently-failed replace left the OLD share rows in place and inserted a second full set beside
+    // them — two ledgers for one table, and a freeze over both.
+    replacedError = { message: "connection reset" };
+    await expect(openSettlement(CART, "even")).rejects.toThrow(/Could not start the split/);
+    expect(releasedFreeze).toBeGreaterThan(0);
+    expect(queries.some((q) => q.op === "insert")).toBe(false);
+  });
+
+  it("logs a prior hold it could not release", async () => {
+    replacedRows = [{ stripe_payment_intent_id: "pi_stuck" }];
+    cancelThrows = { pi_stuck: { code: "api_error" } };
+    await openSettlement(CART, "even");
+    expect(loggedText()).toContain("pi_stuck");
   });
 });

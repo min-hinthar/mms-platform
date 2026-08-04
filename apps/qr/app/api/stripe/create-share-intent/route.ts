@@ -134,11 +134,14 @@ export async function POST(req: NextRequest) {
         // the succeeded webhook (onShareCaptured) is the one path allowed to reconcile a capture, and
         // Stripe redelivers it for 72h. Charging a second card here would be the double-pay this
         // route's TOCTOU guard exists to prevent.
-        console.error("[create-share-intent] replaced intent had already succeeded — not repointing", {
-          cartId,
-          shareId: share.id,
-          paymentIntent: previousIntentId,
-        });
+        console.error(
+          "[create-share-intent] replaced intent had already succeeded — not repointing",
+          {
+            cartId,
+            shareId: share.id,
+            paymentIntent: previousIntentId,
+          },
+        );
         return NextResponse.json({ error: "You’ve already paid your share." }, { status: 409 });
       }
       if (outcome === "unknown") {
@@ -262,10 +265,7 @@ export async function POST(req: NextRequest) {
           { status: 503 },
         );
       if (!now)
-        return NextResponse.json(
-          { error: "This table’s split was cancelled." },
-          { status: 409 },
-        );
+        return NextResponse.json({ error: "This table’s split was cancelled." }, { status: 409 });
       if (now.status === "captured")
         return NextResponse.json({ error: "You’ve already paid your share." }, { status: 409 });
       if (now.status === "authorized")

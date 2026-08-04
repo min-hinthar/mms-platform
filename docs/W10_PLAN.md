@@ -80,6 +80,79 @@ the last-known state, so an outage must never blank it, redirect it, or fake liv
 
 Deferred from the matrix: realtime channel-status surfacing (LOW, unchanged).
 
+### W10d pre-merge review — what the adversarial pass caught (2026-08-04)
+
+Five lenses (money-correctness · concurrency · error-recovery · guard-adequacy · doc-fidelity), 22
+findings, 16 surviving independent refutation. Every HIGH was re-derived against the real code before
+being acted on, because a review is evidence, not a verdict.
+
+**The three regressions this slice introduced.** All three came from the same place: a fix written for
+one failure mode, without re-checking the rule the surrounding code already carried.
+
+1. **`.or()` + `.select()` on the claim UPDATE.** M39 needed the claim to accept a row pointing at
+   either the replaced intent or the just-minted one, so the `.eq()`/`.is()` filters became a top-level
+   `.or()` — while `.select("id").maybeSingle()` stayed. That combination is the PostgREST-14
+   `return=representation` or-tree re-projection that took production checkout down on 2026-07-08, and
+   `lib/lock.ts` carries a fourteen-line comment forbidding it. It would have 400'd every share mint
+   with 42703, so `updErr` was truthy on every request and the retry derived the same key and 500'd
+   again — **M39 shipping completely inert.** Now `{ count: "exact" }`, the pattern already proven here.
+   The lesson worth keeping: a rule written as a comment in the file where it was learned does not
+   travel; the sibling file three directories away re-made the mistake nine months later.
+2. **A bare `catch {}` that M39 turned dangerous.** The pre-mint cancel had always swallowed its error,
+   and that was _fine_ under the old key, because the re-create replayed the very intent it had failed
+   to cancel — so the row kept pointing at it. M39 made the re-create mint a genuinely new intent, and
+   the claim then overwrites `stripe_payment_intent_id`, which is the only record of the old one. The
+   swallow silently became "forget a possibly-live ~7-day hold". A correct fix made a pre-existing,
+   harmless swallow into a money leak.
+3. **`payment_intent_unexpected_state` classified as benign.** M40's new abandoned-hold log filtered
+   that code out as "already dead". It is also Stripe's code for a **succeeded** PaymentIntent —
+   `captureAllIfReady` retrieves on it for exactly that reason, thirty lines away in a sibling file. So
+   the log excluded precisely the case where the DELETE on the next line destroys a share whose card was
+   really charged. The added observability was blind in the one direction that mattered.
+
+**The three pre-existing HIGH.**
+
+4. **A `$0` by-person seat permanently bricks the table.** Reproduced rather than reasoned about:
+   `deriveShareBreakdowns({3000, 0, 150, 289}, [a,b,c], lines owned by a+b)` returns `baseCents: 0` for
+   seat `c` — structural, not fixture luck, since a zero-weight seat's fractional part is exactly 0 and
+   largest-remainder never gives it a penny. `openSettlement` auto-settles it to `captured` with a NULL
+   PaymentIntent so it can't block the all-covered gate. Three separate call sites then read `captured`
+   as "money moved": abort threw _"Payment already completed — the order will finish"_ when nothing
+   would ever finish, re-open threw _"Payments are already in progress"_, and `paymentInFlightReason`
+   returned `split_in_progress` **independent of the freshness TTL**, refusing cash-settle, clear-table,
+   voids, comps, approvals and every staff line edit forever. Worst of all, any other seat's live hold
+   could never be released, because the M40 release sits behind that same refusal. All three now
+   discriminate on the PaymentIntent, not the status.
+5. **Abort cancels from a stale snapshot.** The share SELECT, N Stripe round-trips and the DELETE are
+   three statements with nothing serializing them. `SharePay` mints on mount, so a payer merely opening
+   the sheet mid-abort has their row repointed to a brand-new intent — and the DELETE then destroys it
+   with the intent never cancelled. Fixed by making the DELETE return what it removed (it is the
+   serialization point) and releasing anything the loop never tried.
+6. **The whole M40 rule could not fail.** Nothing imported `lib/split.ts` from any test, and
+   `verify:slice`'s `MUTANTS` targeted eight other files. Reverting the widened cancel predicate _or_
+   deleting the `deleteErr` throw left the suite green and `verify:slice` clean. This is the same class
+   the mutation harness exists to kill, and it went unnoticed because the _rule_ was new while the
+   _file_ was old — nothing prompts you to notice a file has never had a test.
+
+**Also fixed, same review:** `openSettlement`'s replace-delete got M40's rule (it deleted the prior
+share set and cancelled nothing, and past the 10-minute TTL a re-open is the table's only forward
+exit); a lost claim re-reads the row rather than asserting _"Your share was just settled"_ on a
+`pending` share (two tip taps ~1s apart mint two intents at different amounts, so the loser is the
+request the client is listening to, and "refresh to see it" discarded the tip they had just chosen);
+`SettlementBoard`'s `canPay` accepts `canceled`, which the server's claim predicate always did.
+
+**Deliberately not fixed — `M45`.** `captureAllIfReady` reads `settle_at` once and then loops, so an
+abort can release payer A's hold and only then meet payer B's already-captured one. The abort now
+refuses and re-freezes, but A is cancelled and B is charged, `every(authorized|captured)` never passes,
+and the host is told _"the order will finish"_ when it cannot. Closing it means stamping the share
+capture-claimed **before** each `paymentIntents.capture` and widening abort's refusal to include that
+stamp — a schema change, so it is out of this slice.
+
+**New coverage.** `lib/split-hold.ts` (the `released | gone | captured | unknown` classifier both paths
+now share) and `lib/split.test.ts` (18 tests on the query-recording mock), plus eight `split/*` and
+`split-hold/*` mutants. Every rule was watched fail before commit: the mutations were applied by hand
+first, and `verify:slice` re-applies all 38 on every run.
+
 ## W10c — money-path outage hardening ✅ (2026-08-02)
 
 The half of W10 where being wrong costs money rather than goodwill. One root cause runs through it:
@@ -134,7 +207,10 @@ an outage, and every finding below is a place that answer was believed.
   Stripe dashboard (Developers → Webhooks → the endpoint → failed events → Resend) and run a
   shares-vs-orders sweep before trusting the settlement board.
 
-## W10d — a split table can always finish ✅ (2026-08-02)
+## W10d — a split table can always finish ✅ (2026-08-02, hardened 2026-08-04)
+
+> **Pre-merge review returned BLOCK — 6 HIGH, three of them regressions this slice introduced.** The
+> findings and their fixes are in §W10d pre-merge below; read that before trusting any claim above it.
 
 Two of the three defects the W10c reviews surfaced on the split-tender path. Closes OPEN-ITEMS
 **M39** and **M40**. The third (**M1/M25**) was built, reviewed, and **reverted** — that is the most
