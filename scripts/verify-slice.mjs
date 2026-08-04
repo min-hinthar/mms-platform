@@ -283,8 +283,8 @@ const MUTANTS = [
     file: "apps/qr/lib/split.ts",
     suite: "lib/split.test.ts",
     why: "the cancel loop runs off a snapshot; SharePay mints on mount, so a share claimed mid-abort is destroyed with its brand-new PaymentIntent never released",
-    find: "    const outcome = await releaseHold(pi);",
-    replace: '    const outcome = "released";',
+    find: "    const outcome = await releaseHold(pi);\n    // A PI claimed inside the abort window",
+    replace: '    const outcome = "released";\n    // A PI claimed inside the abort window',
   },
   {
     id: "route/claim-asks-for-a-representation",
@@ -340,8 +340,10 @@ const MUTANTS = [
     file: "apps/qr/lib/split-board.ts",
     suite: "lib/split-board.test.ts",
     why: "captureAllIfReady gates on every(authorized|captured), so a canceled share blocks capture — counting it as 'in' makes the board say 'finishing up…' over a table that cannot finish, and speaks it into the live region",
-    find: '    shares.every((s) => s.status === "authorized" || s.status === "captured")',
-    replace: '    shares.every((s) => s.status !== "pending" && s.status !== "failed")',
+    find:
+      '    shares.length > 0 && shares.every((s) => s.status === "authorized" || s.status === "captured")',
+    replace:
+      '    shares.length > 0 && shares.every((s) => s.status !== "pending" && s.status !== "failed")',
   },
   {
     id: "split-hold/retrieve-failure-rounds-to-released",
