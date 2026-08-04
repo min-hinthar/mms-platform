@@ -47,12 +47,27 @@ export async function paymentInFlightReason(
   // it can't block the all-covered gate; counting it here returned `split_in_progress` INDEPENDENT of
   // the freshness TTL, which permanently refused cash-settle, clear-table, voids, comps, approvals,
   // merges and every staff line edit on that table — with no way out, because abort was refused too.
-  const { count } = await db
+  //
+  // ⚠️ W10d pre-merge RE-review — FAIL CLOSED on the read error. This count was the whole guard, and
+  // dropping `error` made it fail OPEN: postgrest only parses `content-range` inside `if (res.ok)`, so
+  // any transport failure yields `count: null`, `(count ?? 0) > 0` is false, and every caller
+  // (`settleCash`, `clearTable`, merge, voids, comps, approvals) is told there is no payment in flight.
+  // The window is real, not theoretical: `captureAllIfReady` deliberately captures on a STALE freeze
+  // once the table is fully covered, so between that capture and the succeeded webhook the cart is
+  // `open`, `settle_at` is stale — the `isFresh` branch above returns nothing — and this read is the
+  // ONLY thing standing between captured cards and a second settlement. `mms_fulfill_cash_order` gates
+  // on `cart.status = 'open'` alone. The sibling count read in `staff-cart.ts` already fails closed for
+  // exactly this reason ("a failed count is not an EMPTY table").
+  const { count, error } = await db
     .from("qr_cart_shares")
     .select("id", { count: "exact", head: true })
     .eq("cart_id", cart.id)
     .in("status", ["authorized", "captured"])
     .not("stripe_payment_intent_id", "is", null);
+  if (error) {
+    console.error("[pay-guard] in-flight share read failed", { cartId: cart.id, error });
+    return "split_in_progress";
+  }
   if ((count ?? 0) > 0) return "split_in_progress";
   return null;
 }

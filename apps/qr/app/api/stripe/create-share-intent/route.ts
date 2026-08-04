@@ -245,20 +245,29 @@ export async function POST(req: NextRequest) {
       // which discarded the tip they had just chosen. Say only what the row supports.
       const { data: now, error: nowErr } = await db
         .from("qr_cart_shares")
-        .select("status")
+        .select("status,stripe_payment_intent_id")
         .eq("id", share.id)
         .maybeSingle();
-      // Our own intent can never be used now — release it before answering, whichever case this is.
-      // It is seconds old and holds nothing yet, so a failure here is log-only; but it is still a PI we
-      // are walking away from, so it goes through the same classifier rather than a bare catch.
-      const released = await releaseHold(intent.id);
-      if (released === "unknown" || released === "captured")
-        console.error("[create-share-intent] could not release the unclaimed intent", {
-          cartId,
-          shareId: share.id,
-          paymentIntent: intent.id,
-          outcome: released,
-        });
+      // ⚠️ W10d pre-merge RE-REVIEW — do NOT cancel an intent the row now POINTS AT. Two same-key
+      // requests receive the SAME PaymentIntent back from Stripe (that is the point of the key). If the
+      // twin claimed the row and the payer has since authorized on it, `intent.id` is the row's live
+      // authorization — cancelling it voided the payer's own hold, `onShareCanceled` flipped the row,
+      // and the all-authorized gate could never pass while siblings sat captured. The re-read is what
+      // tells the two cases apart, so it has to fetch the pointer, not just the status.
+      const stillOurs = now?.stripe_payment_intent_id === intent.id;
+      if (!stillOurs) {
+        // Our own intent can never be used now — release it before answering. It is seconds old and
+        // holds nothing yet, so a failure is log-only; but it is still a PI we are walking away from,
+        // so it goes through the same classifier rather than a bare catch.
+        const released = await releaseHold(intent.id);
+        if (released === "unknown" || released === "captured")
+          console.error("[create-share-intent] could not release the unclaimed intent", {
+            cartId,
+            shareId: share.id,
+            paymentIntent: intent.id,
+            outcome: released,
+          });
+      }
       if (nowErr)
         return NextResponse.json(
           { error: "Couldn’t start your payment — please try again." },

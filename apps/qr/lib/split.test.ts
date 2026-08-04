@@ -53,17 +53,20 @@ let deletedRows: PiRow[] | null = [];
 let deleteError: { message: string } | null = null;
 let zeroSweepError: { message: string } | null = null;
 let survivors: { id: string }[] = [];
-/** openSettlement: the prior share set its replace-delete removes. */
-let replacedRows: PiRow[] | null = [];
-let replacedError: { message: string } | null = null;
-/** openSettlement: rows matching the authorized/captured in-flight probe. */
-let liveRows: { id: string }[] = [];
+/**
+ * openSettlement: rows in `authorized`/`captured`. The mock APPLIES the recorded `.not(...)` predicate
+ * to these rather than answering a fixed set — otherwise the `$0`-seat narrowing (a `captured` row with
+ * a NULL PaymentIntent must not block a re-open) could be deleted with the suite still green.
+ */
+let liveRows: { id: string; stripe_payment_intent_id: string | null }[] = [];
 
 /** PaymentIntent ids passed to `cancel`, in order. */
 let cancelled: string[] = [];
 /** Per-PI scripted Stripe behaviour: what `cancel` throws and what `retrieve` then reports. */
 let cancelThrows: Record<string, { code?: string }> = {};
 let retrieveStatus: Record<string, string> = {};
+/** Per-PI: make `retrieve` REJECT, so `releaseHold`'s inner fail-closed arm is reachable. */
+let retrieveThrows: Record<string, { code?: string }> = {};
 let releasedFreeze = 0;
 
 function stripeError(code?: string) {
@@ -78,14 +81,25 @@ function respond(q: Query): { data: unknown; error: { message: string } | null }
     if (q.op === "select") {
       // Three distinct reads: abort's snapshot (asks for the PI column), openSettlement's in-flight
       // probe (carries an `in` list), and abort's survivor check (`id`, no `in`).
+      if (q.inList) {
+        // The in-flight probe. Honour its `.not("stripe_payment_intent_id","is",null)` predicate.
+        const excludesNullPi = q.not.some(
+          ([col, op, val]) => col === "stripe_payment_intent_id" && op === "is" && val === null,
+        );
+        const rows = excludesNullPi
+          ? liveRows.filter((r) => r.stripe_payment_intent_id != null)
+          : liveRows;
+        return { data: rows, error: null };
+      }
       if (q.cols?.includes("stripe_payment_intent_id")) return { data: shares, error: sharesError };
-      if (q.inList) return { data: liveRows, error: null };
       return { data: survivors, error: null };
     }
     if (q.op === "delete") {
-      if (q.neq.length > 0) return { data: deletedRows, error: deleteError }; // ledger delete
+      // `abortSettlement`'s ledger delete and `openSettlement`'s replace are the SAME query shape by
+      // design (both `.eq(cart_id).neq(status,captured).select(pi)`), so they share one fixture.
+      if (q.neq.length > 0) return { data: deletedRows, error: deleteError };
       if (q.is.length > 0) return { data: null, error: zeroSweepError }; // $0 sweep
-      return { data: replacedRows, error: replacedError }; // openSettlement replace
+      return { data: null, error: null };
     }
     return { data: null, error: null }; // insert / status marks
   }
@@ -191,7 +205,12 @@ vi.mock("./stripe", () => ({
           ? Promise.reject(stripeError(err.code))
           : Promise.resolve({ status: "canceled" });
       },
-      retrieve: (id: string) => Promise.resolve({ status: retrieveStatus[id] ?? "canceled" }),
+      retrieve: (id: string) => {
+        const err = retrieveThrows[id];
+        return err
+          ? Promise.reject(stripeError(err.code))
+          : Promise.resolve({ status: retrieveStatus[id] ?? "canceled" });
+      },
     },
   }),
 }));
@@ -228,12 +247,11 @@ beforeEach(() => {
   deleteError = null;
   zeroSweepError = null;
   survivors = [];
-  replacedRows = [];
-  replacedError = null;
   liveRows = [];
   cancelled = [];
   cancelThrows = {};
   retrieveStatus = {};
+  retrieveThrows = {};
   releasedFreeze = 0;
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -356,6 +374,57 @@ describe("abortSettlement — a succeeded PaymentIntent must survive the abort",
     await abortSettlement(CART);
     expect(loggedText()).toContain("pi_live");
   });
+
+  it("treats a FAILED retrieve as unreleased rather than dead", async () => {
+    // `releaseHold`'s inner fail-closed arm: the cancel refused AND the follow-up retrieve threw, so we
+    // know nothing at all. Nothing could reach this branch before — the Stripe mock's `retrieve` could
+    // not reject — so it could be flipped to "released" with the whole suite green.
+    shares = [{ stripe_payment_intent_id: "pi_opaque", status: "pending" }];
+    cancelThrows = { pi_opaque: { code: "payment_intent_unexpected_state" } };
+    retrieveThrows = { pi_opaque: { code: "api_error" } };
+    await abortSettlement(CART);
+    expect(loggedText()).toContain("pi_opaque");
+  });
+
+  it("treats a retrieve that 404s as genuinely gone, not abandoned", async () => {
+    shares = [{ stripe_payment_intent_id: "pi_vanished", status: "pending" }];
+    cancelThrows = { pi_vanished: { code: "payment_intent_unexpected_state" } };
+    retrieveThrows = { pi_vanished: { code: "resource_missing" } };
+    await abortSettlement(CART);
+    expect(loggedText()).not.toContain("pi_vanished");
+  });
+});
+
+describe("abortSettlement — every write is scoped to THIS cart", () => {
+  // The class `split-settle.test.ts` documents as having already cost a review round: a reviewer
+  // removed an identity predicate from both marks and the suite stayed green. Reproduced here for the
+  // three writes this slice added, where losing the scope wipes every table's ledger in the database.
+  it("scopes the ledger delete to the cart", async () => {
+    shares = [{ stripe_payment_intent_id: "pi_1", status: "pending" }];
+    await abortSettlement(CART);
+    expect(ledgerDelete()?.eq).toContainEqual(["cart_id", CART]);
+  });
+
+  it("scopes the $0 sweep to the cart", async () => {
+    shares = [{ stripe_payment_intent_id: null, status: "captured" }];
+    await abortSettlement(CART);
+    const sweep = queries.find(
+      (q) =>
+        q.op === "delete" &&
+        q.table === "qr_cart_shares" &&
+        q.is.some(([col]) => col === "stripe_payment_intent_id"),
+    );
+    expect(sweep?.eq).toContainEqual(["cart_id", CART]);
+  });
+
+  it("scopes the captured repair mark to the PaymentIntent it found", async () => {
+    shares = [{ stripe_payment_intent_id: "pi_paid", status: "authorized" }];
+    cancelThrows = { pi_paid: { code: "payment_intent_unexpected_state" } };
+    retrieveStatus = { pi_paid: "succeeded" };
+    await expect(abortSettlement(CART)).rejects.toThrow();
+    const mark = queries.find((q) => q.op === "update" && q.table === "qr_cart_shares");
+    expect(mark?.eq).toContainEqual(["stripe_payment_intent_id", "pi_paid"]);
+  });
 });
 
 describe("abortSettlement — a $0 seat is not taken money", () => {
@@ -404,41 +473,116 @@ describe("abortSettlement — a $0 seat is not taken money", () => {
 });
 
 describe("openSettlement — a re-open must release the holds it replaces", () => {
-  it("cancels the PaymentIntent of every prior share it deletes", async () => {
-    // The sibling of M40, in the path that never had it. The in-flight probe above only refuses on
+  it("cancels the PaymentIntent of every prior share it replaces", async () => {
+    // The sibling of M40, in the path that never had it. The in-flight probe only refuses on
     // `authorized`/`captured`, and a `pending`/`failed` row can sit over a LIVE authorization whenever
     // the webhook that would have advanced it is delayed or 5xxing. Past the 10-minute TTL a re-open is
     // the table's only forward exit, and it used to delete those rows and cancel nothing.
-    replacedRows = [
-      { stripe_payment_intent_id: "pi_prior_a" },
-      { stripe_payment_intent_id: null },
-      { stripe_payment_intent_id: "pi_prior_b" },
+    shares = [
+      { stripe_payment_intent_id: "pi_prior_a", status: "pending" },
+      { stripe_payment_intent_id: null, status: "pending" },
+      { stripe_payment_intent_id: "pi_prior_b", status: "failed" },
     ];
     await openSettlement(CART, "by_person");
     expect(cancelled.sort()).toEqual(["pi_prior_a", "pi_prior_b"]);
   });
 
+  it("refuses — and never deletes — when a replaced intent turns out to have SUCCEEDED", async () => {
+    // The re-review's HIGH. The first fix released the holds but bucketed a `captured` outcome in with
+    // `unknown`, logged the succeeded charge as a stranded "hold", and carried on to insert a fresh
+    // share set the table would pay a SECOND time. Abort treats this signal as fatal; so must this.
+    shares = [{ stripe_payment_intent_id: "pi_paid", status: "pending" }];
+    cancelThrows = { pi_paid: { code: "payment_intent_unexpected_state" } };
+    retrieveStatus = { pi_paid: "succeeded" };
+    await expect(openSettlement(CART, "even")).rejects.toThrow(/Payment already completed/);
+    expect(queries.some((q) => q.op === "delete")).toBe(false);
+    expect(queries.some((q) => q.op === "insert")).toBe(false);
+  });
+
+  it("keeps the freeze when it refuses over a succeeded charge", async () => {
+    // Unlike every other failure path here, lifting the freeze would let the cart be edited before the
+    // order is snapshotted.
+    shares = [{ stripe_payment_intent_id: "pi_paid", status: "pending" }];
+    cancelThrows = { pi_paid: { code: "payment_intent_unexpected_state" } };
+    retrieveStatus = { pi_paid: "succeeded" };
+    await expect(openSettlement(CART, "even")).rejects.toThrow();
+    expect(releasedFreeze).toBe(0);
+  });
+
   it("refuses to re-derive over a live authorized share", async () => {
     // The pre-existing guard, pinned so the `.not(stripe_payment_intent_id …)` narrowing can't widen
     // into deleting a share whose money is genuinely in flight.
-    liveRows = [{ id: "share-live" }];
+    liveRows = [{ id: "share-live", stripe_payment_intent_id: "pi_live" }];
     await expect(openSettlement(CART, "even")).rejects.toThrow(/Payments are already in progress/);
     expect(cancelled).toEqual([]);
+  });
+
+  it("is NOT blocked by a $0 captured seat with no PaymentIntent", async () => {
+    // The narrowing itself. Without it, a table where one diner ordered nothing could never re-open.
+    // The mock applies the recorded `.not(...)` predicate, so deleting that line turns this red.
+    liveRows = [{ id: "share-zero", stripe_payment_intent_id: null }];
+    await expect(openSettlement(CART, "even")).resolves.toBeUndefined();
   });
 
   it("rejects and lifts the freeze when the replace-delete fails", async () => {
     // A silently-failed replace left the OLD share rows in place and inserted a second full set beside
     // them — two ledgers for one table, and a freeze over both.
-    replacedError = { message: "connection reset" };
+    deleteError = { message: "connection reset" };
     await expect(openSettlement(CART, "even")).rejects.toThrow(/Could not start the split/);
     expect(releasedFreeze).toBeGreaterThan(0);
     expect(queries.some((q) => q.op === "insert")).toBe(false);
   });
 
   it("logs a prior hold it could not release", async () => {
-    replacedRows = [{ stripe_payment_intent_id: "pi_stuck" }];
+    shares = [{ stripe_payment_intent_id: "pi_stuck", status: "pending" }];
     cancelThrows = { pi_stuck: { code: "api_error" } };
     await openSettlement(CART, "even");
     expect(loggedText()).toContain("pi_stuck");
+  });
+
+  it("releases a PaymentIntent claimed between the read and the delete", async () => {
+    shares = [{ stripe_payment_intent_id: "pi_prior", status: "pending" }];
+    deletedRows = [
+      { stripe_payment_intent_id: "pi_prior" },
+      { stripe_payment_intent_id: "pi_claimed_mid_open" },
+    ];
+    await openSettlement(CART, "even");
+    expect(cancelled).toContain("pi_claimed_mid_open");
+  });
+
+  it("refuses when a share survives both deletes — that is real money", async () => {
+    survivors = [{ id: "share-captured" }];
+    await expect(openSettlement(CART, "even")).rejects.toThrow(/Payment already completed/);
+  });
+
+  it("scopes its replace-delete to THIS cart", async () => {
+    // The replace-delete is textually identical to `abortSettlement`'s ledger delete, so it needs its
+    // own scoping assertion — a mutation dropping `.eq("cart_id", id)` lands on whichever comes first
+    // in the file, and abort's test alone cannot see it. Unscoped, a re-open wipes every table's ledger.
+    await openSettlement(CART, "even");
+    const replace = queries.find(
+      (q) => q.op === "delete" && q.table === "qr_cart_shares" && q.neq.length > 0,
+    );
+    expect(replace?.eq).toContainEqual(["cart_id", CART]);
+  });
+
+  it("scopes its $0 sweep to THIS cart", async () => {
+    await openSettlement(CART, "even");
+    const sweep = queries.find(
+      (q) =>
+        q.op === "delete" &&
+        q.table === "qr_cart_shares" &&
+        q.is.some(([col]) => col === "stripe_payment_intent_id"),
+    );
+    expect(sweep?.eq).toContainEqual(["cart_id", CART]);
+  });
+
+  it("scopes its captured repair mark to the PaymentIntent it found", async () => {
+    shares = [{ stripe_payment_intent_id: "pi_paid", status: "pending" }];
+    cancelThrows = { pi_paid: { code: "payment_intent_unexpected_state" } };
+    retrieveStatus = { pi_paid: "succeeded" };
+    await expect(openSettlement(CART, "even")).rejects.toThrow();
+    const mark = queries.find((q) => q.op === "update" && q.table === "qr_cart_shares");
+    expect(mark?.eq).toContainEqual(["stripe_payment_intent_id", "pi_paid"]);
   });
 });

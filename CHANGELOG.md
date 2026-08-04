@@ -66,8 +66,40 @@ against the real code before being acted on.
   settled" on a `pending` share (two tip taps ~1s apart made that the likelier case, and "refresh to see
   it" discarded the tip); `SettlementBoard`'s `canPay` accepts `canceled`, which the server's claim
   predicate always did, so a payer whose mint died keeps a **Try again**.
-- 227 qr tests and 38 `verify:slice` mutants. **M42** narrowed to the route (still open), **M45** opened
-  for the abort/capture race that needs a migration to close.
+- 227 qr tests and 38 `verify:slice` mutants at that point. **M45** opened for the abort/capture race
+  that needs a migration to close.
+
+#### Pre-merge RE-review — the fix layer had its own defects (2026-08-04)
+
+The re-review was scoped to the fix layer above, because this repo's history says that is where the
+damage lands (W10c: five BLOCK rounds, every HIGH in the newest fix layer). It found three more.
+
+- **The money mutex failed OPEN.** `paymentInFlightReason` never destructured its count read's `error`,
+  so a transport failure yielded `count: null` and the answer was "nothing in flight — go ahead". Not a
+  regression from this slice, but this slice edited that exact statement and the window is real:
+  `captureAllIfReady` deliberately captures on a STALE freeze once a table is fully covered, so between
+  that capture and the succeeded webhook this read is the ONLY thing between captured cards and a cash
+  settle. Now fails closed, with the repo's first `pay-guard` test.
+- **`openSettlement` detected a succeeded charge and re-opened anyway.** The first fix released the
+  prior holds but bucketed a `captured` outcome in with `unknown` — logging a completed charge as a
+  stranded "hold" and inserting a fresh share set the table would pay a second time. The sibling
+  `abortSettlement`, written in the same commit, treats that signal as fatal. Now it reads and releases
+  BEFORE deleting, refuses on `captured`, keeps the freeze, and carries abort's survivor check.
+- **Four rules added by the fix layer could not fail** — including the `{ count: "exact" }` claim whose
+  regression convened the whole round: a reviewer reverted it and the suite stayed green. `.tsx` files
+  have no suite here, so the board's "finishing up…" gate moved to `lib/split-board.ts` to become
+  testable; the route got its first test; `split-hold`'s inner fail-closed arm was unreachable because
+  the Stripe mock's `retrieve` could not reject.
+- **Also:** the lost-claim branch could cancel an intent the row now POINTS AT — a concurrent twin's
+  live authorization — because the re-read fetched only `status`; and `canPay` learning `canceled` broke
+  its complement, so the board said "finishing up…" (and spoke it into the live region) over a table
+  that cannot finish.
+- **The money registry had stopped rendering.** An unescaped `|` inside M45 widened its row to 6 cells
+  against a 5-cell header; GFM then refuses the _whole_ table, so all 45 rows became one raw pipe
+  paragraph. `prettier` is what widened the delimiter, so `format:check` could not catch it. Fixed, plus
+  a second table broken the same way on `main`.
+- 267 qr tests and 49 `verify:slice` mutants. New suites: `lib/split.test.ts` (31), route (13),
+  `lib/pay-guard.test.ts` (9), `lib/split-board.test.ts` (5).
 
 ### W10c — The money path stops answering with numbers it isn't sure of (2026-08-02)
 

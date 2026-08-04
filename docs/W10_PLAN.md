@@ -153,6 +153,43 @@ now share) and `lib/split.test.ts` (18 tests on the query-recording mock), plus 
 `split-hold/*` mutants. Every rule was watched fail before commit: the mutations were applied by hand
 first, and `verify:slice` re-applies all 38 on every run.
 
+### W10d pre-merge RE-review — the fix layer's own defects (2026-08-04)
+
+The re-review was deliberately scoped to the fix layer, because this repo's history says that is where
+the damage lands: on W10c, five rounds all returned BLOCK and **every HIGH was in the newest fix layer**.
+That held again — three more HIGH, and the shape of them is worth keeping.
+
+1. **A fix can be correct and still leave the statement it edited broken.** `pay-guard`'s count read
+   never destructured `error`, so the shared money mutex failed OPEN. The `$0` narrowing added to that
+   exact statement was right; nobody re-read the two lines around it. The sibling count read in
+   `staff-cart.ts` already fails closed, with a comment saying why.
+2. **Symmetry is not automatic.** `abortSettlement` and `openSettlement` were given the same hold-release
+   rule in the same commit, and only one of them was given the `captured`-is-fatal arm. The re-open
+   detected a succeeded charge, logged it as a "hold", and inserted a fresh share set — the second-payment
+   bug, created by the fix for the first. Both paths now read-then-release-then-delete, with a survivor
+   check, and the code says so in both places.
+3. **The guard gap moves with the fix.** Four rules added by the fix layer could not fail. The worst was
+   the `{ count: "exact" }` claim: a reviewer reverted it to the exact shape that took production
+   checkout down on 2026-07-08, and the suite stayed green, `tsc` clean, `eslint` clean. There was no
+   route test, because there had never been one. **Closing a guard gap in file A does not close it in the
+   file the fix touched.**
+
+**A structural finding worth acting on (M46).** No vitest config in this repo runs `.test.tsx`, and the
+orphan guard flags one — so any decision rule living inline in a component is unguarded _by construction_.
+The board's "finishing up…" gate was such a rule, and it had silently stopped agreeing with
+`captureAllIfReady` the moment `canPay` learned `canceled`. It moved to `lib/split-board.ts` to become
+testable. That is right for a money rule but it is a workaround, not a policy.
+
+**And a doc bug worth remembering.** An unescaped `|` inside the M45 row widened it to 6 cells against a
+5-cell header; per GFM a header/delimiter mismatch means the table is not recognised **at all**, so the
+whole 45-row money registry rendered as one raw pipe paragraph. `prettier` is what widened the delimiter
+to match, so `format:check` passes — the gate cannot catch this. A second table on `main` was broken the
+same way. Both fixed, and the docs sweep now validates every header/delimiter pair.
+
+**Net.** 267 qr tests and 49 mutants, with four suites that did not exist before this round:
+`lib/split.test.ts` (31), `create-share-intent/route.test.ts` (13), `lib/pay-guard.test.ts` (9),
+`lib/split-board.test.ts` (5).
+
 ## W10c — money-path outage hardening ✅ (2026-08-02)
 
 The half of W10 where being wrong costs money rather than goodwill. One root cause runs through it:

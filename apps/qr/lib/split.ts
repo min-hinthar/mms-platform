@@ -269,28 +269,96 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
   // remove those rows and cancel nothing, stranding the hold for the full ~7-day window with no record
   // left. The delete RETURNS what it removed (the serialization point), so a row claimed mid-re-open is
   // covered too.
+  // ⚠️ W10d pre-merge RE-REVIEW — read and release BEFORE deleting, mirroring `abortSettlement`. The
+  // first fix released the holds but did so AFTER the delete and bucketed a `captured` outcome in with
+  // `unknown` — so a PaymentIntent that had actually SUCCEEDED was logged as a stranded "hold" and the
+  // re-open carried on, inserting a fresh share set the table would pay a second time. That is the very
+  // signal abort treats as fatal, discarded in the sibling path written in the same commit. Reading
+  // first means a discovery can refuse while the rows still exist.
+  const { data: prior, error: priorErr } = await db
+    .from("qr_cart_shares")
+    .select("stripe_payment_intent_id,status")
+    .eq("cart_id", id);
+  if (priorErr) {
+    await releaseSettlement(id); // nothing written yet, so this strands nothing
+    console.error("[split] open could not read the prior share set", priorErr);
+    throw new Error("Could not start the split");
+  }
+  const strandedHolds: string[] = [];
+  const attempted = new Set<string>();
+  for (const row of prior ?? []) {
+    if (!row.stripe_payment_intent_id) continue;
+    attempted.add(row.stripe_payment_intent_id);
+    const outcome = await releaseHold(row.stripe_payment_intent_id);
+    if (outcome === "captured") {
+      // Money moved on a row we were about to replace. Repair it so the succeeded webhook can fulfill,
+      // and KEEP the freeze — unlike every other failure path here, lifting it would let the cart be
+      // edited before the order is snapshotted. Same answer, same string, as abort.
+      const { error: markErr } = await db
+        .from("qr_cart_shares")
+        .update({ status: "captured", updated_at: new Date().toISOString() })
+        .eq("stripe_payment_intent_id", row.stripe_payment_intent_id)
+        .neq("status", "captured");
+      if (markErr)
+        console.error("[split] open found a succeeded PI but could not mark the share captured", {
+          cartId: id,
+          paymentIntent: row.stripe_payment_intent_id,
+          error: markErr.message,
+        });
+      throw new Error("Payment already completed — the order will finish");
+    }
+    if (outcome === "unknown") strandedHolds.push(row.stripe_payment_intent_id);
+  }
+  // Two statements rather than one `.or()`, for the reason spelled out in `abortSettlement`: an `.or()`
+  // mutation asking for a representation is the PostgREST-14 42703 shape. The non-captured rows first
+  // (they carry the holds), then the $0 sentinels, so a REAL captured row landing mid-window survives
+  // both and is caught by the survivor check.
   const { data: replaced, error: replacedErr } = await db
     .from("qr_cart_shares")
     .delete()
     .eq("cart_id", id)
+    .neq("status", "captured")
     .select("stripe_payment_intent_id");
   if (replacedErr) {
     await releaseSettlement(id); // don't strand a freeze over a ledger we could not clear
     console.error("[split] open could not clear the prior share set", replacedErr);
     throw new Error("Could not start the split");
   }
-  const strandedHolds: string[] = [];
+  const { error: zeroErr } = await db
+    .from("qr_cart_shares")
+    .delete()
+    .eq("cart_id", id)
+    .eq("status", "captured")
+    .is("stripe_payment_intent_id", null);
+  if (zeroErr) {
+    await releaseSettlement(id);
+    console.error("[split] open could not clear the prior $0 shares", zeroErr);
+    throw new Error("Could not start the split");
+  }
   for (const row of replaced ?? []) {
-    if (!row.stripe_payment_intent_id) continue;
-    const outcome = await releaseHold(row.stripe_payment_intent_id);
-    if (outcome !== "released" && outcome !== "gone")
-      strandedHolds.push(row.stripe_payment_intent_id);
+    const pi = row.stripe_payment_intent_id;
+    if (!pi || attempted.has(pi)) continue;
+    const outcome = await releaseHold(pi);
+    if (outcome !== "released" && outcome !== "gone") strandedHolds.push(pi);
   }
   if (strandedHolds.length > 0)
     console.error("[split] re-open could not release these prior holds", {
       cartId: id,
       paymentIntents: strandedHolds,
     });
+  // A survivor here is a share captured between the release loop and the deletes — real money on a row
+  // that must reach fulfillment, not be replaced. Keep the freeze and refuse.
+  const { data: stillThere, error: stillErr } = await db
+    .from("qr_cart_shares")
+    .select("id")
+    .eq("cart_id", id)
+    .limit(1);
+  if (stillErr) {
+    console.error("[split] open survivor check failed", stillErr);
+    throw new Error("Couldn’t start the split — please try again");
+  }
+  if (stillThere && stillThere.length > 0)
+    throw new Error("Payment already completed — the order will finish");
   const { error } = await db.from("qr_cart_shares").insert(
     breakdowns.map((b) => ({
       cart_id: id,
