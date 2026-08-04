@@ -42,11 +42,17 @@ export async function paymentInFlightReason(
   )
     return "mid_payment";
   const db = serviceClient();
+  // ⚠️ W10d pre-merge review — only a share backed by a PaymentIntent is money in flight. A $0
+  // by-person seat (a diner who ordered nothing) is auto-settled to `captured` with a NULL PI purely so
+  // it can't block the all-covered gate; counting it here returned `split_in_progress` INDEPENDENT of
+  // the freshness TTL, which permanently refused cash-settle, clear-table, voids, comps, approvals,
+  // merges and every staff line edit on that table — with no way out, because abort was refused too.
   const { count } = await db
     .from("qr_cart_shares")
     .select("id", { count: "exact", head: true })
     .eq("cart_id", cart.id)
-    .in("status", ["authorized", "captured"]);
+    .in("status", ["authorized", "captured"])
+    .not("stripe_payment_intent_id", "is", null);
   if ((count ?? 0) > 0) return "split_in_progress";
   return null;
 }

@@ -455,7 +455,16 @@ export function SettlementBoard({
               {shares.map((s, i) => {
                 const isMe = s.seat === ctx.mySeat;
                 const name = isMe ? "You" : nameOf(s.seat);
-                const canPay = isMe && (s.status === "pending" || s.status === "failed");
+                // ⚠️ W10d pre-merge review — `canceled` belongs here. The server's claim predicate has
+                // always accepted `pending | failed | canceled`, so a canceled share IS payable; the UI
+                // was the only thing saying otherwise. It's reachable whenever a mint dies after the
+                // prior intent was released (a 503 from the provider, or the claim write failing):
+                // Stripe's `payment_intent.canceled` flips the row, realtime pushes it, and SharePay —
+                // with the "Try again" the payer needed — unmounted, leaving a grey badge and no way
+                // forward for either them or the table.
+                const canPay =
+                  isMe &&
+                  (s.status === "pending" || s.status === "failed" || s.status === "canceled");
                 const settled = s.status === "authorized" || s.status === "captured";
                 return (
                   // Textured + rise-in (keys are stable seats — status flips re-render, never re-animate).

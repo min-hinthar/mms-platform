@@ -47,8 +47,14 @@ describe("shareIntentKey — a retry must not replay the intent it just canceled
   });
 
   it("cannot confuse a first attempt with a retry", () => {
-    // A guard against a future refactor passing "" or "null" for the first mint: the sentinel must not
-    // be derivable from any real intent id.
-    expect(shareIntentKey("share-1", 2400, null)).not.toBe(shareIntentKey("share-1", 2400, "new"));
+    // A guard against a future refactor collapsing `null` onto a sentinel the caller could also pass:
+    // no intent id may derive the first-mint key. The earlier version of this test probed only the
+    // literal "new" — a string the implementation stopped using when the sentinel was replaced by the
+    // `first` / `after-<id>` prefixes — so it could not fail for either of the values its own comment
+    // named. Probe every shape a broken refactor would actually produce (`String(null)`, an empty id,
+    // and the retired sentinel), which is what makes this assertion able to go red.
+    const firstMint = shareIntentKey("share-1", 2400, null);
+    for (const impostor of ["new", "null", "undefined", "", "first"])
+      expect(shareIntentKey("share-1", 2400, impostor)).not.toBe(firstMint);
   });
 });

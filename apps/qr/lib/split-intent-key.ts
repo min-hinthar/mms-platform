@@ -19,8 +19,8 @@
  * *which* attempt it is, not just which share and amount. Including the PaymentIntent being REPLACED
  * does that exactly: it reads as "the intent that supersedes PI_X for this share at this amount".
  *
- *   • first mint (nothing to replace)      → `share_X_2400_new`   → PI_1
- *   • retry after PI_1                     → `share_X_2400_pi_1`  → PI_2   (a genuinely new key)
+ *   • first mint (nothing to replace)      → `share_X_2400_first`      → PI_1
+ *   • retry after PI_1                     → `share_X_2400_after-pi_1` → PI_2   (a genuinely new key)
  *   • double-tap of either                 → identical inputs, identical key → the same PI back
  *
  * Double-tap protection is preserved because two concurrent requests read the same `previousIntentId`
