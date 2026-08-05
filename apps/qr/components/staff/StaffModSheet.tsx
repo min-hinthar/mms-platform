@@ -24,6 +24,7 @@ export function StaffModSheet({
   basePriceCents,
   groups,
   pending,
+  error,
   onAdd,
 }: {
   open: boolean;
@@ -32,6 +33,8 @@ export function StaffModSheet({
   basePriceCents: number;
   groups: ModGroup[];
   pending: boolean;
+  /** Add failure surfaced INSIDE the sheet — a page-level live region is behind the modal scrim. */
+  error: string | null;
   onAdd: (choice: { modifierIds: string[]; qty: number; notes?: string }) => void;
 }) {
   const [sel, setSel] = useState<Selection>(() => initialSelection(groups));
@@ -46,9 +49,8 @@ export function StaffModSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title={itemName}>
+      {/* The Sheet renders its title visibly — no duplicate heading here. */}
       <div style={body}>
-        <h2 style={name}>{itemName}</h2>
-
         {groups.map((g) => (
           <fieldset key={g.id} style={groupBox}>
             <legend style={legend}>
@@ -66,8 +68,10 @@ export function StaffModSheet({
                   <button
                     key={o.id}
                     type="button"
-                    role={g.selectionType === "single" ? "radio" : "checkbox"}
-                    aria-checked={chosen}
+                    // Toggle-button semantics (aria-pressed): conformant without the roving-tabindex
+                    // machinery real radio groups demand — the single-select behavior lives in
+                    // toggleOption, and each option stays independently tabbable.
+                    aria-pressed={chosen}
                     style={chosen ? optBtnOn : optBtn}
                     onClick={() =>
                       setSel((s) => ({ ...s, [g.id]: toggleOption(g, s[g.id] ?? [], o.id) }))
@@ -99,9 +103,7 @@ export function StaffModSheet({
             >
               −
             </button>
-            <span style={qtyNum} aria-live="polite">
-              {qty}
-            </span>
+            <span style={qtyNum}>{qty}</span>
             <button
               type="button"
               style={qtyBtn}
@@ -142,17 +144,16 @@ export function StaffModSheet({
           {pending ? "Adding…" : `Add · $${(previewCents / 100).toFixed(2)}`}
         </button>
         {!valid && <p style={hint}>Pick the required options first.</p>}
+        {/* The sheet's ONE live region — the add refusal must be readable OVER the scrim. */}
+        <p role="status" style={error ? errLine : srOnlyLine}>
+          {error ?? ""}
+        </p>
       </div>
     </Sheet>
   );
 }
 
 const body: CSSProperties = { display: "grid", gap: "var(--s4)", padding: "var(--s4)" };
-const name: CSSProperties = {
-  fontFamily: "var(--font-display)",
-  fontSize: "var(--fs-h2)",
-  margin: 0,
-};
 const groupBox: CSSProperties = { border: "none", margin: 0, padding: 0 };
 const legend: CSSProperties = {
   fontSize: "var(--fs-sm)",
@@ -223,3 +224,12 @@ const cta: CSSProperties = {
 };
 const ctaDisabled: CSSProperties = { ...cta, opacity: 0.5, cursor: "default" };
 const hint: CSSProperties = { color: "var(--t2)", fontSize: "var(--fs-sm)", margin: 0 };
+const errLine: CSSProperties = { color: "var(--warn)", fontSize: "var(--fs-sm)", margin: 0 };
+const srOnlyLine: CSSProperties = {
+  position: "absolute",
+  width: 1,
+  height: 1,
+  overflow: "hidden",
+  clip: "rect(0 0 0 0)",
+  whiteSpace: "nowrap",
+};

@@ -28,6 +28,9 @@ export type OpenRegisterResult =
   | { ok: false; error: string };
 
 const REG_PREFIX = "reg-";
+/** Counter-order session window — long enough for any same-day phone order; the settle closes the
+ *  session anyway, so this is the ABANDONED-order horizon, not a working TTL. */
+const REG_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 
 export async function openRegisterOrder(raw: unknown): Promise<OpenRegisterResult> {
   const gate = await staffGate();
@@ -48,7 +51,17 @@ export async function openRegisterOrder(raw: unknown): Promise<OpenRegisterResul
     const code = `${REG_PREFIX}${generateJoinCode()}`;
     const { data: sess, error } = await db
       .from("table_sessions")
-      .insert({ qr_code: code, mode: "pickup", host_seat: null, table_number: null })
+      .insert({
+        qr_code: code,
+        mode: "pickup",
+        host_seat: null,
+        table_number: null,
+        // The review's confirmed HIGH: the 4h default TTL strands an unsettled counter order (an
+        // 11am phone order for a 4pm pickup expires at 3pm — the sweeper closes the session and the
+        // settle refuses). A counter order's liveness is its OPEN CART, not a diner session window;
+        // 12h covers any service day and the settle below closes the session the moment it's paid.
+        expires_at: new Date(Date.now() + REG_SESSION_TTL_MS).toISOString(),
+      })
       .select("id")
       .single();
     if (error) {
@@ -139,7 +152,8 @@ async function startTable(
 }
 
 /** Find-or-create the session's open cart (the /api/session cart shape, service-role). Best-effort:
- *  the staff drill-down mints one on demand too, so a miss here degrades to that, not a dead end. */
+ *  on a failure the drill-down honestly shows "no open order" (nothing mints one later — a diner
+ *  join via /api/session would); the console.error below is the only trace, so keep it. */
 async function ensureOpenCart(db: ReturnType<typeof serviceClient>, sessionId: string) {
   const { data: cart } = await db
     .from("qr_carts")
@@ -150,8 +164,9 @@ async function ensureOpenCart(db: ReturnType<typeof serviceClient>, sessionId: s
   if (cart) return;
   const { error } = await db.from("qr_carts").insert({ session_id: sessionId });
   if (error && error.code !== "23505") {
-    // Deliberate swallow: qr_carts_one_open_per_session means a 23505 is a concurrent winner (fine);
-    // any other failure surfaces the moment staff open the drill-down, which reads the cart honestly.
+    // Deliberate degrade: a 23505 is a concurrent winner (fine). Anything else leaves the session
+    // cartless — the drill-down shows "no open order" honestly, and this log is the only trace.
+    console.error("[register] ensureOpenCart failed", { sessionId, code: error.code });
   }
 }
 
@@ -200,41 +215,34 @@ export async function getRegisterQueue(): Promise<RegisterQueue> {
   const gate = await staffGate();
   if (!gate.ok) return { ok: false, reason: "outage" };
   const db = serviceClient();
-  const nowIso = new Date().toISOString();
-  const { data: sessions, error: sessErr } = await db
-    .from("table_sessions")
-    .select("id,created_at")
-    .eq("status", "active")
-    .eq("mode", "pickup")
-    .like("qr_code", `${REG_PREFIX}%`)
-    .gt("expires_at", nowIso)
-    .order("created_at", { ascending: true })
-    .limit(40);
-  if (sessErr) return { ok: false, reason: "outage" };
-  const ids = (sessions ?? []).map((s) => s.id);
-  if (ids.length === 0) return { ok: true, rows: [] };
-
+  // OPEN CARTS first (the review's confirmed HIGH): a limit applied to ACTIVE SESSIONS is consumed
+  // by settled-but-not-yet-expired ones, hiding genuinely open orders in a rush. The inner join
+  // scopes to counter sessions; no expires_at filter — an open cart IS the liveness signal (the
+  // 11am-phone-order-for-4pm case must stay visible its whole day).
   const { data: carts, error: cartErr } = await db
     .from("qr_carts")
-    .select("id,session_id,customer_name,created_at,qr_cart_items(qty,unit_price_cents,state,comped)")
-    .in("session_id", ids)
-    .eq("status", "open");
+    .select(
+      "id,session_id,customer_name,created_at,qr_cart_items(qty,unit_price_cents,state,comped),table_sessions!inner(qr_code,mode,status)",
+    )
+    .eq("status", "open")
+    .eq("table_sessions.mode", "pickup")
+    .eq("table_sessions.status", "active")
+    .like("table_sessions.qr_code", `${REG_PREFIX}%`)
+    .order("created_at", { ascending: true })
+    .limit(40);
   if (cartErr) return { ok: false, reason: "outage" };
 
-  const rows: RegisterQueueRow[] = [];
-  for (const s of sessions ?? []) {
-    const cart = (carts ?? []).find((c) => c.session_id === s.id);
-    if (!cart) continue; // settled or cancelled — off the queue
+  const rows: RegisterQueueRow[] = (carts ?? []).map((cart) => {
     const lines = (cart.qr_cart_items ?? []).filter((l) => l.state !== "voided" && !l.comped);
-    rows.push({
-      sessionId: s.id,
+    return {
+      sessionId: cart.session_id,
       customerName: cart.customer_name ?? null,
       itemCount: lines.reduce((n, l) => n + l.qty, 0),
       // Display-only running subtotal for the queue card — the charge is always getCartTotals at settle.
       subtotalCents: lines.reduce((n, l) => n + l.qty * l.unit_price_cents, 0),
       startedAt: cart.created_at,
-    });
-  }
+    };
+  });
   return { ok: true, rows };
 }
 
@@ -255,10 +263,22 @@ export async function getDayCashSummary(): Promise<DayCashResult> {
   }
   const db = serviceClient();
   const sinceIso = laDayStartIso(new Date());
-  const { data, error } = await db
-    .from("qr_orders")
-    .select("tender,total_cents,status")
-    .gte("created_at", sinceIso);
-  if (error) return { ok: false, reason: "outage" };
-  return { ok: true, summary: summarizeDay(data ?? []), sinceIso };
+  // Page explicitly: PostgREST truncates at its max-rows (default 1000) with error still null, and a
+  // silently-truncated drawer figure is exactly the lie this surface exists to prevent. Ordered pages
+  // until a short page; statuses the buckets ignore are filtered server-side so they don't burn rows.
+  const rows: { tender: string; total_cents: number; status: string }[] = [];
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await db
+      .from("qr_orders")
+      .select("tender,total_cents,status")
+      .gte("created_at", sinceIso)
+      .in("status", ["paid", "refunded"])
+      .order("created_at", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) return { ok: false, reason: "outage" };
+    rows.push(...(data ?? []));
+    if ((data ?? []).length < PAGE) break;
+  }
+  return { ok: true, summary: summarizeDay(rows), sinceIso };
 }

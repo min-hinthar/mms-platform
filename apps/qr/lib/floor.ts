@@ -551,6 +551,8 @@ export async function getMergeCandidates(sourceSessionId: string): Promise<Merge
     .select("id,qr_code,table_number,mode")
     .eq("status", "active")
     .eq("mode", source.mode)
+    // W6a: a counter (`reg-`) order is one customer's bag, not a table — never a merge target.
+    .not("qr_code", "like", "reg-%")
     .gt("expires_at", nowIso)
     .neq("id", sourceSessionId)
     .limit(ACTIVE_SESSION_CAP);

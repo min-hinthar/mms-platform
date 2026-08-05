@@ -46,7 +46,7 @@ export default async function RegisterPage() {
                 <span style={rowName}>{r.customerName ?? "Walk-up"}</span>
                 <span style={rowMeta}>
                   {r.itemCount} item{r.itemCount === 1 ? "" : "s"} · $
-                  {(r.subtotalCents / 100).toFixed(2)}
+                  {(r.subtotalCents / 100).toFixed(2)} + tax
                 </span>
               </Link>
             </li>
@@ -80,8 +80,10 @@ export default async function RegisterPage() {
           </dl>
           {day.summary.refundedCount > 0 && (
             <p style={mut}>
-              {day.summary.refundedCount} order{day.summary.refundedCount === 1 ? "" : "s"} refunded
-              (${(day.summary.refundedCents / 100).toFixed(2)}) — not counted above.
+              {day.summary.refundedCount} order{day.summary.refundedCount === 1 ? "" : "s"} paid
+              today and since fully refunded (${(day.summary.refundedCents / 100).toFixed(2)}) — not
+              counted above. A refund of an earlier day&rsquo;s order shows on Orders &amp; refunds,
+              not here.
             </p>
           )}
           <p style={mut}>

@@ -40,7 +40,7 @@ async function openCartFor(sessionId: string) {
   const db = serviceClient();
   const { data: session, error: sessionError } = await db
     .from("table_sessions")
-    .select("id,status,mode")
+    .select("id,status,mode,qr_code")
     .eq("id", sessionId)
     .maybeSingle();
   if (sessionError) return { session: null, cart: null, unavailable: true as const };
@@ -362,6 +362,26 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
           });
       } catch (e) {
         console.error("[staff-cart] snapshot ebt eligibility threw", { cartId: cart.id, error: e });
+      }
+      // W6a: a COUNTER (`reg-`) session is one order — settled means finished. Close it so settled
+      // counter orders never accumulate in the active-session set for the rest of their TTL (a table
+      // session stays active: the table is still seated). Best-effort: a miss only means the session
+      // ages out on its own expiry.
+      if (session.qr_code.startsWith("reg-")) {
+        try {
+          const { error: closeErr } = await db
+            .from("table_sessions")
+            .update({ status: "closed" })
+            .eq("id", session.id)
+            .eq("status", "active");
+          if (closeErr)
+            console.error("[staff-cart] counter session close failed", {
+              sessionId: session.id,
+              message: closeErr.message,
+            });
+        } catch (e) {
+          console.error("[staff-cart] counter session close threw", { sessionId: session.id, error: e });
+        }
       }
     });
 

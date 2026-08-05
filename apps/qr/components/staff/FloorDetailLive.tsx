@@ -55,6 +55,20 @@ export function FloorDetailLive({
   // Staff can write while there's an open cart and no payment in flight; once settled (cartId null) or
   // mid-payment the order goes read-only. The server enforces this too — this is just the affordance.
   const canWrite = detail.cartId != null && !detail.paymentInFlight;
+  const isCounter = detail.label.startsWith("reg-");
+  // W6a review (confirmed HIGH): the settle handoff card must SURVIVE the settled detail state — the
+  // settle button lives inside the open-cart conditional, and the realtime/poll refresh unmounts it
+  // (client state included) within ~0.4-5s of the settle, mid-handoff. The card's data lives HERE.
+  const [handoff, setHandoff] = useState<{
+    orderId: string;
+    totalCents: number;
+    changeCents: number | null;
+  } | null>(null);
+  const handoffRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // Focus the handoff card when it appears (the settle control it replaced has unmounted).
+    if (handoff) handoffRef.current?.focus();
+  }, [handoff]);
 
   // Focus catch-all (WCAG 2.4.3): ANY detail refresh can unmount the control that held focus — a line
   // removal (stepper row gone), a void/comp (row swaps to the no-controls variant), an approval request
@@ -142,9 +156,11 @@ export function FloorDetailLive({
       <header style={header}>
         <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            {/* K2: the real table number; an unregistered/legacy sticker shows its raw token + flag. */}
-            <h1 style={h1}>Table {tableDisplay(detail).text}</h1>
-            {tableDisplay(detail).unregistered && (
+            {/* K2: the real table number; an unregistered/legacy sticker shows its raw token + flag.
+                W6a: a register (`reg-`) session is a COUNTER ORDER, not a broken table — name it so,
+                and never wave the unregistered-sticker warning at it. */}
+            <h1 style={h1}>{isCounter ? "Counter order" : `Table ${tableDisplay(detail).text}`}</h1>
+            {!isCounter && tableDisplay(detail).unregistered && (
               <Badge tone="warn" bordered>
                 Unregistered sticker
               </Badge>
@@ -375,7 +391,8 @@ export function FloorDetailLive({
             isTab={detail.tab !== "none"}
             // W6a: a counter (register) order ends in a handoff — tendered/change helper + the
             // #CODE card the cashier calls out. Table settles keep the quiet flow.
-            handoff={detail.label.startsWith("reg-")}
+            handoff={isCounter}
+            onHandoff={(h) => setHandoff(h)}
           />
           {detail.tab === "trust" && (
             <p style={{ ...muted, marginTop: 8, fontSize: "var(--fs-sm)" }}>
@@ -384,6 +401,37 @@ export function FloorDetailLive({
             </p>
           )}
         </section>
+      )}
+      {handoff && (
+        <div
+          ref={handoffRef}
+          tabIndex={-1}
+          role="status"
+          aria-label="Order paid"
+          className="card"
+          style={{ marginTop: "var(--s4)", padding: "var(--s4)", textAlign: "center", outline: "none" }}
+        >
+          <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
+            Paid · ${(handoff.totalCents / 100).toFixed(2)}
+            {handoff.changeCents != null && handoff.changeCents > 0 && (
+              <> — change ${(handoff.changeCents / 100).toFixed(2)}</>
+            )}
+          </p>
+          <p
+            style={{
+              margin: 0,
+              fontFamily: "var(--font-display)",
+              fontSize: "var(--fs-h1)",
+              fontWeight: 800,
+              letterSpacing: "0.06em",
+            }}
+          >
+            #{handoff.orderId.slice(-6).toUpperCase()}
+          </p>
+          <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
+            The pickup call-out — it&rsquo;s on the kitchen ticket and the ready board.
+          </p>
+        </div>
       )}
       {detail.paymentInFlight && (
         <p style={{ ...muted, marginTop: "var(--s4)", fontSize: "var(--fs-sm)" }}>

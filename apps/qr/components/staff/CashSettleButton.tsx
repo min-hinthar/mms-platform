@@ -18,6 +18,7 @@ export function CashSettleButton({
   totalCents,
   isTab = false,
   handoff = false,
+  onHandoff,
 }: {
   sessionId: string;
   totalCents: number;
@@ -26,16 +27,17 @@ export function CashSettleButton({
    *  not a mid-meal settle. The money path is identical (mms_fulfill_cash_order, server-reconciled). */
   isTab?: boolean;
   /** W6a (register): a counter order's settle ends with a HANDOFF — show the tendered/change helper
-   *  in the confirm step and the #CODE card after, so the cashier can call the order and hand the
-   *  customer their pickup code. Display-only additions; the charge stays server-derived. */
+   *  in the confirm step and hand the result UP (`onHandoff`), so the parent renders the #CODE card
+   *  OUTSIDE the open-cart conditional this button lives in (the review's confirmed HIGH: the detail
+   *  refresh unmounts this component seconds after settle). Display-only; the charge stays server-derived. */
   handoff?: boolean;
+  onHandoff?: (h: { orderId: string; totalCents: number; changeCents: number | null }) => void;
 }) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tendered, setTendered] = useState("");
-  const [done, setDone] = useState<{ orderId: string } | null>(null);
   // Cashier arithmetic only — parsed dollars → cents, never sent anywhere.
   const tenderedCents = Math.round(Number.parseFloat(tendered || "0") * 100) || 0;
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -63,25 +65,15 @@ export function CashSettleButton({
     if (handoff) {
       setBusy(false);
       setConfirming(false);
-      setDone({ orderId: res.orderId });
+      // The AUTHORITATIVE total the settle returned (the prop can be a poll interval stale), and the
+      // change computed against it. The parent owns the card — this component unmounts with the cart.
+      onHandoff?.({
+        orderId: res.orderId,
+        totalCents: res.totalCents,
+        changeCents: tenderedCents > 0 ? changeDue(res.totalCents, tenderedCents) : null,
+      });
     }
     router.refresh(); // the realtime re-fetch also fires; this makes the paid state immediate
-  }
-
-  if (done) {
-    const code = done.orderId.slice(-6).toUpperCase();
-    return (
-      <Card role="status" aria-label="Order paid" style={{ ...confirmCard, textAlign: "center" }}>
-        <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
-          Paid · {fmt(totalCents)}
-          {tenderedCents > totalCents && <> — change {fmt(changeDue(totalCents, tenderedCents))}</>}
-        </p>
-        <p style={codeText}>#{code}</p>
-        <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
-          The pickup call-out — it&rsquo;s on the kitchen ticket and the ready board.
-        </p>
-      </Card>
-    );
   }
 
   return (
@@ -206,13 +198,6 @@ const tenderInput: CSSProperties = {
   background: "var(--sf)",
   color: "var(--tx)",
   fontSize: "var(--fs-body)",
-};
-const codeText: CSSProperties = {
-  margin: 0,
-  fontFamily: "var(--font-display)",
-  fontSize: "var(--fs-h1)",
-  fontWeight: 800,
-  letterSpacing: "0.06em",
 };
 const hint: CSSProperties = {
   margin: "8px 0 0",

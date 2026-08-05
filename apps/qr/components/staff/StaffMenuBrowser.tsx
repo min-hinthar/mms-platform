@@ -43,6 +43,7 @@ export function StaffMenuBrowser({
   const [cat, setCat] = useState<string | null>(null);
   const [sheetItem, setSheetItem] = useState<StaffMenuItem | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [sheetError, setSheetError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [name, setName] = useState(initialName ?? "");
   const [nameSaved, setNameSaved] = useState<boolean>(initialName != null && initialName !== "");
@@ -60,7 +61,7 @@ export function StaffMenuBrowser({
   }, [items, q, cat]);
 
   function addWithChoice(item: StaffMenuItem, choice: { modifierIds: string[]; qty: number; notes?: string }) {
-    setStatus(null);
+    setSheetError(null);
     startTransition(async () => {
       try {
         const r = await staffAddItem({ sessionId, menuItemId: item.id, ...choice });
@@ -69,10 +70,11 @@ export function StaffMenuBrowser({
           setStatus(`Added ${choice.qty} × ${item.nameEn}.`);
           router.refresh();
         } else {
-          setStatus(r.error);
+          // Into the SHEET's live region — the page-level one is behind the modal scrim.
+          setSheetError(r.error);
         }
       } catch {
-        setStatus("Couldn’t add that — try again.");
+        setSheetError("Couldn’t add that — try again.");
       }
     });
   }
@@ -217,12 +219,16 @@ export function StaffMenuBrowser({
           key={sheetItem.id}
           open
           onOpenChange={(open) => {
-            if (!open) setSheetItem(null);
+            if (!open) {
+              setSheetItem(null);
+              setSheetError(null);
+            }
           }}
           itemName={sheetItem.nameEn}
           basePriceCents={sheetItem.priceCents}
           groups={sheetItem.groups}
           pending={pending}
+          error={sheetError}
           onAdd={(choice) => addWithChoice(sheetItem, choice)}
         />
       )}
