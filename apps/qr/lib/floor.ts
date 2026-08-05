@@ -77,6 +77,9 @@ export async function getFloorView(): Promise<FloorPoll> {
     .select("id,qr_code,table_number,mode,host_seat,created_at")
     .eq("status", "active")
     .gt("expires_at", nowIso)
+    // W6a: counter orders (`reg-` sessions, table-less by design) live on /staff/register's queue —
+    // on the floor they'd pile up labelled with raw codes and eat the session cap.
+    .not("qr_code", "like", "reg-%")
     .order("created_at", { ascending: true })
     .limit(ACTIVE_SESSION_CAP);
   if (sessionsError) return { ok: false, reason: "outage" };

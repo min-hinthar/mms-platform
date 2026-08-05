@@ -414,6 +414,17 @@ export const staffAddItemInput = z.object({
  *  cash order idempotently. The client asserts only the session id — never an amount. */
 export const settleCashInput = z.object({ sessionId: uuid });
 
+/** openRegisterOrder (W6a) — staff start an order that has no diner phone behind it: a walk-up or a
+ *  phone order (counter arms — a per-order `mode='pickup'` session keyed `reg-<code>`), or "start a
+ *  table" (a real dine-in session on a registered table, so eat-in tax basis and floor/KDS routing come
+ *  by construction). Shape only; the mint is staff-gated + service-role — never through /api/session
+ *  (its rate limits key on a diner seat) and never with a client-asserted session or price. */
+export const openRegisterInput = z.object({
+  kind: z.enum(["walkup", "phone", "table"]),
+  tableNumber: z.number().int().min(1).max(999).optional(),
+  customerName: z.string().trim().max(40).optional(),
+});
+
 /** mergeTables (S1.4 soft convergence) — fold a SOURCE table's open order into a TARGET table, then close
  *  the source (the one-tap recovery for a double-order). Shape only; the server (requireStaff + service-
  *  role) re-resolves both open carts, refuses mid-payment on either side, requires a shared mode, and runs
@@ -516,6 +527,7 @@ export type FireTicketNowInput = z.infer<typeof fireTicketNowInput>;
 export type SetLineNotesInput = z.infer<typeof setLineNotesInput>;
 export type StaffAddItemInput = z.infer<typeof staffAddItemInput>;
 export type SettleCashInput = z.infer<typeof settleCashInput>;
+export type OpenRegisterInput = z.infer<typeof openRegisterInput>;
 export type MergeTablesInput = z.infer<typeof mergeTablesInput>;
 export type SessionMintInput = z.infer<typeof sessionMintInput>;
 export type SessionMintOutput = z.infer<typeof sessionMintOutput>;
