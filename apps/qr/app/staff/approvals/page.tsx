@@ -1,7 +1,7 @@
 import { type CSSProperties } from "react";
 import Link from "next/link";
 import { requireStaffPage } from "@/lib/staff";
-import { listPendingApprovals } from "@/lib/approvals";
+import { listPendingApprovals, listRefundsNeeded, resolveRefundNeeded } from "@/lib/approvals";
 import { listApprovers } from "@/lib/voids";
 import { RoleBadge } from "@/components/staff/RoleBadge";
 import { ApprovalsBoard } from "@/components/staff/ApprovalsBoard";
@@ -22,7 +22,11 @@ export default async function ApprovalsPage() {
   // (The list reads below throw 503 on an unreadable queue — the staff error boundary catches it.)
   if (!caller) return <StaffOutageShell what="approvals" />;
 
-  const [pending, approvers] = await Promise.all([listPendingApprovals(), listApprovers()]);
+  const [pending, approvers, refunds] = await Promise.all([
+    listPendingApprovals(),
+    listApprovers(),
+    listRefundsNeeded(),
+  ]);
 
   return (
     <main style={wrap}>
@@ -40,10 +44,77 @@ export default async function ApprovalsPage() {
         </Link>
       </header>
 
+      {refunds.length > 0 && (
+        <section aria-label="Refunds needed" style={refundsStrip}>
+          <p style={refundsHead}>
+            <strong>
+              {refunds.length} refund{refunds.length === 1 ? "" : "s"} needed
+            </strong>{" "}
+            — money was taken (or a card hold abandoned) with no order behind it. Refund it in
+            Stripe, then mark it done here.
+          </p>
+          <ul role="list" style={refundsList}>
+            {refunds.map((r) => (
+              <li key={r.id} style={refundsRow}>
+                <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>
+                  {r.amountCents != null
+                    ? `$${(r.amountCents / 100).toFixed(2)}`
+                    : "amount unknown"}
+                </span>{" "}
+                · {r.reason.replaceAll("_", " ")} ·{" "}
+                <code style={{ fontSize: "var(--fs-xs)", overflowWrap: "anywhere" }}>
+                  {r.paymentIntent}
+                </code>
+                <form
+                  action={async () => {
+                    "use server";
+                    await resolveRefundNeeded(r.id);
+                  }}
+                  style={{ display: "inline-block", marginLeft: 8 }}
+                >
+                  <button type="submit" style={resolveBtn}>
+                    Mark refunded
+                  </button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <ApprovalsBoard initial={pending} approvers={approvers} />
     </main>
   );
 }
+
+const refundsStrip: CSSProperties = {
+  // The staff boards' existing warn pair — theme-aware, per the tokens-never-hex rule (the first draft
+  // referenced a --danger token that does not exist, resolving to one hardcoded red in both themes).
+  border: "1px solid var(--warn)",
+  borderRadius: 12,
+  padding: "var(--s3) var(--s4)",
+  marginBottom: "var(--s4)",
+  background: "var(--warnb)",
+};
+const resolveBtn: CSSProperties = {
+  minHeight: 44,
+  padding: "0 var(--s3)",
+  borderRadius: 10,
+  border: "1px solid var(--warn)",
+  background: "transparent",
+  color: "var(--warn)",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+const refundsHead: CSSProperties = { margin: 0, marginBottom: 8 };
+const refundsList: CSSProperties = {
+  listStyle: "none",
+  margin: 0,
+  padding: 0,
+  display: "grid",
+  gap: 6,
+};
+const refundsRow: CSSProperties = { fontSize: "var(--fs-sm)" };
 
 const wrap: CSSProperties = {
   maxWidth: 820,

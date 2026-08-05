@@ -999,6 +999,7 @@ export type Database = {
       qr_cart_shares: {
         Row: {
           amount_cents: number
+          capture_started_at: string | null
           cart_id: string
           created_at: string
           discount_cents: number
@@ -1016,6 +1017,7 @@ export type Database = {
         }
         Insert: {
           amount_cents: number
+          capture_started_at?: string | null
           cart_id: string
           created_at?: string
           discount_cents?: number
@@ -1033,6 +1035,7 @@ export type Database = {
         }
         Update: {
           amount_cents?: number
+          capture_started_at?: string | null
           cart_id?: string
           created_at?: string
           discount_cents?: number
@@ -1080,6 +1083,7 @@ export type Database = {
           session_id: string
           settle_at: string | null
           settle_by: string | null
+          settle_expected_cents: number | null
           status: string
           tab_opened_at: string | null
           tab_type: string
@@ -1099,6 +1103,7 @@ export type Database = {
           session_id: string
           settle_at?: string | null
           settle_by?: string | null
+          settle_expected_cents?: number | null
           status?: string
           tab_opened_at?: string | null
           tab_type?: string
@@ -1118,6 +1123,7 @@ export type Database = {
           session_id?: string
           settle_at?: string | null
           settle_by?: string | null
+          settle_expected_cents?: number | null
           status?: string
           tab_opened_at?: string | null
           tab_type?: string
@@ -1209,6 +1215,32 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "qr_order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "qr_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      qr_order_payers: {
+        Row: {
+          created_at: string
+          order_id: string
+          payer_uid: string
+        }
+        Insert: {
+          created_at?: string
+          order_id: string
+          payer_uid: string
+        }
+        Update: {
+          created_at?: string
+          order_id?: string
+          payer_uid?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "qr_order_payers_order_id_fkey"
             columns: ["order_id"]
             isOneToOne: false
             referencedRelation: "qr_orders"
@@ -1632,10 +1664,7 @@ export type Database = {
         }
         Returns: string
       }
-      mms_fulfill_split_order: {
-        Args: { p_cart_id: string; p_expected_total_cents: number }
-        Returns: string
-      }
+      mms_fulfill_split_order: { Args: { p_cart_id: string }; Returns: string }
       mms_grocery_search: {
         Args: { p_q: string }
         Returns: {

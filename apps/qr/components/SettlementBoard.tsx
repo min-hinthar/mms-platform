@@ -38,6 +38,11 @@ export function SettlementBoard({
   // W9b — the table's order was closed WITHOUT payment (merged/cleared by a server). Distinct from
   // `complete`: no money moved and there is no receipt.
   const [gone, setGone] = useState(false);
+  // ⚠️ W11 (M44) — the host aborting the split DELETES the ledger while the cart stays open; without
+  // this, the payer whose card carried a real authorization seconds ago is shown an empty board and
+  // left to wonder whether they still owe money.
+  const [splitCanceled, setSplitCanceled] = useState(false);
+  const hadShares = useRef(false);
   // W9b review — same discipline as the pickup sheet's retry: the button must survive its own tap.
   // `load()` is fire-and-forget, so without a busy flag the banner can vanish under the focused button
   // (on success) or sit inert with no feedback (on a slow retry).
@@ -107,6 +112,18 @@ export function SettlementBoard({
         const rows = r.shares;
         failStreak.current = 0; // the board answered — back to the 5s cadence
         setShares(rows);
+        // W11 (M44): a ledger that HAD rows and now has none, with the cart still open, is a host
+        // abort — the one moment the payer needs to hear their hold is gone. A fresh non-empty ledger
+        // (the host re-opened) supersedes the beat.
+        if (rows.length > 0) {
+          hadShares.current = true;
+          setSplitCanceled(false);
+        } else if (hadShares.current && !redirected.current) {
+          setSplitCanceled(true);
+          onStatus(
+            "The host canceled the split — nothing more will be charged. Any hold on your card is being released.",
+          );
+        }
         setLoaded(true);
         setLoadError(false);
         setRetrying(false);
@@ -386,6 +403,16 @@ export function SettlementBoard({
               <p className="settle-complete-line">This table’s order was closed</p>
               <p className="settle-complete-sub">
                 Nobody was charged. Ask your server if that wasn’t expected.
+              </p>
+            </div>
+          ) : splitCanceled && !complete ? (
+            // W11 (M44) — the abort's payer-facing face. Not a live region (onStatus announced it);
+            // the visible copy answers the question an authorized payer is actually asking.
+            <div className="settle-complete">
+              <p className="settle-complete-line">The host canceled the split</p>
+              <p className="settle-complete-sub">
+                Nothing more will be charged. Any hold on your card is being released — it can take
+                a few days to drop off your statement. You can split again or pay together.
               </p>
             </div>
           ) : complete ? (

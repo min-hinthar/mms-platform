@@ -371,13 +371,30 @@ export async function getOrderHistory(limit = 20): Promise<OrderHistoryEntry[] |
   // Every amount below is the SERVER-DERIVED figure stored at fulfillment; the UI only displays it verbatim.
   // Return NULL on a read FAILURE (vs [] for a genuinely empty history) so /account can show an honest
   // "couldn't load" note instead of the affirmative "No orders yet" to a diner who actually has orders.
-  const { data: orders, error } = await db
+  // W11 (M29): a split payer's orders live behind `qr_order_payers`, not `earned_by` (only the host is
+  // stamped there). Resolve the payer's order ids first — uid-scoped, bounded — then one read
+  // authorized by EITHER proof. Both `.or()` values are SERVER-derived (a verified auth uid; ids read
+  // under that uid's own scope), and this is a SELECT, so the PostgREST-14 or+representation trap
+  // (mutations only) does not apply.
+  const { data: payerRows, error: payerErr } = await db
+    .from("qr_order_payers")
+    .select("order_id")
+    .eq("payer_uid", user.id)
+    .order("created_at", { ascending: false })
+    .limit(lim);
+  if (payerErr) return null;
+  const payerIds = (payerRows ?? []).map((r) => r.order_id);
+
+  let history = db
     .from("qr_orders")
     .select(
       "id,created_at,total_cents,tender,pickup_slot,table_number,subtotal_cents,discount_cents,service_charge_cents,tax_cents,tip_cents",
     )
-    .eq("earned_by", user.id)
-    .eq("status", "paid")
+    .eq("status", "paid");
+  history = payerIds.length
+    ? history.or(`earned_by.eq.${user.id},id.in.(${payerIds.join(",")})`)
+    : history.eq("earned_by", user.id);
+  const { data: orders, error } = await history
     .order("created_at", { ascending: false })
     .limit(lim);
   if (error) return null;

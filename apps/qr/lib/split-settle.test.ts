@@ -112,6 +112,10 @@ describe("onShareFailed — only a genuinely dead PaymentIntent may mark a share
   it("marks the share when Stripe says the attempt is dead", async () => {
     await onShareFailed("pi_1");
     expect(marked()).toHaveLength(1);
+    // W11 review — the failed mark must also CLEAR the capture-claim stamp: an issuer declining the
+    // CAPTURE lands here with the stamp still set, and a stamped share permanently blocks the abort
+    // that is now the table's only way forward.
+    expect(marked()[0]?.patch.capture_started_at).toBeNull();
     // The predicate is the guard: it must reach an `authorized` row (a capture declined by the
     // issuer fires payment_failed while the row still reads authorized) …
     expect(marked()[0]?.inList).toContain("authorized");

@@ -257,6 +257,61 @@ export type PendingApproval = {
  * initiator's display name and the table label for legibility. Read via service-role (the audit table is
  * owner-read RLS); the requireStaff('manager') gate is the authority for who may see/resolve it.
  */
+/**
+ * W11 review — the strip's copy told the manager to "mark it resolved", and no resolve control
+ * existed anywhere: rows would accumulate forever and new ones eventually fall off the 50-row read.
+ * Manager-gated like every loss decision; the UPDATE is scoped to one id and flips only `resolved`.
+ */
+export async function resolveRefundNeeded(id: string): Promise<void> {
+  await requireStaff("manager");
+  const db = serviceClient();
+  const { error } = await db.from("qr_refunds_needed").update({ resolved: true }).eq("id", id);
+  if (error)
+    throw new AuthzError("We can’t reach the ordering system right now", 503, "unavailable");
+  revalidatePath("/staff/approvals");
+}
+
+/** One unresolved row of the durable refunds ledger (W11/M43) — money taken with no order behind it. */
+export type RefundNeeded = {
+  id: string;
+  paymentIntent: string;
+  cartId: string | null;
+  amountCents: number | null;
+  reason: string;
+  createdAt: string;
+};
+
+/**
+ * W11 (M43) — the operator surface for the `qr_refunds_needed` ledger. Every row is a charge (or a
+ * hold we knowingly abandoned) that no order accounts for: a split reconcile mismatch, a hold an
+ * abort could not release, a capture discovered after its row was destroyed. Before this, each of
+ * those existed only as a `console.error` in a serverless log plus 72h of identical Stripe retries —
+ * nobody in the building could see them. Manager-gated like the approvals queue it renders beside;
+ * a failed read throws `unavailable` for the same reason (an empty list must MEAN empty).
+ */
+// verify:slice-exempt — read-only, manager-gated list surfaces; the money rules it renders (the
+// qr_refunds_needed WRITES) are mutated where they live: split.ts and the migration's SQL.
+export async function listRefundsNeeded(): Promise<RefundNeeded[]> {
+  await requireStaff("manager");
+  const db = serviceClient();
+  const { data, error } = await db
+    .from("qr_refunds_needed")
+    .select("id,payment_intent,cart_id,amount_cents,reason,created_at")
+    .eq("resolved", false)
+    .order("created_at", { ascending: true })
+    .limit(50);
+  if (error)
+    throw new AuthzError("We can’t reach the ordering system right now", 503, "unavailable");
+  return (data ?? []).map((r) => ({
+    id: r.id,
+    paymentIntent: r.payment_intent,
+    cartId: r.cart_id,
+    amountCents: r.amount_cents,
+    reason: r.reason,
+    createdAt: r.created_at,
+  }));
+}
+
 export async function listPendingApprovals(): Promise<PendingApproval[]> {
   await requireStaff("manager");
   const db = serviceClient();
