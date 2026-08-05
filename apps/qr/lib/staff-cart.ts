@@ -40,7 +40,7 @@ async function openCartFor(sessionId: string) {
   const db = serviceClient();
   const { data: session, error: sessionError } = await db
     .from("table_sessions")
-    .select("id,status,mode")
+    .select("id,status,mode,qr_code")
     .eq("id", sessionId)
     .maybeSingle();
   if (sessionError) return { session: null, cart: null, unavailable: true as const };
@@ -71,7 +71,7 @@ export async function staffAddItem(raw: unknown): Promise<StaffWriteResult> {
   const caller = gate.caller;
   const parsed = staffAddItemInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
-  const { sessionId, menuItemId, modifierIds, notes } = parsed.data;
+  const { sessionId, menuItemId, modifierIds, notes, qty } = parsed.data;
 
   const { session, cart, unavailable } = await openCartFor(sessionId);
   if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
@@ -82,7 +82,12 @@ export async function staffAddItem(raw: unknown): Promise<StaffWriteResult> {
 
   try {
     const dineIn = session.mode === "dinein";
-    const { name, unitPriceCents, category, opts } = await priceItem(menuItemId, modifierIds);
+    // W6a: cardinality is ENFORCED on the staff path too — the register's modifier sheet routes a
+    // required-choice item here with its choices, and the server must refuse a curry with no style
+    // exactly like the diner path (the old lenient add shipped modifier-less required items — K17).
+    const { name, unitPriceCents, category, opts } = await priceItem(menuItemId, modifierIds, {
+      enforceCardinality: true,
+    });
     const taxCents = lineTax(unitPriceCents, category, dineIn);
     // by_seat = null: a staff-added line isn't pre-attributed to a guest's split (the host can assign it
     // later via the existing by-person flow). The status-atomic insert throws if the cart isn't open.
@@ -101,6 +106,7 @@ export async function staffAddItem(raw: unknown): Promise<StaffWriteResult> {
         notes: notes || undefined,
       },
       null,
+      qty,
     );
     await touchCart(cart.id, "staffAddItem");
   } catch {
@@ -356,6 +362,26 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
           });
       } catch (e) {
         console.error("[staff-cart] snapshot ebt eligibility threw", { cartId: cart.id, error: e });
+      }
+      // W6a: a COUNTER (`reg-`) session is one order — settled means finished. Close it so settled
+      // counter orders never accumulate in the active-session set for the rest of their TTL (a table
+      // session stays active: the table is still seated). Best-effort: a miss only means the session
+      // ages out on its own expiry.
+      if (session.qr_code.startsWith("reg-")) {
+        try {
+          const { error: closeErr } = await db
+            .from("table_sessions")
+            .update({ status: "closed" })
+            .eq("id", session.id)
+            .eq("status", "active");
+          if (closeErr)
+            console.error("[staff-cart] counter session close failed", {
+              sessionId: session.id,
+              message: closeErr.message,
+            });
+        } catch (e) {
+          console.error("[staff-cart] counter session close threw", { sessionId: session.id, error: e });
+        }
       }
     });
 

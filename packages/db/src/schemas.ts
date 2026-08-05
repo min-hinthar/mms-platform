@@ -407,12 +407,34 @@ export const staffAddItemInput = z.object({
   menuItemId: uuid,
   modifierIds: z.array(uuid).max(20).default([]),
   notes: lineNotes.optional(),
+  // W6a: the register's per-add quantity (the diner ItemSheet's 1–9 bound). Defaults to 1 so every
+  // existing tap-to-add call is unchanged.
+  qty: z.number().int().min(1).max(9).default(1),
+});
+
+/** setCartCustomerName (W6a) — the register's call-out identity for a cash order. Staff-gated; the
+ *  server writes qr_carts.customer_name (bounded by the column CHECK) only while the cart is open.
+ *  Empty clears — same semantics as the diner's create-intent name write. */
+export const setCartNameInput = z.object({
+  sessionId: uuid,
+  name: z.string().trim().max(40),
 });
 
 /** settleCash (S1.3) — a staff member settles the table order in cash ("pay a human"). Shape only; the
  *  server re-derives the authoritative total (getCartTotals), refuses mid-card-payment, and records a
  *  cash order idempotently. The client asserts only the session id — never an amount. */
 export const settleCashInput = z.object({ sessionId: uuid });
+
+/** openRegisterOrder (W6a) — staff start an order that has no diner phone behind it: a walk-up or a
+ *  phone order (counter arms — a per-order `mode='pickup'` session keyed `reg-<code>`), or "start a
+ *  table" (a real dine-in session on a registered table, so eat-in tax basis and floor/KDS routing come
+ *  by construction). Shape only; the mint is staff-gated + service-role — never through /api/session
+ *  (its rate limits key on a diner seat) and never with a client-asserted session or price. */
+export const openRegisterInput = z.object({
+  kind: z.enum(["walkup", "phone", "table"]),
+  tableNumber: z.number().int().min(1).max(999).optional(),
+  customerName: z.string().trim().max(40).optional(),
+});
 
 /** mergeTables (S1.4 soft convergence) — fold a SOURCE table's open order into a TARGET table, then close
  *  the source (the one-tap recovery for a double-order). Shape only; the server (requireStaff + service-
@@ -516,6 +538,7 @@ export type FireTicketNowInput = z.infer<typeof fireTicketNowInput>;
 export type SetLineNotesInput = z.infer<typeof setLineNotesInput>;
 export type StaffAddItemInput = z.infer<typeof staffAddItemInput>;
 export type SettleCashInput = z.infer<typeof settleCashInput>;
+export type OpenRegisterInput = z.infer<typeof openRegisterInput>;
 export type MergeTablesInput = z.infer<typeof mergeTablesInput>;
 export type SessionMintInput = z.infer<typeof sessionMintInput>;
 export type SessionMintOutput = z.infer<typeof sessionMintOutput>;

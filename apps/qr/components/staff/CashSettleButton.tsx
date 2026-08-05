@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { settleCash } from "@/lib/staff-cart";
+import { changeDue } from "@/lib/register-math";
 import { Card } from "@mms/ui";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -16,6 +17,8 @@ export function CashSettleButton({
   sessionId,
   totalCents,
   isTab = false,
+  handoff = false,
+  onHandoff,
 }: {
   sessionId: string;
   totalCents: number;
@@ -23,11 +26,20 @@ export function CashSettleButton({
    *  copy ("Close tab" / "closes this tab") so the action reads as the deliberate end-of-night close,
    *  not a mid-meal settle. The money path is identical (mms_fulfill_cash_order, server-reconciled). */
   isTab?: boolean;
+  /** W6a (register): a counter order's settle ends with a HANDOFF — show the tendered/change helper
+   *  in the confirm step and hand the result UP (`onHandoff`), so the parent renders the #CODE card
+   *  OUTSIDE the open-cart conditional this button lives in (the review's confirmed HIGH: the detail
+   *  refresh unmounts this component seconds after settle). Display-only; the charge stays server-derived. */
+  handoff?: boolean;
+  onHandoff?: (h: { orderId: string; totalCents: number; changeCents: number | null }) => void;
 }) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tendered, setTendered] = useState("");
+  // Cashier arithmetic only — parsed dollars → cents, never sent anywhere.
+  const tenderedCents = Math.round(Number.parseFloat(tendered || "0") * 100) || 0;
   const triggerRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
 
@@ -50,6 +62,17 @@ export function CashSettleButton({
       setError(res.error);
       return;
     }
+    if (handoff) {
+      setBusy(false);
+      setConfirming(false);
+      // The AUTHORITATIVE total the settle returned (the prop can be a poll interval stale), and the
+      // change computed against it. The parent owns the card — this component unmounts with the cart.
+      onHandoff?.({
+        orderId: res.orderId,
+        totalCents: res.totalCents,
+        changeCents: tenderedCents > 0 ? changeDue(res.totalCents, tenderedCents) : null,
+      });
+    }
     router.refresh(); // the realtime re-fetch also fires; this makes the paid state immediate
   }
 
@@ -67,6 +90,29 @@ export function CashSettleButton({
             Take <strong>{fmt(totalCents)}</strong> in cash?{" "}
             {isTab ? "This closes the tab." : "This closes the order."}
           </p>
+          {handoff && (
+            <div style={{ display: "grid", gap: 4 }}>
+              <label htmlFor="cash-tendered" style={{ fontSize: "var(--fs-sm)", fontWeight: 600 }}>
+                Cash tendered (optional)
+              </label>
+              <input
+                id="cash-tendered"
+                inputMode="decimal"
+                autoComplete="off"
+                placeholder="e.g. 40"
+                value={tendered}
+                onChange={(e) => setTendered(e.target.value.replace(/[^0-9.]/g, ""))}
+                style={tenderInput}
+              />
+              <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)", minHeight: 18 }}>
+                {tenderedCents > 0
+                  ? tenderedCents >= totalCents
+                    ? `Change: ${fmt(changeDue(totalCents, tenderedCents))}`
+                    : "Not enough yet."
+                  : ""}
+              </p>
+            </div>
+          )}
           <div style={{ display: "flex", gap: "var(--s3)" }}>
             <button
               className="staff-btn"
@@ -143,6 +189,15 @@ const confirmCard: CSSProperties = {
   flexDirection: "column",
   gap: "var(--s4)",
   padding: "var(--s4)",
+};
+const tenderInput: CSSProperties = {
+  minHeight: 48,
+  padding: "0 var(--s3)",
+  borderRadius: "var(--r-sm)",
+  border: "1px solid var(--bd)",
+  background: "var(--sf)",
+  color: "var(--tx)",
+  fontSize: "var(--fs-body)",
 };
 const hint: CSSProperties = {
   margin: "8px 0 0",

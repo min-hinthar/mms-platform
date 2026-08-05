@@ -57,6 +57,9 @@ export default async function StaffHome() {
         aria-label="Staff tools"
         style={{ marginTop: "var(--s6)", display: "flex", gap: "var(--s3)", flexWrap: "wrap" }}
       >
+        <Link href="/staff/register" style={ownerLink}>
+          Register →
+        </Link>
         <Link href="/staff/kitchen" style={ownerLink}>
           Kitchen →
         </Link>

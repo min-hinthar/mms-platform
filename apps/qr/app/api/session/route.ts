@@ -231,6 +231,26 @@ export async function POST(req: NextRequest) {
       .eq("status", "active");
   }
 
+  // W6a: a staff-started table (register "Start a table") mints with host_seat = NULL — no diner has
+  // claimed it yet. The FIRST diner to scan the sticker claims host, atomically (first-writer-wins on
+  // the null), mirroring the "first scanner provisions" trust the sticker flow already has. Without
+  // this, a staff-started table has NO host forever: nobody can start a split or edit others' lines.
+  if (sess.host_seat == null && !joinOnly) {
+    const { data: claimed } = await db
+      .from("table_sessions")
+      .update({ host_seat: seat })
+      .eq("id", sess.id)
+      .is("host_seat", null)
+      .select("host_seat")
+      .maybeSingle();
+    if (claimed) sess = { ...sess, host_seat: claimed.host_seat };
+    else {
+      // Lost the claim race — re-read so the role below reflects the real host.
+      const winner = await findActive(sess.qr_code);
+      if (winner) sess = winner;
+    }
+  }
+
   // Host identity is the seat that created the session — preserved across rejoins.
   const role: "host" | "guest" = sess.host_seat === seat ? "host" : "guest";
 
