@@ -77,6 +77,73 @@ export function selectedIds(groups: ModGroup[], sel: Selection): string[] {
   );
 }
 
+/** Raw shape of the nested modifier embed (one row per item→group link) — the exact select both the
+ *  diner menu page and the staff add screen (W6a) issue. Extracted from the menu page so the two
+ *  surfaces can't drift on how DB rows become ModGroups. */
+export type RawModLink = {
+  modifier_groups: {
+    id: string;
+    slug: string;
+    name: string;
+    name_my: string | null;
+    selection_type: string;
+    min_select: number;
+    max_select: number;
+    modifier_options: {
+      id: string;
+      slug: string;
+      name: string;
+      name_my: string | null;
+      price_delta_cents: number;
+      sort_order: number;
+      is_active: boolean;
+      allergens: string[] | null;
+    }[];
+  } | null;
+};
+
+/** Shape the embed → ModGroup[]: active options only (sorted), required groups (min_select≥1) first so
+ *  the sheet shows the radios before the optional checkboxes. Advisory data only — the server re-prices
+ *  on add. */
+export function shapeModifierGroups(links: RawModLink[] | null | undefined): ModGroup[] {
+  const groups = (links ?? [])
+    .map((l) => l.modifier_groups)
+    .filter((g): g is NonNullable<RawModLink["modifier_groups"]> => g != null)
+    .map((g) => ({
+      id: g.id,
+      slug: g.slug,
+      name: g.name,
+      nameMy: g.name_my,
+      selectionType: g.selection_type === "multiple" ? ("multiple" as const) : ("single" as const),
+      minSelect: g.min_select,
+      maxSelect: g.max_select,
+      options: [...(g.modifier_options ?? [])]
+        .filter((o) => o.is_active)
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .map((o) => ({
+          id: o.id,
+          slug: o.slug,
+          name: o.name,
+          nameMy: o.name_my,
+          priceDeltaCents: o.price_delta_cents,
+          allergens: o.allergens ?? [],
+        })),
+    }))
+    .filter((g) => g.options.length > 0);
+  // Required (radio) groups before optional (checkbox) ones; stable within each.
+  return groups.sort((a, b) => (b.minSelect >= 1 ? 1 : 0) - (a.minSelect >= 1 ? 1 : 0));
+}
+
+/** An item with a REQUIRED group whose options are ALL inactive can't be completed (the required choice
+ *  has no options), and the server's `enforceCardinality` would reject every add. Treat it as
+ *  unavailable so the menu shows it sold-out (honest) rather than an addable item that always fails. */
+export function requiredChoiceUnavailable(links: RawModLink[] | null | undefined): boolean {
+  return (links ?? []).some((l) => {
+    const g = l.modifier_groups;
+    return !!g && g.min_select >= 1 && !(g.modifier_options ?? []).some((o) => o.is_active);
+  });
+}
+
 /** Toggle an option within a group, honoring single (replace) vs multiple (add/remove, capped at maxSelect).
  *  A required single-select can't be emptied by re-tapping the only choice (keeps a valid state). */
 export function toggleOption(group: ModGroup, current: string[], optionId: string): string[] {

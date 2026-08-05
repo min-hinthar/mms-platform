@@ -1,7 +1,7 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { serviceClient } from "@mms/db/server";
-import { openRegisterInput } from "@mms/db/schemas";
+import { openRegisterInput, setCartNameInput } from "@mms/db/schemas";
 import { staffGate, STAFF_WRITE_OUTAGE } from "./staff";
 import { generateJoinCode } from "./session-code";
 
@@ -152,6 +152,32 @@ async function ensureOpenCart(db: ReturnType<typeof serviceClient>, sessionId: s
     // Deliberate swallow: qr_carts_one_open_per_session means a 23505 is a concurrent winner (fine);
     // any other failure surfaces the moment staff open the drill-down, which reads the cart honestly.
   }
+}
+
+export type SetCartNameResult = { ok: true } | { ok: false; error: string };
+
+/** The register's name capture (W6a) — the call-out identity for a cash order. The card path writes
+ *  this in create-intent; a cash walk-up had NO write path, so its expo ticket was a bare #CODE.
+ *  Open-cart-guarded in the statement; `.select` verifies a row actually changed (a 0-row UPDATE
+ *  returns `{ error: null }` — indistinguishable from success without the read-back). */
+export async function setCartCustomerName(raw: unknown): Promise<SetCartNameResult> {
+  const gate = await staffGate();
+  if (!gate.ok) return { ok: false, error: gate.error };
+  const parsed = setCartNameInput.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "Invalid request." };
+  const { sessionId, name } = parsed.data;
+  const db = serviceClient();
+  const { data, error } = await db
+    .from("qr_carts")
+    .update({ customer_name: name || null })
+    .eq("session_id", sessionId)
+    .eq("status", "open")
+    .select("id");
+  if (error) return { ok: false, error: STAFF_WRITE_OUTAGE };
+  if (!data || data.length === 0)
+    return { ok: false, error: "This order is already settled — the name didn’t change." };
+  revalidatePath(`/staff/table/${sessionId}`);
+  return { ok: true };
 }
 
 /** One open counter order (the register queue row). */

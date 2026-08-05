@@ -71,7 +71,7 @@ export async function staffAddItem(raw: unknown): Promise<StaffWriteResult> {
   const caller = gate.caller;
   const parsed = staffAddItemInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
-  const { sessionId, menuItemId, modifierIds, notes } = parsed.data;
+  const { sessionId, menuItemId, modifierIds, notes, qty } = parsed.data;
 
   const { session, cart, unavailable } = await openCartFor(sessionId);
   if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
@@ -82,7 +82,12 @@ export async function staffAddItem(raw: unknown): Promise<StaffWriteResult> {
 
   try {
     const dineIn = session.mode === "dinein";
-    const { name, unitPriceCents, category, opts } = await priceItem(menuItemId, modifierIds);
+    // W6a: cardinality is ENFORCED on the staff path too — the register's modifier sheet routes a
+    // required-choice item here with its choices, and the server must refuse a curry with no style
+    // exactly like the diner path (the old lenient add shipped modifier-less required items — K17).
+    const { name, unitPriceCents, category, opts } = await priceItem(menuItemId, modifierIds, {
+      enforceCardinality: true,
+    });
     const taxCents = lineTax(unitPriceCents, category, dineIn);
     // by_seat = null: a staff-added line isn't pre-attributed to a guest's split (the host can assign it
     // later via the existing by-person flow). The status-atomic insert throws if the cart isn't open.
@@ -101,6 +106,7 @@ export async function staffAddItem(raw: unknown): Promise<StaffWriteResult> {
         notes: notes || undefined,
       },
       null,
+      qty,
     );
     await touchCart(cart.id, "staffAddItem");
   } catch {

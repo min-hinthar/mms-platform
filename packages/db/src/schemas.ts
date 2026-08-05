@@ -407,6 +407,17 @@ export const staffAddItemInput = z.object({
   menuItemId: uuid,
   modifierIds: z.array(uuid).max(20).default([]),
   notes: lineNotes.optional(),
+  // W6a: the register's per-add quantity (the diner ItemSheet's 1–9 bound). Defaults to 1 so every
+  // existing tap-to-add call is unchanged.
+  qty: z.number().int().min(1).max(9).default(1),
+});
+
+/** setCartCustomerName (W6a) — the register's call-out identity for a cash order. Staff-gated; the
+ *  server writes qr_carts.customer_name (bounded by the column CHECK) only while the cart is open.
+ *  Empty clears — same semantics as the diner's create-intent name write. */
+export const setCartNameInput = z.object({
+  sessionId: uuid,
+  name: z.string().trim().max(40),
 });
 
 /** settleCash (S1.3) — a staff member settles the table order in cash ("pay a human"). Shape only; the

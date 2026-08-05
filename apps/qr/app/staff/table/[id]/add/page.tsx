@@ -1,21 +1,24 @@
 import { type CSSProperties } from "react";
 import { redirect } from "next/navigation";
-import Image from "next/image";
 import Link from "next/link";
-import { publicClient } from "@mms/db/server";
+import { publicClient, serviceClient } from "@mms/db/server";
 import { requireStaffPage } from "@/lib/staff";
 import { getTableDetail } from "@/lib/floor";
-import { StaffAddButton } from "@/components/staff/StaffAddButton";
+import { StaffMenuBrowser, type StaffMenuItem } from "@/components/staff/StaffMenuBrowser";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
+import {
+  requiredChoiceUnavailable,
+  shapeModifierGroups,
+} from "@/lib/menu/modifiers";
 
 export const metadata = { title: "Add items — Mandalay Morning Star" };
 export const dynamic = "force-dynamic";
 
 /**
- * Staff "order for a guest" menu (S1.3) — the same public-RLS catalog read as the diner menu, but each
- * row adds to THIS table's open cart via staffAddItem (server re-derives the price). Staff + lock gated.
- * If the table is closed or already settled (no open cart) there's nothing to add to → bounce to the
- * drill-down, which shows the honest state.
+ * The staff order screen (S1.3, grown up in W6a): the same public-RLS catalog read as the diner menu —
+ * now WITH the modifier embed — searched and filtered client-side, adding to THIS session's open cart
+ * via staffAddItem (server re-derives the price, cardinality enforced). Counter (`reg-`) orders get a
+ * name-capture strip; the header speaks "table" only when there is one.
  */
 export default async function StaffAddItems({ params }: { params: Promise<{ id: string }> }) {
   const caller = await requireStaffPage();
@@ -31,24 +34,49 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
   const detail = res.detail;
   if (detail.cartId == null) redirect(`/staff/table/${id}`); // settled/no open order — nothing to add to
 
+  // W6a: a counter order is a register-minted (`reg-`) session — table-less by design. Its header and
+  // back-link speak the counter's language, and it captures the customer name (the expo call-out).
+  const counterOrder = detail.label.startsWith("reg-");
+  const svc = serviceClient();
+  const { data: cartRow } = counterOrder
+    ? await svc.from("qr_carts").select("customer_name").eq("id", detail.cartId).maybeSingle()
+    : { data: null };
+
   const db = publicClient();
   const { data } = await db
     .from("menu_items")
     .select(
-      "id,name_en,name_my,base_price_cents,image_url,is_sold_out,menu_categories(name,sort_order)",
+      "id,name_en,name_my,base_price_cents,image_url,is_sold_out,menu_categories(name,sort_order),item_modifier_groups(modifier_groups(id,slug,name,name_my,selection_type,min_select,max_select,modifier_options(id,slug,name,name_my,price_delta_cents,sort_order,is_active,allergens)))",
     )
     .eq("is_active", true)
     .order("name_en");
-  const items = data ?? [];
-  const cats = [...new Map(items.map((i) => [i.menu_categories?.name ?? "Menu", i])).keys()].sort(
-    (a, b) => {
-      const sa = items.find((i) => (i.menu_categories?.name ?? "Menu") === a)?.menu_categories
-        ?.sort_order;
-      const sb = items.find((i) => (i.menu_categories?.name ?? "Menu") === b)?.menu_categories
-        ?.sort_order;
-      return (sa ?? 999) - (sb ?? 999);
-    },
-  );
+  const raw = data ?? [];
+
+  const items: StaffMenuItem[] = raw.map((i) => ({
+    id: i.id,
+    nameEn: i.name_en,
+    nameMy: i.name_my,
+    priceCents: i.base_price_cents,
+    imageUrl: i.image_url,
+    // Same honesty rule as the diner menu: a required choice with no active options is unaddable —
+    // show it sold-out rather than an item whose every add the server refuses.
+    soldOut: !!i.is_sold_out || requiredChoiceUnavailable(i.item_modifier_groups),
+    category: i.menu_categories?.name ?? "Menu",
+    groups: shapeModifierGroups(i.item_modifier_groups),
+  }));
+  const categories = [
+    ...new Map(
+      raw.map((i) => [
+        i.menu_categories?.name ?? "Menu",
+        i.menu_categories?.sort_order ?? 999,
+      ]),
+    ).entries(),
+  ]
+    .sort((a, b) => a[1] - b[1])
+    .map(([name]) => name);
+
+  const backLabel = counterOrder ? "Register" : `Table ${detail.label}`;
+  const backHref = counterOrder ? "/staff/register" : `/staff/table/${id}`;
 
   return (
     <main style={wrap}>
@@ -64,80 +92,31 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
           zIndex: "var(--z-toolbar)" as CSSProperties["zIndex"],
         }}
       >
-        <Link href={`/staff/table/${id}`} style={back}>
-          ← Table {detail.label}
+        <Link href={backHref} style={back}>
+          ← {backLabel}
         </Link>
-        <h1 style={{ fontSize: "var(--fs-h1)", margin: "var(--s3) 0 0" }}>Add items</h1>
+        <h1 style={{ fontSize: "var(--fs-h1)", margin: "var(--s3) 0 0" }}>
+          {counterOrder ? "Counter order" : "Add items"}
+        </h1>
         <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: "4px 0 0" }}>
-          Ordering for table {detail.label}. Tap to add — it lands on the table’s order instantly.
+          {counterOrder
+            ? "Walk-up or phone order — review and settle from the order page."
+            : `Ordering for table ${detail.label}. Tap to add — it lands on the table’s order instantly.`}
         </p>
+        {counterOrder && (
+          <Link href={`/staff/table/${id}`} style={reviewLink}>
+            Review order & settle →
+          </Link>
+        )}
       </header>
 
-      {cats.map((c) => (
-        <section key={c} style={{ padding: "var(--s4) 0" }}>
-          <h2 style={{ fontSize: "var(--fs-h3)", margin: "0 0 var(--s3)" }}>{c}</h2>
-          <ul
-            role="list"
-            aria-label={`${c} items`}
-            style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 10 }}
-          >
-            {items
-              .filter((i) => (i.menu_categories?.name ?? "Menu") === c)
-              .map((i) => (
-                <li
-                  key={i.id}
-                  className="card card-textured"
-                  style={{ ...rowCard, opacity: i.is_sold_out ? 0.55 : 1 }}
-                >
-                  <div style={thumb}>
-                    {i.image_url && (
-                      <Image
-                        src={i.image_url}
-                        alt=""
-                        width={64}
-                        height={64}
-                        sizes="64px"
-                        style={img}
-                      />
-                    )}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600 }}>
-                      {i.name_en}
-                      {i.is_sold_out && (
-                        <span style={{ color: "var(--t3)", fontWeight: 400 }}> · Sold out</span>
-                      )}
-                    </div>
-                    {i.name_my && (
-                      <div
-                        style={{
-                          fontFamily: "var(--font-my)",
-                          fontSize: "var(--fs-sm)",
-                          color: "var(--t2)",
-                        }}
-                        lang="my"
-                      >
-                        {i.name_my}
-                      </div>
-                    )}
-                    <div style={{ fontWeight: 800, marginTop: 4 }}>
-                      ${(i.base_price_cents / 100).toFixed(2)}
-                    </div>
-                  </div>
-                  <StaffAddButton
-                    sessionId={id}
-                    menuItemId={i.id}
-                    name={i.name_en}
-                    soldOut={i.is_sold_out}
-                  />
-                </li>
-              ))}
-          </ul>
-        </section>
-      ))}
-      {!items.length && (
-        <p style={{ padding: "var(--s5) 0", color: "var(--t2)" }}>The menu catalog is empty.</p>
-      )}
+      <StaffMenuBrowser
+        sessionId={id}
+        items={items}
+        categories={categories}
+        counterOrder={counterOrder}
+        initialName={cartRow?.customer_name ?? null}
+      />
     </main>
   );
 }
@@ -156,14 +135,12 @@ const back: CSSProperties = {
   fontWeight: 600,
   textDecoration: "none",
 };
-const rowCard: CSSProperties = { display: "flex", gap: 12, padding: 10, alignItems: "center" };
-const thumb: CSSProperties = {
-  width: 64,
-  height: 64,
-  borderRadius: 12,
-  overflow: "hidden",
-  flex: "none",
-  background: "var(--grad)",
-  position: "relative",
+const reviewLink: CSSProperties = {
+  display: "inline-flex",
+  minHeight: 44,
+  alignItems: "center",
+  color: "var(--ac-strong)",
+  fontSize: "var(--fs-sm)",
+  fontWeight: 700,
+  textDecoration: "none",
 };
-const img: CSSProperties = { objectFit: "cover", width: "100%", height: "100%" };
