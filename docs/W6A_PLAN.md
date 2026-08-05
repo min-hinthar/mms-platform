@@ -1,8 +1,10 @@
 # W6A_PLAN — The FOH register (walk-up · phone · start-a-table)
 
-**Status: building (2026-08-05).** Closes **K6** (high — no FOH register) + **K17** (staff adds are
-modifier-less). Plan-of-record parent: `docs/PRODUCTION_PLAN.md` §W6a. Kiosk shell (W6b/S5) and
-Terminal (W6c/M6·P6.2) are explicitly out of scope.
+**Status: SHIPPED (2026-08-05).** Closed **K6** (high — no FOH register) + **K17** (staff adds are
+modifier-less); opened **K18** (staff per-line re-route) + **K19** (cash-path hours gate). Plan-of-
+record parent: `docs/PRODUCTION_PLAN.md` §W6a. Kiosk shell (W6b/S5) and Terminal (W6c/M6·P6.2) are
+explicitly out of scope. ⚠️ Prod `db push` of `20260805230000_w6a_register_day_index.sql` waits for
+the owner's Supabase restore.
 
 The premise, from two grounded machinery maps (session-mint/pricing/settle · firing/KDS/expo): **the
 register is almost entirely composition.** Server-authoritative pricing (`priceItem` +

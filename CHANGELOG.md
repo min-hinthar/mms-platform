@@ -4,6 +4,30 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W6a — the FOH register (2026-08-05)
+
+Walk-up and phone orders can finally exist (closes **K6 · K17**; plan: `docs/W6A_PLAN.md`). The
+register is composition: the mint was the missing piece, and the money path is the proven cash
+settle end-to-end.
+
+- **The mint (`openRegisterOrder`).** Counter arms as per-order `mode='pickup'` sessions keyed
+  `reg-<code>` — staff-gated service-role, NO member row (invisible to every diner surface), never
+  `/api/session` (its rate limits key on one anon seat). Start-a-table find-or-creates the ACTIVE
+  dine-in session on the registered sticker, so a later diner scan converges on it.
+- **The order screen grew up.** Search + category chips; the staff modifier sheet (shape helpers
+  shared with the diner menu — can't drift); `staffAddItem` prices with `enforceCardinality: true`
+  and a 1–9 qty; name capture gives a cash order the expo call-out it never had.
+- **Settle ends in a handoff.** Tendered/change helper (display-only `changeDue`) + the `#CODE`
+  card matching the kitchen ticket and ready board. The charge stays `getCartTotals` → the
+  idempotent, subtotal-reconciled `mms_fulfill_cash_order`, unchanged.
+- **Today's takings** (Z-report-lite): manager-gated, LA-day window (`laDayStartIso`, DST-correct
+  by verification), orders bucketed by tender with refunded counted apart — an order-status split,
+  honestly labeled. One additive migration: `qr_orders_created_idx` (⚠️ prod `db push` waits for
+  the owner's Supabase restore).
+- Registry: K6 + K17 closed; K18 (staff per-line re-route) + K19 (cash-path hours gate) opened.
+- Guards: `lib/register-math.test.ts` (9) · `lib/staff-cart.test.ts` (4) · `lib/register.test.ts`
+  (4) · six new `verify:slice` mutants (68 total), each watched fail before commit.
+
 ### W11 — the split ledger becomes durable (2026-08-05)
 
 The two migrations W10d designed but could not ship (closes **M1 · M25 · M29 · M43 · M44 · M45**;
