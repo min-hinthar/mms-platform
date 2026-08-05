@@ -1664,10 +1664,7 @@ export type Database = {
         }
         Returns: string
       }
-      mms_fulfill_split_order: {
-        Args: { p_cart_id: string }
-        Returns: string
-      }
+      mms_fulfill_split_order: { Args: { p_cart_id: string }; Returns: string }
       mms_grocery_search: {
         Args: { p_q: string }
         Returns: {
