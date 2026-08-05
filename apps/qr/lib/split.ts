@@ -307,18 +307,33 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
         });
       throw new Error("Payment already completed — the order will finish");
     }
-    if (outcome === "unknown") strandedHolds.push(row.stripe_payment_intent_id);
+    if (outcome === "unknown") {
+      // ⚠️ W10d round-3 review — fail CLOSED, unlike `abortSettlement`. The asymmetry is deliberate:
+      // abort is the table's EXIT and must work even when Stripe is flaky, so logging an abandoned
+      // hold is the best it can do. A re-open is optional — nothing has been deleted yet, so refusing
+      // costs nothing, while proceeding deletes the only row that records a hold we could not prove
+      // dead. Same signal, same answer as create-share-intent's 503.
+      await releaseSettlement(id); // nothing written yet, so this strands nothing
+      console.error("[split] open could not establish a prior hold's state — refusing", {
+        cartId: id,
+        paymentIntent: row.stripe_payment_intent_id,
+      });
+      throw new Error("Couldn’t start the split — please try again");
+    }
   }
   // Two statements rather than one `.or()`, for the reason spelled out in `abortSettlement`: an `.or()`
   // mutation asking for a representation is the PostgREST-14 42703 shape. The non-captured rows first
   // (they carry the holds), then the $0 sentinels, so a REAL captured row landing mid-window survives
-  // both and is caught by the survivor check.
+  // both and is caught by the survivor check. The delete RETURNS the full money shape of each row, so
+  // the pass below can put one BACK if its PaymentIntent turns out to have been captured.
   const { data: replaced, error: replacedErr } = await db
     .from("qr_cart_shares")
     .delete()
     .eq("cart_id", id)
     .neq("status", "captured")
-    .select("stripe_payment_intent_id");
+    .select(
+      "seat_id,subtotal_cents,discount_cents,service_charge_cents,tax_cents,amount_cents,tip_cents,tip_rate,stripe_payment_intent_id",
+    );
   if (replacedErr) {
     await releaseSettlement(id); // don't strand a freeze over a ledger we could not clear
     console.error("[split] open could not clear the prior share set", replacedErr);
@@ -339,7 +354,36 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
     const pi = row.stripe_payment_intent_id;
     if (!pi || attempted.has(pi)) continue;
     const outcome = await releaseHold(pi);
-    if (outcome !== "released" && outcome !== "gone") strandedHolds.push(pi);
+    if (outcome === "captured") {
+      // ⚠️ W10d round-3 review — round 2's exact defect, leaking into the SECOND pass: a captured
+      // outcome was bucketed with `unknown`, logged as a stranded "hold", and the re-open inserted a
+      // fresh payable set over money already taken. Worse than abort's version, because the row is
+      // already DELETED here — so simply refusing still double-charges on the host's retry (the next
+      // re-open finds no trace of the capture). Put the row BACK as captured from the shape the delete
+      // returned, keep the freeze so the cart can't be edited before the webhook snapshots the order,
+      // and refuse with the same string as every sibling.
+      const { error: restoreErr } = await db.from("qr_cart_shares").insert({
+        cart_id: id,
+        seat_id: row.seat_id,
+        subtotal_cents: row.subtotal_cents,
+        discount_cents: row.discount_cents,
+        service_charge_cents: row.service_charge_cents,
+        tax_cents: row.tax_cents,
+        amount_cents: row.amount_cents,
+        tip_cents: row.tip_cents,
+        tip_rate: row.tip_rate,
+        stripe_payment_intent_id: pi,
+        status: "captured" as const,
+      });
+      if (restoreErr)
+        console.error("[split] open could not restore a captured share it had deleted", {
+          cartId: id,
+          paymentIntent: pi,
+          error: restoreErr.message,
+        });
+      throw new Error("Payment already completed — the order will finish");
+    }
+    if (outcome === "unknown") strandedHolds.push(pi);
   }
   if (strandedHolds.length > 0)
     console.error("[split] re-open could not release these prior holds", {

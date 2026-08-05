@@ -399,6 +399,15 @@ describe("abortSettlement — every write is scoped to THIS cart", () => {
   // The class `split-settle.test.ts` documents as having already cost a review round: a reviewer
   // removed an identity predicate from both marks and the suite stayed green. Reproduced here for the
   // three writes this slice added, where losing the scope wipes every table's ledger in the database.
+  it("scopes the share READ to the cart — an unscoped read cancels every table's holds", async () => {
+    shares = [{ stripe_payment_intent_id: "pi_1", status: "pending" }];
+    await abortSettlement(CART);
+    const read = queries.find(
+      (q) => q.op === "select" && q.cols?.includes("stripe_payment_intent_id"),
+    );
+    expect(read?.eq).toContainEqual(["cart_id", CART]);
+  });
+
   it("scopes the ledger delete to the cart", async () => {
     shares = [{ stripe_payment_intent_id: "pi_1", status: "pending" }];
     await abortSettlement(CART);
@@ -424,6 +433,7 @@ describe("abortSettlement — every write is scoped to THIS cart", () => {
     await expect(abortSettlement(CART)).rejects.toThrow();
     const mark = queries.find((q) => q.op === "update" && q.table === "qr_cart_shares");
     expect(mark?.eq).toContainEqual(["stripe_payment_intent_id", "pi_paid"]);
+    expect((mark?.patch as { status?: string } | undefined)?.status).toBe("captured");
   });
 });
 
@@ -533,11 +543,46 @@ describe("openSettlement — a re-open must release the holds it replaces", () =
     expect(queries.some((q) => q.op === "insert")).toBe(false);
   });
 
-  it("logs a prior hold it could not release", async () => {
+  it("refuses — and deletes nothing — when a prior hold's state cannot be established", async () => {
+    // Round-3 review. Abort logs an `unknown` hold and proceeds because it is the table's EXIT; a
+    // re-open is optional, so refusing costs nothing while proceeding deletes the only row that
+    // records a hold we could not prove dead. Same signal, same answer, as the route's 503.
     shares = [{ stripe_payment_intent_id: "pi_stuck", status: "pending" }];
     cancelThrows = { pi_stuck: { code: "api_error" } };
-    await openSettlement(CART, "even");
+    await expect(openSettlement(CART, "even")).rejects.toThrow(/Couldn’t start the split/);
+    expect(releasedFreeze).toBeGreaterThan(0);
+    expect(queries.some((q) => q.op === "delete")).toBe(false);
     expect(loggedText()).toContain("pi_stuck");
+  });
+
+  it("rejects when the prior share read itself fails", async () => {
+    // `priorErr` is the pivot of the read-before-delete restructure — postgrest resolves a transport
+    // failure into { data: null, error }, and a null prior set must not read as "nothing to release".
+    sharesError = { message: "connection reset" };
+    await expect(openSettlement(CART, "even")).rejects.toThrow(/Could not start the split/);
+    expect(releasedFreeze).toBeGreaterThan(0);
+    expect(queries.some((q) => q.op === "delete")).toBe(false);
+  });
+
+  it("restores — as captured — a row whose intent was captured inside the delete window", async () => {
+    // Round 2's defect leaking into the SECOND pass. The row is already deleted here, so merely
+    // refusing still double-charges on the host's retry (the next re-open finds no trace). The delete
+    // returns the full money shape; the row goes BACK with status captured and the re-open refuses.
+    shares = [{ stripe_payment_intent_id: "pi_old", status: "pending" }];
+    deletedRows = [
+      { stripe_payment_intent_id: "pi_old" },
+      { stripe_payment_intent_id: "pi_won_the_race" },
+    ];
+    cancelThrows = { pi_won_the_race: { code: "payment_intent_unexpected_state" } };
+    retrieveStatus = { pi_won_the_race: "succeeded" };
+    await expect(openSettlement(CART, "even")).rejects.toThrow(/Payment already completed/);
+    const restore = queries.find(
+      (q) =>
+        q.op === "insert" && (q.patch as { status?: string } | undefined)?.status === "captured",
+    );
+    expect(restore).toBeDefined();
+    // And no fresh payable set behind it — the derive insert is an ARRAY of pending rows.
+    expect(queries.some((q) => q.op === "insert" && Array.isArray(q.patch))).toBe(false);
   });
 
   it("releases a PaymentIntent claimed between the read and the delete", async () => {
@@ -584,5 +629,6 @@ describe("openSettlement — a re-open must release the holds it replaces", () =
     await expect(openSettlement(CART, "even")).rejects.toThrow();
     const mark = queries.find((q) => q.op === "update" && q.table === "qr_cart_shares");
     expect(mark?.eq).toContainEqual(["stripe_payment_intent_id", "pi_paid"]);
+    expect((mark?.patch as { status?: string } | undefined)?.status).toBe("captured");
   });
 });

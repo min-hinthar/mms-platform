@@ -42,6 +42,8 @@ type Recorded = {
   /** Whether `.select()` was chained — i.e. `Prefer: return=representation`. */
   representationRequested: boolean;
   hasOr: boolean;
+  eq: [string, unknown][];
+  inList?: string[];
   cols?: string;
 };
 let recorded: Recorded[] = [];
@@ -59,6 +61,7 @@ let cancelled: string[] = [];
 let cancelThrows: Record<string, { code?: string }> = {};
 let retrieveStatus: Record<string, string> = {};
 let createdKeys: string[] = [];
+let createdAmounts: number[] = [];
 const NEW_PI = "pi_new";
 
 function stripeError(code?: string) {
@@ -74,6 +77,7 @@ function selectBuilder(table: string, cols: string) {
     countRequested: false,
     representationRequested: false,
     hasOr: false,
+    eq: [],
     cols,
   };
   recorded.push(rec);
@@ -98,6 +102,7 @@ function updateBuilder(table: string, options?: { count?: string }) {
     countRequested: options?.count != null,
     representationRequested: false,
     hasOr: false,
+    eq: [],
   };
   recorded.push(rec);
   const settle = () => ({
@@ -110,8 +115,14 @@ function updateBuilder(table: string, options?: { count?: string }) {
     error: claimError,
   });
   const api = {
-    eq: () => api,
-    in: () => api,
+    eq: (col: string, val: unknown) => {
+      rec.eq.push([col, val]);
+      return api;
+    },
+    in: (_col: string, list: string[]) => {
+      rec.inList = list;
+      return api;
+    },
     or: () => {
       rec.hasOr = true;
       return api;
@@ -137,8 +148,9 @@ vi.mock("@mms/db/server", () => ({
 vi.mock("@/lib/stripe", () => ({
   getStripe: () => ({
     paymentIntents: {
-      create: (_params: unknown, opts: { idempotencyKey: string }) => {
+      create: (params: { amount: number }, opts: { idempotencyKey: string }) => {
         createdKeys.push(opts.idempotencyKey);
+        createdAmounts.push(params.amount);
         return Promise.resolve({ id: NEW_PI, client_secret: "cs_test" });
       },
       cancel: (id: string) => {
@@ -192,6 +204,7 @@ beforeEach(() => {
   cancelThrows = {};
   retrieveStatus = {};
   createdKeys = [];
+  createdAmounts = [];
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -210,6 +223,24 @@ describe("create-share-intent — the claim must count rows, never ask for a rep
     // the UPDATE 400s with 42703 — on EVERY mint, with the retry deriving the same idempotency key.
     await POST(request());
     expect(claim()?.representationRequested).toBe(false);
+  });
+
+  it("scopes the claim to THIS share and to pre-authorization statuses", async () => {
+    // Round-3 review — the TOCTOU gate. Without the id the claim rewrites another seat's row; without
+    // the status list it flips a CAPTURED row back to pending, the double-pay the route's own comment
+    // warns about.
+    await POST(request());
+    expect(claim()?.eq).toContainEqual(["id", "share-1"]);
+    expect(claim()?.inList).toEqual(["pending", "failed", "canceled"]);
+  });
+
+  it("charges the server-derived amount, never anything from the request body", async () => {
+    // The repo's first rule, asserted in the file built for this route. Derived from the SAME fixture
+    // the mock serves — computed here, not transcribed.
+    await POST(request(0.2));
+    const base = 2000 - 0 + 100 + 193;
+    const tip = Math.round((2000 - 0) * 0.2);
+    expect(createdAmounts).toEqual([base + tip]);
   });
 
   it("still carries the or-predicate the count has to survive", async () => {
@@ -314,5 +345,16 @@ describe("create-share-intent — a lost claim must not void the payer's own hol
     rowAfterError = { message: "connection reset" };
     const res = await POST(request());
     expect(res.status).toBe(503);
+  });
+
+  it("cancels NOTHING when the re-read fails — the intent may be the payer's live hold", async () => {
+    // Round-3 review. A null `now` made the pointer comparison read as "not ours", picking the
+    // destructive branch on the one input that carries no information. Not knowing means not
+    // cancelling: an authorize-only intent we walk away from lapses on its own.
+    claimMatches = 0;
+    rowAfter = null;
+    rowAfterError = { message: "connection reset" };
+    await POST(request());
+    expect(cancelled).toEqual([]);
   });
 });

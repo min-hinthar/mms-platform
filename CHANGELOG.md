@@ -101,6 +101,36 @@ damage lands (W10c: five BLOCK rounds, every HIGH in the newest fix layer). It f
 - 267 qr tests and 49 `verify:slice` mutants. New suites: `lib/split.test.ts` (31), route (13),
   `lib/pay-guard.test.ts` (9), `lib/split-board.test.ts` (5).
 
+#### Round 3 — triaged inline, and the review loop itself got cheaper (2026-08-05)
+
+A third agent round stalled mid-flight; its two completed lenses were salvaged and triaged by hand
+rather than re-run. Three real defects, all one shape — round 2's `captured`/`unknown` discipline
+applied to one pass but not its sibling:
+
+- **`openSettlement`'s pre-delete pass now fails CLOSED on an unestablishable hold** (abort logs and
+  proceeds because it is the table's EXIT; a re-open is optional, so refusing costs nothing while
+  proceeding deleted the only row recording the hold).
+- **Its post-delete pass now RESTORES a row whose intent was captured inside the delete window** — the
+  delete returns the full money shape and the row goes back as `captured`; merely refusing would still
+  double-charge on the host's retry, since the next re-open would find no trace of the capture.
+- **The route's lost-claim branch cancels nothing when its re-read fails** — a null row made the
+  pointer comparison read as "not ours", picking the destructive branch on the one input carrying no
+  information.
+
+Plus three mock repairs from the same salvage (pay-guard's mock handed back a count that was never
+requested; the route suite recorded no claim predicates and never asserted the charged amount; the
+repair-mark status was unpinned) — each watched fail first.
+
+**And the efficiency change:** two new zero-token gates now do what two review lenses used to.
+`scripts/check-money-coverage.mjs` (first step of `verify:slice`) fails in ~1s when a changed
+money-path file has no mutant — the exact class that cost two ~3.5M-token review rounds to find.
+`scripts/check-docs.mjs` (`pnpm check:docs`) validates every markdown table's GFM header/delimiter
+parity (prettier is what _introduces_ the breaks) and measures live-state doc counts via
+`vitest list` instead of trusting prose. Both proven against the real historical failures before
+being wired in. Reviews drop to three delta-scoped lenses.
+
+- 273 qr tests and 52 `verify:slice` mutants at merge.
+
 ### W10c — The money path stops answering with numbers it isn't sure of (2026-08-02)
 
 The money half of the W10 outage work (closes OPEN-ITEMS **M30** and **M31**; plan:

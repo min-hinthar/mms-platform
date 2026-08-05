@@ -15,7 +15,8 @@
     "format:check": "prettier --check .",
     "knip": "knip",
     "db:types": "supabase gen types typescript --local --schema public > packages/db/src/database.types.ts",
-    "verify:slice": "node scripts/verify-slice.mjs"
+    "verify:slice": "node scripts/verify-slice.mjs",
+    "check:docs": "node scripts/check-docs.mjs"
   },
   "devDependencies": {
     "@mms/config": "workspace:*",

@@ -254,7 +254,11 @@ export async function POST(req: NextRequest) {
       // authorization — cancelling it voided the payer's own hold, `onShareCanceled` flipped the row,
       // and the all-authorized gate could never pass while siblings sat captured. The re-read is what
       // tells the two cases apart, so it has to fetch the pointer, not just the status.
-      const stillOurs = now?.stripe_payment_intent_id === intent.id;
+      // ⚠️ W10d round-3 review — an UNREADABLE re-read must not pick the destructive branch. When
+      // `nowErr` is set, `now` is null and a bare pointer comparison reads as "not ours" — cancelling
+      // an intent that may be the payer's live authorization. Not knowing means not cancelling: an
+      // authorize-only PI we walk away from lapses on its own, and the retry re-reads.
+      const stillOurs = nowErr != null || now?.stripe_payment_intent_id === intent.id;
       if (!stillOurs) {
         // Our own intent can never be used now — release it before answering. It is seconds old and
         // holds nothing yet, so a failure is log-only; but it is still a PI we are walking away from,

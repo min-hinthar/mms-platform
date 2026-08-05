@@ -26,6 +26,7 @@ type Query = {
   inList?: string[];
   not: [string, string, unknown][];
   head?: boolean;
+  countRequested?: boolean;
 };
 let queries: Query[] = [];
 let count: number | null = 0;
@@ -35,7 +36,7 @@ vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     from: () => ({
       select: (_cols: string, opts?: { count?: string; head?: boolean }) => {
-        const q: Query = { eq: [], not: [], head: opts?.head };
+        const q: Query = { eq: [], not: [], head: opts?.head, countRequested: opts?.count != null };
         queries.push(q);
         const api = {
           eq(col: string, val: unknown) {
@@ -50,10 +51,15 @@ vi.mock("@mms/db/server", () => ({
             q.not.push([col, operator, val]);
             return api;
           },
-          // postgrest's real shape for a head+count read: `count` is null on any failure, because it
-          // is parsed from the content-range header only inside `if (res.ok)`.
+          // postgrest's real shape, both directions: `count` is parsed from the content-range header
+          // ONLY when the request carried `Prefer: count=…` (round-3 review — the earlier mock handed
+          // a count back unconditionally, so dropping `{ count: "exact" }` from the guard left all
+          // nine tests green), and it is null on any failure (parsed only inside `if (res.ok)`).
           then: (res: (v: { count: number | null; error: typeof readError }) => unknown) =>
-            Promise.resolve({ count: readError ? null : count, error: readError }).then(res),
+            Promise.resolve({
+              count: q.countRequested && !readError ? count : null,
+              error: readError,
+            }).then(res),
         };
         return api;
       },

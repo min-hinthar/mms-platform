@@ -315,7 +315,7 @@ const MUTANTS = [
     file: "apps/qr/app/api/stripe/create-share-intent/route.ts",
     suite: "app/api/stripe/create-share-intent/route.test.ts",
     why: "two same-key requests get the SAME PaymentIntent back; if the twin claimed the row and the payer authorized, cancelling it voids the payer's live hold and gates capture for the whole table",
-    find: "      const stillOurs = now?.stripe_payment_intent_id === intent.id;",
+    find: "      const stillOurs = nowErr != null || now?.stripe_payment_intent_id === intent.id;",
     replace: "      const stillOurs = false;",
   },
   {
@@ -340,8 +340,7 @@ const MUTANTS = [
     file: "apps/qr/lib/split-board.ts",
     suite: "lib/split-board.test.ts",
     why: "captureAllIfReady gates on every(authorized|captured), so a canceled share blocks capture — counting it as 'in' makes the board say 'finishing up…' over a table that cannot finish, and speaks it into the live region",
-    find:
-      '    shares.length > 0 && shares.every((s) => s.status === "authorized" || s.status === "captured")',
+    find: '    shares.length > 0 && shares.every((s) => s.status === "authorized" || s.status === "captured")',
     replace:
       '    shares.length > 0 && shares.every((s) => s.status !== "pending" && s.status !== "failed")',
   },
@@ -377,6 +376,30 @@ const MUTANTS = [
     why: "the IDENTITY predicate on abort's captured repair mark — without it one abort rewrites every share row in the database (the class split-settle.test.ts records as having already cost a review round)",
     find: '        .eq("stripe_payment_intent_id", s.stripe_payment_intent_id)\n        .neq("status", "captured");',
     replace: '        .neq("status", "captured");',
+  },
+  {
+    id: "split/open-unknown-hold-proceeds",
+    file: "apps/qr/lib/split.ts",
+    suite: "lib/split.test.ts",
+    why: "round 3 — a re-open is optional, so an unestablishable hold must refuse, not delete the only row that records it; abort's log-and-proceed is for the EXIT path only",
+    find: '      throw new Error("Couldn’t start the split — please try again");\n    }\n  }\n  // Two statements rather than one',
+    replace: "      continue;\n    }\n  }\n  // Two statements rather than one",
+  },
+  {
+    id: "split/open-second-pass-captured-reinserts-nothing",
+    file: "apps/qr/lib/split.ts",
+    suite: "lib/split.test.ts",
+    why: "round 3 — round 2's captured/unknown discipline applied to the FIRST pass but not its sibling: a capture landing inside the delete window was logged as a 'hold' and a fresh payable set inserted over money already taken",
+    find: '    if (outcome === "captured") {\n      // ⚠️ W10d round-3 review',
+    replace: "    if (false) {\n      // ⚠️ W10d round-3 review",
+  },
+  {
+    id: "route/unreadable-reread-picks-the-destructive-branch",
+    file: "apps/qr/app/api/stripe/create-share-intent/route.ts",
+    suite: "app/api/stripe/create-share-intent/route.test.ts",
+    why: "round 3 — a null re-read made the pointer comparison read as 'not ours', cancelling an intent that may be the payer's live authorization; not knowing means not cancelling",
+    find: "      const stillOurs = nowErr != null || now?.stripe_payment_intent_id === intent.id;",
+    replace: "      const stillOurs = now?.stripe_payment_intent_id === intent.id;",
   },
   {
     id: "split/open-replaces-without-releasing",
@@ -499,6 +522,16 @@ function assertClean(files) {
     );
     process.exit(1);
   }
+}
+
+// Coverage first — a changed money-path file with NO mutant is the cheapest failure to surface, and
+// it was the single most expensive class to discover any other way (two review-round HIGHs, ~3.5M
+// tokens each, both reducible to this grep). Fails in ~1s, before the minute-long gate.
+process.stdout.write("money-path coverage … ");
+try {
+  execFileSync("node", ["scripts/check-money-coverage.mjs"], { cwd: ROOT, stdio: "inherit" });
+} catch {
+  process.exit(1);
 }
 
 const targets = MUTANTS.filter((m) => !only || m.id.includes(only));
