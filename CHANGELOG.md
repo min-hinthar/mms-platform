@@ -4,6 +4,133 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W10d — A split table can always finish (2026-08-02)
+
+Two split-tender defects the W10c reviews surfaced (closes OPEN-ITEMS **M39**, **M40**).
+
+- **A declined split payer can re-pay again.** The share PaymentIntent's idempotency key was
+  `share_<id>_<amount>`, and the route cancels the prior intent before re-creating — so Stripe replayed
+  the canceled one for 24h. Reached by a remount, a tip toggle, or SharePay's "Try again" (the common
+  decline path re-confirms the same intent and was fixed in W10c). The key now carries the intent it
+  replaces, and a failed claim write no longer cancels the minted intent, which would recreate the
+  same dead end on the retry.
+- **Aborting a split releases every hold it abandons**, not just rows reading `authorized`/`pending` —
+  a `failed` row can still carry a live ~7-day authorization, and the delete on the next line destroys
+  the only record of it. Cancel failures are now reported; the delete checks its own error.
+- **Built and reverted: the real fulfillment reconcile (M1/M25).** Deriving the expectation from the
+  live cart is wrong — the webhook burns the applied reward right after fulfilling and a promo can
+  expire mid-settlement, so every redelivered event computed a larger total and the guard raised for
+  72h; and refusing pre-capture is not free once the straggler path has already captured some shares.
+  The finding is written up in `docs/W10_PLAN.md` §W10d and M1/M25 stay open with the design that
+  works (persist the expected total at open time). Three new gaps logged: **M42**, **M43**, **M44**.
+- 209 qr tests and 30 `verify:slice` mutants at the time this section was written — see the pre-merge
+  subsection below for the state that actually shipped.
+
+#### Pre-merge review — six HIGH fixes before this shipped (2026-08-04)
+
+The pre-merge adversarial pass (5 lenses, 22 findings, 16 surviving independent refutation) returned
+**BLOCK**. Three of the six HIGH were regressions this slice itself introduced. All six were verified
+against the real code before being acted on.
+
+- **The claim UPDATE had re-introduced the 2026-07-08 checkout outage.** W10d replaced the claim's
+  `.eq()`/`.is()` filters with a top-level `.or()` while keeping `.select("id")` — exactly the
+  PostgREST-14 `return=representation` or-tree re-projection that 42703'd every checkout in July, and
+  which `lib/lock.ts` carries a standing rule against. It would have made `updErr` truthy on every
+  share mint: a 500 whose retry derives the same key and 500s again, i.e. **M39 shipping inert**. Now
+  counts rows via `{ count: "exact" }`.
+- **`payment_intent_unexpected_state` is also Stripe's code for a SUCCEEDED PaymentIntent** —
+  `captureAllIfReady` retrieves on it for precisely that reason. The abort loop read it as "already
+  dead", so a capture whose post-capture mark threw (row still reading `authorized`) let the host's
+  Cancel delete a share whose card was really charged: no order, no row, no refunds record, no log
+  naming the intent. New `lib/split-hold.ts` asks Stripe what the state IS.
+- **The pre-mint cancel was a bare `catch {}`, and M39 made that newly unsafe** — the claim now
+  repoints `stripe_payment_intent_id` to the replacement, and that column is the only record of the
+  intent. A swallowed 429/5xx stranded a live hold for ~7 days. Now classified; an unestablished state
+  fails closed with a 503 and mints nothing.
+- **Abort cancelled from a stale snapshot.** `SharePay` mints on mount, so a payer merely opening the
+  sheet mid-abort had their row repointed to a new intent and then deleted, that intent never released.
+  The DELETE now returns what it removed and a second pass releases anything the loop never tried.
+- **A `$0` by-person seat permanently bricked the table.** Reproduced:
+  `deriveShareBreakdowns({3000,0,150,289}, [a,b,c], lines owned by a+b)` gives seat `c` `baseCents: 0`,
+  which `openSettlement` auto-settles to `captured` with a NULL PaymentIntent. Abort threw "Payment
+  already completed" over nothing, re-open threw "Payments are already in progress", and
+  `paymentInFlightReason` returned `split_in_progress` with **no TTL escape** — so cash-settle,
+  clear-table, voids and comps were refused forever, and any other seat's live hold could never be
+  released. All three sites now discriminate on the PaymentIntent, not the status.
+- **The whole M40 rule could not fail.** Nothing imported `lib/split.ts` from a test and `verify:slice`
+  targeted 8 other files, so reverting either rule left the suite green. New `lib/split.test.ts`
+  (18 tests, query-recording mock) plus 8 `split/*` + `split-hold/*` mutants.
+- **`openSettlement` got M40's rule too** — a re-open deleted the prior share set and cancelled nothing,
+  and past the 10-minute TTL it is the table's only forward exit.
+- **Smaller, same review:** a lost claim re-reads the row instead of asserting "Your share was just
+  settled" on a `pending` share (two tip taps ~1s apart made that the likelier case, and "refresh to see
+  it" discarded the tip); `SettlementBoard`'s `canPay` accepts `canceled`, which the server's claim
+  predicate always did, so a payer whose mint died keeps a **Try again**.
+- 227 qr tests and 38 `verify:slice` mutants at that point. **M45** opened for the abort/capture race
+  that needs a migration to close.
+
+#### Pre-merge RE-review — the fix layer had its own defects (2026-08-04)
+
+The re-review was scoped to the fix layer above, because this repo's history says that is where the
+damage lands (W10c: five BLOCK rounds, every HIGH in the newest fix layer). It found three more.
+
+- **The money mutex failed OPEN.** `paymentInFlightReason` never destructured its count read's `error`,
+  so a transport failure yielded `count: null` and the answer was "nothing in flight — go ahead". Not a
+  regression from this slice, but this slice edited that exact statement and the window is real:
+  `captureAllIfReady` deliberately captures on a STALE freeze once a table is fully covered, so between
+  that capture and the succeeded webhook this read is the ONLY thing between captured cards and a cash
+  settle. Now fails closed, with the repo's first `pay-guard` test.
+- **`openSettlement` detected a succeeded charge and re-opened anyway.** The first fix released the
+  prior holds but bucketed a `captured` outcome in with `unknown` — logging a completed charge as a
+  stranded "hold" and inserting a fresh share set the table would pay a second time. The sibling
+  `abortSettlement`, written in the same commit, treats that signal as fatal. Now it reads and releases
+  BEFORE deleting, refuses on `captured`, keeps the freeze, and carries abort's survivor check.
+- **Four rules added by the fix layer could not fail** — including the `{ count: "exact" }` claim whose
+  regression convened the whole round: a reviewer reverted it and the suite stayed green. `.tsx` files
+  have no suite here, so the board's "finishing up…" gate moved to `lib/split-board.ts` to become
+  testable; the route got its first test; `split-hold`'s inner fail-closed arm was unreachable because
+  the Stripe mock's `retrieve` could not reject.
+- **Also:** the lost-claim branch could cancel an intent the row now POINTS AT — a concurrent twin's
+  live authorization — because the re-read fetched only `status`; and `canPay` learning `canceled` broke
+  its complement, so the board said "finishing up…" (and spoke it into the live region) over a table
+  that cannot finish.
+- **The money registry had stopped rendering.** An unescaped `|` inside M45 widened its row to 6 cells
+  against a 5-cell header; GFM then refuses the _whole_ table, so all 45 rows became one raw pipe
+  paragraph. `prettier` is what widened the delimiter, so `format:check` could not catch it. Fixed, plus
+  a second table broken the same way on `main`.
+- 267 qr tests and 49 `verify:slice` mutants. New suites: `lib/split.test.ts` (31), route (13),
+  `lib/pay-guard.test.ts` (9), `lib/split-board.test.ts` (5).
+
+#### Round 3 — triaged inline, and the review loop itself got cheaper (2026-08-05)
+
+A third agent round stalled mid-flight; its two completed lenses were salvaged and triaged by hand
+rather than re-run. Three real defects, all one shape — round 2's `captured`/`unknown` discipline
+applied to one pass but not its sibling:
+
+- **`openSettlement`'s pre-delete pass now fails CLOSED on an unestablishable hold** (abort logs and
+  proceeds because it is the table's EXIT; a re-open is optional, so refusing costs nothing while
+  proceeding deleted the only row recording the hold).
+- **Its post-delete pass now RESTORES a row whose intent was captured inside the delete window** — the
+  delete returns the full money shape and the row goes back as `captured`; merely refusing would still
+  double-charge on the host's retry, since the next re-open would find no trace of the capture.
+- **The route's lost-claim branch cancels nothing when its re-read fails** — a null row made the
+  pointer comparison read as "not ours", picking the destructive branch on the one input carrying no
+  information.
+
+Plus three mock repairs from the same salvage (pay-guard's mock handed back a count that was never
+requested; the route suite recorded no claim predicates and never asserted the charged amount; the
+repair-mark status was unpinned) — each watched fail first.
+
+**And the efficiency change:** two new zero-token gates now do what two review lenses used to.
+`scripts/check-money-coverage.mjs` (first step of `verify:slice`) fails in ~1s when a changed
+money-path file has no mutant — the exact class that cost two ~3.5M-token review rounds to find.
+`scripts/check-docs.mjs` (`pnpm check:docs`) validates every markdown table's GFM header/delimiter
+parity (prettier is what _introduces_ the breaks) and measures live-state doc counts via
+`vitest list` instead of trusting prose. Both proven against the real historical failures before
+being wired in. Reviews drop to three delta-scoped lenses.
+
+- 273 qr tests and 52 `verify:slice` mutants at merge.
+
 ### W10c — The money path stops answering with numbers it isn't sure of (2026-08-02)
 
 The money half of the W10 outage work (closes OPEN-ITEMS **M30** and **M31**; plan:

@@ -19,13 +19,17 @@ Turborepo monorepo for the **QR** app: `apps/qr` (dine-in/pickup + grocery scan-
 ```bash
 pnpm dev                 # apps/qr on :3000
 pnpm turbo lint typecheck build test   # the gate — run before any PR
-pnpm verify:slice        # the MECHANICAL pre-PR gate: gate + 20 mutations + orphan check (~1 min)
+pnpm verify:slice        # the MECHANICAL pre-PR gate: money-path coverage guard (a changed money
+                         # file MUST have a mutant, or an in-file `verify:slice-exempt — <reason>`)
+                         # + gate + 50+ mutations + orphan check (~1 min)
                          # ⚠️ REWRITES apps/qr/lib/{totals-math,split-math,tax,permissions}.ts IN PLACE
                          # and restores them (originals spooled to node_modules/.cache/verify-slice,
                          # auto-recovered next run if killed). Never run two against one checkout.
 pnpm verify:slice --no-gate --only=totals   # iterate on one module
 pnpm format              # prettier --write
 pnpm knip                # dead-code / unused deps
+pnpm check:docs          # tables render (GFM header/delimiter parity — prettier INTRODUCES breaks) +
+                         # live-state doc counts measured via `vitest list`, never transcribed
 supabase db push         # apply packages/db/migrations
 ```
 
@@ -60,8 +64,8 @@ The review/adversarial gates catch **escapes** — they are not your first pass.
 - **Never transcribe a number into an assertion.** Compute it in the shell and paste the output. A value that crosses from prose (a subagent summary, a plan doc) into an expectation is how `-600 → -59` shipped when the real value is `-58`.
 - **Adversarial subagent (independent eyes) — this IS the review.** As the LAST pre-PR step _and_ again pre-merge, spawn a **fresh-context subagent** (the Agent tool) to adversarially review the diff across the four lenses (a11y · perf · security/privacy · product-UX); fix its findings _before_ opening / before merging, and **post the subagent's verdict + findings as a PR comment** for the record. CI runs no Claude review — only zero-token green stub checks — so this in-session pass is the only real gate. (M1·P1.5 burned 6 metered Action rounds + a disable/fix/re-label dance doing review reactively in CI — this replaces exactly that.)
 
-Ten minutes here beats a metered gate round per finding. The gate is the backstop, not the author. See `.claude/LEARNINGS.md` #44/#47 for the war stories.
+**Scale the review to what scripts can't do** (W10d: 3 rounds, 9 HIGH, ~7M subagent tokens — two of the nine were 'a changed money file has no mutant', now a 1-second script; the doc-fidelity lens is now `check:docs`). Delta-scope every round after the first; three lenses (money semantics · concurrency · product truth), not five. Ten minutes here beats a metered gate round per finding. The gate is the backstop, not the author. See `.claude/LEARNINGS.md` #44/#47 for the war stories.
 
 ## Gate before "done"
 
-**`pnpm verify:slice` green** · CI green (`turbo lint typecheck build`) · Claude PR review + security review addressed · the QA-checklist items the change touches ticked (`docs/context/QA-CHECKLIST.md`, progress tracked in `docs/REVIEW.md`) · `ROADMAP.md` box checked · `CHANGELOG.md` line added · **`docs/OPEN-ITEMS.md` swept** (close/retire/add the items your change touches — it's the single registry; W0) · preview smoke-tested. If you learned something non-obvious or hit a sharp edge, append it to `.claude/LEARNINGS.md`.
+**`pnpm verify:slice` green** · **`pnpm check:docs` green** · CI green (`turbo lint typecheck build`) · Claude PR review + security review addressed · the QA-checklist items the change touches ticked (`docs/context/QA-CHECKLIST.md`, progress tracked in `docs/REVIEW.md`) · `ROADMAP.md` box checked · `CHANGELOG.md` line added · **`docs/OPEN-ITEMS.md` swept** (close/retire/add the items your change touches — it's the single registry; W0) · preview smoke-tested. If you learned something non-obvious or hit a sharp edge, append it to `.claude/LEARNINGS.md`.

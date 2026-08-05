@@ -254,6 +254,195 @@ const MUTANTS = [
     replace: '    .eq("status", "pending")\n    .select("id");',
   },
   {
+    id: "split/abort-cancels-only-authorized",
+    file: "apps/qr/lib/split.ts",
+    suite: "lib/split.test.ts",
+    why: "M40 — a share's ROW STATUS is not its PaymentIntent's status; skipping pending/failed/canceled abandons a live hold on a diner's card for the ~7-day authorization window, one line before the row that names it is deleted",
+    find: 'if (!s.stripe_payment_intent_id || s.status === "captured") continue;',
+    replace: 'if (!s.stripe_payment_intent_id || s.status !== "authorized") continue;',
+  },
+  {
+    id: "split/abort-delete-error-swallowed",
+    file: "apps/qr/lib/split.ts",
+    suite: "lib/split.test.ts",
+    why: "postgrest resolves a transport failure into { data: null, error } — an unchecked ledger DELETE reports a clean abort over rows that still exist and whose holds were just cancelled",
+    find: '    console.error("[split] abort ledger delete failed", deleteErr);\n    throw new Error(',
+    replace:
+      '    console.error("[split] abort ledger delete failed", deleteErr);\n    void String(',
+  },
+  {
+    id: "split/abort-captured-ignores-the-payment-intent",
+    file: "apps/qr/lib/split.ts",
+    suite: "lib/split.test.ts",
+    why: "a $0 by-person seat is auto-settled to captured with a NULL PI — reading status alone lets that sentinel impersonate taken money and permanently refuses abort, re-open, cash-settle and clear-table",
+    find: 'if ((shares ?? []).some((s) => s.status === "captured" && s.stripe_payment_intent_id != null)) {',
+    replace: 'if ((shares ?? []).some((s) => s.status === "captured")) {',
+  },
+  {
+    id: "split/abort-skips-the-post-delete-release",
+    file: "apps/qr/lib/split.ts",
+    suite: "lib/split.test.ts",
+    why: "the cancel loop runs off a snapshot; SharePay mints on mount, so a share claimed mid-abort is destroyed with its brand-new PaymentIntent never released",
+    find: "    const outcome = await releaseHold(pi);\n    // A PI claimed inside the abort window",
+    replace: '    const outcome = "released";\n    // A PI claimed inside the abort window',
+  },
+  {
+    id: "route/claim-asks-for-a-representation",
+    file: "apps/qr/app/api/stripe/create-share-intent/route.ts",
+    suite: "app/api/stripe/create-share-intent/route.test.ts",
+    why: "the 2026-07-08 outage shape — an `.or()` mutation asking for return=representation is re-projected by PostgREST 14 and 42703s EVERY share mint; this exact revert was made by a reviewer and the whole suite stayed green",
+    find: '        { count: "exact" },\n      )\n      .eq("id", share.id)',
+    replace: '      )\n      .eq("id", share.id)',
+  },
+  {
+    id: "route/mints-over-an-unknown-hold",
+    file: "apps/qr/app/api/stripe/create-share-intent/route.ts",
+    suite: "app/api/stripe/create-share-intent/route.test.ts",
+    why: "the claim overwrites stripe_payment_intent_id, the only record of the replaced intent — minting when its state could not be established strands a live ~7-day authorization nothing can find",
+    find: '      if (outcome === "unknown") {',
+    replace: "      if (false) {",
+  },
+  {
+    id: "route/repoints-a-succeeded-intent",
+    file: "apps/qr/app/api/stripe/create-share-intent/route.ts",
+    suite: "app/api/stripe/create-share-intent/route.test.ts",
+    why: "payment_intent_unexpected_state also means SUCCEEDED — repointing the row there charges the seat a second time",
+    find: '      if (outcome === "captured") {',
+    replace: "      if (false) {",
+  },
+  {
+    id: "route/cancels-the-payers-own-hold",
+    file: "apps/qr/app/api/stripe/create-share-intent/route.ts",
+    suite: "app/api/stripe/create-share-intent/route.test.ts",
+    why: "two same-key requests get the SAME PaymentIntent back; if the twin claimed the row and the payer authorized, cancelling it voids the payer's live hold and gates capture for the whole table",
+    find: "      const stillOurs = nowErr != null || now?.stripe_payment_intent_id === intent.id;",
+    replace: "      const stillOurs = false;",
+  },
+  {
+    id: "pay-guard/read-error-fails-open",
+    file: "apps/qr/lib/pay-guard.ts",
+    suite: "lib/pay-guard.test.ts",
+    why: "the shared money mutex — a dropped read error means an unreadable share table reads as 'no money in flight', green-lighting cash settle and clear-table over captured cards awaiting fulfillment",
+    find: '  if (error) {\n    console.error("[pay-guard] in-flight share read failed", { cartId: cart.id, error });\n    return "split_in_progress";\n  }',
+    replace:
+      '  if (error) console.error("[pay-guard] in-flight share read failed", { cartId: cart.id, error });',
+  },
+  {
+    id: "pay-guard/counts-the-zero-seat",
+    file: "apps/qr/lib/pay-guard.ts",
+    suite: "lib/pay-guard.test.ts",
+    why: "a $0 by-person seat is captured with a NULL PaymentIntent — counting it returns split_in_progress with no TTL escape, permanently refusing cash-settle, clear-table, voids and comps",
+    find: '    .in("status", ["authorized", "captured"])\n    .not("stripe_payment_intent_id", "is", null);',
+    replace: '    .in("status", ["authorized", "captured"]);',
+  },
+  {
+    id: "split-board/finishing-up-over-a-canceled-share",
+    file: "apps/qr/lib/split-board.ts",
+    suite: "lib/split-board.test.ts",
+    why: "captureAllIfReady gates on every(authorized|captured), so a canceled share blocks capture — counting it as 'in' makes the board say 'finishing up…' over a table that cannot finish, and speaks it into the live region",
+    find: '    shares.length > 0 && shares.every((s) => s.status === "authorized" || s.status === "captured")',
+    replace:
+      '    shares.length > 0 && shares.every((s) => s.status !== "pending" && s.status !== "failed")',
+  },
+  {
+    id: "split-hold/retrieve-failure-rounds-to-released",
+    file: "apps/qr/lib/split-hold.ts",
+    suite: "lib/split.test.ts",
+    why: "the inner fail-closed arm: cancel refused AND the follow-up retrieve threw, so the hold's state is unknown — rounding it to released is how a live authorization gets forgotten by the write that destroys its only pointer",
+    find: '      if ((retrieveError as { code?: string }).code === "resource_missing") return "gone";\n      return "unknown";',
+    replace:
+      '      if ((retrieveError as { code?: string }).code === "resource_missing") return "gone";\n      return "released";',
+  },
+  {
+    id: "split/open-probe-counts-the-zero-seat",
+    file: "apps/qr/lib/split.ts",
+    suite: "lib/split.test.ts",
+    why: "the same $0 sentinel on the re-open side — without the narrowing a table where one diner ordered nothing can never re-open its split",
+    find: '    .in("status", ["authorized", "captured"])\n    .not("stripe_payment_intent_id", "is", null)\n    .limit(1);',
+    replace: '    .in("status", ["authorized", "captured"])\n    .limit(1);',
+  },
+  {
+    id: "split/open-captured-is-not-fatal",
+    file: "apps/qr/lib/split.ts",
+    suite: "lib/split.test.ts",
+    why: "a re-open that discovers a SUCCEEDED PaymentIntent must refuse — bucketing it with 'unknown' logs a real charge as a stranded hold and inserts a fresh share set the table pays a second time",
+    find: '    if (outcome === "captured") {\n      // Money moved on a row we were about to replace.',
+    replace: "    if (false) {\n      // Money moved on a row we were about to replace.",
+  },
+  {
+    id: "split/abort-mark-unscoped",
+    file: "apps/qr/lib/split.ts",
+    suite: "lib/split.test.ts",
+    why: "the IDENTITY predicate on abort's captured repair mark — without it one abort rewrites every share row in the database (the class split-settle.test.ts records as having already cost a review round)",
+    find: '        .eq("stripe_payment_intent_id", s.stripe_payment_intent_id)\n        .neq("status", "captured");',
+    replace: '        .neq("status", "captured");',
+  },
+  {
+    id: "split/open-unknown-hold-proceeds",
+    file: "apps/qr/lib/split.ts",
+    suite: "lib/split.test.ts",
+    why: "round 3 — a re-open is optional, so an unestablishable hold must refuse, not delete the only row that records it; abort's log-and-proceed is for the EXIT path only",
+    find: '      throw new Error("Couldn’t start the split — please try again");\n    }\n  }\n  // Two statements rather than one',
+    replace: "      continue;\n    }\n  }\n  // Two statements rather than one",
+  },
+  {
+    id: "split/open-second-pass-captured-reinserts-nothing",
+    file: "apps/qr/lib/split.ts",
+    suite: "lib/split.test.ts",
+    why: "round 3 — round 2's captured/unknown discipline applied to the FIRST pass but not its sibling: a capture landing inside the delete window was logged as a 'hold' and a fresh payable set inserted over money already taken",
+    find: '    if (outcome === "captured") {\n      // ⚠️ W10d round-3 review',
+    replace: "    if (false) {\n      // ⚠️ W10d round-3 review",
+  },
+  {
+    id: "route/unreadable-reread-picks-the-destructive-branch",
+    file: "apps/qr/app/api/stripe/create-share-intent/route.ts",
+    suite: "app/api/stripe/create-share-intent/route.test.ts",
+    why: "round 3 — a null re-read made the pointer comparison read as 'not ours', cancelling an intent that may be the payer's live authorization; not knowing means not cancelling",
+    find: "      const stillOurs = nowErr != null || now?.stripe_payment_intent_id === intent.id;",
+    replace: "      const stillOurs = now?.stripe_payment_intent_id === intent.id;",
+  },
+  {
+    id: "split/open-replaces-without-releasing",
+    file: "apps/qr/lib/split.ts",
+    suite: "lib/split.test.ts",
+    why: "a re-open deletes the prior share set; a pending/failed row can sit over a LIVE authorization whenever its webhook is delayed, and past the TTL the re-open is the table's only forward exit",
+    find: "    const outcome = await releaseHold(row.stripe_payment_intent_id);",
+    replace: '    const outcome = "released";',
+  },
+  {
+    id: "split/open-replace-error-swallowed",
+    file: "apps/qr/lib/split.ts",
+    suite: "lib/split.test.ts",
+    why: "a silently-failed replace leaves the OLD share rows in place and inserts a second full set beside them — two ledgers for one table, both frozen",
+    find: '    console.error("[split] open could not clear the prior share set", replacedErr);\n    throw new Error("Could not start the split");',
+    replace: '    console.error("[split] open could not clear the prior share set", replacedErr);',
+  },
+  {
+    id: "split-hold/unexpected-state-read-as-dead",
+    file: "apps/qr/lib/split-hold.ts",
+    suite: "lib/split.test.ts",
+    why: "payment_intent_unexpected_state is ALSO Stripe's code for a SUCCEEDED PaymentIntent (captureAllIfReady retrieves on it for that reason) — treating it as already-dead deletes a share whose card was really charged",
+    find: '    if (code !== "payment_intent_unexpected_state") return "unknown";',
+    replace:
+      '    if (code !== "payment_intent_unexpected_state") return "unknown";\n    return "released";',
+  },
+  {
+    id: "split-hold/unknown-rounds-to-released",
+    file: "apps/qr/lib/split-hold.ts",
+    suite: "lib/split.test.ts",
+    why: "a 429/5xx/timeout tells us nothing about the hold — rounding it to released is how a live authorization gets forgotten by the write that immediately overwrites or deletes its only pointer",
+    find: '    if (code !== "payment_intent_unexpected_state") return "unknown";',
+    replace: '    if (code !== "payment_intent_unexpected_state") return "released";',
+  },
+  {
+    id: "split-intent/key-ignores-the-attempt",
+    file: "apps/qr/lib/split-intent-key.ts",
+    suite: "lib/split-intent-key.test.ts",
+    why: "M39 — without the replaced-intent term, Stripe replays the PaymentIntent the route just canceled, so a declined payer retrying at the same tip is dead for the full 24h key window",
+    find: "  return `share_${shareId}_${amountCents}_${attempt}`;",
+    replace: "  void attempt;\n  return `share_${shareId}_${amountCents}`;",
+  },
+  {
     id: "split-settle/mark-not-scoped-to-its-payment-intent",
     file: "apps/qr/lib/split-settle.ts",
     suite: "lib/split-settle.test.ts",
@@ -333,6 +522,16 @@ function assertClean(files) {
     );
     process.exit(1);
   }
+}
+
+// Coverage first — a changed money-path file with NO mutant is the cheapest failure to surface, and
+// it was the single most expensive class to discover any other way (two review-round HIGHs, ~3.5M
+// tokens each, both reducible to this grep). Fails in ~1s, before the minute-long gate.
+process.stdout.write("money-path coverage … ");
+try {
+  execFileSync("node", ["scripts/check-money-coverage.mjs"], { cwd: ROOT, stdio: "inherit" });
+} catch {
+  process.exit(1);
 }
 
 const targets = MUTANTS.filter((m) => !only || m.id.includes(only));

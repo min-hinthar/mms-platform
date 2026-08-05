@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import type { SplitContext, SettlementShare } from "@/lib/split";
 import { getSettlement, abortSettlement } from "@/lib/split";
+import { everyShareIn } from "@/lib/split-board";
 import { useSettlementRealtime } from "@/lib/realtime";
 import { seatColor, seatInitial } from "@/lib/avatars";
 import { Avatar, Icon, NumberFlow, Skeleton } from "@mms/ui";
@@ -192,8 +193,10 @@ export function SettlementBoard({
     .filter((s) => s.status === "authorized" || s.status === "captured")
     .reduce((a, s) => a + s.amountCents, 0);
   const totalCents = shares.reduce((a, s) => a + s.amountCents, 0);
-  const allIn =
-    shares.length > 0 && shares.every((s) => s.status !== "pending" && s.status !== "failed");
+  // ⚠️ W10d pre-merge RE-REVIEW — `everyShareIn` (lib/split-board.ts) rather than an inline `.every()`:
+  // this rule must agree with `captureAllIfReady`'s gate, and a `.tsx` component has no suite in this
+  // repo, so an inline version could not be made to fail. See that file for the regression it closes.
+  const allIn = everyShareIn(shares);
 
   // W9b — a member with NO share row joined the table after the host opened the split, so the ledger
   // has no line for them: every control on this screen is inert and nothing says why. Read-only is the
@@ -223,7 +226,10 @@ export function SettlementBoard({
       // exactly the diner who should hear the table-wide message, not their solo one.
       if (redirected.current) return;
       // Honest copy for the LAST payer: if this authorization completed the table, don't say "waiting".
-      const everyoneIn = shares.every((s) => s.status !== "pending" && s.status !== "failed");
+      // Same gate as `allIn`, and for the sharper reason: this one is SPOKEN into the view's single
+      // live region with no adjacent figure to contradict it, so "that's everyone" over a canceled
+      // share is an unqualified false assertion to a screen-reader user.
+      const everyoneIn = everyShareIn(shares);
       onStatus(
         everyoneIn
           ? "Your share is in — that’s everyone. Finishing up…"
@@ -455,7 +461,16 @@ export function SettlementBoard({
               {shares.map((s, i) => {
                 const isMe = s.seat === ctx.mySeat;
                 const name = isMe ? "You" : nameOf(s.seat);
-                const canPay = isMe && (s.status === "pending" || s.status === "failed");
+                // ⚠️ W10d pre-merge review — `canceled` belongs here. The server's claim predicate has
+                // always accepted `pending | failed | canceled`, so a canceled share IS payable; the UI
+                // was the only thing saying otherwise. It's reachable whenever a mint dies after the
+                // prior intent was released (a 503 from the provider, or the claim write failing):
+                // Stripe's `payment_intent.canceled` flips the row, realtime pushes it, and SharePay —
+                // with the "Try again" the payer needed — unmounted, leaving a grey badge and no way
+                // forward for either them or the table.
+                const canPay =
+                  isMe &&
+                  (s.status === "pending" || s.status === "failed" || s.status === "canceled");
                 const settled = s.status === "authorized" || s.status === "captured";
                 return (
                   // Textured + rise-in (keys are stable seats — status flips re-render, never re-animate).

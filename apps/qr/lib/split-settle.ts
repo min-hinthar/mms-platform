@@ -282,6 +282,16 @@ export async function onShareCaptured(piId: string): Promise<string | null> {
   const wasOpen = cartRow?.status === "open";
 
   // Σ of the captured amounts == the order total (the fn re-verifies + snapshots one order).
+  //
+  // ⚠️ W10d — this is DELIBERATELY the same sum the RPC re-computes, i.e. the guard downstream is a
+  // tautology, and OPEN-ITEMS M1/M25 stay OPEN because of it. An attempt to give it a real second
+  // opinion (the cart's live total + tips) was written and reverted: the ledger is pinned at
+  // `openSettlement` while `getCartTotals` is LIVE and time-dependent, so the two legitimately diverge
+  // — the webhook burns the applied reward immediately after this call (`mms_reward_discount` filters
+  // `redeemed_at is null`), a time-windowed promo can expire mid-settlement, and this function is
+  // re-entered by every sibling and redelivered `succeeded` event. Comparing a pinned value against a
+  // live one turned a self-healing no-op into a permanent 72h failure loop. The real fix is to PERSIST
+  // the expected total when the split opens and reconcile against that constant; it needs a migration.
   const expected = shares.reduce((a, s) => a + s.amount_cents, 0);
   const { data: orderId, error } = await db.rpc("mms_fulfill_split_order", {
     p_cart_id: cartId,

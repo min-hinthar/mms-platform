@@ -6,7 +6,7 @@ import { assertMutationRate } from "./rate";
 import { getCartTotals } from "./totals";
 import { deriveShareBreakdowns } from "./split-math";
 import { acquireSettlement, releaseSettlement } from "./lock";
-import { getStripe } from "./stripe";
+import { releaseHold } from "./split-hold";
 
 export type SplitContext = {
   mode: string;
@@ -171,11 +171,18 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
   // authorized share and orphaning its PaymentIntent, so a later capture becomes money taken with no
   // order (`cartIdForPi` finds nothing) or a hold that sits ~7 days. Fail closed, releasing the
   // freeze the same way the derive-read block below already does.
+  //
+  // ⚠️ W10d pre-merge review — `.not(stripe_payment_intent_id, is, null)` for the same reason abort
+  // now discriminates: a $0 by-person seat is auto-settled to `captured` with no PaymentIntent, and
+  // counting it as in-flight money made a re-open throw "Payments are already in progress" forever on
+  // any table where one diner ordered nothing. An `authorized` share always has a PI, so this narrows
+  // nothing real — it only stops the sentinel row from impersonating a live charge.
   const { data: live, error: liveErr } = await db
     .from("qr_cart_shares")
     .select("id")
     .eq("cart_id", id)
     .in("status", ["authorized", "captured"])
+    .not("stripe_payment_intent_id", "is", null)
     .limit(1);
   if (liveErr) {
     // ⚠️ Round 5 — do NOT release here. The refusal ten lines below (a share IS authorized) keeps the
@@ -253,7 +260,149 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
   );
 
   // Replace any prior PENDING set (a re-open before anyone paid), then write the fresh shares.
-  await db.from("qr_cart_shares").delete().eq("cart_id", id);
+  //
+  // ⚠️ W10d pre-merge review — release the holds FIRST, for the same reason `abortSettlement` does
+  // (M40): the guard above only refuses on `authorized`/`captured`, and a share's ROW STATUS is not its
+  // PaymentIntent's status. A `pending`/`failed` row can sit over a live authorization whenever the
+  // webhook that would have advanced it is delayed or 5xxing — exactly the outage class this arc is
+  // about — and past the 10-minute TTL a re-open is the table's only forward exit. This DELETE used to
+  // remove those rows and cancel nothing, stranding the hold for the full ~7-day window with no record
+  // left. The delete RETURNS what it removed (the serialization point), so a row claimed mid-re-open is
+  // covered too.
+  // ⚠️ W10d pre-merge RE-REVIEW — read and release BEFORE deleting, mirroring `abortSettlement`. The
+  // first fix released the holds but did so AFTER the delete and bucketed a `captured` outcome in with
+  // `unknown` — so a PaymentIntent that had actually SUCCEEDED was logged as a stranded "hold" and the
+  // re-open carried on, inserting a fresh share set the table would pay a second time. That is the very
+  // signal abort treats as fatal, discarded in the sibling path written in the same commit. Reading
+  // first means a discovery can refuse while the rows still exist.
+  const { data: prior, error: priorErr } = await db
+    .from("qr_cart_shares")
+    .select("stripe_payment_intent_id,status")
+    .eq("cart_id", id);
+  if (priorErr) {
+    await releaseSettlement(id); // nothing written yet, so this strands nothing
+    console.error("[split] open could not read the prior share set", priorErr);
+    throw new Error("Could not start the split");
+  }
+  const strandedHolds: string[] = [];
+  const attempted = new Set<string>();
+  for (const row of prior ?? []) {
+    if (!row.stripe_payment_intent_id) continue;
+    attempted.add(row.stripe_payment_intent_id);
+    const outcome = await releaseHold(row.stripe_payment_intent_id);
+    if (outcome === "captured") {
+      // Money moved on a row we were about to replace. Repair it so the succeeded webhook can fulfill,
+      // and KEEP the freeze — unlike every other failure path here, lifting it would let the cart be
+      // edited before the order is snapshotted. Same answer, same string, as abort.
+      const { error: markErr } = await db
+        .from("qr_cart_shares")
+        .update({ status: "captured", updated_at: new Date().toISOString() })
+        .eq("stripe_payment_intent_id", row.stripe_payment_intent_id)
+        .neq("status", "captured");
+      if (markErr)
+        console.error("[split] open found a succeeded PI but could not mark the share captured", {
+          cartId: id,
+          paymentIntent: row.stripe_payment_intent_id,
+          error: markErr.message,
+        });
+      throw new Error("Payment already completed — the order will finish");
+    }
+    if (outcome === "unknown") {
+      // ⚠️ W10d round-3 review — fail CLOSED, unlike `abortSettlement`. The asymmetry is deliberate:
+      // abort is the table's EXIT and must work even when Stripe is flaky, so logging an abandoned
+      // hold is the best it can do. A re-open is optional — nothing has been deleted yet, so refusing
+      // costs nothing, while proceeding deletes the only row that records a hold we could not prove
+      // dead. Same signal, same answer as create-share-intent's 503.
+      await releaseSettlement(id); // nothing written yet, so this strands nothing
+      console.error("[split] open could not establish a prior hold's state — refusing", {
+        cartId: id,
+        paymentIntent: row.stripe_payment_intent_id,
+      });
+      throw new Error("Couldn’t start the split — please try again");
+    }
+  }
+  // Two statements rather than one `.or()`, for the reason spelled out in `abortSettlement`: an `.or()`
+  // mutation asking for a representation is the PostgREST-14 42703 shape. The non-captured rows first
+  // (they carry the holds), then the $0 sentinels, so a REAL captured row landing mid-window survives
+  // both and is caught by the survivor check. The delete RETURNS the full money shape of each row, so
+  // the pass below can put one BACK if its PaymentIntent turns out to have been captured.
+  const { data: replaced, error: replacedErr } = await db
+    .from("qr_cart_shares")
+    .delete()
+    .eq("cart_id", id)
+    .neq("status", "captured")
+    .select(
+      "seat_id,subtotal_cents,discount_cents,service_charge_cents,tax_cents,amount_cents,tip_cents,tip_rate,stripe_payment_intent_id",
+    );
+  if (replacedErr) {
+    await releaseSettlement(id); // don't strand a freeze over a ledger we could not clear
+    console.error("[split] open could not clear the prior share set", replacedErr);
+    throw new Error("Could not start the split");
+  }
+  const { error: zeroErr } = await db
+    .from("qr_cart_shares")
+    .delete()
+    .eq("cart_id", id)
+    .eq("status", "captured")
+    .is("stripe_payment_intent_id", null);
+  if (zeroErr) {
+    await releaseSettlement(id);
+    console.error("[split] open could not clear the prior $0 shares", zeroErr);
+    throw new Error("Could not start the split");
+  }
+  for (const row of replaced ?? []) {
+    const pi = row.stripe_payment_intent_id;
+    if (!pi || attempted.has(pi)) continue;
+    const outcome = await releaseHold(pi);
+    if (outcome === "captured") {
+      // ⚠️ W10d round-3 review — round 2's exact defect, leaking into the SECOND pass: a captured
+      // outcome was bucketed with `unknown`, logged as a stranded "hold", and the re-open inserted a
+      // fresh payable set over money already taken. Worse than abort's version, because the row is
+      // already DELETED here — so simply refusing still double-charges on the host's retry (the next
+      // re-open finds no trace of the capture). Put the row BACK as captured from the shape the delete
+      // returned, keep the freeze so the cart can't be edited before the webhook snapshots the order,
+      // and refuse with the same string as every sibling.
+      const { error: restoreErr } = await db.from("qr_cart_shares").insert({
+        cart_id: id,
+        seat_id: row.seat_id,
+        subtotal_cents: row.subtotal_cents,
+        discount_cents: row.discount_cents,
+        service_charge_cents: row.service_charge_cents,
+        tax_cents: row.tax_cents,
+        amount_cents: row.amount_cents,
+        tip_cents: row.tip_cents,
+        tip_rate: row.tip_rate,
+        stripe_payment_intent_id: pi,
+        status: "captured" as const,
+      });
+      if (restoreErr)
+        console.error("[split] open could not restore a captured share it had deleted", {
+          cartId: id,
+          paymentIntent: pi,
+          error: restoreErr.message,
+        });
+      throw new Error("Payment already completed — the order will finish");
+    }
+    if (outcome === "unknown") strandedHolds.push(pi);
+  }
+  if (strandedHolds.length > 0)
+    console.error("[split] re-open could not release these prior holds", {
+      cartId: id,
+      paymentIntents: strandedHolds,
+    });
+  // A survivor here is a share captured between the release loop and the deletes — real money on a row
+  // that must reach fulfillment, not be replaced. Keep the freeze and refuse.
+  const { data: stillThere, error: stillErr } = await db
+    .from("qr_cart_shares")
+    .select("id")
+    .eq("cart_id", id)
+    .limit(1);
+  if (stillErr) {
+    console.error("[split] open survivor check failed", stillErr);
+    throw new Error("Couldn’t start the split — please try again");
+  }
+  if (stillThere && stillThere.length > 0)
+    throw new Error("Payment already completed — the order will finish");
   const { error } = await db.from("qr_cart_shares").insert(
     breakdowns.map((b) => ({
       cart_id: id,
@@ -323,26 +472,127 @@ export async function abortSettlement(cartId: string): Promise<void> {
   }
   // If a capture WON the race (any captured share), money is committing — re-freeze so the cart can't be
   // edited before the succeeded webhook snapshots the order, and let fulfillment finish (don't delete).
-  if ((shares ?? []).some((s) => s.status === "captured")) {
+  //
+  // ⚠️ W10d pre-merge review — a captured share only blocks the abort when it has a PaymentIntent.
+  // `openSettlement` auto-settles a **$0 by-person seat** (a diner who ordered nothing) straight to
+  // `captured` with a NULL PI so it can't block the all-covered gate. Reading status alone made that
+  // seat indistinguishable from taken money, and it permanently bricked the table: abort threw
+  // "Payment already completed — the order will finish" when nothing would ever finish, `openSettlement`
+  // threw "Payments are already in progress", and `paymentInFlightReason` returned `split_in_progress`
+  // with no TTL escape — so cash-settle, clear-table, voids and comps were refused forever, and any
+  // OTHER seat's live hold could never be released, because the release sits behind this very check.
+  if ((shares ?? []).some((s) => s.status === "captured" && s.stripe_payment_intent_id != null)) {
     const refreezeErr = await refreeze(db, id, uid);
     if (refreezeErr)
       console.error("[split] refreeze failed (abort lost the race to a capture)", refreezeErr);
     throw new Error("Payment already completed — the order will finish");
   }
 
-  // Release each authorized/pending hold so a payer isn't left with a lingering authorization.
+  // Release each still-cancelable hold so a payer isn't left with a lingering authorization.
+  //
+  // ⚠️ W10d (M40) — `failed` MUST be in this list, and the reason is the same one that made W10c's
+  // `onShareAuthorized` predicate wrong: a share's ROW STATUS is not the PaymentIntent's status. A
+  // decline at CAPTURE marks the row `failed` while its PI can still hold a live authorization, and a
+  // row marked `failed` by one attempt can have been re-authorized on a later one. The delete below
+  // then removes the row, so this loop is the last moment anything knows the hold exists — after it,
+  // the money sits on the diner's card for the full ~7-day authorization window with no record on our
+  // side that could ever release it. Cancelling an already-dead PI is a documented no-op, so the cost
+  // of including a status is zero and the cost of omitting one is a week of someone's credit limit.
+  //
+  // Only `captured`-with-a-PaymentIntent is excluded, and it can't reach here — the branch above throws.
+  //
+  // ⚠️ W10d pre-merge review — `releaseHold` replaces a bare `catch` that treated
+  // `payment_intent_unexpected_state` as "already dead". That code ALSO means the PI **succeeded**
+  // (`captureAllIfReady` retrieves on it for precisely that reason). The reachable sequence: a capture
+  // takes the money, its post-capture mark write fails and throws, so the row still reads `authorized`;
+  // the host taps Cancel; the captured-check above passes; `cancel` raises `unexpected_state`; we called
+  // it benign and the DELETE below removed the row. Net was a real charge with no order, no share row,
+  // no refunds record, and no log naming the PaymentIntent. Asking Stripe closes it — and closes the
+  // wider abort-vs-capture race too, because this loop touches every share before anything is deleted.
+  const abandonedHolds: string[] = [];
+  const attempted = new Set<string>();
   for (const s of shares ?? []) {
-    if (s.stripe_payment_intent_id && (s.status === "authorized" || s.status === "pending")) {
-      try {
-        await getStripe().paymentIntents.cancel(s.stripe_payment_intent_id);
-      } catch {
-        // Already canceled / captured / gone — best-effort; never block the abort on Stripe.
-      }
+    if (!s.stripe_payment_intent_id || s.status === "captured") continue;
+    attempted.add(s.stripe_payment_intent_id);
+    const outcome = await releaseHold(s.stripe_payment_intent_id);
+    if (outcome === "captured") {
+      // Money moved on a row we were about to delete. Repair the row first (so the succeeded webhook
+      // finds it and fulfills), put the freeze back, and refuse the abort — same answer the
+      // captured-check above gives, just discovered a beat later.
+      const { error: markErr } = await db
+        .from("qr_cart_shares")
+        .update({ status: "captured", updated_at: new Date().toISOString() })
+        .eq("stripe_payment_intent_id", s.stripe_payment_intent_id)
+        .neq("status", "captured");
+      if (markErr)
+        console.error("[split] abort found a succeeded PI but could not mark the share captured", {
+          cartId: id,
+          paymentIntent: s.stripe_payment_intent_id,
+          error: markErr.message,
+        });
+      const refreezeErr = await refreeze(db, id, uid);
+      if (refreezeErr)
+        console.error("[split] refreeze failed (abort found a succeeded hold)", refreezeErr);
+      throw new Error("Payment already completed — the order will finish");
     }
+    // Best-effort by design — never block the abort on Stripe. But NOT silent: the delete below removes
+    // the only row that records this PaymentIntent, so a hold we could not prove dead has to be
+    // recoverable from logs. `released`/`gone` are the benign majority; `unknown` is a hold we are
+    // knowingly abandoning.
+    if (outcome === "unknown") abandonedHolds.push(s.stripe_payment_intent_id);
+  }
+
+  // Sweep the $0 auto-settled seats first — they carry no money and no PaymentIntent, and leaving them
+  // behind would make the survivor check below report a phantom "payment completed during cancel".
+  // Kept as its own statement with only `.eq()`/`.is()` filters: a single DELETE expressing "not (captured
+  // AND has a PI)" needs a top-level `.or()`, and an `.or()` mutation asking for a representation is the
+  // PostgREST-14 42703 shape this repo has already been bitten by (see `lib/lock.ts`).
+  const { error: zeroSweepErr } = await db
+    .from("qr_cart_shares")
+    .delete()
+    .eq("cart_id", id)
+    .eq("status", "captured")
+    .is("stripe_payment_intent_id", null);
+  if (zeroSweepErr) {
+    console.error("[split] abort $0-share sweep failed", zeroSweepErr);
+    throw new Error("Couldn’t cancel the split just now — try again in a moment");
   }
   // Conditional delete — NEVER remove a share captured in the race window (its money is taken and the
   // succeeded webhook must still fulfill it). If one survived, re-freeze + surface it rather than strand.
-  await db.from("qr_cart_shares").delete().eq("cart_id", id).neq("status", "captured");
+  // The same unchecked-write class the W10 arc exists to delete: a silently-failed DELETE leaves the
+  // ledger intact while the code below reports a clean abort, so the host is told the split is cancelled
+  // over rows that still exist (and whose holds were just cancelled).
+  //
+  // ⚠️ W10d pre-merge review — RETURN what was actually deleted. The cancel loop above ran off a snapshot
+  // taken several Stripe round-trips earlier, and `create-share-intent` can claim a row in that window
+  // (`SharePay` mints on mount, so a payer merely opening the sheet as the host cancels is enough): the
+  // row gets repointed to a brand-new PaymentIntent, and the delete then destroyed it with that intent
+  // never cancelled. The DELETE is the serialization point, so whatever it hands back is the truth —
+  // anything we did not already try goes through a second release pass below.
+  const { data: deleted, error: deleteErr } = await db
+    .from("qr_cart_shares")
+    .delete()
+    .eq("cart_id", id)
+    .neq("status", "captured")
+    .select("stripe_payment_intent_id");
+  if (deleteErr) {
+    console.error("[split] abort ledger delete failed", deleteErr);
+    throw new Error("Couldn’t cancel the split just now — try again in a moment");
+  }
+  for (const row of deleted ?? []) {
+    const pi = row.stripe_payment_intent_id;
+    if (!pi || attempted.has(pi)) continue;
+    const outcome = await releaseHold(pi);
+    // A PI claimed inside the abort window is seconds old and cannot have been captured, so `captured`
+    // here is a genuine surprise — record it at the same weight as an abandoned hold rather than
+    // pretending the sweep was clean. Either way the row is already gone; the log is the only artifact.
+    if (outcome === "unknown" || outcome === "captured") abandonedHolds.push(pi);
+  }
+  if (abandonedHolds.length > 0)
+    console.error("[split] abort could not cancel these holds — they will lapse on their own", {
+      cartId: id,
+      paymentIntents: abandonedHolds,
+    });
   const { data: survivor, error: survivorErr } = await db
     .from("qr_cart_shares")
     .select("id")
