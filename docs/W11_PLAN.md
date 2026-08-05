@@ -43,5 +43,6 @@ abort/re-open-vs-capture race at the only point both sides order through: a row 
 
 `lib/split-settle-capture.test.ts` (5 tests — stamp-before-capture as an ORDER assertion on one
 chronological log; stamp failure captures nothing; clearing; the fulfill call carries only the cart
-id) · pin + stamp + refunds tests in `lib/split.test.ts` (39) · six new `verify:slice` mutants
-(58 total), each watched fail before commit.
+id) · pin + stamp + refunds tests in `lib/split.test.ts` (40) · `lib/orders-payers.test.ts` (5 —
+the payers probes ARE the authorization; the coverage gate demanded it) · ten new `verify:slice`
+mutants (62 total), each watched fail before commit.

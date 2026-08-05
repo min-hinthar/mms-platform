@@ -12,8 +12,9 @@ plan: `docs/W11_PLAN.md`). ⚠️ Prod `db push` waits for the owner's Supabase 
 - **The reconcile is real (M1/M25).** `qr_carts.settle_expected_cents` is pinned at `openSettlement`
   from the same derivation that produces the shares; `mms_fulfill_split_order(p_cart_id)` — the
   tautological second parameter is deleted — compares Σ(amount − tip) over the captured ledger against
-  that constant, with the idempotent branch FIRST and a durable `qr_refunds_needed` row written before
-  any raise. An unpinned open fails closed.
+  that constant, with the idempotent branch FIRST; the durable `qr_refunds_needed` row is written by
+  the **caller** when the raise surfaces (an in-fn insert is rolled back by its own raise). An unpinned
+  open fails closed.
 - **The capture race is closed (M45).** `capture_started_at` is stamped before each capture
   (fail-closed, first-writer-wins), cleared by a capture that took no money; both exits refuse on a
   stamped share and their deletes exclude it.
@@ -22,7 +23,8 @@ plan: `docs/W11_PLAN.md`). ⚠️ Prod `db push` waits for the owner's Supabase 
   payer their hold was released.
 - **Every payer keeps their order (M29).** `qr_order_payers` survives clear-table: full tracker,
   account history, `didIPayForCart`. Star earning stays host-only pending the owner's product call.
-- 5-test capture-order suite + pin/stamp/refunds tests; 58 `verify:slice` mutants.
+- 5-test capture-order suite + 5-test payer-probe suite (`lib/orders-payers.test.ts`) +
+  pin/stamp/refunds tests in `lib/split.test.ts` (40); 62 `verify:slice` mutants · 289 qr tests.
 
 ### W10d — A split table can always finish (2026-08-02)
 
