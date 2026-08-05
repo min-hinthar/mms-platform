@@ -257,6 +257,20 @@ export type PendingApproval = {
  * initiator's display name and the table label for legibility. Read via service-role (the audit table is
  * owner-read RLS); the requireStaff('manager') gate is the authority for who may see/resolve it.
  */
+/**
+ * W11 review — the strip's copy told the manager to "mark it resolved", and no resolve control
+ * existed anywhere: rows would accumulate forever and new ones eventually fall off the 50-row read.
+ * Manager-gated like every loss decision; the UPDATE is scoped to one id and flips only `resolved`.
+ */
+export async function resolveRefundNeeded(id: string): Promise<void> {
+  await requireStaff("manager");
+  const db = serviceClient();
+  const { error } = await db.from("qr_refunds_needed").update({ resolved: true }).eq("id", id);
+  if (error)
+    throw new AuthzError("We can’t reach the ordering system right now", 503, "unavailable");
+  revalidatePath("/staff/approvals");
+}
+
 /** One unresolved row of the durable refunds ledger (W11/M43) — money taken with no order behind it. */
 export type RefundNeeded = {
   id: string;

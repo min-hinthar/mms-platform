@@ -149,7 +149,13 @@ function respond(q: Query): { data: unknown; error: { message: string } | null }
   return { data: null, error: null }; // qr_carts refreeze
 }
 
-function builder(table: string, op: Query["op"], patch?: unknown, cols?: string) {
+function builder(
+  table: string,
+  op: Query["op"],
+  patch?: unknown,
+  cols?: string,
+  countRequested?: boolean,
+) {
   const q: Query = { table, op, cols, eq: [], neq: [], is: [], not: [], patch };
   queries.push(q);
   const api = {
@@ -190,8 +196,19 @@ function builder(table: string, op: Query["op"], patch?: unknown, cols?: string)
       q.cols = selectCols;
       return Promise.resolve(respond(q));
     },
-    then(res: (v: { data: unknown; error: { message: string } | null }) => unknown) {
-      return Promise.resolve(respond(q)).then(res);
+    then(
+      res: (v: {
+        data: unknown;
+        error: { message: string } | null;
+        count?: number | null;
+      }) => unknown,
+    ) {
+      const base = respond(q);
+      // postgrest's contract: `count` exists only when the caller passed { count } — and the abort's
+      // row claim reads it, so the mock must model it (1 = claimed; an error yields null).
+      return Promise.resolve(
+        countRequested ? { ...base, count: base.error ? null : 1 } : base,
+      ).then(res);
     },
   };
   return api;
@@ -201,7 +218,8 @@ vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     from: (table: string) => ({
       select: (cols: string) => builder(table, "select", undefined, cols),
-      update: (patch: Record<string, unknown>) => builder(table, "update", patch),
+      update: (patch: Record<string, unknown>, opts?: { count?: string }) =>
+        builder(table, "update", patch, undefined, opts?.count != null),
       upsert: (rows: unknown) => builder(table, "upsert", rows),
       insert: (rows: unknown) => builder(table, "insert", rows),
       delete: () => builder(table, "delete"),
@@ -379,8 +397,14 @@ describe("abortSettlement — a succeeded PaymentIntent must survive the abort",
     cancelThrows = { pi_paid: { code: "payment_intent_unexpected_state" } };
     retrieveStatus = { pi_paid: "succeeded" };
     await expect(abortSettlement(CART)).rejects.toThrow();
-    const mark = queries.find((q) => q.op === "update" && q.table === "qr_cart_shares");
-    expect((mark?.patch as { status?: string } | undefined)?.status).toBe("captured");
+    // The row CLAIM (status: canceled) now precedes marks — find the repair mark by its patch.
+    const mark = queries.find(
+      (q) =>
+        q.op === "update" &&
+        q.table === "qr_cart_shares" &&
+        (q.patch as { status?: string } | undefined)?.status === "captured",
+    );
+    expect(mark).toBeDefined();
   });
 
   it("treats a live requires_capture hold as unreleased rather than dead", async () => {
@@ -452,9 +476,13 @@ describe("abortSettlement — every write is scoped to THIS cart", () => {
     cancelThrows = { pi_paid: { code: "payment_intent_unexpected_state" } };
     retrieveStatus = { pi_paid: "succeeded" };
     await expect(abortSettlement(CART)).rejects.toThrow();
-    const mark = queries.find((q) => q.op === "update" && q.table === "qr_cart_shares");
+    const mark = queries.find(
+      (q) =>
+        q.op === "update" &&
+        q.table === "qr_cart_shares" &&
+        (q.patch as { status?: string } | undefined)?.status === "captured",
+    );
     expect(mark?.eq).toContainEqual(["stripe_payment_intent_id", "pi_paid"]);
-    expect((mark?.patch as { status?: string } | undefined)?.status).toBe("captured");
   });
 });
 
@@ -483,7 +511,7 @@ describe("abortSettlement — a $0 seat is not taken money", () => {
         capture_started_at: "2026-08-05T00:00:00Z",
       },
     ];
-    await expect(abortSettlement(CART)).rejects.toThrow(/Payment already completed/);
+    await expect(abortSettlement(CART)).rejects.toThrow(/A payment is completing/);
     expect(cancelled).toEqual([]);
   });
 
@@ -568,6 +596,22 @@ describe("openSettlement — a re-open must release the holds it replaces", () =
     expect(cancelled).toEqual([]);
   });
 
+  it("never releases a PaymentIntent whose capture is in motion (the stamped skip)", async () => {
+    // W11 review HIGH — this guard shipped without a test. A re-open that cancels a stamped share's
+    // PI re-introduces the release-A-then-meet-captured-B race in the sibling exit.
+    shares = [
+      {
+        stripe_payment_intent_id: "pi_mid_capture",
+        status: "pending",
+        capture_started_at: "2026-08-05T00:00:00Z",
+      },
+      { stripe_payment_intent_id: "pi_plain", status: "pending" },
+    ];
+    survivors = [{ id: "share-stamped" }]; // what the real `.is(stamp,null)` delete leaves behind
+    await expect(openSettlement(CART, "even")).rejects.toThrow(/A payment is completing/);
+    expect(cancelled).not.toContain("pi_mid_capture");
+  });
+
   it("is NOT blocked by a $0 captured seat with no PaymentIntent", async () => {
     // The narrowing itself. Without it, a table where one diner ordered nothing could never re-open.
     // The mock applies the recorded `.not(...)` predicate, so deleting that line turns this red.
@@ -636,9 +680,9 @@ describe("openSettlement — a re-open must release the holds it replaces", () =
     expect(cancelled).toContain("pi_claimed_mid_open");
   });
 
-  it("refuses when a share survives both deletes — that is real money", async () => {
+  it("refuses when a share survives both deletes — money moved or is in motion", async () => {
     survivors = [{ id: "share-captured" }];
-    await expect(openSettlement(CART, "even")).rejects.toThrow(/Payment already completed/);
+    await expect(openSettlement(CART, "even")).rejects.toThrow(/A payment is completing/);
   });
 
   it("scopes its replace-delete to THIS cart", async () => {

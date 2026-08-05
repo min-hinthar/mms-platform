@@ -205,15 +205,32 @@ export async function captureAllIfReady(
     // one point both sides order through the database. Fail closed on a write error: capturing an
     // unstamped share re-opens the exact window this stamp exists to shut, and the webhook's retry
     // machinery re-drives us for free.
-    const { error: stampError } = await db
+    const { count: stamped, error: stampError } = await db
       .from("qr_cart_shares")
-      .update({ capture_started_at: nowIso })
+      .update({ capture_started_at: nowIso }, { count: "exact" })
       .eq("stripe_payment_intent_id", s.stripe_payment_intent_id)
+      .eq("status", "authorized")
       .is("capture_started_at", null);
     if (stampError)
       throw new Error(
         `captureAllIfReady: capture-claim stamp failed for ${s.stripe_payment_intent_id} — ${stampError.message}`,
       );
+    if ((stamped ?? 0) === 0) {
+      // Two ways to stamp nothing, with opposite answers. A redelivered loop meeting its OWN earlier
+      // stamp must still capture (the retry is the recovery); an abort that claimed the row first
+      // (status no longer 'authorized') must be respected — capturing would charge a card the abort
+      // just promised was released. One read tells them apart; fail closed on anything else.
+      const { data: nowRow, error: reReadErr } = await db
+        .from("qr_cart_shares")
+        .select("status")
+        .eq("stripe_payment_intent_id", s.stripe_payment_intent_id)
+        .maybeSingle();
+      if (reReadErr)
+        throw new Error(
+          `captureAllIfReady: stamp re-read failed for ${s.stripe_payment_intent_id} — ${reReadErr.message}`,
+        );
+      if (nowRow?.status !== "authorized") continue;
+    }
     // Capture, then CONFIRM the PI actually took money before marking the share 'captured'. A concurrent
     // abort may have canceled this PI — capture then throws `unexpected_state` and NO money moved;
     // marking it captured would inflate the order total. So re-fetch the true state: 'succeeded' (money
@@ -324,7 +341,29 @@ export async function onShareCaptured(piId: string): Promise<string | null> {
   const { data: orderId, error } = await db.rpc("mms_fulfill_split_order", {
     p_cart_id: cartId,
   });
-  if (error) throw new Error(`mms_fulfill_split_order failed: ${error.message}`);
+  if (error) {
+    // ⚠️ W11 review — the durable record must be written HERE, outside the RPC's transaction: an
+    // insert inside the fn is rolled back by its own raise, so the operator surface could never
+    // materialize. Idempotent on the synthetic key; best-effort (the throw below is what keeps Stripe
+    // redelivering, and each redelivery re-attempts this upsert).
+    if (/mismatch/.test(error.message)) {
+      const { error: recordErr } = await db.from("qr_refunds_needed").upsert(
+        {
+          payment_intent: `split:${cartId}`,
+          cart_id: cartId,
+          amount_cents: shares.reduce((a, s) => a + s.amount_cents, 0),
+          reason: "split_reconcile_mismatch",
+        },
+        { onConflict: "payment_intent", ignoreDuplicates: true },
+      );
+      if (recordErr)
+        console.error("[split-settle] could not record the reconcile mismatch", {
+          cartId,
+          error: recordErr.message,
+        });
+    }
+    throw new Error(`mms_fulfill_split_order failed: ${error.message}`);
+  }
   await releaseSettlement(cartId); // lift the freeze (idempotent; the cart is already 'paid')
   return wasOpen ? (orderId ?? null) : null;
 }
@@ -373,7 +412,11 @@ export async function onShareFailed(piId: string): Promise<void> {
   }
   const { data: marked, error } = await db
     .from("qr_cart_shares")
-    .update({ status: "failed", updated_at: new Date().toISOString() })
+    // W11 review — clear the capture-claim stamp too: an issuer declining the CAPTURE (card_declined,
+    // not unexpected_state) lands here with the stamp still set, and a stamped share permanently blocks
+    // the abort that is now the table's only way forward. This mark IS the conclusion that no money
+    // moved, so it owns the clear — same rule as captureAllIfReady's mark-canceled branch.
+    .update({ status: "failed", capture_started_at: null, updated_at: new Date().toISOString() })
     .eq("stripe_payment_intent_id", piId)
     // Belt to the Stripe check's braces: never downgrade a terminal row. `authorized` IS included —
     // that is the decline-at-capture case above, and the retrieve is what makes it safe. The
@@ -396,7 +439,8 @@ export async function onShareCanceled(piId: string): Promise<void> {
   const db = serviceClient();
   const { error } = await db
     .from("qr_cart_shares")
-    .update({ status: "canceled", updated_at: new Date().toISOString() })
+    // Same stamp-clearing rule as onShareFailed: a canceled PI took no money.
+    .update({ status: "canceled", capture_started_at: null, updated_at: new Date().toISOString() })
     .eq("stripe_payment_intent_id", piId)
     .in("status", ["pending", "authorized"]); // never overwrite a captured share
   // A lost 'canceled' mark leaves a released hold showing as live on the board, so the table believes

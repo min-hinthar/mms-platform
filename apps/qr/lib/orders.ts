@@ -199,13 +199,19 @@ export async function getMyOrderFallback(input: {
       // ⚠️ W11 (M29) — `qr_order_payers` is written at fulfillment and survives clear-table, so a split
       // payer is AUTHORIZED for the full tracker, not just honest copy. Scoped to `payer_uid = uid`:
       // reads nothing the caller does not own, reveals nothing about anyone else.
-      const { data: payer } = await db
+      const { data: payer, error: payerProbeErr } = await db
         .from("qr_order_payers")
         .select("order_id")
         .eq("order_id", orderId)
         .eq("payer_uid", user.id)
         .limit(1)
         .maybeSingle();
+      if (payerProbeErr) {
+        // An unreadable probe is not "not a payer" — that would tell a real payer their order does
+        // not exist on a transient blip. Same rule as every W10 read.
+        console.error("[orders] payer probe failed", payerProbeErr);
+        return { ok: false, reason: "error" };
+      }
       if (payer) {
         const { data: paid, error: paidErr } = await db
           .from("qr_orders")

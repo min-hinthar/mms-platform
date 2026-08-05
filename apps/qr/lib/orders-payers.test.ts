@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-type Q = { table: string; cols: string; eq: [string, unknown][] };
+type Q = { table: string; cols: string; eq: [string, unknown][]; orExpr?: string };
 let queries: Q[] = [];
 
 /** Rows per table, keyed by a marker column in the requested cols. */
@@ -32,14 +32,18 @@ function sel(table: string, cols: string) {
     gte() {
       return api;
     },
-    or() {
+    or(expr: string) {
+      (q as { orExpr?: string }).orExpr = expr;
       return api;
     },
     order() {
-      return Promise.resolve({ data: [], error: null });
+      return api;
     },
     limit() {
-      return api;
+      // Terminal for LIST reads (history); single-row reads keep chaining to maybeSingle.
+      return Object.assign(Promise.resolve({ data: [], error: null }), {
+        maybeSingle: api.maybeSingle,
+      });
     },
     maybeSingle() {
       if (table === "qr_order_payers") return Promise.resolve({ data: payerRow, error: null });
@@ -60,6 +64,8 @@ function sel(table: string, cols: string) {
 }
 
 vi.mock("next/headers", () => ({ cookies: () => Promise.resolve({}) }));
+vi.mock("./staff", () => ({ getStaffAuth: () => Promise.resolve(null) }));
+vi.mock("./rate", () => ({ withinMutationRate: () => Promise.resolve(true) }));
 vi.mock("@mms/db/server", () => ({
   serverClient: () => ({
     auth: { getUser: () => Promise.resolve({ data: { user: { id: "uid-1" } } }) },
@@ -72,6 +78,7 @@ vi.mock("@mms/db/server", () => ({
 const ORDER = "22222222-2222-4222-8222-222222222222";
 const CART = "11111111-1111-4111-8111-111111111111";
 const { getMyOrderFallback, didIPayForCart } = await import("./orders");
+const { getOrderHistory } = await import("./rewards");
 
 beforeEach(() => {
   queries = [];
@@ -96,6 +103,22 @@ describe("getMyOrderFallback — the payers probe is the authorization", () => {
   it("stays not_found when no payers row exists (and no share row)", async () => {
     const r = await getMyOrderFallback({ orderId: ORDER });
     expect(r).toEqual({ ok: false, reason: "not_found" });
+  });
+});
+
+describe("getOrderHistory — the payers union stays uid-scoped (W11/M29)", () => {
+  it("reads payer order-ids scoped to THIS uid, and unions with earned_by", async () => {
+    await getOrderHistory();
+    const probe = queries.find((q) => q.table === "qr_order_payers");
+    // Without the uid scope this reads EVERY payer's order ids — the union would then expose other
+    // diners' orders in this caller's account.
+    expect(probe?.eq).toContainEqual(["payer_uid", "uid-1"]);
+    // With no payer rows the read must still be earned_by-scoped (never unscoped).
+    const orders = queries.find((q) => q.table === "qr_orders" && q.cols.includes("tender"));
+    expect(
+      orders?.eq.some(([c, v]) => c === "earned_by" && v === "uid-1") ||
+        (orders?.orExpr ?? "").includes("earned_by.eq.uid-1"),
+    ).toBe(true);
   });
 });
 

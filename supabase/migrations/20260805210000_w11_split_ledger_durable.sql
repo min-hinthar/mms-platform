@@ -14,10 +14,11 @@
 --     exclude it), so the "release payer A's hold, then meet payer B's already-captured one" race
 --     closes at the only point that orders both sides: a row write.
 --  3. `mms_fulfill_split_order(p_cart_id)` — the tautological `p_expected_total_cents` parameter is
---     GONE. The fn reads the pin and compares Σ(amount − tip) over the captured shares against it; a
---     mismatch writes a durable `qr_refunds_needed` row (M43) BEFORE raising, and the idempotent
---     already-fulfilled branch runs FIRST so a redelivery of a completed settlement can never re-enter
---     the guard (the precise ordering the reverted W10d attempt got wrong).
+--     GONE. The fn reads the pin and compares Σ(amount − tip) over the captured shares against it. The
+--     durable `qr_refunds_needed` record for a mismatch is written by the CALLER when the raise reaches
+--     it — an insert inside this fn would be rolled back by its own raise (one transaction). The
+--     idempotent already-fulfilled branch runs FIRST so a redelivery of a completed settlement can
+--     never re-enter the guard (the precise ordering the reverted W10d attempt got wrong).
 --  4. `qr_order_payers` — M29's durable payer↔order link. `qr_cart_shares.order_id` already proves who
 --     paid, but shares die with the cart at clear-table; this table survives, so every split payer can
 --     find their paid order in /account for as long as the order exists. (Whether non-host payers also
@@ -50,10 +51,14 @@ drop function if exists public.mms_fulfill_split_order(uuid);
 
 create function public.mms_fulfill_split_order(p_cart_id uuid)
   returns uuid language plpgsql security definer set search_path = '' as $$
+-- Restated from the LIVE 20260716000000_w3_kitchen.sql body (cart_id + table_number + customer_name on
+-- the order, notes on the items — the W11 review caught a first draft restated from the stale 20260624
+-- baseline, which would have silently dropped every kitchen/allergy note from split orders) with W11's
+-- changes layered on top: the pin reconcile, the idempotent branch FIRST, and qr_order_payers.
 declare v_order uuid; v_session uuid; v_base_sum integer; v_captured_sum integer;
-        v_open integer; v_pin integer;
+        v_open integer; v_pin integer; v_table integer; v_name text;
 begin
-  select session_id, settle_expected_cents into v_session, v_pin
+  select session_id, customer_name, settle_expected_cents into v_session, v_name, v_pin
     from public.qr_carts where id = p_cart_id;
 
   -- IDEMPOTENT BRANCH FIRST. A redelivered `succeeded` event for an already-fulfilled settlement must
@@ -74,20 +79,19 @@ begin
     raise exception 'split fulfillment blocked: % share(s) not captured', v_open;
   end if;
 
-  -- The REAL reconcile (M1/M25): the captured ledger's BASE (amount − tip, tips are per-payer additions
+  -- The REAL reconcile (M1/M25): the captured ledger's BASE (amount − tip; tips are per-payer additions
   -- the pin never included) against the constant persisted when these very shares were derived. A NULL
-  -- pin is a settlement opened before this migration deployed — for that one window, degrade to the
-  -- old behaviour (no second opinion) rather than dead-ending a live table mid-deploy.
+  -- pin is a settlement opened before this migration deployed — degrade to the old behaviour for that
+  -- one window rather than dead-ending a live table mid-deploy.
+  --
+  -- ⚠️ The durable qr_refunds_needed record for a mismatch is written by the CALLER
+  -- (`onShareCaptured`, apps/qr/lib/split-settle.ts) when this raise reaches it — NOT here. An insert
+  -- in this function would be rolled back by its own raise (one transaction), which is exactly the
+  -- invisible-fault class M43 exists to delete. The W11 review caught the first draft doing it.
   select coalesce(sum(amount_cents - tip_cents), 0), coalesce(sum(amount_cents), 0)
     into v_base_sum, v_captured_sum
     from public.qr_cart_shares where cart_id = p_cart_id and status = 'captured';
   if v_pin is not null and v_base_sum <> v_pin then
-    -- Durable record BEFORE the raise (M43): the raise makes Stripe redeliver for 72h, and each
-    -- redelivery lands back here — the ledger row is what turns that loop into an operator surface.
-    -- Idempotent on the synthetic key, so the redeliveries don't multiply rows.
-    insert into public.qr_refunds_needed (payment_intent, cart_id, amount_cents, reason)
-      values ('split:' || p_cart_id::text, p_cart_id, v_captured_sum, 'split_reconcile_mismatch')
-      on conflict (payment_intent) do nothing;
     raise exception 'split fulfillment mismatch: captured base=% pinned=%', v_base_sum, v_pin;
   end if;
 
@@ -102,15 +106,17 @@ begin
     return v_order;
   end if;
 
+  select table_number into v_table from public.table_sessions where id = v_session; -- K2 snapshot
+
   insert into public.qr_orders (session_id, subtotal_cents, discount_cents, service_charge_cents,
-                         tax_cents, tip_cents, total_cents, stripe_payment_intent_id, status)
+                         tax_cents, tip_cents, total_cents, stripe_payment_intent_id, status, cart_id, table_number, customer_name)
     select v_session, sum(subtotal_cents), sum(discount_cents), sum(service_charge_cents),
-           sum(tax_cents), sum(tip_cents), sum(amount_cents), null, 'paid'
+           sum(tax_cents), sum(tip_cents), sum(amount_cents), null, 'paid', p_cart_id, v_table, v_name
     from public.qr_cart_shares where cart_id = p_cart_id and status = 'captured'
     returning id into v_order;
 
-  insert into public.qr_order_items (order_id, menu_item_id, name, qty, modifiers, unit_price_cents, tax_cents, fulfillment)
-    select v_order, ci.menu_item_id, ci.name, ci.qty, ci.modifiers, ci.unit_price_cents, ci.tax_cents, ci.fulfillment
+  insert into public.qr_order_items (order_id, menu_item_id, name, qty, modifiers, unit_price_cents, tax_cents, fulfillment, notes)
+    select v_order, ci.menu_item_id, ci.name, ci.qty, ci.modifiers, ci.unit_price_cents, ci.tax_cents, ci.fulfillment, ci.notes
     from public.qr_cart_items ci
     where ci.cart_id = p_cart_id and ci.state <> 'voided' and not ci.comped;
 
@@ -129,3 +135,8 @@ begin
 end; $$;
 revoke all on function public.mms_fulfill_split_order(uuid) from public, anon, authenticated;
 grant execute on function public.mms_fulfill_split_order(uuid) to service_role;
+
+-- The hottest payer read (`getMyLiveOrders`/`getOrderHistory` probe by payer_uid + created_at window);
+-- the PK is (order_id, payer_uid), so a payer_uid-only predicate cannot use it.
+create index if not exists qr_order_payers_payer_idx
+  on public.qr_order_payers (payer_uid, created_at);

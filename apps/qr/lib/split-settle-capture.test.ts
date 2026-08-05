@@ -37,7 +37,12 @@ let shares: { stripe_payment_intent_id: string | null; status: string; amount_ce
 let stampError: { message: string } | null = null;
 let captureStatus: Record<string, string> = {};
 
-function dbEvent(table: string, op: string, patch: Record<string, unknown>) {
+function dbEvent(
+  table: string,
+  op: string,
+  patch: Record<string, unknown>,
+  countRequested?: boolean,
+) {
   const e = {
     kind: "db" as const,
     table,
@@ -71,11 +76,21 @@ function dbEvent(table: string, op: string, patch: Record<string, unknown>) {
     // A mutation's `.select()` (return=representation) resolves rows; the shares LIST read resolves
     // via `.then` below (the module chains no order on it).
     select: () => Promise.resolve({ data: [{ status: "x" }], error: null }),
-    then(res: (v: { data: unknown; error: { message: string } | null }) => unknown) {
+    then(
+      res: (v: {
+        data: unknown;
+        error: { message: string } | null;
+        count?: number | null;
+      }) => unknown,
+    ) {
       if (op === "select" && String(patch.cols).includes("amount_cents"))
         return Promise.resolve({ data: shares, error: null }).then(res);
       const isStamp = op === "update" && "capture_started_at" in patch && !("status" in patch);
-      return Promise.resolve({ data: null, error: isStamp ? stampError : null }).then(res);
+      const error = isStamp ? stampError : null;
+      // postgrest returns `count` only when asked; the stamp write reads it (1 = claimed).
+      return Promise.resolve(
+        countRequested ? { data: null, error, count: error ? null : 1 } : { data: null, error },
+      ).then(res);
     },
   };
   return api;
@@ -84,7 +99,8 @@ function dbEvent(table: string, op: string, patch: Record<string, unknown>) {
 const db = {
   from: (table: string) => ({
     select: (cols: string) => dbEvent(table, "select", { cols }),
-    update: (patch: Record<string, unknown>) => dbEvent(table, "update", patch),
+    update: (patch: Record<string, unknown>, opts?: { count?: string }) =>
+      dbEvent(table, "update", patch, opts?.count != null),
   }),
   rpc: (fn: string, args: Record<string, unknown>) => {
     log.push({ kind: "rpc", fn, args });

@@ -1,7 +1,7 @@
 import { type CSSProperties } from "react";
 import Link from "next/link";
 import { requireStaffPage } from "@/lib/staff";
-import { listPendingApprovals, listRefundsNeeded } from "@/lib/approvals";
+import { listPendingApprovals, listRefundsNeeded, resolveRefundNeeded } from "@/lib/approvals";
 import { listApprovers } from "@/lib/voids";
 import { RoleBadge } from "@/components/staff/RoleBadge";
 import { ApprovalsBoard } from "@/components/staff/ApprovalsBoard";
@@ -50,8 +50,8 @@ export default async function ApprovalsPage() {
             <strong>
               {refunds.length} refund{refunds.length === 1 ? "" : "s"} needed
             </strong>{" "}
-            — money was taken (or a card hold abandoned) with no order behind it. Refund in Stripe,
-            then mark it resolved there.
+            — money was taken (or a card hold abandoned) with no order behind it. Refund it in
+            Stripe, then mark it done here.
           </p>
           <ul role="list" style={refundsList}>
             {refunds.map((r) => (
@@ -65,6 +65,17 @@ export default async function ApprovalsPage() {
                 <code style={{ fontSize: "var(--fs-xs)", overflowWrap: "anywhere" }}>
                   {r.paymentIntent}
                 </code>
+                <form
+                  action={async () => {
+                    "use server";
+                    await resolveRefundNeeded(r.id);
+                  }}
+                  style={{ display: "inline-block", marginLeft: 8 }}
+                >
+                  <button type="submit" style={resolveBtn}>
+                    Mark refunded
+                  </button>
+                </form>
               </li>
             ))}
           </ul>
@@ -77,11 +88,23 @@ export default async function ApprovalsPage() {
 }
 
 const refundsStrip: CSSProperties = {
-  border: "1px solid var(--danger, #b3261e)",
+  // The staff boards' existing warn pair — theme-aware, per the tokens-never-hex rule (the first draft
+  // referenced a --danger token that does not exist, resolving to one hardcoded red in both themes).
+  border: "1px solid var(--warn)",
   borderRadius: 12,
   padding: "var(--s3) var(--s4)",
   marginBottom: "var(--s4)",
-  background: "color-mix(in oklab, var(--danger, #b3261e) 6%, var(--surface))",
+  background: "var(--warnb)",
+};
+const resolveBtn: CSSProperties = {
+  minHeight: 44,
+  padding: "0 var(--s3)",
+  borderRadius: 10,
+  border: "1px solid var(--warn)",
+  background: "transparent",
+  color: "var(--warn)",
+  fontWeight: 700,
+  cursor: "pointer",
 };
 const refundsHead: CSSProperties = { margin: 0, marginBottom: 8 };
 const refundsList: CSSProperties = {

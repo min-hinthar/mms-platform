@@ -317,7 +317,7 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
     if (row.capture_started_at != null) {
       // W11 (M45): a stamped share's PaymentIntent belongs to the capture loop — cancelling it here is
       // the exact race the stamp exists to close. The delete below excludes the row; the survivor
-      // check will refuse the re-open.
+      // check refuses the re-open with the retryable copy.
       continue;
     }
     attempted.add(row.stripe_payment_intent_id);
@@ -436,7 +436,8 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
     throw new Error("Couldn’t start the split — please try again");
   }
   if (stillThere && stillThere.length > 0)
-    throw new Error("Payment already completed — the order will finish");
+    // A survivor is a captured OR stamped row — money moved or in motion. "Completing" is true in both.
+    throw new Error("A payment is completing — try again in a moment");
   const { error } = await db.from("qr_cart_shares").insert(
     breakdowns.map((b) => ({
       cart_id: id,
@@ -466,7 +467,17 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
     .update({ settle_expected_cents: pinned })
     .eq("id", id);
   if (pinError) {
-    await releaseSettlement(id);
+    const releaseErr = await releaseSettlement(id);
+    if (releaseErr) {
+      // Double fault: the freeze survived over freshly-inserted shares with a STALE pin — a payable
+      // settlement guaranteed to mismatch. Best-effort null the pin so the SQL degrade branch (no
+      // second opinion) applies instead of a permanent refusal; the console.error is the floor.
+      const { error: nullErr } = await db
+        .from("qr_carts")
+        .update({ settle_expected_cents: null })
+        .eq("id", id);
+      if (nullErr) console.error("[split] could not null the stale pin", nullErr);
+    }
     console.error("[split] open could not pin the expected total", pinError);
     throw new Error("Could not start the split");
   }
@@ -536,17 +547,19 @@ export async function abortSettlement(cartId: string): Promise<void> {
   // BEFORE calling Stripe and clears it only on a capture that took no money. Refusing on it closes
   // the race where an exit releases payer A's hold and only then meets payer B's already-captured one
   // — the stamp is written before the capture, so whichever side writes second sees the other.
-  if (
-    (shares ?? []).some(
-      (s) =>
-        (s.status === "captured" && s.stripe_payment_intent_id != null) ||
-        s.capture_started_at != null,
-    )
-  ) {
+  if ((shares ?? []).some((s) => s.status === "captured" && s.stripe_payment_intent_id != null)) {
     const refreezeErr = await refreeze(db, id, uid);
     if (refreezeErr)
       console.error("[split] refreeze failed (abort lost the race to a capture)", refreezeErr);
     throw new Error("Payment already completed — the order will finish");
+  }
+  // W11 review — a STAMPED share is a capture attempt in motion, not money proven moved, so the copy
+  // must not assert completion: the attempt can still conclude "no money" (issuer decline), after
+  // which the stamp clears and the retry of this abort succeeds. Refreeze + retryable copy.
+  if ((shares ?? []).some((s) => s.capture_started_at != null)) {
+    const refreezeErr = await refreeze(db, id, uid);
+    if (refreezeErr) console.error("[split] refreeze failed (capture in motion)", refreezeErr);
+    throw new Error("A payment is completing — try again in a moment");
   }
 
   // Release each still-cancelable hold so a payer isn't left with a lingering authorization.
@@ -578,6 +591,34 @@ export async function abortSettlement(cartId: string): Promise<void> {
     // Unreachable while the refusal above checks the stamp, but cheap belt: never cancel a PI whose
     // capture is in motion.
     if (s.capture_started_at != null) continue;
+    // ⚠️ W11 review — CLAIM the row through the same first-writer-wins channel the capture stamp uses,
+    // BEFORE touching Stripe. The refusal above read a snapshot taken one round-trip ago; a stamp can
+    // land inside the cancel loop itself. This conditional write is the serialization point: the
+    // capture side stamps with `.eq(status,'authorized').is(stamp,null)`, this side flips status with
+    // `.is(stamp,null)` — whichever lands second matches nothing and stands down.
+    const { count: claimedRow, error: claimErr } = await db
+      .from("qr_cart_shares")
+      .update({ status: "canceled", updated_at: new Date().toISOString() }, { count: "exact" })
+      .eq("stripe_payment_intent_id", s.stripe_payment_intent_id)
+      .neq("status", "captured")
+      .is("capture_started_at", null);
+    if (claimErr) {
+      const refreezeErr = await refreeze(db, id, uid);
+      console.error("[split] abort row claim failed", {
+        error: claimErr,
+        refreezeError: refreezeErr?.message,
+      });
+      throw new Error("Couldn’t cancel the split just now — try again in a moment");
+    }
+    if ((claimedRow ?? 0) === 0) {
+      // The capture side won this row since our snapshot. Its attempt is in motion; refuse the whole
+      // abort with the retryable copy — the retry either completes (stamp cleared, no money) or meets
+      // a real capture and defers to fulfillment.
+      const refreezeErr = await refreeze(db, id, uid);
+      if (refreezeErr)
+        console.error("[split] refreeze failed (row claimed mid-abort)", refreezeErr);
+      throw new Error("A payment is completing — try again in a moment");
+    }
     attempted.add(s.stripe_payment_intent_id);
     const outcome = await releaseHold(s.stripe_payment_intent_id);
     if (outcome === "captured") {
@@ -681,7 +722,7 @@ export async function abortSettlement(cartId: string): Promise<void> {
     const refreezeErr = await refreeze(db, id, uid);
     if (refreezeErr)
       console.error("[split] refreeze failed (survivor found after delete)", refreezeErr);
-    throw new Error("Payment completed during cancel — the order will finish");
+    throw new Error("A payment is completing — try again in a moment");
   }
 }
 

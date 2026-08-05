@@ -121,7 +121,7 @@ export function SettlementBoard({
         } else if (hadShares.current && !redirected.current) {
           setSplitCanceled(true);
           onStatus(
-            "The host canceled the split — any hold on your card was released; nothing was charged.",
+            "The host canceled the split — nothing more will be charged. Any hold on your card is being released.",
           );
         }
         setLoaded(true);
@@ -411,8 +411,8 @@ export function SettlementBoard({
             <div className="settle-complete">
               <p className="settle-complete-line">The host canceled the split</p>
               <p className="settle-complete-sub">
-                Any hold on your card was released — nothing was charged. You can split again or pay
-                together.
+                Nothing more will be charged. Any hold on your card is being released — it can take
+                a few days to drop off your statement. You can split again or pay together.
               </p>
             </div>
           ) : complete ? (
