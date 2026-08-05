@@ -275,6 +275,8 @@ export type RefundNeeded = {
  * nobody in the building could see them. Manager-gated like the approvals queue it renders beside;
  * a failed read throws `unavailable` for the same reason (an empty list must MEAN empty).
  */
+// verify:slice-exempt — read-only, manager-gated list surfaces; the money rules it renders (the
+// qr_refunds_needed WRITES) are mutated where they live: split.ts and the migration's SQL.
 export async function listRefundsNeeded(): Promise<RefundNeeded[]> {
   await requireStaff("manager");
   const db = serviceClient();

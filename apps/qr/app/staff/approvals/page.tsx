@@ -62,7 +62,9 @@ export default async function ApprovalsPage() {
                     : "amount unknown"}
                 </span>{" "}
                 · {r.reason.replaceAll("_", " ")} ·{" "}
-                <code style={{ fontSize: "var(--fs-xs)", overflowWrap: "anywhere" }}>{r.paymentIntent}</code>
+                <code style={{ fontSize: "var(--fs-xs)", overflowWrap: "anywhere" }}>
+                  {r.paymentIntent}
+                </code>
               </li>
             ))}
           </ul>

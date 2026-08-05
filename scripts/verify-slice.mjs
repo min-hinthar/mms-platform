@@ -275,8 +275,8 @@ const MUTANTS = [
     file: "apps/qr/lib/split.ts",
     suite: "lib/split.test.ts",
     why: "a $0 by-person seat is auto-settled to captured with a NULL PI — reading status alone lets that sentinel impersonate taken money and permanently refuses abort, re-open, cash-settle and clear-table",
-    find: 'if ((shares ?? []).some((s) => s.status === "captured" && s.stripe_payment_intent_id != null)) {',
-    replace: 'if ((shares ?? []).some((s) => s.status === "captured")) {',
+    find: '        (s.status === "captured" && s.stripe_payment_intent_id != null) ||\n        s.capture_started_at != null,',
+    replace: '        s.status === "captured" ||\n        s.capture_started_at != null,',
   },
   {
     id: "split/abort-skips-the-post-delete-release",
@@ -376,6 +376,15 @@ const MUTANTS = [
     why: "the IDENTITY predicate on abort's captured repair mark — without it one abort rewrites every share row in the database (the class split-settle.test.ts records as having already cost a review round)",
     find: '        .eq("stripe_payment_intent_id", s.stripe_payment_intent_id)\n        .neq("status", "captured");',
     replace: '        .neq("status", "captured");',
+  },
+  {
+    id: "orders/payer-probe-authorizes-everyone",
+    file: "apps/qr/lib/orders.ts",
+    suite: "lib/orders-payers.test.ts",
+    why: "W11 M29 — the payers probe IS the authorization; without the uid half, any signed-in visitor gets the full tracker for any order id they can guess",
+    find: '        .eq("order_id", orderId)\n        .eq("payer_uid", user.id)\n        .limit(1)\n        .maybeSingle();\n      if (payer) {',
+    replace:
+      '        .eq("order_id", orderId)\n        .limit(1)\n        .maybeSingle();\n      if (payer) {',
   },
   {
     id: "split/open-never-pins",
