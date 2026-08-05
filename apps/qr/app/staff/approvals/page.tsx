@@ -1,7 +1,7 @@
 import { type CSSProperties } from "react";
 import Link from "next/link";
 import { requireStaffPage } from "@/lib/staff";
-import { listPendingApprovals } from "@/lib/approvals";
+import { listPendingApprovals, listRefundsNeeded } from "@/lib/approvals";
 import { listApprovers } from "@/lib/voids";
 import { RoleBadge } from "@/components/staff/RoleBadge";
 import { ApprovalsBoard } from "@/components/staff/ApprovalsBoard";
@@ -22,7 +22,11 @@ export default async function ApprovalsPage() {
   // (The list reads below throw 503 on an unreadable queue — the staff error boundary catches it.)
   if (!caller) return <StaffOutageShell what="approvals" />;
 
-  const [pending, approvers] = await Promise.all([listPendingApprovals(), listApprovers()]);
+  const [pending, approvers, refunds] = await Promise.all([
+    listPendingApprovals(),
+    listApprovers(),
+    listRefundsNeeded(),
+  ]);
 
   return (
     <main style={wrap}>
@@ -40,10 +44,52 @@ export default async function ApprovalsPage() {
         </Link>
       </header>
 
+      {refunds.length > 0 && (
+        <section aria-label="Refunds needed" style={refundsStrip}>
+          <p style={refundsHead}>
+            <strong>
+              {refunds.length} refund{refunds.length === 1 ? "" : "s"} needed
+            </strong>{" "}
+            — money was taken (or a card hold abandoned) with no order behind it. Refund in Stripe,
+            then mark it resolved there.
+          </p>
+          <ul role="list" style={refundsList}>
+            {refunds.map((r) => (
+              <li key={r.id} style={refundsRow}>
+                <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>
+                  {r.amountCents != null
+                    ? `$${(r.amountCents / 100).toFixed(2)}`
+                    : "amount unknown"}
+                </span>{" "}
+                · {r.reason.replaceAll("_", " ")} ·{" "}
+                <code style={{ fontSize: "var(--fs-xs)", overflowWrap: "anywhere" }}>{r.paymentIntent}</code>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <ApprovalsBoard initial={pending} approvers={approvers} />
     </main>
   );
 }
+
+const refundsStrip: CSSProperties = {
+  border: "1px solid var(--danger, #b3261e)",
+  borderRadius: 12,
+  padding: "var(--s3) var(--s4)",
+  marginBottom: "var(--s4)",
+  background: "color-mix(in oklab, var(--danger, #b3261e) 6%, var(--surface))",
+};
+const refundsHead: CSSProperties = { margin: 0, marginBottom: 8 };
+const refundsList: CSSProperties = {
+  listStyle: "none",
+  margin: 0,
+  padding: 0,
+  display: "grid",
+  gap: 6,
+};
+const refundsRow: CSSProperties = { fontSize: "var(--fs-sm)" };
 
 const wrap: CSSProperties = {
   maxWidth: 820,

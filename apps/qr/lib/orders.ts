@@ -34,14 +34,32 @@ export async function getMyLiveOrders(): Promise<LiveOrder[]> {
   const db = serviceClient();
   const cutoff = new Date(Date.now() - LIVE_WINDOW_MS).toISOString();
 
-  const { data: rows, error } = await db
+  // W11 (M29): a split payer's orders live behind `qr_order_payers`, not `earned_by` (only the host is
+  // stamped there). Resolve the payer's order ids first, then one read authorized by EITHER proof. The
+  // id list is bounded by the same window/limit as the read itself.
+  const { data: payerRows, error: payerErr } = await db
+    .from("qr_order_payers")
+    .select("order_id")
+    .eq("payer_uid", user.id)
+    .gte("created_at", cutoff)
+    .limit(LIVE_LIMIT);
+  if (payerErr) console.error("[orders] payer order-id read failed", payerErr);
+  const payerIds = (payerRows ?? []).map((r) => r.order_id);
+
+  let live = db
     .from("qr_orders")
     .select(
       "id,togo_status,table_number,pickup_slot,created_at,arrived_at,session_id,stripe_payment_intent_id,cart_id,qr_order_items(fulfillment)",
     )
-    .eq("earned_by", user.id)
     .eq("status", "paid")
-    .gte("created_at", cutoff)
+    .gte("created_at", cutoff);
+  // Both values are SERVER-derived (a verified auth uid; order ids read two lines up under that uid's
+  // own scope) — never client strings — so this `.or()` carries no injection risk. It is a SELECT, so
+  // the PostgREST-14 or+representation trap (mutations only) does not apply.
+  live = payerIds.length
+    ? live.or(`earned_by.eq.${user.id},id.in.(${payerIds.join(",")})`)
+    : live.eq("earned_by", user.id);
+  const { data: rows, error } = await live
     .order("created_at", { ascending: false })
     .limit(LIVE_LIMIT);
   // A read FAILURE → no tray (the badge just won't show); never throw and never strand the header. Note
@@ -178,6 +196,49 @@ export async function getMyOrderFallback(input: {
     // own share row proves it — `seat_id = uid`, so this reveals nothing they don't already own — and
     // it earns them honest copy instead of the generic "we couldn't find it".
     if (orderId) {
+      // ⚠️ W11 (M29) — `qr_order_payers` is written at fulfillment and survives clear-table, so a split
+      // payer is AUTHORIZED for the full tracker, not just honest copy. Scoped to `payer_uid = uid`:
+      // reads nothing the caller does not own, reveals nothing about anyone else.
+      const { data: payer } = await db
+        .from("qr_order_payers")
+        .select("order_id")
+        .eq("order_id", orderId)
+        .eq("payer_uid", user.id)
+        .limit(1)
+        .maybeSingle();
+      if (payer) {
+        const { data: paid, error: paidErr } = await db
+          .from("qr_orders")
+          .select(
+            "id,status,total_cents,table_number,pickup_slot,togo_status,arrived_at,qr_order_items(qty,fulfillment)",
+          )
+          .eq("id", orderId)
+          .maybeSingle();
+        if (paidErr) {
+          console.error("[orders] payer-authorized track read failed", paidErr);
+          return { ok: false, reason: "error" };
+        }
+        if (paid) {
+          const paidItems = (paid.qr_order_items ?? []) as { qty: number; fulfillment: string }[];
+          return {
+            ok: true,
+            order: {
+              id: paid.id,
+              status: paid.status,
+              totalCents: paid.total_cents,
+              itemCount: paidItems.reduce((a, i) => a + i.qty, 0),
+              pickupSlot: paid.pickup_slot ?? null,
+              togoStatus: paid.togo_status ?? null,
+              hasTogoFood: paidItems.some((i) => i.fulfillment === "togo"),
+              hasDineInFood: paidItems.some((i) => i.fulfillment === "dinein"),
+              arrivedAt: paid.arrived_at ?? null,
+              hasGrocery: paidItems.some((i) => i.fulfillment === "grocery"),
+              tableNumber: paid.table_number ?? null,
+            },
+          };
+        }
+      }
+      // Pre-migration orders have no payers row; the share row still proves payment while it lives.
       const { data: mine } = await db
         .from("qr_cart_shares")
         .select("id")
@@ -255,6 +316,26 @@ export async function didIPayForCart(cartId: string): Promise<boolean> {
     return false; // fail closed — the generic copy is always safe to show
   }
   if (own) return true;
+
+  // W11 (M29): the durable proof — a payers row written at fulfillment, surviving clear-table.
+  const { data: paidOrder } = await db
+    .from("qr_orders")
+    .select("id")
+    .eq("cart_id", parsed.data.cartId)
+    .eq("status", "paid")
+    .limit(1)
+    .maybeSingle();
+  if (paidOrder) {
+    const { data: payer, error: payerErr } = await db
+      .from("qr_order_payers")
+      .select("order_id")
+      .eq("order_id", paidOrder.id)
+      .eq("payer_uid", user.id)
+      .limit(1)
+      .maybeSingle();
+    if (payerErr) console.error("[orders] didIPayForCart payer probe failed", payerErr);
+    if (payer) return true;
+  }
 
   // Split payer: their own share row. Scoped to `seat_id = uid`, so this reads nothing the caller does
   // not already own and cannot reveal whether anyone ELSE paid.

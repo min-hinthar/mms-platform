@@ -198,6 +198,22 @@ export async function captureAllIfReady(
   const nowIso = new Date().toISOString();
   for (const s of shares) {
     if (s.status !== "authorized" || !s.stripe_payment_intent_id) continue;
+    // ⚠️ W11 (M45) — STAMP the share capture-claimed BEFORE touching Stripe. This write is the
+    // serialization token between the capture loop and the two exits (abort, re-open): their deletes
+    // exclude a stamped row and their refusals treat one as money in motion, so the race where an exit
+    // releases payer A's hold and only then meets payer B's already-captured one closes HERE — at the
+    // one point both sides order through the database. Fail closed on a write error: capturing an
+    // unstamped share re-opens the exact window this stamp exists to shut, and the webhook's retry
+    // machinery re-drives us for free.
+    const { error: stampError } = await db
+      .from("qr_cart_shares")
+      .update({ capture_started_at: nowIso })
+      .eq("stripe_payment_intent_id", s.stripe_payment_intent_id)
+      .is("capture_started_at", null);
+    if (stampError)
+      throw new Error(
+        `captureAllIfReady: capture-claim stamp failed for ${s.stripe_payment_intent_id} — ${stampError.message}`,
+      );
     // Capture, then CONFIRM the PI actually took money before marking the share 'captured'. A concurrent
     // abort may have canceled this PI — capture then throws `unexpected_state` and NO money moved;
     // marking it captured would inflate the order total. So re-fetch the true state: 'succeeded' (money
@@ -213,9 +229,16 @@ export async function captureAllIfReady(
     }
     // Mark immediately (don't wait for the succeeded webhook) so an abort in the capture→succeeded window
     // can't see 'authorized' and delete a share whose money is already taken. Never downgrade a captured row.
+    // A capture that took NO money clears its claim stamp (W11/M45): the stamp means "money in motion",
+    // and leaving it on a canceled share would permanently block the abort that is now the table's only
+    // way forward. A succeeded capture keeps it — the row is terminal and the audit trail is useful.
     const { error: markError } = await db
       .from("qr_cart_shares")
-      .update({ status: succeeded ? "captured" : "canceled", updated_at: nowIso })
+      .update({
+        status: succeeded ? "captured" : "canceled",
+        ...(succeeded ? {} : { capture_started_at: null }),
+        updated_at: nowIso,
+      })
       .eq("stripe_payment_intent_id", s.stripe_payment_intent_id)
       .neq("status", "captured");
     // This is the sharpest edge in the file: the money has ALREADY moved at Stripe by the time we get
@@ -292,10 +315,14 @@ export async function onShareCaptured(piId: string): Promise<string | null> {
   // re-entered by every sibling and redelivered `succeeded` event. Comparing a pinned value against a
   // live one turned a self-healing no-op into a permanent 72h failure loop. The real fix is to PERSIST
   // the expected total when the split opens and reconcile against that constant; it needs a migration.
-  const expected = shares.reduce((a, s) => a + s.amount_cents, 0);
+  // ⚠️ W11 (M1/M25) — the caller-supplied expectation is GONE. It was a tautology (this code summed
+  // the same rows the RPC re-sums), and the reverted W10d attempt proved a LIVE second opinion is
+  // wrong (the cart total legitimately moves mid-settlement). The RPC now reconciles the captured
+  // ledger against `qr_carts.settle_expected_cents`, PINNED at openSettlement from the same derivation
+  // that produced these shares — a constant, so redeliveries always compute the same verdict. A
+  // mismatch writes a durable `qr_refunds_needed` row before raising (M43).
   const { data: orderId, error } = await db.rpc("mms_fulfill_split_order", {
     p_cart_id: cartId,
-    p_expected_total_cents: expected,
   });
   if (error) throw new Error(`mms_fulfill_split_order failed: ${error.message}`);
   await releaseSettlement(cartId); // lift the freeze (idempotent; the cart is already 'paid')

@@ -25,7 +25,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-type ShareRow = { stripe_payment_intent_id: string | null; status: string };
+type ShareRow = {
+  stripe_payment_intent_id: string | null;
+  status: string;
+  capture_started_at?: string | null;
+};
 type PiRow = { stripe_payment_intent_id: string | null };
 
 const CART = "11111111-1111-4111-8111-111111111111";
@@ -33,7 +37,7 @@ const CART = "11111111-1111-4111-8111-111111111111";
 // ── scripted state ────────────────────────────────────────────────────────────────────────────────
 type Query = {
   table: string;
-  op: "select" | "update" | "delete" | "insert";
+  op: "select" | "update" | "delete" | "insert" | "upsert";
   cols?: string;
   eq: [string, unknown][];
   neq: [string, unknown][];
@@ -52,6 +56,7 @@ let sharesError: { message: string } | null = null;
 let deletedRows: PiRow[] | null = [];
 let deleteError: { message: string } | null = null;
 let zeroSweepError: { message: string } | null = null;
+let pinError: { message: string } | null = null;
 let survivors: { id: string }[] = [];
 /**
  * openSettlement: rows in `authorized`/`captured`. The mock APPLIES the recorded `.not(...)` predicate
@@ -133,6 +138,14 @@ function respond(q: Query): { data: unknown; error: { message: string } | null }
       ],
       error: null,
     };
+  if (
+    q.table === "qr_carts" &&
+    q.op === "update" &&
+    typeof q.patch === "object" &&
+    q.patch !== null &&
+    "settle_expected_cents" in q.patch
+  )
+    return { data: null, error: pinError }; // the W11 pin write
   return { data: null, error: null }; // qr_carts refreeze
 }
 
@@ -189,6 +202,7 @@ vi.mock("@mms/db/server", () => ({
     from: (table: string) => ({
       select: (cols: string) => builder(table, "select", undefined, cols),
       update: (patch: Record<string, unknown>) => builder(table, "update", patch),
+      upsert: (rows: unknown) => builder(table, "upsert", rows),
       insert: (rows: unknown) => builder(table, "insert", rows),
       delete: () => builder(table, "delete"),
     }),
@@ -246,6 +260,7 @@ beforeEach(() => {
   deletedRows = [];
   deleteError = null;
   zeroSweepError = null;
+  pinError = null;
   survivors = [];
   liveRows = [];
   cancelled = [];
@@ -316,6 +331,8 @@ describe("abortSettlement — every hold it abandons must be released (M40)", ()
     cancelThrows = { pi_flaky: { code: "api_error" } };
     await abortSettlement(CART);
     expect(loggedText()).toContain("pi_flaky");
+    const recorded = queries.find((q) => q.op === "upsert" && q.table === "qr_refunds_needed");
+    expect(JSON.stringify(recorded?.patch)).toContain("pi_flaky");
   });
 
   it("does NOT log an already-dead hold as abandoned", async () => {
@@ -373,6 +390,8 @@ describe("abortSettlement — a succeeded PaymentIntent must survive the abort",
     retrieveStatus = { pi_live: "requires_capture" };
     await abortSettlement(CART);
     expect(loggedText()).toContain("pi_live");
+    const recorded = queries.find((q) => q.op === "upsert" && q.table === "qr_refunds_needed");
+    expect(JSON.stringify(recorded?.patch)).toContain("pi_live");
   });
 
   it("treats a FAILED retrieve as unreleased rather than dead", async () => {
@@ -384,6 +403,8 @@ describe("abortSettlement — a succeeded PaymentIntent must survive the abort",
     retrieveThrows = { pi_opaque: { code: "api_error" } };
     await abortSettlement(CART);
     expect(loggedText()).toContain("pi_opaque");
+    const recorded = queries.find((q) => q.op === "upsert" && q.table === "qr_refunds_needed");
+    expect(JSON.stringify(recorded?.patch)).toContain("pi_opaque");
   });
 
   it("treats a retrieve that 404s as genuinely gone, not abandoned", async () => {
@@ -450,6 +471,26 @@ describe("abortSettlement — a $0 seat is not taken money", () => {
     ];
     await abortSettlement(CART);
     expect(cancelled).toEqual(["pi_real"]);
+  });
+
+  it("refuses while any share is capture-claimed — money is in motion (M45)", async () => {
+    // `captureAllIfReady` stamps BEFORE calling Stripe; an abort arriving mid-loop must see the stamp
+    // and stand down, or it releases sibling holds and then meets the captured share too late.
+    shares = [
+      {
+        stripe_payment_intent_id: "pi_mid_capture",
+        status: "authorized",
+        capture_started_at: "2026-08-05T00:00:00Z",
+      },
+    ];
+    await expect(abortSettlement(CART)).rejects.toThrow(/Payment already completed/);
+    expect(cancelled).toEqual([]);
+  });
+
+  it("its ledger delete leaves capture-claimed rows alone (M45)", async () => {
+    shares = [{ stripe_payment_intent_id: "pi_1", status: "pending" }];
+    await abortSettlement(CART);
+    expect(ledgerDelete()?.is).toContainEqual(["capture_started_at", null]);
   });
 
   it("still refuses when a captured share HAS a PaymentIntent", async () => {
@@ -630,5 +671,39 @@ describe("openSettlement — a re-open must release the holds it replaces", () =
     const mark = queries.find((q) => q.op === "update" && q.table === "qr_cart_shares");
     expect(mark?.eq).toContainEqual(["stripe_payment_intent_id", "pi_paid"]);
     expect((mark?.patch as { status?: string } | undefined)?.status).toBe("captured");
+  });
+
+  it("PINS the expected total, equal to the grand base it derived the shares from (M1/M25)", async () => {
+    // The reconcile's second opinion. Derived here from the SAME getCartTotals mock the module reads
+    // — computed, never transcribed. deriveShareBreakdowns cent-reconciles Σ(baseCents) to this.
+    await openSettlement(CART, "even");
+    const pin = queries.find(
+      (q) =>
+        q.op === "update" &&
+        q.table === "qr_carts" &&
+        typeof q.patch === "object" &&
+        q.patch !== null &&
+        "settle_expected_cents" in q.patch,
+    );
+    const grandBase = 3000 - 0 + 150 + 289;
+    expect((pin?.patch as { settle_expected_cents?: number }).settle_expected_cents).toBe(
+      grandBase,
+    );
+    expect(pin?.eq).toContainEqual(["id", CART]);
+  });
+
+  it("refuses to open UNPINNED — a failed pin write rejects and lifts the freeze", async () => {
+    // An unpinned settlement silently degrades the SQL reconcile to the old tautology.
+    pinError = { message: "connection reset" };
+    await expect(openSettlement(CART, "even")).rejects.toThrow(/Could not start the split/);
+    expect(releasedFreeze).toBeGreaterThan(0);
+  });
+
+  it("its replace-delete leaves capture-claimed rows alone (M45)", async () => {
+    await openSettlement(CART, "even");
+    const replace = queries.find(
+      (q) => q.op === "delete" && q.table === "qr_cart_shares" && q.neq.length > 0,
+    );
+    expect(replace?.is).toContainEqual(["capture_started_at", null]);
   });
 });

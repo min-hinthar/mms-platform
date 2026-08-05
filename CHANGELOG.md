@@ -4,6 +4,26 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W11 — the split ledger becomes durable (2026-08-05)
+
+The two migrations W10d designed but could not ship (closes **M1 · M25 · M29 · M43 · M44 · M45**;
+plan: `docs/W11_PLAN.md`). ⚠️ Prod `db push` waits for the owner's Supabase restore.
+
+- **The reconcile is real (M1/M25).** `qr_carts.settle_expected_cents` is pinned at `openSettlement`
+  from the same derivation that produces the shares; `mms_fulfill_split_order(p_cart_id)` — the
+  tautological second parameter is deleted — compares Σ(amount − tip) over the captured ledger against
+  that constant, with the idempotent branch FIRST and a durable `qr_refunds_needed` row written before
+  any raise. An unpinned open fails closed.
+- **The capture race is closed (M45).** `capture_started_at` is stamped before each capture
+  (fail-closed, first-writer-wins), cleared by a capture that took no money; both exits refuse on a
+  stamped share and their deletes exclude it.
+- **The dead end tells someone (M43/M44).** Abandoned holds and orphaned captures land in
+  `qr_refunds_needed`; the approvals page grows a manager refunds strip; the board tells an aborted
+  payer their hold was released.
+- **Every payer keeps their order (M29).** `qr_order_payers` survives clear-table: full tracker,
+  account history, `didIPayForCart`. Star earning stays host-only pending the owner's product call.
+- 5-test capture-order suite + pin/stamp/refunds tests; 58 `verify:slice` mutants.
+
 ### W10d — A split table can always finish (2026-08-02)
 
 Two split-tender defects the W10c reviews surfaced (closes OPEN-ITEMS **M39**, **M40**).
