@@ -4,6 +4,7 @@ import { serviceClient } from "@mms/db/server";
 import { openRegisterInput, setCartNameInput } from "@mms/db/schemas";
 import { staffGate, STAFF_WRITE_OUTAGE } from "./staff";
 import { generateJoinCode } from "./session-code";
+import { laDayStartIso, summarizeDay, type DaySummary } from "./register-math";
 
 /**
  * The FOH register mint (W6a — closes K6's "an order cannot exist without a diner's phone").
@@ -235,4 +236,29 @@ export async function getRegisterQueue(): Promise<RegisterQueue> {
     });
   }
   return { ok: true, rows };
+}
+
+export type DayCashResult =
+  | { ok: true; summary: DaySummary; sinceIso: string }
+  | { ok: false; reason: "outage" | "forbidden" };
+
+/** The Z-report-lite (W6a): today's orders bucketed by tender, LA-day window. MANAGER-gated — a
+ *  drawer figure is money truth, same floor as the refunds surface. Read-only; the pure bucketing
+ *  lives in register-math (mutation-tested). */
+export async function getDayCashSummary(): Promise<DayCashResult> {
+  const gate = await staffGate("manager");
+  if (!gate.ok) {
+    // staffGate collapses "not signed in / not manager" and outage into copy — for a read surface
+    // we only need the two-way split: an outage renders the register's outage note, anything else
+    // simply hides the manager zone.
+    return { ok: false, reason: gate.error === STAFF_WRITE_OUTAGE ? "outage" : "forbidden" };
+  }
+  const db = serviceClient();
+  const sinceIso = laDayStartIso(new Date());
+  const { data, error } = await db
+    .from("qr_orders")
+    .select("tender,total_cents,status")
+    .gte("created_at", sinceIso);
+  if (error) return { ok: false, reason: "outage" };
+  return { ok: true, summary: summarizeDay(data ?? []), sinceIso };
 }

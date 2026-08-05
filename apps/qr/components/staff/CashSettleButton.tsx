@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { settleCash } from "@/lib/staff-cart";
+import { changeDue } from "@/lib/register-math";
 import { Card } from "@mms/ui";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -16,6 +17,7 @@ export function CashSettleButton({
   sessionId,
   totalCents,
   isTab = false,
+  handoff = false,
 }: {
   sessionId: string;
   totalCents: number;
@@ -23,11 +25,19 @@ export function CashSettleButton({
    *  copy ("Close tab" / "closes this tab") so the action reads as the deliberate end-of-night close,
    *  not a mid-meal settle. The money path is identical (mms_fulfill_cash_order, server-reconciled). */
   isTab?: boolean;
+  /** W6a (register): a counter order's settle ends with a HANDOFF — show the tendered/change helper
+   *  in the confirm step and the #CODE card after, so the cashier can call the order and hand the
+   *  customer their pickup code. Display-only additions; the charge stays server-derived. */
+  handoff?: boolean;
 }) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tendered, setTendered] = useState("");
+  const [done, setDone] = useState<{ orderId: string } | null>(null);
+  // Cashier arithmetic only — parsed dollars → cents, never sent anywhere.
+  const tenderedCents = Math.round(Number.parseFloat(tendered || "0") * 100) || 0;
   const triggerRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
 
@@ -50,7 +60,28 @@ export function CashSettleButton({
       setError(res.error);
       return;
     }
+    if (handoff) {
+      setBusy(false);
+      setConfirming(false);
+      setDone({ orderId: res.orderId });
+    }
     router.refresh(); // the realtime re-fetch also fires; this makes the paid state immediate
+  }
+
+  if (done) {
+    const code = done.orderId.slice(-6).toUpperCase();
+    return (
+      <Card role="status" aria-label="Order paid" style={{ ...confirmCard, textAlign: "center" }}>
+        <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
+          Paid · {fmt(totalCents)}
+          {tenderedCents > totalCents && <> — change {fmt(changeDue(totalCents, tenderedCents))}</>}
+        </p>
+        <p style={codeText}>#{code}</p>
+        <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
+          The pickup call-out — it&rsquo;s on the kitchen ticket and the ready board.
+        </p>
+      </Card>
+    );
   }
 
   return (
@@ -67,6 +98,29 @@ export function CashSettleButton({
             Take <strong>{fmt(totalCents)}</strong> in cash?{" "}
             {isTab ? "This closes the tab." : "This closes the order."}
           </p>
+          {handoff && (
+            <div style={{ display: "grid", gap: 4 }}>
+              <label htmlFor="cash-tendered" style={{ fontSize: "var(--fs-sm)", fontWeight: 600 }}>
+                Cash tendered (optional)
+              </label>
+              <input
+                id="cash-tendered"
+                inputMode="decimal"
+                autoComplete="off"
+                placeholder="e.g. 40"
+                value={tendered}
+                onChange={(e) => setTendered(e.target.value.replace(/[^0-9.]/g, ""))}
+                style={tenderInput}
+              />
+              <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)", minHeight: 18 }}>
+                {tenderedCents > 0
+                  ? tenderedCents >= totalCents
+                    ? `Change: ${fmt(changeDue(totalCents, tenderedCents))}`
+                    : "Not enough yet."
+                  : ""}
+              </p>
+            </div>
+          )}
           <div style={{ display: "flex", gap: "var(--s3)" }}>
             <button
               className="staff-btn"
@@ -143,6 +197,22 @@ const confirmCard: CSSProperties = {
   flexDirection: "column",
   gap: "var(--s4)",
   padding: "var(--s4)",
+};
+const tenderInput: CSSProperties = {
+  minHeight: 48,
+  padding: "0 var(--s3)",
+  borderRadius: "var(--r-sm)",
+  border: "1px solid var(--bd)",
+  background: "var(--sf)",
+  color: "var(--tx)",
+  fontSize: "var(--fs-body)",
+};
+const codeText: CSSProperties = {
+  margin: 0,
+  fontFamily: "var(--font-display)",
+  fontSize: "var(--fs-h1)",
+  fontWeight: 800,
+  letterSpacing: "0.06em",
 };
 const hint: CSSProperties = {
   margin: "8px 0 0",

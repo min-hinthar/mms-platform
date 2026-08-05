@@ -373,6 +373,9 @@ export function FloorDetailLive({
             sessionId={sessionId}
             totalCents={detail.settleTotalCents}
             isTab={detail.tab !== "none"}
+            // W6a: a counter (register) order ends in a handoff — tendered/change helper + the
+            // #CODE card the cashier calls out. Table settles keep the quiet flow.
+            handoff={detail.label.startsWith("reg-")}
           />
           {detail.tab === "trust" && (
             <p style={{ ...muted, marginTop: 8, fontSize: "var(--fs-sm)" }}>

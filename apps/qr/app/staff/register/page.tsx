@@ -1,7 +1,7 @@
 import { type CSSProperties } from "react";
 import Link from "next/link";
 import { requireStaffPage } from "@/lib/staff";
-import { getRegisterQueue } from "@/lib/register";
+import { getDayCashSummary, getRegisterQueue } from "@/lib/register";
 import { RegisterStart } from "@/components/staff/RegisterStart";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 
@@ -17,7 +17,7 @@ export default async function RegisterPage() {
   const caller = await requireStaffPage("server");
   if (!caller) return <StaffOutageShell what="the register" />;
 
-  const queue = await getRegisterQueue();
+  const [queue, day] = await Promise.all([getRegisterQueue(), getDayCashSummary()]);
 
   return (
     <main style={wrap}>
@@ -52,6 +52,46 @@ export default async function RegisterPage() {
             </li>
           ))}
         </ul>
+      )}
+
+      {/* The Z-report-lite — manager+ only (getDayCashSummary hides itself from other roles). An
+          order-status split, deliberately NOT a net drawer figure: line-level partial refunds leave
+          status='paid' (M2), so a "net cash" claim would overpromise. */}
+      {day.ok && (
+        <section aria-labelledby="day-cash-h" style={dayCard}>
+          <h2 id="day-cash-h" style={h2}>
+            Today’s takings
+          </h2>
+          <dl style={dayGrid}>
+            <div style={dayCell}>
+              <dt style={dayLabel}>Cash</dt>
+              <dd style={dayBig}>
+                ${(day.summary.cashCents / 100).toFixed(2)}
+                <span style={dayCount}> · {day.summary.cashCount} orders</span>
+              </dd>
+            </div>
+            <div style={dayCell}>
+              <dt style={dayLabel}>Card</dt>
+              <dd style={dayBig}>
+                ${(day.summary.cardCents / 100).toFixed(2)}
+                <span style={dayCount}> · {day.summary.cardCount} orders</span>
+              </dd>
+            </div>
+          </dl>
+          {day.summary.refundedCount > 0 && (
+            <p style={mut}>
+              {day.summary.refundedCount} order{day.summary.refundedCount === 1 ? "" : "s"} refunded
+              (${(day.summary.refundedCents / 100).toFixed(2)}) — not counted above.
+            </p>
+          )}
+          <p style={mut}>
+            Since midnight (LA). Order totals by status — line-level refunds aren’t netted out;
+            check Orders &amp; refunds for those.
+          </p>
+        </section>
+      )}
+      {!day.ok && day.reason === "outage" && (
+        <p style={mut}>Today’s takings can’t load right now — the system is unreachable.</p>
       )}
     </main>
   );
@@ -106,3 +146,30 @@ const rowCard: CSSProperties = {
 };
 const rowName: CSSProperties = { fontWeight: 700, fontSize: "var(--fs-body)" };
 const rowMeta: CSSProperties = { color: "var(--t2)", fontSize: "var(--fs-sm)" };
+const dayCard: CSSProperties = {
+  marginTop: "var(--s6)",
+  padding: "var(--s4)",
+  borderRadius: "var(--r-card)",
+  border: "1px solid var(--bd)",
+  background: "var(--sf)",
+};
+const dayGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: "var(--s4)",
+  margin: 0,
+};
+const dayCell: CSSProperties = { display: "grid", gap: "var(--s1)" };
+const dayLabel: CSSProperties = { fontSize: "var(--fs-sm)", fontWeight: 700, color: "var(--t2)" };
+const dayBig: CSSProperties = {
+  fontFamily: "var(--font-display)",
+  fontSize: "var(--fs-h2)",
+  fontWeight: 800,
+  margin: 0,
+};
+const dayCount: CSSProperties = {
+  fontFamily: "var(--font-body)",
+  fontSize: "var(--fs-sm)",
+  fontWeight: 400,
+  color: "var(--t2)",
+};
