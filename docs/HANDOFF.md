@@ -5,7 +5,35 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-07-31)
+> ## ⏭️ NEXT SESSION — start here (2026-08-05)
+>
+> **The W10 outage arc is closed** (W10a–W10d merged; latest #160 — split-tender endgame: M39 idempotency-key
+> fix, M40 hold release, the M1/M25 reconcile built-and-reverted with the working design written up in
+> `docs/W10_PLAN.md` §W10d). #160 took THREE adversarial rounds (9 HIGH, three of them regressions inside
+> fix layers) — read the PR's four review comments before touching the split path.
+>
+> **The process changed — two hard rules now bind every session:**
+>
+> 1. **Review budget (owner directive): ONE adversarial pass per PR.** ≤3 lenses, ≤10 agents, ~15 min,
+>    delta-scoped. Stalled/overrun → kill + hand-triage the journal. After fixes: mechanical gates + a
+>    hand-read, never another agent round. Full wording in `CLAUDE.md` § Pre-PR sweep.
+> 2. **Two new mechanical gates, run them before ANY review:** `verify:slice` now opens with
+>    `check-money-coverage.mjs` (a changed money-path file MUST be in `MUTANTS` or carry an in-file
+>    `verify:slice-exempt — <reason>`); `pnpm check:docs` validates every markdown table renders + measures
+>    live-state doc counts. Both are red-first-proven against the real failures that motivated them.
+>
+> **Open on the split path (docs/OPEN-ITEMS.md is the registry):** **M1/M25** (persist the expected total at
+> `openSettlement` — needs a migration, on a Supabase BRANCH) · **M45** (the abort/re-open-vs-capture race —
+> needs a capture-claimed stamp BEFORE `paymentIntents.capture`, also a migration) · **M43** (a dead-ended
+> split tells no one) · **M44** (no payer-facing "your hold was released") · **M46** (no `.test.tsx` runner —
+> decision logic must live in `lib/`, e.g. `split-board.ts`) · **M29** (split payers other than the host
+> can't see their paid order). **Still owed: a preview smoke of one split mint** — the `{ count: "exact" }`
+> claim is argued from postgrest source + `lib/lock.ts` precedent, not a live round-trip; the QR Supabase
+> project is PAUSED (restore only on the owner's explicit request).
+>
+> Coverage now: 314 tests (273 qr + 41 ui), 52 mutants, four split-path suites that didn't exist before #160.
+
+> ## Previous handoff (2026-07-31) — audit findings, still valid
 >
 > **The W5 UX-gap arc is closed** (W5a–W5g merged; latest #149 — pickup timing UX). A full-repo audit this
 > session asked three questions and got these answers:
