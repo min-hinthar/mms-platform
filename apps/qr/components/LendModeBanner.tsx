@@ -28,7 +28,12 @@ export function LendModeBanner() {
   // Publish the ribbon's real height as `--lend-offset` so every OTHER sticky chrome pinned at the header
   // offset (the menu toolbar, the cart alert) drops below it instead of painting over it. Cleared to 0 when
   // the ribbon isn't showing. Layout effect + measured height so the offset is right before the next paint.
-  const shown = !!lend && !pathname?.startsWith("/staff") && !pathname?.startsWith("/board");
+  const shown =
+    !!lend &&
+    !pathname?.startsWith("/staff") &&
+    !pathname?.startsWith("/board") &&
+    // W6b: the kiosk carries no personal account — lend-mode chrome would be meaningless there.
+    !pathname?.startsWith("/kiosk");
   useLayoutEffect(() => {
     const root = document.documentElement;
     if (shown && ref.current) {
