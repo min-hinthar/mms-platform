@@ -203,6 +203,8 @@ export type RegisterQueueRow = {
   itemCount: number;
   subtotalCents: number;
   startedAt: string;
+  /** W6b: where the order was entered — the queue card badges kiosk orders. */
+  source: "register" | "kiosk";
 };
 
 export type RegisterQueue =
@@ -227,7 +229,9 @@ export async function getRegisterQueue(): Promise<RegisterQueue> {
     .eq("status", "open")
     .eq("table_sessions.mode", "pickup")
     .eq("table_sessions.status", "active")
-    .like("table_sessions.qr_code", `${REG_PREFIX}%`)
+    // Counter-style orders: staff-minted (`reg-`, W6a) and kiosk-minted (`kiosk-`, W6b) both pay
+    // at this counter — one queue.
+    .or(`qr_code.like.${REG_PREFIX}%,qr_code.like.kiosk-%`, { referencedTable: "table_sessions" })
     .order("created_at", { ascending: true })
     .limit(40);
   if (cartErr) return { ok: false, reason: "outage" };
@@ -236,6 +240,7 @@ export async function getRegisterQueue(): Promise<RegisterQueue> {
     const lines = (cart.qr_cart_items ?? []).filter((l) => l.state !== "voided" && !l.comped);
     return {
       sessionId: cart.session_id,
+      source: cart.table_sessions.qr_code.startsWith("kiosk-") ? ("kiosk" as const) : ("register" as const),
       customerName: cart.customer_name ?? null,
       itemCount: lines.reduce((n, l) => n + l.qty, 0),
       // Display-only running subtotal for the queue card — the charge is always getCartTotals at settle.

@@ -2,6 +2,8 @@
 import { useCallback, useState } from "react";
 import { useWakeLock } from "@/lib/useWakeLock";
 import { t, type KioskLang } from "@/lib/kiosk/strings";
+import { KioskOrderFlow } from "./KioskOrderFlow";
+import type { KioskItem } from "./types";
 
 /**
  * The kiosk shell (W6b — S5): screen state machine over the self-serve flow. This slice carries
@@ -18,16 +20,12 @@ type Screen = "attract" | "doors";
 
 export function KioskShell({
   token,
-  renderDoor,
+  items,
+  categories,
 }: {
   token: string;
-  /** The door flow mount (W6b·2) — given the chosen door + chrome language + a finish/reset callback. */
-  renderDoor?: (args: {
-    token: string;
-    door: KioskDoor;
-    lang: KioskLang;
-    onReset: () => void;
-  }) => React.ReactNode;
+  items: KioskItem[];
+  categories: string[];
 }) {
   // Kiosks are always-on lobby displays — keep the screen awake (the ReadyBoard pattern).
   useWakeLock();
@@ -87,11 +85,19 @@ export function KioskShell({
     );
   }
 
-  if (door && renderDoor) {
+  if (door) {
     return (
       <div className="kiosk-root">
         <KioskTopbar lang={lang} onLang={setLang} onHome={reset} />
-        {renderDoor({ token, door, lang, onReset: reset })}
+        <KioskOrderFlow
+          key={door}
+          token={token}
+          door={door}
+          lang={lang}
+          items={items}
+          categories={categories}
+          onReset={reset}
+        />
       </div>
     );
   }

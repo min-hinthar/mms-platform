@@ -21,3 +21,16 @@ export function generateJoinCode(len = 8): string {
   for (const b of bytes) out += ALPHABET.charAt(b % ALPHABET.length);
   return out;
 }
+
+/**
+ * Reserved session-code prefixes (W6a/W6b): `reg-` marks staff-minted counter orders, `kiosk-`
+ * marks kiosk-device-minted orders. Both are SERVER-ISSUED identities that downstream surfaces
+ * trust (the register queue keys on them; the floor board excludes them; the kiosk reset's scope
+ * predicate matches them) — so /api/session must never let a CLIENT mint one. Joining an existing
+ * active session by its (unguessable) code stays allowed; creating is refused.
+ */
+export const RESERVED_SESSION_PREFIXES = ["reg-", "kiosk-"] as const;
+
+export function isReservedSessionCode(code: string): boolean {
+  return RESERVED_SESSION_PREFIXES.some((p) => code.startsWith(p));
+}

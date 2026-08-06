@@ -49,18 +49,30 @@ prefixes are refused).
   verifies the caller's anon auth (the seat), service-role mints session + membership + cart,
   writes `customer_name` at mint for to-go. No staffGate — the token IS the authority; no
   `/api/session` rate budget burned.
-- **`kioskReset`** — the idle/finish privacy reset: verifies the token, verifies the session is
+- **`kioskReset`** — the ABANDON reset: verifies the token, verifies the session is
   `kiosk-`-prefixed (**the token can never close a diner or staff session**), closes it + cancels
-  its open cart (the clearTable shape minus staffGate). Client side wipes `mms.qr.*`, `mms.name`,
-  and kiosk state, then returns to attract. No payment-race guard needed in W6b (no diner-side
-  charge exists; revisit at W6c).
+  its open cart (the clearTable shape minus staffGate). No payment-race guard needed in W6b (no
+  diner-side charge exists; revisit at W6c).
+- **The reset FORKS — the build's sharpest correction to this plan.** An idle reset MID-ORDER
+  abandons (close + cancel: the order is dead, the table frees). But once the customer reaches the
+  HANDOFF screen, the order's home is the register queue / floor — the kiosk must clear the
+  **screen only** (React state + `router.refresh()` for a fresh catalog) and leave the session
+  open, or the idle timer destroys the order while the customer is walking to the counter. The
+  kiosk holds `sessionId`/`cartId` in memory only (no localStorage, no `useTableSession`) — so the
+  screen-clear is trivially complete and a device refresh lands on attract by construction.
 
 ## The register composes it
 
 `getRegisterQueue` widens to `reg-% OR kiosk-%` (kiosk rows labeled "Kiosk"); the floor-board
-exclusion widens the same way; `settleCash`'s session close applies to counter-style
-(`mode='pickup'`) kiosk sessions only. A kiosk order is settled at the counter exactly like a
-walk-up — tendered/change helper, lifted `#CODE` handoff card, `/board` call-out, all unchanged.
+exclusion widens to counter-STYLE sessions only (prefixed AND `mode='pickup'`) so a kiosk
+**dine-in** claim shows on the floor as an ordering table — that is where staff settle it;
+`settleCash`'s session close applies to counter-style kiosk sessions only (a settled kiosk
+dine-in stays active: the table is seated and its KDS ticket needs the live session). Occupancy
+for a kiosk dine-in claim is checked by `table_number` across ALL active sessions (sticker or
+kiosk), and the dual-session residual (a diner scanning the sticker after a kiosk claim mints a
+second session on the same table) is a registry row — staff merge covers it. A counter-style
+kiosk order settles exactly like a walk-up — tendered/change helper, lifted `#CODE` handoff card,
+`/board` call-out, all unchanged.
 
 ## The shell
 
