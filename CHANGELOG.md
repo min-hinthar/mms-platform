@@ -4,6 +4,42 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W6b — the kiosk shell (2026-08-06)
+
+The self-serve surface (closes **S5**; plan: `docs/W6B_PLAN.md`). Reuse-don't-fork (M6·P6.1): the
+kiosk is an ordinary anon client whose orders ride the diner cart machinery verbatim.
+
+- **The mint (`openKioskOrder`).** Device-token-gated (constant-time, unset = feature off — the
+  /board pattern); mints per-order `kiosk-` sessions WITH a membership row for the kiosk's stable
+  anon uid, so `addItem`/`scanAdd`/`getCartView` authorize unchanged. Dine-in claims a registered
+  table (occupancy by table number); counter-style orders carry the register's 12h horizon.
+- **The reset FORKS — three ways.** Mid-order idle (45s + 15s countdown) ABANDONS via `kioskReset`
+  — cart-cancel FIRST with the counter-settle freeze + pay-lock + open status in the statement
+  (the register wins every race; a settled dine-in session keeps its KDS ticket), then the session
+  close, both scoped to `kiosk-` sessions in the statement (the token is no skeleton key). Once
+  the customer taps "Pay at the counter" they've COMMITTED: an upsell-screen timeout advances to
+  the handoff (honest idle copy — the order survives), never abandons. The HANDOFF screen clears
+  the SCREEN only (the order's home is the register queue / floor). Session ids live in memory
+  only; the topbar "← Start over" routes through the same fork (screen-clear post-handoff, real
+  abandon mid-order — with a retry + loud log, never fire-and-forget).
+- **The shell.** `.kiosk-root` big-touch tier (the `--kfs-*` pattern; 68px floor), attract screen
+  whose EN/MY tiles are the entry (kiosk chrome dictionary ⚠️ pending Min's native check), three
+  doors, HID keyboard-wedge → the existing `scanAdd`, exactly ONE `goesWellWith` rail (capped 6,
+  anchored on the last-added food line), server-derived totals, pay-at-counter handoff.
+- **Hardening:** `/api/session` refuses to CREATE reserved-prefix (`reg-`/`kiosk-`) sessions —
+  closes the W6a spoof surface (client-minted fake counter-queue entries); the `?k=` device token
+  joins the PostHog `REDACT_PARAMS` (never in `$current_url`). Registry: S5 closed; S9 (dine-in
+  dual-session residual), S8 (kiosk ADA pass) + S10 (queue-from-mint, accepted) opened.
+- **Review fixes (capped pass, killed at cap + hand-triaged):** order tallies lifted to the flow
+  ("Back" from review no longer strands a non-empty cart behind a disabled CTA); honest scan
+  refusals (unknown barcode / unavailable / needs-the-scale named, not "something went wrong");
+  scan dedupe narrowed 1500→400ms (a deliberate re-scan counts — the server increments qty);
+  occupied-table + unknown-table mint refusals get real strings; the no-name handoff stops
+  promising a name call-out; IdleModal takes focus on open; per-customer language reset; the CTA
+  shows item count, never a client-summed pre-tax figure.
+- Guards: `lib/kiosk.test.ts` (10) · `lib/session-code.test.ts` (3) · seven new `verify:slice`
+  mutants (74 total), each watched fail.
+
 ### W6a — the FOH register (2026-08-05)
 
 Walk-up and phone orders can finally exist (closes **K6 · K17**; plan: `docs/W6A_PLAN.md`). The

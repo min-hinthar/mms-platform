@@ -43,7 +43,10 @@ export default async function RegisterPage() {
                 style={rowCard}
                 aria-label={`Resume ${r.customerName ?? "walk-up"} — ${r.itemCount} item${r.itemCount === 1 ? "" : "s"}`}
               >
-                <span style={rowName}>{r.customerName ?? "Walk-up"}</span>
+                <span style={rowName}>
+                  {r.customerName ?? "Walk-up"}
+                  {r.source === "kiosk" && <span style={rowMeta}> · Kiosk</span>}
+                </span>
                 <span style={rowMeta}>
                   {r.itemCount} item{r.itemCount === 1 ? "" : "s"} · $
                   {(r.subtotalCents / 100).toFixed(2)} + tax

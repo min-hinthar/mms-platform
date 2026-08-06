@@ -84,7 +84,14 @@ export async function getFloorView(): Promise<FloorPoll> {
     .limit(ACTIVE_SESSION_CAP);
   if (sessionsError) return { ok: false, reason: "outage" };
 
-  const sessionIds = (sessions ?? []).map((s) => s.id);
+  // W6b: kiosk COUNTER orders (kiosk- + pickup) live on the register queue like reg- rows; a kiosk
+  // DINE-IN claim keeps its floor card — that is where staff serve and settle the table. TS-side
+  // because the prefix+mode conjunction doesn't fit one postgrest not-filter; the settle/reset close
+  // these sessions promptly, so they never crowd the cap.
+  const floorSessions = (sessions ?? []).filter(
+    (s) => !(s.qr_code.startsWith("kiosk-") && s.mode === "pickup"),
+  );
+  const sessionIds = floorSessions.map((s) => s.id);
   if (sessionIds.length === 0) return { ok: true, snapshot: { tables: [], serverNow: nowIso } };
 
   // Members (party size + host name), open carts, paid orders, and the tab policy (the silent ceiling) for
@@ -169,7 +176,7 @@ export async function getFloorView(): Promise<FloorPoll> {
       paidBySession.set(o.session_id, { total: o.total_cents, latest: o.created_at });
   }
 
-  const tables: FloorTable[] = (sessions ?? []).map((s) => {
+  const tables: FloorTable[] = floorSessions.map((s) => {
     const cart = cartBySession.get(s.id) ?? null;
     const empty = { count: 0, subtotal: 0, lastLineAt: null as string | null };
     const agg = cart ? (aggByCart.get(cart.id) ?? empty) : empty;

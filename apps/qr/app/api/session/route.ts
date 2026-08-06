@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceClient, sessionClient } from "@mms/db/server";
 import { sessionMintInput } from "@mms/db/schemas";
-import { generateJoinCode } from "@/lib/session-code";
+import { generateJoinCode, isReservedSessionCode } from "@/lib/session-code";
 import { sessionExpiryFromNow } from "@/lib/session-ttl";
 import { withinJoinRate } from "@/lib/rate";
 import { isTransportFailure } from "@/lib/authz";
@@ -173,6 +173,14 @@ export async function POST(req: NextRequest) {
       .eq("qr_code", resolvedQr)
       .eq("status", "active")
       .lte("expires_at", new Date().toISOString());
+  }
+
+  // W6b hardening: a RESERVED-prefix code (`reg-`/`kiosk-`) is a server-issued identity the
+  // register queue / floor board / kiosk reset all trust — a client may JOIN an existing one (the
+  // code is unguessable; that is how the kiosk device attaches to its own minted session) but must
+  // never CREATE one here. Without this, any visitor could mint fake counter-queue entries.
+  if (!sess && resolvedQr && isReservedSessionCode(resolvedQr)) {
+    return NextResponse.json({ error: "That code isn’t valid." }, { status: 404 });
   }
 
   // Create when no active session exists for the code (or when the host omitted one → mint a code).

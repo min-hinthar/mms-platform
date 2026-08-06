@@ -436,6 +436,20 @@ export const openRegisterInput = z.object({
   customerName: z.string().trim().max(40).optional(),
 });
 
+/** openKioskOrder / kioskReset (W6b) — the self-serve kiosk's device-token-gated mint and abandon
+ *  reset. `k` is the device token from the kiosk bookmark (verified constant-time server-side, the
+ *  /board pattern); the client never asserts a session code or a price. */
+export const kioskOpenInput = z.object({
+  k: z.string().min(1).max(200),
+  kind: z.enum(["dinein", "togo", "grocery"]),
+  tableNumber: z.number().int().min(1).max(999).optional(),
+  customerName: z.string().trim().max(40).optional(),
+});
+export const kioskResetInput = z.object({
+  k: z.string().min(1).max(200),
+  sessionId: uuid,
+});
+
 /** mergeTables (S1.4 soft convergence) — fold a SOURCE table's open order into a TARGET table, then close
  *  the source (the one-tap recovery for a double-order). Shape only; the server (requireStaff + service-
  *  role) re-resolves both open carts, refuses mid-payment on either side, requires a shared mode, and runs

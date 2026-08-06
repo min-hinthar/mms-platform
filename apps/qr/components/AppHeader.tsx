@@ -31,7 +31,12 @@ import { OrdersTray } from "./OrdersTray";
 export function AppHeader() {
   const pathname = usePathname();
   // Staff run their own console; /board (W3e) is a wall TV — diner wayfinding chrome on either is noise.
-  const hidden = (pathname?.startsWith("/staff") || pathname?.startsWith("/board")) ?? false;
+  const hidden =
+    (pathname?.startsWith("/staff") ||
+      pathname?.startsWith("/board") ||
+      // W6b: the kiosk is a locked-down self-serve surface — no app nav, no cart chrome, no account.
+      pathname?.startsWith("/kiosk")) ??
+    false;
 
   const { cartId } = useActiveOrder();
   // The order affordance is redundant where a dedicated surface already shows it: the homepage resume card

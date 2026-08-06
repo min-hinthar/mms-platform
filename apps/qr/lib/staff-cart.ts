@@ -367,7 +367,10 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
       // counter orders never accumulate in the active-session set for the rest of their TTL (a table
       // session stays active: the table is still seated). Best-effort: a miss only means the session
       // ages out on its own expiry.
-      if (session.qr_code.startsWith("reg-")) {
+      if (
+        session.qr_code.startsWith("reg-") ||
+        (session.qr_code.startsWith("kiosk-") && session.mode === "pickup")
+      ) {
         try {
           const { error: closeErr } = await db
             .from("table_sessions")

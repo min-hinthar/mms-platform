@@ -5889,3 +5889,207 @@ html[data-seen-surface] .mms-stagger {
     transition: none;
   }
 }
+
+/* ── W6b: the kiosk shell — a big-touch, self-serve tier (S5 · M6·P6.1) ─────────────────────────────
+   Fixed lobby display, standing customer, one arm's length — a DEDICATED purpose scale on .kiosk-root
+   (the .kds-root pattern): kiosk text never inherits phone-scale sizes and the inline-fontSize ban has
+   nothing to catch. --xtap is the touch floor (68px — QSR kiosk norm, not the 44px phone floor). The
+   shell forces no theme; compose `.kiosk-root dark` per-surface if Night is wanted (the KDS pattern). */
+.kiosk-root {
+  --xfs-hero: clamp(2.25rem, 5vw, 3.5rem); /* attract headline */
+  --xfs-tile: 1.75rem; /* door-tile labels */
+  --xfs-body: 1.25rem; /* running copy / list items */
+  --xfs-meta: 1rem; /* hints, secondary lines */
+  --xtap: 68px; /* minimum touch target */
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--pg);
+  color: var(--tx);
+}
+.kiosk-attract {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s6);
+  padding: var(--s8) var(--s5);
+  text-align: center;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+.kiosk-attract-glow {
+  /* radial falloff, never blur() — the mobile-GPU rule holds for always-on displays too */
+  position: absolute;
+  inset: -20%;
+  background:
+    radial-gradient(40% 35% at 30% 25%, color-mix(in oklab, var(--ac) 14%, transparent), transparent 70%),
+    radial-gradient(35% 30% at 72% 70%, color-mix(in oklab, var(--gold) 12%, transparent), transparent 70%);
+  pointer-events: none;
+  animation: kiosk-drift 18s var(--ease-in-out) infinite alternate;
+}
+@keyframes kiosk-drift {
+  from {
+    transform: translate3d(-2%, -1%, 0) scale(1);
+  }
+  to {
+    transform: translate3d(2%, 1%, 0) scale(1.04);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kiosk-attract-glow {
+    animation: none;
+  }
+}
+.kiosk-hero {
+  font-family: var(--font-display);
+  font-size: var(--xfs-hero);
+  line-height: var(--lh-tight);
+  margin: 0;
+  max-width: 18ch;
+}
+.kiosk-hero-my {
+  font-family: var(--font-my);
+  font-size: calc(var(--xfs-hero) * 0.62);
+  line-height: var(--lh-my);
+  color: var(--t2);
+  margin: 0;
+}
+.kiosk-lang-row {
+  display: flex;
+  gap: var(--s4);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.kiosk-lang-tile {
+  min-height: calc(var(--xtap) * 1.4);
+  min-width: 220px;
+  padding: var(--s4) var(--s6);
+  border-radius: var(--r-card);
+  border: 2px solid var(--bd);
+  background: var(--sf);
+  color: var(--tx);
+  font-size: var(--xfs-tile);
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: var(--sh);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.kiosk-lang-tile:active {
+  transform: scale(0.97);
+}
+.kiosk-touch-hint {
+  font-size: var(--xfs-body);
+  color: var(--t2);
+  margin: 0;
+}
+.kiosk-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s5);
+  padding: var(--s6) var(--s5) var(--s8);
+  max-width: 1080px;
+  width: 100%;
+  margin: 0 auto;
+}
+.kiosk-h1 {
+  font-family: var(--font-display);
+  font-size: var(--xfs-tile);
+  margin: 0;
+}
+.kiosk-door-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--s5);
+}
+@media (max-width: 720px) {
+  .kiosk-door-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.kiosk-door {
+  min-height: calc(var(--xtap) * 3);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  padding: var(--s5);
+  border-radius: var(--r-card);
+  border: 2px solid var(--bd);
+  background: var(--sf);
+  color: var(--tx);
+  cursor: pointer;
+  box-shadow: var(--sh);
+  text-align: center;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.kiosk-door:active {
+  transform: scale(0.97);
+}
+.kiosk-door-label {
+  font-size: var(--xfs-tile);
+  font-weight: 800;
+}
+.kiosk-door-hint {
+  font-size: var(--xfs-meta);
+  color: var(--t2);
+}
+.kiosk-input {
+  min-height: var(--xtap);
+  padding: 0 var(--s4);
+  border-radius: var(--r-card);
+  border: 2px solid var(--bd);
+  background: var(--sf);
+  color: var(--tx);
+  font-size: var(--xfs-body);
+  width: 100%;
+}
+.kiosk-cta {
+  min-height: var(--xtap);
+  padding: 0 var(--s6);
+  border-radius: var(--r-full);
+  border: none;
+  background: var(--ac);
+  color: var(--oa);
+  font-size: var(--xfs-body);
+  font-weight: 800;
+  cursor: pointer;
+}
+.kiosk-cta:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.kiosk-ghost {
+  min-height: var(--xtap);
+  padding: 0 var(--s5);
+  border-radius: var(--r-full);
+  border: 2px solid var(--bd);
+  background: var(--sf);
+  color: var(--tx);
+  font-size: var(--xfs-body);
+  font-weight: 700;
+  cursor: pointer;
+}
+.kiosk-lang-toggle {
+  /* Kiosk chrome shares the big-touch tier — 44px is the phone floor, not the lobby's. */
+  min-height: var(--xtap);
+  padding: 0 var(--s4);
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: var(--sf);
+  color: var(--tx);
+  font-size: var(--xfs-meta);
+  font-weight: 700;
+  cursor: pointer;
+}
+.kiosk-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--s4);
+  padding: var(--s4) var(--s5) 0;
+}
