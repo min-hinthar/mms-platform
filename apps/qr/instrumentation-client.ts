@@ -3,13 +3,15 @@
 import posthog from "posthog-js";
 
 // `capture_pageview` records `$current_url`/`$referrer`, which carry URL params we don't want in
-// analytics: the dine-in join key `?t=`/`?j=` (a LIVE session credential) and the Stripe
+// analytics: the dine-in join key `?t=`/`?j=` (a LIVE session credential), the kiosk device token
+// `?k=` (W6b — the bookmark credential that mints kiosk sessions), and the Stripe
 // `?payment_intent=…`/`redirect_status` on /track (an order-correlatable id — not a credential, but
 // "opaque ids only" per QA §C P2). Strip them before send. (The server onRequestError path is already
 // clean — it logs only the templated route, never the query string.)
 const REDACT_PARAMS = [
   "t",
   "j",
+  "k",
   "payment_intent",
   "payment_intent_client_secret",
   "redirect_status",

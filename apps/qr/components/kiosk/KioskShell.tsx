@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useWakeLock } from "@/lib/useWakeLock";
 import { t, type KioskLang } from "@/lib/kiosk/strings";
 import { KioskOrderFlow } from "./KioskOrderFlow";
@@ -32,10 +32,16 @@ export function KioskShell({
   const [lang, setLang] = useState<KioskLang>("en");
   const [screen, setScreen] = useState<Screen>("attract");
   const [door, setDoor] = useState<KioskDoor | null>(null);
+  // While an order flow is mounted it owns what "← Start over" MEANS (abandon mid-order, screen-
+  // clear post-handoff) — a bare screen-clear here would leak the live session (review HIGH).
+  const flowLeave = useRef<(() => void) | null>(null);
 
   const reset = useCallback(() => {
     setDoor(null);
     setScreen("attract");
+    // Each customer starts from the attract choice — the previous customer's language must not
+    // greet the next one.
+    setLang("en");
   }, []);
 
   if (screen === "attract") {
@@ -88,7 +94,11 @@ export function KioskShell({
   if (door) {
     return (
       <div className="kiosk-root">
-        <KioskTopbar lang={lang} onLang={setLang} onHome={reset} />
+        <KioskTopbar
+          lang={lang}
+          onLang={setLang}
+          onHome={() => (flowLeave.current ?? reset)()}
+        />
         <KioskOrderFlow
           key={door}
           token={token}
@@ -97,6 +107,7 @@ export function KioskShell({
           items={items}
           categories={categories}
           onReset={reset}
+          leaveRef={flowLeave}
         />
       </div>
     );
@@ -147,10 +158,12 @@ function KioskTopbar({
       <button type="button" className="kiosk-lang-toggle" onClick={onHome}>
         ← {t(lang, "startOver")}
       </button>
+      {/* The visible label (the TARGET language's own name) IS the accessible name — an English
+          aria-label would misname the control for the Burmese-mode screen reader. */}
       <button
         type="button"
         className="kiosk-lang-toggle"
-        aria-label={lang === "en" ? "Switch to Burmese" : "Switch to English"}
+        lang={lang === "en" ? "my" : undefined}
         onClick={() => onLang(lang === "en" ? "my" : "en")}
       >
         {lang === "en" ? t("en", "burmese") : t("en", "english")}

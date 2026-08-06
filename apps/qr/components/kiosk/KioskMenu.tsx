@@ -17,19 +17,24 @@ export function KioskMenu({
   cartId,
   items,
   categories,
+  count,
+  onAdded,
   onReview,
 }: {
   lang: KioskLang;
   cartId: string;
   items: KioskItem[];
   categories: string[];
+  /** The order tally lives in the FLOW (review finding): a per-mount count of 0 after "Back" from
+   *  review disabled "View order" over a non-empty cart — a double-add / walk-away dead end. */
+  count: number;
+  onAdded: (qty: number) => void;
   onReview: () => void;
 }) {
   const [cat, setCat] = useState<string | null>(categories[0] ?? null);
   const [sheetItem, setSheetItem] = useState<KioskItem | null>(null);
   const [sheetError, setSheetError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const [count, setCount] = useState(0);
   const [pending, startTransition] = useTransition();
 
   const shown = useMemo(
@@ -43,7 +48,7 @@ export function KioskMenu({
       try {
         await addItem(cartId, item.id, choice.modifierIds, choice.notes, choice.qty);
         setSheetItem(null);
-        setCount((n) => n + choice.qty);
+        onAdded(choice.qty);
         setStatus(`${t(lang, "add")} · ${choice.qty} × ${item.nameEn}`);
       } catch {
         // Into the sheet when it's open (the page live region is behind the scrim), else the page.
@@ -55,7 +60,7 @@ export function KioskMenu({
 
   return (
     <div className="kiosk-screen">
-      <div style={{ display: "flex", gap: "var(--s2)", flexWrap: "wrap" }} role="group" aria-label="Categories">
+      <div style={{ display: "flex", gap: "var(--s2)", flexWrap: "wrap" }} role="group" aria-label={t(lang, "categories")}>
         {categories.map((c) => (
           <button
             key={c}
@@ -74,7 +79,7 @@ export function KioskMenu({
         {status ?? ""}
       </p>
 
-      <ul role="list" aria-label="Menu items" className="kiosk-door-grid" style={{ listStyle: "none", padding: 0, margin: 0 }}>
+      <ul role="list" aria-label={t(lang, "menu")} className="kiosk-door-grid" style={{ listStyle: "none", padding: 0, margin: 0 }}>
         {shown.map((i) => (
           <li key={i.id}>
             <button

@@ -631,6 +631,14 @@ const MUTANTS = [
     replace: "",
   },
   {
+    id: "kiosk/reset-ignores-counter-settle-freeze",
+    file: "apps/qr/lib/kiosk.ts",
+    suite: "lib/kiosk.test.ts",
+    why: "W6b — settleCash freezes the cart (settle_at via acquireSettlement) BEFORE totals derive; without this predicate an idle reset cancels the cart mid-settle and destroys an order money is moving on",
+    find: "    .or(`settle_at.is.null,settle_at.lt.${settleCutoff}`)\n",
+    replace: "",
+  },
+  {
     id: "kiosk/mint-forgets-membership",
     file: "apps/qr/lib/kiosk.ts",
     suite: "lib/kiosk.test.ts",

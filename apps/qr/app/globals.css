@@ -6075,7 +6075,8 @@ html[data-seen-surface] .mms-stagger {
   cursor: pointer;
 }
 .kiosk-lang-toggle {
-  min-height: 44px;
+  /* Kiosk chrome shares the big-touch tier — 44px is the phone floor, not the lobby's. */
+  min-height: var(--xtap);
   padding: 0 var(--s4);
   border-radius: var(--r-full);
   border: 1px solid var(--bd);

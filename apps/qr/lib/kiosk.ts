@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { serverClient, serviceClient } from "@mms/db/server";
 import { kioskOpenInput, kioskResetInput } from "@mms/db/schemas";
+import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock";
 import { generateJoinCode } from "./session-code";
 
 /**
@@ -126,40 +127,71 @@ export async function openKioskOrder(raw: unknown): Promise<OpenKioskResult> {
   return { ok: false, reason: "error" };
 }
 
-export type KioskResetResult = { ok: true } | { ok: false };
+export type KioskResetResult =
+  | { ok: true }
+  /** `frozen` = the register owns this order now (settle in flight or already settled) — the reset
+   *  correctly stood down; the client's only remaining job is the screen-clear. `gone` = not an
+   *  active kiosk session (already reset, or not ours to touch). */
+  | { ok: false; reason: "denied" | "gone" | "frozen" | "error" };
 
-/** The ABANDON reset (idle mid-order): close the session + cancel its open cart. Scoped in the
- *  statement to `kiosk-`-prefixed sessions — the device token is not a skeleton key over diner or
- *  staff tables. NEVER called after handoff: a handed-off order's home is the register/floor and
- *  the settle (or staff clear) owns its lifecycle. */
+/** The ABANDON reset (idle mid-order): cancel the open cart, then close the session. Scoped in
+ *  every statement to `kiosk-`-prefixed sessions — the device token is not a skeleton key over
+ *  diner or staff tables. NEVER called after handoff: a handed-off order's home is the
+ *  register/floor and the settle (or staff clear) owns its lifecycle. */
 export async function kioskReset(raw: unknown): Promise<KioskResetResult> {
   const parsed = kioskResetInput.safeParse(raw);
-  if (!parsed.success) return { ok: false };
+  if (!parsed.success) return { ok: false, reason: "denied" };
   const { k, sessionId } = parsed.data;
   const gate = kioskGate(k);
-  if (!gate.ok) return { ok: false };
+  if (!gate.ok) return { ok: false, reason: "denied" };
   const db = serviceClient();
 
-  // The prefix guard lives in the UPDATE's predicate, not just a prior read (the status-guard-in-
-  // the-statement rule): a non-kiosk session id simply matches zero rows.
+  // Scope first, in the READ's predicate: a non-kiosk session id matches nothing and NOTHING is
+  // written below (the cart cancel keys on this session id, so it inherits the scope — qr_code is
+  // immutable, so the read can't go stale between here and the writes).
+  const { data: sess, error: sessErr } = await db
+    .from("table_sessions")
+    .select("id")
+    .eq("id", sessionId)
+    .eq("status", "active")
+    .like("qr_code", `${KIOSK_PREFIX}%`)
+    .maybeSingle();
+  if (sessErr) return { ok: false, reason: "error" };
+  if (!sess) return { ok: false, reason: "gone" };
+
+  // Cancel the cart FIRST, and only when the register isn't moving money on it: the counter-settle
+  // freeze (settle_at, held by settleCash's acquireSettlement before totals are derived) and the
+  // pay-window lock live in the UPDATE's own predicate, so an idle reset racing a settle loses the
+  // row atomically — it matches zero and stands down. A cart already settled (status 'paid')
+  // matches zero too: from that moment the order's lifecycle belongs to the register, and a settled
+  // kiosk DINE-IN session must stay active (its KDS ticket dies with the session).
+  const lockCutoff = new Date(Date.now() - CART_LOCK_TTL_MS).toISOString();
+  const settleCutoff = new Date(Date.now() - SETTLE_TTL_MS).toISOString();
+  const { data: cancelled, error: cartErr } = await db
+    .from("qr_carts")
+    .update({ status: "cancelled" })
+    .eq("session_id", sessionId)
+    .eq("status", "open")
+    .or(`locked.eq.false,locked_at.lt.${lockCutoff}`)
+    .or(`settle_at.is.null,settle_at.lt.${settleCutoff}`)
+    .select("id");
+  if (cartErr) return { ok: false, reason: "error" };
+  if (!cancelled || cancelled.length === 0) return { ok: false, reason: "frozen" };
+
+  // Close the session only after its cart is provably dead. The scope predicates repeat in the
+  // destructive statement itself (defense in depth over the read above).
   const { data: closed, error } = await db
     .from("table_sessions")
     .update({ status: "closed" })
     .eq("id", sessionId)
     .eq("status", "active")
-    .like("qr_code", `${KIOSK_PREFIX}%`)
+    .like("qr_code", `${KIOSK_PREFIX}%`) // re-asserted in the write, not only the read
     .select("id");
-  if (error) return { ok: false };
-  if (!closed || closed.length === 0) return { ok: false };
-
-  // Cancel the abandoned open cart (the clearTable shape). Best-effort: a missed cancel leaves an
-  // open cart on a CLOSED session — unreachable to every surface, aged out by the sweeper.
-  const { error: cartErr } = await db
-    .from("qr_carts")
-    .update({ status: "cancelled" })
-    .eq("session_id", sessionId)
-    .eq("status", "open");
-  if (cartErr)
-    console.error("[kiosk] reset cart cancel failed", { sessionId, code: cartErr.code });
+  if (error || !closed || closed.length === 0) {
+    // The cart is cancelled but the session survived — it squats on the active set until the TTL /
+    // staff clear. Loud, because a dine-in claim keeps its table blocked until then.
+    console.error("[kiosk] reset session close failed after cart cancel", { sessionId });
+    return { ok: false, reason: "error" };
+  }
   return { ok: true };
 }

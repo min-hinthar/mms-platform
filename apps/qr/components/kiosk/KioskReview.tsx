@@ -18,12 +18,16 @@ export function KioskReview({
   cartId,
   items,
   onBack,
+  onCommitted,
   onHandoff,
 }: {
   lang: KioskLang;
   cartId: string;
   items: KioskItem[];
   onBack: () => void;
+  /** Fired the moment the customer taps "Pay at the counter" (before the upsell interposes): from
+   *  here the flow's idle timeout must move the screen FORWARD, never abandon the decided order. */
+  onCommitted: () => void;
   onHandoff: () => void;
 }) {
   const [view, setView] = useState<{ items: CartItem[]; totals: CartTotals } | null>(null);
@@ -55,6 +59,9 @@ export function KioskReview({
   }, [view, items]);
 
   function proceed() {
+    // "Pay at the counter" IS the commitment — tell the flow before anything else, so an idle
+    // timeout on the upsell screen advances to the handoff instead of destroying a decided order.
+    onCommitted();
     // The one-shot rule: the rail interposes once, only when it has something genuine to show.
     if (!upsellSeen.current && upsellPicks.length > 0) {
       upsellSeen.current = true;

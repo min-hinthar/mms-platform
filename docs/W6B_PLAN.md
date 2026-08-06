@@ -1,6 +1,6 @@
 # W6B_PLAN — The kiosk shell (S5 · M6·P6.1 pulled forward)
 
-**Status: SHIPPED (2026-08-06).** Closed **S5**; opened S7 (dine-in dual-session residual) + S8 (kiosk ADA pass). Design parents:
+**Status: SHIPPED (2026-08-06).** Closed **S5**; opened S9 (dine-in dual-session residual), S8 (kiosk ADA pass) + S10 (queue-from-mint, accepted). Design parents:
 `docs/M6_DESIGN.md` §P6.1 (reuse-don't-fork, HID = keyboard wedge, no personal account) +
 `docs/PRODUCTION_PLAN.md` §W6b. Terminal payment stays **W6c** — every kiosk order ends at
 "pay at the counter", which is exactly W6a's register machinery.
@@ -50,9 +50,14 @@ prefixes are refused).
   writes `customer_name` at mint for to-go. No staffGate — the token IS the authority; no
   `/api/session` rate budget burned.
 - **`kioskReset`** — the ABANDON reset: verifies the token, verifies the session is
-  `kiosk-`-prefixed (**the token can never close a diner or staff session**), closes it + cancels
-  its open cart (the clearTable shape minus staffGate). No payment-race guard needed in W6b (no
-  diner-side charge exists; revisit at W6c).
+  `kiosk-`-prefixed (**the token can never close a diner or staff session**), cancels the open
+  cart, then closes the session. **The cancel runs FIRST and defers to the register** (review
+  fix): the counter-settle freeze (`settle_at`, held by `settleCash` before totals derive) and the
+  pay-window lock live in the cancel's own predicate, and a settled (`paid`) cart matches zero —
+  so an idle reset racing a settle loses the row atomically and stands down, and a settled kiosk
+  dine-in session keeps its KDS ticket alive. (The plan originally said "no payment-race guard
+  needed in W6b" — wrong: the register queue sees kiosk carts from mint, so a counter settle can
+  race the idle timer.)
 - **The reset FORKS — the build's sharpest correction to this plan.** An idle reset MID-ORDER
   abandons (close + cancel: the order is dead, the table frees). But once the customer reaches the
   HANDOFF screen, the order's home is the register queue / floor — the kiosk must clear the
@@ -112,9 +117,12 @@ kiosk order settles exactly like a walk-up — tendered/change helper, lifted `#
   (`reg-`/`kiosk-`); joining an existing active one stays allowed. Closes the W6a spoof surface
   too.
 - `kioskReset` scoped to `kiosk-` sessions in the statement (prefix predicate) — the device token
-  is not a skeleton key.
+  is not a skeleton key — and its cart cancel carries the counter-settle freeze + pay-lock + open
+  status in the statement (the register wins every race; mutant-pinned).
 - The token compare is constant-time and unset ⇒ the kiosk answers "not configured" (feature-off),
   copying `/board`.
+- The kiosk device token rides the URL (`?k=`), so it joins the PostHog `REDACT_PARAMS` list —
+  pageview capture must never ship the bookmark credential in `$current_url`.
 
 ## Deliberately out (registry rows / W6c)
 

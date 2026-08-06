@@ -20,8 +20,9 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > then one live split-mint smoke + one register walk-up smoke.
 >
 > **W6b shipped too** — the kiosk shell (S5 closed; `docs/W6B_PLAN.md`): device-token surface,
-> three doors over kiosk- member sessions, forked idle reset, HID wedge, one upsell,
-> pay-at-counter into the register queue. 73 `verify:slice` mutants.
+> three doors over kiosk- member sessions, three-way idle fork (abandon / committed-advance /
+> screen-clear; the reset defers to the counter-settle freeze), HID wedge, one upsell,
+> pay-at-counter into the register queue. 74 `verify:slice` mutants.
 >
 > **Next candidates:** W7 PWA + receipt (S1/S3 high) · W5 bilingual toggle
 > (S2 high) · the money-truth residual sweep (J14 · M22 · M36 · W8d).
