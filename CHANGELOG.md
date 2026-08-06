@@ -4,6 +4,29 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W6b — the kiosk shell (2026-08-06)
+
+The self-serve surface (closes **S5**; plan: `docs/W6B_PLAN.md`). Reuse-don't-fork (M6·P6.1): the
+kiosk is an ordinary anon client whose orders ride the diner cart machinery verbatim.
+
+- **The mint (`openKioskOrder`).** Device-token-gated (constant-time, unset = feature off — the
+  /board pattern); mints per-order `kiosk-` sessions WITH a membership row for the kiosk's stable
+  anon uid, so `addItem`/`scanAdd`/`getCartView` authorize unchanged. Dine-in claims a registered
+  table (occupancy by table number); counter-style orders carry the register's 12h horizon.
+- **The reset FORKS.** Mid-order idle (45s + 15s countdown) ABANDONS via `kioskReset` — scoped to
+  `kiosk-` sessions in the statement, the token is no skeleton key; the HANDOFF screen clears the
+  SCREEN only (the order's home is the register queue / floor — destroying it while the customer
+  walks to the counter is the bug the fork prevents). Session ids live in memory only.
+- **The shell.** `.kiosk-root` big-touch tier (the `--kfs-*` pattern; 68px floor), attract screen
+  whose EN/MY tiles are the entry (kiosk chrome dictionary ⚠️ pending Min's native check), three
+  doors, HID keyboard-wedge → the existing `scanAdd`, exactly ONE `goesWellWith` rail (capped 6,
+  anchored on the last-added food line), server-derived totals, pay-at-counter handoff.
+- **Hardening:** `/api/session` refuses to CREATE reserved-prefix (`reg-`/`kiosk-`) sessions —
+  closes the W6a spoof surface (client-minted fake counter-queue entries). Registry: S5 closed;
+  S7 (dine-in dual-session residual) + S8 (kiosk ADA pass) opened.
+- Guards: `lib/kiosk.test.ts` (8) · `lib/session-code.test.ts` (3) · six new `verify:slice`
+  mutants (73 total), each watched fail.
+
 ### W6a — the FOH register (2026-08-05)
 
 Walk-up and phone orders can finally exist (closes **K6 · K17**; plan: `docs/W6A_PLAN.md`). The

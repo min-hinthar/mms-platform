@@ -5,7 +5,7 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-08-05, evening — W11 + W6a shipped)
+> ## ⏭️ NEXT SESSION — start here (2026-08-06 — W11 + W6a + W6b shipped)
 >
 > **W11 merged (#162)** — the split ledger is durable: the pinned reconcile (M1/M25), the
 > capture-claim stamp (M45), the refunds ledger + staff strip (M43), payer released-hold copy (M44),
@@ -13,13 +13,17 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > the review record is the PR comment. **W6a shipped right after** — the FOH register (K6 + K17
 > closed; `docs/W6A_PLAN.md`): `/staff/register` mints walk-up/phone/`start-a-table` orders,
 > search + the staff modifier sheet (cardinality enforced), tendered/change + `#CODE` handoff,
-> day cash summary. 68 `verify:slice` mutants.
+> day cash summary.
 >
 > **⚠️ Owed on the owner's Supabase restore (project paused):** `db push` of
 > `20260805210000_w11_split_ledger_durable.sql` + `20260805230000_w6a_register_day_index.sql`,
 > then one live split-mint smoke + one register walk-up smoke.
 >
-> **Next candidates:** W6b kiosk shell (S5) · W7 PWA + receipt (S1/S3 high) · W5 bilingual toggle
+> **W6b shipped too** — the kiosk shell (S5 closed; `docs/W6B_PLAN.md`): device-token surface,
+> three doors over kiosk- member sessions, forked idle reset, HID wedge, one upsell,
+> pay-at-counter into the register queue. 73 `verify:slice` mutants.
+>
+> **Next candidates:** W7 PWA + receipt (S1/S3 high) · W5 bilingual toggle
 > (S2 high) · the money-truth residual sweep (J14 · M22 · M36 · W8d).
 >
 > _(The banner below is the pre-W11 state — kept for the W10 war stories.)_

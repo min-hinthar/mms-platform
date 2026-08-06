@@ -614,6 +614,46 @@ const MUTANTS = [
     find: '    .eq("session_id", sessionId)\n    .eq("status", "open")\n    .select("id");',
     replace: '    .eq("session_id", sessionId)\n    .select("id");',
   },
+  {
+    id: "kiosk/unset-token-answers-open",
+    file: "apps/qr/lib/kiosk.ts",
+    suite: "lib/kiosk.test.ts",
+    why: "W6b — an UNSET device token must mean the kiosk feature is OFF; degrading to open lets any visitor mint sessions and fire the reset with an empty string",
+    find: '  if (!expected) return { ok: false, reason: "not_configured" };',
+    replace: "  if (!expected) return { ok: true };",
+  },
+  {
+    id: "kiosk/reset-not-scoped-to-kiosk-sessions",
+    file: "apps/qr/lib/kiosk.ts",
+    suite: "lib/kiosk.test.ts",
+    why: "W6b — without the prefix predicate the device token closes ANY session id it is handed (a diner table, a staff counter order) and cancels its cart",
+    find: '    .like("qr_code", `${KIOSK_PREFIX}%`)\n',
+    replace: "",
+  },
+  {
+    id: "kiosk/mint-forgets-membership",
+    file: "apps/qr/lib/kiosk.ts",
+    suite: "lib/kiosk.test.ts",
+    why: "W6b — the membership row IS the authorization for every diner-path cart write; a memberless kiosk session dead-ends at the first assertCartMember",
+    find: '    const { error: memErr } = await db\n      .from("session_members")\n      .insert({ session_id: sess.id, seat_id: user.id, display_name: "Kiosk", role: "host" });',
+    replace: "    const memErr = null as { code: string } | null;",
+  },
+  {
+    id: "kiosk/occupied-table-still-claimed",
+    file: "apps/qr/lib/kiosk.ts",
+    suite: "lib/kiosk.test.ts",
+    why: "W6b — dropping the occupancy refusal opens a second live cart over a seated party's table (two ledgers, one table — the split-table class)",
+    find: '    if (occupied) return { ok: false, reason: "occupied" };',
+    replace: "",
+  },
+  {
+    id: "session-code/reserved-prefix-forgotten",
+    file: "apps/qr/lib/session-code.ts",
+    suite: "lib/session-code.test.ts",
+    why: "W6b — /api/session's refusal to CREATE reserved-prefix sessions rides this helper; forgetting a prefix (or all of them) reopens client-minted fake counter-queue entries",
+    find: "  return RESERVED_SESSION_PREFIXES.some((p) => code.startsWith(p));",
+    replace: "  return false;",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

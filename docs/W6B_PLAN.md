@@ -1,6 +1,6 @@
 # W6B_PLAN — The kiosk shell (S5 · M6·P6.1 pulled forward)
 
-**Status: building (2026-08-06).** Closes **S5** (kiosk mode seam absent). Design parents:
+**Status: SHIPPED (2026-08-06).** Closed **S5**; opened S7 (dine-in dual-session residual) + S8 (kiosk ADA pass). Design parents:
 `docs/M6_DESIGN.md` §P6.1 (reuse-don't-fork, HID = keyboard wedge, no personal account) +
 `docs/PRODUCTION_PLAN.md` §W6b. Terminal payment stays **W6c** — every kiosk order ends at
 "pay at the counter", which is exactly W6a's register machinery.
