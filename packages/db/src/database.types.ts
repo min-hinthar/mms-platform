@@ -1658,8 +1658,10 @@ export type Database = {
           p_discount_cents: number
           p_payment_intent: string
           p_service_charge_cents: number
+          p_settled_by?: string
           p_subtotal_cents: number
           p_tax_cents: number
+          p_tender?: string
           p_tip_cents?: number
         }
         Returns: string

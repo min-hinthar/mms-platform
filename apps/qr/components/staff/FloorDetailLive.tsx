@@ -13,6 +13,11 @@ import { Badge, Icon } from "@mms/ui";
 import { ClearTableButton } from "./ClearTableButton";
 import { StaffLineEditor } from "./StaffLineEditor";
 import { CashSettleButton } from "./CashSettleButton";
+import {
+  TerminalSettleButton,
+  TerminalCollectPanel,
+  type TerminalCollect,
+} from "./TerminalSettle";
 import { MergeTableButton } from "./MergeTableButton";
 import { OpenTabButton } from "./OpenTabButton";
 import { CloseSecureTabButton } from "./CloseSecureTabButton";
@@ -35,9 +40,13 @@ const MODE_LABEL: Record<TableDetail["mode"], string> = {
 export function FloorDetailLive({
   initial,
   sessionId,
+  terminalReady = false,
 }: {
   initial: TableDetail;
   sessionId: string;
+  /** W6c: STRIPE_TERMINAL_READER_ID is configured (server-checked by the page) — the Card settle
+   *  renders. Unset = feature-off: no button, and the action refuses independently. */
+  terminalReady?: boolean;
 }) {
   const router = useRouter();
   const [detail, setDetail] = useState<TableDetail>(initial);
@@ -64,6 +73,9 @@ export function FloorDetailLive({
     totalCents: number;
     changeCents: number | null;
   } | null>(null);
+  // W6c: the live reader-collect window — SAME survival rule as the handoff card (the settlement
+  // freeze flips paymentInFlight, which unmounts the settle section seconds after the start).
+  const [terminalCollect, setTerminalCollect] = useState<TerminalCollect | null>(null);
   const handoffRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     // Focus the handoff card when it appears (the settle control it replaced has unmounted).
@@ -385,6 +397,16 @@ export function FloorDetailLive({
               <CloseSecureTabButton sessionId={sessionId} totalCents={detail.settleTotalCents} />
             </div>
           )}
+          {/* W6c: card-present on the reader — only when the reader env is configured. The collect
+              window itself renders BELOW, outside this open-cart conditional (it must survive the
+              freeze flipping paymentInFlight). */}
+          {terminalReady && terminalCollect == null && (
+            <TerminalSettleButton
+              sessionId={sessionId}
+              totalCents={detail.settleTotalCents}
+              onStarted={setTerminalCollect}
+            />
+          )}
           <CashSettleButton
             sessionId={sessionId}
             totalCents={detail.settleTotalCents}
@@ -401,6 +423,17 @@ export function FloorDetailLive({
             </p>
           )}
         </section>
+      )}
+      {terminalCollect && (
+        <TerminalCollectPanel
+          sessionId={sessionId}
+          collect={terminalCollect}
+          isCounter={isCounter}
+          onDone={(h) => {
+            setTerminalCollect(null);
+            if (h) setHandoff(h);
+          }}
+        />
       )}
       {handoff && (
         <div
@@ -433,7 +466,7 @@ export function FloorDetailLive({
           </p>
         </div>
       )}
-      {detail.paymentInFlight && (
+      {detail.paymentInFlight && terminalCollect == null && (
         <p style={{ ...muted, marginTop: "var(--s4)", fontSize: "var(--fs-sm)" }}>
           A guest is paying on their phone — editing and{" "}
           {detail.tab !== "none" ? "tab close" : "cash settle"} are paused until that finishes.
