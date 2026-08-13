@@ -7,6 +7,7 @@ describe("summarizeDay — the Z-report buckets", () => {
       { tender: "cash", total_cents: 2500, status: "paid" },
       { tender: "cash", total_cents: 1300, status: "paid" },
       { tender: "card", total_cents: 4200, status: "paid" },
+      { tender: "terminal", total_cents: 1700, status: "paid" },
       { tender: "card", total_cents: 990, status: "refunded" },
     ]);
     expect(s).toEqual({
@@ -14,9 +15,24 @@ describe("summarizeDay — the Z-report buckets", () => {
       cashCents: 3800,
       cardCount: 1,
       cardCents: 4200,
+      terminalCount: 1,
+      terminalCents: 1700,
       refundedCount: 1,
       refundedCents: 990,
     });
+  });
+
+  it("W6c: the counter reader (tender='terminal') is its OWN bucket — never folded into online card", () => {
+    // The register reconciles the READER's takings against Stripe Terminal; a merged column hides
+    // a mis-tendered order in the noise of online sales.
+    const s = summarizeDay([
+      { tender: "terminal", total_cents: 2100, status: "paid" },
+      { tender: "card", total_cents: 900, status: "paid" },
+    ]);
+    expect(s.terminalCents).toBe(2100);
+    expect(s.terminalCount).toBe(1);
+    expect(s.cardCents).toBe(900);
+    expect(s.cashCents).toBe(0);
   });
 
   it("ignores rows in any other status — an unfinished order is not drawer money", () => {

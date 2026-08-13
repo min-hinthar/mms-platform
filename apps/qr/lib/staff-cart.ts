@@ -9,6 +9,7 @@ import {
   staffAddItemInput,
 } from "@mms/db/schemas";
 import { staffGate, STAFF_WRITE_OUTAGE } from "./staff";
+import { openCartFor, closeCounterStyleSession } from "./staff-open-cart";
 import { lineTax } from "./tax";
 import { getCartTotals } from "./totals";
 import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
@@ -33,28 +34,8 @@ export type SettleCashResult =
   | { ok: true; orderId: string; totalCents: number }
   | { ok: false; error: string };
 
-/** Resolve the open cart for a session (the table's live order). Returns null when the session is
- *  closed or has no open cart (already settled/cancelled). W10b: `unavailable` marks a FAILED read —
- *  callers refuse with the outage truth instead of a false "table is closed / nothing to settle". */
-async function openCartFor(sessionId: string) {
-  const db = serviceClient();
-  const { data: session, error: sessionError } = await db
-    .from("table_sessions")
-    .select("id,status,mode,qr_code")
-    .eq("id", sessionId)
-    .maybeSingle();
-  if (sessionError) return { session: null, cart: null, unavailable: true as const };
-  if (!session || session.status === "closed")
-    return { session: null, cart: null, unavailable: false as const };
-  const { data: cart, error: cartError } = await db
-    .from("qr_carts")
-    .select("id,locked,locked_at,settle_at,tab_type")
-    .eq("session_id", sessionId)
-    .eq("status", "open")
-    .maybeSingle();
-  if (cartError) return { session: null, cart: null, unavailable: true as const };
-  return { session, cart, unavailable: false as const };
-}
+// openCartFor lives in ./staff-open-cart (server-only, shared with the W6c Terminal settle) — an
+// export from THIS "use server" module would mint a public POST endpoint around a service-role read.
 
 /**
  * Add an item to a table's open cart FOR a guest. Re-derives price/tax server-side (priceItem), and
@@ -363,29 +344,9 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
       } catch (e) {
         console.error("[staff-cart] snapshot ebt eligibility threw", { cartId: cart.id, error: e });
       }
-      // W6a: a COUNTER (`reg-`) session is one order — settled means finished. Close it so settled
-      // counter orders never accumulate in the active-session set for the rest of their TTL (a table
-      // session stays active: the table is still seated). Best-effort: a miss only means the session
-      // ages out on its own expiry.
-      if (
-        session.qr_code.startsWith("reg-") ||
-        (session.qr_code.startsWith("kiosk-") && session.mode === "pickup")
-      ) {
-        try {
-          const { error: closeErr } = await db
-            .from("table_sessions")
-            .update({ status: "closed" })
-            .eq("id", session.id)
-            .eq("status", "active");
-          if (closeErr)
-            console.error("[staff-cart] counter session close failed", {
-              sessionId: session.id,
-              message: closeErr.message,
-            });
-        } catch (e) {
-          console.error("[staff-cart] counter session close threw", { sessionId: session.id, error: e });
-        }
-      }
+      // W6a: a COUNTER-style session is one order — settled means finished. Shared rule (W6c: the
+      // Terminal webhook arm runs the same close, since a card-present settle fulfills off-band).
+      await closeCounterStyleSession(session.id);
     });
 
     if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {

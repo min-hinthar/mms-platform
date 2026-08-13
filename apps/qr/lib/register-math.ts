@@ -14,6 +14,11 @@ export type DaySummary = {
   cashCents: number;
   cardCount: number;
   cardCents: number;
+  /** W6c: card-present on the counter reader (tender='terminal') — its own bucket, never folded
+   *  into online card: the register reconciles the READER's takings against Stripe's Terminal
+   *  view, and a merged column hides a mis-tendered order. */
+  terminalCount: number;
+  terminalCents: number;
   /** Orders whose STATUS moved to refunded — counted apart, never netted into the buckets above.
    *  (Line-level partial refunds leave status='paid' — M2 — so this is honest only as a status
    *  split, and the UI labels it that way rather than claiming a net drawer figure.) */
@@ -29,6 +34,8 @@ export function summarizeDay(rows: DayOrderRow[]): DaySummary {
     cashCents: 0,
     cardCount: 0,
     cardCents: 0,
+    terminalCount: 0,
+    terminalCents: 0,
     refundedCount: 0,
     refundedCents: 0,
   };
@@ -42,6 +49,9 @@ export function summarizeDay(rows: DayOrderRow[]): DaySummary {
     if (r.tender === "cash") {
       s.cashCount += 1;
       s.cashCents += r.total_cents;
+    } else if (r.tender === "terminal") {
+      s.terminalCount += 1;
+      s.terminalCents += r.total_cents;
     } else {
       s.cardCount += 1;
       s.cardCents += r.total_cents;

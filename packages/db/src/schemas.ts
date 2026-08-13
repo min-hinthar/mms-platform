@@ -425,6 +425,14 @@ export const setCartNameInput = z.object({
  *  cash order idempotently. The client asserts only the session id — never an amount. */
 export const settleCashInput = z.object({ sessionId: uuid });
 
+/** Terminal poll/cancel (W6c) — the register UI tracks / cancels a reader collect it started. The
+ *  PI id is only a HANDLE: the server re-verifies it is a kiosk/register terminal PI (metadata.kind)
+ *  and every money fact comes from Stripe + the DB, never this input. */
+export const terminalPollInput = z.object({
+  sessionId: uuid,
+  paymentIntentId: z.string().startsWith("pi_").max(200),
+});
+
 /** openRegisterOrder (W6a) — staff start an order that has no diner phone behind it: a walk-up or a
  *  phone order (counter arms — a per-order `mode='pickup'` session keyed `reg-<code>`), or "start a
  *  table" (a real dine-in session on a registered table, so eat-in tax basis and floor/KDS routing come
@@ -552,6 +560,7 @@ export type FireTicketNowInput = z.infer<typeof fireTicketNowInput>;
 export type SetLineNotesInput = z.infer<typeof setLineNotesInput>;
 export type StaffAddItemInput = z.infer<typeof staffAddItemInput>;
 export type SettleCashInput = z.infer<typeof settleCashInput>;
+export type TerminalPollInput = z.infer<typeof terminalPollInput>;
 export type OpenRegisterInput = z.infer<typeof openRegisterInput>;
 export type MergeTablesInput = z.infer<typeof mergeTablesInput>;
 export type SessionMintInput = z.infer<typeof sessionMintInput>;

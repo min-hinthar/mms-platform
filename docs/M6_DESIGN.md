@@ -64,8 +64,12 @@ Defer until there's a target device so the idle/reset/ADA details are validated 
   existing webhook path** (signature-verified, idempotent on the PI id — `mms_fulfill_order`). The amount is
   still `getCartTotals` (server-authoritative); the reader never sets price. SAQ-A posture holds — card data
   lives in the reader + Stripe, never our code.
-- **Connection token endpoint.** Add a service-role route minting Terminal `connection_token`s (the only new
-  secret surface); the reader SDK exchanges it. Treat like the Stripe secret keys (Vercel/Actions only).
+- ~~**Connection token endpoint.** Add a service-role route minting Terminal `connection_token`s (the only new
+  secret surface); the reader SDK exchanges it. Treat like the Stripe secret keys (Vercel/Actions only).~~
+  **Corrected at build (W6c, 2026-08-06):** connection tokens are the **SDK-driven** integration's
+  requirement. The server-driven S700 model this section specifies needs none — the reader is
+  commanded through the Stripe API from staff-gated server actions, and the only new config is the
+  server-only `STRIPE_TERMINAL_READER_ID` (a device name, not a credential). See `docs/W6C_PLAN.md`.
 - **Reconciliation.** Same `intent.amount` vs `getCartTotals` 409-on-mismatch guard the online flow uses.
 - **Compliance:** **never surcharge debit** (SB-1524); service charge disclosed (already enforced). Tips on a
   card-present flow go through the reader's tipping or the existing tip step — decide at build (reader tipping

@@ -22,7 +22,15 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > **W6b shipped too** — the kiosk shell (S5 closed; `docs/W6B_PLAN.md`): device-token surface,
 > three doors over kiosk- member sessions, three-way idle fork (abandon / committed-advance /
 > screen-clear; the reset defers to the counter-settle freeze), HID wedge, one upsell,
-> pay-at-counter into the register queue. 74 `verify:slice` mutants.
+> pay-at-counter into the register queue.
+>
+> **W6c shipped too** — Stripe Terminal (M6·P6.2 pulled forward; `docs/W6C_PLAN.md`): server-driven
+> S700 card settle (`lib/terminal.ts` → the existing webhook fulfill, `tender='terminal'` +
+> attribution), freeze held across the collect + extended by the poll, tip-free v1 (S11 registry),
+> Card·reader Z-report column. Feature-off unset. **Owed on hardware + Terminal enablement (S12):**
+> reader registration (live + simulated for preview), `STRIPE_TERMINAL_READER_ID` per scope, one
+> live card-present smoke — and `20260806100000_w6c_terminal.sql` joins the restore `db push` list.
+> 82 `verify:slice` mutants.
 >
 > **Next candidates:** W7 PWA + receipt (S1/S3 high) · W5 bilingual toggle
 > (S2 high) · the money-truth residual sweep (J14 · M22 · M36 · W8d).

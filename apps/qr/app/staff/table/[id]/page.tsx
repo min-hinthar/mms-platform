@@ -40,7 +40,14 @@ export default async function TablePage({ params }: { params: Promise<{ id: stri
     );
   }
 
-  return <FloorDetailLive initial={res.detail} sessionId={id} />;
+  return (
+    <FloorDetailLive
+      initial={res.detail}
+      sessionId={id}
+      // W6c: the reader id is server-only config; the client gets only the boolean.
+      terminalReady={Boolean(process.env.STRIPE_TERMINAL_READER_ID)}
+    />
+  );
 }
 
 const wrap: CSSProperties = { maxWidth: 640, margin: "0 auto", padding: "var(--s6)" };

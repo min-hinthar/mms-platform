@@ -2,7 +2,8 @@ import { NextRequest, NextResponse, after } from "next/server";
 import { getStripe } from "@/lib/stripe";
 import { serviceClient } from "@mms/db/server";
 import { getCartTotals } from "@/lib/totals";
-import { releaseCartLock, releaseSettlement } from "@/lib/lock";
+import { closeCounterStyleSession } from "@/lib/staff-open-cart";
+import { releaseCartLock, releaseSettlement, releaseSettlementFor } from "@/lib/lock";
 import { logTabEvent } from "@/lib/tab-events";
 import { getPostHogClient } from "@/lib/posthog-server";
 import { enqueueQboSync, syncOrderToQbo } from "@/lib/qbo/client";
@@ -15,6 +16,13 @@ import {
 
 // Fulfillment is webhook-driven, signature-verified, idempotent (QA checklist).
 // Stripe retries non-200s for up to 72h, so this must be safe to run more than once.
+//
+// verify:slice-exempt — this route is GLUE over pinned halves: the money law lives in SQL
+// (mms_fulfill_order's exact sum check + the tender CHECK, exercised on a real stack by CI's
+// migrations job) and the PI contract lives in the lib suites (lib/terminal.test.ts pins the
+// metadata kind/cartId/tipRate shape the terminal arm keys on; split-settle.test.ts pins the share
+// arms). A route-level mutant would need constructEvent + every DB read mocked into scripted
+// answers — the degenerate-fixture class the mutant harness exists to avoid.
 export async function POST(req: NextRequest) {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!webhookSecret) {
@@ -184,6 +192,10 @@ export async function POST(req: NextRequest) {
     } else {
       const cartId = intent.metadata?.cartId;
       const tipRate = Number(intent.metadata?.tipRate ?? 0) || 0;
+      // W6c: a register card-present charge (settleCard). Same reconcile + fulfill as every card —
+      // the kind only drives tender/attribution and the counter-session close below. (Any kind
+      // other than 'split_share' belongs on this generic branch by design.)
+      const isTerminal = intent.metadata?.kind === "terminal";
       // idempotent: unique(stripe_payment_intent_id) means a retry is a no-op
       const { data: existing, error: existingError } = await db
         .from("qr_orders")
@@ -305,6 +317,14 @@ export async function POST(req: NextRequest) {
           p_service_charge_cents: totals.serviceChargeCents,
           p_tax_cents: totals.taxCents,
           p_tip_cents: totals.tipCents,
+          // W6c: the reader's orders carry their tender + the staff member who ran the settle (the
+          // online path omits both — the fn defaults preserve it byte-for-byte).
+          ...(isTerminal && {
+            p_tender: "terminal" as const,
+            ...(intent.metadata?.settledByStaffId && {
+              p_settled_by: intent.metadata.settledByStaffId,
+            }),
+          }),
         });
         // supabase-js returns the Postgres error in `error` — it does NOT throw. Swallowing it would
         // 200 the event, so Stripe marks it handled and never retries → a charged diner with no order.
@@ -382,6 +402,27 @@ export async function POST(req: NextRequest) {
                 error: e,
               });
             }
+            // W6c: a Terminal settle fulfills HERE (not in settleCash's after()), so the counter-
+            // lifecycle rule runs here too — a settled `reg-`/kiosk-pickup session is one finished
+            // order and must not squat in the active set (and the register queue) for its 12h TTL.
+            if (isTerminal) {
+              try {
+                const { data: cartSess, error: sessErr } = await db
+                  .from("qr_carts")
+                  .select("session_id")
+                  .eq("id", cartId)
+                  .maybeSingle();
+                if (sessErr)
+                  console.error("[stripe webhook] terminal session lookup failed", {
+                    cartId,
+                    message: sessErr.message,
+                  });
+                else if (cartSess?.session_id)
+                  await closeCounterStyleSession(cartSess.session_id);
+              } catch (e) {
+                console.error("[stripe webhook] terminal counter close threw", { cartId, error: e });
+              }
+            }
           });
           // Morning Star Rewards (M4): stamp the earner + award Stars. Only a known diner PAYER earns
           // (earnerUid set by create-intent); a cash/staff close has none → earns nothing. Server-
@@ -418,13 +459,18 @@ export async function POST(req: NextRequest) {
         // on their phone leaves it unset → 'diner'. Captures BOTH card close paths in one place; cash
         // closes are logged in settleCash. Best-effort, drained out of band (never delays the ack).
         if (orderId && cartRow?.tab_type && cartRow.tab_type !== "none") {
-          const closedByStaff = intent.metadata?.closedBy === "staff";
+          // W6c: a reader settle is staff-run too — the attribution is settledByStaffId (settleCard's
+          // metadata), not closedBy (closeSecureTab's). Without this, a Terminal tab close was
+          // audited as actorKind 'diner' while a specific staff member ran the register.
+          const closedByStaff = intent.metadata?.closedBy === "staff" || isTerminal;
           after(() =>
             logTabEvent({
               cartId,
               event: "closed",
               actorKind: closedByStaff ? "staff" : "diner",
-              actorStaffId: closedByStaff ? (intent.metadata?.closedByStaffId ?? null) : null,
+              actorStaffId: closedByStaff
+                ? (intent.metadata?.closedByStaffId ?? intent.metadata?.settledByStaffId ?? null)
+                : null,
               tabType: cartRow.tab_type as "trust" | "secure",
               amountCents: intent.amount,
             }),
@@ -488,6 +534,28 @@ export async function POST(req: NextRequest) {
           { error: "Share-failed mark failed; will retry" },
           { status: 500 },
         );
+      }
+    } else if (intent.metadata?.kind === "terminal" && cartId && intent.metadata?.settleAttempt) {
+      // W6c: a reader decline. The POLL already released this attempt's freeze the moment it
+      // observed the decline (terminalStatus's failed branch) — this arm is the scoped backstop
+      // for a register tab that closed mid-collect and stopped polling. Scoped to the attempt in
+      // the PI's metadata, so a late/redelivered event can never null a successor attempt's live
+      // freeze (the generic branch below is unconditional-by-cart — the exact era hazard the W6c
+      // review confirmed HIGH for reader flows, where cancel→retry cycles are routine).
+      try {
+        const settleErr = await releaseSettlementFor(cartId, intent.metadata.settleAttempt);
+        if (settleErr)
+          console.error("[stripe webhook] terminal decline release failed", {
+            cartId,
+            paymentIntent: intent.id,
+            message: settleErr.message,
+          });
+      } catch (e) {
+        console.error("[stripe webhook] terminal decline release threw", {
+          cartId,
+          paymentIntent: intent.id,
+          error: e,
+        });
       }
     } else if (cartId) {
       // Single-pay: free the pay-window lock (P3.2-lock) so the cart returns to editable for the table.
@@ -556,6 +624,34 @@ export async function POST(req: NextRequest) {
           { error: "Share-canceled mark failed; will retry" },
           { status: 500 },
         );
+      }
+    } else if (
+      intent.metadata?.kind === "terminal" &&
+      intent.metadata?.cartId &&
+      intent.metadata?.settleAttempt
+    ) {
+      // W6c: a canceled reader PI. The staff cancel already released synchronously — but this
+      // event's FIRST delivery still arrives seconds later, after a routine cancel→retry has
+      // re-acquired the freeze for a NEW attempt (the review's confirmed HIGH). So the release is
+      // SCOPED to the attempt in the PI's own metadata: a late delivery matches zero rows against
+      // a successor's freeze, while genuinely-orphaned attempts (a closed register tab, a failed
+      // in-action release) still get cleaned. Best-effort, 200-ack; the TTL remains the backstop.
+      try {
+        const settleErr = await releaseSettlementFor(
+          intent.metadata.cartId,
+          intent.metadata.settleAttempt,
+        );
+        if (settleErr)
+          console.error("[stripe webhook] terminal cancel release failed", {
+            cartId: intent.metadata.cartId,
+            paymentIntent: intent.id,
+            message: settleErr.message,
+          });
+      } catch (e) {
+        console.error("[stripe webhook] terminal cancel release threw", {
+          paymentIntent: intent.id,
+          error: e,
+        });
       }
     }
   } else if (event.type === "setup_intent.succeeded") {

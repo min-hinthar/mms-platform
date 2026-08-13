@@ -73,8 +73,20 @@ export default async function RegisterPage() {
                 <span style={dayCount}> · {day.summary.cashCount} orders</span>
               </dd>
             </div>
+            {/* W6c: the counter reader's takings — its own column so the register can reconcile
+                the READER against Stripe Terminal, separate from online card. Rendered only once
+                a terminal order exists (a two-column day stays two columns). */}
+            {(day.summary.terminalCount > 0 || day.summary.terminalCents > 0) && (
+              <div style={dayCell}>
+                <dt style={dayLabel}>Card · reader</dt>
+                <dd style={dayBig}>
+                  ${(day.summary.terminalCents / 100).toFixed(2)}
+                  <span style={dayCount}> · {day.summary.terminalCount} orders</span>
+                </dd>
+              </div>
+            )}
             <div style={dayCell}>
-              <dt style={dayLabel}>Card</dt>
+              <dt style={dayLabel}>Card · online</dt>
               <dd style={dayBig}>
                 ${(day.summary.cardCents / 100).toFixed(2)}
                 <span style={dayCount}> · {day.summary.cardCount} orders</span>

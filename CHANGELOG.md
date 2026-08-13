@@ -4,6 +4,57 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W6c — Stripe Terminal (2026-08-06)
+
+In-person card at the register (M6·P6.2 pulled forward; plan: `docs/W6C_PLAN.md`). Server-driven:
+the S700 is commanded through the Stripe API from staff-gated actions — no client SDK, no
+connection tokens (the plan's correction to M6_DESIGN), and the reader never sets a price.
+
+- **The settle (`lib/terminal.ts`).** `settleCard` copies `closeSecureTab`'s freeze lifecycle, not
+  `settleCash`'s: `acquireSettlement` BEFORE any money derivation, PI minted from
+  `getCartTotals(cart, 0)` (`card_present`, automatic capture, per-attempt idempotency key —
+  a stable key caches a decline 24h), `processPaymentIntent` with `skip_tipping: true`, and the
+  success path HOLDS the freeze — the webhook's open→paid flip is the terminal state. Every
+  failure path cancels the orphan PI and releases. `terminalStatus` polls the PI's truth and
+  `extendSettlement`s mid-collect (a slow chip interaction can't outlive the 10-min TTL and lose
+  the cart to a diner mint / kioskReset / a new split). `cancelTerminal` clears the reader, then
+  the PI, and releases ONLY on a successful PI cancel ("too late" when the tap won).
+- **The webhook arm (`kind: 'terminal'`).** Rides the existing succeeded→reconcile→
+  `mms_fulfill_order` path (idempotent on the PI id, cross-tender guard included) with three
+  deltas: `tender='terminal'` + `settled_by` attribution, the counter-session close (extracted to
+  `staff-open-cart.ts` and shared with `settleCash` — a webhook-fulfilled counter order must not
+  squat in the register queue for 12h), and a terminal `payment_intent.canceled` release arm.
+- **Migration `20260806100000_w6c_terminal.sql`.** `tender` CHECK grows `'terminal'`;
+  `mms_fulfill_order` re-signs with `p_settled_by` + `p_tender` (both defaulted — the deployed
+  online path resolves unchanged; full live-body restate from w3_kitchen, both signatures dropped,
+  grants re-issued). Types regenerated.
+- **The register UI.** "Card on the reader · $X" beside Cash (rendered only when
+  `STRIPE_TERMINAL_READER_ID` is configured — feature-off unset, the /board pattern); the live
+  collect panel survives the settle section's unmount (parent state, the W6a handoff lesson) with
+  honest states (on reader · recording · declined-with-code-copy · canceled) and a reader Cancel;
+  the counter handoff `#CODE` card unchanged. Z-report gains **Card · reader** as its own column
+  (never folded into online card — the reader reconciles against Stripe Terminal).
+- **Tip = 0 in v1, decided.** The webhook reconcile recomputes `getCartTotals(cartId, tipRate)`;
+  a reader-added dollar tip has no rate that reproduces it — every tipped tap would 409-loop.
+  On-reader tipping = registry follow-up (S11, needs an absolute-cents tip channel end to end).
+- **Review fixes (ONE capped pass, in-cap, 2 CONFIRMED HIGH):** the freeze is now keyed by a
+  **per-attempt id** riding the PI metadata, and every release — the poll's decline release, staff
+  cancel, and BOTH webhook arms (`canceled` + a new terminal `payment_failed` sub-branch) — is
+  **scoped to its attempt** (`releaseSettlementFor`), so a late delivery after a routine
+  cancel→retry can never null a successor attempt's live freeze (and a same-staff double-tap can
+  no longer share a freeze via the same-owner re-acquire). A **decline releases at observation**
+  (the poll), so "try another card or cash" is true the moment it renders — no more webhook-gated
+  dead register. The captured-but-unfulfilled window keeps extending the freeze; the reader Cancel
+  is PI-verified (never wipes another table's prompt); the collect handle survives a reload
+  (sessionStorage re-attach); the counter close no longer bounces the cashier off the `#CODE`
+  card; blind polls and a stuck "Recording…" escalate honestly; Terminal tab closes audit as
+  staff; one live region per panel; `getStripe` can't strand a freeze; ENV.md's simulated-reader
+  note corrected (incl. the `presentPaymentMethod` test-drive step).
+- Guards: `lib/terminal.test.ts` (15 — call shapes + ordering, never scripted answers) ·
+  `lib/lock.test.ts` (the scoped-release predicate) · `lib/register-math.test.ts` terminal bucket
+  · eight new `verify:slice` mutants (**82 total**), each watched fail. Live reader registration +
+  smoke owed on hardware + Terminal enablement.
+
 ### W6b — the kiosk shell (2026-08-06)
 
 The self-serve surface (closes **S5**; plan: `docs/W6B_PLAN.md`). Reuse-don't-fork (M6·P6.1): the
