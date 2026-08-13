@@ -7,7 +7,7 @@ import { staffGate, STAFF_WRITE_OUTAGE } from "./staff";
 import { openCartFor } from "./staff-open-cart";
 import { getCartTotals } from "./totals";
 import { paymentInFlightReason } from "./pay-guard";
-import { acquireSettlement, releaseSettlement, extendSettlement } from "./lock";
+import { acquireSettlement, releaseSettlementFor, extendSettlement } from "./lock";
 import { getStripe } from "./stripe";
 import { getPostHogClient } from "./posthog-server";
 
@@ -25,6 +25,17 @@ import { getPostHogClient } from "./posthog-server";
  * and every failure/cancel path releases it. The status poll `extendSettlement`s while collecting
  * so a slow chip interaction can't outlive the 10-min TTL mid-collect (the map's central race:
  * past staleness, kioskReset / a diner mint / a new split can take the cart over a live reader PI).
+ *
+ * **The freeze is keyed by a per-ATTEMPT id, never the staff uid** (the review's confirmed HIGH).
+ * The attempt id rides the PI metadata (`settleAttempt`) and EVERY release is scoped to it
+ * (`releaseSettlementFor`), so a release that outlives its attempt — a late webhook
+ * canceled/failed delivery after a cancel→retry, a stale panel, a double-tap loser — matches zero
+ * rows instead of nulling a successor's live freeze. The attempt key also makes the acquire
+ * STRICT by construction: acquireSettlement's same-owner re-acquire disjunct can never match a
+ * different attempt, so a concurrent second settleCard refuses instead of sharing the freeze.
+ * A decline is released by the POLL the moment it's observed (the attempt is dead — no live
+ * authorization), so "try another card or cash" is immediately true; the webhook releases are the
+ * scoped backstop for a closed register tab.
  *
  * Tip = 0 in v1 (`skip_tipping: true`, `tipRate: '0'`) — the webhook reconcile recomputes
  * getCartTotals(cartId, tipRate) and a reader-added dollar tip has no rate that reproduces it;
@@ -93,33 +104,47 @@ export async function settleCard(raw: unknown): Promise<SettleCardResult> {
   if (countError) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if ((count ?? 0) === 0) return { ok: false, error: "There’s nothing on this table to settle." };
 
+  // Construct the Stripe client BEFORE the freeze: getStripe() throws on a missing secret, and a
+  // throw with the freeze held would strand the table frozen for the TTL (review finding).
+  let stripe;
+  try {
+    stripe = getStripe();
+  } catch (e) {
+    console.error("[terminal] Stripe client unavailable", { error: e });
+    return { ok: false, error: "Card payments aren’t available right now — settle by cash." };
+  }
+
   // The race-closing claim, BEFORE any money derivation (S1-audit B2 / HANDOFF's Terminal warning):
   // once held, a diner's create-intent and a concurrent cash settle are refused for the window.
-  const freeze = await acquireSettlement(cart.id, caller.uid);
+  // Keyed by a fresh per-ATTEMPT id: a same-staff double-tap can't ride the same-owner re-acquire
+  // disjunct into a shared freeze — the loser refuses cleanly, having acquired (and thus owing)
+  // nothing.
+  const attemptId = crypto.randomUUID();
+  const freeze = await acquireSettlement(cart.id, attemptId);
   if (freeze !== "acquired")
     return {
       ok: false,
       error:
         freeze === "closed"
           ? "That table is no longer open."
-          : "Someone’s already paying on their phone — wait for that to finish.",
+          : "Someone’s already paying — wait a moment and try again.",
     };
 
   // Post-freeze awaits release on every failure path (closeSecureTab's discipline — the success
-  // path deliberately HOLDS the freeze, so no blanket finally).
+  // path deliberately HOLDS the freeze, so no blanket finally). Releases are scoped to THIS
+  // attempt: they can never null a freeze someone else has since acquired.
   const totals = await getCartTotals(cart.id, 0).catch(() => null); // tip 0 — the counter rule
   if (!totals) {
-    await releaseSettlement(cart.id);
+    await releaseSettlementFor(cart.id, attemptId);
     console.error("[terminal] settleCard totals failed", { sessionId, cartId: cart.id });
     return { ok: false, error: "Couldn’t total this order just now — try again." };
   }
   const amount = totals.totalCents;
   if (amount <= 0) {
-    await releaseSettlement(cart.id);
+    await releaseSettlementFor(cart.id, attemptId);
     return { ok: false, error: "There’s nothing on this table to settle." };
   }
 
-  const stripe = getStripe();
   let intentId: string;
   try {
     const intent = await stripe.paymentIntents.create(
@@ -135,11 +160,13 @@ export async function settleCard(raw: unknown): Promise<SettleCardResult> {
         // The webhook contract: cartId routes fulfillment, tipRate '0' makes the reconcile exact,
         // kind 'terminal' keeps this PI out of split-share routing and drives attribution + the
         // counter-session close; NEVER 'split_share' (share-ledger code with no row to find).
+        // settleAttempt scopes every later freeze release to THIS attempt's era.
         metadata: {
           cartId: cart.id,
           tipRate: "0",
           kind: "terminal",
           settledByStaffId: caller.staffId,
+          settleAttempt: attemptId,
         },
       },
       // Per-ATTEMPT idempotency key (the closeSecureTab lesson): a STABLE key caches a decline for
@@ -149,7 +176,7 @@ export async function settleCard(raw: unknown): Promise<SettleCardResult> {
     );
     intentId = intent.id;
   } catch (e) {
-    await releaseSettlement(cart.id);
+    await releaseSettlementFor(cart.id, attemptId);
     console.error("[terminal] PI create failed", {
       sessionId,
       cartId: cart.id,
@@ -176,7 +203,7 @@ export async function settleCard(raw: unknown): Promise<SettleCardResult> {
         code: (cancelErr as { code?: string }).code,
       });
     });
-    await releaseSettlement(cart.id);
+    await releaseSettlementFor(cart.id, attemptId);
     console.error("[terminal] processPaymentIntent failed", { sessionId, cartId: cart.id, code });
     return { ok: false, error: readerFailCopy(code) };
   }
@@ -233,7 +260,8 @@ export async function terminalStatus(raw: unknown): Promise<TerminalPollResult> 
   }
   // Only OUR reader PIs are pollable — the id is a handle, the metadata is the authority.
   const cartId = intent.metadata?.cartId;
-  if (intent.metadata?.kind !== "terminal" || !cartId)
+  const attempt = intent.metadata?.settleAttempt;
+  if (intent.metadata?.kind !== "terminal" || !cartId || !attempt)
     return { ok: false, error: "Invalid request." };
 
   if (intent.status === "succeeded") {
@@ -249,19 +277,28 @@ export async function terminalStatus(raw: unknown): Promise<TerminalPollResult> 
         paymentIntent: intent.id,
         message: orderErr.message,
       });
-      return { ok: true, state: "succeeded", orderId: null, totalCents: intent.amount };
     }
     if (order) {
       revalidatePath("/staff");
       revalidatePath(`/staff/table/${parsed.data.sessionId}`);
+      return { ok: true, state: "succeeded", orderId: order.id, totalCents: intent.amount };
     }
-    return { ok: true, state: "succeeded", orderId: order?.id ?? null, totalCents: intent.amount };
+    // Captured but not yet fulfilled — the window where the freeze matters MOST (money has moved,
+    // the cart is still open). Keep it fresh, or a delayed webhook past the TTL hands the cart to
+    // a cash settle and the guest is double-charged (review finding).
+    await extendSettlement(cartId);
+    return { ok: true, state: "succeeded", orderId: null, totalCents: intent.amount };
   }
   if (intent.status === "canceled") return { ok: true, state: "canceled" };
   if (intent.status === "requires_payment_method" && intent.last_payment_error) {
     // The reader collected and the charge DECLINED (a fresh mint has no last_payment_error). The
-    // webhook's payment_failed arm releases the freeze; retry re-runs settleCard (same-uid
-    // re-acquire is idempotent if the release hasn't landed yet).
+    // attempt is dead — no live authorization — so release ITS freeze here and now, scoped to the
+    // attempt: "try another card or cash" must be true the moment we say it, not after a webhook
+    // lands (review finding: the pre-check refuses every retry while the dead freeze is fresh).
+    // A stale panel polling an OLD attempt matches zero rows and harms nothing.
+    const relErr = await releaseSettlementFor(cartId, attempt);
+    if (relErr)
+      console.error("[terminal] decline release failed", { cartId, message: relErr.message });
     return { ok: true, state: "failed", error: declineCopy(intent.last_payment_error.code) };
   }
   // requires_payment_method (fresh) / processing — the customer is mid-interaction: keep the
@@ -293,18 +330,29 @@ export async function cancelTerminal(raw: unknown): Promise<CancelTerminalResult
     return { ok: false, error: "Couldn’t reach Stripe — try again." };
   }
   const cartId = intent.metadata?.cartId;
-  if (intent.metadata?.kind !== "terminal" || !cartId)
+  const attempt = intent.metadata?.settleAttempt;
+  if (intent.metadata?.kind !== "terminal" || !cartId || !attempt)
     return { ok: false, error: "Invalid request." };
 
   const readerId = process.env.STRIPE_TERMINAL_READER_ID;
   if (readerId) {
-    // Best-effort: the reader may have already finished/failed the action.
-    await stripe.terminal.readers.cancelAction(readerId).catch((e) => {
-      console.error("[terminal] cancelAction failed", {
+    // Clear the reader ONLY if its current action is THIS payment — cancelAction is reader-scoped,
+    // and a stale panel's Cancel must never wipe a different table's live prompt mid-guest-
+    // interaction (review finding). Best-effort throughout: the reader may be offline/idle.
+    try {
+      const reader = await stripe.terminal.readers.retrieve(readerId);
+      const actionPi =
+        !("deleted" in reader) && reader.action?.type === "process_payment_intent"
+          ? (reader.action.process_payment_intent?.payment_intent ?? null)
+          : null;
+      const actionPiId = typeof actionPi === "string" ? actionPi : (actionPi?.id ?? null);
+      if (actionPiId === intent.id) await stripe.terminal.readers.cancelAction(readerId);
+    } catch (e) {
+      console.error("[terminal] reader cancelAction failed", {
         paymentIntent: paymentIntentId,
         code: (e as { code?: string }).code,
       });
-    });
+    }
   }
   try {
     await stripe.paymentIntents.cancel(intent.id);
@@ -317,7 +365,9 @@ export async function cancelTerminal(raw: unknown): Promise<CancelTerminalResult
     });
     return { ok: false, error: "Too late to cancel — the payment already went through." };
   }
-  const settleErr = await releaseSettlement(cartId);
+  // Scoped to THIS attempt: a stale panel canceling an old orphaned PI can never null a newer
+  // attempt's live freeze (the review's confirmed-HIGH era-confusion class).
+  const settleErr = await releaseSettlementFor(cartId, attempt);
   if (settleErr)
     console.error("[terminal] cancel release failed", { cartId, message: settleErr.message });
   return { ok: true };

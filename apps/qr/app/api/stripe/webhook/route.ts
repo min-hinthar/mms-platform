@@ -3,7 +3,7 @@ import { getStripe } from "@/lib/stripe";
 import { serviceClient } from "@mms/db/server";
 import { getCartTotals } from "@/lib/totals";
 import { closeCounterStyleSession } from "@/lib/staff-open-cart";
-import { releaseCartLock, releaseSettlement } from "@/lib/lock";
+import { releaseCartLock, releaseSettlement, releaseSettlementFor } from "@/lib/lock";
 import { logTabEvent } from "@/lib/tab-events";
 import { getPostHogClient } from "@/lib/posthog-server";
 import { enqueueQboSync, syncOrderToQbo } from "@/lib/qbo/client";
@@ -459,13 +459,18 @@ export async function POST(req: NextRequest) {
         // on their phone leaves it unset → 'diner'. Captures BOTH card close paths in one place; cash
         // closes are logged in settleCash. Best-effort, drained out of band (never delays the ack).
         if (orderId && cartRow?.tab_type && cartRow.tab_type !== "none") {
-          const closedByStaff = intent.metadata?.closedBy === "staff";
+          // W6c: a reader settle is staff-run too — the attribution is settledByStaffId (settleCard's
+          // metadata), not closedBy (closeSecureTab's). Without this, a Terminal tab close was
+          // audited as actorKind 'diner' while a specific staff member ran the register.
+          const closedByStaff = intent.metadata?.closedBy === "staff" || isTerminal;
           after(() =>
             logTabEvent({
               cartId,
               event: "closed",
               actorKind: closedByStaff ? "staff" : "diner",
-              actorStaffId: closedByStaff ? (intent.metadata?.closedByStaffId ?? null) : null,
+              actorStaffId: closedByStaff
+                ? (intent.metadata?.closedByStaffId ?? intent.metadata?.settledByStaffId ?? null)
+                : null,
               tabType: cartRow.tab_type as "trust" | "secure",
               amountCents: intent.amount,
             }),
@@ -529,6 +534,28 @@ export async function POST(req: NextRequest) {
           { error: "Share-failed mark failed; will retry" },
           { status: 500 },
         );
+      }
+    } else if (intent.metadata?.kind === "terminal" && cartId && intent.metadata?.settleAttempt) {
+      // W6c: a reader decline. The POLL already released this attempt's freeze the moment it
+      // observed the decline (terminalStatus's failed branch) — this arm is the scoped backstop
+      // for a register tab that closed mid-collect and stopped polling. Scoped to the attempt in
+      // the PI's metadata, so a late/redelivered event can never null a successor attempt's live
+      // freeze (the generic branch below is unconditional-by-cart — the exact era hazard the W6c
+      // review confirmed HIGH for reader flows, where cancel→retry cycles are routine).
+      try {
+        const settleErr = await releaseSettlementFor(cartId, intent.metadata.settleAttempt);
+        if (settleErr)
+          console.error("[stripe webhook] terminal decline release failed", {
+            cartId,
+            paymentIntent: intent.id,
+            message: settleErr.message,
+          });
+      } catch (e) {
+        console.error("[stripe webhook] terminal decline release threw", {
+          cartId,
+          paymentIntent: intent.id,
+          error: e,
+        });
       }
     } else if (cartId) {
       // Single-pay: free the pay-window lock (P3.2-lock) so the cart returns to editable for the table.
@@ -598,14 +625,22 @@ export async function POST(req: NextRequest) {
           { status: 500 },
         );
       }
-    } else if (intent.metadata?.kind === "terminal" && intent.metadata?.cartId) {
-      // W6c: a canceled reader PI (staff cancel already released everything — this covers the
-      // redelivery / out-of-band cancel, e.g. an expired reader action canceling server-side).
-      // Same posture as payment_failed's generic branch: unconditional-by-cart, best-effort,
-      // 200-ack — opting into redelivery could let a LATE retry unfreeze a settlement the table
-      // has since opened; the 10-min settle TTL is the designed backstop.
+    } else if (
+      intent.metadata?.kind === "terminal" &&
+      intent.metadata?.cartId &&
+      intent.metadata?.settleAttempt
+    ) {
+      // W6c: a canceled reader PI. The staff cancel already released synchronously — but this
+      // event's FIRST delivery still arrives seconds later, after a routine cancel→retry has
+      // re-acquired the freeze for a NEW attempt (the review's confirmed HIGH). So the release is
+      // SCOPED to the attempt in the PI's own metadata: a late delivery matches zero rows against
+      // a successor's freeze, while genuinely-orphaned attempts (a closed register tab, a failed
+      // in-action release) still get cleaned. Best-effort, 200-ack; the TTL remains the backstop.
       try {
-        const settleErr = await releaseSettlement(intent.metadata.cartId);
+        const settleErr = await releaseSettlementFor(
+          intent.metadata.cartId,
+          intent.metadata.settleAttempt,
+        );
         if (settleErr)
           console.error("[stripe webhook] terminal cancel release failed", {
             cartId: intent.metadata.cartId,

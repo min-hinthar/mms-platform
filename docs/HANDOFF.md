@@ -30,7 +30,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > Card·reader Z-report column. Feature-off unset. **Owed on hardware + Terminal enablement (S12):**
 > reader registration (live + simulated for preview), `STRIPE_TERMINAL_READER_ID` per scope, one
 > live card-present smoke — and `20260806100000_w6c_terminal.sql` joins the restore `db push` list.
-> 79 `verify:slice` mutants.
+> 82 `verify:slice` mutants.
 >
 > **Next candidates:** W7 PWA + receipt (S1/S3 high) · W5 bilingual toggle
 > (S2 high) · the money-truth residual sweep (J14 · M22 · M36 · W8d).

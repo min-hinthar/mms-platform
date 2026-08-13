@@ -2,10 +2,13 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { settleCard, terminalStatus, cancelTerminal } from "@/lib/terminal";
-import { Card } from "@mms/ui";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const POLL_MS = 2500;
+/** Consecutive failed polls before the panel admits it's blind (Stripe unreachable). */
+const BLIND_AFTER_MISSES = 3;
+/** How long "Recording the order…" may claim progress before escalating honestly. */
+const RECORDING_ESCALATE_MS = 20_000;
 
 /**
  * Card-present settle at the register (W6c). Two halves, split on purpose:
@@ -38,13 +41,20 @@ export function TerminalSettleButton({
   async function start() {
     setBusy(true);
     setError(null);
-    const res = await settleCard({ sessionId });
-    setBusy(false);
-    if (!res.ok) {
-      setError(res.error);
-      return;
+    try {
+      const res = await settleCard({ sessionId });
+      setBusy(false);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      onStarted({ paymentIntentId: res.paymentIntentId, totalCents: res.totalCents });
+    } catch {
+      // A rejected action (Next redacts the message in prod) must never latch the button on
+      // "Starting…" — the W10c bug class.
+      setBusy(false);
+      setError("Couldn’t start the card payment — try again, or settle by cash.");
     }
-    onStarted({ paymentIntentId: res.paymentIntentId, totalCents: res.totalCents });
   }
 
   return (
@@ -92,6 +102,13 @@ export function TerminalCollectPanel({
   const router = useRouter();
   const [phase, setPhase] = useState<PanelPhase>("collecting");
   const [failCopy, setFailCopy] = useState<string | null>(null);
+  // Consecutive poll misses — past the threshold the panel admits it can't see Stripe instead of
+  // claiming a live wait it isn't actually watching (review finding: the honest server copy was
+  // dead code and the freeze-extension silently stopped).
+  const [pollMisses, setPollMisses] = useState(0);
+  // When the recording phase started — bounds how long "Recording…" may claim progress.
+  const [recordingSince, setRecordingSince] = useState<number | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [cancelBusy, setCancelBusy] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -104,12 +121,19 @@ export function TerminalCollectPanel({
     if (phase === "failed" || phase === "canceled") return; // terminal — stop polling
     let stopped = false;
     const tick = async () => {
+      setNowMs(Date.now());
       const res = await terminalStatus({
         sessionId,
         paymentIntentId: collect.paymentIntentId,
       }).catch(() => null);
-      if (stopped || !res) return; // transient poll miss — the next interval retries
-      if (!res.ok) return; // staff-session hiccup etc. — keep trying; Cancel stays available
+      if (stopped) return;
+      if (!res || !res.ok) {
+        // Transient miss (Stripe/staff-session hiccup) — count it so the panel can stop claiming
+        // a live wait; the next interval retries and Cancel stays available.
+        setPollMisses((n) => n + 1);
+        return;
+      }
+      setPollMisses(0);
       if (res.state === "succeeded") {
         if (res.orderId) {
           onDone(
@@ -120,6 +144,7 @@ export function TerminalCollectPanel({
           router.refresh();
         } else {
           setPhase("recording"); // charged; the webhook is landing the order — keep polling
+          setRecordingSince((t) => t ?? Date.now());
         }
       } else if (res.state === "failed") {
         setPhase("failed");
@@ -140,72 +165,82 @@ export function TerminalCollectPanel({
   async function cancel() {
     setCancelBusy(true);
     setCancelError(null);
-    const res = await cancelTerminal({ sessionId, paymentIntentId: collect.paymentIntentId });
-    setCancelBusy(false);
-    if (!res.ok) {
-      // "Too late" (the tap won) or a transport miss — the poll keeps reporting the truth.
-      setCancelError(res.error);
-      return;
+    try {
+      const res = await cancelTerminal({ sessionId, paymentIntentId: collect.paymentIntentId });
+      setCancelBusy(false);
+      if (!res.ok) {
+        // "Too late" (the tap won) or a transport miss — the poll keeps reporting the truth.
+        setCancelError(res.error);
+        return;
+      }
+      setPhase("canceled");
+    } catch {
+      setCancelBusy(false);
+      setCancelError("Couldn’t cancel just now — try again.");
     }
-    setPhase("canceled");
   }
+
+  const blind = pollMisses >= BLIND_AFTER_MISSES;
+  const recordingLong =
+    recordingSince != null && nowMs - recordingSince > RECORDING_ESCALATE_MS;
+
+  // ONE live region: the status line below carries every phase/degradation change. The panel root
+  // and its buttons stay OUTSIDE it (a status region wrapping interactive content re-announces the
+  // buttons on every tick; a nested alert inside a status double-fires — review finding).
+  const statusText =
+    phase === "collecting"
+      ? blind
+        ? "Can’t reach Stripe right now — the reader may still be live. Hold on, or cancel."
+        : "Waiting for the guest to tap or insert their card…"
+      : phase === "recording"
+        ? recordingLong
+          ? "The charge went through, but the order isn’t recorded yet. Don’t re-charge — note the amount and check Orders in a minute."
+          : "Recording the order…"
+        : phase === "failed"
+          ? (failCopy ?? "The payment didn’t go through.")
+          : "Nothing was charged.";
 
   return (
     <div
       ref={panelRef}
       tabIndex={-1}
-      role="status"
       aria-label="Card reader payment"
       className="card"
       style={{ ...panel, outline: "none" }}
     >
-      {phase === "collecting" && (
-        <>
-          <p style={panelTitle}>
+      <p style={{ ...panelTitle, color: phase === "failed" ? "var(--warn)" : "var(--tx)" }}>
+        {phase === "collecting" && (
+          <>
             On the reader · <strong>{fmt(collect.totalCents)}</strong>
-          </p>
-          <p style={panelSub}>Waiting for the guest to tap or insert their card…</p>
-          <button
-            className="staff-btn"
-            type="button"
-            onClick={cancel}
-            disabled={cancelBusy}
-            style={cancelBtn}
-          >
-            {cancelBusy ? "Canceling…" : "Cancel the reader"}
-          </button>
-          {cancelError && (
-            <p role="alert" style={{ ...panelSub, color: "var(--warn)" }}>
-              {cancelError}
-            </p>
-          )}
-        </>
-      )}
-      {phase === "recording" && (
-        <>
-          <p style={panelTitle}>
+          </>
+        )}
+        {phase === "recording" && (
+          <>
             Paid · <strong>{fmt(collect.totalCents)}</strong>
-          </p>
-          <p style={panelSub}>Recording the order…</p>
-        </>
+          </>
+        )}
+        {phase === "failed" && "Payment didn’t go through"}
+        {phase === "canceled" && "Canceled"}
+      </p>
+      <p role="status" style={{ ...panelSub, color: blind ? "var(--warn)" : "var(--t2)" }}>
+        {statusText}
+        {cancelError ? ` ${cancelError}` : ""}
+      </p>
+      {phase === "collecting" && (
+        <button
+          className="staff-btn"
+          type="button"
+          onClick={cancel}
+          disabled={cancelBusy}
+          style={cancelBtn}
+        >
+          {cancelBusy ? "Canceling…" : "Cancel the reader"}
+        </button>
       )}
-      {phase === "failed" && (
-        <>
-          <p style={{ ...panelTitle, color: "var(--warn)" }}>Payment didn’t go through</p>
-          <p style={panelSub}>{failCopy}</p>
-          <button className="staff-btn" type="button" onClick={() => onDone(null)} style={cancelBtn}>
-            Back to settle
-          </button>
-        </>
-      )}
-      {phase === "canceled" && (
-        <>
-          <p style={panelTitle}>Canceled</p>
-          <p style={panelSub}>Nothing was charged.</p>
-          <button className="staff-btn" type="button" onClick={() => onDone(null)} style={cancelBtn}>
-            Back to settle
-          </button>
-        </>
+      {(phase === "failed" || phase === "canceled" || recordingLong) && (
+        <button className="staff-btn" type="button" onClick={() => onDone(null)} style={cancelBtn}>
+          Back to settle
+        </button>
       )}
     </div>
   );

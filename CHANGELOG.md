@@ -37,9 +37,23 @@ connection tokens (the plan's correction to M6_DESIGN), and the reader never set
 - **Tip = 0 in v1, decided.** The webhook reconcile recomputes `getCartTotals(cartId, tipRate)`;
   a reader-added dollar tip has no rate that reproduces it — every tipped tap would 409-loop.
   On-reader tipping = registry follow-up (S11, needs an absolute-cents tip channel end to end).
-- Guards: `lib/terminal.test.ts` (13 — call shapes + ordering, never scripted answers) ·
-  `lib/register-math.test.ts` terminal bucket · five new `verify:slice` mutants (**79 total**),
-  each watched fail. Live reader registration + smoke owed on hardware + Terminal enablement.
+- **Review fixes (ONE capped pass, in-cap, 2 CONFIRMED HIGH):** the freeze is now keyed by a
+  **per-attempt id** riding the PI metadata, and every release — the poll's decline release, staff
+  cancel, and BOTH webhook arms (`canceled` + a new terminal `payment_failed` sub-branch) — is
+  **scoped to its attempt** (`releaseSettlementFor`), so a late delivery after a routine
+  cancel→retry can never null a successor attempt's live freeze (and a same-staff double-tap can
+  no longer share a freeze via the same-owner re-acquire). A **decline releases at observation**
+  (the poll), so "try another card or cash" is true the moment it renders — no more webhook-gated
+  dead register. The captured-but-unfulfilled window keeps extending the freeze; the reader Cancel
+  is PI-verified (never wipes another table's prompt); the collect handle survives a reload
+  (sessionStorage re-attach); the counter close no longer bounces the cashier off the `#CODE`
+  card; blind polls and a stuck "Recording…" escalate honestly; Terminal tab closes audit as
+  staff; one live region per panel; `getStripe` can't strand a freeze; ENV.md's simulated-reader
+  note corrected (incl. the `presentPaymentMethod` test-drive step).
+- Guards: `lib/terminal.test.ts` (15 — call shapes + ordering, never scripted answers) ·
+  `lib/lock.test.ts` (the scoped-release predicate) · `lib/register-math.test.ts` terminal bucket
+  · eight new `verify:slice` mutants (**82 total**), each watched fail. Live reader registration +
+  smoke owed on hardware + Terminal enablement.
 
 ### W6b — the kiosk shell (2026-08-06)
 

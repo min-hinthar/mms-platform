@@ -74,9 +74,50 @@ export function FloorDetailLive({
     changeCents: number | null;
   } | null>(null);
   // W6c: the live reader-collect window — SAME survival rule as the handoff card (the settlement
-  // freeze flips paymentInFlight, which unmounts the settle section seconds after the start).
-  const [terminalCollect, setTerminalCollect] = useState<TerminalCollect | null>(null);
+  // freeze flips paymentInFlight, which unmounts the settle section seconds after the start),
+  // PLUS reload survival: the PI handle is mirrored to sessionStorage, so a mid-collect refresh /
+  // tab sleep re-attaches to the live reader charge instead of orphaning it with no Cancel and
+  // misleading "guest is paying on their phone" copy (review finding).
+  const [terminalCollect, setTerminalCollectState] = useState<TerminalCollect | null>(null);
+  useEffect(() => {
+    // setState via a scheduled callback, not synchronously in the effect (react-hooks rule).
+    const id = setTimeout(() => {
+      try {
+        const raw = sessionStorage.getItem(`mms-terminal-collect:${sessionId}`);
+        if (!raw) return;
+        const parsed = JSON.parse(raw) as TerminalCollect;
+        if (
+          typeof parsed?.paymentIntentId === "string" &&
+          parsed.paymentIntentId.startsWith("pi_") &&
+          typeof parsed?.totalCents === "number"
+        )
+          setTerminalCollectState(parsed);
+      } catch {
+        /* deliberate: an unreadable stash is just a cold start */
+      }
+    }, 0);
+    return () => clearTimeout(id);
+  }, [sessionId]);
+  const setTerminalCollect = useCallback(
+    (c: TerminalCollect | null) => {
+      setTerminalCollectState(c);
+      try {
+        if (c) sessionStorage.setItem(`mms-terminal-collect:${sessionId}`, JSON.stringify(c));
+        else sessionStorage.removeItem(`mms-terminal-collect:${sessionId}`);
+      } catch {
+        /* deliberate: storage may be unavailable — in-memory state still drives the panel */
+      }
+    },
+    [sessionId],
+  );
   const handoffRef = useRef<HTMLDivElement>(null);
+  // The webhook's counter-session close races the panel's poll: a `closed` verdict must not bounce
+  // to the floor while the collect panel / handoff card IS the live surface — the cashier would
+  // never see the #CODE call-out (review finding). "← Floor" is the deliberate exit.
+  const terminalFlowLive = useRef(false);
+  useEffect(() => {
+    terminalFlowLive.current = terminalCollect != null || handoff != null;
+  }, [terminalCollect, handoff]);
   useEffect(() => {
     // Focus the handoff card when it appears (the settle control it replaced has unmounted).
     if (handoff) handoffRef.current?.focus();
@@ -117,8 +158,13 @@ export function FloorDetailLive({
       } else if (res.kind === "closed") {
         // Genuinely closed/cleared — the detail no longer exists; go back to the floor. (The old
         // `null` also fired on OUTAGE, kicking staff off a live table's order mid-service — M32.)
-        router.replace("/staff");
-        router.refresh();
+        // W6c exception: the terminal webhook CLOSES a counter session moments after fulfilling —
+        // bouncing now would yank the collect panel / #CODE handoff card out from under the
+        // cashier before the poll ever reports it. Hold; "← Floor" is the deliberate exit.
+        if (!terminalFlowLive.current) {
+          router.replace("/staff");
+          router.refresh();
+        }
       } else if (res.kind === "signin") {
         // An expired/invalid staff session is a verdict, not a blip — the honest surface is login.
         window.location.assign("/staff/login");
@@ -418,8 +464,11 @@ export function FloorDetailLive({
           />
           {detail.tab === "trust" && (
             <p style={{ ...muted, marginTop: 8, fontSize: "var(--fs-sm)" }}>
-              Paying by card? The guest closes the tab from their phone — it settles when that
-              payment lands.
+              {/* W6c: with a reader configured, card-at-the-counter is the button above — don't
+                  send the guest back to their phone for a payment the reader takes right here. */}
+              {terminalReady
+                ? "Paying by card? Use the reader above, or the guest can close the tab from their phone."
+                : "Paying by card? The guest closes the tab from their phone — it settles when that payment lands."}
             </p>
           )}
         </section>

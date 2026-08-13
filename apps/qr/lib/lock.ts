@@ -126,6 +126,27 @@ export async function releaseSettlement(cartId: string): Promise<ReleaseError> {
 }
 
 /**
+ * Release the freeze ONLY IF a specific attempt still owns it (W6c). The Terminal settle keys the
+ * freeze on a per-ATTEMPT id (not the staff uid), so every release — the poll's decline release,
+ * staff cancel, and the late webhook canceled/payment_failed deliveries — carries the attempt it
+ * belongs to in the predicate. A release that outlived its attempt (a redelivered event, a stale
+ * panel, a double-tap loser) matches ZERO rows instead of nulling a successor's live freeze —
+ * the era-confusion class the W6c review confirmed HIGH.
+ */
+export async function releaseSettlementFor(
+  cartId: string,
+  attemptId: string,
+): Promise<ReleaseError> {
+  const db = serviceClient();
+  const { error } = await db
+    .from("qr_carts")
+    .update({ settle_at: null, settle_by: null })
+    .eq("id", cartId)
+    .eq("settle_by", attemptId);
+  return error;
+}
+
+/**
  * Extend a LIVE settlement freeze (W1·Q4): slide `settle_at` forward only while it is STILL FRESH.
  * Called on payer activity (a share PI mint, a share authorization) so a table that takes longer
  * than the TTL to cover the bill can't dead-end with every card authorized and capture refused.

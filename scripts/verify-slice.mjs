@@ -651,7 +651,7 @@ const MUTANTS = [
     file: "apps/qr/lib/terminal.ts",
     suite: "lib/terminal.test.ts",
     why: "W6c — the settlement freeze is the double-collect mutex; minting the reader PI on an unfrozen cart lets a diner's phone payment capture during the collect window",
-    find: "  const freeze = await acquireSettlement(cart.id, caller.uid);",
+    find: "  const freeze = await acquireSettlement(cart.id, attemptId);",
     replace: '  const freeze = "acquired" as Awaited<ReturnType<typeof acquireSettlement>>;',
   },
   {
@@ -661,7 +661,32 @@ const MUTANTS = [
     why: "W6c — the success path must HOLD the freeze (the webhook fulfill is the terminal state); releasing on hand-off reopens the capture→webhook double-collect window closeSecureTab exists to close",
     find: "  return { ok: true, paymentIntentId: intentId, totalCents: amount };",
     replace:
-      "  await releaseSettlement(cart.id);\n  return { ok: true, paymentIntentId: intentId, totalCents: amount };",
+      "  await releaseSettlementFor(cart.id, attemptId);\n  return { ok: true, paymentIntentId: intentId, totalCents: amount };",
+  },
+  {
+    id: "terminal/decline-not-released-at-observation",
+    file: "apps/qr/lib/terminal.ts",
+    suite: "lib/terminal.test.ts",
+    why: "W6c review — a decline whose freeze waits for the webhook strands the register: the pre-check refuses every retry AND the cash fallback with false 'paying on their phone' copy until the delivery lands (or the 10-min TTL)",
+    find: "    const relErr = await releaseSettlementFor(cartId, attempt);",
+    replace: "    const relErr = null as { message: string } | null;",
+  },
+  {
+    id: "terminal/recording-window-stops-extending",
+    file: "apps/qr/lib/terminal.ts",
+    suite: "lib/terminal.test.ts",
+    why: "W6c review — captured-but-unfulfilled is the window where the freeze matters MOST (money moved, cart open); if the poll stops extending there, a delayed webhook past the TTL hands the cart to a cash settle and the guest is double-charged",
+    find: '    // Captured but not yet fulfilled — the window where the freeze matters MOST (money has moved,\n    // the cart is still open). Keep it fresh, or a delayed webhook past the TTL hands the cart to\n    // a cash settle and the guest is double-charged (review finding).\n    await extendSettlement(cartId);\n',
+    replace:
+      "    // Captured but not yet fulfilled — the window where the freeze matters MOST (money has moved,\n    // the cart is still open). Keep it fresh, or a delayed webhook past the TTL hands the cart to\n    // a cash settle and the guest is double-charged (review finding).\n",
+  },
+  {
+    id: "lock/attempt-release-not-scoped",
+    file: "apps/qr/lib/lock.ts",
+    suite: "lib/lock.test.ts",
+    why: "W6c review (confirmed HIGH) — without the settle_by predicate, a release that outlived its attempt (a late webhook canceled/failed delivery after a cancel→retry, a stale panel, a double-tap loser) nulls a SUCCESSOR attempt's live freeze and reopens the reader-vs-phone double-collect",
+    find: '    .eq("id", cartId)\n    .eq("settle_by", attemptId);',
+    replace: '    .eq("id", cartId);',
   },
   {
     id: "terminal/skip-tipping-dropped",
