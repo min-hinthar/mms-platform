@@ -29,17 +29,16 @@ export function pickFavoriteRail<T extends { soldOut: boolean }>(items: T[], cap
 }
 
 /**
- * The avatar circle's single glyph: the first grapheme of the display name, else of the email's
- * local part, else the brand star. Grapheme-segmented so a Burmese or emoji initial renders whole
- * (a bare `[0]` would split a surrogate pair / combining cluster). Uppercased for latin initials;
- * identity for scripts without case.
+ * The avatar circle's single glyph: the first CODE POINT of the display name, else of the email's
+ * local part, else the brand star. Deliberately `Array.from`, NOT `Intl.Segmenter` (review LOW-2):
+ * the glyph renders in a client component during SSR, and grapheme segmentation differs across
+ * ICU versions / engines — a server-vs-browser disagreement on a Burmese cluster is a hydration
+ * mismatch. Code-point slicing is engine-stable (surrogate-pair-safe, so an emoji stays whole);
+ * a Burmese initial shows its base consonant ("မ" for "မောင်") — consistent everywhere beats a
+ * fuller cluster that flickers. Uppercased for latin; identity for scripts without case.
  */
 export function avatarGlyph(displayName: string | null, email: string | null): string {
   const source = displayName?.trim() || email?.split("@")[0]?.trim() || "";
   if (!source) return "✦";
-  const first =
-    typeof Intl.Segmenter === "function"
-      ? [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(source)][0]?.segment
-      : Array.from(source)[0];
-  return (first ?? "✦").toLocaleUpperCase("en-US");
+  return (Array.from(source)[0] ?? "✦").toLocaleUpperCase("en-US");
 }

@@ -19,11 +19,11 @@ describe("avatarGlyph", () => {
     expect(avatarGlyph("min kkhant", null)).toBe("M");
   });
 
-  it("keeps a Burmese initial whole (grapheme, not code unit)", () => {
-    // "မောင်" — the first grapheme cluster is the consonant + its vowel sign, not a split half.
-    const g = avatarGlyph("မောင်လေး", null);
-    expect(g.startsWith("မ")).toBe(true);
-    expect(g).not.toBe("မောင်လေး"); // one grapheme, not the whole string
+  it("is deterministic across engines: one CODE POINT, surrogate-pair-safe (review LOW-2)", () => {
+    // Burmese: the base consonant, byte-identical on server and client (no Segmenter drift).
+    expect(avatarGlyph("မောင်လေး", null)).toBe("မ");
+    // Emoji: Array.from keeps the surrogate pair whole — never a lone half.
+    expect(avatarGlyph("🌟 Star", null)).toBe("🌟");
   });
 
   it("falls back to the email local part, then the brand star", () => {

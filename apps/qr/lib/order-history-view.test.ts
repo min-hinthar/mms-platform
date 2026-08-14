@@ -8,7 +8,10 @@ import {
   reorderLink,
 } from "./order-history-view";
 
-const line = (fulfillment: string, over: Partial<{ qty: number; name: string; imageUrl: string | null }> = {}) => ({
+const line = (
+  fulfillment: string,
+  over: Partial<{ qty: number; name: string; imageUrl: string | null }> = {},
+) => ({
   qty: over.qty ?? 1,
   name: over.name ?? "Mohinga",
   fulfillment,
@@ -46,9 +49,9 @@ describe("fulfillKind / itemCount / lineSummary", () => {
 
 describe("leadImage", () => {
   it("takes the first line that HAS a photo, else null (the designed placeholder)", () => {
-    expect(
-      leadImage([line("dinein"), line("dinein", { imageUrl: "/img/a.jpg" })]),
-    ).toBe("/img/a.jpg");
+    expect(leadImage([line("dinein"), line("dinein", { imageUrl: "/img/a.jpg" })])).toBe(
+      "/img/a.jpg",
+    );
     expect(leadImage([line("dinein")])).toBeNull();
   });
 });
@@ -58,6 +61,15 @@ describe("reorderLink (J19 — the mode stops being a guess)", () => {
 
   it("routes a pure-grocery order to the market, not a reorder that returns nothing", () => {
     expect(reorderLink({ ...base, lines: [line("grocery"), line("grocery")] })).toEqual({
+      kind: "market",
+      href: "/grocery",
+    });
+  });
+
+  it("a TABLE-STAMPED pure-grocery order is still pure grocery (review LOW-4)", () => {
+    // modeFromOrder's tableNumber signal would read this as dine-in, but reorderOrder skips every
+    // grocery line — the market is the only destination that doesn't re-run an empty reorder.
+    expect(reorderLink({ ...base, tableNumber: 7, lines: [line("grocery")] })).toEqual({
       kind: "market",
       href: "/grocery",
     });

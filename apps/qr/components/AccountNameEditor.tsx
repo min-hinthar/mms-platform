@@ -1,5 +1,13 @@
 "use client";
-import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+  type CSSProperties,
+  type FormEvent,
+} from "react";
+import { useRouter } from "next/navigation";
 import { setDisplayName } from "@/lib/rewards";
 import { DEVICE_NAME_KEY } from "@/lib/device-session";
 
@@ -24,10 +32,12 @@ export function AccountNameEditor({
   name: string | null;
   onSaved: (name: string | null) => void;
 }) {
+  const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [, startTransition] = useTransition();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const wasEditing = useRef(false);
@@ -68,10 +78,15 @@ export function AccountNameEditor({
         onSaved(res.name);
         setError(null);
         setEditing(false);
+        // Re-render the SERVER components too (review MED-1): the masthead's "Mingalaba, {name}"
+        // line is server-rendered from getWelcomeBack — without this, the card heading updates
+        // while the greeting five lines above still shows the old name on the very page that
+        // promised the light-up. The confirmed `onSaved` name bridges the round trip, no flash.
+        startTransition(() => router.refresh());
       } else {
         setError(
           res.reason === "invalid"
-            ? "Keep your name under 80 characters."
+            ? "Keep your name to 80 characters or fewer."
             : res.reason === "rate_limited"
               ? "Too many changes — try again in a moment."
               : res.reason === "signed_out"

@@ -11,7 +11,7 @@ sheet's "Reorder these"), `docs/context/DESIGN-RESEARCH.md` §"Photos sell ≈ +
 ## The audit (what the map found)
 
 The `/account` machinery is sound — server-authoritative reads, W9c error honesty, the K3b merge,
-the W11 payer visibility — but the *surface* fails J-F on three counts:
+the W11 payer visibility — but the _surface_ fails J-F on three counts:
 
 - **No name, ever.** `mms_profiles.display_name` exists (1–80 CHECK, owner-read RLS, service-role
   write) and is read in three places (`AccountStatus` heading, `getWelcomeBack` — the designed

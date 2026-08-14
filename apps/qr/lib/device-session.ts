@@ -15,6 +15,11 @@
  *  - `mms.merge_token` — cleared by forgetAllIdentities/redeem, on its own 24h TTL.
  *  - `mms.scanQueue.v1` / `mms.groceryCatalog.v1` — cart-keyed + member-gated server-side (a
  *    replay from a non-member is refused), and price data is display-only.
+ *
+ * Accepted cost (review LOW-5): the clear is symmetric — the OWNER's own table pointer dies with
+ * the lend too, so "Done — back to you" restores the account but not the table session; they
+ * rescan the table QR (it's on the table in front of them). The alternative — keeping the join
+ * code through the lend window — is exactly the hole this module closes.
  */
 
 export const DEVICE_NAME_KEY = "mms.name";

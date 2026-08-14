@@ -52,7 +52,8 @@ export function AccountStatus({
   const [pending, setPending] = useState<null | "switch" | "lend">(null);
   const [busy, setBusy] = useState(false);
   // W14: a CONFIRMED save from the name editor (the server action's normalized return) renders
-  // immediately, without waiting for the router.refresh round trip. `undefined` = no save yet.
+  // immediately, bridging the editor's router.refresh round trip (which catches the server-rendered
+  // masthead greeting up — review MED-1). `undefined` = no save yet.
   const [savedName, setSavedName] = useState<string | null | undefined>(undefined);
   const [, startTransition] = useTransition();
   const effectiveName = savedName !== undefined ? savedName : displayName;

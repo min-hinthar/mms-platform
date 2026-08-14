@@ -219,8 +219,8 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
                       {/* J5 — reorder "your usual": lands on the menu, which runs the earner-gated
                           server reorder once the session's cart is ready (every price re-derived at
                           TODAY's menu — never these historical figures) and says exactly what came
-                          back and what didn't. The card stays server-rendered — the TransitionLink
-                          is its only client island.
+                          back and what didn't. The card stays server-rendered — the TransitionLinks
+                          and the BlurUpImage thumbs are its only client islands.
                           W14 (J19): the destination is now DERIVED from the order's own lines
                           (lib/order-history-view reorderLink) — food rides the pickup door (dine-in
                           deliberately demoted: no phantom tables from home); a pure-grocery order

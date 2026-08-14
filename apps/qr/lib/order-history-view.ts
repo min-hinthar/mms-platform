@@ -64,9 +64,7 @@ export function leadImage(lines: readonly HistoryLineish[]): string | null {
   return null;
 }
 
-export type ReorderLink =
-  | { kind: "reorder"; href: string }
-  | { kind: "market"; href: "/grocery" };
+export type ReorderLink = { kind: "reorder"; href: string } | { kind: "market"; href: "/grocery" };
 
 /**
  * W14 (closes OPEN-ITEMS J19's mode half) — the "Order this again" destination, derived from the
@@ -87,6 +85,11 @@ export function reorderLink(o: {
   tableNumber: number | null;
   lines: readonly HistoryLineish[];
 }): ReorderLink {
+  // PURE grocery wins outright (review LOW-4): a table-stamped grocery-only order would read as
+  // dine-in through modeFromOrder's tableNumber signal, but reorderOrder skips every grocery
+  // line — the market is the only destination that doesn't re-run an empty reorder.
+  if (o.lines.length > 0 && o.lines.every((l) => l.fulfillment === "grocery"))
+    return { kind: "market", href: "/grocery" };
   const mode = modeFromOrder({
     pickupSlot: o.pickupSlot,
     tableNumber: o.tableNumber,
