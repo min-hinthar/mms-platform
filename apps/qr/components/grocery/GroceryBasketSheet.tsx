@@ -69,18 +69,17 @@ export function GroceryBasketSheet({
             <ul role="list" aria-label="Basket items" className="gbasket-list">
               {lines.map((l) => (
                 <li key={l.lineId} className="card grocery-scanned-row">
-                  {l.imageUrl && (
-                    <span className="grocery-thumb" aria-hidden>
-                      <BlurUpImage
-                        src={l.imageUrl}
-                        alt=""
-                        width={56}
-                        height={56}
-                        sizes="56px"
-                        fallback={<PhotoPlaceholder category="grocery" />}
-                      />
-                    </span>
-                  )}
+                  {/* W13 — the slot ALWAYS renders: a missing photo falls to the designed placeholder. */}
+                  <span className="grocery-thumb" aria-hidden>
+                    <BlurUpImage
+                      src={l.imageUrl}
+                      alt=""
+                      width={56}
+                      height={56}
+                      sizes="56px"
+                      fallback={<PhotoPlaceholder category="grocery" />}
+                    />
+                  </span>
                   <span style={{ minWidth: 0, flex: 1 }}>
                     <span style={{ fontWeight: 700 }}>{l.name}</span>{" "}
                     {l.ebt && <small style={{ color: "var(--ok)", fontWeight: 700 }}>EBT</small>}

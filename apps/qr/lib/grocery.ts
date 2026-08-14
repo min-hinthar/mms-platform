@@ -7,6 +7,7 @@ import { assertCartMember } from "./authz";
 import { whyCartUnavailable, type CartUnavailable } from "./cart-failure";
 import { assertMutationRate } from "./rate";
 import { insertOrIncLine, touchCart } from "./order-lines";
+import { safeImageUrl } from "./media-url";
 
 /**
  * Grocery Scan & Go. The client sends a scanned BARCODE (never a price); the server looks it
@@ -190,13 +191,9 @@ async function readGroceryLines(cartId: string): Promise<GroceryLine[]> {
           ? cat.compare_at_cents
           : null,
       ebt: cat?.ebt_eligible ?? false,
-      // Contain a bad catalog URL: next/image THROWS at render on a non-allowlisted host (only
-      // relative paths + *.supabase.co pass next.config remotePatterns) — a broken thumb must
-      // never take down the whole page, so anything else renders as "no photo".
-      imageUrl:
-        rawUrl && (rawUrl.startsWith("/") || /^https:\/\/[^/]+\.supabase\.co\//.test(rawUrl))
-          ? rawUrl
-          : null,
+      // Contain a bad catalog URL (W13: the shared red-first-pinned guard — next/image THROWS at
+      // render on a non-allowlisted host; a broken thumb must never take down the whole page).
+      imageUrl: safeImageUrl(rawUrl),
     };
   });
 }
@@ -337,11 +334,7 @@ export async function getGroceryCatalog(): Promise<GroceryCatalogItem[]> {
     compareAtCents: i.compare_at_cents == null ? null : Number(i.compare_at_cents),
     featuredDeal: i.is_featured_deal === true,
     ebt: i.ebt_eligible,
-    // Same containment as readGroceryLines: only relative or *.supabase.co URLs reach next/image.
-    imageUrl:
-      i.image_url &&
-      (i.image_url.startsWith("/") || /^https:\/\/[^/]+\.supabase\.co\//.test(i.image_url))
-        ? i.image_url
-        : null,
+    // Same containment as readGroceryLines — the shared guard (lib/media-url).
+    imageUrl: safeImageUrl(i.image_url),
   }));
 }

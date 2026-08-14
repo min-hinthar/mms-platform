@@ -26,6 +26,8 @@ import { canMutateLine } from "@/lib/permissions";
 import { menuHref, menuLinkText } from "@/lib/menu-href";
 import { DINER_STATE_COPY } from "@/lib/line-state-copy";
 import { seatColor, seatInitial } from "@/lib/avatars";
+import { BlurUpImage } from "./menu/BlurUpImage";
+import { PhotoPlaceholder } from "./menu/PhotoPlaceholder";
 import { useAnonSession } from "@/lib/useAnonSession";
 import { failureCopy, useConnectionTruth } from "@/lib/useConnectionTruth";
 import { useCartRealtime } from "@/lib/realtime";
@@ -267,6 +269,10 @@ export function Checkout({
   // the window is open the View-bill door stays un-promoted and REFUSES with the why (the W9b
   // dead-controls-say-why rule) instead of silently forfeiting the undo.
   const [undoOpen, setUndoOpen] = useState(false);
+  // W13 — the J1 rule ("back slides back") applied INSIDE /cart: forward flips (order→bill,
+  // review→pay) enter from the right, back flips from the left. State (not a ref) — the wrapper
+  // className reads it during render, and render-phase ref reads are a compiler violation.
+  const [stepDir, setStepDir] = useState<"forward" | "back">("forward");
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [payTotals, setPayTotals] = useState<CartTotals | null>(null);
   const [loadingPay, setLoadingPay] = useState(false);
@@ -280,6 +286,10 @@ export function Checkout({
       setItems(v.items);
       setTotals(v.totals);
       setSettling(v.settling); // a peer (host) opening/canceling a split flips the whole table here
+      // W13 review — a peer-driven settle flip is a LATERAL cut, not a back-navigation: without
+      // this reset a stale "back" from the diner's last local flip would slide the settle board
+      // (and its return) in from the left. Idempotent while settling holds (React bails on same).
+      if (v.settling) setStepDir("forward");
       // W9b — the lock moves with the same refresh. This is still NOT pay-step state: it never touches
       // clientSecret/payTotals/step, so the mounted Stripe Element is untouched by a lock flip.
       setLocked(v.locked);
@@ -633,6 +643,7 @@ export function Checkout({
       }
       setClientSecret(data.clientSecret);
       setPayTotals(data.totals);
+      setStepDir("forward"); // W13 — the pay step is the deepest cut
       setStep("pay");
     } catch {
       setPayError("Couldn’t start checkout — please try again.");
@@ -647,6 +658,7 @@ export function Checkout({
   function flipStage(next: CheckoutStage) {
     setStatus(null);
     setPayError(null);
+    setStepDir(next === "bill" ? "forward" : "back"); // W13 — bill is deeper; order is the way back
     setStage(next);
   }
 
@@ -658,6 +670,7 @@ export function Checkout({
     } catch {
       // non-fatal; the lock auto-expires via its TTL
     }
+    setStepDir("back"); // W13 — leaving the pay step slides back
     setStep("review");
     setClientSecret(null);
     setPayTotals(null);
@@ -677,7 +690,21 @@ export function Checkout({
     const backLabel = menuLinkText(sessionMode, "browse");
     return (
       <main style={{ padding: "24px 20px 40px", maxWidth: 440, margin: "0 auto" }}>
-        <h1 style={{ fontSize: "var(--fs-h1)", marginBottom: 16 }}>Your order</h1>
+        <h1 style={{ fontSize: "var(--fs-h1)", marginBottom: 16 }}>
+          Your order
+          <span
+            lang="my"
+            style={{
+              display: "block",
+              fontFamily: "var(--font-my)",
+              fontSize: "var(--fs-sm)",
+              fontWeight: 600,
+              color: "var(--t2)",
+            }}
+          >
+            သင့်အော်ဒါ
+          </span>
+        </h1>
         <EmptyState
           icon={<Icon name="cart" size={30} style={{ color: "var(--ac)" }} />}
           title="Nothing in your cart yet"
@@ -781,6 +808,20 @@ export function Checkout({
       >
         <h1 ref={headingRef} tabIndex={-1} style={{ fontSize: "var(--fs-h1)" }}>
           {heading}
+          {/* W13 — the moment's Burmese name (casual-warm register), part OF the heading so a
+              screen reader hears both tongues once, correctly pronounced (lang="my"). */}
+          <span
+            lang="my"
+            style={{
+              display: "block",
+              fontFamily: "var(--font-my)",
+              fontSize: "var(--fs-sm)",
+              fontWeight: 600,
+              color: "var(--t2)",
+            }}
+          >
+            {heading === "Your bill" ? "သင့်ဘောက်ချာ" : "သင့်အော်ဒါ"}
+          </span>
         </h1>
         <WalletChip badge={rewardsBadge} />
       </div>
@@ -789,7 +830,10 @@ export function Checkout({
           Keyed on the view so React remounts it (the animation replays); the <h1> above stays mounted as the
           focus target. The pay step's Stripe Element mounts WITH this wrapper, so the transform-based enter
           never reloads the iframe. CSS `@media`-gated — no shouldAnimate first-render race. */}
-      <div key={viewKey} className="checkout-step">
+      <div
+        key={viewKey}
+        className={`checkout-step${stepDir === "back" ? " checkout-step-back" : ""}`}
+      >
         {isGroup && settling && splitContext ? (
           <>
             <SettlementBoard
@@ -953,8 +997,40 @@ export function Checkout({
                     className="card card-textured checkout-line"
                     style={{ padding: 12, display: "flex", gap: 10, alignItems: "center" }}
                   >
+                    {/* W13 — the v7.2 50px line thumb (.crow .ph). The slot ALWAYS renders: a
+                        missing/refused URL falls to the designed PhotoPlaceholder, never a hole.
+                        Decorative (the name is the accessible content) — alt="" via the fallback. */}
+                    <span className="checkout-line-thumb" aria-hidden="true">
+                      <BlurUpImage
+                        src={i.imageUrl ?? null}
+                        alt=""
+                        width={50}
+                        height={50}
+                        sizes="50px"
+                        fallback={
+                          <PhotoPlaceholder
+                            variant="thumb"
+                            icon={i.fulfillment === "grocery" ? "cat-grocery" : "cat-dish"}
+                          />
+                        }
+                      />
+                    </span>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontWeight: 600 }}>{i.name}</div>
+                      {/* W13 — the Burmese name: the post-add path speaks both tongues (100%
+                          name_my coverage; lang="my" for WCAG 3.1.2 + the Padauk stack). */}
+                      {i.nameMy && (
+                        <div
+                          lang="my"
+                          style={{
+                            fontFamily: "var(--font-my)",
+                            fontSize: "var(--fs-sm)",
+                            color: "var(--t2)",
+                          }}
+                        >
+                          {i.nameMy}
+                        </div>
+                      )}
                       {i.modifiers.length > 0 && (
                         <div style={{ fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
                           {i.modifiers.join(", ")}
@@ -1160,11 +1236,43 @@ export function Checkout({
                       : undefined;
                     return (
                       <li key={i.id} className="checkout-bill-line">
+                        {/* W13 — the v7.2 receipt-row thumb (44px variant → 40px here). Always a
+                            slot: refused/missing URLs fall to the designed placeholder. */}
+                        <span className="checkout-bill-thumb" aria-hidden="true">
+                          <BlurUpImage
+                            src={i.imageUrl ?? null}
+                            alt=""
+                            width={40}
+                            height={40}
+                            sizes="40px"
+                            fallback={
+                              <PhotoPlaceholder
+                                variant="thumb"
+                                icon={i.fulfillment === "grocery" ? "cat-grocery" : "cat-dish"}
+                              />
+                            }
+                          />
+                        </span>
                         <span className="checkout-bill-name">
                           <span style={{ fontWeight: 600 }}>
                             {i.qty > 1 ? `${i.qty} × ` : ""}
                             {i.name}
                           </span>
+                          {i.nameMy && (
+                            <span
+                              lang="my"
+                              style={{
+                                display: "block",
+                                fontFamily: "var(--font-my)",
+                                // fs-sm, not fs-xs: stacked Burmese diacritics at the 11px floor
+                                // are illegible; matches the cart line's MY size (review LOW).
+                                fontSize: "var(--fs-sm)",
+                                color: "var(--t2)",
+                              }}
+                            >
+                              {i.nameMy}
+                            </span>
+                          )}
                           {(i.modifiers.length > 0 || i.notes) && (
                             <span
                               style={{

@@ -5,7 +5,14 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-08-14 — W11 + W6a/b/c + W7b + W12 shipped)
+> ## ⏭️ NEXT SESSION — start here (2026-08-14 — W11 + W6a/b/c + W7b + W12 + W13 shipped)
+>
+> **W13 shipped (2026-08-14)** — the premium-feel pass (`docs/W13_PLAN.md`): the add moment
+> (springing bilingual toast, cart-bar spring + count capsule, MicroBurst, haptic hierarchy
+> 6/8/12), photos + Burmese joined onto the cart/bill lines (`getCartView` imageUrl/nameMy;
+> designed placeholder always renders; `fallback.jpg` filtered), directional back-slides inside
+> /cart, bilingual heading accents. `lib/media-url` containment guard caught + closed a real
+> protocol-relative `//host` escape in the W4b inline guard. Presentation-only.
 >
 > **W12 shipped (2026-08-14)** — the two-moment checkout (`docs/W12_PLAN.md`; owner-directed
 > restage): the dine-in cart stages **Order** ("Send to kitchen · N items" primary + a quiet

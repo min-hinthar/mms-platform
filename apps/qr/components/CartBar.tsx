@@ -1,9 +1,15 @@
 "use client";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { NumberFlow } from "@mms/ui";
 import { useJourneyRouter } from "./nav/TransitionNav";
 import { useCart } from "./TableCartProvider";
+
+// W13 review MED — the spring belongs to the bar's FIRST appearance this visit, not every /menu
+// remount (the SurfaceMemory precedent: entrance effects don't replay on revisit). Module-scoped:
+// survives route remounts within the SPA session, resets on a full load — "appearing IS the
+// moment" stays true exactly once.
+let cartBarSprung = false;
 
 /**
  * Sticky order bar — appears once the cart has items, navigating to /cart with the server-issued
@@ -15,6 +21,12 @@ export function CartBar() {
   const router = useRouter(); // prefetch only — the navigation itself rides the journey grammar below
   const journey = useJourneyRouter(); // J1: menu→cart is a FORWARD cut; the total morphs into the checkout hero
   const { count, totals, cartId } = useCart();
+  // Captured once per mount, BEFORE the effect below marks the spring spent — a remount while
+  // the flag is already set renders without the entrance class.
+  const [springIn] = useState(() => !cartBarSprung);
+  useEffect(() => {
+    cartBarSprung = true;
+  }, []);
   const href = cartId ? `/cart?cart=${encodeURIComponent(cartId)}` : null;
   // Warm the /cart route (its RSC payload + code + the new loading skeleton) as soon as the bar can
   // appear, so a tap navigates without a cold server round-trip — the "opening the cart is slow" fix.
@@ -31,7 +43,9 @@ export function CartBar() {
       onClick={() => journey.push(href)}
       onPointerEnter={() => router.prefetch(href)}
       aria-label={`View order — ${count} ${count === 1 ? "item" : "items"}, subtotal ${dollars}`}
-      className="card"
+      // W13 — the bar springs up on its FIRST appearance this visit (v7.2 .cartbar). Token
+      // duration → RM-safe; revisits render it already in place (review MED).
+      className={`card${springIn ? " cartbar-in" : ""}`}
       style={{
         position: "fixed",
         left: 12,
@@ -52,8 +66,13 @@ export function CartBar() {
         cursor: "pointer",
       }}
     >
-      <span>
-        View order · {count} {count === 1 ? "item" : "items"}
+      <span style={{ display: "inline-flex", alignItems: "center" }}>
+        {/* W13 — the v7.2 count capsule; the keyed remount replays .mms-pop on each change.
+            Presentation only (the static aria-label above carries the count for AT). */}
+        <span key={count} className="cartbar-cnt mms-pop" aria-hidden="true">
+          {count}
+        </span>
+        View order
       </span>
       {/* Roll the subtotal as it changes (R7a). The button's accessible name is the static aria-label
           above (read on focus) — the rolling figure is presentation, not a per-tap announcement.

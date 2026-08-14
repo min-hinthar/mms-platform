@@ -270,7 +270,7 @@ export function TableCartProvider({
   // confirmation on success and a generic message on failure (WCAG 4.1.3 status messages) — but
   // never the rolling total itself (the CartBar/total deliberately aren't aria-live, so SR users
   // don't hear the amount re-read on every tap). Server errors are redacted in prod → generic text.
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ text: string; my?: string } | null>(null);
   // Signed optimistic count delta for in-flight mutations (instant CartBar count in BOTH directions:
   // an add is +1, a stepper decrement/lower is −N). Reconciled to 0 as each write's returned view
   // re-derives the true count from `items`. The MONEY total stays server-derived — only the count is
@@ -282,10 +282,26 @@ export function TableCartProvider({
   // add — replace deterministically instead of racing independent timers that could blank a fresh
   // notice early. Never the rolling total itself (the CartBar isn't aria-live — no amount re-read).
   const noticeTimer = useRef<number | null>(null);
-  const flash = useCallback((msg: string, ms = 2200) => {
+  const noticeExitTimer = useRef<number | null>(null);
+  // W13 — the toast leaves as deliberately as it arrives (review MED): the display timer flips a
+  // `leaving` phase (the .mms-toast-out settle), then a short exit timer unmounts. Both timers are
+  // single-slot — a fresh flash cancels BOTH so overlapping notices still replace deterministically.
+  const [noticeLeaving, setNoticeLeaving] = useState(false);
+  // W13 — `my` is an optional Burmese segment rendered as its own lang="my" span (WCAG 3.1.2 —
+  // correct SR pronunciation; the mixed-string alternative would read Burmese with EN rules).
+  const flash = useCallback((msg: string, ms = 2200, my?: string) => {
     if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
-    setNotice(msg);
-    noticeTimer.current = window.setTimeout(() => setNotice(null), ms);
+    if (noticeExitTimer.current !== null) window.clearTimeout(noticeExitTimer.current);
+    setNoticeLeaving(false);
+    setNotice({ text: msg, my });
+    noticeTimer.current = window.setTimeout(() => {
+      setNoticeLeaving(true);
+      // 200ms > the RM-collapsed exit; under reduced motion the node just lingers invisibly.
+      noticeExitTimer.current = window.setTimeout(() => {
+        setNotice(null);
+        setNoticeLeaving(false);
+      }, 200);
+    }, ms);
   }, []);
   // W5a — resume-intent honesty: the home card promised an existing table, but the mint CREATED a
   // fresh session (the old one expired, or staff cleared the table — the advisory card can't know).
@@ -396,7 +412,7 @@ export function TableCartProvider({
       // stepper) bumps the count by the whole pre-add quantity — one write, one flash.
       setPendingDelta((n) => n + qty);
       // Honest count for a multi-unit sheet add — an SR user hears how many units landed (4.1.3).
-      flash(qty > 1 ? `Added ${qty} to your order` : "Added to your order", 2000);
+      flash(qty > 1 ? `Added ${qty} to your order` : "Added to your order", 2000, "ထည့်ပြီးပါပြီ");
       // Authoritative unit count BEFORE this add (from the ref, never a stale render closure) so we can
       // tell how many units ACTUALLY landed — a merge into a line near the 99 cap can fill fewer than
       // requested, and the optimistic "Added N" above would then overstate it (W5c pre-merge honesty).
@@ -638,7 +654,11 @@ export function TableCartProvider({
         }}
       >
         {notice && (
+          // W13 — the toast springs in (.mms-toast; keyed so replacing one notice with another
+          // replays the entrance). The MY segment is its own lang="my" span on the Padauk stack.
           <span
+            key={notice.text}
+            className={`mms-toast${noticeLeaving ? " mms-toast-out" : ""}`}
             style={{
               display: "inline-block",
               background: "var(--tx)",
@@ -649,7 +669,13 @@ export function TableCartProvider({
               fontWeight: 700,
             }}
           >
-            {notice}
+            {notice.text}
+            {notice.my && (
+              <span lang="my" style={{ fontFamily: "var(--font-my)", fontWeight: 600 }}>
+                {" · "}
+                {notice.my}
+              </span>
+            )}
           </span>
         )}
       </div>

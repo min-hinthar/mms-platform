@@ -20,6 +20,7 @@ import {
   type Selection,
 } from "@/lib/menu/modifiers";
 import type { MenuItem } from "./MenuBrowser";
+import { hapticTap } from "@/lib/haptics";
 
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const delta = (cents: number) =>
@@ -195,6 +196,10 @@ function ItemSheetBody({
 
   async function addToOrder() {
     if (!canAdd) return;
+    // W13 review — the haptic weights the GESTURE, not the network (the AddButton rationale): on a
+    // slow link a post-round-trip buzz lands seconds after the tap. A refused add is corrected by
+    // the sheet staying open + the live region, same as the optimistic morph.
+    hapticTap(12);
     setBusy(true);
     try {
       // Option ids only — the provider's `add` forwards to `addItem`→`priceItem`, which validates the ids

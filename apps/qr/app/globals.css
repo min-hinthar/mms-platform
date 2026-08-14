@@ -1684,6 +1684,138 @@ h3 {
   border-bottom: 1.5px dotted color-mix(in oklab, var(--bd) 85%, transparent);
 }
 
+/* ── W13 — the added-to-cart moment ─────────────────────────────────────────────────────────── */
+
+/* The toast springs in (v7.2 .toast): lift + settle on the spring curve. Token duration → the
+   reduced-motion token collapse covers it (final frame = resting state). Enter-only by design —
+   the exit is a quiet fade of relevance, not a moment. */
+.mms-toast {
+  animation: mmsToastIn var(--dur-base) var(--spring) both;
+}
+/* Review MED — the exit the plan specified (v7.2 animates both directions): a quiet settle-down
+   before the unmount. Token durations → RM-collapsed. */
+.mms-toast-out {
+  animation: mmsToastOut var(--dur-fast) var(--ease-out) both;
+}
+@keyframes mmsToastOut {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+}
+@keyframes mmsToastIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The cart bar springs up on mount (v7.2 .cartbar): translateY(140%) → none. Token duration +
+   spring; plays on each (re)mount of the bar — appearing IS the moment. */
+.cartbar-in {
+  animation: cartbarUp var(--dur-sheet) var(--spring) both;
+}
+@keyframes cartbarUp {
+  from {
+    transform: translateY(140%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* The count capsule (v7.2 .cartbar .cnt): a quiet pill over the accent bar; the digit re-pops via
+   the keyed .mms-pop remount (same trick as the stepper count). NOT a live region. */
+.cartbar-cnt {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  padding: 1px 7px;
+  margin-right: 6px;
+  border-radius: 999px;
+  /* Review HIGH — the translucent mix computed 3.25:1 in light. Solid cream capsule + strong-ink
+     digit: 6.22:1 light / 8.45:1 dark (computed, not transcribed); the capsule edge vs the bar
+     keeps 4.84/8.45. */
+  background: var(--oa);
+  color: var(--ac-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The micro-gem burst (v7.2 microGems): five glyphs fly outward and fade. Absolute over the add
+   control (the wrapper is position:relative, overflow visible — the PILL clips its ripple, so the
+   burst lives on the wrapper, not inside the button). Token duration → RM collapse lands them at
+   the final, invisible frame. */
+.mms-burst {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  z-index: 2;
+}
+.mms-burst-gem {
+  position: absolute;
+  font-size: var(--fs-xs);
+  color: var(--ac);
+  opacity: 0;
+  animation: mmsBurstGem var(--dur-slow) var(--ease-out) var(--bdelay, 0ms) both;
+}
+@keyframes mmsBurstGem {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) scale(0.4);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--bx, 0), var(--by, 0)) scale(1);
+  }
+}
+/* Review LOW — the per-gem `--bdelay` is NOT a collapsed token, and `both` backwards-fills the
+   visible FROM frame through the delay: under reduced motion the gems would flash. The JS mount
+   gate covers today's one consumer; this block is the repo-convention CSS off-switch. */
+@media (prefers-reduced-motion: reduce) {
+  .mms-burst-gem {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+/* W13 — line thumbs (the v7.2 .crow .ph slot): fixed square, rounded, clipped; position:relative
+   hosts the PhotoPlaceholder's absolute inset. Decorative — aria-hidden at the call sites. */
+.checkout-line-thumb,
+.checkout-bill-thumb {
+  position: relative;
+  flex: none;
+  overflow: hidden;
+  border-radius: 11px;
+  background: var(--sf);
+}
+.checkout-line-thumb {
+  width: 50px;
+  height: 50px;
+}
+.checkout-bill-thumb {
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  align-self: center;
+}
+.checkout-line-thumb img,
+.checkout-bill-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 /* W12 — the Bill moment's line rows: the same receipt language as the breakdown (dotted leader from
    the item to its amount), read-only by design (editing lives one tap back on the Order moment). */
 .checkout-bill-lines {
@@ -1693,9 +1825,14 @@ h3 {
 }
 .checkout-bill-line {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 5px 0;
+  /* Review MED — `center` floated the price to the middle of the (always multi-line) name block;
+     top alignment keeps the amount on the item's TITLE line, the receipt convention. */
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px 0;
+}
+.checkout-bill-line > .checkout-bill-thumb {
+  align-self: flex-start;
 }
 .checkout-bill-name {
   flex: 1;
@@ -1946,6 +2083,21 @@ h3 {
     transform: none;
   }
 }
+/* W13 — the back-flip mirror: "← Back to your order" / "Back to review" enter from the LEFT (the
+   J1 back-slides-back rule, applied inside /cart). Same duration/easing; joins the RM block below. */
+.checkout-step-back {
+  animation-name: checkoutStepBackIn;
+}
+@keyframes checkoutStepBackIn {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .checkout-tip,
@@ -1971,8 +2123,10 @@ h3 {
     animation: none;
     content: none;
   }
-  .checkout-step {
+  .checkout-step,
+  .checkout-step-back {
     animation: none;
+    animation-name: none; /* the longhand must lose too — .checkout-step-back sets animation-name */
   }
 }
 

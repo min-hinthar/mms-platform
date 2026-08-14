@@ -4,6 +4,33 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W13 — the premium feel (2026-08-14)
+
+The maximalist polish pass (`docs/W13_PLAN.md`) against RUBRIC axis #5's own named criteria —
+the add moment, photos, haptics, directional motion, bilingual accents:
+
+- **The added-to-cart moment**: the toast springs in on the `--spring` curve and speaks both
+  tongues ("Added to your order · ထည့်ပြီးပါပြီ", the MY segment its own `lang="my"` span); the
+  cart bar springs up (`translateY(140%) → none`) with the v7.2 count capsule + keyed `.mms-pop`;
+  a 5-gem deterministic `MicroBurst` fires from the Add control on the morph; the **haptic weight
+  hierarchy** ships (6 stepper · 8 quick-add/scan · 12 sheet-add, `lib/haptics.ts`) with the
+  synchronous-matchMedia reduced-motion guard promoted from PaySuccess.
+- **Photos + Burmese on the money path**: `getCartView` lines now carry `imageUrl` + `nameMy`
+  (menu half rides the existing availability query — zero extra round trips; grocery half is one
+  barcode-keyed read); 50px thumbs on the cart line cards, 40px on the bill receipt rows, the
+  designed `PhotoPlaceholder` ALWAYS rendered; grocery basket rows stop collapsing the photo
+  slot; `fallback.jpg` rows fall to the designed placeholder instead of a generic stock image.
+- **`lib/media-url.ts`** — the ONE image-URL containment guard, shared + red-first-pinned. The
+  new suite **caught a real hole in the W4b-era inline guard: protocol-relative `//evil.host/…`
+  passed the `startsWith("/")` check** (the browser resolves it cross-origin); closed everywhere.
+- **Directional steps**: back flips inside /cart (bill→order, pay→review) enter from the left —
+  the J1 back-slides-back rule finally applies to the in-checkout cuts.
+- **Bilingual accents**: the moment headings ("Your order · သင့်အော်ဒါ", "Your bill ·
+  သင့်ဘောက်ချာ"), the empty cart, and per-line Burmese names across cart + bill (100% `name_my`
+  coverage finally reaches the post-add path).
+- Presentation-only (no charged amount, no mutation path); every new keyframe is token-duration
+  (RM collapse) or carries its own reduced-motion block; transform/opacity only.
+
 ### W12 — the two-moment checkout (2026-08-14)
 
 The dine-in cart stops asking the diner to pick a **settlement model** ("Send to kitchen" vs
