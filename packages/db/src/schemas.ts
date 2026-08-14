@@ -152,10 +152,14 @@ export const shareIntentInput = z.object({
 });
 
 /** scanAdd (grocery) — a scanned EAN-8(8)/UPC-A(12)/EAN-13(13)/GTIN-14(14) barcode (8–14 digits),
- *  never a price. An unknown-length match just misses the catalog lookup (handled honestly). */
+ *  never a price. An unknown-length match just misses the catalog lookup (handled honestly).
+ *  `scanId` (W7b) is the offline queue's per-scan-EVENT id: a replay with the same id is deduped
+ *  in the SQL statement and answers as an idempotent OK. Live scans omit it — a repeat barcode
+ *  deliberately counts (qty+1). Still never a price. */
 export const scanInput = z.object({
   cartId: uuid,
   barcode: z.string().regex(/^\d{8,14}$/, "barcode must be 8–14 digits"),
+  scanId: uuid.optional(),
 });
 
 /** searchGroceryItems — the Scan & Go name-search fallback when a barcode won't scan / isn't known.

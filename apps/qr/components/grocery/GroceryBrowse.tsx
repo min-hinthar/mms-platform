@@ -4,6 +4,7 @@ import { Icon } from "@mms/ui";
 import { BlurUpImage } from "@/components/menu/BlurUpImage";
 import { PhotoPlaceholder } from "@/components/menu/PhotoPlaceholder";
 import { getGroceryCatalog, type GroceryCatalogItem, type GroceryLine } from "@/lib/grocery";
+import { saveCatalogCache } from "@/lib/grocery-catalog-cache";
 import { useConnectionTruth } from "@/lib/useConnectionTruth";
 import {
   AISLES,
@@ -74,6 +75,12 @@ export const GroceryBrowse = memo(function GroceryBrowse({
     getGroceryCatalog()
       .then((items) => {
         if (!cancelled) setCatalog(items);
+        // W7b — stash the barcode→name/price map for OFFLINE scan feedback (display-only
+        // estimates; the charge is always the server's replay-time derivation). A side effect of
+        // the fetch we already made — never its own request.
+        saveCatalogCache(
+          items.map((i) => ({ barcode: i.barcode, name: i.name, priceCents: i.priceCents })),
+        );
       })
       .catch(() => {
         if (!cancelled) {

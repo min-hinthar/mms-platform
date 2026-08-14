@@ -12,6 +12,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { LendModeBanner } from "@/components/LendModeBanner";
 import { NavDirectionSync } from "@/components/nav/TransitionNav";
 import { SurfaceMemory } from "@/components/nav/SurfaceMemory";
+import { ResilienceShell } from "@/components/ResilienceShell";
 import { siteUrl } from "@/lib/site-url";
 
 const fraunces = Fraunces({ subsets: ["latin"], variable: "--font-fraunces" });
@@ -119,6 +120,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           <AnonAuthGate />
           <NavDirectionSync />
           <SurfaceMemory />
+          {/* W7b — SW registration + update heartbeat + the ambient offline pill (self-hides on
+              /staff · /kiosk · /board). Prod-only inside; a no-op in dev. */}
+          <ResilienceShell />
           <MotionProvider>
             {/* Persistent wayfinding spine (M-nav): the store observes the URL for mode/cart/order, the header
                 reads it. Both are client components; AppHeader self-hides on /staff. */}

@@ -5,7 +5,7 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-08-06 — W11 + W6a + W6b shipped)
+> ## ⏭️ NEXT SESSION — start here (2026-08-13 — W11 + W6a/b/c + W7b shipped)
 >
 > **W11 merged (#162)** — the split ledger is durable: the pinned reconcile (M1/M25), the
 > capture-claim stamp (M45), the refunds ledger + staff strip (M43), payer released-hold copy (M44),
@@ -30,9 +30,19 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > Card·reader Z-report column. Feature-off unset. **Owed on hardware + Terminal enablement (S12):**
 > reader registration (live + simulated for preview), `STRIPE_TERMINAL_READER_ID` per scope, one
 > live card-present smoke — and `20260806100000_w6c_terminal.sql` joins the restore `db push` list.
-> 82 `verify:slice` mutants.
 >
-> **Next candidates:** W7 PWA + receipt (S1/S3 high) · W5 bilingual toggle
+> **W7b shipped too** — the resilience shell (S3 closed → an S3a sweep note; `docs/W7B_PLAN.md`):
+> Serwist SW (documents network-only under the nonce CSP, synthetic bilingual offline shell,
+> capped runtime caches, `CACHE_VERSION` sweep) built via `scripts/build-sw.mjs` chained after
+> `next build` (turbo `outputs` carries `public/sw.js*` — cache blindness); 10-min update
+> heartbeat + quiet Refresh strip + first-install `controllerchange` guard; device-offline pill on
+> `useConnectionTruth`; the offline grocery **scan queue** — server-side per-scan dedupe
+> (`mms_scan_events` claimed as the RPCs' first statement; duplicate insert returns the NIL-uuid
+> sentinel), price-free `{scanId, cartId, barcode, queuedAt}` entries, serialized FIFO drain,
+> terminal verdict flushes the cart's queue, catalog-cache "≈$" estimates. 87 `verify:slice`
+> mutants — and `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
+>
+> **Next candidates:** W7a receipt (S1 high) · W5 bilingual toggle
 > (S2 high) · the money-truth residual sweep (J14 · M22 · M36 · W8d).
 >
 > _(The banner below is the pre-W11 state — kept for the W10 war stories.)_

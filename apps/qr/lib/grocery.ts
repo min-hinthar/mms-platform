@@ -35,8 +35,15 @@ export type ScanAddResult =
     }
   | { ok: false; reason: ScanAddFailure; barcode?: string };
 
-export async function scanAdd(cartId: string, barcode: string): Promise<ScanAddResult> {
-  const input = scanInput.parse({ cartId, barcode });
+export async function scanAdd(
+  cartId: string,
+  barcode: string,
+  // W7b: the offline queue's per-scan-EVENT id. A replay with the same id is deduped atomically in
+  // the RPC (ok + current lines — an idempotent answer, never an error). Live scans omit it; a
+  // repeat barcode deliberately counts. The queue never sends a price — this path re-derives.
+  scanId?: string,
+): Promise<ScanAddResult> {
+  const input = scanInput.parse({ cartId, barcode, scanId });
   // W9d — the authorization guard still runs FIRST and unchanged; only the SHAPE of its refusal
   // changes. Every throw used to surface on /grocery as "check your connection", so a shopper whose
   // basket had been paid for retried a dead cart forever. `whyCartUnavailable` re-derives the reason
@@ -86,6 +93,8 @@ export async function scanAdd(cartId: string, barcode: string): Promise<ScanAddR
         fulfillment: "grocery",
       },
       uid,
+      1,
+      input.scanId,
     );
     await touchCart(input.cartId, "scanAdd");
   } catch (e) {

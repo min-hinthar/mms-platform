@@ -562,6 +562,32 @@ export type Database = {
         }
         Relationships: []
       }
+      mms_scan_events: {
+        Row: {
+          cart_id: string
+          created_at: string
+          scan_id: string
+        }
+        Insert: {
+          cart_id: string
+          created_at?: string
+          scan_id: string
+        }
+        Update: {
+          cart_id?: string
+          created_at?: string
+          scan_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mms_scan_events_cart_id_fkey"
+            columns: ["cart_id"]
+            isOneToOne: false
+            referencedRelation: "qr_carts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       mms_tab_config: {
         Row: {
           ceiling_cents: number
@@ -1594,7 +1620,7 @@ export type Database = {
         Returns: number
       }
       mms_cart_item_inc_qty: {
-        Args: { p_by?: number; p_id: string }
+        Args: { p_by?: number; p_id: string; p_scan_id?: string }
         Returns: undefined
       }
       mms_cart_item_insert_if_open: {
@@ -1607,6 +1633,7 @@ export type Database = {
           p_name: string
           p_notes?: string
           p_qty?: number
+          p_scan_id?: string
           p_tax_cents: number
           p_unit_price_cents: number
         }

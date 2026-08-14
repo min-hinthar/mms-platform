@@ -4,7 +4,7 @@
   "ignoreBinaries": ["supabase"],
   "workspaces": {
     "apps/qr": {
-      "entry": ["lib/*.ts"],
+      "entry": ["lib/*.ts", "sw/sw.ts", "scripts/build-sw.mjs"],
       "ignoreDependencies": ["zustand"]
     },
     "packages/ui": {

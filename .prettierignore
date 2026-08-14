@@ -10,3 +10,4 @@ packages/db/src/database.types.ts
 docs/prototype/v7.2.html
 .claude/skills/
 posthog-setup-report.md
+apps/qr/public/sw.js
