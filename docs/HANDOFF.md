@@ -38,8 +38,10 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > heartbeat + quiet Refresh strip + first-install `controllerchange` guard; device-offline pill on
 > `useConnectionTruth`; the offline grocery **scan queue** — server-side per-scan dedupe
 > (`mms_scan_events` claimed as the RPCs' first statement; duplicate insert returns the NIL-uuid
-> sentinel), price-free `{scanId, cartId, barcode, queuedAt}` entries, serialized FIFO drain,
-> terminal verdict flushes the cart's queue, catalog-cache "≈$" estimates. 87 `verify:slice`
+> sentinel; a refused write RAISES so a claim never commits without its write), price-free
+> `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
+> retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
+> queue, catalog-cache "≈$" estimates. 88 `verify:slice`
 > mutants — and `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates:** W7a receipt (S1 high) · W5 bilingual toggle

@@ -22,6 +22,7 @@ import { isTerminal, type CartUnavailable } from "@/lib/cart-unavailable";
 import { failureCopy, useConnectionTruth } from "@/lib/useConnectionTruth";
 import {
   drainCart,
+  drainSummary,
   enqueueScan,
   flushCart,
   pendingFor,
@@ -326,15 +327,17 @@ export default function Grocery() {
   }, [syncPending]);
 
   // Queue a scan made with no radio: entry = {scanId, cartId, barcode, queuedAt} — NEVER a price
-  // (replay re-derives server-side; the cached name/price below is a labeled estimate).
+  // (replay re-derives server-side; the cached name/price below is a labeled estimate). `scanId`
+  // is the attempt's identity minted by add() — the SAME id the live attempt carried (or would
+  // have), so a lost-response live add and its queued retry dedupe to one write (review HIGH).
   const queueOffline = useCallback(
-    (barcode: string) => {
+    (barcode: string, scanId: string) => {
       if (!cartId) return false;
       if (!storageWorks()) {
         flash("You look offline — scanning needs a connection on this device.");
         return true; // handled (honestly): private-mode storage can't hold a queue
       }
-      const next = enqueueScan(cartId, barcode);
+      const next = enqueueScan(cartId, barcode, scanId);
       if (next === null) {
         flash("Too many scans waiting — reconnect to sync before adding more.");
         return true;
@@ -355,12 +358,17 @@ export default function Grocery() {
   // scanner effect (keyed on `onScan`) doesn't tear down + restart the camera on every re-render.
   const add = useCallback(
     async (barcode: string, via: "scan" | "search" | "browse") => {
-      // W7b — a dead radio queues instead of failing: the ONLY state licensed to promise a later
+      // W7b — ONE identity per physical scan, minted at the top: the live attempt SENDS it and any
+      // queued retry REUSES it, so the server's scan-event ledger dedupes a lost-response live add
+      // against its own replay (review HIGH: a fresh id minted at enqueue time crosses idempotency
+      // keys — the committed-but-unanswered live write and the retry would both land).
+      const scanId = crypto.randomUUID();
+      // A dead radio queues instead of failing: the ONLY state licensed to promise a later
       // sync is device-offline (navigator.onLine false). A backend outage (we-down) keeps the
       // honest refusal — scan verdicts (unknown/weighed/terminal) can only come from the server,
       // and a queued scan later refused is a lie about money.
       if (typeof navigator !== "undefined" && !navigator.onLine && cartId) {
-        queueOffline(barcode);
+        queueOffline(barcode, scanId);
         return;
       }
       if (!cartId) {
@@ -376,12 +384,14 @@ export default function Grocery() {
       const seq = ++reqSeq.current; // ticket at issue time — the response carries a server view
       let r;
       try {
-        r = await scanAdd(cartId, barcode);
+        r = await scanAdd(cartId, barcode, scanId);
       } catch {
         if (cartIdRef.current === cartId) {
           // W7b — the request RACED the radio dying: same license as the pre-flight (offline is
           // the only state that may promise a later sync), so the scan queues instead of dropping.
-          if (typeof navigator !== "undefined" && !navigator.onLine && queueOffline(barcode))
+          // The SAME scanId the live attempt carried — if that write actually committed and only
+          // the response was lost, the replay conflicts on the ledger and no-ops (review HIGH).
+          if (typeof navigator !== "undefined" && !navigator.onLine && queueOffline(barcode, scanId))
             return;
           // ONE toast, immediately, using the truth we already hold (the module-cached verdict, so
           // the second failure in an outage is already attributed). The probe runs fire-and-forget
@@ -487,12 +497,14 @@ export default function Grocery() {
           markCartGone(seq, reason);
         return { ok: false, reason };
       });
-      for (const o of outcomes) {
-        if (o.verdict === "rejected")
-          flash(`Couldn’t add a saved scan (${o.entry.barcode}) — it’s not available.`);
-      }
-      if (delivered > 0)
-        flash(`Back online — added ${delivered} saved ${delivered === 1 ? "scan" : "scans"}.`);
+      // ONE composed toast — flash() is single-slot, so per-outcome flashes in this same
+      // continuation clobber each other and a rejection vanished behind the success line
+      // (review MED). drainSummary is the pure, unit-pinned sequencing rule.
+      const summary = drainSummary(
+        delivered,
+        outcomes.filter((o) => o.verdict === "rejected").map((o) => o.entry.barcode),
+      );
+      if (summary) flash(summary);
     } finally {
       drainingRef.current = false;
       syncPending();

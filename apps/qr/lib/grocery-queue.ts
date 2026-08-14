@@ -2,7 +2,9 @@
  * The offline scan queue (W7b — S3): scans made in a dead spot queue here and REPLAY when the
  * radio returns. Client half of the scan-event idempotency — every entry carries a client-minted
  * `scanId` the server dedupes atomically (see 20260813210000_w7b_scan_events.sql), so an
- * at-least-once replay can never double-add.
+ * at-least-once replay can never double-add. The id is minted ONCE per physical scan by the page
+ * (never here): a live attempt and its queued retry must share the identity, or a live add whose
+ * response was lost replays under a fresh id and double-adds past the ledger (review HIGH).
  *
  * Money-path invariants (the plan's hard lines):
  *  - An entry is `{scanId, cartId, barcode, queuedAt}` and NOTHING else — never a price, name, or
@@ -17,6 +19,12 @@
  * "scanning needs a connection" honesty (the caller checks `storageWorks()`), corrupt entries are
  * dropped at load (validated shape), and a TTL bounds how stale a replay can be — a week-old
  * queued scan must not land in a basket the shopper forgot.
+ *
+ * Accepted residual (review LOW, registry S3b): localStorage has no cross-tab atomic
+ * read-modify-write, so two tabs draining/scanning the SAME cart can interleave a load→save and
+ * lose one write. The delivered-scan direction is harmless (the server ledger absorbs a re-queued
+ * replay as an idempotent no-op); the enqueue-clobbered direction needs two same-cart tabs writing
+ * in the same instant — accepted at LOW, revisit only with a real multi-tab grocery story.
  */
 
 export type QueuedScan = {
@@ -108,16 +116,19 @@ function saveQueue(entries: QueuedScan[]): void {
   }
 }
 
-/** Enqueue a scan for replay. Returns the stored queue, or null when the cap refuses (the caller
+/** Enqueue a scan for replay. `scanId` is the attempt's identity, minted by the CALLER at scan
+ *  time (see the header — reuse across live attempt + retry is the double-add guard; this module
+ *  never mints its own). Returns the stored queue, or null when the cap refuses (the caller
  *  surfaces honest "too many waiting" copy instead of silently dropping). */
 export function enqueueScan(
   cartId: string,
   barcode: string,
+  scanId: string,
   now: number = Date.now(),
 ): QueuedScan[] | null {
   const entries = loadQueue(now);
   if (entries.length >= MAX_ENTRIES) return null;
-  const entry: QueuedScan = { scanId: crypto.randomUUID(), cartId, barcode, queuedAt: now };
+  const entry: QueuedScan = { scanId, cartId, barcode, queuedAt: now };
   const next = [...entries, entry];
   saveQueue(next);
   return next;
@@ -141,6 +152,24 @@ export function flushCart(cartId: string): QueuedScan[] {
 }
 
 export type DrainOutcome = { entry: QueuedScan; verdict: ReplayVerdict };
+
+/**
+ * ONE composed message for a finished drain — the page's toast channel is single-slot (a later
+ * flash() cancels the earlier), so per-outcome flashes in the same continuation clobber each
+ * other and a REJECTED saved scan vanished unannounced behind "Back online — added N" (review
+ * MED: the strip promised "they'll add when you're back online"; the one correction of that
+ * promise must actually paint). Pure so the sequencing rule is pinnable by a unit test.
+ */
+export function drainSummary(delivered: number, rejectedBarcodes: string[]): string | null {
+  const rejected = rejectedBarcodes.length;
+  const scans = (n: number) => (n === 1 ? "scan" : "scans");
+  if (delivered > 0 && rejected > 0)
+    return `Back online — added ${delivered} saved ${scans(delivered)}, but ${rejected} couldn’t be added (${rejectedBarcodes.join(", ")}) — no longer available.`;
+  if (delivered > 0) return `Back online — added ${delivered} saved ${scans(delivered)}.`;
+  if (rejected > 0)
+    return `Couldn’t add ${rejected} saved ${scans(rejected)} (${rejectedBarcodes.join(", ")}) — no longer available.`;
+  return null;
+}
 
 /**
  * Drain a cart's queue: strictly one send at a time, oldest first, spaced. Stops early on the

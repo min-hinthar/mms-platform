@@ -112,9 +112,10 @@ export async function insertOrIncLine(
   // W5c: the item sheet's pre-add quantity (bounded 1–9 by Zod upstream, 1–99 again in the SQL).
   // Every other caller (quick-add, grocery scan, staff, reorder) stays at the default single unit.
   qty: number = 1,
-  // W7b: the offline scan queue's per-EVENT id — deduped ATOMICALLY inside the RPCs (the ledger is
-  // per cart+scan, so the dedupe survives this function's inc-vs-insert branch flipping between a
-  // replay's attempts). Undefined for every live add — byte-identical to today.
+  // W7b: the scan-EVENT id — deduped ATOMICALLY inside the RPCs (the ledger is per cart+scan, so
+  // the dedupe survives this function's inc-vs-insert branch flipping between a replay's attempts).
+  // The grocery page sends it on LIVE scans too (one id per physical scan, reused by the offline
+  // queue's retry — review HIGH). Undefined for every other caller — byte-identical to today.
   scanId?: string,
 ): Promise<void> {
   const db = serviceClient();

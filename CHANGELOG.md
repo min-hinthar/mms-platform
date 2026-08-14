@@ -35,9 +35,22 @@ discipline.
   pruning; a visibly-distinct pending strip (queued scans never join the basket or total).
 - **The barcode map** (`lib/grocery-catalog-cache.ts`): the browse fetch stashes barcode→name/price
   for offline feedback — labeled estimates ("≈"), display-only by construction.
-- Guards: `lib/grocery-queue.test.ts` (10) · `lib/order-lines-scan.test.ts` (3) ·
+- Guards: `lib/grocery-queue.test.ts` (16) · `lib/order-lines-scan.test.ts` (3) ·
   `lib/grocery-scan.test.ts` (2) · `supabase/tests/scan_dedupe_test.sql` (CI real stack, in the
-  required list) · five new `verify:slice` mutants (**87 total**), each watched fail.
+  required list; BURN asserts red-first-run on a local pg16) · six new `verify:slice` mutants
+  (**88 total**), each watched fail.
+- **Review round (ONE capped pass, 3 lenses / 7 agents / ~15 min): 2 HIGH (same defect) + 1 MED +
+  4 LOW confirmed, 1 refuted — all fixed.** The HIGH: the transport-catch enqueue minted a FRESH
+  scanId for a live attempt that may have committed (live scans carried no id) — a lost-response
+  scan replayed under a new identity and double-added past the ledger. Fix: `add()` mints ONE id
+  per physical scan, sends it on the LIVE attempt, and the queued retry reuses it (pinned by the
+  `enqueue-mints-its-own-id` mutant). MED: the drain's per-outcome toasts clobbered each other
+  (single-slot flash) — a rejected saved scan vanished behind the success line; now ONE composed
+  `drainSummary` message (pure, unit-pinned). LOWs: both RPCs now RAISE on a refused write with a
+  claimed scan_id (a committed claim with no write burns the id — its replay would report
+  "delivered" for a scan that never landed; SQL-pinned in `scan_dedupe_test.sql`); the update
+  strip's 4s failsafe is cancelled on the normal `controllerchange` reload (no double reload on
+  slow networks); the cross-tab localStorage lost-update residual is documented + accepted (S3b).
 
 ### W6c — Stripe Terminal (2026-08-06)
 

@@ -697,6 +697,14 @@ const MUTANTS = [
     replace: "",
   },
   {
+    id: "grocery-queue/enqueue-mints-its-own-id",
+    file: "apps/qr/lib/grocery-queue.ts",
+    suite: "lib/grocery-queue.test.ts",
+    why: "W7b review HIGH — the queued entry must reuse the LIVE attempt's scan id; a fresh id minted at enqueue time crosses idempotency keys, so a committed-but-unanswered live add and its replay BOTH land (double-charge)",
+    find: "  const entry: QueuedScan = { scanId, cartId, barcode, queuedAt: now };",
+    replace: "  const entry: QueuedScan = { scanId: crypto.randomUUID(), cartId, barcode, queuedAt: now };",
+  },
+  {
     id: "order-lines/scan-id-not-threaded-on-insert",
     file: "apps/qr/lib/order-lines.ts",
     suite: "lib/order-lines-scan.test.ts",

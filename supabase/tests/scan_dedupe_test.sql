@@ -67,4 +67,47 @@ begin
   assert v_rows = 2, 'DEDUPE: two claimed scan events (one per scan_id)';
 end $$;
 
+-- ── review LOWs: a refused write must not BURN the claim / read as success ───────────────────────
+-- (a) insert path: cart no longer open + fresh scan_id → must RAISE (rolling the claim back), never
+--     commit an orphaned claim whose replay would answer the NIL "delivered" sentinel for a scan
+--     that never landed. (b) inc path: the LINE vanished + fresh scan_id → must RAISE (nothing
+--     claimed), never return silently as an idempotent success the drain dequeues as delivered.
+do $$
+declare
+  v_cart constant uuid := '00000000-0000-0000-0000-00000000ca75';
+  v_seat constant uuid := '00000000-0000-0000-0000-000000005ea7';
+  v_scan_c constant uuid := '00000000-0000-0000-0000-0000000000c3';
+  v_scan_d constant uuid := '00000000-0000-0000-0000-0000000000d4';
+  v_gone constant uuid := '00000000-0000-0000-0000-00000000dead';
+  v_rows integer;
+  v_raised boolean := false;
+begin
+  -- (b) first — the cart is still open here: inc against a line id that doesn't exist.
+  begin
+    perform public.mms_cart_item_inc_qty(v_gone, 1, v_scan_c);
+  exception when others then v_raised := true;
+  end;
+  assert v_raised, 'BURN: an inc whose line vanished must raise, not read as success';
+  select count(*) into v_rows from public.mms_scan_events where scan_id = v_scan_c;
+  assert v_rows = 0, 'BURN: a refused inc must not leave a claim row';
+
+  -- (a) close the cart, then insert with a fresh scan_id: must raise AND leave no claim.
+  update public.qr_carts set status = 'paid' where id = v_cart;
+  v_raised := false;
+  begin
+    perform public.mms_cart_item_insert_if_open(
+      v_cart, '8888000011112', 'Test Jar', '[]'::jsonb, 350, 0, v_seat, 'grocery',
+      null, 1, v_scan_d);
+  exception when others then v_raised := true;
+  end;
+  assert v_raised, 'BURN: a scan-id insert into a closed cart must raise (claim rolls back)';
+  select count(*) into v_rows from public.mms_scan_events where scan_id = v_scan_d;
+  assert v_rows = 0, 'BURN: a refused insert must not leave a claim row';
+
+  -- The LIVE path's closed-cart contract is unchanged: no scan_id → null return, no raise.
+  assert public.mms_cart_item_insert_if_open(
+    v_cart, '8888000011112', 'Test Jar', '[]'::jsonb, 350, 0, v_seat, 'grocery') is null,
+    'BURN: the live (no scan_id) closed-cart refusal still returns null';
+end $$;
+
 rollback;

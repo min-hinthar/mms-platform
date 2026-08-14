@@ -76,7 +76,12 @@ transaction**, so a burned-claim-then-failed-write can't happen and the dedupe s
 TS-side inc-vs-insert branch flip between attempts (the ledger is per cart+scan, not per branch).
 `scanAdd` gains optional `scanId` (Zod uuid) threaded through `insertOrIncLine`; a duplicate is an
 **idempotent OK carrying the current lines** (the delivery lesson: never an error the queue marks
-permanent). Live scans (no scanId) are byte-identical to today.
+permanent). **The page mints ONE id per physical scan and sends it on the LIVE attempt too**
+(review HIGH: a lost-response live add and its queued retry must share the identity, or the retry
+crosses idempotency keys and double-adds); callers with no queue (kiosk/staff/reorder) pass none —
+byte-identical to today. A refused write with a claimed scan_id RAISES (claim rolls back — a
+committed claim with no write burns the id; its replay would report "delivered" for a scan that
+never landed).
 
 **The client half (`lib/grocery-queue.ts` + page wiring):** entries are **`{scanId, cartId,
 barcode, queuedAt}` and nothing else** — never a price, name, or qty (pricing stays

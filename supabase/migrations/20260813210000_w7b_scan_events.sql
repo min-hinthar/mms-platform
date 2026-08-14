@@ -11,7 +11,10 @@
 -- The ledger is per (scan_id) — a duplicate returns WITHOUT writing, as an idempotent success
 -- (the delivery repo's at-least-once lesson: never an error the queue would mark permanent). The
 -- dedupe survives the caller's inc-vs-insert branch flip between attempts because the ledger is
--- keyed by the event, not the branch. Live scans pass no scan_id and are byte-identical to today.
+-- keyed by the event, not the branch. The grocery page mints ONE id per physical scan and sends
+-- it on the LIVE attempt too (review HIGH: a live add whose response is lost and its queued retry
+-- must share an id, or the retry double-adds past the ledger). Callers that pass no scan_id
+-- (kiosk, staff, reorder — no replay queue) are byte-identical to today.
 
 -- ── the ledger ───────────────────────────────────────────────────────────────────────────────────
 create table if not exists public.mms_scan_events (
@@ -40,12 +43,19 @@ begin
   end if;
   -- W7b: the scan-event claim, atomic with the bump (same transaction). A duplicate replay claims
   -- nothing and returns silently — the caller reads the current lines and reports idempotent OK.
-  -- (A vanished line also claims nothing → silent return; the fresh lines read is the truth.)
+  -- NOT FOUND is ambiguous (conflict = duplicate, OR the LINE vanished = 0 source rows, nothing
+  -- claimed): a vanished line must NOT read as success — the drain would dequeue a scan that never
+  -- landed as "delivered" (review LOW). Distinguish and raise the same refusal the live path gives.
   if p_scan_id is not null then
     insert into public.mms_scan_events (scan_id, cart_id)
       select p_scan_id, ci.cart_id from public.qr_cart_items ci where ci.id = p_id
       on conflict (scan_id) do nothing;
-    if not found then return; end if;
+    if not found then
+      if exists (select 1 from public.mms_scan_events e where e.scan_id = p_scan_id) then
+        return; -- duplicate replay: the write already landed on a prior attempt — idempotent no-op
+      end if;
+      raise exception 'cart is no longer open' using errcode = 'P0001'; -- line vanished: honest refusal
+    end if;
   end if;
   update public.qr_cart_items ci
     set qty = least(ci.qty + p_by, 99)
@@ -103,6 +113,14 @@ begin
   from public.qr_carts
   where id = p_cart_id and status = 'open' and p_qty between 1 and 99
   returning id into v_id;
+  if v_id is null and p_scan_id is not null then
+    -- The claim above wrote in THIS transaction but the guarded insert refused (cart no longer
+    -- open / qty out of range): raise so the claim ROLLS BACK. A committed claim with no write
+    -- burns the id — its replay would conflict into the NIL sentinel and report "delivered" for
+    -- a scan that never landed (review LOW; mirrors the inc path's refusal). The live path
+    -- (p_scan_id null) keeps returning null — the caller's closed-cart contract is unchanged.
+    raise exception 'cart is no longer open' using errcode = 'P0001';
+  end if;
   return v_id;
 end $$;
 revoke all on function public.mms_cart_item_insert_if_open(uuid, text, text, jsonb, integer, integer, uuid, text, text, integer, uuid)

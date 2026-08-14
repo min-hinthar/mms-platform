@@ -38,9 +38,12 @@ export type ScanAddResult =
 export async function scanAdd(
   cartId: string,
   barcode: string,
-  // W7b: the offline queue's per-scan-EVENT id. A replay with the same id is deduped atomically in
-  // the RPC (ok + current lines — an idempotent answer, never an error). Live scans omit it; a
-  // repeat barcode deliberately counts. The queue never sends a price — this path re-derives.
+  // W7b: the per-scan-EVENT id. A replay with the same id is deduped atomically in the RPC (ok +
+  // current lines — an idempotent answer, never an error). The grocery page mints ONE id per
+  // physical scan and sends it on the LIVE attempt too, so a lost-response live add and its queued
+  // retry share the identity (review HIGH — a fresh retry id would double-add). A repeat barcode
+  // (fresh id) deliberately counts. Optional: kiosk/staff/reorder callers pass none (no replay
+  // queue). The queue never sends a price — this path re-derives.
   scanId?: string,
 ): Promise<ScanAddResult> {
   const input = scanInput.parse({ cartId, barcode, scanId });

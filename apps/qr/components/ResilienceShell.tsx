@@ -34,6 +34,7 @@ export function ResilienceShell() {
   const [updateReady, setUpdateReady] = useState(false);
   const waitingRef = useRef<ServiceWorker | null>(null);
   const firedRef = useRef(false);
+  const failsafeRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (
@@ -106,6 +107,11 @@ export function ResilienceShell() {
         hadController = true;
         return;
       }
+      // Cancel the pending failsafe FIRST (review LOW): on a slow connection the normal reload
+      // can still be in flight when the 4s timer fires — a second reload() would abort the
+      // half-loaded navigation and roughly double time-to-interactive on exactly the network
+      // the failsafe exists for. It backstops a STALLED activation only.
+      if (failsafeRef.current !== null) window.clearTimeout(failsafeRef.current);
       window.location.reload();
     };
     navigator.serviceWorker.addEventListener("controllerchange", handleControllerChange);
@@ -121,11 +127,12 @@ export function ResilienceShell() {
   }, []);
 
   const applyUpdate = useCallback(() => {
-    // One-shot: a second SKIP_WAITING is a no-op but stacked failsafe reloads are not.
+    // One-shot: a second SKIP_WAITING is a no-op but stacked failsafe reloads are not. The timer
+    // id is kept so the controllerchange reload can CANCEL it (see the handler).
     if (firedRef.current) return;
     firedRef.current = true;
     waitingRef.current?.postMessage({ type: "SKIP_WAITING" });
-    window.setTimeout(() => window.location.reload(), RELOAD_FAILSAFE_MS);
+    failsafeRef.current = window.setTimeout(() => window.location.reload(), RELOAD_FAILSAFE_MS);
   }, []);
 
   if (HIDDEN_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) return null;
