@@ -112,6 +112,11 @@ export async function insertOrIncLine(
   // W5c: the item sheet's pre-add quantity (bounded 1–9 by Zod upstream, 1–99 again in the SQL).
   // Every other caller (quick-add, grocery scan, staff, reorder) stays at the default single unit.
   qty: number = 1,
+  // W7b: the scan-EVENT id — deduped ATOMICALLY inside the RPCs (the ledger is per cart+scan, so
+  // the dedupe survives this function's inc-vs-insert branch flipping between a replay's attempts).
+  // The grocery page sends it on LIVE scans too (one id per physical scan, reused by the offline
+  // queue's retry — review HIGH). Undefined for every other caller — byte-identical to today.
+  scanId?: string,
 ): Promise<void> {
   const db = serviceClient();
   // Merge ONLY into a still-'draft' sibling (S2.1b): an add must never fold into a line that's already
@@ -148,6 +153,9 @@ export async function insertOrIncLine(
     const { error: incErr } = await db.rpc("mms_cart_item_inc_qty", {
       p_id: dup.id,
       ...(qty !== 1 ? { p_by: qty } : {}),
+      // Spread-only-when-set (the p_notes deploy-order pattern): a DB without 20260813210000 still
+      // resolves every live caller. A duplicate scan_id makes the RPC a silent no-op (not an error).
+      ...(scanId ? { p_scan_id: scanId } : {}),
     });
     if (incErr) throw new Error("Cart is no longer open");
   } else {
@@ -162,11 +170,14 @@ export async function insertOrIncLine(
       // type-gen marks it non-null, so cast. NULL is a valid provenance ("no seat").
       p_by_seat: bySeat as string,
       p_fulfillment: line.fulfillment,
-      // p_qty/p_notes default in SQL — omitted for a plain single add, so a pre-20260721000000 DB
-      // still resolves the call (deploy-order safety; see the migration header).
+      // p_qty/p_notes/p_scan_id default in SQL — omitted for a plain single add, so a pre-migration
+      // DB still resolves the call (deploy-order safety; see the migration header).
       ...(qty !== 1 ? { p_qty: qty } : {}),
       ...(line.notes ? { p_notes: line.notes } : {}),
+      ...(scanId ? { p_scan_id: scanId } : {}),
     });
+    // A duplicate scan_id returns the NIL-uuid sentinel — truthy, so it passes this closed-cart
+    // check as the idempotent success it is (the write already landed on a prior attempt).
     if (!insertedId) throw new Error("Cart is no longer open");
   }
 }

@@ -20,6 +20,16 @@ import { GroceryBasketSheet } from "@/components/grocery/GroceryBasketSheet";
 import { saleInfo, sizeLabel } from "@/lib/grocery-aisles";
 import { isTerminal, type CartUnavailable } from "@/lib/cart-unavailable";
 import { failureCopy, useConnectionTruth } from "@/lib/useConnectionTruth";
+import {
+  drainCart,
+  drainSummary,
+  enqueueScan,
+  flushCart,
+  pendingFor,
+  storageWorks,
+  type QueuedScan,
+} from "@/lib/grocery-queue";
+import { lookupCachedItem } from "@/lib/grocery-catalog-cache";
 import { setQty } from "@/lib/cart";
 import { useTableSession } from "@/lib/useTableSession";
 
@@ -303,10 +313,64 @@ export default function Grocery() {
     [cartId, busyLine, lines, flash, markCartAlive, markCartGone],
   );
 
+  // W7b — the offline scan queue's page state: what's WAITING to sync for this cart. Queued scans
+  // are never cart lines and never join the running total (the server may refuse them at replay);
+  // they render as their own visibly-distinct pending strip below.
+  const [pendingScans, setPendingScans] = useState<QueuedScan[]>([]);
+  const syncPending = useCallback(() => {
+    setPendingScans(cartId ? pendingFor(cartId) : []);
+  }, [cartId]);
+  useEffect(() => {
+    // setState via a scheduled callback, not synchronously in the effect (react-hooks rule).
+    const id = setTimeout(syncPending, 0);
+    return () => clearTimeout(id);
+  }, [syncPending]);
+
+  // Queue a scan made with no radio: entry = {scanId, cartId, barcode, queuedAt} — NEVER a price
+  // (replay re-derives server-side; the cached name/price below is a labeled estimate). `scanId`
+  // is the attempt's identity minted by add() — the SAME id the live attempt carried (or would
+  // have), so a lost-response live add and its queued retry dedupe to one write (review HIGH).
+  const queueOffline = useCallback(
+    (barcode: string, scanId: string) => {
+      if (!cartId) return false;
+      if (!storageWorks()) {
+        flash("You look offline — scanning needs a connection on this device.");
+        return true; // handled (honestly): private-mode storage can't hold a queue
+      }
+      const next = enqueueScan(cartId, barcode, scanId);
+      if (next === null) {
+        flash("Too many scans waiting — reconnect to sync before adding more.");
+        return true;
+      }
+      const cached = lookupCachedItem(barcode);
+      flash(
+        cached
+          ? `Saved ${cached.name} ≈$${(cached.priceCents / 100).toFixed(2)} — adds when you’re back online.`
+          : "Saved — adds when you’re back online.",
+      );
+      syncPending();
+      return true;
+    },
+    [cartId, flash, syncPending],
+  );
+
   // The ONE add path — a scan and a tapped search hit both go through here. Memoized on cartId so the
   // scanner effect (keyed on `onScan`) doesn't tear down + restart the camera on every re-render.
   const add = useCallback(
     async (barcode: string, via: "scan" | "search" | "browse") => {
+      // W7b — ONE identity per physical scan, minted at the top: the live attempt SENDS it and any
+      // queued retry REUSES it, so the server's scan-event ledger dedupes a lost-response live add
+      // against its own replay (review HIGH: a fresh id minted at enqueue time crosses idempotency
+      // keys — the committed-but-unanswered live write and the retry would both land).
+      const scanId = crypto.randomUUID();
+      // A dead radio queues instead of failing: the ONLY state licensed to promise a later
+      // sync is device-offline (navigator.onLine false). A backend outage (we-down) keeps the
+      // honest refusal — scan verdicts (unknown/weighed/terminal) can only come from the server,
+      // and a queued scan later refused is a lie about money.
+      if (typeof navigator !== "undefined" && !navigator.onLine && cartId) {
+        queueOffline(barcode, scanId);
+        return;
+      }
       if (!cartId) {
         // The market renders before the basket exists (W4b) — a scan/tap here must SAY why nothing
         // happened, never silently no-op (adversarial HIGH-1).
@@ -320,9 +384,15 @@ export default function Grocery() {
       const seq = ++reqSeq.current; // ticket at issue time — the response carries a server view
       let r;
       try {
-        r = await scanAdd(cartId, barcode);
+        r = await scanAdd(cartId, barcode, scanId);
       } catch {
         if (cartIdRef.current === cartId) {
+          // W7b — the request RACED the radio dying: same license as the pre-flight (offline is
+          // the only state that may promise a later sync), so the scan queues instead of dropping.
+          // The SAME scanId the live attempt carried — if that write actually committed and only
+          // the response was lost, the replay conflicts on the ledger and no-ops (review HIGH).
+          if (typeof navigator !== "undefined" && !navigator.onLine && queueOffline(barcode, scanId))
+            return;
           // ONE toast, immediately, using the truth we already hold (the module-cached verdict, so
           // the second failure in an outage is already attributed). The probe runs fire-and-forget
           // to warm that cache — deliberately NOT awaited: a re-flash after the 1800ms toast timer
@@ -389,8 +459,70 @@ export default function Grocery() {
         void diagnose();
       }
     },
-    [cartId, sessionError, flash, markCartAlive, markCartGone, diagnose],
+    [cartId, sessionError, flash, markCartAlive, markCartGone, diagnose, queueOffline],
   );
+
+  // W7b — the reconnect drain: strictly serialized FIFO through the SAME discipline as a live add
+  // (issue-time seq tickets + the cartIdRef era check), so a replay response can never paint a dead
+  // cart's truth over a fresh basket. Verdicts ride scanAdd's existing union: delivered/rejected
+  // dequeue, a TERMINAL cart flushes its whole queue (drainCart's rule), transport keeps + retries
+  // on the next online event / tick.
+  const drainingRef = useRef(false);
+  const drainNow = useCallback(async () => {
+    const forCart = cartId;
+    if (!forCart || drainingRef.current) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine) return;
+    if (pendingFor(forCart).length === 0) return;
+    drainingRef.current = true;
+    try {
+      let delivered = 0;
+      const outcomes = await drainCart(forCart, async (entry) => {
+        if (cartIdRef.current !== entry.cartId) return null; // era changed mid-drain — retry later
+        const seq = ++reqSeq.current;
+        const r = await scanAdd(entry.cartId, entry.barcode, entry.scanId);
+        if (cartIdRef.current !== entry.cartId) return r.ok ? { ok: true } : null;
+        if (r.ok) {
+          delivered += 1;
+          if (r.lines) markCartAlive(seq, r.lines);
+          return { ok: true };
+        }
+        // Narrow the catalog reasons away so isTerminal sees the CartUnavailable half of the union.
+        const reason = r.reason;
+        if (
+          reason !== "unknown_barcode" &&
+          reason !== "unavailable" &&
+          reason !== "weighed_item" &&
+          isTerminal(reason)
+        )
+          markCartGone(seq, reason);
+        return { ok: false, reason };
+      });
+      // ONE composed toast — flash() is single-slot, so per-outcome flashes in this same
+      // continuation clobber each other and a rejection vanished behind the success line
+      // (review MED). drainSummary is the pure, unit-pinned sequencing rule.
+      const summary = drainSummary(
+        delivered,
+        outcomes.filter((o) => o.verdict === "rejected").map((o) => o.entry.barcode),
+      );
+      if (summary) flash(summary);
+    } finally {
+      drainingRef.current = false;
+      syncPending();
+    }
+  }, [cartId, flash, markCartAlive, markCartGone, syncPending]);
+
+  useEffect(() => {
+    const onOnline = () => void drainNow();
+    window.addEventListener("online", onOnline);
+    // A slow tick as the backstop (a `locked` refusal clears without an online transition).
+    const id = setInterval(() => void drainNow(), 45_000);
+    const kick = setTimeout(() => void drainNow(), 0); // catch a queue left from a previous visit
+    return () => {
+      window.removeEventListener("online", onOnline);
+      clearInterval(id);
+      clearTimeout(kick);
+    };
+  }, [drainNow]);
 
   const onScan = useCallback((code: string) => void add(code, "scan"), [add]);
 
@@ -591,6 +723,10 @@ export default function Grocery() {
               // React Compiler forbids mutating these refs from effect bodies.)
               appliedSeq.current = reqSeq.current;
               addedRef.current = 0;
+              // W7b — the dead basket's queued scans die with it: replaying them into the fresh
+              // cart would charge it for the abandoned basket's scans (the queue's terminal rule).
+              if (cartId) flushCart(cartId);
+              setPendingScans([]);
               setCartGone(null);
               setHydrated(false); // back to the honest "Checking your basket…" while the mint runs
               revalidate(); // clears the session → the mint effect re-POSTs /api/session
@@ -792,6 +928,36 @@ export default function Grocery() {
           refused re-sync (visibilitychange after the table locked, an expiring token) failed in
           silence and the shopper kept shopping against a stale list. With lines on screen the copy
           says stale, not missing. Suppressed while the terminal banner owns the story. */}
+      {/* W7b — the offline queue's pending strip: queued scans are VISIBLY apart from the basket
+          (the list + total render the CART's server truth; the server may still refuse these at
+          replay). role="note", deliberately not live — the toast announced each save, and this
+          view's one live region stays the toast (QA §A). Estimates come from the cached catalog
+          map and say so. */}
+      {cartId && !cartGone && pendingScans.length > 0 && (
+        <p
+          role="note"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            flexWrap: "wrap",
+            marginTop: 14,
+            color: "var(--t2)",
+          }}
+        >
+          <Icon name="offline" size={14} />
+          <span>
+            {pendingScans.length} {pendingScans.length === 1 ? "scan" : "scans"} waiting for a
+            connection —{" "}
+            {pendingScans
+              .slice(0, 3)
+              .map((p) => lookupCachedItem(p.barcode)?.name ?? p.barcode)
+              .join(", ")}
+            {pendingScans.length > 3 ? "…" : ""}. They’ll add when you’re back online; prices
+            confirm then.
+          </span>
+        </p>
+      )}
       {cartId && !cartGone && (syncFailed || (!hydrated && !lines.length)) && (
         <p style={{ color: "var(--t3)", marginTop: 14 }}>
           {syncFailed ? (

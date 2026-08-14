@@ -73,5 +73,8 @@ const ogImageRoutes = {
   },
 };
 
-const config = [...base, ...next, noNumericFontSize, ogImageRoutes];
+// W7b — the built SW artifact is generated (minified iife); lint the SOURCE (sw/sw.ts), never the build.
+const generatedArtifacts = { ignores: ["public/sw.js", "public/sw.js.map"] };
+
+const config = [...base, ...next, noNumericFontSize, ogImageRoutes, generatedArtifacts];
 export default config;

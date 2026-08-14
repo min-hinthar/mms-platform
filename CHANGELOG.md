@@ -4,6 +4,54 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W7b — the resilience shell (2026-08-13)
+
+Production readiness (closes **S3**; plan: `docs/W7B_PLAN.md`): the PWA/offline layer, ported from
+the delivery repo's production-hardened Serwist pattern and made STRICTER for this app's honesty
+discipline.
+
+- **The service worker** (`sw/sw.ts`, built by `scripts/build-sw.mjs` after `next build`; the
+  artifact joins turbo's build outputs — the cache-blindness trap). Documents are **network-only**
+  (the per-request CSP nonce forbids HTML caching; a cached document would also break the W10b
+  chunk-reload boundary) with a **synthetic offline shell** built inside the SW; `/api/*`,
+  `/ingest/*`, and every POST are never intercepted (a cached `/api/health` ok would re-blame the
+  diner during a real outage); runtime caches cover only hashed immutables + `/_next/image`
+  (status-200 only — the delivery cache-poisoning lesson), capped + `purgeOnQuotaError`.
+- **The update flow** (`ResilienceShell`): registration + `registration.update()` on a 10-min
+  heartbeat + visibility/online wakes (installed PWAs never hard-navigate), the first-install
+  `controllerchange` guard, and a quiet "A new version is ready — Refresh" strip (`SKIP_WAITING` →
+  guarded reload → 4s failsafe). The ambient **offline pill** reads `useConnectionTruth`
+  (`you-offline` only; `we-down` keeps the per-surface outage voices), `role="note"`, hidden on
+  `/staff` · `/kiosk` · `/board`.
+- **The offline scan queue** (the concrete-walled-store case). Server half: `mms_scan_events` +
+  both cart-write RPCs re-signed with `p_scan_id` — the per-scan-EVENT claim is the RPC's first
+  statement, atomic with the write, so an at-least-once replay can never double-add (a repeat
+  barcode WITHOUT a scanId still deliberately counts — the live rule). A duplicate answers as an
+  idempotent OK (inc: silent no-op; insert: NIL-uuid sentinel). Client half
+  (`lib/grocery-queue.ts`): entries are `{scanId, cartId, barcode, queuedAt}` — never a price;
+  enqueue only on device-offline; serialized FIFO drain with spacing through the page's
+  seq-ticketed funnel; verdicts ride scanAdd's union (rejected dequeues, a TERMINAL cart flushes
+  its whole queue — never replay into a re-minted fresh basket); 2h TTL, capped, corrupt-entry
+  pruning; a visibly-distinct pending strip (queued scans never join the basket or total).
+- **The barcode map** (`lib/grocery-catalog-cache.ts`): the browse fetch stashes barcode→name/price
+  for offline feedback — labeled estimates ("≈"), display-only by construction.
+- Guards: `lib/grocery-queue.test.ts` (16) · `lib/order-lines-scan.test.ts` (3) ·
+  `lib/grocery-scan.test.ts` (2) · `supabase/tests/scan_dedupe_test.sql` (CI real stack, in the
+  required list; BURN asserts red-first-run on a local pg16) · six new `verify:slice` mutants
+  (**88 total**), each watched fail.
+- **Review round (ONE capped pass, 3 lenses / 7 agents / ~15 min): 2 HIGH (same defect) + 1 MED +
+  4 LOW confirmed, 1 refuted — all fixed.** The HIGH: the transport-catch enqueue minted a FRESH
+  scanId for a live attempt that may have committed (live scans carried no id) — a lost-response
+  scan replayed under a new identity and double-added past the ledger. Fix: `add()` mints ONE id
+  per physical scan, sends it on the LIVE attempt, and the queued retry reuses it (pinned by the
+  `enqueue-mints-its-own-id` mutant). MED: the drain's per-outcome toasts clobbered each other
+  (single-slot flash) — a rejected saved scan vanished behind the success line; now ONE composed
+  `drainSummary` message (pure, unit-pinned). LOWs: both RPCs now RAISE on a refused write with a
+  claimed scan_id (a committed claim with no write burns the id — its replay would report
+  "delivered" for a scan that never landed; SQL-pinned in `scan_dedupe_test.sql`); the update
+  strip's 4s failsafe is cancelled on the normal `controllerchange` reload (no double reload on
+  slow networks); the cross-tab localStorage lost-update residual is documented + accepted (S3b).
+
 ### W6c — Stripe Terminal (2026-08-06)
 
 In-person card at the register (M6·P6.2 pulled forward; plan: `docs/W6C_PLAN.md`). Server-driven:
