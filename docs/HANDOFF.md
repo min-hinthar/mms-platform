@@ -30,9 +30,16 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > search + the staff modifier sheet (cardinality enforced), tendered/change + `#CODE` handoff,
 > day cash summary.
 >
-> **⚠️ Owed on the owner's Supabase restore (project paused):** `db push` of
-> `20260805210000_w11_split_ledger_durable.sql` + `20260805230000_w6a_register_day_index.sql`,
-> then one live split-mint smoke + one register walk-up smoke.
+> **✅ Restore catch-up DONE (2026-08-14):** the owner restored the QR project and reported
+> "grocery data also not rendering" — root cause: prod's migration history ended at
+> `w5c_modifier_allergen_tax` (2026-07-21), so `getGroceryCatalog`'s `is_featured_deal` select
+> (W9d) failed and the whole catalog query errored. All SIX owed migrations applied in order via
+> MCP (`pickup_asap` · `w9d_featured_deal` · `w11_split_ledger_durable` · `w6a_register_day_index`
+> · `w6c_terminal` · `w7b_scan_events`) and verified live: 16 featured deals seeded, all 7
+> re-signed fns present, `qr_order_payers` + `mms_scan_events` created with RLS, and the exact
+> catalog select resolves. (Prod stamps its own apply-time versions — match history by NAME, not
+> timestamp.) **Still owed:** one live split-mint smoke + one register walk-up smoke (needs a live
+> table), card-present smoke on hardware (S12).
 >
 > **W6b shipped too** — the kiosk shell (S5 closed; `docs/W6B_PLAN.md`): device-token surface,
 > three doors over kiosk- member sessions, three-way idle fork (abandon / committed-advance /
