@@ -22,6 +22,7 @@ import { canMutateLine } from "./permissions";
 import { releaseCartLock } from "./lock";
 import { getPostHogClient } from "./posthog-server";
 import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
+import { safeImageUrl } from "./media-url";
 
 /**
  * SERVER-AUTHORITATIVE cart. The browser never sends a price — it sends a menu item id +
@@ -557,12 +558,36 @@ export async function getCartView(cartId: string): Promise<{
     ...new Set((rows ?? []).map((r) => r.menu_item_id).filter((x) => uuidRe.test(x))),
   ];
   const soldOut = new Set<string>();
+  // W13 — line media + Burmese names, keyed by the soft ref (menu uuid OR grocery barcode).
+  // Display-only; a failed lookup degrades to placeholder/EN (same advisory posture as soldOut).
+  const media = new Map<string, { imageUrl: string | null; nameMy: string | null }>();
   if (menuIds.length) {
     // Deliberate swallow: sold-out is an advisory disable on the "+", not load-bearing. A failed
     // lookup degrades to "nothing sold-out" (the worst case is an 86'd line stays incrementable —
     // the server still re-prices on add) rather than blocking the whole cart view.
-    const { data: flags } = await db.from("menu_items").select("id,is_sold_out").in("id", menuIds);
-    for (const f of flags ?? []) if (f.is_sold_out) soldOut.add(f.id);
+    // W13: image_url + name_my ride the SAME query — zero extra round trips on the menu side.
+    const { data: flags } = await db
+      .from("menu_items")
+      .select("id,is_sold_out,image_url,name_my")
+      .in("id", menuIds);
+    for (const f of flags ?? []) {
+      if (f.is_sold_out) soldOut.add(f.id);
+      media.set(f.id, { imageUrl: safeImageUrl(f.image_url), nameMy: f.name_my ?? null });
+    }
+  }
+  // The grocery half of the soft ref: every non-uuid menu_item_id is a barcode (the readGroceryLines
+  // template). One indexed read; the containment guard is the same shared, red-first-pinned helper.
+  const barcodes = [
+    ...new Set((rows ?? []).map((r) => r.menu_item_id).filter((x) => !uuidRe.test(x))),
+  ];
+  if (barcodes.length) {
+    // Deliberate swallow — same advisory posture: no photos/Burmese beats no cart view.
+    const { data: gRows } = await db
+      .from("grocery_items")
+      .select("barcode,image_url,name_my")
+      .in("barcode", barcodes);
+    for (const g of gRows ?? [])
+      media.set(g.barcode, { imageUrl: safeImageUrl(g.image_url), nameMy: g.name_my ?? null });
   }
   const items: CartItem[] = (rows ?? []).map((r) => ({
     id: r.id,
@@ -586,6 +611,9 @@ export async function getCartView(cartId: string): Promise<{
     // W3b: the diner's own kitchen note — visible so it's verifiable (and so a noted line reads
     // differently from an identical plain sibling; the two never merge).
     notes: r.notes ?? null,
+    // W13 — line media + Burmese name (display-only; contained by lib/media-url).
+    imageUrl: media.get(r.menu_item_id)?.imageUrl ?? null,
+    nameMy: media.get(r.menu_item_id)?.nameMy ?? null,
   }));
   return {
     items,

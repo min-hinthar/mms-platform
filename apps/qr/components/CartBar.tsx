@@ -31,7 +31,8 @@ export function CartBar() {
       onClick={() => journey.push(href)}
       onPointerEnter={() => router.prefetch(href)}
       aria-label={`View order — ${count} ${count === 1 ? "item" : "items"}, subtotal ${dollars}`}
-      className="card"
+      // W13 — the bar springs up on mount (v7.2 .cartbar). Token duration → RM-safe.
+      className="card cartbar-in"
       style={{
         position: "fixed",
         left: 12,
@@ -52,8 +53,13 @@ export function CartBar() {
         cursor: "pointer",
       }}
     >
-      <span>
-        View order · {count} {count === 1 ? "item" : "items"}
+      <span style={{ display: "inline-flex", alignItems: "center" }}>
+        {/* W13 — the v7.2 count capsule; the keyed remount replays .mms-pop on each change.
+            Presentation only (the static aria-label above carries the count for AT). */}
+        <span key={count} className="cartbar-cnt mms-pop" aria-hidden="true">
+          {count}
+        </span>
+        View order
       </span>
       {/* Roll the subtotal as it changes (R7a). The button's accessible name is the static aria-label
           above (read on focus) — the rolling figure is presentation, not a per-tap announcement.

@@ -59,6 +59,13 @@ export type CartItem = {
    *  cart (remove/re-add to change it) but VISIBLE — a safety-adjacent channel must be verifiable, and
    *  it's what tells a noted line apart from an identical-looking plain sibling (notes never merge). */
   notes?: string | null;
+  /** W13 — the line's catalog photo (menu image_url for uuid refs, grocery image_url for barcode
+   *  refs), server-joined in getCartView and CONTAINED by lib/media-url (next/image throws on
+   *  non-allowlisted hosts). null → the designed PhotoPlaceholder. Display-only. */
+  imageUrl?: string | null;
+  /** W13 — the line's Burmese name (menu/grocery name_my), joined alongside imageUrl. The post-add
+   *  path speaks both tongues; render with lang="my" + the --font-my stack. Display-only. */
+  nameMy?: string | null;
 };
 
 /** A cart line's destination/routing tag (S4). Grocery is auto-tagged; food toggles dinein↔togo. */

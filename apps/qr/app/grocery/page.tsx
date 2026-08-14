@@ -30,6 +30,7 @@ import {
   type QueuedScan,
 } from "@/lib/grocery-queue";
 import { lookupCachedItem } from "@/lib/grocery-catalog-cache";
+import { hapticTap } from "@/lib/haptics";
 import { setQty } from "@/lib/cart";
 import { useTableSession } from "@/lib/useTableSession";
 
@@ -414,6 +415,7 @@ export default function Grocery() {
       // markCartAlive skip the view — the add really happened, so its toast/analytics still run.
       if (cartIdRef.current !== cartId) return;
       if (r.ok) {
+        hapticTap(8); // W13 — quick-add weight; the scan door's only physical feedback
         addedRef.current += 1;
         // The scan's OWN response carries the fresh server view (one round trip, the addItem
         // pattern) — the list is cart truth, not a parallel client ledger. `lines: null` = the
@@ -1037,18 +1039,17 @@ export default function Grocery() {
           // Product-grade row (K5): photo · name · EBT · unit math · stepper · line total. Keyed by
           // CART-LINE id; `.mms-rise` (dynamic-mount variant) + `.card-textured` are RM/token-safe.
           <li key={l.lineId} className="card card-textured mms-rise grocery-scanned-row">
-            {l.imageUrl && (
-              <span className="grocery-thumb" aria-hidden>
-                <BlurUpImage
-                  src={l.imageUrl}
-                  alt=""
-                  width={56}
-                  height={56}
-                  sizes="56px"
-                  fallback={<PhotoPlaceholder category="grocery" />}
-                />
-              </span>
-            )}
+            {/* W13 — the slot ALWAYS renders: a missing photo falls to the designed placeholder. */}
+            <span className="grocery-thumb" aria-hidden>
+              <BlurUpImage
+                src={l.imageUrl}
+                alt=""
+                width={56}
+                height={56}
+                sizes="56px"
+                fallback={<PhotoPlaceholder category="grocery" />}
+              />
+            </span>
             <span style={{ minWidth: 0, flex: 1 }}>
               <span style={{ fontWeight: 700 }}>{l.name}</span>{" "}
               {l.ebt && <small style={{ color: "var(--ok)", fontWeight: 700 }}>EBT</small>}

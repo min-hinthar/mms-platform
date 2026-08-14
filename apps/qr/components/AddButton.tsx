@@ -5,6 +5,8 @@ import posthog from "posthog-js";
 import type { CartItem } from "@mms/db";
 import { useAnimationPreference, useRipple } from "@mms/ui";
 import { useCart } from "./TableCartProvider";
+import { MicroBurst } from "./MicroBurst";
+import { hapticTap } from "@/lib/haptics";
 import { inertReason } from "@/lib/inert-reason";
 
 const MAX_QTY = 99; // matches the cart Stepper's upper bound (setQty is the authority; this is the UI gate)
@@ -166,11 +168,19 @@ export function AddButton({
     return result;
   }
 
+  // W13 — the micro-gem burst + haptic ride the OPTIMISTIC moment (the tap), like the morph: the
+  // celebratory feedback confirms the intent instantly; a refused write reverts the qty and the
+  // provider's live region says why. The burst mounts on the STEPPER shell (the surviving branch
+  // after the pill→stepper morph); re-keying replays it on every "+".
+  const [burstKey, setBurstKey] = useState(0);
+
   // Every increment (the 0→1 create tap from the pill AND a stepper "+") runs through `writeChain` so it
   // orders with any in-flight "−" and threads THIS add's server truth to the next op. `fromPill` additionally
   // holds `busy` (the pill's double-create guard + the focus-after-morph timing) and arms the "+" refocus.
   // The morph/digit is instant via the optimistic delta; the write drains in the background, in tap order.
   function increment(fromPill: boolean) {
+    hapticTap(fromPill ? 8 : 6); // W13 — the v7.2 weight hierarchy (8 quick-add · 6 stepper step)
+    setBurstKey((k) => k + 1);
     setOptimistic((n) => n + 1); // instant morph / digit bump — before the round-trip resolves
     if (fromPill) {
       refocusAfterAdd.current = true; // Add-pill tap → focus the "+" once the stepper mounts
@@ -195,6 +205,7 @@ export function AddButton({
   function decrement() {
     const nextAgg = qty - 1; // qty is optimistic-inclusive → the aggregate the user intends after this tap
     if (nextAgg < 0) return; // the "−" unmounts at 0, but never underflow
+    hapticTap(6); // W13 — stepper-step weight (no burst on remove — celebration is add-only)
     setOptimistic((n) => n - 1); // instant digit drop
     const emptying = nextAgg <= 0;
     if (emptying) {
@@ -245,8 +256,11 @@ export function AddButton({
     return (
       <span
         // Pop on mount (the prototype's `.stp{animation:pop}`); reuses `.mms-pop` + its reduced-motion gate.
+        // W13: position:relative hosts the micro-gem burst (the pill clips overflow; this shell doesn't).
         className={`mms-qty-stepper${shouldAnimate ? " mms-pop" : ""}`}
+        style={{ position: "relative" }}
       >
+        {shouldAnimate && <MicroBurst burstKey={burstKey} />}
         <button
           ref={minusBtnRef}
           type="button"

@@ -90,7 +90,9 @@ export default async function Menu({
       description_en: i.description_en,
       description_my: i.description_my,
       base_price_cents: i.base_price_cents,
-      image_url: i.image_url,
+      // W13 — a `fallback.jpg` row is "no real photo yet": null it so the DESIGNED
+      // PhotoPlaceholder renders instead of a generic stock image (28/60 rows; W2a unblocks).
+      image_url: i.image_url?.endsWith("/fallback.jpg") ? null : i.image_url,
       // Unavailable if flagged sold-out OR a required modifier group has no active options to choose from.
       is_sold_out: i.is_sold_out || requiredChoiceUnavailable(i.item_modifier_groups),
       tags: i.tags ?? [],

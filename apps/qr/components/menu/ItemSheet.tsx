@@ -20,6 +20,7 @@ import {
   type Selection,
 } from "@/lib/menu/modifiers";
 import type { MenuItem } from "./MenuBrowser";
+import { hapticTap } from "@/lib/haptics";
 
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const delta = (cents: number) =>
@@ -204,7 +205,10 @@ function ItemSheetBody({
       // Close only on SUCCESS — a refused add (expired session / locked cart / invalid selection) keeps the
       // sheet open with the diner's choices intact (the provider's live region shows the recovery message).
       const ok = await add(item.id, selectedIds(groups, selected), notes.trim() || undefined, qty);
-      if (ok) onClose(); // Radix restores focus to the trigger row
+      if (ok) {
+        hapticTap(12); // W13 — the sheet-add weight (the heaviest add in the hierarchy)
+        onClose(); // Radix restores focus to the trigger row
+      }
     } finally {
       setBusy(false);
     }
