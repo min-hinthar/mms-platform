@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { serverClient, serviceClient } from "@mms/db/server";
 import { getStaffAuth } from "./staff";
 import { withinMutationRate } from "./rate";
+import { displayImageUrl } from "./media-url";
 
 /**
  * Server-authoritative session kind for AnonAuthGate (M4): is the caller an anonymous diner, an UPGRADED
@@ -29,6 +30,9 @@ export type RewardsState = {
   isUpgraded: boolean;
   email: string | null;
   displayName: string | null;
+  /** W14: the profile row's created_at (ISO) — the card's "since Jun 2026" tenure line. Null for
+   *  anon (no profile row) or a missing row; the card omits the line rather than fabricating. */
+  memberSince: string | null;
   stars: number;
   spendCents: number;
   tierId: string;
@@ -84,19 +88,22 @@ export async function getRewardsState(): Promise<RewardsState | null> {
     .order("issued_at", { ascending: false });
 
   let displayName: string | null = null;
+  let memberSince: string | null = null;
   if (isUpgraded) {
     const { data: prof } = await db
       .from("mms_profiles")
-      .select("display_name")
+      .select("display_name,created_at")
       .eq("id", uid)
       .maybeSingle();
     displayName = prof?.display_name ?? null;
+    memberSince = prof?.created_at ?? null;
   }
 
   return {
     isUpgraded,
     email: user.email ?? null,
     displayName,
+    memberSince,
     stars: Number(s.stars ?? 0),
     spendCents: Number(s.spend_cents ?? 0),
     tierId: s.tier_id ?? "new",
@@ -337,6 +344,12 @@ export type OrderHistoryLine = {
   /** Chosen modifier OPTION labels (a string[] in the DB — see cart.ts); [] when none/legacy shape. */
   mods: string[];
   fulfillment: string; // 'dinein' | 'togo' | 'grocery'
+  /** W14 — TODAY's catalog photo for the line's soft ref (menu uuid / grocery barcode), containment-
+   *  filtered; null → the designed placeholder. Display-only; never a priced field. */
+  imageUrl: string | null;
+  /** W14 — today's `name_my` for the ref. Live-vs-snapshot caveat (registry S14b): the EN add-time
+   *  snapshot stays the row's primary text; a renamed dish shows its CURRENT Burmese subline. */
+  nameMy: string | null;
 };
 export type OrderHistoryEntry = {
   id: string;
@@ -403,8 +416,34 @@ export async function getOrderHistory(limit = 20): Promise<OrderHistoryEntry[] |
   const ids = orders.map((o) => o.id);
   const { data: items } = await db
     .from("qr_order_items")
-    .select("order_id,name,qty,unit_price_cents,modifiers,fulfillment")
+    .select("order_id,menu_item_id,name,qty,unit_price_cents,modifiers,fulfillment")
     .in("order_id", ids);
+  // W14 — line media + Burmese names, the getCartView pattern: `menu_item_id` is a SOFT text ref
+  // (a menu_items uuid for restaurant lines, a grocery barcode otherwise — disjoint keyspaces by
+  // the uuid partition), so the join is two batch reads, together. Advisory posture: a failed
+  // lookup degrades to placeholder/EN text — never a dead history (the receipts are why /track and
+  // /cart send diners here). Amounts are untouched: media only, never a priced field.
+  const uuidRe = /^[0-9a-f-]{36}$/i;
+  const refs = [
+    ...new Set(
+      (items ?? []).map((i) => i.menu_item_id).filter((x): x is string => typeof x === "string"),
+    ),
+  ];
+  const menuIds = refs.filter((x) => uuidRe.test(x));
+  const barcodes = refs.filter((x) => !uuidRe.test(x));
+  const media = new Map<string, { imageUrl: string | null; nameMy: string | null }>();
+  const [menuRes, groceryRes] = await Promise.all([
+    menuIds.length
+      ? db.from("menu_items").select("id,image_url,name_my").in("id", menuIds)
+      : Promise.resolve({ data: null }),
+    barcodes.length
+      ? db.from("grocery_items").select("barcode,image_url,name_my").in("barcode", barcodes)
+      : Promise.resolve({ data: null }),
+  ]);
+  for (const f of menuRes.data ?? [])
+    media.set(f.id, { imageUrl: displayImageUrl(f.image_url), nameMy: f.name_my ?? null });
+  for (const g of groceryRes.data ?? [])
+    media.set(g.barcode, { imageUrl: displayImageUrl(g.image_url), nameMy: g.name_my ?? null });
   const byOrder = new Map<string, OrderHistoryLine[]>();
   for (const it of items ?? []) {
     const arr = byOrder.get(it.order_id) ?? [];
@@ -418,6 +457,8 @@ export async function getOrderHistory(limit = 20): Promise<OrderHistoryEntry[] |
       unitPriceCents: it.unit_price_cents ?? 0,
       mods,
       fulfillment: it.fulfillment ?? "dinein",
+      imageUrl: media.get(it.menu_item_id)?.imageUrl ?? null,
+      nameMy: media.get(it.menu_item_id)?.nameMy ?? null,
     });
     byOrder.set(it.order_id, arr);
   }
@@ -461,4 +502,49 @@ export async function ensureProfile(): Promise<void> {
       { id: user.id, email: user.email ?? null },
       { onConflict: "id", ignoreDuplicates: true },
     );
+}
+
+export type SetDisplayNameResult =
+  | { ok: true; name: string | null }
+  | { ok: false; reason: "signed_out" | "invalid" | "rate_limited" | "unavailable" };
+
+/**
+ * W14 — the FIRST write to `mms_profiles.display_name` (the column shipped with M4 and was read in
+ * three places — the /account heading, the Mingalaba greeting, the lend confirm — while nothing
+ * ever wrote it). Upgraded accounts only: a device-bound anon "name" would promise a durability
+ * the 4h anon TTL breaks (the anon identity already has `mms.name` for the table/pickup surface).
+ * Bounds mirrored at the DB (`char_length between 1 and 80` CHECK): trim; empty/null clears back
+ * to null; >80 refused with honest copy, never silently truncated (it's the diner's NAME).
+ * Service-role write authorized by the SSR-verified uid — the client never names an id.
+ */
+export async function setDisplayName(raw: string | null): Promise<SetDisplayNameResult> {
+  const supa = serverClient(await cookies());
+  const {
+    data: { user },
+  } = await supa.auth.getUser();
+  if (!user || user.is_anonymous === true) return { ok: false, reason: "signed_out" };
+  if (raw !== null && typeof raw !== "string") return { ok: false, reason: "invalid" };
+  const trimmed = raw?.trim() ?? "";
+  const name = trimmed === "" ? null : trimmed;
+  if (name !== null && name.length > 80) return { ok: false, reason: "invalid" };
+  // W1·Q6 flood guard — an interactive save, so the refusal is SURFACED (unlike ensureProfile's
+  // silent no-op): the card shows "try again in a moment" instead of pretending it stuck.
+  if (!(await withinMutationRate(user.id))) return { ok: false, reason: "rate_limited" };
+  const db = serviceClient();
+  // Upsert (not update) so a save can't vanish on the rare visit where ensureProfile's row is
+  // still in flight; email rides along from the same verified auth user, never the client.
+  const { error } = await db.from("mms_profiles").upsert(
+    {
+      id: user.id,
+      email: user.email ?? null,
+      display_name: name,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "id" },
+  );
+  if (error) {
+    console.error("[rewards] setDisplayName failed", error.message);
+    return { ok: false, reason: "unavailable" };
+  }
+  return { ok: true, name };
 }
