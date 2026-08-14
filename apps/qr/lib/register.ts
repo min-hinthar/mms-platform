@@ -240,7 +240,9 @@ export async function getRegisterQueue(): Promise<RegisterQueue> {
     const lines = (cart.qr_cart_items ?? []).filter((l) => l.state !== "voided" && !l.comped);
     return {
       sessionId: cart.session_id,
-      source: cart.table_sessions.qr_code.startsWith("kiosk-") ? ("kiosk" as const) : ("register" as const),
+      source: cart.table_sessions.qr_code.startsWith("kiosk-")
+        ? ("kiosk" as const)
+        : ("register" as const),
       customerName: cart.customer_name ?? null,
       itemCount: lines.reduce((n, l) => n + l.qty, 0),
       // Display-only running subtotal for the queue card — the charge is always getCartTotals at settle.

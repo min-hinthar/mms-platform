@@ -18,12 +18,20 @@ import { sendToKitchen, undoFire } from "@/lib/cart";
 export function SendToKitchenButton({
   cartId,
   hasDraft,
+  draftCount = 0,
+  primary = false,
   onChanged,
 }: {
   cartId: string;
   /** Any line still 'draft' (i.e. there's something to send). When false and no undo window is open,
    *  everything's already with the kitchen, so we show a quiet confirmation instead of a dead button. */
   hasDraft: boolean;
+  /** W12 — the CTA carries what it sends ("Send to kitchen · 3 items"). 0 hides the count. */
+  draftCount?: number;
+  /** W12 — the Order moment's hero action: render as the filled `.checkout-cta` (shine sweep and
+   *  all) instead of the old secondary outline. The undo window keeps the outline (reversing is
+   *  never the hero). */
+  primary?: boolean;
   /** Re-sync the parent cart after a send/undo (solo dine-in isn't on the group realtime channel). */
   onChanged: () => void;
 }) {
@@ -146,9 +154,32 @@ export function SendToKitchenButton({
           onClick={send}
           disabled={pending}
           aria-busy={pending}
-          style={{ ...btn, opacity: pending ? 0.7 : 1, cursor: pending ? "default" : "pointer" }}
+          className={primary ? "checkout-cta" : undefined}
+          // ⚠️ Inline styles outrank the class: when primary, the outline look's background/color/
+          // border must NOT ride along or they'd blank the .checkout-cta gradient under the label.
+          style={{
+            ...(primary
+              ? {
+                  width: "100%",
+                  minHeight: 50,
+                  borderRadius: 12,
+                  border: "none",
+                  fontWeight: 800,
+                  fontSize: "var(--fs-body)",
+                }
+              : btn),
+            opacity: pending ? 0.7 : 1,
+            cursor: pending ? "default" : "pointer",
+          }}
         >
-          {pending ? "Sending…" : "Send to kitchen"}
+          {/* The label rides above the .checkout-cta ::after shine sweep on its own layer. */}
+          <span style={{ position: "relative", zIndex: 1 }}>
+            {pending
+              ? "Sending…"
+              : draftCount > 0
+                ? `Send to kitchen · ${draftCount} ${draftCount === 1 ? "item" : "items"}`
+                : "Send to kitchen"}
+          </span>
         </button>
       ) : (
         <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)", textAlign: "center" }}>

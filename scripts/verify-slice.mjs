@@ -676,7 +676,7 @@ const MUTANTS = [
     file: "apps/qr/lib/terminal.ts",
     suite: "lib/terminal.test.ts",
     why: "W6c review — captured-but-unfulfilled is the window where the freeze matters MOST (money moved, cart open); if the poll stops extending there, a delayed webhook past the TTL hands the cart to a cash settle and the guest is double-charged",
-    find: '    // Captured but not yet fulfilled — the window where the freeze matters MOST (money has moved,\n    // the cart is still open). Keep it fresh, or a delayed webhook past the TTL hands the cart to\n    // a cash settle and the guest is double-charged (review finding).\n    await extendSettlement(cartId);\n',
+    find: "    // Captured but not yet fulfilled — the window where the freeze matters MOST (money has moved,\n    // the cart is still open). Keep it fresh, or a delayed webhook past the TTL hands the cart to\n    // a cash settle and the guest is double-charged (review finding).\n    await extendSettlement(cartId);\n",
     replace:
       "    // Captured but not yet fulfilled — the window where the freeze matters MOST (money has moved,\n    // the cart is still open). Keep it fresh, or a delayed webhook past the TTL hands the cart to\n    // a cash settle and the guest is double-charged (review finding).\n",
   },
@@ -702,7 +702,8 @@ const MUTANTS = [
     suite: "lib/grocery-queue.test.ts",
     why: "W7b review HIGH — the queued entry must reuse the LIVE attempt's scan id; a fresh id minted at enqueue time crosses idempotency keys, so a committed-but-unanswered live add and its replay BOTH land (double-charge)",
     find: "  const entry: QueuedScan = { scanId, cartId, barcode, queuedAt: now };",
-    replace: "  const entry: QueuedScan = { scanId: crypto.randomUUID(), cartId, barcode, queuedAt: now };",
+    replace:
+      "  const entry: QueuedScan = { scanId: crypto.randomUUID(), cartId, barcode, queuedAt: now };",
   },
   {
     id: "order-lines/scan-id-not-threaded-on-insert",

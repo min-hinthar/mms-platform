@@ -69,7 +69,10 @@ const STRINGS = {
   startOver: { en: "Start over", my: "အစမှ ပြန်စမည်" },
   total: { en: "Total", my: "စုစုပေါင်း" },
   add: { en: "Add", my: "ထည့်မည်" },
-  scanPrompt: { en: "Scan a barcode, or browse below", my: "ဘားကုဒ်ကို စကင်ဖတ်ပါ (သို့) အောက်တွင် ရွေးပါ" },
+  scanPrompt: {
+    en: "Scan a barcode, or browse below",
+    my: "ဘားကုဒ်ကို စကင်ဖတ်ပါ (သို့) အောက်တွင် ရွေးပါ",
+  },
   // Honest scan refusals (W6b review): each failure names itself — "something went wrong" on a
   // simply-unknown barcode sends customers away from a working kiosk.
   scanUnknown: {

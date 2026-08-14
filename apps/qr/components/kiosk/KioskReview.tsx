@@ -111,7 +111,12 @@ export function KioskReview({
         <h1 className="kiosk-h1" lang={lang === "my" ? "my" : undefined}>
           {t(lang, "goesWellWith")}
         </h1>
-        <ul role="list" aria-label={t(lang, "goesWellWith")} className="kiosk-door-grid" style={{ listStyle: "none", padding: 0, margin: 0 }}>
+        <ul
+          role="list"
+          aria-label={t(lang, "goesWellWith")}
+          className="kiosk-door-grid"
+          style={{ listStyle: "none", padding: 0, margin: 0 }}
+        >
           {upsellPicks.map((p) => (
             <li key={p.id}>
               <button
@@ -151,12 +156,22 @@ export function KioskReview({
       <h1 className="kiosk-h1" lang={lang === "my" ? "my" : undefined}>
         {t(lang, "yourOrder")}
       </h1>
-      <ul role="list" aria-label={t(lang, "yourOrder")} style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: "var(--s2)" }}>
+      <ul
+        role="list"
+        aria-label={t(lang, "yourOrder")}
+        style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: "var(--s2)" }}
+      >
         {view.items.map((l) => (
           <li
             key={l.id}
             className="card"
-            style={{ display: "flex", justifyContent: "space-between", gap: "var(--s3)", padding: "var(--s3) var(--s4)", fontSize: "var(--xfs-body)" }}
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: "var(--s3)",
+              padding: "var(--s3) var(--s4)",
+              fontSize: "var(--xfs-body)",
+            }}
           >
             <span>
               {l.qty} × {l.name}
@@ -164,13 +179,21 @@ export function KioskReview({
                 <span className="kiosk-door-hint"> · {l.modifiers.join(", ")}</span>
               )}
             </span>
-            <span style={{ fontWeight: 800 }}>${((l.qty * l.unitPriceCents) / 100).toFixed(2)}</span>
+            <span style={{ fontWeight: 800 }}>
+              ${((l.qty * l.unitPriceCents) / 100).toFixed(2)}
+            </span>
           </li>
         ))}
       </ul>
       <div
         className="card"
-        style={{ display: "flex", justifyContent: "space-between", padding: "var(--s4)", fontSize: "var(--xfs-tile)", fontWeight: 800 }}
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          padding: "var(--s4)",
+          fontSize: "var(--xfs-tile)",
+          fontWeight: 800,
+        }}
       >
         <span lang={lang === "my" ? "my" : undefined}>{t(lang, "total")}</span>
         {/* Server-derived (getCartTotals via getCartView) — incl. the SB-1524 service charge + tax. */}
@@ -180,7 +203,12 @@ export function KioskReview({
         <button type="button" className="kiosk-ghost" onClick={onBack}>
           {t(lang, "back")}
         </button>
-        <button type="button" className="kiosk-cta" disabled={view.items.length === 0} onClick={proceed}>
+        <button
+          type="button"
+          className="kiosk-cta"
+          disabled={view.items.length === 0}
+          onClick={proceed}
+        >
           {t(lang, "payAtCounter")}
         </button>
       </div>

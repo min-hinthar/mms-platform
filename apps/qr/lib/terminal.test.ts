@@ -38,7 +38,8 @@ vi.mock("./stripe", () => ({
     paymentIntents: {
       create: (params: unknown, opts: unknown) => {
         log("pi.create", { params, opts });
-        if (piCreateFails) return Promise.reject(Object.assign(new Error("nope"), { code: "api_error" }));
+        if (piCreateFails)
+          return Promise.reject(Object.assign(new Error("nope"), { code: "api_error" }));
         return Promise.resolve({ id: "pi_test_1", amount: (params as { amount: number }).amount });
       },
       cancel: (id: string) => {
@@ -51,7 +52,9 @@ vi.mock("./stripe", () => ({
       },
       retrieve: (id: string) => {
         log("pi.retrieve", id);
-        return Promise.resolve(retrieved ?? { id, status: "requires_payment_method", metadata: {} });
+        return Promise.resolve(
+          retrieved ?? { id, status: "requires_payment_method", metadata: {} },
+        );
       },
     },
     terminal: {
@@ -78,7 +81,10 @@ vi.mock("./stripe", () => ({
 vi.mock("./staff", () => ({
   STAFF_WRITE_OUTAGE: "outage",
   staffGate: () =>
-    Promise.resolve({ ok: true, caller: { uid: "staff-uid", staffId: "staff-row-id", role: "manager" } }),
+    Promise.resolve({
+      ok: true,
+      caller: { uid: "staff-uid", staffId: "staff-row-id", role: "manager" },
+    }),
 }));
 vi.mock("./staff-open-cart", () => ({
   openCartFor: () =>
@@ -92,7 +98,14 @@ vi.mock("./pay-guard", () => ({ paymentInFlightReason: () => Promise.resolve(nul
 vi.mock("./totals", () => ({
   getCartTotals: (cartId: string, tipRate: number) => {
     log("totals", { cartId, tipRate });
-    return Promise.resolve({ totalCents: 4321, subtotalCents: 4000, discountCents: 0, serviceChargeCents: 200, taxCents: 121, tipCents: 0 });
+    return Promise.resolve({
+      totalCents: 4321,
+      subtotalCents: 4000,
+      discountCents: 0,
+      serviceChargeCents: 200,
+      taxCents: 121,
+      tipCents: 0,
+    });
   },
 }));
 let acquireResult: "acquired" | "locked" | "settling_other" | "closed" = "acquired";
@@ -110,7 +123,9 @@ vi.mock("./lock", () => ({
     return Promise.resolve();
   },
 }));
-vi.mock("./posthog-server", () => ({ getPostHogClient: () => ({ capture: () => {}, flush: () => Promise.resolve() }) }));
+vi.mock("./posthog-server", () => ({
+  getPostHogClient: () => ({ capture: () => {}, flush: () => Promise.resolve() }),
+}));
 vi.mock("next/server", () => ({ after: (fn: () => unknown) => void fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
@@ -121,7 +136,10 @@ vi.mock("@mms/db/server", () => ({
       select: (_cols: string, opts?: { count?: string; head?: boolean }) => {
         if (opts?.head) return { eq: () => Promise.resolve({ count: 2, error: null }) };
         return {
-          eq: () => ({ maybeSingle: () => Promise.resolve({ data: table === "qr_orders" ? orderRow : null, error: null }) }),
+          eq: () => ({
+            maybeSingle: () =>
+              Promise.resolve({ data: table === "qr_orders" ? orderRow : null, error: null }),
+          }),
         };
       },
     }),
@@ -229,7 +247,10 @@ describe("settleCard — the reader gate + attempt-scoped freeze lifecycle", () 
     const ops = calls.map((c) => c.op);
     expect(ops).toContain("pi.cancel");
     expect(ops.indexOf("pi.cancel")).toBeLessThan(ops.indexOf("releaseFor"));
-    const rel = calls.find((c) => c.op === "releaseFor")?.args as { cartId: string; attemptId: string };
+    const rel = calls.find((c) => c.op === "releaseFor")?.args as {
+      cartId: string;
+      attemptId: string;
+    };
     expect(rel).toEqual({ cartId: "cart-1", attemptId: mintedAttempt() });
   });
 
@@ -269,7 +290,12 @@ describe("terminalStatus — the collect-window poll", () => {
   });
 
   it("a non-terminal PI is not pollable — the id is a handle, the metadata is the authority", async () => {
-    retrieved = { id: "pi_x", status: "succeeded", metadata: { kind: "split_share", cartId: "cart-9" }, amount: 1 };
+    retrieved = {
+      id: "pi_x",
+      status: "succeeded",
+      metadata: { kind: "split_share", cartId: "cart-9" },
+      amount: 1,
+    };
     const r = await terminalStatus({ sessionId: SESSION, paymentIntentId: "pi_x" });
     expect(r.ok).toBe(false);
   });

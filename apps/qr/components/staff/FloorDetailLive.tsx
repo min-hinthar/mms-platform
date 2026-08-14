@@ -13,11 +13,7 @@ import { Badge, Icon } from "@mms/ui";
 import { ClearTableButton } from "./ClearTableButton";
 import { StaffLineEditor } from "./StaffLineEditor";
 import { CashSettleButton } from "./CashSettleButton";
-import {
-  TerminalSettleButton,
-  TerminalCollectPanel,
-  type TerminalCollect,
-} from "./TerminalSettle";
+import { TerminalSettleButton, TerminalCollectPanel, type TerminalCollect } from "./TerminalSettle";
 import { MergeTableButton } from "./MergeTableButton";
 import { OpenTabButton } from "./OpenTabButton";
 import { CloseSecureTabButton } from "./CloseSecureTabButton";
@@ -491,7 +487,12 @@ export function FloorDetailLive({
           role="status"
           aria-label="Order paid"
           className="card"
-          style={{ marginTop: "var(--s4)", padding: "var(--s4)", textAlign: "center", outline: "none" }}
+          style={{
+            marginTop: "var(--s4)",
+            padding: "var(--s4)",
+            textAlign: "center",
+            outline: "none",
+          }}
         >
           <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
             Paid · ${(handoff.totalCents / 100).toFixed(2)}

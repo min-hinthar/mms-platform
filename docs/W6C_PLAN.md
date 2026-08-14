@@ -38,7 +38,7 @@ lifecycle copies `closeSecureTab` exactly, never `settleCash`'s blanket `finally
    key caches a decline for 24h — the freeze, not the key, is the double-charge guard), metadata
    `{ cartId, tipRate: '0', kind: 'terminal', settledByStaffId }`.
 3. `readers.processPaymentIntent(READER_ID, { payment_intent, process_config: { skip_tipping:
-   true } })`. Any failure here (reader offline/busy/unset): cancel the PI best-effort, **release
+true } })`. Any failure here (reader offline/busy/unset): cancel the PI best-effort, **release
    the freeze**, return a discriminated refusal with honest copy.
 4. On success the action returns and the freeze **stays held** — the webhook's atomic open→paid
    flip is the terminal state; `SETTLE_TTL` + `qr_refunds_needed` are the orphan backstops.

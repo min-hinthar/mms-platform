@@ -48,11 +48,7 @@ export function KioskShell({
     return (
       <div className="kiosk-root">
         {/* The whole attract surface is the start control; the language tiles are the two entries. */}
-        <div
-          className="kiosk-attract"
-          onClick={() => setScreen("doors")}
-          role="presentation"
-        >
+        <div className="kiosk-attract" onClick={() => setScreen("doors")} role="presentation">
           <div className="kiosk-attract-glow" aria-hidden />
           <h1 className="kiosk-hero">{t("en", "welcome")}</h1>
           <p className="kiosk-hero-my" lang="my">
@@ -94,11 +90,7 @@ export function KioskShell({
   if (door) {
     return (
       <div className="kiosk-root">
-        <KioskTopbar
-          lang={lang}
-          onLang={setLang}
-          onHome={() => (flowLeave.current ?? reset)()}
-        />
+        <KioskTopbar lang={lang} onLang={setLang} onHome={() => (flowLeave.current ?? reset)()} />
         <KioskOrderFlow
           key={door}
           token={token}

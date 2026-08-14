@@ -417,10 +417,12 @@ export async function POST(req: NextRequest) {
                     cartId,
                     message: sessErr.message,
                   });
-                else if (cartSess?.session_id)
-                  await closeCounterStyleSession(cartSess.session_id);
+                else if (cartSess?.session_id) await closeCounterStyleSession(cartSess.session_id);
               } catch (e) {
-                console.error("[stripe webhook] terminal counter close threw", { cartId, error: e });
+                console.error("[stripe webhook] terminal counter close threw", {
+                  cartId,
+                  error: e,
+                });
               }
             }
           });

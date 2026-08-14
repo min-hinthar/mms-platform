@@ -391,7 +391,11 @@ export default function Grocery() {
           // the only state that may promise a later sync), so the scan queues instead of dropping.
           // The SAME scanId the live attempt carried — if that write actually committed and only
           // the response was lost, the replay conflicts on the ledger and no-ops (review HIGH).
-          if (typeof navigator !== "undefined" && !navigator.onLine && queueOffline(barcode, scanId))
+          if (
+            typeof navigator !== "undefined" &&
+            !navigator.onLine &&
+            queueOffline(barcode, scanId)
+          )
             return;
           // ONE toast, immediately, using the truth we already hold (the module-cached verdict, so
           // the second failure in an outage is already attributed). The probe runs fire-and-forget

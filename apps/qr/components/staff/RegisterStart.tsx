@@ -17,7 +17,11 @@ export function RegisterStart() {
   const [tableNumber, setTableNumber] = useState("");
   const [arm, setArm] = useState<"none" | "phone" | "table">("none");
 
-  function mint(input: { kind: "walkup" | "phone" | "table"; tableNumber?: number; customerName?: string }) {
+  function mint(input: {
+    kind: "walkup" | "phone" | "table";
+    tableNumber?: number;
+    customerName?: string;
+  }) {
     setError(null);
     startTransition(async () => {
       const r = await openRegisterOrder(input);
@@ -32,7 +36,12 @@ export function RegisterStart() {
   return (
     <section aria-label="Start an order" style={zone}>
       <div style={row}>
-        <button type="button" style={startBtn} disabled={pending} onClick={() => mint({ kind: "walkup" })}>
+        <button
+          type="button"
+          style={startBtn}
+          disabled={pending}
+          onClick={() => mint({ kind: "walkup" })}
+        >
           Walk-up
         </button>
         <button
