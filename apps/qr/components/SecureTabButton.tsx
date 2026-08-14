@@ -12,17 +12,7 @@ import { Card, Icon } from "@mms/ui";
  * (setup_intent.succeeded → the tab flips to 'secure'), so we never claim "secured" the gateway didn't
  * accept (T7) — on confirm we show a calm "saved, securing…" and let the realtime tab-state flip confirm it.
  */
-export function SecureTabButton({
-  cartId,
-  onSecured,
-  compact = false,
-}: {
-  cartId: string;
-  onSecured: () => void;
-  /** Render the idle trigger as a `.checkout-pill` for the settle-later tray; the loading/error/form/done
-   *  phases wrap to a full-width line below the pill row (flex-basis:100% in the wrapping `.checkout-pill-row`). */
-  compact?: boolean;
-}) {
+export function SecureTabButton({ cartId, onSecured }: { cartId: string; onSecured: () => void }) {
   const [phase, setPhase] = useState<"idle" | "loading" | "form" | "done">("idle");
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -60,23 +50,19 @@ export function SecureTabButton({
 
   if (phase === "done")
     return (
-      // In the tray, wrap to a full-width line below the pill row (flex-basis:100%).
-      <p
-        style={compact ? { ...doneNote, flex: "1 0 100%", margin: "6px 0 0" } : doneNote}
-        role="status"
-      >
+      <p style={doneNote} role="status">
         <Icon
           name="check"
           size={14}
           style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }}
         />
-        Card saved — your tab is secured. Settle anytime.
+        Card saved — leave whenever. We’ll close your bill with it.
       </p>
     );
 
   if (phase === "form" && options && stripePromise)
     return (
-      <Card style={compact ? { ...panel, flex: "1 0 100%", marginTop: 4 } : panel}>
+      <Card style={panel}>
         <p
           style={{
             margin: "0 0 10px",
@@ -85,7 +71,7 @@ export function SecureTabButton({
             lineHeight: 1.5,
           }}
         >
-          Save a card to keep your tab open — we’ll charge it when you’re ready to close. No charge
+          Save a card and leave whenever you’re ready — we’ll close your bill with it. No charge
           now.
         </p>
         <Elements stripe={stripePromise} options={options}>
@@ -100,34 +86,8 @@ export function SecureTabButton({
       </Card>
     );
 
-  // idle / loading — compact renders the trigger as a tray pill (the accent-outline action variant);
-  // any error/unavailable note wraps full-width below the pill row.
-  if (compact)
-    return (
-      <>
-        <button
-          type="button"
-          onClick={begin}
-          disabled={phase === "loading" || !stripePromise}
-          aria-busy={phase === "loading"}
-          aria-label="Secure your tab — save a card to settle later"
-          className="checkout-pill checkout-pill-accent"
-          style={{ flex: "1 1 0" }}
-        >
-          {phase === "loading" ? "Starting…" : "Secure your tab"}
-        </button>
-        {(error || !stripePromise) && (
-          <p
-            role="alert"
-            style={{ ...hint, flex: "1 0 100%", margin: "6px 0 0", color: "var(--warn)" }}
-          >
-            {error ?? "Card save is temporarily unavailable."}
-          </p>
-        )}
-      </>
-    );
-
-  // idle / loading (full-width default)
+  // idle / loading — W12: ONE quiet benefit-framed line on the Bill moment (the tab is a state,
+  // not a choice — this is the only diner-facing card-on-file affordance left).
   return (
     <div>
       <button
@@ -137,9 +97,11 @@ export function SecureTabButton({
         aria-busy={phase === "loading"}
         style={secureBtn}
       >
-        {phase === "loading" ? "Starting…" : "Secure your tab · save a card"}
+        {phase === "loading" ? "Starting…" : "Save a card — leave whenever"}
       </button>
-      <p style={hint}>Save a card now, settle the whole tab when you leave.</p>
+      <p style={hint}>
+        No charge now. Pay here anytime — or leave, and we’ll close your bill with this card.
+      </p>
       {(error || !stripePromise) && (
         <p role="alert" style={{ ...hint, color: "var(--warn)" }}>
           {error ?? "Card save is temporarily unavailable."}
@@ -199,7 +161,7 @@ function SetupForm({ cartId, onDone }: { cartId: string; onDone: () => void }) {
         aria-busy={submitting}
         style={secureBtn}
       >
-        {submitting ? "Saving…" : "Save card & secure tab"}
+        {submitting ? "Saving…" : "Save my card"}
       </button>
     </form>
   );

@@ -1684,6 +1684,44 @@ h3 {
   border-bottom: 1.5px dotted color-mix(in oklab, var(--bd) 85%, transparent);
 }
 
+/* W12 — the Bill moment's line rows: the same receipt language as the breakdown (dotted leader from
+   the item to its amount), read-only by design (editing lives one tap back on the Order moment). */
+.checkout-bill-lines {
+  list-style: none;
+  padding: 6px 0 0;
+  margin: 0;
+}
+.checkout-bill-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 0;
+}
+.checkout-bill-name {
+  flex: 1;
+  min-width: 0;
+}
+.checkout-bill-line > .checkout-bill-name::after {
+  content: none;
+}
+
+/* W12 — the Order moment's quiet door to the bill: the old Send outline look, inherited (the filled
+   promotion once everything is sent comes from .checkout-cta on the same element). */
+.checkout-viewbill {
+  border: 1px solid var(--ac);
+  background: transparent;
+  color: var(--ac);
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    background var(--dur-base) var(--ease-out);
+}
+.checkout-viewbill:hover {
+  background: color-mix(in oklab, var(--ac) 8%, transparent);
+}
+.checkout-viewbill:active {
+  transform: scale(0.98);
+}
+
 /* Promo input — a calm resting field that blooms an accent focus ring (matches the global focus-visible).
    The border lives HERE (not inline) so :focus-visible can recolor it — an inline border would outrank it. */
 .checkout-promo-input {
@@ -1867,16 +1905,8 @@ h3 {
     var(--sh-glow);
 }
 
-/* Settle-later tray — a shallow recessed well (faint tint + inset hairline) holding the secondary tab
-   pills under an "or settle later" fading divider, subordinate to the primary pay CTA above. */
-.checkout-tray {
-  margin-top: 16px;
-  padding: 12px;
-  border-radius: var(--r-card);
-  background: color-mix(in oklab, var(--sf) 50%, transparent);
-  border: 1px solid color-mix(in oklab, var(--bd) 65%, transparent);
-  box-shadow: inset 0 1px 2px color-mix(in oklab, var(--scrim) 22%, transparent);
-}
+/* Fading-divider label — born as the settle-later tray's heading; the tray retired with W12 (the
+   tab is a state, not a choice) but AccountUpgrade still uses the divider language. */
 .checkout-tray-label {
   display: flex;
   align-items: center;
@@ -1901,16 +1931,6 @@ h3 {
   flex-wrap: wrap;
   gap: 8px;
 }
-/* In the tray the settle pills share the row equally; the per-line destination pills stay content-width. */
-.checkout-tray .checkout-pill {
-  flex: 1 1 0;
-}
-.checkout-tray-hint {
-  margin: 10px 0 0;
-  font-size: 11.5px;
-  color: var(--t3);
-  text-align: center;
-}
 
 /* Step transition — the keyed wrapper enter-slides on each view change (review ↔ pay ↔ settle). */
 .checkout-step {
@@ -1932,6 +1952,7 @@ h3 {
   .checkout-cta,
   .checkout-cta-ghost,
   .checkout-cta-arrow,
+  .checkout-viewbill,
   .checkout-pill {
     transition: none;
   }
@@ -1941,6 +1962,7 @@ h3 {
   .checkout-pill-accent:not(:disabled):hover,
   .checkout-tip:not(:disabled):hover,
   .checkout-cta:not(:disabled):active,
+  .checkout-viewbill:active,
   .checkout-cta:not(:disabled):hover .checkout-cta-arrow {
     transform: none;
   }
@@ -5925,8 +5947,16 @@ html[data-seen-surface] .mms-stagger {
   position: absolute;
   inset: -20%;
   background:
-    radial-gradient(40% 35% at 30% 25%, color-mix(in oklab, var(--ac) 14%, transparent), transparent 70%),
-    radial-gradient(35% 30% at 72% 70%, color-mix(in oklab, var(--gold) 12%, transparent), transparent 70%);
+    radial-gradient(
+      40% 35% at 30% 25%,
+      color-mix(in oklab, var(--ac) 14%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      35% 30% at 72% 70%,
+      color-mix(in oklab, var(--gold) 12%, transparent),
+      transparent 70%
+    );
   pointer-events: none;
   animation: kiosk-drift 18s var(--ease-in-out) infinite alternate;
 }

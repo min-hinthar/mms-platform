@@ -181,8 +181,7 @@ export function TerminalCollectPanel({
   }
 
   const blind = pollMisses >= BLIND_AFTER_MISSES;
-  const recordingLong =
-    recordingSince != null && nowMs - recordingSince > RECORDING_ESCALATE_MS;
+  const recordingLong = recordingSince != null && nowMs - recordingSince > RECORDING_ESCALATE_MS;
 
   // ONE live region: the status line below carries every phase/degradation change. The panel root
   // and its buttons stay OUTSIDE it (a status region wrapping interactive content re-announces the

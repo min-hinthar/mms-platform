@@ -60,7 +60,10 @@ export function StaffMenuBrowser({
     });
   }, [items, q, cat]);
 
-  function addWithChoice(item: StaffMenuItem, choice: { modifierIds: string[]; qty: number; notes?: string }) {
+  function addWithChoice(
+    item: StaffMenuItem,
+    choice: { modifierIds: string[]; qty: number; notes?: string },
+  ) {
     setSheetError(null);
     startTransition(async () => {
       try {
@@ -180,17 +183,25 @@ export function StaffMenuBrowser({
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 600 }}>
                 {i.nameEn}
-                {i.soldOut && <span style={{ color: "var(--t3)", fontWeight: 400 }}> · Sold out</span>}
+                {i.soldOut && (
+                  <span style={{ color: "var(--t3)", fontWeight: 400 }}> · Sold out</span>
+                )}
               </div>
               {i.nameMy && (
                 <div
-                  style={{ fontFamily: "var(--font-my)", fontSize: "var(--fs-sm)", color: "var(--t2)" }}
+                  style={{
+                    fontFamily: "var(--font-my)",
+                    fontSize: "var(--fs-sm)",
+                    color: "var(--t2)",
+                  }}
                   lang="my"
                 >
                   {i.nameMy}
                 </div>
               )}
-              <div style={{ fontWeight: 800, marginTop: 4 }}>${(i.priceCents / 100).toFixed(2)}</div>
+              <div style={{ fontWeight: 800, marginTop: 4 }}>
+                ${(i.priceCents / 100).toFixed(2)}
+              </div>
             </div>
             {i.groups.length > 0 ? (
               <button
@@ -203,7 +214,12 @@ export function StaffMenuBrowser({
                 Choose…
               </button>
             ) : (
-              <StaffAddButton sessionId={sessionId} menuItemId={i.id} name={i.nameEn} soldOut={i.soldOut} />
+              <StaffAddButton
+                sessionId={sessionId}
+                menuItemId={i.id}
+                name={i.nameEn}
+                soldOut={i.soldOut}
+              />
             )}
           </li>
         ))}
@@ -295,7 +311,11 @@ const chipOn: CSSProperties = {
   color: "var(--oa)",
   fontWeight: 700,
 };
-const statusText: CSSProperties = { color: "var(--t2)", fontSize: "var(--fs-sm)", margin: "0 0 var(--s3)" };
+const statusText: CSSProperties = {
+  color: "var(--t2)",
+  fontSize: "var(--fs-sm)",
+  margin: "0 0 var(--s3)",
+};
 const srOnly: CSSProperties = {
   position: "absolute",
   width: 1,

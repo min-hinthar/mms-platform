@@ -38,13 +38,13 @@ ignore the artifact; the SW source carries webworker types.
 
 **Caching policy (stricter than delivery — the honesty constraints):**
 
-| Surface | Strategy |
-| --- | --- |
-| Documents (all routes) | **NetworkOnly**; catch → the synthetic offline shell (bilingual, tokens inlined, Try-again = reload) |
+| Surface                                           | Strategy                                                                                                                                                              |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Documents (all routes)                            | **NetworkOnly**; catch → the synthetic offline shell (bilingual, tokens inlined, Try-again = reload)                                                                  |
 | `/api/*`, `/ingest/*`, every POST / Server Action | **Never intercepted** — money, session, analytics, and `/api/health` (a cached `{db:'ok'}` would re-blame the diner during a real outage — the exact lie W10a killed) |
-| `/_next/static/*` | CacheFirst (content-hashed immutable), capped + expiring |
-| `/_next/image?*` | StaleWhileRevalidate, `statuses:[200]` only (the delivery cache-poisoning lesson: never cache opaque/error), maxEntries + `purgeOnQuotaError` |
-| `public/` assets | Precache (getManifest over public/, cache-bust-exempt hashed names) |
+| `/_next/static/*`                                 | CacheFirst (content-hashed immutable), capped + expiring                                                                                                              |
+| `/_next/image?*`                                  | StaleWhileRevalidate, `statuses:[200]` only (the delivery cache-poisoning lesson: never cache opaque/error), maxEntries + `purgeOnQuotaError`                         |
+| `public/` assets                                  | Precache (getManifest over public/, cache-bust-exempt hashed names)                                                                                                   |
 
 `CACHE_VERSION` suffix on every runtime cache + the manual activate-time sweep of stale versions
 (Serwist only cleans the precache). `skipWaiting: false` + `clientsClaim: true` + the

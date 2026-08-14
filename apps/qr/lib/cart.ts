@@ -528,8 +528,9 @@ export async function getCartView(cartId: string): Promise<{
    *  cart goes read-only for everyone and the UI shows the split board; `settleBy` is the host. */
   settling: boolean;
   settleBy: string | null;
-  /** Tab lifecycle (S3.1): `none` until someone opens a tab on this table; `trust`/`secure` once open.
-   *  Drives the diner "Keep tab open / settle later" affordance vs. the "Tab open" state on /cart. */
+  /** Tab lifecycle (S3.1 → W12): `none`/`trust` vs `secure`. Diner-side it only gates the Bill
+   *  moment's save-card affordance vs its "Card on file" note (the tab is a state, not a choice);
+   *  the staff floor still names it. */
   tabType: "none" | "trust" | "secure";
 }> {
   const { cartId: id } = cartViewInput.parse({ cartId });

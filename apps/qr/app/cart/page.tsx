@@ -128,7 +128,7 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
   const initialPickupSlot = view.pickupSlot != null && view.fireAt == null ? null : view.pickupSlot;
 
   // A settling cart with NO split context is unwinnable in the plain flow: the cart is frozen
-  // table-wide, so "Continue to payment" 409s ("pay your share on the split screen") but the board
+  // table-wide, so "Pay · $X" 409s ("pay your share on the split screen") but the board
   // can't render without the context. Rather than strand the payer in that loop on a transient read
   // miss, surface an honest retry (reload re-runs getSplitContext server-side).
   if (view.settling && !split)

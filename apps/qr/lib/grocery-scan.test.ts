@@ -11,7 +11,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 vi.mock("./authz", () => ({
   assertCartMember: () =>
-    Promise.resolve({ uid: "seat-1", sessionId: "sess-1", role: "host", locked: false, lockedBy: null, settling: false, settleBy: null }),
+    Promise.resolve({
+      uid: "seat-1",
+      sessionId: "sess-1",
+      role: "host",
+      locked: false,
+      lockedBy: null,
+      settling: false,
+      settleBy: null,
+    }),
 }));
 vi.mock("./rate", () => ({ assertMutationRate: () => Promise.resolve() }));
 vi.mock("./cart-failure", () => ({ whyCartUnavailable: () => Promise.resolve("unreadable") }));
@@ -38,7 +46,15 @@ vi.mock("@mms/db/server", () => ({
           Promise.resolve({
             data:
               table === "grocery_items"
-                ? { barcode: "12345678", name: "Test Jar", price_cents: 350, tax_category: "grocery_food", ebt_eligible: true, weighed: false, available: true }
+                ? {
+                    barcode: "12345678",
+                    name: "Test Jar",
+                    price_cents: 350,
+                    tax_category: "grocery_food",
+                    ebt_eligible: true,
+                    weighed: false,
+                    available: true,
+                  }
                 : null,
             error: null,
           }),

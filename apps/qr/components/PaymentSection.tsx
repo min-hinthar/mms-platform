@@ -157,7 +157,7 @@ function PayForm({
           borderRadius: 12,
           border: "none",
           // bg/color come from .checkout-cta (gold-warmed gradient + sheen + one-sweep shine) — parity
-          // with the "Continue to payment" CTA. The label rides above the ::after sweep on its own layer.
+          // with the review step's "Pay · $X" CTA. The label rides above the ::after sweep on its own layer.
           fontWeight: 800,
           fontSize: "var(--fs-body)",
           cursor: !stripe || submitting ? "default" : "pointer",

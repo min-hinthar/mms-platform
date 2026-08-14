@@ -4,6 +4,32 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W12 — the two-moment checkout (2026-08-14)
+
+The dine-in cart stops asking the diner to pick a **settlement model** ("Send to kitchen" vs
+"Keep tab open" vs "Secure your tab" vs "Continue") and stages the two verbs a restaurant guest
+actually has — the world-class shape (me&u / sunday / Toast converged here); design-of-record
+`docs/W12_PLAN.md`, anchored on ORDER-MODEL's own **"'Checkout' = tab-close"**:
+
+- **The Order moment** (`/cart`, drafts present): the editing surface + **"Send to kitchen · N
+  items" promoted to the primary CTA**, with a quiet live-total "View bill & pay · $X →" bar
+  (promoted to primary once everything's with the kitchen). No promo/tip/fee ceremony here.
+- **The Pay moment** ("Your bill" — the mid-meal settle-nudge journey lands here directly): the
+  lines as read-only rows inside the textured receipt slip (qty × name · dotted leader · amount ·
+  kitchen state · owner) over the fee breakdown + SB-1524, then promo/reward/tip and **"Pay · $X"**
+  (group: "Pay the whole order"). "← Back to your order" mirrors the pay step's quiet pattern.
+- **Tab vocabulary retired diner-side** — the tab is a state, not a choice: the "or settle later"
+  tray, the "Keep tab open" pill, and the diner `openTab` call are gone (an unsettled table IS the
+  trust tab; staff floor machinery, ceiling/nudge, audit all untouched); the CTA never says
+  "Settle tab"; `SecureTabButton` reframed as one quiet benefit line on the bill ("Save a card —
+  leave whenever"); a secured tab reads "Card on file — pay here anytime, or just leave…".
+- Presentation-only: same route, same machinery (pay-window lock + beacon, realtime, splits,
+  settling board, outage honesty), zero money-path changes; pickup/scango unchanged (already
+  one-moment). The stage flip rides the existing `viewKey` focus + enter-animation discipline;
+  the landing rule is pure + pinned (`lib/checkout-stage.ts`, red-first; 362 qr tests).
+- Registry: **S13 opened** (an open tab never extends the 4h session TTL — surfaced by the W12
+  periphery map) · S3.1 diner-open affordance noted retired.
+
 ### W7b — the resilience shell (2026-08-13)
 
 Production readiness (closes **S3**; plan: `docs/W7B_PLAN.md`): the PWA/offline layer, ported from

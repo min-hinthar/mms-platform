@@ -1,10 +1,7 @@
 import { publicClient } from "@mms/db/server";
 import { KioskShell } from "@/components/kiosk/KioskShell";
 import type { KioskItem } from "@/components/kiosk/types";
-import {
-  requiredChoiceUnavailable,
-  shapeModifierGroups,
-} from "@/lib/menu/modifiers";
+import { requiredChoiceUnavailable, shapeModifierGroups } from "@/lib/menu/modifiers";
 
 export const metadata = {
   title: "Order — Mandalay Morning Star",

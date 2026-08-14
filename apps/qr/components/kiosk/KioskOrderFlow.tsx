@@ -197,7 +197,11 @@ export function KioskOrderFlow({
           </button>
         </form>
         {/* The flow's ONE live region — mint refusals (occupied table, not-configured) land here. */}
-        <p role="status" className="kiosk-touch-hint" style={{ color: "var(--warn)", minHeight: 28 }}>
+        <p
+          role="status"
+          className="kiosk-touch-hint"
+          style={{ color: "var(--warn)", minHeight: 28 }}
+        >
           {error ?? ""}
         </p>
         <IdleModal
@@ -315,12 +319,21 @@ function IdleModal({
   }, [countdown]);
   if (countdown == null) return null;
   return (
-    <div className="mms-scrim" style={{ display: "grid", placeItems: "center", position: "fixed", inset: 0 }}>
+    <div
+      className="mms-scrim"
+      style={{ display: "grid", placeItems: "center", position: "fixed", inset: 0 }}
+    >
       <div
         role="alertdialog"
         aria-label={t(lang, "stillThere")}
         className="card"
-        style={{ padding: "var(--s6)", textAlign: "center", display: "grid", gap: "var(--s4)", maxWidth: 460 }}
+        style={{
+          padding: "var(--s6)",
+          textAlign: "center",
+          display: "grid",
+          gap: "var(--s4)",
+          maxWidth: 460,
+        }}
       >
         <h2 className="kiosk-h1" lang={lang === "my" ? "my" : undefined}>
           {t(lang, "stillThere")} · {countdown}

@@ -77,9 +77,24 @@ describe("the persisted entry", () => {
   });
   it("prunes corrupt shapes and TTL-expired entries at load", () => {
     const now = 10_000_000;
-    const good = { scanId: "00000000-0000-4000-8000-000000000001", cartId: CART, barcode: "12345678", queuedAt: now - 1000 };
-    const stale = { ...good, scanId: "00000000-0000-4000-8000-000000000002", queuedAt: now - QUEUE_TTL_MS - 1 };
-    const corrupt = { scanId: "nope", cartId: CART, barcode: "12345678", queuedAt: now, priceCents: 350 };
+    const good = {
+      scanId: "00000000-0000-4000-8000-000000000001",
+      cartId: CART,
+      barcode: "12345678",
+      queuedAt: now - 1000,
+    };
+    const stale = {
+      ...good,
+      scanId: "00000000-0000-4000-8000-000000000002",
+      queuedAt: now - QUEUE_TTL_MS - 1,
+    };
+    const corrupt = {
+      scanId: "nope",
+      cartId: CART,
+      barcode: "12345678",
+      queuedAt: now,
+      priceCents: 350,
+    };
     expect(pruneEntries([good, stale, corrupt, "junk"], now)).toEqual([good]);
   });
 });
@@ -142,10 +157,7 @@ describe("drainCart — serialized FIFO with the terminal flush", () => {
   it("a REJECTED verdict dequeues just that entry and continues", async () => {
     enqueueScan(CART, "11111111", sid());
     enqueueScan(CART, "22222222", sid());
-    const results = [
-      { ok: false as const, reason: "unknown_barcode" },
-      { ok: true as const },
-    ];
+    const results = [{ ok: false as const, reason: "unknown_barcode" }, { ok: true as const }];
     await drainCart(CART, async () => results.shift() ?? null, { sleep: async () => {} });
     expect(pendingFor(CART)).toEqual([]);
   });

@@ -39,7 +39,11 @@ import { RewardField } from "./RewardField";
 import { PickupWhenChoice } from "./PickupWhenChoice";
 import { WalletChip } from "./WalletChip";
 import { useRewardsBadge } from "@/lib/useRewardsBadge";
-import { openTab } from "@/lib/tabs";
+import {
+  initialStage,
+  kitchenDraftQty as deriveKitchenDraftQty,
+  type CheckoutStage,
+} from "@/lib/checkout-stage";
 
 // Per-reason promo copy (the action returns a reason; Next redacts thrown errors in prod). Honest +
 // on-brand: tell the diner exactly why, never a fabricated state.
@@ -101,7 +105,7 @@ function applyCartOptimistic(state: CartItem[], u: CartOptimistic): CartItem[] {
 
 /**
  * Cart + checkout (client), two steps: REVIEW (edit lines, promo, tip — cart open/editable) →
- * "Continue to payment" mints the intent + LOCKS the cart → PAY (Stripe Payment Element on a stable
+ * "Pay · $X" mints the intent + LOCKS the cart → PAY (Stripe Payment Element on a stable
  * clientSecret; "Edit order" unlocks and returns). Totals are always server-authoritative — the
  * review breakdown from `getCartView`, the tip-inclusive grand total from create-intent. Never client
  * money math (the tip chip preview is a hint, confirmed server-side).
@@ -134,8 +138,9 @@ export function Checkout({
   /** W9b — the viewer's own seat, from `getCartView` (NOT `splitContext`, which is nulled on any read
    *  failure). Decides whether `lockedBy` is a peer's lock or the viewer's own. */
   initialMySeat?: string | null;
-  /** Tab lifecycle (S3.1): `none` until someone opens a tab on this table. When open, the cart reads
-   *  "Tab open" and the pay CTA settles/closes the tab. Synced from getCartView (initial + realtime). */
+  /** Tab lifecycle (S3.1 → W12): the diner never chooses a tab — the state only gates the Bill
+   *  moment's save-card affordance ('none'/'trust') vs its "Card on file" note ('secure'). Synced
+   *  from getCartView (initial + realtime); staff/webhook flips land live. */
   initialTabType?: "none" | "trust" | "secure";
   /** Dine-in only: a tab is a dine-in concept (pickup/grocery pay at checkout). Gates the affordance. */
   canTab?: boolean;
@@ -248,11 +253,20 @@ export function Checkout({
       active = false;
     };
   }, [isTakeout, pureGrocery]);
-  // Tab lifecycle (S3.1) — seeded from the server view, kept in step by refresh() (a peer or a server
-  // opening the tab flips it here too). `tabBusy`/`tabError` drive the "Keep tab open" affordance.
+  // Tab lifecycle (S3.1) — seeded from the server view, kept in step by refresh() (a peer or a
+  // server securing the tab flips it here too). W12: the diner never CHOOSES a tab anymore — an
+  // unsettled dine-in table IS the open (trust) tab, so `trust` renders nothing diner-side; the
+  // state only gates the save-card affordance and its secured note on the Bill moment.
   const [tabType, setTabType] = useState(initialTabType);
-  const [tabBusy, setTabBusy] = useState(false);
-  const [tabError, setTabError] = useState<string | null>(null);
+  // W12 — the two-moment stage (dine-in only): Order (build + send the round) vs Bill (tip + pay).
+  // The landing is derived (lib/checkout-stage — drafts → order, fired-only → bill), then the
+  // diner flips freely; it rides `viewKey` so a flip animates + moves focus like every view change.
+  const [stage, setStage] = useState<CheckoutStage>(() => initialStage(initialItems));
+  // W12 review MED — the send's 10s undo grace lives inside SendToKitchenButton, and a stage flip
+  // unmounts it (the keyed step wrapper), destroying the only UI that can recall the send. While
+  // the window is open the View-bill door stays un-promoted and REFUSES with the why (the W9b
+  // dead-controls-say-why rule) instead of silently forfeiting the undo.
+  const [undoOpen, setUndoOpen] = useState(false);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [payTotals, setPayTotals] = useState<CartTotals | null>(null);
   const [loadingPay, setLoadingPay] = useState(false);
@@ -281,10 +295,11 @@ export function Checkout({
     }
   }, [cartId]);
 
-  // Live cart sync: a peer's add/qty/assignment (P3.2) OR a server opening the tab / editing the order
-  // (S1.3/S3.1) re-fetches the server-authoritative view here, so the cart + shares + tab state stay in
-  // step. Enabled for ANY dine-in cart (not just groups) — a solo diner must still see a server-opened
-  // tab flip to "Tab open / Settle tab" live (the qr_carts UPDATE drives refresh → getCartView.tabType).
+  // Live cart sync: a peer's add/qty/assignment (P3.2) OR a server opening/securing the tab or
+  // editing the order (S1.3/S3.1) re-fetches the server-authoritative view here, so the cart +
+  // shares + tab state stay in step. Enabled for ANY dine-in cart (not just groups) — a solo
+  // diner must still see a staff/webhook tab flip land live (W12: it swaps the Bill moment's
+  // save-card line for the "Card on file" note; the qr_carts UPDATE drives refresh → tabType).
   const anon = useAnonSession();
   // W10a — diagnosed failure attribution for the promo/pay copy (never blame the connection blind).
   // `truth` is deliberately NOT read here — the one consumer awaits `diagnose()` for the verdict
@@ -303,8 +318,23 @@ export function Checkout({
   // and the focus-move effect below — so a REALTIME `settling` flip (a peer opening a split changes the
   // view WITHOUT touching `step`) still moves focus off the unmounting subtree to the heading, not just
   // review↔pay taps. `onPay` keeps its original truthiness (narrows payTotals in the render).
+  // W12: dine-in review is STAGED (order | bill) — the stage joins the key so a flip animates the
+  // step wrapper and lands focus on the heading exactly like review↔pay always has.
   const onPay = step === "pay" && clientSecret && payTotals;
-  const viewKey = isGroup && settling && splitContext ? "settle" : onPay ? "pay" : "review";
+  const staged = isDineIn;
+  const viewKey =
+    isGroup && settling && splitContext
+      ? "settle"
+      : onPay
+        ? "pay"
+        : staged
+          ? `review-${stage}`
+          : "review";
+  // W12 — the heading names the MOMENT: "Your bill" once the diner is settling (bill stage + the
+  // pay step it leads to), "Your order" everywhere else. Screen-reader users hear the moment change
+  // (focus moves to this heading on every view flip).
+  const heading =
+    staged && viewKey !== "settle" && (onPay || stage === "bill") ? "Your bill" : "Your order";
 
   // W9b — a lock is only worth surfacing when it is SOMEONE ELSE'S. The diner standing on their own
   // pay step holds it (create-intent took it), and so does one who navigated back to review before
@@ -325,11 +355,10 @@ export function Checkout({
     const prev = prevAnnouncedLock.current;
     prevAnnouncedLock.current = lockedByPeer;
     if (prev === null || prev === lockedByPeer) return; // seed on first run; only edges announce
-    // The region renders `payError ?? tabError ?? status`, so a stale error would swallow this
-    // announcement entirely — and while locked the diner cannot retry the action that produced it, so
-    // it would never clear on its own. A lock transition supersedes both.
+    // The region renders `payError ?? status`, so a stale error would swallow this announcement
+    // entirely — and while locked the diner cannot retry the action that produced it, so it would
+    // never clear on its own. A lock transition supersedes it.
     setPayError(null);
-    setTabError(null);
     setStatus(
       lockedByPeer
         ? `${lockedByName ?? "Someone"} is checking out — the order’s locked for a moment.`
@@ -532,7 +561,6 @@ export function Checkout({
     startTransition(async () => {
       setStatus(null); // clear any stale result so it doesn't linger through the round-trip
       setPayError(null); // single live region — don't let a prior pay error mask the promo result
-      setTabError(null);
       try {
         const result = await applyPromoAction(cartId, promo.trim());
         setStatus(result.ok ? "Promo applied." : PROMO_MESSAGES[result.reason]);
@@ -556,7 +584,6 @@ export function Checkout({
   async function continueToPayment() {
     setPayError(null);
     setStatus(null); // single live region — clear any prior promo result
-    setTabError(null);
     setLoadingPay(true);
     try {
       // Member-gated (cookie session); the route re-derives the amount from getCartTotals and locks
@@ -614,24 +641,13 @@ export function Checkout({
     }
   }
 
-  async function keepTabOpen() {
-    setTabBusy(true);
-    setTabError(null);
-    setStatus(null); // single live region — don't let a stale promo/pay message mask the tab result
+  // W12 review — a stage flip must not strand a message whose control lives on the OTHER stage
+  // (a promo error read as a send failure on the Order moment). Same single-region discipline as
+  // every other handler: clear, then flip.
+  function flipStage(next: CheckoutStage) {
+    setStatus(null);
     setPayError(null);
-    try {
-      const res = await openTab({ cartId });
-      if (!res.ok) {
-        setTabError(res.error);
-        return;
-      }
-      setTabType("trust"); // optimistic; refresh() reconciles with server truth
-      await refresh();
-    } catch {
-      setTabError("Couldn’t open the tab — please try again.");
-    } finally {
-      setTabBusy(false);
-    }
+    setStage(next);
   }
 
   async function editOrder() {
@@ -714,6 +730,27 @@ export function Checkout({
   // confirms the server-authoritative amount).
   const ctaTotal = `$${((totals.totalCents + tipPreviewCents) / 100).toFixed(2)}`;
 
+  // W12 — what each review surface shows. Classic (pickup/scango, unstaged) shows BOTH the editable
+  // line cards and the pay furniture on one screen, exactly as before; a staged dine-in cart splits
+  // them across the two moments. Neither gate touches the settle/pay views above.
+  const showLineCards = !staged || stage === "order"; // the editing surface (cards, steppers, send)
+  const showPayFurniture = !staged || stage === "bill"; // promo · reward · tip · fees · total · Pay
+
+  // W12 review HIGH — the count/gate binds to what `mms_fire_cart` actually fires (dinein drafts,
+  // in qty units) — the rule lives in lib/checkout-stage so it stays pinnable.
+  const kitchenDraftQty = deriveKitchenDraftQty(viewItems);
+
+  // SB-1524 disclosure — ONE element, rendered directly under whichever surface carries the fee
+  // rows (the Bill moment's receipt slip, or the classic fee card), so the explanation never
+  // drifts from the charge it explains. Server-derived: renders only when actually charged.
+  const serviceChargeNote = totals.serviceChargeCents > 0 && (
+    <p style={{ fontSize: "var(--fs-xs)", color: "var(--t3)", margin: "8px 2px 0" }}>
+      A 5% service charge supports fair kitchen wages and is shared with the team (CA SB-1524). It
+      is not a tip — anything extra above is yours to give. Card fees are built into menu prices; we
+      never add a surcharge on debit.
+    </p>
+  );
+
   // W2d — tip controls. The custom tip rides as a rate (customCents / net) so create-intent + the webhook
   // apply the SAME `round(net · rate)` — the diner types dollars, the server derives the amount.
   function selectPresetTip(rate: number) {
@@ -743,7 +780,7 @@ export function Checkout({
         style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}
       >
         <h1 ref={headingRef} tabIndex={-1} style={{ fontSize: "var(--fs-h1)" }}>
-          Your order
+          {heading}
         </h1>
         <WalletChip badge={rewardsBadge} />
       </div>
@@ -847,6 +884,22 @@ export function Checkout({
                 transition through this view's one status region (the provider's announcer is mounted on
                 /menu only), and the disabled controls carry the state for AT.
                 Gated on `lockedByPeer`, never bare `locked` — the payer holds their own lock. */}
+            {/* W12 — the way back from the Bill moment, mirroring the pay step's quiet `.nav-link`
+                (never a second filled CTA above "Pay · $X"). A state flip, not a route — same
+                pattern (and same rationale) as the pay step's own back control. */}
+            {staged && stage === "bill" && (
+              <button
+                type="button"
+                className="nav-link"
+                onClick={() => flipStage("order")}
+                style={{ background: "none", border: "none", marginBottom: 4, cursor: "pointer" }}
+              >
+                <span aria-hidden className="nav-arrow nav-arrow-back">
+                  ←
+                </span>{" "}
+                Back to your order
+              </button>
+            )}
             {lockedByPeer && (
               <p
                 style={{
@@ -866,11 +919,14 @@ export function Checkout({
                 {lockedByName} is checking out — the order’s locked for a moment.
               </p>
             )}
-            <TimelineStrip items={viewItems} menuMode={sessionMode} />
+            {showLineCards && <TimelineStrip items={viewItems} menuMode={sessionMode} />}
             {/* S4 unified basket: group lines by destination (At your table / To-go / Grocery). Headings
               show only when the basket actually spans 2+ destinations, so a plain dine-in cart stays clean.
-              The renderLine body is the S2 per-line card + an S4 for-here/to-go toggle on editable food. */}
+              The renderLine body is the S2 per-line card + an S4 for-here/to-go toggle on editable food.
+              W12: the EDITING surface — Order moment (and the unstaged classic screen) only; the Bill
+              moment renders the same lines as read-only receipt rows instead. */}
             {(() => {
+              if (!showLineCards) return null; // W12 — the Bill moment renders receipt rows instead
               const GROUPS: [label: string, key: CartItem["fulfillment"]][] = [
                 ["At your table", "dinein"],
                 ["To-go", "togo"],
@@ -1070,7 +1126,11 @@ export function Checkout({
                     (isDineIn || sessionMode === "scango") &&
                     viewItems.some((i) => i.fulfillment === "togo" && i.lineState === "draft") && (
                       <p
-                        style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", margin: "0 0 8px" }}
+                        style={{
+                          fontSize: "var(--fs-sm)",
+                          color: "var(--t2)",
+                          margin: "0 0 8px",
+                        }}
                       >
                         Made fresh when you check out — ready in about {prepMinutes} min.
                         {isDineIn ? " Want it sooner? Tap “Make it now.”" : ""}
@@ -1086,7 +1146,85 @@ export function Checkout({
               ));
             })()}
 
-            {isGroup && splitContext && (
+            {/* W12 — the Bill moment's lines: the same viewItems as read-only RECEIPT rows inside the
+                textured slip (qty × name · dotted leader · amount), with the kitchen state, the note,
+                the owner, and the comped/voided treatment carried over from the cards. Editing lives
+                one tap back on the Order moment — a bill you can quietly read is the point. */}
+            {staged && stage === "bill" && (
+              <div className="card card-textured checkout-receipt">
+                <ul role="list" aria-label="Your bill" className="checkout-bill-lines">
+                  {viewItems.map((i) => {
+                    const struck = i.comped || i.lineState === "voided";
+                    const owner = isGroup
+                      ? splitContext!.members.find((m) => m.seat === i.bySeat)
+                      : undefined;
+                    return (
+                      <li key={i.id} className="checkout-bill-line">
+                        <span className="checkout-bill-name">
+                          <span style={{ fontWeight: 600 }}>
+                            {i.qty > 1 ? `${i.qty} × ` : ""}
+                            {i.name}
+                          </span>
+                          {(i.modifiers.length > 0 || i.notes) && (
+                            <span
+                              style={{
+                                display: "block",
+                                fontSize: "var(--fs-xs)",
+                                color: "var(--t3)",
+                              }}
+                            >
+                              {i.modifiers.join(", ")}
+                              {i.modifiers.length > 0 && i.notes ? " · " : ""}
+                              {i.notes ? `“${i.notes}”` : ""}
+                            </span>
+                          )}
+                          <span
+                            style={{
+                              display: "block",
+                              fontSize: "var(--fs-xs)",
+                              color: "var(--t3)",
+                            }}
+                          >
+                            {i.comped
+                              ? "Comped — on the house"
+                              : i.lineState === "draft"
+                                ? "Not sent yet — on your bill"
+                                : DINER_STATE_COPY[i.lineState]}
+                            {owner
+                              ? ` · ${owner.seat === splitContext!.mySeat ? "You" : owner.name}`
+                              : ""}
+                          </span>
+                        </span>
+                        <span
+                          style={{
+                            fontVariantNumeric: "tabular-nums",
+                            fontWeight: 600,
+                            textDecoration: struck ? "line-through" : "none",
+                            color: struck ? "var(--t3)" : "inherit",
+                          }}
+                        >
+                          ${((i.unitPriceCents * i.qty) / 100).toFixed(2)}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+                <dl style={{ borderTop: "1px solid var(--bd)", paddingTop: 6, marginTop: 8 }}>
+                  <Row k="Subtotal" cents={totals.subtotalCents} />
+                  {totals.discountCents - totals.rewardCents > 0 && (
+                    <Row k="Promo" cents={-(totals.discountCents - totals.rewardCents)} />
+                  )}
+                  {totals.rewardCents > 0 && <Row k="Reward" cents={-totals.rewardCents} />}
+                  {totals.serviceChargeCents > 0 && (
+                    <Row k="Service charge (5%)" cents={totals.serviceChargeCents} />
+                  )}
+                  <Row k="Sales tax" cents={totals.taxCents} />
+                </dl>
+              </div>
+            )}
+            {staged && stage === "bill" && serviceChargeNote}
+
+            {showPayFurniture && isGroup && splitContext && (
               <SplitSection
                 cartId={cartId}
                 items={viewItems}
@@ -1097,44 +1235,48 @@ export function Checkout({
               />
             )}
 
-            <form onSubmit={onPromo} style={{ display: "flex", gap: 8, margin: "12px 0" }}>
-              <input
-                value={promo}
-                onChange={(e) => setPromo(e.target.value)}
-                placeholder="Promo code"
-                aria-label={
-                  lockedByPeer ? `Promo code — ${lockedByName} is checking out` : "Promo code"
-                }
-                readOnly={lockedByPeer}
-                autoCapitalize="characters"
-                maxLength={40}
-                className="checkout-promo-input"
-                style={{
-                  flex: 1,
-                  padding: "10px 12px",
-                  borderRadius: "var(--r-sm)",
-                  background: "var(--cd)",
-                  color: "var(--tx)",
-                }}
-              />
-              <button
-                type="submit"
-                disabled={pending || !promo.trim()}
-                aria-disabled={lockedByPeer || undefined}
-                className="checkout-pill checkout-pill-accent"
-                style={{ minHeight: 44, ...(lockedByPeer ? { opacity: 0.55 } : null) }}
-              >
-                Apply
-              </button>
-            </form>
+            {showPayFurniture && (
+              <form onSubmit={onPromo} style={{ display: "flex", gap: 8, margin: "12px 0" }}>
+                <input
+                  value={promo}
+                  onChange={(e) => setPromo(e.target.value)}
+                  placeholder="Promo code"
+                  aria-label={
+                    lockedByPeer ? `Promo code — ${lockedByName} is checking out` : "Promo code"
+                  }
+                  readOnly={lockedByPeer}
+                  autoCapitalize="characters"
+                  maxLength={40}
+                  className="checkout-promo-input"
+                  style={{
+                    flex: 1,
+                    padding: "10px 12px",
+                    borderRadius: "var(--r-sm)",
+                    background: "var(--cd)",
+                    color: "var(--tx)",
+                  }}
+                />
+                <button
+                  type="submit"
+                  disabled={pending || !promo.trim()}
+                  aria-disabled={lockedByPeer || undefined}
+                  className="checkout-pill checkout-pill-accent"
+                  style={{ minHeight: 44, ...(lockedByPeer ? { opacity: 0.55 } : null) }}
+                >
+                  Apply
+                </button>
+              </form>
+            )}
 
             {/* Redeem a Morning Star reward (M4 P4.2) — renders only if the diner has coupons; the discount
               is server-authoritative (rides getCartTotals). Refreshes the breakdown on apply/remove. */}
-            <RewardField
-              cartId={cartId}
-              appliedRewardCents={totals.rewardCents}
-              onChanged={refresh}
-            />
+            {showPayFurniture && (
+              <RewardField
+                cartId={cartId}
+                appliedRewardCents={totals.rewardCents}
+                onChanged={refresh}
+              />
+            )}
 
             {/* W5e: the pickup timing choice — ASAP (fire now, ready ~prep min) ⇆ a scheduled slot.
                 Pickup only (scango is self-scanned grocery, no kitchen fire to schedule). Errors route
@@ -1203,36 +1345,34 @@ export function Checkout({
                 the SB-1524 disclosure BEFORE deciding a tip, so the tip is never stacked on a surprise
                 fee (surprise fees are the #1 benchmark complaint — the disclosure must sit above the
                 ask). The tip-inclusive total lands below the ask. All figures stay server-authoritative
-                (the tip preview is a hint reconciled at create-intent). */}
-            <div className="card card-textured checkout-receipt">
-              <dl>
-                <Row k="Subtotal" cents={totals.subtotalCents} />
-                {totals.discountCents - totals.rewardCents > 0 && (
-                  <Row k="Promo" cents={-(totals.discountCents - totals.rewardCents)} />
-                )}
-                {totals.rewardCents > 0 && <Row k="Reward" cents={-totals.rewardCents} />}
-                {/* Server-derived: 0 on a pure-grocery basket (grocery lines are outside the
+                (the tip preview is a hint reconciled at create-intent).
+                W12: unstaged (pickup/scango) only — the Bill moment folds this breakdown into its
+                receipt slip above, under the line rows. */}
+            {!staged && (
+              <div className="card card-textured checkout-receipt">
+                <dl>
+                  <Row k="Subtotal" cents={totals.subtotalCents} />
+                  {totals.discountCents - totals.rewardCents > 0 && (
+                    <Row k="Promo" cents={-(totals.discountCents - totals.rewardCents)} />
+                  )}
+                  {totals.rewardCents > 0 && <Row k="Reward" cents={-totals.rewardCents} />}
+                  {/* Server-derived: 0 on a pure-grocery basket (grocery lines are outside the
                     SB-1524 service base) — the row and the disclosure only render when charged. */}
-                {totals.serviceChargeCents > 0 && (
-                  <Row k="Service charge (5%)" cents={totals.serviceChargeCents} />
-                )}
-                <Row k="Sales tax" cents={totals.taxCents} />
-              </dl>
-            </div>
-
-            {totals.serviceChargeCents > 0 && (
-              <p style={{ fontSize: "var(--fs-xs)", color: "var(--t3)", margin: "8px 2px 0" }}>
-                A 5% service charge supports fair kitchen wages and is shared with the team (CA
-                SB-1524). It is not a tip — anything extra above is yours to give. Card fees are
-                built into menu prices; we never add a surcharge on debit.
-              </p>
+                  {totals.serviceChargeCents > 0 && (
+                    <Row k="Service charge (5%)" cents={totals.serviceChargeCents} />
+                  )}
+                  <Row k="Sales tax" cents={totals.taxCents} />
+                </dl>
+              </div>
             )}
+
+            {!staged && serviceChargeNote}
 
             {/* Tip selector (server confirms the exact tip at create-intent) — now AFTER the fee
                 breakdown (W2d). Presets + a Custom chip (W2d): tapping Custom reveals a dollar field;
                 the amount rides as a rate (customCents / net) so the server path is identical. Hidden on
                 a pure-grocery basket — self-scanned retail is not table service (W1). */}
-            {!pureGrocery && (
+            {showPayFurniture && !pureGrocery && (
               <>
                 {/* W9e — the prototype's visible tip heading, restored verbatim (v7.2.html:418):
                     the ask had no visible label, and the group's aria-label meant accessible name
@@ -1350,134 +1490,163 @@ export function Checkout({
                 standalone grand-total bar (not a second receipt card) so the total reads as the hero
                 figure; the tip is folded into a subline. `.vt-cart-total` makes THIS the single
                 cart-total morph target (J1). Presentation only — the charge stays server-authoritative. */}
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "baseline",
-                gap: 12,
-                marginTop: 14,
-                paddingTop: 14,
-                borderTop: "1px solid var(--bd)",
-              }}
-            >
-              <div>
-                <div style={{ fontWeight: 800, fontSize: "var(--fs-body)" }}>
-                  {tipPreviewCents > 0 ? "Estimated total" : "Total"}
-                </div>
-                {tipPreviewCents > 0 && (
-                  <div style={{ fontSize: "var(--fs-sm)", color: "var(--t3)", marginTop: 1 }}>
-                    includes ${(tipPreviewCents / 100).toFixed(2)} tip
-                  </div>
-                )}
-              </div>
-              <span
-                className="vt-cart-total"
+            {showPayFurniture && (
+              <div
                 style={{
-                  fontVariantNumeric: "tabular-nums",
-                  fontFamily: "var(--font-display)",
-                  fontSize: "var(--fs-h2)",
-                  fontWeight: 800,
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "baseline",
+                  gap: 12,
+                  marginTop: 14,
+                  paddingTop: 14,
+                  borderTop: "1px solid var(--bd)",
                 }}
               >
-                <NumberFlow
-                  value={(totals.totalCents + tipPreviewCents) / 100}
-                  format={{ style: "currency", currency: "USD" }}
-                />
-              </span>
-            </div>
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: "var(--fs-body)" }}>
+                    {tipPreviewCents > 0 ? "Estimated total" : "Total"}
+                  </div>
+                  {tipPreviewCents > 0 && (
+                    <div style={{ fontSize: "var(--fs-sm)", color: "var(--t3)", marginTop: 1 }}>
+                      includes ${(tipPreviewCents / 100).toFixed(2)} tip
+                    </div>
+                  )}
+                </div>
+                <span
+                  className="vt-cart-total"
+                  style={{
+                    fontVariantNumeric: "tabular-nums",
+                    fontFamily: "var(--font-display)",
+                    fontSize: "var(--fs-h2)",
+                    fontWeight: 800,
+                  }}
+                >
+                  <NumberFlow
+                    value={(totals.totalCents + tipPreviewCents) / 100}
+                    format={{ style: "currency", currency: "USD" }}
+                  />
+                </span>
+              </div>
+            )}
 
-            {canSendToKitchen && viewItems.length > 0 && (
+            {/* W12 — the Order moment's primary verb: SEND. Promoted from its old secondary outline
+                slot to the filled CTA (the moment owns one hero action); the undo-grace machinery
+                rides along unchanged inside the component. */}
+            {showLineCards && canSendToKitchen && viewItems.length > 0 && (
               // onChanged re-syncs the cart after a send (steppers → chips) or an undo (chips → steppers),
               // since solo dine-in isn't on the group realtime channel.
               <SendToKitchenButton
                 cartId={cartId}
-                hasDraft={viewItems.some((i) => i.lineState === "draft")}
+                hasDraft={kitchenDraftQty > 0}
+                draftCount={kitchenDraftQty}
+                primary
+                onUndoWindowChange={setUndoOpen}
                 onChanged={refresh}
               />
+            )}
+
+            {/* W12 — the Order moment's quiet door to the Pay moment: the live bill total, always
+                visible, never dominating. Promoted to the filled CTA once everything is with the
+                kitchen (the ordering verb is spent — viewing the bill IS the next thing). */}
+            {staged && stage === "order" && (
+              // Promotes to the filled hero only once the kitchen verb is genuinely spent AND the
+              // undo grace has passed (review MED: a filled bar beside "Undo — Ns" made forfeiting
+              // the undo the visual hero). The amount includes any tip already dialed on the Bill
+              // (review LOW: tip-exclusive here made the price jump between two adjacent taps).
+              <button
+                type="button"
+                aria-disabled={undoOpen || undefined}
+                onClick={() => {
+                  if (undoOpen) {
+                    setPayError(null);
+                    setStatus("Hold on — you can still undo that send for a few seconds.");
+                    return;
+                  }
+                  flipStage("bill");
+                }}
+                className={
+                  kitchenDraftQty === 0 && !undoOpen ? "checkout-cta" : "checkout-viewbill"
+                }
+                style={{
+                  width: "100%",
+                  marginTop: 12,
+                  minHeight: 50,
+                  borderRadius: 12,
+                  border: kitchenDraftQty === 0 && !undoOpen ? "none" : undefined,
+                  fontWeight: 800,
+                  fontSize: "var(--fs-body)",
+                  cursor: undoOpen ? "default" : "pointer",
+                  opacity: undoOpen ? 0.55 : 1,
+                }}
+              >
+                <span style={{ position: "relative", zIndex: 1 }}>
+                  View bill & pay ·{" "}
+                  <NumberFlow
+                    value={(totals.totalCents + tipPreviewCents) / 100}
+                    format={{ style: "currency", currency: "USD" }}
+                  />
+                  <span aria-hidden className="checkout-cta-arrow">
+                    →
+                  </span>
+                </span>
+              </button>
             )}
 
             {/* W9b — the primary CTA is a dead control under a peer's lock: `create-intent` refuses
                 with 409 because the lock is exactly the mutex that stops two diners paying at once. It
                 stays RENDERED and says so, rather than sending the diner into a failure to find out. */}
-            <button
-              type="button"
-              aria-disabled={lockedByPeer || undefined}
-              onClick={() => {
-                if (lockedByPeer) return;
-                void continueToPayment();
-              }}
-              disabled={loadingPay}
-              aria-busy={loadingPay}
-              className="checkout-cta"
-              style={{
-                width: "100%",
-                marginTop: 12,
-                minHeight: 50,
-                borderRadius: 12,
-                border: "none",
-                fontWeight: 800,
-                fontSize: "var(--fs-body)",
-                cursor: loadingPay || lockedByPeer ? "default" : "pointer",
-                opacity: loadingPay ? 0.7 : lockedByPeer ? 0.55 : 1,
-              }}
-            >
-              {/* The label rides above the ::after shine sweep on its own relative layer. W2d: the CTA
+            {showPayFurniture && (
+              <button
+                type="button"
+                aria-disabled={lockedByPeer || undefined}
+                onClick={() => {
+                  if (lockedByPeer) return;
+                  void continueToPayment();
+                }}
+                disabled={loadingPay}
+                aria-busy={loadingPay}
+                className="checkout-cta"
+                style={{
+                  width: "100%",
+                  marginTop: 12,
+                  minHeight: 50,
+                  borderRadius: 12,
+                  border: "none",
+                  fontWeight: 800,
+                  fontSize: "var(--fs-body)",
+                  cursor: loadingPay || lockedByPeer ? "default" : "pointer",
+                  opacity: loadingPay ? 0.7 : lockedByPeer ? 0.55 : 1,
+                }}
+              >
+                {/* The label rides above the ::after shine sweep on its own relative layer. W2d: the CTA
                   carries the amount (fees are visible above it) — and for a GROUP it says "Pay the whole
                   order · $X", elevating the honesty caveat (a guest who read "your share" isn't surprised
                   by the full charge). The amount is the server-reconciled estimate; the pay step confirms. */}
-              <span style={{ position: "relative", zIndex: 1 }}>
-                {loadingPay ? (
-                  "Starting checkout…"
-                ) : lockedByPeer ? (
-                  `Waiting for ${lockedByName} to finish`
-                ) : (
-                  <>
-                    {tabType !== "none"
-                      ? `Settle tab · ${ctaTotal}`
-                      : isGroup
-                        ? `Pay the whole order · ${ctaTotal}`
-                        : `Continue · ${ctaTotal}`}
-                    <span aria-hidden className="checkout-cta-arrow">
-                      →
-                    </span>
-                  </>
-                )}
-              </span>
-            </button>
-
-            {/* Settle-later tray (S3.1/S3.2) — dine-in only, demoted below the primary pay CTA into a
-              labeled pill tray (one hero action, the rest a tray). Before a tab is open: keep it open, or
-              secure it with a card; once open (trust): convert to secured. Both move no money now (openTab →
-              mms_open_tab, member-gated; SecureTabButton saves a card via a SetupIntent). Hidden once secured. */}
-            {canTab && tabType !== "secure" && (
-              <div className="checkout-tray" role="group" aria-label="Other ways to settle">
-                <p className="checkout-tray-label" aria-hidden="true">
-                  or settle later
-                </p>
-                <div className="checkout-pill-row">
-                  {tabType === "none" && (
-                    <button
-                      type="button"
-                      onClick={keepTabOpen}
-                      disabled={tabBusy}
-                      aria-busy={tabBusy}
-                      className="checkout-pill"
-                    >
-                      {tabBusy ? "Opening tab…" : "Keep tab open"}
-                    </button>
+                <span style={{ position: "relative", zIndex: 1 }}>
+                  {loadingPay ? (
+                    "Starting checkout…"
+                  ) : lockedByPeer ? (
+                    `Waiting for ${lockedByName} to finish`
+                  ) : (
+                    <>
+                      {isGroup ? `Pay the whole order · ${ctaTotal}` : `Pay · ${ctaTotal}`}
+                      <span aria-hidden className="checkout-cta-arrow">
+                        →
+                      </span>
+                    </>
                   )}
-                  {/* Compact: renders the trigger as a tray pill; its card form expands full-width below. */}
-                  <SecureTabButton cartId={cartId} onSecured={refresh} compact />
-                </div>
-                {tabType === "none" && (
-                  <p className="checkout-tray-hint">
-                    Order all night and pay once when you’re ready — by card here or with a server.
-                  </p>
-                )}
-              </div>
+                </span>
+              </button>
             )}
-            {tabType === "secure" ? (
+
+            {/* W12 — the ONE quiet card-on-file line (S3.2's machinery, reframed as a benefit, not a
+                settlement model): the tab is a state, not a choice — the only diner affordance left
+                is saving a card so leaving is effortless. Bill moment only; hidden once secured.
+                Every dollar of the close still flows through the same settle paths. */}
+            {staged && stage === "bill" && canTab && tabType !== "secure" && (
+              <SecureTabButton cartId={cartId} onSecured={refresh} />
+            )}
+            {showPayFurniture && tabType === "secure" && (
               <p
                 style={{
                   ...tabNote,
@@ -1488,16 +1657,11 @@ export function Checkout({
                 }}
               >
                 <Icon name="check" size={15} />
-                Tab secured · card on file — settle anytime, or just leave and we’ll close it.
+                Card on file — pay here anytime, or just leave and we’ll close your bill.
               </p>
-            ) : tabType === "trust" ? (
-              <p style={tabNote}>
-                <span aria-hidden>● </span>
-                Tab open — add anything you like and settle when you’re ready.
-              </p>
-            ) : null}
+            )}
 
-            {isGroup && (
+            {showPayFurniture && isGroup && (
               // Honesty (P3.3a): the CTA above now carries "Pay the whole order · $X" (W2d), so this
               // just clarifies what the split rows are for. Bumped off 11.5px (F9 — too small for a
               // trust-critical line). Per-card share payment is P3.3b — stated as a fact, not a promise.
@@ -1513,8 +1677,10 @@ export function Checkout({
               </p>
             )}
             {/* The ONE polite live region for the review step (QA §A P1) — carries the pay-start
-              error, a tab-action error, OR the promo result — never more than one (each handler
-              clears the others first). The pay step has its own single region inside PaymentSection. */}
+              error OR the promo result — never more than one (each handler clears the other first).
+              Mounted on BOTH stages (the stage flip remounts it with the keyed wrapper), so the
+              lock-edge announcement reaches the Order moment too. The pay step has its own single
+              region inside PaymentSection. */}
             <p
               role="status"
               aria-atomic="true"
@@ -1522,10 +1688,10 @@ export function Checkout({
                 minHeight: 16,
                 margin: "8px 0 0",
                 fontSize: "var(--fs-sm)",
-                color: payError || tabError ? "var(--warn)" : "var(--t2)",
+                color: payError ? "var(--warn)" : "var(--t2)",
               }}
             >
-              {payError ?? tabError ?? status}
+              {payError ?? status}
             </p>
           </>
         )}

@@ -109,17 +109,29 @@ export function KioskScan({
         {status ?? ""}
       </p>
 
-      <ul role="list" aria-label={t(lang, "yourOrder")} style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: "var(--s2)" }}>
+      <ul
+        role="list"
+        aria-label={t(lang, "yourOrder")}
+        style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: "var(--s2)" }}
+      >
         {lines.map((l) => (
           <li
             key={l.lineId}
             className="card"
-            style={{ display: "flex", justifyContent: "space-between", gap: "var(--s3)", padding: "var(--s3) var(--s4)", fontSize: "var(--xfs-body)" }}
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: "var(--s3)",
+              padding: "var(--s3) var(--s4)",
+              fontSize: "var(--xfs-body)",
+            }}
           >
             <span>
               {l.qty} × {l.name}
             </span>
-            <span style={{ fontWeight: 800 }}>${((l.qty * l.unitPriceCents) / 100).toFixed(2)}</span>
+            <span style={{ fontWeight: 800 }}>
+              ${((l.qty * l.unitPriceCents) / 100).toFixed(2)}
+            </span>
           </li>
         ))}
       </ul>
@@ -127,8 +139,21 @@ export function KioskScan({
       {/* The CTA carries the item COUNT, not a client-summed pre-tax dollar figure (review finding:
           an unlabeled sum that quietly grows at review reads as a hidden fee). Totals come from
           getCartView on the review screen — the kiosk never computes money. */}
-      <div style={{ position: "sticky", bottom: "var(--s4)", display: "flex", justifyContent: "center", gap: "var(--s3)" }}>
-        <button type="button" className="kiosk-cta" disabled={lines.length === 0} onClick={onReview}>
+      <div
+        style={{
+          position: "sticky",
+          bottom: "var(--s4)",
+          display: "flex",
+          justifyContent: "center",
+          gap: "var(--s3)",
+        }}
+      >
+        <button
+          type="button"
+          className="kiosk-cta"
+          disabled={lines.length === 0}
+          onClick={onReview}
+        >
           {t(lang, "viewOrder")}
           {itemCount > 0 ? ` · ${itemCount}` : ""}
         </button>

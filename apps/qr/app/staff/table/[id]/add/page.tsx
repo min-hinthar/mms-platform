@@ -6,10 +6,7 @@ import { requireStaffPage } from "@/lib/staff";
 import { getTableDetail } from "@/lib/floor";
 import { StaffMenuBrowser, type StaffMenuItem } from "@/components/staff/StaffMenuBrowser";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
-import {
-  requiredChoiceUnavailable,
-  shapeModifierGroups,
-} from "@/lib/menu/modifiers";
+import { requiredChoiceUnavailable, shapeModifierGroups } from "@/lib/menu/modifiers";
 
 export const metadata = { title: "Add items — Mandalay Morning Star" };
 export const dynamic = "force-dynamic";
@@ -66,10 +63,7 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
   }));
   const categories = [
     ...new Map(
-      raw.map((i) => [
-        i.menu_categories?.name ?? "Menu",
-        i.menu_categories?.sort_order ?? 999,
-      ]),
+      raw.map((i) => [i.menu_categories?.name ?? "Menu", i.menu_categories?.sort_order ?? 999]),
     ).entries(),
   ]
     .sort((a, b) => a[1] - b[1])

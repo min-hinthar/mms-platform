@@ -37,10 +37,7 @@ export function KioskMenu({
   const [status, setStatus] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const shown = useMemo(
-    () => items.filter((i) => (cat ? i.category === cat : true)),
-    [items, cat],
-  );
+  const shown = useMemo(() => items.filter((i) => (cat ? i.category === cat : true)), [items, cat]);
 
   function add(item: KioskItem, choice: { modifierIds: string[]; qty: number; notes?: string }) {
     setSheetError(null);
@@ -60,7 +57,11 @@ export function KioskMenu({
 
   return (
     <div className="kiosk-screen">
-      <div style={{ display: "flex", gap: "var(--s2)", flexWrap: "wrap" }} role="group" aria-label={t(lang, "categories")}>
+      <div
+        style={{ display: "flex", gap: "var(--s2)", flexWrap: "wrap" }}
+        role="group"
+        aria-label={t(lang, "categories")}
+      >
         {categories.map((c) => (
           <button
             key={c}
@@ -79,7 +80,12 @@ export function KioskMenu({
         {status ?? ""}
       </p>
 
-      <ul role="list" aria-label={t(lang, "menu")} className="kiosk-door-grid" style={{ listStyle: "none", padding: 0, margin: 0 }}>
+      <ul
+        role="list"
+        aria-label={t(lang, "menu")}
+        className="kiosk-door-grid"
+        style={{ listStyle: "none", padding: 0, margin: 0 }}
+      >
         {shown.map((i) => (
           <li key={i.id}>
             <button
@@ -103,7 +109,14 @@ export function KioskMenu({
                     display: "block",
                   }}
                 >
-                  <Image src={i.imageUrl} alt="" width={96} height={96} sizes="96px" style={{ objectFit: "cover", width: "100%", height: "100%" }} />
+                  <Image
+                    src={i.imageUrl}
+                    alt=""
+                    width={96}
+                    height={96}
+                    sizes="96px"
+                    style={{ objectFit: "cover", width: "100%", height: "100%" }}
+                  />
                 </span>
               )}
               <span className="kiosk-door-label">{i.nameEn}</span>
@@ -120,7 +133,14 @@ export function KioskMenu({
         ))}
       </ul>
 
-      <div style={{ position: "sticky", bottom: "var(--s4)", display: "flex", justifyContent: "center" }}>
+      <div
+        style={{
+          position: "sticky",
+          bottom: "var(--s4)",
+          display: "flex",
+          justifyContent: "center",
+        }}
+      >
         <button type="button" className="kiosk-cta" disabled={count === 0} onClick={onReview}>
           {t(lang, "viewOrder")}
           {count > 0 ? ` · ${count}` : ""}

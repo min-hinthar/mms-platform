@@ -134,7 +134,11 @@ const h1: CSSProperties = {
   fontSize: "var(--fs-h1)",
   margin: "var(--s2) 0 0",
 };
-const sub: CSSProperties = { color: "var(--t2)", fontSize: "var(--fs-sm)", margin: "var(--s1) 0 var(--s5)" };
+const sub: CSSProperties = {
+  color: "var(--t2)",
+  fontSize: "var(--fs-sm)",
+  margin: "var(--s1) 0 var(--s5)",
+};
 const h2: CSSProperties = {
   fontFamily: "var(--font-display)",
   fontSize: "var(--fs-h3)",

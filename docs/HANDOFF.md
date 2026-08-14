@@ -5,7 +5,15 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-08-13 — W11 + W6a/b/c + W7b shipped)
+> ## ⏭️ NEXT SESSION — start here (2026-08-14 — W11 + W6a/b/c + W7b + W12 shipped)
+>
+> **W12 shipped (2026-08-14)** — the two-moment checkout (`docs/W12_PLAN.md`; owner-directed
+> restage): the dine-in cart stages **Order** ("Send to kitchen · N items" primary + a quiet
+> "View bill & pay · $X" bar) and **Pay** ("Your bill" — receipt-slip rows + breakdown + tip +
+> "Pay · $X"); diner tab vocabulary retired (tray / "Keep tab open" / diner `openTab` gone — the
+> tab is a state; card-on-file is now "Save a card — leave whenever" on the bill; staff tab
+> machinery untouched). Presentation-only, zero money-path changes; landing rule pinned in
+> `lib/checkout-stage.ts`. **S13 opened**: an open tab never extends the 4h session TTL.
 >
 > **W11 merged (#162)** — the split ledger is durable: the pinned reconcile (M1/M25), the
 > capture-claim stamp (M45), the refunds ledger + staff strip (M43), payer released-hold copy (M44),
