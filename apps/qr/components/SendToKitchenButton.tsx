@@ -20,6 +20,7 @@ export function SendToKitchenButton({
   hasDraft,
   draftCount = 0,
   primary = false,
+  onUndoWindowChange,
   onChanged,
 }: {
   cartId: string;
@@ -32,6 +33,11 @@ export function SendToKitchenButton({
    *  all) instead of the old secondary outline. The undo window keeps the outline (reversing is
    *  never the hero). */
   primary?: boolean;
+  /** W12 — mirrors the undo-grace window up to the parent: while open, the Order moment's
+   *  View-bill door refuses (flipping stages unmounts this component and destroys the only UI
+   *  that can recall the send). Reset to false on close AND on unmount, so a settle/lock flip
+   *  that unmounts mid-grace can never leave the parent stuck refusing. */
+  onUndoWindowChange?: (open: boolean) => void;
   /** Re-sync the parent cart after a send/undo (solo dine-in isn't on the group realtime channel). */
   onChanged: () => void;
 }) {
@@ -67,6 +73,13 @@ export function SendToKitchenButton({
   }, [undoUntil]);
 
   const remaining = undoUntil === null ? 0 : Math.max(0, Math.ceil((undoUntil - nowMs) / 1000));
+
+  // W12 — window state up to the parent (see the prop doc). The unmount cleanup is the stuck-open
+  // guard: a settling/lock view flip can unmount this component while the grace is live.
+  useEffect(() => {
+    onUndoWindowChange?.(undoUntil !== null);
+  }, [undoUntil, onUndoWindowChange]);
+  useEffect(() => () => onUndoWindowChange?.(false), [onUndoWindowChange]);
 
   const send = () => {
     setMsg(null);

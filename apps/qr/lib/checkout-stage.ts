@@ -17,3 +17,18 @@ export function initialStage(items: ReadonlyArray<Pick<CartItem, "lineState">>):
   if (items.length === 0) return "order";
   return items.some((i) => i.lineState === "draft") ? "order" : "bill";
 }
+
+/**
+ * W12 review HIGH — what "Send to kitchen" actually SENDS. `mms_fire_cart` fires ONLY
+ * fulfillment='dinein' drafts (to-go waits for checkout / make-it-now; grocery never fires), so
+ * the CTA count, its render gate, and the View-bill promotion must bind to this predicate — an
+ * all-drafts count promises sends the server will not perform, and a lone to-go/grocery draft
+ * would pin the promotion forever. Counted in UNITS (qty), matching the header cart badge.
+ */
+export function kitchenDraftQty(
+  items: ReadonlyArray<Pick<CartItem, "lineState" | "fulfillment" | "qty">>,
+): number {
+  return items
+    .filter((i) => i.lineState === "draft" && i.fulfillment === "dinein")
+    .reduce((a, i) => a + i.qty, 0);
+}

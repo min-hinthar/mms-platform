@@ -17,7 +17,7 @@ export type CartInertState = {
   minting: boolean;
   /** A member holds the pay-window lock (M3·P3.2-lock): one diner is checking out. */
   locked: boolean;
-  /** Is that member the VIEWER? A diner who tapped "Continue to payment" and walked back to the menu
+  /** Is that member the VIEWER? A diner who tapped "Pay · $X" and walked back to the menu
    *  still holds their own lock — telling them "someone is checking out" contradicts the GuestList
    *  banner two elements away, which correctly reads "You're checking out". */
   lockedByYou?: boolean;

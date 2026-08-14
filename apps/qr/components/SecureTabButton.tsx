@@ -99,7 +99,9 @@ export function SecureTabButton({ cartId, onSecured }: { cartId: string; onSecur
       >
         {phase === "loading" ? "Starting…" : "Save a card — leave whenever"}
       </button>
-      <p style={hint}>No charge now. We’ll close your bill with this card when you head out.</p>
+      <p style={hint}>
+        No charge now. Pay here anytime — or leave, and we’ll close your bill with this card.
+      </p>
       {(error || !stripePromise) && (
         <p role="alert" style={{ ...hint, color: "var(--warn)" }}>
           {error ?? "Card save is temporarily unavailable."}

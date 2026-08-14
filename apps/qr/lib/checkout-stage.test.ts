@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { initialStage } from "./checkout-stage";
+import { initialStage, kitchenDraftQty } from "./checkout-stage";
 
 /**
  * W12 — the two-moment landing rule, pinned:
@@ -22,5 +22,27 @@ describe("initialStage — where the dine-in cart lands", () => {
   });
   it("voided-only still answers Bill — the record of the table, not a fresh round", () => {
     expect(initialStage([line("voided")])).toBe("bill");
+  });
+});
+
+describe("kitchenDraftQty — the Send CTA counts only what mms_fire_cart fires", () => {
+  const l = (
+    lineState: "draft" | "fired",
+    fulfillment: "dinein" | "togo" | "grocery",
+    qty: number,
+  ) => ({ lineState, fulfillment, qty });
+  it("counts dine-in draft UNITS only — to-go waits for checkout, grocery never fires", () => {
+    // 2× curry (dinein draft) + 1 dessert (togo draft) + 1 jar (grocery draft) + a fired line
+    expect(
+      kitchenDraftQty([
+        l("draft", "dinein", 2),
+        l("draft", "togo", 1),
+        l("draft", "grocery", 1),
+        l("fired", "dinein", 3),
+      ]),
+    ).toBe(2);
+  });
+  it("a lone to-go/grocery draft is ZERO — the kitchen verb is spent, the bill door promotes", () => {
+    expect(kitchenDraftQty([l("draft", "togo", 1), l("fired", "dinein", 2)])).toBe(0);
   });
 });

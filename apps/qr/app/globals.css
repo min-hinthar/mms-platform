@@ -1952,6 +1952,7 @@ h3 {
   .checkout-cta,
   .checkout-cta-ghost,
   .checkout-cta-arrow,
+  .checkout-viewbill,
   .checkout-pill {
     transition: none;
   }
@@ -1961,6 +1962,7 @@ h3 {
   .checkout-pill-accent:not(:disabled):hover,
   .checkout-tip:not(:disabled):hover,
   .checkout-cta:not(:disabled):active,
+  .checkout-viewbill:active,
   .checkout-cta:not(:disabled):hover .checkout-cta-arrow {
     transform: none;
   }

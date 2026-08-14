@@ -39,7 +39,11 @@ import { RewardField } from "./RewardField";
 import { PickupWhenChoice } from "./PickupWhenChoice";
 import { WalletChip } from "./WalletChip";
 import { useRewardsBadge } from "@/lib/useRewardsBadge";
-import { initialStage, type CheckoutStage } from "@/lib/checkout-stage";
+import {
+  initialStage,
+  kitchenDraftQty as deriveKitchenDraftQty,
+  type CheckoutStage,
+} from "@/lib/checkout-stage";
 
 // Per-reason promo copy (the action returns a reason; Next redacts thrown errors in prod). Honest +
 // on-brand: tell the diner exactly why, never a fabricated state.
@@ -101,7 +105,7 @@ function applyCartOptimistic(state: CartItem[], u: CartOptimistic): CartItem[] {
 
 /**
  * Cart + checkout (client), two steps: REVIEW (edit lines, promo, tip — cart open/editable) →
- * "Continue to payment" mints the intent + LOCKS the cart → PAY (Stripe Payment Element on a stable
+ * "Pay · $X" mints the intent + LOCKS the cart → PAY (Stripe Payment Element on a stable
  * clientSecret; "Edit order" unlocks and returns). Totals are always server-authoritative — the
  * review breakdown from `getCartView`, the tip-inclusive grand total from create-intent. Never client
  * money math (the tip chip preview is a hint, confirmed server-side).
@@ -134,8 +138,9 @@ export function Checkout({
   /** W9b — the viewer's own seat, from `getCartView` (NOT `splitContext`, which is nulled on any read
    *  failure). Decides whether `lockedBy` is a peer's lock or the viewer's own. */
   initialMySeat?: string | null;
-  /** Tab lifecycle (S3.1): `none` until someone opens a tab on this table. When open, the cart reads
-   *  "Tab open" and the pay CTA settles/closes the tab. Synced from getCartView (initial + realtime). */
+  /** Tab lifecycle (S3.1 → W12): the diner never chooses a tab — the state only gates the Bill
+   *  moment's save-card affordance ('none'/'trust') vs its "Card on file" note ('secure'). Synced
+   *  from getCartView (initial + realtime); staff/webhook flips land live. */
   initialTabType?: "none" | "trust" | "secure";
   /** Dine-in only: a tab is a dine-in concept (pickup/grocery pay at checkout). Gates the affordance. */
   canTab?: boolean;
@@ -257,6 +262,11 @@ export function Checkout({
   // The landing is derived (lib/checkout-stage — drafts → order, fired-only → bill), then the
   // diner flips freely; it rides `viewKey` so a flip animates + moves focus like every view change.
   const [stage, setStage] = useState<CheckoutStage>(() => initialStage(initialItems));
+  // W12 review MED — the send's 10s undo grace lives inside SendToKitchenButton, and a stage flip
+  // unmounts it (the keyed step wrapper), destroying the only UI that can recall the send. While
+  // the window is open the View-bill door stays un-promoted and REFUSES with the why (the W9b
+  // dead-controls-say-why rule) instead of silently forfeiting the undo.
+  const [undoOpen, setUndoOpen] = useState(false);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [payTotals, setPayTotals] = useState<CartTotals | null>(null);
   const [loadingPay, setLoadingPay] = useState(false);
@@ -285,10 +295,11 @@ export function Checkout({
     }
   }, [cartId]);
 
-  // Live cart sync: a peer's add/qty/assignment (P3.2) OR a server opening the tab / editing the order
-  // (S1.3/S3.1) re-fetches the server-authoritative view here, so the cart + shares + tab state stay in
-  // step. Enabled for ANY dine-in cart (not just groups) — a solo diner must still see a server-opened
-  // tab flip to "Tab open / Settle tab" live (the qr_carts UPDATE drives refresh → getCartView.tabType).
+  // Live cart sync: a peer's add/qty/assignment (P3.2) OR a server opening/securing the tab or
+  // editing the order (S1.3/S3.1) re-fetches the server-authoritative view here, so the cart +
+  // shares + tab state stay in step. Enabled for ANY dine-in cart (not just groups) — a solo
+  // diner must still see a staff/webhook tab flip land live (W12: it swaps the Bill moment's
+  // save-card line for the "Card on file" note; the qr_carts UPDATE drives refresh → tabType).
   const anon = useAnonSession();
   // W10a — diagnosed failure attribution for the promo/pay copy (never blame the connection blind).
   // `truth` is deliberately NOT read here — the one consumer awaits `diagnose()` for the verdict
@@ -630,6 +641,15 @@ export function Checkout({
     }
   }
 
+  // W12 review — a stage flip must not strand a message whose control lives on the OTHER stage
+  // (a promo error read as a send failure on the Order moment). Same single-region discipline as
+  // every other handler: clear, then flip.
+  function flipStage(next: CheckoutStage) {
+    setStatus(null);
+    setPayError(null);
+    setStage(next);
+  }
+
   async function editOrder() {
     // Release the pay-window lock we took at create-intent (P3.2-lock) so the table can edit again,
     // then re-sync. Best-effort — the TTL is the backstop if the release call fails.
@@ -715,6 +735,10 @@ export function Checkout({
   // them across the two moments. Neither gate touches the settle/pay views above.
   const showLineCards = !staged || stage === "order"; // the editing surface (cards, steppers, send)
   const showPayFurniture = !staged || stage === "bill"; // promo · reward · tip · fees · total · Pay
+
+  // W12 review HIGH — the count/gate binds to what `mms_fire_cart` actually fires (dinein drafts,
+  // in qty units) — the rule lives in lib/checkout-stage so it stays pinnable.
+  const kitchenDraftQty = deriveKitchenDraftQty(viewItems);
 
   // SB-1524 disclosure — ONE element, rendered directly under whichever surface carries the fee
   // rows (the Bill moment's receipt slip, or the classic fee card), so the explanation never
@@ -867,7 +891,7 @@ export function Checkout({
               <button
                 type="button"
                 className="nav-link"
-                onClick={() => setStage("order")}
+                onClick={() => flipStage("order")}
                 style={{ background: "none", border: "none", marginBottom: 4, cursor: "pointer" }}
               >
                 <span aria-hidden className="nav-arrow nav-arrow-back">
@@ -1161,7 +1185,11 @@ export function Checkout({
                               color: "var(--t3)",
                             }}
                           >
-                            {i.comped ? "Comped — on the house" : DINER_STATE_COPY[i.lineState]}
+                            {i.comped
+                              ? "Comped — on the house"
+                              : i.lineState === "draft"
+                                ? "Not sent yet — on your bill"
+                                : DINER_STATE_COPY[i.lineState]}
                             {owner
                               ? ` · ${owner.seat === splitContext!.mySeat ? "You" : owner.name}`
                               : ""}
@@ -1509,9 +1537,10 @@ export function Checkout({
               // since solo dine-in isn't on the group realtime channel.
               <SendToKitchenButton
                 cartId={cartId}
-                hasDraft={viewItems.some((i) => i.lineState === "draft")}
-                draftCount={draftCount}
+                hasDraft={kitchenDraftQty > 0}
+                draftCount={kitchenDraftQty}
                 primary
+                onUndoWindowChange={setUndoOpen}
                 onChanged={refresh}
               />
             )}
@@ -1520,25 +1549,40 @@ export function Checkout({
                 visible, never dominating. Promoted to the filled CTA once everything is with the
                 kitchen (the ordering verb is spent — viewing the bill IS the next thing). */}
             {staged && stage === "order" && (
+              // Promotes to the filled hero only once the kitchen verb is genuinely spent AND the
+              // undo grace has passed (review MED: a filled bar beside "Undo — Ns" made forfeiting
+              // the undo the visual hero). The amount includes any tip already dialed on the Bill
+              // (review LOW: tip-exclusive here made the price jump between two adjacent taps).
               <button
                 type="button"
-                onClick={() => setStage("bill")}
-                className={draftCount === 0 ? "checkout-cta" : "checkout-viewbill"}
+                aria-disabled={undoOpen || undefined}
+                onClick={() => {
+                  if (undoOpen) {
+                    setPayError(null);
+                    setStatus("Hold on — you can still undo that send for a few seconds.");
+                    return;
+                  }
+                  flipStage("bill");
+                }}
+                className={
+                  kitchenDraftQty === 0 && !undoOpen ? "checkout-cta" : "checkout-viewbill"
+                }
                 style={{
                   width: "100%",
                   marginTop: 12,
                   minHeight: 50,
                   borderRadius: 12,
-                  border: draftCount === 0 ? "none" : undefined,
+                  border: kitchenDraftQty === 0 && !undoOpen ? "none" : undefined,
                   fontWeight: 800,
                   fontSize: "var(--fs-body)",
-                  cursor: "pointer",
+                  cursor: undoOpen ? "default" : "pointer",
+                  opacity: undoOpen ? 0.55 : 1,
                 }}
               >
                 <span style={{ position: "relative", zIndex: 1 }}>
                   View bill & pay ·{" "}
                   <NumberFlow
-                    value={totals.totalCents / 100}
+                    value={(totals.totalCents + tipPreviewCents) / 100}
                     format={{ style: "currency", currency: "USD" }}
                   />
                   <span aria-hidden className="checkout-cta-arrow">
@@ -1602,7 +1646,7 @@ export function Checkout({
             {staged && stage === "bill" && canTab && tabType !== "secure" && (
               <SecureTabButton cartId={cartId} onSecured={refresh} />
             )}
-            {staged && stage === "bill" && tabType === "secure" && (
+            {showPayFurniture && tabType === "secure" && (
               <p
                 style={{
                   ...tabNote,
