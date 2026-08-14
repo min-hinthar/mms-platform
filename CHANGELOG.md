@@ -4,6 +4,37 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W14 — the profile slice (2026-08-14)
+
+Recognition, history richness, and account presence (`docs/W14_PLAN.md`) — RUBRIC axis J-F
+("Visit N ≠ visit 1"), the axis that baselined at 1:
+
+- **The name finally exists**: `setDisplayName` is the FIRST writer of `mms_profiles.display_name`
+  (the column shipped with M4; three readers waited a year) — an inline Add/Edit-name affordance
+  on the identity card (prefills from the device's typed table/pickup name, never auto-saves;
+  80-char bound refused with honest copy, mirrored by the column CHECK). Saving lights up the
+  /account heading, the menu's "Mingalaba, {first name} ✦" greeting, the lend confirm, and the
+  switcher chips. The card grows the v7.2 profile shape: tier-tinted avatar initial
+  (grapheme-segmented — a Burmese initial renders whole) + "Member since {Mon YYYY}" tenure.
+- **Device-session hygiene (J19's K7 half)**: switch/lend/forget now clear `mms.name` + every
+  `mms.qr.*` pointer (`lib/device-session.ts`, boundary pinned red-first) — a handed-over phone
+  can no longer rejoin the owner's table under the owner's name.
+- **History rows lead with the photo**: `getOrderHistory` joins TODAY's catalog over the soft
+  `menu_item_id` refs (menu uuid / grocery barcode — the W13 `getCartView` partition; advisory
+  posture, media only, amounts untouched) → 44px lead thumbs + `lang="my"` sublines on the
+  receipt lines (`.history-line-my`), with the designed placeholder always rendered.
+- **The reorder link stops guessing (J19's mode half)**: `reorderLink` derives the destination
+  from the order's own lines — pure-grocery links to the market ("Shop the market again" — the
+  old link re-ran a reorder that skips grocery and returned nothing); food rides the pickup
+  door, with dine-in deliberately demoted (no phantom host table minted from home).
+- **Account presence**: the masthead recognizes ("Mingalaba, {name} ✦ · N orders this month" —
+  only when real data exists), the favorites strip gives the hearts a home on the profile
+  (in-stock, hearts order, cap 8 — `pickFavoriteRail` pinned), skeleton parity for the identity
+  card + thumb rows, bilingual masthead/history accents (K15-flagged for native check).
+- **M46 discipline**: the history card's decision logic extracted to `lib/order-history-view.ts`
+  (month grouping at the LA clock, fulfillment precedence, lead-photo pick, reorder destination)
+  — every rule red-first, including a surviving-mutant catch (the empty-lines reorder case).
+
 ### W13 — the premium feel (2026-08-14)
 
 The maximalist polish pass (`docs/W13_PLAN.md`) against RUBRIC axis #5's own named criteria —

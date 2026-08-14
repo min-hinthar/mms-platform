@@ -7,6 +7,7 @@
 // See docs/SHARED_DEVICE.md for the flows + the merge-suppression safety rule.
 
 import { clearMergeToken } from "./mergeTokenStore";
+import { clearDeviceSession } from "./device-session";
 
 const IDENTITIES_KEY = "mms.identities";
 const LEND_KEY = "mms.lend";
@@ -122,6 +123,9 @@ export function forgetAllIdentities(): void {
   }
   clearLend(); // also drop the owner hint (email PII) + fire the banner-change event
   clearMergeToken(); // and any stale merge proof, so it can never redeem onto a later sign-in
+  // W14 (J19): "forget this device" also drops the DEVICE session — the prior holder's dine-in
+  // join code, typed name, and resume pointers are PII-adjacent state the copy promises to remove.
+  clearDeviceSession();
 }
 
 /** The active lend session, or null. Auto-expires past the TTL so a stale flag never shows a wrong banner. */

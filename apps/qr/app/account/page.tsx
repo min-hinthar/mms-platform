@@ -1,15 +1,18 @@
 import type { Metadata } from "next";
 import { TransitionLink as Link } from "@/components/nav/TransitionNav"; // J1 journey grammar
-import { getRewardsState, getOrderHistory, ensureProfile } from "@/lib/rewards";
+import { getRewardsState, getOrderHistory, getWelcomeBack, ensureProfile } from "@/lib/rewards";
 import { getMyLiveOrders } from "@/lib/orders";
+import { getFavoriteDishes } from "@/lib/favorites";
 import { RewardsHub } from "@/components/RewardsHub";
 import { OrderHistory } from "@/components/OrderHistory";
 import { TodayOrders } from "@/components/TodayOrders";
 import { AccountUpgrade } from "@/components/AccountUpgrade";
 import { AccountStatus } from "@/components/AccountStatus";
+import { AccountFavorites } from "@/components/AccountFavorites";
 import { RememberIdentity } from "@/components/RememberIdentity";
 import { MergeRedeemer } from "@/components/MergeRedeemer";
 import { menuHref, menuLinkText } from "@/lib/menu-href";
+import { firstNameOf } from "@/lib/deviceIdentity";
 
 export const metadata: Metadata = { title: "Rewards & account · Morning Star" };
 
@@ -18,11 +21,19 @@ export const metadata: Metadata = { title: "Rewards & account · Morning Star" }
 // profile row when an upgrade has just confirmed (e.g. the Google redirect returns here).
 export default async function Account() {
   await ensureProfile();
-  const [state, history, live] = await Promise.all([
+  // W14: the two recognition reads (greeting + favorites) join the fan-out — both decorative,
+  // both fail to a quiet default inside their own modules (never a broken account page).
+  const [state, history, live, welcome, favorites] = await Promise.all([
     getRewardsState(),
     getOrderHistory(),
     getMyLiveOrders(),
+    getWelcomeBack(),
+    getFavoriteDishes(),
   ]);
+  // The masthead recognition line — only when there is something REAL to recognize (a saved name
+  // or a repeat month); absent data renders the masthead exactly as before, never a hollow greeting.
+  const firstName = firstNameOf(welcome?.name ?? null);
+  const repeatMonth = (welcome?.ordersThisMonth ?? 0) >= 2;
 
   return (
     <main style={{ padding: 24, maxWidth: 480, margin: "0 auto" }}>
@@ -43,7 +54,37 @@ export default async function Account() {
           }}
         >
           Rewards &amp; account
+          {/* W14 — the bilingual heading accent (the W12/W13 idiom: lang="my" + Padauk; K15
+              flags every new Burmese string for Min's native check). */}
+          <span
+            lang="my"
+            style={{
+              display: "block",
+              fontFamily: "var(--font-my)",
+              fontSize: "var(--fs-sm)",
+              fontWeight: 400,
+              color: "var(--t2)",
+              marginTop: 2,
+            }}
+          >
+            ဆုလက်ဆောင်နှင့် အကောင့်
+          </span>
         </h1>
+        {/* W14 — recognition, not decoration: this line renders ONLY when we truly know something
+            (a saved name / a repeat month) — J-F's "visit N ≠ visit 1" without a hollow greeting. */}
+        {(firstName || repeatMonth) && (
+          <p
+            style={{
+              margin: "6px 0 0",
+              fontSize: "var(--fs-sm)",
+              fontWeight: 700,
+              color: "var(--ac-strong)",
+            }}
+          >
+            Mingalaba{firstName ? `, ${firstName}` : ""} <span aria-hidden>✦</span>
+            {repeatMonth ? ` · ${welcome?.ordersThisMonth} orders this month` : ""}
+          </p>
+        )}
         <p
           style={{
             margin: "6px 0 0",
@@ -82,6 +123,7 @@ export default async function Account() {
                   displayName={state.displayName}
                   tierId={state.tierId}
                   stars={state.stars}
+                  memberSince={state.memberSince}
                 />
               </>
             ) : (
@@ -100,6 +142,8 @@ export default async function Account() {
           cost the diner their Stars panel, never their receipts: /track's "Find it in your account",
           /cart's "See it in your account" and the tracker's snapshot notice all send them here for
           exactly this list. */}
+      {/* W14 — the hearts finally have a home on the profile (renders nothing without any). */}
+      <AccountFavorites dishes={favorites} />
       <TodayOrders orders={live} />
       {history === null ? (
         <p

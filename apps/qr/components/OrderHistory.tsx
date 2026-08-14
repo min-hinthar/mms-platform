@@ -4,24 +4,35 @@ import type { OrderHistoryEntry } from "@/lib/rewards";
 import { formatSlotLong } from "@/lib/pickupTime";
 import { Card, Icon, type IconName } from "@mms/ui";
 import { menuHref, menuLinkText } from "@/lib/menu-href";
+import {
+  fulfillKind,
+  groupByMonth,
+  itemCount,
+  leadImage,
+  lineSummary,
+  reorderLink,
+} from "@/lib/order-history-view";
+import { BlurUpImage } from "./menu/BlurUpImage";
+import { PhotoPlaceholder } from "./menu/PhotoPlaceholder";
 
 /**
  * Order history (M4 P4.2 · elevated) — the diner's own past PAID orders, server-rendered from the uid-scoped
  * read. Grouped by month, each order an expandable receipt (native `<details>` — free disclosure a11y, zero
- * client JS, honoring the server-first rule): the collapsed summary shows date · #ref · total · a line
- * summary · tender/fulfillment chips; expanding reveals per-line qty/name/modifiers/price + the full
- * server-derived breakdown (subtotal/discount/service/tax/tip/total). Totals are PRESENTATION-ONLY — the
+ * client JS, honoring the server-first rule): the collapsed summary shows a lead photo · date · #ref · total ·
+ * a line summary · tender/fulfillment chips; expanding reveals per-line qty/name/Burmese/modifiers/price + the
+ * full server-derived breakdown (subtotal/discount/service/tax/tip/total). Totals are PRESENTATION-ONLY — the
  * cents are rendered verbatim, never recomputed. A real empty state invites a first-time diner to the menu.
+ * W14: the card's decision logic (month grouping, fulfillment precedence, lead-photo pick, reorder
+ * destination) lives in lib/order-history-view, where a suite pins it (M46).
  */
 const dollars = (c: number) => `$${(c / 100).toFixed(2)}`;
 const TENDER_LABEL: Record<string, string> = { card: "Card", cash: "Cash" };
 const TENDER_ICON: Record<string, IconName> = { card: "card", cash: "cash" };
 const FULFILL_LABEL: Record<string, string> = { togo: "To go", grocery: "Grocery" };
 
-// The Covina teahouse's local time — dates + month grouping reflect the RESTAURANT's day regardless of the
-// server's timezone (Vercel runs UTC), so an evening order never drifts into the next day/month.
+// The Covina teahouse's local time — dates reflect the RESTAURANT's day regardless of the server's
+// timezone (Vercel runs UTC), so an evening order never drifts into the next day/month.
 const TZ = "America/Los_Angeles";
-const fmtMonth = new Intl.DateTimeFormat("en-US", { timeZone: TZ, month: "long", year: "numeric" });
 const fmtDay = new Intl.DateTimeFormat("en-US", { timeZone: TZ, month: "short", day: "numeric" });
 const fmtFull = new Intl.DateTimeFormat("en-US", {
   timeZone: TZ,
@@ -33,17 +44,6 @@ const fmtFull = new Intl.DateTimeFormat("en-US", {
   minute: "2-digit",
 });
 
-function groupByMonth(entries: OrderHistoryEntry[]) {
-  const groups: { label: string; orders: { e: OrderHistoryEntry; gIndex: number }[] }[] = [];
-  entries.forEach((e, gIndex) => {
-    const label = fmtMonth.format(new Date(e.createdAt));
-    const last = groups[groups.length - 1];
-    if (!last || last.label !== label) groups.push({ label, orders: [{ e, gIndex }] });
-    else last.orders.push({ e, gIndex });
-  });
-  return groups;
-}
-
 export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
   // `.vt-receipt` (J4): the /track receipt card (earner, fresh payment) MORPHS into this card on the
   // track→account cut — the receipt visibly tucks into the diner's own history. Exactly one instance
@@ -53,6 +53,9 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
       <Card as="section" className="vt-receipt" style={card} aria-labelledby="history-h">
         <h2 id="history-h" style={cardH}>
           Your orders
+          <span lang="my" style={cardHMy}>
+            သင့်အော်ဒါများ
+          </span>
         </h2>
         <div className="track-notice" style={{ padding: "16px 8px 6px", marginTop: 0 }}>
           <div className="track-notice-medallion" aria-hidden>
@@ -79,6 +82,9 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
     <Card as="section" className="vt-receipt" style={card} aria-labelledby="history-h">
       <h2 id="history-h" style={cardH}>
         Your orders
+        <span lang="my" style={cardHMy}>
+          သင့်အော်ဒါများ
+        </span>
       </h2>
       {groups.map((g) => (
         <section key={g.label}>
@@ -92,13 +98,10 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
             {g.orders.map(({ e: o, gIndex }) => {
               const day = fmtDay.format(new Date(o.createdAt));
               const full = fmtFull.format(new Date(o.createdAt));
-              const itemCount = o.lines.reduce((a, l) => a + l.qty, 0);
-              const summary = o.lines.map((l) => `${l.qty}× ${l.name}`).join(" · ") || "—";
-              const kind = o.lines.some((l) => l.fulfillment === "grocery")
-                ? "grocery"
-                : o.lines.some((l) => l.fulfillment === "togo")
-                  ? "togo"
-                  : null;
+              const units = itemCount(o.lines);
+              const summary = lineSummary(o.lines);
+              const kind = fulfillKind(o.lines);
+              const again = reorderLink(o);
               return (
                 <li
                   key={o.id}
@@ -110,31 +113,53 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
                       className="history-summary"
                       aria-label={`Order ${o.code}, ${full}, total ${dollars(o.totalCents)}, paid ${TENDER_LABEL[o.tender] ?? o.tender}${kind ? `, ${FULFILL_LABEL[kind]}` : ""}${o.tableNumber != null ? `, Table ${o.tableNumber}` : ""}. Show items.`}
                     >
-                      <div style={rowTop}>
-                        <span style={{ fontWeight: 700, color: "var(--tx)" }}>
-                          {day} <span style={codeStyle}>#{o.code}</span>
+                      <div style={summaryRow}>
+                        {/* W14 — the v7.2 history-row lead photo (first line WITH one, else the
+                            designed placeholder — the W13 thumb idiom). Decorative: the composed
+                            aria-label above is the row's accessible content. */}
+                        <span className="history-thumb" aria-hidden="true">
+                          <BlurUpImage
+                            src={leadImage(o.lines)}
+                            alt=""
+                            width={44}
+                            height={44}
+                            sizes="44px"
+                            fallback={
+                              <PhotoPlaceholder
+                                variant="thumb"
+                                icon={kind === "grocery" ? "cat-grocery" : "cat-dish"}
+                              />
+                            }
+                          />
                         </span>
-                        <span style={totalStyle}>{dollars(o.totalCents)}</span>
-                      </div>
-                      <div style={rowMid}>
-                        <span style={summaryStyle}>{summary}</span>
-                        <span className="history-chev" aria-hidden>
-                          ›
-                        </span>
-                      </div>
-                      <div style={chipRow}>
-                        <span className="history-badge">
-                          <Icon name={TENDER_ICON[o.tender] ?? "check"} size={13} />
-                          Paid · {TENDER_LABEL[o.tender] ?? o.tender}
-                        </span>
-                        {kind && <span className="history-fulfill">{FULFILL_LABEL[kind]}</span>}
-                        {/* K2: the table you sat at that night (dine-in only). */}
-                        {o.tableNumber != null && (
-                          <span className="history-fulfill">Table {o.tableNumber}</span>
-                        )}
-                        <span style={itemCountStyle}>
-                          {itemCount} {itemCount === 1 ? "item" : "items"}
-                        </span>
+                        <div style={summaryCol}>
+                          <div style={rowTop}>
+                            <span style={{ fontWeight: 700, color: "var(--tx)" }}>
+                              {day} <span style={codeStyle}>#{o.code}</span>
+                            </span>
+                            <span style={totalStyle}>{dollars(o.totalCents)}</span>
+                          </div>
+                          <div style={rowMid}>
+                            <span style={summaryStyle}>{summary}</span>
+                            <span className="history-chev" aria-hidden>
+                              ›
+                            </span>
+                          </div>
+                          <div style={chipRow}>
+                            <span className="history-badge">
+                              <Icon name={TENDER_ICON[o.tender] ?? "check"} size={13} />
+                              Paid · {TENDER_LABEL[o.tender] ?? o.tender}
+                            </span>
+                            {kind && <span className="history-fulfill">{FULFILL_LABEL[kind]}</span>}
+                            {/* K2: the table you sat at that night (dine-in only). */}
+                            {o.tableNumber != null && (
+                              <span className="history-fulfill">Table {o.tableNumber}</span>
+                            )}
+                            <span style={itemCountStyle}>
+                              {units} {units === 1 ? "item" : "items"}
+                            </span>
+                          </div>
+                        </div>
                       </div>
                     </summary>
                     <div className="history-detail">
@@ -149,6 +174,14 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
                             </span>
                             <span>
                               <span style={{ color: "var(--tx)" }}>{l.name}</span>
+                              {/* W14 — the Burmese name (the W13 receipt idiom: lang="my" for
+                                  WCAG 3.1.2 + the Padauk stack). Today's catalog name — the EN
+                                  add-time snapshot stays primary (registry S14b). */}
+                              {l.nameMy && (
+                                <span lang="my" className="history-line-my">
+                                  {l.nameMy}
+                                </span>
+                              )}
                               {l.mods.length > 0 && (
                                 <span className="history-line-mods">{l.mods.join(" · ")}</span>
                               )}
@@ -186,18 +219,15 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
                       {/* J5 — reorder "your usual": lands on the menu, which runs the earner-gated
                           server reorder once the session's cart is ready (every price re-derived at
                           TODAY's menu — never these historical figures) and says exactly what came
-                          back and what didn't. The card stays server-rendered — the TransitionLink
-                          is its only client island.
-                          A pickup order carries mode=pickup so the slot picker is part of the flow
-                          (a bare /menu is scan&go — no slot, and the bag would fire immediately on
-                          payment). Other orders land scan&go: we can't know from here whether a
-                          dine-in table session is live on this device, and minting a phantom dine-in
-                          table from home would be worse than a visible device cart. */}
-                      <Link
-                        href={`/menu?reorder=${encodeURIComponent(o.id)}${o.pickupSlot ? "&mode=pickup" : ""}`}
-                        className="nav-link"
-                      >
-                        Order this again{" "}
+                          back and what didn't. The card stays server-rendered — the TransitionLinks
+                          and the BlurUpImage thumbs are its only client islands.
+                          W14 (J19): the destination is now DERIVED from the order's own lines
+                          (lib/order-history-view reorderLink) — food rides the pickup door (dine-in
+                          deliberately demoted: no phantom tables from home); a pure-grocery order
+                          links to the market itself, because reorderOrder skips grocery lines and
+                          the old link re-ran a reorder that returned nothing. */}
+                      <Link href={again.href} className="nav-link">
+                        {again.kind === "market" ? "Shop the market again" : "Order this again"}{" "}
                         <span aria-hidden className="nav-arrow nav-arrow-fwd">
                           →
                         </span>
@@ -233,6 +263,16 @@ const cardH: CSSProperties = {
   textTransform: "uppercase",
   color: "var(--t2)",
 };
+// W14 — the heading's Burmese accent (the W12/W13 idiom; K15 flags new strings for native check).
+const cardHMy: CSSProperties = {
+  marginLeft: 8,
+  fontFamily: "var(--font-my)",
+  fontSize: "var(--fs-xs)",
+  fontWeight: 400,
+  letterSpacing: 0,
+  textTransform: "none",
+  color: "var(--t3)",
+};
 // minmax(0,1fr) so the receipt cards can't be widened past this column by a long nowrap summary line
 // (the implicit `auto` grid track sizes to max-content → a mobile horizontal overflow). Pairs with the
 // same guard on `.history-summary`'s own grid.
@@ -244,6 +284,10 @@ const list: CSSProperties = {
   gridTemplateColumns: "minmax(0, 1fr)",
   gap: 8,
 };
+// W14 — the lead-photo row: thumb + the existing three-row column. minWidth 0 so the nowrap
+// summary line keeps ellipsizing inside the flex child (the same overflow guard as the grid).
+const summaryRow: CSSProperties = { display: "flex", alignItems: "center", gap: 11 };
+const summaryCol: CSSProperties = { minWidth: 0, flex: 1, display: "grid", gap: 6 };
 const rowTop: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",

@@ -5,7 +5,18 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-08-14 — W11 + W6a/b/c + W7b + W12 + W13 shipped)
+> ## ⏭️ NEXT SESSION — start here (2026-08-14 — W11 + W6a/b/c + W7b + W12 + W13 + W14 shipped)
+>
+> **W14 shipped (2026-08-14)** — the profile slice (`docs/W14_PLAN.md`; RUBRIC J-F): the name
+> finally exists (`setDisplayName` — first writer of `mms_profiles.display_name`; identity card
+> grows the v7.2 avatar + tenure + inline Add/Edit name, prefilled from the device name, never
+> auto-saved; lights up the Mingalaba greeting / lend confirm / switcher chips), device-session
+> hygiene on switch/lend/forget (`lib/device-session.ts` clears `mms.name` + `mms.qr.*` — J19's
+> K7 half), history rows lead with 44px thumbs + Burmese sublines (catalog join over soft refs,
+> advisory, media-only), `reorderLink` stops the mode guess (pure-grocery → market; food →
+> pickup door, dine-in demoted — J19's mode half), masthead recognition line + favorites strip +
+> skeleton parity. Decision logic in `lib/order-history-view.ts` + `lib/profile-view.ts` +
+> `lib/device-session.ts`, all red-first.
 >
 > **W13 shipped (2026-08-14)** — the premium-feel pass (`docs/W13_PLAN.md`): the add moment
 > (springing bilingual toast, cart-bar spring + count capsule, MicroBurst, haptic hierarchy
@@ -30,9 +41,16 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > search + the staff modifier sheet (cardinality enforced), tendered/change + `#CODE` handoff,
 > day cash summary.
 >
-> **⚠️ Owed on the owner's Supabase restore (project paused):** `db push` of
-> `20260805210000_w11_split_ledger_durable.sql` + `20260805230000_w6a_register_day_index.sql`,
-> then one live split-mint smoke + one register walk-up smoke.
+> **✅ Restore catch-up DONE (2026-08-14):** the owner restored the QR project and reported
+> "grocery data also not rendering" — root cause: prod's migration history ended at
+> `w5c_modifier_allergen_tax` (2026-07-21), so `getGroceryCatalog`'s `is_featured_deal` select
+> (W9d) failed and the whole catalog query errored. All SIX owed migrations applied in order via
+> MCP (`pickup_asap` · `w9d_featured_deal` · `w11_split_ledger_durable` · `w6a_register_day_index`
+> · `w6c_terminal` · `w7b_scan_events`) and verified live: 16 featured deals seeded, all 7
+> re-signed fns present, `qr_order_payers` + `mms_scan_events` created with RLS, and the exact
+> catalog select resolves. (Prod stamps its own apply-time versions — match history by NAME, not
+> timestamp.) **Still owed:** one live split-mint smoke + one register walk-up smoke (needs a live
+> table), card-present smoke on hardware (S12).
 >
 > **W6b shipped too** — the kiosk shell (S5 closed; `docs/W6B_PLAN.md`): device-token surface,
 > three doors over kiosk- member sessions, three-way idle fork (abandon / committed-advance /

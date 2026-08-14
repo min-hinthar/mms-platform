@@ -2849,6 +2849,32 @@ h3 {
 .history-summary::-webkit-details-marker {
   display: none;
 }
+
+/* W14 — the history row's 44px lead photo (the checkout thumb family, receipt-sized). */
+.history-thumb {
+  position: relative;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--sf);
+}
+.history-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* W14 — the receipt line's Burmese subline (the W13 idiom: Padauk stack, quiet tone). */
+.history-line-my {
+  display: block;
+  margin-top: 1px;
+  font-family: var(--font-my);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--t2);
+}
 .history-chev {
   flex: none;
   color: var(--t2);

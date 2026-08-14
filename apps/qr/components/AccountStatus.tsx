@@ -12,6 +12,9 @@ import { browserClient } from "@mms/db";
 import { Card } from "@mms/ui";
 import { tierMeta, tierTint } from "@/lib/rewards-tiers";
 import { setLend, firstNameOf } from "@/lib/deviceIdentity";
+import { clearDeviceSession } from "@/lib/device-session";
+import { avatarGlyph, memberSinceLabel } from "@/lib/profile-view";
+import { AccountNameEditor } from "./AccountNameEditor";
 
 /**
  * K3a "quiet when signed in" + K7 shared-device — the upgraded diner's identity card on /account. It REPLACES
@@ -35,25 +38,34 @@ export function AccountStatus({
   displayName,
   tierId,
   stars,
+  memberSince,
 }: {
   email: string | null;
   displayName: string | null;
   /** K3a rewards standing — a compact recognition chip (the full ring/ladder is the Rewards card below). */
   tierId: string;
   stars: number;
+  /** W14: the profile row's created_at ISO — renders "Member since Jun 2026", or nothing. */
+  memberSince: string | null;
 }) {
   const router = useRouter();
   const [pending, setPending] = useState<null | "switch" | "lend">(null);
   const [busy, setBusy] = useState(false);
+  // W14: a CONFIRMED save from the name editor (the server action's normalized return) renders
+  // immediately, bridging the editor's router.refresh round trip (which catches the server-rendered
+  // masthead greeting up — review MED-1). `undefined` = no save yet.
+  const [savedName, setSavedName] = useState<string | null | undefined>(undefined);
   const [, startTransition] = useTransition();
-  const name = displayName?.trim() || null;
+  const effectiveName = savedName !== undefined ? savedName : displayName;
+  const name = effectiveName?.trim() || null;
   const who = name || email || "your account";
   // Show the email as a SECOND line only when a display name is the primary — otherwise it's already the
   // heading (no need to repeat it), and an anonymous-but-somehow-here case falls back to "your account".
   const secondaryEmail = name && email ? email : null;
   const tier = tierMeta(tierId);
   const tint = tierTint(tierId);
-  const firstName = firstNameOf(displayName);
+  const firstName = firstNameOf(effectiveName);
+  const since = memberSinceLabel(memberSince);
 
   // Focus follows the confirm step both ways (WCAG 2.4.3): opening parks focus on the SAFE default ("Cancel")
   // so an accidental Enter can't act; cancelling returns focus to the button that opened it (never dropped to
@@ -83,6 +95,10 @@ export function AccountStatus({
   async function toGuest(): Promise<void> {
     const supa = browserClient();
     await supa.auth.signOut();
+    // W14 (J19): the handover clears the DEVICE session too, not just the auth session — the old
+    // dine-in join code, typed name, and resume pointers must not let the next holder rejoin the
+    // owner's table under the owner's name. (The lend flag is written AFTER this, so it survives.)
+    clearDeviceSession();
     let { error } = await supa.auth.signInAnonymously();
     if (error) ({ error } = await supa.auth.signInAnonymously());
   }
@@ -118,10 +134,29 @@ export function AccountStatus({
       <p className="eyebrow" style={{ margin: "0 0 6px" }}>
         <span aria-hidden>✦ </span>Signed in
       </p>
-      <h2 id="acct-status-h" style={h2}>
-        {who}
-      </h2>
-      {secondaryEmail && <p style={emailLine}>{secondaryEmail}</p>}
+      {/* W14 — the v7.2 profile card: avatar initial + name + tenure. The glyph is decorative
+          (the heading carries the name); tier tint keeps one identity color story per diner. */}
+      <div style={profileRow}>
+        <span
+          aria-hidden
+          style={{
+            ...avatar,
+            background: `color-mix(in srgb, ${tint.fill} 16%, transparent)`,
+            borderColor: `color-mix(in srgb, ${tint.fill} 38%, transparent)`,
+            color: tint.text,
+          }}
+        >
+          {avatarGlyph(effectiveName, email)}
+        </span>
+        <div style={{ minWidth: 0 }}>
+          <h2 id="acct-status-h" style={h2}>
+            {who}
+          </h2>
+          {secondaryEmail && <p style={emailLine}>{secondaryEmail}</p>}
+          {since && <p style={sinceLine}>Member since {since}</p>}
+        </div>
+      </div>
+      <AccountNameEditor name={name} onSaved={setSavedName} />
       {/* Standing chip — recognition at a glance (tier-tinted; text uses the AA `-strong` token). The full
           Stars ring + tier ladder is the Rewards card right below, so this stays a compact summary. */}
       <div style={{ margin: "10px 0 12px" }}>
@@ -219,6 +254,28 @@ export function AccountStatus({
 
 // Surface (bg/border/radius/shadow) comes from `.card` via <Card>; this is layout only.
 const card: CSSProperties = { padding: "var(--s5)" };
+const profileRow: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+};
+const avatar: CSSProperties = {
+  flex: "none",
+  width: 48,
+  height: 48,
+  borderRadius: 999,
+  border: "1.5px solid transparent", // color set inline from the tier tint
+  display: "grid",
+  placeItems: "center",
+  fontSize: "var(--fs-h3)",
+  fontWeight: 800,
+  userSelect: "none",
+};
+const sinceLine: CSSProperties = {
+  margin: "2px 0 0",
+  fontSize: "var(--fs-xs)",
+  color: "var(--t3)",
+};
 const h2: CSSProperties = {
   margin: "0 0 6px",
   fontSize: "var(--fs-h3)",

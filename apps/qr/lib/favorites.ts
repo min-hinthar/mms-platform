@@ -1,8 +1,10 @@
 "use server";
 import { cookies } from "next/headers";
-import { serverClient } from "@mms/db/server";
+import { publicClient, serverClient } from "@mms/db/server";
 import { toggleFavoriteInput } from "@mms/db/schemas";
 import { assertMutationRate } from "./rate";
+import { displayImageUrl } from "./media-url";
+import { pickFavoriteRail } from "./profile-view";
 
 /**
  * J5 — uid-scoped menu favorites (docs/JOURNEY_PLAN.md · recognition). Every read/write rides the
@@ -24,6 +26,48 @@ export async function getFavoriteIds(): Promise<string[]> {
     return (data ?? []).map((r) => r.menu_item_id);
   } catch {
     // Deliberate swallow (read-only, decorative surface): no session / transient failure → no hearts.
+    return [];
+  }
+}
+
+export type FavoriteDish = {
+  id: string;
+  name: string;
+  nameMy: string | null;
+  imageUrl: string | null;
+};
+
+/**
+ * W14 — the /account favorites strip: the caller's hearts joined to the PUBLIC catalog (anon key,
+ * public-read RLS — same least-privilege reader as the menu page; the ids come from the caller's
+ * own RLS read above). In-stock first + capped by `pickFavoriteRail` (pure, pinned). Never throws —
+ * same decorative posture as `getFavoriteIds`: a failed join renders no strip, never a broken page.
+ */
+export async function getFavoriteDishes(): Promise<FavoriteDish[]> {
+  const ids = await getFavoriteIds();
+  if (ids.length === 0) return [];
+  try {
+    const db = publicClient();
+    const { data } = await db
+      .from("menu_items")
+      .select("id,name_en,name_my,image_url,is_sold_out")
+      .eq("is_active", true)
+      .in("id", ids);
+    const byId = new Map((data ?? []).map((r) => [r.id, r]));
+    // Re-order to the hearts' own newest-first order (the .in() read returns arbitrary order).
+    const rows = ids
+      .map((id) => byId.get(id))
+      .filter((r): r is NonNullable<typeof r> => r != null)
+      .map((r) => ({
+        id: r.id,
+        name: r.name_en,
+        nameMy: r.name_my ?? null,
+        imageUrl: displayImageUrl(r.image_url),
+        soldOut: r.is_sold_out === true,
+      }));
+    return pickFavoriteRail(rows).map(({ soldOut: _soldOut, ...dish }) => dish);
+  } catch {
+    // Deliberate swallow (decorative strip): a failed catalog join renders no favorites section.
     return [];
   }
 }
