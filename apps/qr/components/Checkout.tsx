@@ -286,6 +286,10 @@ export function Checkout({
       setItems(v.items);
       setTotals(v.totals);
       setSettling(v.settling); // a peer (host) opening/canceling a split flips the whole table here
+      // W13 review — a peer-driven settle flip is a LATERAL cut, not a back-navigation: without
+      // this reset a stale "back" from the diner's last local flip would slide the settle board
+      // (and its return) in from the left. Idempotent while settling holds (React bails on same).
+      if (v.settling) setStepDir("forward");
       // W9b — the lock moves with the same refresh. This is still NOT pay-step state: it never touches
       // clientSecret/payTotals/step, so the mounted Stripe Element is untouched by a lock flip.
       setLocked(v.locked);
@@ -1260,7 +1264,9 @@ export function Checkout({
                               style={{
                                 display: "block",
                                 fontFamily: "var(--font-my)",
-                                fontSize: "var(--fs-xs)",
+                                // fs-sm, not fs-xs: stacked Burmese diacritics at the 11px floor
+                                // are illegible; matches the cart line's MY size (review LOW).
+                                fontSize: "var(--fs-sm)",
                                 color: "var(--t2)",
                               }}
                             >

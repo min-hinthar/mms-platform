@@ -1692,6 +1692,21 @@ h3 {
 .mms-toast {
   animation: mmsToastIn var(--dur-base) var(--spring) both;
 }
+/* Review MED — the exit the plan specified (v7.2 animates both directions): a quiet settle-down
+   before the unmount. Token durations → RM-collapsed. */
+.mms-toast-out {
+  animation: mmsToastOut var(--dur-fast) var(--ease-out) both;
+}
+@keyframes mmsToastOut {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+}
 @keyframes mmsToastIn {
   from {
     opacity: 0;
@@ -1727,7 +1742,11 @@ h3 {
   padding: 1px 7px;
   margin-right: 6px;
   border-radius: 999px;
-  background: color-mix(in oklab, var(--oa) 22%, transparent);
+  /* Review HIGH — the translucent mix computed 3.25:1 in light. Solid cream capsule + strong-ink
+     digit: 6.22:1 light / 8.45:1 dark (computed, not transcribed); the capsule edge vs the bar
+     keeps 4.84/8.45. */
+  background: var(--oa);
+  color: var(--ac-strong);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1758,6 +1777,15 @@ h3 {
   100% {
     opacity: 0;
     transform: translate(var(--bx, 0), var(--by, 0)) scale(1);
+  }
+}
+/* Review LOW — the per-gem `--bdelay` is NOT a collapsed token, and `both` backwards-fills the
+   visible FROM frame through the delay: under reduced motion the gems would flash. The JS mount
+   gate covers today's one consumer; this block is the repo-convention CSS off-switch. */
+@media (prefers-reduced-motion: reduce) {
+  .mms-burst-gem {
+    animation: none;
+    opacity: 0;
   }
 }
 
@@ -1797,9 +1825,14 @@ h3 {
 }
 .checkout-bill-line {
   display: flex;
-  align-items: center; /* W13: center against the thumb; the text block keeps its own baselines */
+  /* Review MED — `center` floated the price to the middle of the (always multi-line) name block;
+     top alignment keeps the amount on the item's TITLE line, the receipt convention. */
+  align-items: flex-start;
   gap: 10px;
   padding: 6px 0;
+}
+.checkout-bill-line > .checkout-bill-thumb {
+  align-self: flex-start;
 }
 .checkout-bill-name {
   flex: 1;

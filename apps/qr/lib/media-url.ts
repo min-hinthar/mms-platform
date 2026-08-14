@@ -19,3 +19,15 @@ export function safeImageUrl(raw: string | null | undefined): string | null {
   const siteRelative = raw.startsWith("/") && !raw.startsWith("//");
   return siteRelative || /^https:\/\/[^/]+\.supabase\.co\//.test(raw) ? raw : null;
 }
+
+/**
+ * W13 review MED — the display-ready URL: containment PLUS the "no real photo yet" filter. A
+ * `fallback.jpg` row is a generic stock image standing in for missing photography; every diner
+ * surface prefers the DESIGNED PhotoPlaceholder, so the filter must ride wherever the URL is
+ * handed out (the menu mapping AND getCartView's line media — the first ship filtered only the
+ * menu, and one add flow showed two contradictory placeholder stories).
+ */
+export function displayImageUrl(raw: string | null | undefined): string | null {
+  const safe = safeImageUrl(raw);
+  return safe && safe.endsWith("/fallback.jpg") ? null : safe;
+}

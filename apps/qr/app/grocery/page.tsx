@@ -415,7 +415,10 @@ export default function Grocery() {
       // markCartAlive skip the view — the add really happened, so its toast/analytics still run.
       if (cartIdRef.current !== cartId) return;
       if (r.ok) {
-        hapticTap(8); // W13 — quick-add weight; the scan door's only physical feedback
+        // W13 — deliberately POST-verdict (unlike the menu's optimistic buzz): a scan's outcome
+        // (unknown barcode / unavailable / weighed) only the server can give — buzzing "added"
+        // on a scan that comes back "not found" would be a physical lie.
+        hapticTap(8);
         addedRef.current += 1;
         // The scan's OWN response carries the fresh server view (one round trip, the addItem
         // pattern) — the list is cart truth, not a parallel client ledger. `lines: null` = the

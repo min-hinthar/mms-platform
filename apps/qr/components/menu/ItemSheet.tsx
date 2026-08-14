@@ -196,6 +196,10 @@ function ItemSheetBody({
 
   async function addToOrder() {
     if (!canAdd) return;
+    // W13 review — the haptic weights the GESTURE, not the network (the AddButton rationale): on a
+    // slow link a post-round-trip buzz lands seconds after the tap. A refused add is corrected by
+    // the sheet staying open + the live region, same as the optimistic morph.
+    hapticTap(12);
     setBusy(true);
     try {
       // Option ids only — the provider's `add` forwards to `addItem`→`priceItem`, which validates the ids
@@ -205,10 +209,7 @@ function ItemSheetBody({
       // Close only on SUCCESS — a refused add (expired session / locked cart / invalid selection) keeps the
       // sheet open with the diner's choices intact (the provider's live region shows the recovery message).
       const ok = await add(item.id, selectedIds(groups, selected), notes.trim() || undefined, qty);
-      if (ok) {
-        hapticTap(12); // W13 — the sheet-add weight (the heaviest add in the hierarchy)
-        onClose(); // Radix restores focus to the trigger row
-      }
+      if (ok) onClose(); // Radix restores focus to the trigger row
     } finally {
       setBusy(false);
     }

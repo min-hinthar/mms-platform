@@ -282,12 +282,26 @@ export function TableCartProvider({
   // add — replace deterministically instead of racing independent timers that could blank a fresh
   // notice early. Never the rolling total itself (the CartBar isn't aria-live — no amount re-read).
   const noticeTimer = useRef<number | null>(null);
+  const noticeExitTimer = useRef<number | null>(null);
+  // W13 — the toast leaves as deliberately as it arrives (review MED): the display timer flips a
+  // `leaving` phase (the .mms-toast-out settle), then a short exit timer unmounts. Both timers are
+  // single-slot — a fresh flash cancels BOTH so overlapping notices still replace deterministically.
+  const [noticeLeaving, setNoticeLeaving] = useState(false);
   // W13 — `my` is an optional Burmese segment rendered as its own lang="my" span (WCAG 3.1.2 —
   // correct SR pronunciation; the mixed-string alternative would read Burmese with EN rules).
   const flash = useCallback((msg: string, ms = 2200, my?: string) => {
     if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
+    if (noticeExitTimer.current !== null) window.clearTimeout(noticeExitTimer.current);
+    setNoticeLeaving(false);
     setNotice({ text: msg, my });
-    noticeTimer.current = window.setTimeout(() => setNotice(null), ms);
+    noticeTimer.current = window.setTimeout(() => {
+      setNoticeLeaving(true);
+      // 200ms > the RM-collapsed exit; under reduced motion the node just lingers invisibly.
+      noticeExitTimer.current = window.setTimeout(() => {
+        setNotice(null);
+        setNoticeLeaving(false);
+      }, 200);
+    }, ms);
   }, []);
   // W5a — resume-intent honesty: the home card promised an existing table, but the mint CREATED a
   // fresh session (the old one expired, or staff cleared the table — the advisory card can't know).
@@ -644,7 +658,7 @@ export function TableCartProvider({
           // replays the entrance). The MY segment is its own lang="my" span on the Padauk stack.
           <span
             key={notice.text}
-            className="mms-toast"
+            className={`mms-toast${noticeLeaving ? " mms-toast-out" : ""}`}
             style={{
               display: "inline-block",
               background: "var(--tx)",

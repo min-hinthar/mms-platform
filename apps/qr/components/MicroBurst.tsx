@@ -1,4 +1,5 @@
 "use client";
+import { useRef, useState } from "react";
 
 /**
  * W13 — the v7.2 `microGems` moment: five ✦/◆ particles bursting from the add control on success.
@@ -16,9 +17,23 @@ const GEMS: { glyph: string; x: number; y: number; d: number }[] = [
 ];
 
 export function MicroBurst({ burstKey }: { burstKey: number }) {
-  if (burstKey === 0) return null;
+  // Unmount once every gem has finished (review LOW — the plan's "unmount on animationend"):
+  // animationend BUBBLES from the gems to this wrapper; count per burstKey (a re-key mid-flight
+  // starts a fresh count). Under reduced motion the collapsed animations still fire animationend.
+  const ended = useRef({ key: 0, n: 0 });
+  const [doneKey, setDoneKey] = useState(0);
+  if (burstKey === 0 || doneKey >= burstKey) return null;
   return (
-    <span key={burstKey} className="mms-burst" aria-hidden="true">
+    <span
+      key={burstKey}
+      className="mms-burst"
+      aria-hidden="true"
+      onAnimationEnd={() => {
+        if (ended.current.key !== burstKey) ended.current = { key: burstKey, n: 0 };
+        ended.current.n += 1;
+        if (ended.current.n >= GEMS.length) setDoneKey(burstKey);
+      }}
+    >
       {GEMS.map((g, i) => (
         <span
           key={i}

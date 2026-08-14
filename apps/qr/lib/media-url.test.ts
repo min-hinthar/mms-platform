@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { safeImageUrl } from "./media-url";
+import { displayImageUrl, safeImageUrl } from "./media-url";
 
 /**
  * W13 — the image-URL containment guard, pinned. next/image THROWS at render on a host outside
@@ -28,5 +28,20 @@ describe("safeImageUrl — the containment boundary", () => {
     expect(safeImageUrl(null)).toBeNull();
     expect(safeImageUrl(undefined)).toBeNull();
     expect(safeImageUrl("")).toBeNull();
+  });
+});
+
+describe("displayImageUrl — the designed placeholder beats the stock stand-in", () => {
+  it("nulls fallback.jpg rows (contained hosts included) so PhotoPlaceholder renders", () => {
+    expect(
+      displayImageUrl("https://ukuzkhuppqwtrdkjqrkv.supabase.co/x/menu-photos/a/fallback.jpg"),
+    ).toBeNull();
+  });
+  it("passes real photos and still refuses uncontained hosts", () => {
+    expect(displayImageUrl("https://ukuzkhuppqwtrdkjqrkv.supabase.co/x/a/photo.jpg")).toContain(
+      "photo.jpg",
+    );
+    expect(displayImageUrl("https://evil.example/fallback.jpg")).toBeNull();
+    expect(displayImageUrl(null)).toBeNull();
   });
 });

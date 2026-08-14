@@ -46,10 +46,10 @@ The morph, ripple, and money number-roll already meet the bar. The gaps, in rubr
   `PaySuccess`** (the `useAnimationPreference` first-paint seed would buzz an RM user once) +
   try/catch (iOS Safari has no `vibrate`).
 - **`MicroBurst`** — the v7.2 `microGems` moment as deterministic CSS spans (the Confetti
-  idiom: token colors, no `Math.random`, transform/opacity only, own RM block, unmount on
-  animationend): 5 ✦/◆ particles from the Add control on success. Wired on the menu
-  `AddButton` morph and the ItemSheet add; the scan door keeps toast+haptic (no button to
-  burst from mid-camera). One burst at a time; z-index 2 inside the `card-textured` stacking
+  idiom: token colors, no `Math.random`, transform/opacity only, own RM block, unmounted once
+  the last gem's animationend lands): 5 ✦/◆ particles from the Add control on success. Wired on
+  the menu `AddButton` morph; the ItemSheet and the scan door keep toast+haptic (the sheet
+  closes on success — nothing left to burst from; the camera has no button). One burst at a time; z-index 2 inside the `card-textured` stacking
   rule.
 
 ## W13·2 — photos + Burmese on the money path (one server-view change)
@@ -82,7 +82,7 @@ The morph, ripple, and money number-roll already meet the bar. The gaps, in rubr
   ("back slides back") finally applies inside `/cart`.
 - **Bilingual accents** (the established `lang="my"` span idiom, casual-warm register):
   the two moment headings ("Your order · **သင့်အော်ဒါ**", "Your bill · **သင့်ဘောက်ချာ**"),
-  the empty-cart subtitle, and the add toast (W13·1). `/track` bilingualization is deferred
+  the empty-cart heading, and the add toast (W13·1). `/track` bilingualization is deferred
   (registry note — the order snapshot carries no `name_my`; needs its own read change).
 
 ## Hardening + the rules that bind

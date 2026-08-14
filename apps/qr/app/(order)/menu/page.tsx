@@ -8,6 +8,7 @@ import { getWelcomeBack } from "@/lib/rewards";
 import { getFavoriteIds } from "@/lib/favorites";
 import { OutageRefresh } from "@/components/OutageRefresh";
 import { readLastGoodCatalog, storeLastGoodCatalog } from "@/lib/menu/catalog-cache";
+import { displayImageUrl } from "@/lib/media-url";
 
 // RSC menu — reads the catalog (`menu_items`) server-side with the ANON/publishable key (gated by
 // public-read RLS, least privilege). Fetches the fields the R6 browse layer needs (name EN/MY,
@@ -90,9 +91,9 @@ export default async function Menu({
       description_en: i.description_en,
       description_my: i.description_my,
       base_price_cents: i.base_price_cents,
-      // W13 — a `fallback.jpg` row is "no real photo yet": null it so the DESIGNED
-      // PhotoPlaceholder renders instead of a generic stock image (28/60 rows; W2a unblocks).
-      image_url: i.image_url?.endsWith("/fallback.jpg") ? null : i.image_url,
+      // W13 — the shared display filter (lib/media-url): containment + fallback.jpg→null so the
+      // DESIGNED PhotoPlaceholder renders instead of a generic stock image (28/60 rows; W2a).
+      image_url: displayImageUrl(i.image_url),
       // Unavailable if flagged sold-out OR a required modifier group has no active options to choose from.
       is_sold_out: i.is_sold_out || requiredChoiceUnavailable(i.item_modifier_groups),
       tags: i.tags ?? [],
