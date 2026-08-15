@@ -109,6 +109,10 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
         items={items}
         categories={categories}
         counterOrder={counterOrder}
+        // W16a review MED — the price fork must mirror staffAddItem's EXACTLY (session.mode, not the
+        // reg- label): a scango/pickup diner session reached via the floor's "+ Add items" is togo-priced
+        // by the server, and a label fork would quote it ×1.15 while the server mints ×1.05.
+        lineMode={detail.mode === "dinein" ? "dinein" : "togo"}
         initialName={cartRow?.customer_name ?? null}
       />
     </main>

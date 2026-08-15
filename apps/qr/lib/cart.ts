@@ -478,10 +478,17 @@ export async function setLineFulfillment(
   let newUnitCents: number;
   if (storedIds.length > 0 || !hasLabels) {
     try {
+      // EXACT path deliberately re-derives at TODAY's base + deltas (the reorder doctrine): a flip
+      // after an owner price edit absorbs that edit on top of the mode swing, while an untouched
+      // sibling line keeps its era price. Accepted (W16a review LOW): the alternative — ratio-only
+      // rescale — would quietly extend a retired price to a line the diner just re-routed.
       const priced = await priceItem(line.menu_item_id, storedIds, {
         fulfillment: input.fulfillment,
       });
-      // A vanished option would silently drop a PAID modifier — fall back to the rescale.
+      // A vanished option would silently drop a PAID modifier — fall back to the rescale. (The
+      // ratio is only exactly right for a stored price that already carries the from-mode factor;
+      // an id-carrying line minted in the brief M3→W16a deploy window is unfactored and rescales
+      // slightly off — accepted with the other mixed-era in-flight residuals, hours-bounded.)
       newUnitCents =
         priced.optionIds.length < storedIds.length
           ? rescaleModePriceCents(Number(line.unit_price_cents), from, input.fulfillment)
@@ -491,7 +498,12 @@ export async function setLineFulfillment(
       newUnitCents = rescaleModePriceCents(Number(line.unit_price_cents), from, input.fulfillment);
     }
   } else {
-    newUnitCents = rescaleModePriceCents(Number(line.unit_price_cents), from, input.fulfillment);
+    // W16a review MED — a label-only line (pre-M3: ids were never stored) predates the mode-price
+    // era, so its stored price is the UNFACTORED raw sum. The ratio rescale would divide by a
+    // factor the price never contained (round25(stored × 1.05/1.15) — systematically ~8.7% BELOW
+    // even the old stored price), and multiply-only compounds on a second flip. There is no stored
+    // flag to tell the eras apart, so refuse honestly: remove + re-add re-prices the dish cleanly.
+    return { ok: false, reason: "legacy" };
   }
   const { data, error } = await db.rpc("mms_set_line_fulfillment", {
     p_line: input.cartItemId,

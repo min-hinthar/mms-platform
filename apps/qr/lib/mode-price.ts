@@ -11,8 +11,10 @@ import type { LineFulfillment } from "@mms/db";
  * The factor applies to the SUM (base + modifier deltas) at the one seam unit prices are minted
  * (priceItem → every add path), so the stored line price, the kitchen ticket, the client preview,
  * and the totals engine all agree. `base_price_cents` stays the single menu anchor (the
- * POS-verified W15 prices). Mirrored in SQL by mms_set_line_fulfillment's re-price (the
- * dinein↔togo toggle) — keep both halves in sync like the tax engine.
+ * POS-verified W15 prices). SQL never computes a mode price: the dinein↔togo toggle
+ * (mms_set_line_fulfillment) only bounds-checks and WRITES the TS-derived p_unit_price_cents —
+ * there is deliberately no SQL factor to keep in sync (SQL round(numeric) disagrees with
+ * Math.round on IEEE tie products, so a second engine would drift by a quarter).
  *
  * Pinned by lib/mode-price.test.ts + verify:slice mutants (factor drift + rounding deletion).
  */

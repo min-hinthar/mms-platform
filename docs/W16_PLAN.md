@@ -59,6 +59,11 @@
   `modePriceCents` everywhere (menu/sheet/rails/kiosk/register), i18n service keys retired,
   4 new mutants (99). ⚠️ The v7.2 prototype still encodes the OLD formulas (5% service + 0.0975
   tax) — fidelity sweeps must NOT reintroduce them; this plan supersedes the prototype on money.
+  Review round (1 pass, 3 lenses) decisions: the toggle's EXACT path deliberately re-prices at
+  TODAY's menu (reorder doctrine — a flip absorbs an owner price edit; the untouched sibling keeps
+  its era price); a pre-M3 label-only line REFUSES the toggle (`reason: "legacy"` — its stored
+  price is unfactored, so the ratio rescale would mint below both eras; remove + re-add re-prices
+  cleanly); option "+$X" sub-labels show the mode-priced EFFECT of tapping, not the raw menu delta.
 - **W16b · Bilingual-only** — toggle/locale plumbing removed; dictionary-driven stacked
   bilingual render at the W5-L2 sites; `<html lang="en">` fixed; body.my CSS out, `[lang="my"]`
   typographic rules stay.

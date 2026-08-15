@@ -216,6 +216,32 @@ const MUTANTS = [
   // W9c — not money, but the one SAFETY rule in the diner path: an allergy note that cannot be
   // carried into a reorder must be dropped and disclosed, never shortened. "Just truncate it" is the
   // plausible future edit, so it is the mutation that has to stay red.
+  // ── W16a — the mode-price SEAM + the toggle re-price (review MED: both were revertible green) ───
+  {
+    id: "order-lines/mode-seam-unfactored",
+    file: "apps/qr/lib/order-lines.ts",
+    suite: "lib/order-lines-price.test.ts",
+    why: "W16a review MED — deleting the modePriceCents wrapper at the ONE seam that mints unit prices reverts the owner's +15%/+5% with every gate green (the helper stays directly tested; nothing else pinned the call)",
+    find: "    unitPriceCents: modePriceCents(item.base_price_cents + addCents, fulfillment),",
+    replace: "    unitPriceCents: item.base_price_cents + addCents,",
+  },
+  {
+    id: "cart/toggle-price-not-forwarded",
+    file: "apps/qr/lib/cart.ts",
+    suite: "lib/cart-toggle.test.ts",
+    why: "W16a review MED — dropping the p_unit_price_cents forward makes the SQL coalesce keep the OLD mode's price: a dinein line flipped to-go stays charged ×1.15 forever",
+    find: "      p_unit_price_cents: newUnitCents,",
+    replace: "      p_unit_price_cents: undefined,",
+  },
+  {
+    id: "cart/toggle-legacy-rescaled-again",
+    file: "apps/qr/lib/cart.ts",
+    suite: "lib/cart-toggle.test.ts",
+    why: "W16a review MED — ratio-rescaling a pre-M3 label-only line divides by a factor its UNFACTORED stored price never contained (~8.7% below even the old price); the refusal is the fix and must stay red when reverted",
+    find: '    return { ok: false, reason: "legacy" };',
+    replace:
+      "    newUnitCents = rescaleModePriceCents(Number(line.unit_price_cents), from, input.fulfillment);",
+  },
   // ── M3 — faithful reorder (option ids beside the labels) ────────────────────────────────────────
   {
     id: "order-lines/option-ids-not-threaded",

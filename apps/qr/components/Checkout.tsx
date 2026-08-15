@@ -22,6 +22,7 @@ import {
   type PromoReason,
 } from "@/lib/cart";
 import type { SplitContext } from "@/lib/split";
+import { rescaleModePriceCents } from "@/lib/mode-price";
 import { canMutateLine } from "@/lib/permissions";
 import { menuHref, menuLinkText } from "@/lib/menu-href";
 import { DINER_STATE_COPY } from "@/lib/line-state-copy";
@@ -87,8 +88,11 @@ function customTipRateFromDollars(raw: string, net: number): number {
 
 // Optimistic cart edits — a qty / destination / make-now tap reflects INSTANTLY, then the server action
 // + refresh() reconcile the base underneath (and correct a refused edit). Money stays server-authoritative:
-// only per-line qty / fulfillment / state flip here; the per-line price (unit × qty, unit server-derived)
-// updates honestly, while the aggregate totals receipt (tax / service / discount) reconciles on the refresh.
+// the fulfillment flip previews the mode re-price with the SAME pure ratio helper the server's fallback
+// uses (W16a — pre-W16a the toggle never changed the price, so flipping only the tag was honest; now a
+// tag-only flip would show the for-here amount on a pressed "To go" pill for a full round-trip). The
+// server's exact re-derive can land within a quarter of the ratio preview — refresh() reconciles it,
+// along with the aggregate totals receipt (tax / discount).
 type CartOptimistic =
   | { kind: "qty"; id: string; qty: number }
   | { kind: "fulfillment"; id: string; ful: "dinein" | "togo" }
@@ -101,7 +105,19 @@ function applyCartOptimistic(state: CartItem[], u: CartOptimistic): CartItem[] {
         ? state.filter((i) => i.id !== u.id)
         : state.map((i) => (i.id === u.id ? { ...i, qty: u.qty } : i));
     case "fulfillment":
-      return state.map((i) => (i.id === u.id ? { ...i, fulfillment: u.ful } : i));
+      return state.map((i) =>
+        i.id === u.id
+          ? {
+              ...i,
+              fulfillment: u.ful,
+              unitPriceCents:
+                (i.fulfillment === "dinein" || i.fulfillment === "togo") &&
+                i.fulfillment !== u.ful
+                  ? rescaleModePriceCents(i.unitPriceCents, i.fulfillment, u.ful)
+                  : i.unitPriceCents,
+            }
+          : i,
+      );
     case "makeNow":
       return state.map((i) => (i.id === u.id ? { ...i, lineState: "fired" } : i));
   }

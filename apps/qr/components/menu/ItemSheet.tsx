@@ -313,6 +313,19 @@ function ItemSheetBody({
               // W5c·r3: glyphs ride INLINE with the label (owner: "in color and inline") — leading for
               // the add-ons pantry, trailing for the 🌶/🍯 intensity meters. aria-hidden; text carries meaning.
               const glyph = optionGlyph(o.slug);
+              // W16a review MED — the shown delta is the EFFECT of tapping (mode-priced total after
+              // the toggle minus now), NOT the raw menu delta: the factor + round25 apply to the SUM,
+              // so a "+$1.00" option moves a ×1.15 total by $1.25 and the raw label would contradict
+              // the CTA the diner sums against. Exact by construction (same math as totalCents).
+              const effDeltaCents =
+                modePriceCents(
+                  item.base_price_cents +
+                    selectionDeltaCents(groups, {
+                      ...selected,
+                      [g.id]: toggleOption(g, chosen, o.id),
+                    }),
+                  lineMode,
+                ) - modePriceCents(item.base_price_cents + deltaCents, lineMode);
               return (
                 <label key={o.id} className="item-opt" data-disabled={disabled || undefined}>
                   <input
@@ -356,8 +369,8 @@ function ItemSheetBody({
                       </span>
                     )}
                   </span>
-                  {o.priceDeltaCents !== 0 && (
-                    <span className="item-opt-delta">{delta(o.priceDeltaCents)}</span>
+                  {effDeltaCents !== 0 && (
+                    <span className="item-opt-delta">{delta(effDeltaCents)}</span>
                   )}
                 </label>
               );

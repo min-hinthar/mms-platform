@@ -9,7 +9,9 @@
 --      the caller re-derives via priceItem, or factor-rescales when a legacy line's option ids
 --      can't be resolved) and written here under the same in-statement open+draft+food guards.
 --      p_unit_price_cents null keeps the old tax-only behavior (deploy-order safety for an
---      in-flight old caller during the deploy window).
+--      in-flight old caller during the deploy window). The REVERSE window (new app before this
+--      migration) fails CLOSED: PostgREST can't match the 3-arg call (PGRST202), so every toggle
+--      returns an honest error until this applies — apply promptly on merge to keep it short.
 -- No fulfill-RPC changes: service_charge_cents params keep their contract and now carry 0 for new
 -- orders; historical rows keep their real stored values.
 
@@ -35,7 +37,10 @@ declare v_cart uuid; v_status text; v_state text; v_cur text; v_mid text; v_pric
 begin
   if p_fulfillment not in ('dinein','togo') then return 'bad_fulfillment'; end if;
   -- Bound the server-derived price (belt: the caller is service-role TS, never the client, but a
-  -- corrupted value must not become a charged amount). Null = legacy tax-only behavior.
+  -- corrupted value must not become a charged amount). Null = legacy tax-only behavior. The 25¢
+  -- floor is belt-only against today's catalog (min base $2.00, no negative deltas): a genuinely
+  -- sub-25¢ food line would refuse its toggle with 'bad_price' — if a ~$0 item is ever added,
+  -- widen this to allow 0 explicitly rather than relaxing the floor.
   if p_unit_price_cents is not null and (p_unit_price_cents < 25 or p_unit_price_cents > 500000) then
     return 'bad_price';
   end if;

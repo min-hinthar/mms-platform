@@ -31,18 +31,20 @@ export function StaffMenuBrowser({
   items,
   categories,
   counterOrder,
+  lineMode,
   initialName,
 }: {
   sessionId: string;
   items: StaffMenuItem[];
   categories: string[];
   counterOrder: boolean;
+  /** W16a — which mode-derived price staffAddItem will mint. Passed from the page off the SESSION's
+   *  mode (the same fork staff-cart uses), NOT the reg- label: a scango/pickup diner session added
+   *  to from the floor is togo-priced, and a label fork would misquote it by the factor gap. */
+  lineMode: "dinein" | "togo";
   initialName: string | null;
 }) {
   const router = useRouter();
-  // W16a: the register's price preview must match what staffAddItem will mint — counter orders
-  // (reg- labels) are to-go (×1.05), table service is dine-in (×1.15); same fork as staff-cart.
-  const lineMode = counterOrder ? ("togo" as const) : ("dinein" as const);
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string | null>(null);
   const [sheetItem, setSheetItem] = useState<StaffMenuItem | null>(null);
