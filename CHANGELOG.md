@@ -4,6 +4,33 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W5-L1+L2 — one tongue: the EN↔MY toggle + the money-moment dictionary (2026-08-15)
+
+S2 (high) progress — the app finally switches languages (`docs/W5_PLAN.md`):
+
+- **`lib/i18n/`** — typed `{en, my}` dictionaries (`common.ts` chrome + S14a glossary; `cart.ts`
+  ~50 money-moment keys, v7.2-sourced where authored), `as const` + `keyof` so a missing key is a
+  compile error; `t(locale, key)` is the whole engine (Burmese is plural-free — no i18n library).
+- **Six red-first guards** (`lib/i18n/strings.test.ts`): EN/MY parity · no untranslated
+  placeholders · Myanmar-script presence · Latin digits on money/legal keys · the အော်ဒါ glossary
+  rule · `t()`/`isLocale` shape.
+- **Locale carrier** — `mms_locale` cookie (1y, not httpOnly) read in the force-dynamic root
+  layout → `<html lang>` + `body.my` stamped SERVER-side (no EN→MY flash); `LocaleProvider` flips
+  client leaves synchronously then `router.refresh()`es the RSC shells; `proxy.ts` seeds from
+  Accept-Language (my → MY, everything else EN) only when absent; `mms.qr.locale` mirror is
+  EXEMPT from the W14 device-handover clear (a person's setting, not an order pointer).
+- **The toggle** — AppHeader chip on every diner route + the /account Language row; kiosk a11y
+  rule verbatim (visible label IS the target language's own name, `lang="my"` on the Burmese
+  label); `setLocalePref` revives dead-since-M4 `mms_profiles.locale` + `lang_change` PostHog.
+- **`body.my` reading mode** — Padauk becomes the base face, display/eyebrow tracking neutralized
+  (negative tracking collides stacked Myanmar glyphs), `--lh-my` leading, `overflow-wrap:
+anywhere` on every `lang="my"` subtree.
+- **L2 render sites** — Checkout headings (primary/accent swap by locale), empty cart, totals row
+  labels, promo/tip/custom chips, Send-to-kitchen CTA, View-bill/Pay CTAs; the SB-1524 Burmese
+  plain-voice line ACCOMPANIES the English disclosure in MY mode (EN stays the legally operative
+  artifact). `receipt-view.ts`/`totals-math.ts` stay monolingual — translation is presentation at
+  the render site, never in a money module.
+
 ### W7a — the receipt artifact (2026-08-15)
 
 Closes S1 (high): the post-pay receipt finally exists as an ARTIFACT — durable, emailable,

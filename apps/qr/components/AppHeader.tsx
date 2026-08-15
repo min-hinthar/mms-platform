@@ -13,6 +13,7 @@ import { liveOrderTrackHref } from "@/lib/live-order";
 import { getRewardsBadge, type RewardsBadge } from "@/lib/rewards";
 import { WalletChip } from "./WalletChip";
 import { OrdersTray } from "./OrdersTray";
+import { LocaleToggle } from "./LocaleToggle";
 
 /**
  * Persistent top app-bar (M-nav) — the diner's wayfinding spine across every route: brand→home, a contextual
@@ -207,6 +208,9 @@ export function AppHeader() {
             )}
           </Link>
         )}
+        {/* W5 (S2) — the persistent one-tap EN↔MY toggle: DESIGN-RESEARCH principle 5's
+            "persistent one-tap toggle", finally on every diner route. */}
+        <LocaleToggle />
       </nav>
       {/* Radix portals the sheet to <body>; `open` folds to false when there's nothing to show, so a
           completing order can't leave the tray stranded open. */}

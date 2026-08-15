@@ -71,6 +71,24 @@ export function proxy(request: NextRequest) {
 
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set("content-security-policy", csp);
+
+  // W5 — seed the locale cookie from Accept-Language ONLY when absent (first visit). Burmese
+  // browser language is a strong positive signal → start in MY; everything else defaults EN
+  // (diaspora phones are routinely set to en-US even for Burmese-first speakers — the prominent
+  // toggle beats a silent wrong guess, so en-US never implies "wants English"). The cookie is
+  // NOT httpOnly: the client toggle rewrites it synchronously for the instant flip.
+  if (!request.cookies.get("mms_locale")) {
+    const wantsMy = (request.headers.get("accept-language") ?? "")
+      .toLowerCase()
+      .split(",")
+      .some((part) => part.trim().startsWith("my"));
+    response.cookies.set("mms_locale", wantsMy ? "my" : "en", {
+      path: "/",
+      maxAge: 31536000,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+    });
+  }
   return response;
 }
 

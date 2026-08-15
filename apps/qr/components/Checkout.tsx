@@ -46,6 +46,8 @@ import {
   kitchenDraftQty as deriveKitchenDraftQty,
   type CheckoutStage,
 } from "@/lib/checkout-stage";
+import { useLocale, useT } from "./LocaleProvider";
+import { t, type DictKey } from "@/lib/i18n";
 
 // Per-reason promo copy (the action returns a reason; Next redacts thrown errors in prod). Honest +
 // on-brand: tell the diner exactly why, never a fabricated state.
@@ -154,6 +156,11 @@ export function Checkout({
   /** W5e: is the kitchen taking ASAP right now (open + capacity)? Server-computed; gates the ASAP pill. */
   asapAvailable?: boolean;
 }) {
+  // W5 (S2) — render-site translation: T() for the current locale, `accentLang` for the stacked
+  // bilingual heading (the OTHER tongue becomes the accent line — EN↔MY swap, both always visible).
+  const { locale } = useLocale();
+  const T = useT();
+  const accentLang = locale === "my" ? "en" : "my";
   const [items, setItems] = useState<CartItem[]>(initialItems);
   // Optimistic overlay on top of the server `items`: an edit shows instantly and the delta re-applies over
   // any realtime base change during the pending transition, then clears once refresh() lands the truth
@@ -343,8 +350,8 @@ export function Checkout({
   // W12 — the heading names the MOMENT: "Your bill" once the diner is settling (bill stage + the
   // pay step it leads to), "Your order" everywhere else. Screen-reader users hear the moment change
   // (focus moves to this heading on every view flip).
-  const heading =
-    staged && viewKey !== "settle" && (onPay || stage === "bill") ? "Your bill" : "Your order";
+  const headingKey: DictKey =
+    staged && viewKey !== "settle" && (onPay || stage === "bill") ? "yourBill" : "yourOrder";
 
   // W9b — a lock is only worth surfacing when it is SOMEONE ELSE'S. The diner standing on their own
   // pay step holds it (create-intent took it), and so does one who navigated back to review before
@@ -691,28 +698,24 @@ export function Checkout({
     return (
       <main style={{ padding: "24px 20px 40px", maxWidth: 440, margin: "0 auto" }}>
         <h1 style={{ fontSize: "var(--fs-h1)", marginBottom: 16 }}>
-          Your order
+          {T("yourOrder")}
           <span
-            lang="my"
+            lang={accentLang}
             style={{
               display: "block",
-              fontFamily: "var(--font-my)",
+              ...(accentLang === "my" ? { fontFamily: "var(--font-my)" } : null),
               fontSize: "var(--fs-sm)",
               fontWeight: 600,
               color: "var(--t2)",
             }}
           >
-            သင့်အော်ဒါ
+            {t(accentLang, "yourOrder")}
           </span>
         </h1>
         <EmptyState
           icon={<Icon name="cart" size={30} style={{ color: "var(--ac)" }} />}
-          title="Nothing in your cart yet"
-          subtitle={
-            sessionMode === "scango"
-              ? "Scan or browse the aisles and your items will show up here."
-              : "Add a dish from the menu and it’ll show up here."
-          }
+          title={T("emptyCartTitle")}
+          subtitle={sessionMode === "scango" ? T("emptyCartSubAisles") : T("emptyCartSubMenu")}
           action={
             <Link
               href={backHref}
@@ -770,12 +773,29 @@ export function Checkout({
   // SB-1524 disclosure — ONE element, rendered directly under whichever surface carries the fee
   // rows (the Bill moment's receipt slip, or the classic fee card), so the explanation never
   // drifts from the charge it explains. Server-derived: renders only when actually charged.
+  // W5 — in MY mode the Burmese plain-voice line ACCOMPANIES the English disclosure, never
+  // replaces it: the EN text is the legally operative SB-1524 artifact (K15 check-before-trust).
   const serviceChargeNote = totals.serviceChargeCents > 0 && (
-    <p style={{ fontSize: "var(--fs-xs)", color: "var(--t3)", margin: "8px 2px 0" }}>
-      A 5% service charge supports fair kitchen wages and is shared with the team (CA SB-1524). It
-      is not a tip — anything extra above is yours to give. Card fees are built into menu prices; we
-      never add a surcharge on debit.
-    </p>
+    <>
+      <p style={{ fontSize: "var(--fs-xs)", color: "var(--t3)", margin: "8px 2px 0" }}>
+        A 5% service charge supports fair kitchen wages and is shared with the team (CA SB-1524). It
+        is not a tip — anything extra above is yours to give. Card fees are built into menu prices;
+        we never add a surcharge on debit.
+      </p>
+      {locale === "my" && (
+        <p
+          lang="my"
+          style={{
+            fontFamily: "var(--font-my)",
+            fontSize: "var(--fs-xs)",
+            color: "var(--t3)",
+            margin: "4px 2px 0",
+          }}
+        >
+          {t("my", "serviceDisclosureMy")}
+        </p>
+      )}
+    </>
   );
 
   // W2d — tip controls. The custom tip rides as a rate (customCents / net) so create-intent + the webhook
@@ -807,20 +827,21 @@ export function Checkout({
         style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}
       >
         <h1 ref={headingRef} tabIndex={-1} style={{ fontSize: "var(--fs-h1)" }}>
-          {heading}
-          {/* W13 — the moment's Burmese name (casual-warm register), part OF the heading so a
-              screen reader hears both tongues once, correctly pronounced (lang="my"). */}
+          {T(headingKey)}
+          {/* W13→W5 — the OTHER tongue's name for the moment, part OF the heading so a screen
+              reader hears both tongues once, correctly pronounced (lang on the accent). In MY
+              mode the roles swap: Burmese leads, English becomes the accent line. */}
           <span
-            lang="my"
+            lang={accentLang}
             style={{
               display: "block",
-              fontFamily: "var(--font-my)",
+              ...(accentLang === "my" ? { fontFamily: "var(--font-my)" } : null),
               fontSize: "var(--fs-sm)",
               fontWeight: 600,
               color: "var(--t2)",
             }}
           >
-            {heading === "Your bill" ? "သင့်ဘောက်ချာ" : "သင့်အော်ဒါ"}
+            {t(accentLang, headingKey)}
           </span>
         </h1>
         <WalletChip badge={rewardsBadge} />
@@ -896,15 +917,20 @@ export function Checkout({
             </button>
             <div className="card card-textured checkout-receipt">
               <dl>
-                <Row k="Subtotal" cents={payTotals.subtotalCents} />
+                <Row k={T("rowSubtotal")} cents={payTotals.subtotalCents} />
                 {payTotals.discountCents - payTotals.rewardCents > 0 && (
-                  <Row k="Promo" cents={-(payTotals.discountCents - payTotals.rewardCents)} />
+                  <Row
+                    k={T("rowPromo")}
+                    cents={-(payTotals.discountCents - payTotals.rewardCents)}
+                  />
                 )}
-                {payTotals.rewardCents > 0 && <Row k="Reward" cents={-payTotals.rewardCents} />}
-                <Row k="Service charge (5%)" cents={payTotals.serviceChargeCents} />
-                <Row k="Sales tax" cents={payTotals.taxCents} />
-                {payTotals.tipCents > 0 && <Row k="Tip" cents={payTotals.tipCents} />}
-                <Row k="Total" cents={payTotals.totalCents} strong roll />
+                {payTotals.rewardCents > 0 && (
+                  <Row k={T("rowReward")} cents={-payTotals.rewardCents} />
+                )}
+                <Row k={T("rowService")} cents={payTotals.serviceChargeCents} />
+                <Row k={T("rowTax")} cents={payTotals.taxCents} />
+                {payTotals.tipCents > 0 && <Row k={T("rowTip")} cents={payTotals.tipCents} />}
+                <Row k={T("rowTotal")} cents={payTotals.totalCents} strong roll />
               </dl>
             </div>
             <PaymentSection
@@ -941,7 +967,7 @@ export function Checkout({
                 <span aria-hidden className="nav-arrow nav-arrow-back">
                   ←
                 </span>{" "}
-                Back to your order
+                {T("backToYourOrder")}
               </button>
             )}
             {lockedByPeer && (
@@ -1318,15 +1344,15 @@ export function Checkout({
                   })}
                 </ul>
                 <dl style={{ borderTop: "1px solid var(--bd)", paddingTop: 6, marginTop: 8 }}>
-                  <Row k="Subtotal" cents={totals.subtotalCents} />
+                  <Row k={T("rowSubtotal")} cents={totals.subtotalCents} />
                   {totals.discountCents - totals.rewardCents > 0 && (
-                    <Row k="Promo" cents={-(totals.discountCents - totals.rewardCents)} />
+                    <Row k={T("rowPromo")} cents={-(totals.discountCents - totals.rewardCents)} />
                   )}
-                  {totals.rewardCents > 0 && <Row k="Reward" cents={-totals.rewardCents} />}
+                  {totals.rewardCents > 0 && <Row k={T("rowReward")} cents={-totals.rewardCents} />}
                   {totals.serviceChargeCents > 0 && (
-                    <Row k="Service charge (5%)" cents={totals.serviceChargeCents} />
+                    <Row k={T("rowService")} cents={totals.serviceChargeCents} />
                   )}
-                  <Row k="Sales tax" cents={totals.taxCents} />
+                  <Row k={T("rowTax")} cents={totals.taxCents} />
                 </dl>
               </div>
             )}
@@ -1348,9 +1374,11 @@ export function Checkout({
                 <input
                   value={promo}
                   onChange={(e) => setPromo(e.target.value)}
-                  placeholder="Promo code"
+                  placeholder={T("promoCode")}
                   aria-label={
-                    lockedByPeer ? `Promo code — ${lockedByName} is checking out` : "Promo code"
+                    lockedByPeer
+                      ? `${T("promoCode")} — ${lockedByName} is checking out`
+                      : T("promoCode")
                   }
                   readOnly={lockedByPeer}
                   autoCapitalize="characters"
@@ -1371,7 +1399,7 @@ export function Checkout({
                   className="checkout-pill checkout-pill-accent"
                   style={{ minHeight: 44, ...(lockedByPeer ? { opacity: 0.55 } : null) }}
                 >
-                  Apply
+                  {T("applyPromo")}
                 </button>
               </form>
             )}
@@ -1459,17 +1487,17 @@ export function Checkout({
             {!staged && (
               <div className="card card-textured checkout-receipt">
                 <dl>
-                  <Row k="Subtotal" cents={totals.subtotalCents} />
+                  <Row k={T("rowSubtotal")} cents={totals.subtotalCents} />
                   {totals.discountCents - totals.rewardCents > 0 && (
-                    <Row k="Promo" cents={-(totals.discountCents - totals.rewardCents)} />
+                    <Row k={T("rowPromo")} cents={-(totals.discountCents - totals.rewardCents)} />
                   )}
-                  {totals.rewardCents > 0 && <Row k="Reward" cents={-totals.rewardCents} />}
+                  {totals.rewardCents > 0 && <Row k={T("rowReward")} cents={-totals.rewardCents} />}
                   {/* Server-derived: 0 on a pure-grocery basket (grocery lines are outside the
                     SB-1524 service base) — the row and the disclosure only render when charged. */}
                   {totals.serviceChargeCents > 0 && (
-                    <Row k="Service charge (5%)" cents={totals.serviceChargeCents} />
+                    <Row k={T("rowService")} cents={totals.serviceChargeCents} />
                   )}
-                  <Row k="Sales tax" cents={totals.taxCents} />
+                  <Row k={T("rowTax")} cents={totals.taxCents} />
                 </dl>
               </div>
             )}
@@ -1489,7 +1517,7 @@ export function Checkout({
                     re-open the F9 double-ask arm W2d closed (see the fees-before-tip comment). */}
                 {/* --fs-h3 (17), not the prototype's raw 15px — copy verbatim, size from the scale. */}
                 <h3 id="tip-h" style={{ fontSize: "var(--fs-h3)", margin: "16px 0 6px" }}>
-                  Add a little extra?
+                  {T("addATip")}
                 </h3>
                 <div
                   role="group"
@@ -1515,7 +1543,7 @@ export function Checkout({
                           ...(lockedByPeer ? { opacity: 0.55 } : null),
                         }}
                       >
-                        {label}
+                        {rate === 0 ? T("noTip") : label}
                         <small style={tipChipSmall(on)}>
                           {rate ? `$${(previewCents / 100).toFixed(2)}` : "—"}
                         </small>
@@ -1540,7 +1568,7 @@ export function Checkout({
                       ...(lockedByPeer ? { opacity: 0.55 } : null),
                     }}
                   >
-                    Custom
+                    {T("customTip")}
                     <small style={tipChipSmall(customTipOpen)}>
                       {customTipOpen && tipPreviewCents > 0
                         ? `$${(tipPreviewCents / 100).toFixed(2)}`
@@ -1612,7 +1640,7 @@ export function Checkout({
               >
                 <div>
                   <div style={{ fontWeight: 800, fontSize: "var(--fs-body)" }}>
-                    {tipPreviewCents > 0 ? "Estimated total" : "Total"}
+                    {tipPreviewCents > 0 ? T("estimatedTotal") : T("rowTotal")}
                   </div>
                   {tipPreviewCents > 0 && (
                     <div style={{ fontSize: "var(--fs-sm)", color: "var(--t3)", marginTop: 1 }}>
@@ -1688,7 +1716,7 @@ export function Checkout({
                 }}
               >
                 <span style={{ position: "relative", zIndex: 1 }}>
-                  View bill & pay ·{" "}
+                  {T("viewBillAndPay")} ·{" "}
                   <NumberFlow
                     value={(totals.totalCents + tipPreviewCents) / 100}
                     format={{ style: "currency", currency: "USD" }}
@@ -1737,7 +1765,9 @@ export function Checkout({
                     `Waiting for ${lockedByName} to finish`
                   ) : (
                     <>
-                      {isGroup ? `Pay the whole order · ${ctaTotal}` : `Pay · ${ctaTotal}`}
+                      {isGroup
+                        ? `${T("payWholeOrder")} · ${ctaTotal}`
+                        : `${T("pay")} · ${ctaTotal}`}
                       <span aria-hidden className="checkout-cta-arrow">
                         →
                       </span>

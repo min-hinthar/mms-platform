@@ -1,7 +1,7 @@
 import "./globals.css";
 import type { ReactNode } from "react";
 import type { Metadata, Viewport } from "next";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { Fraunces, Hanken_Grotesk, Padauk } from "next/font/google";
 import { ViewTransitions } from "next-view-transitions";
 import { AnonAuthGate } from "@/components/AnonAuthGate";
@@ -13,6 +13,8 @@ import { LendModeBanner } from "@/components/LendModeBanner";
 import { NavDirectionSync } from "@/components/nav/TransitionNav";
 import { SurfaceMemory } from "@/components/nav/SurfaceMemory";
 import { ResilienceShell } from "@/components/ResilienceShell";
+import { LocaleProvider } from "@/components/LocaleProvider";
+import { LOCALE_COOKIE, type Locale } from "@/lib/i18n";
 import { siteUrl } from "@/lib/site-url";
 
 const fraunces = Fraunces({ subsets: ["latin"], variable: "--font-fraunces" });
@@ -93,7 +95,11 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       "[layout] missing x-nonce — theme script will be CSP-blocked; dark mode won't activate.",
     );
   }
-  // `lang` is set per-locale on the client when the user switches EN/MY (WCAG 3.1.2).
+  // W5 (S2) — the locale is SERVER-rendered per request from the cookie (seeded by proxy.ts on
+  // first visit, rewritten synchronously by the client toggle): `<html lang>` is finally real
+  // (WCAG 3.1.2), and `body.my` swaps the Padauk face + the MY typographic reset before paint —
+  // no EN→MY flash. The layout is force-dynamic, so the cookie read costs nothing.
+  const locale: Locale = (await cookies()).get(LOCALE_COOKIE)?.value === "my" ? "my" : "en";
   return (
     // J1 continuity engine: <ViewTransitions> wraps client-side route changes in
     // document.startViewTransition (progressive — non-supporting browsers keep the instant cut).
@@ -101,11 +107,11 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
     // direction; SurfaceMemory keeps entrance staggers a once-per-session premiere.
     <ViewTransitions>
       <html
-        lang="en"
+        lang={locale}
         suppressHydrationWarning
         className={`${fraunces.variable} ${hanken.variable} ${padauk.variable}`}
       >
-        <body>
+        <body className={locale === "my" ? "my" : undefined}>
           {/* Richness R2 — dark-mode activation. Blocking + first-in-body so `.dark` is set from the OS
             scheme BEFORE content paints (no flash of the wrong theme). The full Night palette lives in
             @mms/ui tokens.css `.dark`; nothing set the class until here. ThemeSync keeps it live on a
@@ -123,17 +129,22 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           {/* W7b — SW registration + update heartbeat + the ambient offline pill (self-hides on
               /staff · /kiosk · /board). Prod-only inside; a no-op in dev. */}
           <ResilienceShell />
-          <MotionProvider>
-            {/* Persistent wayfinding spine (M-nav): the store observes the URL for mode/cart/order, the header
-                reads it. Both are client components; AppHeader self-hides on /staff. */}
-            <ActiveOrderProvider>
-              <AppHeader />
-              {/* K7 shared-device: sticky "ordering for a friend" ribbon, stacked below the header. Renders
-                  null off lend mode / on /staff. */}
-              <LendModeBanner />
-              {children}
-            </ActiveOrderProvider>
-          </MotionProvider>
+          {/* W5 — the locale context, server-seeded (no flash), above every consumer incl. the
+              header's toggle. The flip re-renders client leaves instantly; router.refresh catches
+              the RSC shells up. */}
+          <LocaleProvider initial={locale}>
+            <MotionProvider>
+              {/* Persistent wayfinding spine (M-nav): the store observes the URL for mode/cart/order, the header
+                  reads it. Both are client components; AppHeader self-hides on /staff. */}
+              <ActiveOrderProvider>
+                <AppHeader />
+                {/* K7 shared-device: sticky "ordering for a friend" ribbon, stacked below the header. Renders
+                    null off lend mode / on /staff. */}
+                <LendModeBanner />
+                {children}
+              </ActiveOrderProvider>
+            </MotionProvider>
+          </LocaleProvider>
         </body>
       </html>
     </ViewTransitions>

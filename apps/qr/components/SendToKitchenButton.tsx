@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, useTransition, type CSSProperties } from "react";
 import { sendToKitchen, undoFire } from "@/lib/cart";
+import { useT } from "./LocaleProvider";
 
 /**
  * Dine-in "Send to kitchen" (S2.1b) + the server-clocked undo grace (S2.2) — the host fires the table's
@@ -41,6 +42,7 @@ export function SendToKitchenButton({
   /** Re-sync the parent cart after a send/undo (solo dine-in isn't on the group realtime channel). */
   onChanged: () => void;
 }) {
+  const T = useT(); // W5 — the CTA is a money-path moment; label translates at the render site
   const [pending, startTransition] = useTransition();
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   // Client-local undo deadline (epoch ms, = receipt + server-measured grace) + a tick so the countdown
@@ -188,15 +190,15 @@ export function SendToKitchenButton({
           {/* The label rides above the .checkout-cta ::after shine sweep on its own layer. */}
           <span style={{ position: "relative", zIndex: 1 }}>
             {pending
-              ? "Sending…"
+              ? T("sending")
               : draftCount > 0
-                ? `Send to kitchen · ${draftCount} ${draftCount === 1 ? "item" : "items"}`
-                : "Send to kitchen"}
+                ? `${T("sendToKitchen")} · ${draftCount} ${draftCount === 1 ? T("countItem") : T("countItems")}`
+                : T("sendToKitchen")}
           </span>
         </button>
       ) : (
         <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)", textAlign: "center" }}>
-          Your order’s with the kitchen.
+          {T("orderWithKitchen")}
         </p>
       )}
       {/* The ONE live region for the send/undo flow — discrete event messages only (never the ticking

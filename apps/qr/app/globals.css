@@ -34,6 +34,29 @@ h3 {
   text-transform: uppercase;
   color: var(--ac);
 }
+/* W5 (S2) — Burmese reading mode. `body.my` is stamped by the SERVER layout from the locale
+   cookie (no flash), so these apply before first paint. Padauk becomes the base face (its latin
+   subset keeps untranslated English coherent inside a MY page); Myanmar script needs its tracking
+   NEUTRALIZED — Fraunces' negative display tracking and the eyebrow's 0.13em letterspacing both
+   collide stacked Myanmar glyphs — and more leading than Latin at the same size (--lh-my). */
+body.my {
+  font-family: var(--font-my);
+  line-height: var(--lh-my);
+}
+body.my h1,
+body.my h2,
+body.my h3 {
+  font-family: var(--font-my);
+  letter-spacing: 0;
+}
+body.my .eyebrow {
+  letter-spacing: 0;
+}
+/* Myanmar has no inter-word spaces — a long run is one unbreakable "word" to the layout engine
+   unless it may break anywhere. Scoped to MY subtrees (any locale), not just body.my. */
+[lang="my"] {
+  overflow-wrap: anywhere;
+}
 .card {
   background: var(--cd);
   border: 1px solid var(--bd);
