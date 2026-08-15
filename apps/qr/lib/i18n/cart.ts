@@ -45,6 +45,8 @@ export const CART = {
   },
   countItem: { en: "item", my: "ခု" },
   countItems: { en: "items", my: "ခု" },
+  // Suffix after a NAME in both tongues ("{name} is checking out" / "{name} ရှင်းနေပါတယ်").
+  isCheckingOut: { en: "is checking out", my: "ရှင်းနေပါတယ်" },
 
   // ── tip · promo · reward ───────────────────────────────────────────────────
   addATip: { en: "Add a little extra?", my: "အပိုလေး ပေးမလား?" }, // shipped W9e (v7.2 verbatim)
@@ -73,16 +75,22 @@ export const CART = {
   orderLocked: { en: "Unlock the order to make changes", my: "ပြောင်းရန် အော်ဒါကို လော့ခ်ဖွင့်ပါ" }, // v7.2 (glossary-adapted)
   paidThankYou: { en: "Paid. Thank you!", my: "ရှင်းပြီးပါပြီ။ ကျေးဇူးပါ" }, // v7.2
 
-  // ── SB-1524 — the ACCOMPANYING plain-voice line (never replaces the EN disclosure).
+  // ── SB-1524 — the disclosure. The `en` slot IS the shipped Checkout paragraph verbatim (the
+  //    legally operative artifact — Checkout renders it via t("en", …) so the two can never
+  //    drift); the `my` slot is the ACCOMPANYING plain-voice line rendered ALONGSIDE it in MY
+  //    mode, never instead. Review MED-3: both slots carry the full three claims (wages/shared ·
+  //    not-a-tip · no debit surcharge) so neither is a weaker disclosure than the other.
   //    ⚠️ K15 check-before-trust: consumer-protection copy. Latin "5%" by the digits rule.
   serviceDisclosureMy: {
-    en: "A 5% service charge supports fair kitchen wages and is shared with the team (CA SB-1524).",
-    my: "ဝန်ဆောင်ခ 5% သည် မီးဖိုဝန်ထမ်းများ၏ မျှတသော လုပ်ခကို ထောက်ပံ့ပြီး အဖွဲ့တစ်ခုလုံး ခွဲဝေရရှိပါသည် (CA SB-1524)။ ၎င်းသည် တစ်ပ် မဟုတ်ပါ — အပိုပေးလိုသမျှမှာ သင့်စိတ်ကြိုက်ပါ။",
+    en: "A 5% service charge supports fair kitchen wages and is shared with the team (CA SB-1524). It is not a tip — anything extra above is yours to give. Card fees are built into menu prices; we never add a surcharge on debit.",
+    my: "ဝန်ဆောင်ခ 5% သည် မီးဖိုဝန်ထမ်းများ၏ မျှတသော လုပ်ခကို ထောက်ပံ့ပြီး အဖွဲ့တစ်ခုလုံး ခွဲဝေရရှိပါသည် (CA SB-1524)။ ၎င်းသည် တစ်ပ် မဟုတ်ပါ — အပိုပေးလိုသမျှမှာ သင့်စိတ်ကြိုက်ပါ။ ကတ်ခများကို မီနူးစျေးနှုန်းထဲ ထည့်ပြီးသားဖြစ်ပြီး ဒက်ဘစ်ကတ်အတွက် ဘယ်တော့မှ အပိုမကောက်ပါ။",
   },
 } satisfies Record<string, Entry>;
 
 /** Keys whose values are money/legal copy — the Latin-digits guard walks this list. */
 export const CART_MONEY_KEYS = [
+  "pay",
+  "payAndLeave",
   "rowSubtotal",
   "rowDiscount",
   "rowPromo",

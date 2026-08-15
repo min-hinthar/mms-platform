@@ -31,32 +31,45 @@ const LocaleCtx = createContext<{ locale: Locale; setLocale: (l: Locale) => void
 export function LocaleProvider({ initial, children }: { initial: Locale; children: ReactNode }) {
   const router = useRouter();
   const [locale, setLocaleState] = useState<Locale>(initial);
+  // Review MED-1 — reconcile when the SERVER re-renders with a DIFFERENT cookie value (another
+  // tab flipped the locale, then any router.refresh() in this tab — Checkout refreshes after
+  // every cart edit — re-rendered the layout). The layout already patched <html lang>/body.my;
+  // without this the client leaves keep rendering the stale tongue under the new one's font.
+  // Render-phase derived state (the sanctioned setState-during-render pattern), not an effect.
+  const [prevInitial, setPrevInitial] = useState(initial);
+  if (initial !== prevInitial) {
+    setPrevInitial(initial);
+    setLocaleState(initial);
+  }
   const [, startTransition] = useTransition();
 
   const setLocale = useCallback(
     (l: Locale) => {
-      setLocaleState((prev) => {
-        if (prev === l) return prev;
-        try {
-          const secure = location.protocol === "https:" ? ";secure" : "";
-          document.cookie = `${LOCALE_COOKIE}=${l};path=/;max-age=31536000;samesite=lax${secure}`;
-          localStorage.setItem(LOCALE_STORAGE_KEY, l);
-        } catch {
-          /* storage/cookies unavailable — the in-memory flip still works this session */
-        }
-        // WCAG 3.1.2 — the document language is real, not a comment: the layout.tsx promise,
-        // finally kept. body.my swaps the Padauk face + the MY typographic reset (globals.css).
-        document.documentElement.lang = l;
-        document.body.classList.toggle("my", l === "my");
-        return l;
-      });
+      if (l === locale) return; // no-op tap: no writes, no refresh, no analytics
+      // Review LOW-8 — side effects live OUT here in the event handler, not inside the setState
+      // updater (updaters must be pure; StrictMode double-invokes them).
+      try {
+        const secure = location.protocol === "https:" ? ";secure" : "";
+        document.cookie = `${LOCALE_COOKIE}=${l};path=/;max-age=31536000;samesite=lax${secure}`;
+        // Write-only by design today: the cookie is the carrier the server reads; the mirror
+        // exists for a future offline/PWA restore path and for parity with the handover
+        // exemption in lib/device-session.ts.
+        localStorage.setItem(LOCALE_STORAGE_KEY, l);
+      } catch {
+        /* storage/cookies unavailable — the in-memory flip still works this session */
+      }
+      // WCAG 3.1.2 — the document language is real, not a comment: the layout.tsx promise,
+      // finally kept. body.my swaps the Padauk face + the MY typographic reset (globals.css).
+      document.documentElement.lang = l;
+      document.body.classList.toggle("my", l === "my");
+      setLocaleState(l);
       // Server-Component shells re-render on the refreshed cookie; the profile sync + the
       // lang_change analytics ride the server action (fire-and-forget — a failed sync never
       // blocks the flip the diner already sees).
       startTransition(() => router.refresh());
       void setLocalePref(l).catch(() => {});
     },
-    [router],
+    [router, locale],
   );
 
   return <LocaleCtx.Provider value={{ locale, setLocale }}>{children}</LocaleCtx.Provider>;

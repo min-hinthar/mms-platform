@@ -778,9 +778,9 @@ export function Checkout({
   const serviceChargeNote = totals.serviceChargeCents > 0 && (
     <>
       <p style={{ fontSize: "var(--fs-xs)", color: "var(--t3)", margin: "8px 2px 0" }}>
-        A 5% service charge supports fair kitchen wages and is shared with the team (CA SB-1524). It
-        is not a tip — anything extra above is yours to give. Card fees are built into menu prices;
-        we never add a surcharge on debit.
+        {/* Rendered from the dictionary's `en` slot deliberately (review MED-3): ONE source for
+            the legally operative paragraph, so a future render site can't ship a weaker one. */}
+        {t("en", "serviceDisclosureMy")}
       </p>
       {locale === "my" && (
         <p
@@ -1254,7 +1254,7 @@ export function Checkout({
                 one tap back on the Order moment — a bill you can quietly read is the point. */}
             {staged && stage === "bill" && (
               <div className="card card-textured checkout-receipt">
-                <ul role="list" aria-label="Your bill" className="checkout-bill-lines">
+                <ul role="list" aria-label={T("yourBill")} className="checkout-bill-lines">
                   {viewItems.map((i) => {
                     const struck = i.comped || i.lineState === "voided";
                     const owner = isGroup
@@ -1377,7 +1377,7 @@ export function Checkout({
                   placeholder={T("promoCode")}
                   aria-label={
                     lockedByPeer
-                      ? `${T("promoCode")} — ${lockedByName} is checking out`
+                      ? `${T("promoCode")} — ${lockedByName} ${T("isCheckingOut")}`
                       : T("promoCode")
                   }
                   readOnly={lockedByPeer}

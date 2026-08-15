@@ -53,9 +53,18 @@ body.my .eyebrow {
   letter-spacing: 0;
 }
 /* Myanmar has no inter-word spaces — a long run is one unbreakable "word" to the layout engine
-   unless it may break anywhere. Scoped to MY subtrees (any locale), not just body.my. */
+   unless it may break anywhere. Scoped to MY subtrees (any locale), not just body.my — and the
+   tracking reset rides here too (review LOW-6): an EN-mode Burmese ACCENT span inside an h1
+   otherwise inherits Fraunces' -0.02em, exactly the stacked-glyph collision body.my exists to
+   prevent. */
 [lang="my"] {
   overflow-wrap: anywhere;
+  letter-spacing: normal;
+}
+/* Review LOW-5 — `anywhere` inherits from html[lang=my] into Latin runs (a `$42.10` in a tight
+   MY-mode CTA could break mid-amount). Interleaved English opts back out. */
+[lang="en"] {
+  overflow-wrap: normal;
 }
 .card {
   background: var(--cd);

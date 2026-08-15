@@ -565,6 +565,11 @@ export async function setLocalePref(raw: unknown): Promise<void> {
       data: { user },
     } = await supa.auth.getUser();
     if (!user) return;
+    // Review MED-2 — the rate guard comes FIRST: this is an unauthenticated-POST-reachable
+    // action, and an unmetered capture would let a loop emit unlimited billable lang_change
+    // events. Anon flips still get captured (the v7.2 event) — just rate-limited like every
+    // other mutation in this file.
+    if (!(await withinMutationRate(user.id))) return;
     const { getPostHogClient } = await import("./posthog-server");
     getPostHogClient()?.capture({
       distinctId: user.id,
@@ -572,7 +577,6 @@ export async function setLocalePref(raw: unknown): Promise<void> {
       properties: { locale },
     });
     if (user.is_anonymous === true) return; // cookie-only for guests — nothing to sync
-    if (!(await withinMutationRate(user.id))) return;
     await serviceClient()
       .from("mms_profiles")
       .upsert(

@@ -1,4 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
+// Pure-const module (no React/Node deps) — safe on the Edge runtime. One name for the cookie the
+// layout reads and this seed writes (review LOW-7: a literal fork desyncs seed vs read silently).
+import { LOCALE_COOKIE } from "@/lib/i18n/types";
 
 /**
  * Per-request nonce CSP (M1·P1.6). A fresh nonce on every response lets us drop `script-src
@@ -77,12 +80,12 @@ export function proxy(request: NextRequest) {
   // (diaspora phones are routinely set to en-US even for Burmese-first speakers — the prominent
   // toggle beats a silent wrong guess, so en-US never implies "wants English"). The cookie is
   // NOT httpOnly: the client toggle rewrites it synchronously for the instant flip.
-  if (!request.cookies.get("mms_locale")) {
+  if (!request.cookies.get(LOCALE_COOKIE)) {
     const wantsMy = (request.headers.get("accept-language") ?? "")
       .toLowerCase()
       .split(",")
       .some((part) => part.trim().startsWith("my"));
-    response.cookies.set("mms_locale", wantsMy ? "my" : "en", {
+    response.cookies.set(LOCALE_COOKIE, wantsMy ? "my" : "en", {
       path: "/",
       maxAge: 31536000,
       sameSite: "lax",
