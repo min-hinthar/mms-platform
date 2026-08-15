@@ -242,6 +242,14 @@ const MUTANTS = [
     replace:
       "    newUnitCents = rescaleModePriceCents(Number(line.unit_price_cents), from, input.fulfillment);",
   },
+  {
+    id: "reorder/mode-fork-collapses-to-dinein",
+    file: "apps/qr/lib/reorder.ts",
+    suite: "lib/reorder-mode.test.ts",
+    why: "W16a — collapsing reorder's session-mode fork prices every pickup-session reorder at the +15% dine-in factor instead of +5% (the staff-preview MED's server-side sibling)",
+    find: '        { enforceCardinality: true, fulfillment: dineIn ? "dinein" : "togo" },',
+    replace: '        { enforceCardinality: true, fulfillment: "dinein" },',
+  },
   // ── M3 — faithful reorder (option ids beside the labels) ────────────────────────────────────────
   {
     id: "order-lines/option-ids-not-threaded",
