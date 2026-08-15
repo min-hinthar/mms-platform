@@ -70,8 +70,15 @@
   accents on the receipt rows; MY line under the EN+amount line on the three CTAs; tip chips the
   one deliberate EN-only exception); `<html lang="en">` fixed, `[lang="my"]`/`[lang="en"]`
   typographic rules stay; dictionaries + guards survive as the L3–L5 rollout source.
-- **W16c · Confirms** — bilingual confirm step on Send-to-kitchen (owner MY: "Kitchen သို့
-  မှာယူရန် အတည်ပြုပါပြီ") and the finalize-pay CTA; a11y-complete (focus, 44px, one live region).
+- **W16c · Confirms** — ✅ SHIPPED (2026-08-15) — one shared `ConfirmSwap` primitive (the repo's
+  inline two-step idiom, not a modal) on THREE money CTAs: Send-to-kitchen (count named; the 10s
+  undo stays as the second guard), the finalize CHARGE in `PaymentSection` (not the review step's
+  intent mint — that one is reversible via "Edit order"), and SharePay's Authorize (a real hold).
+  The WALLET path stays exempt (the OS sheet is the native confirm; stalling `onConfirm` can expire
+  the wallet session). Copy is pure + bilingual (`lib/confirm-copy.ts`), the owner's Burmese rides
+  the send proceed-button verbatim (test + mutant pinned), amounts Latin in both tongues.
+  a11y: `role="group"` + aria-describedby, focus parks on Cancel and returns to the trigger, ≥48px,
+  zero new live regions, no animation.
 - **W16d · Photos** — remove the fallback.jpg filename filter (W13 learning corrected); real
   photos return on menu/cart/history/favorites.
 - **W16e · Polish** — the mapped spacing/typography fixes (top-25, token-pure).

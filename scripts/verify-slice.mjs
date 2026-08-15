@@ -216,6 +216,23 @@ const MUTANTS = [
   // W9c — not money, but the one SAFETY rule in the diner path: an allergy note that cannot be
   // carried into a reorder must be dropped and disclosed, never shortened. "Just truncate it" is the
   // plausible future edit, so it is the mutation that has to stay red.
+  // ── W16c — the confirm step's copy (the numbers + the owner's own words) ────────────────────────
+  {
+    id: "confirm-copy/amount-dropped-from-the-proceed-button",
+    file: "apps/qr/lib/confirm-copy.ts",
+    suite: "lib/confirm-copy.test.ts",
+    why: "W16c — the last thing under the diner's thumb must name the sum it charges; a proceed button reading a bare 'Yes, pay' is a confirm that never showed what it confirms",
+    find: '        proceedEn: `${t("en", "confirmPayProceed")} ${amount}`,',
+    replace: '        proceedEn: t("en", "confirmPayProceed"),',
+  },
+  {
+    id: "confirm-copy/owner-verbatim-string-swapped",
+    file: "apps/qr/lib/confirm-copy.ts",
+    suite: "lib/confirm-copy.test.ts",
+    why: "W16c — the send-to-kitchen proceed button carries Min's OWN Burmese from the W16 directive; a silent swap to another key is exactly the drift the pin exists to catch",
+    find: '        proceedMy: t("my", "confirmSendProceed"),',
+    replace: '        proceedMy: t("my", "confirmSendLabel"),',
+  },
   // ── W16a — the mode-price SEAM + the toggle re-price (review MED: both were revertible green) ───
   {
     id: "order-lines/mode-seam-unfactored",

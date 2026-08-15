@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CART_MONEY_KEYS, DICT, t } from "./index";
 import { CART } from "./cart";
 import { COMMON } from "./common";
+import { CONFIRM } from "./confirm";
 
 /**
  * W5 — the dictionary guards (the contrast-audit pattern: walk the REAL data, no fixtures to
@@ -49,6 +50,7 @@ describe("the dictionary guards", () => {
     const modules: [string, Record<string, unknown>][] = [
       ["common", COMMON],
       ["cart", CART],
+      ["confirm", CONFIRM],
     ];
     const seen = new Map<string, string>();
     const collisions: string[] = [];

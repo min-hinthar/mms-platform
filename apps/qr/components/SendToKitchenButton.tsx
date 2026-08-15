@@ -2,6 +2,8 @@
 import { useEffect, useRef, useState, useTransition, type CSSProperties } from "react";
 import { sendToKitchen, undoFire } from "@/lib/cart";
 import { t, type DictKey } from "@/lib/i18n";
+import { confirmCopy } from "@/lib/confirm-copy";
+import { ConfirmSwap } from "./ConfirmSwap";
 
 // W16b — ALWAYS bilingual: EN primary + a Padauk MY line on the same surface (the owner's named
 // example is this very CTA). T() keeps the call sites; the MY half renders with per-span lang="my".
@@ -48,6 +50,11 @@ export function SendToKitchenButton({
 }) {
   const [pending, startTransition] = useTransition();
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  // W16c — the confirm step sits between the tap and send(). It stays LOCAL: unlike the undo
+  // grace (mirrored to the parent so the View-bill door refuses), an open confirm is safely
+  // discarded by a stage flip — nothing was committed.
+  const [confirming, setConfirming] = useState(false);
+  const sendBtnRef = useRef<HTMLButtonElement>(null);
   // Client-local undo deadline (epoch ms, = receipt + server-measured grace) + a tick so the countdown
   // re-renders each second.
   const [undoUntil, setUndoUntil] = useState<number | null>(null);
@@ -86,11 +93,22 @@ export function SendToKitchenButton({
   }, [undoUntil, onUndoWindowChange]);
   useEffect(() => () => onUndoWindowChange?.(false), [onUndoWindowChange]);
 
+  // Focus back to the Send trigger when the confirm closes WITHOUT sending (B4 / the staff idiom).
+  // After a confirmed send the trigger unmounts and the existing undo-focus effect takes over.
+  const wasConfirming = useRef(false);
+  useEffect(() => {
+    if (!confirming && wasConfirming.current) sendBtnRef.current?.focus();
+    wasConfirming.current = confirming;
+  }, [confirming]);
+
   const send = () => {
     setMsg(null);
     startTransition(async () => {
       try {
         const res = await sendToKitchen(cartId);
+        // Close the confirm on EVERY outcome — a refusal must return the diner to a live trigger
+        // they can retry from, not strand them on a confirm whose proceed already fired.
+        setConfirming(false);
         if (res.ok) {
           setMsg({
             kind: "ok",
@@ -115,6 +133,7 @@ export function SendToKitchenButton({
         }
       } catch {
         // assertCartMember (not a member / session closed) throws; Next redacts the message in prod.
+        setConfirming(false);
         setMsg({ kind: "err", text: "Couldn’t send that just now — please try again." });
       }
     });
@@ -166,10 +185,22 @@ export function SendToKitchenButton({
         >
           {pending ? "Bringing it back…" : `Undo — ${remaining}s`}
         </button>
+      ) : hasDraft && confirming ? (
+        // W16c — the decision step. The 10s server-clocked undo BELOW stays: the two guard
+        // different failure modes (a mis-tap before, a changed mind after), so neither replaces
+        // the other.
+        <ConfirmSwap
+          copy={confirmCopy({ kind: "sendToKitchen", itemCount: draftCount })}
+          busy={pending}
+          busyLabel={T("sending")}
+          onCancel={() => setConfirming(false)}
+          onProceed={send}
+        />
       ) : hasDraft ? (
         <button
+          ref={sendBtnRef}
           type="button"
-          onClick={send}
+          onClick={() => setConfirming(true)}
           disabled={pending}
           aria-busy={pending}
           className={primary ? "checkout-cta" : undefined}
