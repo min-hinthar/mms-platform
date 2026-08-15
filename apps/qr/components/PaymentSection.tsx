@@ -120,9 +120,12 @@ function PayForm({
   // exempt: Apple/Google Pay already interpose the OS payment sheet — an app-level pre-ask would
   // be a double confirm, and stalling ExpressCheckoutElement's onConfirm can expire the wallet
   // session outright.
-  async function onSubmit(e: FormEvent) {
+  function onSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!stripe || submitting) return;
+    // Guard `elements` too, not just `stripe`: `confirm()` early-returns when either is still
+    // null, so opening the confirm on a half-loaded Stripe.js would park the diner on a card whose
+    // proceed button silently does nothing (the button's own disabled check only ever saw `stripe`).
+    if (!stripe || !elements || submitting) return;
     setConfirming(true);
   }
 
