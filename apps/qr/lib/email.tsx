@@ -4,6 +4,8 @@ import { render } from "@react-email/render";
 import { AuthCodeEmail } from "@/emails/AuthCodeEmail";
 import { StaffInviteEmail } from "@/emails/StaffInviteEmail";
 import { StaffDeactivatedEmail } from "@/emails/StaffDeactivatedEmail";
+import { OrderReceiptEmail } from "@/emails/OrderReceiptEmail";
+import type { ReceiptEntry } from "@/lib/receipt-entry";
 import { siteUrl } from "@/lib/site-url";
 
 /**
@@ -79,4 +81,47 @@ export async function sendStaffInviteEmail(opts: {
 export async function sendStaffDeactivatedEmail(opts: { to: string }): Promise<EmailResult> {
   const html = await render(<StaffDeactivatedEmail />);
   return sendEmail(opts.to, "Your Mandalay Morning Star staff access is paused", html);
+}
+
+/** W7a — is the DINER receipt sender configured? (C8: `RESEND_RECEIPT_FROM` is the diner-facing
+ *  identity decision; until the owner sets it, the staff `RESEND_FROM` keeps the feature alive.
+ *  Neither set ⇒ feature-off — the capture affordance never renders, the honest degrade.) */
+export function receiptEmailConfigured(): boolean {
+  return Boolean(
+    process.env.RESEND_API_KEY && (process.env.RESEND_RECEIPT_FROM || process.env.RESEND_FROM),
+  );
+}
+
+/** W7a — the diner receipt (S1). `receiptPath` is the durable `?r=` path; the send composes the
+ *  absolute URL here so the email always carries a link that works from any device. */
+export async function sendOrderReceiptEmail(opts: {
+  to: string;
+  entry: ReceiptEntry;
+  receiptPath: string;
+}): Promise<EmailResult> {
+  const html = await render(
+    <OrderReceiptEmail entry={opts.entry} receiptUrl={`${siteUrl()}${opts.receiptPath}`} />,
+  );
+  const from = process.env.RESEND_RECEIPT_FROM || process.env.RESEND_FROM;
+  const key = process.env.RESEND_API_KEY;
+  if (!key || !from) {
+    console.warn("[email] receipt sender unconfigured — skipping send");
+    return { ok: false, error: "email-not-configured" };
+  }
+  try {
+    const { error } = await new Resend(key).emails.send({
+      from,
+      to: opts.to,
+      subject: `Your Mandalay Morning Star receipt · #${opts.entry.code}`,
+      html,
+    });
+    if (error) {
+      console.error("[email] receipt send failed", error.name, error.message);
+      return { ok: false, error: error.message };
+    }
+    return { ok: true };
+  } catch (e) {
+    console.error("[email] receipt send threw", (e as Error).message);
+    return { ok: false, error: (e as Error).message };
+  }
 }

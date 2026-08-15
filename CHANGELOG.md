@@ -4,6 +4,33 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W7a — the receipt artifact (2026-08-15)
+
+Closes S1 (high): the post-pay receipt finally exists as an ARTIFACT — durable, emailable,
+printable (`docs/W7A_PLAN.md`):
+
+- **The durable link**: `mms_receipt_tokens` (migration) — an opaque ≥256-bit bearer per order
+  (the merge-token pattern: service-role only, 90-day TTL, revocable, rotated only after expiry so
+  an emailed link never dies under the diner). `/track?r=<token>` renders the **session-less
+  itemized artifact** — the copy that outlives the 4h anon TTL, a cleared table, and the device.
+  The resolve predicate IS the authorization (shape gate + expiry, both red-first + mutants); the
+  mint requires an ALREADY-authorized caller (earner or `qr_order_payers` — pinned + mutant).
+- **The artifact itself** (`ReceiptCard` + `lib/receipt-view.ts`, pure + red-first): itemized
+  lines, zero-gated breakdown, ONE order-level tax row (M7 — per-line tax can differ by a
+  rounding cent), the **SB-1524 disclosure verbatim wherever the fee appears** (DESIGN-RESEARCH
+  names fees-only-on-the-emailed-receipt as the north-star teardown's failure), tender vocabulary
+  incl. the W6c reader ("Card · reader"), bilingual accents, reorder + account doors.
+- **Print**: the repo's first `@media print` block — the artifact prints as a clean slip
+  (print-to-PDF IS the PDF pipeline); a `Print or save as PDF` affordance on the view.
+- **Email receipt** (consent-first — nothing auto-sends): "Email me this receipt" on the /track
+  receipt card, account email pre-filled never auto-submitted; `setReceiptEmail` authorizes
+  (earner/payer) → rates (`RECEIPT_RATE` 5/10min — a purpose-built outbound-email budget, never
+  MUTATE_RATE's 120/min) → writes `qr_orders.receipt_email` with the paid-status guard in the
+  statement → drains the Resend send via `after()` (`OrderReceiptEmail`, the same pure model as
+  the page, durable link embedded). Feature-off honestly when no from-address is configured;
+  `RESEND_RECEIPT_FROM` (C8) ships with a documented `RESEND_FROM` fallback.
+- v7.2's "Receipt sent to your phone" promise becomes true — and honest.
+
 ### W14 — the profile slice (2026-08-14)
 
 Recognition, history richness, and account presence (`docs/W14_PLAN.md`) — RUBRIC axis J-F

@@ -546,6 +546,21 @@ export const mergeTokenInput = z.object({
 });
 export type MergeTokenInput = z.infer<typeof mergeTokenInput>;
 
+/**
+ * W7a — the receipt artifact. The orderId is a LOOKUP the actions re-authorize on
+ * earned_by / qr_order_payers (the lib/orders.ts doctrine: an order id is never a credential).
+ */
+export const receiptLinkInput = z.object({ orderId: uuid });
+export type ReceiptLinkInput = z.infer<typeof receiptLinkInput>;
+
+export const setReceiptEmailInput = z.object({
+  orderId: uuid,
+  // Lower-cased (the provisionStaff precedent) so stored values compare stably; 254 = the RFC
+  // address ceiling, mirrored by the qr_orders.receipt_email column CHECK.
+  email: z.string().trim().toLowerCase().email().max(254),
+});
+export type SetReceiptEmailInput = z.infer<typeof setReceiptEmailInput>;
+
 export type RequestApprovalInput = z.infer<typeof requestApprovalInput>;
 export type ResolveApprovalInput = z.infer<typeof resolveApprovalInput>;
 export type SetStaffPinInput = z.infer<typeof setStaffPinInput>;

@@ -1,7 +1,12 @@
 import type { Metadata } from "next";
 import { TransitionLink as Link } from "@/components/nav/TransitionNav"; // J1 journey grammar
 import { OrderTracker } from "@/components/OrderTracker";
+import { ReceiptCard } from "@/components/ReceiptCard";
+import { PrintReceiptButton } from "@/components/PrintReceiptButton";
 import { getSplitOrderId } from "@/lib/order";
+import { getReceiptEntry } from "@/lib/receipt-entry";
+import { resolveReceiptOrder } from "@/lib/receipt-token";
+import { reorderLink } from "@/lib/order-history-view";
 import { menuHref, menuLinkText } from "@/lib/menu-href";
 
 // /track — post-payment, live. Stripe appends `payment_intent` + `redirect_status` to the Payment
@@ -15,6 +20,8 @@ type SearchParams = Promise<{
   cart?: string;
   payment_intent?: string;
   paid?: string; // set by the split-tender SettlementBoard redirect (no Stripe redirect params)
+  /** W7a — the durable receipt bearer (`?r=<token>`): the session-less artifact view. */
+  r?: string;
 }>;
 
 // Per-state tab title — after the Stripe redirect the tab would otherwise keep the Element's title.
@@ -23,7 +30,10 @@ export async function generateMetadata({
 }: {
   searchParams: SearchParams;
 }): Promise<Metadata> {
-  const { redirect_status: status } = await searchParams;
+  const { redirect_status: status, r } = await searchParams;
+  // noindex (review MED): a durable, session-less page holding a diner's itemized order must
+  // never become a search destination (the /board + /kiosk rule, and this page is more sensitive).
+  if (r) return { title: "Your receipt", robots: { index: false } };
   const title =
     status === "succeeded"
       ? "Order confirmed"
@@ -36,7 +46,67 @@ export async function generateMetadata({
 }
 
 export default async function Track({ searchParams }: { searchParams: SearchParams }) {
-  const { redirect_status: status, cart, payment_intent: paymentIntent, paid } = await searchParams;
+  const {
+    redirect_status: status,
+    cart,
+    payment_intent: paymentIntent,
+    paid,
+    r,
+  } = await searchParams;
+
+  // W7a — the durable receipt (`?r=<token>`): the SESSION-LESS artifact view. The token is the
+  // entire authorization (opaque, ≥256-bit, 90-day TTL — lib/receipt-token); no session is read
+  // or minted, no live layer mounts. This is the copy that outlives the 4h anon TTL, a cleared
+  // table, and the device itself — the receipt a diner emailed themselves or printed.
+  if (r) {
+    const orderId = await resolveReceiptOrder(r);
+    const entry = orderId ? await getReceiptEntry(orderId) : null;
+    if (!entry)
+      return (
+        <main style={wrap}>
+          <div className="card card-textured track-notice">
+            <div className="track-notice-medallion" aria-hidden>
+              🧾
+            </div>
+            {/* Honest-neutral (review MED): we can't tell an expired link from an unknown one, so
+                the copy diagnoses neither — and never promises the account holds an order it may
+                not (a refunded order isn't in the /account history today). */}
+            <h1>We couldn’t open this receipt</h1>
+            <p>
+              The link may have expired — receipt links last 90 days from when they’re shared. If
+              you signed in when you ordered, your orders live in your account.
+            </p>
+            <Link href="/account" className="nav-link-strong">
+              My orders{" "}
+              <span aria-hidden className="nav-arrow nav-arrow-fwd">
+                →
+              </span>
+            </Link>
+          </div>
+        </main>
+      );
+    const again = reorderLink(entry);
+    return (
+      <main style={{ ...wrap, maxWidth: 480 }}>
+        <ReceiptCard entry={entry} />
+        <div className="print-hide" style={{ display: "grid", gap: 10, marginTop: 14 }}>
+          <PrintReceiptButton />
+          <Link href={again.href} className="nav-link">
+            {again.kind === "market" ? "Shop the market again" : "Order this again"}{" "}
+            <span aria-hidden className="nav-arrow nav-arrow-fwd">
+              →
+            </span>
+          </Link>
+          <Link href="/account" className="nav-link">
+            All your orders{" "}
+            <span aria-hidden className="nav-arrow nav-arrow-fwd">
+              →
+            </span>
+          </Link>
+        </div>
+      </main>
+    );
+  }
 
   // Split-tender completion (M3·P3.3b): the SettlementBoard sends the whole table here with
   // `?cart=…&paid=1` once every share is captured. There's no Stripe `redirect_status`/`payment_intent`

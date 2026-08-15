@@ -5,7 +5,18 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-08-14 — W11 + W6a/b/c + W7b + W12 + W13 + W14 shipped)
+> ## ⏭️ NEXT SESSION — start here (2026-08-15 — W11 + W6a/b/c + W7b + W12 + W13 + W14 + W7a shipped)
+>
+> **W7a shipped (2026-08-15)** — the receipt artifact (`docs/W7A_PLAN.md`; closes S1 high): the
+> durable `/track?r=<token>` session-less itemized receipt (`mms_receipt_tokens`, 90d opaque
+> bearer, resolve predicate = the authorization, red-first + mutants), print via the repo's first
+> `@media print`, and the consent-first "Email me this receipt" (earner/payer authz →
+> `RECEIPT_RATE` → paid-status-guarded write → `after()`-drained Resend `OrderReceiptEmail` with
+> the durable link). SB-1524 disclosure rides the artifact + email; M7 one-tax-row. C8:
+> `RESEND_RECEIPT_FROM` ships with a `RESEND_FROM` fallback — the owner still owes the dedicated
+> diner sender decision. **⚠️ `20260815000000_w7a_receipt.sql` needs the prod apply post-merge**
+> (the MCP catch-up flow). Residuals: kiosk/register link wiring (S12), auto-send, Resend
+> receipt-event routing, per-order links on /account history.
 >
 > **W14 shipped (2026-08-14)** — the profile slice (`docs/W14_PLAN.md`; RUBRIC J-F): the name
 > finally exists (`setDisplayName` — first writer of `mms_profiles.display_name`; identity card
