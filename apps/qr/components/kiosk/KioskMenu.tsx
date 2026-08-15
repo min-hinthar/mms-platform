@@ -3,6 +3,7 @@ import { useMemo, useState, useTransition } from "react";
 import Image from "next/image";
 import { addItem } from "@/lib/cart";
 import { t, type KioskLang } from "@/lib/kiosk/strings";
+import { modePriceCents } from "@/lib/mode-price";
 import { StaffModSheet } from "@/components/staff/StaffModSheet";
 import type { KioskItem } from "./types";
 
@@ -15,6 +16,7 @@ import type { KioskItem } from "./types";
 export function KioskMenu({
   lang,
   cartId,
+  lineMode,
   items,
   categories,
   count,
@@ -23,6 +25,8 @@ export function KioskMenu({
 }: {
   lang: KioskLang;
   cartId: string;
+  /** Which mode-derived price the server will mint (W16a) — the dine-in door ×1.15, to-go ×1.05. */
+  lineMode: "dinein" | "togo";
   items: KioskItem[];
   categories: string[];
   /** The order tally lives in the FLOW (review finding): a per-mount count of 0 after "Back" from
@@ -126,7 +130,7 @@ export function KioskMenu({
                 </span>
               )}
               <span className="kiosk-door-hint" style={{ fontWeight: 800, color: "var(--tx)" }}>
-                ${(i.priceCents / 100).toFixed(2)}
+                ${(modePriceCents(i.priceCents, lineMode) / 100).toFixed(2)}
               </span>
             </button>
           </li>
@@ -159,6 +163,7 @@ export function KioskMenu({
           }}
           itemName={sheetItem.nameEn}
           basePriceCents={sheetItem.priceCents}
+          lineMode={lineMode}
           groups={sheetItem.groups}
           pending={pending}
           error={sheetError}

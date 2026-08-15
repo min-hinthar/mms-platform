@@ -8,7 +8,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  *     modifier-less required items again (K17's bug, now a register-visible money rule: the priced
  *     line omits required choices the customer was quoted);
  *   • the register's qty rides to `insertOrIncLine` — dropping it silently collapses a "3 × curry"
- *     add to one unit while the cashier quotes three.
+ *     add to one unit while the cashier quotes three;
+ *   • W16a — the session's mode rides into the PRICE: a counter/pickup session prices togo (×1.05),
+ *     a table session dinein (×1.15). Collapsing the fork misprices every register add.
  */
 
 vi.mock("server-only", () => ({}));
@@ -52,6 +54,9 @@ vi.mock("./posthog-server", () => ({ getPostHogClient: () => ({ capture() {}, fl
 vi.mock("./stripe", () => ({ getStripe: () => ({}) }));
 vi.mock("./tab-events", () => ({ logTabEvent: () => Promise.resolve() }));
 
+// Per-test session mode (W16a): the mode now decides the PRICE fork, so both directions get a pin.
+let sessionMode = "pickup";
+
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     from: (table: string) => ({
@@ -60,7 +65,7 @@ vi.mock("@mms/db/server", () => ({
           maybeSingle: () =>
             Promise.resolve(
               table === "table_sessions"
-                ? { data: { id: SESSION, status: "active", mode: "pickup" }, error: null }
+                ? { data: { id: SESSION, status: "active", mode: sessionMode }, error: null }
                 : { data: null, error: null },
             ),
           eq: () => ({
@@ -94,14 +99,24 @@ beforeEach(() => {
   priceItemCalls.length = 0;
   insertCalls.length = 0;
   priceItemThrows = false;
+  sessionMode = "pickup";
 });
 
 describe("staffAddItem — cardinality + qty are money rules (W6a)", () => {
-  it("prices every staff add with cardinality ENFORCED", async () => {
+  it("prices every staff add with cardinality ENFORCED, at the session's mode price (togo here)", async () => {
     const r = await staffAddItem({ sessionId: SESSION, menuItemId: ITEM });
     expect(r.ok).toBe(true);
     expect(priceItemCalls).toHaveLength(1);
-    expect(priceItemCalls[0]?.opts).toEqual({ enforceCardinality: true });
+    // W16a — a pickup/counter session prices togo. `fulfillment: "dinein"` here would silently
+    // charge every register order the +15% dine-in factor instead of +5%.
+    expect(priceItemCalls[0]?.opts).toEqual({ enforceCardinality: true, fulfillment: "togo" });
+  });
+
+  it("prices a TABLE session's add as dinein (W16a — the other arm of the fork)", async () => {
+    sessionMode = "dinein";
+    const r = await staffAddItem({ sessionId: SESSION, menuItemId: ITEM });
+    expect(r.ok).toBe(true);
+    expect(priceItemCalls[0]?.opts).toEqual({ enforceCardinality: true, fulfillment: "dinein" });
   });
 
   it("forwards the register's qty to the ledger insert", async () => {

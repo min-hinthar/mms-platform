@@ -53,6 +53,10 @@ const MONEY_MARKERS = [
   /idempotencyKey/,
   /\bcaptureAllIfReady\b/,
   /\breleaseHold\b/,
+  // W16a review MED — the mode-price seam (order-lines.ts) and the toggle re-price (cart.ts) were
+  // both revertible with every gate green because neither file matched a marker: the noun the
+  // charged price actually lives in was missing.
+  /\bunit_price_cents\b/,
 ];
 
 const EXEMPT = /verify:slice-exempt\s*—?\s*(.+)/;

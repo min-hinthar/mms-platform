@@ -1,4 +1,5 @@
 "use client";
+import { modePriceCents } from "@/lib/mode-price";
 import type { MenuItem } from "./MenuBrowser";
 import { BlurUpImage } from "./BlurUpImage";
 import { PhotoPlaceholder } from "./PhotoPlaceholder";
@@ -21,12 +22,15 @@ const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 export function StartHereBand({
   items,
   dataBacked,
+  lineMode,
   onSelect,
 }: {
   items: MenuItem[];
   /** True only when real paid-order counts curated this rail (>=3 crowned items) — drives the honest
    *  sub-heading: observed table behavior vs our own picks. */
   dataBacked: boolean;
+  /** W16a — the session-mode price factor key: dine-in ×1.15, to-go ×1.05 (lib/mode-price). */
+  lineMode: "dinein" | "togo";
   onSelect: (i: MenuItem) => void;
 }) {
   if (items.length === 0) return null;
@@ -65,7 +69,7 @@ export function StartHereBand({
                   {i.name_my}
                 </span>
               )}
-              <span className="start-here-price">{dollars(i.base_price_cents)}</span>
+              <span className="start-here-price">{dollars(modePriceCents(i.base_price_cents, lineMode))}</span>
             </button>
           </li>
         ))}

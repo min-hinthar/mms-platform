@@ -10,18 +10,21 @@ import {
   type ModGroup,
   type Selection,
 } from "@/lib/menu/modifiers";
+import { modePriceCents } from "@/lib/mode-price";
 
 /**
  * The staff modifier sheet (W6a — closes K17). Same pure selection model as the diner ItemSheet
  * (radio for required singles, checkboxes capped at maxSelect), plus the register's qty (1–9) and an
  * optional kitchen note. Every cents figure here is ADVISORY preview — the add sends option IDS and
- * the server re-derives the price with cardinality enforced.
+ * the server re-derives the price with cardinality enforced. The preview MUST mirror the server's
+ * math exactly (W16a): mode factor + round25 over base+delta via modePriceCents, THEN × qty.
  */
 export function StaffModSheet({
   open,
   onOpenChange,
   itemName,
   basePriceCents,
+  lineMode,
   groups,
   pending,
   error,
@@ -31,6 +34,8 @@ export function StaffModSheet({
   onOpenChange: (open: boolean) => void;
   itemName: string;
   basePriceCents: number;
+  /** Which mode-derived price the server will mint for this line (W16a) — dinein ×1.15, togo ×1.05. */
+  lineMode: "dinein" | "togo";
   groups: ModGroup[];
   pending: boolean;
   /** Add failure surfaced INSIDE the sheet — a page-level live region is behind the modal scrim. */
@@ -43,8 +48,8 @@ export function StaffModSheet({
 
   const valid = isSelectionValid(groups, sel);
   const previewCents = useMemo(
-    () => (basePriceCents + selectionDeltaCents(groups, sel)) * qty,
-    [basePriceCents, groups, sel, qty],
+    () => modePriceCents(basePriceCents + selectionDeltaCents(groups, sel), lineMode) * qty,
+    [basePriceCents, lineMode, groups, sel, qty],
   );
 
   return (
@@ -64,6 +69,18 @@ export function StaffModSheet({
             <div role="group" aria-label={g.name} style={optList}>
               {g.options.map((o) => {
                 const chosen = (sel[g.id] ?? []).includes(o.id);
+                // W16a review MED — show the EFFECT of tapping (mode-priced total after minus now),
+                // not the raw menu delta: the factor + round25 apply to the SUM, so the raw label
+                // would contradict the Add CTA the cashier reads out. Same math as previewCents.
+                const effDeltaCents =
+                  modePriceCents(
+                    basePriceCents +
+                      selectionDeltaCents(groups, {
+                        ...sel,
+                        [g.id]: toggleOption(g, sel[g.id] ?? [], o.id),
+                      }),
+                    lineMode,
+                  ) - modePriceCents(basePriceCents + selectionDeltaCents(groups, sel), lineMode);
                 return (
                   <button
                     key={o.id}
@@ -78,10 +95,10 @@ export function StaffModSheet({
                     }
                   >
                     <span>{o.name}</span>
-                    {o.priceDeltaCents !== 0 && (
+                    {effDeltaCents !== 0 && (
                       <span style={delta}>
-                        {o.priceDeltaCents > 0 ? "+" : "−"}$
-                        {(Math.abs(o.priceDeltaCents) / 100).toFixed(2)}
+                        {effDeltaCents > 0 ? "+" : "−"}$
+                        {(Math.abs(effDeltaCents) / 100).toFixed(2)}
                       </span>
                     )}
                   </button>

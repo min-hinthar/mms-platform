@@ -394,7 +394,7 @@ export function FloorDetailLive({
           )}
         </div>
         <p style={{ ...muted, marginTop: 8, fontSize: "var(--fs-sm)" }}>
-          Running pre-tax subtotal — tax and the service charge are added at settle.
+          Running pre-tax subtotal — tax is added at settle.
         </p>
         {/* One shared live region for staff line-edit feedback + the stale-poll signal (S2-audit S9): a
             frozen detail view mustn't look live. The write error takes precedence over the reconnect note. */}

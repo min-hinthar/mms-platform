@@ -27,7 +27,13 @@ export type ReceiptRow = {
 };
 
 /** The breakdown rows, zero-gated exactly like the /account history card: subtotal always,
- *  discount/service/tax/tip only when charged, total last. */
+ *  discount/service/tax/tip only when charged, total last.
+ *
+ *  ⚠️ W16a — the service charge is RETIRED for NEW orders (totals mint serviceChargeCents = 0), but
+ *  the `> 0`-gated service row and SERVICE_CHARGE_DISCLOSURE below MUST STAY: receipts render the
+ *  fulfillment-time SNAPSHOT, and orders settled before 2026-08-15 carry a real charge that owes
+ *  its SB-1524 explanation forever. Do not "clean up" this branch — it is historical rendering,
+ *  not a live fee. */
 export function buildReceiptRows(b: ReceiptBreakdownish, totalCents: number): ReceiptRow[] {
   const rows: ReceiptRow[] = [{ key: "subtotal", label: "Subtotal", amountCents: b.subtotalCents }];
   if (b.discountCents > 0)

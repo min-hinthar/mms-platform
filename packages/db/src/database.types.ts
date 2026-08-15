@@ -1876,7 +1876,11 @@ export type Database = {
         Returns: string
       }
       mms_set_line_fulfillment: {
-        Args: { p_fulfillment: string; p_line: string }
+        Args: {
+          p_fulfillment: string
+          p_line: string
+          p_unit_price_cents?: number
+        }
         Returns: string
       }
       mms_set_pickup_slot: {

@@ -22,6 +22,8 @@ import { canMutateLine } from "./permissions";
 import { releaseCartLock } from "./lock";
 import { getPostHogClient } from "./posthog-server";
 import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
+import { rescaleModePriceCents } from "./mode-price";
+import { storedOptionIds } from "./reorder-options";
 import { displayImageUrl } from "./media-url";
 
 /**
@@ -56,18 +58,20 @@ export async function addItem(
     .eq("id", sessionId)
     .single();
   const dineIn = sess?.mode === "dinein";
+  // S4 unified basket: a food line's fulfillment defaults from context — a dine-in table → 'dinein', any
+  // other entry (pickup/scan) → 'togo'. The diner can toggle it per line; the tag (not the session mode)
+  // then drives routing, the W16a MODE PRICE, and per-line tax (the toggle re-prices in SQL —
+  // mms_set_line_fulfillment).
+  const fulfillment = dineIn ? "dinein" : "togo";
   // Diner add: enforce modifier requiredness/cardinality SERVER-side (the client "Choose" gate is advisory)
-  // — a forged/stale client can't add a required-modifier item without its required choice.
+  // — a forged/stale client can't add a required-modifier item without its required choice. The mode is
+  // derived BEFORE pricing so the unit price carries the W16a factor (+15% dine-in / +5% to-go, round 25¢).
   const { name, unitPriceCents, category, opts, optionIds } = await priceItem(
     input.menuItemId,
     input.modifierIds,
-    { enforceCardinality: true },
+    { enforceCardinality: true, fulfillment },
   );
   const taxCents = lineTax(unitPriceCents, category, dineIn);
-  // S4 unified basket: a food line's fulfillment defaults from context — a dine-in table → 'dinein', any
-  // other entry (pickup/scan) → 'togo'. The diner can toggle it per line; the tag (not the session mode)
-  // then drives routing + per-line tax. taxCents above already matches this default (same dineIn).
-  const fulfillment = dineIn ? "dinein" : "togo";
   // Merge-or-insert via the shared status-atomic core. by_seat = the VERIFIED diner uid (provenance for
   // the by-person split), never a client-asserted seat. Throws "Cart is no longer open" on a closed cart.
   // W3b: an empty/whitespace note normalizes away here (Zod already trimmed); a real note rides the line
@@ -450,9 +454,63 @@ export async function setLineFulfillment(
   if (locked || settling) return { ok: false, reason: "busy" };
   if (!canMutateLine(lineState, { kind: "diner", role, isOwner: lineSeat === uid }, comped))
     return { ok: false, reason: "not_yours" };
-  const { data, error } = await serviceClient().rpc("mms_set_line_fulfillment", {
+  // W16a — the toggle RE-PRICES the line (dine-in ×1.15 / to-go ×1.05, round 25¢), in TS so there
+  // is exactly ONE pricing engine (no SQL mirror to drift; SQL round(numeric) even disagrees with
+  // Math.round on IEEE tie products). Preference order:
+  //  • EXACT: every stored option id still resolves → re-derive via the same priceItem the add
+  //    path uses (base + today's deltas, mode factor, round25).
+  //  • RESCALE: a legacy label-only line, or an id line with a vanished option — scale the stored
+  //    price by the factor ratio instead (never silently drop a PAID modifier from the price).
+  // The SQL fn writes the new price + tax under its own in-statement open+draft+food guards; a
+  // no-op flip (same fulfillment) is refused there before any price write.
+  const db = serviceClient();
+  const { data: line } = await db
+    .from("qr_cart_items")
+    .select("menu_item_id,unit_price_cents,fulfillment,modifiers,modifier_option_ids")
+    .eq("id", input.cartItemId)
+    .maybeSingle();
+  if (!line) return { ok: false, reason: "error" };
+  if (line.fulfillment === "grocery") return { ok: false, reason: "is_grocery" };
+  if (line.fulfillment === input.fulfillment) return { ok: true }; // no-op flip: nothing to write
+  const from = line.fulfillment as "dinein" | "togo";
+  const storedIds = storedOptionIds(line.modifier_option_ids);
+  const hasLabels = Array.isArray(line.modifiers) && line.modifiers.length > 0;
+  let newUnitCents: number;
+  if (storedIds.length > 0 || !hasLabels) {
+    try {
+      // EXACT path deliberately re-derives at TODAY's base + deltas (the reorder doctrine): a flip
+      // after an owner price edit absorbs that edit on top of the mode swing, while an untouched
+      // sibling line keeps its era price. Accepted (W16a review LOW): the alternative — ratio-only
+      // rescale — would quietly extend a retired price to a line the diner just re-routed.
+      const priced = await priceItem(line.menu_item_id, storedIds, {
+        fulfillment: input.fulfillment,
+      });
+      // A vanished option would silently drop a PAID modifier — fall back to the rescale. (The
+      // ratio is only exactly right for a stored price that already carries the from-mode factor;
+      // an id-carrying line minted in the brief M3→W16a deploy window is unfactored and rescales
+      // slightly off — accepted with the other mixed-era in-flight residuals, hours-bounded.)
+      newUnitCents =
+        priced.optionIds.length < storedIds.length
+          ? rescaleModePriceCents(Number(line.unit_price_cents), from, input.fulfillment)
+          : priced.unitPriceCents;
+    } catch {
+      // Item vanished from the menu mid-session — the line's price is still owed as charged.
+      newUnitCents = rescaleModePriceCents(Number(line.unit_price_cents), from, input.fulfillment);
+    }
+  } else {
+    // W16a review MED — a label-only line (pre-M3: ids were never stored) predates the mode-price
+    // era, so its stored price is the UNFACTORED raw sum. The ratio rescale would divide by a
+    // factor the price never contained (round25(stored × 1.05/1.15) — systematically ~8.7% BELOW
+    // even the old stored price), and multiply-only compounds on a second flip. There is no stored
+    // flag to tell the eras apart, so refuse honestly: remove + re-add re-prices the dish cleanly.
+    return { ok: false, reason: "legacy" };
+  }
+  const { data, error } = await db.rpc("mms_set_line_fulfillment", {
     p_line: input.cartItemId,
     p_fulfillment: input.fulfillment,
+    // Spread-only-when-set is NOT used here: the re-signed fn defaults p_unit_price_cents to null
+    // (old behavior) for deploy-order safety, but this caller always sends the re-priced unit.
+    p_unit_price_cents: newUnitCents,
   });
   if (error) {
     console.error("[cart] mms_set_line_fulfillment failed", error.message);

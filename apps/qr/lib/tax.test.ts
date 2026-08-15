@@ -64,30 +64,31 @@ describe("isTaxable — the CDTFA category matrix", () => {
 });
 
 describe("lineTax — rounding", () => {
-  // Hand-computed against RATE = 0.0975. Each row is `amount × 0.0975` shown exactly, then rounded.
+  // Computed in Node against RATE = 0.105 (W16a, owner-confirmed L.A rate). Each row is
+  // `amount × 0.105` shown exactly, then rounded.
   //
-  // The `driftsAt098` column is the point of this table: it marks rows whose value CHANGES if the
-  // rate is edited to 0.098. A table built only from tie-priced fixtures is USELESS as a drift
-  // guard — e.g. 1400¢ rounds to 137 under both 0.0975 and 0.098, so a 1400-only table stays green
-  // through exactly the drift the exit criterion tells you to induce. 2000 and 10000 do move.
-  // Verified drift set at 0.098 (computed, not assumed): 2000 195→196 · 1250 122→123 · 9999 975→980 ·
-  // 10000 975→980 · 123456 12037→12099. The tie-priced rows (200/600/1000/1400) do NOT move and are
-  // here to pin the tie DIRECTION, not to guard the rate.
+  // The drift column is the point of this table: it marks rows whose value CHANGES if the rate is
+  // edited to 0.104 (the verify:slice mutant's replacement). Verified drift set at 0.104
+  // (computed, not assumed): 100 11→10 · 300 32→31 · 1000 105→104 · 2000 210→208 · 10000
+  // 1050→1040 · 123456 12963→12839. At 0.105 the ties move to the ODD hundreds (100 → 10.5);
+  // the even hundreds (200/600/1400) are now EXACT products, not ties.
   const CASES: [amount: number, expected: number, note: string][] = [
-    [0, 0, "0 × 0.0975 = 0"],
-    [1, 0, "1 × 0.0975 = 0.0975 → 0 (a 1¢ line collects no tax — the M6 root cause)"],
-    [5, 0, "5 × 0.0975 = 0.4875 → 0"],
-    [6, 1, "6 × 0.0975 = 0.585 → 1 (the smallest amount that collects any tax)"],
-    [100, 10, "100 × 0.0975 = 9.75 → 10 (a .75 round-up)"],
-    [200, 20, "200 × 0.0975 = 19.5 → 20 — an EXACT .5 tie; see the tie note below"],
-    [600, 59, "600 × 0.0975 = 58.5 → 59 — tie"],
-    [1000, 98, "1000 × 0.0975 = 97.5 → 98 — tie (unchanged at 0.098, not a drift probe)"],
-    [1400, 137, "1400 × 0.0975 = 136.5 → 137 — tie (unchanged at 0.098, NOT a drift probe)"],
-    [2000, 195, "2000 × 0.0975 = 195 exactly → 195 (drifts to 196 at 0.098)"],
-    [1250, 122, "1250 × 0.0975 = 121.875 → 122 (drifts to 123 at 0.098)"],
-    [9999, 975, "9999 × 0.0975 = 974.9025 → 975 (drifts to 980 at 0.098)"],
-    [10000, 975, "10000 × 0.0975 = 975 exactly → 975 (drifts to 980 at 0.098)"],
-    [123456, 12037, "123456 × 0.0975 = 12036.96 → 12037 (drifts to 12099 at 0.098)"],
+    [0, 0, "0 × 0.105 = 0"],
+    [1, 0, "1 × 0.105 = 0.105 → 0 (a 1¢ line collects no tax — the M6 root cause)"],
+    [4, 0, "4 × 0.105 = 0.42 → 0"],
+    [5, 1, "5 × 0.105 = 0.525 → 1 (the smallest amount that collects any tax)"],
+    [100, 11, "100 × 0.105 = 10.5 → 11 — an EXACT .5 tie; see the tie note below (drifts to 10 at 0.104)"],
+    [200, 21, "200 × 0.105 = 21 exactly → 21 (no drift at 0.104 — a rate probe it is NOT)"],
+    [300, 32, "300 × 0.105 = 31.5 → 32 — tie (drifts to 31 at 0.104)"],
+    [600, 63, "600 × 0.105 = 63 exactly → 63 (was a tie at 0.0975; exact now)"],
+    [700, 74, "700 × 0.105 = 73.5 → 74 — tie (drifts to 73 at 0.104)"],
+    [1000, 105, "1000 × 0.105 = 105 exactly → 105 (drifts to 104 at 0.104)"],
+    [1250, 131, "1250 × 0.105 = 131.25 → 131 (drifts to 130 at 0.104)"],
+    [1400, 147, "1400 × 0.105 = 147 exactly → 147 (drifts to 146 at 0.104)"],
+    [2000, 210, "2000 × 0.105 = 210 exactly → 210 (drifts to 208 at 0.104)"],
+    [9999, 1050, "9999 × 0.105 = 1049.895 → 1050 (drifts to 1040 at 0.104)"],
+    [10000, 1050, "10000 × 0.105 = 1050 exactly → 1050 (drifts to 1040 at 0.104)"],
+    [123456, 12963, "123456 × 0.105 = 12962.88 → 12963 (drifts to 12839 at 0.104)"],
   ];
 
   for (const [amount, expected, note] of CASES) {
@@ -97,19 +98,19 @@ describe("lineTax — rounding", () => {
   }
 
   it("rounds exact .5 ties UP, matching SQL round(numeric)", () => {
-    // Why these agree despite the engines' different tie rules: the IEEE double nearest 0.0975 is
-    // 0.09750000000000000333…, i.e. strictly ABOVE 39/400. So an "exact" tie like 200 × 0.0975 in
-    // floating point lands a hair above 19.5, and Math.round (half toward +∞) rounds up — the same
-    // direction SQL's exact-numeric half-away-from-zero takes for a positive amount. The agreement
-    // is real but it is a coincidence of the constant, not of the rounding modes: it is why the
-    // negative side (T4) diverges.
-    for (const amount of [200, 600, 1000, 1400, 1800]) {
-      expect(lineTax(amount, "hot_prepared", true)).toBe(Math.ceil(amount * 0.0975));
+    // Why these agree despite the engines' different tie rules: the IEEE double nearest 0.105 is
+    // 0.10499999999999999611… — strictly BELOW 21/200 — but the tie-site PRODUCTS land exactly on
+    // .5 in floating point (100 × 0.105 === 10.5, 300 × 0.105 === 31.5 — verified in Node), and
+    // Math.round (half toward +∞) takes them up: the same direction SQL's exact-numeric
+    // half-away-from-zero takes for a positive amount. The agreement is a property of these
+    // products, not of the rounding modes — it is why the negative side (T4) diverges.
+    for (const amount of [100, 300, 700, 900, 1100]) {
+      expect(lineTax(amount, "hot_prepared", true)).toBe(Math.ceil(amount * 0.105));
     }
   });
 
   it("returns exactly 0 for every exempt category, at every amount", () => {
-    for (const amount of [0, 1, 6, 200, 2000, 123456]) {
+    for (const amount of [0, 1, 5, 200, 2000, 123456]) {
       expect(lineTax(amount, "grocery_food", true)).toBe(0);
       expect(lineTax(amount, "grocery_food", false)).toBe(0);
       expect(lineTax(amount, "cold_food", false)).toBe(0);
@@ -134,7 +135,7 @@ describe("lineTax — rounding", () => {
 });
 
 describe("the rate constant", () => {
-  it("is 0.0975 — the Covina combined rate", () => {
+  it("is 0.105 — the L.A combined rate (owner-confirmed, W16a)", () => {
     // The SQL half asserts the same literal from the database side. A rate change that lands on ONE
     // side only reddens exactly one of the two jobs, which is the whole point of the pair.
     //
@@ -143,7 +144,7 @@ describe("the rate constant", () => {
     // change moves ZERO charged amounts, while a TS-only change moves every one of them. A one-sided
     // *category* edit IS charge-affecting, via the diner-reachable for-here/to-go toggle
     // (`mms_set_line_fulfillment` recomputes `tax_cents` in SQL).
-    expect(taxRate()).toBe(0.0975);
+    expect(taxRate()).toBe(0.105);
   });
 
   it("is the rate lineTax actually applies", () => {
@@ -154,25 +155,25 @@ describe("the rate constant", () => {
 
 describe("T4 (known-open) — negative amounts diverge from SQL", () => {
   it("rounds a negative tie toward +∞ where SQL rounds away from zero", () => {
-    // PINNED, NOT FIXED. Every value below is COMPUTED, not reasoned about: the double product is
-    // printed alongside so the next reader can check the tie without re-deriving it.
-    //   −200 × 0.0975 = −19.5  → TS −19, SQL −20
-    //   −600 × 0.0975 = −58.5  → TS −58, SQL −59
-    //  −1000 × 0.0975 = −97.5  → TS −97, SQL −98
-    //  −1400 × 0.0975 = −136.5 → TS −136, SQL −137
+    // PINNED, NOT FIXED. Every value below is COMPUTED in Node at 0.105 — the ties moved to the
+    // odd hundreds with the W16a rate change:
+    //   −100 × 0.105 = −10.5 → TS −10, SQL −11
+    //   −300 × 0.105 = −31.5 → TS −31, SQL −32
+    //   −700 × 0.105 = −73.5 → TS −73, SQL −74
+    //  −1000 × 0.105 = −105 exactly → −105 both sides (no longer a tie — kept as the agreement row)
     // TS takes half toward +∞ (so a negative tie rounds toward zero); SQL numeric takes half away
     // from zero. Reachable because `unit_price_cents` carries no `>= 0` CHECK — adding those CHECKs
     // is a migration against live data (its own slice), see OPEN-ITEMS T4. When it IS fixed, these
     // amounts should become unrepresentable rather than merely changing value.
-    expect(lineTax(-200, "hot_prepared", true)).toBe(-19);
-    expect(lineTax(-600, "hot_prepared", true)).toBe(-58);
-    expect(lineTax(-1000, "hot_prepared", true)).toBe(-97);
-    expect(lineTax(-1400, "hot_prepared", true)).toBe(-136);
+    expect(lineTax(-100, "hot_prepared", true)).toBe(-10);
+    expect(lineTax(-300, "hot_prepared", true)).toBe(-31);
+    expect(lineTax(-700, "hot_prepared", true)).toBe(-73);
+    expect(lineTax(-1000, "hot_prepared", true)).toBe(-105);
   });
 
   it("returns negative zero for a small negative amount", () => {
-    // `Math.round(-5 * 0.0975)` is `-0`. It compares equal to 0 with `===` but `Object.is` tells
+    // `Math.round(-4 * 0.105)` is `-0`. It compares equal to 0 with `===` but `Object.is` tells
     // them apart, and it serialises as `-0` in JSON — noted so a future reader isn't surprised.
-    expect(Object.is(lineTax(-5, "hot_prepared", true), -0)).toBe(true);
+    expect(Object.is(lineTax(-4, "hot_prepared", true), -0)).toBe(true);
   });
 });

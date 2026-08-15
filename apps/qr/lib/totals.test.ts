@@ -86,9 +86,9 @@ describe("getCartTotals — never returns a total it isn't sure of (M30)", () =>
     // (it's the base tax and service pro-rate against), `rewardCents` reports the reward limb alone.
     expect(discounted.discountCents).toBe(PROMO + REWARD);
     expect(discounted.rewardCents).toBe(REWARD);
-    // Tax and the service charge ride the DISCOUNTED base, so the all-in drop is strictly LARGER
-    // than the discount itself — asserting an exact total here would be a transcribed number that
-    // has to be re-derived by hand every time a tax or service rule moves.
+    // Tax rides the DISCOUNTED base (W16a: the service charge is retired), so the all-in drop is
+    // strictly LARGER than the discount itself — asserting an exact total here would be a
+    // transcribed number that has to be re-derived by hand every time the tax rule moves.
     expect(undiscounted.totalCents - discounted.totalCents).toBeGreaterThan(PROMO + REWARD);
   });
 

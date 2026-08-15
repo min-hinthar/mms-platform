@@ -1,6 +1,7 @@
 import "server-only";
 import { serviceClient } from "@mms/db/server";
 import type { TaxCategory, LineFulfillment } from "@mms/db";
+import { modePriceCents } from "./mode-price";
 
 /**
  * Server-authoritative line pricing + insert, shared by the diner cart (lib/cart.ts addItem) and the
@@ -27,7 +28,14 @@ const modKey = (m: unknown): string => JSON.stringify(Array.isArray(m) ? [...m].
 export async function priceItem(
   menuItemId: string,
   modifierIds: string[],
-  { enforceCardinality = false }: { enforceCardinality?: boolean } = {},
+  {
+    enforceCardinality = false,
+    // W16a — the mode the line will be charged under. The factor applies to the SUM
+    // (base + modifier deltas) then rounds to the quarter (lib/mode-price.ts): dine-in ×1.15,
+    // to-go ×1.05. Defaults to 'togo' so no caller can mint an unfactored price by omission —
+    // every real caller passes its session-derived mode explicitly.
+    fulfillment = "togo",
+  }: { enforceCardinality?: boolean; fulfillment?: LineFulfillment } = {},
 ) {
   const db = serviceClient();
   const { data: item, error } = await db
@@ -71,7 +79,8 @@ export async function priceItem(
 
   return {
     name: item.name_en,
-    unitPriceCents: item.base_price_cents + addCents,
+    // W16a — the charged unit is the MODE PRICE of the menu-anchor sum, never the raw sum.
+    unitPriceCents: modePriceCents(item.base_price_cents + addCents, fulfillment),
     // Single tax category per line (see lib/tax.ts): a modifier's price delta inherits the parent
     // item's category — the charge authority (getCartTotals) can't express a partial taxable base.
     category: item.tax_category as TaxCategory,

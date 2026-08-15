@@ -251,6 +251,7 @@ export function KioskOrderFlow({
           <KioskMenu
             lang={lang}
             cartId={ids.cartId}
+            lineMode={door === "dinein" ? "dinein" : "togo"}
             items={items}
             categories={categories}
             count={menuCount}
@@ -262,6 +263,7 @@ export function KioskOrderFlow({
         <KioskReview
           lang={lang}
           cartId={ids.cartId}
+          lineMode={door === "dinein" ? "dinein" : "togo"}
           items={items}
           onBack={() => setPhase("order")}
           onCommitted={() => setCommitted(true)}

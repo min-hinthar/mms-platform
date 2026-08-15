@@ -55,26 +55,29 @@ begin
 end $$;
 
 -- ── 2 · mms_line_tax — the rounding table (the SAME integers as apps/qr/lib/tax.test.ts) ───────────
--- Every expected value is hand-computed against rate 0.0975 and duplicated in the TS half. The rows
--- marked DRIFT change if the rate is edited to 0.098 — a table built only from tie-priced fixtures
--- (200/600/1000/1400, which round identically under both rates) would stay GREEN through exactly the
--- drift this file exists to catch.
+-- Every expected value is computed against rate 0.105 (W16a — owner-confirmed L.A rate) and
+-- duplicated in the TS half. At 0.105 the exact .5 ties sit on the ODD hundreds (100 -> 10.5);
+-- the old tie rows (200/600/1400) are now EXACT products. A table built only from rows that round
+-- identically under a drifted rate would stay GREEN through exactly the drift this file exists to
+-- catch — 1000/2000/10000/123456 all move at 0.104.
 do $$
 begin
   assert public.mms_line_tax(     0, 'hot_prepared', true) =     0, 'PARITY: 0c -> 0';
   assert public.mms_line_tax(     1, 'hot_prepared', true) =     0, 'PARITY: 1c -> 0 (the M6 root cause)';
-  assert public.mms_line_tax(     5, 'hot_prepared', true) =     0, 'PARITY: 5c -> 0';
-  assert public.mms_line_tax(     6, 'hot_prepared', true) =     1, 'PARITY: 6c -> 1 (smallest taxed amount)';
-  assert public.mms_line_tax(   100, 'hot_prepared', true) =    10, 'PARITY: 100c -> 10';
-  assert public.mms_line_tax(   200, 'hot_prepared', true) =    20, 'PARITY: 200c -> 20 (exact .5 tie)';
-  assert public.mms_line_tax(   600, 'hot_prepared', true) =    59, 'PARITY: 600c -> 59 (tie)';
-  assert public.mms_line_tax(  1000, 'hot_prepared', true) =    98, 'PARITY: 1000c -> 98 (tie)';
-  assert public.mms_line_tax(  1400, 'hot_prepared', true) =   137, 'PARITY: 1400c -> 137 (tie)';
-  assert public.mms_line_tax(  1250, 'hot_prepared', true) =   122, 'PARITY: 1250c -> 122  [DRIFT: 123 at 0.098]';
-  assert public.mms_line_tax(  2000, 'hot_prepared', true) =   195, 'PARITY: 2000c -> 195  [DRIFT: 196 at 0.098]';
-  assert public.mms_line_tax(  9999, 'hot_prepared', true) =   975, 'PARITY: 9999c -> 975  [DRIFT: 980 at 0.098]';
-  assert public.mms_line_tax( 10000, 'hot_prepared', true) =   975, 'PARITY: 10000c -> 975 [DRIFT: 980 at 0.098]';
-  assert public.mms_line_tax(123456, 'hot_prepared', true) = 12037, 'PARITY: 123456c -> 12037 [DRIFT: 12099 at 0.098]';
+  assert public.mms_line_tax(     4, 'hot_prepared', true) =     0, 'PARITY: 4c -> 0';
+  assert public.mms_line_tax(     5, 'hot_prepared', true) =     1, 'PARITY: 5c -> 1 (smallest taxed amount)';
+  assert public.mms_line_tax(   100, 'hot_prepared', true) =    11, 'PARITY: 100c -> 11 (exact .5 tie, away from zero)';
+  assert public.mms_line_tax(   200, 'hot_prepared', true) =    21, 'PARITY: 200c -> 21 (exact product)';
+  assert public.mms_line_tax(   300, 'hot_prepared', true) =    32, 'PARITY: 300c -> 32 (tie)';
+  assert public.mms_line_tax(   600, 'hot_prepared', true) =    63, 'PARITY: 600c -> 63 (exact product; was a tie at 0.0975)';
+  assert public.mms_line_tax(   700, 'hot_prepared', true) =    74, 'PARITY: 700c -> 74 (tie)';
+  assert public.mms_line_tax(  1000, 'hot_prepared', true) =   105, 'PARITY: 1000c -> 105 [DRIFT: 104 at 0.104]';
+  assert public.mms_line_tax(  1250, 'hot_prepared', true) =   131, 'PARITY: 1250c -> 131 [DRIFT: 130 at 0.104]';
+  assert public.mms_line_tax(  1400, 'hot_prepared', true) =   147, 'PARITY: 1400c -> 147 [DRIFT: 146 at 0.104]';
+  assert public.mms_line_tax(  2000, 'hot_prepared', true) =   210, 'PARITY: 2000c -> 210 [DRIFT: 208 at 0.104]';
+  assert public.mms_line_tax(  9999, 'hot_prepared', true) =  1050, 'PARITY: 9999c -> 1050 [DRIFT: 1040 at 0.104]';
+  assert public.mms_line_tax( 10000, 'hot_prepared', true) =  1050, 'PARITY: 10000c -> 1050 [DRIFT: 1040 at 0.104]';
+  assert public.mms_line_tax(123456, 'hot_prepared', true) = 12963, 'PARITY: 123456c -> 12963 [DRIFT: 12839 at 0.104]';
 
   -- exempt categories collect exactly 0 at every amount
   assert public.mms_line_tax(123456, 'grocery_food',  true ) = 0, 'PARITY: grocery_food must collect 0';
@@ -95,9 +98,9 @@ do $$
 declare
   v_rate numeric;
 begin
-  -- 1,000,000c x 0.0975 = 97,500 exactly, so this reads the rate back with no rounding involved.
+  -- 1,000,000c x 0.105 = 105,000 exactly, so this reads the rate back with no rounding involved.
   v_rate := public.mms_line_tax(1000000, 'hot_prepared', true)::numeric / 1000000;
-  assert v_rate = 0.0975, format('PARITY: SQL tax rate is %s, expected 0.0975 (Covina combined)', v_rate);
+  assert v_rate = 0.105, format('PARITY: SQL tax rate is %s, expected 0.105 (L.A combined, W16a)', v_rate);
 end $$;
 
 -- ── 4 · rounding MODE, asserted THROUGH the function under test ────────────────────────────────────
@@ -107,29 +110,25 @@ end $$;
 -- comment claimed it existed to catch. Its premise was also backwards.
 --
 -- The truth: the VALUE TABLE in section 2 is what catches a numeric->float8 regression, because the
--- exact .5 ties are where the two modes differ. `round(numeric)` is half-AWAY-from-zero, so 58.5 -> 59
--- and 136.5 -> 137. `round(double precision)` is half-to-EVEN, so the same inputs give 58 and 136.
--- These assertions restate those two rows explicitly, so the intent survives even if the table above
--- is ever trimmed.
+-- exact .5 ties are where the two modes differ. At 0.105 the discriminating ties are 100 and 900:
+-- `round(numeric)` is half-AWAY-from-zero (10.5 -> 11, 94.5 -> 95); `round(double precision)` is
+-- half-to-EVEN (10.5 -> 10, 94.5 -> 94 — both float products are EXACTLY .5, verified in Node).
+-- NOTE 300/700 are NOT discriminators (31.5 -> 32 and 73.5 -> 74 under both modes — even targets).
 do $$
 begin
-  -- 600 x 0.0975 = 58.5 exactly. numeric -> 59; float8 (banker's) -> 58.
-  assert public.mms_line_tax(600, 'hot_prepared', true) = 59,
-    'PARITY: 600c must be 59 — a 58 here means the tax path went float8 (half-to-even)';
-  -- 1400 x 0.0975 = 136.5 exactly. numeric -> 137; float8 -> 136.
-  assert public.mms_line_tax(1400, 'hot_prepared', true) = 137,
-    'PARITY: 1400c must be 137 — a 136 here means the tax path went float8 (half-to-even)';
-  -- (An earlier draft asserted mms_line_tax(1000000) = 97500 here as a float8 guard. Dropped: under
-  -- float8 the product is 97500.00000000000333, which rounds to 97500 — GREEN under the very
-  -- regression it named — and it duplicated section 3's rate assertion. The two ties above are the
-  -- real discriminators.)
+  -- 100 x 0.105 = 10.5 exactly. numeric -> 11; float8 (banker's) -> 10.
+  assert public.mms_line_tax(100, 'hot_prepared', true) = 11,
+    'PARITY: 100c must be 11 — a 10 here means the tax path went float8 (half-to-even)';
+  -- 900 x 0.105 = 94.5 exactly. numeric -> 95; float8 -> 94.
+  assert public.mms_line_tax(900, 'hot_prepared', true) = 95,
+    'PARITY: 900c must be 95 — a 94 here means the tax path went float8 (half-to-even)';
 
   -- T4 (known-open, PINNED not fixed): the negative side genuinely diverges from TS. SQL rounds a
-  -- negative tie AWAY from zero (-19.5 -> -20); TS Math.round rounds it toward +inf (-19). Reachable
+  -- negative tie AWAY from zero (-10.5 -> -11); TS Math.round rounds it toward +inf (-10). Reachable
   -- because unit_price_cents carries no `>= 0` CHECK. See docs/OPEN-ITEMS.md T4 — when that is fixed,
   -- negative amounts should become unrepresentable rather than this assertion changing value.
-  assert public.mms_line_tax(-200, 'hot_prepared', true) = -20,
-    'T4 pin: SQL rounds a negative tie away from zero (TS gives -19)';
+  assert public.mms_line_tax(-100, 'hot_prepared', true) = -11,
+    'T4 pin: SQL rounds a negative tie away from zero (TS gives -10)';
 end $$;
 
 rollback;

@@ -161,10 +161,12 @@ export async function reorderOrder(raw: {
       // way: a vanished option that empties a REQUIRED group throws → the dish is skipped
       // "needs_choices" rather than silently served without its style.
       const storedIds = storedOptionIds(l.modifier_option_ids);
+      // W16a: today's SESSION mode prices the re-added line (+15% dine-in / +5% to-go) — reorder
+      // already re-prices at today's values by design, and the mode factor is part of the price.
       const { name, unitPriceCents, category, opts, optionIds } = await priceItem(
         l.menu_item_id,
         storedIds,
-        { enforceCardinality: true },
+        { enforceCardinality: true, fulfillment: dineIn ? "dinein" : "togo" },
       );
       // Re-clamp against TODAY's rule (Zod `.max(160)` + the qr_cart_items.notes column CHECK). A
       // legacy note from before the cap would otherwise raise inside `mms_cart_item_insert_if_open`

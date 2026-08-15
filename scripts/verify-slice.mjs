@@ -46,14 +46,6 @@ const QR = path.join(ROOT, "apps/qr");
 const MUTANTS = [
   // ── the charge authority ────────────────────────────────────────────────────────────────────────
   {
-    id: "totals/service-rate",
-    file: "apps/qr/lib/totals-math.ts",
-    suite: "lib/totals-math.test.ts",
-    why: "the SB-1524 service rate silently changes",
-    find: "* 0.05)",
-    replace: "* 0.06)",
-  },
-  {
     id: "totals/tax-on-undiscounted-base",
     file: "apps/qr/lib/totals-math.ts",
     suite: "lib/totals-math.test.ts",
@@ -62,10 +54,10 @@ const MUTANTS = [
     replace: "Math.round(taxableBaseCents * taxRate())",
   },
   {
-    id: "totals/grocery-in-service-base",
+    id: "totals/grocery-in-tip-gate",
     file: "apps/qr/lib/totals-math.ts",
     suite: "lib/totals-math.test.ts",
-    why: "W1a — retail lines must not carry a 'supports fair kitchen wages' charge",
+    why: "W16a/M26 — grocery lines must not open the tip ask: the restaurantBase reduce is the tip gate's only input",
     find: '(i.fulfillment === "grocery" ? 0 : Number(i.unitPriceCents) * i.qty)',
     replace: "Number(i.unitPriceCents) * i.qty",
   },
@@ -157,9 +149,35 @@ const MUTANTS = [
     id: "tax/rate-drift",
     file: "apps/qr/lib/tax.ts",
     suite: "lib/tax.test.ts",
-    why: "the Covina rate must be pinned on the TS side (the SQL half is pinned in supabase/tests/)",
-    find: "const RATE = 0.0975;",
-    replace: "const RATE = 0.098;",
+    why: "the L.A rate must be pinned on the TS side (the SQL half is pinned in supabase/tests/)",
+    find: "const RATE = 0.105;",
+    replace: "const RATE = 0.104;",
+  },
+
+  // ── W16a — the mode-price rule (dine-in ×1.15 / to-go ×1.05, round to the quarter) ──────────────
+  {
+    id: "mode-price/dinein-factor-drift",
+    file: "apps/qr/lib/mode-price.ts",
+    suite: "lib/mode-price.test.ts",
+    why: "a drifted dine-in factor silently changes every dine-in charge",
+    find: "export const DINEIN_FACTOR = 1.15;",
+    replace: "export const DINEIN_FACTOR = 1.16;",
+  },
+  {
+    id: "mode-price/togo-factor-drift",
+    file: "apps/qr/lib/mode-price.ts",
+    suite: "lib/mode-price.test.ts",
+    why: "a drifted take-out factor silently changes every to-go charge",
+    find: "export const TOGO_FACTOR = 1.05;",
+    replace: "export const TOGO_FACTOR = 1.06;",
+  },
+  {
+    id: "mode-price/rounding-deleted",
+    file: "apps/qr/lib/mode-price.ts",
+    suite: "lib/mode-price.test.ts",
+    why: "the owner's round-to-the-quarter rule IS the price — dropping it ships un-round prices",
+    find: "export const round25 = (cents: number): number => Math.round(cents / 25) * 25;",
+    replace: "export const round25 = (cents: number): number => Math.round(cents);",
   },
   {
     id: "tax/cold-food-togo-taxable",
@@ -198,6 +216,40 @@ const MUTANTS = [
   // W9c — not money, but the one SAFETY rule in the diner path: an allergy note that cannot be
   // carried into a reorder must be dropped and disclosed, never shortened. "Just truncate it" is the
   // plausible future edit, so it is the mutation that has to stay red.
+  // ── W16a — the mode-price SEAM + the toggle re-price (review MED: both were revertible green) ───
+  {
+    id: "order-lines/mode-seam-unfactored",
+    file: "apps/qr/lib/order-lines.ts",
+    suite: "lib/order-lines-price.test.ts",
+    why: "W16a review MED — deleting the modePriceCents wrapper at the ONE seam that mints unit prices reverts the owner's +15%/+5% with every gate green (the helper stays directly tested; nothing else pinned the call)",
+    find: "    unitPriceCents: modePriceCents(item.base_price_cents + addCents, fulfillment),",
+    replace: "    unitPriceCents: item.base_price_cents + addCents,",
+  },
+  {
+    id: "cart/toggle-price-not-forwarded",
+    file: "apps/qr/lib/cart.ts",
+    suite: "lib/cart-toggle.test.ts",
+    why: "W16a review MED — dropping the p_unit_price_cents forward makes the SQL coalesce keep the OLD mode's price: a dinein line flipped to-go stays charged ×1.15 forever",
+    find: "    p_unit_price_cents: newUnitCents,",
+    replace: "    p_unit_price_cents: undefined,",
+  },
+  {
+    id: "cart/toggle-legacy-rescaled-again",
+    file: "apps/qr/lib/cart.ts",
+    suite: "lib/cart-toggle.test.ts",
+    why: "W16a review MED — ratio-rescaling a pre-M3 label-only line divides by a factor its UNFACTORED stored price never contained (~8.7% below even the old price); the refusal is the fix and must stay red when reverted",
+    find: '    return { ok: false, reason: "legacy" };',
+    replace:
+      "    newUnitCents = rescaleModePriceCents(Number(line.unit_price_cents), from, input.fulfillment);",
+  },
+  {
+    id: "reorder/mode-fork-collapses-to-dinein",
+    file: "apps/qr/lib/reorder.ts",
+    suite: "lib/reorder-mode.test.ts",
+    why: "W16a — collapsing reorder's session-mode fork prices every pickup-session reorder at the +15% dine-in factor instead of +5% (the staff-preview MED's server-side sibling)",
+    find: '        { enforceCardinality: true, fulfillment: dineIn ? "dinein" : "togo" },',
+    replace: '        { enforceCardinality: true, fulfillment: "dinein" },',
+  },
   // ── M3 — faithful reorder (option ids beside the labels) ────────────────────────────────────────
   {
     id: "order-lines/option-ids-not-threaded",
@@ -631,8 +683,16 @@ const MUTANTS = [
     file: "apps/qr/lib/staff-cart.ts",
     suite: "lib/staff-cart.test.ts",
     why: "W6a/K17 — reverting to the lenient add ships modifier-less required items: the customer is quoted a curry with a style, the kitchen gets one without",
-    find: "      { enforceCardinality: true },",
-    replace: "      { enforceCardinality: false },",
+    find: "      { enforceCardinality: true, fulfillment: staffFulfillment },",
+    replace: "      { enforceCardinality: false, fulfillment: staffFulfillment },",
+  },
+  {
+    id: "staff-cart/mode-fork-collapses-to-dinein",
+    file: "apps/qr/lib/staff-cart.ts",
+    suite: "lib/staff-cart.test.ts",
+    why: "W16a — collapsing the session-mode fork prices every counter/pickup register add at the +15% dine-in factor instead of +5%",
+    find: '    const staffFulfillment = dineIn ? ("dinein" as const) : ("togo" as const);',
+    replace: '    const staffFulfillment = "dinein" as const;',
   },
   {
     id: "staff-cart/qty-collapses-to-one",
