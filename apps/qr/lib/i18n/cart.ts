@@ -2,19 +2,18 @@ import type { Entry } from "./types";
 
 /**
  * W5-L2 — the MONEY PATH's key moments (the PRODUCTION_PLAN §W5 "~20 key moments": pay CTAs, tip
- * ask, totals row labels, order status words, the SB-1524 plain-voice line). Sources: the v7.2
+ * ask, totals row labels, order status words). Sources: the v7.2
  * prototype's authored MY money copy where it exists (marked `v7.2`, adapted to the S14a glossary
  * — the prototype's `အမှာ` noun becomes `အော်ဒါ`); everything else is a Claude-authored
- * diaspora-register draft pending Min's native check (K15 — the SB-1524 line especially is
- * check-before-trust: it is a consumer-protection statement).
+ * diaspora-register draft pending Min's native check (K15).
  *
  * RULES THAT BIND (pinned by lib/i18n/strings.test.ts):
- *  - Money/legal keys carry LATIN digits only ("5%", "$", "SB-1524") — never ၀–၉. This
- *    deliberately overrides DESIGN-RESEARCH §voice's "Burmese numerals" for the money path.
+ *  - Money/legal keys carry LATIN digits only ("$", "10.5%") — never ၀–၉. This deliberately
+ *    overrides DESIGN-RESEARCH §voice's "Burmese numerals" for the money path.
  *  - `lib/receipt-view.ts` / `lib/totals-math.ts` stay monolingual — these entries translate at
  *    the RENDER site, keyed off the pure modules' stable keys.
- *  - The SB-1524 MY line ACCOMPANIES the English disclosure, never replaces it (the EN text is
- *    the legally operative artifact).
+ *  - (W16a: the SB-1524 service-charge keys were RETIRED with the charge itself; historical
+ *    receipts render their stored values via lib/receipt-view.ts, which keeps its own copy.)
  */
 export const CART = {
   // ── the two moments (W12) ──────────────────────────────────────────────────
@@ -61,7 +60,6 @@ export const CART = {
   rowDiscount: { en: "Discount", my: "လျှော့စျေး" },
   rowPromo: { en: "Promo", my: "ပရိုမို" },
   rowReward: { en: "Reward", my: "ဆုလာဘ်" },
-  rowService: { en: "Service charge (5%)", my: "ဝန်ဆောင်ခ (5%)" },
   rowTax: { en: "Sales tax", my: "ရောင်းခွန်" }, // shipped label is "Sales tax", not "Tax"
   rowTip: { en: "Tip", my: "တစ်ပ်" },
   rowTotal: { en: "Total", my: "စုစုပေါင်း" },
@@ -75,16 +73,6 @@ export const CART = {
   orderLocked: { en: "Unlock the order to make changes", my: "ပြောင်းရန် အော်ဒါကို လော့ခ်ဖွင့်ပါ" }, // v7.2 (glossary-adapted)
   paidThankYou: { en: "Paid. Thank you!", my: "ရှင်းပြီးပါပြီ။ ကျေးဇူးပါ" }, // v7.2
 
-  // ── SB-1524 — the disclosure. The `en` slot IS the shipped Checkout paragraph verbatim (the
-  //    legally operative artifact — Checkout renders it via t("en", …) so the two can never
-  //    drift); the `my` slot is the ACCOMPANYING plain-voice line rendered ALONGSIDE it in MY
-  //    mode, never instead. Review MED-3: both slots carry the full three claims (wages/shared ·
-  //    not-a-tip · no debit surcharge) so neither is a weaker disclosure than the other.
-  //    ⚠️ K15 check-before-trust: consumer-protection copy. Latin "5%" by the digits rule.
-  serviceDisclosureMy: {
-    en: "A 5% service charge supports fair kitchen wages and is shared with the team (CA SB-1524). It is not a tip — anything extra above is yours to give. Card fees are built into menu prices; we never add a surcharge on debit.",
-    my: "ဝန်ဆောင်ခ 5% သည် မီးဖိုဝန်ထမ်းများ၏ မျှတသော လုပ်ခကို ထောက်ပံ့ပြီး အဖွဲ့တစ်ခုလုံး ခွဲဝေရရှိပါသည် (CA SB-1524)။ ၎င်းသည် တစ်ပ် မဟုတ်ပါ — အပိုပေးလိုသမျှမှာ သင့်စိတ်ကြိုက်ပါ။ ကတ်ခများကို မီနူးစျေးနှုန်းထဲ ထည့်ပြီးသားဖြစ်ပြီး ဒက်ဘစ်ကတ်အတွက် ဘယ်တော့မှ အပိုမကောက်ပါ။",
-  },
 } satisfies Record<string, Entry>;
 
 /** Keys whose values are money/legal copy — the Latin-digits guard walks this list. */
@@ -95,12 +83,10 @@ export const CART_MONEY_KEYS = [
   "rowDiscount",
   "rowPromo",
   "rowReward",
-  "rowService",
   "rowTax",
   "rowTip",
   "rowTotal",
   "estimatedTotal",
   "payWholeOrder",
   "paidInFull",
-  "serviceDisclosureMy",
 ] as const satisfies readonly (keyof typeof CART)[];

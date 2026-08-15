@@ -4,7 +4,7 @@ import type { TaxCategory } from "@mms/db";
 // CA CDTFA Reg 1603 / 80-80: hot & prepared always taxable; cold food taxable only dine-in;
 // retail non-food always taxable; grocery staples exempt.
 // Amounts are integer CENTS (parity with the SQL engine + the delivery schema).
-const RATE = 0.0975; // Covina combined; single source — update here and in SQL together.
+const RATE = 0.105; // L.A combined (owner-confirmed, W16a — closes C13); update here and in SQL together.
 
 export function isTaxable(category: TaxCategory, dineIn: boolean): boolean {
   switch (category) {

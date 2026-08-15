@@ -130,7 +130,7 @@ export function RefundActionSheet({
           Refund ${amount.toFixed(2)}
         </p>
         <p style={{ margin: "2px 0 0", fontSize: "var(--fs-sm)", color: "var(--t3)" }}>
-          Price + tax, back to the card. Service charge &amp; tip aren’t included.
+          Price + tax, back to the card. The tip isn’t included.
         </p>
 
         <label style={lbl} htmlFor="refund-reason">

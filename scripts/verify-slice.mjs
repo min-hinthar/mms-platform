@@ -46,14 +46,6 @@ const QR = path.join(ROOT, "apps/qr");
 const MUTANTS = [
   // ── the charge authority ────────────────────────────────────────────────────────────────────────
   {
-    id: "totals/service-rate",
-    file: "apps/qr/lib/totals-math.ts",
-    suite: "lib/totals-math.test.ts",
-    why: "the SB-1524 service rate silently changes",
-    find: "* 0.05)",
-    replace: "* 0.06)",
-  },
-  {
     id: "totals/tax-on-undiscounted-base",
     file: "apps/qr/lib/totals-math.ts",
     suite: "lib/totals-math.test.ts",
@@ -62,10 +54,10 @@ const MUTANTS = [
     replace: "Math.round(taxableBaseCents * taxRate())",
   },
   {
-    id: "totals/grocery-in-service-base",
+    id: "totals/grocery-in-tip-gate",
     file: "apps/qr/lib/totals-math.ts",
     suite: "lib/totals-math.test.ts",
-    why: "W1a — retail lines must not carry a 'supports fair kitchen wages' charge",
+    why: "W16a/M26 — grocery lines must not open the tip ask: the restaurantBase reduce is the tip gate's only input",
     find: '(i.fulfillment === "grocery" ? 0 : Number(i.unitPriceCents) * i.qty)',
     replace: "Number(i.unitPriceCents) * i.qty",
   },
@@ -157,9 +149,35 @@ const MUTANTS = [
     id: "tax/rate-drift",
     file: "apps/qr/lib/tax.ts",
     suite: "lib/tax.test.ts",
-    why: "the Covina rate must be pinned on the TS side (the SQL half is pinned in supabase/tests/)",
-    find: "const RATE = 0.0975;",
-    replace: "const RATE = 0.098;",
+    why: "the L.A rate must be pinned on the TS side (the SQL half is pinned in supabase/tests/)",
+    find: "const RATE = 0.105;",
+    replace: "const RATE = 0.104;",
+  },
+
+  // ── W16a — the mode-price rule (dine-in ×1.15 / to-go ×1.05, round to the quarter) ──────────────
+  {
+    id: "mode-price/dinein-factor-drift",
+    file: "apps/qr/lib/mode-price.ts",
+    suite: "lib/mode-price.test.ts",
+    why: "a drifted dine-in factor silently changes every dine-in charge",
+    find: "export const DINEIN_FACTOR = 1.15;",
+    replace: "export const DINEIN_FACTOR = 1.16;",
+  },
+  {
+    id: "mode-price/togo-factor-drift",
+    file: "apps/qr/lib/mode-price.ts",
+    suite: "lib/mode-price.test.ts",
+    why: "a drifted take-out factor silently changes every to-go charge",
+    find: "export const TOGO_FACTOR = 1.05;",
+    replace: "export const TOGO_FACTOR = 1.06;",
+  },
+  {
+    id: "mode-price/rounding-deleted",
+    file: "apps/qr/lib/mode-price.ts",
+    suite: "lib/mode-price.test.ts",
+    why: "the owner's round-to-the-quarter rule IS the price — dropping it ships un-round prices",
+    find: "export const round25 = (cents: number): number => Math.round(cents / 25) * 25;",
+    replace: "export const round25 = (cents: number): number => Math.round(cents);",
   },
   {
     id: "tax/cold-food-togo-taxable",
@@ -631,8 +649,16 @@ const MUTANTS = [
     file: "apps/qr/lib/staff-cart.ts",
     suite: "lib/staff-cart.test.ts",
     why: "W6a/K17 — reverting to the lenient add ships modifier-less required items: the customer is quoted a curry with a style, the kitchen gets one without",
-    find: "      { enforceCardinality: true },",
-    replace: "      { enforceCardinality: false },",
+    find: "      { enforceCardinality: true, fulfillment: staffFulfillment },",
+    replace: "      { enforceCardinality: false, fulfillment: staffFulfillment },",
+  },
+  {
+    id: "staff-cart/mode-fork-collapses-to-dinein",
+    file: "apps/qr/lib/staff-cart.ts",
+    suite: "lib/staff-cart.test.ts",
+    why: "W16a — collapsing the session-mode fork prices every counter/pickup register add at the +15% dine-in factor instead of +5%",
+    find: '    const staffFulfillment = dineIn ? ("dinein" as const) : ("togo" as const);',
+    replace: '    const staffFulfillment = "dinein" as const;',
   },
   {
     id: "staff-cart/qty-collapses-to-one",

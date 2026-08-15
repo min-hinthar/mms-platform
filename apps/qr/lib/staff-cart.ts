@@ -63,13 +63,15 @@ export async function staffAddItem(raw: unknown): Promise<StaffWriteResult> {
 
   try {
     const dineIn = session.mode === "dinein";
+    const staffFulfillment = dineIn ? ("dinein" as const) : ("togo" as const);
     // W6a: cardinality is ENFORCED on the staff path too — the register's modifier sheet routes a
     // required-choice item here with its choices, and the server must refuse a curry with no style
     // exactly like the diner path (the old lenient add shipped modifier-less required items — K17).
+    // W16a: the mode rides into the price (counter/register sessions are pickup → +5%; table → +15%).
     const { name, unitPriceCents, category, opts, optionIds } = await priceItem(
       menuItemId,
       modifierIds,
-      { enforceCardinality: true },
+      { enforceCardinality: true, fulfillment: staffFulfillment },
     );
     const taxCents = lineTax(unitPriceCents, category, dineIn);
     // by_seat = null: a staff-added line isn't pre-attributed to a guest's split (the host can assign it
@@ -86,7 +88,7 @@ export async function staffAddItem(raw: unknown): Promise<StaffWriteResult> {
         optionIds, // M3 — staff-added lines carry the stable ids too
         unitPriceCents,
         taxCents,
-        fulfillment: dineIn ? "dinein" : "togo",
+        fulfillment: staffFulfillment,
         notes: notes || undefined,
       },
       null,
@@ -206,8 +208,10 @@ export async function setLineNotes(sessionId: string, raw: unknown): Promise<Sta
  * Settle the table order in CASH ("pay a human"). Re-derives the authoritative total server-side
  * (getCartTotals — the single tax engine), then records an idempotent cash order via
  * mms_fulfill_cash_order (atomic open→paid flip, subtotal reconcile, cart-id idempotency). tip_cents=0:
- * a cash tip is in-hand / off-system (Min's call); the SB-1524 service charge is still applied + shown.
- * Refused while a card payment / split is in flight (shared mutex) so cash can't double-charge a table.
+ * a cash tip is in-hand / off-system (Min's call). W16a: the service charge is RETIRED — totals carry
+ * serviceChargeCents = 0 (the RPC param stays for the order-snapshot contract; margin now lives in the
+ * mode-derived line prices). Refused while a card payment / split is in flight (shared mutex) so cash
+ * can't double-charge a table.
  */
 export async function settleCash(raw: unknown): Promise<SettleCashResult> {
   const gate = await staffGate();

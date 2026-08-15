@@ -14,6 +14,7 @@ import { ItemSheet } from "./ItemSheet";
 import { ArrivalBeat } from "./ArrivalBeat";
 import { MenuTimeline } from "@/components/TableTimeline";
 import { StartHereBand } from "./StartHereBand";
+import { modePriceCents } from "@/lib/mode-price";
 import { FavoritesRail } from "./FavoritesRail";
 import { useCart } from "@/components/TableCartProvider";
 import { toggleFavorite } from "@/lib/favorites";
@@ -74,6 +75,9 @@ export function MenuBrowser({
    *  staleness strip. Prices are re-derived server-side at add time, so ordering stays safe. */
   catalogStale?: boolean;
 }) {
+  // W16a — the price a diner in THIS session pays: dine-in ×1.15, everything else ×1.05
+  // (round 25¢). Same pure helper the server charges with (lib/mode-price.ts).
+  const lineMode = mode === "dinein" ? ("dinein" as const) : ("togo" as const);
   const [q, setQ] = useState("");
   const [diets, setDiets] = useState<Diet[]>([]);
   const [activeCat, setActiveCat] = useState<string | null>(null);
@@ -483,11 +487,12 @@ export function MenuBrowser({
         diets.length === 0 &&
         (favRail.length > 0 ? (
           <div style={{ padding: "0 20px" }}>
-            <FavoritesRail items={favRail} onSelect={setSheetItem} />
+            <FavoritesRail items={favRail} lineMode={lineMode} onSelect={setSheetItem} />
           </div>
         ) : (
           <div style={{ padding: "0 20px" }}>
             <StartHereBand
+              lineMode={lineMode}
               items={startHere.items}
               dataBacked={startHere.dataBacked}
               onSelect={setSheetItem}
@@ -533,7 +538,7 @@ export function MenuBrowser({
                       type="button"
                       className="menu-row-open"
                       onClick={() => setSheetItem(i)}
-                      aria-label={`${i.name_en}, ${dollars(i.base_price_cents)} — open to customize`}
+                      aria-label={`${i.name_en}, ${dollars(modePriceCents(i.base_price_cents, lineMode))} — open to customize`}
                     >
                       <span
                         style={{
@@ -589,7 +594,7 @@ export function MenuBrowser({
                           </span>
                         )}
                         <span style={{ fontWeight: 800, marginTop: 6, display: "block" }}>
-                          {dollars(i.base_price_cents)}
+                          {dollars(modePriceCents(i.base_price_cents, lineMode))}
                         </span>
                       </span>
                     </button>
@@ -669,6 +674,7 @@ export function MenuBrowser({
 
       {/* Item detail sheet (R6b). One instance, fed the open item; an upsell tap swaps the open item. */}
       <ItemSheet
+        lineMode={lineMode}
         item={sheetItem}
         allItems={items}
         diets={diets}

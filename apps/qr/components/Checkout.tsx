@@ -207,9 +207,10 @@ export function Checkout({
   useEffect(() => {
     if (customTipOpen) customTipRef.current?.focus();
   }, [customTipOpen]);
-  // Pure-grocery basket (W1): every chargeable line is self-scanned retail — no tip ask, no SB-1524
-  // service copy (the server excludes grocery lines from the service base + forces tip to 0). Computed
-  // here (early) so the tip rate can be zeroed for it too. Voided/comped lines are $0 and don't count.
+  // Pure-grocery basket (W1): every chargeable line is self-scanned retail — no tip ask (the server
+  // excludes grocery lines from the tip base and forces tip to 0; W16a — grocery is also exempt from
+  // the mode-price factors). Computed here (early) so the tip rate can be zeroed for it too.
+  // Voided/comped lines are $0 and don't count.
   const chargeableItems = viewItems.filter((i) => i.lineState !== "voided" && !i.comped);
   const pureGrocery =
     chargeableItems.length > 0 && chargeableItems.every((i) => i.fulfillment === "grocery");
@@ -770,33 +771,9 @@ export function Checkout({
   // in qty units) — the rule lives in lib/checkout-stage so it stays pinnable.
   const kitchenDraftQty = deriveKitchenDraftQty(viewItems);
 
-  // SB-1524 disclosure — ONE element, rendered directly under whichever surface carries the fee
-  // rows (the Bill moment's receipt slip, or the classic fee card), so the explanation never
-  // drifts from the charge it explains. Server-derived: renders only when actually charged.
-  // W5 — in MY mode the Burmese plain-voice line ACCOMPANIES the English disclosure, never
-  // replaces it: the EN text is the legally operative SB-1524 artifact (K15 check-before-trust).
-  const serviceChargeNote = totals.serviceChargeCents > 0 && (
-    <>
-      <p style={{ fontSize: "var(--fs-xs)", color: "var(--t3)", margin: "8px 2px 0" }}>
-        {/* Rendered from the dictionary's `en` slot deliberately (review MED-3): ONE source for
-            the legally operative paragraph, so a future render site can't ship a weaker one. */}
-        {t("en", "serviceDisclosureMy")}
-      </p>
-      {locale === "my" && (
-        <p
-          lang="my"
-          style={{
-            fontFamily: "var(--font-my)",
-            fontSize: "var(--fs-xs)",
-            color: "var(--t3)",
-            margin: "4px 2px 0",
-          }}
-        >
-          {t("my", "serviceDisclosureMy")}
-        </p>
-      )}
-    </>
-  );
+  // (W16a: the SB-1524 service charge — and its disclosure element — are RETIRED. Service margin
+  // now lives in the mode-derived line prices; historical receipts keep their stored rows via
+  // lib/receipt-view.ts.)
 
   // W2d — tip controls. The custom tip rides as a rate (customCents / net) so create-intent + the webhook
   // apply the SAME `round(net · rate)` — the diner types dollars, the server derives the amount.
@@ -927,8 +904,7 @@ export function Checkout({
                 {payTotals.rewardCents > 0 && (
                   <Row k={T("rowReward")} cents={-payTotals.rewardCents} />
                 )}
-                <Row k={T("rowService")} cents={payTotals.serviceChargeCents} />
-                <Row k={T("rowTax")} cents={payTotals.taxCents} />
+                                <Row k={T("rowTax")} cents={payTotals.taxCents} />
                 {payTotals.tipCents > 0 && <Row k={T("rowTip")} cents={payTotals.tipCents} />}
                 <Row k={T("rowTotal")} cents={payTotals.totalCents} strong roll />
               </dl>
@@ -1349,14 +1325,10 @@ export function Checkout({
                     <Row k={T("rowPromo")} cents={-(totals.discountCents - totals.rewardCents)} />
                   )}
                   {totals.rewardCents > 0 && <Row k={T("rowReward")} cents={-totals.rewardCents} />}
-                  {totals.serviceChargeCents > 0 && (
-                    <Row k={T("rowService")} cents={totals.serviceChargeCents} />
-                  )}
                   <Row k={T("rowTax")} cents={totals.taxCents} />
                 </dl>
               </div>
             )}
-            {staged && stage === "bill" && serviceChargeNote}
 
             {showPayFurniture && isGroup && splitContext && (
               <SplitSection
@@ -1477,11 +1449,11 @@ export function Checkout({
               </div>
             )}
 
-            {/* W2d — fees BEFORE the tip ask. The diner sees every charge (service charge + tax) and
-                the SB-1524 disclosure BEFORE deciding a tip, so the tip is never stacked on a surprise
-                fee (surprise fees are the #1 benchmark complaint — the disclosure must sit above the
-                ask). The tip-inclusive total lands below the ask. All figures stay server-authoritative
-                (the tip preview is a hint reconciled at create-intent).
+            {/* W2d — fees BEFORE the tip ask. The diner sees every charge (tax — W16a retired the
+                service charge) BEFORE deciding a tip, so the tip is never stacked on a surprise fee
+                (surprise fees are the #1 benchmark complaint). The tip-inclusive total lands below
+                the ask. All figures stay server-authoritative (the tip preview is a hint reconciled
+                at create-intent).
                 W12: unstaged (pickup/scango) only — the Bill moment folds this breakdown into its
                 receipt slip above, under the line rows. */}
             {!staged && (
@@ -1492,17 +1464,10 @@ export function Checkout({
                     <Row k={T("rowPromo")} cents={-(totals.discountCents - totals.rewardCents)} />
                   )}
                   {totals.rewardCents > 0 && <Row k={T("rowReward")} cents={-totals.rewardCents} />}
-                  {/* Server-derived: 0 on a pure-grocery basket (grocery lines are outside the
-                    SB-1524 service base) — the row and the disclosure only render when charged. */}
-                  {totals.serviceChargeCents > 0 && (
-                    <Row k={T("rowService")} cents={totals.serviceChargeCents} />
-                  )}
                   <Row k={T("rowTax")} cents={totals.taxCents} />
                 </dl>
               </div>
             )}
-
-            {!staged && serviceChargeNote}
 
             {/* Tip selector (server confirms the exact tip at create-intent) — now AFTER the fee
                 breakdown (W2d). Presets + a Custom chip (W2d): tapping Custom reveals a dollar field;
@@ -1512,9 +1477,9 @@ export function Checkout({
               <>
                 {/* W9e — the prototype's visible tip heading, restored verbatim (v7.2.html:418):
                     the ask had no visible label, and the group's aria-label meant accessible name
-                    and visible name could never match (QA §A). The SB-1524 disclosure deliberately
-                    stays ABOVE this ask — moving it back to the prototype's below-position would
-                    re-open the F9 double-ask arm W2d closed (see the fees-before-tip comment). */}
+                    and visible name could never match (QA §A). The fee breakdown deliberately stays
+                    ABOVE this ask — moving it below would re-open the F9 double-ask arm W2d closed
+                    (see the fees-before-tip comment). */}
                 {/* --fs-h3 (17), not the prototype's raw 15px — copy verbatim, size from the scale. */}
                 <h3 id="tip-h" style={{ fontSize: "var(--fs-h3)", margin: "16px 0 6px" }}>
                   {T("addATip")}

@@ -8,10 +8,11 @@ import { Card } from "@mms/ui";
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
 /**
- * Cash settle ("pay a human", S1.3). Two-step confirm showing the authoritative all-in total (incl. the
- * SB-1524 service charge; tip is in-hand/off-system → not recorded). The server re-derives and reconciles
- * the amount — this button never sends it. On success the cart flips paid and the live detail re-fetches
- * to the paid state; a refresh nudges it immediately.
+ * Cash settle ("pay a human", S1.3). Two-step confirm showing the authoritative all-in total
+ * (mode-priced lines + tax — W16a retired the service charge; tip is in-hand/off-system → not
+ * recorded). The server re-derives and reconciles the amount — this button never sends it. On
+ * success the cart flips paid and the live detail re-fetches to the paid state; a refresh nudges
+ * it immediately.
  */
 export function CashSettleButton({
   sessionId,
@@ -150,7 +151,7 @@ export function CashSettleButton({
           The detail view's one polite live region is the line-edit status in FloorDetailLive; a settle
           FAILURE is an assertive role="alert" instead (different concern, mutually exclusive action). */}
       <p id="settle-hint" style={hint}>
-        Includes the 5% service charge. A cash tip is handled separately.
+        Includes sales tax. A cash tip is handled separately.
       </p>
       {error && (
         <p role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>

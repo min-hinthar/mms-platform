@@ -10,18 +10,21 @@ import {
   type ModGroup,
   type Selection,
 } from "@/lib/menu/modifiers";
+import { modePriceCents } from "@/lib/mode-price";
 
 /**
  * The staff modifier sheet (W6a — closes K17). Same pure selection model as the diner ItemSheet
  * (radio for required singles, checkboxes capped at maxSelect), plus the register's qty (1–9) and an
  * optional kitchen note. Every cents figure here is ADVISORY preview — the add sends option IDS and
- * the server re-derives the price with cardinality enforced.
+ * the server re-derives the price with cardinality enforced. The preview MUST mirror the server's
+ * math exactly (W16a): mode factor + round25 over base+delta via modePriceCents, THEN × qty.
  */
 export function StaffModSheet({
   open,
   onOpenChange,
   itemName,
   basePriceCents,
+  lineMode,
   groups,
   pending,
   error,
@@ -31,6 +34,8 @@ export function StaffModSheet({
   onOpenChange: (open: boolean) => void;
   itemName: string;
   basePriceCents: number;
+  /** Which mode-derived price the server will mint for this line (W16a) — dinein ×1.15, togo ×1.05. */
+  lineMode: "dinein" | "togo";
   groups: ModGroup[];
   pending: boolean;
   /** Add failure surfaced INSIDE the sheet — a page-level live region is behind the modal scrim. */
@@ -43,8 +48,8 @@ export function StaffModSheet({
 
   const valid = isSelectionValid(groups, sel);
   const previewCents = useMemo(
-    () => (basePriceCents + selectionDeltaCents(groups, sel)) * qty,
-    [basePriceCents, groups, sel, qty],
+    () => modePriceCents(basePriceCents + selectionDeltaCents(groups, sel), lineMode) * qty,
+    [basePriceCents, lineMode, groups, sel, qty],
   );
 
   return (

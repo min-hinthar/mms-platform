@@ -4,6 +4,7 @@ import { addItem, getCartView } from "@/lib/cart";
 import type { CartItem, CartTotals } from "@mms/db";
 import { goesWellWith } from "@/lib/menu/upsell";
 import { t, type KioskLang } from "@/lib/kiosk/strings";
+import { modePriceCents } from "@/lib/mode-price";
 import type { KioskItem } from "./types";
 
 /**
@@ -16,6 +17,7 @@ import type { KioskItem } from "./types";
 export function KioskReview({
   lang,
   cartId,
+  lineMode,
   items,
   onBack,
   onCommitted,
@@ -23,6 +25,9 @@ export function KioskReview({
 }: {
   lang: KioskLang;
   cartId: string;
+  /** Which mode-derived price an upsell add will mint (W16a). The grocery door never renders the
+   *  upsell rail (its cart holds no food anchor), so its value is inert there. */
+  lineMode: "dinein" | "togo";
   items: KioskItem[];
   onBack: () => void;
   /** Fired the moment the customer taps "Pay at the counter" (before the upsell interposes): from
@@ -133,7 +138,7 @@ export function KioskReview({
                   </span>
                 )}
                 <span className="kiosk-door-hint" style={{ fontWeight: 800, color: "var(--tx)" }}>
-                  + ${(p.priceCents / 100).toFixed(2)}
+                  + ${(modePriceCents(p.priceCents, lineMode) / 100).toFixed(2)}
                 </span>
               </button>
             </li>
@@ -196,7 +201,7 @@ export function KioskReview({
         }}
       >
         <span lang={lang === "my" ? "my" : undefined}>{t(lang, "total")}</span>
-        {/* Server-derived (getCartTotals via getCartView) — incl. the SB-1524 service charge + tax. */}
+        {/* Server-derived (getCartTotals via getCartView) — mode-priced lines + tax (W16a: no service charge). */}
         <span>${(view.totals.totalCents / 100).toFixed(2)}</span>
       </div>
       <div style={{ display: "flex", gap: "var(--s3)", justifyContent: "center" }}>

@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { staffAddItem } from "@/lib/staff-cart";
 import { setCartCustomerName } from "@/lib/register";
+import { modePriceCents } from "@/lib/mode-price";
 import { StaffAddButton } from "./StaffAddButton";
 import { StaffModSheet } from "./StaffModSheet";
 import type { ModGroup } from "@/lib/menu/modifiers";
@@ -39,6 +40,9 @@ export function StaffMenuBrowser({
   initialName: string | null;
 }) {
   const router = useRouter();
+  // W16a: the register's price preview must match what staffAddItem will mint — counter orders
+  // (reg- labels) are to-go (×1.05), table service is dine-in (×1.15); same fork as staff-cart.
+  const lineMode = counterOrder ? ("togo" as const) : ("dinein" as const);
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string | null>(null);
   const [sheetItem, setSheetItem] = useState<StaffMenuItem | null>(null);
@@ -200,7 +204,7 @@ export function StaffMenuBrowser({
                 </div>
               )}
               <div style={{ fontWeight: 800, marginTop: 4 }}>
-                ${(i.priceCents / 100).toFixed(2)}
+                ${(modePriceCents(i.priceCents, lineMode) / 100).toFixed(2)}
               </div>
             </div>
             {i.groups.length > 0 ? (
@@ -242,6 +246,7 @@ export function StaffMenuBrowser({
           }}
           itemName={sheetItem.nameEn}
           basePriceCents={sheetItem.priceCents}
+          lineMode={lineMode}
           groups={sheetItem.groups}
           pending={pending}
           error={sheetError}
