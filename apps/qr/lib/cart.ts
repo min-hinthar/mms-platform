@@ -58,7 +58,7 @@ export async function addItem(
   const dineIn = sess?.mode === "dinein";
   // Diner add: enforce modifier requiredness/cardinality SERVER-side (the client "Choose" gate is advisory)
   // — a forged/stale client can't add a required-modifier item without its required choice.
-  const { name, unitPriceCents, category, opts } = await priceItem(
+  const { name, unitPriceCents, category, opts, optionIds } = await priceItem(
     input.menuItemId,
     input.modifierIds,
     { enforceCardinality: true },
@@ -78,6 +78,7 @@ export async function addItem(
       menuItemId: input.menuItemId,
       name,
       opts,
+      optionIds, // M3 — the stable ids ride the line beside the labels
       unitPriceCents,
       taxCents,
       fulfillment,
