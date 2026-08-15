@@ -113,6 +113,7 @@ vi.mock("@mms/db/server", () => ({
 }));
 
 const { getReceiptLink, setReceiptEmail } = await import("./receipt");
+const { getReceiptEntry } = await import("./receipt-entry");
 
 const ORDER = "22222222-2222-4222-8222-222222222222";
 
@@ -159,6 +160,15 @@ describe("getReceiptLink — authorize BEFORE the bearer exists", () => {
     const r = await getReceiptLink({ orderId: "not-a-uuid" });
     expect(r).toEqual({ ok: false, reason: "refused" });
     expect(queries).toHaveLength(0);
+  });
+});
+
+describe("getReceiptEntry — a receipt exists only for settled money", () => {
+  it("carries the settled-status predicate in the read (never a pending/failed order)", async () => {
+    await getReceiptEntry(ORDER);
+    const read = queries.find((x) => x.table === "qr_orders" && x.cols.includes("total_cents"));
+    expect(read?.eq).toContainEqual(["id", ORDER]);
+    expect(read?.in).toContainEqual(["status", ["paid", "refunded"]]);
   });
 });
 

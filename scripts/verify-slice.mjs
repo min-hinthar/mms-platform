@@ -794,6 +794,14 @@ const MUTANTS = [
     replace: '    .eq("order_id", orderId)\n    .maybeSingle();',
   },
   {
+    id: "receipt-entry/unsettled-order-gets-receipt",
+    file: "apps/qr/lib/receipt-entry.ts",
+    suite: "lib/receipt-authz.test.ts",
+    why: "W7a — the settled-status predicate is the money rule of the session-less read; without it a pending/failed order renders a durable 'receipt' for money that never moved",
+    find: '    .eq("id", orderId)\n    .in("status", [...RECEIPT_STATUSES])\n    .maybeSingle();',
+    replace: '    .eq("id", orderId)\n    .maybeSingle();',
+  },
+  {
     id: "receipt/token-shape-unchecked",
     file: "apps/qr/lib/receipt-token.ts",
     suite: "lib/receipt-token.test.ts",
