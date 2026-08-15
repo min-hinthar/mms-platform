@@ -4,6 +4,25 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W16b — always bilingual: the language toggle is retired (2026-08-15)
+
+Owner directive ("Ditch the language toggle and have bilingual only"):
+
+- **Deleted**: `LocaleToggle`, `LocaleProvider` (useLocale/useT), the proxy's Accept-Language
+  cookie seed, `setLocalePref` (+ the `lang_change` PostHog event), the /account Language row,
+  the `body.my` reading mode, the `mms.qr.locale` handover exemption, and the locale carriers
+  (`LOCALE_COOKIE`/`LOCALE_STORAGE_KEY`/`isLocale`). `<html lang="en">` is fixed; Burmese
+  renders as per-span `lang="my"` accents (WCAG 3.1.2). `mms_profiles.locale` returns to
+  dead-column status (no writer; column left in place).
+- **Kept**: the typed `lib/i18n` dictionaries + guards (the bilingual string source), the
+  `[lang="my"]`/`[lang="en"]` typographic rules, and `t(locale, key)`'s signature.
+- **Every W5-L2 money moment now renders STACKED EN+MY**: the checkout headings, receipt rows
+  (a bilingual `Row` — EN label + inline Padauk accent against the dotted leader), EmptyState,
+  promo placeholder/Apply, tip heading, grand-total label, and the three CTAs (Send-to-kitchen —
+  the owner's named example — View bill & pay, Pay), each with the MY line under the EN+amount
+  line, Latin digits only. Deliberate exception: tip CHIPS stay EN-only (five chips on a 320px
+  row; the bilingual group heading carries MY).
+
 ### W16a — no service charge · mode-derived prices · 10.5% tax (2026-08-15)
 
 The owner's money reset (closes C12 + C13): the 5% SB-1524 service charge is **retired**, and

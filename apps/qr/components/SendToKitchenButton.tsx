@@ -1,7 +1,11 @@
 "use client";
 import { useEffect, useRef, useState, useTransition, type CSSProperties } from "react";
 import { sendToKitchen, undoFire } from "@/lib/cart";
-import { useT } from "./LocaleProvider";
+import { t, type DictKey } from "@/lib/i18n";
+
+// W16b — ALWAYS bilingual: EN primary + a Padauk MY line on the same surface (the owner's named
+// example is this very CTA). T() keeps the call sites; the MY half renders with per-span lang="my".
+const T = (k: DictKey) => t("en", k);
 
 /**
  * Dine-in "Send to kitchen" (S2.1b) + the server-clocked undo grace (S2.2) — the host fires the table's
@@ -42,7 +46,6 @@ export function SendToKitchenButton({
   /** Re-sync the parent cart after a send/undo (solo dine-in isn't on the group realtime channel). */
   onChanged: () => void;
 }) {
-  const T = useT(); // W5 — the CTA is a money-path moment; label translates at the render site
   const [pending, startTransition] = useTransition();
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   // Client-local undo deadline (epoch ms, = receipt + server-measured grace) + a tick so the countdown
@@ -187,18 +190,47 @@ export function SendToKitchenButton({
             cursor: pending ? "default" : "pointer",
           }}
         >
-          {/* The label rides above the .checkout-cta ::after shine sweep on its own layer. */}
-          <span style={{ position: "relative", zIndex: 1 }}>
+          {/* The label rides above the .checkout-cta ::after shine sweep on its own layer.
+              W16b — stacked bilingual (the owner's named example): EN + count primary, MY line
+              under it. The MY count word ခု is invariant; digits stay Latin (the money rule). */}
+          <span style={{ position: "relative", zIndex: 1, display: "block" }}>
             {pending
               ? T("sending")
               : draftCount > 0
                 ? `${T("sendToKitchen")} · ${draftCount} ${draftCount === 1 ? T("countItem") : T("countItems")}`
                 : T("sendToKitchen")}
+            <span
+              lang="my"
+              style={{
+                display: "block",
+                fontFamily: "var(--font-my)",
+                fontSize: "var(--fs-xs)",
+                fontWeight: 600,
+              }}
+            >
+              {pending
+                ? t("my", "sending")
+                : draftCount > 0
+                  ? `${t("my", "sendToKitchen")} · ${draftCount} ${t("my", "countItems")}`
+                  : t("my", "sendToKitchen")}
+            </span>
           </span>
         </button>
       ) : (
         <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)", textAlign: "center" }}>
           {T("orderWithKitchen")}
+          <span
+            lang="my"
+            style={{
+              display: "block",
+              fontFamily: "var(--font-my)",
+              fontSize: "var(--fs-xs)",
+              fontWeight: 600,
+              color: "var(--t3)",
+            }}
+          >
+            {t("my", "orderWithKitchen")}
+          </span>
         </p>
       )}
       {/* The ONE live region for the send/undo flow — discrete event messages only (never the ticking

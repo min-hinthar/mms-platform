@@ -22,12 +22,6 @@ describe("deviceSessionKeys", () => {
     expect(deviceSessionKeys(keys)).toEqual(keys);
   });
 
-  it("leaves the LOCALE alone — a language is a person's setting, not an order pointer (W5)", () => {
-    // The key rides the mms.qr. prefix, so without an explicit exemption the handover clear
-    // would reset a Burmese-speaking owner's app to English every time they lend the phone.
-    expect(deviceSessionKeys(["mms.qr.locale", "mms.qr.dinein"])).toEqual(["mms.qr.dinein"]);
-  });
-
   it("leaves the re-auth chips, lend flag, merge token, and scan queue alone", () => {
     // The SURVIVORS are the safety rule: identities/lend are the one-tap return path, the merge
     // token has its own TTL + clear sites, and the scan queue is member-gated server-side.

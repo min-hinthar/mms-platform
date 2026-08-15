@@ -194,3 +194,12 @@ tracked file + reapply edits (untracked files can't be restored — the same ses
 put non-ASCII or `\x{…}` in perl one-liners against UTF-8 sources — use the Edit tool or a
 python3 heredoc with explicit `encoding="utf-8"`; (2) after ANY scripted rewrite of a file with
 multi-byte content, `grep -c "â"` it before moving on.
+
+- **`mcp__github__enable_pr_auto_merge` IGNORES its `merge_method` param — it enables plain MERGE.**
+  PR #174 (W16a) requested SQUASH twice and the webhook confirmed `merge_method:"merge"` both
+  times; the PR landed as a merge commit, breaking the repo's until-then clean squash-only main
+  (#168–#173 were all squashes). The tool's success text ("method: MERGE") is the tell, not a
+  display bug. Rule: for a squash landing, do NOT use the MCP auto-merge tool — wait for CI green
+  and call `mcp__github__merge_pull_request` with `merge_method: "squash"` directly (or ask the
+  owner to enable auto-merge from the UI). A merge commit on main is not worth a history rewrite —
+  note it and move on.

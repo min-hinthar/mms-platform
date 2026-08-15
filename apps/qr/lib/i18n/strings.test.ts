@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CART_MONEY_KEYS, DICT, isLocale, t } from "./index";
+import { CART_MONEY_KEYS, DICT, t } from "./index";
 import { CART } from "./cart";
 import { COMMON } from "./common";
 
@@ -71,11 +71,8 @@ describe("the dictionary guards", () => {
     expect(escaped).toEqual([]);
   });
 
-  it("t() resolves both locales and the locale guard is exact", () => {
+  it("t() resolves both tongues (every render site speaks both — W16b)", () => {
     expect(t("en", "yourOrder")).toBe("Your order");
     expect(t("my", "yourOrder")).toBe("သင့်အော်ဒါ");
-    expect(isLocale("my")).toBe(true);
-    expect(isLocale("fr")).toBe(false);
-    expect(isLocale(null)).toBe(false);
   });
 });

@@ -5,7 +5,19 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-08-15 — … + W16a shipped)
+> ## ⏭️ NEXT SESSION — start here (2026-08-15 — … + W16a + W16b shipped)
+>
+> **W16b shipped (2026-08-15)** — always bilingual (owner: "Ditch the language toggle and have
+> bilingual only"): LocaleToggle + LocaleProvider deleted; `<html lang="en">` fixed (per-span
+> `lang="my"` accents carry WCAG 3.1.2); the proxy Accept-Language cookie seed, `setLocalePref`
+> (+ its `lang_change` PostHog event), the /account Language row, `body.my` reading mode, and the
+> `mms.qr.locale` handover exemption are all retired. The `lib/i18n` dictionaries STAY — every
+> W5-L2 money moment now renders STACKED EN+MY (headings, receipt rows via the bilingual `Row`,
+> EmptyState, tip heading, grand total, Send-to-kitchen / View-bill / Pay CTAs — MY line under the
+> EN+amount line, Latin digits only). Deliberate exception: tip chips stay EN-only (320px row; the
+> bilingual group heading carries MY). `mms_profiles.locale` returns to dead-column status (no
+> writer; column + CHECK left in place). W5-L3/L4/L5 continue as the STACKED-bilingual rollout to
+> /track·receipt·menu·grocery·account.
 >
 > **W16a shipped (2026-08-15)** — the owner's money reset (`docs/W16_PLAN.md`; closes C12+C13):
 > the 5% SB-1524 service charge is RETIRED; prices are MODE-DERIVED (dine-in = base ×1.15,
@@ -15,11 +27,11 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > the totals shape (split/webhook/QBO/receipt contracts unbroken); `lib/receipt-view.ts` keeps
 > the `> 0`-gated historical service row + disclosure. The for-here↔to-go toggle re-prices in TS
 > and hands `p_unit_price_cents` to the re-signed `mms_set_line_fulfillment` (SQL never
-> re-rounds). **⚠️ post-merge: apply `20260815200000_w16a_mode_prices_tax.sql` to prod
-> `fasnpdhtvqtzjlvruqcu` via `mcp__Supabase__apply_migration` + probes** (mms_tax_rate()=0.105;
-> the 3-arg mms_set_line_fulfillment resolves). Remaining W16 slices: **W16b** bilingual-only ·
-> **W16c** confirm steps · **W16d** photos (drop the fallback.jpg filter in `lib/media-url.ts`)
-> · **W16e** spacing polish — maps in the session scratchpad (`w16_maps.json`).
+> re-rounds). **✅ prod-applied + probe-verified (2026-08-15)**: mms_tax_rate()=0.105 · tie
+> 100→11 · IEEE 900→95 · 1M→105,000 exact · exactly ONE (3-arg) mms_set_line_fulfillment.
+> Remaining W16 slices: **W16c** confirm steps · **W16d** photos (drop the fallback.jpg filter
+> in `lib/media-url.ts`) · **W16e** spacing polish — maps in the session scratchpad
+> (`w16_maps.json`).
 >
 > **M3 shipped (2026-08-15)** — faithful reorder: `modifier_option_ids` beside the labels on
 > cart+order lines (`20260815100000_m3_modifier_option_ids.sql` — insert RPC re-signed, 3
@@ -43,7 +55,9 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > name), `setLocalePref` profile sync (+`lang_change` PostHog), Padauk reading-mode reset, the
 > Checkout/SendToKitchen money moments translated at render sites with the locale-swapped
 > bilingual headings, SB-1524 MY line ACCOMPANIES the EN disclosure. `mms.qr.locale` is exempt
-> from the device-handover clear. **Remaining: W5-L3** (/track + receipt) · **L4** (menu/grocery)
+> from the device-handover clear. **(W16b superseded the toggle: always-bilingual now — the
+> dictionaries + render-site pattern survive; the locale plumbing is gone.)**
+> **Remaining: W5-L3** (/track + receipt) · **L4** (menu/grocery)
 > · **L5** (account/errors + the kiosk-dictionary merge — closes S14a). L2 residuals (peer-lock/
 > split/settling copy, pay-step status words, tip subline, Undo strings) ride with L3. K15: the
 > whole dictionary awaits Min's native check (`serviceDisclosureMy` retired with the service

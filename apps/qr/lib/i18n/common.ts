@@ -31,5 +31,4 @@ export const COMMON = {
   // ── header / chrome ────────────────────────────────────────────────────────
   rewards: { en: "Rewards", my: "ဆုလာဘ်" }, // v7.2
   myOrders: { en: "My orders", my: "ကျွန်ုပ့် အော်ဒါများ" },
-  language: { en: "Language", my: "ဘာသာစကား" },
 } satisfies Record<string, Entry>;
