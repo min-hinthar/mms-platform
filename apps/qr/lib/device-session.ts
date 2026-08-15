@@ -24,11 +24,17 @@
 
 export const DEVICE_NAME_KEY = "mms.name";
 export const DEVICE_SESSION_PREFIX = "mms.qr.";
+/** W5 — the locale rides the mms.qr. prefix but is a PERSON's setting, not an order pointer:
+ *  a handover must not reset a Burmese-speaking owner's app to English. Explicitly exempt. */
+const HANDOVER_EXEMPT = new Set(["mms.qr.locale"]);
 
 /** Pure: which of these storage keys are device-session state? (Pinned red-first — the boundary
  *  between "dies with the handover" and "survives it" is the safety rule.) */
 export function deviceSessionKeys(allKeys: readonly string[]): string[] {
-  return allKeys.filter((k) => k === DEVICE_NAME_KEY || k.startsWith(DEVICE_SESSION_PREFIX));
+  return allKeys.filter(
+    (k) =>
+      !HANDOVER_EXEMPT.has(k) && (k === DEVICE_NAME_KEY || k.startsWith(DEVICE_SESSION_PREFIX)),
+  );
 }
 
 type KeyEnumerableStorage = Pick<Storage, "length" | "key" | "removeItem">;

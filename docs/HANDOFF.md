@@ -5,7 +5,24 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-08-15 — W11 + W6a/b/c + W7b + W12 + W13 + W14 + W7a shipped)
+> ## ⏭️ NEXT SESSION — start here (2026-08-15 — … + W7a + W5-L1/L2 shipped)
+>
+> **W5-L1+L2 shipped (2026-08-15)** — one tongue (`docs/W5_PLAN.md`; S2 high, first two slices):
+> typed `lib/i18n` dictionaries (`common` + `cart`, ~50 money-moment keys, 6 red-first guards),
+> `mms_locale` cookie → server-stamped `<html lang>`/`body.my` (no flash), AppHeader chip +
+> /account Language row (kiosk a11y rule: the visible target-language name IS the accessible
+> name), `setLocalePref` profile sync (+`lang_change` PostHog), Padauk reading-mode reset, the
+> Checkout/SendToKitchen money moments translated at render sites with the locale-swapped
+> bilingual headings, SB-1524 MY line ACCOMPANIES the EN disclosure. `mms.qr.locale` is exempt
+> from the device-handover clear. **Remaining: W5-L3** (/track + receipt) · **L4** (menu/grocery)
+> · **L5** (account/errors + the kiosk-dictionary merge — closes S14a). L2 residuals (peer-lock/
+> split/settling copy, pay-step status words, tip subline, Undo strings) ride with L3. K15: the
+> whole dictionary awaits Min's native check — `serviceDisclosureMy` is check-before-trust.
+>
+> **Queued next (owner, 2026-08-15):** **W15** — learn from the real Zettle POS exports (439-item
+> library + Jan–Jul 2026 sales-by-product, in this session's scratchpad as JSON) to reconcile
+> dine-in/take-out/grocery item data and feature REAL customer favorites in the UI · then **M3**
+> modifier-option-ids (map already delivered in-session).
 >
 > **W7a shipped (2026-08-15)** — the receipt artifact (`docs/W7A_PLAN.md`; closes S1 high): the
 > durable `/track?r=<token>` session-less itemized receipt (`mms_receipt_tokens`, 90d opaque

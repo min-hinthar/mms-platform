@@ -548,3 +548,42 @@ export async function setDisplayName(raw: string | null): Promise<SetDisplayName
   }
   return { ok: true, name };
 }
+
+/**
+ * W5 — persist the EN↔MY choice. The COOKIE is the carrier (anon diners included — the flip they
+ * see never depends on this); the profile write is the signed-in cross-device bonus onto the
+ * dead-since-M4 `mms_profiles.locale` (its CHECK already mirrors the bound). Best-effort by
+ * design: every miss is a silent no-op — a failed sync must never surface into a flip that
+ * already succeeded on the device. Also carries the `lang_change` analytics (the v7.2 event).
+ */
+export async function setLocalePref(raw: unknown): Promise<void> {
+  const locale = raw === "my" ? "my" : raw === "en" ? "en" : null;
+  if (!locale) return;
+  try {
+    const supa = serverClient(await cookies());
+    const {
+      data: { user },
+    } = await supa.auth.getUser();
+    if (!user) return;
+    // Review MED-2 — the rate guard comes FIRST: this is an unauthenticated-POST-reachable
+    // action, and an unmetered capture would let a loop emit unlimited billable lang_change
+    // events. Anon flips still get captured (the v7.2 event) — just rate-limited like every
+    // other mutation in this file.
+    if (!(await withinMutationRate(user.id))) return;
+    const { getPostHogClient } = await import("./posthog-server");
+    getPostHogClient()?.capture({
+      distinctId: user.id,
+      event: "lang_change",
+      properties: { locale },
+    });
+    if (user.is_anonymous === true) return; // cookie-only for guests — nothing to sync
+    await serviceClient()
+      .from("mms_profiles")
+      .upsert(
+        { id: user.id, email: user.email ?? null, locale, updated_at: new Date().toISOString() },
+        { onConflict: "id" },
+      );
+  } catch {
+    /* deliberate: preference sync is decorative next to the cookie the diner already flipped */
+  }
+}

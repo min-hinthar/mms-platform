@@ -11,6 +11,7 @@ import { AccountStatus } from "@/components/AccountStatus";
 import { AccountFavorites } from "@/components/AccountFavorites";
 import { RememberIdentity } from "@/components/RememberIdentity";
 import { MergeRedeemer } from "@/components/MergeRedeemer";
+import { LocaleToggle } from "@/components/LocaleToggle";
 import { menuHref, menuLinkText } from "@/lib/menu-href";
 import { firstNameOf } from "@/lib/deviceIdentity";
 
@@ -159,6 +160,28 @@ export default async function Account() {
       ) : (
         <OrderHistory entries={history} />
       )}
+
+      {/* W5 (S2) — the Settings-row mirror of the header toggle (v7.2's Language row): the one
+          account-level control, so a diner who missed the header chip still finds the switch. */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          marginTop: "var(--s4)",
+          paddingTop: 12,
+          borderTop: "1px solid var(--bd)",
+        }}
+      >
+        <span style={{ fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
+          Language ·{" "}
+          <span lang="my" style={{ fontFamily: "var(--font-my)" }}>
+            ဘာသာစကား
+          </span>
+        </span>
+        <LocaleToggle variant="row" />
+      </div>
 
       <div style={{ marginTop: 8 }}>
         {/* W9a — /account is a side-room off every door, so there is no one mode to carry: route to
