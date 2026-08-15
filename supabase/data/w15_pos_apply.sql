@@ -28,6 +28,10 @@ insert into menu_items (id, category_id, slug, name_en, name_my, description_en,
 ('dcd423e2-1695-4f51-872e-954e89db34bc','2dd45bdd-dc99-443e-b3c9-63c3b0262e10','pop-soda','Pop Soda 12oz','ဆိုဒါ','Assorted soda, 12 oz chilled can.',300,'https://ukuzkhuppqwtrdkjqrkv.supabase.co/storage/v1/object/public/menu-photos/dcd423e2-1695-4f51-872e-954e89db34bc/fallback.jpg',true,false,'{}','{}')
 on conflict (id) do nothing;
 update menu_items set tax_category = 'retail_nonfood' where slug in ('shark-energy-drink', 'pop-soda');
+-- Review HIGH-1 — seed↔prod tax parity for the two new appetizers: the seed's category map
+-- files appetizers-salads as cold_food; fritters are overridden hot_prepared there. Pin both.
+update menu_items set tax_category = 'hot_prepared' where slug = 'veggie-fritters';
+update menu_items set tax_category = 'cold_food' where slug = 'ngapi-and-veggies';
 update grocery_items set price_cents = 390, compare_at_cents = case when compare_at_cents <= 390 then null else compare_at_cents end where sku = 'ST0107' and price_cents = 449;
 update grocery_items set price_cents = 358, compare_at_cents = case when compare_at_cents <= 358 then null else compare_at_cents end where sku = 'SN0505' and price_cents = 411;
 update grocery_items set price_cents = 163, compare_at_cents = case when compare_at_cents <= 163 then null else compare_at_cents end where sku = 'NV0104' and price_cents = 187;

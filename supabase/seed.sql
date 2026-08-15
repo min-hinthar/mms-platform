@@ -140,6 +140,10 @@ update menu_items set tax_category = 'beverage_hot' where slug in ('coffee', 'bu
 -- W15: carbonated/energy drinks are always taxable in CA (CDTFA) — the drinks category's
 -- beverage_cold would exempt them on to-go orders. retail_nonfood is the always-taxable bucket.
 update menu_items set tax_category = 'retail_nonfood' where slug in ('shark-energy-drink', 'pop-soda');
+-- W15 review HIGH-1: fried fritters are HOT prepared food (always taxable, matches the POS's
+-- taxed to-go rows) — the appetizers-salads category map above would mis-file them cold_food.
+-- The ngapi platter IS cold (to-go exempt) and correctly keeps the category's cold_food.
+update menu_items set tax_category = 'hot_prepared' where slug = 'veggie-fritters';
 
 -- ============ Grocery Scan & Go — the real 2022 catalog (W4a; generated, see supabase/data/) ============
 -- GENERATED from supabase/data/grocery_catalog.json — do not hand-edit rows here.
