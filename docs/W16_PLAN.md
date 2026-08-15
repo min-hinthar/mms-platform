@@ -51,7 +51,14 @@
 
 ## Slices
 
-- **W16a · Money** — mode-price rule + service-charge removal + 10.5% tax (TS+SQL+tests+mutants).
+- **W16a · Money** — ✅ SHIPPED (2026-08-15) — mode-price rule (`lib/mode-price.ts`, factor over
+  the base+delta sum at the `priceItem` seam), service charge retired (`serviceChargeCents` = 0
+  constant, contracts kept; receipt-view keeps the historical row + disclosure), 10.5% tax both
+  halves (`20260815200000_w16a_mode_prices_tax.sql` — also re-signs `mms_set_line_fulfillment`
+  +`p_unit_price_cents` so the toggle re-prices in TS, never re-rounds in SQL), displays via
+  `modePriceCents` everywhere (menu/sheet/rails/kiosk/register), i18n service keys retired,
+  4 new mutants (99). ⚠️ The v7.2 prototype still encodes the OLD formulas (5% service + 0.0975
+  tax) — fidelity sweeps must NOT reintroduce them; this plan supersedes the prototype on money.
 - **W16b · Bilingual-only** — toggle/locale plumbing removed; dictionary-driven stacked
   bilingual render at the W5-L2 sites; `<html lang="en">` fixed; body.my CSS out, `[lang="my"]`
   typographic rules stay.

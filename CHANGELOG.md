@@ -4,6 +4,26 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W16a — no service charge · mode-derived prices · 10.5% tax (2026-08-15)
+
+The owner's money reset (closes C12 + C13): the 5% SB-1524 service charge is **retired**, and
+service margin moves into the prices themselves —
+
+- **Mode-derived prices** (`lib/mode-price.ts`): dine-in = base ×1.15, to-go = base ×1.05, each
+  rounded to the nearest $0.25 (Math.round half-up over cents/25); the factor applies to the
+  base + modifier-delta SUM at the ONE pricing seam (`priceItem`); grocery untouched. The
+  for-here↔to-go toggle re-prices in TS (exact re-derive from stored option ids, ratio-rescale
+  fallback) and hands the price to the re-signed `mms_set_line_fulfillment` — SQL never re-rounds.
+- **Sales tax 0.0975 → 0.105** (owner-confirmed L.A rate), TS + SQL in one deploy
+  (`20260815200000_w16a_mode_prices_tax.sql`); both parity suites recomputed in Node.
+- `serviceChargeCents` stays in the totals/order shape as a constant 0 (split/webhook/QBO/receipt
+  contracts unbroken); historical receipts keep their stored service row + SB-1524 disclosure.
+- Every price display reproduces the server math via `modePriceCents` (menu cards, item sheet,
+  favorites rail, kiosk, staff register); checkout drops the service row + disclosure; stale
+  service-charge copy fixed across staff surfaces.
+- verify:slice: 4 new mutants (factor drifts ×2, rounding-deleted, staff mode-fork collapse) —
+  99 total.
+
 ### M3 — modifier option ids (faithful reorder) (2026-08-15)
 
 Order lines finally carry the STABLE option ids beside the display labels

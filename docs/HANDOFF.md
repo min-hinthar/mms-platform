@@ -5,7 +5,21 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-08-15 — … + W7a + W5-L1/L2 shipped)
+> ## ⏭️ NEXT SESSION — start here (2026-08-15 — … + W16a shipped)
+>
+> **W16a shipped (2026-08-15)** — the owner's money reset (`docs/W16_PLAN.md`; closes C12+C13):
+> the 5% SB-1524 service charge is RETIRED; prices are MODE-DERIVED (dine-in = base ×1.15,
+> to-go = base ×1.05, rounded to the nearest $0.25 — `lib/mode-price.ts`, applied to the
+> base+modifier-delta sum at the ONE `priceItem` seam; grocery exempt); tax 0.0975 → 0.105
+> (owner-confirmed L.A rate), TS + SQL in one deploy. `serviceChargeCents` stays a constant 0 in
+> the totals shape (split/webhook/QBO/receipt contracts unbroken); `lib/receipt-view.ts` keeps
+> the `> 0`-gated historical service row + disclosure. The for-here↔to-go toggle re-prices in TS
+> and hands `p_unit_price_cents` to the re-signed `mms_set_line_fulfillment` (SQL never
+> re-rounds). **⚠️ post-merge: apply `20260815200000_w16a_mode_prices_tax.sql` to prod
+> `fasnpdhtvqtzjlvruqcu` via `mcp__Supabase__apply_migration` + probes** (mms_tax_rate()=0.105;
+> the 3-arg mms_set_line_fulfillment resolves). Remaining W16 slices: **W16b** bilingual-only ·
+> **W16c** confirm steps · **W16d** photos (drop the fallback.jpg filter in `lib/media-url.ts`)
+> · **W16e** spacing polish — maps in the session scratchpad (`w16_maps.json`).
 >
 > **M3 shipped (2026-08-15)** — faithful reorder: `modifier_option_ids` beside the labels on
 > cart+order lines (`20260815100000_m3_modifier_option_ids.sql` — insert RPC re-signed, 3
@@ -32,12 +46,14 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > from the device-handover clear. **Remaining: W5-L3** (/track + receipt) · **L4** (menu/grocery)
 > · **L5** (account/errors + the kiosk-dictionary merge — closes S14a). L2 residuals (peer-lock/
 > split/settling copy, pay-step status words, tip subline, Undo strings) ride with L3. K15: the
-> whole dictionary awaits Min's native check — `serviceDisclosureMy` is check-before-trust.
+> whole dictionary awaits Min's native check (`serviceDisclosureMy` retired with the service
+> charge, W16a).
 >
-> **Queued next (owner, 2026-08-15):** **W15** — learn from the real Zettle POS exports (439-item
-> library + Jan–Jul 2026 sales-by-product, in this session's scratchpad as JSON) to reconcile
-> dine-in/take-out/grocery item data and feature REAL customer favorites in the UI · then **M3**
-> modifier-option-ids (map already delivered in-session).
+> **Queued next (owner, 2026-08-15):** the remaining **W16** slices (`docs/W16_PLAN.md`):
+> **W16b** bilingual-only (ditch the language toggle; stacked EN+MY) · **W16c** bilingual
+> confirm steps on Send-to-kitchen + finalize-pay · **W16d** photos restored (remove the W13
+> fallback.jpg filename filter in `lib/media-url.ts` — every fallback.jpg in the bucket is a
+> real unique photo, HTTP-probed) · **W16e** spacing/typography polish (top-25 map).
 >
 > **W7a shipped (2026-08-15)** — the receipt artifact (`docs/W7A_PLAN.md`; closes S1 high): the
 > durable `/track?r=<token>` session-less itemized receipt (`mms_receipt_tokens`, 90d opaque
