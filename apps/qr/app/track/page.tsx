@@ -4,7 +4,7 @@ import { OrderTracker } from "@/components/OrderTracker";
 import { ReceiptCard } from "@/components/ReceiptCard";
 import { PrintReceiptButton } from "@/components/PrintReceiptButton";
 import { getSplitOrderId } from "@/lib/order";
-import { getReceiptEntry } from "@/lib/receipt";
+import { getReceiptEntry } from "@/lib/receipt-entry";
 import { resolveReceiptOrder } from "@/lib/receipt-token";
 import { reorderLink } from "@/lib/order-history-view";
 import { menuHref, menuLinkText } from "@/lib/menu-href";
@@ -31,7 +31,9 @@ export async function generateMetadata({
   searchParams: SearchParams;
 }): Promise<Metadata> {
   const { redirect_status: status, r } = await searchParams;
-  if (r) return { title: "Your receipt" };
+  // noindex (review MED): a durable, session-less page holding a diner's itemized order must
+  // never become a search destination (the /board + /kiosk rule, and this page is more sensitive).
+  if (r) return { title: "Your receipt", robots: { index: false } };
   const title =
     status === "succeeded"
       ? "Order confirmed"
@@ -66,10 +68,13 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
             <div className="track-notice-medallion" aria-hidden>
               🧾
             </div>
-            <h1>This receipt link has expired</h1>
+            {/* Honest-neutral (review MED): we can't tell an expired link from an unknown one, so
+                the copy diagnoses neither — and never promises the account holds an order it may
+                not (a refunded order isn't in the /account history today). */}
+            <h1>We couldn’t open this receipt</h1>
             <p>
-              Receipt links last 90 days. If this was your order, the lasting copy lives in your
-              account.
+              The link may have expired — receipt links last 90 days from when they’re shared. If
+              you signed in when you ordered, your orders live in your account.
             </p>
             <Link href="/account" className="nav-link-strong">
               My orders{" "}

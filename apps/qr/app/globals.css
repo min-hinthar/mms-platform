@@ -6309,6 +6309,20 @@ html[data-seen-surface] .mms-stagger {
    theme, and print output must never depend on the viewer's dark mode. Everything interactive
    or chrome carries `.print-hide` (or is the app header/nav, hidden wholesale). */
 @media print {
+  /* Review HIGH — paper has ONE theme, but the receipt's text resolves the LIVE tokens, and the
+     `.dark` class stamped on <html> never re-evaluates for print: without this re-pin a dark-mode
+     diner prints near-white ink on forced-white paper. Values = the light theme's own
+     (packages/ui/src/tokens.css :root). */
+  html,
+  html.dark {
+    --tx: #1b1714;
+    --t2: #6e6358;
+    --t3: #726859;
+    --bd: rgba(58, 35, 23, 0.1);
+    --ac-strong: #8f5009;
+    --sf: #f2efe7;
+    --cd: #fffdf8;
+  }
   .print-hide,
   .app-header,
   nav {

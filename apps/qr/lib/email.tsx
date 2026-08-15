@@ -5,7 +5,7 @@ import { AuthCodeEmail } from "@/emails/AuthCodeEmail";
 import { StaffInviteEmail } from "@/emails/StaffInviteEmail";
 import { StaffDeactivatedEmail } from "@/emails/StaffDeactivatedEmail";
 import { OrderReceiptEmail } from "@/emails/OrderReceiptEmail";
-import type { OrderHistoryEntry } from "@/lib/rewards";
+import type { ReceiptEntry } from "@/lib/receipt-entry";
 import { siteUrl } from "@/lib/site-url";
 
 /**
@@ -96,7 +96,7 @@ export function receiptEmailConfigured(): boolean {
  *  absolute URL here so the email always carries a link that works from any device. */
 export async function sendOrderReceiptEmail(opts: {
   to: string;
-  entry: OrderHistoryEntry;
+  entry: ReceiptEntry;
   receiptPath: string;
 }): Promise<EmailResult> {
   const html = await render(

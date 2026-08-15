@@ -78,4 +78,12 @@ export function tenderLabel(tender: string): string {
   return tender;
 }
 
+/** The artifact's settled-state line. A REFUNDED order keeps its receipt (review MED — the diner
+ *  needs documentation of a returned charge most of all) but must never claim "Paid in full". */
+export function receiptStatusLabel(refunded: boolean, tender: string): string {
+  return refunded
+    ? "Refunded — this charge was returned to you"
+    : `Paid in full · ${tenderLabel(tender)}`;
+}
+
 export const dollars = (c: number) => `$${(c / 100).toFixed(2)}`;

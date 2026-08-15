@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildReceiptRows, receiptDateLabel, serviceDisclosed, tenderLabel } from "./receipt-view";
+import {
+  buildReceiptRows,
+  receiptDateLabel,
+  receiptStatusLabel,
+  serviceDisclosed,
+  tenderLabel,
+} from "./receipt-view";
 
 const base = {
   subtotalCents: 2000,
@@ -56,5 +62,13 @@ describe("tenderLabel", () => {
     expect(tenderLabel("card")).toBe("Card");
     expect(tenderLabel("cash")).toBe("Cash");
     expect(tenderLabel("terminal")).toBe("Card · reader");
+  });
+});
+
+describe("receiptStatusLabel", () => {
+  it("never claims 'Paid in full' on a refunded order", () => {
+    expect(receiptStatusLabel(false, "terminal")).toBe("Paid in full · Card · reader");
+    expect(receiptStatusLabel(true, "card")).toBe("Refunded — this charge was returned to you");
+    expect(receiptStatusLabel(true, "card")).not.toContain("Paid");
   });
 });

@@ -1,14 +1,14 @@
 import { Button, Hr, Section, Text } from "@react-email/components";
 import type { CSSProperties } from "react";
 import { MmsEmailLayout } from "./MmsEmailLayout";
-import type { OrderHistoryEntry } from "@/lib/rewards";
+import type { ReceiptEntry } from "@/lib/receipt-entry";
 import {
   buildReceiptRows,
   dollars,
   receiptDateLabel,
+  receiptStatusLabel,
   SERVICE_CHARGE_DISCLOSURE,
   serviceDisclosed,
-  tenderLabel,
 } from "@/lib/receipt-view";
 
 /**
@@ -23,7 +23,7 @@ export function OrderReceiptEmail({
   entry,
   receiptUrl,
 }: {
-  entry: OrderHistoryEntry;
+  entry: ReceiptEntry;
   receiptUrl: string;
 }) {
   const rows = buildReceiptRows(entry.breakdown, entry.totalCents);
@@ -63,7 +63,7 @@ export function OrderReceiptEmail({
             </tbody>
           </table>
         ))}
-        <Text style={paid}>Paid in full · {tenderLabel(entry.tender)}</Text>
+        <Text style={paid}>{receiptStatusLabel(entry.refunded, entry.tender)}</Text>
       </Section>
 
       {serviceDisclosed(entry.breakdown) && <Text style={fine}>{SERVICE_CHARGE_DISCLOSURE}</Text>}

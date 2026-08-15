@@ -44,7 +44,17 @@ export async function mintReceiptToken(orderId: string): Promise<string | null> 
       .eq("order_id", orderId)
       .maybeSingle();
     if (readErr) return null;
-    if (existing && new Date(existing.expires_at).getTime() > Date.now()) return existing.token;
+    if (existing && new Date(existing.expires_at).getTime() > Date.now()) {
+      // SLIDING window on reuse (review MED): the email promises "works for 90 days", so a
+      // re-send on day 89 must not embed a link that dies tomorrow. Extending a LIVE token never
+      // revives an expired one — the rotate-only-after-expiry invariant holds. Best-effort: a
+      // failed bump leaves the original expiry, which was already honest at mint time.
+      await db
+        .from("mms_receipt_tokens")
+        .update({ expires_at: new Date(Date.now() + RECEIPT_TOKEN_TTL_MS).toISOString() })
+        .eq("token", existing.token);
+      return existing.token;
+    }
     const token = randomBytes(32).toString("base64url");
     // Upsert on the UNIQUE order_id: replaces an expired row's token+expiry in one statement (a
     // concurrent double-mint just means the later write wins and both callers re-read a valid

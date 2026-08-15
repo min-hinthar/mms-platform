@@ -1,12 +1,12 @@
 import type { CSSProperties } from "react";
-import type { OrderHistoryEntry } from "@/lib/rewards";
+import type { ReceiptEntry } from "@/lib/receipt-entry";
 import {
   buildReceiptRows,
   dollars,
   receiptDateLabel,
+  receiptStatusLabel,
   SERVICE_CHARGE_DISCLOSURE,
   serviceDisclosed,
-  tenderLabel,
 } from "@/lib/receipt-view";
 import { formatSlotLong } from "@/lib/pickupTime";
 
@@ -20,7 +20,7 @@ import { formatSlotLong } from "@/lib/pickupTime";
  * Money discipline: every figure is the fulfillment-time snapshot rendered verbatim
  * (lib/receipt-view builds the rows; nothing recomputes). M7: line amounts + ONE tax row.
  */
-export function ReceiptCard({ entry }: { entry: OrderHistoryEntry }) {
+export function ReceiptCard({ entry }: { entry: ReceiptEntry }) {
   const rows = buildReceiptRows(entry.breakdown, entry.totalCents);
   return (
     <section className="card card-textured receipt-artifact" aria-labelledby="receipt-h">
@@ -84,9 +84,11 @@ export function ReceiptCard({ entry }: { entry: OrderHistoryEntry }) {
         ))}
       </dl>
 
-      <p style={paidLine}>
-        Paid in full · {tenderLabel(entry.tender)}
-        <span aria-hidden> ✦</span>
+      {/* Review MED — a refunded order KEEPS its receipt (the documentation matters most then)
+          but is stamped honestly, never "Paid in full". */}
+      <p style={entry.refunded ? refundedLine : paidLine}>
+        {receiptStatusLabel(entry.refunded, entry.tender)}
+        {!entry.refunded && <span aria-hidden> ✦</span>}
       </p>
 
       {/* SB-1524 — the fee never surfaces without its explanation (the north-star teardown's
@@ -152,6 +154,12 @@ const paidLine: CSSProperties = {
   fontSize: "var(--fs-sm)",
   fontWeight: 700,
   color: "var(--ac-strong)",
+};
+const refundedLine: CSSProperties = {
+  margin: "12px 0 0",
+  fontSize: "var(--fs-sm)",
+  fontWeight: 700,
+  color: "var(--t2)",
 };
 const disclosure: CSSProperties = {
   fontSize: "var(--fs-xs)",

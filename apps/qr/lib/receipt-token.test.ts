@@ -16,6 +16,7 @@ type Q = {
   eq: [string, unknown][];
   gt: [string, string][];
   upserted?: Record<string, unknown>;
+  updated?: Record<string, unknown>;
   onConflict?: string;
 };
 let queries: Q[] = [];
@@ -45,6 +46,14 @@ function table(name: string) {
       q.upserted = row;
       q.onConflict = opts.onConflict;
       return Promise.resolve({ error: upsertError });
+    },
+    update(row: Record<string, unknown>) {
+      q.updated = row;
+      return api;
+    },
+    then(res: (v: { error: null }) => unknown) {
+      // Awaited update chains (the sliding-TTL bump) land here.
+      return Promise.resolve({ error: null }).then(res);
     },
   };
   return api;
@@ -94,15 +103,21 @@ describe("resolveReceiptOrder — the predicate IS the authorization", () => {
 });
 
 describe("mintReceiptToken — one stable token per order", () => {
-  it("reuses a LIVE stored token (an emailed link must not die under the diner)", async () => {
+  it("reuses a LIVE stored token, sliding its TTL (an emailed link must not die under the diner)", async () => {
     tokenRow = {
       token: "stored-token",
       expires_at: new Date(Date.now() + 1000_000).toISOString(),
     };
     await expect(mintReceiptToken(ORDER)).resolves.toBe("stored-token");
-    const q = queries.find((x) => x.table === "mms_receipt_tokens");
-    expect(q?.eq).toContainEqual(["order_id", ORDER]);
-    expect(q?.upserted).toBeUndefined(); // no rotation while the stored one is live
+    const read = queries.find((x) => x.table === "mms_receipt_tokens");
+    expect(read?.eq).toContainEqual(["order_id", ORDER]);
+    expect(queries.some((x) => x.upserted)).toBe(false); // no rotation while the stored one is live
+    // The sliding bump (review MED — the email's "works for 90 days" must be true on a re-send)
+    // targets the STORED token and extends, never shortens.
+    const bump = queries.find((x) => x.updated);
+    expect(bump?.eq).toContainEqual(["token", "stored-token"]);
+    const exp = new Date(bump?.updated?.expires_at as string).getTime();
+    expect(exp).toBeGreaterThan(Date.now() + RECEIPT_TOKEN_TTL_MS - 60_000);
   });
 
   it("rotates an EXPIRED token — never revives the old value", async () => {

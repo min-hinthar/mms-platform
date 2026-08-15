@@ -14,17 +14,20 @@ type Q = {
   table: string;
   cols: string;
   eq: [string, unknown][];
+  in: [string, unknown][];
   updated?: Record<string, unknown>;
 };
 let queries: Q[] = [];
 let earnedRow: { id: string } | null = null;
 let payerRow: { order_id: string } | null = null;
 let tokenRow: { token: string; expires_at: string } | null = null;
+/** The settled re-check on the payer path (a bare id read, no earned_by) — settled by default. */
+let settledRow: { id: string } | null = { id: "22222222-2222-4222-8222-222222222222" };
 let rateAllowed = true;
 let rateAsked = false;
 
 function table(name: string) {
-  const q: Q = { table: name, cols: "", eq: [] };
+  const q: Q = { table: name, cols: "", eq: [], in: [] };
   queries.push(q);
   const api = {
     select(cols: string) {
@@ -35,7 +38,14 @@ function table(name: string) {
       q.eq.push([col, val]);
       return api;
     },
+    in(col: string, vals: unknown) {
+      q.in.push([col, vals]);
+      return api;
+    },
     gt() {
+      return api;
+    },
+    order() {
       return api;
     },
     update(row: Record<string, unknown>) {
@@ -43,7 +53,29 @@ function table(name: string) {
       return api;
     },
     maybeSingle() {
-      if (name === "qr_orders") return Promise.resolve({ data: earnedRow, error: null });
+      if (name === "qr_orders") {
+        if (q.eq.some(([c]) => c === "earned_by"))
+          return Promise.resolve({ data: earnedRow, error: null });
+        if (q.cols.includes("receipt_email"))
+          return Promise.resolve({
+            data: { receipt_email: null, receipt_sent_at: null },
+            error: null,
+          });
+        if (q.cols.includes("total_cents"))
+          // getReceiptEntry's order read (inside setReceiptEmail's success path).
+          return Promise.resolve({
+            data: {
+              id: "22222222-2222-4222-8222-222222222222",
+              status: "paid",
+              created_at: "2026-08-15T00:00:00Z",
+              total_cents: 100,
+              tender: "card",
+            },
+            error: null,
+          });
+        // The payer path's settled re-check (bare id, no earned_by).
+        return Promise.resolve({ data: settledRow, error: null });
+      }
       if (name === "qr_order_payers") return Promise.resolve({ data: payerRow, error: null });
       if (name === "mms_receipt_tokens") return Promise.resolve({ data: tokenRow, error: null });
       return Promise.resolve({ data: null, error: null });
@@ -89,6 +121,7 @@ beforeEach(() => {
   earnedRow = null;
   payerRow = null;
   tokenRow = { token: "T".repeat(43), expires_at: new Date(Date.now() + 1000_000).toISOString() };
+  settledRow = { id: ORDER };
   rateAllowed = true;
   rateAsked = false;
 });
@@ -100,7 +133,8 @@ describe("getReceiptLink — authorize BEFORE the bearer exists", () => {
     expect(r).toMatchObject({ ok: true, path: `/track?r=${"T".repeat(43)}` });
     const probe = queries.find((x) => x.table === "qr_orders");
     expect(probe?.eq).toContainEqual(["id", ORDER]);
-    expect(probe?.eq).toContainEqual(["status", "paid"]);
+    // Settled statuses only — refunded keeps its receipt (stamped), unpaid never has one.
+    expect(probe?.in).toContainEqual(["status", ["paid", "refunded"]]);
     expect(probe?.eq).toContainEqual(["earned_by", "uid-1"]);
   });
 
@@ -153,7 +187,7 @@ describe("setReceiptEmail — authorize → rate → write, in that order", () =
     const write = queries.find((q) => q.updated && "receipt_email" in q.updated!);
     expect(write?.updated).toEqual({ receipt_email: "diner@example.com" });
     expect(write?.eq).toContainEqual(["id", ORDER]);
-    // The doctrine: the status guard rides the SQL statement, not just the earlier probe.
-    expect(write?.eq).toContainEqual(["status", "paid"]);
+    // The doctrine: the settled-status guard rides the SQL statement, not just the earlier probe.
+    expect(write?.in).toContainEqual(["status", ["paid", "refunded"]]);
   });
 });

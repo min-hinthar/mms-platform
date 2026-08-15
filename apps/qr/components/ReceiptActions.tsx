@@ -19,6 +19,10 @@ export function ReceiptActions({ orderId }: { orderId: string }) {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Two DISTINCT truths (review MED): `askedTo` = this session's accepted ask ("on its way");
+  // `sentTo` = the server-confirmed receipt_sent_at stamp ("✓ sent"). Conflating them claimed a
+  // send Resend may have refused.
+  const [askedTo, setAskedTo] = useState<string | null>(null);
   const [sentTo, setSentTo] = useState<string | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -54,7 +58,7 @@ export function ReceiptActions({ orderId }: { orderId: string }) {
   if (!link) return null;
 
   function open() {
-    setDraft(sentTo ?? link?.accountEmail ?? "");
+    setDraft(askedTo ?? sentTo ?? link?.accountEmail ?? "");
     setError(null);
     setEditing(true);
   }
@@ -66,7 +70,7 @@ export function ReceiptActions({ orderId }: { orderId: string }) {
     try {
       const r = await setReceiptEmail({ orderId, email: draft });
       if (r.ok) {
-        setSentTo(r.sentTo);
+        setAskedTo(r.sentTo);
         setError(null);
         setEditing(false);
       } else {
@@ -135,13 +139,17 @@ export function ReceiptActions({ orderId }: { orderId: string }) {
           </form>
         ) : (
           <p style={emailRow}>
-            {sentTo && (
-              <span style={sentNote}>
-                <span aria-hidden>✓ </span>Receipt sent to {sentTo}
-              </span>
+            {askedTo ? (
+              <span style={sentNote}>Receipt on its way to {askedTo}</span>
+            ) : (
+              sentTo && (
+                <span style={sentNote}>
+                  <span aria-hidden>✓ </span>Receipt sent to {sentTo}
+                </span>
+              )
             )}
             <button type="button" ref={triggerRef} onClick={open} className="nav-link" style={ask}>
-              {sentTo ? "Send again" : "Email me this receipt"}
+              {askedTo || sentTo ? "Send again" : "Email me this receipt"}
             </button>
           </p>
         ))}
