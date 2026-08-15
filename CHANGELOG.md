@@ -4,6 +4,23 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M3 — modifier option ids (faithful reorder) (2026-08-15)
+
+Order lines finally carry the STABLE option ids beside the display labels
+(`20260815100000_m3_modifier_option_ids.sql`):
+
+- `modifier_option_ids jsonb not null default '[]'` on qr_cart_items + qr_order_items; NO
+  backfill (label→id is lossy by construction). Labels stay the receipt artifact.
+- `mms_cart_item_insert_if_open` re-signed (+`p_option_ids`, appended last, spread-only-when-set
+  in TS — deploy-order safe); the three fulfill RPCs restated from their newest baselines with
+  the column riding the cart→order item copy.
+- `priceItem` returns `optionIds`; the diner add, staff add, and reorder paths all thread them.
+- **Reorder is faithful now**: stored ids re-price through the same `priceItem` at today's
+  deltas; a vanished/deactivated option is DISCLOSED (`optionsReset`), a required-group loss
+  skips honestly (`needs_choices`); legacy label-only rows keep the base-dish fallback. Decision
+  rules live pure in `lib/reorder-options.ts` — pinned by tests + 4 new verify:slice mutants (96 total).
+- `modKey` (line merge + SQL fold) stays on labels — Q10 registry.
+
 ### W15 — POS truth: real Zettle data → menu · grocery · favorites (2026-08-15)
 
 Six months of real POS history (Jan–Jul 2026 sales + the 2026-07-31 item library) reconciled

@@ -1,6 +1,6 @@
 # W15_PLAN — POS truth (real Zettle data → menu · grocery · favorites)
 
-**Status: BUILT (2026-08-15) — in review.** Owner directive: "learn from real POS data to update dine-in,
+**Status: SHIPPED (2026-08-15; PR #172 merged, prod-applied + probe-verified: kyay-o 2000 · tea salad 1400 · 10 popular tags · 6 new dishes w/ correct tax classes · 404 grocery rows incl 9 HM15xx · 0 compare_at violations).** Owner directive: "learn from real POS data to update dine-in,
 take-out, and grocery items, and feature customer favorites to enhance UI/UX." Source artifacts
 (owner-uploaded, session scratchpad as normalized JSON): the **Zettle item library export**
 (2026-07-31, 439 items, per-item price + Dine-In Service Charge / L.A CA Sales Tax / Tax-exempt

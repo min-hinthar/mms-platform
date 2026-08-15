@@ -992,6 +992,7 @@ export type Database = {
           fulfillment: string
           id: string
           menu_item_id: string
+          modifier_option_ids: Json
           modifiers: Json
           name: string
           notes: string | null
@@ -1012,6 +1013,7 @@ export type Database = {
           fulfillment?: string
           id?: string
           menu_item_id: string
+          modifier_option_ids?: Json
           modifiers?: Json
           name: string
           notes?: string | null
@@ -1032,6 +1034,7 @@ export type Database = {
           fulfillment?: string
           id?: string
           menu_item_id?: string
+          modifier_option_ids?: Json
           modifiers?: Json
           name?: string
           notes?: string | null
@@ -1233,6 +1236,7 @@ export type Database = {
           fulfillment: string
           id: string
           menu_item_id: string
+          modifier_option_ids: Json
           modifiers: Json
           name: string
           notes: string | null
@@ -1246,6 +1250,7 @@ export type Database = {
           fulfillment?: string
           id?: string
           menu_item_id: string
+          modifier_option_ids?: Json
           modifiers?: Json
           name: string
           notes?: string | null
@@ -1259,6 +1264,7 @@ export type Database = {
           fulfillment?: string
           id?: string
           menu_item_id?: string
+          modifier_option_ids?: Json
           modifiers?: Json
           name?: string
           notes?: string | null
@@ -1667,6 +1673,7 @@ export type Database = {
           p_modifiers: Json
           p_name: string
           p_notes?: string
+          p_option_ids?: Json
           p_qty?: number
           p_scan_id?: string
           p_tax_cents: number

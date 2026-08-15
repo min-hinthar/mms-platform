@@ -7,6 +7,7 @@ import { assertCartMember } from "./authz";
 import { assertMutationRate } from "./rate";
 import { lineTax } from "./tax";
 import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
+import { optionsCameBackDifferent, storedOptionIds } from "./reorder-options";
 import { getPostHogClient } from "./posthog-server";
 
 /**
@@ -22,8 +23,10 @@ import { getPostHogClient } from "./posthog-server";
  *    locked/settling) AND the order's stamped earner (`earned_by = uid`) — you reorder YOUR orders.
  *
  * Honesty rules (what history can't give us, we say out loud instead of guessing):
- *  - Line `modifiers` are stored as display NAMES, not option ids — a modified line comes back as the
- *    BASE dish and is reported in `optionsReset` (never a silent guess at what "extra chili oil" was).
+ *  - M3: lines fulfilled after 20260815100000 store the option IDS beside the labels, so a modified
+ *    line comes back WITH its surviving options (re-priced by id at today's deltas). `optionsReset`
+ *    reports lines that came back DIFFERENT: a legacy labels-only line (base dish — never a silent
+ *    guess at what "extra chili oil" was) or an id line missing a vanished/deactivated option.
  *  - Items that vanished, went sold-out, or REQUIRE choices (priceItem's cardinality check throws for
  *    those on an empty selection) are skipped with a per-item reason.
  *  - Grocery lines are skipped — a shelf item scanned in person isn't reorderable from a menu.
@@ -38,7 +41,9 @@ export type ReorderResult =
   | {
       ok: true;
       added: number;
-      /** Dishes whose original line had modifiers — they came back as the base dish. */
+      /** Dishes that came back DIFFERENT than the original's options (M3): a legacy labels-only
+       *  line returns as the base dish; an id-carrying line may return missing a vanished option.
+       *  A line whose every stored id survived is faithful and is NOT listed here. */
       optionsReset: string[];
       /** True when any original line had qty > 1 (everything lands at 1 — bump with the stepper). */
       quantitiesReset: boolean;
@@ -100,7 +105,7 @@ export async function reorderOrder(raw: {
     .from("qr_order_items")
     // `notes` IS snapshotted onto the order at fulfillment (w3_kitchen.sql) — it was simply never
     // selected here, so every reorder silently dropped the diner's allergy note (W9c).
-    .select("menu_item_id,name,qty,modifiers,fulfillment,notes")
+    .select("menu_item_id,name,qty,modifiers,modifier_option_ids,fulfillment,notes")
     .eq("order_id", orderId)
     .order("id") // deterministic under the cap — never a different 30 on retry
     .limit(LINE_CAP + 1); // +1 = exact truncation detection (an exactly-at-cap order isn't "capped")
@@ -148,12 +153,19 @@ export async function reorderOrder(raw: {
       continue;
     }
     try {
-      // Empty selection + enforceCardinality: a required-choice item throws here → honest skip. The
-      // returned price is TODAY's base price; tax re-derives from today's category + this session's
-      // dine-in context (same formula as addItem).
-      const { name, unitPriceCents, category } = await priceItem(l.menu_item_id, [], {
-        enforceCardinality: true,
-      });
+      // M3 — faithful reorder: lines fulfilled after 20260815100000 carry the STABLE option ids, so
+      // the dish comes back WITH its options, re-priced by id at TODAY's deltas through the exact
+      // same priceItem the add path uses. Legacy rows ('[]' — labels only) keep today's behavior:
+      // an empty selection, so the dish returns as the BASE and `optionsReset` says so (never a
+      // guess at what "extra chili oil" was). enforceCardinality stays the honesty backstop either
+      // way: a vanished option that empties a REQUIRED group throws → the dish is skipped
+      // "needs_choices" rather than silently served without its style.
+      const storedIds = storedOptionIds(l.modifier_option_ids);
+      const { name, unitPriceCents, category, opts, optionIds } = await priceItem(
+        l.menu_item_id,
+        storedIds,
+        { enforceCardinality: true },
+      );
       // Re-clamp against TODAY's rule (Zod `.max(160)` + the qr_cart_items.notes column CHECK). A
       // legacy note from before the cap would otherwise raise inside `mms_cart_item_insert_if_open`
       // and be caught below as an availability failure — turning one long note into a skipped dish.
@@ -166,7 +178,8 @@ export async function reorderOrder(raw: {
         {
           menuItemId: l.menu_item_id,
           name,
-          opts: [],
+          opts,
+          optionIds, // M3 — the surviving ids ride the NEW line too (reorder-of-a-reorder stays faithful)
           unitPriceCents,
           taxCents: lineTax(unitPriceCents, category, dineIn),
           fulfillment: dineIn ? "dinein" : "togo",
@@ -183,7 +196,14 @@ export async function reorderOrder(raw: {
       // telling the diner to "tap it to add the note again" for a line that isn't in their cart is a
       // instruction to nowhere.
       if (!carried.carry && carried.dropped) notesDropped.push(name);
-      if (Array.isArray(l.modifiers) && l.modifiers.length > 0) optionsReset.push(name);
+      // M3 — `optionsReset` now means "came back DIFFERENT than the original's options":
+      //  • legacy line (labels, no ids) → base dish, exactly as before;
+      //  • id-carrying line where some option vanished/deactivated (priceItem honors fewer ids
+      //    than stored) → partial dish — say so rather than let the diner assume their usual.
+      // A line whose every stored id survived comes back faithful and is NOT reported.
+      const originalHadOptions = Array.isArray(l.modifiers) && l.modifiers.length > 0;
+      if (optionsCameBackDifferent(storedIds.length, optionIds.length, originalHadOptions))
+        optionsReset.push(name);
       if (l.qty > 1) quantitiesReset = true;
     } catch (e) {
       // insertOrIncLine's status-atomic guard: the cart closed mid-loop (a webhook capture landed).

@@ -192,11 +192,15 @@ export function MenuBrowser({
               : `notes for ${res.notesDropped.join(", ")} didn’t come back — tap each to add them again`,
           );
         if (res.quantitiesReset) bits.push("quantities start at one");
+        // M3 review MED-1 — `optionsReset` now means "came back DIFFERENT than last time": a
+        // legacy line returns as the base dish, an id-carrying line may return with only its
+        // SURVIVING options. "without its options" was true only for the first case — the copy
+        // must cover both without overclaiming either.
         if (res.optionsReset.length > 0)
           bits.push(
             res.optionsReset.length === 1
-              ? `${res.optionsReset[0]} came back without its options — tap it to re-choose`
-              : `${res.optionsReset.length} came back without options — tap to re-choose`,
+              ? `${res.optionsReset[0]} came back with different options than last time — tap it to check`
+              : `${res.optionsReset.length} came back with different options — tap each to check`,
           );
         if (needsChoice.length > 0)
           bits.push(

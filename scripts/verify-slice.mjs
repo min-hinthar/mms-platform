@@ -198,6 +198,42 @@ const MUTANTS = [
   // W9c — not money, but the one SAFETY rule in the diner path: an allergy note that cannot be
   // carried into a reorder must be dropped and disclosed, never shortened. "Just truncate it" is the
   // plausible future edit, so it is the mutation that has to stay red.
+  // ── M3 — faithful reorder (option ids beside the labels) ────────────────────────────────────────
+  {
+    id: "order-lines/option-ids-not-threaded",
+    file: "apps/qr/lib/order-lines.ts",
+    suite: "lib/order-lines-options.test.ts",
+    why: "a dropped p_option_ids quietly ships label-only lines forever — reorder degrades to the base dish with no visible failure",
+    find: "...(line.optionIds && line.optionIds.length ? { p_option_ids: line.optionIds } : {}),",
+    replace: "",
+  },
+  {
+    id: "reorder/stored-ids-ignored",
+    file: "apps/qr/lib/reorder-options.ts",
+    suite: "lib/reorder-options.test.ts",
+    why: "reading every historical line as id-less kills the faithful path entirely — every reorder silently regresses to the base-dish guess",
+    find: 'return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : [];',
+    replace: "return [];",
+  },
+  {
+    id: "reorder/vanished-option-silent",
+    file: "apps/qr/lib/reorder-options.ts",
+    suite: "lib/reorder-options.test.ts",
+    why: "a vanished option must be DISCLOSED — a partial dish reported as faithful lets the diner assume their usual arrived",
+    find: "return honoredCount < storedCount;",
+    replace: "return false;",
+  },
+  {
+    // M3 review MED-2 — the docstring promised this mutant; without it, "simplifying" the legacy
+    // branch to `false` survives the battery and every pre-M3 order's base-dish fallback goes
+    // undisclosed.
+    id: "reorder/legacy-reset-lost",
+    file: "apps/qr/lib/reorder-options.ts",
+    suite: "lib/reorder-options.test.ts",
+    why: "a labels-only legacy line returns as the BASE dish — dropping its disclosure tells the diner their usual arrived",
+    find: "if (storedCount === 0) return originalHadOptionLabels;",
+    replace: "if (storedCount === 0) return false;",
+  },
   {
     id: "reorder-notes/truncate-instead-of-drop",
     file: "apps/qr/lib/reorder-notes.ts",
@@ -595,8 +631,8 @@ const MUTANTS = [
     file: "apps/qr/lib/staff-cart.ts",
     suite: "lib/staff-cart.test.ts",
     why: "W6a/K17 — reverting to the lenient add ships modifier-less required items: the customer is quoted a curry with a style, the kitchen gets one without",
-    find: "      enforceCardinality: true,",
-    replace: "      enforceCardinality: false,",
+    find: "      { enforceCardinality: true },",
+    replace: "      { enforceCardinality: false },",
   },
   {
     id: "staff-cart/qty-collapses-to-one",

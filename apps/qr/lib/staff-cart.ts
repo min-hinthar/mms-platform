@@ -66,9 +66,11 @@ export async function staffAddItem(raw: unknown): Promise<StaffWriteResult> {
     // W6a: cardinality is ENFORCED on the staff path too — the register's modifier sheet routes a
     // required-choice item here with its choices, and the server must refuse a curry with no style
     // exactly like the diner path (the old lenient add shipped modifier-less required items — K17).
-    const { name, unitPriceCents, category, opts } = await priceItem(menuItemId, modifierIds, {
-      enforceCardinality: true,
-    });
+    const { name, unitPriceCents, category, opts, optionIds } = await priceItem(
+      menuItemId,
+      modifierIds,
+      { enforceCardinality: true },
+    );
     const taxCents = lineTax(unitPriceCents, category, dineIn);
     // by_seat = null: a staff-added line isn't pre-attributed to a guest's split (the host can assign it
     // later via the existing by-person flow). The status-atomic insert throws if the cart isn't open.
@@ -81,6 +83,7 @@ export async function staffAddItem(raw: unknown): Promise<StaffWriteResult> {
         menuItemId,
         name,
         opts,
+        optionIds, // M3 — staff-added lines carry the stable ids too
         unitPriceCents,
         taxCents,
         fulfillment: dineIn ? "dinein" : "togo",

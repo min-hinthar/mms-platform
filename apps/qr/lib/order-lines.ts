@@ -76,6 +76,9 @@ export async function priceItem(
     // item's category — the charge authority (getCartTotals) can't express a partial taxable base.
     category: item.tax_category as TaxCategory,
     opts: optLabels,
+    // M3 — the STABLE ids behind the labels, in the same order. Callers thread these onto the line
+    // (modifier_option_ids) so reorder can re-price by id instead of re-guessing by display text.
+    optionIds: chosen.map((m) => m.id),
   };
 }
 
@@ -90,6 +93,9 @@ export type PricedLine = {
   /** W3b: the kitchen note ("no peanuts — allergy"). Bounded upstream (Zod 160 + column CHECK);
    *  empty/whitespace is normalized to undefined by the caller. Notes never merge (see below). */
   notes?: string;
+  /** M3 — stable modifier_options.id list matching `opts` (labels stay the receipt artifact).
+   *  Optional: legacy/grocery/no-option callers omit it and the column defaults to '[]'. */
+  optionIds?: string[];
 };
 
 /**
@@ -175,6 +181,9 @@ export async function insertOrIncLine(
       ...(qty !== 1 ? { p_qty: qty } : {}),
       ...(line.notes ? { p_notes: line.notes } : {}),
       ...(scanId ? { p_scan_id: scanId } : {}),
+      // M3 — spread ONLY when the line actually carries option ids (same deploy-order pattern):
+      // a DB without 20260815100000 still resolves every option-less caller.
+      ...(line.optionIds && line.optionIds.length ? { p_option_ids: line.optionIds } : {}),
     });
     // A duplicate scan_id returns the NIL-uuid sentinel — truthy, so it passes this closed-cart
     // check as the idempotent success it is (the write already landed on a prior attempt).
