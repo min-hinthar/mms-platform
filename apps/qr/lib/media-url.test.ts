@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { displayImageUrl, safeImageUrl } from "./media-url";
+import { safeImageUrl } from "./media-url";
 
 /**
  * W13 — the image-URL containment guard, pinned. next/image THROWS at render on a host outside
@@ -31,17 +31,26 @@ describe("safeImageUrl — the containment boundary", () => {
   });
 });
 
-describe("displayImageUrl — the designed placeholder beats the stock stand-in", () => {
-  it("nulls fallback.jpg rows (contained hosts included) so PhotoPlaceholder renders", () => {
-    expect(
-      displayImageUrl("https://ukuzkhuppqwtrdkjqrkv.supabase.co/x/menu-photos/a/fallback.jpg"),
-    ).toBeNull();
+/**
+ * W16d — the filename is NOT a verdict on the photo. W13 added a `fallback.jpg → null` filter on
+ * the assumption those rows shared one generic stock image; probing the live bucket disproved it
+ * (every `menu-photos/<id>/fallback.jpg` is a distinct real photo of that dish, and the `photo.jpg`
+ * some rows were assumed to have 404s). These cases are the inversion of the tests that pinned the
+ * old rule: a contained fallback.jpg must PASS THROUGH, or ~28 dishes lose their photography again
+ * on every diner surface at once.
+ */
+describe("safeImageUrl — a fallback.jpg row is a real photo, not a stand-in (W16d)", () => {
+  it("passes a contained fallback.jpg through — the filename means nothing", () => {
+    const url = "https://ukuzkhuppqwtrdkjqrkv.supabase.co/x/menu-photos/a/fallback.jpg";
+    expect(safeImageUrl(url)).toBe(url);
   });
-  it("passes real photos and still refuses uncontained hosts", () => {
-    expect(displayImageUrl("https://ukuzkhuppqwtrdkjqrkv.supabase.co/x/a/photo.jpg")).toContain(
-      "photo.jpg",
-    );
-    expect(displayImageUrl("https://evil.example/fallback.jpg")).toBeNull();
-    expect(displayImageUrl(null)).toBeNull();
+
+  it("still refuses an UNCONTAINED fallback.jpg — containment outranks the filename either way", () => {
+    expect(safeImageUrl("https://evil.example/fallback.jpg")).toBeNull();
+  });
+
+  it("a row with no photo at all still degrades to the designed placeholder", () => {
+    // This is the honest signal the filter was impersonating: NULL means "no photography yet".
+    expect(safeImageUrl(null)).toBeNull();
   });
 });

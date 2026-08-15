@@ -214,8 +214,7 @@ export function SplitSection({
       </dl>
 
       <p style={{ fontSize: "var(--fs-xs)", color: "var(--t3)", marginTop: 8, lineHeight: 1.5 }}>
-        Each person’s share of the order, including tax. Tip is added per person at their pay
-        step.
+        Each person’s share of the order, including tax. Tip is added per person at their pay step.
       </p>
 
       {ctx.myRole === "host" ? (

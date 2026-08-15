@@ -97,7 +97,7 @@ export function ItemSheet({
     <Sheet open={open} onOpenChange={(o) => !o && onClose()} title={item?.name_en ?? ""}>
       {item && (
         <ItemSheetBody
-            lineMode={lineMode}
+          lineMode={lineMode}
           key={item.id}
           item={item}
           allItems={allItems}
@@ -430,7 +430,9 @@ function ItemSheetBody({
                     />
                   </span>
                   <span className="item-upsell-name">{u.name_en}</span>
-                  <span className="item-upsell-price">{dollars(modePriceCents(u.base_price_cents, lineMode))}</span>
+                  <span className="item-upsell-price">
+                    {dollars(modePriceCents(u.base_price_cents, lineMode))}
+                  </span>
                 </button>
               </li>
             ))}

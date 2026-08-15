@@ -119,7 +119,9 @@ describe("setLineFulfillment — the W16a toggle re-price (exact ▸ rescale ▸
   it("EXACT: every stored id resolves → priceItem's mode price rides to the RPC verbatim", async () => {
     const r = await setLineFulfillment(LINE, "togo");
     expect(r).toEqual({ ok: true });
-    expect(priceItemCalls).toEqual([{ menuItemId: "m-1", ids: ["a", "b"], opts: { fulfillment: "togo" } }]);
+    expect(priceItemCalls).toEqual([
+      { menuItemId: "m-1", ids: ["a", "b"], opts: { fulfillment: "togo" } },
+    ]);
     const call = rpcCalls.find((c) => c.fn === "mms_set_line_fulfillment");
     expect(call?.args.p_fulfillment).toBe("togo");
     expect(call?.args.p_unit_price_cents).toBe(2100);
@@ -139,7 +141,9 @@ describe("setLineFulfillment — the W16a toggle re-price (exact ▸ rescale ▸
     priceItemAnswer = null;
     const r = await setLineFulfillment(LINE, "togo");
     expect(r).toEqual({ ok: true });
-    expect(rpcCalls.find((c) => c.fn === "mms_set_line_fulfillment")?.args.p_unit_price_cents).toBe(1050);
+    expect(rpcCalls.find((c) => c.fn === "mms_set_line_fulfillment")?.args.p_unit_price_cents).toBe(
+      1050,
+    );
   });
 
   it("REFUSE: a legacy label-only line (pre-M3, unfactored stored price) is refused, not rescaled", async () => {
@@ -155,7 +159,9 @@ describe("setLineFulfillment — the W16a toggle re-price (exact ▸ rescale ▸
     const r = await setLineFulfillment(LINE, "togo");
     expect(r).toEqual({ ok: true });
     expect(priceItemCalls[0]?.ids).toEqual([]);
-    expect(rpcCalls.find((c) => c.fn === "mms_set_line_fulfillment")?.args.p_unit_price_cents).toBe(1050);
+    expect(rpcCalls.find((c) => c.fn === "mms_set_line_fulfillment")?.args.p_unit_price_cents).toBe(
+      1050,
+    );
   });
 
   it("a no-op flip (same fulfillment) short-circuits ok with NO write", async () => {

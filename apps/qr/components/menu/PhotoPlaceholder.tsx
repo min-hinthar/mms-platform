@@ -1,11 +1,15 @@
 import { Icon, categoryIconName, type IconName } from "@mms/ui";
 
 /**
- * Designed missing-photo state (W2a). ~31/60 dishes have no real photo yet (they point at a
- * `fallback.jpg` or NULL); before this, `BlurUpImage` returned null and the caller's bare gradient tile
+ * Designed missing-photo state (W2a). A dish with NO photography carries NULL; before this, `BlurUpImage` returned null and the caller's bare gradient tile
  * read as broken/still-loading. This fills that tile with an INTENTIONAL brand surface: the dish's
  * category glyph + the ✦ wordmark mark over the same gradient — so a photoless dish reads "photo coming"
- * rather than "broken image". Decorative only (`aria-hidden`); the row/sheet already names the dish, so
+ * rather than "broken image".
+ *
+ * ⚠️ W16d — this used to cover ~31/60 dishes because a `fallback.jpg` filter nulled 28 real photos
+ * on the assumption the filename meant "no photography". It doesn't (each is a distinct dish photo),
+ * the filter is gone, and this placeholder now covers only the ~3 genuinely NULL rows + load
+ * failures. Decorative only (`aria-hidden`); the row/sheet already names the dish, so
  * the placeholder carries no text. Purely presentational → Server-Component safe.
  *
  * `variant` scales the glyph to the slot: `thumb` for the menu-row/suggestion thumbnails, `hero` for the

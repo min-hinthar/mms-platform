@@ -72,7 +72,6 @@ export const CART = {
   cardDeclined: { en: "Card declined", my: "ကတ် ငြင်းပယ်ခံရသည်" }, // v7.2
   orderLocked: { en: "Unlock the order to make changes", my: "ပြောင်းရန် အော်ဒါကို လော့ခ်ဖွင့်ပါ" }, // v7.2 (glossary-adapted)
   paidThankYou: { en: "Paid. Thank you!", my: "ရှင်းပြီးပါပြီ။ ကျေးဇူးပါ" }, // v7.2
-
 } satisfies Record<string, Entry>;
 
 /** Keys whose values are money/legal copy — the Latin-digits guard walks this list. */

@@ -5,7 +5,26 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-08-15 — … + W16a + W16b + W16c shipped)
+> ## ⏭️ NEXT SESSION — start here (2026-08-15 — the owner's W16 reset COMPLETE)
+>
+> **W16d+e shipped (2026-08-15)** — the last two slices of the owner's reset.
+> **W16d (photos):** the owner asked why dishes like Kyay-O had lost their photos. W13's
+> `fallback.jpg → null` filter assumed those rows shared a generic stock image; a probe of the live
+> bucket disproved it (every `menu-photos/<id>/fallback.jpg` is a DISTINCT real dish photo —
+> different sizes/etags per id; the `photo.jpg` some rows were assumed to have 404s). It was hiding
+> ~28 real photos across the menu grid, item sheet, Start-here, favorites, cart/bill thumbs and
+> history — while the kiosk, which never imported the filter, showed them all along.
+> `displayImageUrl` is DELETED; `safeImageUrl` (containment only) is the single rule, and the kiosk
+>
+> - staff-add pages gained the containment they never had (they passed raw DB values into
+>   `next/image`, which throws at render on a bad host). **The owner-facing photography task shrinks
+>   from 31 dishes to ~3 NULL rows** (OPEN-ITEMS C5 + PRODUCTION_PLAN corrected).
+>   **W16e (spacing):** `[lang="my"]` finally carries `line-height: var(--lh-my)` — the token has
+>   existed since W5 but only the retired `body.my` mode ever applied it, so no Burmese accent had
+>   ever had its own leading (this is what makes W16b's stacked bilingual safe); `body` gets
+>   `--lh-normal`; Burmese lifted off the sub-13px floor at five sites; the photo slot stops
+>   collapsing on null; `.item-hero` becomes an aspect-ratio; `.checkout-cta` carries min-height +
+>   padding for the two-line bilingual labels; `--w-content`/`--s*` token hygiene.
 >
 > **W16c shipped (2026-08-15)** — the important buttons ask first (owner: "Important buttons like
 > Send to kitchen … or finalize pay bill should ask to confirm decision"). ONE shared

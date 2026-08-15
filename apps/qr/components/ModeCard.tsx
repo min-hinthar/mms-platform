@@ -98,9 +98,9 @@ export function ModeCard({
       className="card card-interactive mms-stagger"
       style={{
         display: "flex",
-        gap: 14,
+        gap: "var(--s4)", // W16e — was 14/18, off the spacing grid
         alignItems: "center",
-        padding: 18,
+        padding: "var(--s5)",
         textDecoration: "none",
         color: "inherit",
         animationDelay: `calc(${index} * 70ms)`,

@@ -21,13 +21,20 @@ export function safeImageUrl(raw: string | null | undefined): string | null {
 }
 
 /**
- * W13 review MED — the display-ready URL: containment PLUS the "no real photo yet" filter. A
- * `fallback.jpg` row is a generic stock image standing in for missing photography; every diner
- * surface prefers the DESIGNED PhotoPlaceholder, so the filter must ride wherever the URL is
- * handed out (the menu mapping AND getCartView's line media — the first ship filtered only the
- * menu, and one add flow showed two contradictory placeholder stories).
+ * ⚠️ W16d — `displayImageUrl` IS GONE, and it must not come back. It layered a
+ * `endsWith("/fallback.jpg") → null` filter on top of the containment above, on the W13 assumption
+ * that those rows pointed at ONE generic stock image standing in for missing photography.
+ *
+ * THE ASSUMPTION WAS WRONG. The owner asked why dishes like Kyay-O had lost their photos; probing
+ * the live bucket settled it: every `menu-photos/<id>/fallback.jpg` is a DISTINCT real photo of
+ * that dish (different byte sizes and etags per id; the sibling `photo.jpg` some rows were assumed
+ * to have 404s). The filename is just the convention the delivery app uploaded under. So the
+ * filter was hiding ~28 real dish photos behind the placeholder on every diner surface at once —
+ * the menu grid, the item sheet hero, Start-here, favorites, the cart and bill thumbs, and order
+ * history. The kiosk, which never imported the filter, had been showing those same photos the
+ * whole time — live evidence against the assumption.
+ *
+ * Containment (`safeImageUrl`) is the only rule left: it is about what `next/image` and the CSP
+ * will accept, which is a real boundary. "Does this dish have a good photo?" is a DATA question —
+ * a row with no photo carries NULL and still gets the designed PhotoPlaceholder.
  */
-export function displayImageUrl(raw: string | null | undefined): string | null {
-  const safe = safeImageUrl(raw);
-  return safe && safe.endsWith("/fallback.jpg") ? null : safe;
-}

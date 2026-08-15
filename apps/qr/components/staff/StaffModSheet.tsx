@@ -97,8 +97,7 @@ export function StaffModSheet({
                     <span>{o.name}</span>
                     {effDeltaCents !== 0 && (
                       <span style={delta}>
-                        {effDeltaCents > 0 ? "+" : "−"}$
-                        {(Math.abs(effDeltaCents) / 100).toFixed(2)}
+                        {effDeltaCents > 0 ? "+" : "−"}${(Math.abs(effDeltaCents) / 100).toFixed(2)}
                       </span>
                     )}
                   </button>

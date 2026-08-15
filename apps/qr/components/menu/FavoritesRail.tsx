@@ -50,25 +50,29 @@ export function FavoritesRail({
         {items.map((i) => (
           <li key={i.id}>
             <button type="button" className="start-here-card" onClick={() => onSelect(i)}>
-              {i.image_url && (
-                <span className="start-here-photo" aria-hidden>
-                  <BlurUpImage
-                    src={i.image_url}
-                    alt=""
-                    width={128}
-                    height={88}
-                    sizes="128px"
-                    fallback={<PhotoPlaceholder category={i.category} />}
-                  />
-                </span>
-              )}
+              {/* W16e — NO truthiness gate on the slot: BlurUpImage already renders the designed
+                  PhotoPlaceholder for a null src, and gating the whole <span> away made photo-less
+                  dishes render as ragged short cards beside full ones (W13's "the slot always
+                  renders" rule). */}
+              <span className="start-here-photo" aria-hidden>
+                <BlurUpImage
+                  src={i.image_url}
+                  alt=""
+                  width={128}
+                  height={88}
+                  sizes="128px"
+                  fallback={<PhotoPlaceholder category={i.category} />}
+                />
+              </span>
               <span className="start-here-name">{i.name_en}</span>
               {i.name_my && (
                 <span className="start-here-my" lang="my">
                   {i.name_my}
                 </span>
               )}
-              <span className="start-here-price">{dollars(modePriceCents(i.base_price_cents, lineMode))}</span>
+              <span className="start-here-price">
+                {dollars(modePriceCents(i.base_price_cents, lineMode))}
+              </span>
             </button>
           </li>
         ))}

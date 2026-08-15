@@ -4,6 +4,46 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W16d+e — the photos come back · bilingual breathing room (2026-08-15)
+
+**W16d — the missing dish photos.** The owner asked why dishes like Kyay-O had lost their photos.
+Root cause: W13 added a `fallback.jpg → null` display filter believing those rows shared one
+generic stock image. Probing the live storage bucket disproved it — every
+`menu-photos/<id>/fallback.jpg` is a DISTINCT real photo of that dish (different sizes and etags
+per id; the `photo.jpg` some rows were assumed to have 404s). The filter was hiding ~28 real
+photos behind the placeholder on the menu grid, item sheet, Start-here, favorites, cart and bill
+thumbs, and order history at once — while the kiosk, which never imported it, had been showing
+those same photos all along.
+
+- `displayImageUrl` is **deleted**; `safeImageUrl` (containment — what `next/image` and the CSP
+  accept) is the only rule left, and all four importers now call it. "Does this dish have a photo?"
+  is a DATA question: a row with no photography carries NULL and still gets the designed placeholder.
+- The kiosk and the staff add-items page passed the RAW DB value into `next/image` (which throws at
+  render on a non-allowlisted host) — both now go through containment too.
+- `media-url.test.ts` inverted red-first: a contained `fallback.jpg` must PASS; an uncontained one
+  must still be refused. Docs carrying the wrong "31 of 60 dishes have no photo" count corrected —
+  the owner's photography task shrinks to ~3 NULL dishes (OPEN-ITEMS C5, PRODUCTION_PLAN).
+
+**W16e — spacing and typography** ("texts, fonts, contents, surfaces, layers … with enough
+paddings and margins"). Two structural levers, then the ranked list:
+
+- `[lang="my"]` finally gets `line-height: var(--lh-my)`. The token has said 1.6 since W5, but only
+  the retired `body.my` reading mode ever applied it — so no Burmese accent has EVER had its own
+  leading, and Myanmar stacks diacritics above and below the base glyph. This is what makes W16b's
+  stacked-everywhere bilingual layout safe by construction. `body` likewise inherits `--lh-normal`
+  instead of the browser's ~1.2.
+- Burmese below the 13px floor lifted to `--fs-sm` (Start-here, history lines, the history heading
+  accent, modifier groups and options); the dish's Burmese name goes to body size with its crowding
+  negative margin removed.
+- The photo SLOT no longer hides on a null src (Start-here + favorites rendered ragged short cards
+  next to full ones); `.item-hero` swaps its fixed 200px band for an aspect ratio so restored photos
+  crop less.
+- `.checkout-cta` gains the `min-height` + vertical padding its call sites kept re-declaring — the
+  bilingual two-line labels grow the button instead of clipping. Token hygiene: `--w-content` for
+  the three hardcoded 440s, `--s3`/`--s4`/`--s5` for off-grid card gaps and padding, one 12px
+  rhythm across the cart/bill/history/favorites thumb rows, explicit margins on the menu category
+  heading (Tailwind v4 preflight zeroes them), and breathing room + a width guard on the add toast.
+
 ### W16c — the important buttons ask first (2026-08-15)
 
 Owner directive: "Important buttons like Send to kitchen … or finalize pay bill should ask to
@@ -25,8 +65,8 @@ confirm decision."
   expiring the wallet session.
 - Copy is bilingual and pure (`lib/i18n/confirm.ts` + `lib/confirm-copy.ts`): the owner's Burmese
   "Kitchen သို့ မှာယူရန် အတည်ပြုပါပြီ" rides the send proceed-button **verbatim** (pinned by test
-  + mutant), amounts are Latin digits in BOTH tongues, and every decision's copy is walked by
-  `confirm-copy.test.ts` (3 rules proven red-first, 2 new mutants — 105 total).
+  - mutant), amounts are Latin digits in BOTH tongues, and every decision's copy is walked by
+    `confirm-copy.test.ts` (3 rules proven red-first, 2 new mutants — 105 total).
 
 ### W16b — always bilingual: the language toggle is retired (2026-08-15)
 

@@ -6,6 +6,7 @@ import { requireStaffPage } from "@/lib/staff";
 import { getTableDetail } from "@/lib/floor";
 import { StaffMenuBrowser, type StaffMenuItem } from "@/components/staff/StaffMenuBrowser";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
+import { safeImageUrl } from "@/lib/media-url";
 import { requiredChoiceUnavailable, shapeModifierGroups } from "@/lib/menu/modifiers";
 
 export const metadata = { title: "Add items — Mandalay Morning Star" };
@@ -54,7 +55,9 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
     nameEn: i.name_en,
     nameMy: i.name_my,
     priceCents: i.base_price_cents,
-    imageUrl: i.image_url,
+    // W16d — containment (next/image throws at render on a non-allowlisted host; this page passed
+    // the raw DB value straight through, one bad row from crashing the register mid-service).
+    imageUrl: safeImageUrl(i.image_url),
     // Same honesty rule as the diner menu: a required choice with no active options is unaddable —
     // show it sold-out rather than an item whose every add the server refuses.
     soldOut: !!i.is_sold_out || requiredChoiceUnavailable(i.item_modifier_groups),

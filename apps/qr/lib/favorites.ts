@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { publicClient, serverClient } from "@mms/db/server";
 import { toggleFavoriteInput } from "@mms/db/schemas";
 import { assertMutationRate } from "./rate";
-import { displayImageUrl } from "./media-url";
+import { safeImageUrl } from "./media-url";
 import { pickFavoriteRail } from "./profile-view";
 
 /**
@@ -62,7 +62,7 @@ export async function getFavoriteDishes(): Promise<FavoriteDish[]> {
         id: r.id,
         name: r.name_en,
         nameMy: r.name_my ?? null,
-        imageUrl: displayImageUrl(r.image_url),
+        imageUrl: safeImageUrl(r.image_url),
         soldOut: r.is_sold_out === true,
       }));
     return pickFavoriteRail(rows).map(({ soldOut: _soldOut, ...dish }) => dish);

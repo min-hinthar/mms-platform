@@ -77,7 +77,7 @@ const list: CSSProperties = {
   display: "grid",
   gap: 8,
 };
-const row: CSSProperties = { display: "flex", alignItems: "center", gap: 11, minWidth: 0 };
+const row: CSSProperties = { display: "flex", alignItems: "center", gap: 12, minWidth: 0 };
 const dishName: CSSProperties = {
   display: "block",
   fontSize: "var(--fs-sm)",

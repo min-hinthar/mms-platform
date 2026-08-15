@@ -663,7 +663,10 @@ export function TableCartProvider({
               display: "inline-block",
               background: "var(--tx)",
               color: "var(--pg)",
-              padding: "8px 14px",
+              // W16e — 10/16 (was 8/14): the pill carries a bilingual line now, and stacked
+              // Burmese needs the vertical room; marginInline keeps a long notice off the edges.
+              padding: "10px 16px",
+              marginInline: 16,
               borderRadius: 999,
               fontSize: "var(--fs-sm)",
               fontWeight: 700,

@@ -1,6 +1,7 @@
 import { publicClient } from "@mms/db/server";
 import { KioskShell } from "@/components/kiosk/KioskShell";
 import type { KioskItem } from "@/components/kiosk/types";
+import { safeImageUrl } from "@/lib/media-url";
 import { requiredChoiceUnavailable, shapeModifierGroups } from "@/lib/menu/modifiers";
 
 export const metadata = {
@@ -38,7 +39,11 @@ export default async function KioskPage({
     nameEn: i.name_en,
     nameMy: i.name_my,
     priceCents: i.base_price_cents,
-    imageUrl: i.image_url,
+    // W16d — the kiosk passed this RAW into next/image, which THROWS at render on a
+    // non-allowlisted host: one bad DB row would crash the attract screen. Containment now, same
+    // as every other surface. (No visual change — the kiosk never carried the fallback.jpg filter,
+    // which is the live evidence that those rows were real photos all along.)
+    imageUrl: safeImageUrl(i.image_url),
     // Same honesty rule as the diner/staff menus: an unaddable required-choice item shows sold-out.
     soldOut: !!i.is_sold_out || requiredChoiceUnavailable(i.item_modifier_groups),
     category: i.menu_categories?.name ?? "Menu",

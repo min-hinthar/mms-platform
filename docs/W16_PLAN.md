@@ -54,8 +54,7 @@
 - **W16a · Money** — ✅ SHIPPED (2026-08-15) — mode-price rule (`lib/mode-price.ts`, factor over
   the base+delta sum at the `priceItem` seam), service charge retired (`serviceChargeCents` = 0
   constant, contracts kept; receipt-view keeps the historical row + disclosure), 10.5% tax both
-  halves (`20260815200000_w16a_mode_prices_tax.sql` — also re-signs `mms_set_line_fulfillment`
-  +`p_unit_price_cents` so the toggle re-prices in TS, never re-rounds in SQL), displays via
+  halves (`20260815200000_w16a_mode_prices_tax.sql` — also re-signs `mms_set_line_fulfillment` +`p_unit_price_cents` so the toggle re-prices in TS, never re-rounds in SQL), displays via
   `modePriceCents` everywhere (menu/sheet/rails/kiosk/register), i18n service keys retired,
   4 new mutants (99). ⚠️ The v7.2 prototype still encodes the OLD formulas (5% service + 0.0975
   tax) — fidelity sweeps must NOT reintroduce them; this plan supersedes the prototype on money.
@@ -79,8 +78,17 @@
   the send proceed-button verbatim (test + mutant pinned), amounts Latin in both tongues.
   a11y: `role="group"` + aria-describedby, focus parks on Cancel and returns to the trigger, ≥48px,
   zero new live regions, no animation.
-- **W16d · Photos** — remove the fallback.jpg filename filter (W13 learning corrected); real
-  photos return on menu/cart/history/favorites.
-- **W16e · Polish** — the mapped spacing/typography fixes (top-25, token-pure).
+- **W16d · Photos** — ✅ SHIPPED (2026-08-15) — `displayImageUrl` DELETED (its `fallback.jpg → null`
+  filter was built on a wrong assumption; the live bucket has a distinct real photo per dish id),
+  all four importers moved to `safeImageUrl`, kiosk + staff-add wrapped in the containment they
+  never had, `media-url.test.ts` inverted red-first, and the docs' photography scope corrected from
+  31 dishes to ~3 (OPEN-ITEMS C5 · PRODUCTION_PLAN §5).
+- **W16e · Polish** — ✅ SHIPPED (2026-08-15) — the two structural levers first: `[lang="my"]` gets
+  `line-height: var(--lh-my)` (the token existed since W5 but only the retired `body.my` applied it,
+  so stacked Burmese diacritics had never had room) and `body` gets `--lh-normal`. Then: Burmese
+  lifted off the sub-13px floor at five sites, the photo slot stops collapsing on a null src,
+  `.item-hero` becomes an aspect-ratio, `.checkout-cta` carries its own min-height + padding for the
+  bilingual two-line labels, and token hygiene (`--w-content`, `--s3/4/5`, one 12px thumb-row
+  rhythm, explicit menu-heading margins, toast breathing + width guard).
 
 Maps: in-session workflow (4 lenses) — findings folded in below when complete.
