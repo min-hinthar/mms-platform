@@ -4,6 +4,30 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W16c — the important buttons ask first (2026-08-15)
+
+Owner directive: "Important buttons like Send to kitchen … or finalize pay bill should ask to
+confirm decision."
+
+- **`ConfirmSwap`** (`components/ConfirmSwap.tsx`) — the repo's inline two-step confirm idiom
+  (already shipped four times on the staff side) extracted as ONE shared primitive: the trigger is
+  replaced in place by a `role="group"` card with Cancel + proceed. Deliberately not a modal —
+  nothing else is inerted, so `aria-modal`/`alertdialog` would lie; the Radix `Sheet` (scrim +
+  drag + lazy domMax chunk) is the wrong tool for two buttons. Focus parks on the SAFE choice, the
+  caller returns it to its trigger, both targets ≥48px, no new live region, no animation.
+- **Three money CTAs now confirm**: **Send to kitchen** (names the item count it commits; the 10s
+  server-clocked undo STAYS — the two guard different failure modes), the **finalize charge** in
+  `PaymentSection` (the real `stripe.confirmPayment`, not the review step's intent mint, which is
+  already reversible via "Edit order"), and **SharePay's Authorize $X** (a real card hold, so the
+  same policy rather than a silent inconsistency).
+- **The wallet path stays unguarded by design** — Apple/Google Pay interpose the OS payment sheet,
+  and stalling `ExpressCheckoutElement.onConfirm` behind an app dialog both double-asks and risks
+  expiring the wallet session.
+- Copy is bilingual and pure (`lib/i18n/confirm.ts` + `lib/confirm-copy.ts`): the owner's Burmese
+  "Kitchen သို့ မှာယူရန် အတည်ပြုပါပြီ" rides the send proceed-button **verbatim** (pinned by test
+  + mutant), amounts are Latin digits in BOTH tongues, and every decision's copy is walked by
+  `confirm-copy.test.ts` (3 rules proven red-first, 2 new mutants — 105 total).
+
 ### W16b — always bilingual: the language toggle is retired (2026-08-15)
 
 Owner directive ("Ditch the language toggle and have bilingual only"):

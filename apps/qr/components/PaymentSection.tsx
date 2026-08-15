@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   Elements,
   ExpressCheckoutElement,
@@ -10,6 +10,8 @@ import {
 import type { Appearance, StripeElementsOptions } from "@stripe/stripe-js";
 import type { CartTotals } from "@mms/db";
 import { getStripePromise, stripeAppearance } from "@/lib/stripe-client";
+import { confirmCopy } from "@/lib/confirm-copy";
+import { ConfirmSwap } from "./ConfirmSwap";
 
 /**
  * The pay step (P1.3). PAN never touches our code — it lives only inside the Payment Element iframe
@@ -74,6 +76,15 @@ function PayForm({
   const elements = useElements();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // W16c — the finalize confirm step (card path only; see onSubmit).
+  const [confirming, setConfirming] = useState(false);
+  const payBtnRef = useRef<HTMLButtonElement>(null);
+  const wasConfirming = useRef(false);
+  // Focus back to the Pay trigger when the confirm closes without charging (the staff idiom).
+  useEffect(() => {
+    if (!confirming && wasConfirming.current) payBtnRef.current?.focus();
+    wasConfirming.current = confirming;
+  }, [confirming]);
   // W2d — whether the browser/domain surfaced any wallet (Apple/Google Pay/Link). Drives the "or pay
   // with card" divider; false ⇒ the Express element rendered nothing and the card flow stands alone.
   const [walletReady, setWalletReady] = useState(false);
@@ -96,13 +107,23 @@ function PayForm({
     if (payErr) {
       setError(payErr.message ?? "Payment couldn’t be completed. Please try another card.");
       setSubmitting(false);
+      // Return to the live Pay button so a declined card can be retried — never strand the diner
+      // on a confirm whose proceed already fired. (Success redirects away, so this is failure-only.)
+      setConfirming(false);
       onPayingChange?.(false); // only an INLINE failure lands here; success redirects away
     }
   }
 
+  // W16c — the finalize confirm gates the CARD path only (owner: "finalize pay bill should ask to
+  // confirm decision"). It sits HERE, on the charge, not on the review step's "Pay · $X" (which
+  // only mints the intent and is reversible via "Edit order"). The WALLET path is deliberately
+  // exempt: Apple/Google Pay already interpose the OS payment sheet — an app-level pre-ask would
+  // be a double confirm, and stalling ExpressCheckoutElement's onConfirm can expire the wallet
+  // session outright.
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    await confirm();
+    if (!stripe || submitting) return;
+    setConfirming(true);
   }
 
   const dollars = `$${(totals.totalCents / 100).toFixed(2)}`;
@@ -145,29 +166,40 @@ function PayForm({
         {error}
       </p>
 
-      <button
-        type="submit"
-        disabled={!stripe || submitting}
-        aria-busy={submitting}
-        className="checkout-cta"
-        style={{
-          width: "100%",
-          marginTop: 12,
-          minHeight: 50,
-          borderRadius: 12,
-          border: "none",
-          // bg/color come from .checkout-cta (gold-warmed gradient + sheen + one-sweep shine) — parity
-          // with the review step's "Pay · $X" CTA. The label rides above the ::after sweep on its own layer.
-          fontWeight: 800,
-          fontSize: "var(--fs-body)",
-          cursor: !stripe || submitting ? "default" : "pointer",
-          opacity: !stripe || submitting ? 0.7 : 1,
-        }}
-      >
-        <span style={{ position: "relative", zIndex: 1 }}>
-          {submitting ? "Processing…" : `Pay ${dollars}`}
-        </span>
-      </button>
+      {confirming ? (
+        <ConfirmSwap
+          copy={confirmCopy({ kind: "pay", amountCents: totals.totalCents })}
+          busy={submitting}
+          busyLabel="Processing…"
+          onCancel={() => setConfirming(false)}
+          onProceed={() => void confirm()}
+        />
+      ) : (
+        <button
+          ref={payBtnRef}
+          type="submit"
+          disabled={!stripe || submitting}
+          aria-busy={submitting}
+          className="checkout-cta"
+          style={{
+            width: "100%",
+            marginTop: 12,
+            minHeight: 50,
+            borderRadius: 12,
+            border: "none",
+            // bg/color come from .checkout-cta (gold-warmed gradient + sheen + one-sweep shine) — parity
+            // with the review step's "Pay · $X" CTA. The label rides above the ::after sweep on its own layer.
+            fontWeight: 800,
+            fontSize: "var(--fs-body)",
+            cursor: !stripe || submitting ? "default" : "pointer",
+            opacity: !stripe || submitting ? 0.7 : 1,
+          }}
+        >
+          <span style={{ position: "relative", zIndex: 1 }}>
+            {submitting ? "Processing…" : `Pay ${dollars}`}
+          </span>
+        </button>
+      )}
 
       <button
         type="button"

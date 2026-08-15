@@ -1,9 +1,11 @@
 "use client";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import type { Appearance, StripeElementsOptions } from "@stripe/stripe-js";
 import { getStripePromise, stripeAppearance } from "@/lib/stripe-client";
 import { useConnectionTruth } from "@/lib/useConnectionTruth";
+import { confirmCopy } from "@/lib/confirm-copy";
+import { ConfirmSwap } from "./ConfirmSwap";
 
 /**
  * One payer's share-pay screen (M3·P3.3b, split-tender). The diner picks their OWN tip, then authorizes
@@ -215,6 +217,14 @@ function ShareForm({
   const elements = useElements();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // W16c — the confirm step before the hold (see onSubmit).
+  const [confirming, setConfirming] = useState(false);
+  const authorizeBtnRef = useRef<HTMLButtonElement>(null);
+  const wasConfirming = useRef(false);
+  useEffect(() => {
+    if (!confirming && wasConfirming.current) authorizeBtnRef.current?.focus();
+    wasConfirming.current = confirming;
+  }, [confirming]);
   // The hold IS on this card — Stripe confirmed it. Distinct from `submitting` (which also covers the
   // in-flight confirm) because only this state licenses the "your card is authorized" claim.
   const [authorized, setAuthorized] = useState(false);
@@ -245,8 +255,16 @@ function ShareForm({
     return () => window.clearTimeout(t);
   }, [authorized, diagnose]);
 
-  async function onSubmit(e: FormEvent) {
+  // W16c — a share authorization is a real HOLD on the diner's card, so it gets the same confirm
+  // step as the finalize charge (a consistent money-CTA policy; the alternative — exempting it —
+  // would leave the one committing action on this screen unconfirmed).
+  function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (!stripe || !elements || submitting) return;
+    setConfirming(true);
+  }
+
+  async function authorize() {
     if (!stripe || !elements) return;
     setSubmitting(true);
     setError(null);
@@ -264,6 +282,7 @@ function ShareForm({
     if (payErr) {
       setError(payErr.message ?? "Payment couldn’t be authorized. Please try another card.");
       setSubmitting(false);
+      setConfirming(false); // back to a live button so a declined card can be retried
       return;
     }
     if (
@@ -278,6 +297,7 @@ function ShareForm({
     // honestly rather than leaving a dead button.
     setError("Your payment is still processing — watch the board for your status.");
     setSubmitting(false);
+    setConfirming(false);
   }
 
   const dollars = `$${(amountCents / 100).toFixed(2)}`;
@@ -363,29 +383,42 @@ function ShareForm({
           {rechecking ? "Checking…" : "Check again"}
         </button>
       )}
-      <button
-        type="submit"
-        disabled={!stripe || submitting}
-        aria-busy={submitting && !boardStale}
-        style={{
-          width: "100%",
-          marginTop: 12,
-          minHeight: 50,
-          borderRadius: 12,
-          border: "none",
-          background: "var(--ac)",
-          color: "var(--oa)",
-          fontWeight: 800,
-          fontSize: "var(--fs-body)",
-          cursor: !stripe || submitting ? "default" : "pointer",
-          // Pre-PR review — the dimmed-disabled treatment is for a control you're waiting on. Once
-          // this reads "Card authorized" it is a money STATEMENT, and rendering a load-bearing one
-          // below AA on the disabled-control exemption is not a trade this screen gets to make.
-          opacity: boardStale ? 1 : !stripe || submitting ? 0.7 : 1,
-        }}
-      >
-        {boardStale ? "Card authorized" : submitting ? "Authorizing…" : `Authorize ${dollars}`}
-      </button>
+      {/* The confirm never replaces the boardStale "Card authorized" branch — that is a money
+          STATEMENT about a hold that already landed, not a live control to gate. */}
+      {confirming && !boardStale ? (
+        <ConfirmSwap
+          copy={confirmCopy({ kind: "authorizeShare", amountCents })}
+          busy={submitting}
+          busyLabel="Authorizing…"
+          onCancel={() => setConfirming(false)}
+          onProceed={() => void authorize()}
+        />
+      ) : (
+        <button
+          ref={authorizeBtnRef}
+          type="submit"
+          disabled={!stripe || submitting}
+          aria-busy={submitting && !boardStale}
+          style={{
+            width: "100%",
+            marginTop: 12,
+            minHeight: 50,
+            borderRadius: 12,
+            border: "none",
+            background: "var(--ac)",
+            color: "var(--oa)",
+            fontWeight: 800,
+            fontSize: "var(--fs-body)",
+            cursor: !stripe || submitting ? "default" : "pointer",
+            // Pre-PR review — the dimmed-disabled treatment is for a control you're waiting on. Once
+            // this reads "Card authorized" it is a money STATEMENT, and rendering a load-bearing one
+            // below AA on the disabled-control exemption is not a trade this screen gets to make.
+            opacity: boardStale ? 1 : !stripe || submitting ? 0.7 : 1,
+          }}
+        >
+          {boardStale ? "Card authorized" : submitting ? "Authorizing…" : `Authorize ${dollars}`}
+        </button>
+      )}
       <p style={{ fontSize: "var(--fs-xs)", color: "var(--t3)", marginTop: 8, lineHeight: 1.5 }}>
         You’re only authorized now — your card is charged when everyone at the table has paid their
         share.

@@ -5,7 +5,21 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-08-15 — … + W16a + W16b shipped)
+> ## ⏭️ NEXT SESSION — start here (2026-08-15 — … + W16a + W16b + W16c shipped)
+>
+> **W16c shipped (2026-08-15)** — the important buttons ask first (owner: "Important buttons like
+> Send to kitchen … or finalize pay bill should ask to confirm decision"). ONE shared
+> `components/ConfirmSwap.tsx` (the repo's inline two-step idiom — trigger replaced by a
+> `role="group"` card; NOT a modal, since nothing else is inerted) now gates three money CTAs:
+> **Send to kitchen** (names the count; the 10s server-clocked undo STAYS — mis-tap vs changed
+> mind are different failure modes), the **finalize CHARGE** in `PaymentSection` (the real
+> `stripe.confirmPayment`; the review step's "Pay · $X" only mints the intent and is reversible via
+> "Edit order"), and **SharePay's Authorize $X** (a real hold — same policy, not an exemption).
+> The **wallet path is deliberately exempt** (OS payment sheet = the native confirm; stalling
+> `ExpressCheckoutElement.onConfirm` can expire the wallet session). Copy is pure + bilingual
+> (`lib/i18n/confirm.ts` + `lib/confirm-copy.ts`); the owner's Burmese rides the send
+> proceed-button VERBATIM, pinned by test + mutant. K15: the Claude-authored MY question forms
+> await Min's native check.
 >
 > **W16b shipped (2026-08-15)** — always bilingual (owner: "Ditch the language toggle and have
 > bilingual only"): LocaleToggle + LocaleProvider deleted; `<html lang="en">` fixed (per-span
