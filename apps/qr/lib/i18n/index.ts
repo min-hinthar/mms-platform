@@ -3,7 +3,6 @@ import { CART } from "./cart";
 import type { Locale } from "./types";
 
 export type { Locale, Entry } from "./types";
-export { LOCALE_COOKIE, LOCALE_STORAGE_KEY, isLocale } from "./types";
 export { CART_MONEY_KEYS } from "./cart";
 
 /**

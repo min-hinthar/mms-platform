@@ -64,9 +64,12 @@
   its era price); a pre-M3 label-only line REFUSES the toggle (`reason: "legacy"` — its stored
   price is unfactored, so the ratio rescale would mint below both eras; remove + re-add re-prices
   cleanly); option "+$X" sub-labels show the mode-priced EFFECT of tapping, not the raw menu delta.
-- **W16b · Bilingual-only** — toggle/locale plumbing removed; dictionary-driven stacked
-  bilingual render at the W5-L2 sites; `<html lang="en">` fixed; body.my CSS out, `[lang="my"]`
-  typographic rules stay.
+- **W16b · Bilingual-only** — ✅ SHIPPED (2026-08-15) — toggle/locale plumbing removed
+  (LocaleToggle · LocaleProvider · cookie seed · setLocalePref · body.my · handover exemption);
+  dictionary-driven STACKED bilingual render at every W5-L2 site (bilingual `Row` with inline MY
+  accents on the receipt rows; MY line under the EN+amount line on the three CTAs; tip chips the
+  one deliberate EN-only exception); `<html lang="en">` fixed, `[lang="my"]`/`[lang="en"]`
+  typographic rules stay; dictionaries + guards survive as the L3–L5 rollout source.
 - **W16c · Confirms** — bilingual confirm step on Send-to-kitchen (owner MY: "Kitchen သို့
   မှာယူရန် အတည်ပြုပါပြီ") and the finalize-pay CTA; a11y-complete (focus, 44px, one live region).
 - **W16d · Photos** — remove the fallback.jpg filename filter (W13 learning corrected); real

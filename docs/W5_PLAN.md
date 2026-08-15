@@ -1,5 +1,21 @@
 # W5_PLAN — One tongue (the app-wide EN↔MY toggle)
 
+> ## ⚠️ SUPERSEDED ON THE TOGGLE (W16b, 2026-08-15 — owner: "Ditch the language toggle and have
+> bilingual only")
+>
+> Everything below describing a **toggle / locale carrier / per-user language** is HISTORY, not a
+> spec: `LocaleToggle`, `LocaleProvider`, the `mms_locale` cookie + Accept-Language seed,
+> `setLocalePref` / `lang_change`, `body.my`, and the `mms.qr.locale` handover exemption are all
+> **deleted**. `<html lang="en">` is fixed and Burmese renders as per-span `lang="my"` accents.
+>
+> **What survives, and what L3–L5 still mean:** the typed `lib/i18n` dictionaries, their guards,
+> and `t(locale, key)` are the bilingual string source. L3 (/track + receipt), L4 (menu/grocery),
+> and L5 (account/errors + the kiosk-dictionary merge) are still the right surface list — but each
+> ships as **STACKED bilingual** (EN primary + a Padauk MY line/accent on the same surface, per
+> `docs/W16_PLAN.md` §W16b), never as a language the diner picks. Read the W16b render idiom in
+> `apps/qr/components/Checkout.tsx` (`T()` + the `<My/>` accent, and the bilingual `Row`) before
+> starting L3.
+
 **Status: W5-L1+L2 SHIPPED (2026-08-15); L3–L5 remain as follow-on PRs.** L2 residuals carried to
 L3: peer-lock/split/settling copy, the pay-step status words at PaymentSection/track, the
 "includes $X tip" subline, Undo-window strings — all still EN. Owner directive: "bilingual toggle

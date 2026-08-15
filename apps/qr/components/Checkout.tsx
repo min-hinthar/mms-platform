@@ -47,8 +47,43 @@ import {
   kitchenDraftQty as deriveKitchenDraftQty,
   type CheckoutStage,
 } from "@/lib/checkout-stage";
-import { useLocale, useT } from "./LocaleProvider";
 import { t, type DictKey } from "@/lib/i18n";
+
+// W16b — ALWAYS bilingual (owner directive): EN is the primary voice, MY the Padauk accent on the
+// SAME surface — no toggle, no locale state. T() keeps the historical call sites reading naturally;
+// <My/> renders the Burmese half with its own per-span lang (WCAG 3.1.2 against html lang="en").
+const T = (k: DictKey) => t("en", k);
+function My({
+  k,
+  inline = false,
+  size = "var(--fs-xs)",
+  color = "var(--t2)",
+}: {
+  k: DictKey;
+  inline?: boolean;
+  size?: string;
+  color?: string;
+}) {
+  return (
+    <span
+      lang="my"
+      style={{
+        display: inline ? "inline" : "block",
+        fontFamily: "var(--font-my)",
+        fontSize: size,
+        fontWeight: 600,
+        color,
+        // ⚠️ The inline accent's gap is a MARGIN, never a whitespace text node: its two hosts are
+        // FLEX containers (`.checkout-leader-row dt` for the receipt rows, `.nav-link` for the back
+        // link), and flex layout DROPS whitespace-only text between items — a space here would
+        // render "Subtotalအကြိုစုစုပေါင်း" with the two tongues fused. Margin works in both.
+        ...(inline ? { marginInlineStart: "0.4em" } : null),
+      }}
+    >
+      {t("my", k)}
+    </span>
+  );
+}
 
 // Per-reason promo copy (the action returns a reason; Next redacts thrown errors in prod). Honest +
 // on-brand: tell the diner exactly why, never a fabricated state.
@@ -172,11 +207,6 @@ export function Checkout({
   /** W5e: is the kitchen taking ASAP right now (open + capacity)? Server-computed; gates the ASAP pill. */
   asapAvailable?: boolean;
 }) {
-  // W5 (S2) — render-site translation: T() for the current locale, `accentLang` for the stacked
-  // bilingual heading (the OTHER tongue becomes the accent line — EN↔MY swap, both always visible).
-  const { locale } = useLocale();
-  const T = useT();
-  const accentLang = locale === "my" ? "en" : "my";
   const [items, setItems] = useState<CartItem[]>(initialItems);
   // Optimistic overlay on top of the server `items`: an edit shows instantly and the delta re-applies over
   // any realtime base change during the pending transition, then clears once refresh() lands the truth
@@ -716,23 +746,25 @@ export function Checkout({
       <main style={{ padding: "24px 20px 40px", maxWidth: 440, margin: "0 auto" }}>
         <h1 style={{ fontSize: "var(--fs-h1)", marginBottom: 16 }}>
           {T("yourOrder")}
-          <span
-            lang={accentLang}
-            style={{
-              display: "block",
-              ...(accentLang === "my" ? { fontFamily: "var(--font-my)" } : null),
-              fontSize: "var(--fs-sm)",
-              fontWeight: 600,
-              color: "var(--t2)",
-            }}
-          >
-            {t(accentLang, "yourOrder")}
-          </span>
+          <My k="yourOrder" size="var(--fs-sm)" />
         </h1>
         <EmptyState
           icon={<Icon name="cart" size={30} style={{ color: "var(--ac)" }} />}
-          title={T("emptyCartTitle")}
-          subtitle={sessionMode === "scango" ? T("emptyCartSubAisles") : T("emptyCartSubMenu")}
+          title={
+            <>
+              {T("emptyCartTitle")}
+              <My k="emptyCartTitle" size="var(--fs-sm)" />
+            </>
+          }
+          subtitle={
+            <>
+              {sessionMode === "scango" ? T("emptyCartSubAisles") : T("emptyCartSubMenu")}
+              <My
+                k={sessionMode === "scango" ? "emptyCartSubAisles" : "emptyCartSubMenu"}
+                color="var(--t3)"
+              />
+            </>
+          }
           action={
             <Link
               href={backHref}
@@ -821,21 +853,9 @@ export function Checkout({
       >
         <h1 ref={headingRef} tabIndex={-1} style={{ fontSize: "var(--fs-h1)" }}>
           {T(headingKey)}
-          {/* W13→W5 — the OTHER tongue's name for the moment, part OF the heading so a screen
-              reader hears both tongues once, correctly pronounced (lang on the accent). In MY
-              mode the roles swap: Burmese leads, English becomes the accent line. */}
-          <span
-            lang={accentLang}
-            style={{
-              display: "block",
-              ...(accentLang === "my" ? { fontFamily: "var(--font-my)" } : null),
-              fontSize: "var(--fs-sm)",
-              fontWeight: 600,
-              color: "var(--t2)",
-            }}
-          >
-            {t(accentLang, headingKey)}
-          </span>
+          {/* W13→W16b — the Burmese name for the moment, part OF the heading so a screen reader
+              hears both tongues once, correctly pronounced (lang="my" on the accent). */}
+          <My k={headingKey} size="var(--fs-sm)" />
         </h1>
         <WalletChip badge={rewardsBadge} />
       </div>
@@ -910,19 +930,19 @@ export function Checkout({
             </button>
             <div className="card card-textured checkout-receipt">
               <dl>
-                <Row k={T("rowSubtotal")} cents={payTotals.subtotalCents} />
+                <Row k="rowSubtotal" cents={payTotals.subtotalCents} />
                 {payTotals.discountCents - payTotals.rewardCents > 0 && (
                   <Row
-                    k={T("rowPromo")}
+                    k="rowPromo"
                     cents={-(payTotals.discountCents - payTotals.rewardCents)}
                   />
                 )}
                 {payTotals.rewardCents > 0 && (
-                  <Row k={T("rowReward")} cents={-payTotals.rewardCents} />
+                  <Row k="rowReward" cents={-payTotals.rewardCents} />
                 )}
-                                <Row k={T("rowTax")} cents={payTotals.taxCents} />
-                {payTotals.tipCents > 0 && <Row k={T("rowTip")} cents={payTotals.tipCents} />}
-                <Row k={T("rowTotal")} cents={payTotals.totalCents} strong roll />
+                                <Row k="rowTax" cents={payTotals.taxCents} />
+                {payTotals.tipCents > 0 && <Row k="rowTip" cents={payTotals.tipCents} />}
+                <Row k="rowTotal" cents={payTotals.totalCents} strong roll />
               </dl>
             </div>
             <PaymentSection
@@ -960,6 +980,7 @@ export function Checkout({
                   ←
                 </span>{" "}
                 {T("backToYourOrder")}
+                <My k="backToYourOrder" inline color="var(--t3)" />
               </button>
             )}
             {lockedByPeer && (
@@ -1336,12 +1357,12 @@ export function Checkout({
                   })}
                 </ul>
                 <dl style={{ borderTop: "1px solid var(--bd)", paddingTop: 6, marginTop: 8 }}>
-                  <Row k={T("rowSubtotal")} cents={totals.subtotalCents} />
+                  <Row k="rowSubtotal" cents={totals.subtotalCents} />
                   {totals.discountCents - totals.rewardCents > 0 && (
-                    <Row k={T("rowPromo")} cents={-(totals.discountCents - totals.rewardCents)} />
+                    <Row k="rowPromo" cents={-(totals.discountCents - totals.rewardCents)} />
                   )}
-                  {totals.rewardCents > 0 && <Row k={T("rowReward")} cents={-totals.rewardCents} />}
-                  <Row k={T("rowTax")} cents={totals.taxCents} />
+                  {totals.rewardCents > 0 && <Row k="rowReward" cents={-totals.rewardCents} />}
+                  <Row k="rowTax" cents={totals.taxCents} />
                 </dl>
               </div>
             )}
@@ -1362,7 +1383,9 @@ export function Checkout({
                 <input
                   value={promo}
                   onChange={(e) => setPromo(e.target.value)}
-                  placeholder={T("promoCode")}
+                  // A placeholder can't carry two lang attributes — the one-line bilingual string
+                  // is the W16b convention for plain-text slots (aria-label stays fixed EN).
+                  placeholder={`${T("promoCode")} · ${t("my", "promoCode")}`}
                   aria-label={
                     lockedByPeer
                       ? `${T("promoCode")} — ${lockedByName} ${T("isCheckingOut")}`
@@ -1385,9 +1408,17 @@ export function Checkout({
                   disabled={pending || !promo.trim()}
                   aria-disabled={lockedByPeer || undefined}
                   className="checkout-pill checkout-pill-accent"
-                  style={{ minHeight: 44, ...(lockedByPeer ? { opacity: 0.55 } : null) }}
+                  // `.checkout-pill` is inline-FLEX (row): a block MY line would land BESIDE "Apply"
+                  // and blow out the 320px promo row — column stacks it under, as intended.
+                  style={{
+                    minHeight: 44,
+                    flexDirection: "column",
+                    lineHeight: 1.15,
+                    ...(lockedByPeer ? { opacity: 0.55 } : null),
+                  }}
                 >
                   {T("applyPromo")}
+                  <My k="applyPromo" />
                 </button>
               </form>
             )}
@@ -1475,12 +1506,12 @@ export function Checkout({
             {!staged && (
               <div className="card card-textured checkout-receipt">
                 <dl>
-                  <Row k={T("rowSubtotal")} cents={totals.subtotalCents} />
+                  <Row k="rowSubtotal" cents={totals.subtotalCents} />
                   {totals.discountCents - totals.rewardCents > 0 && (
-                    <Row k={T("rowPromo")} cents={-(totals.discountCents - totals.rewardCents)} />
+                    <Row k="rowPromo" cents={-(totals.discountCents - totals.rewardCents)} />
                   )}
-                  {totals.rewardCents > 0 && <Row k={T("rowReward")} cents={-totals.rewardCents} />}
-                  <Row k={T("rowTax")} cents={totals.taxCents} />
+                  {totals.rewardCents > 0 && <Row k="rowReward" cents={-totals.rewardCents} />}
+                  <Row k="rowTax" cents={totals.taxCents} />
                 </dl>
               </div>
             )}
@@ -1499,7 +1530,11 @@ export function Checkout({
                 {/* --fs-h3 (17), not the prototype's raw 15px — copy verbatim, size from the scale. */}
                 <h3 id="tip-h" style={{ fontSize: "var(--fs-h3)", margin: "16px 0 6px" }}>
                   {T("addATip")}
+                  <My k="addATip" size="var(--fs-sm)" />
                 </h3>
+                {/* W16b — the tip CHIPS stay EN-only by design (the one deliberate exception): five
+                    chips already share a 320px row, each with a preview subline; the bilingual
+                    heading above carries MY for the whole labelled group. */}
                 <div
                   role="group"
                   aria-labelledby="tip-h"
@@ -1622,6 +1657,7 @@ export function Checkout({
                 <div>
                   <div style={{ fontWeight: 800, fontSize: "var(--fs-body)" }}>
                     {tipPreviewCents > 0 ? T("estimatedTotal") : T("rowTotal")}
+                    <My k={tipPreviewCents > 0 ? "estimatedTotal" : "rowTotal"} color="var(--t3)" />
                   </div>
                   {tipPreviewCents > 0 && (
                     <div style={{ fontSize: "var(--fs-sm)", color: "var(--t3)", marginTop: 1 }}>
@@ -1705,6 +1741,9 @@ export function Checkout({
                   <span aria-hidden className="checkout-cta-arrow">
                     →
                   </span>
+                  {/* W16b — the MY line rides under the EN+amount line; the $ amount stays on the
+                      EN line only (the Latin-digits money rule). */}
+                  <My k="viewBillAndPay" color="inherit" />
                 </span>
               </button>
             )}
@@ -1752,6 +1791,8 @@ export function Checkout({
                       <span aria-hidden className="checkout-cta-arrow">
                         →
                       </span>
+                      {/* W16b — MY line under the EN+amount line (amount stays Latin, EN line only). */}
+                      <My k={isGroup ? "payWholeOrder" : "pay"} color="inherit" />
                     </>
                   )}
                 </span>
@@ -1925,7 +1966,9 @@ function Row({
   strong,
   roll,
 }: {
-  k: string;
+  /** The dictionary key — the row renders BOTH tongues itself (W16b: EN label + inline MY accent;
+   *  the dotted leader ::after still follows as the dt's last inline content). */
+  k: DictKey;
   cents: number;
   strong?: boolean;
   roll?: boolean;
@@ -1947,7 +1990,10 @@ function Row({
         fontWeight: strong ? 800 : 400,
       }}
     >
-      <dt>{k}</dt>
+      <dt>
+        {t("en", k)}
+        <My k={k} inline color="var(--t3)" />
+      </dt>
       <dd
         style={{
           margin: 0,

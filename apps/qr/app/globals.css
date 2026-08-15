@@ -34,29 +34,13 @@ h3 {
   text-transform: uppercase;
   color: var(--ac);
 }
-/* W5 (S2) — Burmese reading mode. `body.my` is stamped by the SERVER layout from the locale
-   cookie (no flash), so these apply before first paint. Padauk becomes the base face (its latin
-   subset keeps untranslated English coherent inside a MY page); Myanmar script needs its tracking
-   NEUTRALIZED — Fraunces' negative display tracking and the eyebrow's 0.13em letterspacing both
-   collide stacked Myanmar glyphs — and more leading than Latin at the same size (--lh-my). */
-body.my {
-  font-family: var(--font-my);
-  line-height: var(--lh-my);
-}
-body.my h1,
-body.my h2,
-body.my h3 {
-  font-family: var(--font-my);
-  letter-spacing: 0;
-}
-body.my .eyebrow {
-  letter-spacing: 0;
-}
+/* (W16b: the W5 `body.my` Burmese reading mode is retired with the locale toggle — the app is
+   always bilingual, EN document language + per-span lang="my" accents. The [lang] rules below are
+   what those accents ride on; --lh-my stays in tokens.css for .kiosk-hero-my.) */
 /* Myanmar has no inter-word spaces — a long run is one unbreakable "word" to the layout engine
-   unless it may break anywhere. Scoped to MY subtrees (any locale), not just body.my — and the
-   tracking reset rides here too (review LOW-6): an EN-mode Burmese ACCENT span inside an h1
-   otherwise inherits Fraunces' -0.02em, exactly the stacked-glyph collision body.my exists to
-   prevent. */
+   unless it may break anywhere. Scoped to MY subtrees — and the tracking reset rides here too
+   (review LOW-6): a Burmese ACCENT span inside an h1 otherwise inherits Fraunces' -0.02em,
+   exactly the stacked-glyph collision this rule exists to prevent. */
 [lang="my"] {
   overflow-wrap: anywhere;
   letter-spacing: normal;
