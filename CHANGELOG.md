@@ -18,8 +18,7 @@ Order lines finally carry the STABLE option ids beside the display labels
 - **Reorder is faithful now**: stored ids re-price through the same `priceItem` at today's
   deltas; a vanished/deactivated option is DISCLOSED (`optionsReset`), a required-group loss
   skips honestly (`needs_choices`); legacy label-only rows keep the base-dish fallback. Decision
-  rules live pure in `lib/reorder-options.ts` — pinned by tests + 3 new verify:slice mutants
-  (95 total).
+  rules live pure in `lib/reorder-options.ts` — pinned by tests + 4 new verify:slice mutants (96 total).
 - `modKey` (line merge + SQL fold) stays on labels — Q10 registry.
 
 ### W15 — POS truth: real Zettle data → menu · grocery · favorites (2026-08-15)

@@ -11,15 +11,15 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > cart+order lines (`20260815100000_m3_modifier_option_ids.sql` — insert RPC re-signed, 3
 > fulfill RPCs restated from their newest baselines), priceItem returns `optionIds`, all three
 > add paths thread them, reorder re-prices by stored id with vanished-option disclosure
-> (`lib/reorder-options.ts`, pure + mutant-pinned ×3). **⚠️ post-merge: apply the migration to
-> prod `fasnpdhtvqtzjlvruqcu` via mcp**Supabase**apply_migration + probes** (columns exist, 4
+> (`lib/reorder-options.ts`, pure + mutant-pinned ×4). **⚠️ post-merge: apply the migration to
+> prod `fasnpdhtvqtzjlvruqcu` via `mcp__Supabase__apply_migration` + probes** (columns exist, 4
 > fn signatures resolve). No backfill by design.
 >
 > **W15 shipped (2026-08-15)** — POS truth (`docs/W15_PLAN.md`): the owner's real Zettle
 > exports reconciled into the catalog (menu prices ×10, data-grounded `popular` tags ×9, 6
 > missing dishes, 60 grocery shelf prices + 9 house SKUs). **✅ prod-applied + probe-verified (2026-08-15):** kyay-o 2000 · tea salad 1400 ·
 > popular=10 · 6 new dishes (fritters hot_prepared / ngapi cold_food / sodas retail_nonfood) ·
-> grocery 404 rows incl 9 HM15xx · 0 compare_at violations Owner decisions surfaced: C12 (POS 15% dine-in service vs disclosed 5%),
+> grocery 404 rows incl 9 HM15xx · 0 compare_at violations. Owner decisions surfaced: C12 (POS 15% dine-in service vs disclosed 5%),
 > C13 (POS 10.5% L.A tax vs 9.75% Covina RATE), C14 (fuzzy-match review + gap backlog).
 >
 > **W5-L1+L2 shipped (2026-08-15)** — one tongue (`docs/W5_PLAN.md`; S2 high, first two slices):

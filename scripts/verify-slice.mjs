@@ -224,6 +224,17 @@ const MUTANTS = [
     replace: "return false;",
   },
   {
+    // M3 review MED-2 — the docstring promised this mutant; without it, "simplifying" the legacy
+    // branch to `false` survives the battery and every pre-M3 order's base-dish fallback goes
+    // undisclosed.
+    id: "reorder/legacy-reset-lost",
+    file: "apps/qr/lib/reorder-options.ts",
+    suite: "lib/reorder-options.test.ts",
+    why: "a labels-only legacy line returns as the BASE dish — dropping its disclosure tells the diner their usual arrived",
+    find: "if (storedCount === 0) return originalHadOptionLabels;",
+    replace: "if (storedCount === 0) return false;",
+  },
+  {
     id: "reorder-notes/truncate-instead-of-drop",
     file: "apps/qr/lib/reorder-notes.ts",
     suite: "lib/reorder-notes.test.ts",

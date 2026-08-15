@@ -23,8 +23,10 @@ import { getPostHogClient } from "./posthog-server";
  *    locked/settling) AND the order's stamped earner (`earned_by = uid`) — you reorder YOUR orders.
  *
  * Honesty rules (what history can't give us, we say out loud instead of guessing):
- *  - Line `modifiers` are stored as display NAMES, not option ids — a modified line comes back as the
- *    BASE dish and is reported in `optionsReset` (never a silent guess at what "extra chili oil" was).
+ *  - M3: lines fulfilled after 20260815100000 store the option IDS beside the labels, so a modified
+ *    line comes back WITH its surviving options (re-priced by id at today's deltas). `optionsReset`
+ *    reports lines that came back DIFFERENT: a legacy labels-only line (base dish — never a silent
+ *    guess at what "extra chili oil" was) or an id line missing a vanished/deactivated option.
  *  - Items that vanished, went sold-out, or REQUIRE choices (priceItem's cardinality check throws for
  *    those on an empty selection) are skipped with a per-item reason.
  *  - Grocery lines are skipped — a shelf item scanned in person isn't reorderable from a menu.
@@ -39,7 +41,9 @@ export type ReorderResult =
   | {
       ok: true;
       added: number;
-      /** Dishes whose original line had modifiers — they came back as the base dish. */
+      /** Dishes that came back DIFFERENT than the original's options (M3): a legacy labels-only
+       *  line returns as the base dish; an id-carrying line may return missing a vanished option.
+       *  A line whose every stored id survived is faithful and is NOT listed here. */
       optionsReset: string[];
       /** True when any original line had qty > 1 (everything lands at 1 — bump with the stepper). */
       quantitiesReset: boolean;
