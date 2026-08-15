@@ -230,8 +230,8 @@ const MUTANTS = [
     file: "apps/qr/lib/cart.ts",
     suite: "lib/cart-toggle.test.ts",
     why: "W16a review MED — dropping the p_unit_price_cents forward makes the SQL coalesce keep the OLD mode's price: a dinein line flipped to-go stays charged ×1.15 forever",
-    find: "      p_unit_price_cents: newUnitCents,",
-    replace: "      p_unit_price_cents: undefined,",
+    find: "    p_unit_price_cents: newUnitCents,",
+    replace: "    p_unit_price_cents: undefined,",
   },
   {
     id: "cart/toggle-legacy-rescaled-again",
