@@ -73,6 +73,11 @@ function My({
         fontSize: size,
         fontWeight: 600,
         color,
+        // ⚠️ The inline accent's gap is a MARGIN, never a whitespace text node: its two hosts are
+        // FLEX containers (`.checkout-leader-row dt` for the receipt rows, `.nav-link` for the back
+        // link), and flex layout DROPS whitespace-only text between items — a space here would
+        // render "Subtotalအကြိုစုစုပေါင်း" with the two tongues fused. Margin works in both.
+        ...(inline ? { marginInlineStart: "0.4em" } : null),
       }}
     >
       {t("my", k)}
@@ -974,7 +979,8 @@ export function Checkout({
                 <span aria-hidden className="nav-arrow nav-arrow-back">
                   ←
                 </span>{" "}
-                {T("backToYourOrder")} <My k="backToYourOrder" inline color="var(--t3)" />
+                {T("backToYourOrder")}
+                <My k="backToYourOrder" inline color="var(--t3)" />
               </button>
             )}
             {lockedByPeer && (
@@ -1402,7 +1408,14 @@ export function Checkout({
                   disabled={pending || !promo.trim()}
                   aria-disabled={lockedByPeer || undefined}
                   className="checkout-pill checkout-pill-accent"
-                  style={{ minHeight: 44, ...(lockedByPeer ? { opacity: 0.55 } : null) }}
+                  // `.checkout-pill` is inline-FLEX (row): a block MY line would land BESIDE "Apply"
+                  // and blow out the 320px promo row — column stacks it under, as intended.
+                  style={{
+                    minHeight: 44,
+                    flexDirection: "column",
+                    lineHeight: 1.15,
+                    ...(lockedByPeer ? { opacity: 0.55 } : null),
+                  }}
                 >
                   {T("applyPromo")}
                   <My k="applyPromo" />
@@ -1978,7 +1991,8 @@ function Row({
       }}
     >
       <dt>
-        {t("en", k)} <My k={k} inline color="var(--t3)" />
+        {t("en", k)}
+        <My k={k} inline color="var(--t3)" />
       </dt>
       <dd
         style={{
