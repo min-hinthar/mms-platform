@@ -48,6 +48,14 @@ export const MUTATE_RATE = { max: 120, windowSeconds: 60 } as const;
 export const STEPUP_RATE = { max: 20, windowSeconds: 600 } as const;
 
 /**
+ * W7a — "Email me this receipt" triggers an OUTBOUND email, so it gets its own tight bucket:
+ * MUTATE_RATE's 120/min would be a spam-relay budget. 5 sends per 10 minutes per uid covers every
+ * honest re-ask ("didn't arrive, send again", a typo'd address corrected) while bounding a hostile
+ * loop to noise. Keyed by the verified uid, never the order id (one diner, one budget).
+ */
+export const RECEIPT_RATE = { max: 5, windowSeconds: 600 } as const;
+
+/**
  * Staff-PIN policy (S1.1b). A PIN is a low-entropy shared-tablet fast-path, so the brute-force defense
  * is the lockout, enforced atomically in the SQL `mms_staff_verify_pin` (lib/staff-pin.ts is the app
  * mirror). KEEP THESE IN SYNC with the `v_max` (5) / `v_lockout` (15 min) constants in

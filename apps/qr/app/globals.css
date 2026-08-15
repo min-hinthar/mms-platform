@@ -6303,3 +6303,28 @@ html[data-seen-surface] .mms-stagger {
   gap: var(--s4);
   padding: var(--s4) var(--s5) 0;
 }
+
+/* ── W7a — print: the receipt artifact prints as a clean slip (the repo's first @media print
+   block). Literal white/ink here is the PRINT exception, not a token violation: paper has one
+   theme, and print output must never depend on the viewer's dark mode. Everything interactive
+   or chrome carries `.print-hide` (or is the app header/nav, hidden wholesale). */
+@media print {
+  .print-hide,
+  .app-header,
+  nav {
+    display: none !important;
+  }
+  body {
+    background: #fff !important;
+  }
+  main {
+    padding: 12px !important;
+    max-width: none !important;
+  }
+  .receipt-artifact {
+    box-shadow: none !important;
+    border: none !important;
+    background: #fff !important;
+    color: #1b1714 !important;
+  }
+}

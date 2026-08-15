@@ -777,6 +777,31 @@ const MUTANTS = [
     find: "  return RESERVED_SESSION_PREFIXES.some((p) => code.startsWith(p));",
     replace: "  return false;",
   },
+  {
+    id: "receipt/expired-token-resolves",
+    file: "apps/qr/lib/receipt-token.ts",
+    suite: "lib/receipt-token.test.ts",
+    why: "W7a — the expiry predicate is the whole bound on a forwarded/leaked receipt bearer; without it every link ever minted resolves forever",
+    find: '      .eq("token", rawToken)\n      .gt("expires_at", new Date().toISOString())\n      .maybeSingle();',
+    replace: '      .eq("token", rawToken)\n      .maybeSingle();',
+  },
+  {
+    id: "receipt/link-payer-probe-unscoped",
+    file: "apps/qr/lib/receipt.ts",
+    suite: "lib/receipt-authz.test.ts",
+    why: "W7a — the payer probe is half the pre-mint authorization; without the uid predicate any signed-in visitor mints a durable receipt bearer for any order id they can guess",
+    find: '    .eq("order_id", orderId)\n    .eq("payer_uid", uid)\n    .maybeSingle();',
+    replace: '    .eq("order_id", orderId)\n    .maybeSingle();',
+  },
+  {
+    id: "receipt/token-shape-unchecked",
+    file: "apps/qr/lib/receipt-token.ts",
+    suite: "lib/receipt-token.test.ts",
+    why: "W7a — the shape gate keeps junk/pathological input out of the resolve query entirely; without it the session-less view forwards arbitrary strings into the token lookup",
+    find: "export async function resolveReceiptOrder(rawToken: string): Promise<string | null> {\n  if (!isReceiptTokenShape(rawToken)) return null;",
+    replace:
+      "export async function resolveReceiptOrder(rawToken: string): Promise<string | null> {",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

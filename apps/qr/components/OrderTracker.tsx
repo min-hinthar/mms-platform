@@ -12,6 +12,7 @@ import { announceArrival } from "@/lib/arrival";
 import { FeedbackPrompt } from "./FeedbackPrompt";
 import { GoodbyeBeat } from "./GoodbyeBeat";
 import { PaySuccess } from "./PaySuccess";
+import { ReceiptActions } from "./ReceiptActions";
 import { useConnectionTruth } from "@/lib/useConnectionTruth";
 
 // Lifecycle steps (verbatim v7.2). The active step is server-driven; at M1/M2 there's no kitchen
@@ -942,6 +943,12 @@ export function OrderTracker({
           </div>
         </div>
       )}
+
+      {/* W7a — the receipt ARTIFACT door: the durable print/view link + the consent-first email
+          capture (the server action re-authorizes earner/payer on every ask; renders nothing for
+          a viewer it refuses). Sits under the compact card — the card stays the summary, the
+          artifact is the itemized lasting copy. */}
+      {arrived && <ReceiptActions orderId={order.id} />}
 
       {/* J4 — one clock for the exit arc: the goodbye + the review ask land when the FOOD is where it
           belongs, not merely when money moved. Keyed on the LINES, not `togoStatus`: nothing to-go is

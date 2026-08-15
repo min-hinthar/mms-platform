@@ -427,6 +427,35 @@ export type Database = {
         }
         Relationships: []
       }
+      mms_receipt_tokens: {
+        Row: {
+          created_at: string
+          expires_at: string
+          order_id: string
+          token: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at: string
+          order_id: string
+          token: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          order_id?: string
+          token?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mms_receipt_tokens_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "qr_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       mms_refunds: {
         Row: {
           amount_cents: number
@@ -1285,6 +1314,8 @@ export type Database = {
           fire_at: string | null
           id: string
           pickup_slot: string | null
+          receipt_email: string | null
+          receipt_sent_at: string | null
           service_charge_cents: number
           session_id: string | null
           settled_by: string | null
@@ -1310,6 +1341,8 @@ export type Database = {
           fire_at?: string | null
           id?: string
           pickup_slot?: string | null
+          receipt_email?: string | null
+          receipt_sent_at?: string | null
           service_charge_cents: number
           session_id?: string | null
           settled_by?: string | null
@@ -1335,6 +1368,8 @@ export type Database = {
           fire_at?: string | null
           id?: string
           pickup_slot?: string | null
+          receipt_email?: string | null
+          receipt_sent_at?: string | null
           service_charge_cents?: number
           session_id?: string | null
           settled_by?: string | null

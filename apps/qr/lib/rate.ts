@@ -1,6 +1,6 @@
 import "server-only";
 import { serviceClient } from "@mms/db/server";
-import { JOIN_RATE, MUTATE_RATE, PEEK_RATE, STEPUP_RATE } from "./limits";
+import { JOIN_RATE, MUTATE_RATE, PEEK_RATE, RECEIPT_RATE, STEPUP_RATE } from "./limits";
 
 /**
  * Per-device rate limiting (M3·P3.4). The join/mutation/pay paths are public POSTs (IDOR-by-default —
@@ -54,6 +54,13 @@ export function withinMutationRate(seat: string): Promise<boolean> {
  *  id of the INITIATOR, not the target. */
 export function withinStepUpRate(callerStaffId: string): Promise<boolean> {
   return withinRate("stepup", callerStaffId, STEPUP_RATE.max, STEPUP_RATE.windowSeconds);
+}
+
+/** Gate an "Email me this receipt" send per verified uid (W7a) — the outbound-email budget
+ *  (see RECEIPT_RATE). Exhaustion maps to honest "try again in a few minutes" copy, never a
+ *  silent drop of a receipt the diner is waiting on. */
+export function withinReceiptRate(uid: string): Promise<boolean> {
+  return withinRate("receipt", uid, RECEIPT_RATE.max, RECEIPT_RATE.windowSeconds);
 }
 
 /**
