@@ -7,6 +7,13 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 
 > ## ⏭️ NEXT SESSION — start here (2026-08-15 — … + W7a + W5-L1/L2 shipped)
 >
+> **W15 shipped (2026-08-15)** — POS truth (`docs/W15_PLAN.md`): the owner's real Zettle
+> exports reconciled into the catalog (menu prices ×10, data-grounded `popular` tags ×9, 6
+> missing dishes, 60 grocery shelf prices + 9 house SKUs). **⚠️ post-merge: apply
+> `supabase/data/w15_pos_apply.sql` to prod `fasnpdhtvqtzjlvruqcu` via MCP execute_sql +
+> verify probes.** Owner decisions surfaced: C12 (POS 15% dine-in service vs disclosed 5%),
+> C13 (POS 10.5% L.A tax vs 9.75% Covina RATE), C14 (fuzzy-match review + gap backlog).
+>
 > **W5-L1+L2 shipped (2026-08-15)** — one tongue (`docs/W5_PLAN.md`; S2 high, first two slices):
 > typed `lib/i18n` dictionaries (`common` + `cart`, ~50 money-moment keys, 6 red-first guards),
 > `mms_locale` cookie → server-stamped `<html lang>`/`body.my` (no flash), AppHeader chip +

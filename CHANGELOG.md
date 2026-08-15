@@ -4,6 +4,24 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W15 — POS truth: real Zettle data → menu · grocery · favorites (2026-08-15)
+
+Six months of real POS history (Jan–Jul 2026 sales + the 2026-07-31 item library) reconciled
+into the catalog (`docs/W15_PLAN.md`):
+
+- **Menu**: 10 price corrections to the library's dine-in price (Kyay-O 18→20, Tea Salad 12→14,
+  Coffee 6.50→5, …); 9 `popular` tags stamped from REAL top sellers (the StartHereBand/badge
+  fallback layer is finally data-grounded — `getMostLoved` still supersedes it as QR history
+  grows); 6 missing high-sellers added (Veggie Fritters, NgaPi & Veggies, Malar Spicy Beef,
+  White Peas, two packaged drinks pinned `retail_nonfood` — carbonated is always taxable in CA).
+- **Grocery**: 60 exact-match shelf-price updates (`price_source: zettle_pos_jul2026`,
+  compare_at cleared where the CHECK would break) + 9 house SKUs (Balachaung jar, dried
+  goat/fish/crickets — synthetic 29915-prefix EAN-13s). 14 fuzzy matches deliberately NOT
+  applied (owner-review table in the plan).
+- **Prod apply artifact**: `supabase/data/w15_pos_apply.sql` (guarded, idempotent).
+- **Surfaced, not changed** (owner decisions → C12/C13): POS 15% dine-in service charge vs the
+  app's disclosed 5%; POS 10.5% L.A sales tax vs the app's 9.75% Covina rate.
+
 ### W5-L1+L2 — one tongue: the EN↔MY toggle + the money-moment dictionary (2026-08-15)
 
 S2 (high) progress — the app finally switches languages (`docs/W5_PLAN.md`):
