@@ -288,7 +288,7 @@ const list: CSSProperties = {
 // W14 — the lead-photo row: thumb + the existing three-row column. minWidth 0 so the nowrap
 // summary line keeps ellipsizing inside the flex child (the same overflow guard as the grid).
 // W16e — 12 (--s3): one rhythm across the cart, bill, history and favorites thumb rows.
-const summaryRow: CSSProperties = { display: "flex", alignItems: "center", gap: 12 };
+const summaryRow: CSSProperties = { display: "flex", alignItems: "center", gap: "var(--s3)" };
 const summaryCol: CSSProperties = { minWidth: 0, flex: 1, display: "grid", gap: 6 };
 const rowTop: CSSProperties = {
   display: "flex",

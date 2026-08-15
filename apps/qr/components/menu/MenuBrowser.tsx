@@ -528,8 +528,8 @@ export function MenuBrowser({
                     className="card card-textured"
                     style={{
                       display: "flex",
-                      gap: 12, // W16e — --s3, was 13/11 off the spacing grid
-                      padding: 12,
+                      gap: "var(--s3)", // W16e — was 13/11, off the spacing grid
+                      padding: "var(--s3)",
                       opacity: i.is_sold_out ? 0.5 : 1,
                     }}
                   >

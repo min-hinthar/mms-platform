@@ -92,7 +92,7 @@ export default async function Menu({
       description_my: i.description_my,
       base_price_cents: i.base_price_cents,
       // Containment only (lib/media-url): what next/image + the CSP will accept. W16d removed the
-      // fallback.jpg filter that used to null these — those rows are REAL per-dish photos.
+      // filename filter that used to null most of these — those rows are REAL per-dish photos.
       image_url: safeImageUrl(i.image_url),
       // Unavailable if flagged sold-out OR a required modifier group has no active options to choose from.
       is_sold_out: i.is_sold_out || requiredChoiceUnavailable(i.item_modifier_groups),

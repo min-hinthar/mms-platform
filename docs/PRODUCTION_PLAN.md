@@ -148,12 +148,14 @@ The 20%-effort fix for the measurement failure that let the gap survive:
 
 The abandoned slices 2–6, plus the art-direction layer the plan never had:
 
-- **W2a Photography + placeholder system.** Needs Min: one afternoon shooting the ~31 unphotographed dishes
+- **W2a Photography + placeholder system.** Needs Min: a short session shooting the **3** unphotographed dishes (W16d: the ~31 figure counted photos a filename filter was hiding — 34 of 66 are real and now render)
   (§5). Code side: migrate the photo bucket into the QR project (`fasnpdhtvqtzjlvruqcu` — today every URL
   hotlinks the **delivery** project's storage and one bucket change over there silently blanks our menu;
   narrow `remotePatterns` accordingly) · a **designed placeholder** (✦ + category glyph over the gradient,
-  or Snackpass-style per-category Text layout) so a missing photo never reads broken · collapse the empty
-  200px `.item-hero` band when `image_url` is null.
+  or Snackpass-style per-category Text layout) so a missing photo never reads broken. ⚠️ **W16e
+  reversed the collapse idea**: `.item-hero` is now an `aspect-ratio` band and the rails
+  deliberately KEEP the slot on a null src (a collapsing slot made ragged short cards beside full
+  ones — W13's "the slot always renders" rule).
 - **W2b Icon system.** Replace ~30 functional emoji (🔍🗑🧾🪑♥💳🔥…) with a ~20-glyph SVG set at the brand's
   stroke weight (restyled Phosphor/Lucide subset; ✦ stays the one brand mark; emoji only ever content, never
   chrome). One PR, app-wide.

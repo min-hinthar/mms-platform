@@ -235,7 +235,7 @@ export function SendToKitchenButton({
               style={{
                 display: "block",
                 fontFamily: "var(--font-my)",
-                fontSize: "var(--fs-xs)",
+                fontSize: "var(--fs-sm)",
                 fontWeight: 600,
               }}
             >
@@ -255,7 +255,7 @@ export function SendToKitchenButton({
             style={{
               display: "block",
               fontFamily: "var(--font-my)",
-              fontSize: "var(--fs-xs)",
+              fontSize: "var(--fs-sm)",
               fontWeight: 600,
               color: "var(--t3)",
             }}

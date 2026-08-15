@@ -620,8 +620,8 @@ export async function getCartView(cartId: string): Promise<{
   // W13 — line media + Burmese names, keyed by the soft ref (menu uuid OR grocery barcode); the
   // keyspaces are disjoint by the uuidRe partition. Display-only; a failed lookup degrades to
   // placeholder/EN (same advisory posture as soldOut). `safeImageUrl` = containment only; W16d
-  // removed the fallback.jpg→placeholder filter that rode here (those rows are real photos), so
-  // the cart and bill thumbs show the same dish photography the menu does.
+  // removed the filename→placeholder filter that rode here (those rows are real photos — see
+  // lib/media-url), so the cart and bill thumbs show the same dish photography the menu does.
   const media = new Map<string, { imageUrl: string | null; nameMy: string | null }>();
   const barcodes = [
     ...new Set((rows ?? []).map((r) => r.menu_item_id).filter((x) => !uuidRe.test(x))),

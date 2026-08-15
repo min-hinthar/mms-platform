@@ -10,10 +10,11 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 Root cause: W13 added a `fallback.jpg → null` display filter believing those rows shared one
 generic stock image. Probing the live storage bucket disproved it — every
 `menu-photos/<id>/fallback.jpg` is a DISTINCT real photo of that dish (different sizes and etags
-per id; the `photo.jpg` some rows were assumed to have 404s). The filter was hiding ~28 real
-photos behind the placeholder on the menu grid, item sheet, Start-here, favorites, cart and bill
-thumbs, and order history at once — while the kiosk, which never imported it, had been showing
-those same photos all along.
+per id; the `photo.jpg` some rows were assumed to have 404s). **Measured against prod: of 66 active
+menu items, 34 carried a filtered filename — every one a real photo** — 29 carried another, and
+just 3 are genuinely NULL. So the filter was hiding 34 real photos behind the placeholder on the
+menu grid, item sheet, Start-here, favorites, cart and bill thumbs, and order history at once —
+while the kiosk, which never imported it, had been showing those same photos all along.
 
 - `displayImageUrl` is **deleted**; `safeImageUrl` (containment — what `next/image` and the CSP
   accept) is the only rule left, and all four importers now call it. "Does this dish have a photo?"
@@ -21,8 +22,12 @@ those same photos all along.
 - The kiosk and the staff add-items page passed the RAW DB value into `next/image` (which throws at
   render on a non-allowlisted host) — both now go through containment too.
 - `media-url.test.ts` inverted red-first: a contained `fallback.jpg` must PASS; an uncontained one
-  must still be refused. Docs carrying the wrong "31 of 60 dishes have no photo" count corrected —
-  the owner's photography task shrinks to ~3 NULL dishes (OPEN-ITEMS C5, PRODUCTION_PLAN).
+  must still be refused. **`scripts/check-photo-filter.mjs` is the guard that actually pins the
+  fix** (wired into `verify:slice`): the unit test is BLIND to the filter being re-added at a call
+  site — proven by re-adding it inside `getCartView` and watching the suite stay green while the
+  grep goes red. Docs carrying the wrong "31 of 60 dishes have no photo" count corrected against
+  the measured figures — the owner's photography task is 3 NULL dishes (OPEN-ITEMS C5,
+  PRODUCTION_PLAN §1/§5/§W2a).
 
 **W16e — spacing and typography** ("texts, fonts, contents, surfaces, layers … with enough
 paddings and margins"). Two structural levers, then the ranked list:
@@ -64,9 +69,9 @@ confirm decision."
   and stalling `ExpressCheckoutElement.onConfirm` behind an app dialog both double-asks and risks
   expiring the wallet session.
 - Copy is bilingual and pure (`lib/i18n/confirm.ts` + `lib/confirm-copy.ts`): the owner's Burmese
-  "Kitchen သို့ မှာယူရန် အတည်ပြုပါပြီ" rides the send proceed-button **verbatim** (pinned by test
-  - mutant), amounts are Latin digits in BOTH tongues, and every decision's copy is walked by
-    `confirm-copy.test.ts` (3 rules proven red-first, 2 new mutants — 105 total).
+  "Kitchen သို့ မှာယူရန် အတည်ပြုပါပြီ" rides the send proceed-button **verbatim** (pinned by a test
+  and a mutant), amounts are Latin digits in BOTH tongues, and every decision's copy is walked by
+  `confirm-copy.test.ts` (3 rules proven red-first, 2 new mutants — 105 total).
 
 ### W16b — always bilingual: the language toggle is retired (2026-08-15)
 

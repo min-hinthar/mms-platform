@@ -112,7 +112,8 @@ const detail: CSSProperties = { margin: 0, fontSize: "var(--fs-sm)", color: "var
 const detailMy: CSSProperties = {
   display: "block",
   fontFamily: "var(--font-my)",
-  fontSize: "var(--fs-xs)",
+  // W16e review — the 13px Burmese floor (stacked diacritics are illegible below it), not fs-xs.
+  fontSize: "var(--fs-sm)",
   color: "var(--t3)",
 };
 const row: CSSProperties = { display: "flex", gap: "var(--s3)" };
@@ -143,6 +144,8 @@ const proceedBtn: CSSProperties = {
 const btnMy: CSSProperties = {
   display: "block",
   fontFamily: "var(--font-my)",
-  fontSize: "var(--fs-xs)",
+  // W16e review MED — these are the owner's OWN named buttons ("Send to kitchen … or finalize pay
+  // bill"); shipping their Burmese at the 11px floor is exactly what the W12 bill review rejected.
+  fontSize: "var(--fs-sm)",
   fontWeight: 600,
 };

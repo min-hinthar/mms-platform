@@ -8,23 +8,31 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > ## ⏭️ NEXT SESSION — start here (2026-08-15 — the owner's W16 reset COMPLETE)
 >
 > **W16d+e shipped (2026-08-15)** — the last two slices of the owner's reset.
-> **W16d (photos):** the owner asked why dishes like Kyay-O had lost their photos. W13's
-> `fallback.jpg → null` filter assumed those rows shared a generic stock image; a probe of the live
-> bucket disproved it (every `menu-photos/<id>/fallback.jpg` is a DISTINCT real dish photo —
-> different sizes/etags per id; the `photo.jpg` some rows were assumed to have 404s). It was hiding
-> ~28 real photos across the menu grid, item sheet, Start-here, favorites, cart/bill thumbs and
-> history — while the kiosk, which never imported the filter, showed them all along.
-> `displayImageUrl` is DELETED; `safeImageUrl` (containment only) is the single rule, and the kiosk
 >
-> - staff-add pages gained the containment they never had (they passed raw DB values into
->   `next/image`, which throws at render on a bad host). **The owner-facing photography task shrinks
->   from 31 dishes to ~3 NULL rows** (OPEN-ITEMS C5 + PRODUCTION_PLAN corrected).
->   **W16e (spacing):** `[lang="my"]` finally carries `line-height: var(--lh-my)` — the token has
->   existed since W5 but only the retired `body.my` mode ever applied it, so no Burmese accent had
->   ever had its own leading (this is what makes W16b's stacked bilingual safe); `body` gets
->   `--lh-normal`; Burmese lifted off the sub-13px floor at five sites; the photo slot stops
->   collapsing on null; `.item-hero` becomes an aspect-ratio; `.checkout-cta` carries min-height +
->   padding for the two-line bilingual labels; `--w-content`/`--s*` token hygiene.
+> **W16d (photos).** The owner asked why dishes like Kyay-O had lost their photos. W13's filename
+> filter assumed those rows shared a generic stock image; a probe of the live bucket disproved it
+> (each is a DISTINCT real dish photo — different sizes/etags per id; the sibling filename some rows
+> were assumed to have 404s). **Measured against prod: 66 active menu items — 34 were being hidden
+> by the filter, 29 carry another filename, 3 are genuinely NULL.** So it was hiding 34 real photos
+> across the menu grid, item sheet, Start-here, favorites, cart/bill thumbs and history, while the
+> kiosk (which never imported the filter) showed them all along. `displayImageUrl` is DELETED;
+> `safeImageUrl` is the single rule, now pinned to the TWO allowlisted project hosts (it used to
+> accept any Supabase tenant, which would pass containment and then throw inside `next/image`). The
+> kiosk and staff-add pages gained the containment they never had. **The guard that actually holds
+> this** is `scripts/check-photo-filter.mjs` (in `verify:slice`): a unit test on `safeImageUrl` is
+> blind to the filter being re-added at a CALL SITE — proven by doing exactly that and watching the
+> suite stay green while the grep went red. **The owner-facing photography task is 3 NULL dishes**,
+> not 31 (OPEN-ITEMS C5 + PRODUCTION_PLAN §1/§5/§W2a corrected).
+>
+> **W16e (spacing).** `[lang="my"]` finally carries `line-height: var(--lh-my)` — the token has
+> existed since W5 but only the retired `body.my` mode ever applied it, so no Burmese accent had
+> ever had its own leading (this is what makes W16b's stacked bilingual safe by construction);
+> `body` gets `--lh-normal`. Burmese lifted off the sub-13px floor everywhere it was under it —
+> including the owner's OWN named buttons (the confirm CTAs were still 11px) and the /grocery
+> classes, which had been overriding the new leading with their own. The photo slot stops collapsing
+> on null; `.item-hero` becomes an aspect-ratio; `.checkout-cta` AND `.checkout-viewbill` both carry
+> the min-height + padding (one button swaps between them, so a box on only one made it twitch);
+> `--w-content`/`--s*` token hygiene.
 >
 > **W16c shipped (2026-08-15)** — the important buttons ask first (owner: "Important buttons like
 > Send to kitchen … or finalize pay bill should ask to confirm decision"). ONE shared

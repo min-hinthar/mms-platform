@@ -4,7 +4,8 @@ import { safeImageUrl } from "./media-url";
 /**
  * W13 — the image-URL containment guard, pinned. next/image THROWS at render on a host outside
  * next.config.ts's allowlist, so one bad DB row must degrade to the placeholder (null), never
- * crash a surface. The boundary: site-relative, or https on a *.supabase.co host — nothing else.
+ * crash a surface. The boundary: site-relative, or https on ONE OF THE TWO project hosts —
+ * nothing else.
  */
 describe("safeImageUrl — the containment boundary", () => {
   it("passes site-relative paths and supabase.co hosts (either project)", () => {
@@ -23,6 +24,14 @@ describe("safeImageUrl — the containment boundary", () => {
     expect(safeImageUrl("https://evil.example/x.jpg")).toBeNull();
     expect(safeImageUrl("https://supabase.co.evil.example/x.jpg")).toBeNull(); // lookalike
     expect(safeImageUrl("https://xsupabase.com/x.jpg")).toBeNull();
+  });
+  it("refuses a THIRD supabase tenant — the allowlist is two projects, not the platform", () => {
+    // W16d review MED: the guard used to accept any `*.supabase.co`, but next.config.ts's
+    // remotePatterns and the CSP img-src name exactly two hosts. Anyone can create a Supabase
+    // project, so a row pointing at one passed containment and then threw INSIDE next/image at
+    // render — the whole-surface crash this function exists to prevent, and now load-bearing for
+    // the kiosk and the register, which used to pass raw values.
+    expect(safeImageUrl("https://someoneelse.supabase.co/storage/v1/x.jpg")).toBeNull();
   });
   it("null/undefined/empty degrade to the placeholder, never a crash", () => {
     expect(safeImageUrl(null)).toBeNull();

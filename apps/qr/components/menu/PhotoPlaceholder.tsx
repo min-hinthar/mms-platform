@@ -6,9 +6,10 @@ import { Icon, categoryIconName, type IconName } from "@mms/ui";
  * category glyph + the ✦ wordmark mark over the same gradient — so a photoless dish reads "photo coming"
  * rather than "broken image".
  *
- * ⚠️ W16d — this used to cover ~31/60 dishes because a `fallback.jpg` filter nulled 28 real photos
- * on the assumption the filename meant "no photography". It doesn't (each is a distinct dish photo),
- * the filter is gone, and this placeholder now covers only the ~3 genuinely NULL rows + load
+ * ⚠️ W16d — this used to cover most of the menu because W13 nulled every photo whose FILENAME was
+ * assumed to mean "no photography yet". It didn't (each is a distinct dish photo — see
+ * lib/media-url.ts); measured against prod, 34 of 66 active dishes were hidden that way. The filter
+ * is gone and this placeholder now covers only the 3 genuinely NULL rows + load
  * failures. Decorative only (`aria-hidden`); the row/sheet already names the dish, so
  * the placeholder carries no text. Purely presentational → Server-Component safe.
  *

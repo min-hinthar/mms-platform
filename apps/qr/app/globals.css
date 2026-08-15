@@ -1881,6 +1881,11 @@ h3 {
 /* W12 — the Order moment's quiet door to the bill: the old Send outline look, inherited (the filled
    promotion once everything is sent comes from .checkout-cta on the same element). */
 .checkout-viewbill {
+  /* W16e review MED — the SAME box as .checkout-cta: Checkout swaps one button between the two
+     classes (draft-count / undo state), so a box on only one of them made the primary CTA jump
+     ~8px on the first add and back again when the undo grace ended. */
+  min-height: 50px;
+  padding-block: var(--s2);
   border: 1px solid var(--ac);
   background: transparent;
   color: var(--ac);
@@ -4680,8 +4685,10 @@ html[data-seen-surface] .mms-stagger {
 }
 .aisle-tile-my {
   font-family: var(--font-my);
-  font-size: 10.5px;
-  line-height: 1.15;
+  /* W16e review LOW — was 10.5px/1.15: the smallest Burmese in the app, and its own line-height
+     OVERRODE the new [lang="my"] leading, so /grocery kept clipping stacked diacritics while the
+     rest of the app breathed. Size to the scale; leading inherits. */
+  font-size: var(--fs-xs);
   color: var(--t3);
 }
 .aisle-tile[aria-pressed="true"] .aisle-tile-my {
@@ -4871,8 +4878,7 @@ html[data-seen-surface] .mms-stagger {
 }
 .aisle-fan-label-my {
   font-family: var(--font-my);
-  font-size: 11px;
-  line-height: 1.3;
+  font-size: var(--fs-xs); /* W16e — was 11px/1.3, overriding the MY leading */
   color: var(--t3);
 }
 .aisle-fan-tick[aria-current="true"] .aisle-fan-label-my {
@@ -5014,8 +5020,8 @@ html[data-seen-surface] .mms-stagger {
 }
 .gcard-name-my {
   font-family: var(--font-my);
-  font-size: 12px;
-  line-height: 1.4;
+  /* W16e — was 12px/1.4 (own leading beat the MY rule); the clamp's line box grows with it. */
+  font-size: var(--fs-sm);
   color: var(--t2);
   display: -webkit-box;
   -webkit-line-clamp: 1;
