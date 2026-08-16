@@ -4,6 +4,34 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W17c-3 — the house tip ladder, on the kiosk and the register (2026-08-16)
+
+Owner, 2026-08-16: _"tip should be 15%, 20%, 30% options."_
+
+- **`TIP_LADDER` is 15/20/30 on every surface** — diner checkout, kiosk, register. This _replaces_
+  W17c-1's basket-size fork rather than merely overruling it: that fork existed because 18% of a $4
+  tea is a meaningless 72¢, and 30% of the same tea is $1.20 — an amount a counter tipper actually
+  leaves. A house that asks differently depending on where you stand is not one house.
+- **The kiosk asks.** A tip step between the commitment and the handoff, shown once, and only when
+  there is something to tip on (a pure-grocery basket takes none). **"No tip" is first and identical
+  in weight** — the ask must never make declining feel wrong. It records `0`, a real answer.
+- **The choice survives the walk to the counter.** The kiosk pays at the register minutes later, so
+  `qr_carts.intended_tip_cents` holds it — named for what it is. `null` (never asked) stays distinct
+  from `0` (asked, chose nothing) because the register renders them differently; a default would
+  erase a real answer. Bounded by Zod **and** a column CHECK, refused while the cart is locked or
+  settling, and status-guarded **in the UPDATE** so a settle landing mid-write can't repoint a tip a
+  cashier is already counting against.
+- **The register offers the same ladder as one-tap chips** that _fill_ the cashier's field rather
+  than settling, so the amount stays visible and adjustable. Pre-filled from the kiosk choice with a
+  line naming where the number came from — a pre-filled amount with no explanation reads as an
+  app-invented charge. The cashier's entry remains the authority (W17c-2).
+- **A failed tip write still hands off.** An unrecorded intent is a smaller harm than a dead-ended
+  kiosk, and the cashier can simply ask.
+- **The cap filter was made reachable.** `verify:slice` caught its mutant _surviving_: with a fixed
+  ladder no preset ever breaches the 0.5 ceiling, so removing the filter changed nothing observable —
+  a decorative guard. `tipPresets` now takes the ladder as a defaulted parameter so a test can pass
+  one that breaches the cap and watch the rung get dropped. 5 new mutants (**116 total**).
+
 ### W17c-2 — the cash tip is on the books (2026-08-16)
 
 Second of the four tipping enhancements. `settleCash` passed `p_tip_cents: 0` unconditionally and the
