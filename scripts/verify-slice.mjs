@@ -667,8 +667,8 @@ const MUTANTS = [
     file: "apps/qr/lib/staff-cart.ts",
     suite: "lib/staff-cart.test.ts",
     why: "W6a/K17 — reverting to the lenient add ships modifier-less required items: the customer is quoted a curry with a style, the kitchen gets one without",
-    find: "      { enforceCardinality: true, fulfillment: staffFulfillment },",
-    replace: "      { enforceCardinality: false, fulfillment: staffFulfillment },",
+    find: "      { enforceCardinality: true },",
+    replace: "      { enforceCardinality: false },",
   },
   {
     id: "staff-cart/mode-fork-collapses-to-dinein",
