@@ -7,6 +7,9 @@ export type DayOrderRow = {
   tender: string;
   total_cents: number;
   status: string;
+  /** W17c-2 — recorded cash tips. Optional so a caller that hasn't widened its SELECT reads 0
+   *  rather than NaN; the register's own query does select it. */
+  tip_cents?: number | null;
 };
 
 export type DaySummary = {
@@ -24,6 +27,11 @@ export type DaySummary = {
    *  split, and the UI labels it that way rather than claiming a net drawer figure.) */
   refundedCount: number;
   refundedCents: number;
+  /** W17c-2 — the tip portion of `cashCents`, NOT a separate bucket to add to it. Cash tips are
+   *  money in the same drawer, so the drawer figure must already include them; this says how much
+   *  of it belongs to the team. Reported apart because "count the drawer" and "what were we
+   *  tipped" are different questions asked by different people. */
+  cashTipCents: number;
 };
 
 /** Bucket a day's orders by tender. Only status='paid' rows count toward a tender bucket — a
@@ -38,6 +46,7 @@ export function summarizeDay(rows: DayOrderRow[]): DaySummary {
     terminalCents: 0,
     refundedCount: 0,
     refundedCents: 0,
+    cashTipCents: 0,
   };
   for (const r of rows) {
     if (r.status === "refunded") {
@@ -49,6 +58,9 @@ export function summarizeDay(rows: DayOrderRow[]): DaySummary {
     if (r.tender === "cash") {
       s.cashCount += 1;
       s.cashCents += r.total_cents;
+      // Already INSIDE total_cents (the RPC folds the tip into the order total) — this is a
+      // breakdown of the drawer, never an addition to it.
+      s.cashTipCents += r.tip_cents ?? 0;
     } else if (r.tender === "terminal") {
       s.terminalCount += 1;
       s.terminalCents += r.total_cents;

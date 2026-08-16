@@ -273,12 +273,17 @@ export async function getDayCashSummary(): Promise<DayCashResult> {
   // Page explicitly: PostgREST truncates at its max-rows (default 1000) with error still null, and a
   // silently-truncated drawer figure is exactly the lie this surface exists to prevent. Ordered pages
   // until a short page; statuses the buckets ignore are filtered server-side so they don't burn rows.
-  const rows: { tender: string; total_cents: number; status: string }[] = [];
+  const rows: {
+    tender: string;
+    total_cents: number;
+    status: string;
+    tip_cents: number | null;
+  }[] = [];
   const PAGE = 1000;
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await db
       .from("qr_orders")
-      .select("tender,total_cents,status")
+      .select("tender,total_cents,status,tip_cents")
       .gte("created_at", sinceIso)
       .in("status", ["paid", "refunded"])
       .order("created_at", { ascending: true })

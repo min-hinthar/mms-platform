@@ -71,6 +71,15 @@ export default async function RegisterPage() {
               <dd style={dayBig}>
                 ${(day.summary.cashCents / 100).toFixed(2)}
                 <span style={dayCount}> · {day.summary.cashCount} orders</span>
+                {/* W17c-2 — the tip portion, stated as INCLUDED so nobody adds it to the drawer
+                    figure twice. Shown only once a cash tip exists, so a tipless day reads exactly
+                    as it did before. */}
+                {day.summary.cashTipCents > 0 && (
+                  <span style={dayCount}>
+                    {" "}
+                    · incl. ${(day.summary.cashTipCents / 100).toFixed(2)} tips
+                  </span>
+                )}
               </dd>
             </div>
             {/* W6c: the counter reader's takings — its own column so the register can reconcile

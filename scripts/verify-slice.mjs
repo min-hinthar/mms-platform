@@ -234,6 +234,31 @@ const MUTANTS = [
     find: '          fulfillment: dineIn ? "dinein" : "togo",',
     replace: '          fulfillment: "dinein" as const,',
   },
+  // ── W17c-2 — the cash tip: the one figure on the money path a human supplies ────────────────────
+  {
+    id: "cash-tip/not-recorded",
+    file: "apps/qr/lib/staff-cart.ts",
+    suite: "lib/cash-tip.test.ts",
+    why: "W17c-2 — reverting the tip to a hardcoded 0 puts cash tips back off the books: the drawer no longer reconciles against the day summary by exactly the tips taken, and nobody can answer what the team was tipped",
+    find: "      p_tip_cents: tipCents,",
+    replace: "      p_tip_cents: 0,",
+  },
+  {
+    id: "cash-tip/collected-total-drops-the-tip",
+    file: "apps/qr/lib/staff-cart.ts",
+    suite: "lib/cash-tip.test.ts",
+    why: "W17c-2 — getCartTotals is called with tipRate 0, so its total is TIP-FREE. Returning it unadjusted makes the handoff card and the change helper quote a figure lower than what the cashier actually took, and short-changes the guest by the tip",
+    find: "    return { ok: true, orderId, totalCents: totals.totalCents + tipCents, tipCents };",
+    replace: "    return { ok: true, orderId, totalCents: totals.totalCents, tipCents };",
+  },
+  {
+    id: "cash-tip/counted-as-extra-drawer-money",
+    file: "apps/qr/lib/register-math.ts",
+    suite: "lib/register-math.test.ts",
+    why: "W17c-2 — the RPC folds the tip INTO the order total, so cashCents already contains it. Adding it again overstates the drawer by exactly the tips and sends a cashier hunting for money that was never missing",
+    find: "      s.cashTipCents += r.tip_cents ?? 0;",
+    replace: "      s.cashCents += r.tip_cents ?? 0;\n      s.cashTipCents += r.tip_cents ?? 0;",
+  },
   // ── W17c — the tip ask (a chip's label is a promise about what the server will charge) ──────────
   {
     id: "tip/preset-over-the-server-cap-offered",

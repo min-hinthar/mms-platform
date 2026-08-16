@@ -19,7 +19,37 @@ describe("summarizeDay — the Z-report buckets", () => {
       terminalCents: 1700,
       refundedCount: 1,
       refundedCents: 990,
+      cashTipCents: 0,
     });
+  });
+
+  it("W17c-2: a cash tip is INSIDE the drawer figure, and also reported on its own", () => {
+    // The RPC folds the tip into the order total, so `cashCents` already contains it. Reporting it
+    // as a separate bucket to ADD would overstate the drawer by exactly the tips — the mistake this
+    // assertion exists to prevent. 2500 + 1300 = 3800 either way; 500 + 0 of that is tips.
+    const s = summarizeDay([
+      { tender: "cash", total_cents: 2500, status: "paid", tip_cents: 500 },
+      { tender: "cash", total_cents: 1300, status: "paid", tip_cents: 0 },
+    ]);
+    expect(s.cashCents).toBe(3800);
+    expect(s.cashTipCents).toBe(500);
+  });
+
+  it("W17c-2: a row with no tip_cents reads as 0, never NaN", () => {
+    // The column is optional on the type so a caller that hasn't widened its SELECT degrades to
+    // "no tips recorded" rather than poisoning the whole summary with NaN.
+    const s = summarizeDay([{ tender: "cash", total_cents: 2500, status: "paid" }]);
+    expect(s.cashTipCents).toBe(0);
+    expect(Number.isNaN(s.cashTipCents)).toBe(false);
+  });
+
+  it("W17c-2: a REFUNDED cash order's tip is not counted as tipped", () => {
+    // Refunded money is not in the drawer, and its tip is not in anyone's pocket either.
+    const s = summarizeDay([
+      { tender: "cash", total_cents: 2500, status: "refunded", tip_cents: 500 },
+    ]);
+    expect(s.cashTipCents).toBe(0);
+    expect(s.cashCents).toBe(0);
   });
 
   it("W6c: the counter reader (tender='terminal') is its OWN bucket — never folded into online card", () => {
