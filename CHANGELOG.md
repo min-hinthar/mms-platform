@@ -22,9 +22,21 @@ without a DOM.
   payment at the last tap. Pinned against **both** schemas so neither can drift.
 - **Round-up declines to fire on an already-whole total.** There is nothing to round, and charging a
   dollar under that label would be a different, larger ask wearing the round-up's clothes.
+- **The round-up rate is DERIVED each render, never frozen** (review HIGH, a defect this slice
+  introduced): its rate depends on the basket, so storing the tapped number desynced it from the
+  total it names the instant the cart moved — a promo, a qty edit, a group peer's edit. The diner was
+  then charged a tip that rounds to nothing, on a total the UI no longer named, with **no chip lit**
+  to show a tip was active at all. Percentages had never exposed this because 18% is 18% whatever the
+  basket does. The component now stores the _choice_; `effectiveTipRate` in `lib/tip.ts` derives the
+  rate from the current numbers, so the pressed chip and the charge read one value and cannot
+  disagree. That decision lives in `lib/` deliberately — `Checkout.tsx` is outside
+  `check-money-coverage`'s paths and has no component test, so a rule left there could not be guarded.
 - Every chip still produces a **rate**, never an amount — the charge stays `round(net × rate)`
   server-side. The tests assert each label against that exact formula, swept across basket sizes
-  rather than one convenient fixture. 4 new mutants (**110 total**), each watched red.
+  rather than one convenient fixture, and the round-up sweep now covers **every** value of
+  `due % 100` (it had stepped by 7, testing 14 of 100 while reading as exhaustive). Both sweeps
+  collect failures instead of making 80k `expect` calls — 2.9s → 49ms, because a slow guard is one
+  someone eventually stops running. 5 new mutants (**111 total**), each watched red.
 
 Still to come in W17c: the tip on the staff cash settle, the kiosk/register tip prompt, and staff tip
 transparency.
