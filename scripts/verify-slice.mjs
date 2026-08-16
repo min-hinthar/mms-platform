@@ -234,6 +234,39 @@ const MUTANTS = [
     find: '          fulfillment: dineIn ? "dinein" : "togo",',
     replace: '          fulfillment: "dinein" as const,',
   },
+  // ── W17c — the tip ask (a chip's label is a promise about what the server will charge) ──────────
+  {
+    id: "tip/preset-over-the-server-cap-offered",
+    file: "apps/qr/lib/tip.ts",
+    suite: "lib/tip.test.ts",
+    why: "W17c — a chip whose rate exceeds the SPLIT path's 0.5 ceiling (qr_cart_shares.tip_rate CHECK) 400s the share mint. On a $4 basket the $3 preset is 75%: the diner taps a tip and the payment fails, which reads as a broken app rather than a bound",
+    find: "  return candidates.filter((p) => p.rate <= TIP_RATE_MAX);",
+    replace: "  return candidates;",
+  },
+  {
+    id: "tip/small-basket-loses-its-flat-unit",
+    file: "apps/qr/lib/tip.ts",
+    suite: "lib/tip.test.ts",
+    why: "W17c — collapsing the basket-size fork puts percentages back on a $4 tea (18% = 72 cents), the exact meaningless ask the owner's 'smarter defaults' was about; the chip then also stops charging the amount it names",
+    find: "    netCents < SMALL_BASKET_CEILING_CENTS",
+    replace: "    false",
+  },
+  {
+    id: "tip/round-up-fires-on-a-whole-total",
+    file: "apps/qr/lib/tip.ts",
+    suite: "lib/tip.test.ts",
+    why: "W17c — on an already-whole total there is nothing to round, so dropping the guard makes 'Round up' silently mean 'add a whole dollar': a different, larger ask wearing the round-up's label",
+    find: "  if (remainder === 0) return null;",
+    replace: "",
+  },
+  {
+    id: "tip/round-up-ignores-the-rate-cap",
+    file: "apps/qr/lib/tip.ts",
+    suite: "lib/tip.test.ts",
+    why: "W17c — a tiny basket wants a round-up above the cap (a $1.10 due needs 90 cents on a $1.00 base = 90%); offering it turns a server bound into a failed payment at the last tap",
+    find: "  if (rate > TIP_RATE_MAX) return null;",
+    replace: "",
+  },
   // ── W17b — the price editor: the ONE human-entered amount in the app ────────────────────────────
   {
     id: "menu-price/role-floor-drops-to-server",
