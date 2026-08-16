@@ -58,11 +58,18 @@ export type TipPreset = {
  * `net` is the tip BASE the server uses: subtotal − discount, before tax. Returns [] for a
  * non-positive base (a rate is undefined against 0, and there is nothing to tip on).
  */
-export function tipPresets(netCents: number): TipPreset[] {
+export function tipPresets(
+  netCents: number,
+  // The ladder is a PARAMETER, defaulted, for one reason: the cap filter below is unreachable with
+  // today's 15/20/30 and an unreachable guard cannot be watched failing (its mutant survived). A
+  // test can pass a ladder that breaches the cap and see it dropped, so the protection is real for
+  // whoever raises the ladder next instead of being decorative. Callers pass nothing.
+  ladder: readonly number[] = TIP_LADDER,
+): TipPreset[] {
   if (!Number.isFinite(netCents) || netCents <= 0) return [];
-  return TIP_LADDER.map((rate) => ({ label: `${Math.round(rate * 100)}%`, rate })).filter(
-    (p) => p.rate <= TIP_RATE_MAX,
-  );
+  return ladder
+    .map((rate) => ({ label: `${Math.round(rate * 100)}%`, rate }))
+    .filter((p) => p.rate <= TIP_RATE_MAX);
 }
 
 export type RoundUp = {

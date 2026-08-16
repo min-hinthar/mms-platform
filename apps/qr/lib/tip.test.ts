@@ -40,6 +40,17 @@ describe("tipPresets — the owner's 15/20/30 ladder, on every surface", () => {
     },
   );
 
+  it("drops any ladder rung the server would refuse", () => {
+    // Today's ladder tops out at 30%, so the cap filter never fires on it — which is exactly why
+    // this passes a ladder that BREACHES the cap. Without an input that reaches the rule, the
+    // protection is decorative and its mutant survives. 0.6 > TIP_RATE_MAX (0.5) and must not be
+    // offered; a chip the split mint refuses turns a bound into a failed payment at the last tap.
+    expect(tipPresets(3200, [0.15, 0.6]).map((x) => x.label)).toEqual(["15%"]);
+    expect(tipPresets(3200, [0.6]).map((x) => x.label)).toEqual([]);
+    // And the boundary belongs to the allowed side.
+    expect(tipPresets(3200, [TIP_RATE_MAX]).map((x) => x.label)).toEqual(["50%"]);
+  });
+
   it("every preset it EVER offers is inside the server's cap", () => {
     // Sweep the basket sizes a real order can take, not one convenient fixture. The ladder is
     // basket-independent today, so this is the standing guarantee for whoever changes it next.

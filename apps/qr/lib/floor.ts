@@ -397,6 +397,11 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     settleTotalCents,
     // W17c-3 — what the KIOSK guest chose, if they were asked. null = never asked (every non-kiosk
     // cart), which the settle UI renders differently from 0 = asked and chose nothing.
+    //
+    // verify:slice-exempt — this is a DISPLAY pre-fill, not a charge. The cashier's entry is the
+    // settle authority (W17c-2), so dropping this field costs a convenience — the cashier types the
+    // amount instead — and cannot make a recorded total wrong. The rules that CAN are guarded:
+    // the write in lib/cart.ts (kiosk-tip/*) and the settle itself (cash-tip/*).
     intendedTipCents: cart?.intended_tip_cents ?? null,
     paidTotalCents: paid?.total_cents ?? null,
     // Tab lifecycle (S3.1) — only meaningful while a cart is open; a settled/absent cart reads 'none'.

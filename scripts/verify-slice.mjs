@@ -234,6 +234,23 @@ const MUTANTS = [
     find: '          fulfillment: dineIn ? "dinein" : "togo",',
     replace: '          fulfillment: "dinein" as const,',
   },
+  // ── W17c-3 — the kiosk tip crosses to the counter as an INTENT ─────────────────────────────────
+  {
+    id: "kiosk-tip/write-not-status-guarded",
+    file: "apps/qr/lib/cart.ts",
+    suite: "lib/kiosk-tip.test.ts",
+    why: "W17c-3 — without `status=open` IN the UPDATE, a settle landing between the authz check and the write repoints the tip a cashier is already counting against; the check above it is a read that can go stale",
+    find: '    .eq("id", cartId)\n    .eq("status", "open");',
+    replace: '    .eq("id", cartId);',
+  },
+  {
+    id: "kiosk-tip/movable-while-settling",
+    file: "apps/qr/lib/cart.ts",
+    suite: "lib/kiosk-tip.test.ts",
+    why: "W17c-3 — a tip that can move while the cart is locked or settling changes the number under a cashier mid-count, or under a diner mid-card-payment",
+    find: "    if (authz.locked || authz.settling) return { ok: false };",
+    replace: "",
+  },
   // ── W17c-2 — the cash tip: the one figure on the money path a human supplies ────────────────────
   {
     id: "cash-tip/not-recorded",
@@ -264,17 +281,17 @@ const MUTANTS = [
     id: "tip/preset-over-the-server-cap-offered",
     file: "apps/qr/lib/tip.ts",
     suite: "lib/tip.test.ts",
-    why: "W17c — a chip whose rate exceeds the SPLIT path's 0.5 ceiling (qr_cart_shares.tip_rate CHECK) 400s the share mint. On a $4 basket the $3 preset is 75%: the diner taps a tip and the payment fails, which reads as a broken app rather than a bound",
-    find: "  return candidates.filter((p) => p.rate <= TIP_RATE_MAX);",
-    replace: "  return candidates;",
+    why: "W17c — a chip whose rate exceeds the SPLIT path's 0.5 ceiling (qr_cart_shares.tip_rate CHECK) 400s the share mint: the diner taps a tip and the payment fails, which reads as a broken app rather than a bound. Today's 15/20/30 ladder clears it, so this guards whoever changes the ladder next",
+    find: "    .filter((p) => p.rate <= TIP_RATE_MAX);",
+    replace: "    ;",
   },
   {
-    id: "tip/small-basket-loses-its-flat-unit",
+    id: "tip/house-ladder-drifts",
     file: "apps/qr/lib/tip.ts",
     suite: "lib/tip.test.ts",
-    why: "W17c — collapsing the basket-size fork puts percentages back on a $4 tea (18% = 72 cents), the exact meaningless ask the owner's 'smarter defaults' was about; the chip then also stops charging the amount it names",
-    find: "    netCents < SMALL_BASKET_CEILING_CENTS",
-    replace: "    false",
+    why: "W17c-3 — the ladder is the OWNER'S (15/20/30, 2026-08-16). A drifted rate silently changes what every guest is asked for on every surface, and the chip keeps its old label while charging the new number",
+    find: "export const TIP_LADDER = [0.15, 0.2, 0.3] as const;",
+    replace: "export const TIP_LADDER = [0.15, 0.2, 0.25] as const;",
   },
   {
     id: "tip/round-up-rate-frozen-instead-of-derived",
