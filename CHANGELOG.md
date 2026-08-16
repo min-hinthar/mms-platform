@@ -4,6 +4,48 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W20 — alive & instant: optimistic UX, reactions, honest leaves (2026-08-16)
+
+The owner's batch, verbatim: _"unleash creativity and imagination: Buttons, options, selections,
+cards … still don't feel alive and interactive enough. Tip option needs to be reimagined … texts
+change with % selections … Checkout Bill should include … sales tax %? Reward pick needs
+improvement and That reward is already on another order error. To-go and groceries should also have
+leave options and customers should have option to leave tables? Pick a pickup time still not on
+selected slot. … why not make optimistic and instant feedback …? Start here carousel should have
+more menu items and maybe more elevated UI/UX …"_
+
+- **Optimistic everywhere the money allows.** The pickup ASAP⇆Scheduled pills flip the instant
+  they're tapped (`PickupWhenChoice` writes in the background; a refusal reverts + explains via the
+  view's one live region, serialized by a write token so an old slow failure can never clobber a
+  newer choice); the slot sheet is a PURE picker (tap → report up → close, no in-sheet round trip);
+  the item sheet's Add closes NOW (the provider's add was already optimistic — count bump + flash —
+  and owns both outcomes). Amounts stay server-authoritative throughout: nothing optimistic touches
+  a charged number.
+- **"Still not on selected slot" — root-caused as slot IDENTITY.** The RPC and table serializations
+  of one timestamptz differ as strings, so the sheet's `===` never matched the cart's slot. New
+  `sameSlot` (lib/pickup-slot.ts) compares by INSTANT, drives the lit chip, the "✓ Yours" tag, day
+  seeding, and a scroll-into-view on open (RM-aware). Tested against both serializations + garbage.
+- **The tip ask REACTS.** `tipReaction` (lib/tip.ts, pure + pinned): each rung answers with its own
+  bilingual line, warmer as the ladder climbs; a custom amount gets the warm generic; None gets
+  NOTHING (declining is never met with a reaction). Keyed `.mms-rise` so each line rises in fresh.
+- **The Bill names the tax rate.** All three totals blocks render "Sales tax (10.5%)" — the note is
+  computed from `taxRate()` (the one authority), never a transcribed literal.
+- **The reward follows its owner.** `mms_apply_reward` v3 (migration `20260816060000`) releases
+  holds from IDLE carts (open ∧ unlocked ∧ not settling — exactly `mms_clear_reward`'s guard)
+  before the in_use check, so the owner's own abandoned cart can no longer strand their coupon;
+  a genuinely mid-payment holder still refuses (stealing from it would strand the webhook
+  reconcile). Proven red-first: the new SQL test's first assertion FAILED against prod's old
+  function before the migration existed (`supabase/tests/reward_follows_owner_test.sql`,
+  registered in CI's required list). The `in_use` copy now tells the truth that remains.
+- **Every mode has a named leave.** Pickup and the grocery market get the arrival-beat exit the
+  dine-in menu got in W19 ("Back to the start — your order/basket stays saved on this phone");
+  dine-in adds a real **Leave this table** — device-level only (`forgetDineinOnThisDevice` clears
+  the persisted join code; the table stays open for everyone else; never a server mutation).
+- **Start here, elevated.** The rail grows to 10 items; when real paid-order counts curated it,
+  each card wears a rank seal (#1 gets the lit-gold cap + glow; sr-only twin says it in words —
+  the hand-set "our picks" fallback shows NO ranks, a numeral it can't back); cards lift + photos
+  breathe on hover (transform-only, RM-gated).
+
 ### W19 — production readiness: nine complaints, nine fixes (2026-08-16)
 
 The owner's batch, verbatim: _"Pick options, select, on focus, and buttons pop or reveals … are

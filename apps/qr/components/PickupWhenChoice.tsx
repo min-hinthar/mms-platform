@@ -1,6 +1,6 @@
 "use client";
-import { useState, useTransition, type CSSProperties } from "react";
-import { setPickupAsap } from "@/lib/pickup";
+import { useRef, useState, type CSSProperties } from "react";
+import { setPickupAsap, setPickupSlot } from "@/lib/pickup";
 import { formatSlot, formatSlotLong } from "@/lib/pickupTime";
 import { PickupSlotSheet } from "./PickupSlotSheet";
 
@@ -40,24 +40,29 @@ export function PickupWhenChoice({
   onStatus: (message: string | null) => void;
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [busy, startAsap] = useTransition();
   const asap = slot === null;
+  // W20 — writes are OPTIMISTIC: the pill flips the instant it is tapped, the server write runs in
+  // the background, and a refusal reverts the pill + explains via the view's one live region. The
+  // token serializes overlapping writes: only the LATEST write's outcome may revert the UI (an
+  // older slow failure must not clobber a newer choice).
+  const writeToken = useRef(0);
 
   function chooseAsap() {
-    if (asap || busy) return; // already ASAP → no needless round-trip
+    if (asap) return; // already ASAP — nothing to do
     if (!asapAvailable) {
       // Kitchen closed / fully booked — can't go ASAP; keep the current slot and nudge to Schedule.
       onStatus("The kitchen isn’t taking ASAP orders right now — please schedule a time.");
       return;
     }
+    const prev = slot;
+    const token = ++writeToken.current;
     onStatus(null); // single review live region — clear any prior message first
-    startAsap(async () => {
+    onSlotChange(null); // INSTANT: the pill lights now
+    void (async () => {
       try {
         const r = await setPickupAsap(cartId);
-        if (r.ok) {
-          onSlotChange(null);
-          return;
-        }
+        if (r.ok || token !== writeToken.current) return;
+        onSlotChange(prev); // revert — refused, and no newer choice superseded this write
         onStatus(
           r.reason === "cart_closed"
             ? "This order is already being paid."
@@ -66,9 +71,37 @@ export function PickupWhenChoice({
               : "Couldn’t switch to ASAP — please try again.",
         );
       } catch {
+        if (token !== writeToken.current) return;
+        onSlotChange(prev);
         onStatus("Couldn’t switch to ASAP — check your connection and try again.");
       }
-    });
+    })();
+  }
+
+  /** W20 — the sheet reports a pick and closes INSTANTLY; this applies it, writes in the
+   *  background, and reverts + explains if the slot just filled (the sheet's old in-place round
+   *  trip made every pick feel laggy). */
+  function chooseSlot(next: string) {
+    const prev = slot;
+    const token = ++writeToken.current;
+    onStatus(null);
+    onSlotChange(next); // INSTANT: the Scheduled pill lights with the picked time
+    void (async () => {
+      try {
+        const r = await setPickupSlot(cartId, next);
+        if (r.ok || token !== writeToken.current) return;
+        onSlotChange(prev);
+        onStatus(
+          r.reason === "unavailable"
+            ? "That time just filled — pick another."
+            : "Couldn’t set that time — please try again.",
+        );
+      } catch {
+        if (token !== writeToken.current) return;
+        onSlotChange(prev);
+        onStatus("Couldn’t set that time — check your connection and try again.");
+      }
+    })();
   }
 
   return (
@@ -80,7 +113,6 @@ export function PickupWhenChoice({
         <button
           type="button"
           aria-pressed={asap}
-          aria-busy={busy || undefined}
           // aria-disabled (not native disabled) keeps the control focusable so a keyboard/SR user can
           // reach it and hear WHY (the onStatus nudge) instead of the pill vanishing from the tab order.
           aria-disabled={!asapAvailable || undefined}
@@ -142,7 +174,7 @@ export function PickupWhenChoice({
         onOpenChange={setSheetOpen}
         cartId={cartId}
         currentSlot={slot}
-        onChosen={onSlotChange}
+        onChosen={chooseSlot}
       />
     </div>
   );

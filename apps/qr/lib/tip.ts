@@ -92,6 +92,28 @@ export function tipWithinAmountCap(tipCents: number): boolean {
 /** Latin digits, integer cents — never a locale-formatted numeral on the money path (W16b). */
 export const dollars = (cents: number): string => `$${(cents / 100).toFixed(2)}`;
 
+export type TipReaction = { en: string; my: string };
+
+/**
+ * W20 (owner: "texts change with % selections") — the ask REACTS to the choice, warmer as the
+ * ladder climbs. Pure and pinned so the reaction can never drift from the rung it thanks for.
+ * Deliberate absences: rate 0 (None) returns null — declining must never be met with silence that
+ * reads as a sulk OR a guilt line, so the UI simply shows nothing; a custom amount gets the warm
+ * generic (its rate is arbitrary, so rung-matching would misfire).
+ */
+export function tipReaction(rate: number, custom = false): TipReaction | null {
+  if (!Number.isFinite(rate) || rate <= 0) return null;
+  if (custom) return { en: "Thank you so much!", my: "ကျေးဇူး အများကြီးတင်ပါတယ်နော်" };
+  if (rate >= 0.3)
+    return {
+      en: "Wow — the team will be thrilled!",
+      my: "ဝိုး — အဖွဲ့သားတွေ အရမ်းဝမ်းသာသွားမှာပါ!",
+    };
+  if (rate >= 0.2)
+    return { en: "That’s generous — thank you!", my: "ရက်ရောလိုက်တာ — ကျေးဇူးအများကြီးတင်ပါတယ်!" };
+  return { en: "With thanks from the kitchen", my: "မီးဖိုအဖွဲ့က ကျေးဇူးတင်ပါတယ်နော်" };
+}
+
 /**
  * The ONE decision about what rate is actually in effect, given everything the tip UI can be in the
  * middle of. It lives here, not in the component (the W17c review's "name it once" rule): the

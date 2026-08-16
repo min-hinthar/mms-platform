@@ -44,9 +44,26 @@ export function StartHereBand({
         </span>
       </h2>
       <Rail as="ul" role="list" className="start-here-rail" aria-labelledby="start-here-h">
-        {items.map((i) => (
+        {items.map((i, idx) => (
           <li key={i.id}>
             <button type="button" className="start-here-card" onClick={() => onSelect(i)}>
+              {/* W20 — the rank seal, ONLY when real paid-order counts curated this rail: a numeral
+                  this prominent is a claim, and the hand-set "our picks" fallback has no ranking to
+                  claim. #1 wears the gold cap. The sr-only twin says it in words (the seal itself
+                  is decorative — the visible numeral alone would read as a price or a quantity). */}
+              {dataBacked && (
+                <>
+                  <span
+                    className={`start-here-rank${idx === 0 ? " start-here-rank-top" : ""}`}
+                    aria-hidden
+                  >
+                    {idx + 1}
+                  </span>
+                  <span className="sr-only">
+                    {idx === 0 ? "Most loved at tables. " : `No. ${idx + 1} at tables. `}
+                  </span>
+                </>
+              )}
               {/* W16e — NO truthiness gate on the slot: BlurUpImage already renders the designed
                   PhotoPlaceholder for a null src, and gating the whole <span> away made photo-less
                   dishes render as ragged short cards beside full ones (W13's "the slot always

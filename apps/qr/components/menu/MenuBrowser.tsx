@@ -107,8 +107,10 @@ export function MenuBrowser({
       ? loved
       : items.filter((i) => !i.is_sold_out && i.tags.includes("popular"));
     // A rail needs at least 3 cards on EITHER path (sparse `popular` tagging could otherwise render a
-    // lone-card "band" that reads as broken) — below that, no band at all.
-    const rail = pool.slice(0, 6);
+    // lone-card "band" that reads as broken) — below that, no band at all. W20 (owner: "Start here
+    // carousel should have more menu items"): the cap is 10 — a real browse, still a curation (the
+    // full wall is what the rail exists to soften).
+    const rail = pool.slice(0, 10);
     return { items: rail.length >= 3 ? rail : [], dataBacked };
   }, [items, favoriteIds]);
 

@@ -5,7 +5,18 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-08-16 — W17 + W18 + W19 COMPLETE; only owner-blocked items remain)
+> ## ⏭️ NEXT SESSION — start here (2026-08-16 — W17 + W18 + W19 + W20 COMPLETE; only owner-blocked items remain)
+>
+> **W20 (alive & instant — the owner's optimistic-UX batch):** the pickup pills + slot sheet + item-
+> sheet Add are OPTIMISTIC (instant flip/close, background write, write-token-serialized revert +
+> one-live-region explain on refusal — amounts stay server-authoritative); "not on selected slot"
+> was slot IDENTITY (`sameSlot` compares by instant — the RPC and table serializations of one
+> timestamptz differ as strings); the tip ask reacts per rung (`tipReaction`, bilingual — new MY
+> joins K15); the Bill names the tax rate from `taxRate()`; the reward FOLLOWS its owner
+> (`mms_apply_reward` v3, migration `20260816060000` + red-first SQL test in CI's required list —
+> **prod-apply + probe after merge**); every mode has a named leave (dine-in's is device-level
+> `forgetDineinOnThisDevice` — never a server mutation); Start here = 10 items + data-backed rank
+> seals + RM-gated hover life.
 >
 > **W19 (production readiness — nine owner complaints, nine fixes):** press-states on every checkout
 > control (tap parity with the hover-only delight), the tip ladder warms with % and the custom tip

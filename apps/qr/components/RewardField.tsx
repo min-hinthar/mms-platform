@@ -11,7 +11,9 @@ const dollars = (c: number) => `$${(c / 100).toFixed(c % 100 === 0 ? 0 : 2)}`;
 const REASON: Record<ApplyRewardReason, string> = {
   invalid: "That reward isn’t available.",
   min_not_met: "Add a little more to your order to use this reward.",
-  in_use: "That reward is already on another order.",
+  // W20 — the server now releases holds from idle carts before this check (the reward FOLLOWS its
+  // owner), so 'in_use' only fires when the holder is genuinely mid-payment. Say that.
+  in_use: "That reward’s being used on an order that’s paying right now — one moment.",
   busy: "The order’s being paid — you can’t change it right now.",
   cart_closed: "This order is already being paid.",
   rate_limited: "Too many tries — wait a minute, then try again.",

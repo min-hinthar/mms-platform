@@ -23,6 +23,21 @@ const DINEIN_KEY = "mms.qr.dinein";
 const NAME_KEY = "mms.name";
 
 /**
+ * W20 (owner: "customers should have option to leave tables") — leave the table ON THIS DEVICE.
+ * Purely device-level: forgets the persisted join code so this phone stops auto-rejoining the
+ * party's session. Deliberately NEVER a server mutation — the session stays open for everyone
+ * else at the table (the 4h sliding TTL sweeps it), and a guest must not be able to end the
+ * party's table from their pocket. Lives here so the key stays named once.
+ */
+export function forgetDineinOnThisDevice(): void {
+  try {
+    window.localStorage.removeItem(DINEIN_KEY);
+  } catch {
+    /* deliberate: storage unavailable (private mode) means nothing was persisted to forget */
+  }
+}
+
+/**
  * Resolve the session key (== qr_code == join code) for this device + mode.
  *
  * - **dine-in (group, M3·P3.1):** the shared key comes from the deep link (`?t=`/`?j=` → `code`) or

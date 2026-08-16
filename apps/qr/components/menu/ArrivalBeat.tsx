@@ -1,6 +1,7 @@
 "use client";
 import { useCart } from "@/components/TableCartProvider";
 import { menuHref } from "@/lib/menu-href";
+import { forgetDineinOnThisDevice } from "@/lib/useTableSession";
 import { TransitionLink as Link } from "@/components/nav/TransitionNav";
 import type { WelcomeBack } from "@/lib/rewards";
 
@@ -67,9 +68,46 @@ export function ArrivalBeat({
           the same promise the home screen's resume card keeps: leaving is a navigation, never a
           "leave table" mutation — the party's session and cart survive untouched (4h sliding TTL).
           menuHref(null) = the door picker; a literal "/" with a "menu" label is the W9a lie. */}
-      {mode === "dinein" && (
+      {mode === "dinein" ? (
+        <>
+          <p className="arrival-line" style={{ marginTop: 2 }}>
+            Ordering to-go or groceries too?{" "}
+            <Link href={menuHref(null)} className="nav-link" style={{ minHeight: 44 }}>
+              Back to the start
+              <span aria-hidden className="nav-arrow nav-arrow-fwd">
+                {" "}
+                →
+              </span>
+            </Link>{" "}
+            — your table stays open.
+          </p>
+          {/* W20 (owner: "customers should have option to leave tables") — a real leave, honestly
+              scoped: it forgets the table ON THIS PHONE (the device stops auto-rejoining) and walks
+              to the door picker. Never a server "close table" — the party's session and cart stay
+              open for everyone else. The storage clear runs in the click, before the navigation. */}
+          <p className="arrival-line" style={{ marginTop: 2 }}>
+            Heading out?{" "}
+            <Link
+              href={menuHref(null)}
+              className="nav-link"
+              style={{ minHeight: 44 }}
+              onClick={() => forgetDineinOnThisDevice()}
+            >
+              Leave this table
+              <span aria-hidden className="nav-arrow nav-arrow-fwd">
+                {" "}
+                →
+              </span>
+            </Link>{" "}
+            — it stays open for everyone else.
+          </p>
+        </>
+      ) : (
+        /* W20 (owner: "To-go and groceries should also have leave options") — the same named exit
+           the dine-in beat got in W19, tuned for a solo mode: leaving is a navigation, and the
+           order is safe to leave (the per-device session rejoins the same open cart). */
         <p className="arrival-line" style={{ marginTop: 2 }}>
-          Ordering to-go or groceries too?{" "}
+          Switching how you’re ordering?{" "}
           <Link href={menuHref(null)} className="nav-link" style={{ minHeight: 44 }}>
             Back to the start
             <span aria-hidden className="nav-arrow nav-arrow-fwd">
@@ -77,7 +115,7 @@ export function ArrivalBeat({
               →
             </span>
           </Link>{" "}
-          — your table stays open.
+          — your order stays saved on this phone.
         </p>
       )}
     </div>
