@@ -4,6 +4,33 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W17c-4 — tip transparency for the team (2026-08-16)
+
+Last of the four tipping enhancements. `/staff/tips`, linked from the floor for every staff member.
+
+**The honest constraint shapes the whole screen.** `qr_orders.settled_by` is stamped when a _staff
+member_ took the money — a cash settle, a counter reader tap — and is **null** when the guest paid on
+their own phone. That isn't missing data to fill in with a guess; it's a real difference between "you
+were tipped this" and "the shift was tipped this". So there are two buckets and they are **never
+blended**:
+
+- **Handed to a person** — per-staff totals, and the count of orders that actually carried a tip.
+- **Paid on a phone** — the shared amount, stated plainly as belonging to nobody in particular.
+
+**No averages, no projections, no per-head split.** How the shared pool divides is the owner's
+decision, and a number computed here would look exactly like a policy they had agreed to. The copy
+says so, because this is the screen staff will read as an authoritative statement of their pay.
+
+- **The role rule lives in the read, not the page.** A server sees only their own line, and the scope
+  is a **predicate** — a colleague's row never enters the process. Managers and owners see everyone.
+- **Names resolve inside the read**, because `listStaff` is owner-only and this screen is for
+  everyone; only the ids that survived the summary are looked up.
+- **A failed read renders the outage shell**, never "you were tipped nothing" — the worst false
+  verdict on a screen about someone's earnings. A failed _name_ lookup is not a failed report: an id
+  is a worse label than a name, but an honest one.
+- 3 new mutants (**120 total**): the shared pool credited to a person, a refunded tip counted, and a
+  negative tip deducting from someone's column.
+
 ### W17d-1 — the catalog matches the register (2026-08-16)
 
 Owner, 2026-08-16: _"prices should be most recent POS 2026 reference."_
