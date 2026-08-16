@@ -16,10 +16,14 @@ import { useEffect, useRef, useState, type HTMLAttributes, type ReactNode } from
 export function Rail({
   as = "div",
   children,
+  scrollerRef,
   ...rest
 }: {
   as?: "ul" | "div";
   children: ReactNode;
+  /** W22 — optional tap on the scroller element (the marquee drift needs the same node the shell
+   *  measures; a second wrapper would double the positioning context). */
+  scrollerRef?: (el: HTMLElement | null) => void;
 } & HTMLAttributes<HTMLElement>) {
   const [el, setEl] = useState<HTMLElement | null>(null);
   const [canBack, setCanBack] = useState(false);
@@ -70,7 +74,13 @@ export function Rail({
   const Tag = as;
   return (
     <div className="rail-shell">
-      <Tag ref={setEl} {...rest}>
+      <Tag
+        ref={(node: HTMLElement | null) => {
+          setEl(node);
+          scrollerRef?.(node);
+        }}
+        {...rest}
+      >
         {children}
       </Tag>
       {canBack && (

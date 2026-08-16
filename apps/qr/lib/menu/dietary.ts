@@ -8,12 +8,14 @@
 
 export type Diet = "vegetarian" | "vegan" | "gluten_free" | "no_nuts" | "no_shellfish";
 
-export const DIETS: { id: Diet; label: string; emoji: string; freeFrom: boolean }[] = [
-  { id: "vegetarian", label: "Vegetarian", emoji: "🌱", freeFrom: false },
-  { id: "vegan", label: "Vegan", emoji: "🌿", freeFrom: false },
-  { id: "gluten_free", label: "Gluten-free", emoji: "🌾", freeFrom: true },
-  { id: "no_nuts", label: "No nuts", emoji: "🥜", freeFrom: true },
-  { id: "no_shellfish", label: "No shellfish", emoji: "🦐", freeFrom: true },
+// W22 — the diet pills moved into the taste band beside the (bilingual) craving chips, so they
+// carry the Padauk accent too. K15: Claude-authored MY, pending the native check like every batch.
+export const DIETS: { id: Diet; label: string; my: string; emoji: string; freeFrom: boolean }[] = [
+  { id: "vegetarian", label: "Vegetarian", my: "သက်သတ်လွတ်", emoji: "🌱", freeFrom: false },
+  { id: "vegan", label: "Vegan", my: "သက်သတ်လွတ်စစ်စစ်", emoji: "🌿", freeFrom: false },
+  { id: "gluten_free", label: "Gluten-free", my: "ဂျုံမပါ", emoji: "🌾", freeFrom: true },
+  { id: "no_nuts", label: "No nuts", my: "အခွံမာသီးမပါ", emoji: "🥜", freeFrom: true },
+  { id: "no_shellfish", label: "No shellfish", my: "ပုစွန်ကဏန်းမပါ", emoji: "🦐", freeFrom: true },
 ];
 
 // Which declared allergen codes (menu_items.allergens) each free-from chip rules out.

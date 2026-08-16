@@ -7,7 +7,8 @@ import { GuestList } from "@/components/GuestList";
 import { PickupSlotChip } from "@/components/PickupSlotChip";
 import { BlurUpImage } from "./BlurUpImage";
 import { PhotoPlaceholder } from "./PhotoPlaceholder";
-import { DIETS, hasFreeFrom, passesDiets, type Diet } from "@/lib/menu/dietary";
+import { DIETS, passesDiets, type Diet } from "@/lib/menu/dietary";
+import { buildStartHereRows } from "@/lib/menu/startHereRows";
 import type { ModGroup } from "@/lib/menu/modifiers";
 import { itemBadges } from "@/lib/menu/badges";
 import { ItemSheet } from "./ItemSheet";
@@ -95,36 +96,14 @@ export function MenuBrowser({
   // Category order as fetched (the server sorted by sort_order); first occurrence wins.
   const allCats = useMemo(() => [...new Set(items.map((i) => i.category))], [items]);
 
-  // J2 guided start: the data-backed favorite set (badges) + the "Start here" rail (top 6, in-stock,
-  // rank order preserved). The rail claims table behavior ("what tables love") ONLY when counts back it —
-  // and only with ≥3 crowned items, so a thin dataset can't render a lone-card "band". Otherwise it falls
-  // back to the hand-set `popular` tag under honest "our picks" framing (dataBacked drives the copy).
+  // J2 guided start → W22 twin rows: the data-backed favorite set (badges) + the "Start here"
+  // rows. Row A claims table behavior ("what tables love") ONLY when counts back it (tie-aware
+  // ranks carried in from the page; sold-out keeps its numeral off-screen), honest `popular`
+  // fallback otherwise; row B is the category round-robin ("a little of everything" — a curation
+  // rule, not a ranking, so no seals). All the honesty rules live in lib/menu/startHereRows.ts
+  // where a test can watch them fail.
   const favSet = useMemo(() => new Set(favorites.map((f) => f.id)), [favorites]);
-  const startHere = useMemo(() => {
-    const byId = new Map(items.map((i) => [i.id, i]));
-    // W20 review — the rank is taken BEFORE the sold-out filter, from the crowd ranking's own order:
-    // filtering first re-numbered the survivors, so the moment the real #2 sold out the real #3
-    // wore "No. 2 at tables" — a claim the data doesn't back, spoken verbatim to screen readers.
-    // W21 (Codex P2 on #191): the rank now arrives COMPUTED from the counts (competitionRanks in
-    // the page — tied dishes share a numeral) instead of being re-derived from array position here,
-    // which invented an ordering for ties. A sold-out dish keeps its number; its card just doesn't
-    // render.
-    const loved = favorites
-      .map(({ id, rank }) => ({ item: byId.get(id), rank }))
-      .filter((e): e is { item: MenuItem; rank: number } => !!e.item && !e.item.is_sold_out);
-    const dataBacked = loved.length >= 3;
-    const pool = dataBacked
-      ? loved
-      : items
-          .filter((i) => !i.is_sold_out && i.tags.includes("popular"))
-          .map((item) => ({ item, rank: 0 })); // rank unused — the fallback rail shows no seals
-    // A rail needs at least 3 cards on EITHER path (sparse `popular` tagging could otherwise render a
-    // lone-card "band" that reads as broken) — below that, no band at all. W20 (owner: "Start here
-    // carousel should have more menu items"): the cap is 10 — a real browse, still a curation (the
-    // full wall is what the rail exists to soften).
-    const rail = pool.slice(0, 10);
-    return { items: rail.length >= 3 ? rail : [], dataBacked };
-  }, [items, favorites]);
+  const startHere = useMemo(() => buildStartHereRows(items, favorites), [items, favorites]);
 
   // J5 — the diner's own hearts: optimistic local set over the server-fetched ids. A toggle flips the
   // heart instantly and reverts if the RLS-scoped write fails (toggleFavorite returns null) — the
@@ -269,7 +248,6 @@ export function MenuBrowser({
     [allCats, visible],
   );
 
-  const freeFrom = hasFreeFrom(diets);
   const empty = visible.length === 0;
 
   // Measure the sticky toolbar so the scroll-spy inset + section scroll-margin track its real height (it grows
@@ -449,41 +427,24 @@ export function MenuBrowser({
           </nav>
         )}
 
-        <div className="menu-diets" role="group" aria-label="Dietary filters">
-          {DIETS.map((d) => {
-            const on = diets.includes(d.id);
-            return (
-              <button
-                key={d.id}
-                type="button"
-                aria-pressed={on}
-                className={`diet-chip${on ? " diet-chip-on" : ""}`}
-                onClick={() => toggleDiet(d.id)}
-              >
-                <span aria-hidden>{d.emoji}</span>
-                {d.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Fail-safe disclaimer — shown only while a free-from chip is active (a guide, never a guarantee). */}
-        {freeFrom && (
-          <p
-            role="note"
-            style={{
-              margin: "8px 2px 0",
-              fontSize: "var(--fs-sm)",
-              color: "var(--t2)",
-              lineHeight: 1.4,
-            }}
-          >
-            <Icon
-              name="info"
-              size={13}
-              style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }}
-            />
-            Allergen info is a guide — please tell our staff about any allergy.
+        {/* W22 — the dietary pills moved into the taste band below ("Explore your Burmese taste
+            buds"), one pill vocabulary beside the craving pills; the fail-safe disclaimer went
+            with them. The state stays here — they still filter this whole view — so the ONE state
+            where the pills are off-screen (a typed search hides the band) gets an honest strip:
+            say what's filtering these results, and offer the way out. */}
+        {q.trim() !== "" && diets.length > 0 && (
+          <p className="menu-filter-note">
+            <span style={{ flex: 1 }}>
+              Showing{" "}
+              {diets
+                .map((d) => DIETS.find((x) => x.id === d)?.label ?? d)
+                .join(" · ")
+                .toLowerCase()}{" "}
+              only
+            </span>
+            <button type="button" className="menu-filter-note-clear" onClick={() => setDiets([])}>
+              Show all
+            </button>
           </p>
         )}
       </div>
@@ -502,19 +463,27 @@ export function MenuBrowser({
         ) : (
           <div style={{ padding: "0 20px" }}>
             <StartHereBand
-              items={startHere.items}
+              rowA={startHere.rowA}
+              rowB={startHere.rowB}
               dataBacked={startHere.dataBacked}
               onSelect={setSheetItem}
             />
           </div>
         ))}
 
-      {/* W21 — the taste picker (personalizable recommendations): craving chips → an honest
-          "here's why" rail + a Surprise-me for the something-new mood. Same browse-only gate as
-          the bands above — hidden while the diner is FINDING (search/diet filters active). */}
-      {!q.trim() && diets.length === 0 && (
+      {/* W21 → W22 — "Explore your Burmese taste buds": craving pills → an honest "here's why"
+          rail + Surprise-me, and now the HOME of the dietary pills (they filter this whole view,
+          so the band must stay visible while a diet is active — the search gate alone hides it,
+          since a typed query means the diner is FINDING, not exploring). */}
+      {!q.trim() && (
         <div style={{ padding: "0 20px" }}>
-          <TasteBand items={items} heartedIds={hearts} onSelect={setSheetItem} />
+          <TasteBand
+            items={items}
+            heartedIds={hearts}
+            diets={diets}
+            onToggleDiet={toggleDiet}
+            onSelect={setSheetItem}
+          />
         </div>
       )}
 

@@ -29,19 +29,23 @@ fill, gold hairline. Two hard rules learned the expensive way:
 
 ## 3 · Motion idioms — small, meaningful, always escorted
 
-| Idiom                    | Meaning                            | Where                                |
-| ------------------------ | ---------------------------------- | ------------------------------------ |
-| `.mms-pop`               | a VALUE changed under you          | tip previews, cart count capsule     |
-| `.mms-rise`              | something ARRIVED                  | tip reactions, notices, scanned rows |
-| `.mms-stagger`           | a once-per-session premiere        | arrival beat, Start-here band        |
-| press glow + sheen sweep | you COMMITTED                      | Pay CTA, ConfirmSwap proceed         |
-| `--tip-heat` ladder      | encouragement as gradient, not nag | tip chips warm 15%→30%               |
-| NumberFlow rolls         | money settles like an odometer     | Bill hero total                      |
+| Idiom                    | Meaning                             | Where                                |
+| ------------------------ | ----------------------------------- | ------------------------------------ |
+| `.mms-pop`               | a VALUE changed under you           | tip previews, cart count capsule     |
+| `.mms-rise`              | something ARRIVED                   | tip reactions, notices, scanned rows |
+| `.mms-stagger`           | a once-per-session premiere         | arrival beat, Start-here band        |
+| press glow + sheen sweep | you COMMITTED                       | Pay CTA, ConfirmSwap proceed         |
+| `--tip-heat` ladder      | encouragement as gradient, not nag  | tip chips warm 15%→30%               |
+| NumberFlow rolls         | money settles like an odometer      | Bill hero total                      |
+| `MarqueeRail` drift      | an ambient conveyor, never a hijack | Start-here twin rows (W22)           |
 
 Rules: transform/opacity only (60 fps); **every** new animation/transition joins a
 `prefers-reduced-motion` block the moment it's written; entrance effects premiere once per session
 (SurfaceMemory) — arrival is a moment, not a loop; the haptic weights the **gesture**, not the
-network (buzz on tap, never after the round trip).
+network (buzz on tap, never after the round trip). Ambient AUTO-motion (the W22 drift) adds three
+more: it rides the native scroller (manual input always wins and pauses it), it ships a visible
+pause control (WCAG 2.2.2 — hover luck is not a stop mechanism), and reduced-motion gets the
+static surface exactly, duplicate DOM included (no loop set at all).
 
 ## 4 · The optimistic doctrine (W20–W21) — instant, serialized, honest
 
