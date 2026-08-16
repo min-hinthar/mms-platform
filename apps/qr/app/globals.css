@@ -822,28 +822,8 @@ h3 {
 }
 
 /* W22 — the dietary chips moved into the taste band (`.taste-rail`/`.taste-chip`), one pill
-   vocabulary beside the cravings. What stays in the toolbar is the honest reminder for the ONE
-   state where the pills are off-screen: searching with a diet filter active. */
-.menu-filter-note {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 8px 2px 0;
-  font-size: var(--fs-sm);
-  color: var(--t2);
-  line-height: 1.4;
-}
-.menu-filter-note-clear {
-  flex: none;
-  min-height: 44px;
-  padding: 0 12px;
-  border: 0;
-  background: none;
-  color: var(--ac-strong);
-  font: inherit;
-  font-weight: 700;
-  cursor: pointer;
-}
+   vocabulary beside the cravings; while a search hides that band, the toolbar renders the same
+   shared pill rail (DietPills), so no toolbar-only chip style survives here. */
 
 /* ── Pickup time picker (PickupSlotSheet) — a day selector + a time grid, styled as distinct layers ────
    Day cards along a snap rail; times in a responsive grid. Selected states lift with --sh-lift. */

@@ -61,10 +61,6 @@ export function MarqueeRail<T>({
     const loop = firstDupe.offsetLeft - firstReal.offsetLeft;
     // Degenerate guard: content must genuinely overflow, or drifting just teleports a short row.
     if (loop <= el.clientWidth + 24) return;
-    // (scrollTo, not a scrollLeft write — the compiler lint treats property writes on state-held
-    // elements as render mutations; the imperative method is the same instant jump.)
-    if (direction === -1 && el.scrollLeft === 0) el.scrollTo({ left: loop });
-
     let hover = false;
     let focus = false;
     let pressed = false;
@@ -73,6 +69,16 @@ export function MarqueeRail<T>({
     let idleUntil = 0;
     let raf = 0;
     let last = 0;
+    // The last position the DRIFT itself wrote — how the scroll listener below tells our own
+    // writes apart from everyone else's (chevron nudges, scrollIntoView, momentum).
+    let expected = el.scrollLeft;
+    // The reverse row opens at the duplicate set's start so there's content to drift back into —
+    // identical pixels, an invisible jump. (scrollTo, not a scrollLeft write — the compiler lint
+    // treats property writes on state-held elements as render mutations.)
+    if (direction === -1 && el.scrollLeft === 0) {
+      expected = loop;
+      el.scrollTo({ left: loop });
+    }
     const step = (t: number) => {
       const dt = last === 0 ? 0 : Math.min(t - last, 64); // clamp: no lurch after a hidden tab
       last = t;
@@ -82,11 +88,21 @@ export function MarqueeRail<T>({
         let next = el.scrollLeft + direction * speed * (dt / 1000);
         // Normalize into [0, loop) — also swallows any manual scroll into the duplicate set.
         next = ((next % loop) + loop) % loop;
+        expected = next;
         el.scrollTo({ left: next });
       }
       raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);
+    // Any scroll the drift didn't write is someone else steering — the <Rail> chevron's smooth
+    // scrollBy (a sibling: no pointer event ever reaches this scroller), a keyboard
+    // scrollIntoView, iOS momentum — so yield for the same idle grace as a manual swipe (Codex
+    // P2 on #194: the per-frame write was fighting the chevron's smooth scroll mid-animation).
+    // 2px tolerance covers subpixel quantization of our own writes.
+    const onScroll = () => {
+      if (Math.abs(el.scrollLeft - expected) > 2) idleUntil = performance.now() + 2200;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
 
     const fine = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
     const onEnter = () => {
@@ -129,6 +145,7 @@ export function MarqueeRail<T>({
     io.observe(el);
     return () => {
       cancelAnimationFrame(raf);
+      el.removeEventListener("scroll", onScroll);
       el.removeEventListener("mouseenter", onEnter);
       el.removeEventListener("mouseleave", onLeave);
       el.removeEventListener("pointerdown", onDown);

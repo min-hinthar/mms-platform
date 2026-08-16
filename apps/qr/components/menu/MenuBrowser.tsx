@@ -7,8 +7,9 @@ import { GuestList } from "@/components/GuestList";
 import { PickupSlotChip } from "@/components/PickupSlotChip";
 import { BlurUpImage } from "./BlurUpImage";
 import { PhotoPlaceholder } from "./PhotoPlaceholder";
-import { DIETS, passesDiets, type Diet } from "@/lib/menu/dietary";
+import { hasFreeFrom, passesDiets, type Diet } from "@/lib/menu/dietary";
 import { buildStartHereRows } from "@/lib/menu/startHereRows";
+import { DietPills, FreeFromDisclaimer } from "./DietPills";
 import type { ModGroup } from "@/lib/menu/modifiers";
 import { itemBadges } from "@/lib/menu/badges";
 import { ItemSheet } from "./ItemSheet";
@@ -428,24 +429,15 @@ export function MenuBrowser({
         )}
 
         {/* W22 — the dietary pills moved into the taste band below ("Explore your Burmese taste
-            buds"), one pill vocabulary beside the craving pills; the fail-safe disclaimer went
-            with them. The state stays here — they still filter this whole view — so the ONE state
-            where the pills are off-screen (a typed search hides the band) gets an honest strip:
-            say what's filtering these results, and offer the way out. */}
-        {q.trim() !== "" && diets.length > 0 && (
-          <p className="menu-filter-note">
-            <span style={{ flex: 1 }}>
-              Showing{" "}
-              {diets
-                .map((d) => DIETS.find((x) => x.id === d)?.label ?? d)
-                .join(" · ")
-                .toLowerCase()}{" "}
-              only
-            </span>
-            <button type="button" className="menu-filter-note-clear" onClick={() => setDiets([])}>
-              Show all
-            </button>
-          </p>
+            buds"); the state stays here (they filter this whole view). A typed search hides that
+            band, so the toolbar renders the SAME pill rail while searching (Codex P1+P2 on #194:
+            a search-first diner still needs the filters, and an active free-from filter must
+            never be on screen without its safety disclaimer). */}
+        {q.trim() !== "" && (
+          <>
+            <DietPills diets={diets} onToggle={toggleDiet} />
+            {hasFreeFrom(diets) && <FreeFromDisclaimer />}
+          </>
         )}
       </div>
 

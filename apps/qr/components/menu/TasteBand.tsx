@@ -1,11 +1,11 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { Icon } from "@mms/ui";
 import type { MenuItem } from "./MenuBrowser";
 import { CRAVINGS, recommendByTaste, surpriseMe, type CravingId } from "@/lib/menu/taste";
-import { DIETS, hasFreeFrom, passesDiets, type Diet } from "@/lib/menu/dietary";
+import { hasFreeFrom, passesDiets, type Diet } from "@/lib/menu/dietary";
 import { BlurUpImage } from "./BlurUpImage";
 import { PhotoPlaceholder } from "./PhotoPlaceholder";
+import { DietPills, FreeFromDisclaimer } from "./DietPills";
 import { Rail } from "../Rail";
 
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -103,8 +103,12 @@ export function TasteBand({
     const byId = new Map(pool.map((i) => [i.id, i]));
     return surprise.map((s) => byId.get(s.id)).filter((i): i is MenuItem => !!i);
   }, [surprise, pool]);
+  // Branch on whether a surprise was REQUESTED, not on whether any picks survived (Codex P2 on
+  // #194): a diet toggled after the tap can empty the surprise row while cravings still match —
+  // silently swapping in the craving matches would change what the rail MEANS mid-look. An empty
+  // requested surprise falls through to the honest empty state instead.
   const showing: { item: MenuItem; why: string }[] =
-    liveSurprise.length > 0
+    surprise.length > 0
       ? liveSurprise.map((item) => ({ item, why: "How about this?" }))
       : recs.map(({ item, matched }) => ({
           item,
@@ -165,47 +169,9 @@ export function TasteBand({
           မီနူးတစ်ခုလုံး စစ်ထုတ်ပေးမယ်
         </span>
       </p>
-      <Rail role="group" aria-labelledby="taste-diet-cap" className="taste-rail">
-        {DIETS.map((d) => {
-          const on = diets.includes(d.id);
-          return (
-            <button
-              key={d.id}
-              type="button"
-              aria-pressed={on}
-              className={`taste-chip${on ? " taste-chip-on" : ""}`}
-              onClick={() => onToggleDiet(d.id)}
-            >
-              <span aria-hidden className="taste-emoji">
-                {d.emoji}
-              </span>
-              {d.label}
-              <span lang="my" className="taste-chip-my">
-                {d.my}
-              </span>
-            </button>
-          );
-        })}
-      </Rail>
+      <DietPills diets={diets} onToggle={onToggleDiet} labelledBy="taste-diet-cap" />
       {/* Fail-safe disclaimer — travels with the pills: a guide, never a guarantee. */}
-      {freeFrom && (
-        <p
-          role="note"
-          style={{
-            margin: "8px 2px 0",
-            fontSize: "var(--fs-sm)",
-            color: "var(--t2)",
-            lineHeight: 1.4,
-          }}
-        >
-          <Icon
-            name="info"
-            size={13}
-            style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }}
-          />
-          Allergen info is a guide — please tell our staff about any allergy.
-        </p>
-      )}
+      {freeFrom && <FreeFromDisclaimer />}
       {showing.length > 0 && (
         <Rail
           as="ul"
@@ -244,10 +210,13 @@ export function TasteBand({
         // An honest empty answer beats a filler recommendation the picks don't back. Review MED:
         // matching is OR, so "fewer cravings" could only shrink the answer — DIFFERENT is the
         // advice that can actually help (and with diets active, loosening those is the other lever).
+        // The surprise-emptied case gets its own truth: the picks were random, so "again" is the fix.
         <p style={{ margin: "4px 0 8px", fontSize: "var(--fs-sm)", color: "var(--t3)" }}>
-          {diets.length > 0
-            ? "Nothing matches those right now — try different cravings, or ease a dietary filter."
-            : "Nothing matches those right now — try different cravings."}
+          {surprise.length > 0
+            ? "Those surprise picks don’t fit your dietary filters — tap Surprise me again."
+            : diets.length > 0
+              ? "Nothing matches those right now — try different cravings, or ease a dietary filter."
+              : "Nothing matches those right now — try different cravings."}
         </p>
       )}
     </section>
