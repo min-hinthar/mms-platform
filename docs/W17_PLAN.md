@@ -98,7 +98,9 @@ through the markup. **No data fix is needed.**
 ⚠️ If you re-run this check, do NOT use a bare `unit_price_cents <> base_price_cents` predicate — it
 is not diagnostic. `unit_price_cents` includes **modifier deltas**, and older lines legitimately
 carry **pre-W15 prices** (W15 corrected 10 menu prices), so that predicate returns ~30 rows of which
-none are markups. Compare against the W16a formulas explicitly instead:
+none are markups. Scope to the W16a window instead and read the rows, checking each against the
+W16a formulas by hand — `round25(base × 1.15)` for dine-in, `round25(base × 1.05)` for to-go — since
+the modifier deltas mean SQL alone can't tell a markup from a legitimate add-on:
 
 ```sql
 select ci.id, ci.name, ci.unit_price_cents, mi.base_price_cents, ci.modifiers, ci.created_at
