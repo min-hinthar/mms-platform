@@ -35,9 +35,15 @@ manager setting the menu price is the decision the rule protects. What changes i
 - Two-step confirm naming the old price, the new price and the direction — the staff console's
   existing inline idiom (`CashSettleButton` et al), and exactly the class of button the owner asked
   to confirm in W16c. Focus moves into the group on open and back to Save on cancel.
-- 4 new mutants (**105 total**), each watched red: the role floor dropped to `server`, the zero-row
-  update reading as success, a transport failure reading as "no such dish", and the swallowed audit
-  failure.
+- **Compare-and-swap on the write** (review MED): the update asserts the price it read, not just the
+  id. Keyed on the id alone, two managers on two tablets both land their write and the second records
+  a ledger row claiming it changed the price _from_ a value that was already gone. The live price is
+  still whoever wrote last — not itself wrong — but reconstructing "from what?" is the only reason
+  the ledger exists. Losing the race matches zero rows, which is re-read and reported as "someone
+  else just set it to $X — nothing was changed", distinct from the dish having vanished.
+- 5 new mutants (**106 total**), each watched red: the role floor dropped to `server`, the zero-row
+  update reading as success, a transport failure reading as "no such dish", the price write without
+  its compare-and-swap, and the swallowed audit failure.
 
 **Deliberately not included: a per-mode `togo_price_cents`.** W17a established one POS price per dish,
 and the handful that genuinely differ would need the dine-in↔to-go toggle to **re-price again** — the

@@ -136,7 +136,13 @@ the decision the rule protects. What changes is which number `priceItem` reads n
   because an unrecorded correct price beats a reverted one the kitchen already heard about.
 - **Nobody is re-priced mid-meal:** `unit_price_cents` is stamped at add time and nothing here
   touches `qr_cart_items`.
-- Migration `20260816000000_w17b_price_editor.sql`. 4 new mutants (105 total), each watched red.
+- **Compare-and-swap on the write** (review MED): the update asserts the price it read. Keyed on the
+  id alone, two concurrent edits both land and the second records a ledger row claiming it changed
+  the price _from_ a value already gone — the live price is fine, the ledger is what breaks, and
+  answering "from what?" is the only reason it exists. A lost race is re-read and named ("someone
+  else just set it to $X"), distinct from a vanished dish; an unreadable re-read is treated as the
+  race, since telling a manager to look again beats claiming a dish vanished when it did not.
+- Migration `20260816000000_w17b_price_editor.sql`. 5 new mutants (106 total), each watched red.
 
 **Deferred: per-mode `togo_price_cents`.** Six POS items ring differently by mode; only ~4 look like
 policy rather than a register anomaly (`Fish Paste` $42/$14 and `Shrimp Spicy` $15/$19 at 8 units

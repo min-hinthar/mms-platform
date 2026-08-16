@@ -248,8 +248,8 @@ const MUTANTS = [
     file: "apps/qr/lib/menu-price.ts",
     suite: "lib/menu-price.test.ts",
     why: 'W17b — `.update()` returns no row count, so without the `.select("id")` verdict a write that matched NOTHING answers ok: the manager is told the price changed, the guests keep paying the old one, and the ledger records a change that never happened',
-    find: '  if (!written) return { ok: false, error: "That dish is no longer on the menu." };',
-    replace: "",
+    find: "  if (!written) {",
+    replace: "  if (false) {",
   },
   {
     id: "menu-price/transport-failure-reads-as-missing-dish",
