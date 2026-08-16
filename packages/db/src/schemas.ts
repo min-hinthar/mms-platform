@@ -416,6 +416,16 @@ export const staffAddItemInput = z.object({
   qty: z.number().int().min(1).max(9).default(1),
 });
 
+/** setKioskTip (W17c-3) — the kiosk guest chooses a tip, minutes before a cashier takes the money.
+ *  An AMOUNT, not a rate, and stored rather than charged: the kiosk pays at the counter, so this is
+ *  the guest's half of the conversation (`qr_carts.intended_tip_cents`) and the cashier's entry is
+ *  still the authority. Bounded 0..100000 here and by the column CHECK. `null` clears it back to
+ *  "never asked", which the register renders differently from "asked, chose nothing". */
+export const setKioskTipInput = z.object({
+  cartId: uuid,
+  tipCents: z.number().int().min(0).max(100000).nullable(),
+});
+
 /** setMenuPrice (W17b) — a MANAGER edits a dish's menu price from the staff console. The client
  *  asserts the amount here (it is the decision being made, not a derived total), so it is bounded on
  *  BOTH sides: this `.min(25).max(500000)` and the `menu_items_base_price_cents_bounds` column CHECK
@@ -600,6 +610,7 @@ export type RecallTicketInput = z.infer<typeof recallTicketInput>;
 export type FireTicketNowInput = z.infer<typeof fireTicketNowInput>;
 export type SetLineNotesInput = z.infer<typeof setLineNotesInput>;
 export type SetMenuPriceInput = z.infer<typeof setMenuPriceInput>;
+export type SetKioskTipInput = z.infer<typeof setKioskTipInput>;
 export type StaffAddItemInput = z.infer<typeof staffAddItemInput>;
 export type SettleCashInput = z.infer<typeof settleCashInput>;
 export type TerminalPollInput = z.infer<typeof terminalPollInput>;

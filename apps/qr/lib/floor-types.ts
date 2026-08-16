@@ -100,6 +100,10 @@ export type TableDetail = {
    *  items. Computed by getCartTotals (the single tax engine), so the staff sees the real charge, not a
    *  pre-tax guess. Only on the detail (one table), never the floor hot path. */
   settleTotalCents: number | null;
+  /** W17c-3 — the tip a KIOSK guest chose before walking to the counter. `null` means they were
+   *  never asked (every non-kiosk cart); `0` means they were asked and chose to leave nothing. The
+   *  settle UI shows those differently, so the distinction has to survive the read. */
+  intendedTipCents: number | null;
   paidTotalCents: number | null;
   /** Tab lifecycle (S3.1) — `none`/`trust`/`secure`. When not `none`, the drill-down shows a "Tab
    *  open" badge + the open-since time, and the settle action reads "Close tab". */

@@ -39,6 +39,15 @@ const STRINGS = {
   goesWellWith: { en: "Goes well with", my: "တွဲဖက်စားလို့ ကောင်းသည်" },
   noThanks: { en: "No thanks", my: "မလိုပါ" },
   payAtCounter: { en: "Pay at the counter", my: "ကောင်တာတွင် ငွေရှင်းပါ" },
+  // W17c-3 — the tip ask. "Add a tip?" is a question, not an instruction: the kiosk must never
+  // read as if leaving nothing is the wrong answer, so "No tip" is the FIRST option and carries
+  // the same weight as the rest.
+  addATip: { en: "Add a tip?", my: "လက်ဆောင် ထည့်မလား?" },
+  tipForTheTeam: {
+    en: "It goes to the team who made your food.",
+    my: "သင့်အစားအစာ ပြင်ဆင်ပေးသူများထံ ရောက်ပါမည်။",
+  },
+  noTip: { en: "No tip", my: "မထည့်ပါ" },
   handoffTogo: {
     en: "Pay at the counter — we’ll call your name.",
     my: "ကောင်တာတွင် ငွေရှင်းပါ — အမည်ဖြင့် ခေါ်ပါမည်။",

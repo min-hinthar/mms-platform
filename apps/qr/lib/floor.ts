@@ -244,7 +244,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     db.from("session_members").select("seat_id,display_name,role").eq("session_id", sessionId),
     db
       .from("qr_carts")
-      .select("id,locked,locked_at,settle_at,tab_type,tab_opened_at")
+      .select("id,locked,locked_at,settle_at,tab_type,tab_opened_at,intended_tip_cents")
       .eq("session_id", sessionId)
       .eq("status", "open")
       .maybeSingle(),
@@ -395,6 +395,9 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     itemCount,
     runningSubtotalCents,
     settleTotalCents,
+    // W17c-3 — what the KIOSK guest chose, if they were asked. null = never asked (every non-kiosk
+    // cart), which the settle UI renders differently from 0 = asked and chose nothing.
+    intendedTipCents: cart?.intended_tip_cents ?? null,
     paidTotalCents: paid?.total_cents ?? null,
     // Tab lifecycle (S3.1) — only meaningful while a cart is open; a settled/absent cart reads 'none'.
     tab,

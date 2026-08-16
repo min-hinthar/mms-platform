@@ -452,6 +452,7 @@ export function FloorDetailLive({
           <CashSettleButton
             sessionId={sessionId}
             totalCents={detail.settleTotalCents}
+            intendedTipCents={detail.intendedTipCents}
             isTab={detail.tab !== "none"}
             // W6a: a counter (register) order ends in a handoff — tendered/change helper + the
             // #CODE card the cashier calls out. Table settles keep the quiet flow.

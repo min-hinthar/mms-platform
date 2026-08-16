@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { settleCash } from "@/lib/staff-cart";
 import { changeDue } from "@/lib/register-math";
+import { tipPresets } from "@/lib/tip";
 import { Card } from "@mms/ui";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -17,12 +18,17 @@ const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 export function CashSettleButton({
   sessionId,
   totalCents,
+  intendedTipCents = null,
   isTab = false,
   handoff = false,
   onHandoff,
 }: {
   sessionId: string;
   totalCents: number;
+  /** W17c-3 — what the KIOSK guest chose on their way to the counter. `null` = never asked (every
+   *  non-kiosk cart). It PRE-FILLS the field below; the cashier still confirms, because only the
+   *  person who takes the money knows what was actually handed over. */
+  intendedTipCents?: number | null;
   /** When this table is running a trust tab (S3.1), the cash settle IS the tab close — re-frame the
    *  copy ("Close tab" / "closes this tab") so the action reads as the deliberate end-of-night close,
    *  not a mid-meal settle. The money path is identical (mms_fulfill_cash_order, server-reconciled). */
@@ -42,7 +48,11 @@ export function CashSettleButton({
   // W17c-2 — the cash tip the cashier was handed. Unlike every other amount in this app it IS typed
   // by a human, because nothing on the server can derive it: only the person who took the cash knows
   // what was left. It is bounded by Zod (0..100000) and by the qr_orders_tip_cents_nonneg CHECK.
-  const [tip, setTip] = useState("");
+  // Pre-filled from the guest's kiosk choice when there was one. `null` (never asked) leaves the
+  // field empty rather than typing a 0 that would read as an answer nobody gave.
+  const [tip, setTip] = useState(
+    intendedTipCents != null ? (intendedTipCents / 100).toFixed(2) : "",
+  );
   const tipCents = Math.max(0, Math.round(Number.parseFloat(tip || "0") * 100) || 0);
   const tipValid = tipCents <= 100000;
   // What the cashier actually collects. Everything below — the confirm question, the settle button,
@@ -114,6 +124,34 @@ export function CashSettleButton({
             <label htmlFor="cash-tip" style={{ fontSize: "var(--fs-sm)", fontWeight: 600 }}>
               Cash tip (optional)
             </label>
+            {/* W17c-3 — the house ladder as one-tap chips, so a cashier is not doing percentage
+                arithmetic at the counter. They fill the field (they do not settle), so the amount
+                stays visible and adjustable before anything is recorded. */}
+            <div role="group" aria-label="Quick tip amounts" style={tipChipRow}>
+              {tipPresets(totalCents).map((p) => {
+                const cents = Math.round(totalCents * p.rate);
+                return (
+                  <button
+                    key={p.label}
+                    type="button"
+                    className="staff-btn"
+                    style={tipChip}
+                    onClick={() => setTip((cents / 100).toFixed(2))}
+                  >
+                    {p.label}
+                    <span style={tipChipAmount}>{fmt(cents)}</span>
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                className="staff-btn"
+                style={tipChip}
+                onClick={() => setTip("")}
+              >
+                None
+              </button>
+            </div>
             <input
               id="cash-tip"
               inputMode="decimal"
@@ -121,10 +159,24 @@ export function CashSettleButton({
               placeholder="e.g. 5"
               value={tip}
               onChange={(e) => setTip(e.target.value.replace(/[^0-9.]/g, ""))}
-              aria-describedby={!tipValid ? "cash-tip-cap" : undefined}
+              aria-describedby={
+                !tipValid ? "cash-tip-cap" : intendedTipCents != null ? "cash-tip-kiosk" : undefined
+              }
               aria-invalid={!tipValid || undefined}
               style={tenderInput}
             />
+            {/* Says WHERE the number came from. A pre-filled amount with no explanation reads as an
+                app-invented charge; naming the guest's choice makes it something to confirm. */}
+            {intendedTipCents != null && (
+              <p
+                id="cash-tip-kiosk"
+                style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" }}
+              >
+                {intendedTipCents > 0
+                  ? `The guest chose ${fmt(intendedTipCents)} at the kiosk — confirm or change it.`
+                  : "The guest chose no tip at the kiosk."}
+              </p>
+            )}
             {!tipValid && (
               <p
                 id="cash-tip-cap"
@@ -249,3 +301,20 @@ const hint: CSSProperties = {
   color: "var(--t3)",
   minHeight: 16,
 };
+
+const tipChipRow: CSSProperties = { display: "flex", gap: "var(--s2)", flexWrap: "wrap" };
+const tipChip: CSSProperties = {
+  minHeight: 44,
+  padding: "0 var(--s3)",
+  borderRadius: "var(--r-sm)",
+  border: "1px solid var(--bd)",
+  background: "var(--sf)",
+  color: "var(--tx)",
+  fontSize: "var(--fs-sm)",
+  fontWeight: 700,
+  cursor: "pointer",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "var(--s2)",
+};
+const tipChipAmount: CSSProperties = { fontWeight: 500, color: "var(--t2)" };

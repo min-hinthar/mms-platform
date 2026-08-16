@@ -1168,6 +1168,7 @@ export type Database = {
           customer_name: string | null
           fire_at: string | null
           id: string
+          intended_tip_cents: number | null
           locked: boolean
           locked_at: string | null
           locked_by: string | null
@@ -1188,6 +1189,7 @@ export type Database = {
           customer_name?: string | null
           fire_at?: string | null
           id?: string
+          intended_tip_cents?: number | null
           locked?: boolean
           locked_at?: string | null
           locked_by?: string | null
@@ -1208,6 +1210,7 @@ export type Database = {
           customer_name?: string | null
           fire_at?: string | null
           id?: string
+          intended_tip_cents?: number | null
           locked?: boolean
           locked_at?: string | null
           locked_by?: string | null

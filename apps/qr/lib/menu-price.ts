@@ -2,7 +2,7 @@
 import { revalidatePath } from "next/cache";
 import { serviceClient } from "@mms/db/server";
 import { setMenuPriceInput } from "@mms/db/schemas";
-import { staffGate, STAFF_WRITE_OUTAGE } from "./staff";
+import { staffGate } from "./staff";
 
 /**
  * W17b — the staff price editor (owner: "staff portal should be able to update prices?").

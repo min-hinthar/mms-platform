@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { addItem, getCartView } from "@/lib/cart";
+import { addItem, getCartView, setKioskTip } from "@/lib/cart";
+import { tipPresets } from "@/lib/tip";
 import type { CartItem, CartTotals } from "@mms/db";
 import { goesWellWith } from "@/lib/menu/upsell";
 import { t, type KioskLang } from "@/lib/kiosk/strings";
@@ -34,6 +35,11 @@ export function KioskReview({
   const [loadFailed, setLoadFailed] = useState(false);
   const [upsellOpen, setUpsellOpen] = useState(false);
   const upsellSeen = useRef(false);
+  // W17c-3 — the tip ask, shown ONCE between the commitment and the handoff. The kiosk pays at the
+  // counter, so this records an INTENT on the cart that the register pre-fills from; the cashier
+  // still confirms what was actually handed over.
+  const [tipOpen, setTipOpen] = useState(false);
+  const tipSeen = useRef(false);
   const [pending, startTransition] = useTransition();
 
   const refresh = () => {
@@ -45,6 +51,13 @@ export function KioskReview({
       .catch(() => setLoadFailed(true));
   };
   useEffect(refresh, [cartId]); // initial read per mount (refresh identity is per-render, keyed reads are idempotent)
+
+  // The server's own tip base (subtotal − discount), and whether this basket can be tipped at all.
+  const tipBaseCents = view
+    ? view.items.some((l) => l.fulfillment !== "grocery")
+      ? view.totals.subtotalCents - view.totals.discountCents
+      : 0
+    : 0;
 
   const upsellPicks = useMemo(() => {
     if (!view) return [];
@@ -60,7 +73,7 @@ export function KioskReview({
 
   function proceed() {
     // "Pay at the counter" IS the commitment — tell the flow before anything else, so an idle
-    // timeout on the upsell screen advances to the handoff instead of destroying a decided order.
+    // timeout on any interposed screen advances to the handoff instead of destroying a decided order.
     onCommitted();
     // The one-shot rule: the rail interposes once, only when it has something genuine to show.
     if (!upsellSeen.current && upsellPicks.length > 0) {
@@ -68,7 +81,32 @@ export function KioskReview({
       setUpsellOpen(true);
       return;
     }
+    askTipThenHandoff();
+  }
+
+  /** The tip ask interposes ONCE, and only when there is something to tip on — a pure-grocery
+   *  basket takes no tip (the server force-zeros it) and an unreadable total has no base. */
+  function askTipThenHandoff() {
+    if (!tipSeen.current && tipBaseCents > 0) {
+      tipSeen.current = true;
+      setTipOpen(true);
+      return;
+    }
     onHandoff();
+  }
+
+  /** Record the choice, then hand off REGARDLESS of whether the write landed. A failed tip write
+   *  must never strand a guest who has already committed to paying: the cashier's entry is the
+   *  authority anyway, so the worst case is that they ask at the counter. */
+  function chooseTip(cents: number) {
+    startTransition(async () => {
+      try {
+        await setKioskTip({ cartId, tipCents: cents });
+      } catch {
+        /* deliberate: an unrecorded intent is a smaller harm than a dead-ended kiosk */
+      }
+      onHandoff();
+    });
   }
 
   function addUpsell(item: KioskItem) {
@@ -140,12 +178,61 @@ export function KioskReview({
           ))}
         </ul>
         <div style={{ display: "flex", gap: "var(--s3)", justifyContent: "center" }}>
-          <button type="button" className="kiosk-ghost" onClick={onHandoff}>
+          <button type="button" className="kiosk-ghost" onClick={askTipThenHandoff}>
             {t(lang, "noThanks")}
           </button>
-          <button type="button" className="kiosk-cta" onClick={onHandoff}>
+          <button type="button" className="kiosk-cta" onClick={askTipThenHandoff}>
             {t(lang, "payAtCounter")}
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (tipOpen) {
+    const presets = tipPresets(tipBaseCents);
+    return (
+      <div className="kiosk-screen">
+        <h1 className="kiosk-h1" lang={lang === "my" ? "my" : undefined}>
+          {t(lang, "addATip")}
+        </h1>
+        <p className="kiosk-touch-hint" lang={lang === "my" ? "my" : undefined}>
+          {t(lang, "tipForTheTeam")}
+        </p>
+        <div
+          role="group"
+          aria-label={t(lang, "addATip")}
+          className="kiosk-door-grid"
+          style={{ margin: "0 auto" }}
+        >
+          {/* "No tip" FIRST and identical in weight — the ask must never make declining feel wrong.
+              It records 0 (a real answer), not null (never asked), which the register distinguishes. */}
+          <button
+            type="button"
+            className="kiosk-ghost"
+            style={{ width: "100%" }}
+            disabled={pending}
+            onClick={() => chooseTip(0)}
+          >
+            {t(lang, "noTip")}
+          </button>
+          {presets.map((p) => {
+            // Latin digits, integer cents — the same amount the server will record.
+            const cents = Math.round(tipBaseCents * p.rate);
+            return (
+              <button
+                key={p.label}
+                type="button"
+                className="kiosk-cta"
+                style={{ width: "100%" }}
+                disabled={pending}
+                onClick={() => chooseTip(cents)}
+              >
+                <span className="kiosk-door-label">{p.label}</span>
+                <span className="kiosk-door-hint">${(cents / 100).toFixed(2)}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
     );
