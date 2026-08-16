@@ -48,6 +48,7 @@ import { SendToKitchenButton } from "./SendToKitchenButton";
 import { SecureTabButton } from "./SecureTabButton";
 import { RewardField } from "./RewardField";
 import { PickupWhenChoice } from "./PickupWhenChoice";
+import { PaperAmbient } from "./PaperAmbient";
 import { WalletChip } from "./WalletChip";
 import { useRewardsBadge } from "@/lib/useRewardsBadge";
 import {
@@ -934,7 +935,16 @@ export function Checkout({
   }
 
   return (
-    <main style={{ padding: "24px 20px 40px", maxWidth: "var(--w-content)", margin: "0 auto" }}>
+    // W22a — the paper ambient behind the whole bill/pay column (isolation anchors its z:-1).
+    <main
+      style={{
+        padding: "24px 20px 40px",
+        maxWidth: "var(--w-content)",
+        margin: "0 auto",
+        isolation: "isolate",
+      }}
+    >
+      <PaperAmbient />
       {/* tabIndex={-1} = programmatic focus target (focus moves here when a line is removed). No
           outline override — the browser shows its :focus-visible ring (WCAG 2.4.7). K3a: a signed-in
           diner's wallet chip rides beside the heading (recognition at the pay moment; hidden for anon). */}

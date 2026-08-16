@@ -8,12 +8,14 @@ import { getReceiptEntry } from "@/lib/receipt-entry";
 import { resolveReceiptOrder } from "@/lib/receipt-token";
 import { reorderLink } from "@/lib/order-history-view";
 import { menuHref, menuLinkText } from "@/lib/menu-href";
+import { PaperAmbient } from "@/components/PaperAmbient";
 
 // /track — post-payment, live. Stripe appends `payment_intent` + `redirect_status` to the Payment
 // Element return_url; for succeeded/processing we mount the Realtime <OrderTracker> (the order shows
 // the moment the signature-verified webhook fulfills, no manual refresh). The kitchen lifecycle +
 // ETA arrive with S2's KDS / M2.2 — the same subscription carries them.
-const wrap = { padding: 24, maxWidth: 440, margin: "0 auto" } as const;
+// W22a — isolation anchors the fixed z:-1 PaperAmbient each branch's main hosts.
+const wrap = { padding: 24, maxWidth: 440, margin: "0 auto", isolation: "isolate" } as const;
 
 type SearchParams = Promise<{
   redirect_status?: string;
@@ -88,6 +90,8 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
     const again = reorderLink(entry);
     return (
       <main style={{ ...wrap, maxWidth: 480 }}>
+        {/* W22a — screen-only ambient (print-hidden in CSS); the receipt keeps its clean paper. */}
+        <PaperAmbient />
         <ReceiptCard entry={entry} />
         <div className="print-hide" style={{ display: "grid", gap: 10, marginTop: 14 }}>
           <PrintReceiptButton />

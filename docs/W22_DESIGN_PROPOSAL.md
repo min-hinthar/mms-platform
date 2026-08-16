@@ -15,7 +15,13 @@ at once rather than one flow. **W22b** then makes the app _feel_ installed-nativ
 
 ---
 
-## W22a · Depth & ceremony — the Anthropic warm-paper pass ⭐ recommended first
+## W22a · Depth & ceremony — the Anthropic warm-paper pass ⭐ **SHIPPED 2026-08-16**
+
+> As-built: `--sh-paper` two-tier shadows on every card + `.surface-paper`; `.surface-vellum`
+> consumed (ConfirmSwap); md:+ chrome frost; `PaperAmbient` behind the diner mains; the
+> thermal-print /track slip (clip + sibling print-head + torn foot, totals presentation-only);
+> the send-to-kitchen paper beat. Digits needed no work — NumberFlow owns its baseline (the
+> delivery lesson applies to hand-rolled reels). Details: CHANGELOG · DESIGN-LANGUAGE §1/§3.
 
 Port the delivery repo's proven texture/motion kit into `@mms/ui` and give the QR surfaces real
 depth: paper grain + gradient-masked dot/line grids behind key sections (never uniform

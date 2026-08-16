@@ -4,6 +4,32 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W22a·depth — the warm-paper pass (2026-08-16)
+
+Owner go: _"Merge and Build W22a as planned"_ (`docs/W22_DESIGN_PROPOSAL.md` · Depth & ceremony —
+port the delivery repo's proven kit, rebuilt to QR tokens, never imported).
+
+- **Two-tier diffuse shadows** — new `--sh-paper` token (tight ambient + a NEGATIVE-SPREAD wide
+  layer, both themes): every `.card` now wears the sheen lip + the two-tier lift (the old flat
+  `--sh` read square over busy backdrops); `.surface-paper` adopts the same recipe.
+- **The R1 kit finally consumed** — `.surface-vellum` on the ConfirmSwap decision card (a warmer
+  surface for a moment of consideration); md:+ frost on the sticky `.app-header`/`.menu-toolbar`
+  (mobile keeps today's exact opaque paint — the GPU budget forbids blur below md).
+- **`PaperAmbient`** — a fixed, gradient-masked hairline grid under a soft gold bloom with grain
+  behind every diner main (menu · bill/pay · account · track · durable receipt · grocery; cards
+  keep the DOTS so the two textures never read identical). Static, blur-free, `aria-hidden`,
+  print-hidden, `isolation:isolate` on each host (the home-bg occlusion lesson).
+- **Ceremony 1 — the thermal-print receipt**: the /track paid summary is now a printed SLIP (card
+  body + torn perforated foot); freshly paid it prints on — clip-path opens top→bottom while a
+  gold print-head light (a SIBLING of the clipped element, delivery's lesson) rides the frontier
+  on the identical 1.05s curve. Presentation-only: every figure stays the server-rendered value.
+  Reduced motion renders the finished slip instantly.
+- **Ceremony 2 — the send-to-kitchen paper beat**: on a successful send a small receipt glyph
+  lifts off toward the kitchen and fades, and the undo control settles in — keyed per send,
+  decorative (the live region already says it in words), `display:none` under reduced motion.
+- **Digits: deliberately no work** — QR rolls money on `@number-flow/react`, which owns its
+  baseline; the delivery repo's baseline-anchor lesson applies to hand-rolled reels only.
+
 ### W22a — the drifting start + one taste-buds bar (2026-08-16)
 
 Owner: _"start here should world class UI/UX feature two independent moving and micro-interactions

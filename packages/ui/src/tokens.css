@@ -125,6 +125,11 @@
      --sh-glow's 22px blur is clipped by the scroller — this stays within ~9px so a little rail padding
      shows it fully. */
   --sh-lift: 0 2px 8px -1px color-mix(in oklab, var(--ac) 42%, transparent);
+  /* W22a — the two-tier diffuse card shadow (delivery's proven recipe, rebuilt to QR ink): a tight
+     ambient contact layer + a wide diffuse layer whose NEGATIVE SPREAD keeps it soft-rounded — a
+     positive/zero-spread wide layer reads as a hard square frame over busy backdrops (the delivery
+     card-over-photo gotcha). Pairs with the inset --sheen lip at the consumer. */
+  --sh-paper: 0 1px 3px -1px rgba(35, 24, 16, 0.07), 0 14px 28px -18px rgba(35, 24, 16, 0.28);
   /* z-index scale — SINGLE source of truth (theme-agnostic; defined here only). Ordering intent:
      content < sticky toolbar < scrim < sheet < celebrations. The sheet sits ABOVE the sticky toolbar so
      a bottom sheet is never painted-over by (or has its drag-to-close zone stolen by) the toolbar — the
@@ -186,6 +191,8 @@
   --sheen: rgba(255, 255, 255, 0.06);
   --sh-glow: 0 6px 22px color-mix(in oklab, var(--ac) 22%, transparent);
   --sh-lift: 0 2px 8px -1px color-mix(in oklab, var(--ac) 52%, transparent);
+  /* W22a two-tier mirror — Night eats soft shadows, so both layers deepen (same shape). */
+  --sh-paper: 0 1px 3px -1px rgba(0, 0, 0, 0.5), 0 16px 32px -18px rgba(0, 0, 0, 0.6);
   --scrim: rgba(0, 0, 0, 0.6); /* deeper dim on Night so the lifted sheet still separates */
 }
 @media (prefers-reduced-motion: reduce) {
