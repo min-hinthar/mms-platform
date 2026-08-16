@@ -63,6 +63,13 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ### W17c-4 — tip transparency (this slice)
 >
+> ⚠️ **The bug worth remembering here**: the first version scoped the QUERY for a server
+> (`.eq("settled_by", me)`). That hides colleagues — and also makes a null `settled_by` structurally
+> impossible, so every server saw "guests tipped $0.00 on their phones" **as fact**, under a promise
+> that nothing on the screen is an estimate. A privacy filter had become a lie about money. Narrow
+> **in-process** (`scopeToSelf`, pure and mutant-pinned), never by a predicate that also removes the
+> rows a different number depends on.
+>
 > `/staff/tips`, linked from the floor for every staff member. The honest constraint shapes it:
 > `qr_orders.settled_by` is stamped when a STAFF member took the money and is **null** when the guest
 > paid on their own phone. So there are two buckets and they are **never blended** — "handed to a

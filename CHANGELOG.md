@@ -28,8 +28,18 @@ says so, because this is the screen staff will read as an authoritative statemen
 - **A failed read renders the outage shell**, never "you were tipped nothing" — the worst false
   verdict on a screen about someone's earnings. A failed _name_ lookup is not a failed report: an id
   is a worse label than a name, but an honest one.
-- 3 new mutants (**120 total**): the shared pool credited to a person, a refunded tip counted, and a
-  negative tip deducting from someone's column.
+- **The shared bucket is true for everyone who sees it** (review HIGH). Scoping the _query_ for a
+  server hid colleagues — and also made a null `settled_by` structurally impossible, so every server
+  was shown _"Guests who paid on their own phones tipped $0.00 across 0 orders"_ as fact, directly
+  under the promise that nothing here is an estimate. A privacy filter had become a lie about money.
+  The read now takes the whole day and narrows via a **pure, mutant-pinned** `scopeToSelf`: their own
+  line, the shared bucket intact. A server's headline is their own total, never the shared pool
+  folded in.
+- **The read is paged** like `getDayCashSummary` (review MED), for the reason that function
+  documents: PostgREST truncates at max-rows with `error` still null, and a silently short tip figure
+  is the same lie. Only `paid` rows are fetched, so refunded and pending don't burn the budget.
+- 5 new mutants (**122 total**): the shared pool credited to a person, the self-scope zeroing it, a
+  server's headline absorbing it, a refunded tip counted, and a negative tip deducting.
 
 ### W17d-1 — the catalog matches the register (2026-08-16)
 
