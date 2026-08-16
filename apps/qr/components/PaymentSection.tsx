@@ -24,12 +24,16 @@ export function PaymentSection({
   cartId,
   clientSecret,
   totals,
+  unsentCount = 0,
   onEdit,
   onPayingChange,
 }: {
   cartId: string;
   clientSecret: string;
   totals: CartTotals;
+  /** W19 — qty units of still-draft food in this charge (lib/checkout-stage unsentFoodQty). The
+   *  charge confirm names them, so paying-with-unsent is an informed choice. */
+  unsentCount?: number;
   onEdit: () => void;
   /** W9b — mirror the in-flight confirm up to Checkout, so the pay step's new top-of-view "Back to
    *  review" can disable itself while a PaymentIntent is being confirmed. Editing then would release
@@ -56,7 +60,13 @@ export function PaymentSection({
 
   return (
     <Elements stripe={stripePromise} options={options}>
-      <PayForm cartId={cartId} totals={totals} onEdit={onEdit} onPayingChange={onPayingChange} />
+      <PayForm
+        cartId={cartId}
+        totals={totals}
+        unsentCount={unsentCount}
+        onEdit={onEdit}
+        onPayingChange={onPayingChange}
+      />
     </Elements>
   );
 }
@@ -64,11 +74,13 @@ export function PaymentSection({
 function PayForm({
   cartId,
   totals,
+  unsentCount = 0,
   onEdit,
   onPayingChange,
 }: {
   cartId: string;
   totals: CartTotals;
+  unsentCount?: number;
   onEdit: () => void;
   onPayingChange?: (paying: boolean) => void;
 }) {
@@ -171,7 +183,7 @@ function PayForm({
 
       {confirming ? (
         <ConfirmSwap
-          copy={confirmCopy({ kind: "pay", amountCents: totals.totalCents })}
+          copy={confirmCopy({ kind: "pay", amountCents: totals.totalCents, unsentCount })}
           busy={submitting}
           busyLabel="Processing…"
           onCancel={() => setConfirming(false)}

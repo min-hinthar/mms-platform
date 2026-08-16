@@ -193,6 +193,9 @@ function ItemSheetBody({
       : null;
 
   function choose(group: ModGroup, optionId: string) {
+    // W19 — a light tap-weight on the pick itself (the Add CTA's rationale at addToOrder: weight
+    // the GESTURE, not the network). 8 < the Add's 12 — a pick is smaller than a commit.
+    hapticTap(8);
     setSelected((s) => ({ ...s, [group.id]: toggleOption(group, s[group.id] ?? [], optionId) }));
   }
 

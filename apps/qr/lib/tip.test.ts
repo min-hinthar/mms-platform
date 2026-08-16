@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { createIntentInput, shareIntentInput } from "@mms/db/schemas";
-import { effectiveTipRate, tipPresets, TIP_LADDER, TIP_RATE_MAX } from "./tip";
+import {
+  effectiveTipRate,
+  tipPresets,
+  tipWithinAmountCap,
+  TIP_AMOUNT_MAX_CENTS,
+  TIP_LADDER,
+  TIP_RATE_MAX,
+} from "./tip";
 
 /**
  * W17c — the tip ask's decision rules. Every integer below is computed in Node and pasted, never
@@ -81,12 +88,36 @@ describe("the cap this module enforces is the TIGHTER of the two schema caps", (
     ).toBe(false);
   });
 
-  it("single-pay is LOOSER (1.0) — so respecting the split cap satisfies it, never the reverse", () => {
+  it("single-pay is LOOSER — so respecting the split cap satisfies it, never the reverse", () => {
     // Documents WHY the tighter bound is the one this module uses: a 0.9 rate is fine single-pay and
     // refused on a split. If this ever inverts, the choice of TIP_RATE_MAX has to be revisited.
+    // W19: single-pay's real ceiling is the $1,000 AMOUNT (enforced in create-intent on the derived
+    // cents); the schema rate bound is only the transport sanity rail, so a >100% rate now parses.
     expect(createIntentInput.safeParse({ cartId: CART, tipRate: 0.9 }).success).toBe(true);
+    expect(createIntentInput.safeParse({ cartId: CART, tipRate: 2.5 }).success).toBe(true);
     expect(shareIntentInput.safeParse({ cartId: CART, tipRate: 0.9 }).success).toBe(false);
     expect(createIntentInput.safeParse({ cartId: CART, tipRate: TIP_RATE_MAX }).success).toBe(true);
+  });
+});
+
+describe("the $1,000 tip amount ceiling (W19 — owner: 'no limit to custom or capped amount')", () => {
+  it("is exactly the cash tip's own bound, and the boundary belongs to the allowed side", () => {
+    // Computed, not transcribed: settleCashInput.tipCents allows 0..100000.
+    expect(TIP_AMOUNT_MAX_CENTS).toBe(100000);
+    expect(tipWithinAmountCap(100000)).toBe(true); // exactly $1,000.00 still passes —
+    // an over-tight bound would refuse a legitimate maximal tip and no refusal-only test would see it.
+    expect(tipWithinAmountCap(0)).toBe(true);
+  });
+
+  it("refuses the first cent past the ceiling", () => {
+    expect(tipWithinAmountCap(100001)).toBe(false);
+  });
+
+  it("the schema's transport rail can carry any in-bounds tip on any priceable order", () => {
+    // The smallest orderable net is one 25¢ item (the setMenuPrice floor). A $1,000 tip on it needs
+    // rate 100000/25 = 4000 — the schema max. Anything the amount gate allows must PARSE, or the
+    // bound would surface as a 400 at the last tap instead of the honest cap line.
+    expect(createIntentInput.safeParse({ cartId: CART, tipRate: 100000 / 25 }).success).toBe(true);
   });
 });
 

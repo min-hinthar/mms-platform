@@ -94,10 +94,12 @@ are not style notes; each one shipped, or nearly shipped, a wrong number to a gu
   hole was live, not theoretical. Constraints get a SQL test in `supabase/tests/` (registered in
   CI's required-files list) that asserts BOTH the refusal and that a legitimate value still passes;
   an over-tight bound blocks real service and no refusal-only test would notice.
-- **Two caps, not one.** `createIntentInput.tipRate` allows 1.0 (single-pay); `shareIntentInput`
-  allows 0.5, matching `qr_cart_shares.tip_rate`'s column CHECK. A tip is chosen BEFORE the table
-  decides how it settles, so anything offered must clear the **tighter** bound — otherwise a bound
-  surfaces as a failed payment at the last tap.
+- **Two caps, not one.** Single-pay's ceiling is the **$1,000 AMOUNT** (W19 `TIP_AMOUNT_MAX_CENTS`,
+  enforced in create-intent on the DERIVED cents — a rate cannot express a dollar cap; the schema's
+  `.max(4000)` is only the transport rail). `shareIntentInput` allows a **0.5 rate**, matching
+  `qr_cart_shares.tip_rate`'s column CHECK. A tip is chosen BEFORE the table decides how it
+  settles, so anything OFFERED (the preset ladder) must clear the **tighter** bound — otherwise a
+  bound surfaces as a failed payment at the last tap.
 - **Some things genuinely cannot be attributed, and guessing is worse than saying so.**
   `qr_orders.settled_by` is null when a guest pays on their own phone. `/staff/tips` reports that as
   a shared bucket rather than splitting it, because a per-head number this app invented would look

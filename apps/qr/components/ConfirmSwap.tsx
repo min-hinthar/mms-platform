@@ -19,7 +19,8 @@ import type { ConfirmCopy } from "@/lib/confirm-copy";
  *  - both targets ≥44px (QA §A / WCAG 2.5.8);
  *  - the question is static text wired by `aria-describedby` — NO new live region (the one-region
  *    rule: each host view already owns exactly one, and outcomes keep riding it);
- *  - no animation (nothing to gate under prefers-reduced-motion).
+ *  - W19: the reveal rides `.mms-rise` and the buttons carry real press states (both RM-gated in
+ *    globals.css) — the old hard swap read as a broken cut on the money step.
  *
  * Bilingual per W16b: EN primary, Burmese accent underneath with its own `lang="my"`.
  */
@@ -47,7 +48,13 @@ export function ConfirmSwap({
   }, []);
 
   return (
-    <div role="group" aria-label={copy.label} aria-describedby={questionId} style={card}>
+    <div
+      role="group"
+      aria-label={copy.label}
+      aria-describedby={questionId}
+      className="mms-rise"
+      style={card}
+    >
       <p id={questionId} style={question}>
         {copy.questionEn}
         <span lang="my" style={questionMy}>
@@ -61,7 +68,14 @@ export function ConfirmSwap({
         </span>
       </p>
       <div style={row}>
-        <button ref={cancelRef} type="button" onClick={onCancel} disabled={busy} style={cancelBtn}>
+        <button
+          ref={cancelRef}
+          type="button"
+          onClick={onCancel}
+          disabled={busy}
+          className="confirm-swap-cancel"
+          style={cancelBtn}
+        >
           {copy.cancelEn}
           <span lang="my" style={btnMy}>
             {copy.cancelMy}
@@ -72,14 +86,15 @@ export function ConfirmSwap({
           onClick={onProceed}
           disabled={busy}
           aria-busy={busy}
+          className="confirm-swap-proceed"
           style={proceedBtn}
         >
           {busy ? (busyLabel ?? copy.proceedEn) : copy.proceedEn}
-          {!busy && (
-            <span lang="my" style={btnMy}>
-              {copy.proceedMy}
-            </span>
-          )}
+          {/* W19 — the MY line keeps its SPACE while busy (visibility, not unmount): the label used
+              to jump from two lines to one mid-press, twitching the whole row's height. */}
+          <span lang="my" style={{ ...btnMy, visibility: busy ? "hidden" : "visible" }}>
+            {copy.proceedMy}
+          </span>
         </button>
       </div>
     </div>
@@ -100,6 +115,8 @@ const question: CSSProperties = {
   fontSize: "var(--fs-body)",
   fontWeight: 700,
   color: "var(--tx)",
+  // W19 — the card replaces a CENTER-aligned button; left-aligned prose read as misaligned.
+  textAlign: "center",
 };
 const questionMy: CSSProperties = {
   display: "block",
@@ -108,7 +125,12 @@ const questionMy: CSSProperties = {
   fontWeight: 600,
   color: "var(--t2)",
 };
-const detail: CSSProperties = { margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" };
+const detail: CSSProperties = {
+  margin: 0,
+  fontSize: "var(--fs-sm)",
+  color: "var(--t2)",
+  textAlign: "center",
+};
 const detailMy: CSSProperties = {
   display: "block",
   fontFamily: "var(--font-my)",
@@ -127,18 +149,10 @@ const baseBtn: CSSProperties = {
   cursor: "pointer",
   lineHeight: 1.2,
 };
-const cancelBtn: CSSProperties = {
-  ...baseBtn,
-  border: "1px solid var(--bd)",
-  background: "var(--sf)",
-  color: "var(--tx)",
-};
-const proceedBtn: CSSProperties = {
-  ...baseBtn,
-  border: "1px solid transparent",
-  background: "var(--ac)",
-  color: "var(--oa)",
-};
+// W19 — surface colors moved to the .confirm-swap-* classes so :hover/:active/press states can
+// exist at all (inline styles beat pseudo-class rules); these keep only layout.
+const cancelBtn: CSSProperties = { ...baseBtn };
+const proceedBtn: CSSProperties = { ...baseBtn };
 // The Burmese line inside a button: block so it stacks under the EN label (the buttons are flex
 // items themselves, but their CONTENT is normal flow, so `display:block` stacks as intended).
 const btnMy: CSSProperties = {

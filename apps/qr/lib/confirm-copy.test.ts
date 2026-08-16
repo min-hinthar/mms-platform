@@ -95,3 +95,27 @@ describe("confirmCopy — the owner's own words", () => {
     );
   });
 });
+
+describe("confirmCopy — the charge confirm names unsent dishes (W19)", () => {
+  it("with unsent items, BOTH tongues carry the count in Latin digits", () => {
+    const c = confirmCopy({ kind: "pay", amountCents: 4210, unsentCount: 3 });
+    expect(c.detailEn).toContain("3 items not sent yet");
+    expect(c.detailEn).toContain("the moment you pay");
+    expect(c.detailMy).toContain("3");
+    expect(c.detailMy).not.toMatch(/[၀-၉]/); // money-path rule: Latin digits in the MY line too
+  });
+
+  it("singular reads as one item, not '1 items'", () => {
+    const c = confirmCopy({ kind: "pay", amountCents: 4210, unsentCount: 1 });
+    expect(c.detailEn).toContain("1 item not sent yet");
+    expect(c.detailEn).not.toContain("1 items");
+  });
+
+  it("with nothing unsent (or the field omitted), the detail is untouched", () => {
+    const plain = confirmCopy({ kind: "pay", amountCents: 4210 });
+    const zero = confirmCopy({ kind: "pay", amountCents: 4210, unsentCount: 0 });
+    expect(plain.detailEn).toBe(zero.detailEn);
+    expect(plain.detailEn).not.toContain("not sent");
+    expect(plain.detailMy).not.toContain("မပို့ရသေး");
+  });
+});

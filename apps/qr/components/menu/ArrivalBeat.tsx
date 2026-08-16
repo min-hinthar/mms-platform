@@ -1,5 +1,7 @@
 "use client";
 import { useCart } from "@/components/TableCartProvider";
+import { menuHref } from "@/lib/menu-href";
+import { TransitionLink as Link } from "@/components/nav/TransitionNav";
 import type { WelcomeBack } from "@/lib/rewards";
 
 /**
@@ -60,6 +62,24 @@ export function ArrivalBeat({
         )}
       </p>
       <p className="arrival-line">{shown}</p>
+      {/* W19 (owner: "how to switch from dine-in to main portal or other modes?") — the exit was
+          always there (the header logo → the door picker) but nothing SAID so. This names it, with
+          the same promise the home screen's resume card keeps: leaving is a navigation, never a
+          "leave table" mutation — the party's session and cart survive untouched (4h sliding TTL).
+          menuHref(null) = the door picker; a literal "/" with a "menu" label is the W9a lie. */}
+      {mode === "dinein" && (
+        <p className="arrival-line" style={{ marginTop: 2 }}>
+          Ordering to-go or groceries too?{" "}
+          <Link href={menuHref(null)} className="nav-link" style={{ minHeight: 44 }}>
+            Back to the start
+            <span aria-hidden className="nav-arrow nav-arrow-fwd">
+              {" "}
+              →
+            </span>
+          </Link>{" "}
+          — your table stays open.
+        </p>
+      )}
     </div>
   );
 }

@@ -4,6 +4,55 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W19 — production readiness: nine complaints, nine fixes (2026-08-16)
+
+The owner's batch, verbatim: _"Pick options, select, on focus, and buttons pop or reveals … are
+boring and not fun, not styled, not centered … tip options should animate and encourage creatively
+with increase %. … no limit to custom or capped amount. What if customers forget to send items to
+kitchen and move forward to pay …? Save a card option seems confusing. So does Make it now … how to
+switch from dine-in to main portal …? why take out time selection focus always on soonest even
+after selected? New menu items lacks the vibrant fun descriptions of older items."_
+
+- **The press-state layer.** The idiom kit existed but was hover-gated — dead on the phone. Now:
+  the Pay CTA fires its glow + sheen sweep on PRESS and focus-visible; ConfirmSwap reveals with
+  `.mms-rise`, centers its copy, its buttons carry real press states (proceed wears the CTA
+  gradient — it replaces one), and the MY label keeps its height while busy; Send-to-kitchen's
+  outline + undo buttons join `.checkout-outline-btn` (hover wash + press); modifier option rows
+  get hover/press and the checked control pops (`mmsPop`), with a light haptic on pick;
+  SharePay's Authorize — the one CTA that takes the actual card hold — finally wears
+  `.checkout-cta`. Every new rule joins the checkout reduced-motion block.
+- **The tip ladder warms as it climbs** — each chip carries `--tip-heat` (15% barely gilded → 30%
+  glowing); selection lights the full gold cap (`.checkout-tip-on`, the mode pills' vocabulary,
+  shared with SharePay so the two can't drift); the preview amount pops when it changes.
+- **The custom tip is uncapped to $1,000** (the cash tip's own bound). The 100%-of-order clamp is
+  gone: `TIP_AMOUNT_MAX_CENTS` in lib/tip.ts, enforced in create-intent on the DERIVED cents (a
+  rate cannot express a dollar cap), schema rail `.max(4000)`, client clamps to the same constant,
+  new tests + a new mutant (120). Split path deliberately unchanged (its 0.5 CHECK; presets only).
+- **Forgot-to-send → pay is now an INFORMED flow** (never a block — `mms_fire_pending_food` fires
+  drafts the moment payment lands; money was always safe, timing was the surprise): a new pure
+  `unsentFoodQty` (dinein+togo drafts, matching the fire predicate; tested + 2 mutants), a warm
+  Bill-moment notice with the host's way back, "N items not sent yet" under View bill & pay, and
+  the charge confirm itself names them in both tongues.
+- **"Save a card" → "Put a card on file — leave whenever"**, with a "Not paying yet?" kicker
+  breaking it visually from the Pay CTA (it read as a save-my-card checkout convenience; it is the
+  walk-out tab). Before/after copy now shares one noun ("card on file").
+- **"Make it now" → "Send to kitchen now · usually ~12 min"** — names the real action (a per-line
+  kitchen commit, the vocabulary of the chip it becomes) and hedges the config estimate.
+- **Dine-in now says how to leave**: the arrival beat carries "Ordering to-go or groceries too?
+  Back to the start — your table stays open" via `menuHref(null)` (the exit always existed — the
+  header logo — but nothing said so; the promise matches the home screen's resume card).
+- **The pickup-time picker bug, root-caused as two stacked defects**: (1) the slot sheet had no
+  concept of the current choice — `currentSlot` prop added, the diner's slot wears the lit state +
+  ✓ Yours, the ⚡ Soonest chip keeps its tag but glows only while nothing is chosen, and the sheet
+  opens on the chosen slot's day; (2) the ASAP pill genuinely re-lit after a pay-step round-trip —
+  the choice lived in component state seeded from a stale server prop under the keyed step wrapper;
+  it is now owned by Checkout, re-read by `refresh()` via the new shared `normalizePickupSlot`
+  (lib/pickup-slot.ts, tested), so the pill state tracks the server truth.
+- **The menu voice, completed** (`20260816050000_w19_menu_voice.sql`): the 31 W17d-2 items + 6
+  W15-era stragglers rewritten in the house voice (concrete + em-dash pivot + triplet/kicker;
+  honesty rule kept — no invented ingredients; "the regulars' pick" backed by the POS export).
+  Burmese in the warmer diaspora register, still pending K15.
+
 ### W18 — the warm pass: tips that encourage, rewards that delight, a kitchen card that answers (2026-08-16)
 
 The owner, verbatim: _"tip ask should be fun and encourage! never capped or round up, and none is

@@ -127,11 +127,13 @@ export const applyPromoInput = z.object({
  */
 export const createIntentInput = z.object({
   cartId: uuid,
-  // Presets top out at 0.20; W2d's custom tip rides the SAME rate (customCents / netCents), so the cap
-  // is 1.0 = a tip up to 100% of the order (anti-fat-finger; a $50 tip on a $5 order is almost surely an
-  // error). Server-authoritative: getCartTotals applies round(net·rate) and the webhook recomputes it
-  // identically from metadata.tipRate — the client never sends an amount.
-  tipRate: z.number().min(0).max(1).default(0),
+  // W19 (owner: "no limit to custom or capped amount"): the real ceiling is a DOLLAR amount — $1,000,
+  // the cash tip's own bound — enforced in create-intent on the DERIVED tipCents after getCartTotals,
+  // because a rate cannot express a dollar cap (rate = cents/net). This schema bound is only the
+  // transport sanity rail: 4000 = $1,000 over the 25¢ menu-price floor, the largest rate any
+  // in-bounds tip can need. Server-authoritative as ever: getCartTotals applies round(net·rate) and
+  // the webhook recomputes identically from metadata.tipRate — the client never sends an amount.
+  tipRate: z.number().min(0).max(4000).default(0),
   // W3e: the optional pickup/scango call-out identity ("first name for pickup"). Length-capped
   // (mirrors the qr_carts.customer_name CHECK); persisted on the CART then snapshotted to the order
   // at fulfillment — never rendered anywhere money-bearing, and never sent to analytics (PII).

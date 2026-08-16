@@ -56,7 +56,7 @@ export function SecureTabButton({ cartId, onSecured }: { cartId: string; onSecur
           size={14}
           style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }}
         />
-        Card saved — leave whenever. We’ll close your bill with it.
+        Card on file — leave whenever. We’ll close your bill with it.
       </p>
     );
 
@@ -71,8 +71,8 @@ export function SecureTabButton({ cartId, onSecured }: { cartId: string; onSecur
             lineHeight: 1.5,
           }}
         >
-          Save a card and leave whenever you’re ready — we’ll close your bill with it. No charge
-          now.
+          Put a card on file and leave whenever you’re ready — we’ll close your bill with it. No
+          charge now.
         </p>
         <Elements stripe={stripePromise} options={options}>
           <SetupForm
@@ -97,7 +97,7 @@ export function SecureTabButton({ cartId, onSecured }: { cartId: string; onSecur
         aria-busy={phase === "loading"}
         style={secureBtn}
       >
-        {phase === "loading" ? "Starting…" : "Save a card — leave whenever"}
+        {phase === "loading" ? "Starting…" : "Put a card on file — leave whenever"}
       </button>
       <p style={hint}>
         No charge now. Pay here anytime — or leave, and we’ll close your bill with this card.
@@ -161,7 +161,7 @@ function SetupForm({ cartId, onDone }: { cartId: string; onDone: () => void }) {
         aria-busy={submitting}
         style={secureBtn}
       >
-        {submitting ? "Saving…" : "Save my card"}
+        {submitting ? "Saving…" : "Put my card on file"}
       </button>
     </form>
   );

@@ -20,14 +20,18 @@ import { PickupSlotSheet } from "./PickupSlotSheet";
 export function PickupWhenChoice({
   cartId,
   prepMinutes,
-  initialSlot,
+  slot,
+  onSlotChange,
   asapAvailable,
   onStatus,
 }: {
   cartId: string;
   prepMinutes: number;
-  /** The cart's current scheduled slot (ISO), or null = ASAP. Seeds the choice from the server view. */
-  initialSlot: string | null;
+  /** The cart's current scheduled slot (ISO), or null = ASAP. CONTROLLED (W19): the state lives in
+   *  Checkout, above the keyed step wrapper, and is re-read by refresh() — an owned copy here was
+   *  re-seeded from a stale prop on every pay-step remount, relighting ASAP over a scheduled cart. */
+  slot: string | null;
+  onSlotChange: (slot: string | null) => void;
   /** Server-computed: is the kitchen taking ASAP right now (open + capacity)? When false, the ASAP pill
    *  is disabled and the diner is steered to Schedule — the pay boundary (mms_pickup_asap) would reject
    *  ASAP anyway, so we never offer what it can't honor. */
@@ -35,7 +39,6 @@ export function PickupWhenChoice({
   /** Route a failure into the checkout's ONE review-step live region (never a new region). */
   onStatus: (message: string | null) => void;
 }) {
-  const [slot, setSlot] = useState<string | null>(initialSlot);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [busy, startAsap] = useTransition();
   const asap = slot === null;
@@ -52,7 +55,7 @@ export function PickupWhenChoice({
       try {
         const r = await setPickupAsap(cartId);
         if (r.ok) {
-          setSlot(null);
+          onSlotChange(null);
           return;
         }
         onStatus(
@@ -138,7 +141,8 @@ export function PickupWhenChoice({
         open={sheetOpen}
         onOpenChange={setSheetOpen}
         cartId={cartId}
-        onChosen={(s) => setSlot(s)}
+        currentSlot={slot}
+        onChosen={onSlotChange}
       />
     </div>
   );

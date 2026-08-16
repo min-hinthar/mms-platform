@@ -181,6 +181,7 @@ export function SendToKitchenButton({
           onClick={undo}
           disabled={pending}
           aria-busy={pending}
+          className="checkout-outline-btn"
           style={{ ...btn, opacity: pending ? 0.7 : 1, cursor: pending ? "default" : "pointer" }}
         >
           {pending ? "Bringing it back…" : `Undo — ${remaining}s`}
@@ -203,7 +204,7 @@ export function SendToKitchenButton({
           onClick={() => setConfirming(true)}
           disabled={pending}
           aria-busy={pending}
-          className={primary ? "checkout-cta" : undefined}
+          className={primary ? "checkout-cta" : "checkout-outline-btn"}
           // ⚠️ Inline styles outrank the class: when primary, the outline look's background/color/
           // border must NOT ride along or they'd blank the .checkout-cta gradient under the label.
           style={{
@@ -294,13 +295,12 @@ const reasonCopy: Record<
   error: "Couldn’t send that just now — please try again.",
 };
 
+// W19 — surface colors moved to `.checkout-outline-btn` (a class so :hover/:active press states
+// can exist — inline styles beat pseudo-classes); this keeps only layout.
 const btn: CSSProperties = {
   width: "100%",
   minHeight: 50,
   borderRadius: 12,
-  border: "1px solid var(--ac)",
-  background: "transparent",
-  color: "var(--ac)",
   fontWeight: 800,
   fontSize: "var(--fs-body)",
 };

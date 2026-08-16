@@ -1,8 +1,12 @@
+// verify:slice-exempt — the W19 tip-amount ceiling this change adds is the pure predicate
+// `tipWithinAmountCap` in lib/tip.ts, where its mutant (tip/amount-cap-dropped) lives and its suite
+// reddens; this route only wires the refusal (routes have no test runner to own a mutant here).
 import { NextRequest, NextResponse } from "next/server";
 import { serviceClient } from "@mms/db/server";
 import { createIntentInput } from "@mms/db/schemas";
 import { getStripe } from "@/lib/stripe";
 import { getCartTotals } from "@/lib/totals";
+import { tipWithinAmountCap } from "@/lib/tip";
 import { assertCartMember, AuthzError } from "@/lib/authz";
 import { withinMutationRate } from "@/lib/rate";
 import { acquireCartLock, releaseCartLock } from "@/lib/lock";
@@ -148,6 +152,13 @@ export async function POST(req: NextRequest) {
     if (amount <= 0) {
       await releaseCartLock(cartId, uid);
       return NextResponse.json({ error: "Empty cart" }, { status: 400 });
+    }
+    // W19 — the tip ceiling is a DOLLAR amount ($1,000, the cash tip's own bound), enforced here on
+    // the DERIVED cents because a rate cannot express a dollar cap. The client clamps to the same
+    // constant, so an in-app diner never sees this; it exists for the hostile/raw POST.
+    if (!tipWithinAmountCap(totals.tipCents)) {
+      await releaseCartLock(cartId, uid);
+      return NextResponse.json({ error: "Tip exceeds the $1,000.00 maximum" }, { status: 400 });
     }
 
     // tipRate rides in metadata so the webhook can recompute the identical breakdown to reconcile.

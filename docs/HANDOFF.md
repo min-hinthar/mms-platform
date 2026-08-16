@@ -5,7 +5,17 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-08-16 — W17 + W18 warm pass COMPLETE; only owner-blocked items remain)
+> ## ⏭️ NEXT SESSION — start here (2026-08-16 — W17 + W18 + W19 COMPLETE; only owner-blocked items remain)
+>
+> **W19 (production readiness — nine owner complaints, nine fixes):** press-states on every checkout
+> control (tap parity with the hover-only delight), the tip ladder warms with % and the custom tip
+> is uncapped to the $1,000 cash bound (`TIP_AMOUNT_MAX_CENTS` — enforced in create-intent on the
+> DERIVED cents; CLAUDE.md's "Two caps" rule updated), forgot-to-send→pay is informed (never
+> blocked — `unsentFoodQty` + Bill notice + confirm line), "Put a card on file" + "Send to kitchen
+> now" renames, the dine-in exit is named on the arrival beat, the pickup picker's two stacked bugs
+> are fixed (`currentSlot` prop + slot state lifted to Checkout via `normalizePickupSlot`), and 37
+> menu descriptions got the house voice (migration `20260816050000` — prod-apply + probe after
+> merge). All new MY still pending K15.
 >
 > **W18 (after this block was first written):** the owner's warm pass landed — tip ask encourages
 > (round-up + cap lecture retired, 122 → 119 mutants; "None" last and quiet on checkout AND kiosk),

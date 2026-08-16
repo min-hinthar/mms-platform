@@ -14,11 +14,17 @@ export function PickupSlotSheet({
   open,
   onOpenChange,
   cartId,
+  currentSlot = null,
   onChosen,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   cartId: string;
+  /** W19 — the cart's currently-chosen slot, so re-opening the sheet highlights THE DINER'S pick.
+   *  Before this prop existed the sheet had no concept of the current choice: `slot-time-on` lit
+   *  only mid-write, every open reset to Today, and the permanently-glowing "⚡ Soonest" chip wore
+   *  near-identical styling — reading exactly as "selection always on soonest even after selected". */
+  currentSlot?: string | null;
   onChosen: (slot: string) => void;
 }) {
   // W9b — three states, not two. `failed` exists so a read miss can never wear the sold-out copy.
@@ -46,7 +52,13 @@ export function PickupSlotSheet({
       .then((r) => {
         if (!active) return;
         setLoad(r.ok ? { s: "ok", slots: r.slots } : { s: "failed" });
-        setDayIdx(0); // each open starts on the first day (Today)
+        // W19 — open on the day of the DINER'S chosen slot (a tomorrow pick used to reopen on
+        // Today with the Soonest chip glowing — half the "always on soonest" complaint). Falls to
+        // Today when nothing is chosen, or the chosen slot has since filled out of the list.
+        const chosenDay = r.ok
+          ? groupByDay(r.slots).findIndex((g) => g.slots.some((s) => s.slot === currentSlot))
+          : -1;
+        setDayIdx(chosenDay >= 0 ? chosenDay : 0);
         setError(null);
         setRetrying(false);
       })
@@ -59,7 +71,7 @@ export function PickupSlotSheet({
     return () => {
       active = false;
     };
-  }, [open, cartId, reloadNonce]);
+  }, [open, cartId, reloadNonce, currentSlot]);
 
   function choose(slot: string) {
     setPendingSlot(slot); // synchronous → the tapped chip shows "Setting…" on tap, before the round-trip
@@ -212,6 +224,7 @@ export function PickupSlotSheet({
                 <div className="slot-grid">
                   {partSlots.map((s) => {
                     const setting = pendingSlot === s.slot;
+                    const selected = s.slot === currentSlot;
                     const soonest = s.slot === soonestSlot;
                     return (
                       <button
@@ -219,7 +232,14 @@ export function PickupSlotSheet({
                         type="button"
                         disabled={pending}
                         aria-busy={setting}
-                        className={`slot-time${setting ? " slot-time-on" : ""}${soonest ? " slot-time-soonest" : ""}`}
+                        aria-pressed={selected}
+                        // W19 — the DINER'S slot wears the lit state; the Soonest chip keeps its ⚡
+                        // tag always but its gold-glow fill ONLY while nothing is chosen (or it IS
+                        // the choice) — two near-identical lit chips read as "selection stuck on
+                        // soonest", the owner's literal complaint.
+                        className={`slot-time${setting || selected ? " slot-time-on" : ""}${
+                          soonest && (currentSlot == null || selected) ? " slot-time-soonest" : ""
+                        }`}
                         onClick={() => choose(s.slot)}
                       >
                         {setting ? (
@@ -232,8 +252,14 @@ export function PickupSlotSheet({
                               </span>
                             )}
                             {soonest && <span className="sr-only">Soonest available, </span>}
+                            {selected && <span className="sr-only">Your current time, </span>}
                             <span className="slot-time-h">{formatSlot(s.slot)}</span>
-                            {s.remaining <= 2 && (
+                            {selected && (
+                              <span className="slot-time-low" aria-hidden>
+                                ✓ Yours
+                              </span>
+                            )}
+                            {!selected && s.remaining <= 2 && (
                               <span className="slot-time-low">
                                 <span aria-hidden>🔥 </span>
                                 {s.remaining} left
