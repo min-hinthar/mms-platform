@@ -117,6 +117,9 @@ export function categoryIconName(category: string): IconName {
   if (/salad|veg|appetiz|starter/.test(c)) return "cat-salad";
   if (/drink|beverage|tea|coffee|juice/.test(c)) return "cat-drink";
   if (/breakfast|morning|egg/.test(c)) return "cat-breakfast";
+  // W17d-2 added a Desserts category whose three dishes all await photography — without this line
+  // every tile in it wore the generic dish glyph, reading as "unsorted" rather than "sweet".
+  if (/dessert|sweet|cake/.test(c)) return "cat-candy";
   return "cat-dish";
 }
 

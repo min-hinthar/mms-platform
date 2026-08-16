@@ -138,19 +138,28 @@ export function CashSettleButton({
                 // The SAME base and the SAME rounding the diner and kiosk use, so an identical
                 // label means an identical amount wherever the guest happens to be standing.
                 const cents = Math.round((tipBaseCents ?? 0) * p.rate);
+                // Lit while the FIELD holds this chip's amount — the field is the single source of
+                // the value (the chip only fills it), so the pressed state is derived, never stored,
+                // and hand-editing the field unlights the chip the moment they diverge (the
+                // checkout chips' idiom, and the W17c "name it once" rule applied to UI state).
+                const on = tip === (cents / 100).toFixed(2);
                 return (
                   <button
                     key={p.label}
                     type="button"
                     className="staff-btn"
-                    style={tipChip}
+                    aria-pressed={on}
+                    style={on ? tipChipOn : tipChip}
                     onClick={() => setTip((cents / 100).toFixed(2))}
                   >
                     {p.label}
-                    <span style={tipChipAmount}>{fmt(cents)}</span>
+                    <span style={on ? tipChipAmountOn : tipChipAmount}>{fmt(cents)}</span>
                   </button>
                 );
               })}
+              {/* An ACTION (clears the field), not a state — no aria-pressed: the emptied field is
+                  its own visible answer, and a "pressed None" lying beside a typed amount would
+                  claim two truths at once. */}
               <button
                 type="button"
                 className="staff-btn"
@@ -326,3 +335,11 @@ const tipChip: CSSProperties = {
   gap: "var(--s2)",
 };
 const tipChipAmount: CSSProperties = { fontWeight: 500, color: "var(--t2)" };
+// The checkout tip chips' on-state, in the staff console's clothes: accent ring + a 9% accent wash.
+const tipChipOn: CSSProperties = {
+  ...tipChip,
+  border: "1.5px solid var(--ac)",
+  background: "color-mix(in oklab, var(--ac) 9%, var(--sf))",
+  color: "var(--ac-strong)",
+};
+const tipChipAmountOn: CSSProperties = { fontWeight: 600, color: "var(--ac-strong)" };
