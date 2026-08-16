@@ -248,7 +248,13 @@ export function KioskReview({
                 onClick={() => chooseTip(cents)}
               >
                 <span className="kiosk-door-label">{p.label}</span>
-                <span className="kiosk-door-hint">${(cents / 100).toFixed(2)}</span>
+                {/* The amount carries the warmth — accent ink, not muted meta-grey. */}
+                <span
+                  className="kiosk-door-hint"
+                  style={{ color: "var(--ac-strong)", fontWeight: 800 }}
+                >
+                  ${(cents / 100).toFixed(2)}
+                </span>
               </button>
             );
           })}

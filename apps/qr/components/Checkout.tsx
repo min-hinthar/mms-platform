@@ -1615,7 +1615,10 @@ export function Checkout({
                 {/* W18 — a thank-you the moment a tip is on. Ambient plain text (never a live
                     region — this view keeps its one), true only while the charge will carry it. */}
                 {effectiveTipRate > 0 && tipPreviewCents > 0 && (
+                  // `.mms-rise` — a mid-stay dynamic mount, so the thanks LANDS (RM-gated in CSS).
+                  // The ✦ is the brand mark (PhotoPlaceholder's), decorative.
                   <p
+                    className="mms-rise"
                     style={{
                       margin: "0 0 4px",
                       fontSize: "var(--fs-sm)",
@@ -1623,6 +1626,7 @@ export function Checkout({
                       fontWeight: 600,
                     }}
                   >
+                    <span aria-hidden>✦ </span>
                     {T("tipThanks")}
                     <My k="tipThanks" color="var(--ac-strong)" />
                   </p>

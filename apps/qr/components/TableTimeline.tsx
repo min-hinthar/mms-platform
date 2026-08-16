@@ -158,7 +158,11 @@ export function TimelineStrip({
         onClick={() => setExpanded((v) => !v)}
       >
         <span className="table-timeline-head">
-          <span className="table-timeline-dot" aria-hidden />
+          {/* The dot breathes only while something is genuinely cooking — honest liveness. */}
+          <span
+            className={`table-timeline-dot${cooking.length > 0 ? " table-timeline-dot-live" : ""}`}
+            aria-hidden
+          />
           <span>
             {headline}
             <span lang="my" className="table-timeline-my">
@@ -172,12 +176,20 @@ export function TimelineStrip({
       </button>
       <p className="table-timeline-counts">{counts.join(" · ")}</p>
       {expanded && (
-        <ul role="list" aria-label="Each dish’s kitchen status" className="table-timeline-detail">
+        <ul
+          role="list"
+          aria-label="Each dish’s kitchen status"
+          className="table-timeline-detail mms-rise"
+        >
           {STATE_ROWS.filter(([, , , lines]) => lines.length > 0).map(
             ([label, my, dotVar, lines]) => (
               <li key={label}>
                 <p className="table-timeline-detail-state">
-                  <span className="table-timeline-dot" style={{ background: dotVar }} aria-hidden />
+                  <span
+                    className={`table-timeline-dot${label === "Being made" ? " table-timeline-dot-live" : ""}`}
+                    style={{ background: dotVar }}
+                    aria-hidden
+                  />
                   {label}
                   <span lang="my" className="table-timeline-my">
                     {my}

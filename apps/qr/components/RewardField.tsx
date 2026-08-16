@@ -224,7 +224,7 @@ export function RewardField({
           ref={useBtnRef}
           type="button"
           onClick={() => setOpen(true)}
-          className="checkout-reward-add"
+          className="checkout-reward-add checkout-reward-wait"
           style={applyBtn}
         >
           <Icon

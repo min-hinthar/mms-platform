@@ -1928,6 +1928,32 @@ h3 {
   transform: translateY(-1px);
   box-shadow: var(--sh-lift);
 }
+/* W18 — the "reward waiting" affordance gets ONE gold sheen sweep on mount (the applied pill's
+   idiom, quieter): earned money sitting unused deserves a glint, not a nag. RM-gated below with
+   the applied pill's own rule. */
+.checkout-reward-wait {
+  position: relative;
+  overflow: hidden;
+}
+.checkout-reward-wait::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    105deg,
+    transparent 34%,
+    color-mix(in oklab, var(--gold) 22%, transparent) 50%,
+    transparent 66%
+  );
+  transform: translateX(-120%);
+  animation: checkoutShine 1.1s var(--ease-out) 0.3s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .checkout-reward-wait::after {
+    animation: none;
+  }
+}
 .checkout-reward-applied {
   position: relative;
   overflow: hidden;
@@ -4016,6 +4042,27 @@ html[data-seen-surface] .mms-stagger {
   height: 8px;
   border-radius: var(--r-full);
   background: var(--ac);
+}
+/* W18 — the dot breathes ONLY while the kitchen is genuinely cooking (a live KDS "Start" tap is the
+   one state that is truly in motion). Honest liveness, not decoration; still, RM turns it off. */
+.table-timeline-dot-live {
+  animation: timelinePulse 2.2s var(--ease-out) infinite;
+}
+@keyframes timelinePulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.82);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .table-timeline-dot-live {
+    animation: none;
+  }
 }
 .table-timeline-counts {
   margin: 3px 0 0 16px;
