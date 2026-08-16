@@ -4,6 +4,16 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W21c — the design language, written down (2026-08-16)
+
+Owner: _"with insights and design thinking UI/UX preferences from start to W21, update repo docs,
+readme, claude, and propose next level improvements."_ New `docs/DESIGN-LANGUAGE.md` distills the
+as-built doctrine (selection vocabulary, motion idioms, the optimistic doctrine, honesty rules,
+bilingual + a11y + receipt-language money surfaces); `docs/W22_DESIGN_PROPOSAL.md` proposes the
+next-level slate (depth & ceremony ⭐ → installed-native PWA + live order chip → gesture layer →
+designed Night → honest personalization → opt-in sound); README gains the design section +
+links; CLAUDE.md points every future visual/motion/copy change at the doctrine first.
+
 ### W21b — review round: Codex joins the gate (2026-08-16)
 
 The owner: _"why codex reviews not taken into account after PR pulls?"_ Root cause: Codex only
