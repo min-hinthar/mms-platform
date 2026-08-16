@@ -1928,6 +1928,32 @@ h3 {
   transform: translateY(-1px);
   box-shadow: var(--sh-lift);
 }
+/* W18 — the "reward waiting" affordance gets ONE gold sheen sweep on mount (the applied pill's
+   idiom, quieter): earned money sitting unused deserves a glint, not a nag. RM-gated below with
+   the applied pill's own rule. */
+.checkout-reward-wait {
+  position: relative;
+  overflow: hidden;
+}
+.checkout-reward-wait::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    105deg,
+    transparent 34%,
+    color-mix(in oklab, var(--gold) 22%, transparent) 50%,
+    transparent 66%
+  );
+  transform: translateX(-120%);
+  animation: checkoutShine 1.1s var(--ease-out) 0.3s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .checkout-reward-wait::after {
+    animation: none;
+  }
+}
 .checkout-reward-applied {
   position: relative;
   overflow: hidden;
@@ -4017,11 +4043,105 @@ html[data-seen-surface] .mms-stagger {
   border-radius: var(--r-full);
   background: var(--ac);
 }
+/* W18 — the dot breathes ONLY while the kitchen is genuinely cooking (a live KDS "Start" tap is the
+   one state that is truly in motion). Honest liveness, not decoration; still, RM turns it off. */
+.table-timeline-dot-live {
+  animation: timelinePulse 2.2s var(--ease-out) infinite;
+}
+@keyframes timelinePulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.82);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .table-timeline-dot-live {
+    animation: none;
+  }
+}
 .table-timeline-counts {
   margin: 3px 0 0 16px;
   font-size: 12px;
   color: var(--t2);
   font-variant-numeric: tabular-nums;
+}
+/* W18 — the strip's header is a disclosure now: full-width unstyled button so the whole line is
+   the ≥44px tap target, with a chevron that flips open. */
+.table-timeline-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  /* width:100% resolves against the CONTENT box, so the negative side margins alone left the
+     button 26px short on the right — chevron inboard, right edge untappable (review MED). */
+  width: calc(100% + 26px);
+  min-height: 44px;
+  margin: -10px -13px;
+  padding: 10px 13px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.table-timeline-chevron {
+  flex: none;
+  color: var(--t3);
+  font-size: 18px;
+  font-weight: 800;
+  transform: rotate(0deg);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.table-timeline-chevron.is-open {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .table-timeline-chevron {
+    transition: none;
+  }
+}
+.table-timeline-my {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--t2);
+  line-height: var(--lh-my, 1.6);
+}
+.table-timeline-detail {
+  list-style: none;
+  margin: 8px 0 0 16px;
+  padding: 8px 0 2px;
+  border-top: 1px solid color-mix(in oklab, var(--ac) 14%, var(--bd));
+  display: grid;
+  gap: 8px;
+}
+.table-timeline-detail-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 800;
+}
+.table-timeline-detail-state .table-timeline-my {
+  display: inline;
+  margin-left: 6px;
+  font-weight: 600;
+}
+.table-timeline-detail-lines {
+  list-style: none;
+  margin: 2px 0 0 16px;
+  padding: 0;
+  font-size: 12.5px;
+  color: var(--t2);
+  display: grid;
+  gap: 2px;
 }
 .table-timeline-note {
   margin: 6px 0 0 16px;

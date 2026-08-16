@@ -72,57 +72,18 @@ export function tipPresets(
     .filter((p) => p.rate <= TIP_RATE_MAX);
 }
 
-export type RoundUp = {
-  /** The rate that produces exactly `tipCents` against this net. */
-  rate: number;
-  /** The tip the round-up adds, in cents — shown so nothing about it is implicit. */
-  tipCents: number;
-  /** The whole-dollar total it lands on. The chip NAMES this, so the diner is told the destination. */
-  targetCents: number;
-};
-
-/**
- * "Round up to $32.00" — the frictionless small tip.
- *
- * `dueCents` is what the diner owes with NO tip: net + tax, discount already applied. The round-up is
- * whatever brings that to the next whole dollar.
- *
- * Returns null — i.e. no chip — when there is nothing honest to offer:
- *   - a non-positive net or due (no base to express a rate against);
- *   - a total that is ALREADY whole, where "rounding up" would silently mean "add a dollar". That is
- *     a different, larger ask wearing the round-up's clothes, so it is not offered under this label;
- *   - a rate above the server's 50% ceiling, which can happen on a tiny basket (a $1.10 due wants a
- *     90¢ round-up). Offering a chip the mint would refuse turns a bound into what looks like a bug.
- */
-export function roundUpTip(netCents: number, dueCents: number): RoundUp | null {
-  if (!Number.isFinite(netCents) || !Number.isFinite(dueCents)) return null;
-  if (netCents <= 0 || dueCents <= 0) return null;
-  const remainder = dueCents % 100;
-  if (remainder === 0) return null;
-  const tipCents = 100 - remainder;
-  const rate = tipCents / netCents;
-  if (rate > TIP_RATE_MAX) return null;
-  return { rate, tipCents, targetCents: dueCents + tipCents };
-}
-
 /** Latin digits, integer cents — never a locale-formatted numeral on the money path (W16b). */
 export const dollars = (cents: number): string => `$${(cents / 100).toFixed(2)}`;
 
 /**
  * The ONE decision about what rate is actually in effect, given everything the tip UI can be in the
- * middle of. It lives here, not in the component, for a reason the W17c review found the hard way:
- * the round-up's rate DEPENDS ON THE BASKET, so storing the number the way a percentage preset can
- * be stored desyncs it from the total it names the instant the cart moves — a promo lands, a qty
- * changes, a group peer edits — and the diner is charged a tip that no longer rounds to anything,
- * with no chip lit to show a tip is even active. Percentages had never exposed this because 18% is
- * 18% whatever the basket does.
+ * middle of. It lives here, not in the component (the W17c review's "name it once" rule): the
+ * component stores the CHOICE, this derives the rate from the CURRENT numbers, and the same value
+ * drives both the pressed state and the charge — they cannot disagree.
  *
- * So: the component stores the CHOICE, this derives the rate from the CURRENT numbers, and the same
- * value drives both the pressed state and the charge. They cannot disagree.
- *
- * `roundUp` is the offer for the current cart (null when there is nothing to round) — when the
- * choice is round-up and the offer has since evaporated, the effective rate is 0, which is the
- * truth: there is nothing to round, so nothing is added.
+ * (W18 note: the round-up branch is retired WITH its feature — the owner: "never capped or round
+ * up". Its lesson stays recorded on this docstring's history and in CLAUDE.md: a basket-dependent
+ * rate must be derived at read time, never stored.)
  */
 export function effectiveTipRate(s: {
   /** A pure-grocery basket takes no tip at all — the server force-zeros it, and so do we. */
@@ -130,14 +91,10 @@ export function effectiveTipRate(s: {
   /** The custom-dollar field is open; its typed rate wins while it is. */
   customTipOpen: boolean;
   customRate: number;
-  /** The diner chose round-up, and the live offer (null = nothing left to round). */
-  roundUpOn: boolean;
-  roundUp: RoundUp | null;
   /** The last tapped preset (0 = None). */
   presetRate: number;
 }): number {
   if (s.pureGrocery) return 0;
   if (s.customTipOpen) return s.customRate;
-  if (s.roundUpOn) return s.roundUp?.rate ?? 0;
   return s.presetRate;
 }

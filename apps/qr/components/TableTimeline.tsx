@@ -71,6 +71,11 @@ export function TimelineStrip({
   // phrased as a pointer ("whenever you're ready"), never a claim about the kitchen or the bill.
   const servedAtRef = useRef<number | null>(null);
   const [settleNudge, setSettleNudge] = useState(false);
+  // W18 (owner: "the kitchen card should be more interactive and informative when interacted") —
+  // the strip opens into a per-dish view on tap. Same honesty rule as the strip itself: every row
+  // is a real kitchen tap (fired / Start / Ready), never a guess. Declared with the other hooks —
+  // NEVER after the `active.length === 0` early return below, which items can cross live.
+  const [expanded, setExpanded] = useState(false);
   useEffect(() => {
     if (!allServed) {
       servedAtRef.current = null;
@@ -122,13 +127,87 @@ export function TimelineStrip({
     served.length > 0 ? `${plates(served)} served` : null,
   ].filter(Boolean);
 
+  // W18 — the friendly MY accent for each headline state (Register: conversational-polite, the
+  // words a server would say at the table; pending K15 like all Claude-authored MY).
+  const headlineMy =
+    cooking.length > 0
+      ? "ချက်နေပါပြီနော်"
+      : sent.length > 0
+        ? isNextRound
+          ? "နောက်တစ်လှည့် မီးဖိုထဲ ရောက်နေပါပြီ"
+          : "မီးဖိုထဲ ရောက်နေပါပြီနော်"
+        : "အားလုံး ရောက်ပါပြီ — သုံးဆောင်ပါနော်";
+
+  // W18 — the per-dish rows behind the tap. State word per line, in kitchen order (cooking first —
+  // it's the live tap — then queued, then done), qty on the name the way the kitchen reads it.
+  const STATE_ROWS: [label: string, my: string, dotVar: string, lines: CartItem[]][] = [
+    ["Being made", "ချက်နေပါတယ်", "var(--ac)", cooking],
+    ["With the kitchen", "မီးဖိုထဲမှာပါ", "var(--t3)", sent],
+    ["Served", "ရောက်ပါပြီ", "var(--ok)", served],
+  ];
+
   return (
     <section className="table-timeline mms-rise" aria-label="Kitchen status">
-      <p className="table-timeline-head">
-        <span className="table-timeline-dot" aria-hidden />
-        {headline}
-      </p>
+      {/* The whole header is the disclosure — a 44px tap that opens the dish-by-dish view. It was a
+          static <p>; making it interactive is what the owner asked for, and the detail it reveals
+          is the same kitchen-tap truth the strip already narrates, just per dish. */}
+      <button
+        type="button"
+        className="table-timeline-toggle"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <span className="table-timeline-head">
+          {/* The dot breathes only while something is genuinely cooking — honest liveness. */}
+          <span
+            className={`table-timeline-dot${cooking.length > 0 ? " table-timeline-dot-live" : ""}`}
+            aria-hidden
+          />
+          <span>
+            {headline}
+            <span lang="my" className="table-timeline-my">
+              {headlineMy}
+            </span>
+          </span>
+        </span>
+        <span aria-hidden className={`table-timeline-chevron${expanded ? " is-open" : ""}`}>
+          ›
+        </span>
+      </button>
       <p className="table-timeline-counts">{counts.join(" · ")}</p>
+      {expanded && (
+        <ul
+          role="list"
+          aria-label="Each dish’s kitchen status"
+          className="table-timeline-detail mms-rise"
+        >
+          {STATE_ROWS.filter(([, , , lines]) => lines.length > 0).map(
+            ([label, my, dotVar, lines]) => (
+              <li key={label}>
+                <p className="table-timeline-detail-state">
+                  <span
+                    className={`table-timeline-dot${label === "Being made" ? " table-timeline-dot-live" : ""}`}
+                    style={{ background: dotVar }}
+                    aria-hidden
+                  />
+                  {label}
+                  <span lang="my" className="table-timeline-my">
+                    {my}
+                  </span>
+                </p>
+                <ul role="list" className="table-timeline-detail-lines">
+                  {lines.map((l) => (
+                    <li key={l.id}>
+                      {l.qty > 1 ? `${l.qty} × ` : ""}
+                      {l.name}
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ),
+          )}
+        </ul>
+      )}
       {settling && (
         <p className="table-timeline-note">
           {onMenu && cartHref ? (

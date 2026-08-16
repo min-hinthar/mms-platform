@@ -230,28 +230,12 @@ export function KioskReview({
           role="group"
           aria-label={t(lang, "addATip")}
           className="kiosk-door-grid"
-          // Four equal doors in one rank; `auto-fit` wraps them on a narrow screen without fighting
-          // the grid class's own 3-column media query.
-          style={{ margin: "0 auto", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}
+          style={{ margin: "0 auto" }}
         >
-          {/* "No tip" FIRST and identical in weight — the SAME door as the percentages, not a ghost
-              beside three filled CTAs (as first shipped, which visually demoted the decline the
-              copy promised not to). It records 0 (a real answer), not null (never asked), which
-              the register distinguishes. */}
-          <button
-            type="button"
-            className="kiosk-door"
-            disabled={pending}
-            onClick={() => chooseTip(0)}
-          >
-            <span className="kiosk-door-label" lang={lang === "my" ? "my" : undefined}>
-              {t(lang, "noTip")}
-            </span>
-            {/* The em-dash the checkout's None chip uses — a blank slot would read as broken. */}
-            <span className="kiosk-door-hint" aria-hidden="true">
-              —
-            </span>
-          </button>
+          {/* W18 (owner: "none is not encouraged lol") — the PERCENTAGES are the doors; declining
+              moved to the quiet ghost below the grid. Still one honest tap, still records 0 (a real
+              answer, not null "never asked", which the register distinguishes) — just no longer the
+              first thing the ask offers. */}
           {presets.map((p) => {
             // Latin digits, integer cents — the same amount the server will record.
             const cents = Math.round(tipBaseCents * p.rate);
@@ -264,10 +248,27 @@ export function KioskReview({
                 onClick={() => chooseTip(cents)}
               >
                 <span className="kiosk-door-label">{p.label}</span>
-                <span className="kiosk-door-hint">${(cents / 100).toFixed(2)}</span>
+                {/* The amount carries the warmth — accent ink, not muted meta-grey. */}
+                <span
+                  className="kiosk-door-hint"
+                  style={{ color: "var(--ac-strong)", fontWeight: 800 }}
+                >
+                  ${(cents / 100).toFixed(2)}
+                </span>
               </button>
             );
           })}
+        </div>
+        <div style={{ display: "flex", justifyContent: "center" }}>
+          <button
+            type="button"
+            className="kiosk-ghost"
+            disabled={pending}
+            onClick={() => chooseTip(0)}
+            lang={lang === "my" ? "my" : undefined}
+          >
+            {t(lang, "noTip")}
+          </button>
         </div>
       </div>
     );

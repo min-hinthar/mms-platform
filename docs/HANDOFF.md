@@ -5,7 +5,15 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-08-16 — W17 COMPLETE; only owner-blocked items remain)
+> ## ⏭️ NEXT SESSION — start here (2026-08-16 — W17 + W18 warm pass COMPLETE; only owner-blocked items remain)
+>
+> **W18 (after this block was first written):** the owner's warm pass landed — tip ask encourages
+> (round-up + cap lecture retired, 122 → 119 mutants; "None" last and quiet on checkout AND kiosk),
+> "Use a reward" bilingual + leading with the good news, the kitchen strip opens into a dish-by-dish
+> kitchen-tap view, the order view gained the mode-true menu nav, and guest-facing Burmese moved to
+> the friendly spoken register (တယ်/မယ်/နော်) — ALL Claude-authored MY still pending K15, now
+> including the re-registered kiosk dict. The 31 W17d-2 `description_my` in prod still carry the old
+> formal register; rewriting them waits for the K15 check (one migration, guarded per row).
 >
 > **Read this block, then `docs/W17_PLAN.md`. Everything below is merged AND prod-applied unless it
 > says otherwise.** Prod is `fasnpdhtvqtzjlvruqcu`; every migration in this arc has been applied via
