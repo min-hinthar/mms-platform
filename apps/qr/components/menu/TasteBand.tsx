@@ -46,6 +46,10 @@ export function TasteBand({
 }) {
   const [picks, setPicks] = useState<CravingId[]>([]);
   const [surprise, setSurprise] = useState<MenuItem[]>([]);
+  // Whether Surprise me was ASKED — distinct from whether it returned anything (Codex round 3 on
+  // #194): an exhausted pool answers [] at tap time, and length checks alone read that as "never
+  // requested" — the tap silently did nothing. The flag routes it to an honest empty state.
+  const [surpriseAsked, setSurpriseAsked] = useState(false);
 
   // Hydrate the saved cravings AFTER mount (the repo's microtask pattern — SSR and the first client
   // render agree; setState only in the async callback). A corrupt entry just starts fresh.
@@ -75,6 +79,7 @@ export function TasteBand({
 
   function toggle(id: CravingId) {
     setSurprise([]); // a deliberate craving replaces the surprise row
+    setSurpriseAsked(false);
     setPicks((prev) => {
       const next = prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id];
       try {
@@ -103,17 +108,16 @@ export function TasteBand({
     const byId = new Map(pool.map((i) => [i.id, i]));
     return surprise.map((s) => byId.get(s.id)).filter((i): i is MenuItem => !!i);
   }, [surprise, pool]);
-  // Branch on whether a surprise was REQUESTED, not on whether any picks survived (Codex P2 on
-  // #194): a diet toggled after the tap can empty the surprise row while cravings still match —
-  // silently swapping in the craving matches would change what the rail MEANS mid-look. An empty
+  // Branch on whether a surprise was REQUESTED, not on what it holds (Codex P2 ×2 on #194): a
+  // diet toggled after the tap can empty the row, and an exhausted pool empties it AT the tap —
+  // either way, silently showing craving matches would change what the rail MEANS. An empty
   // requested surprise falls through to the honest empty state instead.
-  const showing: { item: MenuItem; why: string }[] =
-    surprise.length > 0
-      ? liveSurprise.map((item) => ({ item, why: "How about this?" }))
-      : recs.map(({ item, matched }) => ({
-          item,
-          why: matched.map((c) => `${c.emoji} ${c.en}`).join(" · "),
-        }));
+  const showing: { item: MenuItem; why: string }[] = surpriseAsked
+    ? liveSurprise.map((item) => ({ item, why: "How about this?" }))
+    : recs.map(({ item, matched }) => ({
+        item,
+        why: matched.map((c) => `${c.emoji} ${c.en}`).join(" · "),
+      }));
 
   return (
     <section aria-labelledby="taste-h" style={{ padding: "10px 0 2px" }}>
@@ -146,7 +150,10 @@ export function TasteBand({
         <button
           type="button"
           className="taste-chip taste-chip-surprise"
-          onClick={() => setSurprise(surpriseMe(pool, heartedIds))}
+          onClick={() => {
+            setSurpriseAsked(true);
+            setSurprise(surpriseMe(pool, heartedIds));
+          }}
         >
           <span aria-hidden className="taste-emoji">
             ✨
@@ -206,17 +213,22 @@ export function TasteBand({
           ))}
         </Rail>
       )}
-      {showing.length === 0 && (picks.length > 0 || surprise.length > 0) && (
+      {showing.length === 0 && (picks.length > 0 || surpriseAsked) && (
         // An honest empty answer beats a filler recommendation the picks don't back. Review MED:
         // matching is OR, so "fewer cravings" could only shrink the answer — DIFFERENT is the
-        // advice that can actually help (and with diets active, loosening those is the other lever).
-        // The surprise-emptied case gets its own truth: the picks were random, so "again" is the fix.
+        // advice that can actually help (and with diets active, loosening those is the other
+        // lever). The surprise cases each name their own truth: drawn-then-filtered means "again"
+        // works; an exhausted pool means it won't, so never advise it (Codex round 3).
         <p style={{ margin: "4px 0 8px", fontSize: "var(--fs-sm)", color: "var(--t3)" }}>
-          {surprise.length > 0
+          {surpriseAsked && surprise.length > 0
             ? "Those surprise picks don’t fit your dietary filters — tap Surprise me again."
-            : diets.length > 0
-              ? "Nothing matches those right now — try different cravings, or ease a dietary filter."
-              : "Nothing matches those right now — try different cravings."}
+            : surpriseAsked && diets.length > 0
+              ? "Nothing to surprise you with under those filters — ease one, or browse the menu below."
+              : surpriseAsked
+                ? "Nothing new to surprise you with — your favorites already cover what’s in stock."
+                : diets.length > 0
+                  ? "Nothing matches those right now — try different cravings, or ease a dietary filter."
+                  : "Nothing matches those right now — try different cravings."}
         </p>
       )}
     </section>
