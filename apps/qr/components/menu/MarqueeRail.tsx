@@ -96,8 +96,7 @@ export function MarqueeRail<T>({
     // Hard blocks are event-cleared, so the loop can SLEEP through them instead of no-op ticking
     // at refresh rate (Codex P2 on #194) — every clearing site below calls resume(). The idle
     // grace is time-bounded (2.2s), so the loop just ticks through it.
-    const blocked = () =>
-      !playingRef.current || hover || focus || pressed || !onscreen || !visible;
+    const blocked = () => !playingRef.current || hover || focus || pressed || !onscreen || !visible;
     const step = (t: number) => {
       if (disposed) return;
       if (blocked()) {
