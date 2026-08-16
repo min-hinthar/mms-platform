@@ -32,7 +32,9 @@ export function MarqueeRail<T>({
 }: {
   items: readonly T[];
   itemKey: (item: T) => string;
-  renderItem: (item: T) => ReactNode;
+  /** `dupe` = this render is the loop copy: put `tabIndex={-1}` on its interactive element (it is
+   *  aria-hidden but must stay CLICKABLE — see the duplicate-set note below). */
+  renderItem: (item: T, dupe: boolean) => ReactNode;
   /** 1 = content drifts leftward (reads forward); -1 = rightward. */
   direction?: 1 | -1;
   /** Drift speed in px/s — slow enough to read, distinct per row so the pair feels alive. */
@@ -69,14 +71,16 @@ export function MarqueeRail<T>({
     let idleUntil = 0;
     let raf = 0;
     let last = 0;
-    // The last position the DRIFT itself wrote — how the scroll listener below tells our own
-    // writes apart from everyone else's (chevron nudges, scrollIntoView, momentum).
-    let expected = el.scrollLeft;
+    // A FLOAT accumulator owns the drift position (adversarial HIGH on #194): per-frame deltas
+    // are 0.18–0.5px, and browsers quantize scrollLeft — re-deriving from the read-back rounds
+    // the fraction away every frame and the row sits frozen on DPR-1 desktops / 120Hz phones.
+    // scrollLeft is only READ to detect someone else steering.
+    let pos = el.scrollLeft;
     // The reverse row opens at the duplicate set's start so there's content to drift back into —
     // identical pixels, an invisible jump. (scrollTo, not a scrollLeft write — the compiler lint
     // treats property writes on state-held elements as render mutations.)
     if (direction === -1 && el.scrollLeft === 0) {
-      expected = loop;
+      pos = loop;
       el.scrollTo({ left: loop });
     }
     const step = (t: number) => {
@@ -85,22 +89,24 @@ export function MarqueeRail<T>({
       const active =
         playingRef.current && !hover && !focus && !pressed && onscreen && visible && t >= idleUntil;
       if (active && dt > 0) {
-        let next = el.scrollLeft + direction * speed * (dt / 1000);
         // Normalize into [0, loop) — also swallows any manual scroll into the duplicate set.
-        next = ((next % loop) + loop) % loop;
-        expected = next;
-        el.scrollTo({ left: next });
+        pos = (((pos + direction * speed * (dt / 1000)) % loop) + loop) % loop;
+        el.scrollTo({ left: pos });
       }
       raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);
     // Any scroll the drift didn't write is someone else steering — the <Rail> chevron's smooth
     // scrollBy (a sibling: no pointer event ever reaches this scroller), a keyboard
-    // scrollIntoView, iOS momentum — so yield for the same idle grace as a manual swipe (Codex
-    // P2 on #194: the per-frame write was fighting the chevron's smooth scroll mid-animation).
-    // 2px tolerance covers subpixel quantization of our own writes.
+    // scrollIntoView, iOS momentum — so ADOPT their position into the accumulator and yield the
+    // same idle grace as a manual swipe (Codex P2 on #194: the per-frame write was fighting the
+    // chevron's smooth scroll mid-animation). 2px tolerance covers the quantization of our own
+    // fractional writes.
     const onScroll = () => {
-      if (Math.abs(el.scrollLeft - expected) > 2) idleUntil = performance.now() + 2200;
+      if (Math.abs(el.scrollLeft - pos) > 2) {
+        pos = el.scrollLeft;
+        idleUntil = performance.now() + 2200;
+      }
     };
     el.addEventListener("scroll", onScroll, { passive: true });
 
@@ -168,15 +174,18 @@ export function MarqueeRail<T>({
       className={`start-here-rail${motion ? " start-here-marquee" : ""} ${railProps.className ?? ""}`.trimEnd()}
     >
       {items.map((i) => (
-        <li key={itemKey(i)}>{renderItem(i)}</li>
+        <li key={itemKey(i)}>{renderItem(i, false)}</li>
       ))}
-      {/* The loop set — pixels only. aria-hidden + inert keeps AT and the tab order on the ten
-          real cards; mounted only when motion is eligible, so reduced-motion (and SSR) render the
-          plain finite rail. */}
+      {/* The loop set. aria-hidden + tabIndex -1 (via the renderItem contract) keeps AT and the
+          tab order on the ten real cards, but the copies stay CLICKABLE — `inert` made every
+          visibly-on-screen dupe tap-dead (adversarial HIGH on #194: the reverse row OPENS on its
+          dupe set, and any pause near the seam froze a dead viewport). A sighted diner tapping a
+          dupe gets the same sheet as the real card. Mounted only when motion is eligible, so
+          reduced-motion (and SSR) render the plain finite rail. */}
       {motion &&
         items.map((i) => (
-          <li key={`dupe-${itemKey(i)}`} data-dupe aria-hidden inert>
-            {renderItem(i)}
+          <li key={`dupe-${itemKey(i)}`} data-dupe aria-hidden>
+            {renderItem(i, true)}
           </li>
         ))}
     </Rail>

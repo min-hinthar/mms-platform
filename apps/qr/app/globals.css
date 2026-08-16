@@ -4237,6 +4237,18 @@ html[data-seen-surface] .mms-stagger {
   font-family: var(--font-my);
   font-size: 13px;
 }
+/* The heading row — the h2 and the pause control side by side. The button lives OUTSIDE the h2
+   so it never joins the heading's (and the rails') accessible name. */
+.start-here-hrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+.start-here-hrow > .start-here-h {
+  flex: 1;
+  margin: 0;
+}
 /* The pause/play control (WCAG 2.2.2) — a 44px hit area wearing a small vellum coin, sitting at
    the heading row's right edge. Rendered only when motion is possible (component-gated). */
 .start-here-pause {

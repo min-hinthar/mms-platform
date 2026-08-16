@@ -52,8 +52,15 @@ export function StartHereBand({
 
   if (rowA.length === 0) return null;
 
-  const card = (i: MenuItem, rank?: number) => (
-    <button type="button" className="start-here-card" onClick={() => onSelect(i)}>
+  // `dupe` = the marquee's loop copy: aria-hidden by the rail, out of the tab order here, but
+  // still clickable — a visibly on-screen copy must open the same sheet as its original.
+  const card = (i: MenuItem, dupe: boolean, rank?: number) => (
+    <button
+      type="button"
+      className="start-here-card"
+      tabIndex={dupe ? -1 : undefined}
+      onClick={() => onSelect(i)}
+    >
       {/* W20 — the rank seal, ONLY when real paid-order counts curated this row: a numeral this
           prominent is a claim. #1 wears the gold cap. The sr-only twin says it in words. */}
       {dataBacked && rank !== undefined && (
@@ -98,11 +105,16 @@ export function StartHereBand({
       // 90ms after the arrival beat above so the first-visit cascade reads TOP-DOWN (greeting, then rail).
       style={{ padding: "10px 0 2px", animationDelay: "90ms" }}
     >
-      <h2 id="start-here-h" className="start-here-h">
-        Start here <span aria-hidden>✦</span>
-        <span className="start-here-sub">
-          {dataBacked ? "what tables love" : "our picks to start"}
-        </span>
+      {/* The pause control sits BESIDE the h2, not inside it — a button inside the heading joins
+          its accessible name (and the rails' aria-labelledby), narrating "Pause the moving rows"
+          into every heading announcement (review LOW). */}
+      <div className="start-here-hrow">
+        <h2 id="start-here-h" className="start-here-h">
+          Start here <span aria-hidden>✦</span>
+          <span className="start-here-sub">
+            {dataBacked ? "what tables love" : "our picks to start"}
+          </span>
+        </h2>
         {/* WCAG 2.2.2 — auto-moving content gets a REAL stop control, not just hover luck. One
             button rules both rows; hidden entirely when motion can't happen (reduced motion /
             pre-mount), where it would be a dead switch. */}
@@ -116,11 +128,11 @@ export function StartHereBand({
             <span aria-hidden>{paused ? "▶︎" : "❚❚"}</span>
           </button>
         )}
-      </h2>
+      </div>
       <MarqueeRail
         items={rowA}
         itemKey={(e) => e.item.id}
-        renderItem={(e) => card(e.item, e.rank)}
+        renderItem={(e, dupe) => card(e.item, dupe, e.rank)}
         direction={1}
         speed={30}
         motion={motionOk}
@@ -139,7 +151,7 @@ export function StartHereBand({
           <MarqueeRail
             items={rowB}
             itemKey={(i) => i.id}
-            renderItem={(i) => card(i)}
+            renderItem={(i, dupe) => card(i, dupe)}
             direction={-1}
             speed={22}
             motion={motionOk}

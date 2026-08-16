@@ -2,10 +2,10 @@
 import { useEffect, useMemo, useState } from "react";
 import type { MenuItem } from "./MenuBrowser";
 import { CRAVINGS, recommendByTaste, surpriseMe, type CravingId } from "@/lib/menu/taste";
-import { hasFreeFrom, passesDiets, type Diet } from "@/lib/menu/dietary";
+import { passesDiets, type Diet } from "@/lib/menu/dietary";
 import { BlurUpImage } from "./BlurUpImage";
 import { PhotoPlaceholder } from "./PhotoPlaceholder";
-import { DietPills, FreeFromDisclaimer } from "./DietPills";
+import { DietPills } from "./DietPills";
 import { Rail } from "../Rail";
 
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -115,8 +115,6 @@ export function TasteBand({
           why: matched.map((c) => `${c.emoji} ${c.en}`).join(" · "),
         }));
 
-  const freeFrom = hasFreeFrom(diets);
-
   return (
     <section aria-labelledby="taste-h" style={{ padding: "10px 0 2px" }}>
       <h2 id="taste-h" className="start-here-h">
@@ -169,9 +167,11 @@ export function TasteBand({
           မီနူးတစ်ခုလုံး စစ်ထုတ်ပေးမယ်
         </span>
       </p>
+      {/* The fail-safe free-from DISCLAIMER deliberately does not render here: the moment any
+          diet pill is active the sticky toolbar mirrors this rail and carries the disclaimer
+          (MenuBrowser) — always on screen, every scroll position, searching or not. A second
+          copy right below it would just be noise. */}
       <DietPills diets={diets} onToggle={onToggleDiet} labelledBy="taste-diet-cap" />
-      {/* Fail-safe disclaimer — travels with the pills: a guide, never a guarantee. */}
-      {freeFrom && <FreeFromDisclaimer />}
       {showing.length > 0 && (
         <Rail
           as="ul"

@@ -429,11 +429,13 @@ export function MenuBrowser({
         )}
 
         {/* W22 — the dietary pills moved into the taste band below ("Explore your Burmese taste
-            buds"); the state stays here (they filter this whole view). A typed search hides that
-            band, so the toolbar renders the SAME pill rail while searching (Codex P1+P2 on #194:
-            a search-first diner still needs the filters, and an active free-from filter must
-            never be on screen without its safety disclaimer). */}
-        {q.trim() !== "" && (
+            buds"); the state stays here (they filter this whole view). The STICKY toolbar renders
+            the same shared rail whenever the band can't speak for it (Codex P1+P2 + review MED on
+            #194): while a typed search hides the band (a search-first diner still needs the
+            filters), and while any diet is ACTIVE (a filter that silently empties categories deep
+            in the scroll needs a persistent lit indicator and a way out) — and an active
+            free-from filter is never on screen without its safety disclaimer. */}
+        {(q.trim() !== "" || diets.length > 0) && (
           <>
             <DietPills diets={diets} onToggle={toggleDiet} />
             {hasFreeFrom(diets) && <FreeFromDisclaimer />}
