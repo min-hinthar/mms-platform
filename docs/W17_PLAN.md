@@ -86,17 +86,30 @@ Fried Rice, which would otherwise read as a $12-vs-$5 "delta" between two differ
   grown back at the seam) and `cart/toggle-re-prices-the-line` (any price forwarded on a flip). The
   staff mode-fork mutant survives guarding what it really guards: the routing + **tax** fork.
 
-**⚠️ Prod carry-over.** `menu_items.base_price_cents` was never touched by W16a (the markup lived in
-TS), so the deploy alone restores POS pricing everywhere. But any cart line **added** during the
-W16a window carries a marked-up `unit_price_cents` on its row. Post-deploy, sweep open carts:
+**Prod carry-over — swept 2026-08-16, ZERO affected lines.** `menu_items.base_price_cents` was
+never touched by W16a (the markup lived in TS), so the deploy alone restores POS pricing. The open
+question was cart lines **added** during the W16a window, which would carry a marked-up
+`unit_price_cents` on the row. Measured against prod: of 126 open food lines across 31 open carts,
+only **5** were created on or after 2026-08-15, and every one of them is at the bare POS price —
+e.g. `Kyay-O / Si-Chat` at 2200 is 2000 + a real 200¢ "Brains add-on", not `round25(2000 × 1.15)` =
+2300; `Mee-Shay` at 1400 is the base, not `round25(1400 × 1.05)` = 1475. Nothing was ever ordered
+through the markup. **No data fix is needed.**
+
+⚠️ If you re-run this check, do NOT use a bare `unit_price_cents <> base_price_cents` predicate — it
+is not diagnostic. `unit_price_cents` includes **modifier deltas**, and older lines legitimately
+carry **pre-W15 prices** (W15 corrected 10 menu prices), so that predicate returns ~30 rows of which
+none are markups. Scope to the W16a window instead and read the rows, checking each against the
+W16a formulas by hand — `round25(base × 1.15)` for dine-in, `round25(base × 1.05)` for to-go — since
+the modifier deltas mean SQL alone can't tell a markup from a legitimate add-on:
 
 ```sql
-select ci.id, ci.name, ci.unit_price_cents, mi.base_price_cents
+select ci.id, ci.name, ci.unit_price_cents, mi.base_price_cents, ci.modifiers, ci.created_at
 from qr_cart_items ci
 join qr_carts c on c.id = ci.cart_id
-join menu_items mi on mi.id = ci.menu_item_id::uuid
+join menu_items mi on mi.id::text = ci.menu_item_id
 where c.status = 'open' and ci.fulfillment <> 'grocery'
-  and ci.unit_price_cents > mi.base_price_cents;
+  and ci.created_at >= '2026-08-15T00:00:00Z'   -- the W16a window only
+order by ci.created_at;
 ```
 
 Paid orders are history and must NOT be rewritten — they carry what was really charged.
