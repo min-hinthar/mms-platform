@@ -31,9 +31,15 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > `cart/toggle-re-prices-the-line`); the staff mode-fork mutant survives guarding the routing + TAX
 > fork, which is what it really was.
 >
-> **⚠️ Prod carry-over:** `menu_items.base_price_cents` was never touched by W16a (the markup lived
-> in TS), so the deploy alone restores POS pricing. But any cart line ADDED during the W16a window
-> carries a marked-up `unit_price_cents` on the row. Sweep open carts post-deploy (see W17_PLAN).
+> **✅ Prod swept (2026-08-16) — zero affected lines.** `menu_items.base_price_cents` was never
+> touched by W16a (the markup lived in TS), so the deploy alone restores POS pricing. The open
+> question was lines ADDED during the W16a window. Measured: of 126 open food lines across 31 open
+> carts, 5 were created on/after 2026-08-15 and every one is at the bare POS price (the one that
+> looks high, Kyay-O at 2200, is 2000 + a real 200¢ Brains add-on — the markup would have been
+> 2300). Nothing was ever ordered through the markup; **no data fix needed.** Do NOT re-check with a
+> bare `unit_price_cents <> base_price_cents` predicate — `unit_price_cents` includes modifier
+> deltas and older lines carry pre-W15 prices, so it returns ~30 false positives. The correct
+> window-scoped query is in `docs/W17_PLAN.md`.
 >
 > **Next: W17b/c/d** — see [`docs/W17_PLAN.md`](W17_PLAN.md). W17b per-mode `togo_price_cents` for
 > the ~4 genuinely-different items + a manager-gated staff price editor; W17c tipping (all four
