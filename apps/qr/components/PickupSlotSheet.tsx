@@ -79,14 +79,25 @@ export function PickupSlotSheet({
     onOpenChange(false);
   }
 
-  // Scroll the selected chip into view once the grid is on screen (RM-aware: no smooth glide).
+  // W21 (owner: "pickup time slot still focus on soonest after selection") — scrolling wasn't
+  // enough: the dialog's auto-focus parks on the FIRST focusable chip (the earliest = Soonest), so
+  // a keyboard/SR diner reopened the sheet "on" Soonest even with their pick lit further down.
+  // Once per open, move real focus to the diner's chip (announcing "Your current time, …"); the
+  // guard keeps later day-browsing from having focus yanked back. Scroll stays RM-aware.
+  const focusedThisOpen = useRef(false);
+  useEffect(() => {
+    if (!open) focusedThisOpen.current = false;
+  }, [open]);
   useEffect(() => {
     if (!open || load.s !== "ok") return;
+    const el = selectedRef.current;
+    if (!el) return;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    selectedRef.current?.scrollIntoView({
-      block: "nearest",
-      behavior: reduced ? "auto" : "smooth",
-    });
+    if (!focusedThisOpen.current) {
+      focusedThisOpen.current = true;
+      el.focus({ preventScroll: true });
+    }
+    el.scrollIntoView({ block: "nearest", behavior: reduced ? "auto" : "smooth" });
   }, [open, load, dayIdx]);
 
   // Slots arrive time-sorted → group into consecutive day sections (Today / Tomorrow / weekday). The

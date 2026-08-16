@@ -18,10 +18,13 @@ export const CONFIRM = {
   confirmCancel: { en: "Cancel", my: "မလုပ်တော့ပါ" },
 
   // ── send to kitchen (the owner's named example) ────────────────────────────
-  confirmSendLabel: { en: "Confirm sending to the kitchen", my: "မီးဖိုသို့ ပို့ရန် အတည်ပြုပါ" },
+  confirmSendLabel: {
+    en: "Confirm sending to the kitchen",
+    my: "မီးဖိုချောင်သို့ ပို့ရန် အတည်ပြုပါ",
+  },
   confirmSendDetail: {
     en: "The kitchen starts cooking it. You’ll have a few seconds to undo.",
-    my: "မီးဖိုက ချက်ပြုတ်စပြီ။ ပြန်ရုပ်သိမ်းရန် စက္ကန့်အနည်းငယ် ရပါမယ်",
+    my: "မီးဖိုချောင်က ချက်ပြုတ်စပြီ။ ပြန်ရုပ်သိမ်းရန် စက္ကန့်အနည်းငယ် ရပါမယ်",
   },
   confirmSendProceed: { en: "Yes, send", my: "Kitchen သို့ မှာယူရန် အတည်ပြုပါပြီ" }, // owner verbatim
 

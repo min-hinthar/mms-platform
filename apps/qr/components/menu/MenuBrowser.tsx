@@ -14,6 +14,7 @@ import { ItemSheet } from "./ItemSheet";
 import { ArrivalBeat } from "./ArrivalBeat";
 import { MenuTimeline } from "@/components/TableTimeline";
 import { StartHereBand } from "./StartHereBand";
+import { TasteBand } from "./TasteBand";
 import { FavoritesRail } from "./FavoritesRail";
 import { useCart } from "@/components/TableCartProvider";
 import { toggleFavorite } from "@/lib/favorites";
@@ -503,6 +504,15 @@ export function MenuBrowser({
             />
           </div>
         ))}
+
+      {/* W21 — the taste picker (personalizable recommendations): craving chips → an honest
+          "here's why" rail + a Surprise-me for the something-new mood. Same browse-only gate as
+          the bands above — hidden while the diner is FINDING (search/diet filters active). */}
+      {!q.trim() && diets.length === 0 && (
+        <div style={{ padding: "0 20px" }}>
+          <TasteBand items={items} heartedIds={hearts} onSelect={setSheetItem} />
+        </div>
+      )}
 
       {cats.map((c) => (
         <section

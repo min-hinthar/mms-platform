@@ -75,9 +75,9 @@ export function StartHereBand({
                 <BlurUpImage
                   src={i.image_url}
                   alt=""
-                  width={128}
-                  height={88}
-                  sizes="128px"
+                  width={160}
+                  height={110}
+                  sizes="160px"
                   fallback={<PhotoPlaceholder category={i.category} />}
                 />
               </span>

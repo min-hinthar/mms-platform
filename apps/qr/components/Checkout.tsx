@@ -32,6 +32,7 @@ import {
 import { menuHref, menuLinkText } from "@/lib/menu-href";
 import { taxRate } from "@/lib/tax";
 import { normalizePickupSlot } from "@/lib/pickup-slot";
+import { pickupContactMissing } from "@/lib/pickup-contact";
 import { DINER_STATE_COPY } from "@/lib/line-state-copy";
 import { seatColor, seatInitial } from "@/lib/avatars";
 import { BlurUpImage } from "./menu/BlurUpImage";
@@ -297,6 +298,13 @@ export function Checkout({
   // matters), whereas scango is self-scanned grocery retail (no kitchen fire to schedule).
   const isPickupMode = sessionMode === "pickup";
   const [firstName, setFirstName] = useState("");
+  // W21 (owner: "pickup should need name and phone number") — the pickup contact phone. PICKUP
+  // only (scango is a self-scanned walk-out — nothing to call anyone about); required at the pay
+  // boundary by the SAME pure predicate create-intent runs (lib/pickup-contact.ts), so the local
+  // gate and the server's refusal cannot drift. PII: cart column only, never analytics.
+  const [phone, setPhone] = useState("");
+  const pickupNameRef = useRef<HTMLInputElement>(null);
+  const pickupPhoneRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     // W9a — never read a stored name off the device for a basket that will never show the field
     // (pure grocery). Belt-and-braces with the submit gate: nothing to leak if nothing is hydrated.
@@ -316,6 +324,23 @@ export function Checkout({
       active = false;
     };
   }, [isTakeout, pureGrocery]);
+  useEffect(() => {
+    // Same hydrate pattern for the phone — pickup only (the render gate), so a stored number never
+    // rides a mode that has no field to see or clear it (the W9a name lesson, applied on day one).
+    if (!isPickupMode) return;
+    let active = true;
+    void Promise.resolve()
+      .then(() => localStorage.getItem("mms.phone"))
+      .then((saved) => {
+        if (active && saved) setPhone(saved.slice(0, 20));
+      })
+      .catch(() => {
+        /* private mode — the field just starts empty */
+      });
+    return () => {
+      active = false;
+    };
+  }, [isPickupMode]);
   // Tab lifecycle (S3.1) — seeded from the server view, kept in step by refresh() (a peer or a
   // server securing the tab flips it here too). W12: the diner never CHOOSES a tab anymore — an
   // unsettled dine-in table IS the open (trust) tab, so `trust` renders nothing diner-side; the
@@ -665,6 +690,21 @@ export function Checkout({
   async function continueToPayment() {
     setPayError(null);
     setStatus(null); // single live region — clear any prior promo result
+    // W21 — the pickup contact gate, locally first (same pure predicate create-intent runs, so
+    // this can never disagree with the server's refusal): say what's missing AND move focus to
+    // the field, instead of round-tripping just to be told.
+    if (isPickupMode) {
+      const missing = pickupContactMissing(firstName, phone);
+      if (missing) {
+        setPayError(
+          missing === "name"
+            ? "Add a first name for pickup — we need someone to call."
+            : "Add a phone number for pickup — we’ll only use it about this order.",
+        );
+        (missing === "name" ? pickupNameRef : pickupPhoneRef).current?.focus();
+        return;
+      }
+    }
     setLoadingPay(true);
     try {
       // Member-gated (cookie session); the route re-derives the amount from getCartTotals and locks
@@ -679,12 +719,14 @@ export function Checkout({
       // snapshot → the wall-mounted public `/board` TV, with no surface left to see or clear it.
       // Sending "" is already the intended clear-a-stale-name behaviour (see the comment above).
       const name = isTakeout && !pureGrocery ? firstName.trim().slice(0, 40) : "";
-      if (name) {
-        try {
-          localStorage.setItem("mms.name", name);
-        } catch {
-          /* private mode */
-        }
+      // W21 — the pickup phone rides only on pickup (the render + require gates' mode). Remembered
+      // for next time like the name; both writes are best-effort.
+      const phoneOut = isPickupMode ? phone.trim().slice(0, 20) : "";
+      try {
+        if (name) localStorage.setItem("mms.name", name);
+        if (phoneOut) localStorage.setItem("mms.phone", phoneOut);
+      } catch {
+        /* private mode */
       }
       const res = await fetch("/api/stripe/create-intent", {
         method: "POST",
@@ -695,6 +737,7 @@ export function Checkout({
           cartId,
           tipRate: effectiveTipRate,
           ...(isTakeout ? { firstName: name } : {}),
+          ...(isPickupMode ? { phone: phoneOut } : {}),
         }),
       });
       const data = (await res.json()) as {
@@ -958,7 +1001,12 @@ export function Checkout({
               {leavingPay ? "Going back…" : "Back to review"}
             </button>
             <div className="card card-textured checkout-receipt">
-              <dl>
+              {/* W21 (owner: "final pay total bill should organize dine-in and take-out items") —
+                  the pay step used to show ONLY the totals: the diner confirmed a charge with no
+                  itemization on the very screen that takes the card. Same grouped receipt rows as
+                  the Bill moment (the cart is locked here, so these lines are the charged lines). */}
+              <BillLines items={viewItems} isGroup={isGroup} splitContext={splitContext} />
+              <dl style={{ borderTop: "1px solid var(--bd)", paddingTop: 6, marginTop: 8 }}>
                 <Row k="rowSubtotal" cents={payTotals.subtotalCents} />
                 {payTotals.discountCents - payTotals.rewardCents > 0 && (
                   <Row k="rowPromo" cents={-(payTotals.discountCents - payTotals.rewardCents)} />
@@ -1058,12 +1106,11 @@ export function Checkout({
               moment renders the same lines as read-only receipt rows instead. */}
             {(() => {
               if (!showLineCards) return null; // W12 — the Bill moment renders receipt rows instead
-              const GROUPS: [label: string, key: CartItem["fulfillment"]][] = [
-                ["At your table", "dinein"],
-                ["To-go", "togo"],
-                ["Grocery", "grocery"],
-              ];
-              const present = GROUPS.filter(([, k]) => viewItems.some((i) => i.fulfillment === k));
+              // W21 — the labels live once (BILL_GROUPS): the editing cards, the Bill's receipt
+              // rows, and the pay itemization all speak the same section names.
+              const present = BILL_GROUPS.filter(([, k]) =>
+                viewItems.some((i) => i.fulfillment === k),
+              );
               const showHeadings = present.length > 1;
               const renderLine = (i: CartItem) => {
                 // `canEdit` stays the PERMISSION (state × role); the lock is a separate, transient
@@ -1347,7 +1394,7 @@ export function Checkout({
                       marginTop: 2,
                     }}
                   >
-                    မပို့ရသေးတဲ့ ဟင်းတွေ — ငွေရှင်းပြီးတာနဲ့ မီးဖိုဆီ ရောက်သွားပါမယ်နော်
+                    မပို့ရသေးတဲ့ ဟင်းတွေ — ငွေရှင်းပြီးတာနဲ့ မီးဖိုချောင်ဆီ ရောက်သွားပါမယ်နော်
                   </span>
                 </p>
                 {canSendToKitchen && (
@@ -1371,95 +1418,9 @@ export function Checkout({
                 one tap back on the Order moment — a bill you can quietly read is the point. */}
             {staged && stage === "bill" && (
               <div className="card card-textured checkout-receipt">
-                <ul role="list" aria-label={T("yourBill")} className="checkout-bill-lines">
-                  {viewItems.map((i) => {
-                    const struck = i.comped || i.lineState === "voided";
-                    const owner = isGroup
-                      ? splitContext!.members.find((m) => m.seat === i.bySeat)
-                      : undefined;
-                    return (
-                      <li key={i.id} className="checkout-bill-line">
-                        {/* W13 — the v7.2 receipt-row thumb (44px variant → 40px here). Always a
-                            slot: refused/missing URLs fall to the designed placeholder. */}
-                        <span className="checkout-bill-thumb" aria-hidden="true">
-                          <BlurUpImage
-                            src={i.imageUrl ?? null}
-                            alt=""
-                            width={40}
-                            height={40}
-                            sizes="40px"
-                            fallback={
-                              <PhotoPlaceholder
-                                variant="thumb"
-                                icon={i.fulfillment === "grocery" ? "cat-grocery" : "cat-dish"}
-                              />
-                            }
-                          />
-                        </span>
-                        <span className="checkout-bill-name">
-                          <span style={{ fontWeight: 600 }}>
-                            {i.qty > 1 ? `${i.qty} × ` : ""}
-                            {i.name}
-                          </span>
-                          {i.nameMy && (
-                            <span
-                              lang="my"
-                              style={{
-                                display: "block",
-                                fontFamily: "var(--font-my)",
-                                // fs-sm, not fs-xs: stacked Burmese diacritics at the 11px floor
-                                // are illegible; matches the cart line's MY size (review LOW).
-                                fontSize: "var(--fs-sm)",
-                                color: "var(--t2)",
-                              }}
-                            >
-                              {i.nameMy}
-                            </span>
-                          )}
-                          {(i.modifiers.length > 0 || i.notes) && (
-                            <span
-                              style={{
-                                display: "block",
-                                fontSize: "var(--fs-xs)",
-                                color: "var(--t3)",
-                              }}
-                            >
-                              {i.modifiers.join(", ")}
-                              {i.modifiers.length > 0 && i.notes ? " · " : ""}
-                              {i.notes ? `“${i.notes}”` : ""}
-                            </span>
-                          )}
-                          <span
-                            style={{
-                              display: "block",
-                              fontSize: "var(--fs-xs)",
-                              color: "var(--t3)",
-                            }}
-                          >
-                            {i.comped
-                              ? "Comped — on the house"
-                              : i.lineState === "draft"
-                                ? "Not sent yet — on your bill"
-                                : DINER_STATE_COPY[i.lineState]}
-                            {owner
-                              ? ` · ${owner.seat === splitContext!.mySeat ? "You" : owner.name}`
-                              : ""}
-                          </span>
-                        </span>
-                        <span
-                          style={{
-                            fontVariantNumeric: "tabular-nums",
-                            fontWeight: 600,
-                            textDecoration: struck ? "line-through" : "none",
-                            color: struck ? "var(--t3)" : "inherit",
-                          }}
-                        >
-                          ${((i.unitPriceCents * i.qty) / 100).toFixed(2)}
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ul>
+                {/* W21 — grouped by destination (BillLines): "At your table" vs "To-go" vs
+                    "Grocery", headings only when the basket really spans 2+. */}
+                <BillLines items={viewItems} isGroup={isGroup} splitContext={splitContext} />
                 <dl style={{ borderTop: "1px solid var(--bd)", paddingTop: 6, marginTop: 8 }}>
                   <Row k="rowSubtotal" cents={totals.subtotalCents} />
                   {totals.discountCents - totals.rewardCents > 0 && (
@@ -1580,16 +1541,20 @@ export function Checkout({
                 >
                   First name for pickup{" "}
                   <span style={{ fontWeight: 600, color: "var(--t3)", fontSize: "var(--fs-sm)" }}>
-                    Optional
+                    {/* W21 — pickup REQUIRES the contact (create-intent refuses without it);
+                        scango keeps the optional call-out. */}
+                    {isPickupMode ? "Required" : "Optional"}
                   </span>
                 </label>
                 <input
+                  ref={pickupNameRef}
                   id="pickup-name"
                   type="text"
                   value={firstName}
                   maxLength={40}
                   autoComplete="given-name"
                   placeholder="e.g. Aye Aye"
+                  required={isPickupMode || undefined}
                   onChange={(e) => setFirstName(e.target.value)}
                   className="checkout-promo-input"
                   style={{
@@ -1605,6 +1570,51 @@ export function Checkout({
                 <p style={{ margin: "4px 0 0", fontSize: "var(--fs-sm)", color: "var(--t3)" }}>
                   We’ll call your name when your order’s up.
                 </p>
+                {isPickupMode && (
+                  <div style={{ marginTop: 10 }}>
+                    <label
+                      htmlFor="pickup-phone"
+                      style={{
+                        display: "block",
+                        fontWeight: 700,
+                        fontSize: "var(--fs-sm)",
+                        marginBottom: 4,
+                      }}
+                    >
+                      Phone number{" "}
+                      <span
+                        style={{ fontWeight: 600, color: "var(--t3)", fontSize: "var(--fs-sm)" }}
+                      >
+                        Required
+                      </span>
+                    </label>
+                    <input
+                      ref={pickupPhoneRef}
+                      id="pickup-phone"
+                      type="tel"
+                      inputMode="tel"
+                      value={phone}
+                      maxLength={20}
+                      autoComplete="tel"
+                      placeholder="e.g. (626) 555-0142"
+                      required
+                      onChange={(e) => setPhone(e.target.value)}
+                      className="checkout-promo-input"
+                      style={{
+                        width: "100%",
+                        padding: "10px 12px",
+                        borderRadius: "var(--r-sm)",
+                        background: "var(--cd)",
+                        color: "var(--tx)",
+                      }}
+                    />
+                    {/* Honest scope — one order, no marketing (PII stays on the cart, never
+                        analytics). */}
+                    <p style={{ margin: "4px 0 0", fontSize: "var(--fs-sm)", color: "var(--t3)" }}>
+                      Only if we need to reach you about this order.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -2207,8 +2217,17 @@ function Row({
       <dt>
         {t("en", k)}
         {note && (
-          <span style={{ fontSize: "var(--fs-xs)", color: "var(--t3)", fontWeight: 400 }}>
-            {" "}
+          <span
+            style={{
+              fontSize: "var(--fs-xs)",
+              color: "var(--t3)",
+              fontWeight: 400,
+              // W21 — a MARGIN, never a whitespace text node: this dt is a FLEX container (the
+              // dotted-leader row), and flex drops whitespace-only children — a {" "} here rendered
+              // "Sales tax(10.5%)" fused (the exact trap documented on <My/>).
+              marginInlineStart: "0.35em",
+            }}
+          >
             {note}
           </span>
         )}
@@ -2232,5 +2251,116 @@ function Row({
         )}
       </dd>
     </div>
+  );
+}
+
+/** The ONE destination grouping every basket surface speaks — the editing cards, the Bill's receipt
+ *  rows, and the pay step's itemization all read this, so their section labels can't drift. */
+const BILL_GROUPS: [label: string, key: CartItem["fulfillment"]][] = [
+  ["At your table", "dinein"],
+  ["To-go", "togo"],
+  ["Grocery", "grocery"],
+];
+
+/**
+ * W21 (owner: "cart bill and also final pay total bill should organize dine-in and take-out items
+ * for clarity") — the read-only receipt itemization, grouped by destination. Used by the Bill
+ * moment AND the pay step (which previously showed only the totals, no items at all — the diner
+ * confirmed a charge they couldn't itemize on the screen that takes the card). Headings render only
+ * when the basket really spans 2+ destinations, so a plain dine-in bill stays clean.
+ */
+function BillLines({
+  items,
+  isGroup,
+  splitContext,
+}: {
+  items: CartItem[];
+  isGroup: boolean;
+  splitContext: SplitContext | null;
+}) {
+  const present = BILL_GROUPS.filter(([, k]) => items.some((i) => i.fulfillment === k));
+  const showHeadings = present.length > 1;
+  const renderRow = (i: CartItem) => {
+    const struck = i.comped || i.lineState === "voided";
+    const owner = isGroup ? splitContext?.members.find((m) => m.seat === i.bySeat) : undefined;
+    return (
+      <li key={i.id} className="checkout-bill-line">
+        {/* W13 — the v7.2 receipt-row thumb (44px variant → 40px here). Always a
+            slot: refused/missing URLs fall to the designed placeholder. */}
+        <span className="checkout-bill-thumb" aria-hidden="true">
+          <BlurUpImage
+            src={i.imageUrl ?? null}
+            alt=""
+            width={40}
+            height={40}
+            sizes="40px"
+            fallback={
+              <PhotoPlaceholder
+                variant="thumb"
+                icon={i.fulfillment === "grocery" ? "cat-grocery" : "cat-dish"}
+              />
+            }
+          />
+        </span>
+        <span className="checkout-bill-name">
+          <span style={{ fontWeight: 600 }}>
+            {i.qty > 1 ? `${i.qty} × ` : ""}
+            {i.name}
+          </span>
+          {i.nameMy && (
+            <span
+              lang="my"
+              style={{
+                display: "block",
+                fontFamily: "var(--font-my)",
+                // fs-sm, not fs-xs: stacked Burmese diacritics at the 11px floor
+                // are illegible; matches the cart line's MY size (review LOW).
+                fontSize: "var(--fs-sm)",
+                color: "var(--t2)",
+              }}
+            >
+              {i.nameMy}
+            </span>
+          )}
+          {(i.modifiers.length > 0 || i.notes) && (
+            <span style={{ display: "block", fontSize: "var(--fs-xs)", color: "var(--t3)" }}>
+              {i.modifiers.join(", ")}
+              {i.modifiers.length > 0 && i.notes ? " · " : ""}
+              {i.notes ? `“${i.notes}”` : ""}
+            </span>
+          )}
+          <span style={{ display: "block", fontSize: "var(--fs-xs)", color: "var(--t3)" }}>
+            {i.comped
+              ? "Comped — on the house"
+              : i.lineState === "draft"
+                ? "Not sent yet — on your bill"
+                : DINER_STATE_COPY[i.lineState]}
+            {owner ? ` · ${owner.seat === splitContext?.mySeat ? "You" : owner.name}` : ""}
+          </span>
+        </span>
+        <span
+          style={{
+            fontVariantNumeric: "tabular-nums",
+            fontWeight: 600,
+            textDecoration: struck ? "line-through" : "none",
+            color: struck ? "var(--t3)" : "inherit",
+          }}
+        >
+          ${((i.unitPriceCents * i.qty) / 100).toFixed(2)}
+        </span>
+      </li>
+    );
+  };
+  return (
+    <>
+      {present.map(([label, key]) => (
+        <div key={key}>
+          {showHeadings && <p className="checkout-bill-group">{label}</p>}
+          <ul role="list" aria-label={label} className="checkout-bill-lines">
+            {items.filter((i) => i.fulfillment === key).map(renderRow)}
+          </ul>
+        </div>
+      ))}
+    </>
   );
 }

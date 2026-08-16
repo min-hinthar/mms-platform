@@ -5,7 +5,17 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-08-16 — W17 + W18 + W19 + W20 COMPLETE; only owner-blocked items remain)
+> ## ⏭️ NEXT SESSION — start here (2026-08-16 — W17…W21 COMPLETE; only owner-blocked items remain)
+>
+> **W21 (clarity & personalization):** the bill groups by destination on the Bill moment AND the
+> pay step (shared `BillLines`/`BILL_GROUPS`); "Sales tax (10.5%)" un-fused (flex dt drops
+> whitespace — margin, the `<My/>` trap); kitchen = မီးဖိုချောင် everywhere (owner's correction, 12
+> strings); the slot sheet moves real FOCUS to the diner's chip once per open; **pickup requires
+> name + phone** (`pickupContactMissing` at create-intent + client, `qr_carts.customer_phone`
+> migration `20260816070000` — **prod-apply + probe after merge**; phone is cart-only PII, order
+> snapshot deferred until a staff surface reads it); Start-here = uniform two-row grid; the **Find
+> your dish** taste picker (honest category/tag matching + Surprise-me, per-device picks); the
+> dine-in exit lines merged into one two-door sentence.
 >
 > **W20 (alive & instant — the owner's optimistic-UX batch):** the pickup pills + slot sheet + item-
 > sheet Add are OPTIMISTIC (instant flip/close, background write, write-token-serialized revert +

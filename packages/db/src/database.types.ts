@@ -1166,6 +1166,7 @@ export type Database = {
           applied_reward_id: string | null
           created_at: string
           customer_name: string | null
+          customer_phone: string | null
           fire_at: string | null
           id: string
           intended_tip_cents: number | null
@@ -1187,6 +1188,7 @@ export type Database = {
           applied_reward_id?: string | null
           created_at?: string
           customer_name?: string | null
+          customer_phone?: string | null
           fire_at?: string | null
           id?: string
           intended_tip_cents?: number | null
@@ -1208,6 +1210,7 @@ export type Database = {
           applied_reward_id?: string | null
           created_at?: string
           customer_name?: string | null
+          customer_phone?: string | null
           fire_at?: string | null
           id?: string
           intended_tip_cents?: number | null

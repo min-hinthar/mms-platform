@@ -54,8 +54,8 @@ export function confirmCopy(d: ConfirmDecision): ConfirmCopy {
         questionEn: n > 0 ? `Send ${n} ${unit} to the kitchen?` : "Send this to the kitchen?",
         questionMy:
           n > 0
-            ? `${n} ${t("my", "countItems")} မီးဖိုသို့ ပို့မှာ သေချာပါသလား?`
-            : "မီးဖိုသို့ ပို့မှာ သေချာပါသလား?",
+            ? `${n} ${t("my", "countItems")} မီးဖိုချောင်သို့ ပို့မှာ သေချာပါသလား?`
+            : "မီးဖိုချောင်သို့ ပို့မှာ သေချာပါသလား?",
         detailEn: t("en", "confirmSendDetail"),
         detailMy: t("my", "confirmSendDetail"),
         proceedEn: t("en", "confirmSendProceed"),
@@ -73,7 +73,7 @@ export function confirmCopy(d: ConfirmDecision): ConfirmCopy {
           : "";
       const unsentMy =
         unsent > 0
-          ? ` မပို့ရသေးတဲ့ ${unsent} ခုပါဝင်ပါတယ် — ငွေရှင်းပြီးတာနဲ့ မီးဖိုက စချက်ပေးပါမယ်။`
+          ? ` မပို့ရသေးတဲ့ ${unsent} ခုပါဝင်ပါတယ် — ငွေရှင်းပြီးတာနဲ့ မီးဖိုချောင်က စချက်ပေးပါမယ်။`
           : "";
       return {
         ...shared,

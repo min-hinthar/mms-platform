@@ -4,6 +4,47 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W21 — clarity & personalization (2026-08-16)
+
+The owner's batch, verbatim: _"cart bill and also final pay total bill (stripe checkout) should
+organize dine-in and take-out items for clarity, Sales Tax (10.5%) properly formatted, kitchen is
+မီးဖိုချောင်, pickup time slot still focus on soonest after selection. pickup should need name name
+and phone numbe. Start here cards should be same size and larger and maybe two rows? how about a
+personalizble/customizable recommendations section …? back to start and leave this table is
+redundant?"_
+
+- **The bill organizes by destination.** One shared renderer (`BillLines`) groups receipt rows into
+  "At your table" / "To-go" / "Grocery" (headings only when the basket really spans 2+), on the Bill
+  moment AND the pay step — which previously showed only totals: the diner confirmed a charge with
+  no itemization on the very screen that takes the card. Section labels live once (`BILL_GROUPS`),
+  shared with the editing cards.
+- **"Sales tax (10.5%)" formats correctly.** The receipt row's `dt` is a flex container, which
+  DROPS whitespace-only children — the note's `{" "}` gap vanished and rendered "Sales tax(10.5%)"
+  fused. The gap is now a margin (the exact trap already documented on `<My/>`).
+- **Kitchen is မီးဖိုချောင်** — 12 strings swept from မီးဖို (stove) per the owner's correction; K15
+  still owns the native check.
+- **The slot sheet lands ON your pick.** W20 scrolled the selected chip into view but the dialog's
+  auto-focus still parked on the first chip (the earliest = Soonest). Once per open, real focus
+  moves to the diner's chip (announcing "Your current time, …"); day-browsing is never yanked back.
+- **Pickup requires a name and phone.** New pure gate `pickupContactMissing`
+  (lib/pickup-contact.ts — shape + a ≥7-digit floor, mutant `pickup-contact/digit-floor-dropped`
+  watched red first) runs at create-intent (refused BEFORE any slot capacity is consumed) and
+  client-side (instant message + focus to the missing field). Phone stored on the cart only
+  (`qr_carts.customer_phone`, CHECK-mirrored, migration `20260816070000`; SQL test
+  `pickup_phone_bound_test.sql` in CI's required list) — PII: never analytics, no order snapshot
+  until a staff surface reads it. Prefilled per-device like the name; scango keeps its optional
+  call-out (nothing to phone a walk-out about).
+- **Start here: uniform, larger, two rows.** The rail is a two-row horizontal grid of equal 158px
+  cells (was one ragged 132px strip); photos upsized.
+- **Find your dish — the taste picker.** Craving chips (🍜🍛🦐🥗🌶🌱🍳🧁, bilingual) →
+  a recommendation rail where every card SAYS the literal category/tag rule it matched
+  (lib/menu/taste.ts, pure + tested; keyword category matching so a rename can't kill a chip), plus
+  "✨ Surprise me" (random in-stock picks excluding the diner's own hearts, framed as "How about
+  this?" — never a fabricated affinity). Picks persist per-device and are editable any time; an
+  empty match answers honestly instead of padding with fillers.
+- **One exit line, two distinct doors.** The dine-in arrival beat's two stacked door-picker links
+  merged: "Back to the start keeps your table · Leave this table frees it on this phone."
+
 ### W20 — alive & instant: optimistic UX, reactions, honest leaves (2026-08-16)
 
 The owner's batch, verbatim: _"unleash creativity and imagination: Buttons, options, selections,

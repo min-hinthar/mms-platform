@@ -69,39 +69,32 @@ export function ArrivalBeat({
           "leave table" mutation — the party's session and cart survive untouched (4h sliding TTL).
           menuHref(null) = the door picker; a literal "/" with a "menu" label is the W9a lie. */}
       {mode === "dinein" ? (
-        <>
-          <p className="arrival-line" style={{ marginTop: 2 }}>
-            Ordering to-go or groceries too?{" "}
-            <Link href={menuHref(null)} className="nav-link" style={{ minHeight: 44 }}>
-              Back to the start
-              <span aria-hidden className="nav-arrow nav-arrow-fwd">
-                {" "}
-                →
-              </span>
-            </Link>{" "}
-            — your table stays open.
-          </p>
-          {/* W20 (owner: "customers should have option to leave tables") — a real leave, honestly
-              scoped: it forgets the table ON THIS PHONE (the device stops auto-rejoining) and walks
-              to the door picker. Never a server "close table" — the party's session and cart stay
-              open for everyone else. The storage clear runs in the click, before the navigation. */}
-          <p className="arrival-line" style={{ marginTop: 2 }}>
-            Heading out?{" "}
-            <Link
-              href={menuHref(null)}
-              className="nav-link"
-              style={{ minHeight: 44 }}
-              onClick={() => forgetDineinOnThisDevice()}
-            >
-              Leave this table
-              <span aria-hidden className="nav-arrow nav-arrow-fwd">
-                {" "}
-                →
-              </span>
-            </Link>{" "}
-            — it stays open for everyone else.
-          </p>
-        </>
+        /* W20→W21 — ONE exit line, two distinct doors (the owner flagged two stacked lines both
+           walking to the door picker as redundant). Same destination, different promise: "Back to
+           the start" keeps this phone at the table (browse other modes, come back); "Leave this
+           table" forgets it ON THIS PHONE (device-level only — the storage clear runs in the
+           click, before the navigation; the party's session and cart stay open for everyone
+           else, never a server "close table"). */
+        <p className="arrival-line" style={{ marginTop: 2 }}>
+          Switching modes or heading out?{" "}
+          <Link href={menuHref(null)} className="nav-link" style={{ minHeight: 44 }}>
+            Back to the start
+            <span aria-hidden className="nav-arrow nav-arrow-fwd">
+              {" "}
+              →
+            </span>
+          </Link>{" "}
+          keeps your table ·{" "}
+          <Link
+            href={menuHref(null)}
+            className="nav-link"
+            style={{ minHeight: 44 }}
+            onClick={() => forgetDineinOnThisDevice()}
+          >
+            Leave this table
+          </Link>{" "}
+          frees it on this phone.
+        </p>
       ) : (
         /* W20 (owner: "To-go and groceries should also have leave options") — the same named exit
            the dine-in beat got in W19, tuned for a solo mode: leaving is a navigation, and the

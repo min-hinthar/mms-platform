@@ -111,7 +111,7 @@ export function tipReaction(rate: number, custom = false): TipReaction | null {
     };
   if (rate >= 0.2)
     return { en: "That’s generous — thank you!", my: "ရက်ရောလိုက်တာ — ကျေးဇူးအများကြီးတင်ပါတယ်!" };
-  return { en: "With thanks from the kitchen", my: "မီးဖိုအဖွဲ့က ကျေးဇူးတင်ပါတယ်နော်" };
+  return { en: "With thanks from the kitchen", my: "မီးဖိုချောင်အဖွဲ့က ကျေးဇူးတင်ပါတယ်နော်" };
 }
 
 /**

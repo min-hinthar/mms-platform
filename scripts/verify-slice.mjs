@@ -369,6 +369,15 @@ const MUTANTS = [
     find: "  return tipCents <= TIP_AMOUNT_MAX_CENTS;",
     replace: "  return true;",
   },
+  // ── W21 — the pickup contact gate (a refusal rule on the charge boundary) ───────────────────────
+  {
+    id: "pickup-contact/digit-floor-dropped",
+    file: "apps/qr/lib/pickup-contact.ts",
+    suite: "lib/pickup-contact.test.ts",
+    why: "W21 — the phone SHAPE alone accepts '-------' (7 separator chars, 0 digits); the digit floor is what makes the required field a real contact instead of a keyboard mash. Watched red before registration.",
+    find: "  return (p.match(/[0-9]/g) ?? []).length >= 7;",
+    replace: "  return true;",
+  },
   // ── W17b — the price editor: the ONE human-entered amount in the app ────────────────────────────
   {
     id: "menu-price/role-floor-drops-to-server",

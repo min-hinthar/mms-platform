@@ -7,6 +7,7 @@ import { createIntentInput } from "@mms/db/schemas";
 import { getStripe } from "@/lib/stripe";
 import { getCartTotals } from "@/lib/totals";
 import { tipWithinAmountCap } from "@/lib/tip";
+import { pickupContactMissing } from "@/lib/pickup-contact";
 import { assertCartMember, AuthzError } from "@/lib/authz";
 import { withinMutationRate } from "@/lib/rate";
 import { acquireCartLock, releaseCartLock } from "@/lib/lock";
@@ -17,7 +18,7 @@ import { getPostHogClient } from "@/lib/posthog-server";
 export async function POST(req: NextRequest) {
   let acquired: { cartId: string; uid: string } | null = null;
   try {
-    const { cartId, tipRate, firstName } = createIntentInput.parse(await req.json());
+    const { cartId, tipRate, firstName, phone } = createIntentInput.parse(await req.json());
 
     // C3: only a verified member of this cart's session may mint its PaymentIntent.
     const { sessionId, uid, settling } = await assertCartMember(cartId);
@@ -71,6 +72,23 @@ export async function POST(req: NextRequest) {
     // pickup funnel isn't blind to the default-ASAP path (which fires no client-side timing event).
     let pickupWhen: "asap" | "scheduled" | undefined;
     if (sess?.mode === "pickup") {
+      // W21 (owner: "pickup should need name and phone number") — the contact gate, HERE at the
+      // charge boundary so a raw POST can't skip it (the client runs the same pure predicate for
+      // instant feedback). Refused BEFORE any slot state is consumed: an ASAP snap must not spend
+      // capacity for a payment this response is about to refuse.
+      const contactMissing = pickupContactMissing(firstName ?? "", phone ?? "");
+      if (contactMissing) {
+        await releaseCartLock(cartId, uid);
+        return NextResponse.json(
+          {
+            error:
+              contactMissing === "name"
+                ? "Add a first name for pickup — we need someone to call."
+                : "Add a phone number for pickup — we’ll only use it about this order.",
+          },
+          { status: 400 },
+        );
+      }
       const { data: cart } = await db
         .from("qr_carts")
         .select("pickup_slot,fire_at")
@@ -141,10 +159,16 @@ export async function POST(req: NextRequest) {
     if (firstName !== undefined && (sess?.mode === "pickup" || sess?.mode === "scango")) {
       const { error: nameErr } = await db
         .from("qr_carts")
-        .update({ customer_name: firstName || null })
+        .update({
+          customer_name: firstName || null,
+          // W21 — the pickup contact phone rides the same write, PICKUP only (scango has no counter
+          // handoff to call about). Gated above, so on pickup it's always present by here; the
+          // trim matches what the CHECK judges. Same non-fatal stance as the name.
+          ...(sess.mode === "pickup" ? { customer_phone: (phone ?? "").trim() || null } : {}),
+        })
         .eq("id", cartId)
         .eq("status", "open");
-      if (nameErr) console.error("[create-intent] customer_name write failed:", nameErr.message);
+      if (nameErr) console.error("[create-intent] contact write failed:", nameErr.message);
     }
 
     const totals = await getCartTotals(cartId, tipRate);
