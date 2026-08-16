@@ -41,8 +41,24 @@ insert into public.menu_categories (slug, name, sort_order)
 values ('desserts', 'Desserts', 75)
 on conflict (slug) do nothing;
 
+-- Every OTHER category this migration joins on comes from supabase/seed.sql, which CI's
+-- migrations-check does NOT apply — on a migrations-only database the item inserts below would
+-- select zero category rows and insert NOTHING, silently. (The assert below caught exactly that on
+-- its first CI run — the guard's own red proof.) Create them idempotently with the seed's
+-- name/sort_order; on prod (already seeded) every one is a no-op on the slug conflict.
+insert into public.menu_categories (slug, name, sort_order) values
+  ('rice-noodles-soups', 'Rice / Noodles / Soups', 20),
+  ('sides', 'Sides', 30),
+  ('curries-a-la-carte', 'Curries (A la Carte)', 40),
+  ('vegetables', 'Vegetables', 50),
+  ('seafood-curries', 'Seafood Curries', 60),
+  ('appetizers-salads', 'Appetizers / Salads', 70),
+  ('drinks', 'Drinks', 80)
+on conflict (slug) do nothing;
+
 -- Every category slug the item inserts join on must exist, or nothing below may run. Raises loudly
--- instead of letting an `insert … select` over an empty category quietly insert zero rows.
+-- instead of letting an `insert … select` over an empty category quietly insert zero rows. (With
+-- the inserts above this can only fire on a typo'd slug in a FUTURE edit — which is the point.)
 do $$
 declare v_missing text;
 begin
