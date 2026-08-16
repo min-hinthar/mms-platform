@@ -122,7 +122,10 @@ const PROMO_MESSAGES: Record<PromoReason, string> = {
 function customTipRateFromDollars(raw: string, net: number): number {
   const dollars = parseFloat(raw);
   if (!Number.isFinite(dollars) || dollars <= 0 || net <= 0) return 0;
-  return Math.min(Math.round(dollars * 100), TIP_AMOUNT_MAX_CENTS) / net;
+  // Two clamps (W19 review LOW): the $1,000 house ceiling, AND the schema's 4000-rate transport
+  // rail — a flat promo can legally crush net below 25¢, where $1,000 alone would mint a rate the
+  // schema refuses and surface as a refusal at the last tap instead of a smaller tip.
+  return Math.min(Math.round(dollars * 100), TIP_AMOUNT_MAX_CENTS, 4000 * net) / net;
 }
 
 // Optimistic cart edits — a qty / destination / make-now tap reflects INSTANTLY, then the server action

@@ -200,9 +200,15 @@ export async function POST(req: NextRequest) {
     if (e instanceof AuthzError)
       return NextResponse.json({ error: e.message }, { status: e.status });
     const err = e as Error;
-    // ZodError (bad input shape) → 400; anything else → 500. (Avoid importing zod here so knip
-    // doesn't flag an unused dep in apps/qr; the schema lives in @mms/db.)
-    if (err.name === "ZodError") return NextResponse.json({ error: err.message }, { status: 400 });
+    // ZodError (bad input shape) → 400 with a HUMAN sentence, never err.message — a ZodError's
+    // message is a JSON issue array, and Checkout renders `data.error` verbatim (W19 review LOW:
+    // a promo-crushed sub-25¢ net can push a legal $1,000 tip past the rate rail and land here).
+    // (Avoid importing zod so knip doesn't flag an unused dep; the schema lives in @mms/db.)
+    if (err.name === "ZodError")
+      return NextResponse.json(
+        { error: "That request didn’t look right — refresh and try again." },
+        { status: 400 },
+      );
     // Don't leak a raw SDK string (e.g. a Stripe config/PM message) in the response body — it aids
     // recon. The client already shows a generic UX message; log the real one server-side only.
     console.error("[create-intent] unexpected failure:", err);
