@@ -23,7 +23,10 @@ export function StartHereBand({
   dataBacked,
   onSelect,
 }: {
-  items: MenuItem[];
+  /** W20 review — each entry carries its TRUE pre-filter rank (favoriteIds order = paid-order
+   *  ranking; a sold-out dish keeps its number and simply doesn't render), so the seal can never
+   *  re-number survivors into a claim the data doesn't back. rank is 0 (unused) on the fallback. */
+  items: { item: MenuItem; rank: number }[];
   /** True only when real paid-order counts curated this rail (>=3 crowned items) — drives the honest
    *  sub-heading: observed table behavior vs our own picks. */
   dataBacked: boolean;
@@ -44,7 +47,7 @@ export function StartHereBand({
         </span>
       </h2>
       <Rail as="ul" role="list" className="start-here-rail" aria-labelledby="start-here-h">
-        {items.map((i, idx) => (
+        {items.map(({ item: i, rank }) => (
           <li key={i.id}>
             <button type="button" className="start-here-card" onClick={() => onSelect(i)}>
               {/* W20 — the rank seal, ONLY when real paid-order counts curated this rail: a numeral
@@ -54,13 +57,13 @@ export function StartHereBand({
               {dataBacked && (
                 <>
                   <span
-                    className={`start-here-rank${idx === 0 ? " start-here-rank-top" : ""}`}
+                    className={`start-here-rank${rank === 1 ? " start-here-rank-top" : ""}`}
                     aria-hidden
                   >
-                    {idx + 1}
+                    {rank}
                   </span>
                   <span className="sr-only">
-                    {idx === 0 ? "Most loved at tables. " : `No. ${idx + 1} at tables. `}
+                    {rank === 1 ? "Most loved at tables. " : `No. ${rank} at tables. `}
                   </span>
                 </>
               )}

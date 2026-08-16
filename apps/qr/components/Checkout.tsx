@@ -964,7 +964,13 @@ export function Checkout({
                   <Row k="rowPromo" cents={-(payTotals.discountCents - payTotals.rewardCents)} />
                 )}
                 {payTotals.rewardCents > 0 && <Row k="rowReward" cents={-payTotals.rewardCents} />}
-                <Row k="rowTax" cents={payTotals.taxCents} note={TAX_NOTE} />
+                {/* The rate note only where tax was actually applied — "(10.5%)" beside $0.00 on a
+                    fully-exempt basket would name a rate that touched nothing (review LOW). */}
+                <Row
+                  k="rowTax"
+                  cents={payTotals.taxCents}
+                  note={payTotals.taxCents > 0 ? TAX_NOTE : undefined}
+                />
                 {payTotals.tipCents > 0 && <Row k="rowTip" cents={payTotals.tipCents} />}
                 <Row k="rowTotal" cents={payTotals.totalCents} strong roll />
               </dl>
@@ -1460,7 +1466,11 @@ export function Checkout({
                     <Row k="rowPromo" cents={-(totals.discountCents - totals.rewardCents)} />
                   )}
                   {totals.rewardCents > 0 && <Row k="rowReward" cents={-totals.rewardCents} />}
-                  <Row k="rowTax" cents={totals.taxCents} note={TAX_NOTE} />
+                  <Row
+                    k="rowTax"
+                    cents={totals.taxCents}
+                    note={totals.taxCents > 0 ? TAX_NOTE : undefined}
+                  />
                 </dl>
               </div>
             )}
@@ -1542,6 +1552,9 @@ export function Checkout({
                 onSlotChange={setPickupSlot}
                 asapAvailable={asapAvailable}
                 onStatus={setStatus}
+                // W20 review — a refused write recovers by RE-READING server truth (refresh()
+                // re-seeds pickupSlot via normalizePickupSlot), never by restoring a captured prev.
+                onRevert={() => void refresh()}
               />
             )}
 
@@ -1610,7 +1623,11 @@ export function Checkout({
                     <Row k="rowPromo" cents={-(totals.discountCents - totals.rewardCents)} />
                   )}
                   {totals.rewardCents > 0 && <Row k="rowReward" cents={-totals.rewardCents} />}
-                  <Row k="rowTax" cents={totals.taxCents} note={TAX_NOTE} />
+                  <Row
+                    k="rowTax"
+                    cents={totals.taxCents}
+                    note={totals.taxCents > 0 ? TAX_NOTE : undefined}
+                  />
                 </dl>
               </div>
             )}

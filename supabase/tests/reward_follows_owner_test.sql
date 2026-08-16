@@ -7,10 +7,14 @@
 -- mms_clear_reward predicate) before the check, while a MID-PAYMENT holder (locked / settling)
 -- still refuses — stealing from it would strand the webhook reconcile against the PI it minted.
 --
--- Three assertions, each of which fails against the pre-W20 function or a botched predicate:
+-- Four assertions, each of which fails against the pre-W20 function or a botched predicate:
 --   1. an IDLE holder's reward moves to the new cart ('ok', hold transferred);
 --   2. a LOCKED holder still refuses ('in_use', hold kept) — the release must not over-reach;
---   3. the release touches ONLY this reward's holders — an unrelated reward's idle hold survives.
+--   3. a SETTLING holder (settle_at set, locked false — the split-tender freeze, a real state
+--      distinct from locked) also refuses and keeps its hold: dropping `settle_at is null` from
+--      the release predicate alone would strand the share-mint reconcile, and cases 1–2 would
+--      stay green through it (review MED — this leg makes that botch reddenable);
+--   4. the release touches ONLY this reward's holders — an unrelated reward's idle hold survives.
 --
 -- Run against any QR DB (rolls back — leaves NO data behind):
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/reward_follows_owner_test.sql
@@ -70,7 +74,22 @@ begin
     'the locked mid-payment cart LOST its reward hold — webhook reconcile would strand';
 end $$;
 
--- ── 3 · the release is scoped to THIS reward — an unrelated idle hold survives both applies ──────
+-- ── 3 · a SETTLING holder (split freeze: settle_at set, locked false) refuses and keeps its hold ─
+do $$
+declare v text;
+begin
+  update public.qr_carts set locked = false, settle_at = now() + interval '5 minutes'
+    where id = '00000000-0000-0000-0000-00000000cc01';
+
+  select public.mms_apply_reward('00000000-0000-0000-0000-00000000cc02', 'W20-FOLLOW',
+                                 '00000000-0000-0000-0000-00000000f00d') into v;
+  assert v = 'in_use', format('apply against a SETTLING holder returned %s — the release predicate lost its settle_at leg', v);
+  assert (select applied_reward_id from public.qr_carts where id = '00000000-0000-0000-0000-00000000cc01')
+         = '00000000-0000-0000-0000-0000000e0a01',
+    'the settling cart LOST its reward hold — the share-mint reconcile would strand';
+end $$;
+
+-- ── 4 · the release is scoped to THIS reward — an unrelated idle hold survives every apply above ─
 do $$
 begin
   assert (select applied_reward_id from public.qr_carts where id = '00000000-0000-0000-0000-00000000cc03')

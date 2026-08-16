@@ -43,7 +43,13 @@ begin
 
   -- W20: the reward follows its owner. Release holds from IDLE carts (the mms_clear_reward
   -- predicate — open, unlocked, not settling); a mid-payment holder is untouchable and falls
-  -- through to the honest 'in_use' below.
+  -- through to the honest 'in_use' below. Two accepted edges (pre-merge review): ① `locked`/
+  -- `settle_at` are trusted at face value — their staleness TTL lives in the app layer only, so a
+  -- pay attempt abandoned mid-lock keeps its hold unstealable (OPEN-ITEMS M53; the app copy
+  -- promises nothing time-based). ② this UPDATE takes other carts' row locks while p_cart's is
+  -- held, so two near-simultaneous applies of the SAME reward from the stale holder + a new cart
+  -- can deadlock (40P01) — Postgres aborts one, it surfaces as the generic failure, and a retry
+  -- succeeds; rare enough to document rather than re-order locks around.
   update public.qr_carts set applied_reward_id = null, updated_at = now()
     where applied_reward_id = v_reward and id <> p_cart
       and status = 'open' and not locked and settle_at is null;

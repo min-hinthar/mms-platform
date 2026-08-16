@@ -12,8 +12,11 @@ const REASON: Record<ApplyRewardReason, string> = {
   invalid: "That reward isn’t available.",
   min_not_met: "Add a little more to your order to use this reward.",
   // W20 — the server now releases holds from idle carts before this check (the reward FOLLOWS its
-  // owner), so 'in_use' only fires when the holder is genuinely mid-payment. Say that.
-  in_use: "That reward’s being used on an order that’s paying right now — one moment.",
+  // owner), so 'in_use' means the holder's state says mid-payment. Deliberately NO "right now /
+  // one moment" promise: a pay attempt abandoned mid-lock leaves that state standing (the lock
+  // TTL lives in the app layer, not this predicate — OPEN-ITEMS M53), so a time claim could be
+  // false and never resolve. Name the state, promise nothing.
+  in_use: "That reward’s held by an order that’s mid-payment.",
   busy: "The order’s being paid — you can’t change it right now.",
   cart_closed: "This order is already being paid.",
   rate_limited: "Too many tries — wait a minute, then try again.",

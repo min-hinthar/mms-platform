@@ -39,15 +39,13 @@ export function PickupSlotSheet({
   // button the user just pressed, dropping focus to <body> with nothing announced: verbatim the defect
   // W9a fixed in GuestList. The card stays mounted and the label narrates the attempt instead.
   const [retrying, setRetrying] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [dayIdx, setDayIdx] = useState(0); // which day section is shown in the time grid
   // W20 — the diner's chip scrolls into view when the sheet opens on a long day grid.
   const selectedRef = useRef<HTMLButtonElement>(null);
 
   // Re-fetch availability each time the sheet opens, or if the cart changes (capacity is live). setState
   // lives only in the async callbacks (the allowed "sync from an external system" pattern — no synchronous
-  // setState in the effect body); a fresh load also clears any stale error from a prior failed pick.
-  // Both outcomes clear `error` so the failure card below is the view's ONLY live region (QA §A).
+  // setState in the effect body). The load-failure card below is the view's ONLY live region (QA §A).
   useEffect(() => {
     if (!open) return;
     let active = true;
@@ -62,13 +60,11 @@ export function PickupSlotSheet({
           ? groupByDay(r.slots).findIndex((g) => g.slots.some((s) => sameSlot(s.slot, currentSlot)))
           : -1;
         setDayIdx(chosenDay >= 0 ? chosenDay : 0);
-        setError(null);
         setRetrying(false);
       })
       .catch(() => {
         if (!active) return;
         setLoad({ s: "failed" });
-        setError(null);
         setRetrying(false);
       });
     return () => {
@@ -79,7 +75,6 @@ export function PickupSlotSheet({
   // W20 — the pick is INSTANT: report up + close. The parent applies it optimistically, runs the
   // server write in the background, and reverts + announces if the slot just filled.
   function choose(slot: string) {
-    setError(null);
     onChosen(slot);
     onOpenChange(false);
   }
@@ -119,7 +114,7 @@ export function PickupSlotSheet({
       </p>
       {load.s === "loading" ? (
         // Skeleton mirror of the day rail + time grid. Decorative (aria-hidden) — no live region here, so
-        // it can't double-announce with the error region below (one live region per view; the Radix Dialog
+        // it can't double-announce with the failed-load alert (one live region per view; the Radix Dialog
         // title already names the sheet). A sibling sr-only string keeps an SR loading cue.
         <>
           <span className="sr-only">Loading pickup times…</span>
@@ -256,11 +251,6 @@ export function PickupSlotSheet({
             ))}
           </div>
         </>
-      )}
-      {error && (
-        <p role="alert" style={{ color: "var(--warn)", fontSize: "var(--fs-sm)", marginTop: 12 }}>
-          {error}
-        </p>
       )}
     </Sheet>
   );
