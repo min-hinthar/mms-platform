@@ -86,6 +86,11 @@ export default async function StaffHome() {
             Menu prices →
           </Link>
         )}
+        {/* W17c-4 — everyone sees this: a server sees their own line, a manager the whole team's.
+            The role rule lives in getDayTips, so the link is safe to show to all staff. */}
+        <Link href="/staff/tips" style={ownerLink}>
+          Tips today →
+        </Link>
         <Link href="/staff/profile" style={ownerLink}>
           {hasPin ? "Your PIN →" : "Set a tablet PIN →"}
         </Link>

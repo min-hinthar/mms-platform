@@ -2,9 +2,10 @@
 import { revalidatePath } from "next/cache";
 import { serviceClient } from "@mms/db/server";
 import { openRegisterInput, setCartNameInput } from "@mms/db/schemas";
-import { staffGate, STAFF_WRITE_OUTAGE } from "./staff";
+import { roleAtLeast, staffGate, STAFF_WRITE_OUTAGE } from "./staff";
 import { generateJoinCode } from "./session-code";
 import { laDayStartIso, summarizeDay, type DaySummary } from "./register-math";
+import { summarizeTips, type TipReport } from "./tip-report";
 
 /**
  * The FOH register mint (W6a — closes K6's "an order cannot exist without a diner's phone").
@@ -293,4 +294,68 @@ export async function getDayCashSummary(): Promise<DayCashResult> {
     if ((data ?? []).length < PAGE) break;
   }
   return { ok: true, summary: summarizeDay(rows), sinceIso };
+}
+
+/**
+ * W17c-4 — the day's tips, for the team (owner's selected set: "tip transparency for the team").
+ *
+ * Role rule: a SERVER sees only their own line; a manager or owner sees everyone's. Enforced here,
+ * not in the page — this is a read of what colleagues earned, and the console's UI gating is
+ * cosmetic. The shared (unattributed) bucket is visible to everyone, because it belongs to everyone.
+ *
+ * Scoped to the current LA calendar day, the same window the Z-report uses, so "today" means the
+ * same thing on both screens.
+ */
+export type TipReportResult =
+  | {
+      ok: true;
+      report: TipReport;
+      /** staff.user_id → display name, for the ids in THIS report only. Resolved here because
+       *  `listStaff` is owner-only and this screen is for everyone; a server's report contains only
+       *  their own id anyway, so no one learns a name from a row they can't see. */
+      names: Record<string, string>;
+      sinceIso: string;
+      scope: "self" | "all";
+    }
+  | { ok: false; error: string };
+
+export async function getDayTips(): Promise<TipReportResult> {
+  const gate = await staffGate();
+  if (!gate.ok) return { ok: false, error: gate.error };
+  const caller = gate.caller;
+  const seesEveryone = roleAtLeast(caller.role, "manager");
+
+  const sinceIso = laDayStartIso(new Date());
+  const db = serviceClient();
+  let q = db
+    .from("qr_orders")
+    .select("settled_by,tip_cents,status,tender")
+    .gte("created_at", sinceIso);
+  // The scope is a PREDICATE, not a filter applied after reading: a server's request never pulls a
+  // colleague's row into this process at all.
+  if (!seesEveryone) q = q.eq("settled_by", caller.staffId);
+  const { data, error } = await q;
+  // A failed read is unknowable, never "you were tipped nothing" — the worst false verdict on a
+  // screen whose whole job is telling someone what they earned.
+  if (error) {
+    console.error("[register] getDayTips failed", error.message);
+    return { ok: false, error: STAFF_WRITE_OUTAGE };
+  }
+  const report = summarizeTips(data ?? []);
+
+  // Names for exactly the ids that survived the summary — never the whole roster.
+  const names: Record<string, string> = {};
+  const ids = report.attributed.map((a) => a.staffId);
+  if (ids.length > 0) {
+    const { data: staff, error: staffError } = await db
+      .from("staff")
+      .select("user_id,display_name")
+      .in("user_id", ids);
+    // A failed name lookup is NOT a failed report: the money is the point, and an id is a worse
+    // label than a name but an honest one. Logged, then fallen back on below.
+    if (staffError) console.error("[register] getDayTips names failed", staffError.message);
+    for (const row of staff ?? []) names[row.user_id] = row.display_name;
+  }
+
+  return { ok: true, report, names, sinceIso, scope: seesEveryone ? "all" : "self" };
 }
