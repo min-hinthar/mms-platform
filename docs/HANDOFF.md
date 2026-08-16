@@ -5,7 +5,36 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-08-16 — W17a reverted the mode markup; W17b/c/d are next)
+> ## ⏭️ NEXT SESSION — start here (2026-08-16 — W17a+W17b shipped; W17c/d are next)
+>
+> **W17b shipped + prod-applied (2026-08-16)** — the staff price editor (`/staff/menu`, manager+),
+> from the owner's parenthetical _"staff portal should be able to update prices?"_. It is the ONE
+> place a money amount crosses from a human into the system; every other amount stays server-derived.
+> Manager floor re-checked INSIDE the action (a Server Action is a public POST endpoint), service
+> client only after the gate, bounded by Zod **and** a new column CHECK, `menu_price_audit` recording
+> old→new against the caller (manager+ read, **no insert policy** — service-role only, which is what
+> makes it unskippable). The review's one MED became a **compare-and-swap** on the write: keyed on
+> `id` alone, two concurrent edits both land and the second logs a change "from" a value already
+> gone. Lines already in a cart keep their quoted price. 5 new mutants (106 total).
+>
+> **✅ prod-applied + probe-verified (2026-08-16)**: constraint present · table + index present · RLS
+> on · exactly ONE policy (SELECT, manager+) · the CHECK genuinely REFUSES 190000000 and 24 while
+> still accepting a legitimate price · a well-formed ledger insert accepted — all inside a rolled-back
+> block, confirmed after: 0 audit rows, 0 out-of-bounds prices, 66 items.
+>
+> **⏸️ DEFERRED, needs the owner: per-mode `togo_price_cents`.** It re-opens the dine-in↔to-go
+> re-price ladder W17a removed, and the four candidate prices are unconfirmed (Pork Offal 15/14,
+> Salted Fish Pounded 19/17, Beef Pounded 19/17, Salted Fish Eggplant 14/12 — the Fish Paste 42/14
+> and Shrimp Spicy 15/19 rows are register anomalies). The shape to build is in `docs/W17_PLAN.md`
+> §W17b. **Two open price questions** the menu reference surfaced, also for the owner: Balachaung
+> (ours $3.00 side vs POS $10.00 fried) and Crab Masala (ours $30.00 vs POS $35.00) — `/staff/menu`
+> is now the place to fix either.
+>
+> **Next: W17c/d** — W17c tipping (all four the owner selected: round-up + basket-aware defaults ·
+> tip on the staff cash settle · kiosk/register tip prompt · staff tip transparency); W17d the 98
+> unmatched POS items, deduped on the BURMESE name, verified one at a time — never bulk-imported.
+>
+> ## (2026-08-16 — W17a reverted the mode markup)
 >
 > **W17a shipped (2026-08-16)** — real POS pricing, both modes. The owner: _"let's just revert to
 > real POS pricing for both dine-in and take-out for now (staff portal should be able to update
