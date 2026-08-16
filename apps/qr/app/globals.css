@@ -6284,6 +6284,12 @@ html[data-seen-surface] .mms-stagger {
 .kiosk-door:active {
   transform: scale(0.97);
 }
+/* Same dimming the CTA gets — a pending door (mid-write, or a required-choice item the one-tap rail
+   can't add) must not look tappable. */
+.kiosk-door:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 .kiosk-door-label {
   font-size: var(--xfs-tile);
   font-weight: 800;

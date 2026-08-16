@@ -93,13 +93,19 @@ export default async function StaffTipsPage() {
         <h2 id="tips-shared-h" style={h2}>
           Paid on a phone
         </h2>
-        <p style={muted}>
-          Guests who paid on their own phones tipped{" "}
-          <strong style={{ color: "var(--tx)" }}>{dollars(report.unattributedCents)}</strong> across{" "}
-          {report.unattributedCount} {report.unattributedCount === 1 ? "order" : "orders"}. Nobody
-          handed this to anyone, so it isn’t credited to a person — how it’s shared is the owner’s
-          call, and this screen won’t guess at it.
-        </p>
+        {report.unattributedCount === 0 ? (
+          // The zero state is an ABSENCE, not a verdict — "tipped $0.00 across 0 orders" reads like
+          // a measured judgement of the day, when nothing has happened yet.
+          <p style={muted}>No tips from phone payments yet today.</p>
+        ) : (
+          <p style={muted}>
+            Guests who paid on their own phones tipped{" "}
+            <strong style={{ color: "var(--tx)" }}>{dollars(report.unattributedCents)}</strong>{" "}
+            across {report.unattributedCount} {report.unattributedCount === 1 ? "order" : "orders"}.
+            Nobody handed this to anyone, so it isn’t credited to a person — how it’s shared is the
+            owner’s call, and this screen won’t guess at it.
+          </p>
+        )}
       </section>
 
       {scope === "self" && (

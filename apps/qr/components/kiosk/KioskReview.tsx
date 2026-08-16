@@ -42,6 +42,15 @@ export function KioskReview({
   const tipSeen = useRef(false);
   const [pending, startTransition] = useTransition();
 
+  // The upsell and tip screens INTERPOSE — the button that opened them unmounts with the review
+  // screen, so without this, focus silently drops to <body> on each swap (QA §A: focus moves on a
+  // step change). The heading is the step's name; focusing it also makes a screen reader announce
+  // where the flow just went.
+  const stepHeadingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (upsellOpen || tipOpen) stepHeadingRef.current?.focus();
+  }, [upsellOpen, tipOpen]);
+
   const refresh = () => {
     getCartView(cartId)
       .then((v) => {
@@ -87,6 +96,12 @@ export function KioskReview({
   /** The tip ask interposes ONCE, and only when there is something to tip on — a pure-grocery
    *  basket takes no tip (the server force-zeros it) and an unreadable total has no base. */
   function askTipThenHandoff() {
+    // Close the upsell EXPLICITLY: it renders ahead of the tip screen, and `upsellOpen` was never
+    // cleared — so on every order where the upsell interposed, "No thanks" re-rendered the SAME
+    // upsell screen (a dead-feeling tap), and the second tap skipped the tip ask entirely
+    // (tipSeen had already latched → straight to handoff, intent recorded as "never asked").
+    // Found by the W17 design-pass review tracing the upsell→tip swap.
+    setUpsellOpen(false);
     if (!tipSeen.current && tipBaseCents > 0) {
       tipSeen.current = true;
       setTipOpen(true);
@@ -146,7 +161,13 @@ export function KioskReview({
   if (upsellOpen) {
     return (
       <div className="kiosk-screen">
-        <h1 className="kiosk-h1" lang={lang === "my" ? "my" : undefined}>
+        <h1
+          ref={stepHeadingRef}
+          tabIndex={-1}
+          style={{ outline: "none" }}
+          className="kiosk-h1"
+          lang={lang === "my" ? "my" : undefined}
+        >
           {t(lang, "goesWellWith")}
         </h1>
         <ul
@@ -193,7 +214,13 @@ export function KioskReview({
     const presets = tipPresets(tipBaseCents);
     return (
       <div className="kiosk-screen">
-        <h1 className="kiosk-h1" lang={lang === "my" ? "my" : undefined}>
+        <h1
+          ref={stepHeadingRef}
+          tabIndex={-1}
+          style={{ outline: "none" }}
+          className="kiosk-h1"
+          lang={lang === "my" ? "my" : undefined}
+        >
           {t(lang, "addATip")}
         </h1>
         <p className="kiosk-touch-hint" lang={lang === "my" ? "my" : undefined}>
@@ -203,18 +230,27 @@ export function KioskReview({
           role="group"
           aria-label={t(lang, "addATip")}
           className="kiosk-door-grid"
-          style={{ margin: "0 auto" }}
+          // Four equal doors in one rank; `auto-fit` wraps them on a narrow screen without fighting
+          // the grid class's own 3-column media query.
+          style={{ margin: "0 auto", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}
         >
-          {/* "No tip" FIRST and identical in weight — the ask must never make declining feel wrong.
-              It records 0 (a real answer), not null (never asked), which the register distinguishes. */}
+          {/* "No tip" FIRST and identical in weight — the SAME door as the percentages, not a ghost
+              beside three filled CTAs (as first shipped, which visually demoted the decline the
+              copy promised not to). It records 0 (a real answer), not null (never asked), which
+              the register distinguishes. */}
           <button
             type="button"
-            className="kiosk-ghost"
-            style={{ width: "100%" }}
+            className="kiosk-door"
             disabled={pending}
             onClick={() => chooseTip(0)}
           >
-            {t(lang, "noTip")}
+            <span className="kiosk-door-label" lang={lang === "my" ? "my" : undefined}>
+              {t(lang, "noTip")}
+            </span>
+            {/* The em-dash the checkout's None chip uses — a blank slot would read as broken. */}
+            <span className="kiosk-door-hint" aria-hidden="true">
+              —
+            </span>
           </button>
           {presets.map((p) => {
             // Latin digits, integer cents — the same amount the server will record.
@@ -223,8 +259,7 @@ export function KioskReview({
               <button
                 key={p.label}
                 type="button"
-                className="kiosk-cta"
-                style={{ width: "100%" }}
+                className="kiosk-door"
                 disabled={pending}
                 onClick={() => chooseTip(cents)}
               >

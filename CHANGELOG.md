@@ -4,6 +4,36 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W17 design pass — the tip surfaces and the new menu, re-read as a designer (2026-08-16)
+
+A UI/UX sweep of every screen W17 touched, fixing the places where the shipped pixels fell short of
+the recorded intent:
+
+- **Kiosk tip ask: the decline is now genuinely equal in weight.** The code's own comment (and the
+  W17c-3 changelog) promised "No tip **first and identical in weight**" — but it rendered as a ghost
+  outline beside three filled accent CTAs, visually demoting the decline the copy swore not to. All
+  four choices are now the same `kiosk-door` card (label + exact dollar amount; the decline carries
+  the checkout None-chip's em-dash), in one `auto-fit` rank. Doors also gain the `:disabled` dimming
+  the CTA always had.
+- **Kiosk interposed steps move focus** (QA §A): the upsell and tip screens replace the review
+  screen wholesale, so focus silently dropped to `<body>` on each swap. The step heading now takes
+  focus, which also makes a screen reader announce where the flow went.
+- **The review's HIGH — the tip ask was unreachable on every upsell order.** `upsellOpen` was never
+  cleared and the upsell renders ahead of the tip screen, so whenever the upsell interposed,
+  "No thanks" re-rendered the same upsell (a dead-feeling first tap) and the second tap skipped the
+  tip ask entirely — the guest's intent recorded as "never asked" (W17c-3, live since it shipped).
+  One line: `askTipThenHandoff` closes the upsell explicitly.
+- **Desserts placeholder glyph**: W17d-2's new category fell through `categoryIconName` to the
+  generic dish glyph — every tile in a category that is entirely awaiting photography read as
+  "unsorted" rather than "sweet". `/dessert|sweet|cake/` now maps to the existing `cat-candy`.
+- **Register quick-tip chips light up**: tapping 15/20/30% filled the field but gave no pressed
+  feedback. The chip is now lit exactly while the field holds its amount — derived from the field
+  (the single source), never stored, so hand-editing the field unlights it the moment they diverge.
+  "None" stays an action (clears the field), deliberately not a toggle.
+- **`/staff/tips` zero state**: "Guests tipped $0.00 across 0 orders" read as a measured verdict on
+  a day that hadn't happened yet — the shared bucket now says "No tips from phone payments yet
+  today" until there is something to report.
+
 ### W17d-2 — the missing POS menu items, verified one at a time (2026-08-16)
 
 The owner's directive, both halves: _"new menu items from POS are creatively created and not
