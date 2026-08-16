@@ -168,42 +168,113 @@ dine-in, so 62 of 66 items keep expressing exactly one price and the exception i
 returns, which needs its own guards restored. Confirm the four with the owner first: a register
 anomaly seeded as policy is a permanent wrong price.
 
-## W17c — tipping, all four ⬜
+## W17c — tipping, all four ✅ (2026-08-16 · #182 #183 #184 #186)
 
-1. **Round-up + smarter defaults.** A "round up to $X" chip beside the percentage chips, and
-   defaults that scale with basket size (percentage chips read wrong on a $6 tea and on a $180
-   table). The tip stays server-confirmed — the chip is a hint, `getCartTotals` is the authority,
-   and the Zod 0–50% cap stands.
-2. **Tip on the staff cash settle.** Today `CashSettleButton` records no tip ("in-hand/off-system").
-   Give the settle a tip entry so cash tips land in the ledger and on the Z-report — that is a money
-   path: server-derived total, tip added as its own column, never folded into the subtotal.
-3. **Tip prompt on kiosk + register.** The kiosk hands off to the counter with no tip ask at all;
-   the register settles without one. Both need a prompt sized for the surface (kiosk: big-touch,
-   three chips + skip; register: cashier-entered).
-4. **Tip transparency for the team.** A staff view of tips by shift/day. Real values only — never a
-   projected or averaged number presented as earned.
+1. **Round-up + smarter defaults** (#182). `roundUpTip` + `effectiveTipRate` in `lib/tip.ts` — the
+   chip is a hint, `getCartTotals` stays the authority, the 0–50% Zod cap stands. The review HIGH
+   here seeded the "name it ONCE" rule: the round-up rate was frozen in `useState` and desynced from
+   the total it named.
+2. **Tip on the staff cash settle** (#183). Cash tip is an **amount** (only the cashier knows);
+   bounded Zod + column CHECK (`20260816010000`), proven red against prod first (`tip_cents = -1`
+   was ACCEPTED before the migration). `collectedCents` is the one binding the return, audit row and
+   analytics all read.
+3. **Tip prompt on kiosk + register** (#184). The house ladder `TIP_LADDER = [15, 20, 30]%` on both
+   surfaces; kiosk records **intent** (`intended_tip_cents`, null = never asked ≠ 0 = chose nothing)
+   that pre-fills the register settle with provenance copy; chips compute off the **pre-tax** base
+   (`settleTipBaseCents`) after the review caught the register using the tax-inclusive total.
+4. **Tip transparency for the team** (#186). `/staff/tips` — two buckets never blended (attributed
+   vs `settled_by is null` = shared pool), scope narrowed **in-process** (`scopeToSelf`), never by
+   query predicate (the predicate version zeroed the shared bucket — "guests tipped $0.00" as fact).
+   No averages, no projections, no invented splits on a screen read as a statement of pay.
 
 ---
 
-## W17d — the missing POS menu items ⬜
+## W17d-1 — align the catalog to the POS ring ✅ (2026-08-16 · #185)
 
-**98 of 149 POS items have no exact Burmese match in our 66-item catalog** (see the reference's
-backlog table, sorted by 2026 volume). Do **not** bulk-import. Each row is one of:
+Every exact-Burmese-matched item now carries the price the register actually rings
+(`20260816030000_w17d_pos_2026_prices.sql`, prod-applied). The reference's §Price deltas reads
+**"None"** — and `check:docs` keeps it honest.
 
-- a genuine missing dish with real volume (Pork Tamarind, Ngapi Sambal, Water Spinach, Bean
-  Fritters, Beef Jerky, Mohingh Soup, Kufee, shwekyi, Catfish Head Mon, Silurus Dried, Chicken
-  Salad, Fresh Fruits, Coconut Sago, Duck curry, Goat Brains…),
-- a **modifier**, not an item — `ကြက်ဥ Egg Add-on $3` belongs on a modifier group,
-- **alcohol** — a licensing/compliance question for the owner before it can appear in the app,
-- a combo/tray/party ring, or
-- a dish we already carry under a Burmese spelling the loose match missed.
+## W17d-2 — the missing POS menu items ✅ (2026-08-16)
 
-Verify each against the reference, then create the genuinely-missing ones **with the same care as a
-designed menu item** (bilingual name, description EN+MY, tax category, allergens, dietary tags,
-modifier groups where the dish has real choices) — not as bare rows.
+**98 of 149 POS items had no exact Burmese match in the 66-item catalog.** Every one was classified
+BEFORE anything was created ("verify each item before adding"), and the verifier
+(`w17d2_build.py` → `20260816040000_w17d2_pos_menu_items.sql`) machine-checks each insert: no slug /
+English / exact-Burmese / loose-Burmese collision, and every price **read from the named POS row,
+never transcribed**. The catalog is now **97 items**; the backlog table dropped 98 → 60, and every
+residual row is classified below.
 
-**Open price questions for the owner** (from §"Price deltas"): `Balachaung` — ours is a $3.00 side,
-POS rings $10.00 (the fried version); `Crab Masala` — ours $30.00, POS $35.00.
+**31 genuine adds — 1,450 units of Jan–Jul 2026 volume** (price = the POS ring; no photo yet, so the
+designed `PhotoPlaceholder` renders; declared-only allergens — never `allergen-reviewed`; Burmese
+descriptions awaiting the owner's K15 native check):
+
+| Dish (EN)                      | မြန်မာ                | POS $  | Category           | 2026 units |
+| ------------------------------ | --------------------- | ------ | ------------------ | ---------- |
+| Pork Tamarind Stew             | ဝက်မကျည်းနှပ်         | $14.00 | curries-a-la-carte | 151        |
+| Ngapi Sambal (Fried)           | ငပိကြော်              | $10.00 | sides              | 125        |
+| Water Spinach Sour Soup        | ကန်စွန်းရွက်ချဥ်ရည်   | $14.00 | vegetables         | 98         |
+| Bean Fritters                  | ပဲကပ်ကြော်            | $10.00 | appetizers-salads  | 97         |
+| Beef Jerky (Grilled)           | အမဲခြောက်ဖုတ်         | $19.00 | curries-a-la-carte | 91         |
+| Mohinga Soup (Side)            | ဟင်းခါးပွဲ            | $5.00  | sides              | 87         |
+| Catfish Head Curry (Mon-Style) | ငါးခေါင်းမွန်ချက်     | $17.00 | seafood-curries    | 72         |
+| Dried Silurus Fried            | ငါးကျည်းခြောက်ကြော်   | $25.00 | seafood-curries    | 68         |
+| Kufee (Milk Cream)             | ကူဖီးနို့မလိုင်       | $5.00  | drinks             | 65         |
+| Salted Fish Pounded Fried      | ငါးခြောက်ထောင်းကြော်  | $19.00 | seafood-curries    | 64         |
+| Stir-Fried Water Spinach       | ကန်စွန်းရွက်ကြော်     | $14.00 | vegetables         | 63         |
+| Chicken with Dregea            | ကြက်ဂွေးတောက်         | $14.00 | curries-a-la-carte | 58         |
+| Chicken Salad                  | ကြက်သားသုပ်           | $15.00 | appetizers-salads  | 55         |
+| Stir-Fried Mixed Greens        | အစိမ်းကြော်           | $14.00 | vegetables         | 53         |
+| Sanwin Makin (Semolina Cake)   | ဆနွင်းမကင်း           | $10.00 | desserts           | 48         |
+| Pork with Fermented Soybean    | ဝက်ပဲငပိ              | $14.00 | curries-a-la-carte | 45         |
+| Dried Snakehead Grilled        | ငါးရံ့ခြောက်ဖုတ်      | $25.00 | seafood-curries    | 40         |
+| Goat Brains Curry              | ဆိတ်ဦးနှောက်          | $30.00 | curries-a-la-carte | 22         |
+| Salted Fish & Eggplant Stew    | ငါးခြောက်ခရမ်းသီးနှပ် | $14.00 | seafood-curries    | 20         |
+| Crispy Shrimp in Fish Sauce    | ပုဇွန်ကြော်စပ်        | $15.00 | seafood-curries    | 18         |
+| Coconut Sago                   | အုန်းနို့သာကူ         | $10.00 | desserts           | 17         |
+| Balachaung (Side)              | ဘာလချောင်ပွဲ          | $3.00  | sides              | 14         |
+| Grilled Fish                   | ငါးကင်                | $25.00 | seafood-curries    | 13         |
+| Fermented Sesame Salad         | နှမ်းဖတ်ချဥ်သုပ်      | $12.00 | appetizers-salads  | 13         |
+| Dried Goat                     | ဆိတ်သားခြောက်         | $30.00 | curries-a-la-carte | 12         |
+| Fresh Fruit Platter            | သီးစုံအချိုပွဲ        | $12.00 | desserts           | 12         |
+| Bombay Duck Grilled            | အာဗြဲခြောက်ဖုတ်       | $20.00 | seafood-curries    | 12         |
+| Kayah Sausages                 | ကယားဝက်အူချောင်း      | $14.00 | curries-a-la-carte | 7          |
+| Oil-Drizzled Rice with Peas    | ပဲပြုတ်ထမင်းဆီဆမ်း    | $10.00 | rice-noodles-soups | 6          |
+| Shredded Beef Fry              | အမဲမွှကြော်           | $17.00 | curries-a-la-carte | 3          |
+| Bottled Water                  | ရေသန့်ဗူး             | $1.00  | drinks             | 1          |
+
+Plus a new **Desserts** category (sort 75) — sanwin makin, coconut sago and fresh fruits had no home.
+
+**Everything skipped, and why** (the residual 60-row backlog table in the reference is exactly
+these):
+
+- **Duplicates under another spelling / word order / English-only label** (~25) — POS
+  `ကြက်သဲမြစ်` = our `ကြက်အသဲမြစ်` (Chicken Giblets); `နန်းကြီးသုပ်` (1,702 units!) = our
+  `နန်းကြီးမုန့်တီ`; word-swapped Biryani; English-only `Faluda` / `Everything Salad` /
+  `Red Bull` / `Pop Soda` / `Coffee` / `shwekyi` (= sanwin makin). The Burmese-only join cannot see
+  these; they stay in the backlog table by design rather than being force-matched.
+- **4 catalog typos fixed** (they were hiding real matches): `လက်ဖတ် → လက်ဖက်` on burmese-milk-tea
+  - pickled-tea-salad (laphet is လက်ဖက် — the catalog's own လက်ဖက်ထမင်း already spelled it right),
+    `ငါးရံ → ငါးရံ့` (snakehead-innards-curry), `ထေါင်း → ထောင်း` (beef-pounded-deep-fried).
+- **1 generator bug fixed, red-first**: the join compared non-NFC strings, so asat/dot-below
+  ordering (`103A-1037` vs `1037-103A` — identical on screen) hid Rakhine Mont-Ti's 126-unit match.
+  `myOnly` now NFC-normalizes. Same fix class as the ranking bug found in the same pass: one dish
+  can own several exact-named POS rows (ပဲပြုတ်ထမင်းဆီဆမ်း is both the $10 dish and a $100 catering
+  tray), so exact matches now prefer the price-agreeing row and a delta is flagged only when NO
+  exact ring agrees.
+- **Modifiers, not items**: `ကြက်ဥ Egg Add-on` $3 (our egg add-ons ring $1.50/$2.00 — price question
+  for the owner); `Chicken Masala ကြက်ကလယ်` = chicken-curry's "Masala" style option.
+- **Alcohol — NOT added** (Kirin, IPA 12/16oz, Guinness, Michelob, Soju, house red/white, ~49
+  units): selling alcohol through the app is a licensing question the owner answers first.
+- **Catering trays**: the $100 oil-rice tray, $20 parata rings.
+- **≤2-unit noise**: one-off rings (`During`/`during`/`durian`, `parata`, `napi`, `pea`, `nan`,
+  `chicken`, `wine`, misc misspellings of shwekyi…) — not menu items.
+
+**Flagged for the owner, not built**: Hilsa `ငါး‌သလောက်ကြော်နှပ်` (261 units) — we carry steamed
+(`ငါးသလောက်ပေါင်း`); fried-vs-steamed is a _naming/prep_ question (no prep modifier exists — verified
+against prod); `Duck ဘဲသားဟင်း` (1 unit) and `Ginger Salad` (1 unit) — real dishes but one ring
+each, owner should confirm they belong on the menu; `Fishcake Fried ငါးဖယ်ကြော်` (41 units) —
+ambiguous against our fish-cake items; Nangyi `နန်းကြီးသုပ်` naming (thoke vs mont-ti) — classified as
+our `နန်းကြီးမုန့်တီ`, but the owner may prefer the POS label; Egg Add-on $3 vs our $1.50/$2.00.
 
 ---
 
