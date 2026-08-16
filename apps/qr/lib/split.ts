@@ -180,6 +180,21 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
   const { mode: m } = splitModeInput.parse({ mode });
   const { uid, sessionId, role } = await assertCartMember(id);
   if (role !== "host") throw new Error("Only the host can start the split");
+  // W21 (pre-merge review MED) — split-tender is a DINE-IN table settlement, and this "use server"
+  // action is directly POST-able: gating SplitSection client-side left a SECOND charge boundary
+  // that skipped every pickup-only rule create-intent enforces (the W5e slot/ASAP honesty gates,
+  // the W21 name+phone requirement). A solo pickup diner IS their session's host — they could open
+  // a settlement and capture a pickup order with no time validated and no contact. Refuse by MODE
+  // at the server; fail CLOSED on an unreadable session (an unknown mode must not fall through).
+  {
+    const { data: sess, error: sessErr } = await serviceClient()
+      .from("table_sessions")
+      .select("mode")
+      .eq("id", sessionId)
+      .single();
+    if (sessErr || !sess) throw new Error("Couldn’t start the split — please try again.");
+    if (sess.mode !== "dinein") throw new Error("Splitting the bill is for dine-in tables.");
+  }
   await assertMutationRate(uid); // per-device flood guard (P3.4) — bound settlement re-open churn
 
   // The freeze is the mutex — acquire FIRST so two opens can't race the derive/insert.

@@ -46,7 +46,12 @@ export function StartHereBand({
           {dataBacked ? "what tables love" : "our picks to start"}
         </span>
       </h2>
-      <Rail as="ul" role="list" className="start-here-rail" aria-labelledby="start-here-h">
+      <Rail
+        as="ul"
+        role="list"
+        className={`start-here-rail${items.length > 3 ? " start-here-rail-wall" : ""}`}
+        aria-labelledby="start-here-h"
+      >
         {items.map(({ item: i, rank }) => (
           <li key={i.id}>
             <button type="button" className="start-here-card" onClick={() => onSelect(i)}>

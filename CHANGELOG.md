@@ -4,6 +4,46 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W21b — review round: Codex joins the gate (2026-08-16)
+
+The owner: _"why codex reviews not taken into account after PR pulls?"_ Root cause: Codex only
+fires when a PR leaves draft, and the flow marked-ready-and-squashed in one breath — #191's four
+findings (all real) landed five minutes after the merge, unread. The rule is now in CLAUDE.md
+(`@codex review` on the draft at open; fix-or-justify every finding before merge). This round
+folds BOTH reviewers' findings in:
+
+- **Codex #191 P1 — payment could race a pending pickup-timing write.** The write chain now lives
+  in a ref Checkout owns and `continueToPayment` drains it before minting the intent (a queued
+  write refused as locked would otherwise leave payment on the previous server timing).
+- **Codex #191 P1 — checkout navigation could race a pending add.** The provider tracks every
+  in-flight add/setItemQty and exposes `settled()`; the CartBar drains it before navigating (an
+  optimistic add exposed the bar while create-intent could lock the cart first, refusing an item
+  the toast had announced). Resolves instantly when nothing is pending.
+- **Codex #191 P2 — a failed revert could strand the optimistic pill.** PickupWhenChoice keeps the
+  last CONFIRMED server slot locally and snaps back to it on refusal even when the authoritative
+  re-read itself fails (refresh() swallows read errors by design).
+- **Codex #191 P2 — rank seals invented an order for ties.** `competitionRanks` (pure + tested):
+  tied dishes share a numeral (1, 2, 2, 4), computed from the counts in the page, not array position.
+- **Codex #192 P1 / review LOW — the pay itemization binds to the LOCKED cart** (refresh after
+  create-intent locks; post-lock staff edits stay visible and the webhook reconcile refuses a
+  mismatched charge).
+- **Codex #192 P2 / review LOW — the pickup contact write is load-bearing**: verified with
+  `.select("id")`, refusing the payment (releasing the lock) when nothing wrote — a charge without
+  the stored phone defeats the requirement. Scango's optional name keeps its non-fatal stance.
+- **Codex #192 P2 / review MED — the phone finally has a reader**: the expo board joins
+  `qr_orders.cart_id → qr_carts.customer_phone` (fourth bounded staff-gated read) and renders a
+  one-tap tel: link on pickup tickets.
+- **Review MED — `openSettlement` gates by session MODE** (dine-in only, fail-closed): the split is
+  a directly-POSTable second charge boundary that skipped create-intent's pickup slot/contact
+  gates — a solo pickup diner IS their session's host. Pinned by three new tests.
+- **Review LOWs**: taste empty-state advice was algorithmically backwards ("fewer" → "different"
+  cravings, matching is OR); chips renamed to their literal rules ("Noodles, rice & soups",
+  "Salads & veggies"); `surpriseMe` clamps a full-range rng; the surprise row re-derives by id
+  against the live catalog (no stale sold-out cards); the two-row Start-here wall is now an opt-in
+  modifier (>3 cards) so a one-heart FavoritesRail doesn't render a blank second row; the SQL
+  test gains the 21-char upper-bound probe; the merged exit line restores "the table stays open
+  for everyone else"; a single-group bill announces as "Your bill" again.
+
 ### W21 — clarity & personalization (2026-08-16)
 
 The owner's batch, verbatim: _"cart bill and also final pay total bill (stripe checkout) should

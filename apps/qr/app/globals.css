@@ -4078,17 +4078,25 @@ html[data-seen-surface] .mms-stagger {
   list-style: none;
   margin: 0 -20px;
   padding: 2px 20px 10px;
-  /* W21 (owner: "same size and larger and maybe two rows?") — a two-row horizontal grid: uniform
-     cells (grid rows share height, columns share the fixed width) so no card runs ragged, and the
-     ten picks read as a browsable wall instead of one long strip. */
-  display: grid;
-  grid-auto-flow: column;
-  grid-template-rows: repeat(2, 1fr);
-  grid-auto-columns: 158px;
+  display: flex;
   gap: 10px;
   overflow-x: auto;
   scroll-snap-type: x proximity;
   -webkit-overflow-scrolling: touch;
+}
+/* W21 (owner: "same size and larger and maybe two rows?") — the two-row wall is a MODIFIER the
+   component adds only when it has the cards for it (>3): as the base style it gave a 1-heart
+   FavoritesRail a card-sized blank second row (review LOW — an fr row inherits the first row's
+   height). Uniform cells: rows share height, columns the fixed width, so no card runs ragged. */
+.start-here-rail-wall {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(2, 1fr);
+  grid-auto-columns: 158px;
+}
+.start-here-rail:not(.start-here-rail-wall) > li {
+  flex: none;
+  width: 158px;
 }
 .start-here-rail > li {
   scroll-snap-align: start;

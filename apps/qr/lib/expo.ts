@@ -47,7 +47,7 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
   const { data: orders, error: ordersError } = await db
     .from("qr_orders")
     .select(
-      "id,togo_status,session_id,table_number,pickup_slot,arrived_at,created_at,customer_name",
+      "id,togo_status,session_id,table_number,pickup_slot,arrived_at,created_at,customer_name,cart_id",
     )
     .in("togo_status", ["preparing", "ready"])
     .order("created_at", { ascending: true })
@@ -86,6 +86,16 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
   if (sessionsError) return { ok: false, reason: "outage" };
   const sessById = new Map((sessions ?? []).map((s) => [s.id, s]));
 
+  // W21 — the pickup contact phone lives on the CART (qr_carts.customer_phone, required at a
+  // pickup checkout precisely so this counter can reach the diner); the order row joins back via
+  // cart_id. Staff-gated surface only — the phone never rides a diner-facing or public read.
+  const cartIds = [...new Set(orders.map((o) => o.cart_id).filter((c): c is string => !!c))];
+  const { data: carts, error: cartsError } = cartIds.length
+    ? await db.from("qr_carts").select("id,customer_phone").in("id", cartIds)
+    : { data: [] as { id: string; customer_phone: string | null }[], error: null };
+  if (cartsError) return { ok: false, reason: "outage" };
+  const phoneByCart = new Map((carts ?? []).map((c) => [c.id, c.customer_phone]));
+
   const tickets: ExpoTicket[] = [];
   for (const o of orders) {
     const lines = linesByOrder.get(o.id);
@@ -99,6 +109,7 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
       tableNumber: o.table_number ?? null,
       mode: sess?.mode ?? "scango",
       customerName: o.customer_name ?? null,
+      customerPhone: (o.cart_id ? phoneByCart.get(o.cart_id) : null) ?? null,
       shortCode: o.id.slice(-6).toUpperCase(),
       status: o.togo_status === "ready" ? "ready" : "preparing",
       pickupSlot: o.pickup_slot ?? null,

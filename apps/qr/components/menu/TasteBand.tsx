@@ -78,9 +78,16 @@ export function TasteBand({
   const inStock = useMemo(() => items.filter((i) => !i.is_sold_out), [items]);
   const recs = useMemo(() => recommendByTaste(inStock, picks), [inStock, picks]);
   // The surprise row, when asked for, replaces the craving matches until the next pick.
+  // W21 review — re-derived BY ID against the live catalog each render: the tapped snapshot could
+  // go stale across a refresh (a card still offering a since-sold-out dish at its old price).
+  const liveSurprise = useMemo(() => {
+    if (surprise.length === 0) return [];
+    const byId = new Map(inStock.map((i) => [i.id, i]));
+    return surprise.map((s) => byId.get(s.id)).filter((i): i is MenuItem => !!i);
+  }, [surprise, inStock]);
   const showing: { item: MenuItem; why: string }[] =
-    surprise.length > 0
-      ? surprise.map((item) => ({ item, why: "How about this?" }))
+    liveSurprise.length > 0
+      ? liveSurprise.map((item) => ({ item, why: "How about this?" }))
       : recs.map(({ item, matched }) => ({
           item,
           why: matched.map((c) => `${c.emoji} ${c.en}`).join(" · "),
@@ -125,7 +132,12 @@ export function TasteBand({
         </button>
       </div>
       {showing.length > 0 && (
-        <Rail as="ul" role="list" className="start-here-rail" aria-labelledby="taste-h">
+        <Rail
+          as="ul"
+          role="list"
+          className={`start-here-rail${showing.length > 3 ? " start-here-rail-wall" : ""}`}
+          aria-labelledby="taste-h"
+        >
           {showing.map(({ item: i, why }) => (
             <li key={i.id}>
               <button type="button" className="start-here-card" onClick={() => onSelect(i)}>
@@ -154,9 +166,11 @@ export function TasteBand({
         </Rail>
       )}
       {showing.length === 0 && picks.length > 0 && (
-        // An honest empty answer beats a filler recommendation the picks don't back.
+        // An honest empty answer beats a filler recommendation the picks don't back. Review MED:
+        // matching is OR, so "fewer cravings" could only shrink the answer — DIFFERENT is the
+        // advice that can actually help.
         <p style={{ margin: "4px 0 8px", fontSize: "var(--fs-sm)", color: "var(--t3)" }}>
-          Nothing matches all of that right now — try fewer cravings.
+          Nothing matches those right now — try different cravings.
         </p>
       )}
     </section>

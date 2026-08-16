@@ -305,6 +305,11 @@ export function Checkout({
   const [phone, setPhone] = useState("");
   const pickupNameRef = useRef<HTMLInputElement>(null);
   const pickupPhoneRef = useRef<HTMLInputElement>(null);
+  // W21 (Codex P1 on #191) — the pickup timing write chain, owned HERE so continueToPayment can
+  // await it: create-intent locks the cart and reads fire_at, so a timing write still in flight
+  // when the diner taps Pay would be refused as locked while payment proceeds on the PREVIOUS
+  // server timing. PickupWhenChoice enqueues onto this ref.
+  const pickupWrites = useRef<Promise<void>>(Promise.resolve());
   useEffect(() => {
     // W9a — never read a stored name off the device for a basket that will never show the field
     // (pure grocery). Belt-and-braces with the submit gate: nothing to leak if nothing is hydrated.
@@ -707,6 +712,12 @@ export function Checkout({
     }
     setLoadingPay(true);
     try {
+      // W21 (Codex P1 on #191) — drain any in-flight pickup timing write BEFORE minting the
+      // intent: create-intent locks the cart and reads fire_at, so a write still in the chain
+      // would be refused as locked while payment proceeded on the previous server timing. The
+      // chain never rejects (each write owns its errors), so this await cannot throw; on a
+      // refused write the pill has already snapped back by the time we proceed.
+      if (isPickupMode) await pickupWrites.current;
       // Member-gated (cookie session); the route re-derives the amount from getCartTotals and locks
       // the cart for the pay window. Same-origin fetch carries the auth cookie. The takeout call-out
       // name (W3e) always rides on takeout — an EMPTY value clears a previously-stored name (a diner
@@ -755,6 +766,13 @@ export function Checkout({
         );
         return;
       }
+      // W21 (Codex P1 on #192) — re-read the cart NOW, after create-intent LOCKED it, so the pay
+      // step's itemization (BillLines) renders the same locked lines payTotals was derived from —
+      // a peer's edit landing between this device's last refresh and the lock otherwise showed an
+      // itemization that disagreed with the total being charged. Post-lock staff comps/voids can
+      // still move the live lines later (the view stays honest; the frozen totals then disagree —
+      // and the webhook reconcile refuses the mismatched charge, so the money is safe either way).
+      await refresh();
       setClientSecret(data.clientSecret);
       setPayTotals(data.totals);
       setStepDir("forward"); // W13 — the pay step is the deepest cut
@@ -1516,6 +1534,7 @@ export function Checkout({
                 // W20 review — a refused write recovers by RE-READING server truth (refresh()
                 // re-seeds pickupSlot via normalizePickupSlot), never by restoring a captured prev.
                 onRevert={() => void refresh()}
+                writesRef={pickupWrites}
               />
             )}
 
@@ -2356,7 +2375,13 @@ function BillLines({
       {present.map(([label, key]) => (
         <div key={key}>
           {showHeadings && <p className="checkout-bill-group">{label}</p>}
-          <ul role="list" aria-label={label} className="checkout-bill-lines">
+          {/* Review LOW — a single-group bill announces as "Your bill" (the pre-W21 name), not as
+              its lone destination label; the per-group names only earn their keep with 2+ groups. */}
+          <ul
+            role="list"
+            aria-label={showHeadings ? label : T("yourBill")}
+            className="checkout-bill-lines"
+          >
             {items.filter((i) => i.fulfillment === key).map(renderRow)}
           </ul>
         </div>

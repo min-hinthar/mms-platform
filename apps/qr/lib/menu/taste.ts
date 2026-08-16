@@ -39,8 +39,9 @@ const tag = (item: TasteItem, ...ts: string[]) => ts.some((t) => item.tags.inclu
 export const CRAVINGS: readonly Craving[] = [
   {
     id: "noodles",
-    en: "Noodles & soups",
-    my: "ခေါက်ဆွဲနဲ့ ဟင်းချို",
+    // Named for the RULE it runs (review LOW: "Noodles & soups" put its chip on a pure rice dish).
+    en: "Noodles, rice & soups",
+    my: "ခေါက်ဆွဲ၊ ထမင်းနဲ့ ဟင်းချို",
     emoji: "🍜",
     matches: (i) => cat(i, /noodle|soup|rice/i),
   },
@@ -60,8 +61,10 @@ export const CRAVINGS: readonly Craving[] = [
   },
   {
     id: "fresh",
-    en: "Fresh & light",
-    my: "လတ်ဆတ်ပေါ့ပါး",
+    // Named for the RULE it runs (review LOW: "Fresh & light" claimed lightness for a whole
+    // category that includes fritters — the category name is the honest claim).
+    en: "Salads & veggies",
+    my: "အသုပ်နဲ့ ဟင်းသီးဟင်းရွက်",
     emoji: "🥗",
     matches: (i) => cat(i, /salad|appetizer|vegetable/i),
   },
@@ -136,7 +139,9 @@ export function surpriseMe<T extends { id: string }>(
   const a = [...pool];
   const n = Math.min(count, a.length);
   for (let k = 0; k < n; k++) {
-    const j = k + Math.floor(rng() * (a.length - k));
+    // Clamped: the injectable-rng contract doesn't promise a half-open [0,1) — rng()===1 would
+    // index one past the end and plant an undefined (review LOW).
+    const j = Math.min(k + Math.floor(rng() * (a.length - k)), a.length - 1);
     const tmp = a[k]!;
     a[k] = a[j]!;
     a[j] = tmp;

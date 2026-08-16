@@ -46,12 +46,20 @@ begin
   exception when check_violation then v_refused := true; end;
   assert v_refused, 'the CHECK accepted a 0-digit phone (''-------'') — the digit floor is gone';
 
-  -- Refuse: too short.
+  -- Refuse: too short (6 digits — under BOTH the 7-char shape floor and the 7-digit floor).
   v_refused := false;
   begin
     update public.qr_carts set customer_phone = '555014' where id = v_cart;
   exception when check_violation then v_refused := true; end;
-  assert v_refused, 'the CHECK accepted a 6-digit phone — the length floor is gone';
+  assert v_refused, 'the CHECK accepted a 6-digit phone — the floors are gone';
+
+  -- Refuse: too long (review LOW — 21 digits satisfies the digit floor, so without this probe the
+  -- {7,20} UPPER bound had no refusal watching it and could be dropped green).
+  v_refused := false;
+  begin
+    update public.qr_carts set customer_phone = '123456789012345678901' where id = v_cart;
+  exception when check_violation then v_refused := true; end;
+  assert v_refused, 'the CHECK accepted a 21-char phone — the 20-char ceiling is gone';
 
   -- Refuse: disallowed characters.
   v_refused := false;

@@ -48,6 +48,7 @@ type Query = {
   selected?: boolean;
 };
 let queries: Query[] = [];
+let sessionMode = "dinein";
 
 /** abortSettlement's share snapshot. */
 let shares: ShareRow[] = [];
@@ -108,6 +109,10 @@ function respond(q: Query): { data: unknown; error: { message: string } | null }
     }
     return { data: null, error: null }; // insert / status marks
   }
+  if (q.table === "table_sessions")
+    // W21 — openSettlement's mode gate reads the session; `sessionMode` lets a test drive the
+    // non-dinein refusal.
+    return { data: { mode: sessionMode }, error: null };
   if (q.table === "session_members")
     return {
       data: [
@@ -180,6 +185,9 @@ function builder(
       return api;
     },
     order() {
+      return Promise.resolve(respond(q));
+    },
+    single() {
       return Promise.resolve(respond(q));
     },
     limit() {
@@ -273,6 +281,7 @@ const { abortSettlement, openSettlement } = await import("./split");
 
 beforeEach(() => {
   queries = [];
+  sessionMode = "dinein";
   shares = [];
   sharesError = null;
   deletedRows = [];
@@ -548,6 +557,25 @@ describe("abortSettlement — a $0 seat is not taken money", () => {
     zeroSweepError = { message: "connection reset" };
     await expect(abortSettlement(CART)).rejects.toThrow(/Couldn’t cancel the split/);
     expect(ledgerDelete()).toBeUndefined();
+  });
+});
+
+describe("openSettlement — dine-in only (W21: the split is a second charge boundary)", () => {
+  it.each(["pickup", "scango"])(
+    "refuses a %s session — pickup's contact/slot gates live in create-intent and this action must not route around them",
+    async (mode) => {
+      sessionMode = mode;
+      await expect(openSettlement(CART, "even")).rejects.toThrow(
+        "Splitting the bill is for dine-in tables.",
+      );
+    },
+  );
+
+  it("fails CLOSED when the session mode is unreadable — unknown must not fall through to open", async () => {
+    sessionMode = null as unknown as string; // the mock returns { mode: null } — an unknown mode
+    await expect(openSettlement(CART, "even")).rejects.toThrow(
+      "Splitting the bill is for dine-in tables.",
+    );
   });
 });
 

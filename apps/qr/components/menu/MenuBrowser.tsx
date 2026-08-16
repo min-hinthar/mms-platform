@@ -51,7 +51,7 @@ const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 export function MenuBrowser({
   items,
   mode,
-  favoriteIds = [],
+  favorites = [],
   heartedIds = [],
   welcome = null,
   reorderId = null,
@@ -60,11 +60,13 @@ export function MenuBrowser({
   items: MenuItem[];
   mode: string;
   /** J2: menu-item ids ranked by REAL paid-order counts (lib/menu/mostLoved.ts, server-computed,
-   *  counts-only). Drives the "Start here" band + the data-backed "Table favorite" badge. Empty while
-   *  order history is thin → the band falls back to `popular`-tagged items, badges to the manual tag. */
-  favoriteIds?: string[];
+   *  counts-only), each with its tie-aware competition rank (W21 — competitionRanks: tied dishes
+   *  share a numeral, so a seal never orders what the data left tied). Drives the "Start here" band
+   *  + the data-backed "Table favorite" badge. Empty while order history is thin → the band falls
+   *  back to `popular`-tagged items, badges to the manual tag. */
+  favorites?: { id: string; rank: number }[];
   /** J5: the CALLER's own hearted item ids (qr_favorites, RLS-scoped, newest first) — drives the
-   *  "Your favorites" rail + the sheet's heart state. Distinct from `favoriteIds` (the crowd). */
+   *  "Your favorites" rail + the sheet's heart state. Distinct from `favorites` (the crowd). */
   heartedIds?: string[];
   /** J5: recognition facts for the arrival greeting (upgraded name / paid-orders-this-month). */
   welcome?: WelcomeBack | null;
@@ -97,16 +99,18 @@ export function MenuBrowser({
   // rank order preserved). The rail claims table behavior ("what tables love") ONLY when counts back it —
   // and only with ≥3 crowned items, so a thin dataset can't render a lone-card "band". Otherwise it falls
   // back to the hand-set `popular` tag under honest "our picks" framing (dataBacked drives the copy).
-  const favSet = useMemo(() => new Set(favoriteIds), [favoriteIds]);
+  const favSet = useMemo(() => new Set(favorites.map((f) => f.id)), [favorites]);
   const startHere = useMemo(() => {
     const byId = new Map(items.map((i) => [i.id, i]));
-    // W20 review — the rank is taken BEFORE the sold-out filter, from favoriteIds' own order (the
-    // true paid-order ranking): filtering first re-numbered the survivors, so the moment the real
-    // #2 sold out the real #3 wore "No. 2 at tables" — a claim the data doesn't back, spoken
-    // verbatim to screen readers. A sold-out dish keeps its number; the card it would have worn
-    // just doesn't render.
-    const loved = favoriteIds
-      .map((id, idx) => ({ item: byId.get(id), rank: idx + 1 }))
+    // W20 review — the rank is taken BEFORE the sold-out filter, from the crowd ranking's own order:
+    // filtering first re-numbered the survivors, so the moment the real #2 sold out the real #3
+    // wore "No. 2 at tables" — a claim the data doesn't back, spoken verbatim to screen readers.
+    // W21 (Codex P2 on #191): the rank now arrives COMPUTED from the counts (competitionRanks in
+    // the page — tied dishes share a numeral) instead of being re-derived from array position here,
+    // which invented an ordering for ties. A sold-out dish keeps its number; its card just doesn't
+    // render.
+    const loved = favorites
+      .map(({ id, rank }) => ({ item: byId.get(id), rank }))
       .filter((e): e is { item: MenuItem; rank: number } => !!e.item && !e.item.is_sold_out);
     const dataBacked = loved.length >= 3;
     const pool = dataBacked
@@ -120,7 +124,7 @@ export function MenuBrowser({
     // full wall is what the rail exists to soften).
     const rail = pool.slice(0, 10);
     return { items: rail.length >= 3 ? rail : [], dataBacked };
-  }, [items, favoriteIds]);
+  }, [items, favorites]);
 
   // J5 — the diner's own hearts: optimistic local set over the server-fetched ids. A toggle flips the
   // heart instantly and reverts if the RLS-scoped write fails (toggleFavorite returns null) — the

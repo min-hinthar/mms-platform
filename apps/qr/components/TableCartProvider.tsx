@@ -50,6 +50,11 @@ type CartCtx = {
    *  the decrement is announced symmetrically with the "+"/add path (WCAG 4.1.3). */
   setItemQty: (cartItemId: string, qty: number, announce?: string) => Promise<CartItem[]>;
   refresh: () => Promise<void>;
+  /** W21 (Codex P1 on #191) — resolves once every in-flight cart write (add / setItemQty) has
+   *  settled. The checkout NAVIGATION awaits this: an optimistic add exposes the CartBar instantly,
+   *  and racing it to /cart could mint a PaymentIntent that locks the cart BEFORE the add lands —
+   *  refusing an item the toast just announced. Resolves immediately when nothing is in flight. */
+  settled: () => Promise<void>;
   /** W9a: re-run the session mint IN PLACE (keeps the in-memory join code). The dine-in join-failure
    *  retry MUST use this rather than `window.location.reload()` — a reload arrives with the join code
    *  already stripped from the URL, so the mint is no longer join-only and provisions a phantom table. */
@@ -276,6 +281,22 @@ export function TableCartProvider({
   // re-derives the true count from `items`. The MONEY total stays server-derived — only the count is
   // optimistic (a wrong-for-a-moment subtotal on a money surface is worse than a beat's latency).
   const [pendingDelta, setPendingDelta] = useState(0);
+  // W21 (Codex P1 on #191) — the in-flight write ledger behind `settled()`. Tracked at the context
+  // boundary (the wrapped add/setItemQty below) so every consumer's write is counted; the loop in
+  // settled() catches ops enqueued WHILE awaiting (a rapid add during the drain).
+  const inflight = useRef(new Set<Promise<unknown>>());
+  const track = useCallback(<T,>(p: Promise<T>): Promise<T> => {
+    inflight.current.add(p);
+    // The tracked copy owns its rejection (setItemQty can throw); the CALLER still gets the
+    // original promise with its error intact.
+    void p.catch(() => {}).finally(() => inflight.current.delete(p));
+    return p;
+  }, []);
+  const settled = useCallback(async () => {
+    while (inflight.current.size > 0) {
+      await Promise.allSettled([...inflight.current]);
+    }
+  }, []);
 
   // All transactional feedback flows through ONE polite live region via `flash`, which keeps a SINGLE
   // clear-timer (cancels the prior one) so overlapping events — a guest joining, a peer's add, your own
@@ -501,6 +522,17 @@ export function TableCartProvider({
     [cartId, applyView, flash, revalidate],
   );
 
+  // W21 (Codex P1 on #191) — the context hands out TRACKED versions so `settled()` sees every
+  // consumer's write; stable identities preserved (consumers key effects on these).
+  const trackedAdd = useCallback(
+    (...args: Parameters<typeof add>) => track(add(...args)),
+    [add, track],
+  );
+  const trackedSetItemQty = useCallback(
+    (...args: Parameters<typeof setItemQty>) => track(setItemQty(...args)),
+    [setItemQty, track],
+  );
+
   const openSlotSheet = useCallback(() => setSlotSheetOpen(true), []);
   const count = Math.max(0, items.reduce((a, i) => a + i.qty, 0) + pendingDelta);
   const me = session ? { seat: session.seat, name } : null;
@@ -552,8 +584,9 @@ export function TableCartProvider({
         items,
         totals,
         count,
-        add,
-        setItemQty,
+        add: trackedAdd,
+        setItemQty: trackedSetItemQty,
+        settled,
         refresh,
         revalidate,
         announce: flash,

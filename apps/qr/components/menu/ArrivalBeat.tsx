@@ -93,7 +93,7 @@ export function ArrivalBeat({
           >
             Leave this table
           </Link>{" "}
-          frees it on this phone.
+          lets this phone go — the table stays open for everyone else.
         </p>
       ) : (
         /* W20 (owner: "To-go and groceries should also have leave options") — the same named exit

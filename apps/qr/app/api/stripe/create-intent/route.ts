@@ -156,19 +156,40 @@ export async function POST(req: NextRequest) {
     // session read must fail to no-name, never fail-open onto a table order. An empty string CLEARS
     // (the diner deleted the field on a retry — a stale name must not keep getting called out).
     // Non-fatal: a name write must never block a payment.
-    if (firstName !== undefined && (sess?.mode === "pickup" || sess?.mode === "scango")) {
-      const { error: nameErr } = await db
+    if (sess?.mode === "pickup") {
+      // W21 (Codex P2 on #192) — the pickup contact write is LOAD-BEARING, not best-effort: the
+      // contact is required precisely so staff can reach the diner, so a charge without it stored
+      // defeats the requirement. `.select("id")` verifies a row actually changed (the repo's
+      // `.update()` returns no row count rule) — a transient failure, a CHECK refusal (belt vs
+      // predicate drift), or a no-longer-open cart all refuse the payment honestly here instead
+      // of minting a PI for an uncontactable order.
+      const { data: contactRows, error: contactErr } = await db
         .from("qr_carts")
         .update({
           customer_name: firstName || null,
-          // W21 — the pickup contact phone rides the same write, PICKUP only (scango has no counter
-          // handoff to call about). Gated above, so on pickup it's always present by here; the
-          // trim matches what the CHECK judges. Same non-fatal stance as the name.
-          ...(sess.mode === "pickup" ? { customer_phone: (phone ?? "").trim() || null } : {}),
+          customer_phone: (phone ?? "").trim() || null,
         })
         .eq("id", cartId)
+        .eq("status", "open")
+        .select("id");
+      if (contactErr || !contactRows?.length) {
+        if (contactErr)
+          console.error("[create-intent] pickup contact write failed:", contactErr.message);
+        await releaseCartLock(cartId, uid);
+        return NextResponse.json(
+          { error: "Couldn’t save your pickup contact — please try again." },
+          { status: 400 },
+        );
+      }
+    } else if (firstName !== undefined && sess?.mode === "scango") {
+      // W3e — scango's OPTIONAL call-out name keeps the original non-fatal stance (an empty string
+      // clears a stale name; a name write must never block a walk-out payment).
+      const { error: nameErr } = await db
+        .from("qr_carts")
+        .update({ customer_name: firstName || null })
+        .eq("id", cartId)
         .eq("status", "open");
-      if (nameErr) console.error("[create-intent] contact write failed:", nameErr.message);
+      if (nameErr) console.error("[create-intent] customer_name write failed:", nameErr.message);
     }
 
     const totals = await getCartTotals(cartId, tipRate);
