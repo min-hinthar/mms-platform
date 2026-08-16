@@ -25,6 +25,9 @@ import { staffGate, STAFF_WRITE_OUTAGE } from "./staff";
 
 export type SetMenuPriceResult = { ok: true; priceCents: number } | { ok: false; error: string };
 
+/** Latin digits, integer cents — never a locale-formatted numeral on the money path. */
+const dollars = (cents: number): string => `$${(cents / 100).toFixed(2)}`;
+
 const PRICE_OUTAGE =
   "Can’t reach the menu right now — the price is unchanged. Try again in a moment.";
 
@@ -62,10 +65,17 @@ export async function setMenuPrice(raw: unknown): Promise<SetMenuPriceResult> {
   if (!before) return { ok: false, error: "That dish is no longer on the menu." };
   if (before.base_price_cents === priceCents) return { ok: true, priceCents }; // no-op: no ledger row
 
+  // COMPARE-AND-SWAP on the price we just read, not just the id. Two managers on two tablets can be
+  // editing the same dish at once; keyed on `id` alone, both writes land and the SECOND one records a
+  // ledger row saying it changed the price from a value that was already gone. The live price would
+  // still be whoever wrote last — but the ledger is the thing that has to answer "from what?", and a
+  // stale `old_price_cents` breaks exactly the question it exists for. Losing the race means zero
+  // rows here, which we turn into an honest "someone else just changed it" below.
   const { data: written, error: writeErr } = await db
     .from("menu_items")
     .update({ base_price_cents: priceCents })
     .eq("id", menuItemId)
+    .eq("base_price_cents", before.base_price_cents)
     .select("id")
     .maybeSingle();
   if (writeErr) {
@@ -75,8 +85,22 @@ export async function setMenuPrice(raw: unknown): Promise<SetMenuPriceResult> {
     return { ok: false, error: PRICE_OUTAGE };
   }
   // `.update()` returns no row count — the `.select("id")` above is what makes a zero-row update
-  // visible instead of a silent 200 over a write that matched nothing.
-  if (!written) return { ok: false, error: "That dish is no longer on the menu." };
+  // visible instead of a silent 200 over a write that matched nothing. Zero rows now means one of two
+  // things, and they deserve different sentences: the dish is gone, or we lost the race. Re-read to
+  // find out which, and treat an unreadable answer as the race (the conservative direction: it tells
+  // the manager to look again, rather than claiming a dish vanished when it did not).
+  if (!written) {
+    const { data: now } = await db
+      .from("menu_items")
+      .select("base_price_cents")
+      .eq("id", menuItemId)
+      .maybeSingle();
+    if (now == null) return { ok: false, error: "That dish is no longer on the menu." };
+    return {
+      ok: false,
+      error: `Someone else just set ${before.name_en} to ${dollars(now.base_price_cents)} — nothing was changed. Check the new price and try again.`,
+    };
+  }
 
   // The ledger is written AFTER the price, and its failure is surfaced, not swallowed. A price
   // change with no record of who made it is exactly the thing this table exists to prevent — so the

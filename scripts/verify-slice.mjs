@@ -260,6 +260,14 @@ const MUTANTS = [
     replace: "",
   },
   {
+    id: "menu-price/price-write-not-compare-and-swapped",
+    file: "apps/qr/lib/menu-price.ts",
+    suite: "lib/menu-price.test.ts",
+    why: "W17b review MED — keyed on id alone, two managers on two tablets both land their write and the SECOND records a ledger row saying it changed the price FROM a value that was already gone. The live price is still whoever wrote last; the LEDGER is what breaks, and reconstructing 'from what?' is the only reason it exists",
+    find: '    .eq("base_price_cents", before.base_price_cents)',
+    replace: "",
+  },
+  {
     id: "menu-price/unrecorded-change-swallowed",
     file: "apps/qr/lib/menu-price.ts",
     suite: "lib/menu-price.test.ts",

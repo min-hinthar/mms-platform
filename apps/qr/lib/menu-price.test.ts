@@ -41,10 +41,19 @@ let readError: { message: string } | null = null;
 let updatedRow: { id: string } | null = { id: ITEM };
 let updateError: { message: string } | null = null;
 let auditError: { message: string } | null = null;
+/** Set to model a CONCURRENT edit: the row's price changes to this the instant our read returns,
+ *  which is exactly the read-then-write window the compare-and-swap exists to close. */
+let raceTo: number | null = null;
 
-const updates: Record<string, unknown>[] = [];
+const updates: { patch: Record<string, unknown>; filters: Record<string, unknown> }[] = [];
 const audits: Record<string, unknown>[] = [];
 
+/**
+ * The double models the real chain shape — and, critically, the COMPARE-AND-SWAP: `.eq()` filters are
+ * COLLECTED, and the update resolves to a row only when the asserted `base_price_cents` still matches
+ * the row's current value. A mock that ignored the filters would let a CAS-less implementation pass,
+ * which is the degenerate-fixture trap.
+ */
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     from: (table: string) => {
@@ -56,21 +65,37 @@ vi.mock("@mms/db/server", () => ({
           },
         };
       }
-      const chain: Record<string, unknown> = {
-        select: () => chain,
-        eq: () => chain,
-        maybeSingle: () =>
-          Promise.resolve(
-            updates.length > 0
-              ? { data: updatedRow, error: updateError }
-              : { data: itemRow, error: readError },
-          ),
-        update: (patch: Record<string, unknown>) => {
-          updates.push(patch);
-          return chain;
-        },
+      const mk = (mode: "read" | "write", patch?: Record<string, unknown>) => {
+        const filters: Record<string, unknown> = {};
+        const chain: Record<string, unknown> = {
+          select: () => chain,
+          eq: (col: string, val: unknown) => {
+            filters[col] = val;
+            return chain;
+          },
+          maybeSingle: () => {
+            if (mode === "read") {
+              const seen = itemRow;
+              // The other manager's write lands here — after we read, before we write.
+              if (raceTo != null && itemRow) itemRow = { ...itemRow, base_price_cents: raceTo };
+              return Promise.resolve({ data: seen, error: readError });
+            }
+            if (updateError) return Promise.resolve({ data: null, error: updateError });
+            // The CAS: the asserted price must still be the row's price, or the update matches
+            // nothing — exactly what a concurrent write does in Postgres.
+            const cas = filters.base_price_cents;
+            const stale = cas !== undefined && itemRow != null && cas !== itemRow.base_price_cents;
+            if (stale || updatedRow == null) return Promise.resolve({ data: null, error: null });
+            updates.push({ patch: patch ?? {}, filters });
+            if (itemRow)
+              itemRow = { ...itemRow, base_price_cents: patch?.base_price_cents as number };
+            return Promise.resolve({ data: updatedRow, error: null });
+          },
+          update: (p: Record<string, unknown>) => mk("write", p),
+        };
+        return chain;
       };
-      return chain;
+      return mk("read");
     },
   }),
 }));
@@ -87,6 +112,7 @@ beforeEach(() => {
   updatedRow = { id: ITEM };
   updateError = null;
   auditError = null;
+  raceTo = null;
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -94,7 +120,9 @@ describe("setMenuPrice — the one human-entered amount in the app", () => {
   it("writes the new price and records old → new against the caller", async () => {
     const r = await setMenuPrice({ menuItemId: ITEM, priceCents: 1600 });
     expect(r).toEqual({ ok: true, priceCents: 1600 });
-    expect(updates).toEqual([{ base_price_cents: 1600 }]);
+    expect(updates.map((u) => u.patch)).toEqual([{ base_price_cents: 1600 }]);
+    // The write is compare-and-swapped on the price we read, not just the id.
+    expect(updates[0]?.filters).toEqual({ id: ITEM, base_price_cents: 1400 });
     expect(audits).toEqual([
       {
         menu_item_id: ITEM,
@@ -128,11 +156,27 @@ describe("setMenuPrice — the one human-entered amount in the app", () => {
     expect(updates).toHaveLength(0);
   });
 
-  it("a zero-row update is a refusal, not a silent success", async () => {
+  it("a zero-row update over a VANISHED dish says the dish is gone", async () => {
     updatedRow = null; // the `.select("id")` came back empty — the write matched nothing
+    itemRow = null; // ...and the re-read confirms it: the dish is really gone
     const r = await setMenuPrice({ menuItemId: ITEM, priceCents: 1600 });
     expect(r).toEqual({ ok: false, error: "That dish is no longer on the menu." });
     expect(audits).toHaveLength(0); // no price moved, so no ledger row claims one did
+  });
+
+  it("LOSING the race changes nothing and names the price that won", async () => {
+    // Another manager set it to 1800 between our read and our write. The compare-and-swap matches
+    // zero rows, so our 1600 must NOT land — and, above all, no ledger row may claim we changed it
+    // "from 1400", which was already gone. That stale old_price_cents is the whole reason for the CAS.
+    raceTo = 1800; // our read sees 1400; the row is 1800 by the time our write runs
+    const r = await setMenuPrice({ menuItemId: ITEM, priceCents: 1600 });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error).toContain("Someone else just set");
+      expect(r.error).toContain("$18.00");
+    }
+    expect(updates).toHaveLength(0);
+    expect(audits).toHaveLength(0);
   });
 
   it("a read TRANSPORT failure is an outage, never the verdict 'no such dish'", async () => {
@@ -152,7 +196,6 @@ describe("setMenuPrice — the one human-entered amount in the app", () => {
 
   it("a write failure reports the failure — never a success we did not get", async () => {
     updateError = { message: "violates check constraint" };
-    updatedRow = null;
     const r = await setMenuPrice({ menuItemId: ITEM, priceCents: 1600 });
     expect(r.ok).toBe(false);
     expect(audits).toHaveLength(0);
@@ -171,7 +214,7 @@ describe("setMenuPrice — the one human-entered amount in the app", () => {
     expect(r.ok).toBe(false);
     // The price DID land, and the copy has to say so — the manager must not re-enter it and be
     // told nothing changed, nor walk away believing the log has their name in it.
-    expect(updates).toEqual([{ base_price_cents: 1600 }]);
+    expect(updates.map((u) => u.patch)).toEqual([{ base_price_cents: 1600 }]);
     if (!r.ok) expect(r.error).toContain("Price saved");
   });
 });
