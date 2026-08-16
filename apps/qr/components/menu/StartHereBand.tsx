@@ -46,8 +46,15 @@ export function StartHereBand({
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
     const sync = () => setMotionOk(!mq.matches);
     sync();
-    mq.addEventListener("change", sync);
-    return () => mq.removeEventListener("change", sync);
+    // Older iOS Safari has only the legacy addListener API — the ThemeSync guard, verbatim
+    // (Codex P1 on #194: an unguarded addEventListener would throw and take the menu down on
+    // exactly the devices reduced-motion support is FOR).
+    if (mq.addEventListener) {
+      mq.addEventListener("change", sync);
+      return () => mq.removeEventListener("change", sync);
+    }
+    mq.addListener(sync);
+    return () => mq.removeListener(sync);
   }, []);
 
   if (rowA.length === 0) return null;

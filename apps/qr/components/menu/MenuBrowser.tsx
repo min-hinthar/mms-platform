@@ -310,6 +310,20 @@ export function MenuBrowser({
     rail.scrollTo({ left: rail.scrollLeft + delta, behavior: reduce ? "auto" : "smooth" });
   }, [activeCat]);
 
+  // a11y (Codex P2 on #194): turning OFF the last diet from the STICKY toolbar unmounts that pill
+  // group under the pressed pill and focus falls to <body>. Park it on the menu heading (the
+  // repo's focus-on-remove rule — same parking spot as the reorder-note dismiss). The body check
+  // keeps this inert when the tap came from the taste band's copy (that pill stays mounted and
+  // keeps focus), and preventScroll keeps a touch tap from yanking the page.
+  const prevDietCount = useRef(0);
+  useEffect(() => {
+    const prev = prevDietCount.current;
+    prevDietCount.current = diets.length;
+    if (prev > 0 && diets.length === 0 && document.activeElement === document.body) {
+      menuHeadingRef.current?.focus({ preventScroll: true });
+    }
+  }, [diets]);
+
   // a11y: when filtering empties the list, pull focus to the recovery action — but NOT while the user is
   // actively typing in the search box (stealing focus would interrupt their query). Only the diet-chip /
   // post-type empty states move focus; the live region (role="status") announces the change either way.
