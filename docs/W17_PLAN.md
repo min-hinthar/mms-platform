@@ -116,11 +116,37 @@ Paid orders are history and must NOT be rewritten — they carry what was really
 
 ---
 
-## W17b — per-mode price + the staff price editor ⬜
+## W17b — the staff price editor ✅ (2026-08-16) · per-mode price DEFERRED
 
-**Per-mode price.** Six POS items ring differently by mode; only ~4 look like a real policy rather
-than a register anomaly (see §"POS items whose dine-in and to-go rings disagree" in the reference —
-`Fish Paste` $42/$14 and `Shrimp Spicy` $15/$19 at 8 units are anomalies, not a two-price rule):
+**Shipped: the price editor.** `/staff/menu`, manager+. The owner's parenthetical — _"staff portal
+should be able to update prices?"_ — is the whole slice.
+
+This is the ONE place in the app where a money amount crosses from a human into the system. Every
+other amount is server-derived, and that rule is not weakened: a manager setting the menu price is
+the decision the rule protects. What changes is which number `priceItem` reads next.
+
+- The **manager floor is re-checked inside `setMenuPrice`** — a Server Action is a public POST
+  endpoint, so the page gate is convenience and the action gate is the authority. The service client
+  is created only **after** the gate: authz proven before elevation.
+- **Bounded on both sides:** Zod `.min(25).max(500000)` and a new `menu_items_base_price_cents_bounds`
+  column CHECK. `base_price_cents` was writable only by a migration until now.
+- **`menu_price_audit`** records old → new against the caller's `staffId`. Manager+ read; **no insert
+  policy at all**, so only the service-role path can append — which is what makes the ledger
+  unskippable. An insert failure is **surfaced**, not swallowed; the price is not rolled back,
+  because an unrecorded correct price beats a reverted one the kitchen already heard about.
+- **Nobody is re-priced mid-meal:** `unit_price_cents` is stamped at add time and nothing here
+  touches `qr_cart_items`.
+- **Compare-and-swap on the write** (review MED): the update asserts the price it read. Keyed on the
+  id alone, two concurrent edits both land and the second records a ledger row claiming it changed
+  the price _from_ a value already gone — the live price is fine, the ledger is what breaks, and
+  answering "from what?" is the only reason it exists. A lost race is re-read and named ("someone
+  else just set it to $X"), distinct from a vanished dish; an unreadable re-read is treated as the
+  race, since telling a manager to look again beats claiming a dish vanished when it did not.
+- Migration `20260816000000_w17b_price_editor.sql`. 5 new mutants (106 total), each watched red.
+
+**Deferred: per-mode `togo_price_cents`.** Six POS items ring differently by mode; only ~4 look like
+policy rather than a register anomaly (`Fish Paste` $42/$14 and `Shrimp Spicy` $15/$19 at 8 units
+are anomalies):
 
 | Dish                                       | Dine-in | To-go | 2026 units |
 | ------------------------------------------ | ------- | ----- | ---------- |
@@ -129,21 +155,18 @@ than a register anomaly (see §"POS items whose dine-in and to-go rings disagree
 | Beef Pounded အမဲထောင်းကြော်                | $19     | $17   | 31         |
 | Salted Fish Eggplant ငါးခြောက်ခရမ်းသီးနှပ် | $14     | $12   | 20         |
 
-Design: a **nullable `menu_items.togo_price_cents`** — null means "same as dine-in", which keeps 62
-of the 66 items expressing exactly one price and makes the exception explicit. `priceItem` then
-takes back a fulfillment argument, but as a **column lookup, not a factor** — the mutant to add is
-"the to-go column is ignored", and the seam mutant from W17a must stay red for any _computed_
-markup. Confirm the four with the owner before seeding; a register anomaly seeded as policy is a
-permanent wrong price.
+**Why it is deferred, not just unbuilt.** A per-mode price means the dine-in↔to-go toggle must
+**re-price the line on every flip** — precisely the machinery W17a removed, with its exact/rescale/
+refuse ladder and its `p_unit_price_cents` forward. That is a real money-path change, and the four
+prices above are unconfirmed. Building it on the chance the owner says yes would reintroduce the
+complexity for a feature that may be rejected.
 
-**Staff price editor** (the owner's parenthetical: _"staff portal should be able to update
-prices?"_). Manager-gated (`app_role`), edits `base_price_cents` (+ `togo_price_cents`), writes an
-audit row, and is bounded at the DB (Zod `.max()` **and** a column `CHECK`) — a fat-fingered $1900
-is a money incident. Never a client-computed value; the editor sends an amount and the server
-validates and stores it. Prices are read by `priceItem` at add time, so an edit takes effect on the
-next add and never retroactively re-prices a line already in a cart.
-
----
+**When it is confirmed**, the shape is: a nullable `menu_items.togo_price_cents` (null = same as
+dine-in, so 62 of 66 items keep expressing exactly one price and the exception is explicit);
+`priceItem` takes `fulfillment` back as a **column lookup, never a factor** — the W17a seam mutant
+`order-lines/pos-price-marked-up` must stay red for any _computed_ markup; and the toggle re-price
+returns, which needs its own guards restored. Confirm the four with the owner first: a register
+anomaly seeded as policy is a permanent wrong price.
 
 ## W17c — tipping, all four ⬜
 
