@@ -96,6 +96,12 @@ export function KioskReview({
   /** The tip ask interposes ONCE, and only when there is something to tip on — a pure-grocery
    *  basket takes no tip (the server force-zeros it) and an unreadable total has no base. */
   function askTipThenHandoff() {
+    // Close the upsell EXPLICITLY: it renders ahead of the tip screen, and `upsellOpen` was never
+    // cleared — so on every order where the upsell interposed, "No thanks" re-rendered the SAME
+    // upsell screen (a dead-feeling tap), and the second tap skipped the tip ask entirely
+    // (tipSeen had already latched → straight to handoff, intent recorded as "never asked").
+    // Found by the W17 design-pass review tracing the upsell→tip swap.
+    setUpsellOpen(false);
     if (!tipSeen.current && tipBaseCents > 0) {
       tipSeen.current = true;
       setTipOpen(true);
