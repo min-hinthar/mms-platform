@@ -92,3 +92,37 @@ export function roundUpTip(netCents: number, dueCents: number): RoundUp | null {
 
 /** Latin digits, integer cents — never a locale-formatted numeral on the money path (W16b). */
 export const dollars = (cents: number): string => `$${(cents / 100).toFixed(2)}`;
+
+/**
+ * The ONE decision about what rate is actually in effect, given everything the tip UI can be in the
+ * middle of. It lives here, not in the component, for a reason the W17c review found the hard way:
+ * the round-up's rate DEPENDS ON THE BASKET, so storing the number the way a percentage preset can
+ * be stored desyncs it from the total it names the instant the cart moves — a promo lands, a qty
+ * changes, a group peer edits — and the diner is charged a tip that no longer rounds to anything,
+ * with no chip lit to show a tip is even active. Percentages had never exposed this because 18% is
+ * 18% whatever the basket does.
+ *
+ * So: the component stores the CHOICE, this derives the rate from the CURRENT numbers, and the same
+ * value drives both the pressed state and the charge. They cannot disagree.
+ *
+ * `roundUp` is the offer for the current cart (null when there is nothing to round) — when the
+ * choice is round-up and the offer has since evaporated, the effective rate is 0, which is the
+ * truth: there is nothing to round, so nothing is added.
+ */
+export function effectiveTipRate(s: {
+  /** A pure-grocery basket takes no tip at all — the server force-zeros it, and so do we. */
+  pureGrocery: boolean;
+  /** The custom-dollar field is open; its typed rate wins while it is. */
+  customTipOpen: boolean;
+  customRate: number;
+  /** The diner chose round-up, and the live offer (null = nothing left to round). */
+  roundUpOn: boolean;
+  roundUp: RoundUp | null;
+  /** The last tapped preset (0 = None). */
+  presetRate: number;
+}): number {
+  if (s.pureGrocery) return 0;
+  if (s.customTipOpen) return s.customRate;
+  if (s.roundUpOn) return s.roundUp?.rate ?? 0;
+  return s.presetRate;
+}

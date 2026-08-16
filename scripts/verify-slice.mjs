@@ -252,6 +252,14 @@ const MUTANTS = [
     replace: "    false",
   },
   {
+    id: "tip/round-up-rate-frozen-instead-of-derived",
+    file: "apps/qr/lib/tip.ts",
+    suite: "lib/tip.test.ts",
+    why: "W17c review HIGH — the round-up's rate DEPENDS ON THE BASKET, so reading the stored preset instead of the live offer desyncs it from the total it names the moment the cart moves (a promo lands, a peer edits the group cart): the diner is charged a tip that rounds to nothing, with no chip lit to show a tip is even active. Percentages never exposed this because 18% is 18% whatever the basket does",
+    find: "  if (s.roundUpOn) return s.roundUp?.rate ?? 0;",
+    replace: "  if (s.roundUpOn) return s.presetRate;",
+  },
+  {
     id: "tip/round-up-fires-on-a-whole-total",
     file: "apps/qr/lib/tip.ts",
     suite: "lib/tip.test.ts",
