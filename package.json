@@ -16,7 +16,7 @@
     "knip": "knip",
     "db:types": "supabase gen types typescript --local --schema public > packages/db/src/database.types.ts",
     "verify:slice": "node scripts/verify-slice.mjs",
-    "check:docs": "node scripts/check-docs.mjs"
+    "check:docs": "node scripts/check-docs.mjs && node scripts/gen-menu-reference.mjs --check"
   },
   "devDependencies": {
     "@mms/config": "workspace:*",

@@ -5,7 +5,42 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-08-15 — the owner's W16 reset COMPLETE)
+> ## ⏭️ NEXT SESSION — start here (2026-08-16 — W17a reverted the mode markup; W17b/c/d are next)
+>
+> **W17a shipped (2026-08-16)** — real POS pricing, both modes. The owner: _"let's just revert to
+> real POS pricing for both dine-in and take-out for now (staff portal should be able to update
+> prices?) and maybe enhance the tipping features."_ Locked via AskUserQuestion: **bare POS price,
+> no markup.**
+>
+> **Why W16a's markup was wrong — from the owner's own exports.** Zettle/PayPal stores ONE menu
+> price per dish. What separated a dine-in ring from a to-go ring at the register was the TAX
+> COLUMN, not the price: dine-in rows carry 25.5% (10.5% sales tax + a 15% dine-in SERVICE CHARGE),
+> to-go rows carry 10.5%. The qty=1 rows are the Rosetta stone — "Duck To-Go 1 $2.00 $21.00" →
+> net $19.00 × 0.105, and "Salted Fish Dine-In 1 $4.85 $23.85" → the same net $19.00 × 0.255.
+> Across the 365 rows of the 2025 report whose rate is derivable: 209 at ~10.5%, 155 at ~25.5%, one
+> outlier. And of the 72 dishes sold BOTH ways in Jan–Jul 2026, **66 price identically**. So W16a re-created, as a price increase, the very
+> service charge the owner had just retired.
+>
+> `lib/mode-price.ts` is DELETED (with `mode-price.test.ts` + `reorder-mode.test.ts`). The charged
+> unit is `base_price_cents` + modifier deltas at the one `priceItem` seam; every display reverts
+> with it. The for-here↔to-go toggle is **tax-only** again — it omits `p_unit_price_cents`, which is
+> the SQL fn's documented "leave the price alone" path (`coalesce(null, stored)`), so **no migration
+> is needed and no signature changes**. Tax stays 10.5% and the service charge stays retired
+> (`serviceChargeCents` a constant 0; `receipt-view.ts` keeps its `> 0`-gated historical row).
+> verify:slice: the 5 markup mutants retired, 2 added (`order-lines/pos-price-marked-up`,
+> `cart/toggle-re-prices-the-line`); the staff mode-fork mutant survives guarding the routing + TAX
+> fork, which is what it really was.
+>
+> **⚠️ Prod carry-over:** `menu_items.base_price_cents` was never touched by W16a (the markup lived
+> in TS), so the deploy alone restores POS pricing. But any cart line ADDED during the W16a window
+> carries a marked-up `unit_price_cents` on the row. Sweep open carts post-deploy (see W17_PLAN).
+>
+> **Next: W17b/c/d** — see [`docs/W17_PLAN.md`](W17_PLAN.md). W17b per-mode `togo_price_cents` for
+> the ~4 genuinely-different items + a manager-gated staff price editor; W17c tipping (all four
+> options the owner selected); W17d the ~25–30 missing POS menu items, deduped on the BURMESE name
+> (English names differ between POS and our catalog).
+>
+> ## (2026-08-15 — the owner's W16 reset COMPLETE)
 >
 > **W16d+e shipped (2026-08-15)** — the last two slices of the owner's reset.
 >
@@ -60,7 +95,9 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > writer; column + CHECK left in place). W5-L3/L4/L5 continue as the STACKED-bilingual rollout to
 > /track·receipt·menu·grocery·account.
 >
-> **W16a shipped (2026-08-15)** — the owner's money reset (`docs/W16_PLAN.md`; closes C12+C13):
+> **W16a shipped (2026-08-15)** — ⚠️ **the mode-price half was REVERTED by W17a (2026-08-16)**; the
+> service-charge retirement and the 10.5% tax rate stand. The owner's money reset
+> (`docs/W16_PLAN.md`; closes C12+C13):
 > the 5% SB-1524 service charge is RETIRED; prices are MODE-DERIVED (dine-in = base ×1.15,
 > to-go = base ×1.05, rounded to the nearest $0.25 — `lib/mode-price.ts`, applied to the
 > base+modifier-delta sum at the ONE `priceItem` seam; grocery exempt); tax 0.0975 → 0.105

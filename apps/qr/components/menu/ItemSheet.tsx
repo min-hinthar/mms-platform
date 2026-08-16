@@ -19,7 +19,6 @@ import {
   type ModGroup,
   type Selection,
 } from "@/lib/menu/modifiers";
-import { modePriceCents } from "@/lib/mode-price";
 import type { MenuItem } from "./MenuBrowser";
 import { hapticTap } from "@/lib/haptics";
 
@@ -52,7 +51,6 @@ const ALLERGEN_LABEL: Record<string, string> = {
  * a lazy initializer (the React "reset state with a key" pattern, no setState-in-effect).
  */
 export function ItemSheet({
-  lineMode,
   item,
   allItems,
   diets,
@@ -63,8 +61,6 @@ export function ItemSheet({
   hearted = false,
   onToggleHeart,
 }: {
-  /** W16a — the session-mode price factor key: dine-in ×1.15, to-go ×1.05 (lib/mode-price). */
-  lineMode: "dinein" | "togo";
   item: MenuItem | null;
   allItems: MenuItem[];
   diets: Diet[];
@@ -97,7 +93,6 @@ export function ItemSheet({
     <Sheet open={open} onOpenChange={(o) => !o && onClose()} title={item?.name_en ?? ""}>
       {item && (
         <ItemSheetBody
-          lineMode={lineMode}
           key={item.id}
           item={item}
           allItems={allItems}
@@ -115,7 +110,6 @@ export function ItemSheet({
 }
 
 function ItemSheetBody({
-  lineMode,
   item,
   allItems,
   diets,
@@ -129,7 +123,6 @@ function ItemSheetBody({
   item: MenuItem;
   allItems: MenuItem[];
   diets: Diet[];
-  lineMode: "dinein" | "togo";
   rootRef: RefObject<HTMLDivElement | null>;
   onClose: () => void;
   onSelectItem: (item: MenuItem) => void;
@@ -159,9 +152,9 @@ function ItemSheetBody({
   const [qty, setQty] = useState(1);
 
   const deltaCents = selectionDeltaCents(groups, selected);
-  // W16a — the preview MUST reproduce the server math exactly (same pure helper, same integer
-  // round25) or the sheet quotes a price the charge disagrees with.
-  const totalCents = modePriceCents(item.base_price_cents + deltaCents, lineMode) * qty;
+  // Advisory preview only — the server re-derives the charge (priceItem). W17a: the price is the
+  // POS price, base + the chosen deltas, with no mode factor.
+  const totalCents = (item.base_price_cents + deltaCents) * qty;
   const valid = isSelectionValid(groups, selected);
   const soldOut = item.is_sold_out;
   // The cart is frozen server-side while a member checks out (locked) or the table settles (settling); no cart
@@ -313,19 +306,6 @@ function ItemSheetBody({
               // W5c·r3: glyphs ride INLINE with the label (owner: "in color and inline") — leading for
               // the add-ons pantry, trailing for the 🌶/🍯 intensity meters. aria-hidden; text carries meaning.
               const glyph = optionGlyph(o.slug);
-              // W16a review MED — the shown delta is the EFFECT of tapping (mode-priced total after
-              // the toggle minus now), NOT the raw menu delta: the factor + round25 apply to the SUM,
-              // so a "+$1.00" option moves a ×1.15 total by $1.25 and the raw label would contradict
-              // the CTA the diner sums against. Exact by construction (same math as totalCents).
-              const effDeltaCents =
-                modePriceCents(
-                  item.base_price_cents +
-                    selectionDeltaCents(groups, {
-                      ...selected,
-                      [g.id]: toggleOption(g, chosen, o.id),
-                    }),
-                  lineMode,
-                ) - modePriceCents(item.base_price_cents + deltaCents, lineMode);
               return (
                 <label key={o.id} className="item-opt" data-disabled={disabled || undefined}>
                   <input
@@ -369,8 +349,8 @@ function ItemSheetBody({
                       </span>
                     )}
                   </span>
-                  {effDeltaCents !== 0 && (
-                    <span className="item-opt-delta">{delta(effDeltaCents)}</span>
+                  {o.priceDeltaCents !== 0 && (
+                    <span className="item-opt-delta">{delta(o.priceDeltaCents)}</span>
                   )}
                 </label>
               );
@@ -417,7 +397,7 @@ function ItemSheetBody({
                   type="button"
                   className="item-upsell-card"
                   onClick={() => onSelectItem(u)}
-                  aria-label={`${u.name_en}, ${dollars(modePriceCents(u.base_price_cents, lineMode))} — open to customize`}
+                  aria-label={`${u.name_en}, ${dollars(u.base_price_cents)} — open to customize`}
                 >
                   <span className="item-upsell-thumb" style={{ background: "var(--grad)" }}>
                     <BlurUpImage
@@ -430,9 +410,7 @@ function ItemSheetBody({
                     />
                   </span>
                   <span className="item-upsell-name">{u.name_en}</span>
-                  <span className="item-upsell-price">
-                    {dollars(modePriceCents(u.base_price_cents, lineMode))}
-                  </span>
+                  <span className="item-upsell-price">{dollars(u.base_price_cents)}</span>
                 </button>
               </li>
             ))}

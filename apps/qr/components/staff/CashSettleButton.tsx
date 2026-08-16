@@ -9,7 +9,7 @@ const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
 /**
  * Cash settle ("pay a human", S1.3). Two-step confirm showing the authoritative all-in total
- * (mode-priced lines + tax — W16a retired the service charge; tip is in-hand/off-system → not
+ * (POS-priced lines + tax — W16a retired the service charge; tip is in-hand/off-system → not
  * recorded). The server re-derives and reconciles the amount — this button never sends it. On
  * success the cart flips paid and the live detail re-fetches to the paid state; a refresh nudges
  * it immediately.

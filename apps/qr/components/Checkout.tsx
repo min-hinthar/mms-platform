@@ -22,7 +22,6 @@ import {
   type PromoReason,
 } from "@/lib/cart";
 import type { SplitContext } from "@/lib/split";
-import { rescaleModePriceCents } from "@/lib/mode-price";
 import { canMutateLine } from "@/lib/permissions";
 import { menuHref, menuLinkText } from "@/lib/menu-href";
 import { DINER_STATE_COPY } from "@/lib/line-state-copy";
@@ -123,11 +122,9 @@ function customTipRateFromDollars(raw: string, net: number): number {
 
 // Optimistic cart edits — a qty / destination / make-now tap reflects INSTANTLY, then the server action
 // + refresh() reconcile the base underneath (and correct a refused edit). Money stays server-authoritative:
-// the fulfillment flip previews the mode re-price with the SAME pure ratio helper the server's fallback
-// uses (W16a — pre-W16a the toggle never changed the price, so flipping only the tag was honest; now a
-// tag-only flip would show the for-here amount on a pressed "To go" pill for a full round-trip). The
-// server's exact re-derive can land within a quarter of the ratio preview — refresh() reconciles it,
-// along with the aggregate totals receipt (tax / discount).
+// the fulfillment flip touches the TAG ONLY (W17a — dine-in and to-go ring the same POS price, so the
+// unit price is unchanged by a flip; what does move is the line's TAX, which lives in the aggregate
+// totals receipt that refresh() re-reads). Never re-price a line here.
 type CartOptimistic =
   | { kind: "qty"; id: string; qty: number }
   | { kind: "fulfillment"; id: string; ful: "dinein" | "togo" }
@@ -140,18 +137,7 @@ function applyCartOptimistic(state: CartItem[], u: CartOptimistic): CartItem[] {
         ? state.filter((i) => i.id !== u.id)
         : state.map((i) => (i.id === u.id ? { ...i, qty: u.qty } : i));
     case "fulfillment":
-      return state.map((i) =>
-        i.id === u.id
-          ? {
-              ...i,
-              fulfillment: u.ful,
-              unitPriceCents:
-                (i.fulfillment === "dinein" || i.fulfillment === "togo") && i.fulfillment !== u.ful
-                  ? rescaleModePriceCents(i.unitPriceCents, i.fulfillment, u.ful)
-                  : i.unitPriceCents,
-            }
-          : i,
-      );
+      return state.map((i) => (i.id === u.id ? { ...i, fulfillment: u.ful } : i));
     case "makeNow":
       return state.map((i) => (i.id === u.id ? { ...i, lineState: "fired" } : i));
   }
@@ -253,8 +239,8 @@ export function Checkout({
     if (customTipOpen) customTipRef.current?.focus();
   }, [customTipOpen]);
   // Pure-grocery basket (W1): every chargeable line is self-scanned retail — no tip ask (the server
-  // excludes grocery lines from the tip base and forces tip to 0; W16a — grocery is also exempt from
-  // the mode-price factors). Computed here (early) so the tip rate can be zeroed for it too.
+  // excludes grocery lines from the tip base and forces tip to 0). Computed here (early) so the tip
+  // rate can be zeroed for it too.
   // Voided/comped lines are $0 and don't count.
   const chargeableItems = viewItems.filter((i) => i.lineState !== "voided" && !i.comped);
   const pureGrocery =

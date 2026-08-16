@@ -4,7 +4,6 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { staffAddItem } from "@/lib/staff-cart";
 import { setCartCustomerName } from "@/lib/register";
-import { modePriceCents } from "@/lib/mode-price";
 import { StaffAddButton } from "./StaffAddButton";
 import { StaffModSheet } from "./StaffModSheet";
 import type { ModGroup } from "@/lib/menu/modifiers";
@@ -31,17 +30,12 @@ export function StaffMenuBrowser({
   items,
   categories,
   counterOrder,
-  lineMode,
   initialName,
 }: {
   sessionId: string;
   items: StaffMenuItem[];
   categories: string[];
   counterOrder: boolean;
-  /** W16a — which mode-derived price staffAddItem will mint. Passed from the page off the SESSION's
-   *  mode (the same fork staff-cart uses), NOT the reg- label: a scango/pickup diner session added
-   *  to from the floor is togo-priced, and a label fork would misquote it by the factor gap. */
-  lineMode: "dinein" | "togo";
   initialName: string | null;
 }) {
   const router = useRouter();
@@ -206,7 +200,7 @@ export function StaffMenuBrowser({
                 </div>
               )}
               <div style={{ fontWeight: 800, marginTop: 4 }}>
-                ${(modePriceCents(i.priceCents, lineMode) / 100).toFixed(2)}
+                ${(i.priceCents / 100).toFixed(2)}
               </div>
             </div>
             {i.groups.length > 0 ? (
@@ -248,7 +242,6 @@ export function StaffMenuBrowser({
           }}
           itemName={sheetItem.nameEn}
           basePriceCents={sheetItem.priceCents}
-          lineMode={lineMode}
           groups={sheetItem.groups}
           pending={pending}
           error={sheetError}

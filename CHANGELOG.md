@@ -4,6 +4,38 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W17a — real POS pricing (the mode markup is reverted) (2026-08-16)
+
+The owner: _"let's just revert to real POS pricing for both dine-in and take-out for now."_ Decision
+locked via AskUserQuestion: **bare POS price, no markup** — dine-in and to-go ring the same amount.
+
+**Why the W16a markup was wrong, from the owner's own exports.** Zettle/PayPal stores ONE menu price
+per dish; what separated a dine-in ring from a to-go ring at the register was the TAX COLUMN, not the
+price. Dine-in rows carry 25.5% (10.5% sales tax + a 15% dine-in **service charge**); to-go rows
+carry 10.5%. Validated on the qty=1 rows of the 2025 report, which act as a Rosetta stone — "Duck
+To-Go 1 $2.00 $21.00" → net $19.00 × 0.105 = $2.00, and "Salted Fish Dine-In 1 $4.85 $23.85" →
+the same net $19.00 × 0.255 = $4.85. Same dish, same $19.00 menu price, two tax treatments. Across
+the 365 rows whose rate is derivable, 209 sit at ~10.5% and 155 at ~25.5% (one outlier). And of the
+72 dishes sold BOTH ways in Jan–Jul 2026, **66 price identically**. So W16a's +15% dine-in re-created, as a price increase, the very service charge
+the owner had just retired.
+
+- **`lib/mode-price.ts` is deleted** (with its suite and `reorder-mode.test.ts`). The charged unit is
+  `base_price_cents` + the chosen modifiers' deltas, at the one `priceItem` seam — every add path
+  (diner, staff register, kiosk, reorder) inherits it. Every price DISPLAY reverts with it.
+- **The for-here↔to-go toggle is tax-only again.** A flip moves the routing tag and the per-line tax
+  (cold food is taxable dine-in, exempt to-go); it never re-prices. `setLineFulfillment` simply omits
+  `p_unit_price_cents` — the SQL fn's documented "leave the price alone" path (`coalesce(null,
+stored)`) — so **no migration is needed** and no signature changes. The optimistic client flip
+  drops its rescale preview for the same reason.
+- **Tax stays 10.5%** (owner-confirmed) and the service charge stays retired: `serviceChargeCents`
+  remains a constant 0 in the totals shape, and `lib/receipt-view.ts` keeps its `> 0`-gated
+  historical row + SB-1524 disclosure so pre-change orders still render their snapshot.
+- verify:slice: the 5 markup mutants are retired and 2 replace them — `order-lines/pos-price-marked-up`
+  (a factor grown back at the seam) and `cart/toggle-re-prices-the-line` (any price forwarded on a
+  flip). The staff mode-fork mutant survives with its real meaning: it guards the routing + tax fork,
+  not a price. `order-lines-price.test.ts` and `cart-toggle.test.ts` are rewritten against the
+  unfactored seam; the staff-cart fork assertions moved from the pricing call to the line's tag.
+
 ### W16d+e — the photos come back · bilingual breathing room (2026-08-15)
 
 **W16d — the missing dish photos.** The owner asked why dishes like Kyay-O had lost their photos.
@@ -93,6 +125,10 @@ Owner directive ("Ditch the language toggle and have bilingual only"):
   row; the bilingual group heading carries MY).
 
 ### W16a — no service charge · mode-derived prices · 10.5% tax (2026-08-15)
+
+> **Superseded by W17a (2026-08-16)** on the pricing half only: the mode markup below was reverted
+> to bare POS prices once the Zettle exports showed the 15% was the service charge, not a price
+> difference. The service-charge retirement and the 10.5% tax rate stand.
 
 The owner's money reset (closes C12 + C13): the 5% SB-1524 service charge is **retired**, and
 service margin moves into the prices themselves —

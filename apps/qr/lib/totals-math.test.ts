@@ -267,10 +267,9 @@ describe("invariant 3 — tax is on the DISCOUNTED TAXABLE base, pro-rated by ta
 
 describe("invariant 4 — the service charge is RETIRED (W16a)", () => {
   it("charges 0 service on every basket shape — restaurant, grocery, mixed, discounted", () => {
-    // The owner retired the 5% SB-1524 charge (2026-08-15): service now rides the MODE-PRICED unit
-    // prices (lib/mode-price.ts). The field stays in the shape for the SQL/webhook/snapshot
-    // contract — always 0 for new orders. A revived charge limb is a silent price increase, so
-    // every shape is pinned to 0 here.
+    // The owner retired the 5% SB-1524 charge (2026-08-15). The field stays in the shape for the
+    // SQL/webhook/snapshot contract — always 0 for new orders. A revived charge limb is a silent
+    // price increase, so every shape is pinned to 0 here.
     const shapes: TotalsLine[][] = [
       [line({ unitPriceCents: 10000 })],
       [line({ unitPriceCents: 4000, taxCents: 0, fulfillment: "grocery" })],
