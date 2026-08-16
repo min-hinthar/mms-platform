@@ -1859,6 +1859,19 @@ h3 {
   padding: 6px 0 0;
   margin: 0;
 }
+/* W21 — the receipt's destination heading (BillLines: "At your table" / "To-go" / "Grocery"),
+   rendered only when the basket spans 2+ destinations. The review sections' small-caps voice. */
+.checkout-bill-group {
+  margin: 10px 0 0;
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--t2);
+}
+.checkout-bill-group:first-child {
+  margin-top: 0;
+}
 .checkout-bill-line {
   display: flex;
   /* Review MED — `center` floated the price to the middle of the (always multi-line) name block;
@@ -4071,15 +4084,31 @@ html[data-seen-surface] .mms-stagger {
   scroll-snap-type: x proximity;
   -webkit-overflow-scrolling: touch;
 }
-.start-here-rail > li {
+/* W21 (owner: "same size and larger and maybe two rows?") — the two-row wall is a MODIFIER the
+   component adds only when it has the cards for it (>3): as the base style it gave a 1-heart
+   FavoritesRail a card-sized blank second row (review LOW — an fr row inherits the first row's
+   height). Uniform cells: rows share height, columns the fixed width, so no card runs ragged. */
+.start-here-rail-wall {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(2, 1fr);
+  grid-auto-columns: 158px;
+}
+.start-here-rail:not(.start-here-rail-wall) > li {
   flex: none;
+  width: 158px;
+}
+.start-here-rail > li {
   scroll-snap-align: start;
+  min-width: 0;
 }
 .start-here-card {
   position: relative; /* anchors the W20 rank seal */
   display: grid;
+  align-content: start;
   gap: 3px;
-  width: 132px;
+  width: 100%;
+  height: 100%;
   min-height: 44px;
   padding: 8px 8px 10px;
   text-align: left;
@@ -4200,6 +4229,76 @@ html[data-seen-surface] .mms-stagger {
 }
 .start-here-rail::-webkit-scrollbar {
   display: none;
+}
+
+/* ── W21 · the taste picker (TasteBand) ──────────────────────────────────────────────────────────
+   Craving chips: the vellum-ghost / lit-gold-cap selection vocabulary the pills already speak,
+   sized for a wrapping chip cloud. The results rail reuses .start-here-card wholesale. */
+.taste-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 2px 0 12px;
+}
+.taste-chip {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  min-height: 44px;
+  padding: 5px 12px;
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  text-align: left;
+  color: var(--t2);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--gold) 6%, var(--cd)), var(--cd));
+  border: 1px solid color-mix(in oklab, var(--gold) 26%, var(--bd));
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 var(--sheen);
+  transition:
+    border-color var(--dur-base) var(--ease-out),
+    background-color var(--dur-base) var(--ease-out),
+    color var(--dur-base) var(--ease-out);
+}
+@media (hover: hover) {
+  .taste-chip:hover {
+    border-color: color-mix(in oklab, var(--ac) 32%, var(--bd));
+    color: var(--tx);
+  }
+}
+.taste-chip-on {
+  background: var(--ac);
+  border-color: transparent;
+  color: var(--oa);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    0 0 14px -6px var(--glow-gold);
+}
+.taste-chip-my {
+  font-family: var(--font-my);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: inherit;
+  opacity: 0.85;
+}
+/* Surprise-me is an ACTION, not a toggle — the dashed affordance the reward field taught. */
+.taste-chip-surprise {
+  border-style: dashed;
+  border-color: color-mix(in oklab, var(--ac) 40%, var(--bd));
+  color: var(--ac);
+}
+/* The card's honesty line — why this dish is being offered. */
+.taste-why {
+  font-size: var(--fs-xs);
+  color: var(--t3);
+  line-height: 1.35;
+}
+@media (prefers-reduced-motion: reduce) {
+  .taste-chip {
+    transition: none;
+  }
 }
 
 /* ── J3 · Table timeline — the wait, narrated from real kitchen taps (docs/JOURNEY_PLAN.md) ───────────

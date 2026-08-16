@@ -4,6 +4,7 @@ import { CartPublisher } from "@/components/CartPublisher";
 import { MenuBrowser, type MenuItem } from "@/components/menu/MenuBrowser";
 import { requiredChoiceUnavailable, shapeModifierGroups } from "@/lib/menu/modifiers";
 import { getMostLoved } from "@/lib/menu/mostLoved";
+import { competitionRanks } from "@/lib/menu/rank";
 import { getWelcomeBack } from "@/lib/rewards";
 import { getFavoriteIds } from "@/lib/favorites";
 import { OutageRefresh } from "@/components/OutageRefresh";
@@ -108,7 +109,12 @@ export default async function Menu({
   const items: MenuItem[] = catalogStale ? (readLastGoodCatalog() ?? []) : shaped;
   if (!catalogStale) storeLastGoodCatalog(shaped);
 
-  const favoriteIds = (await mostLovedP).map((m) => m.menuItemId);
+  // W21 (Codex P2 on #191) — the seals' ordinals are computed from the COUNTS, tie-aware: two
+  // dishes the comparator left tied (same distinct orders AND qty) share a numeral instead of one
+  // being invented "No. 2" by insertion order.
+  const mostLoved = await mostLovedP;
+  const ranks = competitionRanks(mostLoved, (a, b) => a.orders === b.orders && a.qty === b.qty);
+  const favorites = mostLoved.map((m, i) => ({ id: m.menuItemId, rank: ranks[i]! }));
   const welcome = await welcomeP;
   const heartedIds = await heartedP;
 
@@ -126,7 +132,7 @@ export default async function Menu({
       <MenuBrowser
         items={items}
         mode={mode}
-        favoriteIds={favoriteIds}
+        favorites={favorites}
         heartedIds={heartedIds}
         welcome={welcome}
         reorderId={reorder ?? null}

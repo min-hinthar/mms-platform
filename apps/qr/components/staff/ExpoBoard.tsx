@@ -285,6 +285,19 @@ function ExpoCard({
           Pickup {formatSlotLong(ticket.pickupSlot)}
         </p>
       )}
+      {/* W21 — the pickup contact the checkout REQUIRED, finally readable where it's needed: a
+          tel: link so the counter phone dials in one tap. Staff-gated surface; never public. */}
+      {ticket.customerPhone && (
+        <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
+          <a
+            href={`tel:${ticket.customerPhone.replace(/[^0-9+]/g, "")}`}
+            style={{ color: "inherit", fontWeight: 700, minHeight: 44, display: "inline-block" }}
+          >
+            <span aria-hidden>☎ </span>
+            {ticket.customerPhone}
+          </a>
+        </p>
+      )}
       {/* W9d — the honest job description: the shopper already holds these items, so the counter's
           work is the exit-pass check, not bagging. */}
       {grocery && (

@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type MutableRefObject } from "react";
 import { setPickupAsap, setPickupSlot } from "@/lib/pickup";
 import { formatSlot, formatSlotLong } from "@/lib/pickupTime";
 import { PickupSlotSheet } from "./PickupSlotSheet";
@@ -25,6 +25,7 @@ export function PickupWhenChoice({
   asapAvailable,
   onStatus,
   onRevert,
+  writesRef,
 }: {
   cartId: string;
   prepMinutes: number;
@@ -44,6 +45,12 @@ export function PickupWhenChoice({
    *  prev captured mid-burst is the previous OPTIMISTIC value, not what the server holds, so a
    *  two-tap burst whose writes both failed used to settle the pill on a state nobody stored. */
   onRevert: () => void;
+  /** W21 (Codex P1 on #191) — the write chain lives in a ref the PARENT owns, because the parent's
+   *  continueToPayment must AWAIT it: create-intent locks the cart and reads fire_at, so a timing
+   *  write still in flight when the diner taps Pay would be refused as locked and payment would
+   *  proceed on the PREVIOUS server timing — an ASAP order snapping after the UI confirmed a
+   *  scheduled slot, or the reverse. */
+  writesRef: MutableRefObject<Promise<void>>;
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const asap = slot === null;
@@ -55,15 +62,28 @@ export function PickupWhenChoice({
   // while both answered ok). Chained, commit order = issue order, so the last ok write IS the
   // server's final state.
   const writeToken = useRef(0);
-  const writeChain = useRef<Promise<void>>(Promise.resolve());
+  // W21 (Codex P2 on #191) — the last value the SERVER is known to hold, kept locally so a failure
+  // can snap the pill back even when the authoritative re-read itself fails (refresh() swallows
+  // its own read errors, so relying on it alone left the optimistic value standing on a dead
+  // radio). Updated from the prop only while no write is in flight (mid-flight, the prop is the
+  // optimistic value — adopting it would launder a guess into "confirmed").
+  const pendingWrites = useRef(0);
+  const confirmedSlot = useRef(slot);
+  useEffect(() => {
+    if (pendingWrites.current === 0) confirmedSlot.current = slot;
+  }, [slot]);
 
   /** Enqueue one optimistic write: flip now, run after every earlier write, and let only the
    *  latest write's outcome speak — ok re-asserts the choice (a mid-flight refresh() may have
-   *  stomped the optimistic value with older server truth), a refusal re-reads server truth. */
+   *  stomped the optimistic value with older server truth), a refusal snaps back to the last
+   *  CONFIRMED value locally AND re-reads server truth as the belt. */
   function enqueue(next: string | null, write: () => Promise<void>) {
     onStatus(null); // single review live region — clear any prior message first
     onSlotChange(next); // INSTANT: the pill lights now
-    writeChain.current = writeChain.current.then(write);
+    pendingWrites.current += 1;
+    writesRef.current = writesRef.current.then(write).finally(() => {
+      pendingWrites.current -= 1;
+    });
   }
 
   function chooseAsap() {
@@ -77,12 +97,17 @@ export function PickupWhenChoice({
     enqueue(null, async () => {
       try {
         const r = await setPickupAsap(cartId);
-        if (token !== writeToken.current) return; // superseded — the newer write's outcome speaks
         if (r.ok) {
-          onSlotChange(null); // re-assert over any refresh() that raced the write
+          // Codex P2 — record EVERY successful write, superseded or not: the server holds this
+          // value now, and a later refusal's snap-back must land on it, not on the pre-burst
+          // state. Only the UI/status below is token-gated.
+          confirmedSlot.current = null;
+          if (token === writeToken.current) onSlotChange(null); // re-assert over a raced refresh()
           return;
         }
-        onRevert(); // refused — back to server truth, never a captured prev
+        if (token !== writeToken.current) return; // superseded — the newer write's outcome speaks
+        onSlotChange(confirmedSlot.current); // instant local snap-back, even with no radio
+        onRevert(); // …and the authoritative re-read as the belt
         onStatus(
           r.reason === "cart_closed"
             ? "This order is already being paid."
@@ -92,6 +117,7 @@ export function PickupWhenChoice({
         );
       } catch {
         if (token !== writeToken.current) return;
+        onSlotChange(confirmedSlot.current);
         onRevert();
         onStatus("Couldn’t switch to ASAP — check your connection and try again.");
       }
@@ -106,11 +132,14 @@ export function PickupWhenChoice({
     enqueue(next, async () => {
       try {
         const r = await setPickupSlot(cartId, next);
-        if (token !== writeToken.current) return;
         if (r.ok) {
-          onSlotChange(next); // re-assert over any refresh() that raced the write
+          // Codex P2 — every successful write updates the confirmed value (see chooseAsap).
+          confirmedSlot.current = next;
+          if (token === writeToken.current) onSlotChange(next); // re-assert over a raced refresh()
           return;
         }
+        if (token !== writeToken.current) return;
+        onSlotChange(confirmedSlot.current);
         onRevert();
         onStatus(
           r.reason === "unavailable"
@@ -119,6 +148,7 @@ export function PickupWhenChoice({
         );
       } catch {
         if (token !== writeToken.current) return;
+        onSlotChange(confirmedSlot.current);
         onRevert();
         onStatus("Couldn’t set that time — check your connection and try again.");
       }

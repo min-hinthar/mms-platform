@@ -34,7 +34,7 @@ export const CART = {
   // (W18 register note — owner: "Burmese should be fun, friendly, natural": guest-facing MY moved
   // to the conversational-polite spoken register (တယ်/မယ်/ပါနော်) a friendly server actually uses,
   // away from formal-document သည်/မည် endings. Still pending Min's native check — K15.)
-  sendToKitchen: { en: "Send to kitchen", my: "မီးဖိုဆီ ပို့လိုက်မယ်" },
+  sendToKitchen: { en: "Send to kitchen", my: "မီးဖိုချောင်ဆီ ပို့လိုက်မယ်" },
   viewBillAndPay: { en: "View bill & pay", my: "ဘောက်ချာကြည့်ပြီး ရှင်းမယ်" },
   pay: { en: "Pay", my: "ရှင်းမယ်" },
   placeOrder: { en: "Place order", my: "အော်ဒါ တင်မယ်" }, // v7.2 (glossary-adapted)
@@ -43,7 +43,7 @@ export const CART = {
   sending: { en: "Sending…", my: "ပို့နေပါတယ်…" },
   orderWithKitchen: {
     en: "Your order’s with the kitchen.",
-    my: "သင့်အော်ဒါ မီးဖိုထဲ ရောက်နေပါပြီနော်",
+    my: "သင့်အော်ဒါ မီးဖိုချောင်ထဲ ရောက်နေပါပြီနော်",
   },
   countItem: { en: "item", my: "ခု" },
   countItems: { en: "items", my: "ခု" },

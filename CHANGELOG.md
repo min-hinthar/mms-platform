@@ -4,6 +4,97 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W21c — the design language, written down (2026-08-16)
+
+Owner: _"with insights and design thinking UI/UX preferences from start to W21, update repo docs,
+readme, claude, and propose next level improvements."_ New `docs/DESIGN-LANGUAGE.md` distills the
+as-built doctrine (selection vocabulary, motion idioms, the optimistic doctrine, honesty rules,
+bilingual + a11y + receipt-language money surfaces); `docs/W22_DESIGN_PROPOSAL.md` proposes the
+next-level slate (depth & ceremony ⭐ → installed-native PWA + live order chip → gesture layer →
+designed Night → honest personalization → opt-in sound); README gains the design section +
+links; CLAUDE.md points every future visual/motion/copy change at the doctrine first.
+
+### W21b — review round: Codex joins the gate (2026-08-16)
+
+The owner: _"why codex reviews not taken into account after PR pulls?"_ Root cause: Codex only
+fires when a PR leaves draft, and the flow marked-ready-and-squashed in one breath — #191's four
+findings (all real) landed five minutes after the merge, unread. The rule is now in CLAUDE.md
+(`@codex review` on the draft at open; fix-or-justify every finding before merge). This round
+folds BOTH reviewers' findings in:
+
+- **Codex #191 P1 — payment could race a pending pickup-timing write.** The write chain now lives
+  in a ref Checkout owns and `continueToPayment` drains it before minting the intent (a queued
+  write refused as locked would otherwise leave payment on the previous server timing).
+- **Codex #191 P1 — checkout navigation could race a pending add.** The provider tracks every
+  in-flight add/setItemQty and exposes `settled()`; the CartBar drains it before navigating (an
+  optimistic add exposed the bar while create-intent could lock the cart first, refusing an item
+  the toast had announced). Resolves instantly when nothing is pending.
+- **Codex #191 P2 — a failed revert could strand the optimistic pill.** PickupWhenChoice keeps the
+  last CONFIRMED server slot locally and snaps back to it on refusal even when the authoritative
+  re-read itself fails (refresh() swallows read errors by design).
+- **Codex #191 P2 — rank seals invented an order for ties.** `competitionRanks` (pure + tested):
+  tied dishes share a numeral (1, 2, 2, 4), computed from the counts in the page, not array position.
+- **Codex #192 P1 / review LOW — the pay itemization binds to the LOCKED cart** (refresh after
+  create-intent locks; post-lock staff edits stay visible and the webhook reconcile refuses a
+  mismatched charge).
+- **Codex #192 P2 / review LOW — the pickup contact write is load-bearing**: verified with
+  `.select("id")`, refusing the payment (releasing the lock) when nothing wrote — a charge without
+  the stored phone defeats the requirement. Scango's optional name keeps its non-fatal stance.
+- **Codex #192 P2 / review MED — the phone finally has a reader**: the expo board joins
+  `qr_orders.cart_id → qr_carts.customer_phone` (fourth bounded staff-gated read) and renders a
+  one-tap tel: link on pickup tickets.
+- **Review MED — `openSettlement` gates by session MODE** (dine-in only, fail-closed): the split is
+  a directly-POSTable second charge boundary that skipped create-intent's pickup slot/contact
+  gates — a solo pickup diner IS their session's host. Pinned by three new tests.
+- **Review LOWs**: taste empty-state advice was algorithmically backwards ("fewer" → "different"
+  cravings, matching is OR); chips renamed to their literal rules ("Noodles, rice & soups",
+  "Salads & veggies"); `surpriseMe` clamps a full-range rng; the surprise row re-derives by id
+  against the live catalog (no stale sold-out cards); the two-row Start-here wall is now an opt-in
+  modifier (>3 cards) so a one-heart FavoritesRail doesn't render a blank second row; the SQL
+  test gains the 21-char upper-bound probe; the merged exit line restores "the table stays open
+  for everyone else"; a single-group bill announces as "Your bill" again.
+
+### W21 — clarity & personalization (2026-08-16)
+
+The owner's batch, verbatim: _"cart bill and also final pay total bill (stripe checkout) should
+organize dine-in and take-out items for clarity, Sales Tax (10.5%) properly formatted, kitchen is
+မီးဖိုချောင်, pickup time slot still focus on soonest after selection. pickup should need name name
+and phone numbe. Start here cards should be same size and larger and maybe two rows? how about a
+personalizble/customizable recommendations section …? back to start and leave this table is
+redundant?"_
+
+- **The bill organizes by destination.** One shared renderer (`BillLines`) groups receipt rows into
+  "At your table" / "To-go" / "Grocery" (headings only when the basket really spans 2+), on the Bill
+  moment AND the pay step — which previously showed only totals: the diner confirmed a charge with
+  no itemization on the very screen that takes the card. Section labels live once (`BILL_GROUPS`),
+  shared with the editing cards.
+- **"Sales tax (10.5%)" formats correctly.** The receipt row's `dt` is a flex container, which
+  DROPS whitespace-only children — the note's `{" "}` gap vanished and rendered "Sales tax(10.5%)"
+  fused. The gap is now a margin (the exact trap already documented on `<My/>`).
+- **Kitchen is မီးဖိုချောင်** — 12 strings swept from မီးဖို (stove) per the owner's correction; K15
+  still owns the native check.
+- **The slot sheet lands ON your pick.** W20 scrolled the selected chip into view but the dialog's
+  auto-focus still parked on the first chip (the earliest = Soonest). Once per open, real focus
+  moves to the diner's chip (announcing "Your current time, …"); day-browsing is never yanked back.
+- **Pickup requires a name and phone.** New pure gate `pickupContactMissing`
+  (lib/pickup-contact.ts — shape + a ≥7-digit floor, mutant `pickup-contact/digit-floor-dropped`
+  watched red first) runs at create-intent (refused BEFORE any slot capacity is consumed) and
+  client-side (instant message + focus to the missing field). Phone stored on the cart only
+  (`qr_carts.customer_phone`, CHECK-mirrored, migration `20260816070000`; SQL test
+  `pickup_phone_bound_test.sql` in CI's required list) — PII: never analytics, no order snapshot
+  until a staff surface reads it. Prefilled per-device like the name; scango keeps its optional
+  call-out (nothing to phone a walk-out about).
+- **Start here: uniform, larger, two rows.** The rail is a two-row horizontal grid of equal 158px
+  cells (was one ragged 132px strip); photos upsized.
+- **Find your dish — the taste picker.** Craving chips (🍜🍛🦐🥗🌶🌱🍳🧁, bilingual) →
+  a recommendation rail where every card SAYS the literal category/tag rule it matched
+  (lib/menu/taste.ts, pure + tested; keyword category matching so a rename can't kill a chip), plus
+  "✨ Surprise me" (random in-stock picks excluding the diner's own hearts, framed as "How about
+  this?" — never a fabricated affinity). Picks persist per-device and are editable any time; an
+  empty match answers honestly instead of padding with fillers.
+- **One exit line, two distinct doors.** The dine-in arrival beat's two stacked door-picker links
+  merged: "Back to the start keeps your table · Leave this table frees it on this phone."
+
 ### W20 — alive & instant: optimistic UX, reactions, honest leaves (2026-08-16)
 
 The owner's batch, verbatim: _"unleash creativity and imagination: Buttons, options, selections,

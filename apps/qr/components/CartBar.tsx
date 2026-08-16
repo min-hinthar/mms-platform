@@ -20,7 +20,9 @@ let cartBarSprung = false;
 export function CartBar() {
   const router = useRouter(); // prefetch only — the navigation itself rides the journey grammar below
   const journey = useJourneyRouter(); // J1: menu→cart is a FORWARD cut; the total morphs into the checkout hero
-  const { count, totals, cartId } = useCart();
+  const { count, totals, cartId, settled } = useCart();
+  // W21 (Codex P1 on #191) — one navigation at a time while the drain runs (see onClick).
+  const [leaving, setLeaving] = useState(false);
   // Captured once per mount, BEFORE the effect below marks the spring spent — a remount while
   // the flag is already set renders without the entrance class.
   const [springIn] = useState(() => !cartBarSprung);
@@ -40,7 +42,21 @@ export function CartBar() {
   return (
     <button
       type="button"
-      onClick={() => journey.push(href)}
+      // W21 (Codex P1 on #191) — drain in-flight adds BEFORE navigating: the optimistic count
+      // shows this bar while an add may still be in flight, and /cart's create-intent locks the
+      // cart — racing it could refuse an item the toast just announced (and pickup Checkout's
+      // initial read could miss an add that commits a beat later). settled() resolves immediately
+      // when nothing is pending, so the ordinary tap stays instant; aria-busy narrates the rare
+      // drain beat.
+      aria-busy={leaving || undefined}
+      onClick={() => {
+        if (leaving) return;
+        setLeaving(true);
+        void settled().finally(() => {
+          setLeaving(false);
+          journey.push(href);
+        });
+      }}
       onPointerEnter={() => router.prefetch(href)}
       aria-label={`View order — ${count} ${count === 1 ? "item" : "items"}, subtotal ${dollars}`}
       // W13 — the bar springs up on its FIRST appearance this visit (v7.2 .cartbar). Token

@@ -48,6 +48,10 @@ One Turborepo monorepo for the whole Mandalay Morning Star ordering surface — 
 
 The QR app is the productionization of the **v7.2 prototype** (graded ≈4.3/5 against a 10-dimension world-class rubric, hardened across four parallel red-teams). Design language: **editorial-forward light + “v4 Night” dark**, bilingual EN/Burmese, focus-managed accessibility, SB-1524 transparency.
 
+### 🎨 Design language (as-built, M1 → W21)
+
+The doctrine fourteen build/review arcs proved out lives in [`docs/DESIGN-LANGUAGE.md`](docs/DESIGN-LANGUAGE.md) — the warm editorial-paper aesthetic, the lit-gold **selection vocabulary** shared by every chip/pill/seal, the motion idiom kit (`mms-pop` / `mms-rise` / `mms-stagger`, all reduced-motion-escorted), the **optimistic-UX doctrine** (instant flip · serialized background writes · revert-to-confirmed · drain-before-charging · amounts never optimistic), hard **honesty rules** (rank seals only from real paid-order counts, tie-aware; recommendations state the literal rule they matched; copy promises only what the code keeps), always-bilingual EN + Burmese on one surface, and receipt-language money surfaces. Next-level slate: [`docs/W22_DESIGN_PROPOSAL.md`](docs/W22_DESIGN_PROPOSAL.md) — the iOS/Anthropic-grade depth-and-ceremony pass, the installed-native PWA + live order chip, the gesture layer, designed Night mode, honest personalization, and an opt-in sound identity.
+
 ## 🏗 Architecture
 
 ```mermaid
@@ -179,7 +183,7 @@ Server-authoritative pricing (no client-trusted amounts) · Supabase **RLS** on 
 
 ## 📚 Docs index
 
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · [`docs/GROCERY_SCANGO.md`](docs/GROCERY_SCANGO.md) · [`docs/REVIEW.md`](docs/REVIEW.md) · [`docs/WORKFLOW.md`](docs/WORKFLOW.md) · [`ROADMAP.md`](ROADMAP.md) · [`CHANGELOG.md`](CHANGELOG.md)
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · [`docs/DESIGN-LANGUAGE.md`](docs/DESIGN-LANGUAGE.md) · [`docs/W22_DESIGN_PROPOSAL.md`](docs/W22_DESIGN_PROPOSAL.md) · [`docs/GROCERY_SCANGO.md`](docs/GROCERY_SCANGO.md) · [`docs/REVIEW.md`](docs/REVIEW.md) · [`docs/WORKFLOW.md`](docs/WORKFLOW.md) · [`ROADMAP.md`](ROADMAP.md) · [`CHANGELOG.md`](CHANGELOG.md)
 
 ## 📄 License
 

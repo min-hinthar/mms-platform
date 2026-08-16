@@ -46,7 +46,12 @@ export function StartHereBand({
           {dataBacked ? "what tables love" : "our picks to start"}
         </span>
       </h2>
-      <Rail as="ul" role="list" className="start-here-rail" aria-labelledby="start-here-h">
+      <Rail
+        as="ul"
+        role="list"
+        className={`start-here-rail${items.length > 3 ? " start-here-rail-wall" : ""}`}
+        aria-labelledby="start-here-h"
+      >
         {items.map(({ item: i, rank }) => (
           <li key={i.id}>
             <button type="button" className="start-here-card" onClick={() => onSelect(i)}>
@@ -75,9 +80,9 @@ export function StartHereBand({
                 <BlurUpImage
                   src={i.image_url}
                   alt=""
-                  width={128}
-                  height={88}
-                  sizes="128px"
+                  width={160}
+                  height={110}
+                  sizes="160px"
                   fallback={<PhotoPlaceholder category={i.category} />}
                 />
               </span>

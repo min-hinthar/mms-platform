@@ -138,6 +138,11 @@ export const createIntentInput = z.object({
   // (mirrors the qr_carts.customer_name CHECK); persisted on the CART then snapshotted to the order
   // at fulfillment — never rendered anywhere money-bearing, and never sent to analytics (PII).
   firstName: z.string().trim().max(40).optional(),
+  // W21 (owner: "pickup should need name and phone number") — the pickup contact phone. This bound
+  // is only the transport rail; the REAL rule (shape + ≥7 digits, and required-ness on pickup) is
+  // `pickupContactMissing` in apps/qr/lib/pickup-contact.ts, run by create-intent, with the
+  // qr_carts.customer_phone column CHECK as the DB belt. PII: cart column only, never analytics.
+  phone: z.string().trim().max(20).optional(),
 });
 
 /**

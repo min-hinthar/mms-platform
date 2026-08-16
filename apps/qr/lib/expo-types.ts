@@ -30,6 +30,10 @@ export type ExpoTicket = {
   /** W3e: the first name captured at pickup/scango checkout — expo finally has something to call out.
    *  Null when the diner skipped it (the short code is the fallback call-out). */
   customerName: string | null;
+  /** W21: the pickup contact phone (required at a pickup checkout; cart-side, joined via cart_id) —
+   *  so the counter can actually reach the diner the checkout promised we could. Null on scango /
+   *  dine-in to-go bags (never asked) and on orders that predate the requirement. Staff eyes only. */
+  customerPhone: string | null;
   /** The short order code (#A1B2C3, uuid tail) — matches the diner's /track + exit pass. */
   shortCode: string;
   status: "preparing" | "ready";

@@ -7,6 +7,7 @@ import { createIntentInput } from "@mms/db/schemas";
 import { getStripe } from "@/lib/stripe";
 import { getCartTotals } from "@/lib/totals";
 import { tipWithinAmountCap } from "@/lib/tip";
+import { pickupContactMissing } from "@/lib/pickup-contact";
 import { assertCartMember, AuthzError } from "@/lib/authz";
 import { withinMutationRate } from "@/lib/rate";
 import { acquireCartLock, releaseCartLock } from "@/lib/lock";
@@ -17,7 +18,7 @@ import { getPostHogClient } from "@/lib/posthog-server";
 export async function POST(req: NextRequest) {
   let acquired: { cartId: string; uid: string } | null = null;
   try {
-    const { cartId, tipRate, firstName } = createIntentInput.parse(await req.json());
+    const { cartId, tipRate, firstName, phone } = createIntentInput.parse(await req.json());
 
     // C3: only a verified member of this cart's session may mint its PaymentIntent.
     const { sessionId, uid, settling } = await assertCartMember(cartId);
@@ -61,16 +62,45 @@ export async function POST(req: NextRequest) {
     //     capacity, only within open hours / while capacity remains) and fires now (fire_at=null). If the
     //     kitchen is closed or fully booked, ASAP is refused — never take a paid order we can't fulfill.
     const db = serviceClient();
-    const { data: sess } = await db
+    // W21 (Codex P1 on #192) — the mode read FAILS CLOSED: every mode-keyed gate below (the W5e
+    // pickup slot/ASAP honesty checks AND the W21 contact requirement) hangs off `sess`, so a
+    // dropped read error used to let a pickup order charge as if it were scango — no slot
+    // validated, no contact stored. An unreadable session refuses the payment instead.
+    const { data: sess, error: sessErr } = await db
       .from("table_sessions")
       .select("mode")
       .eq("id", sessionId)
       .single();
+    if (sessErr || !sess) {
+      if (sessErr) console.error("[create-intent] session mode read failed:", sessErr.message);
+      await releaseCartLock(cartId, uid);
+      return NextResponse.json(
+        { error: "Couldn’t start checkout — please try again." },
+        { status: 500 },
+      );
+    }
     // W5g: the timing the diner actually committed to at the pay boundary — 'scheduled' (a slot they
     // picked) or 'asap' (server-snapped now). Emitted as ONE event below that BOTH paths hit, so the
     // pickup funnel isn't blind to the default-ASAP path (which fires no client-side timing event).
     let pickupWhen: "asap" | "scheduled" | undefined;
     if (sess?.mode === "pickup") {
+      // W21 (owner: "pickup should need name and phone number") — the contact gate, HERE at the
+      // charge boundary so a raw POST can't skip it (the client runs the same pure predicate for
+      // instant feedback). Refused BEFORE any slot state is consumed: an ASAP snap must not spend
+      // capacity for a payment this response is about to refuse.
+      const contactMissing = pickupContactMissing(firstName ?? "", phone ?? "");
+      if (contactMissing) {
+        await releaseCartLock(cartId, uid);
+        return NextResponse.json(
+          {
+            error:
+              contactMissing === "name"
+                ? "Add a first name for pickup — we need someone to call."
+                : "Add a phone number for pickup — we’ll only use it about this order.",
+          },
+          { status: 400 },
+        );
+      }
       const { data: cart } = await db
         .from("qr_carts")
         .select("pickup_slot,fire_at")
@@ -138,7 +168,34 @@ export async function POST(req: NextRequest) {
     // session read must fail to no-name, never fail-open onto a table order. An empty string CLEARS
     // (the diner deleted the field on a retry — a stale name must not keep getting called out).
     // Non-fatal: a name write must never block a payment.
-    if (firstName !== undefined && (sess?.mode === "pickup" || sess?.mode === "scango")) {
+    if (sess?.mode === "pickup") {
+      // W21 (Codex P2 on #192) — the pickup contact write is LOAD-BEARING, not best-effort: the
+      // contact is required precisely so staff can reach the diner, so a charge without it stored
+      // defeats the requirement. `.select("id")` verifies a row actually changed (the repo's
+      // `.update()` returns no row count rule) — a transient failure, a CHECK refusal (belt vs
+      // predicate drift), or a no-longer-open cart all refuse the payment honestly here instead
+      // of minting a PI for an uncontactable order.
+      const { data: contactRows, error: contactErr } = await db
+        .from("qr_carts")
+        .update({
+          customer_name: firstName || null,
+          customer_phone: (phone ?? "").trim() || null,
+        })
+        .eq("id", cartId)
+        .eq("status", "open")
+        .select("id");
+      if (contactErr || !contactRows?.length) {
+        if (contactErr)
+          console.error("[create-intent] pickup contact write failed:", contactErr.message);
+        await releaseCartLock(cartId, uid);
+        return NextResponse.json(
+          { error: "Couldn’t save your pickup contact — please try again." },
+          { status: 400 },
+        );
+      }
+    } else if (firstName !== undefined && sess?.mode === "scango") {
+      // W3e — scango's OPTIONAL call-out name keeps the original non-fatal stance (an empty string
+      // clears a stale name; a name write must never block a walk-out payment).
       const { error: nameErr } = await db
         .from("qr_carts")
         .update({ customer_name: firstName || null })

@@ -134,15 +134,15 @@ export function TimelineStrip({
       ? "ချက်နေပါပြီနော်"
       : sent.length > 0
         ? isNextRound
-          ? "နောက်တစ်လှည့် မီးဖိုထဲ ရောက်နေပါပြီ"
-          : "မီးဖိုထဲ ရောက်နေပါပြီနော်"
+          ? "နောက်တစ်လှည့် မီးဖိုချောင်ထဲ ရောက်နေပါပြီ"
+          : "မီးဖိုချောင်ထဲ ရောက်နေပါပြီနော်"
         : "အားလုံး ရောက်ပါပြီ — သုံးဆောင်ပါနော်";
 
   // W18 — the per-dish rows behind the tap. State word per line, in kitchen order (cooking first —
   // it's the live tap — then queued, then done), qty on the name the way the kitchen reads it.
   const STATE_ROWS: [label: string, my: string, dotVar: string, lines: CartItem[]][] = [
     ["Being made", "ချက်နေပါတယ်", "var(--ac)", cooking],
-    ["With the kitchen", "မီးဖိုထဲမှာပါ", "var(--t3)", sent],
+    ["With the kitchen", "မီးဖိုချောင်ထဲမှာပါ", "var(--t3)", sent],
     ["Served", "ရောက်ပါပြီ", "var(--ok)", served],
   ];
 
