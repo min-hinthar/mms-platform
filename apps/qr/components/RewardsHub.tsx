@@ -221,7 +221,7 @@ export function RewardsHub({ state }: { state: RewardsState }) {
             ))}
           </ul>
           <p style={{ margin: "10px 0 0", fontSize: "var(--fs-sm)", color: "var(--t3)" }}>
-            Apply a reward at checkout — tap “Use a reward” on your order.
+            Apply a reward at checkout — it’s waiting for you on your order.
           </p>
         </Card>
       )}

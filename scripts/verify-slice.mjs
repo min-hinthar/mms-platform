@@ -342,30 +342,8 @@ const MUTANTS = [
     find: "export const TIP_LADDER = [0.15, 0.2, 0.3] as const;",
     replace: "export const TIP_LADDER = [0.15, 0.2, 0.25] as const;",
   },
-  {
-    id: "tip/round-up-rate-frozen-instead-of-derived",
-    file: "apps/qr/lib/tip.ts",
-    suite: "lib/tip.test.ts",
-    why: "W17c review HIGH — the round-up's rate DEPENDS ON THE BASKET, so reading the stored preset instead of the live offer desyncs it from the total it names the moment the cart moves (a promo lands, a peer edits the group cart): the diner is charged a tip that rounds to nothing, with no chip lit to show a tip is even active. Percentages never exposed this because 18% is 18% whatever the basket does",
-    find: "  if (s.roundUpOn) return s.roundUp?.rate ?? 0;",
-    replace: "  if (s.roundUpOn) return s.presetRate;",
-  },
-  {
-    id: "tip/round-up-fires-on-a-whole-total",
-    file: "apps/qr/lib/tip.ts",
-    suite: "lib/tip.test.ts",
-    why: "W17c — on an already-whole total there is nothing to round, so dropping the guard makes 'Round up' silently mean 'add a whole dollar': a different, larger ask wearing the round-up's label",
-    find: "  if (remainder === 0) return null;",
-    replace: "",
-  },
-  {
-    id: "tip/round-up-ignores-the-rate-cap",
-    file: "apps/qr/lib/tip.ts",
-    suite: "lib/tip.test.ts",
-    why: "W17c — a tiny basket wants a round-up above the cap (a $1.10 due needs 90 cents on a $1.00 base = 90%); offering it turns a server bound into a failed payment at the last tap",
-    find: "  if (rate > TIP_RATE_MAX) return null;",
-    replace: "",
-  },
+  // (W18: the three round-up mutants retired WITH their feature — owner: "never capped or round
+  //  up". The frozen-rate lesson they guarded is recorded in CLAUDE.md's money-path rules.)
   // ── W17b — the price editor: the ONE human-entered amount in the app ────────────────────────────
   {
     id: "menu-price/role-floor-drops-to-server",

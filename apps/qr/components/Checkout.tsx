@@ -23,7 +23,7 @@ import {
 } from "@/lib/cart";
 import type { SplitContext } from "@/lib/split";
 import { canMutateLine } from "@/lib/permissions";
-import { effectiveTipRate as deriveTipRate, roundUpTip, tipPresets } from "@/lib/tip";
+import { effectiveTipRate as deriveTipRate, tipPresets } from "@/lib/tip";
 import { menuHref, menuLinkText } from "@/lib/menu-href";
 import { DINER_STATE_COPY } from "@/lib/line-state-copy";
 import { seatColor, seatInitial } from "@/lib/avatars";
@@ -234,11 +234,8 @@ export function Checkout({
   // webhook-reconciled, the client never sends an amount.
   const [customTipOpen, setCustomTipOpen] = useState(false);
   const [customTip, setCustomTip] = useState("");
-  // W17c — round-up is a CHOICE, not a rate: its rate depends on the basket, so freezing the number
-  // the way a percentage preset can be frozen would silently desync it from the total it names the
-  // moment the cart moves (a promo, a qty edit, a group peer's edit). Same shape as the custom tip
-  // above — store the intent, derive the rate during render from the CURRENT numbers.
-  const [roundUpOn, setRoundUpOn] = useState(false);
+  // (W18: the round-up chip is retired — owner: "never capped or round up". Its derive-don't-store
+  // lesson lives on in lib/tip.ts and CLAUDE.md.)
   const customTipRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (customTipOpen) customTipRef.current?.focus();
@@ -257,20 +254,11 @@ export function Checkout({
   // Forced 0 on a pure-grocery basket so a lingering custom-tip state can't send a rate the server would
   // discard (defense-in-depth — the server also force-zeros grocery tips).
   const tipNet = totals.subtotalCents - totals.discountCents;
-  // W17c — the round-up offer for the CURRENT cart. Null when there is nothing honest to round (the
-  // total is already whole, or the round-up would exceed the server's rate cap), in which case the
-  // choice cannot be active either: `roundUpActive` is what the UI and the charge both read, so the
-  // pressed chip always matches the amount that will actually be charged.
-  const roundUp = pureGrocery ? null : roundUpTip(tipNet, totals.totalCents);
-  const roundUpActive = roundUpOn && roundUp != null;
-  // The decision itself lives in lib/tip.ts (pure, mutant-pinned) — see effectiveTipRate's note on
-  // why the round-up rate must be DERIVED here rather than stored when the diner taps.
+  // The decision itself lives in lib/tip.ts (pure, mutant-pinned).
   const effectiveTipRate = deriveTipRate({
     pureGrocery,
     customTipOpen,
     customRate: customTipRateFromDollars(customTip, tipNet),
-    roundUpOn,
-    roundUp,
     presetRate: tipRate,
   });
   const [step, setStep] = useState<"review" | "pay">("review");
@@ -802,9 +790,11 @@ export function Checkout({
     Math.round((totals.subtotalCents - totals.discountCents) * rate);
   // W17c — the chips for THIS basket. A pure function of the server's own number (`tipNet` is
   // subtotal − discount, the tip base), so the ask moves with the cart and never invents one.
+  // W18 (owner: "none is not encouraged lol") — the percentages LEAD and "None" sits LAST: still one
+  // honest tap away, never hidden, but no longer the first thing the ask offers.
   const presetChips: [label: string, rate: number][] = [
-    ["None", 0],
     ...tipPresets(tipNet).map((p): [string, number] => [p.label, p.rate]),
+    ["None", 0],
   ];
 
   // `pureGrocery`/`effectiveTipRate` are computed at the top (before the empty-cart return). The preview
@@ -835,19 +825,9 @@ export function Checkout({
   function selectPresetTip(rate: number) {
     setCustomTipOpen(false);
     setCustomTip("");
-    setRoundUpOn(false);
     setTipRate(rate);
   }
-  // W17c — the round-up records the CHOICE; the rate is derived during render from the live total,
-  // so it can never name one destination and charge for another.
-  function selectRoundUp() {
-    setCustomTipOpen(false);
-    setCustomTip("");
-    setTipRate(0);
-    setRoundUpOn(true);
-  }
   function openCustomTip() {
-    setRoundUpOn(false);
     setCustomTipOpen(true); // the effective rate derives from `customTip` (empty ⇒ 0) while open
   }
   function onCustomTipChange(raw: string) {
@@ -1015,6 +995,23 @@ export function Checkout({
               </p>
             )}
             {showLineCards && <TimelineStrip items={viewItems} menuMode={sessionMode} />}
+            {/* W18 (owner: "Your order page needs page navigation buttons?") — the way back to
+                adding food, ON the order view instead of only on the empty state. The EN label is
+                mode-true (menu vs market vs door picker — menuLinkText, same rule as the empty
+                state's CTA); `.nav-link` (quiet 44px), never a filled pill that would compete with
+                Send/Pay below. Hidden while a peer's pay-window lock has the cart frozen — an
+                invitation to add is the wrong sign on a cart that can't take one. */}
+            {showLineCards && !lockedByPeer && (
+              <p style={{ margin: "2px 0 8px" }}>
+                <Link href={menuHref(sessionMode)} className="nav-link">
+                  <span aria-hidden className="nav-arrow nav-arrow-back">
+                    ←
+                  </span>{" "}
+                  {menuLinkText(sessionMode, "browse")}
+                  <My k="addMore" size="var(--fs-xs)" color="var(--t3)" />
+                </Link>
+              </p>
+            )}
             {/* S4 unified basket: group lines by destination (At your table / To-go / Grocery). Headings
               show only when the basket actually spans 2+ destinations, so a plain dine-in cart stays clean.
               The renderLine body is the S2 per-line card + an S4 for-here/to-go toggle on editable food.
@@ -1540,10 +1537,17 @@ export function Checkout({
                     ABOVE this ask — moving it below would re-open the F9 double-ask arm W2d closed
                     (see the fees-before-tip comment). */}
                 {/* --fs-h3 (17), not the prototype's raw 15px — copy verbatim, size from the scale. */}
-                <h3 id="tip-h" style={{ fontSize: "var(--fs-h3)", margin: "16px 0 6px" }}>
+                <h3 id="tip-h" style={{ fontSize: "var(--fs-h3)", margin: "16px 0 2px" }}>
                   {T("addATip")}
                   <My k="addATip" size="var(--fs-sm)" />
                 </h3>
+                {/* W18 (owner: "tip ask should be fun and encourage!") — say where it goes, warmly.
+                    TRUE for this surface: a phone payment's tip lands in the shared team bucket
+                    (W17c-4). Plain text, not a live region — ambient, said once. */}
+                <p style={{ margin: "0 0 8px", fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
+                  {T("tipGoesToTeam")}
+                  <My k="tipGoesToTeam" color="var(--t3)" />
+                </p>
                 {/* W16b — the tip CHIPS stay EN-only by design (the one deliberate exception): five
                     chips already share a 320px row, each with a preview subline; the bilingual
                     heading above carries MY for the whole labelled group. */}
@@ -1553,8 +1557,11 @@ export function Checkout({
                   style={{ display: "flex", gap: 8, margin: "0 0 4px" }}
                 >
                   {presetChips.map(([label, rate]) => {
-                    const on = !customTipOpen && !roundUpActive && tipRate === rate;
+                    const on = !customTipOpen && tipRate === rate;
                     const previewCents = tipPreview(rate);
+                    // W18 — "None" sits LAST and QUIET (owner: "none is not encouraged lol"): same
+                    // tap target, same honesty, muted ink and no bold — an exit, not an offer.
+                    const isNone = rate === 0;
                     return (
                       <button
                         key={rate}
@@ -1568,10 +1575,11 @@ export function Checkout({
                         className="checkout-tip"
                         style={{
                           ...tipChipStyle(on),
+                          ...(isNone && !on ? { color: "var(--t3)", fontWeight: 600 } : null),
                           ...(lockedByPeer ? { opacity: 0.55 } : null),
                         }}
                       >
-                        {rate === 0 ? T("noTip") : label}
+                        {isNone ? T("noTip") : label}
                         <small style={tipChipSmall(on)}>
                           {rate ? `$${(previewCents / 100).toFixed(2)}` : "—"}
                         </small>
@@ -1604,37 +1612,20 @@ export function Checkout({
                     </small>
                   </button>
                 </div>
-                {/* W17c — the round-up, on its OWN row rather than as a sixth chip: the chip row is
-                    already five wide at 320px, and this offer needs to NAME its destination total to
-                    be honest ("Round up to $36.00" + the exact cents it adds). It is part of the
-                    same labelled tip group, so it needs no second heading and no live region. Absent
-                    entirely when there is nothing to round (already whole, or over the rate cap). */}
-                {roundUp && (
-                  <button
-                    type="button"
-                    aria-pressed={roundUpActive}
-                    aria-disabled={lockedByPeer || undefined}
-                    onClick={() => {
-                      if (lockedByPeer) return;
-                      selectRoundUp();
-                    }}
-                    className="checkout-tip"
+                {/* W18 — a thank-you the moment a tip is on. Ambient plain text (never a live
+                    region — this view keeps its one), true only while the charge will carry it. */}
+                {effectiveTipRate > 0 && tipPreviewCents > 0 && (
+                  <p
                     style={{
-                      ...tipChipStyle(roundUpActive),
-                      ...(lockedByPeer ? { opacity: 0.55 } : null),
-                      width: "100%",
                       margin: "0 0 4px",
-                      flexDirection: "row",
-                      justifyContent: "space-between",
-                      gap: 8,
+                      fontSize: "var(--fs-sm)",
+                      color: "var(--ac-strong)",
+                      fontWeight: 600,
                     }}
                   >
-                    {/* The destination is the point of the offer — state it, and state the cost. */}
-                    <span>Round up to ${(roundUp.targetCents / 100).toFixed(2)}</span>
-                    <small style={tipChipSmall(roundUpActive)}>
-                      +${(roundUp.tipCents / 100).toFixed(2)}
-                    </small>
-                  </button>
+                    {T("tipThanks")}
+                    <My k="tipThanks" color="var(--ac-strong)" />
+                  </p>
                 )}
                 {customTipOpen && (
                   <div id="custom-tip-field" style={{ margin: "2px 0 4px" }}>
@@ -1665,6 +1656,11 @@ export function Checkout({
                         }}
                       />
                     </div>
+                    {/* W18 (owner: "never capped") — no more cap LECTURE, but the bound itself must
+                        stay spoken: the charge clamps to 100% of the order (the server refuses
+                        more), and silently charging less than what was typed would be a wrong
+                        number. So the line now leads with the gratitude and states what will
+                        actually be charged. */}
                     {tipNet > 0 && parseFloat(customTip) * 100 > tipNet && (
                       <p
                         id="custom-tip-cap"
@@ -1674,7 +1670,8 @@ export function Checkout({
                           color: "var(--t3)",
                         }}
                       >
-                        Capped at ${(tipNet / 100).toFixed(2)} — 100% of your order.
+                        Wow, thank you! ${(tipNet / 100).toFixed(2)} — your whole order again — is
+                        the most we can take.
                       </p>
                     )}
                   </div>

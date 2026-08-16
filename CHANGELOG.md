@@ -4,6 +4,39 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W18 — the warm pass: tips that encourage, rewards that delight, a kitchen card that answers (2026-08-16)
+
+The owner, verbatim: _"tip ask should be fun and encourage! never capped or round up, and none is
+not encouraged lol. Use a reward also needs to improve. Your order's with the kitchen card should be
+more interactive and informative when interacted. Your order page needs page navigation buttons?
+Burmese should be fun, friendly, natural?"_
+
+- **The tip ask encourages.** A warm subline under the ask — "It all goes to the team who made your
+  meal" (TRUE for this surface: a phone payment's tip lands in W17c-4's shared team bucket) — and a
+  "Thank you so much!" the moment a tip is on (ambient text, never a second live region). The
+  percentages LEAD and **"None" sits last and quiet** — same tap target, muted ink, an exit rather
+  than an offer. Kiosk mirrors it: the three percentage doors lead; "No tip" is a quiet ghost below
+  the grid (still records 0, a real answer).
+- **Round-up retired** (owner: "never capped or round up") — the chip, `roundUpTip`, the
+  `effectiveTipRate` branch, its 3 mutants and tests (122 → 119). Its derive-don't-store lesson
+  stays recorded in CLAUDE.md. The cap **lecture** is gone too; the custom-tip bound itself must
+  stay spoken (silently charging less than typed is a wrong number), so the over-100% line now
+  leads with gratitude: "Wow, thank you! $X — your whole order again — is the most we can take."
+- **"Use a reward" leads with the good news** — "You've got a reward waiting" (count kept),
+  "Pick one — it comes right off this order", "good through" instead of "expires", bilingual at
+  last (W16b), and ဆုလာဘ် → ဆုလက်ဆောင် everywhere (the word the account already uses).
+- **The kitchen strip opens.** The header is now a 44px disclosure: tap for a dish-by-dish view —
+  Being made / With the kitchen / Served, each line under its state — the same kitchen-tap truth
+  the strip already narrated, per dish. Bilingual headline accents. Chevron honors reduced motion.
+- **The order page navigates.** "Browse the menu / market" (mode-true label, same `menuHref`
+  discipline as the empty state) now sits ON the order view, hidden while a peer's pay-window lock
+  freezes the cart.
+- **Burmese moved to the friendly spoken register** (conversational-polite တယ်/မယ်, warmed with
+  နော် — the way staff talk to a guest, not the way a ministry writes to one): the full kiosk
+  dictionary, the cart dict's formal stragglers (ပို့နေသည် → ပို့နေပါတယ်, ကတ် ငြင်းပယ်ခံရသည် →
+  ကတ်က အဆင်မပြေပါ), glossary alignment (မှာယူမှု → အော်ဒါ). All still pending Min's K15 native
+  check — flagged per the standing rule.
+
 ### W17 design pass — the tip surfaces and the new menu, re-read as a designer (2026-08-16)
 
 A UI/UX sweep of every screen W17 touched, fixing the places where the shipped pixels fell short of

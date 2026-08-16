@@ -183,7 +183,14 @@ export function RewardField({
               size={14}
               style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }}
             />
-            Reward applied · <strong>−{dollars(appliedRewardCents)}</strong>
+            Your reward’s on · <strong>−{dollars(appliedRewardCents)}</strong>
+            {/* W18 — bilingual, like every money moment (W16b); friendly register, pending K15. */}
+            <span
+              lang="my"
+              style={{ display: "block", fontSize: "var(--fs-xs)", color: "var(--t2)" }}
+            >
+              ဆုလက်ဆောင် သုံးထားပါတယ်နော်
+            </span>
           </span>
           <button
             ref={removeBtnRef}
@@ -225,12 +232,25 @@ export function RewardField({
             size={15}
             style={{ display: "inline", verticalAlign: "-2px", marginRight: 4 }}
           />
-          Use a reward ({coupons.length})
+          {/* W18 (owner: "Use a reward also needs to improve") — lead with what's true and nice:
+              they EARNED something and it's sitting here. The count keeps the old signal. */}
+          {coupons.length === 1
+            ? "You’ve got a reward waiting"
+            : `You’ve got ${coupons.length} rewards waiting`}
+          <span
+            lang="my"
+            style={{ display: "block", fontSize: "var(--fs-xs)", color: "var(--t2)" }}
+          >
+            ဆုလက်ဆောင် စောင့်နေပါတယ်နော်
+          </span>
         </button>
       ) : (
         <div style={panel}>
           <p style={{ margin: "0 0 8px", fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
-            Tap a reward to apply it to this order:
+            Pick one — it comes right off this order.
+            <span lang="my" style={{ display: "block", fontSize: "var(--fs-xs)" }}>
+              တစ်ခု ရွေးလိုက်ပါ — ဒီအော်ဒါကနေ ချက်ချင်း လျှော့ပေးပါမယ်
+            </span>
           </p>
           <ul
             role="list"
@@ -248,8 +268,9 @@ export function RewardField({
                   style={couponBtn}
                 >
                   <span style={{ fontWeight: 800 }}>{dollars(c.amountCents)} off</span>
+                  {/* "good through", not "expires" — same date, said the hospitable way round. */}
                   <span style={{ fontSize: "var(--fs-xs)", color: "var(--t2)" }}>
-                    expires {new Date(c.expiresAt).toLocaleDateString()}
+                    good through {new Date(c.expiresAt).toLocaleDateString()}
                   </span>
                 </button>
               </li>
