@@ -4,6 +4,31 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W17c-1 — the tip ask fits the basket, and offers to round up (2026-08-16)
+
+First of the four tipping enhancements the owner selected. `lib/tip.ts` is pure — it is arithmetic
+with real edge cases, and arithmetic that decides a charged amount belongs where it can be tested
+without a DOM.
+
+- **The unit follows the basket.** Under $20 the presets are flat dollars; at or above, percentages.
+  18% of a $4 tea is 72¢ — a chip nobody taps, presented in a form that reads as an ask. The chip
+  _count_ is unchanged, so the five-wide 320px row still fits.
+- **"Round up to $36.00"** on its own full-width row, naming the destination total _and_ the exact
+  cents it adds. Not a sixth chip: the row is already full, and this offer has to state where it
+  lands to be honest.
+- **Nothing is offered that the server would refuse.** The binding cap is the **split** path's 0.5
+  (`qr_cart_shares.tip_rate`'s column CHECK), not single-pay's 1.0 — a tip is chosen before the table
+  decides how it settles, and a chip valid one way but refused the other surfaces a bound as a failed
+  payment at the last tap. Pinned against **both** schemas so neither can drift.
+- **Round-up declines to fire on an already-whole total.** There is nothing to round, and charging a
+  dollar under that label would be a different, larger ask wearing the round-up's clothes.
+- Every chip still produces a **rate**, never an amount — the charge stays `round(net × rate)`
+  server-side. The tests assert each label against that exact formula, swept across basket sizes
+  rather than one convenient fixture. 4 new mutants (**110 total**), each watched red.
+
+Still to come in W17c: the tip on the staff cash settle, the kiosk/register tip prompt, and staff tip
+transparency.
+
 ### W17b — a manager can set a menu price from the console (2026-08-16)
 
 The owner's parenthetical in the W17 directive: _"staff portal should be able to update prices?"_
