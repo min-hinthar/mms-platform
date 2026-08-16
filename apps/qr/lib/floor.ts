@@ -244,7 +244,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     db.from("session_members").select("seat_id,display_name,role").eq("session_id", sessionId),
     db
       .from("qr_carts")
-      .select("id,locked,locked_at,settle_at,tab_type,tab_opened_at")
+      .select("id,locked,locked_at,settle_at,tab_type,tab_opened_at,intended_tip_cents")
       .eq("session_id", sessionId)
       .eq("status", "open")
       .maybeSingle(),
@@ -352,6 +352,10 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
   // not evidence the platform is down" arm and label a proven outage `unknown`. An unreadable total is
   // exactly the outage this function already has a discriminant for, so use it.
   let settleTotalCents: number | null = null;
+  // W17c-3 review HIGH — the tip BASE (subtotal − discount, pre-tax), which is what every other
+  // surface offers percentages against. The register was computing its chips off settleTotalCents,
+  // which INCLUDES tax, so the same "20%" label charged more at the counter than at the kiosk.
+  let settleTipBaseCents: number | null = null;
   if (cart && itemCount > 0) {
     const settleTotals = await getCartTotals(cart.id, 0).catch((e: unknown) => {
       console.error("[floor] getTableDetail settle total unreadable", {
@@ -362,6 +366,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     });
     if (!settleTotals) return { kind: "outage" };
     settleTotalCents = settleTotals.totalCents;
+    settleTipBaseCents = settleTotals.subtotalCents - settleTotals.discountCents;
   }
   let lastActivityAt = laterIso(session.created_at ?? nowIso, lastLineAt);
   if (paid) lastActivityAt = laterIso(lastActivityAt, paid.created_at);
@@ -395,6 +400,15 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     itemCount,
     runningSubtotalCents,
     settleTotalCents,
+    settleTipBaseCents,
+    // W17c-3 — what the KIOSK guest chose, if they were asked. null = never asked (every non-kiosk
+    // cart), which the settle UI renders differently from 0 = asked and chose nothing.
+    //
+    // verify:slice-exempt — this is a DISPLAY pre-fill, not a charge. The cashier's entry is the
+    // settle authority (W17c-2), so dropping this field costs a convenience — the cashier types the
+    // amount instead — and cannot make a recorded total wrong. The rules that CAN are guarded:
+    // the write in lib/cart.ts (kiosk-tip/*) and the settle itself (cash-tip/*).
+    intendedTipCents: cart?.intended_tip_cents ?? null,
     paidTotalCents: paid?.total_cents ?? null,
     // Tab lifecycle (S3.1) — only meaningful while a cart is open; a settled/absent cart reads 'none'.
     tab,

@@ -26,35 +26,50 @@
  */
 export const TIP_RATE_MAX = 0.5;
 
-/** Below this basket size, a percentage is the wrong unit. 18% of a $4 tea is 72¢ — a chip nobody
- *  taps, presented in a form that reads as an ask. Flat dollars are what a counter tip actually is. */
-export const SMALL_BASKET_CEILING_CENTS = 2000;
+/**
+ * The house tip ladder — OWNER-SET (2026-08-16): "tip should be 15%, 20%, 30% options."
+ *
+ * This replaced W17c-1's basket-size fork (flat dollars under $20, percentages above), which existed
+ * because 18% of a $4 tea is a meaningless 72¢. The owner's ladder makes that fork unnecessary
+ * rather than merely overruled: 30% of the same $4 tea is $1.20, an amount a counter tipper would
+ * actually leave. One ladder on every surface — diner checkout, kiosk, register — because a house
+ * that asks differently depending on where you stand is not one house.
+ *
+ * Every rate here is well inside `TIP_RATE_MAX`, so no basket size can make one un-offerable; the
+ * filter below stays as the standing guarantee, not as dead code for these three values.
+ */
+export const TIP_LADDER = [0.15, 0.2, 0.3] as const;
 
 export type TipPreset = {
   /** What the chip says. Latin digits only — the money-path rule (W16b). */
   label: string;
-  /** What is sent. `round(net × rate)` reproduces the labelled amount exactly for the flat presets. */
+  /** What is sent. The charge is `round(net × rate)`; the label is a promise about that number. */
   rate: number;
 };
 
 /**
- * The preset chips for a basket, sized to it.
+ * The preset chips. One ladder, every surface (see TIP_LADDER).
  *
- * A percentage ask on a small basket is noise, and a flat-dollar ask on a large one is a rounding
- * error — so the unit changes with the amount. Either way every preset is checked against the server
- * ceiling before it is offered: on a very small net, $3 is more than 50% and is simply not shown,
- * rather than shown and refused.
+ * Each preset is still checked against the server ceiling before it is offered — a chip the mint
+ * would refuse turns a bound into what looks like a broken app at the last tap. Today's ladder tops
+ * out at 30%, comfortably under the 50% cap, so nothing is filtered; the check remains because the
+ * ladder is a value someone will change.
  *
  * `net` is the tip BASE the server uses: subtotal − discount, before tax. Returns [] for a
  * non-positive base (a rate is undefined against 0, and there is nothing to tip on).
  */
-export function tipPresets(netCents: number): TipPreset[] {
+export function tipPresets(
+  netCents: number,
+  // The ladder is a PARAMETER, defaulted, for one reason: the cap filter below is unreachable with
+  // today's 15/20/30 and an unreachable guard cannot be watched failing (its mutant survived). A
+  // test can pass a ladder that breaches the cap and see it dropped, so the protection is real for
+  // whoever raises the ladder next instead of being decorative. Callers pass nothing.
+  ladder: readonly number[] = TIP_LADDER,
+): TipPreset[] {
   if (!Number.isFinite(netCents) || netCents <= 0) return [];
-  const candidates: TipPreset[] =
-    netCents < SMALL_BASKET_CEILING_CENTS
-      ? [100, 200, 300].map((cents) => ({ label: dollars(cents), rate: cents / netCents }))
-      : [0.15, 0.18, 0.2].map((rate) => ({ label: `${Math.round(rate * 100)}%`, rate }));
-  return candidates.filter((p) => p.rate <= TIP_RATE_MAX);
+  return ladder
+    .map((rate) => ({ label: `${Math.round(rate * 100)}%`, rate }))
+    .filter((p) => p.rate <= TIP_RATE_MAX);
 }
 
 export type RoundUp = {

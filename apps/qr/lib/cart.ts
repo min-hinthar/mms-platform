@@ -9,6 +9,7 @@ import {
   cartViewInput,
   makeItNowInput,
   sendToKitchenInput,
+  setKioskTipInput,
   setLineFulfillmentInput,
   setQtyInput,
   undoFireInput,
@@ -667,4 +668,54 @@ export async function releasePayLock(cartId: string): Promise<void> {
   // legit diner who somehow hits the cap recovers on the next tap or the TTL; never throw here).
   if (!(await withinMutationRate(uid))) return;
   await releaseCartLock(id, uid);
+}
+
+/**
+ * W17c-3 — record the tip a KIOSK guest chose, so it survives the walk to the counter.
+ *
+ * The diner path never needs this: it sends a rate at create-intent time and the charge happens in
+ * the same request. The kiosk hands off to the register, where a cashier takes the money minutes
+ * later — so without somewhere to put it, a tip chosen at the kiosk is simply forgotten.
+ *
+ * What this writes is an INTENT, not a charge. The register pre-fills its tip field from it and the
+ * cashier confirms or adjusts, because only the person who takes the money knows what was actually
+ * handed over; W17c-2 put that authority in the cashier's entry and this does not move it. Passing
+ * `null` clears back to "never asked", which the register renders differently from 0 = "asked, chose
+ * to leave nothing" — collapsing those two would erase a real answer.
+ *
+ * Authorized like every other cart write: `assertCartMember` (the kiosk uid is a member of the
+ * session it minted), refused while the cart is locked or settling — a tip must not move under a
+ * cashier who is already counting against it.
+ */
+export async function setKioskTip(raw: unknown): Promise<{ ok: boolean }> {
+  const parsed = setKioskTipInput.safeParse(raw);
+  if (!parsed.success) return { ok: false };
+  const { cartId, tipCents } = parsed.data;
+  let uid: string;
+  try {
+    const authz = await assertCartMember(cartId);
+    if (authz.locked || authz.settling) return { ok: false };
+    uid = authz.uid;
+  } catch {
+    return { ok: false };
+  }
+  await assertMutationRate(uid);
+  const db = serviceClient();
+  // Status-guarded IN THE STATEMENT, not just above it: a settle landing between the check and this
+  // write must not repoint the tip a cashier is already reading.
+  const { data, error } = await db
+    .from("qr_carts")
+    .update({ intended_tip_cents: tipCents })
+    .eq("id", cartId)
+    .eq("status", "open")
+    .select("id");
+  if (error) {
+    console.error("[cart] setKioskTip failed", error.message);
+    return { ok: false };
+  }
+  // `.update()` returns no row count, so the status predicate above can block the write and still
+  // report success — the same trap `applyPromo` closes with `.select("id")`. If a settle landed in
+  // the race window the guard did its job, and saying "ok" would claim an intent nobody recorded.
+  if (!data || data.length === 0) return { ok: false };
+  return { ok: true };
 }

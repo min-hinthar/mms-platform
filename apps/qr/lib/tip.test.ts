@@ -1,12 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createIntentInput, shareIntentInput } from "@mms/db/schemas";
-import {
-  effectiveTipRate,
-  roundUpTip,
-  tipPresets,
-  SMALL_BASKET_CEILING_CENTS,
-  TIP_RATE_MAX,
-} from "./tip";
+import { effectiveTipRate, roundUpTip, tipPresets, TIP_LADDER, TIP_RATE_MAX } from "./tip";
 
 /**
  * W17c — the tip ask's decision rules. Every integer below is computed in Node and pasted, never
@@ -21,38 +15,22 @@ import {
  *  checked against the calculation that will actually run, not against itself. */
 const charged = (netCents: number, rate: number) => Math.round(netCents * rate);
 
-describe("tipPresets — the unit follows the basket", () => {
-  it("a LARGE basket gets percentages (net $32.00)", () => {
-    const p = tipPresets(3200);
-    expect(p.map((x) => x.label)).toEqual(["15%", "18%", "20%"]);
-    expect(p.map((x) => charged(3200, x.rate))).toEqual([480, 576, 640]);
+describe("tipPresets — the owner's 15/20/30 ladder, on every surface", () => {
+  it("is exactly the house ladder (owner, 2026-08-16)", () => {
+    expect(TIP_LADDER).toEqual([0.15, 0.2, 0.3]);
+    expect(tipPresets(3200).map((x) => x.label)).toEqual(["15%", "20%", "30%"]);
   });
 
-  it("a SMALL basket gets flat dollars, and each label is exactly what gets charged (net $6.00)", () => {
-    const p = tipPresets(600);
-    expect(p.map((x) => x.label)).toEqual(["$1.00", "$2.00", "$3.00"]);
-    // The whole point of the flat unit: the chip says $2.00 and the server charges 200, not 18%-of-6.
-    expect(p.map((x) => charged(600, x.rate))).toEqual([100, 200, 300]);
+  it("each label is a promise about what the server charges (net $32.00)", () => {
+    expect(tipPresets(3200).map((x) => charged(3200, x.rate))).toEqual([480, 640, 960]);
   });
 
-  it("the boundary belongs to percentages — exactly at the ceiling is a LARGE basket", () => {
-    expect(tipPresets(SMALL_BASKET_CEILING_CENTS).map((x) => x.label)).toEqual([
-      "15%",
-      "18%",
-      "20%",
-    ]);
-    expect(tipPresets(SMALL_BASKET_CEILING_CENTS - 1).map((x) => x.label)).toEqual([
-      "$1.00",
-      "$2.00",
-      "$3.00",
-    ]);
-  });
-
-  it("never offers a chip the server would refuse (net $4.00 — $3 is 75%)", () => {
-    const p = tipPresets(400);
-    // $1 = 25%, $2 = 50% (exactly at the cap, allowed), $3 = 75% (refused, so never shown).
-    expect(p.map((x) => x.label)).toEqual(["$1.00", "$2.00"]);
-    expect(p.every((x) => x.rate <= TIP_RATE_MAX)).toBe(true);
+  it("the SAME ladder on a small basket — no size fork (net $4.00 and $6.00)", () => {
+    // W17c-1 forked to flat dollars under $20 because 18% of a $4 tea was a meaningless 72¢. The
+    // owner's ladder removes the need: 30% of that tea is $1.20, an amount someone actually leaves.
+    expect(tipPresets(400).map((x) => x.label)).toEqual(["15%", "20%", "30%"]);
+    expect(tipPresets(400).map((x) => charged(400, x.rate))).toEqual([60, 80, 120]);
+    expect(tipPresets(600).map((x) => charged(600, x.rate))).toEqual([90, 120, 180]);
   });
 
   it.each([0, -1, NaN])(
@@ -62,8 +40,20 @@ describe("tipPresets — the unit follows the basket", () => {
     },
   );
 
+  it("drops any ladder rung the server would refuse", () => {
+    // Today's ladder tops out at 30%, so the cap filter never fires on it — which is exactly why
+    // this passes a ladder that BREACHES the cap. Without an input that reaches the rule, the
+    // protection is decorative and its mutant survives. 0.6 > TIP_RATE_MAX (0.5) and must not be
+    // offered; a chip the split mint refuses turns a bound into a failed payment at the last tap.
+    expect(tipPresets(3200, [0.15, 0.6]).map((x) => x.label)).toEqual(["15%"]);
+    expect(tipPresets(3200, [0.6]).map((x) => x.label)).toEqual([]);
+    // And the boundary belongs to the allowed side.
+    expect(tipPresets(3200, [TIP_RATE_MAX]).map((x) => x.label)).toEqual(["50%"]);
+  });
+
   it("every preset it EVER offers is inside the server's cap", () => {
-    // Sweep the basket sizes a real order can take, not one convenient fixture.
+    // Sweep the basket sizes a real order can take, not one convenient fixture. The ladder is
+    // basket-independent today, so this is the standing guarantee for whoever changes it next.
     const bad: string[] = [];
     for (let net = 25; net <= 50000; net += 25) {
       for (const p of tipPresets(net)) {
