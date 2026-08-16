@@ -5,34 +5,87 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-08-16 — W17a+W17b shipped; W17c/d are next)
+> ## ⏭️ NEXT SESSION — start here (2026-08-16 — W17 complete except W17d-2)
 >
-> **W17b shipped + prod-applied (2026-08-16)** — the staff price editor (`/staff/menu`, manager+),
-> from the owner's parenthetical _"staff portal should be able to update prices?"_. It is the ONE
-> place a money amount crosses from a human into the system; every other amount stays server-derived.
-> Manager floor re-checked INSIDE the action (a Server Action is a public POST endpoint), service
-> client only after the gate, bounded by Zod **and** a new column CHECK, `menu_price_audit` recording
-> old→new against the caller (manager+ read, **no insert policy** — service-role only, which is what
-> makes it unskippable). The review's one MED became a **compare-and-swap** on the write: keyed on
-> `id` alone, two concurrent edits both land and the second logs a change "from" a value already
-> gone. Lines already in a cart keep their quoted price. 5 new mutants (106 total).
+> **Read this block, then `docs/W17_PLAN.md`. Everything below is merged AND prod-applied unless it
+> says otherwise.** Prod is `fasnpdhtvqtzjlvruqcu`; every migration in this arc has been applied via
+> `mcp__Supabase__apply_migration` and probe-verified (the probes are recorded per slice below).
 >
-> **✅ prod-applied + probe-verified (2026-08-16)**: constraint present · table + index present · RLS
-> on · exactly ONE policy (SELECT, manager+) · the CHECK genuinely REFUSES 190000000 and 24 while
-> still accepting a legitimate price · a well-formed ledger insert accepted — all inside a rolled-back
-> block, confirmed after: 0 audit rows, 0 out-of-bounds prices, 66 items.
+> ### What the owner asked for, and where it landed
 >
-> **⏸️ DEFERRED, needs the owner: per-mode `togo_price_cents`.** It re-opens the dine-in↔to-go
-> re-price ladder W17a removed, and the four candidate prices are unconfirmed (Pork Offal 15/14,
-> Salted Fish Pounded 19/17, Beef Pounded 19/17, Salted Fish Eggplant 14/12 — the Fish Paste 42/14
-> and Shrimp Spicy 15/19 rows are register anomalies). The shape to build is in `docs/W17_PLAN.md`
-> §W17b. **Two open price questions** the menu reference surfaced, also for the owner: Balachaung
-> (ours $3.00 side vs POS $10.00 fried) and Crab Masala (ours $30.00 vs POS $35.00) — `/staff/menu`
-> is now the place to fix either.
+> | Directive (verbatim)                                       | Slice     | State                                   |
+> | ---------------------------------------------------------- | --------- | --------------------------------------- |
+> | "revert to real POS pricing for both dine-in and take-out" | W17a      | ✅ merged #178                          |
+> | "staff portal should be able to update prices?"            | W17b      | ✅ merged #180, prod-applied            |
+> | "maybe enhance the tipping features" (all four selected)   | W17c-1..4 | ✅ #182 #183 #184 + this slice          |
+> | "tip should be 15%, 20%, 30% options"                      | W17c-3    | ✅ merged #184, prod-applied            |
+> | "prices should be most recent POS 2026 reference"          | W17d-1    | ✅ merged #185, prod-applied            |
+> | "new menu items from POS ... not duplicated"               | W17d-2    | ⬜ **NOT STARTED** — the next real task |
 >
-> **Next: W17c/d** — W17c tipping (all four the owner selected: round-up + basket-aware defaults ·
-> tip on the staff cash settle · kiosk/register tip prompt · staff tip transparency); W17d the 98
-> unmatched POS items, deduped on the BURMESE name, verified one at a time — never bulk-imported.
+> ### The three rules this arc kept re-learning (read before touching money)
+>
+> 1. **A value computed in one place and quoted in another WILL drift.** Three of the four review
+>    HIGHs were this exact shape: the round-up froze a basket-dependent rate in state; the cash
+>    settle passed a tip-FREE total to the tab-close audit row; the register computed tip chips off
+>    the tax-INCLUSIVE total while every other surface used the pre-tax base. The fix each time was
+>    to name the value **once** and derive from it — `effectiveTipRate`, `collectedCents`,
+>    `settleTipBaseCents`. Look for a second copy before adding one.
+> 2. **`.update()` returns no row count.** A status-guarded write can correctly BLOCK and still
+>    report success. Chain `.select("id")` and check the rows — `applyPromo`, `setMenuPrice` and
+>    `setKioskTip` all do; two of them only after a review caught it.
+> 3. **An unreachable guard is decorative.** `verify:slice` caught the tip cap-filter mutant
+>    SURVIVING because a fixed ladder never breaches the cap. `tipPresets` now takes the ladder as a
+>    defaulted parameter so a test can reach the rule. If a mutant survives, the fixture (or the
+>    code) cannot express the failure — fix that, don't delete the mutant.
+>
+> ### Prod state you can rely on (measured, not assumed)
+>
+> - **66 menu items**, none out of the new `menu_items_base_price_cents_bounds` (25..500000).
+> - **Catalog == register**: `docs/data/MENU_REFERENCE.md` reports **no price deltas**.
+> - **Constraints live**: `qr_orders_tip_cents_nonneg`, `qr_carts_intended_tip_cents_bounds`,
+>   `menu_items_base_price_cents_bounds`. Each probed: refuses the bad value, accepts the good one.
+> - **`menu_price_audit`** exists, RLS on, manager+ SELECT, **no insert policy** (service-role only).
+> - **0 rows** in `menu_price_audit` and **0 carts** with `intended_tip_cents` — nothing has exercised
+>   these paths in prod yet. **Smoke-test them before trusting them in service.**
+>
+> ### ⚠️ Open decisions that BLOCK work — ask the owner, don't guess
+>
+> 1. **The four per-mode prices.** Pork Offal 15/14, Salted Fish Pounded 19/17, Beef Pounded 19/17,
+>    Salted Fish Eggplant 14/12. Real two-price policy, or register habit? `togo_price_cents` is
+>    **deliberately deferred** because it re-opens the dine-in↔to-go re-price ladder W17a removed —
+>    do not build it on a guess. Shape to build once confirmed: `docs/W17_PLAN.md` §W17b.
+> 2. **The $1,000 cash-tip cap and the tip ladder** are judgment calls, not owner-set beyond the
+>    15/20/30 rates.
+> 3. **W17d-2's 98 unmatched POS items** need per-item verification — several are modifiers
+>    (`ကြက်ဥ Egg Add-on` is a modifier, not a dish), some are alcohol (a licensing question), some are
+>    combo/tray rings, and some are dishes we already carry under a spelling the loose match missed.
+>    **Never bulk-import.** Match on the **Burmese** name; English labels diverge between systems.
+>
+> ### W17c-4 — tip transparency (this slice)
+>
+> ⚠️ **The bug worth remembering here**: the first version scoped the QUERY for a server
+> (`.eq("settled_by", me)`). That hides colleagues — and also makes a null `settled_by` structurally
+> impossible, so every server saw "guests tipped $0.00 on their phones" **as fact**, under a promise
+> that nothing on the screen is an estimate. A privacy filter had become a lie about money. Narrow
+> **in-process** (`scopeToSelf`, pure and mutant-pinned), never by a predicate that also removes the
+> rows a different number depends on.
+>
+> `/staff/tips`, linked from the floor for every staff member. The honest constraint shapes it:
+> `qr_orders.settled_by` is stamped when a STAFF member took the money and is **null** when the guest
+> paid on their own phone. So there are two buckets and they are **never blended** — "handed to a
+> person" (per-staff) and "paid on a phone" (shared, belongs to nobody in particular). No averages,
+> no projections, no per-head split: how the shared pool divides is the owner's decision, and a
+> number computed here would look exactly like a policy they had agreed to. A server sees only their
+> own line (the scope is a **predicate**, so a colleague's row never enters the process); managers
+> see everyone. A failed read renders the outage shell, never "you were tipped nothing".
+>
+> ### Where things live now
+>
+> - `apps/qr/lib/tip.ts` — the ladder + round-up + `effectiveTipRate` (pure, mutant-pinned).
+> - `apps/qr/lib/tip-report.ts` — the two-bucket summary (pure).
+> - `apps/qr/lib/menu-price.ts` — the ONE place a money amount crosses from a human into the system.
+> - `docs/data/` — `menu_catalog.json` + `pos_2026_prices.json` → generated `MENU_REFERENCE.md`.
+>   Regenerate with `node scripts/gen-menu-reference.mjs`; `pnpm check:docs` fails on drift.
 >
 > ## (2026-08-16 — W17a reverted the mode markup)
 >

@@ -66,6 +66,44 @@ The review/adversarial gates catch **escapes** — they are not your first pass.
 
 **Review budget — HARD CAP (owner directive, 2026-08-05: "Never run such long and inefficient passes").** ONE fresh-context adversarial pass per PR: delta-scoped, **≤3 lenses** (money semantics · concurrency · product truth), **≤10 agents**, **~15 min**. If it stalls or overruns, KILL it and hand-triage its partial output from the journal — never relaunch. After applying fixes: mechanical gates (`verify:slice` · `check:docs`) + a hand-read of the fix diff — **never another agent round**. The evidence: W10d ran 3 rounds / ~7M subagent tokens / 60-90 min each for 9 HIGH; two of the nine were greps (now `check-money-coverage.mjs`, ~1s), the doc lens is now `check:docs`, and the stalled round 3's hand-triage found its 3 real defects in minutes. Ten minutes of mechanical gates beat a metered round per finding. The gate is the backstop, not the author. See `.claude/LEARNINGS.md` #44/#47 for the war stories.
 
+## Money-path rules learned the expensive way (W17 — read before touching a charged amount)
+
+Four adversarial reviews across W17 found four real defects, and **three were the same shape**. These
+are not style notes; each one shipped, or nearly shipped, a wrong number to a guest or a staff member.
+
+- **A value computed in one place and quoted in another WILL drift. Name it ONCE.** The round-up tip
+  froze a basket-dependent rate in `useState`, so a promo landing afterwards charged a tip that
+  rounded to nothing with **no chip lit**. The cash settle passed a tip-FREE total to the tab-close
+  audit row, under-reporting every tipped close by exactly the tip. The register computed tip chips
+  off the **tax-inclusive** total while every other surface used the pre-tax base, so an identical
+  "20%" label charged ~10% more at the counter. Each fix was the same: one binding
+  (`effectiveTipRate`, `collectedCents`, `settleTipBaseCents`) that every consumer reads. **Before
+  adding a second computation of a money value, look for the first one.**
+- **`.update()` returns no row count — a BLOCKED write reports success.** A status-guarded update can
+  do its job perfectly and still answer `ok`, claiming a change nobody recorded. Chain `.select("id")`
+  and check the rows. `applyPromo` always did; `setMenuPrice` and `setKioskTip` only after review.
+- **A guard that cannot be reached is decorative.** `verify:slice` caught the tip cap-filter mutant
+  SURVIVING because a fixed 15/20/30 ladder never breaches the 50% cap. A surviving mutant means the
+  code or the fixture cannot express the failure — make the rule reachable (`tipPresets` takes the
+  ladder as a defaulted parameter), never delete the mutant.
+- **Decision logic belongs in `lib/`, not a component.** `Checkout.tsx` sits outside
+  `check-money-coverage`'s `MONEY_PATHS` and has no component test, so a rule left there **cannot be
+  guarded at all**. That is why `effectiveTipRate` and `tipPresets` are pure modules.
+- **Prove a DB constraint against the real database, red-first.** Before applying the cash-tip
+  migration, the probe was run against prod and an `UPDATE tip_cents = -1` was **accepted** — the
+  hole was live, not theoretical. Constraints get a SQL test in `supabase/tests/` (registered in
+  CI's required-files list) that asserts BOTH the refusal and that a legitimate value still passes;
+  an over-tight bound blocks real service and no refusal-only test would notice.
+- **Two caps, not one.** `createIntentInput.tipRate` allows 1.0 (single-pay); `shareIntentInput`
+  allows 0.5, matching `qr_cart_shares.tip_rate`'s column CHECK. A tip is chosen BEFORE the table
+  decides how it settles, so anything offered must clear the **tighter** bound — otherwise a bound
+  surfaces as a failed payment at the last tap.
+- **Some things genuinely cannot be attributed, and guessing is worse than saying so.**
+  `qr_orders.settled_by` is null when a guest pays on their own phone. `/staff/tips` reports that as
+  a shared bucket rather than splitting it, because a per-head number this app invented would look
+  exactly like a policy the owner had agreed to. Never fabricate an average, a projection, or a
+  split on a screen someone reads as a statement of their pay.
+
 ## Gate before "done"
 
 **`pnpm verify:slice` green** · **`pnpm check:docs` green** · CI green (`turbo lint typecheck build`) · Claude PR review + security review addressed · the QA-checklist items the change touches ticked (`docs/context/QA-CHECKLIST.md`, progress tracked in `docs/REVIEW.md`) · `ROADMAP.md` box checked · `CHANGELOG.md` line added · **`docs/OPEN-ITEMS.md` swept** (close/retire/add the items your change touches — it's the single registry; W0) · preview smoke-tested. If you learned something non-obvious or hit a sharp edge, append it to `.claude/LEARNINGS.md`.

@@ -4,6 +4,43 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W17c-4 — tip transparency for the team (2026-08-16)
+
+Last of the four tipping enhancements. `/staff/tips`, linked from the floor for every staff member.
+
+**The honest constraint shapes the whole screen.** `qr_orders.settled_by` is stamped when a _staff
+member_ took the money — a cash settle, a counter reader tap — and is **null** when the guest paid on
+their own phone. That isn't missing data to fill in with a guess; it's a real difference between "you
+were tipped this" and "the shift was tipped this". So there are two buckets and they are **never
+blended**:
+
+- **Handed to a person** — per-staff totals, and the count of orders that actually carried a tip.
+- **Paid on a phone** — the shared amount, stated plainly as belonging to nobody in particular.
+
+**No averages, no projections, no per-head split.** How the shared pool divides is the owner's
+decision, and a number computed here would look exactly like a policy they had agreed to. The copy
+says so, because this is the screen staff will read as an authoritative statement of their pay.
+
+- **The role rule lives in the read, not the page.** A server sees only their own line, and the scope
+  is a **predicate** — a colleague's row never enters the process. Managers and owners see everyone.
+- **Names resolve inside the read**, because `listStaff` is owner-only and this screen is for
+  everyone; only the ids that survived the summary are looked up.
+- **A failed read renders the outage shell**, never "you were tipped nothing" — the worst false
+  verdict on a screen about someone's earnings. A failed _name_ lookup is not a failed report: an id
+  is a worse label than a name, but an honest one.
+- **The shared bucket is true for everyone who sees it** (review HIGH). Scoping the _query_ for a
+  server hid colleagues — and also made a null `settled_by` structurally impossible, so every server
+  was shown _"Guests who paid on their own phones tipped $0.00 across 0 orders"_ as fact, directly
+  under the promise that nothing here is an estimate. A privacy filter had become a lie about money.
+  The read now takes the whole day and narrows via a **pure, mutant-pinned** `scopeToSelf`: their own
+  line, the shared bucket intact. A server's headline is their own total, never the shared pool
+  folded in.
+- **The read is paged** like `getDayCashSummary` (review MED), for the reason that function
+  documents: PostgREST truncates at max-rows with `error` still null, and a silently short tip figure
+  is the same lie. Only `paid` rows are fetched, so refunded and pending don't burn the budget.
+- 5 new mutants (**122 total**): the shared pool credited to a person, the self-scope zeroing it, a
+  server's headline absorbing it, a refunded tip counted, and a negative tip deducting.
+
 ### W17d-1 — the catalog matches the register (2026-08-16)
 
 Owner, 2026-08-16: _"prices should be most recent POS 2026 reference."_

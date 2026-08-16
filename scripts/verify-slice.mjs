@@ -234,6 +234,47 @@ const MUTANTS = [
     find: '          fulfillment: dineIn ? "dinein" : "togo",',
     replace: '          fulfillment: "dinein" as const,',
   },
+  // ── W17c-4 — tip transparency: two buckets, never blended ──────────────────────────────────────
+  {
+    id: "tip-report/shared-pool-credited-to-a-person",
+    file: "apps/qr/lib/tip-report.ts",
+    suite: "lib/tip-report.test.ts",
+    why: "W17c-4 — a tip on an order NOBODY settled (the guest paid on their own phone) has no one to credit. Folding it into a person's column puts money in their name that nobody handed them, on the one screen staff will read as an authoritative statement of what they earned",
+    find: "    if (r.settled_by) {",
+    replace: "    if (true) {",
+  },
+  {
+    id: "tip-report/self-scope-zeroes-the-shared-pool",
+    file: "apps/qr/lib/tip-report.ts",
+    suite: "lib/tip-report.test.ts",
+    why: "W17c-4 review HIGH — the first version scoped the QUERY, which made a null settled_by structurally impossible for a server: every one of them was shown 'guests tipped $0.00 on their phones' as FACT, under a promise that nothing on the screen is an estimate. A privacy filter had become a lie about money",
+    find: "    unattributedCents: report.unattributedCents,\n    unattributedCount: report.unattributedCount,",
+    replace: "    unattributedCents: 0,\n    unattributedCount: 0,",
+  },
+  {
+    id: "tip-report/self-headline-includes-the-shared-pool",
+    file: "apps/qr/lib/tip-report.ts",
+    suite: "lib/tip-report.test.ts",
+    why: "W17c-4 — a server's headline is THEIR money. Summing a colleague's or the shared pool's into it tells someone money is theirs that isn't, on the screen they read as a statement of their pay",
+    find: "    attributedCents: mineCents,",
+    replace: "    attributedCents: report.attributedCents,",
+  },
+  {
+    id: "tip-report/refunded-tip-counted",
+    file: "apps/qr/lib/tip-report.ts",
+    suite: "lib/tip-report.test.ts",
+    why: "W17c-4 — a refunded order's money is not in the drawer and its tip is not in anyone's pocket; counting it overstates what a person earned and it is THEIR pay the number describes",
+    find: '    if (r.status !== "paid") continue;',
+    replace: "",
+  },
+  {
+    id: "tip-report/negative-tip-deducts",
+    file: "apps/qr/lib/tip-report.ts",
+    suite: "lib/tip-report.test.ts",
+    why: "W17c-4 — the DB CHECK makes a negative tip unreachable through the app, but if one ever lands in the data it must not silently REDUCE someone's column below what they were actually handed",
+    find: "    if (tip <= 0) continue;",
+    replace: "",
+  },
   // ── W17c-3 — the kiosk tip crosses to the counter as an INTENT ─────────────────────────────────
   {
     id: "kiosk-tip/write-not-status-guarded",
