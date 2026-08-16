@@ -510,7 +510,9 @@ export function MenuBrowser({
           }}
           style={{ padding: "8px 20px", scrollMarginTop: Math.round(toolbarH) }}
         >
-          <h2 style={{ fontSize: "var(--fs-h3)" }}>{c}</h2>
+          {/* W16e — Tailwind v4 preflight zeroes heading margins, so this sat 0px above the first
+              card: explicit rhythm from the spacing grid. */}
+          <h2 style={{ fontSize: "var(--fs-h3)", margin: "var(--s3) 0 var(--s2)" }}>{c}</h2>
           <ul
             role="list"
             aria-label={`${c} items`}
@@ -526,8 +528,8 @@ export function MenuBrowser({
                     className="card card-textured"
                     style={{
                       display: "flex",
-                      gap: 13,
-                      padding: 11,
+                      gap: "var(--s3)", // W16e — was 13/11, off the spacing grid
+                      padding: "var(--s3)",
                       opacity: i.is_sold_out ? 0.5 : 1,
                     }}
                   >
@@ -544,7 +546,7 @@ export function MenuBrowser({
                         style={{
                           width: 88,
                           height: 88,
-                          borderRadius: 14,
+                          borderRadius: "var(--r-sm)", // W16e — was a bare 14
                           overflow: "hidden",
                           flex: "none",
                           background: "var(--grad)",
@@ -575,6 +577,7 @@ export function MenuBrowser({
                               fontSize: "var(--fs-sm)",
                               color: "var(--t2)",
                               display: "block",
+                              marginTop: 2, // W16e — stacked-label breathing (parity with /account)
                             }}
                             lang="my"
                           >

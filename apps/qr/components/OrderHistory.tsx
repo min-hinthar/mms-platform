@@ -267,7 +267,8 @@ const cardH: CSSProperties = {
 const cardHMy: CSSProperties = {
   marginLeft: 8,
   fontFamily: "var(--font-my)",
-  fontSize: "var(--fs-xs)",
+  // W16e — was fs-xs (11px), the exact size the W12 bill review rejected for stacked Burmese.
+  fontSize: "var(--fs-sm)",
   fontWeight: 400,
   letterSpacing: 0,
   textTransform: "none",
@@ -286,7 +287,8 @@ const list: CSSProperties = {
 };
 // W14 — the lead-photo row: thumb + the existing three-row column. minWidth 0 so the nowrap
 // summary line keeps ellipsizing inside the flex child (the same overflow guard as the grid).
-const summaryRow: CSSProperties = { display: "flex", alignItems: "center", gap: 11 };
+// W16e — 12 (--s3): one rhythm across the cart, bill, history and favorites thumb rows.
+const summaryRow: CSSProperties = { display: "flex", alignItems: "center", gap: "var(--s3)" };
 const summaryCol: CSSProperties = { minWidth: 0, flex: 1, display: "grid", gap: 6 };
 const rowTop: CSSProperties = {
   display: "flex",

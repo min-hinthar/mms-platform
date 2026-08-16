@@ -60,7 +60,8 @@ the W11 payer visibility — but the _surface_ fails J-F on three counts:
   `menu_items.select("id,image_url,name_my")`, non-uuid (barcode) refs batch-read
   `grocery_items.select("barcode,image_url,name_my")` — one `Promise.all`, a Map keyed by ref,
   join failure degrades to the text row (never a dead history). Lines gain
-  `imageUrl: string | null` (through `displayImageUrl` — containment + the `fallback.jpg`→null
+  `imageUrl: string | null` (through `safeImageUrl` — containment only since W16d; it was the now-
+  deleted `displayImageUrl`, whose filename filter
   rule) and `nameMy: string | null`. **Live-vs-snapshot caveat** (registry S14b): the joined
   name/photo is TODAY's catalog against an add-time snapshot — acceptable for a thumbnail +
   subline; the EN snapshot name stays the row's primary text.
@@ -104,7 +105,10 @@ the W11 payer visibility — but the _surface_ fails J-F on three counts:
 - a11y: avatar + thumbs `aria-hidden` (the name is already in the row's composed label); the name
   form is a labeled input; focus returns to the edit trigger on save/cancel; no new live regions
   (the card's existing `role="status"` is the announcer).
-- Images: `displayImageUrl` containment everywhere a URL crosses to `next/image`; 44px `sizes`.
+- Images: containment everywhere a URL crosses to `next/image`; 44px `sizes`. ⚠️ **W16d:** the
+  helper named here (`displayImageUrl`) is GONE — it also filtered by FILENAME on a wrong
+  assumption and hid 34 real dish photos. Use `safeImageUrl` (containment only); see
+  `apps/qr/lib/media-url.ts`.
 - Every new animation rides token durations (auto-collapsed under RM) or gets its own RM block.
 
 ## Deliberately out (registry)

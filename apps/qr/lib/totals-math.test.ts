@@ -437,7 +437,12 @@ describe("invariant 7 — quantity multiplies the base, not the rounded tax", ()
 
   it("catches the same refactor on a small basket — 80¢ × 3 is 25¢, not 24¢", () => {
     // round(240 × 0.105) = round(25.2) = 25; per-unit round(80 × 0.105) = round(8.4) = 8, × 3 = 24.
-    const totals = computeTotals([line({ unitPriceCents: 80, qty: 3, taxCents: TAXABLE })], 0, 0, 0);
+    const totals = computeTotals(
+      [line({ unitPriceCents: 80, qty: 3, taxCents: TAXABLE })],
+      0,
+      0,
+      0,
+    );
     expect(totals.subtotalCents).toBe(240);
     expect(totals.taxCents).toBe(25);
     expect(totals.taxCents).not.toBe(24); // the per-unit-rounded mutant

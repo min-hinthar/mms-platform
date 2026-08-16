@@ -341,7 +341,7 @@ export function OrderTracker({
   );
 
   return (
-    <main style={{ padding: "24px 20px 40px", maxWidth: 440, margin: "0 auto" }}>
+    <main style={{ padding: "24px 20px 40px", maxWidth: "var(--w-content)", margin: "0 auto" }}>
       {justPaid ? (
         // Fresh successful payment → the celebration is the headline (one <h1>); the mode + status + ETA
         // ride a compact row below it, and the timeline follows.

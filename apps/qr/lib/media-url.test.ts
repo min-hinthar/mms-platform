@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { displayImageUrl, safeImageUrl } from "./media-url";
+import { safeImageUrl } from "./media-url";
 
 /**
  * W13 — the image-URL containment guard, pinned. next/image THROWS at render on a host outside
  * next.config.ts's allowlist, so one bad DB row must degrade to the placeholder (null), never
- * crash a surface. The boundary: site-relative, or https on a *.supabase.co host — nothing else.
+ * crash a surface. The boundary: site-relative, or https on ONE OF THE TWO project hosts —
+ * nothing else.
  */
 describe("safeImageUrl — the containment boundary", () => {
   it("passes site-relative paths and supabase.co hosts (either project)", () => {
@@ -24,6 +25,14 @@ describe("safeImageUrl — the containment boundary", () => {
     expect(safeImageUrl("https://supabase.co.evil.example/x.jpg")).toBeNull(); // lookalike
     expect(safeImageUrl("https://xsupabase.com/x.jpg")).toBeNull();
   });
+  it("refuses a THIRD supabase tenant — the allowlist is two projects, not the platform", () => {
+    // W16d review MED: the guard used to accept any `*.supabase.co`, but next.config.ts's
+    // remotePatterns and the CSP img-src name exactly two hosts. Anyone can create a Supabase
+    // project, so a row pointing at one passed containment and then threw INSIDE next/image at
+    // render — the whole-surface crash this function exists to prevent, and now load-bearing for
+    // the kiosk and the register, which used to pass raw values.
+    expect(safeImageUrl("https://someoneelse.supabase.co/storage/v1/x.jpg")).toBeNull();
+  });
   it("null/undefined/empty degrade to the placeholder, never a crash", () => {
     expect(safeImageUrl(null)).toBeNull();
     expect(safeImageUrl(undefined)).toBeNull();
@@ -31,17 +40,26 @@ describe("safeImageUrl — the containment boundary", () => {
   });
 });
 
-describe("displayImageUrl — the designed placeholder beats the stock stand-in", () => {
-  it("nulls fallback.jpg rows (contained hosts included) so PhotoPlaceholder renders", () => {
-    expect(
-      displayImageUrl("https://ukuzkhuppqwtrdkjqrkv.supabase.co/x/menu-photos/a/fallback.jpg"),
-    ).toBeNull();
+/**
+ * W16d — the filename is NOT a verdict on the photo. W13 added a `fallback.jpg → null` filter on
+ * the assumption those rows shared one generic stock image; probing the live bucket disproved it
+ * (every `menu-photos/<id>/fallback.jpg` is a distinct real photo of that dish, and the `photo.jpg`
+ * some rows were assumed to have 404s). These cases are the inversion of the tests that pinned the
+ * old rule: a contained fallback.jpg must PASS THROUGH, or ~28 dishes lose their photography again
+ * on every diner surface at once.
+ */
+describe("safeImageUrl — a fallback.jpg row is a real photo, not a stand-in (W16d)", () => {
+  it("passes a contained fallback.jpg through — the filename means nothing", () => {
+    const url = "https://ukuzkhuppqwtrdkjqrkv.supabase.co/x/menu-photos/a/fallback.jpg";
+    expect(safeImageUrl(url)).toBe(url);
   });
-  it("passes real photos and still refuses uncontained hosts", () => {
-    expect(displayImageUrl("https://ukuzkhuppqwtrdkjqrkv.supabase.co/x/a/photo.jpg")).toContain(
-      "photo.jpg",
-    );
-    expect(displayImageUrl("https://evil.example/fallback.jpg")).toBeNull();
-    expect(displayImageUrl(null)).toBeNull();
+
+  it("still refuses an UNCONTAINED fallback.jpg — containment outranks the filename either way", () => {
+    expect(safeImageUrl("https://evil.example/fallback.jpg")).toBeNull();
+  });
+
+  it("a row with no photo at all still degrades to the designed placeholder", () => {
+    // This is the honest signal the filter was impersonating: NULL means "no photography yet".
+    expect(safeImageUrl(null)).toBeNull();
   });
 });

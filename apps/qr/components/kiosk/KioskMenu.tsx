@@ -5,6 +5,7 @@ import { addItem } from "@/lib/cart";
 import { t, type KioskLang } from "@/lib/kiosk/strings";
 import { modePriceCents } from "@/lib/mode-price";
 import { StaffModSheet } from "@/components/staff/StaffModSheet";
+import { PhotoPlaceholder } from "@/components/menu/PhotoPlaceholder";
 import type { KioskItem } from "./types";
 
 /**
@@ -101,18 +102,21 @@ export function KioskMenu({
                 i.groups.length > 0 ? setSheetItem(i) : add(i, { modifierIds: [], qty: 1 })
               }
             >
-              {i.imageUrl && (
-                <span
-                  style={{
-                    width: 96,
-                    height: 96,
-                    borderRadius: "var(--r-card)",
-                    overflow: "hidden",
-                    background: "var(--grad)",
-                    position: "relative",
-                    display: "block",
-                  }}
-                >
+              {/* W16e review — the slot ALWAYS renders (the rule the diner rails follow): gating it
+                  away made the 3 photo-less dishes short ragged cards beside full ones on the
+                  attract grid. A null src shows the designed placeholder, not an empty tile. */}
+              <span
+                style={{
+                  width: 96,
+                  height: 96,
+                  borderRadius: "var(--r-card)",
+                  overflow: "hidden",
+                  background: "var(--grad)",
+                  position: "relative",
+                  display: "block",
+                }}
+              >
+                {i.imageUrl ? (
                   <Image
                     src={i.imageUrl}
                     alt=""
@@ -121,8 +125,10 @@ export function KioskMenu({
                     sizes="96px"
                     style={{ objectFit: "cover", width: "100%", height: "100%" }}
                   />
-                </span>
-              )}
+                ) : (
+                  <PhotoPlaceholder category={i.category} />
+                )}
+              </span>
               <span className="kiosk-door-label">{i.nameEn}</span>
               {i.nameMy && (
                 <span className="kiosk-door-hint" lang="my">

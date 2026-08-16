@@ -24,7 +24,7 @@ import { getPostHogClient } from "./posthog-server";
 import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
 import { rescaleModePriceCents } from "./mode-price";
 import { storedOptionIds } from "./reorder-options";
-import { displayImageUrl } from "./media-url";
+import { safeImageUrl } from "./media-url";
 
 /**
  * SERVER-AUTHORITATIVE cart. The browser never sends a price — it sends a menu item id +
@@ -619,9 +619,9 @@ export async function getCartView(cartId: string): Promise<{
   const soldOut = new Set<string>();
   // W13 — line media + Burmese names, keyed by the soft ref (menu uuid OR grocery barcode); the
   // keyspaces are disjoint by the uuidRe partition. Display-only; a failed lookup degrades to
-  // placeholder/EN (same advisory posture as soldOut). `displayImageUrl` = containment + the
-  // fallback.jpg→placeholder filter (review MED: the first ship filtered only the menu mapping,
-  // so one add flow showed two contradictory placeholder stories).
+  // placeholder/EN (same advisory posture as soldOut). `safeImageUrl` = containment only; W16d
+  // removed the filename→placeholder filter that rode here (those rows are real photos — see
+  // lib/media-url), so the cart and bill thumbs show the same dish photography the menu does.
   const media = new Map<string, { imageUrl: string | null; nameMy: string | null }>();
   const barcodes = [
     ...new Set((rows ?? []).map((r) => r.menu_item_id).filter((x) => !uuidRe.test(x))),
@@ -641,10 +641,10 @@ export async function getCartView(cartId: string): Promise<{
   ]);
   for (const f of menuRes.data ?? []) {
     if (f.is_sold_out) soldOut.add(f.id);
-    media.set(f.id, { imageUrl: displayImageUrl(f.image_url), nameMy: f.name_my ?? null });
+    media.set(f.id, { imageUrl: safeImageUrl(f.image_url), nameMy: f.name_my ?? null });
   }
   for (const g of groceryRes.data ?? [])
-    media.set(g.barcode, { imageUrl: displayImageUrl(g.image_url), nameMy: g.name_my ?? null });
+    media.set(g.barcode, { imageUrl: safeImageUrl(g.image_url), nameMy: g.name_my ?? null });
   const items: CartItem[] = (rows ?? []).map((r) => ({
     id: r.id,
     menuItemId: r.menu_item_id,

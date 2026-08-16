@@ -146,8 +146,7 @@ function applyCartOptimistic(state: CartItem[], u: CartOptimistic): CartItem[] {
               ...i,
               fulfillment: u.ful,
               unitPriceCents:
-                (i.fulfillment === "dinein" || i.fulfillment === "togo") &&
-                i.fulfillment !== u.ful
+                (i.fulfillment === "dinein" || i.fulfillment === "togo") && i.fulfillment !== u.ful
                   ? rescaleModePriceCents(i.unitPriceCents, i.fulfillment, u.ful)
                   : i.unitPriceCents,
             }
@@ -743,7 +742,7 @@ export function Checkout({
     const backHref = menuHref(sessionMode);
     const backLabel = menuLinkText(sessionMode, "browse");
     return (
-      <main style={{ padding: "24px 20px 40px", maxWidth: 440, margin: "0 auto" }}>
+      <main style={{ padding: "24px 20px 40px", maxWidth: "var(--w-content)", margin: "0 auto" }}>
         <h1 style={{ fontSize: "var(--fs-h1)", marginBottom: 16 }}>
           {T("yourOrder")}
           <My k="yourOrder" size="var(--fs-sm)" />
@@ -844,7 +843,7 @@ export function Checkout({
   }
 
   return (
-    <main style={{ padding: "24px 20px 40px", maxWidth: 440, margin: "0 auto" }}>
+    <main style={{ padding: "24px 20px 40px", maxWidth: "var(--w-content)", margin: "0 auto" }}>
       {/* tabIndex={-1} = programmatic focus target (focus moves here when a line is removed). No
           outline override — the browser shows its :focus-visible ring (WCAG 2.4.7). K3a: a signed-in
           diner's wallet chip rides beside the heading (recognition at the pay moment; hidden for anon). */}
@@ -932,15 +931,10 @@ export function Checkout({
               <dl>
                 <Row k="rowSubtotal" cents={payTotals.subtotalCents} />
                 {payTotals.discountCents - payTotals.rewardCents > 0 && (
-                  <Row
-                    k="rowPromo"
-                    cents={-(payTotals.discountCents - payTotals.rewardCents)}
-                  />
+                  <Row k="rowPromo" cents={-(payTotals.discountCents - payTotals.rewardCents)} />
                 )}
-                {payTotals.rewardCents > 0 && (
-                  <Row k="rowReward" cents={-payTotals.rewardCents} />
-                )}
-                                <Row k="rowTax" cents={payTotals.taxCents} />
+                {payTotals.rewardCents > 0 && <Row k="rowReward" cents={-payTotals.rewardCents} />}
+                <Row k="rowTax" cents={payTotals.taxCents} />
                 {payTotals.tipCents > 0 && <Row k="rowTip" cents={payTotals.tipCents} />}
                 <Row k="rowTotal" cents={payTotals.totalCents} strong roll />
               </dl>

@@ -26,7 +26,8 @@ const OPTS = [{ id: "opt-egg", name: "Extra egg", price_delta_cents: 110, group_
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     from: (table: string) => {
-      const single = () => Promise.resolve({ data: table === "menu_items" ? ITEM : null, error: null });
+      const single = () =>
+        Promise.resolve({ data: table === "menu_items" ? ITEM : null, error: null });
       const chain = {
         select: () => chain,
         eq: () => chain,

@@ -26,9 +26,12 @@ gap survived every gate:
 
 1. **The rubric graded screens and paths — not the product.** Photography, catalog data, receipts,
    bilingual depth, and ops tooling are _product_ gaps invisible to a per-surface score. A menu whose rows
-   are beautifully token-pure still reads "unfinished" when **31 of 60 dishes have no real photo**
-   (28 point at a `fallback.jpg` in the delivery bucket + 3 NULL — `seed.sql`; a missing/failed src makes
-   `BlurUpImage.tsx:37` return `null` → an empty gradient tile).
+   are beautifully token-pure still reads "unfinished" when a dish has no real photo. **CORRECTED
+   (W16d, 2026-08-15): that count is ~3, not 31.** The 28 rows pointing at a `fallback.jpg` in the
+   delivery bucket are REAL per-dish photos — a probe of the live bucket showed distinct sizes and
+   etags per id; a W13 filter had been hiding them behind the placeholder. Only the ~3 NULL rows
+   (`seed.sql`) are genuinely photo-less (a missing/failed src makes `BlurUpImage.tsx:37` return
+   `null` → the designed placeholder).
 2. **v7.2 covers only the diner path.** `grep grocery docs/prototype/v7.2.html` → 0; there is no KDS, expo,
    kiosk, or grocery-browse prototype. The fidelity gate ("strings verbatim from v7.2") had _nothing to
    check_ on exactly the surfaces the owner named — so they were de-novo styled and never held to a bar.
@@ -145,12 +148,14 @@ The 20%-effort fix for the measurement failure that let the gap survive:
 
 The abandoned slices 2–6, plus the art-direction layer the plan never had:
 
-- **W2a Photography + placeholder system.** Needs Min: one afternoon shooting the ~31 unphotographed dishes
+- **W2a Photography + placeholder system.** Needs Min: a short session shooting the **3** unphotographed dishes (W16d: the ~31 figure counted photos a filename filter was hiding — 34 of 66 are real and now render)
   (§5). Code side: migrate the photo bucket into the QR project (`fasnpdhtvqtzjlvruqcu` — today every URL
   hotlinks the **delivery** project's storage and one bucket change over there silently blanks our menu;
   narrow `remotePatterns` accordingly) · a **designed placeholder** (✦ + category glyph over the gradient,
-  or Snackpass-style per-category Text layout) so a missing photo never reads broken · collapse the empty
-  200px `.item-hero` band when `image_url` is null.
+  or Snackpass-style per-category Text layout) so a missing photo never reads broken. ⚠️ **W16e
+  reversed the collapse idea**: `.item-hero` is now an `aspect-ratio` band and the rails
+  deliberately KEEP the slot on a null src (a collapsing slot made ragged short cards beside full
+  ones — W13's "the slot always renders" rule).
 - **W2b Icon system.** Replace ~30 functional emoji (🔍🗑🧾🪑♥💳🔥…) with a ~20-glyph SVG set at the brand's
   stroke weight (restyled Phosphor/Lucide subset; ✦ stays the one brand mark; emoji only ever content, never
   chrome). One PR, app-wide.
@@ -281,7 +286,7 @@ W4b. Kiosk (W6) and the board (W3e) consume this for free. Consider Spanish as a
 
 | #   | Item                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Gates              | Effort                                   |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------ | ---------------------------------------- |
-| 1   | **Photograph the 31 dishes without a real photo** (28 fallback.jpg + 3 NULL) — one afternoon with the kitchen; natural light, one angle, consistent plate                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | W2a                | ~half day                                |
+| 1   | **Photograph the ~3 dishes without a real photo** (the NULL rows only — W16d proved the 28 `fallback.jpg` rows are real photos) — one afternoon with the kitchen; natural light, one angle, consistent plate                                                                                                                                                                                                                                                                                                                                                                                                                               | W2a                | ~half day                                |
 | 2   | **198-SKU grocery data**: barcode, category, size/unit, EN+MY names, EBT flag — from the POS tax map; photos per SKU (shelf shots fine to start)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | W4a                | 1–2 days, can be incremental by category |
 | 3   | **Lock the service-charge rate — recommend 5%**: it's what the code charges and the UI legally discloses today; 15% would be a live price change with its own disclosure work (the prototype has used both)                                                                                                                                                                                                                                                                                                                                                                                                                                | W1                 | decision                                 |
 | 4   | **Hardware buy list** (all just browsers — no vendor lock): KDS = **recommend a 15.6" Android touchscreen on a VESA arm** at the pass, wipeable, off the wok line (~$300–500; iPad + rugged case is the fallback) · order-ready board = **the existing smart TV** ($0 — any browser) · kiosk = **recommend iPad + counter stand w/ reader mount** (~$400–700, the Square-style cheapest-credible path; a 21.5–24" portrait Elo countertop ~$1,000–1,500 only if volume earns it) · USB HID barcode scanner = any keyboard-wedge (~$40) · label-printing scale for weighed counter items (~$200–400) · Stripe S700 when Terminal lands (M6) | W3e/W6b validation | purchase                                 |

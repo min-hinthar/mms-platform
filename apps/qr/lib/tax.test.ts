@@ -77,7 +77,11 @@ describe("lineTax — rounding", () => {
     [1, 0, "1 × 0.105 = 0.105 → 0 (a 1¢ line collects no tax — the M6 root cause)"],
     [4, 0, "4 × 0.105 = 0.42 → 0"],
     [5, 1, "5 × 0.105 = 0.525 → 1 (the smallest amount that collects any tax)"],
-    [100, 11, "100 × 0.105 = 10.5 → 11 — an EXACT .5 tie; see the tie note below (drifts to 10 at 0.104)"],
+    [
+      100,
+      11,
+      "100 × 0.105 = 10.5 → 11 — an EXACT .5 tie; see the tie note below (drifts to 10 at 0.104)",
+    ],
     [200, 21, "200 × 0.105 = 21 exactly → 21 (no drift at 0.104 — a rate probe it is NOT)"],
     [300, 32, "300 × 0.105 = 31.5 → 32 — tie (drifts to 31 at 0.104)"],
     [600, 63, "600 × 0.105 = 63 exactly → 63 (was a tie at 0.0975; exact now)"],

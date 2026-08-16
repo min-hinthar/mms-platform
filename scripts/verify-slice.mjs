@@ -973,6 +973,16 @@ try {
   process.exit(1);
 }
 
+// W16d review BLOCK — the same shape of cheap grep, for the photo filter. A unit test on
+// `safeImageUrl` is BLIND to a filter re-added at a CALL SITE (proven: re-adding it inside
+// getCartView's media map leaves media-url.test.ts fully green), and that is precisely how W13
+// hid 34 real dish photos behind the placeholder for a whole milestone.
+try {
+  execFileSync("node", ["scripts/check-photo-filter.mjs"], { cwd: ROOT, stdio: "inherit" });
+} catch {
+  process.exit(1);
+}
+
 const targets = MUTANTS.filter((m) => !only || m.id.includes(only));
 const files = [...new Set(targets.map((m) => m.file))];
 

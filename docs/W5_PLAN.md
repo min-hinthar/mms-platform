@@ -1,7 +1,8 @@
 # W5_PLAN — One tongue (the app-wide EN↔MY toggle)
 
-> ## ⚠️ SUPERSEDED ON THE TOGGLE (W16b, 2026-08-15 — owner: "Ditch the language toggle and have
-> bilingual only")
+> ## ⚠️ SUPERSEDED ON THE TOGGLE — W16b, 2026-08-15
+>
+> Owner directive: "Ditch the language toggle and have bilingual only."
 >
 > Everything below describing a **toggle / locale carrier / per-user language** is HISTORY, not a
 > spec: `LocaleToggle`, `LocaleProvider`, the `mms_locale` cookie + Accept-Language seed,

@@ -20,6 +20,9 @@ body {
   color: var(--tx);
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
+  /* W16e — body text rode the browser default (~1.2) while --lh-normal (1.5) sat unused at the
+     base and a dozen components re-declared 1.5 by hand. One inherited default instead. */
+  line-height: var(--lh-normal);
 }
 h1,
 h2,
@@ -44,6 +47,13 @@ h3 {
 [lang="my"] {
   overflow-wrap: anywhere;
   letter-spacing: normal;
+  /* W16e — THE bilingual breathing fix (owner: "enough paddings and margins"). Myanmar stacks
+     diacritics ABOVE and BELOW the base glyph, so at Latin leading a Burmese run collides with the
+     line above it — visible everywhere now that W16b puts a MY line on every money moment. The
+     token has said 1.6 since W5; only the retired `body.my` reading mode ever applied it, so in
+     practice NO Burmese accent has ever had its own leading. Scoped to MY subtrees, so Latin runs
+     are untouched. */
+  line-height: var(--lh-my);
 }
 /* Review LOW-5 — `anywhere` inherits from html[lang=my] into Latin runs (a `$42.10` in a tight
    MY-mode CTA could break mid-amount). Interleaved English opts back out. */
@@ -1072,16 +1082,20 @@ h3 {
 }
 .item-sheet-my {
   font-family: var(--font-my);
-  font-size: 14px;
+  /* W16e — the dish's Burmese name is co-primary under W16b, so it sits ON the scale at body
+     size; the -4px top margin crowded it against the sheet title once the MY leading applied. */
+  font-size: var(--fs-body);
   color: var(--t2);
-  margin: -4px 0 10px;
+  margin: 0 0 10px;
 }
 
 /* Big photo-hero — bounded band over the item gradient; BlurUpImage fills it (object-fit:cover). */
 .item-hero {
   position: relative;
   width: 100%;
-  height: 200px;
+  /* W16e — was a fixed 200px band cropping every restored photo harder than BlurUpImage's own
+     440x248 framing; the ratio keeps the layout just as stable and shows more of the dish. */
+  aspect-ratio: 440 / 248;
   border-radius: 16px;
   overflow: hidden;
 }
@@ -1138,13 +1152,13 @@ h3 {
 .item-modgroup-my {
   font-family: var(--font-my);
   font-weight: 400;
-  font-size: 12px;
+  font-size: var(--fs-sm); /* W16e — was 12px, under the Burmese floor */
   color: var(--t3);
 }
 .item-opt-my {
   display: block;
   font-family: var(--font-my);
-  font-size: 12px;
+  font-size: var(--fs-sm); /* W16e — was 12px; the 48px option rows absorb the growth */
   color: var(--t3);
 }
 /* W5c pre-merge (safety): an add-on that introduces an allergen the base dish doesn't declare flags it
@@ -1583,6 +1597,12 @@ h3 {
 .checkout-cta {
   position: relative;
   overflow: hidden;
+  /* W16e — the class carried no box at all, so every call site re-declared min-height (48 here,
+     50 there). It matters more now: W16b/W16c put a second BURMESE line inside these buttons, and
+     with the MY leading applied a fixed-height CTA would clip it. Min-height + vertical padding
+     let the button GROW instead. */
+  min-height: 50px;
+  padding-block: var(--s2);
   /* --ac → --ac-strong (a DARKER clay at the bottom) for pressed-in depth — both stops keep --oa cream
      text ≥AA (no gold under the label). The gold warmth rides as a hover HALO below, off the text. */
   background: linear-gradient(180deg, var(--ac), var(--ac-strong));
@@ -1861,6 +1881,11 @@ h3 {
 /* W12 — the Order moment's quiet door to the bill: the old Send outline look, inherited (the filled
    promotion once everything is sent comes from .checkout-cta on the same element). */
 .checkout-viewbill {
+  /* W16e review MED — the SAME box as .checkout-cta: Checkout swaps one button between the two
+     classes (draft-count / undo state), so a box on only one of them made the primary CTA jump
+     ~8px on the first add and back again when the undo grace ended. */
+  min-height: 50px;
+  padding-block: var(--s2);
   border: 1px solid var(--ac);
   background: transparent;
   color: var(--ac);
@@ -2887,8 +2912,8 @@ h3 {
   display: block;
   margin-top: 1px;
   font-family: var(--font-my);
-  font-size: 11.5px;
-  line-height: 1.5;
+  /* W16e — 11.5px was under the 13px Burmese floor (leading comes from [lang="my"] now). */
+  font-size: var(--fs-sm);
   color: var(--t2);
 }
 .history-chev {
@@ -3934,9 +3959,11 @@ html[data-seen-surface] .mms-stagger {
 }
 .start-here-my {
   font-family: var(--font-my);
-  font-size: 11.5px;
+  /* W16e — was 11.5px/1.35: below the 13px Burmese floor the W12 bill review set, and the tight
+     leading cropped stacked diacritics inside the 1-line clamp. The clamp stays; its line box now
+     grows with the leading from [lang="my"]. */
+  font-size: var(--fs-sm);
   color: var(--t2);
-  line-height: 1.35;
   display: -webkit-box;
   -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
@@ -4658,8 +4685,10 @@ html[data-seen-surface] .mms-stagger {
 }
 .aisle-tile-my {
   font-family: var(--font-my);
-  font-size: 10.5px;
-  line-height: 1.15;
+  /* W16e review LOW — was 10.5px/1.15: the smallest Burmese in the app, and its own line-height
+     OVERRODE the new [lang="my"] leading, so /grocery kept clipping stacked diacritics while the
+     rest of the app breathed. Size to the scale; leading inherits. */
+  font-size: var(--fs-xs);
   color: var(--t3);
 }
 .aisle-tile[aria-pressed="true"] .aisle-tile-my {
@@ -4849,8 +4878,7 @@ html[data-seen-surface] .mms-stagger {
 }
 .aisle-fan-label-my {
   font-family: var(--font-my);
-  font-size: 11px;
-  line-height: 1.3;
+  font-size: var(--fs-xs); /* W16e — was 11px/1.3, overriding the MY leading */
   color: var(--t3);
 }
 .aisle-fan-tick[aria-current="true"] .aisle-fan-label-my {
@@ -4992,8 +5020,8 @@ html[data-seen-surface] .mms-stagger {
 }
 .gcard-name-my {
   font-family: var(--font-my);
-  font-size: 12px;
-  line-height: 1.4;
+  /* W16e — was 12px/1.4 (own leading beat the MY rule); the clamp's line box grows with it. */
+  font-size: var(--fs-sm);
   color: var(--t2);
   display: -webkit-box;
   -webkit-line-clamp: 1;

@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { serverClient, serviceClient } from "@mms/db/server";
 import { getStaffAuth } from "./staff";
 import { withinMutationRate } from "./rate";
-import { displayImageUrl } from "./media-url";
+import { safeImageUrl } from "./media-url";
 
 /**
  * Server-authoritative session kind for AnonAuthGate (M4): is the caller an anonymous diner, an UPGRADED
@@ -441,9 +441,9 @@ export async function getOrderHistory(limit = 20): Promise<OrderHistoryEntry[] |
       : Promise.resolve({ data: null }),
   ]);
   for (const f of menuRes.data ?? [])
-    media.set(f.id, { imageUrl: displayImageUrl(f.image_url), nameMy: f.name_my ?? null });
+    media.set(f.id, { imageUrl: safeImageUrl(f.image_url), nameMy: f.name_my ?? null });
   for (const g of groceryRes.data ?? [])
-    media.set(g.barcode, { imageUrl: displayImageUrl(g.image_url), nameMy: g.name_my ?? null });
+    media.set(g.barcode, { imageUrl: safeImageUrl(g.image_url), nameMy: g.name_my ?? null });
   const byOrder = new Map<string, OrderHistoryLine[]>();
   for (const it of items ?? []) {
     const arr = byOrder.get(it.order_id) ?? [];
