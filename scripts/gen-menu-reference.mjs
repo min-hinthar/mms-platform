@@ -29,6 +29,31 @@ const OUT = "docs/data/MENU_REFERENCE.md";
 const catalog = read("docs/data/menu_catalog.json");
 const pos = read("docs/data/pos_2026_prices.json");
 
+// ── allergen codes must be canonical ────────────────────────────────────────────────────────────
+// The free-from chips rule on EXACT codes (`dietary.ts` FREE_FROM_ALLERGENS), and a non-empty
+// allergen list disables the unknown-is-unsafe fail-safe — so a near-miss code (`gluten` for
+// `gluten_wheat`) makes a dish that DECLARES the allergen pass the free-from chip. That shipped
+// once (bean-fritters, caught in review; veggie-fritters carried it from the seed). This list
+// mirrors ItemSheet's ALLERGEN_LABEL; a new legit code is added in both places or this fails.
+const KNOWN_ALLERGENS = new Set([
+  "shellfish",
+  "fish",
+  "egg",
+  "soy",
+  "peanuts",
+  "dairy",
+  "tree_nuts",
+  "gluten_wheat",
+  "sesame",
+]);
+for (const i of catalog) {
+  const bad = (i.allergens ?? []).filter((a) => !KNOWN_ALLERGENS.has(a));
+  if (bad.length) {
+    console.error(`menu reference … UNKNOWN allergen code(s) on ${i.slug}: ${bad.join(", ")}`);
+    process.exit(1);
+  }
+}
+
 // ── the Burmese join key ────────────────────────────────────────────────────────────────────────
 // Keep only Myanmar-block codepoints (U+1000–U+109F), drop ZWSP/ZWNJ/ZWJ and spaces, then NFC-
 // normalize: Myanmar asat + dot-below order differently byte-wise (`န့်` as 103A-1037 vs 1037-103A)

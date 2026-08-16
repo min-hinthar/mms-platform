@@ -67,8 +67,8 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > ### W17d-2 — the missing POS menu items (this slice)
 >
 > All 98 unmatched POS rows classified BEFORE anything was created; **31 genuine adds** (1,450 units
-> of 2026 volume) + a Desserts category, each machine-verified (no slug/EN/exact-MY/loose-MY
-> collision; price read from the named POS row, never transcribed). 4 catalog Burmese typos fixed —
+> of 2026 volume) + a Desserts category, each machine-verified (no slug/EN/exact-MY collision,
+> loose-MY overlaps printed + adjudicated; price read from the named POS row, never transcribed). 4 catalog Burmese typos fixed —
 > they were hiding real matches. Two generator bugs fixed **red-first**: the Burmese join compared
 > non-NFC strings (Myanmar asat/dot-below byte order differs while rendering identically — hid a
 > 126-unit match), and exact-match ranking by volume put a $100 catering tray's price beside the $10

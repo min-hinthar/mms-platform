@@ -129,7 +129,7 @@ means we already carry the dish, whatever the English label says.
 
 | Dish (EN) | မြန်မာ | Price | Tax cat | Mods | Photo | Tags | Allergens | POS name (`≈` = loose match) | POS $ | POS dine/togo | 2026 units |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Bean Fritters | ပဲကပ်ကြော် | $10.00 | hot_prepared | 0 | ❌ | — | gluten | Bean Fritters ပဲကပ်ကြော် | $10.00 | $10.00 / — | 97 |
+| Bean Fritters | ပဲကပ်ကြော် | $10.00 | hot_prepared | 0 | ❌ | — | gluten_wheat | Bean Fritters ပဲကပ်ကြော် | $10.00 | $10.00 / — | 97 |
 | Century Egg Salad | ဆေးဘဲဥသုပ် | $12.00 | cold_food | 2 | ✅ | — | peanuts · shellfish · egg | Century Egg Salad ဆေးဘဲဥသုပ် | $12.00 | $12.00 / $12.00 | 85 |
 | Chicken Salad | ကြက်သားသုပ် | $15.00 | cold_food | 0 | ❌ | — | — | Chicken Salad ကြက်သားသုပ် | $15.00 | $15.00 / $15.00 | 55 |
 | Everything Salad | အသုပ်စုံ | $12.00 | cold_food | 2 | ✅ | vegan-optional | peanuts · shellfish | — | — | — | — |
@@ -138,7 +138,7 @@ means we already carry the dish, whatever the English label says.
 | NgaPi & Veggies | ငပိတို့စရာ | $10.00 | cold_food | 0 | ✅ | — | fish · shellfish | NgaPi & Veggies -  ငပိတို့စရာ | $10.00 | $10.00 / — | 275 |
 | Pickled Tea Salad | လက်ဖက်သုပ် | $14.00 | cold_food | 2 | ✅ | vegan-optional · popular | peanuts · shellfish | Tea Salad လက်ဖက်သုပ် | $14.00 | $14.00 / $14.00 | 419 |
 | Tomato Salad | ခရမ်းချဥ်သီးသုပ် | $12.00 | cold_food | 2 | ✅ | vegetarian · allergen-reviewed · vegan-optional | — | Tomato Salad ခရမ်းချဥ်သီးသုပ် | $12.00 | $12.00 / $12.00 | 44 |
-| Veggie Fritters | အကြော်စုံ | $12.00 | hot_prepared | 0 | ✅ | — | gluten | Fritters Veggies အကြော်စုံ | $12.00 | $12.00 / $12.00 | 355 |
+| Veggie Fritters | အကြော်စုံ | $12.00 | hot_prepared | 0 | ✅ | — | gluten_wheat | Fritters Veggies အကြော်စုံ | $12.00 | $12.00 / $12.00 | 355 |
 
 ### Desserts
 

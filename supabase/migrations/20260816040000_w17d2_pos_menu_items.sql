@@ -5,7 +5,8 @@
 -- SOURCE + METHOD. The Jan–Jul 2026 Zettle export (docs/data/pos_2026_prices.json) had 98 items
 -- with no exact Burmese-name match in the 66-item catalog. Every one was classified BEFORE anything
 -- was created, and the classification is machine-checked (the verifier script asserts no slug /
--- English / exact-Burmese / loose-Burmese collision for every insert below, and every price is read
+-- English / exact-Burmese collision for every insert below and PRINTS loose-Burmese overlaps for
+-- adjudication (one: oil-rice-with-peas ⊂⊃ white-peas — distinct dishes), and every price is read
 -- from the named POS row — never transcribed):
 --
 --   • 31 GENUINELY MISSING items → inserted below, 1,450 units of 2026 volume.
@@ -27,16 +28,39 @@
 --   • NOISE (≤2 units, ambiguous one-off rings) → skipped, listed in docs/W17_PLAN.md §W17d-2 with
 --     the flagged open questions (hilsa fried-vs-steamed naming, duck curry, ginger salad).
 --
--- Every insert is idempotent (on conflict (slug) do nothing) and joins its category by slug — the
--- NOT NULL category_id means a missing category fails the migration loudly rather than inserting a
--- floating item. New items ship with is_active=true, no photo (the designed PhotoPlaceholder
--- renders), declared-only allergens (never `allergen-reviewed` — the free-from filters stay
--- fail-safe), and Claude-authored Burmese descriptions AWAITING the owner's native check (K15).
+-- Every insert is idempotent (on conflict (slug) do nothing) and joins its category by slug. An
+-- `insert … select` over a missing category would insert ZERO rows silently (the NOT NULL never
+-- evaluates on an empty select — review finding), so the assert block below names every category
+-- slug the inserts rely on and raises BEFORE any item insert if one is absent. New items ship with
+-- is_active=true, no photo (the designed PhotoPlaceholder renders), declared-only allergens (never
+-- `allergen-reviewed` — the free-from filters stay fail-safe), and Claude-authored Burmese
+-- descriptions AWAITING the owner's native check (K15).
 
 -- ── the Desserts category (sanwin makin, coconut sago, fresh fruits need a home) ────────────────
 insert into public.menu_categories (slug, name, sort_order)
 values ('desserts', 'Desserts', 75)
 on conflict (slug) do nothing;
+
+-- Every category slug the item inserts join on must exist, or nothing below may run. Raises loudly
+-- instead of letting an `insert … select` over an empty category quietly insert zero rows.
+do $$
+declare v_missing text;
+begin
+  select string_agg(s, ', ') into v_missing
+  from unnest(array['rice-noodles-soups','sides','curries-a-la-carte','vegetables',
+                    'seafood-curries','appetizers-salads','drinks','desserts']) s
+  where not exists (select 1 from public.menu_categories c where c.slug = s);
+  if v_missing is not null then
+    raise exception 'w17d2: missing menu_categories: %', v_missing;
+  end if;
+end $$;
+
+-- ── allergen code fix (review finding): `gluten` is not a code the app recognizes ───────────────
+-- The gluten-free chip rules on `gluten_wheat` exactly, and a NON-empty allergen list disables the
+-- unknown-is-unsafe fail-safe — so a dish declaring `gluten` PASSED the gluten-free filter.
+-- veggie-fritters carried this from the seed; guarded on the current wrong value.
+update public.menu_items set allergens = array['gluten_wheat']::text[]
+ where slug = 'veggie-fritters' and allergens = array['gluten']::text[];
 
 -- ── the four catalog spelling fixes (guarded on the current wrong value) ────────────────────────
 update public.menu_items set name_my = 'လက်ဖက်ရည်'
@@ -81,7 +105,7 @@ insert into public.menu_items
    base_price_cents, tax_category, allergens, tags, is_active)
 select c.id, 'bean-fritters', 'Bean Fritters', 'ပဲကပ်ကြော်',
        'Crisp split-pea fritters, fried to order.', 'ပဲကပ်ကြော် — ကြွပ်ကြွပ်လေး ကြော်ထားသည်။',
-       1000, 'hot_prepared', array['gluten']::text[], '{}'::text[], true
+       1000, 'hot_prepared', array['gluten_wheat']::text[], '{}'::text[], true
 from public.menu_categories c where c.slug = 'appetizers-salads'
 on conflict (slug) do nothing;
 

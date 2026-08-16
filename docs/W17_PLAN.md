@@ -200,7 +200,8 @@ Every exact-Burmese-matched item now carries the price the register actually rin
 **98 of 149 POS items had no exact Burmese match in the 66-item catalog.** Every one was classified
 BEFORE anything was created ("verify each item before adding"), and the verifier
 (`w17d2_build.py` → `20260816040000_w17d2_pos_menu_items.sql`) machine-checks each insert: no slug /
-English / exact-Burmese / loose-Burmese collision, and every price **read from the named POS row,
+English / exact-Burmese collision, loose-Burmese overlaps printed for adjudication (one, adjudicated
+distinct: oil-rice-with-peas ⊂⊃ white-peas), and every price **read from the named POS row,
 never transcribed**. The catalog is now **97 items**; the backlog table dropped 98 → 60, and every
 residual row is classified below.
 
