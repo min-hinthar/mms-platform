@@ -120,6 +120,11 @@ export function MenuPriceEditor({ items }: { items: PricedItem[] }) {
       // The row stays open with the typed value intact — a refusal should not also cost the manager
       // their input.
       setMsg({ ok: false, text: res.error });
+      // W21d (Codex P2 on #193) — refresh the LIST on a refusal: the concurrency refusal tells the
+      // manager to "check the new price and try again", but the stale `items` prop would keep
+      // feeding the same stale expectedPriceCents forever. The edit row's own client state
+      // (editing/draft) survives a router.refresh, so nothing typed is lost.
+      router.refresh();
       return;
     }
     setMsg({

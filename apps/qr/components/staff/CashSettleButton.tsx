@@ -68,10 +68,17 @@ export function CashSettleButton({
     if (intendedTipCents != null && !tipTouched.current)
       setTip((intendedTipCents / 100).toFixed(2));
   }, [intendedTipCents]);
-  // W21d (Codex P1 on #183) — normalize a locale decimal COMMA to a point BEFORE stripping:
-  // deleting it turned "5,00" into "500", recording a $500 tip for a $5 one. Applied at both
-  // money inputs (tip + tendered).
-  const sanitizeMoney = (raw: string) => raw.replace(/,/g, ".").replace(/[^0-9.]/g, "");
+  // W21d (Codex P1 on #183, then its P2 on #193) — commas are AMBIGUOUS: "5,00" is a decimal
+  // comma (deleting it recorded a $500 tip for a $5 one), while "1,234.56" is US grouping
+  // (turning every comma into a point made parseFloat stop at 1.23). Disambiguate: with a dot
+  // present, commas are grouping — strip them; comma-only input is a decimal comma when 1–2
+  // digits follow it at the end ("5,00"), grouping otherwise ("1,234").
+  const sanitizeMoney = (raw: string) => {
+    const normalized = raw.includes(".")
+      ? raw.replace(/,/g, "")
+      : raw.replace(/,(?=\d{1,2}$)/, ".").replace(/,/g, "");
+    return normalized.replace(/[^0-9.]/g, "");
+  };
   const tipCents = Math.max(0, Math.round(Number.parseFloat(tip || "0") * 100) || 0);
   const tipValid = tipCents <= 100000;
   // What the cashier actually collects. Everything below — the confirm question, the settle button,
