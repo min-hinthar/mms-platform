@@ -222,13 +222,18 @@ export function TasteBand({
         <p style={{ margin: "4px 0 8px", fontSize: "var(--fs-sm)", color: "var(--t3)" }}>
           {surpriseAsked && surprise.length > 0
             ? "Those surprise picks don’t fit your dietary filters — tap Surprise me again."
-            : surpriseAsked && diets.length > 0
-              ? "Nothing to surprise you with under those filters — ease one, or browse the menu below."
-              : surpriseAsked
-                ? "Nothing new to surprise you with — your favorites already cover what’s in stock."
-                : diets.length > 0
-                  ? "Nothing matches those right now — try different cravings, or ease a dietary filter."
-                  : "Nothing matches those right now — try different cravings."}
+            : surpriseAsked && pool.length > 0
+              ? // The pool has dishes — every one is hearted (surpriseMe excludes hearts), with
+                // or without diets active (Codex round 4: blaming a filter here advised a lever
+                // that wouldn't help).
+                "Nothing new to surprise you with — your favorites already cover everything that fits."
+              : surpriseAsked && diets.length > 0
+                ? "Nothing to surprise you with under those filters — ease one, or browse the menu below."
+                : surpriseAsked
+                  ? "Nothing in stock to surprise you with right now."
+                  : diets.length > 0
+                    ? "Nothing matches those right now — try different cravings, or ease a dietary filter."
+                    : "Nothing matches those right now — try different cravings."}
         </p>
       )}
     </section>

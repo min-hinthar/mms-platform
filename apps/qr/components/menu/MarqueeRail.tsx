@@ -186,6 +186,13 @@ export function MarqueeRail<T>({
       disposed = true;
       cancelAnimationFrame(raf);
       resumeRef.current = () => {};
+      // Fold the offset back into the REAL set (Codex round 4 on #194): reduced-motion flipped
+      // mid-visit unmounts the duplicate set, and a viewport sitting in dupe territory (the
+      // reverse row lives around the seam) gets clamped to the static rail's tail — a visible
+      // jump. Positions p and p−loop are pixel-identical while the dupes exist, so re-writing
+      // the normalized offset after the clamp restores what the diner was looking at. This
+      // effect's cleanup runs after the DOM update, exactly when the clamp has happened.
+      el.scrollTo({ left: ((pos % loop) + loop) % loop });
       el.removeEventListener("scroll", onScroll);
       el.removeEventListener("mouseenter", onEnter);
       el.removeEventListener("mouseleave", onLeave);
