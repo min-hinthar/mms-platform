@@ -226,6 +226,14 @@ const MUTANTS = [
     find: "    p_fulfillment: input.fulfillment,\n  });",
     replace: "    p_fulfillment: input.fulfillment,\n    p_unit_price_cents: 1234,\n  });",
   },
+  {
+    id: "reorder/mode-fork-collapses-to-dinein",
+    file: "apps/qr/lib/reorder.ts",
+    suite: "lib/reorder-mode.test.ts",
+    why: "W17a — reorder's session-mode fork is the re-added line's routing TAG and, through it, its tax. Collapsing it taxes every pickup reorder of a COLD dish that CDTFA Reg 1603 exempts to-go",
+    find: '          fulfillment: dineIn ? "dinein" : "togo",',
+    replace: '          fulfillment: "dinein" as const,',
+  },
   // ── M3 — faithful reorder (option ids beside the labels) ────────────────────────────────────────
   {
     id: "order-lines/option-ids-not-threaded",
