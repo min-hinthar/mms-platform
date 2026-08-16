@@ -4,6 +4,43 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W17c-1 — the tip ask fits the basket, and offers to round up (2026-08-16)
+
+First of the four tipping enhancements the owner selected. `lib/tip.ts` is pure — it is arithmetic
+with real edge cases, and arithmetic that decides a charged amount belongs where it can be tested
+without a DOM.
+
+- **The unit follows the basket.** Under $20 the presets are flat dollars; at or above, percentages.
+  18% of a $4 tea is 72¢ — a chip nobody taps, presented in a form that reads as an ask. The chip
+  _count_ is unchanged, so the five-wide 320px row still fits.
+- **"Round up to $36.00"** on its own full-width row, naming the destination total _and_ the exact
+  cents it adds. Not a sixth chip: the row is already full, and this offer has to state where it
+  lands to be honest.
+- **Nothing is offered that the server would refuse.** The binding cap is the **split** path's 0.5
+  (`qr_cart_shares.tip_rate`'s column CHECK), not single-pay's 1.0 — a tip is chosen before the table
+  decides how it settles, and a chip valid one way but refused the other surfaces a bound as a failed
+  payment at the last tap. Pinned against **both** schemas so neither can drift.
+- **Round-up declines to fire on an already-whole total.** There is nothing to round, and charging a
+  dollar under that label would be a different, larger ask wearing the round-up's clothes.
+- **The round-up rate is DERIVED each render, never frozen** (review HIGH, a defect this slice
+  introduced): its rate depends on the basket, so storing the tapped number desynced it from the
+  total it names the instant the cart moved — a promo, a qty edit, a group peer's edit. The diner was
+  then charged a tip that rounds to nothing, on a total the UI no longer named, with **no chip lit**
+  to show a tip was active at all. Percentages had never exposed this because 18% is 18% whatever the
+  basket does. The component now stores the _choice_; `effectiveTipRate` in `lib/tip.ts` derives the
+  rate from the current numbers, so the pressed chip and the charge read one value and cannot
+  disagree. That decision lives in `lib/` deliberately — `Checkout.tsx` is outside
+  `check-money-coverage`'s paths and has no component test, so a rule left there could not be guarded.
+- Every chip still produces a **rate**, never an amount — the charge stays `round(net × rate)`
+  server-side. The tests assert each label against that exact formula, swept across basket sizes
+  rather than one convenient fixture, and the round-up sweep now covers **every** value of
+  `due % 100` (it had stepped by 7, testing 14 of 100 while reading as exhaustive). Both sweeps
+  collect failures instead of making 80k `expect` calls — 2.9s → 49ms, because a slow guard is one
+  someone eventually stops running. 5 new mutants (**111 total**), each watched red.
+
+Still to come in W17c: the tip on the staff cash settle, the kiosk/register tip prompt, and staff tip
+transparency.
+
 ### W17b — a manager can set a menu price from the console (2026-08-16)
 
 The owner's parenthetical in the W17 directive: _"staff portal should be able to update prices?"_

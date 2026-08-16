@@ -23,6 +23,7 @@ import {
 } from "@/lib/cart";
 import type { SplitContext } from "@/lib/split";
 import { canMutateLine } from "@/lib/permissions";
+import { effectiveTipRate as deriveTipRate, roundUpTip, tipPresets } from "@/lib/tip";
 import { menuHref, menuLinkText } from "@/lib/menu-href";
 import { DINER_STATE_COPY } from "@/lib/line-state-copy";
 import { seatColor, seatInitial } from "@/lib/avatars";
@@ -102,14 +103,13 @@ const PROMO_MESSAGES: Record<PromoReason, string> = {
 
 // Tip presets (v7.2 prototype). The <small> shows a client PREVIEW of the tip; the AUTHORITATIVE
 // tip + grand total come back from create-intent (server) on the pay step — never the charge.
-// "None" (not v7.2's "No extra") so five chips — the four presets + W2d's Custom — fit one row at
-// 320–375px without wrapping to uneven heights (mobile-first bar).
-const TIPS: [label: string, rate: number][] = [
-  ["None", 0],
-  ["15%", 0.15],
-  ["18%", 0.18],
-  ["20%", 0.2],
-];
+// "None" (not v7.2's "No extra") so five chips — None + three presets + W2d's Custom — fit one row
+// at 320–375px without wrapping to uneven heights (mobile-first bar).
+//
+// W17c: the three presets are no longer fixed at 15/18/20 — `tipPresets(net)` sizes the UNIT to the
+// basket (flat dollars under $20, where 18% of a $4 tea is a meaningless 72¢; percentages above) and
+// drops any chip the server's rate cap would refuse. The chip COUNT is unchanged, so the row still
+// fits. See lib/tip.ts.
 
 // W2d — a typed custom-tip dollar string → the rate the server applies. `round(net · rate)` then equals
 // the entered cents exactly (rate = cents/net). Clamped to 100% of net (the schema cap is 1.0), so it
@@ -234,6 +234,11 @@ export function Checkout({
   // webhook-reconciled, the client never sends an amount.
   const [customTipOpen, setCustomTipOpen] = useState(false);
   const [customTip, setCustomTip] = useState("");
+  // W17c — round-up is a CHOICE, not a rate: its rate depends on the basket, so freezing the number
+  // the way a percentage preset can be frozen would silently desync it from the total it names the
+  // moment the cart moves (a promo, a qty edit, a group peer's edit). Same shape as the custom tip
+  // above — store the intent, derive the rate during render from the CURRENT numbers.
+  const [roundUpOn, setRoundUpOn] = useState(false);
   const customTipRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (customTipOpen) customTipRef.current?.focus();
@@ -252,11 +257,22 @@ export function Checkout({
   // Forced 0 on a pure-grocery basket so a lingering custom-tip state can't send a rate the server would
   // discard (defense-in-depth — the server also force-zeros grocery tips).
   const tipNet = totals.subtotalCents - totals.discountCents;
-  const effectiveTipRate = pureGrocery
-    ? 0
-    : customTipOpen
-      ? customTipRateFromDollars(customTip, tipNet)
-      : tipRate;
+  // W17c — the round-up offer for the CURRENT cart. Null when there is nothing honest to round (the
+  // total is already whole, or the round-up would exceed the server's rate cap), in which case the
+  // choice cannot be active either: `roundUpActive` is what the UI and the charge both read, so the
+  // pressed chip always matches the amount that will actually be charged.
+  const roundUp = pureGrocery ? null : roundUpTip(tipNet, totals.totalCents);
+  const roundUpActive = roundUpOn && roundUp != null;
+  // The decision itself lives in lib/tip.ts (pure, mutant-pinned) — see effectiveTipRate's note on
+  // why the round-up rate must be DERIVED here rather than stored when the diner taps.
+  const effectiveTipRate = deriveTipRate({
+    pureGrocery,
+    customTipOpen,
+    customRate: customTipRateFromDollars(customTip, tipNet),
+    roundUpOn,
+    roundUp,
+    presetRate: tipRate,
+  });
   const [step, setStep] = useState<"review" | "pay">("review");
   // W3e: the pickup/scango call-out name — optional, rides create-intent → qr_carts.customer_name →
   // the order snapshot, so expo + the order-ready board can call a human instead of a code. Dine-in
@@ -784,6 +800,12 @@ export function Checkout({
   // exactly with the tip-inclusive total create-intent returns on the pay step.
   const tipPreview = (rate: number) =>
     Math.round((totals.subtotalCents - totals.discountCents) * rate);
+  // W17c — the chips for THIS basket. A pure function of the server's own number (`tipNet` is
+  // subtotal − discount, the tip base), so the ask moves with the cart and never invents one.
+  const presetChips: [label: string, rate: number][] = [
+    ["None", 0],
+    ...tipPresets(tipNet).map((p): [string, number] => [p.label, p.rate]),
+  ];
 
   // `pureGrocery`/`effectiveTipRate` are computed at the top (before the empty-cart return). The preview
   // is zeroed for pure-grocery so a mixed cart that BECOMES pure grocery (restaurant line removed after a
@@ -813,9 +835,19 @@ export function Checkout({
   function selectPresetTip(rate: number) {
     setCustomTipOpen(false);
     setCustomTip("");
+    setRoundUpOn(false);
     setTipRate(rate);
   }
+  // W17c — the round-up records the CHOICE; the rate is derived during render from the live total,
+  // so it can never name one destination and charge for another.
+  function selectRoundUp() {
+    setCustomTipOpen(false);
+    setCustomTip("");
+    setTipRate(0);
+    setRoundUpOn(true);
+  }
   function openCustomTip() {
+    setRoundUpOn(false);
     setCustomTipOpen(true); // the effective rate derives from `customTip` (empty ⇒ 0) while open
   }
   function onCustomTipChange(raw: string) {
@@ -1520,8 +1552,8 @@ export function Checkout({
                   aria-labelledby="tip-h"
                   style={{ display: "flex", gap: 8, margin: "0 0 4px" }}
                 >
-                  {TIPS.map(([label, rate]) => {
-                    const on = !customTipOpen && tipRate === rate;
+                  {presetChips.map(([label, rate]) => {
+                    const on = !customTipOpen && !roundUpActive && tipRate === rate;
                     const previewCents = tipPreview(rate);
                     return (
                       <button
@@ -1572,6 +1604,38 @@ export function Checkout({
                     </small>
                   </button>
                 </div>
+                {/* W17c — the round-up, on its OWN row rather than as a sixth chip: the chip row is
+                    already five wide at 320px, and this offer needs to NAME its destination total to
+                    be honest ("Round up to $36.00" + the exact cents it adds). It is part of the
+                    same labelled tip group, so it needs no second heading and no live region. Absent
+                    entirely when there is nothing to round (already whole, or over the rate cap). */}
+                {roundUp && (
+                  <button
+                    type="button"
+                    aria-pressed={roundUpActive}
+                    aria-disabled={lockedByPeer || undefined}
+                    onClick={() => {
+                      if (lockedByPeer) return;
+                      selectRoundUp();
+                    }}
+                    className="checkout-tip"
+                    style={{
+                      ...tipChipStyle(roundUpActive),
+                      ...(lockedByPeer ? { opacity: 0.55 } : null),
+                      width: "100%",
+                      margin: "0 0 4px",
+                      flexDirection: "row",
+                      justifyContent: "space-between",
+                      gap: 8,
+                    }}
+                  >
+                    {/* The destination is the point of the offer — state it, and state the cost. */}
+                    <span>Round up to ${(roundUp.targetCents / 100).toFixed(2)}</span>
+                    <small style={tipChipSmall(roundUpActive)}>
+                      +${(roundUp.tipCents / 100).toFixed(2)}
+                    </small>
+                  </button>
+                )}
                 {customTipOpen && (
                   <div id="custom-tip-field" style={{ margin: "2px 0 4px" }}>
                     <div style={customTipWrap}>
