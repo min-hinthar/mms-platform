@@ -4,6 +4,46 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W17b — a manager can set a menu price from the console (2026-08-16)
+
+The owner's parenthetical in the W17 directive: _"staff portal should be able to update prices?"_
+
+`/staff/menu` (manager+) lists the live catalog at the prices a guest would actually be charged, and
+lets a manager change one. This is the **only** place in the app where a money amount crosses from a
+human into the system — every other amount is server-derived, and that rule isn't weakened here: a
+manager setting the menu price is the decision the rule protects. What changes is which number
+`priceItem` reads next.
+
+- **Gated where it counts.** The manager floor is re-checked _inside_ `setMenuPrice` — a Server
+  Action is a public POST endpoint, so the page gate is convenience and the action gate is the
+  authority. The service client is created only _after_ the gate: authz proven before elevation.
+- **Bounded on both sides.** Zod `.min(25).max(500000)` **and** a new `menu_items_base_price_cents_bounds`
+  column CHECK. `base_price_cents` was writable only by a migration until now; once a human can type
+  it, a fat-fingered $1,900 has to be a refusal, not a money incident.
+- **`menu_price_audit`** records old → new against the caller's `staffId`. Staff mutations elsewhere
+  are best-effort PostHog telemetry — the right weight for "who bumped a ticket"; a price is the
+  number every future guest pays and has to be answerable from the database months later. RLS:
+  manager+ read, **no insert policy at all** so only the service-role path can append — which is what
+  makes the ledger unskippable.
+- **An unrecorded change is surfaced, not swallowed.** If the ledger insert fails the manager is told
+  the price landed but the record didn't, rather than handed a clean success over a change nobody
+  logged. The price is deliberately not rolled back: an unrecorded correct price beats a reverted one
+  the kitchen has already been told about.
+- **Nobody is re-priced mid-meal.** `unit_price_cents` is stamped on a line at add time and nothing
+  here touches `qr_cart_items`, so lines already in a cart keep what they were quoted and paid orders
+  are history. The page and the confirm step both say so.
+- Two-step confirm naming the old price, the new price and the direction — the staff console's
+  existing inline idiom (`CashSettleButton` et al), and exactly the class of button the owner asked
+  to confirm in W16c. Focus moves into the group on open and back to Save on cancel.
+- 4 new mutants (**105 total**), each watched red: the role floor dropped to `server`, the zero-row
+  update reading as success, a transport failure reading as "no such dish", and the swallowed audit
+  failure.
+
+**Deliberately not included: a per-mode `togo_price_cents`.** W17a established one POS price per dish,
+and the handful that genuinely differ would need the dine-in↔to-go toggle to **re-price again** — the
+machinery W17a just removed. That is a real money-path change and it waits on the owner confirming
+the four candidate prices rather than being built on the chance they say yes.
+
 ### W17a — real POS pricing (the mode markup is reverted) (2026-08-16)
 
 The owner: _"let's just revert to real POS pricing for both dine-in and take-out for now."_ Decision
