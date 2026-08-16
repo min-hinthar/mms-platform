@@ -32,7 +32,9 @@ vi.mock("./staff-open-cart", () => ({
   openCartFor: () =>
     Promise.resolve({
       session: { id: SESSION, mode: "dinein" },
-      cart: { id: CART },
+      // A TRUST tab, so the tab-close audit row is written — that row is the reconciliation record
+      // the W17c-2 review found quoting a pre-tip total.
+      cart: { id: CART, tab_type: "trust" },
       unavailable: false,
     }),
   closeCounterStyleSession: () => Promise.resolve(),
@@ -52,7 +54,13 @@ vi.mock("./posthog-server", () => ({
   getPostHogClient: () => ({ capture() {}, flush: () => Promise.resolve() }),
 }));
 vi.mock("./stripe", () => ({ getStripe: () => null }));
-vi.mock("./tab-events", () => ({ logTabEvent: () => Promise.resolve() }));
+const tabEvents: Record<string, unknown>[] = [];
+vi.mock("./tab-events", () => ({
+  logTabEvent: (e: Record<string, unknown>) => {
+    tabEvents.push(e);
+    return Promise.resolve();
+  },
+}));
 
 // The server's own breakdown — TIP-FREE by construction (getCartTotals is called with tipRate 0).
 const TOTALS = {
@@ -97,6 +105,7 @@ const fulfill = () => rpcCalls.find((c) => c.fn === "mms_fulfill_cash_order");
 
 beforeEach(() => {
   rpcCalls.length = 0;
+  tabEvents.length = 0;
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -139,6 +148,15 @@ describe("settleCash — the cash tip is recorded, and the collected total inclu
     expect(r).toEqual({ ok: false, error: "Invalid request." });
     // Refused BEFORE the settle: no order was created that would have to be unwound.
     expect(fulfill()).toBeUndefined();
+  });
+
+  it("the tab-close AUDIT row records the collected total, not the pre-tip one", async () => {
+    // T13's walk-out / discretion reconciliation record. A pre-tip figure here reads as an
+    // unexplained gap against qr_orders.total_cents — the exact discrepancy an auditor would chase.
+    await settleCash({ sessionId: SESSION, tipCents: 500 });
+    const closed = tabEvents.find((e) => e.event === "closed");
+    expect(closed?.amountCents).toBe(4368);
+    expect(closed?.amountCents).not.toBe(3868);
   });
 
   it("accepts the cap exactly — the bound refuses what is over it, not what is at it", async () => {
