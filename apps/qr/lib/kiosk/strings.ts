@@ -51,9 +51,13 @@ const STRINGS = {
   // encourage!"). "Add a tip?" stays a QUESTION — but the percentages now lead and "No tip" sits
   // last and quiet (owner: "none is not encouraged lol"), still one honest tap away.
   addATip: { en: "Add a little extra?", my: "အပိုလေး ထည့်မလား?" },
+  // ⚠️ Deliberately NOT the checkout's "it all goes to the team" (review MED): a kiosk tip is
+  // settled at the COUNTER, where the cashier's settle stamps `settled_by` — /staff/tips then
+  // attributes it to that person, not the shared bucket. So this line describes what the tip IS
+  // (a thank-you), never how the house routes it — a claim this app can't keep.
   tipForTheTeam: {
-    en: "It all goes to the team who made your food.",
-    my: "အားလုံး ချက်ပြုတ်ကျွေးမွေးပေးတဲ့ အဖွဲ့ဆီ တိုက်ရိုက် ရောက်ပါတယ်နော်။",
+    en: "A little thank-you for the team who made your food.",
+    my: "ချက်ပြုတ်ကျွေးမွေးပေးတဲ့ အဖွဲ့အတွက် ကျေးဇူးလက်ဆောင်လေးပါ။",
   },
   noTip: { en: "No tip", my: "မထည့်ပါ" },
   handoffTogo: {

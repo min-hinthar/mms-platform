@@ -4077,7 +4077,9 @@ html[data-seen-surface] .mms-stagger {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  width: 100%;
+  /* width:100% resolves against the CONTENT box, so the negative side margins alone left the
+     button 26px short on the right — chevron inboard, right edge untappable (review MED). */
+  width: calc(100% + 26px);
   min-height: 44px;
   margin: -10px -13px;
   padding: 10px 13px;

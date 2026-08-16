@@ -268,9 +268,16 @@ export function RewardField({
                   style={couponBtn}
                 >
                   <span style={{ fontWeight: 800 }}>{dollars(c.amountCents)} off</span>
-                  {/* "good through", not "expires" — same date, said the hospitable way round. */}
+                  {/* "good through", not "expires" — the hospitable way round. But `expires_at` is
+                      a mid-day TIMESTAMP (mint + N days) and redemption needs `> now()`, so naming
+                      the expiry DATE would promise up to a day the redeem predicate refuses
+                      (review MED). Show the last FULLY-valid day instead — may under-promise by
+                      hours, never over. */}
                   <span style={{ fontSize: "var(--fs-xs)", color: "var(--t2)" }}>
-                    good through {new Date(c.expiresAt).toLocaleDateString()}
+                    good through{" "}
+                    {new Date(
+                      new Date(c.expiresAt).getTime() - 24 * 60 * 60 * 1000,
+                    ).toLocaleDateString()}
                   </span>
                 </button>
               </li>
