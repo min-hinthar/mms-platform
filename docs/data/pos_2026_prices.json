@@ -1,0 +1,942 @@
+[
+  { "pos": "Rice ထမင်းဖြူ", "price": 2.0, "dine": 2.0, "togo": 2.0, "qty": 2052, "variants": [] },
+  { "pos": "Tea လက်ဖက်ရည်", "price": 4.0, "dine": 4.0, "togo": 4.0, "qty": 1791, "variants": [] },
+  {
+    "pos": "Nangyi နန်းကြီးသုပ်",
+    "price": 13.0,
+    "dine": 13.0,
+    "togo": 13.0,
+    "qty": 1702,
+    "variants": []
+  },
+  {
+    "pos": "Kyay-O SiChat ဆီချက်",
+    "price": 20.0,
+    "dine": 20.0,
+    "togo": 20.0,
+    "qty": 1594,
+    "variants": ["Brains", "Regular"]
+  },
+  {
+    "pos": "Mohinga မုန့်ဟင်းခါး",
+    "price": 14.0,
+    "dine": 14.0,
+    "togo": 14.0,
+    "qty": 1068,
+    "variants": []
+  },
+  {
+    "pos": "Meeshay မြှီးရှည်",
+    "price": 14.0,
+    "dine": 14.0,
+    "togo": 14.0,
+    "qty": 794,
+    "variants": []
+  },
+  {
+    "pos": "Pork Skewers ဝက်ဒုတ်ထိုး",
+    "price": 15.0,
+    "dine": 15.0,
+    "togo": 15.0,
+    "qty": 662,
+    "variants": []
+  },
+  {
+    "pos": "Red Bull - SHARK 8.4 oz",
+    "price": 4.0,
+    "dine": 4.0,
+    "togo": null,
+    "qty": 501,
+    "variants": []
+  },
+  {
+    "pos": "Roselle Shrimp ချဥ်ပေါင်ကြော်",
+    "price": 14.0,
+    "dine": 14.0,
+    "togo": 14.0,
+    "qty": 475,
+    "variants": []
+  },
+  { "pos": "ဖါလူဒါ Faluda", "price": 9.0, "dine": 9.0, "togo": null, "qty": 451, "variants": [] },
+  {
+    "pos": "Coconut Rice အုန်းထမင်း",
+    "price": 3.5,
+    "dine": 3.5,
+    "togo": 3.5,
+    "qty": 434,
+    "variants": []
+  },
+  {
+    "pos": "Chicken ကြက်သားဟင်း",
+    "price": 14.0,
+    "dine": 14.0,
+    "togo": 14.0,
+    "qty": 431,
+    "variants": []
+  },
+  {
+    "pos": "Tea Salad လက်ဖက်သုပ်",
+    "price": 14.0,
+    "dine": 14.0,
+    "togo": 14.0,
+    "qty": 419,
+    "variants": []
+  },
+  {
+    "pos": "Kyay-O ကြေးအိုး",
+    "price": 20.0,
+    "dine": 20.0,
+    "togo": 20.0,
+    "qty": 381,
+    "variants": ["Brains", "Regular"]
+  },
+  {
+    "pos": "Fritters Veggies အကြော်စုံ",
+    "price": 12.0,
+    "dine": 12.0,
+    "togo": 12.0,
+    "qty": 355,
+    "variants": []
+  },
+  {
+    "pos": "Chicken Masala ကြက်ကလယ်",
+    "price": 14.0,
+    "dine": 14.0,
+    "togo": 14.0,
+    "qty": 347,
+    "variants": []
+  },
+  {
+    "pos": "Shan Noodles ရှမ်းခေါက်ဆွဲ",
+    "price": 13.0,
+    "dine": 13.0,
+    "togo": 13.0,
+    "qty": 342,
+    "variants": []
+  },
+  {
+    "pos": "Coconut Noodles အုန်းနို့ခေါက်ဆွဲ",
+    "price": 15.0,
+    "dine": 15.0,
+    "togo": 15.0,
+    "qty": 331,
+    "variants": []
+  },
+  {
+    "pos": "Beef အမဲသားဟင်း",
+    "price": 19.0,
+    "dine": 19.0,
+    "togo": 19.0,
+    "qty": 319,
+    "variants": []
+  },
+  {
+    "pos": "Catfish Boneless ငါးခူမွှေချက်",
+    "price": 14.0,
+    "dine": 14.0,
+    "togo": 14.0,
+    "qty": 318,
+    "variants": []
+  },
+  {
+    "pos": "River Prawn ပုဇွန်ထုပ်ဟင်း",
+    "price": 24.0,
+    "dine": 24.0,
+    "togo": 24.0,
+    "qty": 313,
+    "variants": []
+  },
+  {
+    "pos": "Balachaung ဘာလချောင်ကြော်",
+    "price": 10.0,
+    "dine": 10.0,
+    "togo": null,
+    "qty": 269,
+    "variants": []
+  },
+  {
+    "pos": "Chicken Liver ကြက်သဲမြစ်",
+    "price": 14.0,
+    "dine": 14.0,
+    "togo": 14.0,
+    "qty": 266,
+    "variants": []
+  },
+  { "pos": "Pork ဝက်သနီ", "price": 14.0, "dine": 14.0, "togo": 14.0, "qty": 265, "variants": [] },
+  {
+    "pos": "Hilsa ငါး‌သလောက်ကြော်နှပ်",
+    "price": 24.0,
+    "dine": 24.0,
+    "togo": 24.0,
+    "qty": 261,
+    "variants": []
+  },
+  { "pos": "Faluda", "price": 9.0, "dine": 9.0, "togo": null, "qty": 238, "variants": [] },
+  {
+    "pos": "NgaPi & Veggies -  ငပိတို့စရာ",
+    "price": 10.0,
+    "dine": 10.0,
+    "togo": null,
+    "qty": 231,
+    "variants": []
+  },
+  {
+    "pos": "Fishcake ငါးဖယ်ချက်",
+    "price": 14.0,
+    "dine": 14.0,
+    "togo": 14.0,
+    "qty": 227,
+    "variants": []
+  },
+  {
+    "pos": "Pork Offal ဝက်ကလီစာ",
+    "price": 15.0,
+    "dine": 15.0,
+    "togo": 14.0,
+    "qty": 217,
+    "variants": []
+  },
+  {
+    "pos": "Malar Spicy Beef အမဲမာလာ",
+    "price": 17.0,
+    "dine": 17.0,
+    "togo": null,
+    "qty": 213,
+    "variants": []
+  },
+  {
+    "pos": "Everything Salad",
+    "price": 12.0,
+    "dine": 12.0,
+    "togo": 12.0,
+    "qty": 207,
+    "variants": []
+  },
+  {
+    "pos": "Fish Paste ငါးပိရည်ကျို",
+    "price": 42.0,
+    "dine": 42.0,
+    "togo": 14.0,
+    "qty": 197,
+    "variants": []
+  },
+  {
+    "pos": "Goat ဆိတ်သားဟင်း",
+    "price": 30.0,
+    "dine": 30.0,
+    "togo": 30.0,
+    "qty": 193,
+    "variants": []
+  },
+  {
+    "pos": "Swai ငါးမြင်းဟင်း",
+    "price": 19.0,
+    "dine": 19.0,
+    "togo": 19.0,
+    "qty": 189,
+    "variants": []
+  },
+  {
+    "pos": "Goat Offal ဆိတ်ကလီစာ",
+    "price": 30.0,
+    "dine": 30.0,
+    "togo": 30.0,
+    "qty": 187,
+    "variants": []
+  },
+  {
+    "pos": "Mixed Vegetables သီးစုံဟင်း",
+    "price": 14.0,
+    "dine": 14.0,
+    "togo": 14.0,
+    "qty": 184,
+    "variants": []
+  },
+  { "pos": "Parata ပလာတာ", "price": 5.0, "dine": 5.0, "togo": 5.0, "qty": 183, "variants": [] },
+  {
+    "pos": "ပဲပြုတ် White Peas",
+    "price": 5.0,
+    "dine": 5.0,
+    "togo": null,
+    "qty": 182,
+    "variants": []
+  },
+  {
+    "pos": "ပဲ ပလာတာ Parata w/ Beans",
+    "price": 10.0,
+    "dine": 10.0,
+    "togo": null,
+    "qty": 168,
+    "variants": []
+  },
+  {
+    "pos": "Goat Marrow ဆိတ်စွပ်",
+    "price": 19.0,
+    "dine": 19.0,
+    "togo": 19.0,
+    "qty": 163,
+    "variants": []
+  },
+  { "pos": "Pop Soda 12oz", "price": 3.0, "dine": 3.0, "togo": null, "qty": 161, "variants": [] },
+  {
+    "pos": "Duck Egg ဘဲဥဟင်း",
+    "price": 14.0,
+    "dine": 14.0,
+    "togo": 14.0,
+    "qty": 159,
+    "variants": []
+  },
+  {
+    "pos": "Pork Tamarind ဝက်မကျည်းနှပ်",
+    "price": 14.0,
+    "dine": 14.0,
+    "togo": 14.0,
+    "qty": 151,
+    "variants": []
+  },
+  {
+    "pos": "Fried Rice ထမင်းကြော်",
+    "price": 12.0,
+    "dine": 12.0,
+    "togo": 12.0,
+    "qty": 142,
+    "variants": []
+  },
+  {
+    "pos": "Pork Horsegram Bean ဝက်ပုန်းရည်ကြီး",
+    "price": 14.0,
+    "dine": 14.0,
+    "togo": 14.0,
+    "qty": 126,
+    "variants": []
+  },
+  {
+    "pos": "ရခိုင်မုန့်တီ Rakhine Noodles",
+    "price": 14.0,
+    "dine": 14.0,
+    "togo": null,
+    "qty": 126,
+    "variants": []
+  },
+  {
+    "pos": "Ngapi Sambal ငပိကြော်",
+    "price": 10.0,
+    "dine": 10.0,
+    "togo": null,
+    "qty": 125,
+    "variants": []
+  },
+  {
+    "pos": "Coconut Chicken Rice ကြက်အုန်းထမင်း",
+    "price": 17.0,
+    "dine": 17.0,
+    "togo": 17.0,
+    "qty": 120,
+    "variants": []
+  },
+  {
+    "pos": "Pork Bamboo Shoot ဝက်မျှစ်ချဥ်",
+    "price": 14.0,
+    "dine": 14.0,
+    "togo": 14.0,
+    "qty": 106,
+    "variants": []
+  },
+  {
+    "pos": "Water Spinach ကန်စွန်းရွက်ချဥ်ရည်",
+    "price": 14.0,
+    "dine": 14.0,
+    "togo": 14.0,
+    "qty": 98,
+    "variants": []
+  },
+  {
+    "pos": "Catfish Fried ငါးခူကြော်နှပ်",
+    "price": 14.0,
+    "dine": 14.0,
+    "togo": 14.0,
+    "qty": 97,
+    "variants": []
+  },
+  {
+    "pos": "Bean Fritters ပဲကပ်ကြော်",
+    "price": 10.0,
+    "dine": 10.0,
+    "togo": null,
+    "qty": 97,
+    "variants": []
+  },
+  {
+    "pos": "Crab Masala ဂဏန်းမဆလာ",
+    "price": 35.0,
+    "dine": 35.0,
+    "togo": 35.0,
+    "qty": 93,
+    "variants": []
+  },
+  {
+    "pos": "Beef Jerky အမဲခြောက်ဖုတ်",
+    "price": 19.0,
+    "dine": 19.0,
+    "togo": null,
+    "qty": 91,
+    "variants": []
+  },
+  {
+    "pos": "Fish Paste Curry ငပိချက်",
+    "price": 12.0,
+    "dine": 12.0,
+    "togo": 12.0,
+    "qty": 90,
+    "variants": []
+  },
+  {
+    "pos": "Mohingh Soup ဟင်းခါးပွဲ",
+    "price": 5.0,
+    "dine": 5.0,
+    "togo": null,
+    "qty": 87,
+    "variants": []
+  },
+  {
+    "pos": "Century Egg Salad ဆေးဘဲဥသုပ်",
+    "price": 12.0,
+    "dine": 12.0,
+    "togo": 12.0,
+    "qty": 85,
+    "variants": []
+  },
+  {
+    "pos": "Biryani Chicken ကြက်သားဒံပေါက်",
+    "price": 14.0,
+    "dine": 14.0,
+    "togo": 14.0,
+    "qty": 84,
+    "variants": []
+  },
+  {
+    "pos": "Beef Fried အမဲကြော်နှပ်",
+    "price": 19.0,
+    "dine": 19.0,
+    "togo": 19.0,
+    "qty": 82,
+    "variants": []
+  },
+  { "pos": "shwekyi", "price": 10.0, "dine": 10.0, "togo": null, "qty": 78, "variants": [] },
+  {
+    "pos": "Pinto Beans (ပဲရေပွ​ကြော်)",
+    "price": 12.0,
+    "dine": 12.0,
+    "togo": 12.0,
+    "qty": 77,
+    "variants": []
+  },
+  {
+    "pos": "Catfish Head Mon ငါးခေါင်းမွန်ချက်",
+    "price": 17.0,
+    "dine": 17.0,
+    "togo": 17.0,
+    "qty": 72,
+    "variants": []
+  },
+  {
+    "pos": "Shrimp ပုဇွန်ကြော်နှပ်",
+    "price": 19.0,
+    "dine": 19.0,
+    "togo": 19.0,
+    "qty": 72,
+    "variants": []
+  },
+  {
+    "pos": "Snakehead Intestines ငါးရံ့အူ",
+    "price": 19.0,
+    "dine": 19.0,
+    "togo": 19.0,
+    "qty": 70,
+    "variants": []
+  },
+  {
+    "pos": "Chicken Gourd ကြက်ဗူးသီး",
+    "price": 14.0,
+    "dine": 14.0,
+    "togo": 14.0,
+    "qty": 68,
+    "variants": []
+  },
+  {
+    "pos": "Silurus Dried ငါးကျည်း‌ခြောက်ကြော်",
+    "price": 25.0,
+    "dine": 25.0,
+    "togo": null,
+    "qty": 68,
+    "variants": []
+  },
+  {
+    "pos": "Tom Yum Fried Rice တုန်ရမ်းထမင်းကြော်",
+    "price": 16.0,
+    "dine": 16.0,
+    "togo": null,
+    "qty": 65,
+    "variants": []
+  },
+  {
+    "pos": "ကူဖီးနို့မလိုင် Kufee",
+    "price": 5.0,
+    "dine": 5.0,
+    "togo": null,
+    "qty": 65,
+    "variants": []
+  },
+  {
+    "pos": "Salted Fish Pounded ငါးခြောက်ထောင်းကြော်",
+    "price": 19.0,
+    "dine": 19.0,
+    "togo": 17.0,
+    "qty": 64,
+    "variants": []
+  },
+  {
+    "pos": "Stir Fry Water Spinach ကန်စွန်းရွက်‌ကြော်",
+    "price": 14.0,
+    "dine": 14.0,
+    "togo": 14.0,
+    "qty": 63,
+    "variants": []
+  },
+  {
+    "pos": "Chicken Dregea ကြက်ဂွေးတောက်",
+    "price": 14.0,
+    "dine": 14.0,
+    "togo": 14.0,
+    "qty": 58,
+    "variants": []
+  },
+  { "pos": "Coffee", "price": 5.0, "dine": 5.0, "togo": 5.0, "qty": 57, "variants": [] },
+  {
+    "pos": "Chicken Salad ကြက်သားသုပ်",
+    "price": 15.0,
+    "dine": 15.0,
+    "togo": 15.0,
+    "qty": 55,
+    "variants": []
+  },
+  {
+    "pos": "Stir Fry Mixed Veggie အစိမ်းကြော်",
+    "price": 14.0,
+    "dine": 14.0,
+    "togo": 14.0,
+    "qty": 53,
+    "variants": []
+  },
+  {
+    "pos": "Noodles Stir Fried ခေါက်ဆွဲကြော်",
+    "price": 16.0,
+    "dine": 16.0,
+    "togo": 16.0,
+    "qty": 50,
+    "variants": []
+  },
+  {
+    "pos": "ပဲ ပလာတာ (ပါဆယ်) Parata w/ Beans",
+    "price": 10.0,
+    "dine": null,
+    "togo": 10.0,
+    "qty": 48,
+    "variants": []
+  },
+  {
+    "pos": "ဆနွင်းမကင်း Wheat Husk Sweets",
+    "price": 10.0,
+    "dine": 10.0,
+    "togo": null,
+    "qty": 48,
+    "variants": []
+  },
+  {
+    "pos": "Pork Fermented Bean ဝက်ပဲငပိ",
+    "price": 14.0,
+    "dine": 14.0,
+    "togo": 14.0,
+    "qty": 45,
+    "variants": []
+  },
+  {
+    "pos": "Nga Pi + Veggies ငပိတို့စရာ",
+    "price": 10.0,
+    "dine": null,
+    "togo": 10.0,
+    "qty": 44,
+    "variants": []
+  },
+  {
+    "pos": "Tomato Salad ခရမ်းချဥ်သီးသုပ်",
+    "price": 12.0,
+    "dine": 12.0,
+    "togo": 12.0,
+    "qty": 44,
+    "variants": []
+  },
+  { "pos": "Kufee", "price": 5.0, "dine": 5.0, "togo": null, "qty": 43, "variants": [] },
+  {
+    "pos": "Fishcake Fried ငါးဖယ်ကြော်",
+    "price": 14.0,
+    "dine": 14.0,
+    "togo": 14.0,
+    "qty": 41,
+    "variants": []
+  },
+  {
+    "pos": "Grilled Eggplant Salad",
+    "price": 12.0,
+    "dine": 12.0,
+    "togo": null,
+    "qty": 40,
+    "variants": []
+  },
+  {
+    "pos": "Snakehead Dried ငါးရံ့ခြောက်ဖုတ်",
+    "price": 25.0,
+    "dine": 25.0,
+    "togo": null,
+    "qty": 40,
+    "variants": []
+  },
+  {
+    "pos": "Ngapi-Rice Salad ငပိထမင်း",
+    "price": 13.0,
+    "dine": 13.0,
+    "togo": 13.0,
+    "qty": 39,
+    "variants": []
+  },
+  {
+    "pos": "Tea-Rice Salad လက်ဖက်ထမင်း",
+    "price": 13.0,
+    "dine": 13.0,
+    "togo": 13.0,
+    "qty": 36,
+    "variants": []
+  },
+  {
+    "pos": "ရခိုင်မုန့်တီ (ပါဆယ်) Rakhine Noodles",
+    "price": 14.0,
+    "dine": null,
+    "togo": 14.0,
+    "qty": 36,
+    "variants": []
+  },
+  {
+    "pos": "Rice w/Veggies ထမင်းပေါင်း",
+    "price": 16.0,
+    "dine": 16.0,
+    "togo": null,
+    "qty": 35,
+    "variants": []
+  },
+  {
+    "pos": "Beef Pounded အမဲထောင်းကြော်",
+    "price": 19.0,
+    "dine": 19.0,
+    "togo": 17.0,
+    "qty": 31,
+    "variants": []
+  },
+  { "pos": "Kirin Beer 12oz", "price": 8.0, "dine": 8.0, "togo": null, "qty": 27, "variants": [] },
+  {
+    "pos": "Lemon Fishcake ရှောက်သီးသုပ်",
+    "price": 12.0,
+    "dine": 12.0,
+    "togo": 12.0,
+    "qty": 27,
+    "variants": []
+  },
+  {
+    "pos": "Goat Brains ဆိတ်ဦး‌နှောက်",
+    "price": 30.0,
+    "dine": 30.0,
+    "togo": 30.0,
+    "qty": 22,
+    "variants": []
+  },
+  {
+    "pos": "Salted Fish Eggplant ငါးခြောက်ခရမ်းသီးနှပ်",
+    "price": 14.0,
+    "dine": 14.0,
+    "togo": 12.0,
+    "qty": 20,
+    "variants": []
+  },
+  {
+    "pos": "ပဲပြုတ်ထမင်းဆီဆမ်း To-Go Burmese Rice",
+    "price": 100.0,
+    "dine": 100.0,
+    "togo": null,
+    "qty": 20,
+    "variants": []
+  },
+  {
+    "pos": "Shrimp Crispy FishSauce ပုဇွန်ကြော်စပ်",
+    "price": 15.0,
+    "dine": null,
+    "togo": 15.0,
+    "qty": 18,
+    "variants": []
+  },
+  {
+    "pos": "အုန်းနို့သာကူ Coconut Sago",
+    "price": 10.0,
+    "dine": 10.0,
+    "togo": null,
+    "qty": 17,
+    "variants": []
+  },
+  {
+    "pos": "Grilled Eggplant",
+    "price": 12.0,
+    "dine": null,
+    "togo": 12.0,
+    "qty": 15,
+    "variants": []
+  },
+  {
+    "pos": "Balachaung ဘာလချောင်ပွဲ‌",
+    "price": 3.0,
+    "dine": 3.0,
+    "togo": null,
+    "qty": 14,
+    "variants": []
+  },
+  {
+    "pos": "ငါးကင် - Grilled Fish",
+    "price": 25.0,
+    "dine": 25.0,
+    "togo": null,
+    "qty": 13,
+    "variants": []
+  },
+  {
+    "pos": "Fermented Sesame Salad နှမ်းဖတ်ချဥ်သုပ်",
+    "price": 12.0,
+    "dine": 12.0,
+    "togo": 12.0,
+    "qty": 13,
+    "variants": []
+  },
+  {
+    "pos": "Dried Goat ဆိတ်သားခြောက်",
+    "price": 30.0,
+    "dine": 30.0,
+    "togo": null,
+    "qty": 12,
+    "variants": []
+  },
+  {
+    "pos": "Fresh Fruits သီးစုံအချိုပွဲ",
+    "price": 12.0,
+    "dine": 12.0,
+    "togo": 12.0,
+    "qty": 12,
+    "variants": []
+  },
+  {
+    "pos": "Bombay Duck Fish အာဗြဲခြောက်ဖုတ်",
+    "price": 20.0,
+    "dine": 20.0,
+    "togo": null,
+    "qty": 12,
+    "variants": []
+  },
+  {
+    "pos": "Tom Yum Fried Rice To-Go တုန်ရမ်းထမင်းကြော်",
+    "price": 16.0,
+    "dine": 16.0,
+    "togo": null,
+    "qty": 11,
+    "variants": []
+  },
+  {
+    "pos": "Acacia Shrimp ကင်ပွန်းချဥ်ကြော်",
+    "price": 15.0,
+    "dine": 15.0,
+    "togo": 15.0,
+    "qty": 11,
+    "variants": []
+  },
+  { "pos": "IPA - Beer 12oz", "price": 9.0, "dine": 9.0, "togo": null, "qty": 9, "variants": [] },
+  { "pos": "ကြက်ဥ Egg Add-on", "price": 3.0, "dine": 3.0, "togo": null, "qty": 8, "variants": [] },
+  {
+    "pos": "Shrimp Spicy ပုဇွန်ကြော်စပ်",
+    "price": 15.0,
+    "dine": 15.0,
+    "togo": 19.0,
+    "qty": 8,
+    "variants": []
+  },
+  {
+    "pos": "Kayah Sausages ကယားဝက်အူချောင်း",
+    "price": 14.0,
+    "dine": 14.0,
+    "togo": null,
+    "qty": 7,
+    "variants": ["ဆိုင်စား", "ပါဆယ်"]
+  },
+  {
+    "pos": "ပဲပြုတ်ထမင်းဆီဆမ်း Burmese Rice",
+    "price": 10.0,
+    "dine": 10.0,
+    "togo": null,
+    "qty": 6,
+    "variants": []
+  },
+  { "pos": "IPA - Beer 16oz", "price": 55.0, "dine": 55.0, "togo": null, "qty": 5, "variants": [] },
+  {
+    "pos": "Salted Fish ငါးခြောက်ချက်",
+    "price": 19.0,
+    "dine": 19.0,
+    "togo": 19.0,
+    "qty": 4,
+    "variants": []
+  },
+  {
+    "pos": "Beef Fried Shredded အမဲမွှကြော်",
+    "price": 17.0,
+    "dine": 17.0,
+    "togo": null,
+    "qty": 3,
+    "variants": []
+  },
+  {
+    "pos": "Ye-U Sausages ရေဦးဝက်အူချောင်း",
+    "price": 10.0,
+    "dine": 10.0,
+    "togo": null,
+    "qty": 2,
+    "variants": ["ပါဆယ်"]
+  },
+  {
+    "pos": "Snakehead ငါးရံ့ဟင်း",
+    "price": 12.0,
+    "dine": null,
+    "togo": 12.0,
+    "qty": 2,
+    "variants": []
+  },
+  {
+    "pos": "Beef Fried Shredded To-Go အမဲမွှကြော်",
+    "price": 17.0,
+    "dine": 17.0,
+    "togo": null,
+    "qty": 2,
+    "variants": []
+  },
+  { "pos": "During", "price": 20.0, "dine": 20.0, "togo": null, "qty": 2, "variants": [] },
+  { "pos": "Soju", "price": 11.0, "dine": 11.0, "togo": null, "qty": 2, "variants": [] },
+  {
+    "pos": "Guiness Stout - Beer",
+    "price": 8.0,
+    "dine": 8.0,
+    "togo": null,
+    "qty": 2,
+    "variants": []
+  },
+  { "pos": "banana shwe kyi", "price": 10.0, "dine": 10.0, "togo": null, "qty": 2, "variants": [] },
+  { "pos": "parata", "price": 20.0, "dine": 20.0, "togo": null, "qty": 2, "variants": [] },
+  { "pos": "coffee", "price": 19.0, "dine": 19.0, "togo": null, "qty": 2, "variants": [] },
+  {
+    "pos": "Omelette ကြက်ဥမွှေကြော်",
+    "price": 12.0,
+    "dine": 12.0,
+    "togo": 12.0,
+    "qty": 2,
+    "variants": []
+  },
+  {
+    "pos": "Catfish Spicy Fried ငါးခူအစပ်ကြော်",
+    "price": 14.0,
+    "dine": null,
+    "togo": 14.0,
+    "qty": 1,
+    "variants": []
+  },
+  { "pos": "shwrkyi", "price": 10.0, "dine": 10.0, "togo": null, "qty": 1, "variants": [] },
+  { "pos": "shwe kyi", "price": 10.0, "dine": 10.0, "togo": null, "qty": 1, "variants": [] },
+  {
+    "pos": "pork rinds fried",
+    "price": 10.0,
+    "dine": 10.0,
+    "togo": null,
+    "qty": 1,
+    "variants": []
+  },
+  { "pos": "Duck ဘဲသားဟင်း", "price": 19.0, "dine": null, "togo": 19.0, "qty": 1, "variants": [] },
+  { "pos": "nga pi pounded", "price": 10.0, "dine": 10.0, "togo": null, "qty": 1, "variants": [] },
+  { "pos": "napi", "price": 10.0, "dine": 10.0, "togo": null, "qty": 1, "variants": [] },
+  { "pos": "during", "price": 20.0, "dine": 20.0, "togo": null, "qty": 1, "variants": [] },
+  { "pos": "tamaryat", "price": 10.0, "dine": 10.0, "togo": null, "qty": 1, "variants": [] },
+  { "pos": "nan", "price": 10.0, "dine": 10.0, "togo": null, "qty": 1, "variants": [] },
+  { "pos": "pea", "price": 25.0, "dine": 25.0, "togo": null, "qty": 1, "variants": [] },
+  {
+    "pos": "fried little fish",
+    "price": 17.0,
+    "dine": 17.0,
+    "togo": null,
+    "qty": 1,
+    "variants": []
+  },
+  {
+    "pos": "Dried Kathapaung ကသ‌ပေါင်းခြောက်",
+    "price": 25.0,
+    "dine": 25.0,
+    "togo": null,
+    "qty": 1,
+    "variants": []
+  },
+  { "pos": "House Red Wine", "price": 7.0, "dine": 7.0, "togo": null, "qty": 1, "variants": [] },
+  { "pos": "House White Wine", "price": 7.0, "dine": 7.0, "togo": null, "qty": 1, "variants": [] },
+  { "pos": "tamarinds", "price": 10.0, "dine": 10.0, "togo": null, "qty": 1, "variants": [] },
+  {
+    "pos": "ပဲ နံပြား (ပါဆယ်) Naan Bread w/ Beans",
+    "price": 10.0,
+    "dine": null,
+    "togo": 10.0,
+    "qty": 1,
+    "variants": []
+  },
+  { "pos": "pork rind", "price": 5.0, "dine": 5.0, "togo": null, "qty": 1, "variants": [] },
+  { "pos": "Ginger Salad", "price": 12.0, "dine": 12.0, "togo": null, "qty": 1, "variants": [] },
+  { "pos": "chicken", "price": 5.0, "dine": 5.0, "togo": null, "qty": 1, "variants": [] },
+  {
+    "pos": "Water Bottled ရေသန့်ဗူး",
+    "price": 1.0,
+    "dine": 1.0,
+    "togo": null,
+    "qty": 1,
+    "variants": []
+  },
+  {
+    "pos": "Seabass Fermented Soy ကကတစ်ပဲငပိပေါင်း",
+    "price": 19.0,
+    "dine": null,
+    "togo": 19.0,
+    "qty": 1,
+    "variants": []
+  },
+  {
+    "pos": "veggie tempura half",
+    "price": 6.0,
+    "dine": 6.0,
+    "togo": null,
+    "qty": 1,
+    "variants": []
+  },
+  { "pos": "wine", "price": 22.0, "dine": 22.0, "togo": null, "qty": 1, "variants": [] },
+  { "pos": "durian", "price": 19.0, "dine": 19.0, "togo": null, "qty": 1, "variants": [] },
+  {
+    "pos": "Michaelob Ultra 16 oz",
+    "price": 8.0,
+    "dine": 8.0,
+    "togo": null,
+    "qty": 1,
+    "variants": []
+  }
+]

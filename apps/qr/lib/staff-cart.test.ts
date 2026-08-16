@@ -19,7 +19,13 @@ vi.mock("next/server", () => ({ after: () => {} }));
 
 const priceItemCalls: { menuItemId: string; modifierIds: string[]; opts?: unknown }[] = [];
 let priceItemThrows = false;
-const insertCalls: { cartId: string; bySeat: string | null; qty: number | undefined }[] = [];
+const insertCalls: {
+  cartId: string;
+  bySeat: string | null;
+  qty: number | undefined;
+  fulfillment: unknown;
+  taxCents: unknown;
+}[] = [];
 
 vi.mock("./order-lines", () => ({
   priceItem: (menuItemId: string, modifierIds: string[], opts?: unknown) => {
@@ -32,8 +38,19 @@ vi.mock("./order-lines", () => ({
       opts: [],
     });
   },
-  insertOrIncLine: (cartId: string, _line: unknown, bySeat: string | null, qty?: number) => {
-    insertCalls.push({ cartId, bySeat, qty });
+  insertOrIncLine: (
+    cartId: string,
+    line: { fulfillment?: unknown; taxCents?: unknown },
+    bySeat: string | null,
+    qty?: number,
+  ) => {
+    insertCalls.push({
+      cartId,
+      bySeat,
+      qty,
+      fulfillment: line.fulfillment,
+      taxCents: line.taxCents,
+    });
     return Promise.resolve();
   },
   touchCart: () => Promise.resolve(),
@@ -103,20 +120,30 @@ beforeEach(() => {
 });
 
 describe("staffAddItem — cardinality + qty are money rules (W6a)", () => {
-  it("prices every staff add with cardinality ENFORCED, at the session's mode price (togo here)", async () => {
+  it("prices every staff add with cardinality ENFORCED — and the price takes no mode (W17a)", async () => {
     const r = await staffAddItem({ sessionId: SESSION, menuItemId: ITEM });
     expect(r.ok).toBe(true);
     expect(priceItemCalls).toHaveLength(1);
-    // W16a — a pickup/counter session prices togo. `fulfillment: "dinein"` here would silently
-    // charge every register order the +15% dine-in factor instead of +5%.
-    expect(priceItemCalls[0]?.opts).toEqual({ enforceCardinality: true, fulfillment: "togo" });
+    // W17a — the POS price is the POS price: nothing about the session's mode reaches the pricing
+    // seam. A `fulfillment` here would be a markup limb growing back.
+    expect(priceItemCalls[0]?.opts).toEqual({ enforceCardinality: true });
   });
 
-  it("prices a TABLE session's add as dinein (W16a — the other arm of the fork)", async () => {
+  it("tags a pickup/counter session's line togo — the routing + tax fork", async () => {
+    const r = await staffAddItem({ sessionId: SESSION, menuItemId: ITEM });
+    expect(r.ok).toBe(true);
+    expect(insertCalls[0]?.fulfillment).toBe("togo");
+    // Cold food is exempt to-go; hot_prepared is taxable either way, so the fixture's tax is the
+    // 10.5% rate on 1450 — computed in the shell, never transcribed.
+    expect(insertCalls[0]?.taxCents).toBe(152);
+  });
+
+  it("tags a TABLE session's line dinein — the other arm of the fork", async () => {
     sessionMode = "dinein";
     const r = await staffAddItem({ sessionId: SESSION, menuItemId: ITEM });
     expect(r.ok).toBe(true);
-    expect(priceItemCalls[0]?.opts).toEqual({ enforceCardinality: true, fulfillment: "dinein" });
+    expect(insertCalls[0]?.fulfillment).toBe("dinein");
+    expect(insertCalls[0]?.taxCents).toBe(152);
   });
 
   it("forwards the register's qty to the ledger insert", async () => {

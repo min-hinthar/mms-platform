@@ -154,31 +154,6 @@ const MUTANTS = [
     replace: "const RATE = 0.104;",
   },
 
-  // ── W16a — the mode-price rule (dine-in ×1.15 / to-go ×1.05, round to the quarter) ──────────────
-  {
-    id: "mode-price/dinein-factor-drift",
-    file: "apps/qr/lib/mode-price.ts",
-    suite: "lib/mode-price.test.ts",
-    why: "a drifted dine-in factor silently changes every dine-in charge",
-    find: "export const DINEIN_FACTOR = 1.15;",
-    replace: "export const DINEIN_FACTOR = 1.16;",
-  },
-  {
-    id: "mode-price/togo-factor-drift",
-    file: "apps/qr/lib/mode-price.ts",
-    suite: "lib/mode-price.test.ts",
-    why: "a drifted take-out factor silently changes every to-go charge",
-    find: "export const TOGO_FACTOR = 1.05;",
-    replace: "export const TOGO_FACTOR = 1.06;",
-  },
-  {
-    id: "mode-price/rounding-deleted",
-    file: "apps/qr/lib/mode-price.ts",
-    suite: "lib/mode-price.test.ts",
-    why: "the owner's round-to-the-quarter rule IS the price — dropping it ships un-round prices",
-    find: "export const round25 = (cents: number): number => Math.round(cents / 25) * 25;",
-    replace: "export const round25 = (cents: number): number => Math.round(cents);",
-  },
   {
     id: "tax/cold-food-togo-taxable",
     file: "apps/qr/lib/tax.ts",
@@ -233,39 +208,23 @@ const MUTANTS = [
     find: '        proceedMy: t("my", "confirmSendProceed"),',
     replace: '        proceedMy: t("my", "confirmSendLabel"),',
   },
-  // ── W16a — the mode-price SEAM + the toggle re-price (review MED: both were revertible green) ───
+  // ── W17a — the POS price seam stays UNFACTORED, and the toggle stays TAX-ONLY ───────────────────
   {
-    id: "order-lines/mode-seam-unfactored",
+    id: "order-lines/pos-price-marked-up",
     file: "apps/qr/lib/order-lines.ts",
     suite: "lib/order-lines-price.test.ts",
-    why: "W16a review MED — deleting the modePriceCents wrapper at the ONE seam that mints unit prices reverts the owner's +15%/+5% with every gate green (the helper stays directly tested; nothing else pinned the call)",
-    find: "    unitPriceCents: modePriceCents(item.base_price_cents + addCents, fulfillment),",
-    replace: "    unitPriceCents: item.base_price_cents + addCents,",
-  },
-  {
-    id: "cart/toggle-price-not-forwarded",
-    file: "apps/qr/lib/cart.ts",
-    suite: "lib/cart-toggle.test.ts",
-    why: "W16a review MED — dropping the p_unit_price_cents forward makes the SQL coalesce keep the OLD mode's price: a dinein line flipped to-go stays charged ×1.15 forever",
-    find: "    p_unit_price_cents: newUnitCents,",
-    replace: "    p_unit_price_cents: undefined,",
-  },
-  {
-    id: "cart/toggle-legacy-rescaled-again",
-    file: "apps/qr/lib/cart.ts",
-    suite: "lib/cart-toggle.test.ts",
-    why: "W16a review MED — ratio-rescaling a pre-M3 label-only line divides by a factor its UNFACTORED stored price never contained (~8.7% below even the old price); the refusal is the fix and must stay red when reverted",
-    find: '    return { ok: false, reason: "legacy" };',
+    why: "W17a — re-introducing a markup at the ONE seam that mints unit prices charges every diner above the POS price the register rings (W16a shipped exactly this: dine-in \u00d71.15). The owner's rule is the bare POS price, so a factor here must be red",
+    find: "    unitPriceCents: item.base_price_cents + addCents,",
     replace:
-      "    newUnitCents = rescaleModePriceCents(Number(line.unit_price_cents), from, input.fulfillment);",
+      "    unitPriceCents: Math.round(((item.base_price_cents + addCents) * 1.15) / 25) * 25,",
   },
   {
-    id: "reorder/mode-fork-collapses-to-dinein",
-    file: "apps/qr/lib/reorder.ts",
-    suite: "lib/reorder-mode.test.ts",
-    why: "W16a — collapsing reorder's session-mode fork prices every pickup-session reorder at the +15% dine-in factor instead of +5% (the staff-preview MED's server-side sibling)",
-    find: '        { enforceCardinality: true, fulfillment: dineIn ? "dinein" : "togo" },',
-    replace: '        { enforceCardinality: true, fulfillment: "dinein" },',
+    id: "cart/toggle-re-prices-the-line",
+    file: "apps/qr/lib/cart.ts",
+    suite: "lib/cart-toggle.test.ts",
+    why: "W17a — a dinein\u2194togo flip must move the routing TAG and the per-line tax, never the charged amount. Forwarding any p_unit_price_cents re-prices a line the diner already saw, and the SQL coalesce then makes it durable",
+    find: "    p_fulfillment: input.fulfillment,\n  });",
+    replace: "    p_fulfillment: input.fulfillment,\n    p_unit_price_cents: 1234,\n  });",
   },
   // ── M3 — faithful reorder (option ids beside the labels) ────────────────────────────────────────
   {
@@ -707,7 +666,7 @@ const MUTANTS = [
     id: "staff-cart/mode-fork-collapses-to-dinein",
     file: "apps/qr/lib/staff-cart.ts",
     suite: "lib/staff-cart.test.ts",
-    why: "W16a — collapsing the session-mode fork prices every counter/pickup register add at the +15% dine-in factor instead of +5%",
+    why: "W17a — the fork is the routing TAG, and with it the per-line tax (cold food is taxable dine-in, exempt to-go). Collapsing it taxes every counter/pickup register add as if the guest were eating in",
     find: '    const staffFulfillment = dineIn ? ("dinein" as const) : ("togo" as const);',
     replace: '    const staffFulfillment = "dinein" as const;',
   },
