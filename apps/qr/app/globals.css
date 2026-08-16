@@ -2166,13 +2166,143 @@ h3 {
   }
 }
 
+/* ── W19: the touch-parity + press-state layer (owner: "buttons pop or reveals … are boring") ──────
+   The idiom kit existed (:hover glow, checkoutShine, pill-on lit cap) but nearly all of it was
+   hover-gated — dead on the phone, the primary surface. These rules give TAP the same life. */
+
+/* The Pay CTA fires its glow + sheen sweep on PRESS, not only hover; focus-visible gets the glow
+   too (keyboard parity). */
+.checkout-cta:not(:disabled):active {
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-glow),
+    0 0 24px -10px var(--glow-gold);
+}
+.checkout-cta:not(:disabled):active::after {
+  animation: checkoutShine 0.7s var(--ease-out);
+}
+.checkout-cta:not(:disabled):focus-visible {
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-glow),
+    0 0 24px -10px var(--glow-gold);
+}
+
+/* The confirm card's two buttons — the colors LIVE here (not inline) so press states can exist.
+   Proceed wears the CTA's gradient family: it replaces a .checkout-cta and must not read cheaper. */
+.confirm-swap-cancel {
+  border: 1px solid var(--bd);
+  background: var(--sf);
+  color: var(--tx);
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out);
+}
+.confirm-swap-cancel:not(:disabled):hover {
+  box-shadow: var(--sh-lift);
+  transform: translateY(-1px);
+}
+.confirm-swap-cancel:not(:disabled):active {
+  transform: scale(0.97);
+}
+.confirm-swap-proceed {
+  border: 1px solid transparent;
+  background: linear-gradient(180deg, var(--ac), var(--ac-strong));
+  color: var(--oa);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh);
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out);
+}
+.confirm-swap-proceed:not(:disabled):hover,
+.confirm-swap-proceed:not(:disabled):active {
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-glow),
+    0 0 18px -8px var(--glow-gold);
+}
+.confirm-swap-proceed:not(:disabled):active {
+  transform: scale(0.97);
+}
+.confirm-swap-cancel:disabled,
+.confirm-swap-proceed:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* The Send-to-kitchen secondary + undo buttons — the same outline family as .checkout-viewbill,
+   finally with a pulse of life. Colors here so :active can exist (they were inline). */
+.checkout-outline-btn {
+  border: 1px solid var(--ac);
+  background: transparent;
+  color: var(--ac);
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+.checkout-outline-btn:not(:disabled):hover {
+  background: color-mix(in oklab, var(--ac) 7%, transparent);
+  box-shadow: var(--sh-lift);
+}
+.checkout-outline-btn:not(:disabled):active {
+  transform: scale(0.98);
+}
+
+/* The tip chips' SELECTED state — the .checkout-pill-on lit-cap vocabulary the chips never got
+   (it lived as a flat inline color flip; the class also kills the Checkout/SharePay drift). */
+.checkout-tip-on {
+  border-color: transparent !important;
+  background: linear-gradient(180deg, var(--ac), var(--ac-strong)) !important;
+  color: var(--oa) !important;
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-lift),
+    0 0 14px -6px var(--glow-gold);
+}
+
+/* W19 (owner: "tip options should animate and encourage creatively with increase %") — the ladder
+   WARMS as it climbs: each unselected chip carries --tip-heat (0 → 1 → 2, set inline per rung), and
+   border + fill take on progressively more gold. Selection then lights the full cap above. */
+.checkout-tip-heat {
+  border-color: color-mix(in oklab, var(--gold) calc(var(--tip-heat, 0) * 18%), var(--bd));
+  background: color-mix(in oklab, var(--gold) calc(var(--tip-heat, 0) * 5%), var(--cd));
+}
+
+/* The modifier option rows — hover + press, and a pop the instant one is picked. */
+.item-opt:hover {
+  border-color: color-mix(in oklab, var(--ac) 45%, var(--bd));
+  box-shadow: var(--sh-lift);
+}
+.item-opt:active {
+  transform: scale(0.985);
+}
+.item-opt-input:checked {
+  animation: mmsPop var(--dur-base) var(--ease-out);
+}
+
+/* The Bill moment's forgot-to-send notice — warm warn-tinted card, never alarming. */
+.checkout-unsent-note {
+  margin-top: 12px;
+  padding: var(--s3) var(--s4);
+  border: 1px solid color-mix(in oklab, var(--warn) 35%, var(--bd));
+  background: color-mix(in oklab, var(--warnb) 65%, var(--cd));
+}
+
 @media (prefers-reduced-motion: reduce) {
   .checkout-tip,
   .checkout-cta,
   .checkout-cta-ghost,
   .checkout-cta-arrow,
   .checkout-viewbill,
-  .checkout-pill {
+  .checkout-pill,
+  .confirm-swap-cancel,
+  .confirm-swap-proceed,
+  .checkout-outline-btn,
+  .item-opt {
     transition: none;
   }
   .checkout-pill:not(:disabled):active,
@@ -2182,6 +2312,12 @@ h3 {
   .checkout-tip:not(:disabled):hover,
   .checkout-cta:not(:disabled):active,
   .checkout-viewbill:active,
+  .confirm-swap-cancel:not(:disabled):hover,
+  .confirm-swap-cancel:not(:disabled):active,
+  .confirm-swap-proceed:not(:disabled):active,
+  .checkout-outline-btn:not(:disabled):active,
+  .checkout-tip-on,
+  .item-opt:active,
   .checkout-cta:not(:disabled):hover .checkout-cta-arrow {
     transform: none;
   }
@@ -2189,6 +2325,9 @@ h3 {
   .checkout-cta::after {
     animation: none;
     content: none;
+  }
+  .item-opt-input:checked {
+    animation: none;
   }
   .checkout-step,
   .checkout-step-back {

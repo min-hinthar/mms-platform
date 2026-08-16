@@ -208,6 +208,23 @@ const MUTANTS = [
     find: '        proceedMy: t("my", "confirmSendProceed"),',
     replace: '        proceedMy: t("my", "confirmSendLabel"),',
   },
+  // ── W19 — the forgot-to-send notice (pay-with-drafts is supported, but INFORMED) ────────────────
+  {
+    id: "confirm-copy/unsent-items-silenced-in-the-charge-confirm",
+    file: "apps/qr/lib/confirm-copy.ts",
+    suite: "lib/confirm-copy.test.ts",
+    why: "W19 — a diner who forgot to send can pay; the charge INCLUDES the drafts and the kitchen only starts them after payment. The confirm naming them is what turns that from a surprise into a choice — dropping the line is the plausible 'clean up the detail string' edit",
+    find: "      const unsent = d.unsentCount ?? 0;",
+    replace: "      const unsent = 0;",
+  },
+  {
+    id: "checkout-stage/unsent-count-narrowed-to-dinein",
+    file: "apps/qr/lib/checkout-stage.ts",
+    suite: "lib/checkout-stage.test.ts",
+    why: "W19 — unsentFoodQty must count togo drafts too (mms_fire_pending_food fires dinein AND togo): narrowing it to kitchenDraftQty's dinein-only predicate under-counts, so a lone to-go draft pays unwarned — the exact gap the notice exists to close",
+    find: '    .filter((i) => i.lineState === "draft" && i.fulfillment !== "grocery")',
+    replace: '    .filter((i) => i.lineState === "draft" && i.fulfillment === "dinein")',
+  },
   // ── W17a — the POS price seam stays UNFACTORED, and the toggle stays TAX-ONLY ───────────────────
   {
     id: "order-lines/pos-price-marked-up",
@@ -344,6 +361,14 @@ const MUTANTS = [
   },
   // (W18: the three round-up mutants retired WITH their feature — owner: "never capped or round
   //  up". The frozen-rate lesson they guarded is recorded in CLAUDE.md's money-path rules.)
+  {
+    id: "tip/amount-cap-dropped",
+    file: "apps/qr/lib/tip.ts",
+    suite: "lib/tip.test.ts",
+    why: "W19 — the custom tip's only remaining ceiling is the $1,000 amount gate create-intent runs on the derived cents (the schema rate bound is just a transport rail). Dropping it lets a hostile/raw POST mint an arbitrarily large PaymentIntent through the tip field — the exact vector the old 1.0 rate cap existed to close",
+    find: "  return tipCents <= TIP_AMOUNT_MAX_CENTS;",
+    replace: "  return true;",
+  },
   // ── W17b — the price editor: the ONE human-entered amount in the app ────────────────────────────
   {
     id: "menu-price/role-floor-drops-to-server",

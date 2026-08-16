@@ -32,3 +32,22 @@ export function kitchenDraftQty(
     .filter((i) => i.lineState === "draft" && i.fulfillment === "dinein")
     .reduce((a, i) => a + i.qty, 0);
 }
+
+/**
+ * W19 — what the Bill moment must WARN about (owner: "What if customers forget to send items to
+ * kitchen and move forward to pay?"). Every still-draft FOOD line (dinein + togo, never grocery) is
+ * charged at pay and then fired by `mms_fire_pending_food` the moment the payment lands — money is
+ * safe, but the kitchen only starts those dishes AFTER payment, so the diner deserves to be told
+ * before the charge, not discover it on the tracker.
+ *
+ * Deliberately a DIFFERENT predicate from `kitchenDraftQty` (dinein-only, bound to what the host's
+ * Send button fires): a lone to-go draft is also charged-then-fired and deserves the same notice.
+ * Counted in UNITS (qty), matching the badge and the send count.
+ */
+export function unsentFoodQty(
+  items: ReadonlyArray<Pick<CartItem, "lineState" | "fulfillment" | "qty">>,
+): number {
+  return items
+    .filter((i) => i.lineState === "draft" && i.fulfillment !== "grocery")
+    .reduce((a, i) => a + i.qty, 0);
+}

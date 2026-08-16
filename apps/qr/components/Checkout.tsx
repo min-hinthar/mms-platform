@@ -23,8 +23,9 @@ import {
 } from "@/lib/cart";
 import type { SplitContext } from "@/lib/split";
 import { canMutateLine } from "@/lib/permissions";
-import { effectiveTipRate as deriveTipRate, tipPresets } from "@/lib/tip";
+import { effectiveTipRate as deriveTipRate, tipPresets, TIP_AMOUNT_MAX_CENTS } from "@/lib/tip";
 import { menuHref, menuLinkText } from "@/lib/menu-href";
+import { normalizePickupSlot } from "@/lib/pickup-slot";
 import { DINER_STATE_COPY } from "@/lib/line-state-copy";
 import { seatColor, seatInitial } from "@/lib/avatars";
 import { BlurUpImage } from "./menu/BlurUpImage";
@@ -45,6 +46,7 @@ import { useRewardsBadge } from "@/lib/useRewardsBadge";
 import {
   initialStage,
   kitchenDraftQty as deriveKitchenDraftQty,
+  unsentFoodQty,
   type CheckoutStage,
 } from "@/lib/checkout-stage";
 import { t, type DictKey } from "@/lib/i18n";
@@ -111,13 +113,19 @@ const PROMO_MESSAGES: Record<PromoReason, string> = {
 // drops any chip the server's rate cap would refuse. The chip COUNT is unchanged, so the row still
 // fits. See lib/tip.ts.
 
-// W2d — a typed custom-tip dollar string → the rate the server applies. `round(net · rate)` then equals
-// the entered cents exactly (rate = cents/net). Clamped to 100% of net (the schema cap is 1.0), so it
-// can't fat-finger a $500 tip on a $5 order or exceed what create-intent will accept. 0 when unparseable.
+// W2d → W19 — a typed custom-tip dollar string → the rate the server applies. `round(net · rate)`
+// then equals the entered cents exactly (rate = cents/net). The clamp is now a DOLLAR ceiling
+// (TIP_AMOUNT_MAX_CENTS, $1,000 — the cash tip's own bound), not 100% of the order: the owner —
+// "no limit to custom or capped amount" — and a regular tipping $30 on a $20 order is generosity,
+// not a fat-finger. create-intent enforces the same constant on the derived amount. 0 when
+// unparseable.
 function customTipRateFromDollars(raw: string, net: number): number {
   const dollars = parseFloat(raw);
   if (!Number.isFinite(dollars) || dollars <= 0 || net <= 0) return 0;
-  return Math.min(Math.round(dollars * 100), net) / net;
+  // Two clamps (W19 review LOW): the $1,000 house ceiling, AND the schema's 4000-rate transport
+  // rail — a flat promo can legally crush net below 25¢, where $1,000 alone would mint a rate the
+  // schema refuses and surface as a refusal at the last tap instead of a smaller tip.
+  return Math.min(Math.round(dollars * 100), TIP_AMOUNT_MAX_CENTS, 4000 * net) / net;
 }
 
 // Optimistic cart edits — a qty / destination / make-now tap reflects INSTANTLY, then the server action
@@ -303,6 +311,12 @@ export function Checkout({
   // unsettled dine-in table IS the open (trust) tab, so `trust` renders nothing diner-side; the
   // state only gates the save-card affordance and its secured note on the Bill moment.
   const [tabType, setTabType] = useState(initialTabType);
+  // W19 — the pickup timing choice, LIFTED above the keyed step wrapper. It lived in
+  // PickupWhenChoice's own useState seeded from the server prop; the `key={viewKey}` remount on a
+  // pay-step round-trip re-seeded it from that stale prop, relighting ASAP over a scheduled cart —
+  // and `chooseAsap`'s already-ASAP early-return made the stale slot unclearable. Owned here,
+  // re-read by refresh(), the pill state survives the remount and tracks the server truth.
+  const [pickupSlot, setPickupSlot] = useState<string | null>(initialPickupSlot);
   // W12 — the two-moment stage (dine-in only): Order (build + send the round) vs Bill (tip + pay).
   // The landing is derived (lib/checkout-stage — drafts → order, fired-only → bill), then the
   // diner flips freely; it rides `viewKey` so a flip animates + moves focus like every view change.
@@ -328,6 +342,10 @@ export function Checkout({
       const v = await getCartView(cartId);
       setItems(v.items);
       setTotals(v.totals);
+      // W19 — the pickup choice re-reads with the cart (the bug: refresh() synced everything BUT
+      // the slot, so a pay-step round-trip remounted PickupWhenChoice from the stale server prop
+      // and relit ASAP over a still-scheduled cart, with no way to clear it).
+      setPickupSlot(normalizePickupSlot(v.pickupSlot, v.fireAt));
       setSettling(v.settling); // a peer (host) opening/canceling a split flips the whole table here
       // W13 review — a peer-driven settle flip is a LATERAL cut, not a back-navigation: without
       // this reset a stale "back" from the diner's last local flip would slide the settle board
@@ -815,6 +833,10 @@ export function Checkout({
   // W12 review HIGH — the count/gate binds to what `mms_fire_cart` actually fires (dinein drafts,
   // in qty units) — the rule lives in lib/checkout-stage so it stays pinnable.
   const kitchenDraftQty = deriveKitchenDraftQty(viewItems);
+  // W19 — what the Bill moment warns about: EVERY still-draft food line (dinein + togo) is charged
+  // at pay and fired by mms_fire_pending_food when the payment lands. Deliberately broader than
+  // kitchenDraftQty (see lib/checkout-stage).
+  const unsentQty = unsentFoodQty(viewItems);
 
   // (W16a: the SB-1524 service charge — and its disclosure element — are RETIRED. Service margin
   // now lives in the mode-derived line prices; historical receipts keep their stored rows via
@@ -941,6 +963,7 @@ export function Checkout({
               cartId={cartId}
               clientSecret={clientSecret}
               totals={payTotals}
+              unsentCount={unsentQty}
               onEdit={editOrder}
               onPayingChange={setPaying}
             />
@@ -1191,7 +1214,10 @@ export function Checkout({
                               ...(lockedByPeer ? { opacity: 0.55 } : null),
                             }}
                           >
-                            Make it now · ready in ~{prepMinutes} min
+                            {/* W19 — "Send" names what the tap really is (a per-line kitchen
+                                commit, same vocabulary as the batch CTA and the "Sent to kitchen"
+                                chip this button becomes); "usually" hedges the config estimate. */}
+                            Send to kitchen now · usually ~{prepMinutes} min
                           </button>
                         )}
                     </div>
@@ -1256,8 +1282,9 @@ export function Checkout({
                           margin: "0 0 8px",
                         }}
                       >
-                        Made fresh when you check out — ready in about {prepMinutes} min.
-                        {isDineIn ? " Want it sooner? Tap “Make it now.”" : ""}
+                        Made fresh when you check out — usually ready in about {prepMinutes} min.
+                        {/* Names the control VERBATIM — moves with the button label (W19). */}
+                        {isDineIn ? " Want it sooner? Tap “Send to kitchen now.”" : ""}
                       </p>
                     )}
                   <ul
@@ -1270,6 +1297,58 @@ export function Checkout({
               ));
             })()}
 
+            {/* W19 — the forgot-to-send notice (owner: "What if customers forget to send items to
+                kitchen and move forward to pay?"). A NUDGE, never a block: paying-with-drafts is a
+                supported flow (mms_fire_pending_food fires every still-draft food line the moment
+                payment lands — money is safe, timing is the surprise). The host gets the way back;
+                a guest cannot send, so for them the sentence alone is the honest whole story.
+                Plain content, not a live region — this view keeps its one. */}
+            {staged && stage === "bill" && unsentQty > 0 && (
+              <div className="card checkout-unsent-note mms-rise">
+                <p style={{ margin: 0, fontSize: "var(--fs-sm)", fontWeight: 600 }}>
+                  {unsentQty === 1
+                    ? "1 item hasn’t gone to the kitchen yet"
+                    : `${unsentQty} items haven’t gone to the kitchen yet`}
+                  <span
+                    style={{
+                      display: "block",
+                      fontWeight: 400,
+                      color: "var(--t2)",
+                      marginTop: 2,
+                    }}
+                  >
+                    {canSendToKitchen
+                      ? "Send them now, or pay — they’ll be sent the moment you do."
+                      : "They’ll be sent to the kitchen the moment you pay."}
+                  </span>
+                  <span
+                    lang="my"
+                    style={{
+                      display: "block",
+                      fontWeight: 400,
+                      fontSize: "var(--fs-xs)",
+                      color: "var(--t3)",
+                      marginTop: 2,
+                    }}
+                  >
+                    မပို့ရသေးတဲ့ ဟင်းတွေ — ငွေရှင်းပြီးတာနဲ့ မီးဖိုဆီ ရောက်သွားပါမယ်နော်
+                  </span>
+                </p>
+                {canSendToKitchen && (
+                  <button
+                    type="button"
+                    className="nav-link"
+                    style={{ marginTop: 4 }}
+                    onClick={() => flipStage("order")}
+                  >
+                    <span aria-hidden className="nav-arrow nav-arrow-back">
+                      ←
+                    </span>{" "}
+                    Back to send them
+                  </button>
+                )}
+              </div>
+            )}
             {/* W12 — the Bill moment's lines: the same viewItems as read-only RECEIPT rows inside the
                 textured slip (qty × name · dotted leader · amount), with the kitchen state, the note,
                 the owner, and the comped/voided treatment carried over from the cards. Editing lives
@@ -1449,7 +1528,8 @@ export function Checkout({
               <PickupWhenChoice
                 cartId={cartId}
                 prepMinutes={prepMinutes}
-                initialSlot={initialPickupSlot}
+                slot={pickupSlot}
+                onSlotChange={setPickupSlot}
                 asapAvailable={asapAvailable}
                 onStatus={setStatus}
               />
@@ -1556,7 +1636,7 @@ export function Checkout({
                   aria-labelledby="tip-h"
                   style={{ display: "flex", gap: 8, margin: "0 0 4px" }}
                 >
-                  {presetChips.map(([label, rate]) => {
+                  {presetChips.map(([label, rate], chipIdx) => {
                     const on = !customTipOpen && tipRate === rate;
                     const previewCents = tipPreview(rate);
                     // W18 — "None" sits LAST and QUIET (owner: "none is not encouraged lol"): same
@@ -1572,15 +1652,22 @@ export function Checkout({
                           if (lockedByPeer) return;
                           selectPresetTip(rate);
                         }}
-                        className="checkout-tip"
+                        // W19 — the ladder WARMS as it climbs (checkout-tip-heat reads --tip-heat):
+                        // 15% is barely gilded, 30% glows — the encouragement is the gradient, not
+                        // a nag. Selection lights the full gold cap (checkout-tip-on).
+                        className={`checkout-tip${on ? " checkout-tip-on" : ""}${
+                          !on && !isNone ? " checkout-tip-heat" : ""
+                        }`}
                         style={{
-                          ...tipChipStyle(on),
+                          ...tipChipStyle(),
                           ...(isNone && !on ? { color: "var(--t3)", fontWeight: 600 } : null),
                           ...(lockedByPeer ? { opacity: 0.55 } : null),
+                          ...({ "--tip-heat": chipIdx } as CSSProperties),
                         }}
                       >
                         {isNone ? T("noTip") : label}
-                        <small style={tipChipSmall(on)}>
+                        {/* Keyed on the preview so a change POPS the amount (RM-gated via mmsPop). */}
+                        <small key={previewCents} className="mms-pop" style={tipChipSmall(on)}>
                           {rate ? `$${(previewCents / 100).toFixed(2)}` : "—"}
                         </small>
                       </button>
@@ -1598,9 +1685,9 @@ export function Checkout({
                       if (lockedByPeer) return;
                       openCustomTip();
                     }}
-                    className="checkout-tip"
+                    className={`checkout-tip${customTipOpen ? " checkout-tip-on" : ""}`}
                     style={{
-                      ...tipChipStyle(customTipOpen),
+                      ...tipChipStyle(),
                       ...(lockedByPeer ? { opacity: 0.55 } : null),
                     }}
                   >
@@ -1642,7 +1729,7 @@ export function Checkout({
                         inputMode="decimal"
                         aria-label="Custom tip amount in dollars"
                         aria-describedby={
-                          tipNet > 0 && parseFloat(customTip) * 100 > tipNet
+                          parseFloat(customTip) * 100 > TIP_AMOUNT_MAX_CENTS
                             ? "custom-tip-cap"
                             : undefined
                         }
@@ -1660,12 +1747,12 @@ export function Checkout({
                         }}
                       />
                     </div>
-                    {/* W18 (owner: "never capped") — no more cap LECTURE, but the bound itself must
-                        stay spoken: the charge clamps to 100% of the order (the server refuses
-                        more), and silently charging less than what was typed would be a wrong
-                        number. So the line now leads with the gratitude and states what will
-                        actually be charged. */}
-                    {tipNet > 0 && parseFloat(customTip) * 100 > tipNet && (
+                    {/* W19 (owner: "no limit to custom or capped amount") — the 100%-of-order clamp
+                        is GONE: tip any amount up to the house's $1,000 ceiling (the cash tip's own
+                        bound). The line appears only past $1,000, still gratitude-first — the bound
+                        must stay spoken because silently charging less than typed is a wrong
+                        number. */}
+                    {parseFloat(customTip) * 100 > TIP_AMOUNT_MAX_CENTS && (
                       <p
                         id="custom-tip-cap"
                         style={{
@@ -1674,8 +1761,7 @@ export function Checkout({
                           color: "var(--t3)",
                         }}
                       >
-                        Wow, thank you! ${(tipNet / 100).toFixed(2)} — your whole order again — is
-                        the most we can take.
+                        Wow — thank you! $1,000.00 is the most we can take here.
                       </p>
                     )}
                   </div>
@@ -1789,6 +1875,20 @@ export function Checkout({
                   {/* W16b — the MY line rides under the EN+amount line; the $ amount stays on the
                       EN line only (the Latin-digits money rule). */}
                   <My k="viewBillAndPay" color="inherit" />
+                  {/* W19 — the unsent state is VISIBLE before the flip, not discovered after. */}
+                  {unsentQty > 0 && (
+                    <span
+                      style={{
+                        display: "block",
+                        fontWeight: 600,
+                        fontSize: "var(--fs-xs)",
+                        color: "inherit",
+                        opacity: 0.8,
+                      }}
+                    >
+                      {unsentQty} {unsentQty === 1 ? "item" : "items"} not sent yet
+                    </span>
+                  )}
                 </span>
               </button>
             )}
@@ -1849,7 +1949,24 @@ export function Checkout({
                 is saving a card so leaving is effortless. Bill moment only; hidden once secured.
                 Every dollar of the close still flows through the same settle paths. */}
             {staged && stage === "bill" && canTab && tabType !== "secure" && (
-              <SecureTabButton cartId={cartId} onSecured={refresh} />
+              <>
+                {/* W19 — a visual break from the Pay CTA above (owner: "Save a card option seems
+                    confusing"): sitting directly under "Pay · $X" it read as a save-my-card
+                    checkout convenience. The kicker frames it as the OTHER path — the tab. */}
+                <p
+                  style={{
+                    margin: "14px 0 4px",
+                    fontSize: "var(--fs-xs)",
+                    fontWeight: 700,
+                    letterSpacing: "0.04em",
+                    textTransform: "uppercase",
+                    color: "var(--t3)",
+                  }}
+                >
+                  Not paying yet?
+                </p>
+                <SecureTabButton cartId={cartId} onSecured={refresh} />
+              </>
             )}
             {showPayFurniture && tabType === "secure" && (
               <p
@@ -1913,16 +2030,18 @@ const tabNote: CSSProperties = {
   lineHeight: 1.5,
 };
 
-// W2d — shared tip-chip styling (presets + the Custom chip), so the two paths can't drift.
-const tipChipStyle = (on: boolean): CSSProperties => ({
+// W2d → W19 — shared tip-chip styling. The SELECTED state moved to the `.checkout-tip-on` class
+// (the lit-cap vocabulary the mode pills already speak — a class so :hover/:active/RM rules can
+// see it, and so SharePay can't drift); this keeps only the base/off layout.
+const tipChipStyle = (): CSSProperties => ({
   flex: 1,
   minWidth: 0, // let 5 chips shrink to fit a 320px row instead of overflowing
   minHeight: 44,
   padding: "10px 2px",
   borderRadius: 13,
-  border: `1.5px solid ${on ? "var(--ac)" : "var(--bd)"}`,
-  background: on ? "color-mix(in oklab, var(--ac) 9%, var(--cd))" : "var(--cd)",
-  color: on ? "var(--ac-strong)" : "var(--tx)",
+  border: "1.5px solid var(--bd)",
+  background: "var(--cd)",
+  color: "var(--tx)",
   textAlign: "center",
   fontSize: "var(--fs-sm)", // explicit so the label never inherits a larger size and wraps
   fontWeight: 800,
@@ -1933,7 +2052,8 @@ const tipChipSmall = (on: boolean): CSSProperties => ({
   display: "block",
   fontSize: "var(--fs-xs)",
   fontWeight: 700,
-  color: on ? "var(--ac-strong)" : "var(--t3)",
+  // On the lit gold cap the sub inherits the cap's cream (--oa) — --ac-strong would meld into it.
+  color: on ? "inherit" : "var(--t3)",
 });
 const customTipWrap: CSSProperties = {
   display: "flex",

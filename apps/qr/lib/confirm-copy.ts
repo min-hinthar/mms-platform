@@ -12,8 +12,11 @@ import { t } from "./i18n";
 
 export type ConfirmDecision =
   | { kind: "sendToKitchen"; itemCount: number }
-  /** The CHARGE (PaymentSection.confirm), not the intent mint — see docs/W16_PLAN.md §W16c. */
-  | { kind: "pay"; amountCents: number }
+  /** The CHARGE (PaymentSection.confirm), not the intent mint — see docs/W16_PLAN.md §W16c.
+   *  `unsentCount` (W19): qty units of still-draft food in the charge (lib/checkout-stage
+   *  unsentFoodQty). The confirm names them so "forgot to send, paid anyway" is an informed
+   *  choice — those dishes are fired the moment payment lands, never lost. */
+  | { kind: "pay"; amountCents: number; unsentCount?: number }
   /** A split share's manual-capture HOLD (SharePay) — real money committed, so same policy. */
   | { kind: "authorizeShare"; amountCents: number };
 
@@ -61,13 +64,24 @@ export function confirmCopy(d: ConfirmDecision): ConfirmCopy {
     }
     case "pay": {
       const amount = dollars(d.amountCents);
+      // W19 — name the unsent dishes IN the charge confirm. Latin digits in both tongues (the
+      // money-path rule); appended to the detail so the question stays the amount.
+      const unsent = d.unsentCount ?? 0;
+      const unsentEn =
+        unsent > 0
+          ? ` Includes ${unsent} ${unsent === 1 ? "item" : "items"} not sent yet — the kitchen starts ${unsent === 1 ? "it" : "them"} the moment you pay.`
+          : "";
+      const unsentMy =
+        unsent > 0
+          ? ` မပို့ရသေးတဲ့ ${unsent} ခုပါဝင်ပါတယ် — ငွေရှင်းပြီးတာနဲ့ မီးဖိုက စချက်ပေးပါမယ်။`
+          : "";
       return {
         ...shared,
         label: t("en", "confirmPayLabel"),
         questionEn: `Charge ${amount} to your card?`,
         questionMy: `သင့်ကတ်မှ ${amount} ကောက်ခံမှာ သေချာပါသလား?`,
-        detailEn: t("en", "confirmPayDetail"),
-        detailMy: t("my", "confirmPayDetail"),
+        detailEn: `${t("en", "confirmPayDetail")}${unsentEn}`,
+        detailMy: `${t("my", "confirmPayDetail")}${unsentMy}`,
         // The amount rides the proceed button too: the last thing under the thumb names the sum.
         proceedEn: `${t("en", "confirmPayProceed")} ${amount}`,
         proceedMy: `${t("my", "confirmPayProceed")} ${amount}`,

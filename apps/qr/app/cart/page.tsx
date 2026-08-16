@@ -7,6 +7,7 @@ import { getPrepMinutes, getPickupAsapOk } from "@/lib/pickup";
 import { getSplitContext, type SplitContext } from "@/lib/split";
 import { Checkout } from "@/components/Checkout";
 import { menuHref, menuLinkText } from "@/lib/menu-href";
+import { normalizePickupSlot } from "@/lib/pickup-slot";
 
 // Cart + checkout. The cartId comes from the URL (the cart bar links here with the server-issued
 // id); `getCartView` authorizes the viewer against the cart (member-gated — a non-member can't read
@@ -121,11 +122,10 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
   const asapAvailable =
     split?.mode === "pickup" ? await getPickupAsapOk(cart).catch(() => false) : false;
 
-  // W5e: seed the checkout ASAP↔scheduled control. A cart with a slot but NULL fire_at is an ASAP SNAP
-  // placeholder (mms_pickup_asap sets pickup_slot for capacity + fire_at=null to fire now), NOT an
-  // intentional schedule (mms_set_pickup_slot always writes fire_at = slot - prep). Treat that as ASAP so
-  // a reload/retry shows "⚡ ASAP", not the snapped slot mislabeled "Scheduled".
-  const initialPickupSlot = view.pickupSlot != null && view.fireAt == null ? null : view.pickupSlot;
+  // W5e: seed the checkout ASAP↔scheduled control. The ASAP-snap normalization lives in
+  // lib/pickup-slot.ts (W19 — Checkout's refresh() re-reads it too; the two reading differently was
+  // the relit-ASAP bug).
+  const initialPickupSlot = normalizePickupSlot(view.pickupSlot, view.fireAt);
 
   // A settling cart with NO split context is unwinnable in the plain flow: the cart is frozen
   // table-wide, so "Pay · $X" 409s ("pay your share on the split screen") but the board

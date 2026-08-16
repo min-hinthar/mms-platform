@@ -132,14 +132,16 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
               // record of what was authorized), and `selectTip` refuses the change either way.
               aria-disabled={held || undefined}
               onClick={() => selectTip(rate)}
-              className="checkout-tip"
+              // W19 — the shared .checkout-tip-on lit cap (the inline on-state here had already
+              // drifted from Checkout's; the class ends the fork).
+              className={`checkout-tip${on ? " checkout-tip-on" : ""}`}
               style={{
                 flex: 1,
                 minHeight: 44,
                 borderRadius: 12,
-                border: `1.5px solid ${on ? "var(--ac)" : "var(--bd)"}`,
-                background: on ? "color-mix(in oklab, var(--ac) 9%, var(--cd))" : "var(--cd)",
-                color: on ? "var(--ac-strong)" : "var(--tx)",
+                border: "1.5px solid var(--bd)",
+                background: "var(--cd)",
+                color: "var(--tx)",
                 fontWeight: 800,
                 fontSize: "var(--fs-sm)",
                 cursor: held ? "default" : "pointer",
@@ -399,14 +401,15 @@ function ShareForm({
           type="submit"
           disabled={!stripe || submitting}
           aria-busy={submitting && !boardStale}
+          // W19 — the one CTA that takes the actual card hold was the PLAINEST button in checkout;
+          // it wears the .checkout-cta dress (gradient, sheen, press glow) like every money CTA.
+          className="checkout-cta"
           style={{
             width: "100%",
             marginTop: 12,
             minHeight: 50,
             borderRadius: 12,
             border: "none",
-            background: "var(--ac)",
-            color: "var(--oa)",
             fontWeight: 800,
             fontSize: "var(--fs-body)",
             cursor: !stripe || submitting ? "default" : "pointer",

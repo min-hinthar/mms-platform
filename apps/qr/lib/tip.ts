@@ -14,7 +14,8 @@
 
 /**
  * The ceiling a chip must respect. There are TWO caps in the schema, deliberately different:
- * single-pay `createIntentInput` allows up to **1.0**, while split `shareIntentInput` allows **0.5**
+ * single-pay `createIntentInput` bounds the AMOUNT at $1,000 (TIP_AMOUNT_MAX_CENTS, enforced on the
+ * derived cents in create-intent — W19), while split `shareIntentInput` allows a rate of **0.5**
  * because that rate is written to `qr_cart_shares.tip_rate`, whose column CHECK is `<= 0.5`.
  *
  * These presets are offered on a cart that the table may settle EITHER way — a diner picks a tip and
@@ -70,6 +71,22 @@ export function tipPresets(
   return ladder
     .map((rate) => ({ label: `${Math.round(rate * 100)}%`, rate }))
     .filter((p) => p.rate <= TIP_RATE_MAX);
+}
+
+/**
+ * W19 — the custom tip's ceiling is a DOLLAR amount, not a share of the order (owner: "no limit to
+ * custom or capped amount"). The old 100%-of-order clamp silently shrank a generous tip on a small
+ * order; the bound that actually matters is absolute. $1,000 is the CASH tip's own ceiling
+ * (`settleCashInput.tipCents`, W17c-2) — far above any real tip, low enough that a fat-finger or a
+ * hostile client can't mint a five-figure PaymentIntent through the tip field. A rate cannot express
+ * a dollar cap (rate = cents/net — $1,000 on a $5 net is rate 200), so create-intent enforces this
+ * on the DERIVED amount after getCartTotals, exactly like the cash path.
+ */
+export const TIP_AMOUNT_MAX_CENTS = 100_000;
+
+/** The create-intent amount gate: true when the derived tip is inside the house ceiling. */
+export function tipWithinAmountCap(tipCents: number): boolean {
+  return tipCents <= TIP_AMOUNT_MAX_CENTS;
 }
 
 /** Latin digits, integer cents — never a locale-formatted numeral on the money path (W16b). */
