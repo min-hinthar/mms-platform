@@ -39,6 +39,16 @@ export function CashSettleButton({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tendered, setTendered] = useState("");
+  // W17c-2 — the cash tip the cashier was handed. Unlike every other amount in this app it IS typed
+  // by a human, because nothing on the server can derive it: only the person who took the cash knows
+  // what was left. It is bounded by Zod (0..100000) and by the qr_orders_tip_cents_nonneg CHECK.
+  const [tip, setTip] = useState("");
+  const tipCents = Math.max(0, Math.round(Number.parseFloat(tip || "0") * 100) || 0);
+  const tipValid = tipCents <= 100000;
+  // What the cashier actually collects. Everything below — the confirm question, the settle button,
+  // the change — reads THIS, so none of them can quote a pre-tip figure while another quotes the
+  // tipped one.
+  const dueCents = totalCents + tipCents;
   // Cashier arithmetic only — parsed dollars → cents, never sent anywhere.
   const tenderedCents = Math.round(Number.parseFloat(tendered || "0") * 100) || 0;
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -56,7 +66,7 @@ export function CashSettleButton({
   async function confirm() {
     setBusy(true);
     setError(null);
-    const res = await settleCash({ sessionId });
+    const res = await settleCash({ sessionId, tipCents });
     if (!res.ok) {
       setBusy(false);
       setConfirming(false);
@@ -88,9 +98,42 @@ export function CashSettleButton({
           style={{ ...confirmCard, outline: "none" }}
         >
           <p style={{ margin: 0, fontSize: "var(--fs-sm)" }}>
-            Take <strong>{fmt(totalCents)}</strong> in cash?{" "}
+            Take <strong>{fmt(dueCents)}</strong> in cash?{" "}
+            {tipCents > 0 && (
+              <>
+                ({fmt(totalCents)} + {fmt(tipCents)} tip){" "}
+              </>
+            )}
             {isTab ? "This closes the tab." : "This closes the order."}
           </p>
+          {/* W17c-2 — the tip is asked for BEFORE the tendered amount, because the change is owed
+              against the tipped total; asking after would invite entering change from the wrong
+              figure. Shown on every cash settle, not just the counter handoff: a table pays cash
+              too, and its tip was equally unrecorded until now. */}
+          <div style={{ display: "grid", gap: 4 }}>
+            <label htmlFor="cash-tip" style={{ fontSize: "var(--fs-sm)", fontWeight: 600 }}>
+              Cash tip (optional)
+            </label>
+            <input
+              id="cash-tip"
+              inputMode="decimal"
+              autoComplete="off"
+              placeholder="e.g. 5"
+              value={tip}
+              onChange={(e) => setTip(e.target.value.replace(/[^0-9.]/g, ""))}
+              aria-describedby={!tipValid ? "cash-tip-cap" : undefined}
+              aria-invalid={!tipValid || undefined}
+              style={tenderInput}
+            />
+            {!tipValid && (
+              <p
+                id="cash-tip-cap"
+                style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--warn)" }}
+              >
+                That’s over the $1,000.00 cap — check the amount.
+              </p>
+            )}
+          </div>
           {handoff && (
             <div style={{ display: "grid", gap: 4 }}>
               <label htmlFor="cash-tendered" style={{ fontSize: "var(--fs-sm)", fontWeight: 600 }}>
@@ -107,8 +150,8 @@ export function CashSettleButton({
               />
               <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)", minHeight: 18 }}>
                 {tenderedCents > 0
-                  ? tenderedCents >= totalCents
-                    ? `Change: ${fmt(changeDue(totalCents, tenderedCents))}`
+                  ? tenderedCents >= dueCents
+                    ? `Change: ${fmt(changeDue(dueCents, tenderedCents))}`
                     : "Not enough yet."
                   : ""}
               </p>
@@ -128,10 +171,10 @@ export function CashSettleButton({
               className="staff-btn"
               type="button"
               onClick={confirm}
-              disabled={busy}
-              style={payBtn}
+              disabled={busy || !tipValid}
+              style={busy || !tipValid ? { ...payBtn, opacity: 0.5 } : payBtn}
             >
-              {busy ? "Settling…" : `Settle ${fmt(totalCents)}`}
+              {busy ? "Settling…" : `Settle ${fmt(dueCents)}`}
             </button>
           </div>
         </Card>

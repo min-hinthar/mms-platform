@@ -4,6 +4,32 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W17c-2 — the cash tip is on the books (2026-08-16)
+
+Second of the four tipping enhancements. `settleCash` passed `p_tip_cents: 0` unconditionally and the
+code called cash tips _"in-hand/off-system"_ — an honest description of where the money goes and a
+wrong one of the books, since the tip is part of what the cashier collected. The drawer never
+reconciled against the day summary, and nobody could answer what the team was tipped.
+
+- **The cashier enters the tip in the confirm step**, before the tendered field, because change is
+  owed against the _tipped_ total. On every cash settle, not just the counter handoff — a table pays
+  cash too, and its tip was equally unrecorded.
+- **The one amount on the money path a human supplies.** Nothing on the server can derive it: only
+  the person who took the cash knows what was left. Bounded by Zod (`0..100000`) **and** a new
+  `qr_orders_tip_cents_nonneg` column CHECK — a negative tip would otherwise _reduce_ the recorded
+  total, a silent discount wearing a tip's name, arriving through the money path with every other
+  guard satisfied. Deliberately **no** ceiling relative to the bill: a tip larger than the order is
+  real, and over-blocking a legitimate settle mid-service is as bad as under-blocking a mistake.
+- **The returned total is the all-in collected amount.** `getCartTotals` is called with `tipRate 0`,
+  so its total is tip-free; the change helper reading it unadjusted would hand the tip back as change.
+- **The Z-report reports cash tips as _included_ in the drawer figure**, never as a bucket to add —
+  the RPC folds the tip into the order total, so adding it again would overstate the drawer by
+  exactly the tips and send a cashier hunting for money that was never missing.
+
+`mms_fulfill_cash_order` has always taken `p_tip_cents` and folded it into the total, so nothing is
+re-signed — the migration (`20260816010000`) adds only the missing bound. 3 new mutants (**114
+total**), and `settleCash` gains its first executable coverage.
+
 ### W17c-1 — the tip ask fits the basket, and offers to round up (2026-08-16)
 
 First of the four tipping enhancements the owner selected. `lib/tip.ts` is pure — it is arithmetic

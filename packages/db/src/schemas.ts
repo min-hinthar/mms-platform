@@ -439,7 +439,17 @@ export const setCartNameInput = z.object({
 /** settleCash (S1.3) — a staff member settles the table order in cash ("pay a human"). Shape only; the
  *  server re-derives the authoritative total (getCartTotals), refuses mid-card-payment, and records a
  *  cash order idempotently. The client asserts only the session id — never an amount. */
-export const settleCashInput = z.object({ sessionId: uuid });
+export const settleCashInput = z.object({
+  sessionId: uuid,
+  // W17c-2 — the cash tip. This is an AMOUNT, not a rate, and that is correct here: it is money in
+  // the cashier's hand, counted, not a percentage of anything. (The diner path sends a rate because
+  // the server must re-derive the charge; here the server has nothing to re-derive it FROM — only
+  // the human who took the cash knows what was left.) Bounded 0..100000: $1,000 is far above any
+  // real tip and far below a mis-keyed one, and the `qr_orders_tip_cents_nonneg` column CHECK is the
+  // belt — a negative tip would otherwise REDUCE the recorded total, a silent discount wearing a
+  // tip's name. Deliberately no ceiling relative to the bill: a tip larger than the order is real.
+  tipCents: z.number().int().min(0).max(100000).default(0),
+});
 
 /** Terminal poll/cancel (W6c) — the register UI tracks / cancels a reader collect it started. The
  *  PI id is only a HANDLE: the server re-verifies it is a kiosk/register terminal PI (metadata.kind)

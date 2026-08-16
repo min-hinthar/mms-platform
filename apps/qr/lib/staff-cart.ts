@@ -31,7 +31,16 @@ import { logTabEvent } from "./tab-events";
 
 export type StaffWriteResult = { ok: true } | { ok: false; error: string };
 export type SettleCashResult =
-  | { ok: true; orderId: string; totalCents: number }
+  | {
+      ok: true;
+      orderId: string;
+      /** The ALL-IN amount the cashier collected — tip included. The change helper and the handoff
+       *  card both read this, so neither can compute change against a pre-tip figure (W17c-2). */
+      totalCents: number;
+      /** Echoed back so the handoff can name it; the client's own value is a request, this is what
+       *  was recorded. */
+      tipCents: number;
+    }
   | { ok: false; error: string };
 
 // openCartFor lives in ./staff-open-cart (server-only, shared with the W6c Terminal settle) — an
@@ -218,7 +227,7 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
   const caller = gate.caller;
   const parsed = settleCashInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
-  const { sessionId } = parsed.data;
+  const { sessionId, tipCents } = parsed.data;
 
   const { session, cart, unavailable } = await openCartFor(sessionId);
   if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
@@ -274,6 +283,14 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
       console.error("[staff-cart] settleCash totals unreadable", { sessionId, cartId: cart.id });
       return { ok: false, error: STAFF_WRITE_OUTAGE };
     }
+    // W17c-2 — the cash tip is RECORDED now (it used to be hardcoded 0 and described as
+    // "in-hand/off-system"). It is the one figure here a human supplies, because the server has
+    // nothing to derive it from: only the person who took the cash knows what was left. Bounded by
+    // Zod (0..100000) and by the qr_orders_tip_cents_nonneg column CHECK — a negative tip would
+    // otherwise reduce the recorded total, a silent discount wearing a tip's name.
+    //
+    // Every OTHER figure below stays server-derived, and the RPC re-derives the subtotal from the
+    // live lines and raises on a mismatch — so the tip rides alongside the reconcile, not around it.
     const { data: orderId, error } = await db.rpc("mms_fulfill_cash_order", {
       p_cart_id: cart.id,
       p_settled_by: caller.staffId,
@@ -281,7 +298,7 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
       p_discount_cents: totals.discountCents,
       p_service_charge_cents: totals.serviceChargeCents,
       p_tax_cents: totals.taxCents,
-      p_tip_cents: 0,
+      p_tip_cents: tipCents,
     });
     if (error || !orderId) {
       console.error("[staff-cart] mms_fulfill_cash_order failed", {
@@ -292,6 +309,14 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
       // A subtotal-mismatch raise means the cart changed under the settle — steer staff to retry fresh.
       return { ok: false, error: "Couldn’t settle — the order changed. Check it and try again." };
     }
+
+    // The ALL-IN amount actually collected and recorded. `getCartTotals` was called with tipRate 0,
+    // so its total is TIP-FREE; this is `totals.totalCents + tipCents`, algebraically identical to
+    // the RPC's own `subtotal - discount + service + tax + tip`. Named ONCE because three consumers
+    // need it — the caller's change/handoff card, the tab-close audit row, and the analytics event —
+    // and the W17c-2 review found two of them still quoting the pre-tip figure, under-reporting
+    // every tipped cash close by exactly the tip.
+    const collectedCents = totals.totalCents + tipCents;
 
     // Redeem any applied reward coupon (M4 P4.2) — flip it to redeemed now the cash order is snapshotted
     // (the cash subtotal-reconcile already counted its discount). Idempotent; best-effort.
@@ -366,7 +391,7 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
               role: caller.role,
               mode: session.mode,
               sessionId,
-              total_cents: totals.totalCents,
+              total_cents: collectedCents,
               item_count: count ?? 0,
             },
           });
@@ -388,13 +413,15 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
           actorKind: "staff",
           actorStaffId: caller.staffId,
           tabType,
-          amountCents: totals.totalCents,
+          // The SETTLED total, tip included — this row is the walk-out / discretion reconciliation
+          // record (T13), so a pre-tip figure reads as an unexplained gap against qr_orders.
+          amountCents: collectedCents,
         }),
       );
     }
     revalidatePath("/staff");
     revalidatePath(`/staff/table/${sessionId}`);
-    return { ok: true, orderId, totalCents: totals.totalCents };
+    return { ok: true, orderId, totalCents: collectedCents, tipCents };
   } finally {
     await releaseSettlement(cart.id);
   }
@@ -418,6 +445,9 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
   const caller = gate.caller;
   const parsed = settleCashInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
+  // Deliberately NOT destructuring `tipCents`: a secure-tab close settles the AUTHORIZED amount and
+  // adds no tip (see the "final total, NO added tip" note below). Naming it here would read as if
+  // tab-close tips were supported and merely forgotten.
   const { sessionId } = parsed.data;
 
   const { session, cart, unavailable } = await openCartFor(sessionId);
