@@ -78,6 +78,7 @@ const rpcCalls: { fn: string; args: Record<string, unknown> }[] = [];
 /** What the persisted order row answers for total_cents — per-test settable. `null` means "mirror
  *  the request" (TOTALS.totalCents + the test's tip), matching a settle that recorded this call. */
 let orderRowTotal: number = 0;
+let orderRowTip: number = 0;
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     from: (table: string) => {
@@ -88,7 +89,11 @@ vi.mock("@mms/db/server", () => ({
         const order: Record<string, unknown> = {
           select: () => order,
           eq: () => order,
-          single: () => Promise.resolve({ data: { total_cents: orderRowTotal }, error: null }),
+          single: () =>
+            Promise.resolve({
+              data: { total_cents: orderRowTotal, tip_cents: orderRowTip },
+              error: null,
+            }),
         };
         return order;
       }
@@ -116,12 +121,14 @@ beforeEach(() => {
   rpcCalls.length = 0;
   tabEvents.length = 0;
   orderRowTotal = TOTALS.totalCents; // no-tip default; tipped tests set their own
+  orderRowTip = 0;
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
 describe("settleCash — the cash tip is recorded, and the collected total includes it", () => {
   it("sends the typed tip to the RPC alongside the SERVER's own figures", async () => {
     orderRowTotal = 4368; // what the ledger recorded for this settle (3868 + 500)
+    orderRowTip = 500;
     const r = await settleCash({ sessionId: SESSION, tipCents: 500 });
     expect(r.ok).toBe(true);
     expect(fulfill()?.args).toEqual({
@@ -141,6 +148,7 @@ describe("settleCash — the cash tip is recorded, and the collected total inclu
     // 3868 + 500. The change helper reads this; quoting the tip-free 3868 would hand back 500 cents
     // too much change on a $50 tender.
     orderRowTotal = 4368;
+    orderRowTip = 500;
     const r = await settleCash({ sessionId: SESSION, tipCents: 500 });
     expect(r).toEqual({ ok: true, orderId: "order-1", totalCents: 4368, tipCents: 500 });
   });
@@ -177,15 +185,18 @@ describe("settleCash — the cash tip is recorded, and the collected total inclu
     // request's order without applying this request's tip. The change/handoff/audit figure must be
     // what the ledger recorded, not this request's arithmetic.
     orderRowTotal = 3868; // the first request settled tip-free; this one asks for 500
+    orderRowTip = 0;
     const r = await settleCash({ sessionId: SESSION, tipCents: 500 });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.totalCents).toBe(3868);
+    if (r.ok) expect(r.tipCents).toBe(0); // the persisted tip, not this request's unrecorded 500
     const closed = tabEvents.find((e) => e.event === "closed");
     expect(closed?.amountCents).toBe(3868);
   });
 
   it("accepts the cap exactly — the bound refuses what is over it, not what is at it", async () => {
     orderRowTotal = TOTALS.totalCents + 100000;
+    orderRowTip = 100000;
     const r = await settleCash({ sessionId: SESSION, tipCents: 100000 });
     expect(r.ok).toBe(true);
     expect(fulfill()?.args.p_tip_cents).toBe(100000);

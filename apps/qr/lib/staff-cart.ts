@@ -320,7 +320,7 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
     // row, and the analytics event (the W17c-2 review found two quoting the pre-tip figure).
     const { data: orderRow, error: orderReadErr } = await db
       .from("qr_orders")
-      .select("total_cents")
+      .select("total_cents,tip_cents")
       .eq("id", orderId)
       .single();
     if (orderReadErr || orderRow == null) {
@@ -332,6 +332,12 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
       });
     }
     const collectedCents = orderRow?.total_cents ?? totals.totalCents + tipCents;
+    // Review LOW — the returned tip must be the PERSISTED one too: in the duplicate-settle race the
+    // ledger's total pairs with the FIRST request's tip, and echoing THIS request's would hand the
+    // next consumer the exact inconsistency the read-back exists to prevent. (Note: the analytics
+    // event + tab-close audit of a duplicate settle still re-fire with the first settle's figure —
+    // pre-existing, benign for money, and the RPC gives no early-return signal to gate them on.)
+    const collectedTipCents = orderRow?.tip_cents ?? tipCents;
 
     // Redeem any applied reward coupon (M4 P4.2) — flip it to redeemed now the cash order is snapshotted
     // (the cash subtotal-reconcile already counted its discount). Idempotent; best-effort.
@@ -436,7 +442,7 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
     }
     revalidatePath("/staff");
     revalidatePath(`/staff/table/${sessionId}`);
-    return { ok: true, orderId, totalCents: collectedCents, tipCents };
+    return { ok: true, orderId, totalCents: collectedCents, tipCents: collectedTipCents };
   } finally {
     await releaseSettlement(cart.id);
   }

@@ -36,6 +36,9 @@ prod measurement, 4 already fixed by later work, 4 justified/deferred to OPEN-IT
   presets whose derived cents breach the $1,000 cap are never offered (the write refuses them and
   the kiosk deliberately swallows the result); recovering from a failed read refocuses the open
   step's heading. The kiosk No-tip ghost weight is DELIBERATE (owner: "none is not encouraged").
+- **Plant-based honesty (carried from #192's Codex round):** the 🌱 taste chip now EXCLUDES
+  `vegan-optional` — the dietary predicate's own fail-safe rule (the default prep of an
+  Everything-Salad-class dish is not plant-based), so those dishes leave its recommendations.
 - **Custom tip honesty (#190):** the cap line now quotes the EFFECTIVE ceiling
   (`min($1,000, 4000·net)`) — on a promo-crushed net the old line stayed silent while the clamp
   charged less than the typed figure.
