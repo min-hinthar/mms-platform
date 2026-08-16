@@ -416,6 +416,18 @@ export const staffAddItemInput = z.object({
   qty: z.number().int().min(1).max(9).default(1),
 });
 
+/** setMenuPrice (W17b) — a MANAGER edits a dish's menu price from the staff console. The client
+ *  asserts the amount here (it is the decision being made, not a derived total), so it is bounded on
+ *  BOTH sides: this `.min(25).max(500000)` and the `menu_items_base_price_cents_bounds` column CHECK
+ *  the migration adds. The 25¢ floor clears today's catalog floor ($2.00); the $5,000 ceiling makes a
+ *  fat-fingered extra zero a refusal instead of a money incident. This is the ONE place a price
+ *  crosses from a human into the system — every OTHER money amount in this app is server-derived and
+ *  must stay that way (see priceItem: it reads this stored price, it never accepts one). */
+export const setMenuPriceInput = z.object({
+  menuItemId: uuid,
+  priceCents: z.number().int().min(25).max(500000),
+});
+
 /** setCartCustomerName (W6a) — the register's call-out identity for a cash order. Staff-gated; the
  *  server writes qr_carts.customer_name (bounded by the column CHECK) only while the cart is open.
  *  Empty clears — same semantics as the diner's create-intent name write. */
@@ -577,6 +589,7 @@ export type BumpTicketInput = z.infer<typeof bumpTicketInput>;
 export type RecallTicketInput = z.infer<typeof recallTicketInput>;
 export type FireTicketNowInput = z.infer<typeof fireTicketNowInput>;
 export type SetLineNotesInput = z.infer<typeof setLineNotesInput>;
+export type SetMenuPriceInput = z.infer<typeof setMenuPriceInput>;
 export type StaffAddItemInput = z.infer<typeof staffAddItemInput>;
 export type SettleCashInput = z.infer<typeof settleCashInput>;
 export type TerminalPollInput = z.infer<typeof terminalPollInput>;

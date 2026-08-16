@@ -234,6 +234,39 @@ const MUTANTS = [
     find: '          fulfillment: dineIn ? "dinein" : "togo",',
     replace: '          fulfillment: "dinein" as const,',
   },
+  // ── W17b — the price editor: the ONE human-entered amount in the app ────────────────────────────
+  {
+    id: "menu-price/role-floor-drops-to-server",
+    file: "apps/qr/lib/menu-price.ts",
+    suite: "lib/menu-price.test.ts",
+    why: "W17b — the console's UI gating is cosmetic; a Server Action is a public POST endpoint. Dropping the floor to the default lets any signed-in server (or a forged POST from one) reprice the menu every future guest pays",
+    find: 'const gate = await staffGate("manager", PRICE_OUTAGE);',
+    replace: "const gate = await staffGate();",
+  },
+  {
+    id: "menu-price/zero-row-update-reads-as-success",
+    file: "apps/qr/lib/menu-price.ts",
+    suite: "lib/menu-price.test.ts",
+    why: 'W17b — `.update()` returns no row count, so without the `.select("id")` verdict a write that matched NOTHING answers ok: the manager is told the price changed, the guests keep paying the old one, and the ledger records a change that never happened',
+    find: '  if (!written) return { ok: false, error: "That dish is no longer on the menu." };',
+    replace: "",
+  },
+  {
+    id: "menu-price/transport-failure-reads-as-missing-dish",
+    file: "apps/qr/lib/menu-price.ts",
+    suite: "lib/menu-price.test.ts",
+    why: "W17b — postgrest-js RESOLVES a transport failure into { data: null, error }, so skipping the error branch turns a network blip into the confident verdict 'that dish is no longer on the menu' about a dish that is right there",
+    find: '  if (readErr) {\n    console.error("[menu-price] read failed", readErr.message);\n    return { ok: false, error: PRICE_OUTAGE };\n  }',
+    replace: "",
+  },
+  {
+    id: "menu-price/unrecorded-change-swallowed",
+    file: "apps/qr/lib/menu-price.ts",
+    suite: "lib/menu-price.test.ts",
+    why: "W17b — a price change with no record of who made it is the one thing the ledger exists to prevent; swallowing the insert error hands back a clean success and the manager walks away believing their name is in the log",
+    find: "  if (auditErr) {",
+    replace: "  if (false) {",
+  },
   // ── M3 — faithful reorder (option ids beside the labels) ────────────────────────────────────────
   {
     id: "order-lines/option-ids-not-threaded",

@@ -194,6 +194,41 @@ export type Database = {
           },
         ]
       }
+      menu_price_audit: {
+        Row: {
+          changed_at: string
+          changed_by: string
+          id: string
+          menu_item_id: string
+          new_price_cents: number
+          old_price_cents: number
+        }
+        Insert: {
+          changed_at?: string
+          changed_by: string
+          id?: string
+          menu_item_id: string
+          new_price_cents: number
+          old_price_cents: number
+        }
+        Update: {
+          changed_at?: string
+          changed_by?: string
+          id?: string
+          menu_item_id?: string
+          new_price_cents?: number
+          old_price_cents?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "menu_price_audit_menu_item_id_fkey"
+            columns: ["menu_item_id"]
+            isOneToOne: false
+            referencedRelation: "menu_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       mms_approvals: {
         Row: {
           amount_cents: number
