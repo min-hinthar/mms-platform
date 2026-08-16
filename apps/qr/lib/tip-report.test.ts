@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summarizeTips, type TipOrderRow } from "./tip-report";
+import { scopeToSelf, summarizeTips, type TipOrderRow } from "./tip-report";
 
 /**
  * W17c-4 — the rules that keep a tip report honest. The whole design rests on one distinction the
@@ -12,7 +12,6 @@ const row = (o: Partial<TipOrderRow> = {}): TipOrderRow => ({
   settled_by: "staff-a",
   tip_cents: 500,
   status: "paid",
-  tender: "cash",
   ...o,
 });
 
@@ -27,6 +26,7 @@ describe("summarizeTips — attributed and shared are never blended", () => {
       { staffId: "staff-b", tipCents: 1000, orderCount: 1 },
       { staffId: "staff-a", tipCents: 800, orderCount: 2 },
     ]);
+    expect(r.attributedCents).toBe(1800);
     expect(r.unattributedCents).toBe(0);
     expect(r.totalCents).toBe(1800);
   });
@@ -104,9 +104,51 @@ describe("summarizeTips — attributed and shared are never blended", () => {
   it("an empty day is an empty report, not a division by zero", () => {
     expect(summarizeTips([])).toEqual({
       attributed: [],
+      attributedCents: 0,
       unattributedCents: 0,
       unattributedCount: 0,
       totalCents: 0,
     });
+  });
+});
+
+describe("scopeToSelf — a server sees their own line WITHOUT the shared number going false", () => {
+  const day = summarizeTips([
+    row({ settled_by: "staff-a", tip_cents: 500 }),
+    row({ settled_by: "staff-b", tip_cents: 1200 }),
+    row({ settled_by: null, tip_cents: 2000 }),
+    row({ settled_by: null, tip_cents: 300 }),
+  ]);
+
+  it("keeps ONLY their line, and drops colleagues entirely", () => {
+    const mine = scopeToSelf(day, "staff-a");
+    expect(mine.attributed).toEqual([{ staffId: "staff-a", tipCents: 500, orderCount: 1 }]);
+    expect(mine.attributedCents).toBe(500);
+  });
+
+  it("passes the SHARED bucket through whole — the bug this function exists for", () => {
+    // The first implementation scoped the QUERY, which made a null settled_by structurally
+    // impossible for a server: every one of them saw "guests tipped $0.00 on their phones", stated
+    // as fact under a promise that nothing on the screen is an estimate. The shared pool is
+    // aggregate, so showing it whole reveals nothing about anyone.
+    const mine = scopeToSelf(day, "staff-a");
+    expect(mine.unattributedCents).toBe(2300);
+    expect(mine.unattributedCount).toBe(2);
+    expect(mine.unattributedCents).not.toBe(0);
+  });
+
+  it("never folds a colleague's or the shared pool's money into THEIR headline", () => {
+    const mine = scopeToSelf(day, "staff-a");
+    // 500 of their own; the day's attributed is 1700 and the shared is 2300 — neither is theirs.
+    expect(mine.attributedCents).toBe(500);
+    expect(mine.attributedCents).not.toBe(day.attributedCents);
+    expect(mine.totalCents).toBe(2800); // their 500 + the shared 2300, and no colleague's 1200
+  });
+
+  it("someone who settled nothing today sees an empty line, not someone else's", () => {
+    const mine = scopeToSelf(day, "staff-z");
+    expect(mine.attributed).toEqual([]);
+    expect(mine.attributedCents).toBe(0);
+    expect(mine.unattributedCents).toBe(2300); // ...but the shift's shared number is still true
   });
 });

@@ -244,6 +244,22 @@ const MUTANTS = [
     replace: "    if (true) {",
   },
   {
+    id: "tip-report/self-scope-zeroes-the-shared-pool",
+    file: "apps/qr/lib/tip-report.ts",
+    suite: "lib/tip-report.test.ts",
+    why: "W17c-4 review HIGH — the first version scoped the QUERY, which made a null settled_by structurally impossible for a server: every one of them was shown 'guests tipped $0.00 on their phones' as FACT, under a promise that nothing on the screen is an estimate. A privacy filter had become a lie about money",
+    find: "    unattributedCents: report.unattributedCents,\n    unattributedCount: report.unattributedCount,",
+    replace: "    unattributedCents: 0,\n    unattributedCount: 0,",
+  },
+  {
+    id: "tip-report/self-headline-includes-the-shared-pool",
+    file: "apps/qr/lib/tip-report.ts",
+    suite: "lib/tip-report.test.ts",
+    why: "W17c-4 — a server's headline is THEIR money. Summing a colleague's or the shared pool's into it tells someone money is theirs that isn't, on the screen they read as a statement of their pay",
+    find: "    attributedCents: mineCents,",
+    replace: "    attributedCents: report.attributedCents,",
+  },
+  {
     id: "tip-report/refunded-tip-counted",
     file: "apps/qr/lib/tip-report.ts",
     suite: "lib/tip-report.test.ts",

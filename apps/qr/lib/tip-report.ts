@@ -16,7 +16,6 @@ export type TipOrderRow = {
   settled_by: string | null;
   tip_cents: number | null;
   status: string;
-  tender: string;
 };
 
 export type AttributedTips = {
@@ -29,6 +28,10 @@ export type AttributedTips = {
 export type TipReport = {
   /** Per-person, highest first, then by id so the order is stable across reloads. */
   attributed: AttributedTips[];
+  /** Sum of `attributed`. Kept as its own field because the two headlines mean different things:
+   *  a server's "your tips" is THIS, while a manager's "all tips today" is `totalCents`. Folding the
+   *  shared pool into a server's headline would tell them money is theirs that isn't. */
+  attributedCents: number;
   /** Tips on orders no staff member settled — the guest paid on their phone. Shared, not anyone's. */
   unattributedCents: number;
   unattributedCount: number;
@@ -73,8 +76,39 @@ export function summarizeTips(rows: TipOrderRow[]): TipReport {
   const attributedCents = attributed.reduce((a, r) => a + r.tipCents, 0);
   return {
     attributed,
+    attributedCents,
     unattributedCents,
     unattributedCount,
     totalCents: attributedCents + unattributedCents,
+  };
+}
+
+/**
+ * Narrow a full report to what ONE person may see: their own line, and the shared bucket unchanged.
+ *
+ * This exists because the obvious implementation was wrong, and wrong in the worst possible
+ * direction. The first version scoped the QUERY (`.eq("settled_by", me)`) — which does hide
+ * colleagues, but also makes it structurally impossible for any row to have a null `settled_by`. So
+ * every server saw "Guests paid $0.00 on their phones", stated as fact, directly under a promise
+ * that nothing on the screen is an estimate. A privacy filter had silently become a lie about money.
+ *
+ * The shared bucket is aggregate — a sum and a count, no order and no person in it — so showing it
+ * whole to everyone reveals nothing about anyone. It is also the honest number: that money was
+ * tipped, and it belongs to the shift.
+ */
+export function scopeToSelf(report: TipReport, staffId: string): TipReport {
+  const mine = report.attributed.filter((a) => a.staffId === staffId);
+  const mineCents = mine.reduce((a, r) => a + r.tipCents, 0);
+  return {
+    attributed: mine,
+    // Recomputed from THEIR row — this is the number the page shows as "your tips today", and it
+    // must never include a colleague's or the shared pool's money.
+    attributedCents: mineCents,
+    // The shared bucket passes through WHOLE. It is aggregate (a sum and a count, no order and no
+    // person in it), so it reveals nothing about anyone, and it is the honest answer to "what did
+    // guests tip on their phones today" — a question whose answer does not depend on who is asking.
+    unattributedCents: report.unattributedCents,
+    unattributedCount: report.unattributedCount,
+    totalCents: mineCents + report.unattributedCents,
   };
 }

@@ -50,7 +50,11 @@ export default async function StaffTipsPage() {
         <h2 id="tips-total-h" style={h2}>
           {scope === "all" ? "All tips today" : "Your tips today"}
         </h2>
-        <p style={bigNumber}>{dollars(report.totalCents)}</p>
+        {/* A server's headline is THEIR money only — folding the shared pool in would tell them
+            it is theirs. A manager's is the day's whole take. */}
+        <p style={bigNumber}>
+          {dollars(scope === "all" ? report.totalCents : report.attributedCents)}
+        </p>
       </section>
 
       {/* Attributed — someone was handed this money. */}

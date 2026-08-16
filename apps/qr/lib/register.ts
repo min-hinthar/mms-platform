@@ -5,7 +5,7 @@ import { openRegisterInput, setCartNameInput } from "@mms/db/schemas";
 import { roleAtLeast, staffGate, STAFF_WRITE_OUTAGE } from "./staff";
 import { generateJoinCode } from "./session-code";
 import { laDayStartIso, summarizeDay, type DaySummary } from "./register-math";
-import { summarizeTips, type TipReport } from "./tip-report";
+import { scopeToSelf, summarizeTips, type TipOrderRow, type TipReport } from "./tip-report";
 
 /**
  * The FOH register mint (W6a — closes K6's "an order cannot exist without a diner's phone").
@@ -327,23 +327,43 @@ export async function getDayTips(): Promise<TipReportResult> {
 
   const sinceIso = laDayStartIso(new Date());
   const db = serviceClient();
-  let q = db
-    .from("qr_orders")
-    .select("settled_by,tip_cents,status,tender")
-    .gte("created_at", sinceIso);
-  // The scope is a PREDICATE, not a filter applied after reading: a server's request never pulls a
-  // colleague's row into this process at all.
-  if (!seesEveryone) q = q.eq("settled_by", caller.staffId);
-  const { data, error } = await q;
-  // A failed read is unknowable, never "you were tipped nothing" — the worst false verdict on a
-  // screen whose whole job is telling someone what they earned.
-  if (error) {
-    console.error("[register] getDayTips failed", error.message);
-    return { ok: false, error: STAFF_WRITE_OUTAGE };
-  }
-  const report = summarizeTips(data ?? []);
 
-  // Names for exactly the ids that survived the summary — never the whole roster.
+  // Read the WHOLE day, then narrow in-process. The first version scoped the QUERY
+  // (`.eq("settled_by", me)`) for a server — which does hide colleagues, and also makes a null
+  // `settled_by` structurally impossible, so every server was shown "guests tipped $0.00 on their
+  // phones" as fact, directly under a promise that nothing here is an estimate. A privacy filter had
+  // become a lie about money. `scopeToSelf` does the narrowing instead: their own line, the shared
+  // bucket intact. Nothing about a colleague ever reaches the client.
+  //
+  // Paged explicitly, like getDayCashSummary above and for the same reason: PostgREST truncates at
+  // its max-rows (default 1000) with `error` still null, and a silently short tip figure is exactly
+  // the lie this surface exists to prevent. Only `paid` is fetched — the only status that counts —
+  // so refunded and pending rows don't burn the page budget.
+  const rows: TipOrderRow[] = [];
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await db
+      .from("qr_orders")
+      .select("settled_by,tip_cents,status")
+      .gte("created_at", sinceIso)
+      .eq("status", "paid")
+      .order("created_at", { ascending: true })
+      .range(from, from + PAGE - 1);
+    // A failed read is unknowable, never "you were tipped nothing" — the worst false verdict on a
+    // screen whose whole job is telling someone what they earned.
+    if (error) {
+      console.error("[register] getDayTips failed", error.message);
+      return { ok: false, error: STAFF_WRITE_OUTAGE };
+    }
+    rows.push(...(data ?? []));
+    if ((data ?? []).length < PAGE) break;
+  }
+
+  const day = summarizeTips(rows);
+  const report = seesEveryone ? day : scopeToSelf(day, caller.staffId);
+
+  // Names for exactly the ids that survived the scoping — never the whole roster, and for a server
+  // never anyone but themselves.
   const names: Record<string, string> = {};
   const ids = report.attributed.map((a) => a.staffId);
   if (ids.length > 0) {
@@ -352,7 +372,7 @@ export async function getDayTips(): Promise<TipReportResult> {
       .select("user_id,display_name")
       .in("user_id", ids);
     // A failed name lookup is NOT a failed report: the money is the point, and an id is a worse
-    // label than a name but an honest one. Logged, then fallen back on below.
+    // label than a name but an honest one.
     if (staffError) console.error("[register] getDayTips names failed", staffError.message);
     for (const row of staff ?? []) names[row.user_id] = row.display_name;
   }
