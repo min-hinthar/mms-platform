@@ -62,11 +62,23 @@ export async function POST(req: NextRequest) {
     //     capacity, only within open hours / while capacity remains) and fires now (fire_at=null). If the
     //     kitchen is closed or fully booked, ASAP is refused — never take a paid order we can't fulfill.
     const db = serviceClient();
-    const { data: sess } = await db
+    // W21 (Codex P1 on #192) — the mode read FAILS CLOSED: every mode-keyed gate below (the W5e
+    // pickup slot/ASAP honesty checks AND the W21 contact requirement) hangs off `sess`, so a
+    // dropped read error used to let a pickup order charge as if it were scango — no slot
+    // validated, no contact stored. An unreadable session refuses the payment instead.
+    const { data: sess, error: sessErr } = await db
       .from("table_sessions")
       .select("mode")
       .eq("id", sessionId)
       .single();
+    if (sessErr || !sess) {
+      if (sessErr) console.error("[create-intent] session mode read failed:", sessErr.message);
+      await releaseCartLock(cartId, uid);
+      return NextResponse.json(
+        { error: "Couldn’t start checkout — please try again." },
+        { status: 500 },
+      );
+    }
     // W5g: the timing the diner actually committed to at the pay boundary — 'scheduled' (a slot they
     // picked) or 'asap' (server-snapped now). Emitted as ONE event below that BOTH paths hit, so the
     // pickup funnel isn't blind to the default-ASAP path (which fires no client-side timing event).

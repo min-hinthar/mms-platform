@@ -97,12 +97,15 @@ export function PickupWhenChoice({
     enqueue(null, async () => {
       try {
         const r = await setPickupAsap(cartId);
-        if (token !== writeToken.current) return; // superseded — the newer write's outcome speaks
         if (r.ok) {
+          // Codex P2 — record EVERY successful write, superseded or not: the server holds this
+          // value now, and a later refusal's snap-back must land on it, not on the pre-burst
+          // state. Only the UI/status below is token-gated.
           confirmedSlot.current = null;
-          onSlotChange(null); // re-assert over any refresh() that raced the write
+          if (token === writeToken.current) onSlotChange(null); // re-assert over a raced refresh()
           return;
         }
+        if (token !== writeToken.current) return; // superseded — the newer write's outcome speaks
         onSlotChange(confirmedSlot.current); // instant local snap-back, even with no radio
         onRevert(); // …and the authoritative re-read as the belt
         onStatus(
@@ -129,12 +132,13 @@ export function PickupWhenChoice({
     enqueue(next, async () => {
       try {
         const r = await setPickupSlot(cartId, next);
-        if (token !== writeToken.current) return;
         if (r.ok) {
+          // Codex P2 — every successful write updates the confirmed value (see chooseAsap).
           confirmedSlot.current = next;
-          onSlotChange(next); // re-assert over any refresh() that raced the write
+          if (token === writeToken.current) onSlotChange(next); // re-assert over a raced refresh()
           return;
         }
+        if (token !== writeToken.current) return;
         onSlotChange(confirmedSlot.current);
         onRevert();
         onStatus(

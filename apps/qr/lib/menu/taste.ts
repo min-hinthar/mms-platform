@@ -81,8 +81,11 @@ export const CRAVINGS: readonly Craving[] = [
     en: "Plant-based",
     my: "သက်သတ်လွတ်",
     emoji: "🌱",
-    // The dietary filters' own semantics: vegan ⊂ vegetarian; `vegan-optional` = "make it vegan".
-    matches: (i) => tag(i, "vegan", "vegan-optional", "vegetarian"),
+    // The dietary predicate's own FAIL-SAFE rule (lib/menu/dietary.ts, mirrored — Codex P1):
+    // `vegan-optional` means a vegan VARIANT can be made; the DEFAULT prep is NOT plant-based
+    // (Everything Salad ships with shrimp powder), and a 🌱 card would steer a diner into animal
+    // products under a plant-based claim. Only declared vegan/vegetarian defaults qualify.
+    matches: (i) => tag(i, "vegan", "vegetarian"),
   },
   {
     id: "breakfast",

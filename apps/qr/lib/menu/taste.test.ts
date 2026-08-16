@@ -20,14 +20,22 @@ describe("craving rules — each chip maps to real data", () => {
     expect(by.sweet!.matches(item("Drinks"))).toBe(false); // a drink is not a promised dessert
   });
 
-  it("tag chips reuse the menu's own declarations (incl. the -optional forms)", () => {
+  it("tag chips reuse the menu's own declarations", () => {
     expect(by.spicy!.matches(item("Sides", ["spicy"]))).toBe(true);
+    // spicy_optional is fine to include: the kitchen turns the heat UP on request — offering a
+    // milder-by-default dish under "Bring the heat" steers nobody into an allergen or a diet break.
     expect(by.spicy!.matches(item("Sides", ["spicy_optional"]))).toBe(true);
     expect(by.spicy!.matches(item("Sides"))).toBe(false);
     expect(by.plant!.matches(item("Sides", ["vegan"]))).toBe(true);
-    expect(by.plant!.matches(item("Sides", ["vegan-optional"]))).toBe(true);
     expect(by.plant!.matches(item("Sides", ["vegetarian"]))).toBe(true);
     expect(by.plant!.matches(item("Sides", ["popular"]))).toBe(false);
+  });
+
+  it("Plant-based EXCLUDES vegan-optional — the DEFAULT prep is not plant-based (Codex P1)", () => {
+    // The dietary predicate's own rule (lib/menu/dietary.ts): "vegan on request" means a VARIANT
+    // exists — Everything Salad's default ships with shrimp powder. A 🌱 card would steer a diner
+    // into animal products under a plant-based claim; the fail-safe rule owns this call.
+    expect(by.plant!.matches(item("Sides", ["vegan-optional"]))).toBe(false);
   });
 });
 
