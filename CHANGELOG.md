@@ -30,7 +30,16 @@ Owner, 2026-08-16: _"tip should be 15%, 20%, 30% options."_
 - **The cap filter was made reachable.** `verify:slice` caught its mutant _surviving_: with a fixed
   ladder no preset ever breaches the 0.5 ceiling, so removing the filter changed nothing observable —
   a decorative guard. `tipPresets` now takes the ladder as a defaulted parameter so a test can pass
-  one that breaches the cap and watch the rung get dropped. 5 new mutants (**116 total**).
+  one that breaches the cap and watch the rung get dropped.
+- **The register's chips use the same base as every other surface** (review HIGH): they were computed
+  off the tax-inclusive `settleTotalCents` while the diner and kiosk both offer percentages against
+  the tip _base_ (subtotal − discount, pre-tax). An identical "20%" label therefore charged more at
+  the counter — on a $50 net at 10.5% tax, $11.05 instead of $10.00 — breaking the one-ladder
+  invariant this very slice claims. The base now comes from the same `getCartTotals` breakdown.
+- **`setKioskTip` verifies the write matched a row** (review MED). An UPDATE returns no row count, so
+  the status predicate could correctly _block_ a repoint during a settle race and the action would
+  still answer ok, claiming an intent nobody recorded — the same trap `applyPromo` already closes.
+  6 new mutants (**117 total**).
 
 ### W17c-2 — the cash tip is on the books (2026-08-16)
 
