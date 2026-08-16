@@ -27,7 +27,7 @@ after selected? New menu items lacks the vibrant fun descriptions of older items
 - **The custom tip is uncapped to $1,000** (the cash tip's own bound). The 100%-of-order clamp is
   gone: `TIP_AMOUNT_MAX_CENTS` in lib/tip.ts, enforced in create-intent on the DERIVED cents (a
   rate cannot express a dollar cap), schema rail `.max(4000)`, client clamps to the same constant,
-  new tests + a new mutant (120). Split path deliberately unchanged (its 0.5 CHECK; presets only).
+  new tests + a new mutant (122 total). Split path deliberately unchanged (its 0.5 CHECK; presets only).
 - **Forgot-to-send → pay is now an INFORMED flow** (never a block — `mms_fire_pending_food` fires
   drafts the moment payment lands; money was always safe, timing was the surprise): a new pure
   `unsentFoodQty` (dinein+togo drafts, matching the fire predicate; tested + 2 mutants), a warm
