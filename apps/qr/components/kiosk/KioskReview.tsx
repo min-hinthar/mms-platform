@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { addItem, getCartView, setKioskTip } from "@/lib/cart";
-import { tipPresets } from "@/lib/tip";
+import { tipPresets, tipWithinAmountCap } from "@/lib/tip";
 import type { CartItem, CartTotals } from "@mms/db";
 import { goesWellWith } from "@/lib/menu/upsell";
 import { t, type KioskLang } from "@/lib/kiosk/strings";
@@ -48,18 +48,23 @@ export function KioskReview({
   // where the flow just went.
   const stepHeadingRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
-    if (upsellOpen || tipOpen) stepHeadingRef.current?.focus();
-  }, [upsellOpen, tipOpen]);
+    if (!loadFailed && (upsellOpen || tipOpen)) stepHeadingRef.current?.focus();
+    // `loadFailed` is a dep deliberately (Codex P2 on #188): recovering from the failed-read screen
+    // remounts the open step's heading with both step flags unchanged — without this, the retry
+    // button unmounts under the keyboard user and focus falls to <body>.
+  }, [upsellOpen, tipOpen, loadFailed]);
 
-  const refresh = () => {
+  const refresh = () =>
     getCartView(cartId)
       .then((v) => {
         setView({ items: v.items, totals: v.totals });
         setLoadFailed(false);
       })
       .catch(() => setLoadFailed(true));
-  };
-  useEffect(refresh, [cartId]); // initial read per mount (refresh identity is per-render, keyed reads are idempotent)
+  useEffect(() => {
+    void refresh(); // initial read per mount (refresh identity is per-render, keyed reads are idempotent)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cartId]);
 
   // The server's own tip base (subtotal − discount), and whether this basket can be tipped at all.
   const tipBaseCents = view
@@ -129,7 +134,11 @@ export function KioskReview({
     startTransition(async () => {
       try {
         await addItem(cartId, item.id, [], undefined, 1);
-        refresh();
+        // W21d (Codex P2 on #184/#188) — AWAIT the re-read inside the transition: `pending` now
+        // holds until the refreshed totals (including this add) have landed, and the footer below
+        // disables on `pending` — so a fast "Pay at the counter" can no longer open the tip step
+        // against the PRE-upsell subtotal and record a percentage of the wrong base.
+        await refresh();
       } catch {
         /* deliberate: a failed upsell add is a non-event — the rail is an offer, not a promise */
       }
@@ -199,10 +208,22 @@ export function KioskReview({
           ))}
         </ul>
         <div style={{ display: "flex", gap: "var(--s3)", justifyContent: "center" }}>
-          <button type="button" className="kiosk-ghost" onClick={askTipThenHandoff}>
+          {/* Disabled while an upsell add + its re-read are in flight (see addUpsell) — continuing
+              mid-add would price the tip ask off the pre-upsell subtotal. */}
+          <button
+            type="button"
+            className="kiosk-ghost"
+            disabled={pending}
+            onClick={askTipThenHandoff}
+          >
             {t(lang, "noThanks")}
           </button>
-          <button type="button" className="kiosk-cta" onClick={askTipThenHandoff}>
+          <button
+            type="button"
+            className="kiosk-cta"
+            disabled={pending}
+            onClick={askTipThenHandoff}
+          >
             {t(lang, "payAtCounter")}
           </button>
         </div>
@@ -211,7 +232,13 @@ export function KioskReview({
   }
 
   if (tipOpen) {
-    const presets = tipPresets(tipBaseCents);
+    // W21d (Codex P2 on #184) — drop any preset whose DERIVED cents breach the $1,000 amount cap
+    // (30% of a ~$3,334+ base): setKioskTip refuses those, and chooseTip deliberately ignores the
+    // result — the guest's choice would vanish silently. A chip the write layer refuses is never
+    // offered (the tipPresets rate-cap rule, applied to the amount cap).
+    const presets = tipPresets(tipBaseCents).filter((p) =>
+      tipWithinAmountCap(Math.round(tipBaseCents * p.rate)),
+    );
     return (
       <div className="kiosk-screen">
         <h1

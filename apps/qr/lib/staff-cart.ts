@@ -310,13 +310,28 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
       return { ok: false, error: "Couldn’t settle — the order changed. Check it and try again." };
     }
 
-    // The ALL-IN amount actually collected and recorded. `getCartTotals` was called with tipRate 0,
-    // so its total is TIP-FREE; this is `totals.totalCents + tipCents`, algebraically identical to
-    // the RPC's own `subtotal - discount + service + tax + tip`. Named ONCE because three consumers
-    // need it — the caller's change/handoff card, the tab-close audit row, and the analytics event —
-    // and the W17c-2 review found two of them still quoting the pre-tip figure, under-reporting
-    // every tipped cash close by exactly the tip.
-    const collectedCents = totals.totalCents + tipCents;
+    // The ALL-IN amount actually collected and recorded — read back from the PERSISTED order row,
+    // not echoed from this request (W21d, Codex P2 on #183): two same-staff tabs can both pass
+    // acquireSettlement (same settle_by re-acquires), and the second RPC call takes the
+    // existing-order early return WITHOUT applying its own tipCents — echoing
+    // `totals.totalCents + tipCents` would then hand the cashier a change/handoff figure and an
+    // audit amount the ledger never recorded. The order row is the one truth both requests share.
+    // Named ONCE because three consumers need it — the change/handoff card, the tab-close audit
+    // row, and the analytics event (the W17c-2 review found two quoting the pre-tip figure).
+    const { data: orderRow, error: orderReadErr } = await db
+      .from("qr_orders")
+      .select("total_cents")
+      .eq("id", orderId)
+      .single();
+    if (orderReadErr || orderRow == null) {
+      // The settle COMMITTED — never report failure (a retry would double-settle-shape confuse
+      // staff). Fall back to the request-derived figure and log the read miss.
+      console.error("[staff-cart] settled order read-back failed", {
+        orderId,
+        message: orderReadErr?.message,
+      });
+    }
+    const collectedCents = orderRow?.total_cents ?? totals.totalCents + tipCents;
 
     // Redeem any applied reward coupon (M4 P4.2) — flip it to redeemed now the cash order is snapshotted
     // (the cash subtotal-reconcile already counted its discount). Idempotent; best-effort.

@@ -58,6 +58,7 @@ export function MenuPriceEditor({ items }: { items: PricedItem[] }) {
     draftCents !== current.priceCents;
 
   const inputRef = useRef<HTMLInputElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
   const saveRef = useRef<HTMLButtonElement>(null);
 
@@ -92,8 +93,28 @@ export function MenuPriceEditor({ items }: { items: PricedItem[] }) {
   async function save() {
     if (!current || !validDraft) return;
     setBusy(true);
-    const res = await setMenuPrice({ menuItemId: current.id, priceCents: draftCents });
-    setBusy(false);
+    // W21d (Codex P2 on #180) — a rejected Server Action promise (dead radio, 5xx transport) used
+    // to skip setBusy(false) entirely: both confirm buttons stuck on "Saving…" forever. The
+    // finally re-enables; the catch reports the honest ambiguity (the write may or may not have
+    // landed — the list refresh shows the truth).
+    let res: Awaited<ReturnType<typeof setMenuPrice>>;
+    try {
+      res = await setMenuPrice({
+        menuItemId: current.id,
+        priceCents: draftCents,
+        // W21d (Codex P1 on #180) — the price this screen SHOWED; the server refuses if it moved.
+        expectedPriceCents: current.priceCents,
+      });
+    } catch {
+      setMsg({
+        ok: false,
+        text: "Couldn’t reach the menu — the save may not have landed. Check the price and try again.",
+      });
+      setConfirming(false);
+      return;
+    } finally {
+      setBusy(false);
+    }
     setConfirming(false);
     if (!res.ok) {
       // The row stays open with the typed value intact — a refusal should not also cost the manager
@@ -106,6 +127,10 @@ export function MenuPriceEditor({ items }: { items: PricedItem[] }) {
       text: `${current.nameEn} is now ${dollars(res.priceCents)}. Lines already in a cart keep the price they were quoted.`,
     });
     closeEdit();
+    // W21d (Codex P2 on #180) — closeEdit unmounts the whole edit form (confirm group included),
+    // and the confirm-group focus effect can only re-home to the also-unmounted Save button — so a
+    // successful save dropped keyboard/SR users to <body>. Park on the stable search input.
+    searchRef.current?.focus();
     router.refresh();
   }
 
@@ -116,6 +141,7 @@ export function MenuPriceEditor({ items }: { items: PricedItem[] }) {
       </label>
       <input
         id="mp-search"
+        ref={searchRef}
         value={q}
         onChange={(e) => setQ(e.target.value)}
         placeholder="Mohinga, ကြေးအိုး, Curries…"
