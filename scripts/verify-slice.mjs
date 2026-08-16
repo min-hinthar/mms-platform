@@ -247,9 +247,9 @@ const MUTANTS = [
     id: "cash-tip/collected-total-drops-the-tip",
     file: "apps/qr/lib/staff-cart.ts",
     suite: "lib/cash-tip.test.ts",
-    why: "W17c-2 — getCartTotals is called with tipRate 0, so its total is TIP-FREE. Returning it unadjusted makes the handoff card and the change helper quote a figure lower than what the cashier actually took, and short-changes the guest by the tip",
-    find: "    return { ok: true, orderId, totalCents: totals.totalCents + tipCents, tipCents };",
-    replace: "    return { ok: true, orderId, totalCents: totals.totalCents, tipCents };",
+    why: "W17c-2 — getCartTotals is called with tipRate 0, so its total is TIP-FREE. Dropping the tip from the collected amount makes the change helper, the tab-close audit row and the analytics event all quote less than the cashier actually took — the guest is handed the tip back as change, and the audit row reads as an unexplained gap against qr_orders",
+    find: "    const collectedCents = totals.totalCents + tipCents;",
+    replace: "    const collectedCents = totals.totalCents;",
   },
   {
     id: "cash-tip/counted-as-extra-drawer-money",
