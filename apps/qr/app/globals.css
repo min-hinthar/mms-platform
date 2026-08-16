@@ -821,47 +821,9 @@ h3 {
   }
 }
 
-/* Dietary filter chips — toggles; selected = jade tint. */
-.menu-diets {
-  display: flex;
-  gap: 7px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  margin-top: 8px;
-}
-.menu-diets::-webkit-scrollbar {
-  display: none;
-}
-.diet-chip {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 44px;
-  padding: 0 14px;
-  border-radius: var(--r-full);
-  border: 1.5px solid var(--bd);
-  background: transparent;
-  color: var(--t2);
-  font-size: 13px;
-  font-weight: 700;
-  white-space: nowrap;
-  cursor: pointer;
-  transition:
-    background var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out),
-    border-color var(--dur-fast) var(--ease-out);
-}
-.diet-chip-on {
-  border-color: var(--jade);
-  background: color-mix(in srgb, var(--jade) 12%, transparent);
-  color: var(--jade-strong);
-}
-@media (prefers-reduced-motion: reduce) {
-  .diet-chip {
-    transition: none;
-  }
-}
+/* W22 — the dietary chips moved into the taste band (`.taste-rail`/`.taste-chip`), one pill
+   vocabulary beside the cravings; while a search hides that band, the toolbar renders the same
+   shared pill rail (DietPills), so no toolbar-only chip style survives here. */
 
 /* ── Pickup time picker (PickupSlotSheet) — a day selector + a time grid, styled as distinct layers ────
    Day cards along a snap rail; times in a responsive grid. Selected states lift with --sh-lift. */
@@ -4223,7 +4185,7 @@ html[data-seen-surface] .mms-stagger {
     }
   }
 }
-/* Match the sibling horizontal rails (.menu-rail/.menu-diets/.slot-days): no visible scrollbar strip. */
+/* Match the sibling horizontal rails (.menu-rail/.taste-rail/.slot-days): no visible scrollbar strip. */
 .start-here-rail {
   scrollbar-width: none;
 }
@@ -4231,26 +4193,133 @@ html[data-seen-surface] .mms-stagger {
   display: none;
 }
 
-/* ── W21 · the taste picker (TasteBand) ──────────────────────────────────────────────────────────
-   Craving chips: the vellum-ghost / lit-gold-cap selection vocabulary the pills already speak,
-   sized for a wrapping chip cloud. The results rail reuses .start-here-card wholesale. */
-.taste-chips {
+/* ── W22 · the drifting rows (MarqueeRail) ───────────────────────────────────────────────────────
+   The start-here rails become slow conveyors: the JS drift writes scrollLeft (native scroll stays
+   the owner — swipe, nudges, keyboard all untouched); this class only removes what fights it and
+   dresses the edges. Applied ONLY when motion is eligible (the component gates it), so
+   reduced-motion keeps the exact static rail. */
+.start-here-marquee {
+  /* Proximity snap would yank the conveyor to a card edge every time the drift pauses. */
+  scroll-snap-type: none;
+}
+/* Edge fades sell the loop (cards dissolve out, not clip) — dropped while focus is inside so a
+   focus ring at the edge is never faded (the aisle rail's WCAG 2.4.7 lesson). Mask colors are
+   alpha-only, not palette (#000 = opaque, house convention). */
+.start-here-marquee:not(:focus-within) {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 26px,
+    #000 calc(100% - 26px),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 26px,
+    #000 calc(100% - 26px),
+    transparent
+  );
+}
+/* Row B's caption — a weaker claim than the heading and dressed like one (the round-robin is a
+   curation rule, not a ranking). */
+.start-here-rowcap {
   display: flex;
-  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  margin: 4px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--t3);
+}
+.start-here-rowcap-my {
+  font-family: var(--font-my);
+  font-size: 13px;
+}
+/* The heading row — the h2 and the pause control side by side. The button lives OUTSIDE the h2
+   so it never joins the heading's (and the rails') accessible name. */
+.start-here-hrow {
+  display: flex;
+  align-items: center;
   gap: 8px;
-  margin: 2px 0 12px;
+  margin: 0 0 8px;
+}
+.start-here-hrow > .start-here-h {
+  flex: 1;
+  margin: 0;
+}
+/* The pause/play control (WCAG 2.2.2) — a 44px hit area wearing a small vellum coin, sitting at
+   the heading row's right edge. Rendered only when motion is possible (component-gated). */
+.start-here-pause {
+  margin-left: auto;
+  align-self: center;
+  display: grid;
+  place-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--t2);
+  cursor: pointer;
+}
+.start-here-pause > span {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-full);
+  border: 1px solid color-mix(in oklab, var(--gold) 30%, var(--bd));
+  background: var(--cd);
+  box-shadow: inset 0 1px 0 var(--sheen);
+  font-size: 9px;
+  line-height: 1;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+@media (hover: hover) {
+  .start-here-pause:hover {
+    color: var(--tx);
+  }
+  .start-here-pause:hover > span {
+    transform: scale(1.1);
+  }
+}
+.start-here-pause:active > span {
+  transform: scale(0.94);
+}
+@media (prefers-reduced-motion: reduce) {
+  .start-here-pause > span {
+    transition: none;
+  }
+}
+
+/* ── W21 → W22 · "Explore your Burmese taste buds" (TasteBand) ───────────────────────────────────
+   One pill vocabulary, two rails (owner: "should be like the allergen pills bar"): the craving
+   pills and the absorbed dietary pills are matching single-line vellum-ghost / lit-gold-cap pills
+   on full-bleed scroll rails. The results rail reuses .start-here-card wholesale. */
+.taste-rail {
+  display: flex;
+  gap: 8px;
+  margin: 2px -20px 8px;
+  padding: 2px 20px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.taste-rail::-webkit-scrollbar {
+  display: none;
 }
 .taste-chip {
+  flex: none;
   display: inline-flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
+  align-items: center;
+  gap: 6px;
   min-height: 44px;
-  padding: 5px 12px;
+  padding: 0 14px;
   font: inherit;
   font-size: var(--fs-sm);
   font-weight: 700;
-  text-align: left;
+  white-space: nowrap;
   color: var(--t2);
   background: linear-gradient(180deg, color-mix(in oklab, var(--gold) 6%, var(--cd)), var(--cd));
   border: 1px solid color-mix(in oklab, var(--gold) 26%, var(--bd));
@@ -4260,12 +4329,38 @@ html[data-seen-surface] .mms-stagger {
   transition:
     border-color var(--dur-base) var(--ease-out),
     background-color var(--dur-base) var(--ease-out),
-    color var(--dur-base) var(--ease-out);
+    color var(--dur-base) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+/* Micro-interactions: the pill gives under the finger; the emoji leans in on hover. */
+.taste-chip:active {
+  transform: scale(0.96);
+}
+.taste-emoji {
+  display: inline-block;
+  transition: transform var(--dur-base) var(--ease-out);
 }
 @media (hover: hover) {
   .taste-chip:hover {
     border-color: color-mix(in oklab, var(--ac) 32%, var(--bd));
     color: var(--tx);
+  }
+  .taste-chip:hover .taste-emoji {
+    transform: rotate(-8deg) scale(1.15);
+  }
+}
+/* Lighting up = the one-beat settle pop (the .mms-pop meaning: a value changed under you). Also
+   replays when saved picks hydrate on a return visit — your cravings lighting back up is the
+   recognition moment, not noise. */
+@keyframes taste-chip-pop {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
   }
 }
 .taste-chip-on {
@@ -4275,10 +4370,12 @@ html[data-seen-surface] .mms-stagger {
   box-shadow:
     inset 0 1px 0 var(--sheen),
     0 0 14px -6px var(--glow-gold);
+  animation: taste-chip-pop 260ms var(--ease-out);
 }
 .taste-chip-my {
   font-family: var(--font-my);
-  font-size: var(--fs-xs);
+  /* 13px — the Burmese floor (W12/W16e); the old cloud's fs-xs sat under it. */
+  font-size: 13px;
   font-weight: 600;
   color: inherit;
   opacity: 0.85;
@@ -4289,6 +4386,29 @@ html[data-seen-surface] .mms-stagger {
   border-color: color-mix(in oklab, var(--ac) 40%, var(--bd));
   color: var(--ac);
 }
+/* The dietary rail's caption — the pills below filter the WHOLE menu, and this line owns saying
+   so before any pill is lit (a filter that looks like a recommender would be a trap). */
+.taste-caption {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 2px 0;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--t2);
+}
+.taste-caption-note {
+  font-weight: 600;
+  color: var(--t3);
+}
+.taste-caption-my {
+  font-family: var(--font-my);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--t3);
+}
 /* The card's honesty line — why this dish is being offered. */
 .taste-why {
   font-size: var(--fs-xs);
@@ -4296,8 +4416,20 @@ html[data-seen-surface] .mms-stagger {
   line-height: 1.35;
 }
 @media (prefers-reduced-motion: reduce) {
-  .taste-chip {
+  .taste-chip,
+  .taste-emoji {
     transition: none;
+  }
+  .taste-chip:active {
+    transform: none;
+  }
+  .taste-chip-on {
+    animation: none;
+  }
+  @media (hover: hover) {
+    .taste-chip:hover .taste-emoji {
+      transform: none;
+    }
   }
 }
 
@@ -6450,25 +6582,24 @@ html[data-seen-surface] .mms-stagger {
    The app is a fixed phone column even on desktop, so every horizontal rail overflows there too —
    but a mouse can't swipe, and all the rails hide their scrollbar. Two tiers, both gated to
    hover-capable fine pointers so touch keeps the clean edge-to-edge look:
-   1) CHIP rails (.menu-rail, .menu-diets, .aisle-rail-scroll) — restore a real, slim scrollbar.
-   2) CARD carousels (.slot-days, .item-upsell-row, .start-here-rail) — chevron nudges via the
-      shared <Rail> shell (below), shown only on the side(s) that actually overflow. */
+   1) CHIP rails (.menu-rail, .aisle-rail-scroll) — restore a real, slim scrollbar.
+   2) CARD carousels (.slot-days, .item-upsell-row, .start-here-rail, .taste-rail) — chevron
+      nudges via the shared <Rail> shell (below), shown only on the side(s) that actually overflow.
+      (W22: the dietary chips left the toolbar for the taste band's <Rail>-wrapped pill rails, so
+      the old .menu-diets scrollbar tier went with them.) */
 @media (hover: hover) and (pointer: fine) {
   .menu-rail,
-  .menu-diets,
   .aisle-rail-scroll {
     scrollbar-width: thin;
     scrollbar-color: color-mix(in oklab, var(--t3) 55%, transparent) transparent;
   }
   .menu-rail::-webkit-scrollbar,
-  .menu-diets::-webkit-scrollbar,
   .aisle-rail-scroll::-webkit-scrollbar {
     display: block;
     height: 6px;
     background: transparent;
   }
   .menu-rail::-webkit-scrollbar-thumb,
-  .menu-diets::-webkit-scrollbar-thumb,
   .aisle-rail-scroll::-webkit-scrollbar-thumb {
     background: color-mix(in oklab, var(--t3) 55%, transparent);
     border-radius: var(--r-full);

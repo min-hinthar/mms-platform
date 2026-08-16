@@ -4,6 +4,33 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W22a — the drifting start + one taste-buds bar (2026-08-16)
+
+Owner: _"start here should world class UI/UX feature two independent moving and micro-interactions
+rows each 10 items. Explore your Burmese taste buds should be like the allergen pills bar … and
+can remove allergen pills bar as the new section will make it redundant incorporating some
+allergens pills into it?"_
+
+- **"Start here" is now TWO independently drifting rows** (`MarqueeRail` on the native scroller —
+  swipe, chevrons, and keyboard survive): row A keeps the honest curation (paid-order ranks with
+  tie-aware seals, `popular` fallback) drifting one way; row B is **"a little of everything"** — a
+  category round-robin (`lib/menu/startHereRows.ts`, tested) drifting the other way, slower. A
+  curation rule, not a ranking, so no seals and its own quieter caption.
+- **Motion stays a guest:** pauses on touch/hover/focus/offscreen/hidden-tab + 2.2s after any
+  manual scroll; a visible pause/play coin in the heading (WCAG 2.2.2); `prefers-reduced-motion`
+  gets the exact pre-W22 static rail (no drift, no duplicate set); edge fades drop while focus is
+  inside so a ring is never faded.
+- **"Explore your Burmese taste buds"** — the taste section retitled and rebuilt as matching
+  single-line pill rails (the owner's "like the allergen pills bar"), and the toolbar's dietary
+  bar MOVED IN beside the cravings: same lit-gold-cap vocabulary, bilingual for the first time
+  (5 diet pills gain MY accents — K15), with a caption owning the semantic difference ("filters
+  the whole menu"). The fail-safe free-from disclaimer traveled with the pills.
+- **Recommendations now respect active diets** (a lit vegan pill can never sit beside a shrimp
+  card), and searching with a diet active shows an honest "Showing vegan only · Show all" strip
+  in the toolbar — the one state where the pills are off-screen.
+- Pill micro-interactions: press-give, emoji lean-in on hover, one-beat settle pop on light-up —
+  all reduced-motion-gated; Burmese pill accents lifted to the 13px floor.
+
 ### W21d — the Codex backlog sweep (2026-08-16)
 
 Owner: _"check all other Codex reviews you haven't analyzed that might be worth fixing."_ Codex

@@ -2,8 +2,10 @@
 import { useEffect, useMemo, useState } from "react";
 import type { MenuItem } from "./MenuBrowser";
 import { CRAVINGS, recommendByTaste, surpriseMe, type CravingId } from "@/lib/menu/taste";
+import { passesDiets, type Diet } from "@/lib/menu/dietary";
 import { BlurUpImage } from "./BlurUpImage";
 import { PhotoPlaceholder } from "./PhotoPlaceholder";
+import { DietPills } from "./DietPills";
 import { Rail } from "../Rail";
 
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -12,29 +14,42 @@ const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const TASTE_KEY = "mms.taste";
 
 /**
- * W21 (owner: "a personalizble/customizable recommendations section for first time customers or
- * wants something new for anyone") — the taste picker: craving chips → a recommendation rail, plus
- * a "Surprise me" for the something-new mood. HONEST by construction: every card SAYS why it's
- * here (the literal category/tag rule it matched — lib/menu/taste.ts), and surprise picks are
- * framed as "how about…", never as a data-backed match. Picks persist per-device (localStorage)
- * so a returning diner's cravings are pre-set — and one tap away from different.
+ * W21 → W22 — "Explore your Burmese taste buds" (owner: the taste section "should be like the
+ * allergen pills bar … incorporating some allergens pills into it"). One section now owns BOTH
+ * vocabularies as matching single-line pill rails: the craving pills (recommenders — light one and
+ * a rail of honest "here's why" cards appears) and the dietary pills (filters — the toolbar bar
+ * they replace; they narrow the WHOLE menu below, and the caption says exactly that). The
+ * recommendation pool respects the active diets, so a vegan pill can never sit lit beside a
+ * shrimp recommendation.
  *
- * a11y: chips are true toggles (aria-pressed) in a labelled group; the rail reuses the start-here
- * card vocabulary (real list, one ≥44px button per card, decorative photo). No live region — the
- * menu view keeps its one (the cart provider's), and the row is plain content in reading order.
+ * HONEST by construction (unchanged): every card SAYS why it's here (the literal rule it matched),
+ * surprise picks are framed as "how about…", and the fail-safe free-from disclaimer travels with
+ * the pills it belongs to.
+ *
+ * a11y: pills are true toggles (aria-pressed) in labelled groups; the rail reuses the start-here
+ * card vocabulary. No live region — the menu view keeps its one (the cart provider's).
  */
 export function TasteBand({
   items,
   heartedIds,
+  diets,
+  onToggleDiet,
   onSelect,
 }: {
   items: MenuItem[];
   /** The diner's own hearts — "Surprise me" never offers what they already love. */
   heartedIds: ReadonlySet<string>;
+  /** The menu-wide dietary filters — state lives in MenuBrowser (they filter the sections below). */
+  diets: Diet[];
+  onToggleDiet: (d: Diet) => void;
   onSelect: (i: MenuItem) => void;
 }) {
   const [picks, setPicks] = useState<CravingId[]>([]);
   const [surprise, setSurprise] = useState<MenuItem[]>([]);
+  // Whether Surprise me was ASKED — distinct from whether it returned anything (Codex round 3 on
+  // #194): an exhausted pool answers [] at tap time, and length checks alone read that as "never
+  // requested" — the tap silently did nothing. The flag routes it to an honest empty state.
+  const [surpriseAsked, setSurpriseAsked] = useState(false);
 
   // Hydrate the saved cravings AFTER mount (the repo's microtask pattern — SSR and the first client
   // render agree; setState only in the async callback). A corrupt entry just starts fresh.
@@ -64,6 +79,7 @@ export function TasteBand({
 
   function toggle(id: CravingId) {
     setSurprise([]); // a deliberate craving replaces the surprise row
+    setSurpriseAsked(false);
     setPicks((prev) => {
       const next = prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id];
       try {
@@ -75,31 +91,41 @@ export function TasteBand({
     });
   }
 
-  const inStock = useMemo(() => items.filter((i) => !i.is_sold_out), [items]);
-  const recs = useMemo(() => recommendByTaste(inStock, picks), [inStock, picks]);
+  // W22 — the recommendation pool honors the active diets: these pills filter the whole menu, and
+  // a rail this section itself offers must clear the same bar (a lit vegan pill beside a shrimp
+  // card would be the exact dishonesty the fail-safe rule exists to prevent).
+  const pool = useMemo(
+    () => items.filter((i) => !i.is_sold_out && passesDiets(i, diets)),
+    [items, diets],
+  );
+  const recs = useMemo(() => recommendByTaste(pool, picks), [pool, picks]);
   // The surprise row, when asked for, replaces the craving matches until the next pick.
-  // W21 review — re-derived BY ID against the live catalog each render: the tapped snapshot could
-  // go stale across a refresh (a card still offering a since-sold-out dish at its old price).
+  // W21 review — re-derived BY ID against the live pool each render: the tapped snapshot could go
+  // stale across a refresh (a card still offering a since-sold-out dish at its old price), and a
+  // diet toggled after the tap must drop non-passing picks the same way.
   const liveSurprise = useMemo(() => {
     if (surprise.length === 0) return [];
-    const byId = new Map(inStock.map((i) => [i.id, i]));
+    const byId = new Map(pool.map((i) => [i.id, i]));
     return surprise.map((s) => byId.get(s.id)).filter((i): i is MenuItem => !!i);
-  }, [surprise, inStock]);
-  const showing: { item: MenuItem; why: string }[] =
-    liveSurprise.length > 0
-      ? liveSurprise.map((item) => ({ item, why: "How about this?" }))
-      : recs.map(({ item, matched }) => ({
-          item,
-          why: matched.map((c) => `${c.emoji} ${c.en}`).join(" · "),
-        }));
+  }, [surprise, pool]);
+  // Branch on whether a surprise was REQUESTED, not on what it holds (Codex P2 ×2 on #194): a
+  // diet toggled after the tap can empty the row, and an exhausted pool empties it AT the tap —
+  // either way, silently showing craving matches would change what the rail MEANS. An empty
+  // requested surprise falls through to the honest empty state instead.
+  const showing: { item: MenuItem; why: string }[] = surpriseAsked
+    ? liveSurprise.map((item) => ({ item, why: "How about this?" }))
+    : recs.map(({ item, matched }) => ({
+        item,
+        why: matched.map((c) => `${c.emoji} ${c.en}`).join(" · "),
+      }));
 
   return (
     <section aria-labelledby="taste-h" style={{ padding: "10px 0 2px" }}>
       <h2 id="taste-h" className="start-here-h">
-        Find your dish <span aria-hidden>✦</span>
+        Explore your Burmese taste buds <span aria-hidden>✦</span>
         <span className="start-here-sub">pick a craving — or let us surprise you</span>
       </h2>
-      <div role="group" aria-label="Pick your cravings" className="taste-chips">
+      <Rail role="group" aria-label="Pick your cravings" className="taste-rail">
         {CRAVINGS.map((c) => {
           const on = picks.includes(c.id);
           return (
@@ -110,7 +136,9 @@ export function TasteBand({
               className={`taste-chip${on ? " taste-chip-on" : ""}`}
               onClick={() => toggle(c.id)}
             >
-              <span aria-hidden>{c.emoji} </span>
+              <span aria-hidden className="taste-emoji">
+                {c.emoji}
+              </span>
               {c.en}
               {/* K15 — Claude-authored MY accents, pending the native check like every batch. */}
               <span lang="my" className="taste-chip-my">
@@ -122,20 +150,40 @@ export function TasteBand({
         <button
           type="button"
           className="taste-chip taste-chip-surprise"
-          onClick={() => setSurprise(surpriseMe(inStock, heartedIds))}
+          onClick={() => {
+            setSurpriseAsked(true);
+            setSurprise(surpriseMe(pool, heartedIds));
+          }}
         >
-          <span aria-hidden>✨ </span>
+          <span aria-hidden className="taste-emoji">
+            ✨
+          </span>
           Surprise me
           <span lang="my" className="taste-chip-my">
             အံ့ဩစရာလေး
           </span>
         </button>
-      </div>
+      </Rail>
+      {/* W22 — the dietary pills (the old toolbar bar, absorbed): same pill vocabulary, DIFFERENT
+          verb — these filter the whole menu, and the caption owns saying so before any pill is lit. */}
+      <p id="taste-diet-cap" className="taste-caption">
+        Dietary needs
+        <span className="taste-caption-note">— filters the whole menu</span>
+        {/* K15 — Claude-authored MY accent, pending the native check like every batch. */}
+        <span lang="my" className="taste-caption-my">
+          မီနူးတစ်ခုလုံး စစ်ထုတ်ပေးမယ်
+        </span>
+      </p>
+      {/* The fail-safe free-from DISCLAIMER deliberately does not render here: the moment any
+          diet pill is active the sticky toolbar mirrors this rail and carries the disclaimer
+          (MenuBrowser) — always on screen, every scroll position, searching or not. A second
+          copy right below it would just be noise. */}
+      <DietPills diets={diets} onToggle={onToggleDiet} labelledBy="taste-diet-cap" />
       {showing.length > 0 && (
         <Rail
           as="ul"
           role="list"
-          className={`start-here-rail${showing.length > 3 ? " start-here-rail-wall" : ""}`}
+          className={`start-here-rail mms-rise${showing.length > 3 ? " start-here-rail-wall" : ""}`}
           aria-labelledby="taste-h"
         >
           {showing.map(({ item: i, why }) => (
@@ -158,19 +206,34 @@ export function TasteBand({
                   </span>
                 )}
                 <span className="start-here-price">{dollars(i.base_price_cents)}</span>
-                {/* The honesty line — the literal rule this card matched (or the surprise frame). */}
+                {/* The honesty line — the literal rule this dish matched (or the surprise frame). */}
                 <span className="taste-why">{why}</span>
               </button>
             </li>
           ))}
         </Rail>
       )}
-      {showing.length === 0 && picks.length > 0 && (
+      {showing.length === 0 && (picks.length > 0 || surpriseAsked) && (
         // An honest empty answer beats a filler recommendation the picks don't back. Review MED:
         // matching is OR, so "fewer cravings" could only shrink the answer — DIFFERENT is the
-        // advice that can actually help.
+        // advice that can actually help (and with diets active, loosening those is the other
+        // lever). The surprise cases each name their own truth: drawn-then-filtered means "again"
+        // works; an exhausted pool means it won't, so never advise it (Codex round 3).
         <p style={{ margin: "4px 0 8px", fontSize: "var(--fs-sm)", color: "var(--t3)" }}>
-          Nothing matches those right now — try different cravings.
+          {surpriseAsked && surprise.length > 0
+            ? "Those surprise picks don’t fit your dietary filters — tap Surprise me again."
+            : surpriseAsked && pool.length > 0
+              ? // The pool has dishes — every one is hearted (surpriseMe excludes hearts), with
+                // or without diets active (Codex round 4: blaming a filter here advised a lever
+                // that wouldn't help).
+                "Nothing new to surprise you with — your favorites already cover everything that fits."
+              : surpriseAsked && diets.length > 0
+                ? "Nothing to surprise you with under those filters — ease one, or browse the menu below."
+                : surpriseAsked
+                  ? "Nothing in stock to surprise you with right now."
+                  : diets.length > 0
+                    ? "Nothing matches those right now — try different cravings, or ease a dietary filter."
+                    : "Nothing matches those right now — try different cravings."}
         </p>
       )}
     </section>
