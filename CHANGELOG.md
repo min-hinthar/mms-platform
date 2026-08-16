@@ -4,6 +4,31 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W17d-1 — the catalog matches the register (2026-08-16)
+
+Owner, 2026-08-16: _"prices should be most recent POS 2026 reference."_
+
+W17a established that the register's price **is** the price. The generated reference found exactly
+two dishes where ours disagreed, both matched on the **Burmese** name — the reliable key, since POS
+and catalog English labels diverge freely:
+
+| Dish              | မြန်မာ         | Was    | Now        | 2026 units |
+| ----------------- | -------------- | ------ | ---------- | ---------- |
+| Balachaung        | ဘာလချောင်ကြော် | $3.00  | **$10.00** | 269        |
+| Crab Masala Curry | ဂဏန်းမဆလာ      | $30.00 | **$35.00** | 93         |
+
+Balachaung is the large move, and it had been flagged as possibly a _different dish_ — ours read as a
+$3 condiment side, the POS ring as the $10 fried version. The Burmese names match exactly and the
+owner's answer was to follow the POS. The reasoning is recorded in the migration: if a $3 side
+genuinely exists alongside the $10 dish, it is a **second** menu item, not this one.
+
+- **Only these two.** Approximate (`≈`) name matches are deliberately untouched — one name merely
+  containing another is not evidence about price (`ပဲပြုတ်` White Peas is a substring of
+  `ပဲပြုတ်ထမင်းကြော်` Burmese Fried Rice, two different dishes).
+- **Guarded on the current value, not just the slug**, so re-running after a manager has since edited
+  a price from `/staff/menu` cannot stomp their decision. A second run is a no-op either way.
+- `docs/data/MENU_REFERENCE.md` now reports **no price deltas** — the catalog and the register agree.
+
 ### W17c-3 — the house tip ladder, on the kiosk and the register (2026-08-16)
 
 Owner, 2026-08-16: _"tip should be 15%, 20%, 30% options."_

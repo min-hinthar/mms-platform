@@ -49,7 +49,7 @@ means we already carry the dish, whatever the English label says.
 
 | Dish (EN) | မြန်မာ | Price | Tax cat | Mods | Photo | Tags | Allergens | POS name (`≈` = loose match) | POS $ | POS dine/togo | 2026 units |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Balachaung | ဘာလချောင်ကြော် | $3.00 | hot_prepared | 0 | ✅ | — | shellfish | Balachaung ဘာလချောင်ကြော် | $10.00 | $10.00 / — | 269 |
+| Balachaung | ဘာလချောင်ကြော် | $10.00 | hot_prepared | 0 | ✅ | — | shellfish | Balachaung ဘာလချောင်ကြော် | $10.00 | $10.00 / — | 269 |
 | Coconut Rice | အုန်းထမင်း | $3.50 | hot_prepared | 0 | ✅ | vegan · allergen-reviewed | — | Coconut Rice အုန်းထမင်း | $3.50 | $3.50 / $3.50 | 434 |
 | Fishcake (Stuffed Salad) | ငါးဖယ်အစာသွပ် | $14.00 | hot_prepared | 1 | ❌ | — | fish | — | — | — | — |
 | Lemon Salad | ရှောက်သီးသုပ် | $12.00 | hot_prepared | 1 | ❌ | vegan-optional | peanuts · sesame · shellfish | Lemon Fishcake ရှောက်သီးသုပ် | $12.00 | $12.00 / $12.00 | 27 |
@@ -91,7 +91,7 @@ means we already carry the dish, whatever the English label says.
 | Dish (EN) | မြန်မာ | Price | Tax cat | Mods | Photo | Tags | Allergens | POS name (`≈` = loose match) | POS $ | POS dine/togo | 2026 units |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Boneless Catfish Curry | ငါးခူမွှေချက် | $14.00 | hot_prepared | 1 | ✅ | — | fish | Catfish Boneless ငါးခူမွှေချက် | $14.00 | $14.00 / $14.00 | 318 |
-| Crab Masala Curry | ဂဏန်းမဆလာ | $30.00 | hot_prepared | 2 | ✅ | spicy_optional | shellfish | Crab Masala ဂဏန်းမဆလာ | $35.00 | $35.00 / $35.00 | 93 |
+| Crab Masala Curry | ဂဏန်းမဆလာ | $35.00 | hot_prepared | 2 | ✅ | spicy_optional | shellfish | Crab Masala ဂဏန်းမဆလာ | $35.00 | $35.00 / $35.00 | 93 |
 | Fermented Fish Paste Nga-Pi | ငပိရည်ကျို | $14.00 | hot_prepared | 1 | ✅ | — | fish | — | — | — | — |
 | Fish Paste Tomato Curry | ခရမ်းချဥ်သီးငါးပိချက် | $12.00 | hot_prepared | 1 | ✅ | — | fish | — | — | — | — |
 | Fried Catfish Curry | ငါးခူကြော်နှပ် | $14.00 | hot_prepared | 1 | ✅ | — | fish | Catfish Fried ငါးခူကြော်နှပ် | $14.00 | $14.00 / $14.00 | 97 |
@@ -126,14 +126,7 @@ means we already carry the dish, whatever the English label says.
 
 ## Price deltas — our catalog vs the POS ring
 
-Ours is authoritative for the app; the POS column is what the register charged.
-Exact Burmese-name matches only — an approximate (`≈`) match is not evidence about price.
-A row here is a question for the owner, not automatically a bug.
-
-| Dish | မြန်မာ | Ours | POS | Δ | 2026 units |
-| --- | --- | --- | --- | --- | --- |
-| Balachaung | ဘာလချောင်ကြော် | $3.00 | $10.00 | +$7.00 | 269 |
-| Crab Masala Curry | ဂဏန်းမဆလာ | $30.00 | $35.00 | +$5.00 | 93 |
+None: every matched item is priced exactly as the register rings it.
 
 ## POS items whose dine-in and to-go rings disagree
 
