@@ -99,16 +99,25 @@ export function MenuBrowser({
   const favSet = useMemo(() => new Set(favoriteIds), [favoriteIds]);
   const startHere = useMemo(() => {
     const byId = new Map(items.map((i) => [i.id, i]));
+    // W20 review — the rank is taken BEFORE the sold-out filter, from favoriteIds' own order (the
+    // true paid-order ranking): filtering first re-numbered the survivors, so the moment the real
+    // #2 sold out the real #3 wore "No. 2 at tables" — a claim the data doesn't back, spoken
+    // verbatim to screen readers. A sold-out dish keeps its number; the card it would have worn
+    // just doesn't render.
     const loved = favoriteIds
-      .map((id) => byId.get(id))
-      .filter((i): i is MenuItem => !!i && !i.is_sold_out);
+      .map((id, idx) => ({ item: byId.get(id), rank: idx + 1 }))
+      .filter((e): e is { item: MenuItem; rank: number } => !!e.item && !e.item.is_sold_out);
     const dataBacked = loved.length >= 3;
     const pool = dataBacked
       ? loved
-      : items.filter((i) => !i.is_sold_out && i.tags.includes("popular"));
+      : items
+          .filter((i) => !i.is_sold_out && i.tags.includes("popular"))
+          .map((item) => ({ item, rank: 0 })); // rank unused — the fallback rail shows no seals
     // A rail needs at least 3 cards on EITHER path (sparse `popular` tagging could otherwise render a
-    // lone-card "band" that reads as broken) — below that, no band at all.
-    const rail = pool.slice(0, 6);
+    // lone-card "band" that reads as broken) — below that, no band at all. W20 (owner: "Start here
+    // carousel should have more menu items"): the cap is 10 — a real browse, still a curation (the
+    // full wall is what the rail exists to soften).
+    const rail = pool.slice(0, 10);
     return { items: rail.length >= 3 ? rail : [], dataBacked };
   }, [items, favoriteIds]);
 

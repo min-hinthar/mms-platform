@@ -3,6 +3,7 @@ import { createIntentInput, shareIntentInput } from "@mms/db/schemas";
 import {
   effectiveTipRate,
   tipPresets,
+  tipReaction,
   tipWithinAmountCap,
   TIP_AMOUNT_MAX_CENTS,
   TIP_LADDER,
@@ -167,5 +168,32 @@ describe("effectiveTipRate — the pressed chip and the charge read the SAME val
         presetRate: 0.2,
       }),
     ).toBe(0);
+  });
+});
+
+describe("tipReaction — the ask reacts to the choice, warmer as the ladder climbs (W20)", () => {
+  it("each rung gets its OWN line, and they are all distinct", () => {
+    const r15 = tipReaction(0.15)!;
+    const r20 = tipReaction(0.2)!;
+    const r30 = tipReaction(0.3)!;
+    expect(new Set([r15.en, r20.en, r30.en]).size).toBe(3);
+    expect(new Set([r15.my, r20.my, r30.my]).size).toBe(3);
+  });
+
+  it("None (rate 0) gets NOTHING — declining is never met with a reaction", () => {
+    expect(tipReaction(0)).toBeNull();
+    expect(tipReaction(-1)).toBeNull();
+    expect(tipReaction(NaN)).toBeNull();
+  });
+
+  it("a custom amount gets the warm generic, whatever its rate", () => {
+    expect(tipReaction(0.17, true)!.en).toBe("Thank you so much!");
+    expect(tipReaction(2.0, true)!.en).toBe("Thank you so much!");
+  });
+
+  it("boundaries belong to the rung they name (0.2 is the 20% line, not the 15%)", () => {
+    expect(tipReaction(0.2)!.en).toContain("generous");
+    expect(tipReaction(0.3)!.en).toContain("thrilled");
+    expect(tipReaction(0.19)!.en).toContain("kitchen");
   });
 });

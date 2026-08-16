@@ -16,3 +16,16 @@ export function normalizePickupSlot(
 ): string | null {
   return pickupSlot != null && fireAt == null ? null : pickupSlot;
 }
+
+/**
+ * W20 — slot equality by INSTANT, never by string. The same wall-clock slot reaches the client in
+ * two serializations (the availability RPC's `slot_time` vs the cart row's `pickup_slot` — PostgREST
+ * offset formats can differ, and a refresh() swaps one for the other), so `a === b` intermittently
+ * missed and the sheet showed no chip selected — the owner's "still not on selected slot".
+ */
+export function sameSlot(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (a == null || b == null) return false;
+  const ta = new Date(a).getTime();
+  const tb = new Date(b).getTime();
+  return Number.isFinite(ta) && ta === tb;
+}

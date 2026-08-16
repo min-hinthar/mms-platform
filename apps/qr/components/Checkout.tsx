@@ -23,8 +23,14 @@ import {
 } from "@/lib/cart";
 import type { SplitContext } from "@/lib/split";
 import { canMutateLine } from "@/lib/permissions";
-import { effectiveTipRate as deriveTipRate, tipPresets, TIP_AMOUNT_MAX_CENTS } from "@/lib/tip";
+import {
+  effectiveTipRate as deriveTipRate,
+  tipPresets,
+  tipReaction,
+  TIP_AMOUNT_MAX_CENTS,
+} from "@/lib/tip";
 import { menuHref, menuLinkText } from "@/lib/menu-href";
+import { taxRate } from "@/lib/tax";
 import { normalizePickupSlot } from "@/lib/pickup-slot";
 import { DINER_STATE_COPY } from "@/lib/line-state-copy";
 import { seatColor, seatInitial } from "@/lib/avatars";
@@ -55,6 +61,10 @@ import { t, type DictKey } from "@/lib/i18n";
 // SAME surface — no toggle, no locale state. T() keeps the historical call sites reading naturally;
 // <My/> renders the Burmese half with its own per-span lang (WCAG 3.1.2 against html lang="en").
 const T = (k: DictKey) => t("en", k);
+// W20 — the Bill names the sales-tax RATE, not just its amount (owner: "should include all details
+// of order including sales tax %?"). Derived from the one authority (lib/tax.ts) so a rate change
+// there re-labels every surface; never a transcribed literal.
+const TAX_NOTE = `(${(taxRate() * 100).toFixed(1)}%)`;
 function My({
   k,
   inline = false,
@@ -954,7 +964,13 @@ export function Checkout({
                   <Row k="rowPromo" cents={-(payTotals.discountCents - payTotals.rewardCents)} />
                 )}
                 {payTotals.rewardCents > 0 && <Row k="rowReward" cents={-payTotals.rewardCents} />}
-                <Row k="rowTax" cents={payTotals.taxCents} />
+                {/* The rate note only where tax was actually applied — "(10.5%)" beside $0.00 on a
+                    fully-exempt basket would name a rate that touched nothing (review LOW). */}
+                <Row
+                  k="rowTax"
+                  cents={payTotals.taxCents}
+                  note={payTotals.taxCents > 0 ? TAX_NOTE : undefined}
+                />
                 {payTotals.tipCents > 0 && <Row k="rowTip" cents={payTotals.tipCents} />}
                 <Row k="rowTotal" cents={payTotals.totalCents} strong roll />
               </dl>
@@ -1450,7 +1466,11 @@ export function Checkout({
                     <Row k="rowPromo" cents={-(totals.discountCents - totals.rewardCents)} />
                   )}
                   {totals.rewardCents > 0 && <Row k="rowReward" cents={-totals.rewardCents} />}
-                  <Row k="rowTax" cents={totals.taxCents} />
+                  <Row
+                    k="rowTax"
+                    cents={totals.taxCents}
+                    note={totals.taxCents > 0 ? TAX_NOTE : undefined}
+                  />
                 </dl>
               </div>
             )}
@@ -1532,6 +1552,9 @@ export function Checkout({
                 onSlotChange={setPickupSlot}
                 asapAvailable={asapAvailable}
                 onStatus={setStatus}
+                // W20 review — a refused write recovers by RE-READING server truth (refresh()
+                // re-seeds pickupSlot via normalizePickupSlot), never by restoring a captured prev.
+                onRevert={() => void refresh()}
               />
             )}
 
@@ -1600,7 +1623,11 @@ export function Checkout({
                     <Row k="rowPromo" cents={-(totals.discountCents - totals.rewardCents)} />
                   )}
                   {totals.rewardCents > 0 && <Row k="rowReward" cents={-totals.rewardCents} />}
-                  <Row k="rowTax" cents={totals.taxCents} />
+                  <Row
+                    k="rowTax"
+                    cents={totals.taxCents}
+                    note={totals.taxCents > 0 ? TAX_NOTE : undefined}
+                  />
                 </dl>
               </div>
             )}
@@ -1701,23 +1728,41 @@ export function Checkout({
                 </div>
                 {/* W18 — a thank-you the moment a tip is on. Ambient plain text (never a live
                     region — this view keeps its one), true only while the charge will carry it. */}
-                {effectiveTipRate > 0 && tipPreviewCents > 0 && (
-                  // `.mms-rise` — a mid-stay dynamic mount, so the thanks LANDS (RM-gated in CSS).
-                  // The ✦ is the brand mark (PhotoPlaceholder's), decorative.
-                  <p
-                    className="mms-rise"
-                    style={{
-                      margin: "0 0 4px",
-                      fontSize: "var(--fs-sm)",
-                      color: "var(--ac-strong)",
-                      fontWeight: 600,
-                    }}
-                  >
-                    <span aria-hidden>✦ </span>
-                    {T("tipThanks")}
-                    <My k="tipThanks" color="var(--ac-strong)" />
-                  </p>
-                )}
+                {(() => {
+                  // W20 (owner: "texts change with % selections") — the reaction is DERIVED from
+                  // the effective rate (lib/tip.ts tipReaction, pure + pinned), keyed on its text
+                  // so each rung's line rises in fresh (.mms-rise, RM-gated). None gets nothing —
+                  // declining is never met with a reaction.
+                  const reaction =
+                    tipPreviewCents > 0 ? tipReaction(effectiveTipRate, customTipOpen) : null;
+                  return (
+                    reaction && (
+                      <p
+                        key={reaction.en}
+                        className="mms-rise"
+                        style={{
+                          margin: "0 0 4px",
+                          fontSize: "var(--fs-sm)",
+                          color: "var(--ac-strong)",
+                          fontWeight: 600,
+                        }}
+                      >
+                        <span aria-hidden>✦ </span>
+                        {reaction.en}
+                        <span
+                          lang="my"
+                          style={{
+                            display: "block",
+                            fontSize: "var(--fs-xs)",
+                            color: "var(--ac-strong)",
+                          }}
+                        >
+                          {reaction.my}
+                        </span>
+                      </p>
+                    )
+                  );
+                })()}
                 {customTipOpen && (
                   <div id="custom-tip-field" style={{ margin: "2px 0 4px" }}>
                     <div style={customTipWrap}>
@@ -2130,6 +2175,7 @@ function Row({
   cents,
   strong,
   roll,
+  note,
 }: {
   /** The dictionary key — the row renders BOTH tongues itself (W16b: EN label + inline MY accent;
    *  the dotted leader ::after still follows as the dt's last inline content). */
@@ -2137,6 +2183,9 @@ function Row({
   cents: number;
   strong?: boolean;
   roll?: boolean;
+  /** A small parenthetical after the EN label — e.g. the tax row's "(10.5%)" (W20: the Bill shows
+   *  the RATE, not just the amount). Always COMPUTED by the caller, never a transcribed literal. */
+  note?: string;
 }) {
   return (
     <div
@@ -2157,6 +2206,12 @@ function Row({
     >
       <dt>
         {t("en", k)}
+        {note && (
+          <span style={{ fontSize: "var(--fs-xs)", color: "var(--t3)", fontWeight: 400 }}>
+            {" "}
+            {note}
+          </span>
+        )}
         <My k={k} inline color="var(--t3)" />
       </dt>
       <dd

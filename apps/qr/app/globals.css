@@ -4076,6 +4076,7 @@ html[data-seen-surface] .mms-stagger {
   scroll-snap-align: start;
 }
 .start-here-card {
+  position: relative; /* anchors the W20 rank seal */
   display: grid;
   gap: 3px;
   width: 132px;
@@ -4091,15 +4092,52 @@ html[data-seen-surface] .mms-stagger {
   box-shadow: inset 0 1px 0 var(--sheen);
   transition:
     border-color var(--dur-base) var(--ease-out),
-    box-shadow var(--dur-base) var(--ease-out);
+    box-shadow var(--dur-base) var(--ease-out),
+    transform var(--dur-base) var(--ease-out);
 }
 @media (hover: hover) {
+  /* W20 — the card LIFTS and its photo breathes (transform/opacity only, 60fps; both transitions
+     collapse in the reduced-motion block below). The Add CTA lives in the sheet, not on the card,
+     so a small swing can't move a tap target out from under the cursor. */
   .start-here-card:hover {
     border-color: color-mix(in oklab, var(--ac) 32%, var(--bd));
+    transform: translateY(-2px);
     box-shadow:
       inset 0 1px 0 var(--sheen),
-      var(--sh-lift);
+      var(--sh-lift),
+      0 0 16px -8px var(--glow-gold);
   }
+  .start-here-card:hover .start-here-photo img {
+    transform: scale(1.05);
+  }
+}
+/* W20 — the rank seal (data-backed rails only; the component gates it). A quiet vellum coin; #1
+   wears the lit-gold cap the selection vocabulary already speaks (.checkout-pill-on's recipe). */
+.start-here-rank {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--tx);
+  background: var(--cd);
+  border: 1px solid color-mix(in oklab, var(--gold) 45%, var(--bd));
+  box-shadow: inset 0 1px 0 var(--sheen);
+}
+.start-here-rank-top {
+  color: var(--oa);
+  background: linear-gradient(160deg, var(--gold), color-mix(in oklab, var(--gold) 45%, var(--ac)));
+  border-color: transparent;
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    0 0 12px -4px var(--glow-gold);
 }
 .start-here-photo {
   display: block;
@@ -4112,6 +4150,7 @@ html[data-seen-surface] .mms-stagger {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transition: transform var(--dur-base) var(--ease-out);
 }
 .start-here-name {
   font-size: 13px;
@@ -4141,8 +4180,18 @@ html[data-seen-surface] .mms-stagger {
   font-variant-numeric: tabular-nums;
 }
 @media (prefers-reduced-motion: reduce) {
-  .start-here-card {
+  .start-here-card,
+  .start-here-photo img {
     transition: none;
+  }
+  /* The hover lift/scale are decorative — under RM the card stays planted (color shift remains). */
+  @media (hover: hover) {
+    .start-here-card:hover {
+      transform: none;
+    }
+    .start-here-card:hover .start-here-photo img {
+      transform: none;
+    }
   }
 }
 /* Match the sibling horizontal rails (.menu-rail/.menu-diets/.slot-days): no visible scrollbar strip. */

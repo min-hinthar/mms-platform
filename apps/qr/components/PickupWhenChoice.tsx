@@ -1,6 +1,6 @@
 "use client";
-import { useState, useTransition, type CSSProperties } from "react";
-import { setPickupAsap } from "@/lib/pickup";
+import { useRef, useState, type CSSProperties } from "react";
+import { setPickupAsap, setPickupSlot } from "@/lib/pickup";
 import { formatSlot, formatSlotLong } from "@/lib/pickupTime";
 import { PickupSlotSheet } from "./PickupSlotSheet";
 
@@ -24,6 +24,7 @@ export function PickupWhenChoice({
   onSlotChange,
   asapAvailable,
   onStatus,
+  onRevert,
 }: {
   cartId: string;
   prepMinutes: number;
@@ -38,26 +39,50 @@ export function PickupWhenChoice({
   asapAvailable: boolean;
   /** Route a failure into the checkout's ONE review-step live region (never a new region). */
   onStatus: (message: string | null) => void;
+  /** W20 review — how the pill recovers when the LATEST write is refused: re-read SERVER truth
+   *  (Checkout's refresh() re-seeds `slot` via normalizePickupSlot). Never a captured `prev` — a
+   *  prev captured mid-burst is the previous OPTIMISTIC value, not what the server holds, so a
+   *  two-tap burst whose writes both failed used to settle the pill on a state nobody stored. */
+  onRevert: () => void;
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [busy, startAsap] = useTransition();
   const asap = slot === null;
+  // W20 — writes are OPTIMISTIC: the pill flips the instant it is tapped, the server write runs in
+  // the background, and a refusal reverts the pill + explains via the view's one live region. The
+  // token gates which write's OUTCOME may touch the UI (only the latest); the chain serializes the
+  // writes themselves (review: two independent serverless fetches commit in arbitrary order — a
+  // cold-started first write can land AFTER the second, leaving the server on the older choice
+  // while both answered ok). Chained, commit order = issue order, so the last ok write IS the
+  // server's final state.
+  const writeToken = useRef(0);
+  const writeChain = useRef<Promise<void>>(Promise.resolve());
+
+  /** Enqueue one optimistic write: flip now, run after every earlier write, and let only the
+   *  latest write's outcome speak — ok re-asserts the choice (a mid-flight refresh() may have
+   *  stomped the optimistic value with older server truth), a refusal re-reads server truth. */
+  function enqueue(next: string | null, write: () => Promise<void>) {
+    onStatus(null); // single review live region — clear any prior message first
+    onSlotChange(next); // INSTANT: the pill lights now
+    writeChain.current = writeChain.current.then(write);
+  }
 
   function chooseAsap() {
-    if (asap || busy) return; // already ASAP → no needless round-trip
+    if (asap) return; // already ASAP — nothing to do
     if (!asapAvailable) {
       // Kitchen closed / fully booked — can't go ASAP; keep the current slot and nudge to Schedule.
       onStatus("The kitchen isn’t taking ASAP orders right now — please schedule a time.");
       return;
     }
-    onStatus(null); // single review live region — clear any prior message first
-    startAsap(async () => {
+    const token = ++writeToken.current;
+    enqueue(null, async () => {
       try {
         const r = await setPickupAsap(cartId);
+        if (token !== writeToken.current) return; // superseded — the newer write's outcome speaks
         if (r.ok) {
-          onSlotChange(null);
+          onSlotChange(null); // re-assert over any refresh() that raced the write
           return;
         }
+        onRevert(); // refused — back to server truth, never a captured prev
         onStatus(
           r.reason === "cart_closed"
             ? "This order is already being paid."
@@ -66,7 +91,36 @@ export function PickupWhenChoice({
               : "Couldn’t switch to ASAP — please try again.",
         );
       } catch {
+        if (token !== writeToken.current) return;
+        onRevert();
         onStatus("Couldn’t switch to ASAP — check your connection and try again.");
+      }
+    });
+  }
+
+  /** W20 — the sheet reports a pick and closes INSTANTLY; this applies it, writes in the
+   *  background, and reverts + explains if the slot just filled (the sheet's old in-place round
+   *  trip made every pick feel laggy). */
+  function chooseSlot(next: string) {
+    const token = ++writeToken.current;
+    enqueue(next, async () => {
+      try {
+        const r = await setPickupSlot(cartId, next);
+        if (token !== writeToken.current) return;
+        if (r.ok) {
+          onSlotChange(next); // re-assert over any refresh() that raced the write
+          return;
+        }
+        onRevert();
+        onStatus(
+          r.reason === "unavailable"
+            ? "That time just filled — pick another."
+            : "Couldn’t set that time — please try again.",
+        );
+      } catch {
+        if (token !== writeToken.current) return;
+        onRevert();
+        onStatus("Couldn’t set that time — check your connection and try again.");
       }
     });
   }
@@ -80,7 +134,6 @@ export function PickupWhenChoice({
         <button
           type="button"
           aria-pressed={asap}
-          aria-busy={busy || undefined}
           // aria-disabled (not native disabled) keeps the control focusable so a keyboard/SR user can
           // reach it and hear WHY (the onStatus nudge) instead of the pill vanishing from the tab order.
           aria-disabled={!asapAvailable || undefined}
@@ -142,7 +195,7 @@ export function PickupWhenChoice({
         onOpenChange={setSheetOpen}
         cartId={cartId}
         currentSlot={slot}
-        onChosen={onSlotChange}
+        onChosen={chooseSlot}
       />
     </div>
   );

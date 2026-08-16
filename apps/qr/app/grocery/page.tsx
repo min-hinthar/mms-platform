@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useJourneyRouter } from "@/components/nav/TransitionNav"; // J1 journey grammar
+import { TransitionLink, useJourneyRouter } from "@/components/nav/TransitionNav"; // J1 journey grammar
 import posthog from "posthog-js";
 import { Icon, NumberFlow } from "@mms/ui";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
@@ -19,6 +19,7 @@ import { GroceryBrowse } from "@/components/grocery/GroceryBrowse";
 import { GroceryBasketSheet } from "@/components/grocery/GroceryBasketSheet";
 import { saleInfo, sizeLabel } from "@/lib/grocery-aisles";
 import { isTerminal, type CartUnavailable } from "@/lib/cart-unavailable";
+import { menuHref } from "@/lib/menu-href";
 import { failureCopy, useConnectionTruth } from "@/lib/useConnectionTruth";
 import {
   drainCart,
@@ -671,6 +672,20 @@ export default function Grocery() {
         </p>
         <h1 className="grocery-title">Shop the market</h1>
         <p className="grocery-sub">Browse the aisles or scan shelf barcodes as you shop.</p>
+        {/* W20 (owner: "To-go and groceries should also have leave options") — the named exit the
+            menu's arrival beat carries, on the market's masthead: leaving is a navigation (the
+            per-device scango session rejoins this same open basket), never a basket mutation. */}
+        <p className="grocery-sub" style={{ marginTop: 2 }}>
+          Switching how you’re ordering?{" "}
+          <TransitionLink href={menuHref(null)} className="nav-link" style={{ minHeight: 44 }}>
+            Back to the start
+            <span aria-hidden className="nav-arrow nav-arrow-fwd">
+              {" "}
+              →
+            </span>
+          </TransitionLink>{" "}
+          — your basket stays saved on this phone.
+        </p>
       </header>
 
       {/* W4b — the session gates the BASKET, not the MARKET: the catalog is a public read, so the

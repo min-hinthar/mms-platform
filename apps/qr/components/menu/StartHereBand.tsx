@@ -23,7 +23,10 @@ export function StartHereBand({
   dataBacked,
   onSelect,
 }: {
-  items: MenuItem[];
+  /** W20 review — each entry carries its TRUE pre-filter rank (favoriteIds order = paid-order
+   *  ranking; a sold-out dish keeps its number and simply doesn't render), so the seal can never
+   *  re-number survivors into a claim the data doesn't back. rank is 0 (unused) on the fallback. */
+  items: { item: MenuItem; rank: number }[];
   /** True only when real paid-order counts curated this rail (>=3 crowned items) — drives the honest
    *  sub-heading: observed table behavior vs our own picks. */
   dataBacked: boolean;
@@ -44,9 +47,26 @@ export function StartHereBand({
         </span>
       </h2>
       <Rail as="ul" role="list" className="start-here-rail" aria-labelledby="start-here-h">
-        {items.map((i) => (
+        {items.map(({ item: i, rank }) => (
           <li key={i.id}>
             <button type="button" className="start-here-card" onClick={() => onSelect(i)}>
+              {/* W20 — the rank seal, ONLY when real paid-order counts curated this rail: a numeral
+                  this prominent is a claim, and the hand-set "our picks" fallback has no ranking to
+                  claim. #1 wears the gold cap. The sr-only twin says it in words (the seal itself
+                  is decorative — the visible numeral alone would read as a price or a quantity). */}
+              {dataBacked && (
+                <>
+                  <span
+                    className={`start-here-rank${rank === 1 ? " start-here-rank-top" : ""}`}
+                    aria-hidden
+                  >
+                    {rank}
+                  </span>
+                  <span className="sr-only">
+                    {rank === 1 ? "Most loved at tables. " : `No. ${rank} at tables. `}
+                  </span>
+                </>
+              )}
               {/* W16e — NO truthiness gate on the slot: BlurUpImage already renders the designed
                   PhotoPlaceholder for a null src, and gating the whole <span> away made photo-less
                   dishes render as ragged short cards beside full ones (W13's "the slot always

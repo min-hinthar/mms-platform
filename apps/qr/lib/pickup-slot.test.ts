@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizePickupSlot } from "./pickup-slot";
+import { normalizePickupSlot, sameSlot } from "./pickup-slot";
 
 /**
  * W19 — the ASAP-snap normalization, pinned. Two callers (the server seed in cart/page.tsx and
@@ -24,5 +24,20 @@ describe("normalizePickupSlot — one reading of the cart's pickup timing", () =
     expect(normalizePickupSlot(null, null)).toBeNull();
     // fire_at without a slot doesn't occur for pickup carts, but the reading must not invent one.
     expect(normalizePickupSlot(null, FIRE)).toBeNull();
+  });
+});
+
+describe("sameSlot — slot equality by instant, never by string (W20)", () => {
+  it("matches the SAME wall-clock instant across serializations", () => {
+    expect(sameSlot("2026-08-16T18:30:00.000Z", "2026-08-16T18:30:00+00:00")).toBe(true);
+    expect(sameSlot("2026-08-16T18:30:00+00:00", "2026-08-16T11:30:00-07:00")).toBe(true);
+  });
+  it("different instants never match", () => {
+    expect(sameSlot("2026-08-16T18:30:00Z", "2026-08-16T18:45:00Z")).toBe(false);
+  });
+  it("null/undefined/garbage on either side is false, never a throw", () => {
+    expect(sameSlot(null, "2026-08-16T18:30:00Z")).toBe(false);
+    expect(sameSlot("2026-08-16T18:30:00Z", null)).toBe(false);
+    expect(sameSlot("not-a-date", "not-a-date")).toBe(false);
   });
 });

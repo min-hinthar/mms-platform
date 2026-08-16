@@ -199,25 +199,25 @@ function ItemSheetBody({
     setSelected((s) => ({ ...s, [group.id]: toggleOption(group, s[group.id] ?? [], optionId) }));
   }
 
-  async function addToOrder() {
+  function addToOrder() {
     if (!canAdd) return;
     // W13 review — the haptic weights the GESTURE, not the network (the AddButton rationale): on a
-    // slow link a post-round-trip buzz lands seconds after the tap. A refused add is corrected by
-    // the sheet staying open + the live region, same as the optimistic morph.
+    // slow link a post-round-trip buzz lands seconds after the tap.
     hapticTap(12);
+    // Never reset — it guards a second tap during the close animation; the sheet unmounts anyway.
     setBusy(true);
-    try {
-      // Option ids only — the provider's `add` forwards to `addItem`→`priceItem`, which validates the ids
-      // against this item's groups and re-derives the charge. The client never sends a price — `qty` (W5c)
-      // only multiplies the SERVER-priced unit, bounded again by Zod + the SQL. The kitchen note (W3b)
-      // rides along — free text, trimmed here, length-bounded again server-side.
-      // Close only on SUCCESS — a refused add (expired session / locked cart / invalid selection) keeps the
-      // sheet open with the diner's choices intact (the provider's live region shows the recovery message).
-      const ok = await add(item.id, selectedIds(groups, selected), notes.trim() || undefined, qty);
-      if (ok) onClose(); // Radix restores focus to the trigger row
-    } finally {
-      setBusy(false);
-    }
+    // Option ids only — the provider's `add` forwards to `addItem`→`priceItem`, which validates the ids
+    // against this item's groups and re-derives the charge. The client never sends a price — `qty` (W5c)
+    // only multiplies the SERVER-priced unit, bounded again by Zod + the SQL. The kitchen note (W3b)
+    // rides along — free text, trimmed here, length-bounded again server-side.
+    // W20 (owner: "adding feels lagged … why not make optimistic and instant feedback") — close NOW,
+    // not after the round trip. The provider's add() is already optimistic (count bump + "Added"
+    // flash the instant it is called) and owns BOTH outcomes: a refusal flashes "Reconnecting to
+    // your table…" + re-mints, and the reconciled view simply won't carry the line. Deliberate
+    // trade: on that rare refusal the diner re-opens the sheet and re-picks — every-tap latency was
+    // the wrong price for keeping their choices warm.
+    void add(item.id, selectedIds(groups, selected), notes.trim() || undefined, qty);
+    onClose(); // Radix restores focus to the trigger row
   }
 
   return (
@@ -499,10 +499,7 @@ function ItemSheetBody({
                     ? `Add ${qty} × ${item.name_en} to your order, ${dollars(totalCents)}`
                     : `Add ${item.name_en} to your order, ${dollars(totalCents)}`
           }
-          onClick={() => {
-            if (!canAdd) return;
-            void addToOrder();
-          }}
+          onClick={addToOrder}
         >
           {/* v7.2 CTA anatomy: label left, live (advisory) total right, inside the one 48px button. */}
           <span>{busy ? "Adding…" : soldOut ? "Sold out" : "Add to order"}</span>

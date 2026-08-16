@@ -1,14 +1,17 @@
 "use client";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Icon, Sheet, Skeleton } from "@mms/ui";
-import { getPickupSlots, setPickupSlot, type PickupSlot } from "@/lib/pickup";
+import { getPickupSlots, type PickupSlot } from "@/lib/pickup";
+import { sameSlot } from "@/lib/pickup-slot";
 import { dayLabel, dayPart, formatSlot, type DayPart } from "@/lib/pickupTime";
 import { Rail } from "@/components/Rail";
 
 /**
  * Pickup time picker (v7.2 "Pick a pickup time" sheet). Lists the kitchen's currently-bookable slots
- * (capacity-aware — full ones never appear); choosing one sets it server-side (re-validated) and
- * closes. Honest: if a slot fills between fetch and tap, the server rejects it and we re-list.
+ * (capacity-aware — full ones never appear). W20: a PURE picker — tapping a chip reports the choice
+ * up and closes INSTANTLY; the parent (PickupWhenChoice) owns the optimistic state + the server
+ * write + the revert, so the pick never waits on a round-trip. Slot identity is compared by INSTANT
+ * (sameSlot), never by string — the two server serializations of one slot differ.
  */
 export function PickupSlotSheet({
   open,
@@ -36,15 +39,13 @@ export function PickupSlotSheet({
   // button the user just pressed, dropping focus to <body> with nothing announced: verbatim the defect
   // W9a fixed in GuestList. The card stays mounted and the label narrates the attempt instead.
   const [retrying, setRetrying] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [pendingSlot, setPendingSlot] = useState<string | null>(null); // the chip being set (instant feedback)
   const [dayIdx, setDayIdx] = useState(0); // which day section is shown in the time grid
-  const [pending, start] = useTransition();
+  // W20 — the diner's chip scrolls into view when the sheet opens on a long day grid.
+  const selectedRef = useRef<HTMLButtonElement>(null);
 
   // Re-fetch availability each time the sheet opens, or if the cart changes (capacity is live). setState
   // lives only in the async callbacks (the allowed "sync from an external system" pattern — no synchronous
-  // setState in the effect body); a fresh load also clears any stale error from a prior failed pick.
-  // Both outcomes clear `error` so the failure card below is the view's ONLY live region (QA §A).
+  // setState in the effect body). The load-failure card below is the view's ONLY live region (QA §A).
   useEffect(() => {
     if (!open) return;
     let active = true;
@@ -56,16 +57,14 @@ export function PickupSlotSheet({
         // Today with the Soonest chip glowing — half the "always on soonest" complaint). Falls to
         // Today when nothing is chosen, or the chosen slot has since filled out of the list.
         const chosenDay = r.ok
-          ? groupByDay(r.slots).findIndex((g) => g.slots.some((s) => s.slot === currentSlot))
+          ? groupByDay(r.slots).findIndex((g) => g.slots.some((s) => sameSlot(s.slot, currentSlot)))
           : -1;
         setDayIdx(chosenDay >= 0 ? chosenDay : 0);
-        setError(null);
         setRetrying(false);
       })
       .catch(() => {
         if (!active) return;
         setLoad({ s: "failed" });
-        setError(null);
         setRetrying(false);
       });
     return () => {
@@ -73,36 +72,22 @@ export function PickupSlotSheet({
     };
   }, [open, cartId, reloadNonce, currentSlot]);
 
+  // W20 — the pick is INSTANT: report up + close. The parent applies it optimistically, runs the
+  // server write in the background, and reverts + announces if the slot just filled.
   function choose(slot: string) {
-    setPendingSlot(slot); // synchronous → the tapped chip shows "Setting…" on tap, before the round-trip
-    start(async () => {
-      setError(null);
-      try {
-        const r = await setPickupSlot(cartId, slot);
-        if (r.ok) {
-          onChosen(slot);
-          onOpenChange(false);
-          return;
-        }
-        setError(
-          r.reason === "unavailable"
-            ? "That time just filled — pick another."
-            : "Couldn’t set that time — please try again.",
-        );
-        // Re-list so a filled slot drops out of the choices. Best-effort ONLY: on a failed re-list we
-        // keep the current (stale) grid rather than flipping to the failure card — `error` above has
-        // already told the diner what happened and owns the one live region, and a usable-if-stale grid
-        // beats replacing it with a retry for a refinement they didn't ask for.
-        getPickupSlots(cartId)
-          .then((r) => r.ok && setLoad({ s: "ok", slots: r.slots }))
-          .catch(() => {});
-      } catch {
-        setError("Couldn’t set that time — check your connection and try again.");
-      } finally {
-        setPendingSlot(null);
-      }
-    });
+    onChosen(slot);
+    onOpenChange(false);
   }
+
+  // Scroll the selected chip into view once the grid is on screen (RM-aware: no smooth glide).
+  useEffect(() => {
+    if (!open || load.s !== "ok") return;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    selectedRef.current?.scrollIntoView({
+      block: "nearest",
+      behavior: reduced ? "auto" : "smooth",
+    });
+  }, [open, load, dayIdx]);
 
   // Slots arrive time-sorted → group into consecutive day sections (Today / Tomorrow / weekday). The
   // selector picks a day; the grid shows just that day's times. `activeDay` clamps so a day that fully
@@ -129,7 +114,7 @@ export function PickupSlotSheet({
       </p>
       {load.s === "loading" ? (
         // Skeleton mirror of the day rail + time grid. Decorative (aria-hidden) — no live region here, so
-        // it can't double-announce with the error region below (one live region per view; the Radix Dialog
+        // it can't double-announce with the failed-load alert (one live region per view; the Radix Dialog
         // title already names the sheet). A sibling sr-only string keeps an SR loading cue.
         <>
           <span className="sr-only">Loading pickup times…</span>
@@ -223,49 +208,40 @@ export function PickupSlotSheet({
                 </p>
                 <div className="slot-grid">
                   {partSlots.map((s) => {
-                    const setting = pendingSlot === s.slot;
-                    const selected = s.slot === currentSlot;
+                    const selected = sameSlot(s.slot, currentSlot);
                     const soonest = s.slot === soonestSlot;
                     return (
                       <button
                         key={s.slot}
+                        ref={selected ? selectedRef : undefined}
                         type="button"
-                        disabled={pending}
-                        aria-busy={setting}
                         aria-pressed={selected}
-                        // W19 — the DINER'S slot wears the lit state; the Soonest chip keeps its ⚡
-                        // tag always but its gold-glow fill ONLY while nothing is chosen (or it IS
-                        // the choice) — two near-identical lit chips read as "selection stuck on
-                        // soonest", the owner's literal complaint.
-                        className={`slot-time${setting || selected ? " slot-time-on" : ""}${
+                        // W19→W20 — the DINER'S slot wears the lit state (compared by INSTANT); the
+                        // Soonest chip keeps its ⚡ tag always but its gold-glow fill ONLY while
+                        // nothing is chosen (or it IS the choice).
+                        className={`slot-time${selected ? " slot-time-on" : ""}${
                           soonest && (currentSlot == null || selected) ? " slot-time-soonest" : ""
                         }`}
                         onClick={() => choose(s.slot)}
                       >
-                        {setting ? (
-                          "Setting…"
-                        ) : (
-                          <>
-                            {soonest && (
-                              <span className="slot-soonest-tag" aria-hidden>
-                                ⚡ Soonest
-                              </span>
-                            )}
-                            {soonest && <span className="sr-only">Soonest available, </span>}
-                            {selected && <span className="sr-only">Your current time, </span>}
-                            <span className="slot-time-h">{formatSlot(s.slot)}</span>
-                            {selected && (
-                              <span className="slot-time-low" aria-hidden>
-                                ✓ Yours
-                              </span>
-                            )}
-                            {!selected && s.remaining <= 2 && (
-                              <span className="slot-time-low">
-                                <span aria-hidden>🔥 </span>
-                                {s.remaining} left
-                              </span>
-                            )}
-                          </>
+                        {soonest && (
+                          <span className="slot-soonest-tag" aria-hidden>
+                            ⚡ Soonest
+                          </span>
+                        )}
+                        {soonest && <span className="sr-only">Soonest available, </span>}
+                        {selected && <span className="sr-only">Your current time, </span>}
+                        <span className="slot-time-h">{formatSlot(s.slot)}</span>
+                        {selected && (
+                          <span className="slot-time-low" aria-hidden>
+                            ✓ Yours
+                          </span>
+                        )}
+                        {!selected && s.remaining <= 2 && (
+                          <span className="slot-time-low">
+                            <span aria-hidden>🔥 </span>
+                            {s.remaining} left
+                          </span>
                         )}
                       </button>
                     );
@@ -275,11 +251,6 @@ export function PickupSlotSheet({
             ))}
           </div>
         </>
-      )}
-      {error && (
-        <p role="alert" style={{ color: "var(--warn)", fontSize: "var(--fs-sm)", marginTop: 12 }}>
-          {error}
-        </p>
       )}
     </Sheet>
   );
