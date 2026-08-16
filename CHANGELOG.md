@@ -4,6 +4,45 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W17d-2 — the missing POS menu items, verified one at a time (2026-08-16)
+
+The owner's directive, both halves: _"new menu items from POS are creatively created and not
+duplicated if we already have prior to the POS data"_ and _"verify each item before adding"_. 98 of
+149 POS items had no exact Burmese match in the 66-item catalog; **every one was classified before
+anything was created**, and the full record lives in `docs/W17_PLAN.md` §W17d-2.
+
+- **31 genuine adds** — 1,450 units of Jan–Jul 2026 volume, from Pork Tamarind Stew (151) down to
+  Bottled Water (1). Each passed a machine check: no slug / English / exact-Burmese collision
+  against the catalog, loose-Burmese overlaps printed for adjudication (one, adjudicated distinct:
+  oil-rice-with-peas ⊂⊃ white-peas), price **read from the named POS row, never transcribed**. Built as
+  designed items (bilingual names + descriptions, tax category, declared-only allergens — never
+  `allergen-reviewed`), no photo yet so the designed `PhotoPlaceholder` renders. Plus a new
+  **Desserts** category (sanwin makin, coconut sago, fresh fruits had no home).
+- **~25 duplicates skipped** — a different Burmese spelling, word order, or an English-only POS
+  label (`ကြက်သဲမြစ်` = our `ကြက်အသဲမြစ်`; `နန်းကြီးသုပ်` at 1,702 units = our nangyi mont-ti;
+  Faluda, Everything Salad, Red Bull, shwekyi…).
+- **4 catalog Burmese typos fixed**, guarded on the current wrong value — they were hiding real
+  matches (`လက်ဖတ် → လက်ဖက်` ×2, `ငါးရံ → ငါးရံ့`, `ထေါင်း → ထောင်း`).
+- **The reference generator's join fixed, red-first.** It compared non-NFC strings, so Myanmar
+  asat/dot-below byte ordering — identical on screen — hid Rakhine Mont-Ti's 126-unit match. And
+  exact matches now prefer the price-agreeing POS row: one dish can own several exact-named rows
+  (the $10 oil-rice dish vs its $100 catering tray), and ranking by volume alone put the tray's
+  price beside the dish as a false +$90 delta.
+- **Skipped with reasons**: modifiers (`Egg Add-on` $3 — price question vs our $1.50/$2.00; Chicken
+  Masala = a style option), **alcohol** (~49 units — a licensing question the owner answers first),
+  catering trays, ≤2-unit one-off rings. Flagged questions (hilsa fried-vs-steamed naming, duck
+  curry, ginger salad, fishcake) recorded for the owner.
+- The reference backlog drops **98 → 60**, every residual row classified; §Price deltas stays
+  "None". Migration `20260816040000` (idempotent; an upfront assert names every category slug the
+  inserts join on and raises if one is missing — an `insert … select` over an absent category would
+  otherwise insert zero rows _silently_, review finding). Data-only change — no new money-path
+  code, no new mutants needed.
+- **Review fix (HIGH): the `gluten` allergen code is not one the app recognizes.** The gluten-free
+  chip rules on `gluten_wheat` exactly, and a NON-empty allergen list disables the unknown-is-unsafe
+  fail-safe — so a dish _declaring_ gluten passed the gluten-free filter. Fixed on the new
+  bean-fritters and on pre-existing veggie-fritters (guarded UPDATE), and the reference generator
+  now **fails on any allergen code outside the canonical set** (watched red on both rows first).
+
 ### W17c-4 — tip transparency for the team (2026-08-16)
 
 Last of the four tipping enhancements. `/staff/tips`, linked from the floor for every staff member.

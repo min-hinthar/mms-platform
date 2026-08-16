@@ -5,7 +5,7 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-08-16 — W17 complete except W17d-2)
+> ## ⏭️ NEXT SESSION — start here (2026-08-16 — W17 COMPLETE; only owner-blocked items remain)
 >
 > **Read this block, then `docs/W17_PLAN.md`. Everything below is merged AND prod-applied unless it
 > says otherwise.** Prod is `fasnpdhtvqtzjlvruqcu`; every migration in this arc has been applied via
@@ -13,14 +13,14 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ### What the owner asked for, and where it landed
 >
-> | Directive (verbatim)                                       | Slice     | State                                   |
-> | ---------------------------------------------------------- | --------- | --------------------------------------- |
-> | "revert to real POS pricing for both dine-in and take-out" | W17a      | ✅ merged #178                          |
-> | "staff portal should be able to update prices?"            | W17b      | ✅ merged #180, prod-applied            |
-> | "maybe enhance the tipping features" (all four selected)   | W17c-1..4 | ✅ #182 #183 #184 + this slice          |
-> | "tip should be 15%, 20%, 30% options"                      | W17c-3    | ✅ merged #184, prod-applied            |
-> | "prices should be most recent POS 2026 reference"          | W17d-1    | ✅ merged #185, prod-applied            |
-> | "new menu items from POS ... not duplicated"               | W17d-2    | ⬜ **NOT STARTED** — the next real task |
+> | Directive (verbatim)                                                            | Slice     | State                                                                 |
+> | ------------------------------------------------------------------------------- | --------- | --------------------------------------------------------------------- |
+> | "revert to real POS pricing for both dine-in and take-out"                      | W17a      | ✅ merged #178                                                        |
+> | "staff portal should be able to update prices?"                                 | W17b      | ✅ merged #180, prod-applied                                          |
+> | "maybe enhance the tipping features" (all four selected)                        | W17c-1..4 | ✅ #182 #183 #184 + this slice                                        |
+> | "tip should be 15%, 20%, 30% options"                                           | W17c-3    | ✅ merged #184, prod-applied                                          |
+> | "prices should be most recent POS 2026 reference"                               | W17d-1    | ✅ merged #185, prod-applied                                          |
+> | "new menu items from POS ... not duplicated" + "verify each item before adding" | W17d-2    | ✅ this slice — 31 adds, classification in `docs/W17_PLAN.md` §W17d-2 |
 >
 > ### The three rules this arc kept re-learning (read before touching money)
 >
@@ -40,7 +40,9 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ### Prod state you can rely on (measured, not assumed)
 >
-> - **66 menu items**, none out of the new `menu_items_base_price_cents_bounds` (25..500000).
+> - **97 menu items** (66 + W17d-2's 31 adds), none out of `menu_items_base_price_cents_bounds`
+>   (25..500000). A **Desserts** category exists (sort 75). The 31 new items have **no photo** (the
+>   designed `PhotoPlaceholder` renders) and Burmese descriptions **awaiting the K15 native check**.
 > - **Catalog == register**: `docs/data/MENU_REFERENCE.md` reports **no price deltas**.
 > - **Constraints live**: `qr_orders_tip_cents_nonneg`, `qr_carts_intended_tip_cents_bounds`,
 >   `menu_items_base_price_cents_bounds`. Each probed: refuses the bad value, accepts the good one.
@@ -56,12 +58,26 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >    do not build it on a guess. Shape to build once confirmed: `docs/W17_PLAN.md` §W17b.
 > 2. **The $1,000 cash-tip cap and the tip ladder** are judgment calls, not owner-set beyond the
 >    15/20/30 rates.
-> 3. **W17d-2's 98 unmatched POS items** need per-item verification — several are modifiers
->    (`ကြက်ဥ Egg Add-on` is a modifier, not a dish), some are alcohol (a licensing question), some are
->    combo/tray rings, and some are dishes we already carry under a spelling the loose match missed.
->    **Never bulk-import.** Match on the **Burmese** name; English labels diverge between systems.
+> 3. **W17d-2's residuals are ALL owner questions now** (full record: `docs/W17_PLAN.md` §W17d-2):
+>    **alcohol** (~49 units — licensing before it can appear in the app); `Egg Add-on` **$3 vs our
+>    $1.50/$2.00** modifier prices; hilsa **fried vs steamed** naming (261 units — no prep modifier
+>    exists, verified against prod); duck curry + ginger salad (1 ring each — real dishes?);
+>    `Fishcake Fried` ambiguity; nangyi **thoke vs mont-ti** labeling. Never guess — ask.
 >
-> ### W17c-4 — tip transparency (this slice)
+> ### W17d-2 — the missing POS menu items (this slice)
+>
+> All 98 unmatched POS rows classified BEFORE anything was created; **31 genuine adds** (1,450 units
+> of 2026 volume) + a Desserts category, each machine-verified (no slug/EN/exact-MY collision,
+> loose-MY overlaps printed + adjudicated; price read from the named POS row, never transcribed). 4 catalog Burmese typos fixed —
+> they were hiding real matches. Two generator bugs fixed **red-first**: the Burmese join compared
+> non-NFC strings (Myanmar asat/dot-below byte order differs while rendering identically — hid a
+> 126-unit match), and exact-match ranking by volume put a $100 catering tray's price beside the $10
+> dish sharing its name (exacts now prefer the price-agreeing row; a delta is flagged only when NO
+> exact ring agrees). Backlog 98 → 60, all residuals classified (duplicates the Burmese-only join
+> can't see, alcohol, modifiers, trays, noise, owner questions). Full record:
+> `docs/W17_PLAN.md` §W17d-2. Migration `20260816040000`.
+>
+> ### W17c-4 — tip transparency (merged #186)
 >
 > ⚠️ **The bug worth remembering here**: the first version scoped the QUERY for a server
 > (`.eq("settled_by", me)`). That hides colleagues — and also makes a null `settled_by` structurally

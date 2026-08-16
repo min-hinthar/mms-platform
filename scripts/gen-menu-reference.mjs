@@ -29,14 +29,42 @@ const OUT = "docs/data/MENU_REFERENCE.md";
 const catalog = read("docs/data/menu_catalog.json");
 const pos = read("docs/data/pos_2026_prices.json");
 
+// ── allergen codes must be canonical ────────────────────────────────────────────────────────────
+// The free-from chips rule on EXACT codes (`dietary.ts` FREE_FROM_ALLERGENS), and a non-empty
+// allergen list disables the unknown-is-unsafe fail-safe — so a near-miss code (`gluten` for
+// `gluten_wheat`) makes a dish that DECLARES the allergen pass the free-from chip. That shipped
+// once (bean-fritters, caught in review; veggie-fritters carried it from the seed). This list
+// mirrors ItemSheet's ALLERGEN_LABEL; a new legit code is added in both places or this fails.
+const KNOWN_ALLERGENS = new Set([
+  "shellfish",
+  "fish",
+  "egg",
+  "soy",
+  "peanuts",
+  "dairy",
+  "tree_nuts",
+  "gluten_wheat",
+  "sesame",
+]);
+for (const i of catalog) {
+  const bad = (i.allergens ?? []).filter((a) => !KNOWN_ALLERGENS.has(a));
+  if (bad.length) {
+    console.error(`menu reference … UNKNOWN allergen code(s) on ${i.slug}: ${bad.join(", ")}`);
+    process.exit(1);
+  }
+}
+
 // ── the Burmese join key ────────────────────────────────────────────────────────────────────────
-// Keep only Myanmar-block codepoints (U+1000–U+109F), drop ZWSP/ZWNJ/ZWJ and spaces. A catalog name
-// may carry two dishes separated by "/" — split so either half can match.
+// Keep only Myanmar-block codepoints (U+1000–U+109F), drop ZWSP/ZWNJ/ZWJ and spaces, then NFC-
+// normalize: Myanmar asat + dot-below order differently byte-wise (`န့်` as 103A-1037 vs 1037-103A)
+// while rendering identically, so a byte comparison calls two spellings of the same dish different
+// (that hid Rakhine Mont-Ti, 126 units, behind "unmatched"). A catalog name may carry two dishes
+// separated by "/" — split so either half can match.
 const myOnly = (s) =>
   [...(s ?? "")]
     .filter((ch) => ch >= "က" && ch <= "႟")
     .join("")
-    .replace(/[​-‍]/g, "");
+    .normalize("NFC");
 const keysOf = (name) =>
   String(name ?? "")
     .split("/")
@@ -132,8 +160,17 @@ for (const [category, items] of [...byCategory.entries()].sort(
   for (const i of items.sort((a, b) => a.name_en.localeCompare(b.name_en))) {
     const hits = matchPos(i);
     hits.forEach((h) => matchedPos.add(h.p.pos));
-    // An exact match always outranks an approximate one, then volume.
-    const ranked = hits.sort((a, b) => Number(b.exact) - Number(a.exact) || b.p.qty - a.p.qty);
+    // An exact match always outranks an approximate one. AMONG exact matches, prefer the row that
+    // rings OUR price, then volume: one dish can own several exact-named POS rows (ပဲပြုတ်ထမင်းဆီဆမ်း
+    // is both the $10 dish and a $100 catering tray), and ranking by volume alone puts the tray's
+    // price beside the dish.
+    const agrees = (p) => Math.round((p.price ?? 0) * 100) === i.base_price_cents;
+    const ranked = hits.sort(
+      (a, b) =>
+        Number(b.exact) - Number(a.exact) ||
+        Number(agrees(b.p)) - Number(agrees(a.p)) ||
+        b.p.qty - a.p.qty,
+    );
     const top = ranked[0];
     const best = top?.p;
     const qty = ranked.filter((h) => h.exact).reduce((a, h) => a + h.p.qty, 0);
@@ -147,14 +184,19 @@ for (const [category, items] of [...byCategory.entries()].sort(
 // ── price deltas (ours vs the POS ring) ─────────────────────────────────────────────────────────
 const deltas = [];
 for (const i of catalog) {
-  // EXACT matches only — an approximate name match is not evidence about price.
-  const best = matchPos(i)
+  // EXACT matches only — an approximate name match is not evidence about price. And a delta is
+  // flagged only when NO exact ring agrees with ours: when one exact row is the dish at our price
+  // and another is a differently-priced ring under the same name (the $100 catering tray), the
+  // agreeing row settles it — flagging the tray would put a false delta on a correctly-priced dish.
+  const exacts = matchPos(i)
     .filter((h) => h.exact)
     .map((h) => h.p)
-    .sort((a, b) => b.qty - a.qty)[0];
-  if (!best?.price) continue;
+    .filter((p) => p.price != null);
+  if (exacts.length === 0) continue;
+  if (exacts.some((p) => Math.round(p.price * 100) === i.base_price_cents)) continue;
+  const best = exacts.sort((a, b) => b.qty - a.qty)[0];
   const posCents = Math.round(best.price * 100);
-  if (posCents !== i.base_price_cents) deltas.push({ i, best, posCents });
+  deltas.push({ i, best, posCents });
 }
 lines.push("## Price deltas — our catalog vs the POS ring");
 lines.push("");

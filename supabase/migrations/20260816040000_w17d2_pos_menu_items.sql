@@ -1,0 +1,373 @@
+-- W17d-2 — the missing POS menu items (owner: "new menu items from POS are creatively created and
+-- not duplicated if we already have prior to the POS data"; and the standing rule for this slice:
+-- "verify each item before adding").
+--
+-- SOURCE + METHOD. The Jan–Jul 2026 Zettle export (docs/data/pos_2026_prices.json) had 98 items
+-- with no exact Burmese-name match in the 66-item catalog. Every one was classified BEFORE anything
+-- was created, and the classification is machine-checked (the verifier script asserts no slug /
+-- English / exact-Burmese collision for every insert below and PRINTS loose-Burmese overlaps for
+-- adjudication (one: oil-rice-with-peas ⊂⊃ white-peas — distinct dishes), and every price is read
+-- from the named POS row — never transcribed):
+--
+--   • 31 GENUINELY MISSING items → inserted below, 1,450 units of 2026 volume.
+--   • ~25 DUPLICATES under a different spelling/word order/English-only label → skipped
+--     (POS ကြက်သဲမြစ် = our ကြက်အသဲမြစ်; နန်းကြီးသုပ် = our နန်းကြီးမုန့်တီ; word-swapped
+--     Biryani; English-only Faluda/Everything Salad/Red Bull/Pop Soda/Coffee; etc).
+--   • 4 CATALOG TYPOS fixed below — they were hiding real matches: လက်ဖတ် → လက်ဖက် (tea ×2, laphet
+--     is လက်ဖက်; the catalog's own လက်ဖက်ထမင်း already spells it right), ငါးရံ → ငါးရံ့ (snakehead),
+--     and ထေါင်း → ထောင်း (wrong tall-aa composition after ထ).
+--   • 1 GENERATOR BUG (fixed in scripts/gen-menu-reference.mjs, this PR): the join compared
+--     non-NFC strings, so ရခိုင်မုန့်တီ with dot-before-asat ≠ ရခိုင်မုန့်တီ with asat-before-dot —
+--     identical on screen, NFC-equal, 126 units hidden.
+--   • MODIFIER, not an item: ကြက်ဥ Egg Add-on $3 (our egg add-ons ring $1.50/$2.00 — price question
+--     for the owner, not a missing dish). Chicken Masala ကြက်ကလယ် = chicken-curry's required
+--     "Masala" style option.
+--   • ALCOHOL (~49 units: Kirin, IPA, Guinness, Michelob, Soju, house wines) → NOT added. Selling
+--     alcohol through the app is a licensing question the owner has to answer first.
+--   • CATERING TRAYS ($100 oil-rice tray, $20 parata tray) → not menu items.
+--   • NOISE (≤2 units, ambiguous one-off rings) → skipped, listed in docs/W17_PLAN.md §W17d-2 with
+--     the flagged open questions (hilsa fried-vs-steamed naming, duck curry, ginger salad).
+--
+-- Every insert is idempotent (on conflict (slug) do nothing) and joins its category by slug. An
+-- `insert … select` over a missing category would insert ZERO rows silently (the NOT NULL never
+-- evaluates on an empty select — review finding), so the assert block below names every category
+-- slug the inserts rely on and raises BEFORE any item insert if one is absent. New items ship with
+-- is_active=true, no photo (the designed PhotoPlaceholder renders), declared-only allergens (never
+-- `allergen-reviewed` — the free-from filters stay fail-safe), and Claude-authored Burmese
+-- descriptions AWAITING the owner's native check (K15).
+
+-- ── the Desserts category (sanwin makin, coconut sago, fresh fruits need a home) ────────────────
+insert into public.menu_categories (slug, name, sort_order)
+values ('desserts', 'Desserts', 75)
+on conflict (slug) do nothing;
+
+-- Every OTHER category this migration joins on comes from supabase/seed.sql — and CI's
+-- migrations-check runs migrations FIRST, seed AFTER. On the migrations-only database the item
+-- inserts below would select zero category rows and insert NOTHING, silently (the assert below
+-- caught exactly that on its first CI run — the guard's own red proof). Create them idempotently
+-- with the SEED'S OWN ids and name/sort_order: the ids must match because the seed inserts these
+-- rows afterwards with `on conflict (id) do nothing` — a fresh id here would make the seed's row a
+-- SLUG conflict instead, which that clause does not cover (that too was caught red in CI). Bare
+-- `on conflict do nothing` tolerates either arbiter, so on prod (already seeded, same ids) every
+-- row is a no-op.
+insert into public.menu_categories (id, slug, name, sort_order) values
+  ('3a6e126f-7a4a-4f47-a404-66f100e4aaa8', 'rice-noodles-soups', 'Rice / Noodles / Soups', 20),
+  ('8c069537-e7bc-47cd-a9ee-338539a8f764', 'sides', 'Sides', 30),
+  ('b8fc8e28-1adc-4ddd-8792-73fe4e320d48', 'curries-a-la-carte', 'Curries (A la Carte)', 40),
+  ('48b9ad45-3000-49fe-9c1d-342134f0295f', 'vegetables', 'Vegetables', 50),
+  ('91a0c27f-f00c-4a62-88ef-a5f952777e67', 'seafood-curries', 'Seafood Curries', 60),
+  ('e04ee0c4-10eb-4d26-b065-a0d1fc759391', 'appetizers-salads', 'Appetizers / Salads', 70),
+  ('2dd45bdd-dc99-443e-b3c9-63c3b0262e10', 'drinks', 'Drinks', 80)
+on conflict do nothing;
+
+-- Every category slug the item inserts join on must exist, or nothing below may run. Raises loudly
+-- instead of letting an `insert … select` over an empty category quietly insert zero rows. (With
+-- the inserts above this can only fire on a typo'd slug in a FUTURE edit — which is the point.)
+do $$
+declare v_missing text;
+begin
+  select string_agg(s, ', ') into v_missing
+  from unnest(array['rice-noodles-soups','sides','curries-a-la-carte','vegetables',
+                    'seafood-curries','appetizers-salads','drinks','desserts']) s
+  where not exists (select 1 from public.menu_categories c where c.slug = s);
+  if v_missing is not null then
+    raise exception 'w17d2: missing menu_categories: %', v_missing;
+  end if;
+end $$;
+
+-- ── allergen code fix (review finding): `gluten` is not a code the app recognizes ───────────────
+-- The gluten-free chip rules on `gluten_wheat` exactly, and a NON-empty allergen list disables the
+-- unknown-is-unsafe fail-safe — so a dish declaring `gluten` PASSED the gluten-free filter.
+-- veggie-fritters carried this from the seed; guarded on the current wrong value.
+update public.menu_items set allergens = array['gluten_wheat']::text[]
+ where slug = 'veggie-fritters' and allergens = array['gluten']::text[];
+
+-- ── the four catalog spelling fixes (guarded on the current wrong value) ────────────────────────
+update public.menu_items set name_my = 'လက်ဖက်ရည်'
+ where slug = 'burmese-milk-tea' and name_my = 'လက်ဖတ်ရည်';
+update public.menu_items set name_my = 'လက်ဖက်သုပ်'
+ where slug = 'pickled-tea-salad' and name_my = 'လက်ဖတ်သုပ်';
+update public.menu_items set name_my = 'ငါးရံ့အူဟင်း'
+ where slug = 'snakehead-innards-curry' and name_my = 'ငါးရံအူဟင်း';
+update public.menu_items set name_my = 'အမဲထောင်းကြော်'
+ where slug = 'beef-pounded-deep-fried' and name_my = 'အမဲထေါင်းကြော်';
+
+-- ── the 31 verified items (generated by the verifier — prices read from the named POS rows) ─────
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'pork-tamarind-stew', 'Pork Tamarind Stew', 'ဝက်မကျည်းနှပ်',
+       'Pork slow-braised with tamarind — rich, sour and deeply savory.', 'ဝက်သားကို မကျည်းနှင့် နှပ်ချက်ထားသည်။',
+       1400, 'hot_prepared', '{}'::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'curries-a-la-carte'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'ngapi-sambal', 'Ngapi Sambal (Fried)', 'ငပိကြော်',
+       'Fried ngapi relish with dried shrimp and chili — fierce and fragrant.', 'ငပိနှင့် ပုဇွန်ခြောက်ကို ငရုတ်သီးဖြင့် ကြော်ထားသည်။',
+       1000, 'hot_prepared', array['fish','shellfish']::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'sides'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'sour-water-spinach', 'Water Spinach Sour Soup', 'ကန်စွန်းရွက်ချဥ်ရည်',
+       'Water spinach in a tangy sour broth.', 'ကန်စွန်းရွက် ချဥ်ရည်ဟင်း။',
+       1400, 'hot_prepared', '{}'::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'vegetables'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'bean-fritters', 'Bean Fritters', 'ပဲကပ်ကြော်',
+       'Crisp split-pea fritters, fried to order.', 'ပဲကပ်ကြော် — ကြွပ်ကြွပ်လေး ကြော်ထားသည်။',
+       1000, 'hot_prepared', array['gluten_wheat']::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'appetizers-salads'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'beef-jerky', 'Beef Jerky (Grilled)', 'အမဲခြောက်ဖုတ်',
+       'House beef jerky, grilled and pounded tender.', 'အမဲခြောက်ကို မီးဖုတ်ထားသည်။',
+       1900, 'hot_prepared', '{}'::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'curries-a-la-carte'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'mohinga-soup-side', 'Mohinga Soup (Side)', 'ဟင်းခါးပွဲ',
+       'A side bowl of our mohinga broth.', 'ဟင်းခါးရည် တစ်ပွဲ။',
+       500, 'hot_prepared', array['fish']::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'sides'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'sanwin-makin', 'Sanwin Makin (Semolina Cake)', 'ဆနွင်းမကင်း',
+       'Semolina cake baked with coconut and butter.', 'ဆနွင်းမကင်း — အုန်းနို့နှင့် ဖုတ်ထားသည်။',
+       1000, 'cold_food', array['gluten_wheat']::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'desserts'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'catfish-head-mon', 'Catfish Head Curry (Mon-Style)', 'ငါးခေါင်းမွန်ချက်',
+       'Catfish head curry, Mon style.', 'ငါးခေါင်းကို မွန်ချက်နည်းဖြင့် ချက်ထားသည်။',
+       1700, 'hot_prepared', array['fish']::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'seafood-curries'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'silurus-dried-fried', 'Dried Silurus Fried', 'ငါးကျည်းခြောက်ကြော်',
+       'Dried silurus catfish, fried crisp.', 'ငါးကျည်းခြောက် ကြော်။',
+       2500, 'hot_prepared', array['fish']::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'seafood-curries'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'kufee', 'Kufee (Milk Cream)', 'ကူဖီးနို့မလိုင်',
+       'Chilled milk-cream kufee.', 'ကူဖီး နို့မလိုင် အအေး။',
+       500, 'beverage_cold', array['dairy']::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'drinks'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'salted-fish-pounded', 'Salted Fish Pounded Fried', 'ငါးခြောက်ထောင်းကြော်',
+       'Salted fish pounded and fried with aromatics.', 'ငါးခြောက်ကို ထောင်း၍ ကြော်ထားသည်။',
+       1900, 'hot_prepared', array['fish']::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'seafood-curries'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'stir-fry-water-spinach', 'Stir-Fried Water Spinach', 'ကန်စွန်းရွက်ကြော်',
+       'Water spinach stir-fried over high heat.', 'ကန်စွန်းရွက်ကြော်။',
+       1400, 'hot_prepared', '{}'::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'vegetables'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'chicken-dregea', 'Chicken with Dregea', 'ကြက်ဂွေးတောက်',
+       'Chicken cooked with dregea shoots.', 'ကြက်သားနှင့် ဂွေးတောက်ချက်။',
+       1400, 'hot_prepared', '{}'::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'curries-a-la-carte'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'chicken-salad', 'Chicken Salad', 'ကြက်သားသုပ်',
+       'Shredded chicken salad, Burmese style.', 'ကြက်သားသုပ်။',
+       1500, 'cold_food', '{}'::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'appetizers-salads'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'stir-fry-mixed-veggie', 'Stir-Fried Mixed Greens', 'အစိမ်းကြော်',
+       'Mixed greens stir-fried with garlic.', 'အစိမ်းကြော်။',
+       1400, 'hot_prepared', '{}'::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'vegetables'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'pork-fermented-bean', 'Pork with Fermented Soybean', 'ဝက်ပဲငပိ',
+       'Pork with fermented soybean paste.', 'ဝက်သားနှင့် ပဲငပိချက်။',
+       1400, 'hot_prepared', array['soy']::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'curries-a-la-carte'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'snakehead-dried', 'Dried Snakehead Grilled', 'ငါးရံ့ခြောက်ဖုတ်',
+       'Dried snakehead fish, grilled.', 'ငါးရံ့ခြောက် မီးဖုတ်။',
+       2500, 'hot_prepared', array['fish']::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'seafood-curries'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'goat-brains', 'Goat Brains Curry', 'ဆိတ်ဦးနှောက်',
+       'Goat brains curry — rich and delicate.', 'ဆိတ်ဦးနှောက်ဟင်း။',
+       3000, 'hot_prepared', '{}'::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'curries-a-la-carte'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'salted-fish-eggplant', 'Salted Fish & Eggplant Stew', 'ငါးခြောက်ခရမ်းသီးနှပ်',
+       'Salted fish braised with eggplant.', 'ငါးခြောက်နှင့် ခရမ်းသီးနှပ်။',
+       1400, 'hot_prepared', array['fish']::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'seafood-curries'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'shrimp-crispy-fish-sauce', 'Crispy Shrimp in Fish Sauce', 'ပုဇွန်ကြော်စပ်',
+       'Crispy shrimp tossed in spicy fish sauce.', 'ပုဇွန်ကြော်ကို ငံပြာရည်စပ်ဖြင့် လူးထားသည်။',
+       1500, 'hot_prepared', array['shellfish']::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'seafood-curries'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'coconut-sago', 'Coconut Sago', 'အုန်းနို့သာကူ',
+       'Sago pearls in sweet coconut milk.', 'အုန်းနို့နှင့် သာကူ။',
+       1000, 'cold_food', '{}'::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'desserts'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'balachaung-side', 'Balachaung (Side)', 'ဘာလချောင်ပွဲ',
+       'A small side of balachaung.', 'ဘာလချောင် တစ်ပွဲစာ။',
+       300, 'hot_prepared', array['shellfish']::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'sides'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'grilled-fish', 'Grilled Fish', 'ငါးကင်',
+       'Whole fish, grilled over flame.', 'ငါးကင်။',
+       2500, 'hot_prepared', array['fish']::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'seafood-curries'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'fermented-sesame-salad', 'Fermented Sesame Salad', 'နှမ်းဖတ်ချဥ်သုပ်',
+       'Fermented sesame salad — tangy and nutty.', 'နှမ်းဖတ်ချဥ်သုပ်။',
+       1200, 'cold_food', array['sesame']::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'appetizers-salads'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'dried-goat', 'Dried Goat', 'ဆိတ်သားခြောက်',
+       'Dried goat, grilled and pounded.', 'ဆိတ်သားခြောက်။',
+       3000, 'hot_prepared', '{}'::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'curries-a-la-carte'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'fresh-fruits', 'Fresh Fruit Platter', 'သီးစုံအချိုပွဲ',
+       'A platter of fresh seasonal fruit.', 'ရာသီပေါ် သစ်သီးစုံပွဲ။',
+       1200, 'cold_food', '{}'::text[], array['vegan']::text[], true
+from public.menu_categories c where c.slug = 'desserts'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'bombay-duck-grilled', 'Bombay Duck Grilled', 'အာဗြဲခြောက်ဖုတ်',
+       'Dried bombay duck fish, grilled.', 'အာဗြဲခြောက် မီးဖုတ်။',
+       2000, 'hot_prepared', array['fish']::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'seafood-curries'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'oil-rice-with-peas', 'Oil-Drizzled Rice with Peas', 'ပဲပြုတ်ထမင်းဆီဆမ်း',
+       'Oil-drizzled rice with boiled peas.', 'ပဲပြုတ်နှင့် ထမင်းဆီဆမ်း။',
+       1000, 'hot_prepared', '{}'::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'rice-noodles-soups'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'kayah-sausages', 'Kayah Sausages', 'ကယားဝက်အူချောင်း',
+       'Kayah-style pork sausages.', 'ကယားဝက်အူချောင်း။',
+       1400, 'hot_prepared', '{}'::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'curries-a-la-carte'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'beef-fried-shredded', 'Shredded Beef Fry', 'အမဲမွှကြော်',
+       'Shredded beef, fried dry and savory.', 'အမဲသားမွှကြော်။',
+       1700, 'hot_prepared', '{}'::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'curries-a-la-carte'
+on conflict (slug) do nothing;
+
+insert into public.menu_items
+  (category_id, slug, name_en, name_my, description_en, description_my,
+   base_price_cents, tax_category, allergens, tags, is_active)
+select c.id, 'bottled-water', 'Bottled Water', 'ရေသန့်ဗူး',
+       'Bottled water.', 'ရေသန့်ဗူး။',
+       100, 'beverage_cold', '{}'::text[], '{}'::text[], true
+from public.menu_categories c where c.slug = 'drinks'
+on conflict (slug) do nothing;
