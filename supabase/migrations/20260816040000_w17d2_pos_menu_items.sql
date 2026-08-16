@@ -41,20 +41,24 @@ insert into public.menu_categories (slug, name, sort_order)
 values ('desserts', 'Desserts', 75)
 on conflict (slug) do nothing;
 
--- Every OTHER category this migration joins on comes from supabase/seed.sql, which CI's
--- migrations-check does NOT apply — on a migrations-only database the item inserts below would
--- select zero category rows and insert NOTHING, silently. (The assert below caught exactly that on
--- its first CI run — the guard's own red proof.) Create them idempotently with the seed's
--- name/sort_order; on prod (already seeded) every one is a no-op on the slug conflict.
-insert into public.menu_categories (slug, name, sort_order) values
-  ('rice-noodles-soups', 'Rice / Noodles / Soups', 20),
-  ('sides', 'Sides', 30),
-  ('curries-a-la-carte', 'Curries (A la Carte)', 40),
-  ('vegetables', 'Vegetables', 50),
-  ('seafood-curries', 'Seafood Curries', 60),
-  ('appetizers-salads', 'Appetizers / Salads', 70),
-  ('drinks', 'Drinks', 80)
-on conflict (slug) do nothing;
+-- Every OTHER category this migration joins on comes from supabase/seed.sql — and CI's
+-- migrations-check runs migrations FIRST, seed AFTER. On the migrations-only database the item
+-- inserts below would select zero category rows and insert NOTHING, silently (the assert below
+-- caught exactly that on its first CI run — the guard's own red proof). Create them idempotently
+-- with the SEED'S OWN ids and name/sort_order: the ids must match because the seed inserts these
+-- rows afterwards with `on conflict (id) do nothing` — a fresh id here would make the seed's row a
+-- SLUG conflict instead, which that clause does not cover (that too was caught red in CI). Bare
+-- `on conflict do nothing` tolerates either arbiter, so on prod (already seeded, same ids) every
+-- row is a no-op.
+insert into public.menu_categories (id, slug, name, sort_order) values
+  ('3a6e126f-7a4a-4f47-a404-66f100e4aaa8', 'rice-noodles-soups', 'Rice / Noodles / Soups', 20),
+  ('8c069537-e7bc-47cd-a9ee-338539a8f764', 'sides', 'Sides', 30),
+  ('b8fc8e28-1adc-4ddd-8792-73fe4e320d48', 'curries-a-la-carte', 'Curries (A la Carte)', 40),
+  ('48b9ad45-3000-49fe-9c1d-342134f0295f', 'vegetables', 'Vegetables', 50),
+  ('91a0c27f-f00c-4a62-88ef-a5f952777e67', 'seafood-curries', 'Seafood Curries', 60),
+  ('e04ee0c4-10eb-4d26-b065-a0d1fc759391', 'appetizers-salads', 'Appetizers / Salads', 70),
+  ('2dd45bdd-dc99-443e-b3c9-63c3b0262e10', 'drinks', 'Drinks', 80)
+on conflict do nothing;
 
 -- Every category slug the item inserts join on must exist, or nothing below may run. Raises loudly
 -- instead of letting an `insert … select` over an empty category quietly insert zero rows. (With
