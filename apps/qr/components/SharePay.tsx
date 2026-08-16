@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import type { Appearance, StripeElementsOptions } from "@stripe/stripe-js";
 import { getStripePromise, stripeAppearance } from "@/lib/stripe-client";
+import { TIP_LADDER } from "@/lib/tip";
 import { useConnectionTruth } from "@/lib/useConnectionTruth";
 import { confirmCopy } from "@/lib/confirm-copy";
 import { ConfirmSwap } from "./ConfirmSwap";
@@ -25,11 +26,14 @@ import { ConfirmSwap } from "./ConfirmSwap";
  */
 const BOARD_FLIP_GRACE_MS = 25_000;
 
+// W21d (Codex on #182 — the one finding from that PR still true after W18 retired round-up): the
+// split share's ask had kept the pre-W17c-3 15/18/20 fork, so a table that split saw a DIFFERENT
+// house ladder than every other surface. One ladder (owner: "tip should be 15%, 20%, 30%"), read
+// from the same authority the checkout/kiosk/register chips read; "No tip" stays last-and-quiet
+// per the owner's W18 "none is not encouraged" (the checkout None convention).
 const TIPS: [label: string, rate: number][] = [
+  ...TIP_LADDER.map((rate): [string, number] => [`${Math.round(rate * 100)}%`, rate]),
   ["No tip", 0],
-  ["15%", 0.15],
-  ["18%", 0.18],
-  ["20%", 0.2],
 ];
 
 export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorized: () => void }) {
@@ -123,6 +127,9 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
       >
         {TIPS.map(([label, rate]) => {
           const on = tipRate === rate;
+          // W21d (Codex P2 on #189, same rule as Checkout's None): rate 0 is the INITIAL state,
+          // not an answer — the lit cap on it presented "No tip" as a promoted choice on arrival.
+          const lit = on && rate !== 0;
           return (
             <button
               key={rate}
@@ -134,7 +141,7 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
               onClick={() => selectTip(rate)}
               // W19 — the shared .checkout-tip-on lit cap (the inline on-state here had already
               // drifted from Checkout's; the class ends the fork).
-              className={`checkout-tip${on ? " checkout-tip-on" : ""}`}
+              className={`checkout-tip${lit ? " checkout-tip-on" : ""}`}
               style={{
                 flex: 1,
                 minHeight: 44,

@@ -173,7 +173,14 @@ for (const [category, items] of [...byCategory.entries()].sort(
     );
     const top = ranked[0];
     const best = top?.p;
-    const qty = ranked.filter((h) => h.exact).reduce((a, h) => a + h.p.qty, 0);
+    // W21d (Codex P2 on #187) — the units column follows the SAME price-agreement distinction as
+    // the displayed price: summing every exact-name hit attributed a $100 catering tray's 20 units
+    // to the $10 dish (oil-rice-with-peas read 26 when the dish sold 6). When at least one exact
+    // row rings OUR price, only agreeing rows count; when none does (a price we deliberately
+    // diverge on), all exact rows still count — zero would misread as "never sold".
+    const exactHits = ranked.filter((h) => h.exact);
+    const agreeing = exactHits.filter((h) => agrees(h.p));
+    const qty = (agreeing.length > 0 ? agreeing : exactHits).reduce((a, h) => a + h.p.qty, 0);
     lines.push(
       `| ${cell(i.name_en)}${i.is_sold_out ? " ⛔" : ""}${i.is_active ? "" : " (inactive)"} | ${cell(i.name_my)} | ${usd(i.base_price_cents)} | ${cell(i.tax_category)} | ${i.mod_groups} | ${i.has_photo ? "✅" : "❌"} | ${cell((i.tags ?? []).join(" · "))} | ${cell((i.allergens ?? []).join(" · "))} | ${top ? `${top.exact ? "" : "≈ "}${cell(best.pos)}` : "—"} | ${best ? posUsd(best.price) : "—"} | ${best ? `${posUsd(best.dine)} / ${posUsd(best.togo)}` : "—"} | ${qty || "—"} |`,
     );

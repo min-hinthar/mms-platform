@@ -861,3 +861,55 @@ delete from item_modifier_groups
   where group_id = 'ad144971-f0d5-4095-8d24-43d2bf774fe5'
     and item_id in (select id from menu_items where slug in
       ('mohinga','ohno-khao-swe','coconut-chicken-and-rice'));
+
+-- ============ W21d — post-migration parity (Codex backlog sweep: #185, #187, #190) ============
+-- On a fresh database, migrations run BEFORE this seed (supabase/config.toml), so guarded UPDATEs
+-- in the W17d-1/W17d-2/W19 migrations no-op — the rows don't exist yet — and the tuples above then
+-- insert the OLD values. This appendix re-applies those updates AFTER the inserts so a fresh
+-- environment agrees with upgraded production. Each statement mirrors its migration verbatim
+-- (same guards → idempotent, and a later manager edit is never stomped).
+
+-- W17d-1 (20260816030000) — the two POS 2026 price alignments.
+update menu_items set base_price_cents = 1000
+ where slug = 'balachaung' and base_price_cents = 300;
+update menu_items set base_price_cents = 3500
+ where slug = 'crab-masala-curry' and base_price_cents = 3000;
+
+-- W17d-2 (20260816040000) — the four Burmese spelling fixes.
+update menu_items set name_my = 'လက်ဖက်ရည်'
+ where slug = 'burmese-milk-tea' and name_my = 'လက်ဖတ်ရည်';
+update menu_items set name_my = 'လက်ဖက်သုပ်'
+ where slug = 'pickled-tea-salad' and name_my = 'လက်ဖတ်သုပ်';
+update menu_items set name_my = 'ငါးရံ့အူဟင်း'
+ where slug = 'snakehead-innards-curry' and name_my = 'ငါးရံအူဟင်း';
+update menu_items set name_my = 'အမဲထောင်းကြော်'
+ where slug = 'beef-pounded-deep-fried' and name_my = 'အမဲထေါင်းကြော်';
+
+-- W19 (20260816050000) — the six seed-resident legacy slugs' house-voice descriptions.
+update menu_items as m set description_en = v.d, description_my = v.my from (values
+    ('veggie-fritters',
+     'A basket of assorted vegetable fritters, fried crackling — the teahouse classic that starts every good story.',
+     'အကြော်စုံ ကြွပ်ကြွပ်လေးတွေ — လက်ဖက်ရည်ဆိုင် ဂန္ထဝင်၊ စကားစပြောရင်း ကုန်သွားတတ်ပါတယ်။'),
+    ('ngapi-and-veggies',
+     'Pounded ngapi dip ringed with fresh and boiled vegetables — bold, briny, built for dunking.',
+     'ငပိထောင်းနဲ့ ဟင်းသီးဟင်းရွက်စုံ — ရဲရင့်တဲ့အရသာ၊ တို့စရာအတွက် မွေးထားတာပါ။'),
+    ('malar-spicy-beef',
+     'Beef simmered in numbing-spicy mala chili oil — tingly, fiery, gloriously unfair to the rice.',
+     'အမဲသားကို မာလာဆီစပ်စပ်ထဲ နှပ်ထားတာ — လျှာထုံစပ်ရှိန်းပြီး ထမင်းတွေ ကုန်ပါတယ်။'),
+    ('white-peas',
+     'Boiled white peas under fried onions and oil — humble, warm, quietly essential.',
+     'ပဲပြုတ်ပေါ် ကြက်သွန်ကြော်နဲ့ ဆီဆမ်းထားတာ — ရိုးရိုးလေးပေမယ့် မရှိမဖြစ်ပါ။'),
+    ('shark-energy-drink',
+     'SHARK energy, 8.4 oz and ice-cold — the regulars’ pick.',
+     'SHARK အားဖြည့်ဖျော်ရည် 8.4 oz အေးအေးလေး — ပုံမှန်လာသူတွေရဲ့ အကြိုက်ပါ။'),
+    ('pop-soda',
+     'Assorted 12 oz sodas, ice-cold — pick your can.',
+     'ဆိုဒါအမျိုးမျိုး 12 oz ဗူးအေးအေး — ကြိုက်တာ ရွေးလိုက်ပါ။')
+) as v(slug, d, my)
+where m.slug = v.slug;
+
+-- W21d (20260816080000) — the two allergen amendments, restated for rows the seed inserted.
+update menu_items set allergens = array_append(allergens, 'dairy')
+ where slug = 'sanwin-makin' and not ('dairy' = any(allergens));
+update menu_items set allergens = array_append(allergens, 'fish')
+ where slug = 'shrimp-crispy-fish-sauce' and not ('fish' = any(allergens));

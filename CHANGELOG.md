@@ -4,6 +4,56 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W21d — the Codex backlog sweep (2026-08-16)
+
+Owner: _"check all other Codex reviews you haven't analyzed that might be worth fixing."_ Codex
+reviewed every PR since #178 (its install), and until the W21 process fix nobody read them: 31
+findings across #178–#190, all landed post-merge. Triage: 18 fixed here, 5 closed by a decisive
+prod measurement, 4 already fixed by later work, 4 justified/deferred to OPEN-ITEMS.
+
+- **Allergen safety (#187, both P1s):** Sanwin Makin declares **dairy** (butter is in its own
+  description), Crispy Shrimp in Fish Sauce declares **fish** — migration `20260816080000` +
+  catalog snapshot + seed; the item sheet's "Contains" line now tells the whole truth.
+- **Money (#183 P1):** a locale decimal COMMA in the cash-tip/tendered fields was deleted, turning
+  "5,00" into a **$500** tip — commas now normalize to a point. (#184 P1): a kiosk tip intent
+  arriving after the counter screen mounted was silently dropped — it now syncs into the field
+  unless the cashier already typed. (#183 P2): the cash settle reports the PERSISTED order's
+  total, not an echo of the request (two same-staff tabs can race; the ledger is the truth).
+- **One house ladder, finally everywhere (#182):** SharePay's split-tip ask still offered the
+  pre-W17c-3 15/18/20 — it now reads `TIP_LADDER` like every other surface, with the quiet-None
+  convention. (#189): "None"/"No tip" no longer wears the lit gold cap in the UNANSWERED initial
+  state (checkout + share) — aria-pressed keeps the truth; the visual stays quiet.
+- **Price editor (#180, P1+3×P2):** the action now verifies the price the manager's SCREEN showed
+  (`expectedPriceCents` — the old CAS only guarded the server's own read-to-write window); the
+  zero-row re-read distinguishes outage from deletion; a rejected Server Action no longer wedges
+  "Saving…" forever; a successful save parks focus on the search field instead of `<body>`.
+- **Register/tips (#186, 3×P2):** a server's query now carries `settled_by = me OR IS NULL` (the
+  shared bucket intact, colleagues' rows never read into the process); both paged money reads
+  gained an `id` tiebreaker (tied `created_at` across a page boundary could duplicate/drop rows);
+  a failed name lookup falls back to `Staff #id` instead of collapsing everyone into "A teammate".
+- **Kiosk (#184/#188):** upsell adds now await the refreshed cart INSIDE the transition and the
+  footer disables meanwhile (a fast continue tipped a percentage of the pre-upsell subtotal);
+  presets whose derived cents breach the $1,000 cap are never offered (the write refuses them and
+  the kiosk deliberately swallows the result); recovering from a failed read refocuses the open
+  step's heading. The kiosk No-tip ghost weight is DELIBERATE (owner: "none is not encouraged").
+- **Plant-based honesty (carried from #192's Codex round):** the 🌱 taste chip now EXCLUDES
+  `vegan-optional` — the dietary predicate's own fail-safe rule (the default prep of an
+  Everything-Salad-class dish is not plant-based), so those dishes leave its recommendations.
+- **Custom tip honesty (#190):** the cap line now quotes the EFFECTIVE ceiling
+  (`min($1,000, 4000·net)`) — on a promo-crushed net the old line stayed silent while the clamp
+  charged less than the typed figure.
+- **Fresh-DB parity (#185/#187/#190):** migrations run before seed, so their guarded UPDATEs
+  no-op on fresh databases — a seed appendix now re-applies the two POS prices, four Burmese
+  spellings, six house-voice descriptions, and the two allergen amendments post-insert.
+- **Docs truth (#178/#179/#181/#187):** the W17a "zero markup" sweep had real holes (paid carts
+  excluded, toggle-repriced lines missed, factor-before-modifiers) — closed by a decisive prod
+  measurement (zero orders in the W16a window; addendum in W17_PLAN); the audit ledger is
+  "un-forgeable", not "unskippable"; the menu reference's units column follows the same
+  price-agreement rule as its price column (a $100 catering tray's 20 units no longer inflate the
+  $10 dish); the uncommitted `w17d2_build.py` claim stands corrected by the addendum's committed
+  probe. Deferred with open items: M54 (kiosk-tip atomic lock), M55 (price-audit atomicity +
+  CASCADE ledger).
+
 ### W21c — the design language, written down (2026-08-16)
 
 Owner: _"with insights and design thinking UI/UX preferences from start to W21, update repo docs,

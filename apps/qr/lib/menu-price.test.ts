@@ -117,8 +117,19 @@ beforeEach(() => {
 });
 
 describe("setMenuPrice — the one human-entered amount in the app", () => {
+  it("W21d — refuses when the price MOVED since the manager's screen rendered", async () => {
+    // The screen showed $14 → the manager confirms $16 — but another manager already set $18.
+    // The old id-keyed CAS read the LIVE $18 and wrote $16 anyway; the confirmation was a lie.
+    itemRow = { id: ITEM, name_en: "Mohinga", base_price_cents: 1800 };
+    const r = await setMenuPrice({ menuItemId: ITEM, priceCents: 1600, expectedPriceCents: 1400 });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("$18.00");
+    expect(updates).toEqual([]); // nothing written
+    expect(audits).toEqual([]); // no ledger row claiming a change that shouldn't happen
+  });
+
   it("writes the new price and records old → new against the caller", async () => {
-    const r = await setMenuPrice({ menuItemId: ITEM, priceCents: 1600 });
+    const r = await setMenuPrice({ menuItemId: ITEM, priceCents: 1600, expectedPriceCents: 1400 });
     expect(r).toEqual({ ok: true, priceCents: 1600 });
     expect(updates.map((u) => u.patch)).toEqual([{ base_price_cents: 1600 }]);
     // The write is compare-and-swapped on the price we read, not just the id.
@@ -135,7 +146,7 @@ describe("setMenuPrice — the one human-entered amount in the app", () => {
 
   it("gates at MANAGER, and a refused caller changes nothing", async () => {
     gateResult = { ok: false, error: "That needs a manager — ask one to step in." };
-    const r = await setMenuPrice({ menuItemId: ITEM, priceCents: 1600 });
+    const r = await setMenuPrice({ menuItemId: ITEM, priceCents: 1600, expectedPriceCents: 1400 });
     expect(r).toEqual({ ok: false, error: "That needs a manager — ask one to step in." });
     expect(gateCalls).toEqual(["manager"]); // not the default "server" floor
     expect(updates).toHaveLength(0);
@@ -148,7 +159,7 @@ describe("setMenuPrice — the one human-entered amount in the app", () => {
     ["negative", -1400],
     ["fractional cents", 1400.5],
   ])("refuses a price %s before the gate or any write", async (_label, priceCents) => {
-    const r = await setMenuPrice({ menuItemId: ITEM, priceCents });
+    const r = await setMenuPrice({ menuItemId: ITEM, priceCents, expectedPriceCents: 1400 });
     expect(r.ok).toBe(false);
     // Bounded BEFORE the gate: an out-of-range amount never reaches an authorization check, and is
     // never clamped into a plausible-looking price.
@@ -159,7 +170,7 @@ describe("setMenuPrice — the one human-entered amount in the app", () => {
   it("a zero-row update over a VANISHED dish says the dish is gone", async () => {
     updatedRow = null; // the `.select("id")` came back empty — the write matched nothing
     itemRow = null; // ...and the re-read confirms it: the dish is really gone
-    const r = await setMenuPrice({ menuItemId: ITEM, priceCents: 1600 });
+    const r = await setMenuPrice({ menuItemId: ITEM, priceCents: 1600, expectedPriceCents: 1400 });
     expect(r).toEqual({ ok: false, error: "That dish is no longer on the menu." });
     expect(audits).toHaveLength(0); // no price moved, so no ledger row claims one did
   });
@@ -169,7 +180,7 @@ describe("setMenuPrice — the one human-entered amount in the app", () => {
     // zero rows, so our 1600 must NOT land — and, above all, no ledger row may claim we changed it
     // "from 1400", which was already gone. That stale old_price_cents is the whole reason for the CAS.
     raceTo = 1800; // our read sees 1400; the row is 1800 by the time our write runs
-    const r = await setMenuPrice({ menuItemId: ITEM, priceCents: 1600 });
+    const r = await setMenuPrice({ menuItemId: ITEM, priceCents: 1600, expectedPriceCents: 1400 });
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.error).toContain("Someone else just set");
@@ -182,7 +193,7 @@ describe("setMenuPrice — the one human-entered amount in the app", () => {
   it("a read TRANSPORT failure is an outage, never the verdict 'no such dish'", async () => {
     itemRow = null;
     readError = { message: "fetch failed" };
-    const r = await setMenuPrice({ menuItemId: ITEM, priceCents: 1600 });
+    const r = await setMenuPrice({ menuItemId: ITEM, priceCents: 1600, expectedPriceCents: 1400 });
     expect(r.ok).toBe(false);
     expect(r).not.toEqual({ ok: false, error: "That dish is no longer on the menu." });
     expect(updates).toHaveLength(0);
@@ -190,19 +201,19 @@ describe("setMenuPrice — the one human-entered amount in the app", () => {
 
   it("a genuinely missing dish says so", async () => {
     itemRow = null;
-    const r = await setMenuPrice({ menuItemId: ITEM, priceCents: 1600 });
+    const r = await setMenuPrice({ menuItemId: ITEM, priceCents: 1600, expectedPriceCents: 1400 });
     expect(r).toEqual({ ok: false, error: "That dish is no longer on the menu." });
   });
 
   it("a write failure reports the failure — never a success we did not get", async () => {
     updateError = { message: "violates check constraint" };
-    const r = await setMenuPrice({ menuItemId: ITEM, priceCents: 1600 });
+    const r = await setMenuPrice({ menuItemId: ITEM, priceCents: 1600, expectedPriceCents: 1400 });
     expect(r.ok).toBe(false);
     expect(audits).toHaveLength(0);
   });
 
   it("setting the SAME price is a no-op — no write, no ledger row", async () => {
-    const r = await setMenuPrice({ menuItemId: ITEM, priceCents: 1400 });
+    const r = await setMenuPrice({ menuItemId: ITEM, priceCents: 1400, expectedPriceCents: 1400 });
     expect(r).toEqual({ ok: true, priceCents: 1400 });
     expect(updates).toHaveLength(0);
     expect(audits).toHaveLength(0);
@@ -210,7 +221,7 @@ describe("setMenuPrice — the one human-entered amount in the app", () => {
 
   it("an unrecorded change is surfaced, not swallowed into a clean success", async () => {
     auditError = { message: "insert failed" };
-    const r = await setMenuPrice({ menuItemId: ITEM, priceCents: 1600 });
+    const r = await setMenuPrice({ menuItemId: ITEM, priceCents: 1600, expectedPriceCents: 1400 });
     expect(r.ok).toBe(false);
     // The price DID land, and the copy has to say so — the manager must not re-enter it and be
     // told nothing changed, nor walk away believing the log has their name in it.

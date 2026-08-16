@@ -31,7 +31,10 @@ export default async function StaffTipsPage() {
 
   const { report, names, scope } = res;
   const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
-  const nameFor = (id: string) => names[id] ?? "A teammate";
+  // W21d (Codex P2 on #186) — when the (deliberately non-fatal) name lookup fails, fall back to
+  // the ID the lib promised, shortened: "A teammate" collapsed every row into one label (a manager
+  // couldn't tell whose amount was whose, and a server read the absurd "A teammate · you").
+  const nameFor = (id: string) => names[id] ?? `Staff #${id.slice(0, 8)}`;
 
   return (
     <main style={wrap}>

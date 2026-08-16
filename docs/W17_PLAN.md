@@ -114,6 +114,15 @@ order by ci.created_at;
 
 Paid orders are history and must NOT be rewritten — they carry what was really charged.
 
+**Addendum (W21d, from Codex's #179 review — the sweep above had holes, closed by a stronger
+measurement.)** The open-lines sweep couldn't support "nothing was ever ORDERED through the markup"
+on its own: it excluded carts already `paid`, lines created before the window but re-priced by a
+fulfillment toggle during it, and its example formula applied the factor before modifier deltas.
+The decisive probe (run against prod 2026-08-16, W21d): **zero `qr_orders` rows were created in
+the W16a window** (2026-08-15T19:16Z → 2026-08-16T02:31Z; 11 orders ever exist, all June test
+data) **and zero open-cart lines from that window survive** — so no charge and no chargeable line
+ever carried the markup, closing the question for every shape the review named.
+
 ---
 
 ## W17b — the staff price editor ✅ (2026-08-16) · per-mode price DEFERRED
@@ -132,7 +141,9 @@ the decision the rule protects. What changes is which number `priceItem` reads n
   column CHECK. `base_price_cents` was writable only by a migration until now.
 - **`menu_price_audit`** records old → new against the caller's `staffId`. Manager+ read; **no insert
   policy at all**, so only the service-role path can append — which is what makes the ledger
-  unskippable. An insert failure is **surfaced**, not swallowed; the price is not rolled back,
+  un-forgeable (W21d, Codex on #181: not "unskippable" — an insert FAILURE after the committed
+  price update leaves a change with no row, which is why the failure copy tells the manager to
+  report it; atomicity is OPEN-ITEMS M55). An insert failure is **surfaced**, not swallowed; the price is not rolled back,
   because an unrecorded correct price beats a reverted one the kitchen already heard about.
 - **Nobody is re-priced mid-meal:** `unit_price_cents` is stamped at add time and nothing here
   touches `qr_cart_items`.

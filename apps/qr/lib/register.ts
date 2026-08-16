@@ -287,7 +287,10 @@ export async function getDayCashSummary(): Promise<DayCashResult> {
       .select("tender,total_cents,status,tip_cents")
       .gte("created_at", sinceIso)
       .in("status", ["paid", "refunded"])
+      // W21d — same paged-tie rule as getDayTips: `created_at` alone can order tied rows
+      // differently across page boundaries, duplicating or dropping money rows.
       .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) return { ok: false, reason: "outage" };
     rows.push(...(data ?? []));
@@ -328,12 +331,12 @@ export async function getDayTips(): Promise<TipReportResult> {
   const sinceIso = laDayStartIso(new Date());
   const db = serviceClient();
 
-  // Read the WHOLE day, then narrow in-process. The first version scoped the QUERY
-  // (`.eq("settled_by", me)`) for a server — which does hide colleagues, and also makes a null
-  // `settled_by` structurally impossible, so every server was shown "guests tipped $0.00 on their
-  // phones" as fact, directly under a promise that nothing here is an estimate. A privacy filter had
-  // become a lie about money. `scopeToSelf` does the narrowing instead: their own line, the shared
-  // bucket intact. Nothing about a colleague ever reaches the client.
+  // W21d (Codex P2 on #186) — scope the QUERY for a server, with the predicate that keeps the
+  // shared bucket: `settled_by = me OR settled_by IS NULL`. The first version's plain
+  // `.eq("settled_by", me)` made a null settled_by structurally impossible ("guests tipped $0.00
+  // on their phones" as fact); the in-process-only narrowing that replaced it fixed the lie but
+  // pulled every colleague's rows into a server's read process — the role contract says they must
+  // never arrive at all. The OR keeps both truths; `scopeToSelf` below stays as the belt.
   //
   // Paged explicitly, like getDayCashSummary above and for the same reason: PostgREST truncates at
   // its max-rows (default 1000) with `error` still null, and a silently short tip figure is exactly
@@ -342,12 +345,18 @@ export async function getDayTips(): Promise<TipReportResult> {
   const rows: TipOrderRow[] = [];
   const PAGE = 1000;
   for (let from = 0; ; from += PAGE) {
-    const { data, error } = await db
+    let q = db
       .from("qr_orders")
       .select("settled_by,tip_cents,status")
       .gte("created_at", sinceIso)
-      .eq("status", "paid")
+      .eq("status", "paid");
+    if (!seesEveryone) q = q.or(`settled_by.eq.${caller.staffId},settled_by.is.null`);
+    const { data, error } = await q
+      // W21d (Codex P2 on #186) — `created_at` is not unique, and page boundaries between separate
+      // offset queries can order tied rows differently: a duplicate or omission is a silently wrong
+      // money total. `id` is the stable tiebreaker.
       .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
       .range(from, from + PAGE - 1);
     // A failed read is unknowable, never "you were tipped nothing" — the worst false verdict on a
     // screen whose whole job is telling someone what they earned.

@@ -330,9 +330,9 @@ const MUTANTS = [
     id: "cash-tip/collected-total-drops-the-tip",
     file: "apps/qr/lib/staff-cart.ts",
     suite: "lib/cash-tip.test.ts",
-    why: "W17c-2 — getCartTotals is called with tipRate 0, so its total is TIP-FREE. Dropping the tip from the collected amount makes the change helper, the tab-close audit row and the analytics event all quote less than the cashier actually took — the guest is handed the tip back as change, and the audit row reads as an unexplained gap against qr_orders",
-    find: "    const collectedCents = totals.totalCents + tipCents;",
-    replace: "    const collectedCents = totals.totalCents;",
+    why: "W17c-2→W21d — the collected amount is read back from the PERSISTED order row (a raced duplicate settle early-returns the FIRST order without this request's tip; echoing request arithmetic quotes money the ledger never recorded). Ignoring the row resurrects exactly that echo — the change helper, tab-close audit row and analytics quote a figure qr_orders doesn't hold",
+    find: "    const collectedCents = orderRow?.total_cents ?? totals.totalCents + tipCents;",
+    replace: "    const collectedCents = totals.totalCents + tipCents;",
   },
   {
     id: "cash-tip/counted-as-extra-drawer-money",

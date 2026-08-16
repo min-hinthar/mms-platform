@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { settleCash } from "@/lib/staff-cart";
 import { changeDue } from "@/lib/register-math";
-import { tipPresets } from "@/lib/tip";
+import { tipPresets, tipWithinAmountCap } from "@/lib/tip";
 import { Card } from "@mms/ui";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -59,6 +59,26 @@ export function CashSettleButton({
   const [tip, setTip] = useState(
     intendedTipCents != null ? (intendedTipCents / 100).toFixed(2) : "",
   );
+  // W21d (Codex P1 on #184) — the kiosk intent can arrive AFTER this control mounts (staff opens
+  // the order before the guest answers the prompt; the realtime/5s refresh updates the prop, but a
+  // useState initializer never re-runs). Sync the first non-null intent into the field UNLESS the
+  // cashier already typed — their hands beat the wire, and a sync must never overwrite a human.
+  const tipTouched = useRef(false);
+  useEffect(() => {
+    if (intendedTipCents != null && !tipTouched.current)
+      setTip((intendedTipCents / 100).toFixed(2));
+  }, [intendedTipCents]);
+  // W21d (Codex P1 on #183, then its P2 on #193) — commas are AMBIGUOUS: "5,00" is a decimal
+  // comma (deleting it recorded a $500 tip for a $5 one), while "1,234.56" is US grouping
+  // (turning every comma into a point made parseFloat stop at 1.23). Disambiguate: with a dot
+  // present, commas are grouping — strip them; comma-only input is a decimal comma when 1–2
+  // digits follow it at the end ("5,00"), grouping otherwise ("1,234").
+  const sanitizeMoney = (raw: string) => {
+    const normalized = raw.includes(".")
+      ? raw.replace(/,/g, "")
+      : raw.replace(/,(?=\d{1,2}$)/, ".").replace(/,/g, "");
+    return normalized.replace(/[^0-9.]/g, "");
+  };
   const tipCents = Math.max(0, Math.round(Number.parseFloat(tip || "0") * 100) || 0);
   const tipValid = tipCents <= 100000;
   // What the cashier actually collects. Everything below — the confirm question, the settle button,
@@ -134,29 +154,34 @@ export function CashSettleButton({
                 arithmetic at the counter. They fill the field (they do not settle), so the amount
                 stays visible and adjustable before anything is recorded. */}
             <div role="group" aria-label="Quick tip amounts" style={tipChipRow}>
-              {tipPresets(tipBaseCents ?? 0).map((p) => {
-                // The SAME base and the SAME rounding the diner and kiosk use, so an identical
-                // label means an identical amount wherever the guest happens to be standing.
-                const cents = Math.round((tipBaseCents ?? 0) * p.rate);
-                // Lit while the FIELD holds this chip's amount — the field is the single source of
-                // the value (the chip only fills it), so the pressed state is derived, never stored,
-                // and hand-editing the field unlights the chip the moment they diverge (the
-                // checkout chips' idiom, and the W17c "name it once" rule applied to UI state).
-                const on = tip === (cents / 100).toFixed(2);
-                return (
-                  <button
-                    key={p.label}
-                    type="button"
-                    className="staff-btn"
-                    aria-pressed={on}
-                    style={on ? tipChipOn : tipChip}
-                    onClick={() => setTip((cents / 100).toFixed(2))}
-                  >
-                    {p.label}
-                    <span style={on ? tipChipAmountOn : tipChipAmount}>{fmt(cents)}</span>
-                  </button>
-                );
-              })}
+              {tipPresets(tipBaseCents ?? 0)
+                .filter((p) => tipWithinAmountCap(Math.round((tipBaseCents ?? 0) * p.rate)))
+                .map((p) => {
+                  // The SAME base and the SAME rounding the diner and kiosk use, so an identical
+                  // label means an identical amount wherever the guest happens to be standing.
+                  const cents = Math.round((tipBaseCents ?? 0) * p.rate);
+                  // Lit while the FIELD holds this chip's amount — the field is the single source of
+                  // the value (the chip only fills it), so the pressed state is derived, never stored,
+                  // and hand-editing the field unlights the chip the moment they diverge (the
+                  // checkout chips' idiom, and the W17c "name it once" rule applied to UI state).
+                  const on = tip === (cents / 100).toFixed(2);
+                  return (
+                    <button
+                      key={p.label}
+                      type="button"
+                      className="staff-btn"
+                      aria-pressed={on}
+                      style={on ? tipChipOn : tipChip}
+                      onClick={() => {
+                        tipTouched.current = true;
+                        setTip((cents / 100).toFixed(2));
+                      }}
+                    >
+                      {p.label}
+                      <span style={on ? tipChipAmountOn : tipChipAmount}>{fmt(cents)}</span>
+                    </button>
+                  );
+                })}
               {/* An ACTION (clears the field), not a state — no aria-pressed: the emptied field is
                   its own visible answer, and a "pressed None" lying beside a typed amount would
                   claim two truths at once. */}
@@ -164,7 +189,10 @@ export function CashSettleButton({
                 type="button"
                 className="staff-btn"
                 style={tipChip}
-                onClick={() => setTip("")}
+                onClick={() => {
+                  tipTouched.current = true;
+                  setTip("");
+                }}
               >
                 None
               </button>
@@ -175,7 +203,10 @@ export function CashSettleButton({
               autoComplete="off"
               placeholder="e.g. 5"
               value={tip}
-              onChange={(e) => setTip(e.target.value.replace(/[^0-9.]/g, ""))}
+              onChange={(e) => {
+                tipTouched.current = true;
+                setTip(sanitizeMoney(e.target.value));
+              }}
               aria-describedby={
                 !tipValid ? "cash-tip-cap" : intendedTipCents != null ? "cash-tip-kiosk" : undefined
               }
@@ -214,7 +245,7 @@ export function CashSettleButton({
                 autoComplete="off"
                 placeholder="e.g. 40"
                 value={tendered}
-                onChange={(e) => setTendered(e.target.value.replace(/[^0-9.]/g, ""))}
+                onChange={(e) => setTendered(sanitizeMoney(e.target.value))}
                 style={tenderInput}
               />
               <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)", minHeight: 18 }}>

@@ -1710,13 +1710,20 @@ export function Checkout({
                         }}
                         // W19 — the ladder WARMS as it climbs (checkout-tip-heat reads --tip-heat):
                         // 15% is barely gilded, 30% glows — the encouragement is the gradient, not
-                        // a nag. Selection lights the full gold cap (checkout-tip-on).
-                        className={`checkout-tip${on ? " checkout-tip-on" : ""}${
+                        // a nag. Selection lights the full gold cap (checkout-tip-on) — EXCEPT on
+                        // None (W21d, Codex P2 on #189): tipRate initializes to 0, so the zero
+                        // chip is "on" before the diner has answered anything, and the gold cap
+                        // presented the unanswered state as a promoted choice. None stays QUIET
+                        // even when pressed (aria-pressed keeps the truth for AT); a subtle ink
+                        // lift marks it without celebrating it.
+                        className={`checkout-tip${on && !isNone ? " checkout-tip-on" : ""}${
                           !on && !isNone ? " checkout-tip-heat" : ""
                         }`}
                         style={{
                           ...tipChipStyle(),
-                          ...(isNone && !on ? { color: "var(--t3)", fontWeight: 600 } : null),
+                          ...(isNone
+                            ? { color: on ? "var(--t2)" : "var(--t3)", fontWeight: on ? 700 : 600 }
+                            : null),
                           ...(lockedByPeer ? { opacity: 0.55 } : null),
                           ...({ "--tip-heat": chipIdx } as CSSProperties),
                         }}
@@ -1803,7 +1810,8 @@ export function Checkout({
                         inputMode="decimal"
                         aria-label="Custom tip amount in dollars"
                         aria-describedby={
-                          parseFloat(customTip) * 100 > TIP_AMOUNT_MAX_CENTS
+                          parseFloat(customTip) * 100 >
+                          Math.min(TIP_AMOUNT_MAX_CENTS, 4000 * tipNet)
                             ? "custom-tip-cap"
                             : undefined
                         }
@@ -1826,18 +1834,28 @@ export function Checkout({
                         bound). The line appears only past $1,000, still gratitude-first — the bound
                         must stay spoken because silently charging less than typed is a wrong
                         number. */}
-                    {parseFloat(customTip) * 100 > TIP_AMOUNT_MAX_CENTS && (
-                      <p
-                        id="custom-tip-cap"
-                        style={{
-                          margin: "4px 2px 0",
-                          fontSize: "var(--fs-sm)",
-                          color: "var(--t3)",
-                        }}
-                      >
-                        Wow — thank you! $1,000.00 is the most we can take here.
-                      </p>
-                    )}
+                    {(() => {
+                      // W21d (Codex P2 on #190) — the honest ceiling is the LOWER of the $1,000
+                      // house cap and the transport rail's 4000·net (a flat promo can legally
+                      // crush net below 25¢). The clamp already charges at most this; the line
+                      // must SAY so, or a typed $100 on a promo-crushed basket silently becomes
+                      // a smaller charge with the input still reading $100.
+                      const effectiveCapCents = Math.min(TIP_AMOUNT_MAX_CENTS, 4000 * tipNet);
+                      if (!(parseFloat(customTip) * 100 > effectiveCapCents)) return null;
+                      return (
+                        <p
+                          id="custom-tip-cap"
+                          style={{
+                            margin: "4px 2px 0",
+                            fontSize: "var(--fs-sm)",
+                            color: "var(--t3)",
+                          }}
+                        >
+                          Wow — thank you! ${(effectiveCapCents / 100).toFixed(2)} is the most we
+                          can take on this order.
+                        </p>
+                      );
+                    })()}
                   </div>
                 )}
               </>

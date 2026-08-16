@@ -36,7 +36,7 @@ export async function setMenuPrice(raw: unknown): Promise<SetMenuPriceResult> {
   // The bound is the message: a manager who typed 190000 should be told the ceiling, not handed a
   // generic refusal that reads like a bug.
   if (!parsed.success) return { ok: false, error: "Enter a price between $0.25 and $5,000.00." };
-  const { menuItemId, priceCents } = parsed.data;
+  const { menuItemId, priceCents, expectedPriceCents } = parsed.data;
 
   // MANAGER floor. Server Actions are public POST endpoints — the console's UI gating is cosmetic
   // and this is the authority. staffGate distinguishes outage from sign-in from role, so a manager
@@ -63,6 +63,14 @@ export async function setMenuPrice(raw: unknown): Promise<SetMenuPriceResult> {
     return { ok: false, error: PRICE_OUTAGE };
   }
   if (!before) return { ok: false, error: "That dish is no longer on the menu." };
+  // W21d (Codex P1 on #180) — the confirmation is only valid against the price the manager SAW.
+  // The CAS below already guards the server's read-to-write window; this guards the human's
+  // render-to-confirm window, which is minutes long on a busy console.
+  if (before.base_price_cents !== expectedPriceCents)
+    return {
+      ok: false,
+      error: `Someone else just set ${before.name_en} to ${dollars(before.base_price_cents)} — nothing was changed. Check the new price and try again.`,
+    };
   if (before.base_price_cents === priceCents) return { ok: true, priceCents }; // no-op: no ledger row
 
   // COMPARE-AND-SWAP on the price we just read, not just the id. Two managers on two tablets can be
@@ -90,11 +98,18 @@ export async function setMenuPrice(raw: unknown): Promise<SetMenuPriceResult> {
   // find out which, and treat an unreadable answer as the race (the conservative direction: it tells
   // the manager to look again, rather than claiming a dish vanished when it did not).
   if (!written) {
-    const { data: now } = await db
+    const { data: now, error: nowErr } = await db
       .from("menu_items")
       .select("base_price_cents")
       .eq("id", menuItemId)
       .maybeSingle();
+    // W21d (Codex P2 on #180) — a transport failure here also lands as `data: null`; dropping the
+    // error verdict turned an outage into a confident "that dish was removed", precisely during a
+    // concurrent edit or blip. Unreadable ⇒ outage, never a deletion verdict.
+    if (nowErr) {
+      console.error("[menu-price] re-read failed", nowErr.message);
+      return { ok: false, error: PRICE_OUTAGE };
+    }
     if (now == null) return { ok: false, error: "That dish is no longer on the menu." };
     return {
       ok: false,

@@ -40,7 +40,7 @@ means we already carry the dish, whatever the English label says.
 | Goat-Marrow Soup | ဆိတ်ရိုးစွပ်ပြုတ် | $19.00 | hot_prepared | 1 | ✅ | allergen-reviewed | — | — | — | — | — |
 | Mixed Veggie & Shrimp Stir Fry Over Rice | ရန်ကုန်ထမင်းပေါင်း | $20.00 | hot_prepared | 2 | ✅ | — | egg · shellfish | ≈ Rice w/Veggies ထမင်းပေါင်း | $16.00 | $16.00 / — | — |
 | Ngapi-Rice Salad | ငပိထမင်း | $13.00 | hot_prepared | 2 | ✅ | — | fish · egg | Ngapi-Rice Salad ငပိထမင်း | $13.00 | $13.00 / $13.00 | 39 |
-| Oil-Drizzled Rice with Peas | ပဲပြုတ်ထမင်းဆီဆမ်း | $10.00 | hot_prepared | 0 | ❌ | — | — | ပဲပြုတ်ထမင်းဆီဆမ်း Burmese Rice | $10.00 | $10.00 / — | 26 |
+| Oil-Drizzled Rice with Peas | ပဲပြုတ်ထမင်းဆီဆမ်း | $10.00 | hot_prepared | 0 | ❌ | — | — | ပဲပြုတ်ထမင်းဆီဆမ်း Burmese Rice | $10.00 | $10.00 / — | 6 |
 | Peas Naan-Pyar | ပဲ နံပြား | $10.00 | hot_prepared | 1 | ✅ | — | gluten_wheat | ≈ ပဲ နံပြား (ပါဆယ်) Naan Bread w/ Beans | $10.00 | — / $10.00 | — |
 | Rakhine Mont-Ti | ရခိုင်မုန့်တီ | $14.00 | hot_prepared | 2 | ✅ | — | fish | ရခိုင်မုန့်တီ Rakhine Noodles | $14.00 | $14.00 / — | 126 |
 | Rice with Pickled Tea Salad | လက်ဖက်ထမင်း | $13.00 | hot_prepared | 2 | ✅ | vegan-optional | egg · peanuts · shellfish | Tea-Rice Salad လက်ဖက်ထမင်း | $13.00 | $13.00 / $13.00 | 36 |
@@ -109,7 +109,7 @@ means we already carry the dish, whatever the English label says.
 | Boneless Catfish Curry | ငါးခူမွှေချက် | $14.00 | hot_prepared | 1 | ✅ | — | fish | Catfish Boneless ငါးခူမွှေချက် | $14.00 | $14.00 / $14.00 | 318 |
 | Catfish Head Curry (Mon-Style) | ငါးခေါင်းမွန်ချက် | $17.00 | hot_prepared | 0 | ❌ | — | fish | Catfish Head Mon ငါးခေါင်းမွန်ချက် | $17.00 | $17.00 / $17.00 | 72 |
 | Crab Masala Curry | ဂဏန်းမဆလာ | $35.00 | hot_prepared | 2 | ✅ | spicy_optional | shellfish | Crab Masala ဂဏန်းမဆလာ | $35.00 | $35.00 / $35.00 | 93 |
-| Crispy Shrimp in Fish Sauce | ပုဇွန်ကြော်စပ် | $15.00 | hot_prepared | 0 | ❌ | — | shellfish | Shrimp Crispy FishSauce ပုဇွန်ကြော်စပ် | $15.00 | — / $15.00 | 26 |
+| Crispy Shrimp in Fish Sauce | ပုဇွန်ကြော်စပ် | $15.00 | hot_prepared | 0 | ❌ | — | shellfish · fish | Shrimp Crispy FishSauce ပုဇွန်ကြော်စပ် | $15.00 | — / $15.00 | 26 |
 | Dried Silurus Fried | ငါးကျည်းခြောက်ကြော် | $25.00 | hot_prepared | 0 | ❌ | — | fish | Silurus Dried ငါးကျည်း‌ခြောက်ကြော် | $25.00 | $25.00 / — | 68 |
 | Dried Snakehead Grilled | ငါးရံ့ခြောက်ဖုတ် | $25.00 | hot_prepared | 0 | ❌ | — | fish | Snakehead Dried ငါးရံ့ခြောက်ဖုတ် | $25.00 | $25.00 / — | 40 |
 | Fermented Fish Paste Nga-Pi | ငပိရည်ကျို | $14.00 | hot_prepared | 1 | ✅ | — | fish | — | — | — | — |
@@ -146,7 +146,7 @@ means we already carry the dish, whatever the English label says.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Coconut Sago | အုန်းနို့သာကူ | $10.00 | cold_food | 0 | ❌ | — | — | အုန်းနို့သာကူ Coconut Sago | $10.00 | $10.00 / — | 17 |
 | Fresh Fruit Platter | သီးစုံအချိုပွဲ | $12.00 | cold_food | 0 | ❌ | vegan | — | Fresh Fruits သီးစုံအချိုပွဲ | $12.00 | $12.00 / $12.00 | 12 |
-| Sanwin Makin (Semolina Cake) | ဆနွင်းမကင်း | $10.00 | cold_food | 0 | ❌ | — | gluten_wheat | ဆနွင်းမကင်း Wheat Husk Sweets | $10.00 | $10.00 / — | 48 |
+| Sanwin Makin (Semolina Cake) | ဆနွင်းမကင်း | $10.00 | cold_food | 0 | ❌ | — | gluten_wheat · dairy | ဆနွင်းမကင်း Wheat Husk Sweets | $10.00 | $10.00 / — | 48 |
 
 ### Drinks
 

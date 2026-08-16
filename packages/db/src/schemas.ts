@@ -443,6 +443,11 @@ export const setKioskTipInput = z.object({
 export const setMenuPriceInput = z.object({
   menuItemId: uuid,
   priceCents: z.number().int().min(25).max(500000),
+  // W21d (Codex P1 on #180) — the price the manager's SCREEN showed when they confirmed. The
+  // server refuses when the live value differs: the old id-keyed CAS only guarded the server's own
+  // read-to-write window, so a confirmation visibly reading "$14 → $16" could overwrite another
+  // manager's fresher $18.
+  expectedPriceCents: z.number().int().min(25).max(500000),
 });
 
 /** setCartCustomerName (W6a) — the register's call-out identity for a cash order. Staff-gated; the
