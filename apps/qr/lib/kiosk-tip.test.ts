@@ -47,6 +47,9 @@ vi.mock("./posthog-server", () => ({
 
 const updates: { patch: Record<string, unknown>; filters: Record<string, unknown> }[] = [];
 let updateError: { message: string } | null = null;
+/** Rows the UPDATE matched. `[]` models the race the status predicate exists to block: a settle
+ *  landed between the authz check and the write, so nothing was updated. */
+let updatedRows: { id: string }[] = [{ id: "c-1" }];
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     from: () => ({
@@ -55,11 +58,17 @@ vi.mock("@mms/db/server", () => ({
         const chain: Record<string, unknown> = {
           eq: (col: string, val: unknown) => {
             filters[col] = val;
-            // The action awaits the LAST .eq() — record then resolve.
-            updates.push({ patch, filters });
-            return Object.assign(Promise.resolve({ error: updateError }), chain);
+            return chain;
           },
-          select: () => chain,
+          // The action awaits the terminal `.select("id")` — record the call there, and answer with
+          // the rows the predicates actually matched.
+          select: () => {
+            updates.push({ patch, filters });
+            return Promise.resolve({
+              data: updateError ? null : updatedRows,
+              error: updateError,
+            });
+          },
         };
         return chain;
       },
@@ -76,6 +85,7 @@ const CART = "44444444-4444-4444-8444-444444444444";
 beforeEach(() => {
   updates.length = 0;
   updateError = null;
+  updatedRows = [{ id: "c-1" }];
   authz = { uid: "u-1", sessionId: "s-1", locked: false, settling: false };
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -127,6 +137,14 @@ describe("setKioskTip — the guest's choice, stored as an intent", () => {
 
   it("a failed write is reported, never a silent ok", async () => {
     updateError = { message: "boom" };
+    expect(await setKioskTip({ cartId: CART, tipCents: 500 })).toEqual({ ok: false });
+  });
+
+  it("a write the status predicate BLOCKED is not reported as ok", async () => {
+    // The race the predicate exists for: a settle landed between the authz check and the write, so
+    // zero rows matched. `.update()` returns no row count and no error, so without the `.select`
+    // verdict this would claim to have recorded an intent that never landed.
+    updatedRows = [];
     expect(await setKioskTip({ cartId: CART, tipCents: 500 })).toEqual({ ok: false });
   });
 });

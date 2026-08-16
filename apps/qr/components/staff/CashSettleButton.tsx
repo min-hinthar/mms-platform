@@ -18,6 +18,7 @@ const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 export function CashSettleButton({
   sessionId,
   totalCents,
+  tipBaseCents = null,
   intendedTipCents = null,
   isTab = false,
   handoff = false,
@@ -25,6 +26,11 @@ export function CashSettleButton({
 }: {
   sessionId: string;
   totalCents: number;
+  /** W17c-3 — the tip BASE (subtotal − discount, BEFORE tax) the quick-tip chips offer percentages
+   *  against. NOT `totalCents`, which is tax-inclusive: the review's HIGH was that a "20%" chip
+   *  computed off the tax-inclusive total charges ~9% more than the identically-labelled chip at
+   *  the kiosk. Null when the total is unreadable — the chips simply don't render. */
+  tipBaseCents?: number | null;
   /** W17c-3 — what the KIOSK guest chose on their way to the counter. `null` = never asked (every
    *  non-kiosk cart). It PRE-FILLS the field below; the cashier still confirms, because only the
    *  person who takes the money knows what was actually handed over. */
@@ -128,8 +134,10 @@ export function CashSettleButton({
                 arithmetic at the counter. They fill the field (they do not settle), so the amount
                 stays visible and adjustable before anything is recorded. */}
             <div role="group" aria-label="Quick tip amounts" style={tipChipRow}>
-              {tipPresets(totalCents).map((p) => {
-                const cents = Math.round(totalCents * p.rate);
+              {tipPresets(tipBaseCents ?? 0).map((p) => {
+                // The SAME base and the SAME rounding the diner and kiosk use, so an identical
+                // label means an identical amount wherever the guest happens to be standing.
+                const cents = Math.round((tipBaseCents ?? 0) * p.rate);
                 return (
                   <button
                     key={p.label}

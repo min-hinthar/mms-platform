@@ -240,8 +240,16 @@ const MUTANTS = [
     file: "apps/qr/lib/cart.ts",
     suite: "lib/kiosk-tip.test.ts",
     why: "W17c-3 — without `status=open` IN the UPDATE, a settle landing between the authz check and the write repoints the tip a cashier is already counting against; the check above it is a read that can go stale",
-    find: '    .eq("id", cartId)\n    .eq("status", "open");',
-    replace: '    .eq("id", cartId);',
+    find: '    .eq("id", cartId)\n    .eq("status", "open")\n    .select("id");',
+    replace: '    .eq("id", cartId)\n    .select("id");',
+  },
+  {
+    id: "kiosk-tip/blocked-write-reads-as-ok",
+    file: "apps/qr/lib/cart.ts",
+    suite: "lib/kiosk-tip.test.ts",
+    why: 'W17c-3 review MED — `.update()` returns no row count, so the status predicate can correctly BLOCK the write and the action still answers ok, claiming an intent nobody recorded. The same trap applyPromo closes with `.select("id")`',
+    find: "  if (!data || data.length === 0) return { ok: false };",
+    replace: "",
   },
   {
     id: "kiosk-tip/movable-while-settling",

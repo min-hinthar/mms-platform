@@ -452,6 +452,7 @@ export function FloorDetailLive({
           <CashSettleButton
             sessionId={sessionId}
             totalCents={detail.settleTotalCents}
+            tipBaseCents={detail.settleTipBaseCents}
             intendedTipCents={detail.intendedTipCents}
             isTab={detail.tab !== "none"}
             // W6a: a counter (register) order ends in a handoff — tendered/change helper + the

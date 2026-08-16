@@ -703,14 +703,19 @@ export async function setKioskTip(raw: unknown): Promise<{ ok: boolean }> {
   const db = serviceClient();
   // Status-guarded IN THE STATEMENT, not just above it: a settle landing between the check and this
   // write must not repoint the tip a cashier is already reading.
-  const { error } = await db
+  const { data, error } = await db
     .from("qr_carts")
     .update({ intended_tip_cents: tipCents })
     .eq("id", cartId)
-    .eq("status", "open");
+    .eq("status", "open")
+    .select("id");
   if (error) {
     console.error("[cart] setKioskTip failed", error.message);
     return { ok: false };
   }
+  // `.update()` returns no row count, so the status predicate above can block the write and still
+  // report success — the same trap `applyPromo` closes with `.select("id")`. If a settle landed in
+  // the race window the guard did its job, and saying "ok" would claim an intent nobody recorded.
+  if (!data || data.length === 0) return { ok: false };
   return { ok: true };
 }

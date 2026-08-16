@@ -100,6 +100,10 @@ export type TableDetail = {
    *  items. Computed by getCartTotals (the single tax engine), so the staff sees the real charge, not a
    *  pre-tax guess. Only on the detail (one table), never the floor hot path. */
   settleTotalCents: number | null;
+  /** W17c-3 — the tip BASE the server uses (subtotal − discount, BEFORE tax). Percentages are
+   *  offered against this on every surface; `settleTotalCents` is tax-inclusive and offering
+   *  against it makes the same "20%" label charge more at the register than at the kiosk. */
+  settleTipBaseCents: number | null;
   /** W17c-3 — the tip a KIOSK guest chose before walking to the counter. `null` means they were
    *  never asked (every non-kiosk cart); `0` means they were asked and chose to leave nothing. The
    *  settle UI shows those differently, so the distinction has to survive the read. */
