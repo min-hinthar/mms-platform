@@ -327,6 +327,14 @@ const MUTANTS = [
     replace: "      p_tip_cents: 0,",
   },
   {
+    id: "track/breakdown-drops-the-tip",
+    file: "apps/qr/lib/track-order.ts",
+    suite: "lib/track-order.test.ts",
+    why: "W22r — the /track slip renders the order's breakdown VERBATIM through one shared mapper (three read paths depend on it). Zeroing a carried cent field renders a receipt that disagrees with the charge while every other suite stays green — the exact silent-drift class the shared shape exists to kill",
+    find: "      tipCents: data.tip_cents ?? 0,",
+    replace: "      tipCents: 0,",
+  },
+  {
     id: "cash-tip/collected-total-drops-the-tip",
     file: "apps/qr/lib/staff-cart.ts",
     suite: "lib/cash-tip.test.ts",

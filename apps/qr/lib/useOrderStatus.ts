@@ -7,6 +7,9 @@ import { shapeTrackedOrder, TRACK_ORDER_SELECT, type TrackedOrder } from "./trac
 // W22r — the shape moved to lib/track-order.ts (one select + one mapper shared with the two
 // fallback reads in lib/orders.ts, so the live and snapshot orders can never drift apart).
 // Re-exported so existing importers keep working.
+// verify:slice-exempt — thin subscription/poll wiring with no money derivation of its own: every
+// money field it carries is mapped in lib/track-order.ts, where the track/breakdown-drops-the-tip
+// mutant and lib/track-order.test.ts pin the carriage.
 export type { TrackedOrder } from "./track-order";
 
 export type OrderStatus = {
