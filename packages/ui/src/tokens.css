@@ -130,6 +130,9 @@
      positive/zero-spread wide layer reads as a hard square frame over busy backdrops (the delivery
      card-over-photo gotcha). Pairs with the inset --sheen lip at the consumer. */
   --sh-paper: 0 1px 3px -1px rgba(35, 24, 16, 0.07), 0 14px 28px -18px rgba(35, 24, 16, 0.28);
+  /* Its hover partner — the SAME two-tier shape, deeper (a hover that swapped back to the flat
+     --sh-md read as the shadow flattening mid-lift — adversarial LOW on #195). */
+  --sh-paper-hover: 0 2px 6px -2px rgba(35, 24, 16, 0.09), 0 20px 40px -20px rgba(35, 24, 16, 0.34);
   /* z-index scale — SINGLE source of truth (theme-agnostic; defined here only). Ordering intent:
      content < sticky toolbar < scrim < sheet < celebrations. The sheet sits ABOVE the sticky toolbar so
      a bottom sheet is never painted-over by (or has its drag-to-close zone stolen by) the toolbar — the
@@ -193,6 +196,7 @@
   --sh-lift: 0 2px 8px -1px color-mix(in oklab, var(--ac) 52%, transparent);
   /* W22a two-tier mirror — Night eats soft shadows, so both layers deepen (same shape). */
   --sh-paper: 0 1px 3px -1px rgba(0, 0, 0, 0.5), 0 16px 32px -18px rgba(0, 0, 0, 0.6);
+  --sh-paper-hover: 0 2px 6px -2px rgba(0, 0, 0, 0.55), 0 22px 44px -20px rgba(0, 0, 0, 0.68);
   --scrim: rgba(0, 0, 0, 0.6); /* deeper dim on Night so the lifted sheet still separates */
 }
 @media (prefers-reduced-motion: reduce) {

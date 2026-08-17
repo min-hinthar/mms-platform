@@ -542,7 +542,10 @@ h3 {
     transform: translateY(8px);
   }
   to {
-    clip-path: inset(-8px 0 -8px 0);
+    /* The `both` fill RETAINS this end state forever — so it must sit fully outside the
+       --sh-paper spread (wide layer reaches ~10px sideways / ~24px below), or the freshly-printed
+       slip keeps a shaved shadow versus its revisit/RM twin (adversarial MED on #195). */
+    clip-path: inset(-24px -32px -44px -32px);
     transform: translateY(0);
   }
 }
@@ -646,7 +649,9 @@ h3 {
 }
 @keyframes mmsSettle {
   from {
-    opacity: 0;
+    /* 0.4, not 0 (adversarial LOW): focus lands on the Undo control the same frame this starts —
+       a from-zero fade would hide the focus ring for the first frames (WCAG 2.4.7). */
+    opacity: 0.4;
     transform: translateY(5px) scale(0.985);
   }
   to {
@@ -758,11 +763,11 @@ h3 {
 @media (hover: hover) {
   .card-interactive:hover {
     transform: translateY(-2px);
-    /* W22a — the lift keeps the sheen lip (the base .card now carries it; dropping it on hover
-       made the edge flicker) and deepens through the same two-tier language. */
+    /* W22a — the lift keeps the sheen lip and DEEPENS the same two-tier shape (--sh-paper-hover);
+       swapping back to the flat --sh-md read as the shadow flattening mid-lift. */
     box-shadow:
       inset 0 1px 0 var(--sheen),
-      var(--sh-md);
+      var(--sh-paper-hover);
   }
 }
 .card-interactive:active {
