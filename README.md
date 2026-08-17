@@ -5,7 +5,6 @@
 ### Mandalay Morning Star — dine-in QR ordering, pickup & grocery scan-and-go
 
 [![CI](https://github.com/min-hinthar/mms-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/min-hinthar/mms-platform/actions/workflows/ci.yml)
-[![Docs gate](https://github.com/min-hinthar/mms-platform/actions/workflows/require-docs-update.yml/badge.svg)](https://github.com/min-hinthar/mms-platform/actions/workflows/require-docs-update.yml)
 [![Next.js](https://img.shields.io/badge/Next.js-16.2.9-black?logo=next.js)](https://nextjs.org)
 [![React](https://img.shields.io/badge/React-19.2.7-61DAFB?logo=react)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript)](https://www.typescriptlang.org)
@@ -15,7 +14,7 @@
 [![Stripe](https://img.shields.io/badge/Stripe-Payment%20Element-635BFF?logo=stripe)](https://stripe.com)
 [![License](https://img.shields.io/badge/license-private-lightgrey)](#-license)
 
-**Build:** M0–M4 · S1–S4 · R1–R9 · J0–J6 ✅ — shipped through **W22r** (receipts · receipt email · live tracking) · **Gate:** 586 qr tests + 41 ui tests · 124 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
+**Build:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 ✅ (M1 🟡 — code done, owner-blocked infra tail) — shipped through **W22r** (receipts · receipt email · live tracking) · **Gate:** 586 qr tests + 41 ui tests · 124 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
 
 </div>
 
@@ -155,8 +154,9 @@ The gate — run all three before any PR:
 pnpm turbo lint typecheck build test   # what CI runs
 pnpm verify:slice                      # the MECHANICAL money-path gate: coverage guard + 124 semantic
                                        # mutations (each MUST turn its owning suite red) + orphan check.
-                                       # ⚠️ rewrites apps/qr/lib/{totals-math,split-math,tax,permissions}.ts
-                                       # IN PLACE and restores them — never run two against one checkout.
+                                       # ⚠️ rewrites the 38 money/authority modules it mutates IN PLACE
+                                       # (37 under apps/qr/lib + create-share-intent/route.ts) and restores
+                                       # them. It ABORTS if a target file is DIRTY, so commit first.
 pnpm check:docs                        # GFM table parity (prettier INTRODUCES the breaks) + live-state
                                        # doc counts MEASURED via `vitest list`, never transcribed
 ```
@@ -187,7 +187,7 @@ Set values in **Vercel → Project → Settings → Environment Variables** (sco
 
 ## ▲ Deploy on Vercel
 
-One Vercel **Project per app**. Import `mms-platform`, set **Root Directory = `apps/qr`** (repeat later for `apps/delivery`). Vercel auto-detects Turborepo; [`apps/qr/vercel.json`](apps/qr/vercel.json)'s `turbo-ignore` skips a build when the app didn't change. Push to `main` = production; every PR = a preview URL. Details: [Vercel monorepos](https://vercel.com/docs/monorepos/turborepo).
+One Vercel **Project per app**. Import `mms-platform` and set **Root Directory = `apps/qr`** — the only app in this repo (the delivery PWA deploys from its own). Vercel auto-detects Turborepo; [`apps/qr/vercel.json`](apps/qr/vercel.json)'s `turbo-ignore` skips a build when the app didn't change. Push to `main` = production; every PR = a preview URL. Details: [Vercel monorepos](https://vercel.com/docs/monorepos/turborepo).
 
 ## 🤖 CI, reviews & workflow
 
@@ -197,7 +197,7 @@ One Vercel **Project per app**. Import `mms-platform`, set **Root Directory = `a
 | [`require-docs-update.yml`](.github/workflows/require-docs-update.yml) | PR        | pre-merge gate — a PR touching `apps/**` or `packages/**` must also touch `docs/**`, `CHANGELOG.md`, `ROADMAP.md` or `README.md` (opt out with the `skip-docs` label)                                                                                                 |
 | [`ensure-preview.yml`](.github/workflows/ensure-preview.yml)           | PR        | safety net — force a Vercel preview if the GitHub→Vercel webhook drops the commit                                                                                                                                                                                     |
 
-**The review is in-session, not in CI.** CI runs no Claude review — `review` / `security` / `adversarial-pr` are zero-token, always-green stub checks that only satisfy branch protection. The real gate, in order: `pnpm verify:slice` + `pnpm check:docs` (mechanical, zero tokens), then ONE fresh-context adversarial subagent over the diff (its verdict posted as a PR comment for the record), plus **two Codex rounds** — `@codex review` on the draft, round 2 on the fix commits — fix-or-justify both, then merge and file anything left in [`docs/OPEN-ITEMS.md`](docs/OPEN-ITEMS.md). Calibration for the pass lives in [`.github/claude-review-prompt.md`](.github/claude-review-prompt.md). **Quality:** ESLint + Prettier + knip via a shared `@mms/config` preset (`pnpm lint` / `pnpm format` / `pnpm knip`). **Claude Code** in this repo is configured by [`CLAUDE.md`](CLAUDE.md) + [`.claude/`](.claude) (settings, a post-edit auto-format hook, session-memory hooks, `LEARNINGS`/`ERROR_HISTORY`) and [`.mcp.json`](.mcp.json) (Supabase / GitHub / Sentry MCP). Day-to-day loop: [`docs/WORKFLOW.md`](docs/WORKFLOW.md). Contributing + templates: [`.github/`](.github).
+**The review is in-session, not in CI.** No workflow here runs a Claude review — the `review` / `security` / `adversarial-pr` stub checks that once existed only to satisfy branch protection have been **retired**, so the three workflows above are the whole of CI. The real gate, in order: `pnpm verify:slice` + `pnpm check:docs` (mechanical, zero tokens — `check:docs` also runs inside `ci.yml`, so a stale count fails the PR), then ONE fresh-context adversarial subagent over the diff (its verdict posted as a PR comment for the record), plus **two Codex rounds** — `@codex review` on the draft, round 2 on the fix commits — fix-or-justify both, then merge and file anything left in [`docs/OPEN-ITEMS.md`](docs/OPEN-ITEMS.md). Calibration for the in-session pass lives in [`.github/claude-review-prompt.md`](.github/claude-review-prompt.md). **Quality:** ESLint + Prettier + knip via a shared `@mms/config` preset (`pnpm lint` / `pnpm format` / `pnpm knip`). **Claude Code** in this repo is configured by [`CLAUDE.md`](CLAUDE.md) + [`.claude/`](.claude) (settings, a post-edit auto-format hook, session-memory hooks, `LEARNINGS`/`ERROR_HISTORY`) and [`.mcp.json`](.mcp.json) (Supabase / GitHub / Sentry MCP). Day-to-day loop: [`docs/WORKFLOW.md`](docs/WORKFLOW.md). Contributing + templates: [`.github/`](.github).
 
 ## 🛡 Security & compliance
 

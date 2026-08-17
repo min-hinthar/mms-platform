@@ -76,9 +76,9 @@ They are intentionally lean (no in-app motion-settings store yet — add one whe
    after any scroll the loop did not write; and **stop the rAF loop while blocked** rather than
    ticking a no-op at refresh rate. Listen for the pointer RELEASE on `window` — a mouse press that
    starts on the rail and releases outside it never delivers `pointerup` to the rail, which latches
-   the pause forever. Reduced motion gets the exact static rail, **duplicate DOM included** (no loop
-   set at all), and the cleanup folds the offset back into the real set so a mid-visit RM flip does
-   not jump. An on-screen loop duplicate stays `aria-hidden` + `tabIndex={-1}` but **clickable** —
+   the pause forever. Reduced motion gets the exact static rail with the **duplicate DOM excluded**
+   (`MarqueeRail` appends the loop copies only when motion is on, so there is no loop set at all),
+   and the cleanup folds the offset back into the real set so a mid-visit RM flip does not jump. An on-screen loop duplicate stays `aria-hidden` + `tabIndex={-1}` but **clickable** —
    `inert` makes visible cards tap-dead — and a dupe activation moves focus to its real twin first,
    so no sheet ever restores focus onto an `aria-hidden` node.
 10. **A `both`-filled reveal keeps its end state forever — size it outside the shadow spread

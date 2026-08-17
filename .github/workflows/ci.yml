@@ -21,6 +21,14 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # W22-docs — the docs gate, in CI at last. `check:docs` proves GFM table parity across every
+      # tracked .md (prettier INTRODUCES header/delimiter breaks, and GFM then refuses the WHOLE
+      # table) and re-MEASURES every count the live-state docs quote (`vitest list` + the mutant
+      # registry) instead of trusting the prose. It had been a local-only convention, so a stale
+      # count could — and did — sail through every required check; README's test count was wrong for
+      # five arcs. Pure file + `vitest list` work: no build, no DB, no network. Runs FIRST because
+      # it costs seconds and fails on exactly the kind of drift a reviewer's eye skims past.
+      - run: pnpm check:docs
       # Turborepo runs lint, typecheck, build, test across the affected workspaces (cached).
       # W8 — orphan-suite guard. `vitest run` exits 1 only when ZERO files match its include glob, so
       # a test file dropped outside a workspace's glob is INVISIBLE: it never runs and nothing reports

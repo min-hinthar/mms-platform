@@ -72,19 +72,41 @@ const COUNT_RULES = [
   { re: /(\d+)\s+ui\s+tests/gi, key: "ui", label: "ui tests" },
   { re: /(\d+)\s+`?verify:slice`?\s+mutants/gi, key: "mutants", label: "verify:slice mutants" },
   { re: /verify:slice\s+(\d+)\s+mutants/gi, key: "mutants", label: "verify:slice mutants" },
+  // W22-docs review: README described the same count as "124 semantic mutations", a phrasing NO rule
+  // matched — so the commit that put README under this guard also wrote an unguarded count into it,
+  // two lines from an already-rotted claim. The lesson is the guard's own: a narrow rule set must
+  // still cover every phrasing the docs actually use, or the doc drifts in the gap.
+  { re: /(\d+)\s+semantic\s+mutations?/gi, key: "mutants", label: "verify:slice mutants" },
 ];
+
+/**
+ * Blanks a wrapped shell-comment continuation so a count that straddles two lines is still ONE
+ * phrase to the rules. Found by the W22-docs review: README states the gate's size inside a fenced
+ * `bash` block whose comment wraps, so `124 verify:slice` ended one line and `# mutants` began the
+ * next — the `#` sits where the rules expect whitespace, and EVERY rule silently missed it (a
+ * planted 999 stayed green). The `#` and its padding become spaces while the newline SURVIVES, so
+ * offsets and line numbers are byte-identical to the original and the reported anchor stays exact.
+ */
+const joinWrappedComments = (text) =>
+  text.replace(
+    /\n([ \t]*)#([ \t]*)/g,
+    (_m, before, after) => "\n" + " ".repeat(before.length + 1 + after.length),
+  );
 
 export function countFailures(text, truth, name = "<doc>") {
   const out = [];
   const lines = text.split("\n");
+  const scan = joinWrappedComments(text);
   for (const rule of COUNT_RULES) {
-    for (const m of text.matchAll(rule.re)) {
+    for (const m of scan.matchAll(rule.re)) {
       const stated = Number(m[1]);
       if (stated === truth[rule.key]) continue;
-      const lineNo = text.slice(0, m.index).split("\n").length;
+      const lineNo = scan.slice(0, m.index).split("\n").length;
       const line = lines[lineNo - 1] ?? "";
-      // Even inside a live-state doc, a line may deliberately record a past number.
-      if (/at (?:the )?time|at that point|was written|historical/i.test(line)) continue;
+      // Even inside a live-state doc, a line may deliberately record a past number ("88 mutants at
+      // the time (124 today)"). Deliberately NOT "was written": that phrase turned up in CLAUDE.md
+      // as ordinary prose about a guard, exempting the gate-size count on the same line.
+      if (/at (?:the )?time|at that point|as of \d|historical/i.test(line)) continue;
       out.push(
         `${name}:${lineNo} — says ${stated} ${rule.label}, measured ${truth[rule.key]}\n` +
           c.dim(`      ${line.trim().slice(0, 110)}`),
@@ -126,7 +148,7 @@ function main() {
    *  W22-docs: README joined the set the day it started quoting the gate's size — the front door is
    *  where a stale number is read most and noticed least (its "M0 scaffold" headline survived ~20
    *  merged arcs). Note README sits at the ROOT, so the pattern must not require a docs/ prefix. */
-  const liveState = docs.filter((f) => /^(README|docs\/(OPEN-ITEMS|HANDOFF))\.md$/.test(f));
+  const liveState = docs.filter((f) => /^(README|CLAUDE|docs\/(OPEN-ITEMS|HANDOFF))\.md$/.test(f));
 
   process.stdout.write("docs — tables render, counts are measured … ");
   const failures = [];

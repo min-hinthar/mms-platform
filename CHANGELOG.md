@@ -32,6 +32,36 @@ instead of aging quietly.
   chain (and that the hosted badge needs a publicly reachable origin); BACKEND_ARCHITECTURE lists
   `packages/db/src/factory.ts`; W22_DESIGN_PROPOSAL marks W22a + W22r shipped;
   QR_FROM_DELIVERY logs the second wave.
+- **The docs gate now runs in CI, and can actually fail.** Codex round 1 found the hole the whole
+  entry above rested on: **no workflow invoked `pnpm check:docs`**, so every count guard in it — the
+  new README coverage included — was decorative on a PR. `ci.yml`'s `build` job runs it first now
+  (pure file + `vitest list` work: no build, no DB, no network).
+- **Two holes in the guard itself, both found by planting a wrong number and watching it pass.**
+  (1) README states the gate's size inside a fenced `bash` block whose comment **wraps**, so
+  `124 verify:slice` ended one line and `# mutants` began the next — the `#` sits where every rule
+  expects whitespace, and a planted `999` stayed green. `countFailures` now blanks a wrapped
+  comment continuation while preserving the newline, so offsets and reported line numbers stay
+  byte-exact. (2) The historical-number exemption matched the bare phrase **"was written"**, which
+  appears in `CLAUDE.md` as ordinary prose about a guard — exempting the gate-size count on the same
+  line. Narrowed to `at (the) time` / `at that point` / `as of <year>` / `historical`, all of which
+  are genuinely load-bearing in `HANDOFF.md`. **`CLAUDE.md` also joined the live-state set** — it
+  quotes the gate's size and was never measured. Both fixes proven red-first.
+- **`docs/WORKFLOW.md` rewritten** — it was the doc README and CLAUDE.md both point to for the loop,
+  and it still documented five workflows that no longer exist (`claude-review.yml`,
+  `adversarial-pr.yml`, `claude-fix-pr-comments.yml`, a weekly `adversarial.yml`, plus the
+  `review`/`security`/`adversarial-pr` stub checks). It now describes the three real workflows, the
+  draft-PR/two-Codex-round/one-adversarial-pass gate, and the HARD CAP — with a banner for readers
+  who remember the old loop. `.github/claude-review-prompt.md` and `.claude/LEARNINGS.md` #51 stop
+  claiming the retired stubs are still configured.
+- **The QA checklist no longer calls the card path live.** It said "the card path is LIVE"; C2 is
+  open, which means prod holds **live** Stripe keys while the **live webhook is unconfigured** — the
+  one state where a real charge can succeed and `mms_fulfill_order` never fires. Now stated as
+  code-complete on test keys and **blocked on C2**. The reduced-motion row had also been _replaced_
+  by a rail-specific one, leaving every other animated surface with no acceptance check — the
+  general row is back, with the rail row beside it.
+- **`docs/MOTION_AND_PERF.md`** — the rails' reduced-motion path said "duplicate DOM **included**";
+  `MarqueeRail` appends the loop copies only when motion is on, so it is **excluded**. Left as-is,
+  the motion authority invited a future implementation to render redundant hidden cards.
 - **`docs/OPEN-ITEMS.md`** — five new registry rows found while reading the code against the docs:
   **M57** the receipt-sent stamp is blind to the send result, **M58** a bounce never un-claims
   "✓ sent", **M59** plain-text money rows run together, **M60** /account history drops kitchen
