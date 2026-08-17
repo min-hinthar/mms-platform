@@ -483,8 +483,89 @@ per the track's definition of done):
 - **O-G channel triage** — one color dimension (urgency strip) + one symbolic (channel badge); HELD
   scheduled cards never age red; the board hides them until fire time. ≈4.6
 
-QA-CHECKLIST §A items touched (44px targets · accessible names · one live region · focus-on-unmount ·
-`prefers-reduced-motion` off-switches · `role="list"`) re-checked on the new KDS/expo/board/ItemSheet
-surfaces during the pre-PR sweep; SQL invariants proven behaviorally on the local stack (16 scenario
-checks incl. grant lockdown + double-apply idempotency). Boxes in QA-CHECKLIST.md stay unchecked by
-design — this section is the record.
+## W22 (the drift · the warm paper · the receipts) — QA sweep close (2026-08-17)
+
+Three merged arcs — **W22a** (#194, the drifting Start-here twin rows + one taste-buds pill bar),
+**W22a·depth** (#195, the warm-paper pass), **W22r** (#196, receipts · receipt email · live tracking)
+— swept against the checklist. Per-PR detail is in `CHANGELOG.md` + each PR's posted adversarial
+verdict; this is the QA record. **Scope:** W22 only. The trail still has no entries for S2/S3/M4/S4 or
+W4–W21 (`docs/S4_AUDIT.md` P2 "dead since S1.2", still open in `docs/HANDOFF.md`) — that backfill is
+its own pass.
+
+- **§A 44px targets — swept, green.** Every control W22 added clears the floor: the Start-here
+  pause/play coin (`min-width`/`min-height: 44px` around a 26px visual disc — `.start-here-pause`),
+  the moved dietary pills beside the cravings (`.taste-chip` `min-height: 44px`), and the receipt's
+  identity foot, where the tel/mailto links take `padding: 14px 4px` with a matching negative margin
+  so the fine-print line box never inflates (`ReceiptCard.tsx` `identityLink`) — a link is a target
+  even when it looks like fine print, and it prints unchanged.
+- **§A one polite live region — green on /track, still RED on the bill.** `OrderTracker` carries
+  exactly ONE `role="status"`; every other status-shaped block in that file is commented as
+  deliberately-not-live (the paid card, the exit pass, the counter beat) and defers to it. The
+  checkout/bill view is the opposite: `Checkout.tsx` owns "the ONE polite live region for the review
+  step", and `RewardField` **and** `SendToKitchenButton` each still declare their own — **three**
+  announcers on the money step, not the two `docs/OPEN-ITEMS.md` M37 records. W22a·depth touched
+  `SendToKitchenButton` (the settle + beat) without closing it; M37's count is corrected rather than
+  the finding papered over.
+- **§A reduced-motion — every W22 animation has a real off-switch (`animation:none`, not `.01ms`).**
+  The drifting rails: the parent tracks `matchMedia("(prefers-reduced-motion: reduce)")` live behind
+  the legacy `addListener` fallback (a Codex P1 — an unguarded `addEventListener` would take the menu
+  down on exactly the devices the preference is FOR), and RM renders the **exact pre-W22 static
+  rail** — no drift, no duplicate DOM, and no dead pause switch (the control is hidden when motion
+  can't happen). The ceremonies: `mmsPrintReveal` → `animation: none` (the slip renders finished),
+  `.receipt-printhead` → `display: none`, `.mms-send-beat` → `display: none` (a static lingering
+  glyph would be noise, not a fallback), `.mms-settle` → `animation: none`. The page ambient is
+  static by design — nothing to pause.
+- **§A focus — a loop copy never becomes a focus target.** The marquee's duplicate cards are
+  `aria-hidden` + `tabIndex={-1}` yet stay CLICKABLE (`inert` made visibly-on-screen dupes tap-dead
+  — an adversarial HIGH on #194): `pointerdown` is prevented and a capture-phase click parks focus on
+  the REAL twin one loop away (pixel-identical) BEFORE the sheet opens, so the sheet's focus-restore
+  target is always an AT-visible card. Focus inside the rail also pauses the drift — a focused card
+  must not slide away.
+- **§A accessible names + regions — swept.** "Start here" is a labelled `<section>` with the pause
+  control BESIDE the `<h2>`, not inside it (a button in the heading joins its accessible name and
+  narrates "Pause the moving rows" into every announcement — a review LOW); each rail is a real
+  `role="list"` labelled by the heading or its own caption; the shared `DietPills` rail is a
+  `role="group"` labelled by the visible "Dietary needs" caption, falling back to `aria-label` when
+  the toolbar mirrors it without one. Decorative photos/glyphs/emoji are `aria-hidden`; a rank seal
+  keeps its sr-only twin in words.
+- **§A Burmese semantics — one genuine gap, logged not claimed.** In-app MY is subtree-marked
+  (`lang="my"` on the diet-pill accents, the row caption, the taste captions — K15 ledger). The
+  EMAILS are not: `MmsEmailLayout` is `<Html lang="en">` and W22r's new "Mingalabar · မင်္ဂလာပါ"
+  kicker carries no `lang="my"`, matching `OrderReceiptEmail`'s pre-existing MY lines. Harmless in
+  clients that strip `lang`, wrong in the ones that don't → tracked, not ticked.
+- **§B perf / the mobile GPU budget — the invariant held.** W22a·depth's sticky-chrome frost is
+  `@media (min-width: 768px)` only; mobile keeps today's exact opaque paint, and the ambient uses a
+  `radial-gradient` bloom + an SVG grain tile with a plain-value `opacity` fallback FIRST (a rejected
+  `calc()` would have reverted to `opacity: 1` — a full-viewport high-contrast noise layer). No
+  `blur()`/`backdrop-filter` below `md:` anywhere in the diff. The drift is transform-free by design
+  (it writes `scrollTo` on the native scroller, so swipe/chevrons/keyboard all survive) and the rAF
+  loop **stops** while blocked instead of no-op ticking at refresh rate (a Codex P2 — a
+  forever-ticking loop is a battery tax). Photo cost: the loop set doubles each rail's `next/image`
+  renders, all still explicit `160×110` + `sizes="160px"` and lazy until they drift in, so §B P0
+  holds.
+- **Print — the receipt prints as the same document.** The W7a `@media print` block already re-pins
+  the light tokens for `html.dark` (paper has one theme) and hides chrome; W22a·depth added the one
+  line the new layer needed — `.paper-ambient { display: none }` — because a fixed layer repeats on
+  EVERY printed page. The SB-1524 disclosure rides the artifact, the email, and now the /track slip
+  identically.
+- **§E honesty / copy — three refusals worth recording.** The tracker's step rail shows REAL times
+  (`created_at` / `togo_ready_at` / `togo_picked_up_at`) and leaves "In the kitchen" **bare** — the
+  webhook's insert is not a cooking-start, and a plausible-looking clock is the exact violation the
+  design language forbids. `receiptStatusLabel` means a refunded order can never say "Paid in full"
+  on a slip that re-renders live. And `lib/brand.ts` copies every identity string verbatim from the
+  delivery repo's production constants and offers **no hours** — neither repo has any, so none were
+  invented.
+- **§E "Real receipt" — the artifact is a complete business document now** (badge lockup · address ·
+  tel · mailto · destination group headings, only when the basket spans 2+ · per-line kitchen notes ·
+  the pickup contact name), the email ships a true-PNG badge (`public/email-logo.png`, 400×250 — the
+  app's `logo.png` is WebP bytes behind a `.png` name email clients can't decode), a plain-text
+  alternative rendered from the same element, and a `replyTo` that lands in the owner's real inbox.
+  The consent-first capture behind it is unchanged (W7a `ReceiptActions`).
+- Mechanical gates green: `pnpm verify:slice` — 124 mutants at this writing, new
+  `track/breakdown-drops-the-tip`; `useOrderStatus.ts` carries an in-file `verify:slice-exempt`
+  (thin subscription wiring — every money field it carries is mapped and pinned in
+  `lib/track-order.ts`) · `pnpm check:docs` clean · **no migration in any of the three arcs**.
+  `docs/OPEN-ITEMS.md` M56 holds W22a's three noted round-5 polish to-dos; the two-Codex-rounds rule
+  adopted here lives in `CLAUDE.md`.
+
+Boxes in QA-CHECKLIST.md stay unchecked by design — this section is the record.

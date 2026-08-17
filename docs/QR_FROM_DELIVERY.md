@@ -1,6 +1,6 @@
 # QR ← Delivery — transfer backlog (M5)
 
-**Status: backlog of record (2026-06-24).** The synthesis behind the reshaped M5 (see
+**Status: backlog of record (2026-06-24; second wave logged 2026-08-17).** The synthesis behind the reshaped M5 (see
 [`docs/M5_DESIGN.md`](M5_DESIGN.md)). M5 is **no longer a repo migration** — the two apps stay **separate
 repos** (own deploys, own CI, own Supabase projects, the shared Stripe account). Instead, the younger **QR**
 app absorbs the **production-hardened patterns, mobile/a11y craft, and reusable primitives** the live
@@ -59,7 +59,9 @@ edit to QR's shared `@mms/ui` Sheet, checkout forms, and any overlay.
 
 > Shipped: `@mms/ui` foundation primitives `useAnimationPreference` / `useInView` / `useDeviceTier` (lean,
 > SSR-safe) + **`docs/MOTION_AND_PERF.md`** (the full discipline) + the `/track` pulse as the canonical
-> offscreen-pause consumer. `useRipple`/`useTilt` carried to **P5.4** (need component consumers).
+> offscreen-pause consumer. `useRipple`/`useTilt` carried to **P5.4** — and **shipped with Richness R4**
+> (`packages/ui/src/interactions.ts`: `useTilt`/`useMagnetic`/`useHeroParallax`/`useRipple`, exported
+> from the package root, each reduced-motion-gated).
 
 QR's motion is light today (CSS keyframes only). Adopt the _discipline_ now so richer motion lands safe.
 
@@ -87,8 +89,10 @@ QR's motion is light today (CSS keyframes only). Adopt the _discipline_ now so r
 > accidental shadow-drift in 10 inline copies. Shipped a polymorphic `<Card>` (applies `.card`, `ref`-forwarding)
 >
 > - migrated the 10 drifters (9 gained the canonical shadow). **Tinted ok/warn status surfaces → a future
->   `Callout`, not a Card variant.** **Deferred — no QR consumer:** Tooltip, Drawer, tilt; Toast + ripple only if a
->   consumer emerges. (Consumer audit: STRONG for Badge/EmptyState/Avatar/Skeleton/Stepper/Card; NONE for Tooltip/Drawer.)
+>   `Callout`, not a Card variant.** **Deferred — still no QR consumer:** Tooltip, Drawer. (Consumer audit:
+>   STRONG for Badge/EmptyState/Avatar/Skeleton/Stepper/Card; NONE for Tooltip/Drawer.) **Superseded:** tilt +
+>   ripple shipped with Richness R4 (`packages/ui/src/interactions.ts`); a toast consumer emerged but as
+>   app-level CSS (`.mms-toast`, owned by `TableCartProvider`) — promote it only on a second consumer.
 
 QR ships ~50 bespoke domain components and rebuilds primitives inline each time. Promote the missing ones into
 `@mms/ui`, **built to QR tokens**, with delivery's component APIs as the reference (not a copy).
@@ -133,6 +137,33 @@ Delivery-proven, QR-relevant gotchas not already in QR's memory (port the wordin
 - **`useRef` on a conditional render target breaks observers** — use a stable always-rendered wrapper.
 - **Zustand + async (IDB) persist:** use selectors, not `getState()` in `useMemo` (captures pre-hydration snapshot).
 - **E2E:** assert DOM removal with `.count()`, not `.not.toBeVisible()`; never wrap `expect` in an unasserted guard.
+
+## W22 — the second wave (2026-08-16/17): what actually got borrowed
+
+The P5.x slices above transferred _discipline and primitives_. W22 (`docs/W22_DESIGN_PROPOSAL.md`)
+transferred **look and ceremony** — still never a design-system import: every borrow was rebuilt on QR's
+own `@mms/ui/tokens.css` (see "The one correction to make first").
+
+| Ported (W22)                                                                                                                                    | Delivery source                                                                                                     | QR as-built                                                                                                                                                                                                                                                                                                              |
+| ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Two-tier diffuse shadow — tight ambient + a **negative-spread** wide layer (a zero-spread wide layer reads as a hard square frame over a photo) | `docs/hero-design-language.md` (card-elevation gotcha)                                                              | `--sh-paper` / `--sh-paper-hover` in `packages/ui/src/tokens.css`, both themes; `.card` + `.surface-paper` wear it under the inset `--sheen` lip; `.card-interactive:hover` deepens through the hover token, never back to a flat shadow                                                                                 |
+| The R1 texture kit, finally CONSUMED                                                                                                            | `Hero/HeroCardLayers.tsx`, `hero-dotgrid` / `hero-linegrid`                                                         | `.surface-vellum` on the ConfirmSwap decision card; `PaperAmbient` (fixed z:-1, gradient-masked hairline LINE grid + gold bloom + grain) behind every diner main; cards keep the DOTS via `.card-textured` — pages LINES, cards DOTS, never identical. The host must NOT isolate: the page ground moved to `<html>` only |
+| Mobile GPU budget honored on the way in                                                                                                         | `hero-design-language.md` §7.1 (the iOS WebKit OOM incident)                                                        | frost is `md:`+ only (`.app-header` / `.menu-toolbar`); mobile stays opaque and blur-free; the ambient glow is a `radial-gradient`, never a `blur()`                                                                                                                                                                     |
+| The thermal-receipt print reveal                                                                                                                | `src/components/ui/checkout/CheckoutSummaryV8.tsx`                                                                  | `.receipt-slip` / `.receipt-slip-clip` / `.receipt-tear` + `mmsPrintReveal` / `mmsPrintHead` (1.05s, identical curve) on the /track paid slip; the print-head is a SIBLING of the clipped element; totals presentation-only; reduced motion renders it at rest                                                           |
+| The email shell                                                                                                                                 | `src/emails/components/{BrandHeader,BrandFooter,SupportSection}.tsx`                                                | `apps/qr/emails/MmsEmailLayout.tsx` — solid 3-cell triad bar (clients drop gradients), hosted true-PNG badge, "Mingalabar · မင်္ဂလာပါ" kicker, identity footer + socials, and a **per-template** `reason` prop; `apps/qr/lib/email.tsx` adds a plain-text part rendered from the same element + a real `replyTo`         |
+| The email logo asset                                                                                                                            | `public/images/email-logo.png`                                                                                      | `apps/qr/public/email-logo.png` — copied byte-for-byte (md5-identical, true PNG 400×250). QR's own `logo.png` is WebP bytes behind a `.png` name: fine in a browser, undecodable in mail                                                                                                                                 |
+| The identity constants                                                                                                                          | `src/lib/email/constants.ts` (`BUSINESS_ADDRESS`), `homepage/SiteFooter.tsx` (phone), email `BrandFooter` (socials) | `apps/qr/lib/brand.ts` — name · address · display/tel phone · email · Instagram/Facebook, every string verbatim. **No hours** (none exist in either repo, so none were invented)                                                                                                                                         |
+| The support/contact block                                                                                                                       | `src/emails/components/SupportSection.tsx`                                                                          | the identity foot on the receipt artifact, the email footer, and the live-order page; `tel:` / `mailto:` padded to 44px with a matching negative margin so the fine print never inflates                                                                                                                                 |
+
+**Deliberately NOT ported:** delivery's `RollingDigit` baseline-anchor fix — QR rolls money on
+`@number-flow/react`, which owns its own baseline; that lesson applies to hand-rolled reels only. And
+`HeroCardLayers.tsx` itself: the layers were rebuilt to QR tokens, never imported.
+
+**Still deferred after W22:** the installed-native PWA pass + live order chip (W22b — see also P5.6), the
+gesture layer / swipe-to-close on every sheet + a haptics vocabulary (W22c; P5.2's two-layer swipe fix
+still waits on a `@mms/ui` Drawer), designed Night mode + recomputed contrast fixtures (W22d), honest
+personalization (W22e), the opt-in sound identity (W22f). `@mms/ui` primitives still without a QR
+consumer: **Drawer** and **Tooltip**.
 
 ## What stays delivery-only (explicitly out of scope)
 

@@ -1,6 +1,6 @@
 # Claude PR Review — spec
 
-The full instruction set for the automated reviewer (`.github/workflows/claude-review.yml`). Be a skeptical senior reviewer; verify by reading code (cite `file:line`); never manufacture findings.
+Calibration for the **in-session** adversarial review — the fresh-context subagent spawned pre-PR and pre-merge (`CLAUDE.md` → Pre-PR self-review sweep; `docs/WORKFLOW.md` → Review). It is **not** wired to a workflow: the `claude-review.yml` Action this file once configured has been retired, and CI runs nothing metered. Be a skeptical senior reviewer; verify by reading code (cite `file:line`); never manufacture findings.
 
 ## Weight findings by these standards (highest first)
 

@@ -35,6 +35,21 @@ pay success becomes a thermal-receipt print reveal (clip-path + print-head light
   blurs on mobile — the delivery iOS OOM incident), offscreen loops pause, RM everywhere.
 - Effort: M. Risk: low (visual only). Impact: every screen.
 
+## W22r · Documents — receipts, the receipt email, live tracking ⭐ **SHIPPED 2026-08-17**
+
+> Owner-driven, outside the a→f sequence: _"Receipts, email templates, should be as detailed, styled
+> per W22 designs, and polished as delivery app with restaurant logos, addresses, contact
+> information, etc., live trackings should also be detailed, styled, and polished."_
+>
+> As-built: `apps/qr/lib/brand.ts` — the identity ONCE, verbatim from delivery's production
+> constants, no invented hours; the receipt artifact as a complete business document (badge lockup,
+> identity foot, destination group headings, per-line kitchen notes, pickup contact name); the email
+> shell rebuilt to delivery's (hosted true-PNG badge, solid triad bar, bilingual kicker, identity
+> footer + socials, a per-template reason line, a plain-text part + reply-to); and the /track slip
+> itemized off ONE shared shape (`lib/track-order.ts`: one select + one mapper replacing three
+> hand-copied ones) with REAL step timestamps only. No migration — every column already existed.
+> Details: CHANGELOG · DESIGN-LANGUAGE §5/§8/§10 · QR_FROM_DELIVERY § "W22 — the second wave".
+
 ## W22b · Installed-native — PWA polish + the live order chip
 
 Make "add to home screen" feel like the App Store version: manifest + iOS splash/status-bar

@@ -5,11 +5,16 @@ layer, or capability-gated effect. Ported from the delivery app's hard-won rules
 language §7) — the point is that QR adopts the discipline **before** it adds richer motion (P5.4
 primitives and beyond), so it never reintroduces the prod **iOS WebKit OOM crash** delivery hit.
 
-> **QR today:** motion is CSS-only (`fade`/`up` on the Sheet, `mmsPulse` on the `/track` active step) —
-> all already reduced-motion-gated in `globals.css`. There is no framer-motion. The `/track` pulse is
-> the one infinite loop, and it is now the **canonical example** of the rules below (reduced-motion +
-> offscreen-pause via the primitives). Heavy FX (WebGL/particles/parallax) do not exist yet — when they
-> land, they go through `useDeviceTier` per §4.
+> **QR today (2026-08-17):** motion is no longer CSS-only. framer-motion ships behind the root
+> `MotionProvider` (`LazyMotion` + an async `domAnimation` loader, `strict` so only `m.*` compiles,
+> `MotionConfig reducedMotion="user"`), with `DomMaxProvider` nested where drag/layout is needed;
+> money rolls on `@number-flow/react` (re-exported from `@mms/ui`); and
+> `packages/ui/src/interactions.ts` (`useTilt`/`useMagnetic`/`useHeroParallax`/`useRipple`) landed
+> with Richness R4. `globals.css` now holds **eight CSS `infinite` loops** (pulse · shimmer · steam ·
+> merge star · header dot · timeline · KDS red · kiosk drift) plus **one rAF loop** — the W22a
+> `MarqueeRail` drift (§9). The `/track` pulse stays the **canonical example** of §1 + §3
+> (reduced-motion + `useInView` offscreen-pause on a stable `<ul>`). Heavy FX (WebGL/particles) still
+> do not exist — when they land they go through `useDeviceTier` per §5.
 
 ## Foundation primitives (`@mms/ui`)
 
@@ -58,12 +63,47 @@ They are intentionally lean (no in-app motion-settings store yet — add one whe
 8. **Confirm CSS utilities actually emit.** Tailwind v4 silently no-ops unknown utility classes (it does
    not load `tailwind.config.ts`). After adding a non-default utility, grep the built CSS
    (`.next/static/chunks/*.css`) — "build green" ≠ "the class exists".
+9. **Auto-motion needs a real stop control — and must never own the scroller (W22a).** Content that
+   moves without the diner asking (the `MarqueeRail` drift on the Start-here rows) ships a VISIBLE
+   pause/play control — WCAG 2.2.2; hover luck is not a stop mechanism — placed BESIDE the heading,
+   never inside it (a button inside an `<h2>` joins its accessible name and the rails'
+   `aria-labelledby`). Build the drift ON the native scroller (write `scrollLeft`, never a transform
+   track) so swipe, chevron nudges, keyboard tabbing and scroll-into-view all survive. Keep the
+   position in a **float accumulator**: browsers quantize `scrollLeft`, so re-deriving from the
+   read-back rounds a 0.18–0.5px/frame delta to zero and the row sits frozen on DPR-1 desktops and
+   120Hz phones — read `scrollLeft` only to detect someone else steering, then ADOPT their position.
+   Pause on hover (fine pointers only), press, focus-within, offscreen, hidden tab, and for 2.2s
+   after any scroll the loop did not write; and **stop the rAF loop while blocked** rather than
+   ticking a no-op at refresh rate. Listen for the pointer RELEASE on `window` — a mouse press that
+   starts on the rail and releases outside it never delivers `pointerup` to the rail, which latches
+   the pause forever. Reduced motion gets the exact static rail with the **duplicate DOM excluded**
+   (`MarqueeRail` appends the loop copies only when motion is on, so there is no loop set at all),
+   and the cleanup folds the offset back into the real set so a mid-visit RM flip does not jump. An on-screen loop duplicate stays `aria-hidden` + `tabIndex={-1}` but **clickable** —
+   `inert` makes visible cards tap-dead — and a dupe activation moves focus to its real twin first,
+   so no sheet ever restores focus onto an `aria-hidden` node.
+10. **A `both`-filled reveal keeps its end state forever — size it outside the shadow spread
+    (W22a·depth).** The thermal-print receipt animates `clip-path` with `animation-fill-mode: both`,
+    so the final `inset()` is what the slip wears for the rest of the visit: it must clear the
+    `--sh-paper` spread (the wide layer reaches ~10px sideways, ~24px below) or the freshly-printed
+    slip carries a shaved shadow versus its revisit / reduced-motion twin. A moving light that tracks
+    a clip frontier must be a **SIBLING** of the clipped element — a child gets clipped — on the
+    identical duration and easing. Reduced motion renders the finished artifact at rest and
+    `display:none`s the light: a static lingering glyph is noise, not a fallback. And omit `both` on
+    a settle whose end state would outrank a consumer's inline style (`.mms-settle` has no fill mode
+    for exactly that reason), while starting its fade from 0.4, not 0 — focus lands the same frame
+    and a from-zero fade hides the focus ring (WCAG 2.4.7).
 
-## Deferred to P5.4
+## Interaction hooks — shipped (Richness R4)
 
-`useRipple()` / `useTilt()` interaction hooks are **not** in P5.3 — they're meaningless without component
-consumers (a ref + pointer wiring on a real element), so they land in **P5.4** alongside the primitive
-component library that uses them. Port from the delivery repo's `Hero/interactions.ts` /
-`useTiltEffect.ts`, re-skinned to QR tokens. **Carry the caveats verbatim:** no 3D tilt on a card whose
-body holds the primary CTA (the swing moves the CTA out from under the cursor + a square shadow
-artifact), and disable tilt on keyboard focus.
+`useTilt` / `useMagnetic` / `useHeroParallax` / `useRipple` live in `packages/ui/src/interactions.ts` and
+export from the package root — ported from the delivery repo's `Hero/interactions.ts` /
+`useTiltEffect.ts`, re-skinned to `useAnimationPreference` (they no-op under reduced motion,
+rAF-throttle their window listeners, and detach offscreen). **`useRipple` is the exception — it is
+CALLER-gated.** It is framer-free pure state and never calls `useAnimationPreference`, so the consumer
+must check the preference itself before binding: `AddButton` attaches `onPointerDown` only when
+`shouldAnimate`. Bind it unconditionally and reduced-motion users get the ripple anyway. They need framer-motion's `useSpring`, so a
+consumer must be `"use client"` and sit under `MotionProvider`. **The caveats are carried verbatim in the
+module header and still bind:** no 3D tilt on a card whose body holds the primary CTA (the swing moves
+the CTA out from under the cursor + a hard square shadow artifact under `preserve-3d`), disable tilt on
+keyboard focus (tilt is a pointer affordance), and `useHeroParallax` exposes a scroll value but must
+never drive the page backdrop (§7).

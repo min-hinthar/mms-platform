@@ -181,6 +181,9 @@ tax helpers are service-role-only.
 | `POST /api/stripe/create-intent`          | **Route handler** (service-role)                  | **verify caller is a member of the cart** (closes red-team C3)                | Amount = `getCartTotals().totalCents`; idempotency key                   |
 | `POST /api/stripe/webhook`                | **Route handler** (service-role)                  | Stripe signature                                                              | Reconciles `intent.amount` vs `getCartTotals`; calls `mms_fulfill_order` |
 | Group-cart realtime                       | Client (anon session)                             | RLS on `realtime.messages`                                                    | Private channel `table:{id}`; presence + broadcast                       |
+| `/track?r=…` (durable receipt)            | **RSC** (service-role read)                       | the opaque 90-day bearer IS the authz (`mms_receipt_tokens`)                  | Session-less artifact; `noindex`; no live layer mounts                   |
+| Receipt link / email (`lib/receipt.ts`)   | **Server Action** (service-role)                  | SSR uid is the order's **earner** or holds a `qr_order_payers` row            | Rate-limited 5/10min; the Resend send drains in `after()`                |
+| Live order tracking                       | Client Realtime + RSC fallback                    | `qr_order_read` RLS per-subscriber; fallback `earned_by = uid` / payers row   | ONE `TRACK_ORDER_SELECT` + `shapeTrackedOrder` (`lib/track-order.ts`)    |
 
 **Why Server Actions read uid from the SSR cookie session:** the anon session is persisted via
 `@supabase/ssr` cookies, so a Server Action can `createServerClient()` → `getUser()` → uid, then
@@ -194,6 +197,7 @@ authz membership with the service role before mutating. The client never asserts
 packages/db/src/
 ├─ index.ts          ← browserClient() + shared hand types that AREN'T DB-derived (CartTotals…)
 ├─ server.ts         ← serviceClient() (service-role) + sessionClient(token) + serverClient(cookies)
+├─ factory.ts        ← M5·P5.0: the generic, env-INJECTED client constructors both wrappers bind
 ├─ database.types.ts ← GENERATED (supabase gen types) — committed, regenerated in CI
 └─ schemas.ts        ← Zod schemas for every Server Action / route input + parsers
 ```
@@ -209,14 +213,20 @@ packages/db/src/
 
 ## 6 · Schema map (current + planned)
 
-**QR-owned (this repo), all money in cents:**
-`table_sessions`, `session_members` (seat_id = auth.uid()), `qr_carts`, `qr_cart_items`,
-`qr_orders`, `qr_order_items`, `promo_codes`, `grocery_items`, `mms_menu_category_tax`,
-`mms_menu_tax`. Functions: `is_member`/`is_host`, `mms_tax_rate`/`mms_taxable`/`mms_line_tax`,
-`mms_menu_tax_category`, `mms_fulfill_order`.
+**QR-owned — all of it (this repo owns its whole schema; all money in cents).** Sessions + cart/order
+core: `table_sessions`, `session_members` (seat_id = auth.uid()), `qr_carts`, `qr_cart_items`,
+`qr_orders`, `qr_order_items`, `qr_order_payers`, `qr_cart_shares`, `qr_tables`, `promo_codes`.
+**Catalog — owned HERE since the §0 banner, not read from delivery:** `menu_categories`, `menu_items`
+(with `tax_category` a first-class column — the `mms_menu_tax*` side-tables and their resolver were
+dropped), `modifier_groups`, `modifier_options`, `item_modifier_groups`, `grocery_items`. Artifacts +
+identity: `mms_receipt_tokens` (the durable receipt's 90-day bearer — `ARCHITECTURE.md §8`),
+`mms_merge_tokens`, `mms_profiles`, `mms_rewards`/`mms_reward_tiers`, `staff`/`staff_pins`. Functions:
+`is_member`/`is_host`, `mms_tax_rate`/`mms_taxable`/`mms_line_tax`, `mms_fulfill_order` (+
+`mms_fulfill_split_order`/`mms_fulfill_cash_order`). This map names the load-bearing objects only —
+`supabase/migrations/` is the authority.
 
-**Delivery-owned (read-only from QR):** `menu_items`, `menu_categories`, `modifier_groups`,
-`modifier_options`, `item_modifier_groups`, `loyalty_rewards`, `profiles`.
+**Nothing is delivery-owned.** The delivery app runs its own project (`ukuzkhuppqwtrdkjqrkv`) and QR
+reads none of it; the two share **one Stripe account** and nothing else (`CLAUDE.md`).
 
 **Indexing (added in hardening):** covering indexes on every QR FK — `qr_carts(session_id)`,
 `qr_cart_items(cart_id)`, `qr_orders(session_id)`, `qr_order_items(order_id)`,

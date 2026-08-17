@@ -1,6 +1,6 @@
 # Order ownership & authority model
 
-Decisions from a Cowork thinking session (June 2026) on how the order is owned, who may change it, and how voids/refunds are authorized. Not yet built — this informs the dine-in / tab / fallback work (post-M1). It extends, and is enforced by, the server-authoritative + RLS rules in [`RED-TEAM.md`](RED-TEAM.md) and [`RESEARCH-DIGEST.md`](RESEARCH-DIGEST.md).
+Decisions from a Cowork thinking session (June 2026) on how the order is owned, who may change it, and how voids/refunds are authorized. **Built as of W17** — the `canMutate(line_state, actor_role)` guard is `canMutateLine` in `apps/qr/lib/permissions.ts` (mutant-pinned), and the settle channels are `lib/tabs.ts` · `lib/register-math.ts` · `lib/split-settle.ts` · `lib/terminal.ts` · `lib/voids.ts`; treat this as the model to EXTEND. It extends, and is enforced by, the server-authoritative + RLS rules in [`RED-TEAM.md`](RED-TEAM.md) and [`RESEARCH-DIGEST.md`](RESEARCH-DIGEST.md).
 
 ## The spine — the order belongs to the _table_, not the device or channel
 

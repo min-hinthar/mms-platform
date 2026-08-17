@@ -4,6 +4,84 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Docs — the W22 sweep, and README joins the measured-count guard (2026-08-17)
+
+Owner: _"Merge when ready and update Readme, docs, etc"_ — the docs caught up to what W22a,
+W22a·depth and W22r actually shipped, and the guard extended so this class of drift fails CI
+instead of aging quietly.
+
+- **`scripts/check-docs.mjs` now measures README's counts too.** `check:docs` already refused
+  transcribed test/mutant counts in `OPEN-ITEMS.md` + `HANDOFF.md`; README carried the same kind of
+  numbers with no guard, so its "1112 tests" line had been stale since W17. README joins the
+  live-state set — proven red-first (a planted `999 qr tests` failed with
+  `README.md:18 — says 999 qr tests, measured 586`).
+- **README rebuilt around the real topology.** The headline states the shipped tracks and the live
+  gate; the overview and the architecture diagram no longer claim the delivery PWA lives in this
+  monorepo (M5 was reshaped 2026-06-24 — separate repos, own Supabase projects, one Stripe
+  account); the apps/packages table, tech stack, and CI table match what's on disk (three real
+  workflows + the note that the review is in-session, never in CI); the dead claude-review badge is
+  replaced by the docs gate; Features gained the W22a menu bands, the W22r receipts/email/tracking
+  line, and the staff/kitchen surfaces; the tax description is corrected to the category-aware
+  engine on the discounted base.
+- **`CLAUDE.md`, `ROADMAP.md`, `HANDOFF.md`** — the gate commands describe what the scripts do
+  today (124 mutants across 38 money/authority modules, the dirty-target abort, the real CI job
+  list); the roadmap logs W21b–d, W22a, W22a·depth, W22r and rewrites Now/Next/Later; the handoff
+  opens on the W22 slate with the prod-applied migration markers.
+- **Design + reference docs** — DESIGN-LANGUAGE gains the warm-paper layer, the PaperAmbient
+  no-isolate invariant and the receipt/real-clocks rules; ENV documents the diner-receipt sender
+  chain (and that the hosted badge needs a publicly reachable origin); BACKEND_ARCHITECTURE lists
+  `packages/db/src/factory.ts`; W22_DESIGN_PROPOSAL marks W22a + W22r shipped;
+  QR_FROM_DELIVERY logs the second wave.
+- **The docs gate now runs in CI, and can actually fail.** Codex round 1 found the hole the whole
+  entry above rested on: **no workflow invoked `pnpm check:docs`**, so every count guard in it — the
+  new README coverage included — was decorative on a PR. `ci.yml`'s `build` job runs it first now
+  (pure file + `vitest list` work: no build, no DB, no network).
+- **Two holes in the guard itself, both found by planting a wrong number and watching it pass.**
+  (1) README states the gate's size inside a fenced `bash` block whose comment **wraps**, so
+  `124 verify:slice` ended one line and `# mutants` began the next — the `#` sits where every rule
+  expects whitespace, and a planted `999` stayed green. `countFailures` now blanks a wrapped
+  comment continuation while preserving the newline, so offsets and reported line numbers stay
+  byte-exact. (2) The historical-number exemption matched the bare phrase **"was written"**, which
+  appears in `CLAUDE.md` as ordinary prose about a guard — exempting the gate-size count on the same
+  line. Narrowed to `at (the) time` / `at that point` / `as of <year>` / `historical`, all of which
+  are genuinely load-bearing in `HANDOFF.md`. **`CLAUDE.md` also joined the live-state set** — it
+  quotes the gate's size and was never measured. Both fixes proven red-first.
+- **`docs/WORKFLOW.md` rewritten** — it was the doc README and CLAUDE.md both point to for the loop,
+  and it still documented five workflows that no longer exist (`claude-review.yml`,
+  `adversarial-pr.yml`, `claude-fix-pr-comments.yml`, a weekly `adversarial.yml`, plus the
+  `review`/`security`/`adversarial-pr` stub checks). It now describes the three real workflows, the
+  draft-PR/two-Codex-round/one-adversarial-pass gate, and the HARD CAP — with a banner for readers
+  who remember the old loop. `.github/claude-review-prompt.md` and `.claude/LEARNINGS.md` #51 stop
+  claiming the retired stubs are still configured.
+- **The QA checklist no longer calls the card path live.** It said "the card path is LIVE"; C2 is
+  open, which means prod holds **live** Stripe keys while the **live webhook is unconfigured** — the
+  one state where a real charge can succeed and `mms_fulfill_order` never fires. Now stated as
+  code-complete on test keys and **blocked on C2**. The reduced-motion row had also been _replaced_
+  by a rail-specific one, leaving every other animated surface with no acceptance check — the
+  general row is back, with the rail row beside it.
+- **`docs/MOTION_AND_PERF.md`** — the rails' reduced-motion path said "duplicate DOM **included**";
+  `MarqueeRail` appends the loop copies only when motion is on, so it is **excluded**. Left as-is,
+  the motion authority invited a future implementation to render redundant hidden cards.
+- **Round 2 — the exemption was too coarse, and three claims were still wrong.** The historical-number
+  escape hatch was scoped to the whole LINE, so on `HANDOFF.md`'s `88 mutants at the time (124 today)`
+  the marker exempted **both** numbers and the live one could rot untouched. A historical marker
+  qualifies the number it FOLLOWS, so the exemption is now a tight window after the match, and the
+  `(N today)` form got a rule of its own (mutant-context-scoped, so it can't grab an unrelated
+  `(3 today)`). Proven **both** ways: `(999 today)` goes red, while re-dating the historical `88` stays
+  green. Also fixed: `docs/ARCHITECTURE.md` called the repo **private** when it is deliberately public
+  for free Actions minutes (`setup.sh` bootstraps `--public`; visibility is not a licence — the code
+  stays proprietary), and carried a contradictory leftover telling you to create it `--private`;
+  `CLAUDE.md`'s new design summary repeated the "duplicate DOM included" error corrected in
+  `MOTION_AND_PERF.md`; and the interaction-hooks paragraph claimed **every** hook self-gates on
+  reduced motion, when `useRipple` is framer-free pure state that never calls
+  `useAnimationPreference` — it is CALLER-gated (`AddButton.tsx:342` binds `onPointerDown` only when
+  `shouldAnimate`), and a consumer following the old wording would animate for reduced-motion users.
+- **`docs/OPEN-ITEMS.md`** — five new registry rows found while reading the code against the docs:
+  **M57** the receipt-sent stamp is blind to the send result, **M58** a bounce never un-claims
+  "✓ sent", **M59** plain-text money rows run together, **M60** /account history drops kitchen
+  notes, **M61** the paper-ambient invariants (no isolating host, `<html>` owns the ground) are
+  unguarded.
+
 ### W22r — receipts, the receipt email, and live tracking, complete (2026-08-17)
 
 Owner: _"Receipts, email templates, should be as detailed, styled per W22 designs, and polished

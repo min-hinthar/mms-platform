@@ -1,12 +1,12 @@
 # Real-Build QA Checklist — QR Ordering
 
-**The acceptance gate. Canonical in-repo copy** (derived from the v7.1 red-team, June 16 2026). This is the path the PR-review and weekly adversarial Actions cross-check, and the gate every milestone exits against. `docs/REVIEW.md` tracks which items the open milestone has closed.
+**The acceptance gate. Canonical in-repo copy** (derived from the v7.1 red-team, June 16 2026). This is the gate every milestone exits against, cross-checked by the in-session fresh-context adversarial subagent (pre-PR _and_ pre-merge) and the two Codex rounds — CI runs no Claude review. `docs/REVIEW.md` tracks which items the open milestone has closed.
 
 Grouped by lens; each item is testable. **P0 = blocks launch · P1 = before public traffic · P2 = fast-follow.** Boxes are unchecked on purpose — this is the working gate, not a trophy.
 
 > **Already handled in the v7.2 prototype** ([`../prototype/v7.2.html`](../prototype/v7.2.html)): the two crash paths (out-of-range split index + `reorderFull` stale state), the presence liability (now dine-in only), full host-lock enforcement, the single deterministic focus-trap, dialog naming, Burmese `lang`, the live-region cleanup, the cartbar Space key, the disabled-`+` under lock, and the sold-out `bump` guard. The items below are the ones that are **genuinely real-build work** — image/Core-Web-Vitals performance, server-authoritative cart + table-session auth, SRI/CSP, and the parity gates.
 >
-> **Build state (M1):** server-authoritative cart (`apps/qr/lib/cart.ts`), category-aware tax (`lib/tax.ts` ↔ SQL `mms_line_tax`), Radix Dialog sheet (`packages/ui/src/sheet.tsx`), integer cents end-to-end, and `qr_*` table-session schema are in. The card path stays dark until the **C/P0** items below are green.
+> **Build state (W22):** the card path is **code-complete and exercised end-to-end on test keys** (wallets registered, Payment Element + webhook fulfillment + receipts) — but **production is NOT cleared for real charges**: `docs/OPEN-ITEMS.md` **C2** is open, so prod holds **live** Stripe keys while the **live webhook is still unconfigured**. In that exact state a real card can be charged and `mms_fulfill_order` never fires — charged-but-unfulfilled. Treat the card path as blocked on C2 until the live endpoint + its `whsec_…` are wired and one real charge is reconciled. Server-authoritative cart (`apps/qr/lib/cart.ts`), category-aware tax (`lib/tax.ts` ↔ SQL `mms_line_tax`), integer cents end-to-end, group cart + split tender, KDS/expo + staff floor/register, the durable receipt artifact + receipt email, grocery scan-and-go — all shipped. So the rows below are read against a **running** app: what stays open is named in `docs/OPEN-ITEMS.md` (the single registry) and the per-arc record in `docs/REVIEW.md`, not by the absence of a build.
 
 ---
 
@@ -16,14 +16,15 @@ P0
 
 - [ ] **One** focus mechanism per modal (Radix Dialog _or_ one trap) — focus lands on the same element every open, announced once (test NVDA + VoiceOver, 10×). _(fixes dual-trap race)_
 - [ ] Every sheet/dialog has an accessible name via `aria-labelledby` → its heading (no generic "Details"). Each sheet has a visible, labelled ✕ close (not Esc/scrim only).
-- [ ] Burmese semantics: `lang="my"` on the MY subtree; keep `lang="en"` on interleaved English (phone, "Covina," promo codes). Verify with a Burmese TTS voice.
+- [ ] Burmese semantics: `lang="my"` on the MY subtree; keep `lang="en"` on interleaved English (phone, "Covina," promo codes). Verify with a Burmese TTS voice. **Email templates count** — a bilingual receipt/auth email needs the same subtree marking as a page, even though some clients strip `lang`.
 - [ ] All interactive targets ≥ **44×44 px** hit area (steppers, +/−, ✕ remove, assignment avatars, diet chips) — visual size may stay smaller via padding.
 - [ ] Contrast ≥ 4.5:1 for all text including tinted fills (`.chip.acc`, `.tip.on` were ~4.0–4.3) — darken accent or deepen tint; re-verify in-browser (oklab).
 
 P1
 
 - [ ] Exactly **one** polite live region for transactional messages; the rolling total and the menu container are **not** `aria-live`; announce final values once; debounce presence + toast + cart so one action isn't read 3×.
-- [ ] Reduced-motion = `animation:none` for steam/pulse/shimmer (not `.01ms`); keep confetti/particle JS guards.
+- [ ] Reduced-motion = `animation:none` for steam/pulse/shimmer (not `.01ms`) on **every** animated surface, not only the newest one; keep confetti/particle JS guards. Any JS loop (`requestAnimationFrame`, `repeat: Infinity`) checks the preference too — a CSS-only off-switch leaves it running.
+- [ ] Auto-moving content (the Start-here drift rails) carries a **visible stop control** (WCAG 2.2.2 — not hover luck), pauses on hover/touch/focus-inside/offscreen/hidden-tab and for a grace period after any scroll it didn't write, and under `prefers-reduced-motion` renders the exact static rail (no drift, no duplicate DOM, no dead switch). Loop-duplicate cards stay out of the tab order and the AT tree yet remain tappable, routing focus to their real twin so a sheet's focus-restore target is never `aria-hidden`.
 - [ ] Modifier groups are `role="radiogroup"` with a name; cartbar is a real `<button>` (Enter **and** Space).
 - [ ] Keyboard-only walkthrough of the full happy path (scan→order→customize→cart→split→pay→track) with zero mouse.
 - [ ] Offline/connection-loss is announced.
@@ -50,7 +51,7 @@ P1
 - [ ] `canvas-confetti` and `focus-trap` **lazy-imported** (dynamic `import()` on first pay / first sheet), or dropped for Radix Dialog's built-in trap. Neither in the initial bundle.
 - [ ] Merge identical line items (same id + same modifiers) so cart size stays bounded.
 - [ ] `next/font` (no runtime Google Fonts); `preconnect` only origins that survive.
-- [ ] Lighthouse mobile ≥ 90 perf on the order + checkout routes; field-data check after launch.
+- [ ] **Mobile GPU budget** — no `backdrop-filter` and no large `blur()` layer below `md:` (stacked buffers OOM-crash the iOS WebKit tab; the delivery repo shipped that incident). Mobile surfaces stay opaque, glows are `radial-gradient` falloffs not `blur()`, heavy decorative layers are `md:`-gated, and animation COUNT is budgeted for the FIRST composite — the menu ambient and hero are in view on load, so offscreen-pause doesn't cut peak.
 
 ## C · Security & Privacy
 
@@ -90,7 +91,8 @@ P2
 ## E · Parity gates (close before public launch)
 
 - [ ] **Native Apple Pay / Google Pay** via Payment Request API → Stripe Payment Element (highest-leverage gap).
-- [ ] **Real receipt** (email/SMS) + the contact capture behind it (today three screens promise it; nothing collects it).
+- [ ] **Real receipt** — email ✅ (consent-first capture in `ReceiptActions`; the durable `?r=` artifact + the branded email both carry the identity foot and the SB-1524 disclosure). **SMS still unbuilt.**
+- [ ] **The printed receipt is the same document** — `@media print` re-pins the light tokens (a dark-mode diner must not print near-white ink on forced-white paper), hides chrome AND the fixed page ambient (a fixed layer repeats on every printed page), and keeps the identity foot + the SB-1524 disclosure on paper. Verify from both themes.
 - [ ] **Group-ordering decision shipped** — either true multi-device (invite token + Realtime) or dine-in-only split + post-pay receipt-split.
 - [ ] **Honest scheduled pickup** — slot capacity + server fire-time; ETA echoes the chosen slot.
 - [ ] **Live 86 / KDS status** from the POS instead of cosmetic timers (can be v2 if POS exposes it).
