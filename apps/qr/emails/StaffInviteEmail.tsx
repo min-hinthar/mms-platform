@@ -13,7 +13,10 @@ export function StaffInviteEmail({
   signInUrl: string;
 }) {
   return (
-    <MmsEmailLayout preview="You’re set up on the Mandalay Morning Star floor">
+    <MmsEmailLayout
+      preview="You’re set up on the Mandalay Morning Star floor"
+      reason="You’re receiving this because you were added to the Mandalay Morning Star team."
+    >
       <Heading style={h1}>You’re on the team</Heading>
       <Text style={text}>
         Hi {displayName}, you’ve been added to the Mandalay Morning Star floor as{" "}

@@ -15,6 +15,23 @@ import { PaySuccess } from "./PaySuccess";
 import { ReceiptActions } from "./ReceiptActions";
 import { PaperAmbient } from "./PaperAmbient";
 import { useConnectionTruth } from "@/lib/useConnectionTruth";
+import {
+  buildReceiptRows,
+  dollars,
+  groupReceiptLines,
+  receiptStatusLabel,
+  SERVICE_CHARGE_DISCLOSURE,
+  serviceDisclosed,
+} from "@/lib/receipt-view";
+import { BRAND_ADDRESS, BRAND_PHONE_DISPLAY, BRAND_PHONE_TEL } from "@/lib/brand";
+
+// W22r — real step times for the rail (LA wall clock, the restaurant's TZ rule). Only REAL
+// timestamps render (created_at, the expo's ready/picked-up stamps) — never an estimate.
+const stepTimeFmt = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Los_Angeles",
+  hour: "numeric",
+  minute: "2-digit",
+});
 
 // Lifecycle steps (verbatim v7.2). The active step is server-driven; at M1/M2 there's no kitchen
 // actor, so it rests at "Order placed" — the kitchen steps light up when S2's KDS lands (same Realtime
@@ -192,6 +209,12 @@ export function OrderTracker({
         : togo === "preparing"
           ? 1
           : 0;
+  // W22r — REAL per-step timestamps, aligned to the 4 steps. Step 1 ("In the kitchen") has no
+  // honest clock — the webhook's init isn't a cooking-start — so it stays bare; fabricating one
+  // is exactly what the honesty doctrine forbids. Rendered only once the step is reached.
+  const stepTimes: (string | null)[] = arrived
+    ? [order.createdAt, null, order.togoReadyAt, order.togoPickedUpAt]
+    : [null, null, null, null];
   // J6 — a PURE grocery basket (self-scanned, already in the diner's hands at payment): the kitchen
   // rail would be false theater ("In the kitchen · Cooking" for a jar of pickled tea), so the tracker
   // swaps it for an EXIT PASS — paid ✓, the short order code staff can glance, done. Mixed orders
@@ -582,6 +605,14 @@ export function OrderTracker({
                   </div>
                   <div style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", marginTop: 1 }}>
                     {subtitle}
+                    {/* W22r — the step's REAL clock (created_at / the expo's stamps), only once
+                        the step is reached; steps without an honest timestamp stay bare. */}
+                    {state !== "pending" && stepTimes[i] && (
+                      <span style={{ color: "var(--t3)" }}>
+                        {" "}
+                        · {stepTimeFmt.format(new Date(stepTimes[i]!))}
+                      </span>
+                    )}
                     {last && <span aria-hidden> 🍵</span>}
                   </div>
                 </div>
@@ -887,73 +918,177 @@ export function OrderTracker({
                 THEIR history. */}
             <div
               className={`card card-textured receipt-slip-body${justPaid && progress?.earnedThisOrder ? " vt-receipt" : ""}`}
-              style={{ display: "flex", gap: 12, alignItems: "center", padding: 12 }}
+              style={{ padding: 12 }}
             >
-              <span
-                aria-hidden
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 12,
-                  background: "var(--grad)",
-                  display: "grid",
-                  placeItems: "center",
-                  color: "var(--ac)",
-                }}
-              >
-                <Icon name="receipt" size={20} />
-              </span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div
-                  style={{
-                    fontWeight: 700,
-                    fontSize: "var(--fs-sm)",
-                    fontVariantNumeric: "tabular-nums",
-                  }}
-                >
-                  {order.itemCount} {order.itemCount === 1 ? "item" : "items"} · $
-                  {(order.totalCents / 100).toFixed(2)}
-                </div>
-                <div style={{ fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
-                  Paid in full
-                  {/* K2: dine-in receipts name the table (null for to-go/pickup — no table). */}
-                  {order.tableNumber != null && ` · Table ${order.tableNumber}`}
-                </div>
-              </div>
-              {/* W2e — the short order code on every food receipt card: a dine-in/pickup diner now has a
-              reference to quote at the counter (grocery already gets one on the exit pass). The visible
-              tail is aria-hidden; an sr-only sibling reads it as spaced characters (a hex tail read as
-              one word is useless), matching the exit-pass pattern. Same uuid-tail the exit pass + refund
-              card print. The whole visible block is aria-hidden — the sr-only sibling carries the full
-              "Order reference …" label, so AT hears it once, not "Order" then "Order reference". */}
-              <div style={{ textAlign: "right", flex: "none" }}>
-                <div
+              <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                <span
                   aria-hidden
                   style={{
-                    fontSize: "var(--fs-xs)",
-                    fontWeight: 700,
-                    letterSpacing: "0.06em",
-                    textTransform: "uppercase",
-                    color: "var(--t3)",
+                    width: 40,
+                    height: 40,
+                    borderRadius: 12,
+                    background: "var(--grad)",
+                    display: "grid",
+                    placeItems: "center",
+                    color: "var(--ac)",
                   }}
                 >
-                  Order
-                </div>
-                <div
-                  aria-hidden
-                  style={{
-                    fontWeight: 800,
-                    fontSize: "var(--fs-sm)",
-                    letterSpacing: "0.04em",
-                    color: "var(--tx)",
-                  }}
-                >
-                  #{order.id.slice(-6).toUpperCase()}
-                </div>
-                <span className="sr-only">
-                  {`Order reference ${order.id.slice(-6).toUpperCase().split("").join(" ")}`}
+                  <Icon name="receipt" size={20} />
                 </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontWeight: 700,
+                      fontSize: "var(--fs-sm)",
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    {order.itemCount} {order.itemCount === 1 ? "item" : "items"} · $
+                    {(order.totalCents / 100).toFixed(2)}
+                  </div>
+                  <div style={{ fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
+                    {/* W22r (adversarial MED) — the slip speaks receipt-view's settled-state
+                        vocabulary: the reader tap is never misnamed as online card, and a
+                        REFUNDED order must never claim "Paid in full" (this slip renders in the
+                        branch-independent arrived block, refund arm included). */}
+                    {receiptStatusLabel(order.status === "refunded", order.tender)}
+                    {/* K2: dine-in receipts name the table (null for to-go/pickup — no table). */}
+                    {order.tableNumber != null && ` · Table ${order.tableNumber}`}
+                    {/* W22r — the pickup contact (W21's required field), snapshot verbatim. */}
+                    {order.customerName != null && ` · For ${order.customerName}`}
+                  </div>
+                </div>
+                {/* W2e — the short order code on every food receipt card: a dine-in/pickup diner now
+                has a reference to quote at the counter (grocery already gets one on the exit pass).
+                The visible tail is aria-hidden; an sr-only sibling reads it as spaced characters (a
+                hex tail read as one word is useless), matching the exit-pass pattern. Same uuid-tail
+                the exit pass + refund card print. The whole visible block is aria-hidden — the
+                sr-only sibling carries the full "Order reference …" label, so AT hears it once, not
+                "Order" then "Order reference". */}
+                <div style={{ textAlign: "right", flex: "none" }}>
+                  <div
+                    aria-hidden
+                    style={{
+                      fontSize: "var(--fs-xs)",
+                      fontWeight: 700,
+                      letterSpacing: "0.06em",
+                      textTransform: "uppercase",
+                      color: "var(--t3)",
+                    }}
+                  >
+                    Order
+                  </div>
+                  <div
+                    aria-hidden
+                    style={{
+                      fontWeight: 800,
+                      fontSize: "var(--fs-sm)",
+                      letterSpacing: "0.04em",
+                      color: "var(--tx)",
+                    }}
+                  >
+                    #{order.id.slice(-6).toUpperCase()}
+                  </div>
+                  <span className="sr-only">
+                    {`Order reference ${order.id.slice(-6).toUpperCase().split("").join(" ")}`}
+                  </span>
+                </div>
               </div>
+              {/* W22r (owner: "live trackings should also be detailed") — the slip itemizes WHAT
+                  was paid for, right on the tracker: the same destination grouping, kitchen notes,
+                  and zero-gated breakdown rows as the durable artifact (one shared derivation —
+                  lib/receipt-view — so the tracker, the ?r= page, and the email can never
+                  disagree). Every figure is the fulfillment-time snapshot rendered verbatim;
+                  lines sum to the subtotal, tax stays ONE order-level row (M7). */}
+              {order.lines.length > 0 && (
+                <div style={{ marginTop: 4 }}>
+                  {groupReceiptLines(order.lines).map((g) => (
+                    <div key={g.key}>
+                      {g.label && (
+                        <p
+                          style={{
+                            margin: "8px 0 0",
+                            fontSize: "var(--fs-xs)",
+                            fontWeight: 800,
+                            letterSpacing: "0.07em",
+                            textTransform: "uppercase",
+                            color: "var(--t3)",
+                          }}
+                        >
+                          {g.label}
+                        </p>
+                      )}
+                      <ul
+                        role="list"
+                        aria-label={g.label ?? "Items"}
+                        style={{ listStyle: "none", margin: "4px 0 0", padding: 0 }}
+                      >
+                        {g.lines.map((l, i) => (
+                          <li key={i} className="history-line">
+                            <span className="history-line-qty">
+                              {l.qty}
+                              <span aria-hidden>×</span>
+                            </span>
+                            <span>
+                              <span style={{ color: "var(--tx)" }}>{l.name}</span>
+                              {l.mods.length > 0 && (
+                                <span className="history-line-mods">{l.mods.join(" · ")}</span>
+                              )}
+                              {l.notes && (
+                                <span
+                                  style={{
+                                    display: "block",
+                                    fontSize: "var(--fs-xs)",
+                                    color: "var(--t3)",
+                                    fontStyle: "italic",
+                                    marginTop: 1,
+                                  }}
+                                >
+                                  “{l.notes}”
+                                </span>
+                              )}
+                            </span>
+                            <span
+                              style={{ color: "var(--t2)", fontVariantNumeric: "tabular-nums" }}
+                            >
+                              {dollars(l.unitPriceCents * l.qty)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                  <dl className="history-totals">
+                    {buildReceiptRows(order.breakdown, order.totalCents).map((r) => (
+                      <div
+                        key={r.key}
+                        className={
+                          r.grand ? "history-totals-row history-totals-grand" : "history-totals-row"
+                        }
+                      >
+                        <dt>{r.label}</dt>
+                        <dd>{`${r.negative ? "−" : ""}${dollars(r.amountCents)}`}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                  {/* SB-1524 (adversarial MED) — the fee never surfaces without its explanation.
+                      Live orders never trip this (the charge is retired, minted 0), but a
+                      pre-2026-08-15 order reopened via the fallback shows its historical fee
+                      here — so the disclosure rides this slip exactly like the artifact/email. */}
+                  {serviceDisclosed(order.breakdown) && (
+                    <p
+                      style={{
+                        fontSize: "var(--fs-xs)",
+                        color: "var(--t3)",
+                        margin: "8px 2px 0",
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      {SERVICE_CHARGE_DISCLOSURE}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
             <div className="receipt-tear" aria-hidden />
           </div>
@@ -1032,6 +1167,37 @@ export function OrderTracker({
           </Link>
         )}
       </div>
+      {/* W22r — the restaurant's real contact foot on the live order surface (the delivery app's
+          support-block pattern; every string verbatim from lib/brand). A live order is exactly
+          when a diner wants the phone number without hunting for it. */}
+      <p
+        style={{
+          margin: "18px 0 0",
+          fontSize: "var(--fs-xs)",
+          color: "var(--t3)",
+          lineHeight: 1.7,
+        }}
+      >
+        Mandalay Morning Star · {BRAND_ADDRESS}
+        <span style={{ display: "block" }}>
+          Questions about this order?{" "}
+          {/* Padded hit area + negative margin (adversarial LOW): a ≥44px target on the one
+              screen a diner actually dials from, without inflating the fine-print line box. */}
+          <a
+            href={`tel:${BRAND_PHONE_TEL}`}
+            style={{
+              color: "var(--t2)",
+              textDecorationColor: "var(--bd)",
+              display: "inline-block",
+              padding: "14px 6px",
+              margin: "-14px -6px",
+            }}
+          >
+            {BRAND_PHONE_DISPLAY}
+          </a>{" "}
+          — or ask us at the counter.
+        </span>
+      </p>
     </main>
   );
 }

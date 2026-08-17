@@ -350,6 +350,9 @@ export type OrderHistoryLine = {
   /** W14 — today's `name_my` for the ref. Live-vs-snapshot caveat (registry S14b): the EN add-time
    *  snapshot stays the row's primary text; a renamed dish shows its CURRENT Burmese subline. */
   nameMy: string | null;
+  /** W22r — the line's kitchen note (qr_order_items.notes, ≤160), rendered on receipt surfaces.
+   *  Optional: the /account history mapper doesn't populate it (undefined there). */
+  notes?: string | null;
 };
 export type OrderHistoryEntry = {
   id: string;

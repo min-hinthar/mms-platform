@@ -7,6 +7,7 @@ import { StaffDeactivatedEmail } from "@/emails/StaffDeactivatedEmail";
 import { OrderReceiptEmail } from "@/emails/OrderReceiptEmail";
 import type { ReceiptEntry } from "@/lib/receipt-entry";
 import { siteUrl } from "@/lib/site-url";
+import { BRAND_EMAIL } from "@/lib/brand";
 
 /**
  * Email via Resend (`resend` SDK) with **React Email** templates (same stack as the delivery app).
@@ -99,9 +100,13 @@ export async function sendOrderReceiptEmail(opts: {
   entry: ReceiptEntry;
   receiptPath: string;
 }): Promise<EmailResult> {
-  const html = await render(
-    <OrderReceiptEmail entry={opts.entry} receiptUrl={`${siteUrl()}${opts.receiptPath}`} />,
+  const element = (
+    <OrderReceiptEmail entry={opts.entry} receiptUrl={`${siteUrl()}${opts.receiptPath}`} />
   );
+  const html = await render(element);
+  // W22r — a plain-text alternative (deliverability + text-only clients), rendered from the SAME
+  // element so the two parts can never disagree.
+  const text = await render(element, { plainText: true });
   const from = process.env.RESEND_RECEIPT_FROM || process.env.RESEND_FROM;
   const key = process.env.RESEND_API_KEY;
   if (!key || !from) {
@@ -112,8 +117,11 @@ export async function sendOrderReceiptEmail(opts: {
     const { error } = await new Resend(key).emails.send({
       from,
       to: opts.to,
+      // W22r — replies land in the owner's real inbox (lib/brand, the delivery app's reply-to).
+      replyTo: BRAND_EMAIL,
       subject: `Your Mandalay Morning Star receipt · #${opts.entry.code}`,
       html,
+      text,
     });
     if (error) {
       console.error("[email] receipt send failed", error.name, error.message);

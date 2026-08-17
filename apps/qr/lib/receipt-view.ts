@@ -93,3 +93,46 @@ export function receiptStatusLabel(refunded: boolean, tender: string): string {
 }
 
 export const dollars = (c: number) => `$${(c / 100).toFixed(2)}`;
+
+/** W22r — destination vocabulary, the Bill's exact headings (DESIGN-LANGUAGE §8: "At your table /
+ *  To-go / Grocery"). One naming, receipt and email included. */
+export function fulfillmentLabel(f: string): string {
+  if (f === "togo") return "To-go";
+  if (f === "grocery") return "Grocery";
+  return "At your table";
+}
+
+/** Fixed destination order — the Bill's: table food first, then the bag, then the shelf. */
+const FULFILLMENT_ORDER = ["dinein", "togo", "grocery"] as const;
+
+export type ReceiptLineGroup<T> = {
+  key: string;
+  /** null when the whole order is one destination — headings only when the basket spans 2+
+   *  (the Bill rule; a lone "At your table" header over every line is noise, not clarity). */
+  label: string | null;
+  lines: T[];
+};
+
+/** W22r — group receipt lines by destination, preserving each group's internal order (the
+ *  deterministic `.order("id")` read). Unknown fulfillment values fold into the table group
+ *  (the DB default) rather than minting a phantom heading. */
+export function groupReceiptLines<T extends { fulfillment: string }>(
+  lines: readonly T[],
+): ReceiptLineGroup<T>[] {
+  const buckets = new Map<string, T[]>();
+  for (const l of lines) {
+    const key = FULFILLMENT_ORDER.includes(l.fulfillment as (typeof FULFILLMENT_ORDER)[number])
+      ? l.fulfillment
+      : "dinein";
+    const b = buckets.get(key);
+    if (b) b.push(l);
+    else buckets.set(key, [l]);
+  }
+  const present = FULFILLMENT_ORDER.filter((k) => buckets.has(k));
+  const multi = present.length > 1;
+  return present.map((k) => ({
+    key: k,
+    label: multi ? fulfillmentLabel(k) : null,
+    lines: buckets.get(k)!,
+  }));
+}

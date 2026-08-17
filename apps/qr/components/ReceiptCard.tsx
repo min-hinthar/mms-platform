@@ -3,31 +3,53 @@ import type { ReceiptEntry } from "@/lib/receipt-entry";
 import {
   buildReceiptRows,
   dollars,
+  groupReceiptLines,
   receiptDateLabel,
   receiptStatusLabel,
   SERVICE_CHARGE_DISCLOSURE,
   serviceDisclosed,
 } from "@/lib/receipt-view";
 import { formatSlotLong } from "@/lib/pickupTime";
+import {
+  BRAND_ADDRESS,
+  BRAND_EMAIL,
+  BRAND_NAME,
+  BRAND_PHONE_DISPLAY,
+  BRAND_PHONE_TEL,
+} from "@/lib/brand";
 
 /**
- * W7a — the receipt ARTIFACT: one full itemized rendering shared by the session-less `?r=` view
- * (and reused by the email's web-view link). Server component, zero client JS — a receipt is a
- * document. The DESIGN-RESEARCH receipt language: flat paper surface, no food photos in the
- * payment phase, dotted-leader rows (the history/checkout receipt families), the SB-1524
- * disclosure riding the fee it explains, brand dominant.
+ * W7a → W22r — the receipt ARTIFACT: one full itemized rendering shared by the session-less `?r=`
+ * view (and reused by the email's web-view link). Server component, zero client JS — a receipt is
+ * a document, and now a COMPLETE one (owner: "as detailed … as delivery app with restaurant logos,
+ * addresses, contact information"): the brand lockup carries the badge, and the foot carries the
+ * full address + phone + email — every identity string verbatim from lib/brand (the delivery
+ * repo's production constants; nothing invented).
  *
  * Money discipline: every figure is the fulfillment-time snapshot rendered verbatim
  * (lib/receipt-view builds the rows; nothing recomputes). M7: line amounts + ONE tax row.
+ * W22r detail: destination group headings (only when the basket spans 2+ — the Bill rule),
+ * per-line kitchen notes, the pickup contact name.
  */
 export function ReceiptCard({ entry }: { entry: ReceiptEntry }) {
   const rows = buildReceiptRows(entry.breakdown, entry.totalCents);
+  const groups = groupReceiptLines(entry.lines);
   return (
     <section className="card card-textured receipt-artifact" aria-labelledby="receipt-h">
       <header style={head}>
         <div style={{ minWidth: 0 }}>
-          <p className="eyebrow" style={{ margin: "0 0 4px" }}>
-            <span aria-hidden>✦ </span>Mandalay Morning Star
+          {/* The brand lockup — badge + name. The logo is decorative (alt="", the name is the
+              adjacent text); a plain <img> so the print pipeline carries it onto paper. */}
+          <p
+            className="eyebrow"
+            style={{ margin: "0 0 6px", display: "flex", alignItems: "center", gap: 8 }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element -- static asset, print-safe */}
+            <img src="/logo.png" alt="" width={38} height={25} style={logoImg} />
+            <span>
+              <span aria-hidden>✦ </span>
+              {BRAND_NAME}
+            </span>
           </p>
           <h1 id="receipt-h" style={h1}>
             Your receipt
@@ -40,6 +62,9 @@ export function ReceiptCard({ entry }: { entry: ReceiptEntry }) {
             {receiptDateLabel(entry.createdAt)}
             {entry.tableNumber != null && <> · Table {entry.tableNumber}</>}
             {entry.pickupSlot && <> · Pickup {formatSlotLong(entry.pickupSlot)}</>}
+            {/* W22r — the pickup contact (W21's required field): the receipt names who it was
+                for, like the counter ticket. Snapshot verbatim; null on dine-in/legacy rows. */}
+            {entry.customerName && <> · For {entry.customerName}</>}
           </p>
         </div>
         {/* The order reference — the same aria pattern as the /track card: visible tail hidden
@@ -55,22 +80,35 @@ export function ReceiptCard({ entry }: { entry: ReceiptEntry }) {
         </div>
       </header>
 
-      <ul role="list" aria-label="Items" style={list}>
-        {entry.lines.map((l, i) => (
-          <li key={i} className="history-line">
-            {/* Qty NUMBER stays audible (the amount is qty-multiplied); the × glyph is decor. */}
-            <span className="history-line-qty">
-              {l.qty}
-              <span aria-hidden>×</span>
-            </span>
-            <span>
-              <span style={{ color: "var(--tx)" }}>{l.name}</span>
-              {l.mods.length > 0 && <span className="history-line-mods">{l.mods.join(" · ")}</span>}
-            </span>
-            <span style={lineAmount}>{dollars(l.unitPriceCents * l.qty)}</span>
-          </li>
-        ))}
-      </ul>
+      {/* W22r — destination groups (the Bill's exact headings, only when the basket spans 2+).
+          Each group is its own labeled list; a single-destination order renders one unlabeled
+          list, exactly the pre-W22r shape. */}
+      {groups.map((g) => (
+        <div key={g.key}>
+          {g.label && <p style={groupHead}>{g.label}</p>}
+          <ul role="list" aria-label={g.label ?? "Items"} style={list}>
+            {g.lines.map((l, i) => (
+              <li key={i} className="history-line">
+                {/* Qty NUMBER stays audible (the amount is qty-multiplied); the × glyph is decor. */}
+                <span className="history-line-qty">
+                  {l.qty}
+                  <span aria-hidden>×</span>
+                </span>
+                <span>
+                  <span style={{ color: "var(--tx)" }}>{l.name}</span>
+                  {l.mods.length > 0 && (
+                    <span className="history-line-mods">{l.mods.join(" · ")}</span>
+                  )}
+                  {/* W22r — the kitchen note, verbatim. The item sheet promised the kitchen would
+                      see it; the receipt documents that it was on the order. */}
+                  {l.notes && <span style={noteLine}>“{l.notes}”</span>}
+                </span>
+                <span style={lineAmount}>{dollars(l.unitPriceCents * l.qty)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
 
       <dl className="history-totals">
         {rows.map((r) => (
@@ -102,6 +140,23 @@ export function ReceiptCard({ entry }: { entry: ReceiptEntry }) {
           ကျေးဇူးတင်ပါတယ်
         </span>
       </p>
+
+      {/* W22r — the business foot every real receipt carries: full address + phone + email,
+          verbatim from lib/brand. Links stay tappable on screen and legible on paper. */}
+      <footer style={identity}>
+        <p style={identityLine}>
+          {BRAND_NAME} · {BRAND_ADDRESS}
+        </p>
+        <p style={identityLine}>
+          <a href={`tel:${BRAND_PHONE_TEL}`} style={identityLink}>
+            {BRAND_PHONE_DISPLAY}
+          </a>{" "}
+          ·{" "}
+          <a href={`mailto:${BRAND_EMAIL}`} style={identityLink}>
+            {BRAND_EMAIL}
+          </a>
+        </p>
+      </footer>
     </section>
   );
 }
@@ -115,6 +170,7 @@ const head: CSSProperties = {
   gap: 12,
   marginBottom: 10,
 };
+const logoImg: CSSProperties = { display: "block", flex: "none", borderRadius: 4 };
 const h1: CSSProperties = {
   margin: 0,
   fontSize: "var(--fs-h2)",
@@ -147,7 +203,22 @@ const codeValue: CSSProperties = {
   letterSpacing: "0.04em",
   color: "var(--tx)",
 };
+const groupHead: CSSProperties = {
+  margin: "10px 0 0",
+  fontSize: "var(--fs-xs)",
+  fontWeight: 800,
+  letterSpacing: "0.07em",
+  textTransform: "uppercase",
+  color: "var(--t3)",
+};
 const list: CSSProperties = { listStyle: "none", margin: "6px 0 0", padding: 0 };
+const noteLine: CSSProperties = {
+  display: "block",
+  fontSize: "var(--fs-xs)",
+  color: "var(--t3)",
+  fontStyle: "italic",
+  marginTop: 1,
+};
 const lineAmount: CSSProperties = { color: "var(--t2)", fontVariantNumeric: "tabular-nums" };
 const paidLine: CSSProperties = {
   margin: "12px 0 0",
@@ -171,4 +242,24 @@ const farewell: CSSProperties = {
   margin: "14px 0 0",
   fontSize: "var(--fs-sm)",
   color: "var(--t2)",
+};
+const identity: CSSProperties = {
+  marginTop: 14,
+  paddingTop: 10,
+  borderTop: "1px solid var(--bd)",
+};
+const identityLine: CSSProperties = {
+  margin: 0,
+  fontSize: "var(--fs-xs)",
+  color: "var(--t3)",
+  lineHeight: 1.7,
+};
+// Padded hit area + negative margin (adversarial LOW on #196): ≥44px tap targets on the tel/
+// mailto links without inflating the fine-print line box; prints unchanged.
+const identityLink: CSSProperties = {
+  color: "var(--t2)",
+  textDecorationColor: "var(--bd)",
+  display: "inline-block",
+  padding: "14px 4px",
+  margin: "-14px -4px",
 };

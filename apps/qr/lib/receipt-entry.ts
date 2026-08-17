@@ -18,6 +18,8 @@ export const RECEIPT_STATUSES = ["paid", "refunded"] as const;
 export type ReceiptEntry = OrderHistoryEntry & {
   /** The order was fully refunded after settlement — the artifact stamps "Refunded". */
   refunded: boolean;
+  /** W22r — the pickup contact name (qr_orders.customer_name); null on dine-in/legacy rows. */
+  customerName: string | null;
 };
 
 export async function getReceiptEntry(orderId: string): Promise<ReceiptEntry | null> {
@@ -25,7 +27,7 @@ export async function getReceiptEntry(orderId: string): Promise<ReceiptEntry | n
   const { data: o, error } = await db
     .from("qr_orders")
     .select(
-      "id,created_at,total_cents,tender,pickup_slot,table_number,subtotal_cents,discount_cents,service_charge_cents,tax_cents,tip_cents,status",
+      "id,created_at,total_cents,tender,pickup_slot,table_number,customer_name,subtotal_cents,discount_cents,service_charge_cents,tax_cents,tip_cents,status",
     )
     .eq("id", orderId)
     .in("status", [...RECEIPT_STATUSES])
@@ -33,7 +35,7 @@ export async function getReceiptEntry(orderId: string): Promise<ReceiptEntry | n
   if (error || !o) return null;
   const { data: items } = await db
     .from("qr_order_items")
-    .select("name,qty,unit_price_cents,modifiers,fulfillment")
+    .select("name,qty,unit_price_cents,modifiers,fulfillment,notes")
     .eq("order_id", orderId)
     .order("id"); // deterministic — page, email, and print must list the same receipt identically
   const lines: OrderHistoryLine[] = (items ?? []).map((it) => {
@@ -52,6 +54,10 @@ export async function getReceiptEntry(orderId: string): Promise<ReceiptEntry | n
       // exactly what was charged, nothing that can drift).
       imageUrl: null,
       nameMy: null,
+      // W22r — the kitchen note is part of what was ordered; the receipt documents it. The item
+      // sheet promises "add any allergy in the note below and the kitchen will see it" — the
+      // artifact proving the note existed matters exactly when that promise matters.
+      notes: typeof it.notes === "string" && it.notes.trim() !== "" ? it.notes : null,
     };
   });
   return {
@@ -62,6 +68,9 @@ export async function getReceiptEntry(orderId: string): Promise<ReceiptEntry | n
     tender: o.tender,
     pickupSlot: o.pickup_slot ?? null,
     tableNumber: o.table_number ?? null,
+    // W22r — the pickup contact name (W21's required pickup field): a pickup receipt names who
+    // it's for, exactly like the counter ticket does. Null on dine-in/legacy rows.
+    customerName: o.customer_name ?? null,
     breakdown: {
       subtotalCents: o.subtotal_cents ?? 0,
       discountCents: o.discount_cents ?? 0,
