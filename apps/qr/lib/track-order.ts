@@ -18,7 +18,7 @@ import type { ReceiptBreakdownish } from "./receipt-view";
  *  so the realtime-triggered re-fetch stays coherent. ONE string literal on purpose — a
  *  runtime-concatenated select defeats PostgREST's static type parser (GenericStringError). */
 export const TRACK_ORDER_SELECT =
-  "id,status,total_cents,subtotal_cents,discount_cents,service_charge_cents,tax_cents,tip_cents,tender,created_at,table_number,pickup_slot,customer_name,togo_status,arrived_at,togo_ready_at,togo_picked_up_at,qr_order_items(name,qty,unit_price_cents,modifiers,fulfillment,notes)";
+  "id,status,total_cents,subtotal_cents,discount_cents,service_charge_cents,tax_cents,tip_cents,tender,created_at,table_number,pickup_slot,customer_name,togo_status,arrived_at,togo_ready_at,togo_picked_up_at,qr_order_items(id,name,qty,unit_price_cents,modifiers,fulfillment,notes)";
 
 export type TrackedLine = {
   name: string;
@@ -89,6 +89,7 @@ type TrackedOrderRow = {
   togo_picked_up_at: string | null;
   qr_order_items:
     | {
+        id: string;
         name: string;
         qty: number;
         unit_price_cents: number | null;
@@ -100,7 +101,14 @@ type TrackedOrderRow = {
 };
 
 export function shapeTrackedOrder(data: TrackedOrderRow): TrackedOrder {
-  const items = data.qr_order_items ?? [];
+  // Deterministic line order (Codex P2 on #196): PostgREST gives an embedded relation NO defined
+  // order, while getReceiptEntry sorts by id — the tracker must list the SAME receipt in the SAME
+  // order as the durable page/email, and must not reshuffle on a status-triggered refetch. Sorted
+  // here (not in the select) so all three call sites inherit it with the shared string. Lowercase
+  // uuid text compares in the same order Postgres sorts the uuid column.
+  const items = [...(data.qr_order_items ?? [])].sort((a, b) =>
+    a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+  );
   const lines: TrackedLine[] = items.map((it) => {
     const raw = it.modifiers;
     const mods = Array.isArray(raw) ? raw.filter((m): m is string => typeof m === "string") : [];

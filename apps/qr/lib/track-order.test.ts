@@ -26,22 +26,26 @@ const row = {
   arrived_at: null,
   togo_ready_at: "2026-08-16T19:20:00Z",
   togo_picked_up_at: null,
+  // Deliberately OUT of id order: PostgREST gives an embedded relation no defined order, so the
+  // mapper's sort is load-bearing — this fixture goes red the moment the sort is dropped.
   qr_order_items: [
     {
-      name: "Mohinga",
-      qty: 2,
-      unit_price_cents: 1400,
-      modifiers: ["Extra lime"],
-      fulfillment: "dinein",
-      notes: "no cilantro",
-    },
-    {
+      id: "bbbbbbbb-0000-4000-8000-000000000002",
       name: "Tea",
       qty: 1,
       unit_price_cents: 700,
       modifiers: "corrupt" as unknown,
       fulfillment: null,
       notes: "   ",
+    },
+    {
+      id: "aaaaaaaa-0000-4000-8000-000000000001",
+      name: "Mohinga",
+      qty: 2,
+      unit_price_cents: 1400,
+      modifiers: ["Extra lime"],
+      fulfillment: "dinein",
+      notes: "no cilantro",
     },
   ],
 };
@@ -60,7 +64,7 @@ describe("shapeTrackedOrder — verbatim money carriage", () => {
     expect(o.tender).toBe("terminal");
   });
 
-  it("maps lines verbatim, guards malformed modifiers, blank-note → null, null fulfillment → dinein", () => {
+  it("maps lines verbatim IN id order, guards malformed modifiers, blank-note → null, null fulfillment → dinein", () => {
     const o = shapeTrackedOrder(row);
     expect(o.lines).toEqual([
       {

@@ -30,7 +30,10 @@ export function OrderReceiptEmail({
   const rows = buildReceiptRows(entry.breakdown, entry.totalCents);
   const groups = groupReceiptLines(entry.lines);
   return (
-    <MmsEmailLayout preview={`Your receipt — ${dollars(entry.totalCents)} · #${entry.code}`}>
+    <MmsEmailLayout
+      preview={`Your receipt — ${dollars(entry.totalCents)} · #${entry.code}`}
+      reason="You’re receiving this because you asked for your receipt when you ordered with us."
+    >
       <Text style={h1}>Your receipt</Text>
       <Text style={meta}>
         {receiptDateLabel(entry.createdAt)} · Order #{entry.code}

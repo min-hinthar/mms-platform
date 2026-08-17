@@ -33,7 +33,18 @@ import {
  * are LITERAL light-palette values — the sanctioned exception. The honest reason line is
  * QR-specific: these are receipts the diner ASKED for, not marketing.
  */
-export function MmsEmailLayout({ preview, children }: { preview: string; children: ReactNode }) {
+export function MmsEmailLayout({
+  preview,
+  reason,
+  children,
+}: {
+  preview: string;
+  /** The honest "why you're receiving this" line — CONTEXT-SPECIFIC, supplied by each template
+   *  (Codex P2 on #196: a shared receipt-flavored default told staff sign-in/invite recipients
+   *  they'd asked for a receipt). Omitted ⇒ no reason line renders. */
+  reason?: string;
+  children: ReactNode;
+}) {
   const logoUrl = `${siteUrl()}/email-logo.png`;
   return (
     <Html lang="en">
@@ -81,10 +92,8 @@ export function MmsEmailLayout({ preview, children }: { preview: string; childre
                 Facebook
               </Link>
             </Text>
-            {/* Honest reason line — QR receipts are ASKED for at the table, never marketing. */}
-            <Text style={footerFine}>
-              You’re receiving this because you asked for your receipt when you ordered with us.
-            </Text>
+            {/* Honest reason line — each template says its own truth (never a shared guess). */}
+            {reason && <Text style={footerFine}>{reason}</Text>}
           </Section>
         </Container>
       </Body>

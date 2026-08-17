@@ -5,7 +5,10 @@ import { MmsEmailLayout } from "./MmsEmailLayout";
 /** Sent (best-effort) when an owner deactivates a staff member — an honest heads-up, no alarm. */
 export function StaffDeactivatedEmail() {
   return (
-    <MmsEmailLayout preview="Your Mandalay Morning Star staff access is paused">
+    <MmsEmailLayout
+      preview="Your Mandalay Morning Star staff access is paused"
+      reason="You’re receiving this because your Mandalay Morning Star staff access changed."
+    >
       <Heading style={h1}>Your staff access is paused</Heading>
       <Text style={text}>
         Your access to the Mandalay Morning Star staff console has been turned off, so you won’t be

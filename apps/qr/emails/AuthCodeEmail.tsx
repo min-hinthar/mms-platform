@@ -22,7 +22,10 @@ export function AuthCodeEmail({
   expiresMinutes?: number;
 }) {
   return (
-    <MmsEmailLayout preview={`${code} — your Mandalay Morning Star sign-in code`}>
+    <MmsEmailLayout
+      preview={`${code} — your Mandalay Morning Star sign-in code`}
+      reason="You’re receiving this because a staff sign-in was requested for this address. If that wasn’t you, you can ignore this email."
+    >
       <Heading style={h1}>{heading}</Heading>
       <Text style={text}>{intro}</Text>
       <Section style={codeBox}>
