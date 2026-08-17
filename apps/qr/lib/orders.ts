@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { serverClient, serviceClient } from "@mms/db/server";
 import { cartViewInput, trackFallbackInput } from "@mms/db/schemas";
 import { liveOrderStatusWord, type LiveOrder, type LiveOrderKind } from "./live-order";
+import { shapeTrackedOrder, TRACK_ORDER_SELECT, type TrackedOrder } from "./track-order";
 
 const LIVE_WINDOW_MS = 12 * 60 * 60 * 1000; // 12h — an order older than a shift isn't "live" wayfinding
 const LIVE_LIMIT = 20; // count-bound — the tray stays a glance, not a history (history lives on /account)
@@ -145,20 +146,10 @@ export type TrackFallback =
   | { ok: false; reason: "not_found" }
   | { ok: false; reason: "error" };
 
-/** The same field set `useOrderStatus` builds, so the tracker renders a fallback order identically. */
-export type FallbackOrder = {
-  id: string;
-  status: string;
-  totalCents: number;
-  itemCount: number;
-  pickupSlot: string | null;
-  togoStatus: string | null;
-  hasTogoFood: boolean;
-  hasDineInFood: boolean;
-  arrivedAt: string | null;
-  hasGrocery: boolean;
-  tableNumber: number | null;
-};
+/** The same field set `useOrderStatus` builds, so the tracker renders a fallback order
+ *  identically — W22r made the contract structural: one shared select + mapper
+ *  (lib/track-order.ts) instead of three hand-copied shapes. */
+export type FallbackOrder = TrackedOrder;
 
 export async function getMyOrderFallback(input: {
   orderId?: string | null;
@@ -175,12 +166,7 @@ export async function getMyOrderFallback(input: {
   if (!user) return { ok: false, reason: "not_found" };
   const db = serviceClient();
 
-  const q = db
-    .from("qr_orders")
-    .select(
-      "id,status,total_cents,table_number,pickup_slot,togo_status,arrived_at,qr_order_items(qty,fulfillment)",
-    )
-    .eq("earned_by", user.id); // ← the authorization. The key below only narrows it.
+  const q = db.from("qr_orders").select(TRACK_ORDER_SELECT).eq("earned_by", user.id); // ← the authorization. The key below only narrows it.
   const { data, error } = await (
     orderId ? q.eq("id", orderId) : q.eq("stripe_payment_intent_id", paymentIntent!)
   ).maybeSingle();
@@ -215,34 +201,14 @@ export async function getMyOrderFallback(input: {
       if (payer) {
         const { data: paid, error: paidErr } = await db
           .from("qr_orders")
-          .select(
-            "id,status,total_cents,table_number,pickup_slot,togo_status,arrived_at,qr_order_items(qty,fulfillment)",
-          )
+          .select(TRACK_ORDER_SELECT)
           .eq("id", orderId)
           .maybeSingle();
         if (paidErr) {
           console.error("[orders] payer-authorized track read failed", paidErr);
           return { ok: false, reason: "error" };
         }
-        if (paid) {
-          const paidItems = (paid.qr_order_items ?? []) as { qty: number; fulfillment: string }[];
-          return {
-            ok: true,
-            order: {
-              id: paid.id,
-              status: paid.status,
-              totalCents: paid.total_cents,
-              itemCount: paidItems.reduce((a, i) => a + i.qty, 0),
-              pickupSlot: paid.pickup_slot ?? null,
-              togoStatus: paid.togo_status ?? null,
-              hasTogoFood: paidItems.some((i) => i.fulfillment === "togo"),
-              hasDineInFood: paidItems.some((i) => i.fulfillment === "dinein"),
-              arrivedAt: paid.arrived_at ?? null,
-              hasGrocery: paidItems.some((i) => i.fulfillment === "grocery"),
-              tableNumber: paid.table_number ?? null,
-            },
-          };
-        }
+        if (paid) return { ok: true, order: shapeTrackedOrder(paid) };
       }
       // Pre-migration orders have no payers row; the share row still proves payment while it lives.
       const { data: mine } = await db
@@ -257,23 +223,7 @@ export async function getMyOrderFallback(input: {
     return { ok: false, reason: "not_found" };
   }
 
-  const items = (data.qr_order_items ?? []) as { qty: number; fulfillment: string }[];
-  return {
-    ok: true,
-    order: {
-      id: data.id,
-      status: data.status,
-      totalCents: data.total_cents,
-      itemCount: items.reduce((a, i) => a + i.qty, 0),
-      pickupSlot: data.pickup_slot ?? null,
-      togoStatus: data.togo_status ?? null,
-      hasTogoFood: items.some((i) => i.fulfillment === "togo"),
-      hasDineInFood: items.some((i) => i.fulfillment === "dinein"),
-      arrivedAt: data.arrived_at ?? null,
-      hasGrocery: items.some((i) => i.fulfillment === "grocery"),
-      tableNumber: data.table_number ?? null,
-    },
-  };
+  return { ok: true, order: shapeTrackedOrder(data) };
 }
 
 /**

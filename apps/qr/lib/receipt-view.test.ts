@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   buildReceiptRows,
+  fulfillmentLabel,
+  groupReceiptLines,
   receiptDateLabel,
   receiptStatusLabel,
   serviceDisclosed,
@@ -70,5 +72,39 @@ describe("receiptStatusLabel", () => {
     expect(receiptStatusLabel(false, "terminal")).toBe("Paid in full · Card · reader");
     expect(receiptStatusLabel(true, "card")).toBe("Refunded — this charge was returned to you");
     expect(receiptStatusLabel(true, "card")).not.toContain("Paid");
+  });
+});
+
+describe("groupReceiptLines — the Bill's destination grammar (W22r)", () => {
+  const L = (fulfillment: string, name: string) => ({ fulfillment, name });
+
+  it("a single-destination order gets NO heading (label null) — headings only when 2+", () => {
+    const groups = groupReceiptLines([L("dinein", "a"), L("dinein", "b")]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.label).toBeNull();
+    expect(groups[0]!.lines.map((l) => l.name)).toEqual(["a", "b"]);
+  });
+
+  it("a mixed basket groups in the Bill's fixed order with the Bill's exact headings", () => {
+    const groups = groupReceiptLines([
+      L("grocery", "soap"),
+      L("dinein", "mohinga"),
+      L("togo", "laphet"),
+      L("dinein", "tea"),
+    ]);
+    expect(groups.map((g) => g.label)).toEqual(["At your table", "To-go", "Grocery"]);
+    expect(groups[0]!.lines.map((l) => l.name)).toEqual(["mohinga", "tea"]); // internal order kept
+  });
+
+  it("an unknown fulfillment folds into the table group instead of minting a phantom heading", () => {
+    const groups = groupReceiptLines([L("mystery", "x"), L("togo", "y")]);
+    expect(groups.map((g) => g.key)).toEqual(["dinein", "togo"]);
+    expect(groups[0]!.lines.map((l) => l.name)).toEqual(["x"]);
+  });
+
+  it("labels speak the Bill's exact vocabulary", () => {
+    expect(fulfillmentLabel("dinein")).toBe("At your table");
+    expect(fulfillmentLabel("togo")).toBe("To-go");
+    expect(fulfillmentLabel("grocery")).toBe("Grocery");
   });
 });

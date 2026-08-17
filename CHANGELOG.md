@@ -4,6 +4,34 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W22r — receipts, the receipt email, and live tracking, complete (2026-08-17)
+
+Owner: _"Receipts, email templates, should be as detailed, styled per W22 designs, and polished
+as delivery app with restaurant logos, addresses, contact information, etc., live trackings
+should also be detailed, styled, and polished."_
+
+- **`lib/brand.ts`** — the restaurant's identity ONCE, every string verbatim from the delivery
+  repo's production constants: name, "750 Terrado Plaza, Suite 33, Covina, CA 91723",
+  (626) 665-5317, admin@mandalaymorningstar.com, Instagram/Facebook. No hours anywhere in either
+  repo → none invented.
+- **The receipt artifact** (`?r=` + print) is a complete business document: the badge in the
+  lockup, a full identity foot (address · tel · mailto), destination group headings (the Bill's
+  exact vocabulary, only when the basket spans 2+), per-line kitchen notes ("the kitchen will see
+  it" now has its paper proof), and the pickup contact name — every figure still the
+  fulfillment-time snapshot, verbatim.
+- **The receipt email** matches the delivery app's shell: the true-PNG badge (`/email-logo.png` —
+  the app's `logo.png` is WebP-in-.png that email clients can't decode), the bilingual
+  Mingalabar kicker, a 3-cell solid triad bar (email clients drop gradients), and a full identity
+  footer with socials + an honest reason line ("you asked for your receipt"). Adds a plain-text
+  alternative rendered from the same element and a reply-to that lands in the owner's real inbox.
+- **The live tracker itemizes** — one shared shape (`lib/track-order.ts`: one select + one mapper
+  replacing three hand-copied ones) now carries lines, the full breakdown, tender, and the expo's
+  real timestamps. The /track slip lists every line (mods · notes · destination groups) with the
+  zero-gated receipt rows; the step rail shows REAL times (placed / ready / picked-up — "In the
+  kitchen" stays bare, no honest clock exists); the tender is named; the contact foot rides the
+  page. Authorization unchanged: RLS on the live read, uid-scoped fallback, same field set both
+  paths.
+
 ### W22a·depth — the warm-paper pass (2026-08-16)
 
 Owner go: _"Merge and Build W22a as planned"_ (`docs/W22_DESIGN_PROPOSAL.md` · Depth & ceremony —

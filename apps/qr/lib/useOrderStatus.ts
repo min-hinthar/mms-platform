@@ -2,36 +2,12 @@
 import { useEffect, useState } from "react";
 import { browserClient } from "@mms/db";
 import { useAnonSession } from "./useAnonSession";
+import { shapeTrackedOrder, TRACK_ORDER_SELECT, type TrackedOrder } from "./track-order";
 
-export type TrackedOrder = {
-  id: string;
-  status: string; // payment status (paid | refunded | …); kitchen lifecycle is S2
-  totalCents: number;
-  itemCount: number;
-  pickupSlot: string | null; // set for pickup orders → /track echoes it as the honest ETA
-  /** S4.3a takeaway fulfillment: null (no bag — pure dine-in) | 'preparing' | 'ready' | 'picked_up'.
-   *  The expo sets it; /track lights the pickup/scango step rail from it. */
-  togoStatus: string | null;
-  /** J4: does the order carry to-go FOOD (a `togo` line the kitchen makes + expo bags)? `togo_status`
-   *  alone can't answer this — the fulfillment trigger sets it for grocery lines too, and a pure
-   *  grocery basket is already in the diner's hands at payment (no wait to respect). */
-  hasTogoFood: boolean;
-  /** W9a: does the order carry DINE-IN lines? `qr_orders` has no mode column, and `table_number` is
-   *  null for an unregistered sticker — so this line-fulfillment snapshot is the only mode signal
-   *  that survives the table session being closed (routine turnover) or the 4h anon TTL. It is the
-   *  same truth routing and tax already key on. Drives the /track mode label + rail, and the
-   *  destination of every "back to ordering" link (menu-href.ts). */
-  hasDineInFood: boolean;
-  /** J5: the diner's "I'm here" stamp (null until they announce). The stamping UPDATE re-fires this
-   *  subscription, so the button's confirmed state survives refreshes and peers' devices agree. */
-  arrivedAt: string | null;
-  /** J6: does the order carry grocery lines? With `hasTogoFood` this identifies a PURE grocery basket
-   *  (self-scanned, already in hand) — whose tracker shows an exit pass, never kitchen theater. */
-  hasGrocery: boolean;
-  /** K2: the registered table (1–10) this dine-in order was placed at, or null (pickup/scango/
-   *  unregistered). Denormalized snapshot on the order — readable here after the session has expired. */
-  tableNumber: number | null;
-};
+// W22r — the shape moved to lib/track-order.ts (one select + one mapper shared with the two
+// fallback reads in lib/orders.ts, so the live and snapshot orders can never drift apart).
+// Re-exported so existing importers keep working.
+export type { TrackedOrder } from "./track-order";
 
 export type OrderStatus = {
   order: TrackedOrder | null;
@@ -82,9 +58,7 @@ export function useOrderStatus(
     async function load() {
       const { data, error } = await supa
         .from("qr_orders")
-        .select(
-          "id,status,total_cents,table_number,pickup_slot,togo_status,arrived_at,qr_order_items(qty,fulfillment)",
-        )
+        .select(TRACK_ORDER_SELECT)
         .eq(column, key!)
         .maybeSingle();
       if (!active) return;
@@ -108,20 +82,7 @@ export function useOrderStatus(
         errs = 0;
       }
       if (data) {
-        const items = (data.qr_order_items ?? []) as { qty: number; fulfillment: string }[];
-        setOrder({
-          id: data.id,
-          status: data.status,
-          totalCents: data.total_cents,
-          itemCount: items.reduce((a, i) => a + i.qty, 0),
-          pickupSlot: data.pickup_slot ?? null,
-          togoStatus: data.togo_status ?? null,
-          hasTogoFood: items.some((i) => i.fulfillment === "togo"),
-          hasDineInFood: items.some((i) => i.fulfillment === "dinein"),
-          arrivedAt: data.arrived_at ?? null,
-          hasGrocery: items.some((i) => i.fulfillment === "grocery"),
-          tableNumber: data.table_number ?? null,
-        });
+        setOrder(shapeTrackedOrder(data));
       } else if (tries < 10) {
         // Not fulfilled yet — Realtime will deliver the INSERT, but poll a few times as a safety net
         // for the redirect→webhook race / a cold socket. Stops once the order arrives or after ~30s.

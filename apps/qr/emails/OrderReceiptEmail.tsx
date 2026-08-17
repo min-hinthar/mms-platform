@@ -5,6 +5,7 @@ import type { ReceiptEntry } from "@/lib/receipt-entry";
 import {
   buildReceiptRows,
   dollars,
+  groupReceiptLines,
   receiptDateLabel,
   receiptStatusLabel,
   SERVICE_CHARGE_DISCLOSURE,
@@ -27,27 +28,37 @@ export function OrderReceiptEmail({
   receiptUrl: string;
 }) {
   const rows = buildReceiptRows(entry.breakdown, entry.totalCents);
+  const groups = groupReceiptLines(entry.lines);
   return (
     <MmsEmailLayout preview={`Your receipt — ${dollars(entry.totalCents)} · #${entry.code}`}>
       <Text style={h1}>Your receipt</Text>
       <Text style={meta}>
         {receiptDateLabel(entry.createdAt)} · Order #{entry.code}
         {entry.tableNumber != null ? ` · Table ${entry.tableNumber}` : ""}
+        {entry.customerName ? ` · For ${entry.customerName}` : ""}
       </Text>
 
       <Section style={slip}>
-        {entry.lines.map((l, i) => (
-          <table key={i} width="100%" cellPadding={0} cellSpacing={0} role="presentation">
-            <tbody>
-              <tr>
-                <td style={lineName}>
-                  {l.qty}× {l.name}
-                  {l.mods.length > 0 && <span style={lineMods}> — {l.mods.join(" · ")}</span>}
-                </td>
-                <td style={lineAmount}>{dollars(l.unitPriceCents * l.qty)}</td>
-              </tr>
-            </tbody>
-          </table>
+        {/* W22r — the same destination grouping + kitchen notes as the artifact (one shared
+            derivation — the email can never disagree with the page). */}
+        {groups.map((g) => (
+          <Section key={g.key}>
+            {g.label && <Text style={groupHead}>{g.label}</Text>}
+            {g.lines.map((l, i) => (
+              <table key={i} width="100%" cellPadding={0} cellSpacing={0} role="presentation">
+                <tbody>
+                  <tr>
+                    <td style={lineName}>
+                      {l.qty}× {l.name}
+                      {l.mods.length > 0 && <span style={lineMods}> — {l.mods.join(" · ")}</span>}
+                      {l.notes ? <span style={lineNote}>“{l.notes}”</span> : null}
+                    </td>
+                    <td style={lineAmount}>{dollars(l.unitPriceCents * l.qty)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            ))}
+          </Section>
         ))}
         <Hr style={rule} />
         {rows.map((r) => (
@@ -90,8 +101,22 @@ const slip: CSSProperties = {
   borderRadius: "12px",
   padding: "16px 18px",
 };
+const groupHead: CSSProperties = {
+  fontSize: "10px",
+  fontWeight: 800,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  color: "#9b8f82",
+  margin: "8px 0 2px",
+};
 const lineName: CSSProperties = { fontSize: "14px", color: "#1b1714", padding: "3px 0" };
 const lineMods: CSSProperties = { fontSize: "12px", color: "#6e6358" };
+const lineNote: CSSProperties = {
+  display: "block",
+  fontSize: "12px",
+  fontStyle: "italic",
+  color: "#9b8f82",
+};
 const lineAmount: CSSProperties = {
   fontSize: "14px",
   color: "#1b1714",
