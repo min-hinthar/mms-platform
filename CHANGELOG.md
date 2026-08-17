@@ -18,7 +18,9 @@ port the delivery repo's proven kit, rebuilt to QR tokens, never imported).
 - **`PaperAmbient`** — a fixed, gradient-masked hairline grid under a soft gold bloom with grain
   behind every diner main (menu · bill/pay · account · track · durable receipt · grocery; cards
   keep the DOTS so the two textures never read identical). Static, blur-free, `aria-hidden`,
-  print-hidden, `isolation:isolate` on each host (the home-bg occlusion lesson).
+  print-hidden, and **no host isolation**: the page ground moved to `<html>` only, so the fixed
+  z:-1 layer paints above the canvas without a stacking context that would trap fixed overlays
+  (tier-up scrim, toasts, confetti) beneath the app header — the #195 review lesson.
 - **Ceremony 1 — the thermal-print receipt**: the /track paid summary is now a printed SLIP (card
   body + torn perforated foot); freshly paid it prints on — clip-path opens top→bottom while a
   gold print-head light (a SIBLING of the clipped element, delivery's lesson) rides the frontier

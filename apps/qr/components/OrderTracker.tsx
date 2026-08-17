@@ -344,9 +344,7 @@ export function OrderTracker({
   return (
     // W22a — the paper ambient behind the tracker (no isolation: the page ground lives on
     // <html>, so the fixed z:-1 layer is visible without trapping the confetti/celebrations).
-    <main
-      style={{ padding: "24px 20px 40px", maxWidth: "var(--w-content)", margin: "0 auto" }}
-    >
+    <main style={{ padding: "24px 20px 40px", maxWidth: "var(--w-content)", margin: "0 auto" }}>
       <PaperAmbient />
       {justPaid ? (
         // Fresh successful payment → the celebration is the headline (one <h1>); the mode + status + ETA

@@ -1,4 +1,5 @@
 import { Skeleton } from "@mms/ui";
+import { PaperAmbient } from "@/components/PaperAmbient";
 
 /**
  * Instant loading skeleton for /track (W2c). The page resolves the order by PaymentIntent/order id before
@@ -8,7 +9,10 @@ import { Skeleton } from "@mms/ui";
  */
 export default function TrackLoading() {
   return (
+    // W22a (Codex round 2) — the ambient mounts in the skeleton too, so the ground never flips
+    // from flat to textured when the tracker resolves.
     <main style={{ padding: "24px 20px 40px", maxWidth: 440, margin: "0 auto" }}>
+      <PaperAmbient />
       <span className="sr-only">Loading your order…</span>
       <div aria-hidden>
         <div

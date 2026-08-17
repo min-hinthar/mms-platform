@@ -65,6 +65,7 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
     if (!entry)
       return (
         <main style={wrap}>
+          <PaperAmbient />
           <div className="card card-textured track-notice">
             <div className="track-notice-medallion" aria-hidden>
               🧾
@@ -123,6 +124,7 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
       return <OrderTracker paymentIntent={null} orderId={orderId} processing={false} justPaid />;
     return (
       <main style={wrap}>
+        <PaperAmbient />
         <div className="card card-textured track-notice">
           <div className="track-notice-medallion" aria-hidden>
             🫖
@@ -157,6 +159,7 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
       );
     return (
       <main style={wrap}>
+        <PaperAmbient />
         <div className="card card-textured track-notice">
           <div className="track-notice-medallion" aria-hidden>
             {status === "processing" ? "⏳" : "🧾"}
@@ -184,6 +187,7 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
   if (status)
     return (
       <main style={wrap}>
+        <PaperAmbient />
         <div className="card card-textured track-notice">
           <div className="track-notice-medallion track-notice-medallion-warn" aria-hidden>
             ↺
@@ -206,6 +210,7 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
   // Direct visit (no payment redirect) — stub until an order exists.
   return (
     <main style={wrap}>
+      <PaperAmbient />
       <div className="card card-textured track-notice">
         <div className="track-notice-medallion" aria-hidden>
           🍵

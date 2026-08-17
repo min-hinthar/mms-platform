@@ -16,13 +16,16 @@ daylight; dark = Night. Tokens only (`@mms/ui/tokens.css`) — a hardcoded color
 
 **Depth (W22a·depth, as-built):** every `.card` is gently-lifted warm paper — inset `--sheen` lip
 over the two-tier `--sh-paper` (tight ambient + negative-spread wide diffuse; a zero-spread wide
-layer reads as a hard square frame). Diner mains sit on the `PaperAmbient` — a gradient-masked
-hairline grid + gold bloom + grain, fixed at z:-1 behind an `isolation:isolate` main (never
-full-bleed uniform; the fade means opaque sticky chrome never hard-cuts it). Pages carry LINES,
-cards carry DOTS (`.card-textured`) — the two textures never read identical. Surface tiers:
-`.surface-vellum` (the warm wash) marks moments of consideration (ConfirmSwap); glass frost is
-md:+ only, on the sticky chrome. Mobile stays opaque and blur-free — the GPU budget is a hard
-limit.
+layer reads as a hard square frame; hover deepens through `--sh-paper-hover`, never back to a
+flat shadow). Diner mains sit on the `PaperAmbient` — a gradient-masked hairline grid + gold
+bloom + grain, fixed at z:-1 with **no host isolation**: the page ground lives on `<html>` ONLY
+(the canvas paints below negative-z content), because an `isolation:isolate` host traps its own
+fixed overlays — tier-up scrims, toasts, confetti — beneath the app header (the #195 review
+lesson; never reintroduce a body background or an isolate host for this layer). Never full-bleed
+uniform; the fade means opaque sticky chrome never hard-cuts it. Pages carry LINES, cards carry
+DOTS (`.card-textured`) — the two textures never read identical. Surface tiers: `.surface-vellum`
+(the warm wash) marks moments of consideration (ConfirmSwap); glass frost is md:+ only, on the
+sticky chrome. Mobile stays opaque and blur-free — the GPU budget is a hard limit.
 
 ## 2 · The selection vocabulary — one language, every surface
 
