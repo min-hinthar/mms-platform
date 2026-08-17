@@ -37,8 +37,9 @@ export default async function Account() {
   const repeatMonth = (welcome?.ordersThisMonth ?? 0) >= 2;
 
   return (
-    // W22a — the paper ambient behind the account hub (isolation anchors its fixed z:-1 layer).
-    <main style={{ padding: 24, maxWidth: 480, margin: "0 auto", isolation: "isolate" }}>
+    // W22a — the paper ambient behind the account hub (no isolation: the page ground lives on
+    // <html>, so the fixed z:-1 layer is visible without trapping the tier-up/merge overlays).
+    <main style={{ padding: 24, maxWidth: 480, margin: "0 auto" }}>
       <PaperAmbient />
       {/* K3b: redeems a merge token (minted while anon before a sign-into-existing) once signed in, then
           celebrates the carried-over Stars. Renders null until a merge actually lands — mounted for both

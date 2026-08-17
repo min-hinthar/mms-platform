@@ -14,8 +14,7 @@ import { PaperAmbient } from "@/components/PaperAmbient";
 // Element return_url; for succeeded/processing we mount the Realtime <OrderTracker> (the order shows
 // the moment the signature-verified webhook fulfills, no manual refresh). The kitchen lifecycle +
 // ETA arrive with S2's KDS / M2.2 — the same subscription carries them.
-// W22a — isolation anchors the fixed z:-1 PaperAmbient each branch's main hosts.
-const wrap = { padding: 24, maxWidth: 440, margin: "0 auto", isolation: "isolate" } as const;
+const wrap = { padding: 24, maxWidth: 440, margin: "0 auto" } as const;
 
 type SearchParams = Promise<{
   redirect_status?: string;

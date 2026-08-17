@@ -16,13 +16,21 @@
 html,
 body {
   margin: 0;
-  background: var(--pg);
   color: var(--tx);
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
   /* W16e — body text rode the browser default (~1.2) while --lh-normal (1.5) sat unused at the
      base and a dozen components re-declared 1.5 by hand. One inherited default instead. */
   line-height: var(--lh-normal);
+}
+/* The page ground lives on HTML ONLY (Codex P2 on #195): html's background propagates to the
+   CANVAS, which paints below negative-z descendants of the root stacking context — so a fixed
+   z:-1 layer (`.paper-ambient`) is visible WITHOUT any `isolation:isolate` on its host. A body-
+   level background is the body element's own paint, which covers negative-z layers and forced
+   every host into an isolate that TRAPPED its fixed overlays (tier-up scrim, grocery toast,
+   confetti) below the app header. Visually identical: the canvas is the same --pg. */
+html {
+  background: var(--pg);
 }
 h1,
 h2,
@@ -456,8 +464,9 @@ h3 {
    textures never read identical) under a soft gold bloom, grain over both, the whole layer
    gradient-masked to fade before mid-page (a uniform full-bleed grid reads as cheap wallpaper,
    and the fade means the opaque sticky chrome never hard-cuts a visible texture). Fixed at z:-1
-   behind a transparent <main> — the main MUST set isolation:isolate (the home-bg occlusion
-   lesson) or this paints over trailing siblings. Static by design: no motion, nothing to pause. */
+   with NO host isolation (Codex P2 on #195): the page ground lives on <html> only, so the canvas
+   paints below this layer while every fixed overlay (tier-up, toast, confetti) keeps its place
+   in the root stacking context. Static by design: no motion, nothing to pause. */
 .paper-ambient {
   position: fixed;
   inset: 0;
@@ -485,6 +494,10 @@ h3 {
   inset: 0;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
   background-size: 140px 140px;
+  /* Plain-value fallback FIRST (Codex P2 on #195): if a UA rejects the calc at computed-value
+     time, opacity would revert to its initial 1 — a full-viewport high-contrast noise layer.
+     The calc then refines it where supported (dark lifts --tex-grain-opacity slightly). */
+  opacity: 0.14;
   opacity: calc(var(--tex-grain-opacity, 0.4) * 0.35);
 }
 /* A receipt prints on white paper — the ambient (a fixed layer, which print engines repeat on

@@ -355,9 +355,9 @@ export function MenuBrowser({
   }
 
   return (
-    // W22a — isolation:isolate anchors the fixed z:-1 PaperAmbient inside this main's stacking
-    // context (without it the backdrop paints over trailing siblings — the home-bg lesson).
-    <main style={{ maxWidth: 440, margin: "0 auto", paddingBottom: 96, isolation: "isolate" }}>
+    // W22a — no isolation on purpose: the page ground lives on <html> (canvas), so the fixed
+    // z:-1 PaperAmbient is visible without a stacking context that would trap fixed overlays.
+    <main style={{ maxWidth: 440, margin: "0 auto", paddingBottom: 96 }}>
       <PaperAmbient />
       {/* The persistent AppHeader now owns the notch clearance (it's sticky above this in-flow title), so
           this header must NOT add env(safe-area-inset-top) again — that double-counted the inset. */}
