@@ -122,8 +122,11 @@ function main() {
     .map((s) => s.trim())
     .filter(Boolean)
     .filter((f) => !f.startsWith("node_modules/"));
-  /** Docs that assert the CURRENT state, and so must agree with what the repo measures right now. */
-  const liveState = docs.filter((f) => /^docs\/(OPEN-ITEMS|HANDOFF)\.md$/.test(f));
+  /** Docs that assert the CURRENT state, and so must agree with what the repo measures right now.
+   *  W22-docs: README joined the set the day it started quoting the gate's size — the front door is
+   *  where a stale number is read most and noticed least (its "M0 scaffold" headline survived ~20
+   *  merged arcs). Note README sits at the ROOT, so the pattern must not require a docs/ prefix. */
+  const liveState = docs.filter((f) => /^(README|docs\/(OPEN-ITEMS|HANDOFF))\.md$/.test(f));
 
   process.stdout.write("docs — tables render, counts are measured … ");
   const failures = [];

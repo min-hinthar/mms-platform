@@ -1,10 +1,12 @@
-# MMS QR — Design Language (distilled M1 → W21)
+# MMS QR — Design Language (distilled M1 → W22)
 
-The QR app's accumulated design doctrine — what fourteen build/review arcs (M1…M4, W13…W21) proved
-out, written down so the next surface starts from it instead of rediscovering it. Sibling to the
-research context (`docs/context/DESIGN-RESEARCH.md`, the v7.2 prototype, `RUBRIC.md` ≥4.3); this
-file is the **as-built** language. The delivery repo's `docs/hero-design-language.md` is the
-cousin standard — M5's thesis is that QR _learns from_ delivery, and W22 proposes the next borrow.
+The QR app's accumulated design doctrine — what M1…M4 and W13…W22 proved out, written down so the
+next surface starts from it instead of rediscovering it. Sibling to the research context
+(`docs/context/DESIGN-RESEARCH.md`, the v7.2 prototype, `RUBRIC.md` ≥4.3); this file is the
+**as-built** language. The delivery repo's `docs/hero-design-language.md` is the cousin standard —
+M5's thesis is that QR _learns from_ delivery, and W22 is where the borrowing actually landed:
+W22a·depth took the texture/shadow kit and the print ceremony, W22r the receipt-as-document and
+email-shell patterns (`docs/QR_FROM_DELIVERY.md` § "W22 — the second wave").
 
 ## 1 · Aesthetic — warm editorial paper
 
@@ -96,6 +98,14 @@ server database first."_ The doctrine that survived two adversarial reviews and 
   is computed from `taxRate()`, never typed.
 - Empty states answer honestly and point somewhere useful ("try **different** cravings" — the
   matching is OR; "fewer" could only shrink the answer).
+- **Only real clocks on a status rail (W22r).** The /track steps print `created_at` and the expo's
+  `togo_ready_at` / `togo_picked_up_at`, and only once the step is reached — "In the kitchen" stays
+  deliberately BARE, because no honest cooking-start timestamp exists (the fulfillment webhook's
+  insert is not one). A plausible time is still a fabricated one.
+- **Identity is copied, never composed (W22r).** Every string in `apps/qr/lib/brand.ts` is verbatim
+  from the delivery repo's production constants. There are NO business hours anywhere in either
+  repo, so the receipts and emails offer none — inventing "Open 11–9" would read exactly like a
+  promise the owner made.
 
 ## 6 · Bilingual — one surface, two tongues
 
@@ -123,6 +133,24 @@ named beside its amount, the hero total in display serif rolling on NumberFlow. 
 never totals-only — the diner itemizes what the card is about to buy, bound to the **locked**
 cart's lines.
 
+**Receipt detail (W22r, as-built).** THREE surfaces render the same receipt — the /track slip, the
+session-less `?r=` artifact, and the emailed copy — and all three derive from ONE pure module
+(`apps/qr/lib/receipt-view.ts`: `buildReceiptRows` · `groupReceiptLines` · `fulfillmentLabel` ·
+`tenderLabel` · `receiptStatusLabel` · `SERVICE_CHARGE_DISCLOSURE`), so they cannot disagree. The
+rules that module owns: every figure is the **fulfillment-time snapshot rendered verbatim** —
+nothing on a receipt recomputes, and tax stays ONE order-level row (M7); rows are **zero-gated**
+(discount / service / tax / tip appear only when charged); a **refunded** order keeps its receipt
+but is stamped "Refunded — this charge was returned to you", never "Paid in full"; the tender is
+NAMED ("Card · reader" is not online card); and the **SB-1524 disclosure rides the fee wherever it
+shows**, including a pre-2026-08-15 order reopened on the tracker — the charge is retired, the
+historical row is not. Line order is the deterministic `id` sort in `apps/qr/lib/track-order.ts`
+(PostgREST gives an embedded relation none), so the live slip lists the same lines in the same
+order as the durable page. A receipt is a **document**, so it carries what a document carries: the
+badge lockup, the pickup contact name, per-line kitchen notes (the item sheet promised the kitchen
+would see them — this is the paper proof), and the identity foot (§10). It also has to survive the
+printer: `@media print` re-pins the light tokens on `html.dark` (the live tokens never
+re-evaluate for paper), flattens `.receipt-artifact` to plain paper, and hides `.paper-ambient`.
+
 ## 9 · Voice — a warm host, never a nag
 
 Declining is never met with a reaction ("None" sits last and quiet; no guilt line). Generosity is
@@ -130,3 +158,35 @@ met warmly and proportionally (`tipReaction` climbs the ladder). Encouragement i
 (`--tip-heat`), not a modal. Exits are named and honest ("Back to the start keeps your table ·
 Leave this table lets this phone go — the table stays open for everyone else"). Every mode has a
 door out; leaving is a navigation, never a server mutation.
+
+## 10 · Identity + the surfaces that leave the app (W22r)
+
+`apps/qr/lib/brand.ts` is the restaurant's identity, ONCE: `BRAND_NAME`, `BRAND_ADDRESS` ("750
+Terrado Plaza, Suite 33, Covina, CA 91723"), `BRAND_PHONE_DISPLAY` / `BRAND_PHONE_TEL`,
+`BRAND_EMAIL`, `BRAND_INSTAGRAM` / `BRAND_FACEBOOK` — every string verbatim from the delivery repo's
+production constants, no hours (§5). It is the single source **going forward**; surfaces adopt it as
+they're touched, and two literals are still outstanding (`PickupSlotSheet`'s abbreviated address,
+the tracker's help-line phone). The **identity block** — name · street address · tel · mailto —
+rides the receipt foot, the email footer, and the live-order page, because a diner mid-order is
+exactly who wants the phone number without hunting for it. Its `tel:` / `mailto:` links reach 44px
+via padding plus a matching negative margin, so the fine-print line box never inflates and print is
+unchanged.
+
+**Email is the one surface with no tokens** — clients strip external CSS and custom properties, so
+the literal light-palette hex in `apps/qr/emails/` is the sanctioned exception. The shell
+(`MmsEmailLayout`) carries four rules learned from the delivery app's production templates:
+
+- **No gradients.** Clients drop them. The triad is THREE solid table cells (`#e8a83c` / `#a65f10`
+  / `#1b1714`), never a `linear-gradient`.
+- **A hosted, genuinely decodable badge.** `apps/qr/public/email-logo.png` is a true PNG (400×250,
+  byte-identical to the delivery repo's), served absolute via `siteUrl()`. The app's own `logo.png`
+  is **WebP bytes behind a `.png` name** — fine in a browser, undecodable in mail. On screen and in
+  print the app logo is still the right asset; only the email needs the true PNG.
+- **The reason line is PER TEMPLATE.** A shared receipt-flavored default told staff sign-in and
+  invite recipients they'd asked for a receipt — so `reason` is a prop each template supplies, and
+  omitting it renders no line at all rather than a house guess.
+- **A plain-text part rendered from the SAME element** (`render(element, { plainText: true })`) plus
+  a `replyTo` that lands in the owner's real inbox — one element, two parts, no way to drift.
+
+The kicker is bilingual on the one surface, verbatim from the delivery shell (owner-run, so it does
+not need a K15 entry): "Mingalabar · မင်္ဂလာပါ" (§6).

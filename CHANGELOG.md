@@ -4,6 +4,40 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Docs — the W22 sweep, and README joins the measured-count guard (2026-08-17)
+
+Owner: _"Merge when ready and update Readme, docs, etc"_ — the docs caught up to what W22a,
+W22a·depth and W22r actually shipped, and the guard extended so this class of drift fails CI
+instead of aging quietly.
+
+- **`scripts/check-docs.mjs` now measures README's counts too.** `check:docs` already refused
+  transcribed test/mutant counts in `OPEN-ITEMS.md` + `HANDOFF.md`; README carried the same kind of
+  numbers with no guard, so its "1112 tests" line had been stale since W17. README joins the
+  live-state set — proven red-first (a planted `999 qr tests` failed with
+  `README.md:18 — says 999 qr tests, measured 586`).
+- **README rebuilt around the real topology.** The headline states the shipped tracks and the live
+  gate; the overview and the architecture diagram no longer claim the delivery PWA lives in this
+  monorepo (M5 was reshaped 2026-06-24 — separate repos, own Supabase projects, one Stripe
+  account); the apps/packages table, tech stack, and CI table match what's on disk (three real
+  workflows + the note that the review is in-session, never in CI); the dead claude-review badge is
+  replaced by the docs gate; Features gained the W22a menu bands, the W22r receipts/email/tracking
+  line, and the staff/kitchen surfaces; the tax description is corrected to the category-aware
+  engine on the discounted base.
+- **`CLAUDE.md`, `ROADMAP.md`, `HANDOFF.md`** — the gate commands describe what the scripts do
+  today (124 mutants across 38 money/authority modules, the dirty-target abort, the real CI job
+  list); the roadmap logs W21b–d, W22a, W22a·depth, W22r and rewrites Now/Next/Later; the handoff
+  opens on the W22 slate with the prod-applied migration markers.
+- **Design + reference docs** — DESIGN-LANGUAGE gains the warm-paper layer, the PaperAmbient
+  no-isolate invariant and the receipt/real-clocks rules; ENV documents the diner-receipt sender
+  chain (and that the hosted badge needs a publicly reachable origin); BACKEND_ARCHITECTURE lists
+  `packages/db/src/factory.ts`; W22_DESIGN_PROPOSAL marks W22a + W22r shipped;
+  QR_FROM_DELIVERY logs the second wave.
+- **`docs/OPEN-ITEMS.md`** — five new registry rows found while reading the code against the docs:
+  **M57** the receipt-sent stamp is blind to the send result, **M58** a bounce never un-claims
+  "✓ sent", **M59** plain-text money rows run together, **M60** /account history drops kitchen
+  notes, **M61** the paper-ambient invariants (no isolating host, `<html>` owns the ground) are
+  unguarded.
+
 ### W22r — receipts, the receipt email, and live tracking, complete (2026-08-17)
 
 Owner: _"Receipts, email templates, should be as detailed, styled per W22 designs, and polished

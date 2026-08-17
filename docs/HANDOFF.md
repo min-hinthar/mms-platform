@@ -1,18 +1,137 @@
-# Session Handoff — MMS Platform (2026-06-29)
+# Session Handoff — MMS Platform (2026-08-17)
 
 The originating chat context does not carry across sessions — **this file is the durable pickup point.**
 Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — decisions, QA gate, rubric,
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-08-16 — W17…W21 COMPLETE; only owner-blocked items remain)
+> ## ⏭️ NEXT SESSION — start here (2026-08-17 — W22a · W22a·depth · W22r merged; the W22 slate is the live plan)
+>
+> ### ⏭️ Pick up here — the W22 slate is the live plan
+>
+> `docs/W22_DESIGN_PROPOSAL.md` is the plan-of-record and its **W22a slice is marked SHIPPED**. What
+> remains, in the proposal's own recommended order:
+>
+> - **W22b · Installed-native** — manifest + iOS splash/status-bar theme + app-icon set, standalone
+>   safe-area discipline, and the **live order chip** (a Dynamic-Island-style pill that follows the
+>   diner across menu/cart/track with the real kitchen state). Every value in it already exists (the
+>   W18 kitchen taps) — it is the J3 timeline made ambient, not a new claim. Service-worker update
+>   discipline is the risk: extend W7b's Serwist heartbeat + first-install `controllerchange` guard,
+>   don't re-invent it.
+> - **W22c · The gesture layer** — swipe-to-close on every sheet (the R5b `useSwipeToClose` seam,
+>   still unbuilt here), pull-to-refresh with the ✦ moment, back-nav edge consistency, and the
+>   haptics the code already improvises (6/8/12ms) codified as pick < commit < celebrate.
+> - **W22d · Night, designed** — dark graduates from inverted tokens to a designed theme (deeper
+>   espresso ground, gold spent only on selection, photo warmth lift). `packages/ui`'s contrast audit
+>   parses `tokens.css` at test time so it re-derives — but re-read it before trusting green.
+> - **W22e · "Your usual," honestly** — one data-backed card on the arrival beat from the diner's OWN
+>   paid history (≥2 occurrences, the rank-seal honesty bar), one tap to re-add; the taste picker
+>   (`lib/menu/taste.ts`) starts learning from real orders and still never invents an affinity.
+> - **W22f · A sound identity** — two-note service bell + pay chime, opt-in beside reduced motion,
+>   silent by default, never on an error path.
+>
+> **Also open, small — `docs/OPEN-ITEMS.md` M56**, the three W22a polish to-dos noted-and-merged under
+> the 2-round rule: ① the empty-Surprise-me copy blames a diet filter when the WHOLE menu is sold out
+> (check in-stock before attributing); ② the pause choice is component-local, so pause → search →
+> clear remounts the band playing (persist per visit); ③ the drift resumes while an ItemSheet opened
+> from a card is up, so closing it can scroll the rail away from the opener.
+>
+> **The process rule that now binds every PR (owner, 2026-08-16 — "when diminishing returns after
+> round 2, should note for nice to-dos and merge"): TWO Codex rounds, then merge.** Comment
+> `@codex review` on the draft the moment it opens; round 2 on the fix commits; fix-or-justify both.
+> From round 3 on, anything not fixed-on-sight goes to `docs/OPEN-ITEMS.md` as a nice-to-do and the PR
+> MERGES — W22a/#194 ran 4 rounds (4 → 5 → 1 → 2 findings, every one real but each smaller): the
+> review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
+> CAP are unchanged — Codex is the second reviewer, not a replacement for it.
+>
+> **Gate today:** 124 `verify:slice` mutants green · `pnpm check:docs` clean (94 files, 586 qr tests +
+> 41 ui tests) · CI green · then the two reviewers.
+>
+> **W22r (receipts · the receipt email · live tracking — merged #196):** the restaurant's identity is
+> named ONCE in `apps/qr/lib/brand.ts`, every string verbatim from the delivery repo's production
+> constants — name, 750 Terrado Plaza Suite 33 Covina CA 91723, (626) 665-5317,
+> admin@mandalaymorningstar.com, the two socials. **No hours**: neither repo has any, and inventing
+> them is exactly the honesty violation the design language forbids. Surfaces adopt the constants as
+> they are touched (deliberately no big-bang sweep). The durable `?r=` receipt is a real business
+> document — badge lockup, identity foot (address · tel · mailto, 44px padded), destination group
+> headings in the Bill's own vocabulary ("At your table / To-go / Grocery", only when the basket spans
+> 2+), per-line kitchen notes, the pickup contact name; the rules are pure and tested in
+> `lib/receipt-view.ts` (`fulfillmentLabel` + `groupReceiptLines`). The EMAIL matches the delivery
+> shell (`emails/MmsEmailLayout.tsx`): a hosted **true-PNG** badge (`public/email-logo.png` — the
+> app's own `logo.png` is WebP bytes behind a `.png` name that email clients cannot decode), the
+> Mingalabar + Burmese kicker, a 3-cell **solid** triad bar (clients drop gradients), a full identity
+> footer, and a per-template `reason` line so no template inherits another's claim; the send gained a
+> plain-text part rendered from the SAME element and a `replyTo` into the owner's inbox. `/track`
+> itemizes: ONE `TRACK_ORDER_SELECT` + `shapeTrackedOrder` (`lib/track-order.ts`) replaced THREE
+> hand-copied shapes, so the tracker and the durable receipt list the same lines in the same order;
+> `receiptStatusLabel` means a refunded order never reads "Paid in full"; the step rail shows REAL
+> times (`created_at` / `togo_ready_at` / `togo_picked_up_at` — "In the kitchen" stays bare because no
+> honest clock exists). Authorization unchanged (RLS read, uid-scoped fallback, same field set both
+> paths). **No migration — every column already existed.** New mutant
+> `track/breakdown-drops-the-tip`; `useOrderStatus.ts` carries an in-file `verify:slice-exempt`
+> (thin subscription wiring — the money mapping it carries is guarded in `track-order.ts`).
+>
+> **W22a·depth (the warm-paper pass — merged #195; this IS the proposal's W22a slice):** new
+> `--sh-paper` / `--sh-paper-hover` in `packages/ui/src/tokens.css` (two-tier — a tight ambient
+> contact shadow + a NEGATIVE-spread wide diffuse; the flat `--sh` read as a hard square frame over
+> busy backdrops), adopted by `.card` and `.surface-paper` under the inset `--sheen` lip, with
+> `.card-interactive:hover` deepening through the hover token. The R1 texture kit is finally
+> CONSUMED: `.surface-vellum` on the ConfirmSwap decision card (a warmer surface for a moment of
+> consideration), md:+ frost on `.app-header` / `.menu-toolbar` — mobile keeps today's exact opaque
+> paint, because the GPU budget forbids blur below `md`. New `components/PaperAmbient.tsx`: a fixed
+> `z:-1` gradient-masked hairline LINE grid + gold bloom + grain behind every diner main (menu ·
+> checkout/bill · account · /track incl. every notice branch and `loading.tsx` · the durable receipt ·
+> grocery). **Pages carry LINES, cards keep DOTS** (`.card-textured`) so the two textures never read
+> identical. **The host must NOT isolate** — the page ground moved to `html` ONLY, because an isolating
+> host trapped fixed overlays (tier-up scrim, grocery toast, confetti) under the app header (the #195
+> review lesson). Print-hidden. Ceremony 1: the /track paid summary is a thermal SLIP (`receipt-slip` >
+> `receipt-slip-clip` > card body + `receipt-tear`) that PRINTS ON when `justPaid`
+> (`mmsPrintReveal`/`mmsPrintHead`, 1.05s; the print-head is a SIBLING of the clipped element or it
+> gets clipped) — presentation only, every figure stays the server-rendered value, and reduced motion
+> renders the finished slip at rest. Ceremony 2: the send-to-kitchen paper beat (`.mms-send-beat` glyph
+>
+> - `.mms-settle` on the undo control), keyed per send, `display:none` under RM. **Digits deliberately
+>   untouched** — `@number-flow/react` owns its own baseline; the delivery repo's baseline-anchor lesson
+>   applies to hand-rolled reels only.
+>
+> **W22a (the drifting start + one taste-buds bar — merged #194):** "Start here" is TWO independently
+> drifting rows of 10 (`components/menu/MarqueeRail.tsx` + `lib/menu/startHereRows.ts`) — row A is the
+> honest paid-order ranking with tie-aware seals (or the hand-set `popular` fallback, seal-less), row B
+> is **"a little of everything"**, a category round-robin: a curation RULE, not a ranking, so it never
+> wears a seal or borrows row A's "what tables love" framing. They drift in opposite directions at
+> different speeds. The drift rides the NATIVE scroller (swipe · chevrons · keyboard ·
+> scroll-into-view all survive) and is a guest in the diner's scroll: it pauses on
+> touch/hover/focus/offscreen/hidden-tab and for 2.2s after any scroll it didn't write itself, with the
+> rAF loop STOPPED while blocked (a forever-ticking no-op loop is a battery tax); a visible pause/play
+> coin satisfies WCAG 2.2.2; `prefers-reduced-motion` gets the exact pre-W22 static rail — no drift, no
+> duplicate DOM. Loop-duplicate cards are `aria-hidden` + `tabIndex={-1}` but **still CLICKABLE**
+> (`inert` made visibly-on-screen dupes tap-dead) and route focus to their real twin first, so an
+> aria-hidden node is never a sheet's focus-restore target. The taste section is **"Explore your
+> Burmese taste buds"**: craving pills plus the DIETARY pills moved in from the toolbar
+> (`components/menu/DietPills.tsx`, shared) — the sticky toolbar mirrors the same rail whenever a diet
+> is active OR a search hides the band (`q.trim() !== "" || diets.length > 0`) and owns the SINGLE
+> free-from disclaimer. Recommendations and Surprise-me respect active diets. `DIETS`
+> (`lib/menu/dietary.ts`) gained MY accents — K15 ledger.
+>
+> **W21d (the Codex backlog sweep — merged #193):** Codex had reviewed every PR since #178 and nobody
+> read them — 31 findings, all landed post-merge. Triaged here: 18 fixed, 5 closed by a decisive prod
+> measurement, 4 already fixed by later work, 4 justified into OPEN-ITEMS (M54/M55). The ones that
+> mattered: two allergen P1s (Sanwin Makin → **dairy**, Crispy Shrimp in Fish Sauce → **fish**;
+> migration `20260816080000` + catalog snapshot + seed), a locale decimal COMMA turning a typed "5,00"
+> cash tip into **$500**, a kiosk tip intent silently dropped when it arrived after the counter screen
+> mounted, the price editor now verifying the price the manager's SCREEN showed (`expectedPriceCents` —
+> the old CAS guarded only the server's own read-to-write window), SharePay finally reading
+> `TIP_LADDER` like every other surface, and the 🌱 taste chip excluding `vegan-optional` (the dietary
+> predicate's own fail-safe rule). Fresh-DB parity: migrations run before seed, so their guarded
+> UPDATEs no-op on a fresh database — a seed appendix re-applies them post-insert. **This sweep is why
+> the 2-round Codex rule exists.**
 >
 > **W21 (clarity & personalization):** the bill groups by destination on the Bill moment AND the
 > pay step (shared `BillLines`/`BILL_GROUPS`); "Sales tax (10.5%)" un-fused (flex dt drops
 > whitespace — margin, the `<My/>` trap); kitchen = မီးဖိုချောင် everywhere (owner's correction, 12
 > strings); the slot sheet moves real FOCUS to the diner's chip once per open; **pickup requires
 > name + phone** (`pickupContactMissing` at create-intent + client, `qr_carts.customer_phone`
-> migration `20260816070000` — **prod-apply + probe after merge**; phone is cart-only PII, order
+> migration `20260816070000` — **✅ prod-applied + probed** as `w21_pickup_contact`; phone is cart-only PII, order
 > snapshot deferred until a staff surface reads it); Start-here = uniform two-row grid; the **Find
 > your dish** taste picker (honest category/tag matching + Surprise-me, per-device picks); the
 > dine-in exit lines merged into one two-door sentence.
@@ -24,7 +143,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > timestamptz differ as strings); the tip ask reacts per rung (`tipReaction`, bilingual — new MY
 > joins K15); the Bill names the tax rate from `taxRate()`; the reward FOLLOWS its owner
 > (`mms_apply_reward` v3, migration `20260816060000` + red-first SQL test in CI's required list —
-> **prod-apply + probe after merge**); every mode has a named leave (dine-in's is device-level
+> **✅ prod-applied + probed** as `w20_reward_follows_owner`); every mode has a named leave (dine-in's is device-level
 > `forgetDineinOnThisDevice` — never a server mutation); Start here = 10 items + data-backed rank
 > seals + RM-gated hover life.
 >
@@ -35,8 +154,8 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > blocked — `unsentFoodQty` + Bill notice + confirm line), "Put a card on file" + "Send to kitchen
 > now" renames, the dine-in exit is named on the arrival beat, the pickup picker's two stacked bugs
 > are fixed (`currentSlot` prop + slot state lifted to Checkout via `normalizePickupSlot`), and 37
-> menu descriptions got the house voice (migration `20260816050000` — prod-apply + probe after
-> merge). All new MY still pending K15.
+> menu descriptions got the house voice (migration `20260816050000` — **✅ prod-applied + probed** as
+> `w19_menu_voice`). All new MY still pending K15 — see the blocked-decisions list below.
 >
 > **W18 (after this block was first written):** the owner's warm pass landed — tip ask encourages
 > (round-up + cap lecture retired, 122 → 119 mutants; "None" last and quiet on checkout AND kiosk),
@@ -46,9 +165,11 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > including the re-registered kiosk dict. The 31 W17d-2 `description_my` in prod still carry the old
 > formal register; rewriting them waits for the K15 check (one migration, guarded per row).
 >
-> **Read this block, then `docs/W17_PLAN.md`. Everything below is merged AND prod-applied unless it
-> says otherwise.** Prod is `fasnpdhtvqtzjlvruqcu`; every migration in this arc has been applied via
-> `mcp__Supabase__apply_migration` and probe-verified (the probes are recorded per slice below).
+> **Read this block, then `docs/W22_DESIGN_PROPOSAL.md` (the live slate) — `docs/W17_PLAN.md` only for
+> the owner-blocked POS/pricing residuals. Everything below is merged AND prod-applied.** Prod is
+> `fasnpdhtvqtzjlvruqcu`; its migration history ends at `w21d_allergen_amendments` (prod stamps its
+> own apply-time versions — match history by NAME, not timestamp), and **W22a / W22a·depth / W22r
+> needed no migration at all** — every column the itemized tracker reads already existed.
 >
 > ### What the owner asked for, and where it landed
 >
@@ -88,6 +209,13 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > - **`menu_price_audit`** exists, RLS on, manager+ SELECT, **no insert policy** (service-role only).
 > - **0 rows** in `menu_price_audit` and **0 carts** with `intended_tip_cents` — nothing has exercised
 >   these paths in prod yet. **Smoke-test them before trusting them in service.**
+> - **34 items carry no photo** — the 3 genuinely-NULL dishes (C5's photography afternoon) plus
+>   W17d-2's 31 adds. Don't read 34 as a regression: since W16d `safeImageUrl` (containment) is the
+>   only rule and no display filter hides a real photo.
+> - **Migration history ends at `w21d_allergen_amendments`** — W21d's two allergen P1 fixes are live
+>   (Sanwin Makin → dairy, Crispy Shrimp in Fish Sauce → fish). **W22a / W22a·depth / W22r needed no
+>   migration**, so the repo's newest file is still `20260816080000`. Prod stamps apply-time versions:
+>   match history by NAME, not timestamp.
 >
 > ### ⚠️ Open decisions that BLOCK work — ask the owner, don't guess
 >
@@ -102,6 +230,15 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >    $1.50/$2.00** modifier prices; hilsa **fried vs steamed** naming (261 units — no prep modifier
 >    exists, verified against prod); duck curry + ginger salad (1 ring each — real dishes?);
 >    `Fishcake Fried` ambiguity; nangyi **thoke vs mont-ti** labeling. Never guess — ask.
+> 4. **K15 — the Burmese native check** (OPEN-ITEMS K15). Every Claude-authored MY string from W5c
+>    through W22a waits on Min's read: the 60 W5c `description_my` + the modifier/option names, the 31
+>    W17d-2 descriptions (**still in the old formal register in prod** — the rewrite is one
+>    guarded-per-row migration, deliberately held), W18's spoken-register kiosk + cart dictionaries,
+>    W20's `tipReaction`, W21's မီးဖိုချောင် (12 strings), and W22a's five `DIETS` accents. Nothing new
+>    ships MY without joining the queue.
+> 5. **The remaining POS residuals live in OPEN-ITEMS C14, not here** — the 14 unapplied fuzzy grocery
+>    price matches (Brooms $10 vs $2.99, balms $3 vs $41.86: POS-side errors or size variants?) and the
+>    POS-verbatim `Red Bull - SHARK 8.4 oz` name that conflates two brands. Same rule: ask.
 >
 > ### W17d-2 — the missing POS menu items (this slice)
 >
@@ -136,9 +273,24 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ### Where things live now
 >
-> - `apps/qr/lib/tip.ts` — the ladder + round-up + `effectiveTipRate` (pure, mutant-pinned).
+> - `apps/qr/lib/tip.ts` — the house 15/20/30 ladder + `effectiveTipRate` + `tipReaction` + the
+>   $1,000 `TIP_AMOUNT_MAX_CENTS` bound (pure, mutant-pinned; the round-up branch was RETIRED with its
+>   feature in W18 — the derive-don't-store lesson lives on in CLAUDE.md).
 > - `apps/qr/lib/tip-report.ts` — the two-bucket summary (pure).
 > - `apps/qr/lib/menu-price.ts` — the ONE place a money amount crosses from a human into the system.
+> - `apps/qr/lib/brand.ts` — the restaurant's identity (name · address · tel · email · socials), read
+>   by the durable receipt, the receipt email and the /track foot. Verbatim from the delivery repo's
+>   production constants; no hours exist, so none are offered. W22r.
+> - `apps/qr/lib/track-order.ts` — `TRACK_ORDER_SELECT` + `shapeTrackedOrder`: the ONE tracked-order
+>   shape (live subscription + both fallback reads), lines sorted by id so the tracker and the receipt
+>   agree. W22r.
+> - `apps/qr/lib/receipt-view.ts` — receipt rows, `fulfillmentLabel`, `groupReceiptLines`,
+>   `receiptStatusLabel`, `tenderLabel`, the SB-1524 disclosure string (pure, tested).
+> - `apps/qr/lib/menu/` — `startHereRows.ts` (the twin-row curation) · `taste.ts` (the craving rules) ·
+>   `dietary.ts` (`DIETS` + the fail-safe free-from predicate). All pure, all tested.
+> - `apps/qr/components/menu/MarqueeRail.tsx` (the drift, native-scroller-based) ·
+>   `menu/DietPills.tsx` (the shared pill rail + the single free-from disclaimer) ·
+>   `components/PaperAmbient.tsx` (the page ground — lines on pages, dots on cards).
 > - `docs/data/` — `menu_catalog.json` + `pos_2026_prices.json` → generated `MENU_REFERENCE.md`.
 >   Regenerate with `node scripts/gen-menu-reference.mjs`; `pnpm check:docs` fails on drift.
 >
@@ -368,11 +520,12 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 `verify:slice`
-> mutants — and `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (124 today) — and
+> `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
-> **Next candidates:** W7a receipt (S1 high) · W5 bilingual toggle
-> (S2 high) · the money-truth residual sweep (J14 · M22 · M36 · W8d).
+> **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and
+> extended by W22r) · W5 bilingual toggle (RETIRED by W16b — always-bilingual) · the money-truth
+> residual sweep (J14 · M22 · M36 · W8d — track it in `docs/OPEN-ITEMS.md`, not here).
 >
 > _(The banner below is the pre-W11 state — kept for the W10 war stories.)_
 >
@@ -402,7 +555,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > claim is argued from postgrest source + `lib/lock.ts` precedent, not a live round-trip; the QR Supabase
 > project is PAUSED (restore only on the owner's explicit request).
 >
-> Coverage now: 314 tests (273 qr + 41 ui), 52 mutants, four split-path suites that didn't exist before #160.
+> Coverage at that point: 314 tests (273 qr + 41 ui), 52 mutants, four split-path suites that didn't exist before #160.
 
 > ## Previous handoff (2026-07-31) — audit findings, still valid
 >
