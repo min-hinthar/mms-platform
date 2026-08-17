@@ -36,9 +36,7 @@ mms-platform/
 
 **The delivery app was never moved in** (reshaped 2026-06-24): the repos stay separate and QR _learns from_ delivery instead — adopting its hardened mobile/a11y/motion patterns and reusable primitives (`docs/M5_DESIGN.md`, `docs/QR_FROM_DELIVERY.md`). `packages/db/src/factory.ts` is what keeps co-location possible later: the client construction made generic over each app's own generated `Database` type and injected with each app's own project env — **one client idiom, two databases**. Full co-location is reconsidered at M6.
 
-> GitHub: `min-hinthar/mms-platform`, private. CI (build · lint · typecheck · migrations-check) gates every push; the review is an in-session adversarial subagent plus two Codex rounds, **not** a metered Action — see `CLAUDE.md` and `docs/WORKFLOW.md`.
-
-> GitHub: this scaffold is local. To create the repo: `gh repo create mms-platform --private --source=. --remote=origin` then `git add -A && git commit -m "scaffold" && git push -u origin main`. (Connect the GitHub connector if you want me to push for you.)
+> GitHub: `min-hinthar/mms-platform`, **public** — deliberately, for unlimited Actions minutes (`setup.sh` bootstraps it with `gh repo create --public`). Repository visibility is not a licence: the code stays proprietary, "all rights reserved" (README → License). CI (docs gate · lint · typecheck · build · test · migrations-check + types-fresh · SQL tests) gates every push; the review is an in-session adversarial subagent plus two Codex rounds, **not** a metered Action — see `CLAUDE.md` and `docs/WORKFLOW.md`.
 
 ## 2 · QR app architecture (the risky parts, designed in)
 

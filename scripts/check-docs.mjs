@@ -77,7 +77,19 @@ const COUNT_RULES = [
   // two lines from an already-rotted claim. The lesson is the guard's own: a narrow rule set must
   // still cover every phrasing the docs actually use, or the doc drifts in the gap.
   { re: /(\d+)\s+semantic\s+mutations?/gi, key: "mutants", label: "verify:slice mutants" },
+  // The "N mutants at the time (M today)" form: the historical N is exempt, but M is a CURRENT-state
+  // claim and must be measured. Requires nearby mutant context so this can't grab an unrelated
+  // "(3 today)". Found in round 2 — HANDOFF carried a `(124 today)` nothing could falsify.
+  { re: /mutants?[^.\n]{0,40}?\((\d+)\s+today\)/gi, key: "mutants", label: "verify:slice mutants" },
 ];
+
+/**
+ * A historical marker qualifies the number it FOLLOWS ("88 mutants at the time"), so the exemption is
+ * scoped to a tight window AFTER the match — not to the whole line. Line-scoped was the round-2 bug:
+ * on `88 mutants at the time (124 today)` the marker exempted BOTH numbers, so the live count on that
+ * line could rot untouched. Nothing in the live-state docs relies on a marker that precedes its number.
+ */
+const HISTORICAL = /^.{0,24}?(at (?:the )?time|at that point|as of \d|historical)/is;
 
 /**
  * Blanks a wrapped shell-comment continuation so a count that straddles two lines is still ONE
@@ -103,10 +115,10 @@ export function countFailures(text, truth, name = "<doc>") {
       if (stated === truth[rule.key]) continue;
       const lineNo = scan.slice(0, m.index).split("\n").length;
       const line = lines[lineNo - 1] ?? "";
-      // Even inside a live-state doc, a line may deliberately record a past number ("88 mutants at
-      // the time (124 today)"). Deliberately NOT "was written": that phrase turned up in CLAUDE.md
-      // as ordinary prose about a guard, exempting the gate-size count on the same line.
-      if (/at (?:the )?time|at that point|as of \d|historical/i.test(line)) continue;
+      // Even inside a live-state doc, a number may deliberately record a past value ("88 mutants at
+      // the time"). Deliberately NOT "was written": that phrase turned up in CLAUDE.md as ordinary
+      // prose about a guard, exempting the gate-size count on the same line.
+      if (HISTORICAL.test(scan.slice(m.index + m[0].length))) continue;
       out.push(
         `${name}:${lineNo} — says ${stated} ${rule.label}, measured ${truth[rule.key]}\n` +
           c.dim(`      ${line.trim().slice(0, 110)}`),

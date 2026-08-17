@@ -62,6 +62,20 @@ instead of aging quietly.
 - **`docs/MOTION_AND_PERF.md`** — the rails' reduced-motion path said "duplicate DOM **included**";
   `MarqueeRail` appends the loop copies only when motion is on, so it is **excluded**. Left as-is,
   the motion authority invited a future implementation to render redundant hidden cards.
+- **Round 2 — the exemption was too coarse, and three claims were still wrong.** The historical-number
+  escape hatch was scoped to the whole LINE, so on `HANDOFF.md`'s `88 mutants at the time (124 today)`
+  the marker exempted **both** numbers and the live one could rot untouched. A historical marker
+  qualifies the number it FOLLOWS, so the exemption is now a tight window after the match, and the
+  `(N today)` form got a rule of its own (mutant-context-scoped, so it can't grab an unrelated
+  `(3 today)`). Proven **both** ways: `(999 today)` goes red, while re-dating the historical `88` stays
+  green. Also fixed: `docs/ARCHITECTURE.md` called the repo **private** when it is deliberately public
+  for free Actions minutes (`setup.sh` bootstraps `--public`; visibility is not a licence — the code
+  stays proprietary), and carried a contradictory leftover telling you to create it `--private`;
+  `CLAUDE.md`'s new design summary repeated the "duplicate DOM included" error corrected in
+  `MOTION_AND_PERF.md`; and the interaction-hooks paragraph claimed **every** hook self-gates on
+  reduced motion, when `useRipple` is framer-free pure state that never calls
+  `useAnimationPreference` — it is CALLER-gated (`AddButton.tsx:342` binds `onPointerDown` only when
+  `shouldAnimate`), and a consumer following the old wording would animate for reduced-motion users.
 - **`docs/OPEN-ITEMS.md`** — five new registry rows found while reading the code against the docs:
   **M57** the receipt-sent stamp is blind to the send result, **M58** a bounce never un-claims
   "✓ sent", **M59** plain-text money rows run together, **M60** /account history drops kitchen

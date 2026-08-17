@@ -97,8 +97,11 @@ They are intentionally lean (no in-app motion-settings store yet — add one whe
 
 `useTilt` / `useMagnetic` / `useHeroParallax` / `useRipple` live in `packages/ui/src/interactions.ts` and
 export from the package root — ported from the delivery repo's `Hero/interactions.ts` /
-`useTiltEffect.ts`, re-skinned to `useAnimationPreference` (each hook no-ops under reduced motion,
-rAF-throttles its window listeners, and detaches offscreen). They need framer-motion's `useSpring`, so a
+`useTiltEffect.ts`, re-skinned to `useAnimationPreference` (they no-op under reduced motion,
+rAF-throttle their window listeners, and detach offscreen). **`useRipple` is the exception — it is
+CALLER-gated.** It is framer-free pure state and never calls `useAnimationPreference`, so the consumer
+must check the preference itself before binding: `AddButton` attaches `onPointerDown` only when
+`shouldAnimate`. Bind it unconditionally and reduced-motion users get the ripple anyway. They need framer-motion's `useSpring`, so a
 consumer must be `"use client"` and sit under `MotionProvider`. **The caveats are carried verbatim in the
 module header and still bind:** no 3D tilt on a card whose body holds the primary CTA (the swing moves
 the CTA out from under the cursor + a hard square shadow artifact under `preserve-3d`), disable tilt on
