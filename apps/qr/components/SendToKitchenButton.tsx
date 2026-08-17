@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, useTransition, type CSSProperties } from "react";
+import { Icon } from "@mms/ui";
 import { sendToKitchen, undoFire } from "@/lib/cart";
 import { t, type DictKey } from "@/lib/i18n";
 import { confirmCopy } from "@/lib/confirm-copy";
@@ -64,6 +65,10 @@ export function SendToKitchenButton({
   const [nowMs, setNowMs] = useState(() => Date.now());
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const undoBtnRef = useRef<HTMLButtonElement>(null);
+  // W22a — the paper-beat ceremony counter: bumped once per SUCCESSFUL send; the beat glyph is
+  // keyed by it so a second send this session replays the beat (a bare boolean wouldn't). 0 = no
+  // send yet, nothing rendered. Decorative only — the live region says it in words.
+  const [sendBeat, setSendBeat] = useState(0);
 
   // Drive the countdown while an undo window is open, and close it (drop the Undo affordance — the lines
   // are now truly with the kitchen) the moment it elapses. The clear happens inside the interval
@@ -127,6 +132,7 @@ export function SendToKitchenButton({
           const canUndo = graceMs > 0 && res.undoBatch !== null;
           setUndoBatch(res.undoBatch);
           setUndoUntil(canUndo ? startNow + graceMs : null);
+          setSendBeat((n) => n + 1); // W22a — one paper beat per successful send
           onChanged(); // steppers → "Sent to kitchen" chips
         } else {
           setMsg({ kind: "err", text: reasonCopy[res.reason] });
@@ -171,17 +177,28 @@ export function SendToKitchenButton({
   };
 
   return (
-    <div style={{ marginTop: 12 }}>
+    // position:relative hosts the W22a paper beat (an absolute glyph lifting off the control row).
+    <div style={{ marginTop: 12, position: "relative" }}>
+      {/* W22a — the send ceremony: a small receipt lifts off toward the kitchen and fades. Keyed
+          per successful send so a later send replays it; aria-hidden (the live region below says
+          "Sent to the kitchen…" in words); display:none under reduced motion (a static lingering
+          glyph would be noise, not a fallback). */}
+      {sendBeat > 0 && (
+        <span key={sendBeat} className="mms-send-beat" aria-hidden>
+          <Icon name="receipt" size={22} />
+        </span>
+      )}
       {remaining > 0 ? (
         // The undo window: "Undo — Ns" counting down the server-measured grace. The changing count lives
         // in the BUTTON label (not the live region), so it isn't re-announced every second.
+        // W22a `.mms-settle` — the control that replaces Send drops in with a soft settle (RM: instant).
         <button
           ref={undoBtnRef}
           type="button"
           onClick={undo}
           disabled={pending}
           aria-busy={pending}
-          className="checkout-outline-btn"
+          className="checkout-outline-btn mms-settle"
           style={{ ...btn, opacity: pending ? 0.7 : 1, cursor: pending ? "default" : "pointer" }}
         >
           {pending ? "Bringing it back…" : `Undo — ${remaining}s`}

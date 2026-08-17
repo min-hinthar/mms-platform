@@ -8,6 +8,7 @@ import { getReceiptEntry } from "@/lib/receipt-entry";
 import { resolveReceiptOrder } from "@/lib/receipt-token";
 import { reorderLink } from "@/lib/order-history-view";
 import { menuHref, menuLinkText } from "@/lib/menu-href";
+import { PaperAmbient } from "@/components/PaperAmbient";
 
 // /track — post-payment, live. Stripe appends `payment_intent` + `redirect_status` to the Payment
 // Element return_url; for succeeded/processing we mount the Realtime <OrderTracker> (the order shows
@@ -64,6 +65,7 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
     if (!entry)
       return (
         <main style={wrap}>
+          <PaperAmbient />
           <div className="card card-textured track-notice">
             <div className="track-notice-medallion" aria-hidden>
               🧾
@@ -88,6 +90,8 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
     const again = reorderLink(entry);
     return (
       <main style={{ ...wrap, maxWidth: 480 }}>
+        {/* W22a — screen-only ambient (print-hidden in CSS); the receipt keeps its clean paper. */}
+        <PaperAmbient />
         <ReceiptCard entry={entry} />
         <div className="print-hide" style={{ display: "grid", gap: 10, marginTop: 14 }}>
           <PrintReceiptButton />
@@ -120,6 +124,7 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
       return <OrderTracker paymentIntent={null} orderId={orderId} processing={false} justPaid />;
     return (
       <main style={wrap}>
+        <PaperAmbient />
         <div className="card card-textured track-notice">
           <div className="track-notice-medallion" aria-hidden>
             🫖
@@ -154,6 +159,7 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
       );
     return (
       <main style={wrap}>
+        <PaperAmbient />
         <div className="card card-textured track-notice">
           <div className="track-notice-medallion" aria-hidden>
             {status === "processing" ? "⏳" : "🧾"}
@@ -181,6 +187,7 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
   if (status)
     return (
       <main style={wrap}>
+        <PaperAmbient />
         <div className="card card-textured track-notice">
           <div className="track-notice-medallion track-notice-medallion-warn" aria-hidden>
             ↺
@@ -203,6 +210,7 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
   // Direct visit (no payment redirect) — stub until an order exists.
   return (
     <main style={wrap}>
+      <PaperAmbient />
       <div className="card card-textured track-notice">
         <div className="track-notice-medallion" aria-hidden>
           🍵

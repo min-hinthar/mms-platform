@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { TransitionLink, useJourneyRouter } from "@/components/nav/TransitionNav"; // J1 journey grammar
+import { PaperAmbient } from "@/components/PaperAmbient";
 import posthog from "posthog-js";
 import { Icon, NumberFlow } from "@mms/ui";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
@@ -658,7 +659,10 @@ export default function Grocery() {
   }, 0);
 
   return (
+    // W22a — the paper ambient behind the aisle (no isolation: the page ground lives on <html>,
+    // so the fixed z:-1 layer is visible without trapping the .grocery-toast under the sheet).
     <main style={{ maxWidth: 440, margin: "0 auto", padding: 20, paddingBottom: 120 }}>
+      <PaperAmbient />
       {/* W4g — editorial masthead: display-serif title + one quiet subline. The EBT disclaimer
           moved off the top (it lived here as a text-wall) — the honest "SNAP coming; pay by card
           today" copy still rides the per-item EBT chips and the Scan-door EBT-eligible line. */}

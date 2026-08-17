@@ -14,6 +14,19 @@ Bill total, headings), UI sans for controls, **Padauk** for Burmese — always. 
 daylight; dark = Night. Tokens only (`@mms/ui/tokens.css`) — a hardcoded color is a bug, and
 `contrast-audit`-style checks treat token changes as API changes.
 
+**Depth (W22a·depth, as-built):** every `.card` is gently-lifted warm paper — inset `--sheen` lip
+over the two-tier `--sh-paper` (tight ambient + negative-spread wide diffuse; a zero-spread wide
+layer reads as a hard square frame; hover deepens through `--sh-paper-hover`, never back to a
+flat shadow). Diner mains sit on the `PaperAmbient` — a gradient-masked hairline grid + gold
+bloom + grain, fixed at z:-1 with **no host isolation**: the page ground lives on `<html>` ONLY
+(the canvas paints below negative-z content), because an `isolation:isolate` host traps its own
+fixed overlays — tier-up scrims, toasts, confetti — beneath the app header (the #195 review
+lesson; never reintroduce a body background or an isolate host for this layer). Never full-bleed
+uniform; the fade means opaque sticky chrome never hard-cuts it. Pages carry LINES, cards carry
+DOTS (`.card-textured`) — the two textures never read identical. Surface tiers: `.surface-vellum`
+(the warm wash) marks moments of consideration (ConfirmSwap); glass frost is md:+ only, on the
+sticky chrome. Mobile stays opaque and blur-free — the GPU budget is a hard limit.
+
 ## 2 · The selection vocabulary — one language, every surface
 
 A selected thing wears the **lit gold cap**: gradient fill + `--oa` ink + inner sheen + a soft
@@ -29,15 +42,17 @@ fill, gold hairline. Two hard rules learned the expensive way:
 
 ## 3 · Motion idioms — small, meaningful, always escorted
 
-| Idiom                    | Meaning                             | Where                                |
-| ------------------------ | ----------------------------------- | ------------------------------------ |
-| `.mms-pop`               | a VALUE changed under you           | tip previews, cart count capsule     |
-| `.mms-rise`              | something ARRIVED                   | tip reactions, notices, scanned rows |
-| `.mms-stagger`           | a once-per-session premiere         | arrival beat, Start-here band        |
-| press glow + sheen sweep | you COMMITTED                       | Pay CTA, ConfirmSwap proceed         |
-| `--tip-heat` ladder      | encouragement as gradient, not nag  | tip chips warm 15%→30%               |
-| NumberFlow rolls         | money settles like an odometer      | Bill hero total                      |
-| `MarqueeRail` drift      | an ambient conveyor, never a hijack | Start-here twin rows (W22)           |
+| Idiom                     | Meaning                             | Where                                |
+| ------------------------- | ----------------------------------- | ------------------------------------ |
+| `.mms-pop`                | a VALUE changed under you           | tip previews, cart count capsule     |
+| `.mms-rise`               | something ARRIVED                   | tip reactions, notices, scanned rows |
+| `.mms-stagger`            | a once-per-session premiere         | arrival beat, Start-here band        |
+| press glow + sheen sweep  | you COMMITTED                       | Pay CTA, ConfirmSwap proceed         |
+| `--tip-heat` ladder       | encouragement as gradient, not nag  | tip chips warm 15%→30%               |
+| NumberFlow rolls          | money settles like an odometer      | Bill hero total                      |
+| `MarqueeRail` drift       | an ambient conveyor, never a hijack | Start-here twin rows (W22)           |
+| thermal print reveal      | the moment becomes an ARTIFACT      | /track paid slip (W22a·depth)        |
+| `.mms-send-beat` + settle | the order visibly LEAVES the table  | send-to-kitchen success              |
 
 Rules: transform/opacity only (60 fps); **every** new animation/transition joins a
 `prefers-reduced-motion` block the moment it's written; entrance effects premiere once per session

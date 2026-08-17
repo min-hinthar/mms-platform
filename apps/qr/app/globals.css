@@ -16,13 +16,21 @@
 html,
 body {
   margin: 0;
-  background: var(--pg);
   color: var(--tx);
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
   /* W16e — body text rode the browser default (~1.2) while --lh-normal (1.5) sat unused at the
      base and a dozen components re-declared 1.5 by hand. One inherited default instead. */
   line-height: var(--lh-normal);
+}
+/* The page ground lives on HTML ONLY (Codex P2 on #195): html's background propagates to the
+   CANVAS, which paints below negative-z descendants of the root stacking context — so a fixed
+   z:-1 layer (`.paper-ambient`) is visible WITHOUT any `isolation:isolate` on its host. A body-
+   level background is the body element's own paint, which covers negative-z layers and forced
+   every host into an isolate that TRAPPED its fixed overlays (tier-up scrim, grocery toast,
+   confetti) below the app header. Visually identical: the canvas is the same --pg. */
+html {
+  background: var(--pg);
 }
 h1,
 h2,
@@ -64,7 +72,12 @@ h3 {
   background: var(--cd);
   border: 1px solid var(--bd);
   border-radius: var(--r-card);
-  box-shadow: var(--sh);
+  /* W22a depth pass — every card reads as gently-lifted warm paper: the inset sheen lip (a crisp
+     printed edge) over the two-tier diffuse shadow (--sh-paper: tight ambient + negative-spread
+     wide layer, never a hard square frame). Replaces the old single-tier --sh. */
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-paper);
 }
 :focus-visible {
   outline: 2.5px solid var(--ac);
@@ -430,14 +443,239 @@ h3 {
     inset 0 1px 0 var(--sheen),
     var(--sh-md);
 }
-/* C) Paper: opaque stacked depth (tight ambient + wide diffuse), no translucency. */
+/* C) Paper: opaque stacked depth — the true two-tier recipe (W22a: --sh-paper's negative-spread
+   wide layer replaced the flat --sh + --sh-md stack, which read square over busy backdrops). */
 .surface-paper {
   background: var(--surface-vellum);
   border: 1px solid var(--bd);
   box-shadow:
     inset 0 1px 0 var(--sheen),
-    var(--sh),
-    var(--sh-md);
+    var(--sh-paper);
+}
+
+/* ── W22a · Depth & ceremony (docs/W22_DESIGN_PROPOSAL.md, owner go 2026-08-16) ──────────────────
+   The warm-paper pass: the R1 kit finally CONSUMED. A masked paper ambient behind the diner mains,
+   md:+ frost on the sticky chrome, and the two ceremonies (thermal-print receipt on pay success,
+   the send-to-kitchen paper beat). All decorative layers: aria-hidden + pointer-events-none at the
+   call site; no blur()/backdrop-filter below md (mobile GPU budget); every animation RM-escorted
+   in the block at the end of this section. */
+
+/* The page ambient — a hairline line grid (cards keep the DOTS via .card-textured, so the two
+   textures never read identical) under a soft gold bloom, grain over both, the whole layer
+   gradient-masked to fade before mid-page (a uniform full-bleed grid reads as cheap wallpaper,
+   and the fade means the opaque sticky chrome never hard-cuts a visible texture). Fixed at z:-1
+   with NO host isolation (Codex P2 on #195): the page ground lives on <html> only, so the canvas
+   paints below this layer while every fixed overlay (tier-up, toast, confetti) keeps its place
+   in the root stacking context. Static by design: no motion, nothing to pause. */
+.paper-ambient {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.55;
+  background-image:
+    radial-gradient(
+      120% 60% at 50% -10%,
+      color-mix(in oklab, var(--gold) 10%, transparent),
+      transparent 62%
+    ),
+    linear-gradient(to right, var(--tex-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--tex-line) 1px, transparent 1px);
+  background-size:
+    100% 100%,
+    44px 44px,
+    44px 44px;
+  -webkit-mask-image: radial-gradient(130% 92% at 50% 0%, #000 30%, transparent 74%);
+  mask-image: radial-gradient(130% 92% at 50% 0%, #000 30%, transparent 74%);
+}
+.paper-ambient::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+  background-size: 140px 140px;
+  /* Plain-value fallback FIRST (Codex P2 on #195): if a UA rejects the calc at computed-value
+     time, opacity would revert to its initial 1 — a full-viewport high-contrast noise layer.
+     The calc then refines it where supported (dark lifts --tex-grain-opacity slightly). */
+  opacity: 0.14;
+  opacity: calc(var(--tex-grain-opacity, 0.4) * 0.35);
+}
+/* A receipt prints on white paper — the ambient (a fixed layer, which print engines repeat on
+   every page) must never reach the printer. */
+@media print {
+  .paper-ambient {
+    display: none;
+  }
+}
+
+/* Sticky chrome frost — desktop only (the mobile GPU budget forbids backdrop-filter below md:).
+   With the ambient now scrolling underneath, the header/toolbar read as frosted glass shelves
+   instead of hard --pg slabs. Mobile keeps today's exact opaque paint. */
+@media (min-width: 768px) {
+  .app-header,
+  .menu-toolbar {
+    background: color-mix(in oklab, var(--pg) 84%, transparent);
+    -webkit-backdrop-filter: blur(12px) saturate(1.12);
+    backdrop-filter: blur(12px) saturate(1.12);
+  }
+}
+
+/* ── The thermal-print receipt (pay success, /track) ──────────────────────────────────────────────
+   The compact paid-receipt card becomes a printed slip: body + torn foot inside a clip wrapper;
+   when freshly paid the wrapper prints on (clip-path opens top→bottom) while the print-head light
+   — a SIBLING of the clipped element, never a child (a child gets clipped) — rides the reveal
+   frontier on the IDENTICAL duration/ease. Presentation only: every figure on the slip stays the
+   server-rendered value. The slip styling (tear, radius trim) is permanent; only the .receipt-print*
+   animation classes are fresh-payment-gated by the component. */
+.receipt-slip {
+  position: relative;
+}
+.receipt-slip-clip {
+  position: relative;
+}
+.receipt-print .receipt-slip-clip {
+  animation: mmsPrintReveal 1.05s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes mmsPrintReveal {
+  from {
+    clip-path: inset(0 0 100% 0);
+    transform: translateY(8px);
+  }
+  to {
+    /* The `both` fill RETAINS this end state forever — so it must sit fully outside the
+       --sh-paper spread (wide layer reaches ~10px sideways / ~24px below), or the freshly-printed
+       slip keeps a shaved shadow versus its revisit/RM twin (adversarial MED on #195). */
+    clip-path: inset(-24px -32px -44px -32px);
+    transform: translateY(0);
+  }
+}
+/* The slip BODY is the existing card minus its bottom edge — the tear strip takes over there. */
+.receipt-slip-body {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-bottom: none;
+}
+/* Torn foot — a cream strip with half-circle perforations punched out by a repeating mask
+   (mask-size 20px × the strip height; the circle floats above the top edge so the punches bite
+   into it). Borderless on purpose: torn paper has no rule. */
+.receipt-tear {
+  height: 11px;
+  background: var(--cd);
+  -webkit-mask-image: radial-gradient(circle 6px at 10px -1px, transparent 6px, #000 6.5px);
+  mask-image: radial-gradient(circle 6px at 10px -1px, transparent 6px, #000 6.5px);
+  -webkit-mask-size: 20px 11px;
+  mask-size: 20px 11px;
+  -webkit-mask-repeat: repeat-x;
+  mask-repeat: repeat-x;
+}
+/* The print-head light — a soft gold band with a bright accent hairline through its middle
+   (height 22px + margin-top -11px self-centers the band on the animated `top` line). Rendered
+   ONLY during the fresh-payment print (component-gated); display:none under RM as the belt. */
+.receipt-printhead {
+  position: absolute;
+  left: -4px;
+  right: -4px;
+  height: 22px;
+  margin-top: -11px;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in oklab, var(--gold) 30%, transparent),
+    transparent
+  );
+  animation: mmsPrintHead 1.05s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.receipt-printhead::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: color-mix(in oklab, var(--ac) 55%, var(--gold));
+}
+@keyframes mmsPrintHead {
+  0% {
+    top: 0%;
+    opacity: 0;
+  }
+  6% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    top: 100%;
+    opacity: 0;
+  }
+}
+
+/* ── The send-to-kitchen paper beat ───────────────────────────────────────────────────────────────
+   One-beat ceremony on a successful send: a small receipt glyph lifts off toward the kitchen and
+   fades (the order visibly leaves the table), while the control that replaces the Send button
+   settles in with a soft drop. Keyed per send by the component so repeat sends replay; decorative
+   (aria-hidden) — the live region already says "Sent to the kitchen…" in words. */
+.mms-send-beat {
+  position: absolute;
+  left: 50%;
+  top: -4px;
+  margin-left: -11px;
+  color: var(--ac);
+  pointer-events: none;
+  opacity: 0;
+  animation: mmsSendBeat 760ms var(--ease-out) both;
+}
+@keyframes mmsSendBeat {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) rotate(0deg) scale(0.9);
+  }
+  18% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-30px) rotate(-8deg) scale(1);
+  }
+}
+/* No fill mode ON PURPOSE: with `both`, the end keyframe's opacity:1 would keep overriding the
+   consumer's inline pending-dim (opacity .7) forever after the settle finishes. */
+.mms-settle {
+  animation: mmsSettle 320ms var(--ease-out);
+}
+@keyframes mmsSettle {
+  from {
+    /* 0.4, not 0 (adversarial LOW): focus lands on the Undo control the same frame this starts —
+       a from-zero fade would hide the focus ring for the first frames (WCAG 2.4.7). */
+    opacity: 0.4;
+    transform: translateY(5px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* W22a reduced-motion off-switches — the print renders at rest (no clip), the head never shows,
+   the beat glyph never appears (a static lingering glyph would be noise, not a fallback), the
+   settle is an instant cut. The ambient is static and needs no gate. */
+@media (prefers-reduced-motion: reduce) {
+  .receipt-print .receipt-slip-clip {
+    animation: none;
+  }
+  .receipt-printhead {
+    display: none;
+  }
+  .mms-send-beat {
+    display: none;
+  }
+  .mms-settle {
+    animation: none;
+  }
 }
 
 /* Count-bounce — a qty/number-change "thunk" (R5 stepper, R8 rolling numbers will consume `.mms-pop`).
@@ -525,7 +763,11 @@ h3 {
 @media (hover: hover) {
   .card-interactive:hover {
     transform: translateY(-2px);
-    box-shadow: var(--sh-md);
+    /* W22a — the lift keeps the sheen lip and DEEPENS the same two-tier shape (--sh-paper-hover);
+       swapping back to the flat --sh-md read as the shadow flattening mid-lift. */
+    box-shadow:
+      inset 0 1px 0 var(--sheen),
+      var(--sh-paper-hover);
   }
 }
 .card-interactive:active {

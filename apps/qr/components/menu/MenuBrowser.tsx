@@ -22,6 +22,7 @@ import { useCart } from "@/components/TableCartProvider";
 import { toggleFavorite } from "@/lib/favorites";
 import { reorderOrder } from "@/lib/reorder";
 import { LEND_CHANGE_EVENT } from "@/lib/deviceIdentity";
+import { PaperAmbient } from "@/components/PaperAmbient";
 import type { WelcomeBack } from "@/lib/rewards";
 
 export type MenuItem = {
@@ -354,7 +355,10 @@ export function MenuBrowser({
   }
 
   return (
+    // W22a — no isolation on purpose: the page ground lives on <html> (canvas), so the fixed
+    // z:-1 PaperAmbient is visible without a stacking context that would trap fixed overlays.
     <main style={{ maxWidth: 440, margin: "0 auto", paddingBottom: 96 }}>
+      <PaperAmbient />
       {/* The persistent AppHeader now owns the notch clearance (it's sticky above this in-flow title), so
           this header must NOT add env(safe-area-inset-top) again — that double-counted the inset. */}
       <header style={{ padding: "44px 20px 4px" }}>

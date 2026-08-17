@@ -48,11 +48,14 @@ export function ConfirmSwap({
   }, []);
 
   return (
+    // W22a — the decision card wears the VELLUM tier (the warm clay→sage wash): a moment of
+    // consideration gets a distinct, warmer surface than the plain paper around it. The class
+    // owns background/border/shadow; the inline const keeps only layout.
     <div
       role="group"
       aria-label={copy.label}
       aria-describedby={questionId}
-      className="mms-rise"
+      className="mms-rise surface-vellum"
       style={card}
     >
       <p id={questionId} style={question}>
@@ -101,14 +104,14 @@ export function ConfirmSwap({
   );
 }
 
+// W22a — background/border moved to the `.surface-vellum` class (inline styles would outrank it);
+// this keeps only layout.
 const card: CSSProperties = {
   display: "grid",
   gap: "var(--s3)",
   marginTop: 12,
   padding: "var(--s4)",
   borderRadius: 12,
-  border: "1px solid var(--bd)",
-  background: "var(--cd)",
 };
 const question: CSSProperties = {
   margin: 0,

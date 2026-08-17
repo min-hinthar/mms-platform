@@ -4,6 +4,7 @@ import { getRewardsState, getOrderHistory, getWelcomeBack, ensureProfile } from 
 import { getMyLiveOrders } from "@/lib/orders";
 import { getFavoriteDishes } from "@/lib/favorites";
 import { RewardsHub } from "@/components/RewardsHub";
+import { PaperAmbient } from "@/components/PaperAmbient";
 import { OrderHistory } from "@/components/OrderHistory";
 import { TodayOrders } from "@/components/TodayOrders";
 import { AccountUpgrade } from "@/components/AccountUpgrade";
@@ -36,7 +37,10 @@ export default async function Account() {
   const repeatMonth = (welcome?.ordersThisMonth ?? 0) >= 2;
 
   return (
+    // W22a — the paper ambient behind the account hub (no isolation: the page ground lives on
+    // <html>, so the fixed z:-1 layer is visible without trapping the tier-up/merge overlays).
     <main style={{ padding: 24, maxWidth: 480, margin: "0 auto" }}>
+      <PaperAmbient />
       {/* K3b: redeems a merge token (minted while anon before a sign-into-existing) once signed in, then
           celebrates the carried-over Stars. Renders null until a merge actually lands — mounted for both
           the anon and upgraded views so it catches the sign-in transition either way. */}

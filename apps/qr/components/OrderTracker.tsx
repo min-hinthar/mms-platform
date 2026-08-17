@@ -13,6 +13,7 @@ import { FeedbackPrompt } from "./FeedbackPrompt";
 import { GoodbyeBeat } from "./GoodbyeBeat";
 import { PaySuccess } from "./PaySuccess";
 import { ReceiptActions } from "./ReceiptActions";
+import { PaperAmbient } from "./PaperAmbient";
 import { useConnectionTruth } from "@/lib/useConnectionTruth";
 
 // Lifecycle steps (verbatim v7.2). The active step is server-driven; at M1/M2 there's no kitchen
@@ -341,7 +342,10 @@ export function OrderTracker({
   );
 
   return (
+    // W22a — the paper ambient behind the tracker (no isolation: the page ground lives on
+    // <html>, so the fixed z:-1 layer is visible without trapping the confetti/celebrations).
     <main style={{ padding: "24px 20px 40px", maxWidth: "var(--w-content)", margin: "0 auto" }}>
+      <PaperAmbient />
       {justPaid ? (
         // Fresh successful payment → the celebration is the headline (one <h1>); the mode + status + ETA
         // ride a compact row below it, and the timeline follows.
@@ -868,79 +872,92 @@ export function OrderTracker({
       )}
 
       {arrived && (
-        // `.vt-receipt` (J4, earner + fresh payment only): on the next nav to /account this receipt
-        // card MORPHS into the "Your orders" history card — the receipt visibly tucks into the
-        // account. Gated on `earnedThisOrder` so the metaphor is never a false promise: split
-        // share-payers aren't the stamped earner, and this order won't be in THEIR history.
-        <div
-          className={`card card-textured${justPaid && progress?.earnedThisOrder ? " vt-receipt" : ""}`}
-          style={{ display: "flex", gap: 12, alignItems: "center", padding: 12, marginTop: 6 }}
-        >
-          <span
-            aria-hidden
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 12,
-              background: "var(--grad)",
-              display: "grid",
-              placeItems: "center",
-              color: "var(--ac)",
-            }}
-          >
-            <Icon name="receipt" size={20} />
-          </span>
-          <div style={{ flex: 1, minWidth: 0 }}>
+        // W22a — the paid summary is now a thermal SLIP: card body + torn foot inside a clip
+        // wrapper. Freshly paid (justPaid — the same one-shot flag as the celebration; a revisit
+        // renders the slip at rest) it PRINTS on: the clip opens top→bottom while the print-head
+        // light — a SIBLING of the clipped element, never a child (a child gets clipped) — rides
+        // the frontier on the identical duration/ease. Presentation only: every figure below is
+        // the same server-rendered value as before. RM renders the finished slip instantly.
+        <div className={`receipt-slip${justPaid ? " receipt-print" : ""}`} style={{ marginTop: 6 }}>
+          <div className="receipt-slip-clip">
+            {/* `.vt-receipt` (J4, earner + fresh payment only): on the next nav to /account this
+                receipt card MORPHS into the "Your orders" history card — the receipt visibly tucks
+                into the account. Gated on `earnedThisOrder` so the metaphor is never a false
+                promise: split share-payers aren't the stamped earner, and this order won't be in
+                THEIR history. */}
             <div
-              style={{
-                fontWeight: 700,
-                fontSize: "var(--fs-sm)",
-                fontVariantNumeric: "tabular-nums",
-              }}
+              className={`card card-textured receipt-slip-body${justPaid && progress?.earnedThisOrder ? " vt-receipt" : ""}`}
+              style={{ display: "flex", gap: 12, alignItems: "center", padding: 12 }}
             >
-              {order.itemCount} {order.itemCount === 1 ? "item" : "items"} · $
-              {(order.totalCents / 100).toFixed(2)}
-            </div>
-            <div style={{ fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
-              Paid in full
-              {/* K2: dine-in receipts name the table (null for to-go/pickup — no table). */}
-              {order.tableNumber != null && ` · Table ${order.tableNumber}`}
-            </div>
-          </div>
-          {/* W2e — the short order code on every food receipt card: a dine-in/pickup diner now has a
+              <span
+                aria-hidden
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 12,
+                  background: "var(--grad)",
+                  display: "grid",
+                  placeItems: "center",
+                  color: "var(--ac)",
+                }}
+              >
+                <Icon name="receipt" size={20} />
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div
+                  style={{
+                    fontWeight: 700,
+                    fontSize: "var(--fs-sm)",
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  {order.itemCount} {order.itemCount === 1 ? "item" : "items"} · $
+                  {(order.totalCents / 100).toFixed(2)}
+                </div>
+                <div style={{ fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
+                  Paid in full
+                  {/* K2: dine-in receipts name the table (null for to-go/pickup — no table). */}
+                  {order.tableNumber != null && ` · Table ${order.tableNumber}`}
+                </div>
+              </div>
+              {/* W2e — the short order code on every food receipt card: a dine-in/pickup diner now has a
               reference to quote at the counter (grocery already gets one on the exit pass). The visible
               tail is aria-hidden; an sr-only sibling reads it as spaced characters (a hex tail read as
               one word is useless), matching the exit-pass pattern. Same uuid-tail the exit pass + refund
               card print. The whole visible block is aria-hidden — the sr-only sibling carries the full
               "Order reference …" label, so AT hears it once, not "Order" then "Order reference". */}
-          <div style={{ textAlign: "right", flex: "none" }}>
-            <div
-              aria-hidden
-              style={{
-                fontSize: "var(--fs-xs)",
-                fontWeight: 700,
-                letterSpacing: "0.06em",
-                textTransform: "uppercase",
-                color: "var(--t3)",
-              }}
-            >
-              Order
+              <div style={{ textAlign: "right", flex: "none" }}>
+                <div
+                  aria-hidden
+                  style={{
+                    fontSize: "var(--fs-xs)",
+                    fontWeight: 700,
+                    letterSpacing: "0.06em",
+                    textTransform: "uppercase",
+                    color: "var(--t3)",
+                  }}
+                >
+                  Order
+                </div>
+                <div
+                  aria-hidden
+                  style={{
+                    fontWeight: 800,
+                    fontSize: "var(--fs-sm)",
+                    letterSpacing: "0.04em",
+                    color: "var(--tx)",
+                  }}
+                >
+                  #{order.id.slice(-6).toUpperCase()}
+                </div>
+                <span className="sr-only">
+                  {`Order reference ${order.id.slice(-6).toUpperCase().split("").join(" ")}`}
+                </span>
+              </div>
             </div>
-            <div
-              aria-hidden
-              style={{
-                fontWeight: 800,
-                fontSize: "var(--fs-sm)",
-                letterSpacing: "0.04em",
-                color: "var(--tx)",
-              }}
-            >
-              #{order.id.slice(-6).toUpperCase()}
-            </div>
-            <span className="sr-only">
-              {`Order reference ${order.id.slice(-6).toUpperCase().split("").join(" ")}`}
-            </span>
+            <div className="receipt-tear" aria-hidden />
           </div>
+          {justPaid && <span className="receipt-printhead" aria-hidden />}
         </div>
       )}
 
