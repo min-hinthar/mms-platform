@@ -15,7 +15,14 @@ import { PaySuccess } from "./PaySuccess";
 import { ReceiptActions } from "./ReceiptActions";
 import { PaperAmbient } from "./PaperAmbient";
 import { useConnectionTruth } from "@/lib/useConnectionTruth";
-import { buildReceiptRows, dollars, groupReceiptLines, tenderLabel } from "@/lib/receipt-view";
+import {
+  buildReceiptRows,
+  dollars,
+  groupReceiptLines,
+  receiptStatusLabel,
+  SERVICE_CHARGE_DISCLOSURE,
+  serviceDisclosed,
+} from "@/lib/receipt-view";
 import { BRAND_ADDRESS, BRAND_PHONE_DISPLAY, BRAND_PHONE_TEL } from "@/lib/brand";
 
 // W22r — real step times for the rail (LA wall clock, the restaurant's TZ rule). Only REAL
@@ -940,9 +947,11 @@ export function OrderTracker({
                     {(order.totalCents / 100).toFixed(2)}
                   </div>
                   <div style={{ fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
-                    {/* W22r — the slip names its tender (receipt-view's vocabulary; the reader
-                        tap is never misnamed as online card). */}
-                    Paid in full · {tenderLabel(order.tender)}
+                    {/* W22r (adversarial MED) — the slip speaks receipt-view's settled-state
+                        vocabulary: the reader tap is never misnamed as online card, and a
+                        REFUNDED order must never claim "Paid in full" (this slip renders in the
+                        branch-independent arrived block, refund arm included). */}
+                    {receiptStatusLabel(order.status === "refunded", order.tender)}
                     {/* K2: dine-in receipts name the table (null for to-go/pickup — no table). */}
                     {order.tableNumber != null && ` · Table ${order.tableNumber}`}
                     {/* W22r — the pickup contact (W21's required field), snapshot verbatim. */}
@@ -1062,6 +1071,22 @@ export function OrderTracker({
                       </div>
                     ))}
                   </dl>
+                  {/* SB-1524 (adversarial MED) — the fee never surfaces without its explanation.
+                      Live orders never trip this (the charge is retired, minted 0), but a
+                      pre-2026-08-15 order reopened via the fallback shows its historical fee
+                      here — so the disclosure rides this slip exactly like the artifact/email. */}
+                  {serviceDisclosed(order.breakdown) && (
+                    <p
+                      style={{
+                        fontSize: "var(--fs-xs)",
+                        color: "var(--t3)",
+                        margin: "8px 2px 0",
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      {SERVICE_CHARGE_DISCLOSURE}
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -1156,9 +1181,17 @@ export function OrderTracker({
         Mandalay Morning Star · {BRAND_ADDRESS}
         <span style={{ display: "block" }}>
           Questions about this order?{" "}
+          {/* Padded hit area + negative margin (adversarial LOW): a ≥44px target on the one
+              screen a diner actually dials from, without inflating the fine-print line box. */}
           <a
             href={`tel:${BRAND_PHONE_TEL}`}
-            style={{ color: "var(--t2)", textDecorationColor: "var(--bd)" }}
+            style={{
+              color: "var(--t2)",
+              textDecorationColor: "var(--bd)",
+              display: "inline-block",
+              padding: "14px 6px",
+              margin: "-14px -6px",
+            }}
           >
             {BRAND_PHONE_DISPLAY}
           </a>{" "}

@@ -254,4 +254,12 @@ const identityLine: CSSProperties = {
   color: "var(--t3)",
   lineHeight: 1.7,
 };
-const identityLink: CSSProperties = { color: "var(--t2)", textDecorationColor: "var(--bd)" };
+// Padded hit area + negative margin (adversarial LOW on #196): ≥44px tap targets on the tel/
+// mailto links without inflating the fine-print line box; prints unchanged.
+const identityLink: CSSProperties = {
+  color: "var(--t2)",
+  textDecorationColor: "var(--bd)",
+  display: "inline-block",
+  padding: "14px 4px",
+  margin: "-14px -4px",
+};
