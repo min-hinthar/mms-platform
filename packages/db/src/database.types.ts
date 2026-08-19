@@ -1586,7 +1586,7 @@ export type Database = {
         Row: {
           attempt: string | null
           canceled_at: string
-          cart_id: string
+          cart_id: string | null
           payer_uid: string | null
           payment_intent: string
           reason: string
@@ -1594,7 +1594,7 @@ export type Database = {
         Insert: {
           attempt?: string | null
           canceled_at?: string
-          cart_id: string
+          cart_id?: string | null
           payer_uid?: string | null
           payment_intent: string
           reason: string
@@ -1602,7 +1602,7 @@ export type Database = {
         Update: {
           attempt?: string | null
           canceled_at?: string
-          cart_id?: string
+          cart_id?: string | null
           payer_uid?: string | null
           payment_intent?: string
           reason?: string

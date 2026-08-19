@@ -86,13 +86,22 @@ comment on column public.qr_dropped_lines.payment_intent is
 -- happened does not stop having happened when its cart is swept.
 create table if not exists public.qr_settlement_cancellations (
   payment_intent text primary key,
-  cart_id        uuid not null,
+  -- NULLABLE (Codex #205 round 2). The webhook has one branch that cancels a `pickup_manual` hold
+  -- with NO cart at all — an authorization whose `cartId` metadata did not arrive, which it handles
+  -- explicitly rather than 5xx-ing into 72h of retries that cannot succeed. Without a nullable
+  -- column that cancellation has nowhere to be recorded, so the diner's /track (which still carries
+  -- `?cart=` from the return_url, and so still classifies the checkout as manual capture) polls
+  -- indefinitely saying the card is authorized while Stripe has already released it. The diner read
+  -- is keyed on the PaymentIntent and the payer, not the cart, so a null here costs it nothing;
+  -- `mms_dropped_snapshot(null, …)` answers '[]', which is the true answer for an attempt that never
+  -- reached a basket.
+  cart_id        uuid,
   -- The diner this hold belonged to (the intent's `earnerUid` metadata). It is the AUTHORIZATION for
   -- the diner-facing read: `qr_carts.locked_by` is nulled by the lock release that follows a cancel,
   -- so the payer's identity has to be captured here or it is gone.
   payer_uid      uuid,
   reason         text not null check (reason in
-                   ('nothing_left','over_authorized','cart_not_open','superseded')),
+                   ('nothing_left','over_authorized','cart_not_open','superseded','no_cart')),
   -- The lock era this authorization was minted under — forensics only, never read by the diner path.
   attempt        timestamptz,
   canceled_at    timestamptz not null default now()

@@ -147,7 +147,7 @@ describe("the money claim the timed-out screen may make", () => {
 
 describe("settleCancelReason — the vocabulary allowlist", () => {
   it("passes the four codes the column's CHECK permits", () => {
-    for (const r of ["nothing_left", "over_authorized", "cart_not_open", "superseded"])
+    for (const r of ["nothing_left", "over_authorized", "cart_not_open", "superseded", "no_cart"])
       expect(settleCancelReason(r)).toBe(r);
   });
 
@@ -160,6 +160,7 @@ describe("settleCancelReason — the vocabulary allowlist", () => {
 
 describe("the copy for a CANCELLED hold", () => {
   it("gives each reason its own explanation", () => {
+    // `no_cart` deliberately SHARES the unknown copy (see below), so it is excluded here.
     const headings = (
       ["nothing_left", "over_authorized", "cart_not_open", "superseded", "unknown"] as const
     ).map((r) => settleCanceledCopy({ reason: r, dropped: { count: 1, lines: [] } }).heading);
@@ -173,23 +174,37 @@ describe("the copy for a CANCELLED hold", () => {
     // find out where their money went.
     const over = settleCanceledCopy({ reason: "over_authorized", dropped: NO_DROPS });
     expect(`${over.heading} ${over.body}`).not.toMatch(/sold out|ran out|shortage/i);
-    expect(
-      settleCanceledCopy({ reason: "nothing_left", dropped: { count: 1, lines: [] } }).heading,
-    ).toMatch(/sold out/i);
+    // The separator: the two arms must not collapse into one string. (Neither claims a shortage
+    // any more — see the nothing_left test above — so the distinction is the EXPLANATION, not the
+    // presence of the words "sold out".)
+    expect(over.heading).not.toBe(
+      settleCanceledCopy({ reason: "nothing_left", dropped: NO_DROPS }).heading,
+    );
+    expect(`${over.heading} ${over.body}`).toMatch(/higher than the amount you approved/i);
   });
 
-  it("does not claim a shortage when nothing was actually dropped", () => {
-    // `nothing_left` is `liveTotalCents <= 0`, not "every line was voided" — a promo or reward
-    // clamped to the remaining subtotal can zero a SHRUNKEN basket with dishes still on it. The
-    // two arms must be separable, or the copy asserts a shortage the code never observed.
-    const withDrops = settleCanceledCopy({
-      reason: "nothing_left",
-      dropped: { count: 2, lines: [] },
-    });
-    const without = settleCanceledCopy({ reason: "nothing_left", dropped: NO_DROPS });
-    expect(withDrops.heading).toMatch(/sold out/i);
-    expect(`${without.heading} ${without.body}`).not.toMatch(/sold out|ran out/i);
-    expect(withDrops.heading).not.toBe(without.heading);
+  it("never claims everything sold out — in EITHER direction", () => {
+    // `nothing_left` is `liveTotalCents <= 0`, not "every line was voided". A promo or reward
+    // clamped to the remaining subtotal can zero a basket that still has dishes on it, WITH or
+    // WITHOUT a shortage — so gating on `dropped.count > 0` was still wrong: some lines dropping
+    // does not make the rest disappear. The snapshot carries only what was REMOVED, never how many
+    // lines the order started with, so "everything" is unverifiable in every branch.
+    for (const dropped of [NO_DROPS, { count: 2, lines: [{ name: "Mohinga", qty: 1 }] }]) {
+      const c = settleCanceledCopy({ reason: "nothing_left", dropped });
+      expect(`${c.heading} ${c.body}`).not.toMatch(/everything|all of|sold out|ran out/i);
+    }
+    // The shortage is still TOLD — by the dropped list's own heading, which states only the count.
+    expect(droppedNoticeHeading({ count: 2, lines: [] })).toMatch(/sold out/i);
+  });
+
+  it("gives the cartless cancel the same 'we cannot tell you more' copy as an unknown code", () => {
+    // Both mean "we stopped, and we cannot say more than that". Inventing a distinct explanation
+    // for a state whose whole problem is missing information would be the fabrication this module
+    // refuses everywhere else.
+    expect(settleCancelReason("no_cart")).toBe("no_cart"); // STORED, unlike `unknown`
+    expect(settleCanceledCopy({ reason: "no_cart", dropped: NO_DROPS })).toEqual(
+      settleCanceledCopy({ reason: "unknown", dropped: NO_DROPS }),
+    );
   });
 
   it("claims only 'no longer open' on the cart_not_open arm, never 'it was paid'", () => {
@@ -220,6 +235,7 @@ describe("the copy for a CANCELLED hold", () => {
       "over_authorized",
       "cart_not_open",
       "superseded",
+      "no_cart",
       "unknown",
     ] as const) {
       const spoken = settleCanceledSpoken({ reason: r, dropped: NO_DROPS });

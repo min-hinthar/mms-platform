@@ -537,6 +537,15 @@ const MUTANTS = [
     replace: "    await releaseOurLock(cartId, payerUid);",
   },
   {
+    id: "dropped-view/cartless-cancel-invents-an-explanation",
+    file: "apps/qr/lib/dropped-view.ts",
+    suite: "lib/dropped-view.test.ts",
+    why: "W23d (Codex #205 round 2) — the cartless branch cancels a hold for a reason the app cannot describe: the authorization arrived with no basket. It shares the unknown-code copy deliberately, because inventing a distinct explanation for a state whose whole problem is missing information is the fabrication this module refuses everywhere else. Splitting them means writing a sentence nothing can verify.",
+    find: '    case "no_cart":\n    default:',
+    replace:
+      '    case "no_cart":\n      return { heading: "Your order was not found", body: "We could not match this payment to an order, so we stopped." };\n    default:',
+  },
+  {
     id: "dropped-view/timed-out-screen-claims-a-completed-payment",
     file: "apps/qr/lib/dropped-view.ts",
     suite: "lib/dropped-view.test.ts",
@@ -545,12 +554,12 @@ const MUTANTS = [
     replace: '  return "Your payment went through";',
   },
   {
-    id: "dropped-view/zero-total-blamed-on-a-shortage",
+    id: "dropped-view/zero-total-claims-everything-sold-out",
     file: "apps/qr/lib/dropped-view.ts",
     suite: "lib/dropped-view.test.ts",
-    why: 'W23d (adversarial review) — `nothing_left` is `liveTotalCents <= 0`, NOT "every line was voided". A promo or reward clamped to the remaining subtotal can drive a SHRUNKEN basket to zero with dishes still on it, so the shortage sentence is affirmatively false there. Same fabricated-explanation defect as blaming a shortage on the over_authorized arm; the dropped list is the evidence, so the copy has to follow it rather than the reason code.',
-    find: "      if (settle.dropped.count === 0)",
-    replace: "      if (settle.dropped.count < 0)",
+    why: 'W23d (Codex #205 round 2) — `nothing_left` is `liveTotalCents <= 0`, NOT "every line was voided". A promo or reward clamped to the remaining subtotal can zero a basket that still has dishes on it, with OR without a shortage — and the snapshot carries only what was REMOVED, never how many lines the order started with, so "everything sold out" is a claim this module can never verify in any branch. The shortage is still told, by the dropped list\'s own count heading, which states exactly what is known.',
+    find: '        heading: "There was nothing left to charge for",',
+    replace: '        heading: "Everything on your order sold out",',
   },
   {
     id: "dropped-view/closed-cart-claimed-as-settled",

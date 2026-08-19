@@ -136,6 +136,10 @@ export type SettleCancelReason =
   | "over_authorized"
   | "cart_not_open"
   | "superseded"
+  /** The authorization arrived with no cart to settle against — see the webhook's cartId-less
+   *  branch. Stored, unlike `unknown`, because a hold cancelled there is cancelled for a REASON
+   *  the app knows; it just cannot name a basket. */
+  | "no_cart"
   | "unknown";
 
 const KNOWN_REASONS = new Set<SettleCancelReason>([
@@ -143,6 +147,7 @@ const KNOWN_REASONS = new Set<SettleCancelReason>([
   "over_authorized",
   "cart_not_open",
   "superseded",
+  "no_cart",
 ]);
 
 export function settleCancelReason(raw: string): SettleCancelReason {
@@ -179,19 +184,21 @@ export const SETTLE_CANCELED_NOTE =
 export function settleCanceledCopy(settle: SettleCanceled): { heading: string; body: string } {
   switch (settle.reason) {
     case "nothing_left":
-      // ⚠️ `nothing_left` is `liveTotalCents <= 0`, NOT "every line was voided" (see planCapture).
-      // A promo or reward clamped to the remaining subtotal can drive a SHRUNKEN basket to zero with
-      // dishes still on it, so the shortage sentence would be false there — the same fabricated
-      // explanation as blaming a shortage on the over_authorized arm, which this module already
-      // refuses. The dropped list is the evidence, so the copy follows it rather than the reason.
-      if (settle.dropped.count === 0)
-        return {
-          heading: "There was nothing left to charge for",
-          body: "By the time we went to take the payment your order came to nothing, so we didn’t take it — and nothing was placed.",
-        };
+      // ⚠️ ONE ARM, AND IT NEVER SAYS "EVERYTHING" (Codex #205 round 2).
+      //
+      // `nothing_left` is `liveTotalCents <= 0`, NOT "every line was voided" (see planCapture). A
+      // promo or reward clamped to the remaining subtotal can zero a basket that still has dishes on
+      // it — with OR without a shortage, so gating on `dropped.count > 0` (the first fix) was still
+      // wrong: some lines dropping does not make the rest disappear.
+      //
+      // The honest bound is that the snapshot carries only what was REMOVED, never how many lines
+      // the order started with — so "everything sold out" is a claim this module can never verify,
+      // in any branch. It is dropped rather than gated. The shortage still gets told: the dropped
+      // list renders beside this with its own "2 dishes sold out" heading, which states exactly what
+      // is known and nothing beyond it.
       return {
-        heading: "Everything on your order sold out",
-        body: "The last of it went while your payment was going through, so there was nothing left for us to make — and we didn’t charge you.",
+        heading: "There was nothing left to charge for",
+        body: "By the time we went to take the payment your order came to nothing, so we didn’t take it — and nothing was placed.",
       };
     case "over_authorized":
       return {
@@ -220,7 +227,12 @@ export function settleCanceledCopy(settle: SettleCanceled): { heading: string; b
         heading: "This payment was replaced",
         body: "Another checkout took over this order after this attempt started, so we stopped this one. If you finished the newer one, that’s the payment to look for.",
       };
+    case "no_cart":
     default:
+      // The cartless branch and an unrecognised code get the SAME sentence deliberately: both mean
+      // "we stopped, and we cannot tell you more than that". Inventing a distinct explanation for a
+      // state whose whole problem is missing information would be the fabrication this file refuses
+      // everywhere else.
       return {
         heading: "We couldn’t complete this payment",
         body: "Something went wrong on our side between your tap and the charge, so we stopped rather than take money for an order we couldn’t place.",
