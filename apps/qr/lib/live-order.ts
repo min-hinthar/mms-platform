@@ -1,3 +1,5 @@
+import type { TrackedOrder } from "./track-order";
+
 // K4 — the shared vocabulary + link builders for the diner's LIVE (in-flight) orders (the orders tray +
 // /account "Today"). Pure + isomorphic (no "use server"/"use client" directive): the server read
 // (getMyLiveOrders) derives these once, and the tray/section render them — ONE source for the status
@@ -35,6 +37,11 @@ export type LiveOrder = {
 export function liveOrderStatusWord(o: Pick<LiveOrder, "togoStatus" | "kind">): string {
   if (o.kind === "grocery") return "Ready to go";
   switch (o.togoStatus) {
+    case "picked_up":
+      // Terminal. `getMyLiveOrders` filters these out, so the tray never sees one — but /track does
+      // (it keeps showing the order after hand-off), and a total function is what lets BOTH surfaces
+      // read this one derivation instead of keeping a second ladder that can drift from it.
+      return "Picked up";
     case "ready":
       return o.kind === "pickup" ? "Ready for pickup" : "Ready";
     case "preparing":
@@ -43,6 +50,28 @@ export function liveOrderStatusWord(o: Pick<LiveOrder, "togoStatus" | "kind">): 
       // null / anything else = no bagging status. Dine-in reads neutrally; to-go/pickup are freshly placed.
       return o.kind === "dinein" ? "At your table" : "Order received";
   }
+}
+
+/**
+ * W22b — the SAME kind precedence as the server read (`getMyLiveOrders`, lib/orders.ts), expressed once
+ * so a CLIENT-tracked order and a SERVER-listed one can never disagree about what mode they are. The
+ * ladder was hand-copied in three places (the server read, OrderTracker's `isDineIn`/`isPickup`, and an
+ * implicit one in the header pill's label) — this is the "name it ONCE" rule applied to identity, the
+ * same move `lib/track-order.ts` made for the tracked-order shape.
+ *
+ * Precedence, deliberately: a dine-in line makes it a dine-in order (session-bound) EVEN alongside a
+ * to-go box; else a pickup slot ⇒ pickup; else to-go food ⇒ to-go; else a pure self-scanned basket.
+ * `tableNumber` is NOT part of it — the server read doesn't use it, and an all-to-go order placed at a
+ * seated table is genuinely a to-go order (OrderTracker keeps its own separate `isDineIn` for the page
+ * HEADING, which deliberately does count a registered table).
+ */
+export function kindFromTrackedOrder(
+  t: Pick<TrackedOrder, "hasDineInFood" | "pickupSlot" | "hasTogoFood">,
+): LiveOrderKind {
+  if (t.hasDineInFood) return "dinein";
+  if (t.pickupSlot) return "pickup";
+  if (t.hasTogoFood) return "togo";
+  return "grocery";
 }
 
 /** The mode's short label for a tray/Today row. */

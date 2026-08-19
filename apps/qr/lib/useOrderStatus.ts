@@ -48,6 +48,23 @@ export function useOrderStatus(
   const key = byOrderId ? orderId : paymentIntent;
   const valid = byOrderId ? validOrderId : validPi;
 
+  // W22b — RESET ON KEY CHANGE. `order`/`exhausted` were never cleared, and the only consumer that
+  // outlives a navigation is `AppHeader`, mounted once in the root layout — so a diner's SECOND order
+  // in one session rendered the FIRST order's row until the new one landed, and `timedOut` (derived
+  // below from the CARRIED-OVER `exhausted`) was already true on its first frame, dropping the chip
+  // straight to its "Placed" floor for an order that was tracking perfectly well. A slim pill hid
+  // this; a chip that expands to show that order's detail does not.
+  //
+  // Render-time reset (compare-with-previous), NOT a setState-in-effect: this must take effect on the
+  // SAME render the key changes, or one frame of the previous order's status paints first — and the
+  // codebase's lint bans the effect form anyway.
+  const [prevKey, setPrevKey] = useState(key);
+  if (key !== prevKey) {
+    setPrevKey(key);
+    setOrder(null);
+    setExhausted(false);
+  }
+
   useEffect(() => {
     if (!key || !valid || !anon) return;
     const supa = browserClient();

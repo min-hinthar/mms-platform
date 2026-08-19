@@ -24,6 +24,7 @@ import {
   serviceDisclosed,
 } from "@/lib/receipt-view";
 import { BRAND_ADDRESS, BRAND_PHONE_DISPLAY, BRAND_PHONE_TEL } from "@/lib/brand";
+import { kindFromTrackedOrder, liveOrderStatusWord } from "@/lib/live-order";
 
 // W22r — real step times for the rail (LA wall clock, the restaurant's TZ rule). Only REAL
 // timestamps render (created_at, the expo's ready/picked-up stamps) — never an estimate.
@@ -167,6 +168,14 @@ export function OrderTracker({
   // "To-go" in the header while the receipt card six lines below printed "Table 4". Its rail is still
   // truthful (a bag really is being made), so this only fixes the label + the back-link destination.
   const isDineIn = !!order && (order.hasDineInFood || order.tableNumber != null) && !isPickup;
+  // W22b — the mode as the SERVER read defines it, for the status word only. Deliberately NOT the
+  // same as `isDineIn` above: that one also counts a registered `tableNumber` (an all-to-go order
+  // placed at a seated table should be HEADED "Table 4"), while the status word must match what the
+  // tray, /account "Today" and the header chip say about the very same order — and those read
+  // `getMyLiveOrders`, which keys on the line-fulfillment snapshot alone.
+  const trackedKind = order
+    ? kindFromTrackedOrder(order)
+    : ("togo" as ReturnType<typeof kindFromTrackedOrder>);
   const STEPS = isPickup ? PICKUP_STEPS : SCANGO_STEPS;
   // Takeaway fulfillment status (S4.3a, expo-driven) — declared here because the countdown below and
   // the step rail both key off it.
@@ -350,17 +359,19 @@ export function OrderTracker({
         color: refunded ? "var(--warn)" : arrived ? "var(--ok)" : "var(--t2)",
       }}
     >
+      {/* W22b — the payment-state branches stay local (they are about the CHARGE, which
+          `liveOrderStatusWord` knows nothing about); the fulfillment word comes from the ONE shared
+          derivation. Before this, /track said "Order received" while the header pill said "Preparing"
+          about the same `togo_status`, and the two elements MORPH into each other on the pill→/track
+          cut, so the transition cross-faded contradictory claims. It also silently said "Ready for
+          pickup" over a pure GROCERY basket, which has no pickup counter and no wait. */}
       {refunded
         ? "Refunded"
-        : ready
-          ? "Ready for pickup"
-          : arrived
-            ? togo === "picked_up"
-              ? "Picked up"
-              : "Order received"
-            : processing
-              ? "Confirming payment"
-              : "Confirming order"}
+        : arrived
+          ? liveOrderStatusWord({ kind: trackedKind, togoStatus: togo })
+          : processing
+            ? "Confirming payment"
+            : "Confirming order"}
     </span>
   );
 

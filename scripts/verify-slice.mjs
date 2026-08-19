@@ -1083,6 +1083,22 @@ const MUTANTS = [
     replace:
       "export async function resolveReceiptOrder(rawToken: string): Promise<string | null> {",
   },
+  {
+    id: "live-order/grocery-word-override",
+    file: "apps/qr/lib/live-order.ts",
+    suite: "lib/live-order.test.ts",
+    why: "W22b — the grocery early-return is the ONLY thing standing between a self-scanned basket and a kitchen claim: mms_init_togo_status stamps togo_status='preparing' on grocery lines at PAYMENT, so falling through to the switch tells a shopper holding their own bag that it is being prepared",
+    find: '  if (o.kind === "grocery") return "Ready to go";',
+    replace: "",
+  },
+  {
+    id: "live-order/kind-precedence-dinein",
+    file: "apps/qr/lib/live-order.ts",
+    suite: "lib/live-order.test.ts",
+    why: "W22b — dine-in must win the kind even when a pickup slot rides the same order; dropping the rung reclassifies a seated diner's order as pickup, which changes the status word, the mode label and the /track back-link",
+    find: '  if (t.hasDineInFood) return "dinein";',
+    replace: "",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));
