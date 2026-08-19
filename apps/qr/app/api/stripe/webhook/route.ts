@@ -556,6 +556,8 @@ export async function POST(req: NextRequest) {
             // `locked_by` has moved on — a stale lock taken over by another payer must not let this
             // authorization void lines under their live settlement.
             intent.metadata?.earnerUid ?? "",
+            // The lock era this hold was minted under; a superseded attempt is refused.
+            intent.metadata?.attempt ?? "",
           );
         } catch (e) {
           console.error("[stripe webhook] manual capture threw", {

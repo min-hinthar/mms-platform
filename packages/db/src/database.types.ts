@@ -2018,7 +2018,12 @@ export type Database = {
         Returns: string
       }
       mms_settle_precheck_and_void: {
-        Args: { p_cart: string; p_menu_ids: string[]; p_payer: string }
+        Args: {
+          p_attempt: string
+          p_cart: string
+          p_menu_ids: string[]
+          p_payer: string
+        }
         Returns: number
       }
       mms_snapshot_ebt_eligibility: {

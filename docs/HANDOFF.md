@@ -44,24 +44,56 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 156 `verify:slice` mutants green · `pnpm check:docs` clean (94 files, 698 qr tests +
+> **Gate today:** 157 `verify:slice` mutants green · `pnpm check:docs` clean (94 files, 699 qr tests +
 > 41 ui tests) · CI green · then the two reviewers.
 >
-> **W23c (manual + partial capture for pickup — registry M69) — merged, migration prod-applied,
-> and shipped DARK behind `PICKUP_MANUAL_CAPTURE=1`.** The one thing a future session must not
-> re-derive: **nothing is fulfilled at authorization.** Capturing fires `payment_intent.succeeded`
-> and the EXISTING handler creates the order, so an order is only ever born already captured — that
-> is what keeps `status='paid'` honest and stops the receipt, rewards, history and refund paths from
-> needing a fourth state. An earlier design fulfilled-then-captured and needed exactly those; if you
-> find yourself adding an `authorized` order status, you have re-derived the shape this slice
-> deliberately avoided. `mms_fulfill_order` already excludes voided lines, which is why voiding at
-> authorization makes everything downstream correct for free. Order of operations IS the money rule:
-> void → re-derive → capture, money last. The succeeded reconcile compares `amount_received`, not
-> `amount` (equal on the automatic path; deliberately different on a partial capture).
-> `mms_void_unavailable_lines` exists because `mms_void_line` answers `in_flight` under the
-> settlement's own lock. ⚠️ The load-bearing assumption: a pickup slot always falls inside a card
-> authorization's ~7-day life — `pickup_config.horizon_days` is **2**; widening it past a week breaks
-> this first. Migration `20260819200000`.
+> **W23c (manual + partial capture for pickup — registry M69) — merged #203, migration prod-applied
+> + probed, and shipped DARK behind `PICKUP_MANUAL_CAPTURE=1`.**
+>
+> ⛔ **Before that flag is flipped, ALL of these — not most of them:**
+>
+> 1. **Confirm the LIVE Stripe endpoint is subscribed to `payment_intent.amount_capturable_updated`.**
+>    That event is W23c's ONLY entry point; without it every pickup authorization sits uncaptured
+>    until it expires — food made, nobody charged, no error anywhere. The docs that configure this
+>    endpoint listed only two events until W23c (see the ⚠️ below), so an endpoint built from them
+>    does NOT have it.
+> 2. **M70 · M71 · M72 closed** (`docs/OPEN-ITEMS.md`).
+> 3. **A preview smoke test with a test-mode card**, covering all three outcomes: full capture, a
+>    partial after an 86, and a cancel when nothing survives.
+>
+> Two Codex rounds on #203 plus one on #204 found SIXTEEN real defects on this path, and the suite was
+> green throughout because it mocked the RPC whose contract was wrong. Treat the list above as the
+> minimum, not the ceiling.
+>
+> The one thing not to re-derive: **nothing is fulfilled at authorization.** Capturing fires
+> `payment_intent.succeeded` and the EXISTING handler creates the order, so an order is only ever
+> born already captured and no surface learns a fourth status. `mms_fulfill_order` already excludes
+> voided lines, so voiding at authorization makes the downstream correct for free. Order of
+> operations is the money rule: void → re-derive → capture, money LAST. The succeeded reconcile
+> compares `amount_received`, not `amount`.
+>
+> `mms_settle_precheck_and_void` is a PRECHECK as much as a void — called unconditionally, empty
+> array included, because a check that only runs on the unusual path is a check the usual path does
+> not have. It identifies the checkout ATTEMPT (`locked_by` + `locked_at`, the latter carried in the
+> PI's metadata), because `acquireCartLock` lets the same diner reacquire: a re-checkout with a
+> different tip leaves the FIRST authorization's webhook still naming a valid lock holder, and only
+> the attempt stamp separates the eras. An earlier draft RECLAIMED the lock instead — do not go back
+> to that: refreshing `locked_at` there stamps a superseded era as current, and a redelivery after a
+> failed capture then finds its own stamp moved and cancels a good order.
+>
+> ⚠️ **`docs/ENV.md`'s webhook event list was wrong for the WHOLE handler until W23c** — it named two
+> events; the handler acts on six. Any endpoint configured from the old docs silently breaks
+> split-tender, saved cards, W23b's refund reconcile **and W23c itself**. Latent, not live for the
+> first three (prod has 0 split shares, 0 refunds) — but for W23c it is a hard rollout prerequisite,
+> not a latent risk, because the capture event is that feature's only entry point (item 1 above).
+>
+> Migration `20260819200000` **✅ prod-applied + probed** as `w23c_capture_void`, in a block that
+> RAISED at the end so the whole probe rolled back and prod was left untouched (verified: 0 ledger
+> rows, 0 probe rows). Results: precheck-only on an open owned cart = 0; a lock owned by someone else
+> = **-2**; the real void = **2 lines** (including the COMPED one the first version silently skipped)
+> with **2 ledger rows** — which is the `mms_approvals` NOT NULL bug proven dead — at 2800 for the
+> paid line and **0** for the comped one; a settled cart = **-1**. RLS on with exactly one SELECT
+> policy, zero grants to anon/authenticated/PUBLIC, and an `authenticated` INSERT refused.
 >
 > **W23b (the partial-refund diner surface — registry M2) — see the PR/CHANGELOG for the full
 > account.** The short version a future session needs: a partial refund leaves `qr_orders.status` at
@@ -237,7 +269,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > **Read this block, then `docs/W22_DESIGN_PROPOSAL.md` (the live slate) — `docs/W17_PLAN.md` only for
 > the owner-blocked POS/pricing residuals. Everything below is merged AND prod-applied.** Prod is
-> `fasnpdhtvqtzjlvruqcu`; its migration history ends at `w23b_refund_visibility` (prod stamps its own
+> `fasnpdhtvqtzjlvruqcu`; its migration history ends at `w23c_capture_void` (prod stamps its own
 > apply-time versions — match history by NAME, not timestamp), and **W22a / W22a·depth / W22r / W22b
 > needed no migration at all** — every column the itemized tracker and the live order chip read
 > already existed. **This line is the ONE statement of prod's migration head** — the W23a block above
@@ -293,7 +325,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >   own commit message claimed the head was already stated once. That is the lesson worth keeping: a
 >   fact repeated in a third place drifts exactly like a value computed in two places, and the repo
 >   has now paid for it in prose as well as in code. The repo's newest migration FILE is
->   `20260819100000_w23b_refund_visibility.sql`.
+>   `20260819200000_w23c_capture_void.sql`.
 >
 > ### ⚠️ Open decisions that BLOCK work — ask the owner, don't guess
 >
@@ -598,7 +630,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (156 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (157 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and
