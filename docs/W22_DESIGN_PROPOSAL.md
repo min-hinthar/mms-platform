@@ -50,16 +50,45 @@ pay success becomes a thermal-receipt print reveal (clip-path + print-head light
 > hand-copied ones) with REAL step timestamps only. No migration — every column already existed.
 > Details: CHANGELOG · DESIGN-LANGUAGE §5/§8/§10 · QR_FROM_DELIVERY § "W22 — the second wave".
 
-## W22b · Installed-native — PWA polish + the live order chip
+## W22b · Installed-native — PWA polish + the live order chip ⭐ **SHIPPED 2026-08-17**
 
-Make "add to home screen" feel like the App Store version: manifest + iOS splash/status-bar
-theme, app-icon set, standalone display with safe-area discipline, and a **persistent live order
-chip** — a Dynamic-Island-style pill that follows the diner across menu/cart/track with the real
-kitchen state (fired → cooking → ready), expanding on tap. It's the J3 timeline made ambient;
-every value in it is already real (kitchen taps).
+> **Two claims in the original proposal were wrong, and are corrected here rather than quietly
+> dropped.**
+>
+> 1. _"the real kitchen state (fired → cooking → ready)"_ — **there is no such state.**
+>    `qr_orders.togo_status` is CHECK-constrained to `preparing | ready | picked_up`, and
+>    `preparing` is stamped by the **Stripe webhook** (`mms_init_togo_status`) at PAYMENT, not by a
+>    cook. `fired`/`in_progress` are LINE states on `qr_cart_items`, absent from `qr_order_items`,
+>    and readable only while the table session holds. So the parenthetical described a three-stage
+>    rail the data cannot source, and _"every value in it is already real (kitchen taps)"_ was
+>    false for stage one — it is a payment event. The as-built chip speaks the vocabulary that was
+>    already true (`liveOrderStatusWord`), and a genuine cooking stage is filed as its own slice.
+> 2. _"follows the diner across menu/cart/track"_ cannot be literal. `.vt-order-status` is held by
+>    the chip **and** by /track's status chip, and a duplicated `view-transition-name` makes the
+>    browser skip the whole transition — the J1 morph would die app-wide, silently. The chip shows
+>    on every diner route **except** the three that already own the affordance: `/` (the resume
+>    card), `/track` (the tracker _is_ the chip) and `/account` ("Today"). That is the shipped
+>    `track` flag, unchanged.
+>
+> As-built: the header pill became a **disclosure** — it expands in place inside `.app-header`
+> (sticky, no `overflow`, so an absolute sibling is contained but unclipped and inherits the
+> header's stacking context for free: no new z token, no offset var, no page-padding changes).
+> Content is derived in `lib/live-order-panel.ts` — stored values only. The install half: `id`
+> pinned, `scope`/`lang`/`dir`/`categories`, `launch_handler: navigate-existing`, the
+> whole-origin `orientation` lock removed, real 192/512/maskable rasters generated from the one
+> badge source, three-door shortcuts, and a precache trimmed 261.0KB → 93.1KB.
+> Details: CHANGELOG · DESIGN-LANGUAGE §11.
 
-- Effort: M. Risk: low-medium (service-worker update discipline — delivery's Serwist learnings
-  apply). Impact: retention + the single most "native" feeling surface.
+**iOS splash + status bar were deliberately NOT shipped**, and not shipped partially. The chain is
+broken at step one: Next 16.2.9 emits only `<meta name="mobile-web-app-capable">`, and iOS honours
+`apple-touch-startup-image` only alongside the LEGACY `apple-mobile-web-app-capable` tag — so
+`appleWebApp.statusBarStyle` is inert today, and adding startup images would emit links iOS
+ignores while the CHANGELOG claimed a splash screen. Adding the legacy tag is trivial but makes
+`statusBarStyle` live, and **neither value is theme-safe** against this app's two grounds:
+`default` puts a white status bar over the Night `#171221`, and `black-translucent` forces white
+text over the cream `#faf9f5` _and_ flips `env(safe-area-inset-top)` from ~0 to ~47–59px at 19
+call sites at once. The red-first rule says that must be verified on a real notched device in both
+themes, which a code-only PR cannot do. Filed as an OPEN-ITEMS row naming the prerequisite chain.
 
 ## W22c · The gesture layer — hands-first interactions
 
@@ -102,7 +131,7 @@ error paths.
 
 ## Sequencing & the bar
 
-`W22a → W22b → W22c` is the recommended order (each rides the previous); d–f slot in as
-appetite allows. Every slice holds the standing gates: tokens only, RM-escorted motion, one live
+`W22a → W22b → W22c` is the recommended order (each rides the previous); **a and b are shipped**,
+`W22c` is next; d–f slot in as appetite allows. Every slice holds the standing gates: tokens only, RM-escorted motion, one live
 region, 44px, data-backed claims, server-authoritative money, `verify:slice` + `check:docs` +
 the two-reviewer pre-merge pass (in-session adversarial + Codex), K15 for any new MY.

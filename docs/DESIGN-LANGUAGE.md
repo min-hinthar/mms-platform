@@ -190,3 +190,64 @@ the literal light-palette hex in `apps/qr/emails/` is the sanctioned exception. 
 
 The kicker is bilingual on the one surface, verbatim from the delivery shell (owner-run, so it does
 not need a K15 entry): "Mingalabar · မင်္ဂလာပါ" (§6).
+
+## 11 · Installed-native — the chip and the install (W22b)
+
+**The live order chip is a DISCLOSURE inside the header, not a floating island.** `.app-header` is
+`position: sticky` with no `overflow`, so an absolutely-positioned sibling is _contained but
+unclipped_: it inherits the header's stacking context and lands above every page surface and below
+any sheet scrim, for free. That single placement decision is why the chip needed no new z token, no
+published height variable, no `--chrome-top` offset, no page-padding change on six routes, and no
+exposure to the PaperAmbient no-isolation rule. **Before adding a new floating layer to this app,
+check whether an existing sticky ancestor can contain it** — the bottom edge is already four bands
+deep (CartBar · grocery CTA · offline pill · toasts) and the top edge three.
+
+- **Disclosure, not dialog.** `aria-expanded` + an `aria-controls` that is only present while the
+  panel is mounted (no dangling IDREF). `aria-haspopup="dialog"` stays reserved for the ≥2-order
+  tray, so that vocabulary keeps meaning "there is more than one order".
+- **Esc closes and restores focus to the trigger; an outside pointerdown closes and does NOT move
+  focus** (a tap elsewhere is not a request to be sent back to the header).
+- **A route change closes the panel at RENDER time, not in an effect.** The header is snapshotted
+  as an image during a J1 view transition — a panel caught mid-navigation is baked into that
+  snapshot.
+- **A control can vanish under its own open panel.** The order retires the moment it reads
+  terminal, so the chip can leave the DOM with focus inside it. Two problems, two places: fold the
+  state at render, and re-park focus in an effect, because a restore to a removed node silently
+  falls to `<body>` and strands a keyboard user with nothing announced.
+- **Open wears the lit-gold cap; a STATUS never does.** "Ready" keeps its own `--ok` recipe. The
+  gold cap is the selection vocabulary — extend it, never hand it to a state the diner didn't choose.
+- **Ambient chrome is not a live region.** Kitchen transitions are ambient state, every diner route
+  already owns its one announcer, and this is chrome mounted once in the root layout — an
+  `aria-live` here would be the second announcer on every screen. Same rule as `TableTimeline`,
+  `LendModeBanner` and the offline pill; put the reason in the component header so the next
+  reviewer doesn't "fix" it.
+
+**What an ambient order surface may say.** Stored values only, derived in `lib/live-order-panel.ts`
+rather than in the component (there is no React test runner here — a rule in a `.tsx` cannot be
+guarded at all). Real expo timestamps, the diner's own pickup slot as an ABSOLUTE time, the
+fulfillment-time total rendered verbatim. **Never** an ETA, an elapsed cook time, a queue position,
+a stage counter, or a staff name. **"In the kitchen" gets no clock** — `togo_status='preparing'` is
+stamped by the Stripe webhook at payment, so using it as a cook-start would be a fabricated time
+wearing a real column's clothes. A capped countdown belongs to exactly one surface (/track, which
+owns the tick and the ±caps); a second copy is a second thing to keep true.
+
+**The install.** `id` is pinned to `start_url` — without it a PWA's identity is _derived_ from
+start_url, so any later move mints a second home-screen icon for everyone already installed, with
+no way to merge them. `scope` is the whole origin deliberately: narrowing it would kick `/staff`,
+`/kiosk` and `/board` out to the browser. `orientation` is deliberately **unset** — a lock applies
+to the whole scope, including the landscape wall display. Icons descend from ONE badge source via
+`scripts/gen-pwa-icons.mjs`; `public/logo.png` is WebP bytes behind a `.png` name and must never be
+that source, which is what `app/manifest.test.ts`'s magic-byte assertion exists to prevent.
+
+**Two accepted limitations, documented so they are not "fixed" into something worse:**
+
+1. **The Android launcher splash cannot be theme-aware.** `background_color` is a single value, so
+   a Night-mode install flashes cream before the app paints. Hardcoding the dark ground just moves
+   the seam onto every light install, which is the larger population. The address/status bar is
+   already correct via `viewport.themeColor`'s media pair.
+2. **iOS splash + status bar are inert and deliberately untouched.** Next emits only
+   `mobile-web-app-capable`, and iOS honours `apple-touch-startup-image` only alongside the legacy
+   tag — so `statusBarStyle` does nothing today. Adding the legacy tag makes it live, and neither
+   value is safe against two grounds (`default` = white bar over Night; `black-translucent` = white
+   text over cream **and** flips `env(safe-area-inset-top)` at 19 call sites at once). That needs a
+   real notched device in both themes, per the red-first rule. Registry: **M62**.
