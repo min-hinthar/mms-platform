@@ -47,6 +47,22 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > **Gate today:** 138 `verify:slice` mutants green · `pnpm check:docs` clean (94 files, 653 qr tests +
 > 41 ui tests) · CI green · then the two reviewers.
 >
+> **W23a (the 86 button + the availability gate) — merged #199, migration prod-applied + probed.**
+> The owner asked whether checkout should wait on kitchen acceptance. The audit found a different
+> problem: `menu_items.is_sold_out` has existed since platform-init, ~15 surfaces READ it, and
+> **nothing had ever written it** (`menu_items` is public-read with no write policy). `setItemSoldOut`
+> is the writer, on the `setMenuPrice` pattern; `/staff/menu` gates PER CONTROL (server → 86 only,
+> manager → prices too) and the KDS carries the same flip on the ticket that revealed the empty pan.
+> The gate reads ONE predicate (`itemSellable`) at BOTH boundaries — `priceItem` at add time,
+> `create-intent` before the mint — and blocks **draft lines only**: a fired line is already made, and
+> a diner cannot remove one, so widening past draft would strand a table that ate the last portion.
+> **Residual (OPEN-ITEMS M69):** an 86 landing between the mint and the webhook confirm still produces
+> a refundable order; that needs manual capture, which is **W23c**.
+> Migration `20260819000000` **✅ prod-applied + probed** as `w23a_sold_out`: `sold_out_at` is
+> timestamptz with 0 rows stamped (no fabricated back-fill), `menu_availability_audit` has RLS on with
+> exactly ONE policy and it is SELECT-only — an `authenticated` INSERT into the ledger and an
+> `authenticated` UPDATE of `menu_items` were both run against prod and both refused, 0 rows written.
+>
 > **W22b (installed-native — the live order chip + the PWA install):** the header order pill is now a
 > DISCLOSURE that expands in place. It lives INSIDE `.app-header` on purpose — sticky with no
 > `overflow`, so an absolute sibling is contained but unclipped and inherits the header's stacking
@@ -184,9 +200,14 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > **Read this block, then `docs/W22_DESIGN_PROPOSAL.md` (the live slate) — `docs/W17_PLAN.md` only for
 > the owner-blocked POS/pricing residuals. Everything below is merged AND prod-applied.** Prod is
-> `fasnpdhtvqtzjlvruqcu`; its migration history ends at `w21d_allergen_amendments` (prod stamps its
-> own apply-time versions — match history by NAME, not timestamp), and **W22a / W22a·depth / W22r
-> needed no migration at all** — every column the itemized tracker reads already existed.
+> `fasnpdhtvqtzjlvruqcu`; its migration history ends at `w23a_sold_out` (prod stamps its own
+> apply-time versions — match history by NAME, not timestamp), and **W22a / W22a·depth / W22r / W22b
+> needed no migration at all** — every column the itemized tracker and the live order chip read
+> already existed. **This line is the ONE statement of prod's migration head** — the W23a block above
+> says what `w23a_sold_out` did and what the probes returned, and the "Prod state you can rely on"
+> bullet points here rather than restating. Keep it that way: two copies of a migration head is how a
+> future session gets told a live slice is unapplied, which is precisely what Codex found on #200 —
+> twice, the second time in the fix for the first.
 >
 > ### What the owner asked for, and where it landed
 >
@@ -229,10 +250,13 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > - **34 items carry no photo** — the 3 genuinely-NULL dishes (C5's photography afternoon) plus
 >   W17d-2's 31 adds. Don't read 34 as a regression: since W16d `safeImageUrl` (containment) is the
 >   only rule and no display filter hides a real photo.
-> - **Migration history ends at `w21d_allergen_amendments`** — W21d's two allergen P1 fixes are live
->   (Sanwin Makin → dairy, Crispy Shrimp in Fish Sauce → fish). **W22a / W22a·depth / W22r needed no
->   migration**, so the repo's newest file is still `20260816080000`. Prod stamps apply-time versions:
->   match history by NAME, not timestamp.
+> - **Migration head: see the "Everything below is merged AND prod-applied" paragraph above — it is
+>   the ONE place this file states where prod's history stops.** This bullet used to restate it and
+>   drifted the moment W23a landed; Codex caught it twice on #200, the second time inside a fix whose
+>   own commit message claimed the head was already stated once. That is the lesson worth keeping: a
+>   fact repeated in a third place drifts exactly like a value computed in two places, and the repo
+>   has now paid for it in prose as well as in code. The repo's newest migration FILE is
+>   `20260819000000_w23a_sold_out.sql`.
 >
 > ### ⚠️ Open decisions that BLOCK work — ask the owner, don't guess
 >
