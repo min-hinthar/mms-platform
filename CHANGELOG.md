@@ -51,10 +51,38 @@ references to `sold`, `available`, `is_active` or `menu_items` before `paymentIn
   flagged sold out** — and an out-of-stock incident would previously have landed in "other" and been
   invisible. This is the cheapest way to turn the owner's instinct into a number.
 
-Six new mutants (135 total) and two new suites: `lib/availability.test.ts` pins the decision (the
-comped-vs-voided distinction has a fixture identical in every field but the one under test), and
+Eight new mutants (138 total) and three new suites: `lib/availability.test.ts` pins the decision,
+`lib/order-lines-availability.test.ts` pins the add-time refusal against the real `priceItem`, and
 `lib/menu-availability.test.ts` reuses the price editor's CAS-modelling double so a CAS-less
 implementation cannot pass.
+
+**Review round 1 changed three things that could not be worked around on the floor.**
+
+- **The charge gate keyed on `state !== "voided"`, and blocked lines nobody could remove.** A dine-in
+  table whose dish was 86'd _after_ it fired — possibly after they ate it — got "remove it to keep
+  going" about a line `permissions.ts` forbids a diner to touch, with no remedy on the screen. It was
+  also the wrong question: a fired line is already made, so an 86 does not threaten it. The gate now
+  keys on **`draft`**, which is the batch an 86 actually governs and the one a diner can act on;
+  pickup and scan-and-go lose nothing, since those lines stay draft until payment fires them.
+- **Both new "We ran out" reason codes were rejected by the server.** The two action sheets offered
+  `sold_out` while `refundLineInput`, `voidLineInput` and `requestApprovalInput` all hard-failed the
+  Zod parse — the column is a length CHECK, not an enum, so the three schemas were the whole gap.
+- **The add-time half of the gate did not exist.** The edit never landed, and three comments plus the
+  commit message described a check that was not in the code. `priceItem` now selects
+  `is_sold_out,is_active` and refuses by name before deriving an amount, and both halves read one
+  predicate (`itemSellable`) so they cannot drift.
+
+Also from that round: a dish **missing from the catalog** counts as unavailable (`menu_item_id` is a
+soft ref with no FK, and absence must not answer "fine" when it means "unknown"); the gate moved
+**above** the pickup block so a refused order never spends an ASAP slot's capacity; `KitchenLine`
+carries `soldOut`, so the KDS shows "Off the menu" instead of offering an 86 the server would refuse
+and stops asserting a hardcoded `expectedSoldOut: false`; the ledger row carries the decision's own
+instant rather than the insert's clock; and split-tender is documented as a **deliberate** non-gate
+(shares freeze at split-open and dine-in food fires from the open cart, so refusing there would block
+money for food nobody is charged for).
+
+**Residual, by design:** an 86 landing between the Stripe mint and the webhook confirm still produces
+a refundable order. Closing that window is what **W23c** (manual capture for pickup) is for.
 
 ### W22b — installed-native: the live order chip expands, and the install stops being a bookmark (2026-08-17)
 
