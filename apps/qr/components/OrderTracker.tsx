@@ -4,7 +4,7 @@ import { TransitionLink as Link } from "./nav/TransitionNav"; // J1 journey gram
 import { useOrderStatus } from "@/lib/useOrderStatus";
 import { getMyOrderFallback, type TrackFallback } from "@/lib/orders";
 import { useActiveOrder } from "./ActiveOrderProvider";
-import { formatSlotLong } from "@/lib/pickupTime";
+import { formatClock, formatSlotLong } from "@/lib/pickupTime";
 import { menuHref, menuLinkText, modeFromOrder } from "@/lib/menu-href";
 import { Icon, useAnimationPreference, useInView } from "@mms/ui";
 import { getRewardsProgress, type RewardsProgress } from "@/lib/rewards";
@@ -28,12 +28,6 @@ import { kindFromTrackedOrder, liveOrderStatusWord } from "@/lib/live-order";
 
 // W22r — real step times for the rail (LA wall clock, the restaurant's TZ rule). Only REAL
 // timestamps render (created_at, the expo's ready/picked-up stamps) — never an estimate.
-const stepTimeFmt = new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/Los_Angeles",
-  hour: "numeric",
-  minute: "2-digit",
-});
-
 // Lifecycle steps (verbatim v7.2). The active step is server-driven; at M1/M2 there's no kitchen
 // actor, so it rests at "Order placed" — the kitchen steps light up when S2's KDS lands (same Realtime
 // subscription). The pickup variant (P2.2) is chosen once the order carries a pickup_slot.
@@ -619,10 +613,7 @@ export function OrderTracker({
                     {/* W22r — the step's REAL clock (created_at / the expo's stamps), only once
                         the step is reached; steps without an honest timestamp stay bare. */}
                     {state !== "pending" && stepTimes[i] && (
-                      <span style={{ color: "var(--t3)" }}>
-                        {" "}
-                        · {stepTimeFmt.format(new Date(stepTimes[i]!))}
-                      </span>
+                      <span style={{ color: "var(--t3)" }}> · {formatClock(stepTimes[i]!)}</span>
                     )}
                     {last && <span aria-hidden> 🍵</span>}
                   </div>

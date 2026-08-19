@@ -3,11 +3,7 @@ import { useEffect, useState } from "react";
 import { useActiveOrder, type ActiveOrder } from "./ActiveOrderProvider";
 import { useOrderStatus, type TrackedOrder } from "@/lib/useOrderStatus";
 import { resolveSplitOrderId } from "@/lib/order-actions";
-import {
-  kindFromTrackedOrder,
-  liveOrderStatusWord,
-  type LiveOrderKind,
-} from "@/lib/live-order";
+import { kindFromTrackedOrder, liveOrderStatusWord, type LiveOrderKind } from "@/lib/live-order";
 
 export type ActiveOrderStatus = {
   order: ActiveOrder | null;

@@ -66,7 +66,11 @@ describe("kindFromTrackedOrder", () => {
     // falls through to "pickup" and the case goes red. A dine-in-only fixture could NOT tell the
     // difference between "dinein wins" and "dinein is checked last".
     expect(
-      kindFromTrackedOrder({ hasDineInFood: true, pickupSlot: "2026-08-17T18:00:00Z", hasTogoFood: true }),
+      kindFromTrackedOrder({
+        hasDineInFood: true,
+        pickupSlot: "2026-08-17T18:00:00Z",
+        hasTogoFood: true,
+      }),
     ).toBe("dinein");
   });
 

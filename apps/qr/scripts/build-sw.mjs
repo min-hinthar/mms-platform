@@ -34,7 +34,25 @@ async function buildServiceWorker() {
   const { manifestEntries, count, size } = await getManifest({
     globDirectory: resolve(appRoot, "public"),
     globPatterns: ["**/*.{png,jpg,jpeg,webp,avif,svg,ico,woff,woff2}"],
-    globIgnores: ["sw.js", "sw.js.map"],
+    // W22b — the precache is the APP SHELL's offline budget, so it holds only what the running page
+    // actually fetches. Everything below is requested by something else entirely, over the normal
+    // network, at a moment that is never offline-critical:
+    //   • email-logo.png — fetched by EMAIL CLIENTS via an absolute URL (emails/MmsEmailLayout.tsx).
+    //     117KB, the single largest entry, and the app itself never requests it.
+    //   • icon-192/512 + both maskables — fetched by the OS/launcher at INSTALL time, never by a page.
+    //     Precaching them would have pushed every diner on teahouse wifi from 261KB to ~506KB for
+    //     bytes their browser will not ask this cache for.
+    // Deliberately KEPT: logo.png (the header lockup + receipt card render it) and icon.svg (the
+    // running tab's favicon).
+    globIgnores: [
+      "sw.js",
+      "sw.js.map",
+      "email-logo.png",
+      "icon-192.png",
+      "icon-512.png",
+      "icon-maskable-512.png",
+      "icon-maskable.svg",
+    ],
     dontCacheBustURLsMatching: /\.[a-f0-9]{8,}\./,
     maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
   });
