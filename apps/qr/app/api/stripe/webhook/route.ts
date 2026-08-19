@@ -536,6 +536,14 @@ export async function POST(req: NextRequest) {
         console.error("[stripe webhook] authorized pickup intent missing cartId metadata", {
           paymentIntent: intent.id,
         });
+        // W23d (Codex #205 round 2) — RECORD IT, and record it FIRST, the same rule the settlement
+        // path follows: a failed cancel is retryable, a lost verdict is not. Without this the diner
+        // is stranded hardest of all — /track still carries `?cart=` from the return_url, so it
+        // classifies the checkout as manual capture and polls indefinitely saying the card is
+        // authorized, while Stripe has already released the hold and no code path will ever say so.
+        // The cart is null (there isn't one) and the reason is `no_cart`; the read is keyed on the
+        // intent and the payer, so neither costs the diner their answer.
+        await recordCartlessCancellation(intent.id, intent.metadata?.earnerUid ?? null);
         try {
           await getStripe().paymentIntents.cancel(intent.id);
         } catch (e) {
@@ -881,4 +889,32 @@ export async function POST(req: NextRequest) {
   });
 
   return NextResponse.json({ received: true });
+}
+
+/**
+ * W23d — record a cancellation for an authorization that never had a cart (Codex #205 round 2).
+ *
+ * The one branch that cancels a `pickup_manual` hold outside `settleAuthorizedPickup`, and so the
+ * one that would otherwise leave a released hold with no verdict anywhere. Written BEFORE the Stripe
+ * cancel for the same reason the settlement writes its own first: a failed cancel is retryable, a
+ * lost verdict is not.
+ *
+ * Swallows its failure deliberately — unlike the settlement path, there is nothing to retry INTO
+ * here. That branch is explicitly unrecoverable (no cart, nothing to re-derive) and must not 5xx
+ * into 72h of redeliveries that cannot succeed, so a failed write costs the diner their explanation
+ * and nothing more. The `console.error` is what makes the swallow deliberate rather than silent.
+ */
+async function recordCartlessCancellation(intentId: string, payerUid: string | null) {
+  const { error } = await serviceClient().rpc("mms_mark_settle_canceled", {
+    p_intent: intentId,
+    p_cart: null as unknown as string,
+    p_reason: "no_cart",
+    p_payer: payerUid as unknown as string,
+    p_attempt: null as unknown as string,
+  });
+  if (error)
+    console.error("[stripe webhook] cartless cancellation verdict not recorded", {
+      paymentIntent: intentId,
+      error: error.message,
+    });
 }

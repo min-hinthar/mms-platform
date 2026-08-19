@@ -2,6 +2,7 @@ import "server-only";
 import { serviceClient } from "@mms/db/server";
 import type { OrderHistoryEntry, OrderHistoryLine } from "./rewards";
 import { summarizeRefund } from "./refund-view";
+import { parseDroppedLines } from "./dropped-view";
 
 /**
  * W7a — the session-less receipt read. ⚠️ Deliberately a `server-only` MODULE, not a `"use server"`
@@ -26,7 +27,7 @@ export async function getReceiptEntry(orderId: string): Promise<ReceiptEntry | n
   const { data: o, error } = await db
     .from("qr_orders")
     .select(
-      "id,created_at,total_cents,refunded_cents,tender,pickup_slot,table_number,customer_name,subtotal_cents,discount_cents,service_charge_cents,tax_cents,tip_cents,status",
+      "id,created_at,total_cents,refunded_cents,dropped_lines,tender,pickup_slot,table_number,customer_name,subtotal_cents,discount_cents,service_charge_cents,tax_cents,tip_cents,status",
     )
     .eq("id", orderId)
     .in("status", [...RECEIPT_STATUSES])
@@ -85,5 +86,9 @@ export async function getReceiptEntry(orderId: string): Promise<ReceiptEntry | n
     // verdict. A PARTIAL refund leaves status at 'paid', which is why a boolean could never have
     // carried this and why this receipt used to say "Paid in full" over returned money.
     refund: summarizeRefund(o.total_cents, o.refunded_cents ?? 0, o.status),
+    // W23d — the same snapshot the /track slip renders. The durable receipt is the copy a guest
+    // keeps and forwards; an order whose basket shrank between the tap and the charge has to say so
+    // on the artifact, not only on the live screen they may already have closed.
+    dropped: parseDroppedLines(o.dropped_lines),
   };
 }

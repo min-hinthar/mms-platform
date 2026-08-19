@@ -64,6 +64,14 @@ const MONEY_MARKERS = [
   // `captureAllIfReady` is — the noun is a function when the money lives in a decision.
   /\brefunded_cents\b/,
   /\bsummarizeRefund\b/,
+  // W23d — the same reasoning one slice on. `dropped-view.ts` decides whether a receipt discloses
+  // that the basket shrank between the tap and the charge, and whether a screen is allowed to say
+  // "no payment was taken"; `manual-capture-mode.ts` decides whether the arrival screen may claim a
+  // payment at all. None of them names a money COLUMN, so without these three the rules would be
+  // money decisions the guard cannot see — revertible with every gate green.
+  /\bparseDroppedLines\b/,
+  /\bsettleCanceledCopy\b/,
+  /\bawaitingManualCapture\b/,
 ];
 
 const EXEMPT = /verify:slice-exempt\s*—?\s*(.+)/;

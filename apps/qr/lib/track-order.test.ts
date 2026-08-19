@@ -13,6 +13,7 @@ const row = {
   status: "paid",
   total_cents: 4268,
   refunded_cents: 0,
+  dropped_lines: [],
   subtotal_cents: 3500,
   discount_cents: 300,
   service_charge_cents: 0,

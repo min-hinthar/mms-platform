@@ -11,6 +11,13 @@ import {
   refundSpokenClause,
 } from "@/lib/refund-view";
 import {
+  droppedChipLabel,
+  droppedLineLabel,
+  droppedNoticeHeading,
+  droppedSpokenClause,
+  DROPPED_NOTICE_BODY,
+} from "@/lib/dropped-view";
+import {
   fulfillKind,
   groupByMonth,
   itemCount,
@@ -117,7 +124,7 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
                   <details className="history-card">
                     <summary
                       className="history-summary"
-                      aria-label={`Order ${o.code}, ${full}, total ${dollars(o.totalCents)}, paid ${TENDER_LABEL[o.tender] ?? o.tender}${refundSpokenClause(o.refund)}${kind ? `, ${FULFILL_LABEL[kind]}` : ""}${o.tableNumber != null ? `, Table ${o.tableNumber}` : ""}. Show items.`}
+                      aria-label={`Order ${o.code}, ${full}, total ${dollars(o.totalCents)}, paid ${TENDER_LABEL[o.tender] ?? o.tender}${refundSpokenClause(o.refund)}${droppedSpokenClause(o.dropped)}${kind ? `, ${FULFILL_LABEL[kind]}` : ""}${o.tableNumber != null ? `, Table ${o.tableNumber}` : ""}. Show items.`}
                     >
                       <div style={summaryRow}>
                         {/* W14 — the v7.2 history-row lead photo (first line WITH one, else the
@@ -166,6 +173,17 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
                                 that card saying "Paid · Card". */}
                             {refundChipLabel(o.refund) && (
                               <span className="history-refunded">{refundChipLabel(o.refund)}</span>
+                            )}
+                            {/* W23d — the collapsed row says the basket changed (registry M71).
+                                /account is where a guest goes days later to work out why a total
+                                looks small, so the fact has to be visible before the card is
+                                opened. Same derive-from-the-state rule as the refund chip beside
+                                it: the label comes from lib/dropped-view, never from a count test
+                                written here. */}
+                            {droppedChipLabel(o.dropped) && (
+                              <span className="history-refunded">
+                                {droppedChipLabel(o.dropped)}
+                              </span>
                             )}
                             {kind && <span className="history-fulfill">{FULFILL_LABEL[kind]}</span>}
                             {/* K2: the table you sat at that night (dine-in only). */}
@@ -246,6 +264,42 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
                           />
                         ))}
                       </dl>
+                      {/* W23d (Codex #205 P2) — the NAMES, not just the count. The collapsed chip
+                          says how many sold out; a guest reconciling a total needs to know WHICH
+                          dish, and the read already carries it. Without this the expanded card was
+                          the one diner surface that knew less than the tracker, the durable receipt
+                          and the email. Outside the totals list on purpose: nothing was charged for
+                          these, so they are not a money row. */}
+                      {o.dropped.count > 0 && (
+                        <div style={{ margin: "10px 0 0" }}>
+                          <p id={`history-dropped-${o.id}`} style={droppedHeadingStyle}>
+                            {droppedNoticeHeading(o.dropped)}
+                          </p>
+                          {o.dropped.lines.length > 0 && (
+                            <ul
+                              role="list"
+                              aria-labelledby={`history-dropped-${o.id}`}
+                              style={{
+                                listStyle: "none",
+                                padding: 0,
+                                margin: "4px 0 0",
+                                display: "grid",
+                                gap: 2,
+                              }}
+                            >
+                              {o.dropped.lines.map((l, di) => (
+                                <li
+                                  key={`${l.name}-${di}`}
+                                  style={{ fontSize: "var(--fs-xs)", color: "var(--t2)" }}
+                                >
+                                  {droppedLineLabel(l)}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                          <p style={{ ...detailMeta, margin: "6px 0 0" }}>{DROPPED_NOTICE_BODY}</p>
+                        </div>
+                      )}
                       <p style={detailMeta}>
                         {full}
                         {o.pickupSlot ? ` · Pickup ${formatSlotLong(o.pickupSlot)}` : ""}
@@ -360,6 +414,12 @@ const summaryStyle: CSSProperties = {
 const chipRow: CSSProperties = { display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 };
 const itemCountStyle: CSSProperties = { fontSize: "var(--fs-xs)", color: "var(--t3)" };
 const linePrice: CSSProperties = { color: "var(--t2)", fontVariantNumeric: "tabular-nums" };
+const droppedHeadingStyle: CSSProperties = {
+  margin: 0,
+  fontSize: "var(--fs-xs)",
+  fontWeight: 800,
+  color: "var(--tx)",
+};
 const detailMeta: CSSProperties = {
   margin: "10px 0 0",
   fontSize: "var(--fs-xs)",

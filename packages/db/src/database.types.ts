@@ -1288,6 +1288,7 @@ export type Database = {
           id: string
           line_id: string
           name: string
+          payment_intent: string | null
           qty: number
           reason_code: string
         }
@@ -1298,6 +1299,7 @@ export type Database = {
           id?: string
           line_id: string
           name: string
+          payment_intent?: string | null
           qty: number
           reason_code: string
         }
@@ -1308,6 +1310,7 @@ export type Database = {
           id?: string
           line_id?: string
           name?: string
+          payment_intent?: string | null
           qty?: number
           reason_code?: string
         }
@@ -1436,6 +1439,7 @@ export type Database = {
           created_at: string
           customer_name: string | null
           discount_cents: number
+          dropped_lines: Json
           earned_by: string | null
           fire_at: string | null
           id: string
@@ -1464,6 +1468,7 @@ export type Database = {
           created_at?: string
           customer_name?: string | null
           discount_cents?: number
+          dropped_lines?: Json
           earned_by?: string | null
           fire_at?: string | null
           id?: string
@@ -1492,6 +1497,7 @@ export type Database = {
           created_at?: string
           customer_name?: string | null
           discount_cents?: number
+          dropped_lines?: Json
           earned_by?: string | null
           fire_at?: string | null
           id?: string
@@ -1575,6 +1581,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      qr_settlement_cancellations: {
+        Row: {
+          attempt: string | null
+          canceled_at: string
+          cart_id: string | null
+          payer_uid: string | null
+          payment_intent: string
+          reason: string
+        }
+        Insert: {
+          attempt?: string | null
+          canceled_at?: string
+          cart_id?: string | null
+          payer_uid?: string | null
+          payment_intent: string
+          reason: string
+        }
+        Update: {
+          attempt?: string | null
+          canceled_at?: string
+          cart_id?: string | null
+          payer_uid?: string | null
+          payment_intent?: string
+          reason?: string
+        }
+        Relationships: []
       }
       qr_tables: {
         Row: {
@@ -1816,6 +1849,10 @@ export type Database = {
         }[]
       }
       mms_clear_reward: { Args: { p_cart: string }; Returns: undefined }
+      mms_dropped_snapshot: {
+        Args: { p_cart: string; p_intent: string }
+        Returns: Json
+      }
       mms_earn_on_fulfill: {
         Args: { p_earner: string; p_order: string }
         Returns: undefined
@@ -1892,6 +1929,16 @@ export type Database = {
       }
       mms_line_transition: {
         Args: { p_line: string; p_to: string }
+        Returns: number
+      }
+      mms_mark_settle_canceled: {
+        Args: {
+          p_attempt: string
+          p_cart: string
+          p_intent: string
+          p_payer: string
+          p_reason: string
+        }
         Returns: number
       }
       mms_merge_anon_rewards: {
@@ -2021,10 +2068,18 @@ export type Database = {
         Args: {
           p_attempt: string
           p_cart: string
+          p_intent: string
           p_menu_ids: string[]
           p_payer: string
         }
         Returns: number
+      }
+      mms_settlement_cancellation: {
+        Args: { p_intent: string; p_uid: string }
+        Returns: {
+          lines: Json
+          reason: string
+        }[]
       }
       mms_snapshot_ebt_eligibility: {
         Args: { p_order: string }

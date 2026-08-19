@@ -4,6 +4,8 @@ import { serverClient, serviceClient } from "@mms/db/server";
 import { cartViewInput, trackFallbackInput } from "@mms/db/schemas";
 import { liveOrderStatusWord, type LiveOrder, type LiveOrderKind } from "./live-order";
 import { shapeTrackedOrder, TRACK_ORDER_SELECT, type TrackedOrder } from "./track-order";
+import { settlementVerdict, type SettlementRead } from "./dropped-read";
+import type { SettleCanceled } from "./dropped-view";
 
 const LIVE_WINDOW_MS = 12 * 60 * 60 * 1000; // 12h — an order older than a shift isn't "live" wayfinding
 const LIVE_LIMIT = 20; // count-bound — the tray stays a glance, not a history (history lives on /account)
@@ -144,6 +146,12 @@ export type TrackFallback =
   | { ok: false; reason: "share_payer" }
   /** No order of the caller's own matches. Says nothing about whether one exists for someone else. */
   | { ok: false; reason: "not_found" }
+  /**
+   * W23d — there is no order and there never will be: this diner's own pickup AUTHORIZATION was
+   * cancelled by the settlement instead of captured. The only arm here that carries a payload,
+   * because it is the only one where the app knows something the diner does not.
+   */
+  | { ok: false; reason: "settle_canceled"; settle: SettleCanceled }
   | { ok: false; reason: "error" };
 
 /** The same field set `useOrderStatus` builds, so the tracker renders a fallback order
@@ -220,10 +228,57 @@ export async function getMyOrderFallback(input: {
         .maybeSingle();
       if (mine) return { ok: false, reason: "share_payer" };
     }
+
+    // W23d (registry M71) — the reason there is no order may be that the hold was CANCELLED, not
+    // that fulfillment is slow. Every arm of the tracker's give-up card asserts a payment ("your
+    // payment went through", "your payment is safe — show this screen to staff"), and all of them
+    // are false for a cancelled authorization: the guest would be sent to the counter to ask about
+    // money nobody took.
+    //
+    // Only on the PaymentIntent key: manual capture is single-pay pickup, so a split order's
+    // order-id lookup can never reach a cancellation. The verdict is RECORDED, never inferred from
+    // this absence — right after `paymentIntents.capture` and before `mms_fulfill_order`, "no order"
+    // is exactly what a healthy capture looks like too.
+    if (paymentIntent) {
+      const verdict = await settlementVerdict(paymentIntent, user.id);
+      // `undecided` and `error` both fall through to today's answer, deliberately and for different
+      // reasons: undecided is the ordinary in-flight case, and an unreadable ledger must never
+      // become a confident "nothing was charged". Only a recorded verdict speaks.
+      if (verdict.state === "decided")
+        return { ok: false, reason: "settle_canceled", settle: verdict.settle };
+    }
     return { ok: false, reason: "not_found" };
   }
 
   return { ok: true, order: shapeTrackedOrder(data) };
+}
+
+/**
+ * W23d — has this diner's own pickup authorization been CANCELLED? (registry M71)
+ *
+ * A thin, uid-scoped probe so the tracker can correct itself in the first few seconds rather than
+ * after its ~30s give-up. It exists separately from `getMyOrderFallback` because the two answer
+ * different questions on different clocks: the fallback runs ONCE, after the live read has given
+ * up, and does real work (order read + two payer probes); this runs on a short poll while the
+ * celebration is on screen and does one indexed lookup.
+ *
+ * ⚠️ Called ONLY on the manual-capture path (`awaitingCapture`), which is dark until
+ * `PICKUP_MANUAL_CAPTURE` is on — so every automatic-capture diner pays nothing for it. An
+ * automatic-capture PI can never have a cancellation row anyway (only `settleAuthorizedPickup`
+ * writes them), so the probe would be a guaranteed miss on a hot path.
+ *
+ * Returns the OUTCOME. `undecided` is the ordinary answer for a healthy payment AND for a capture
+ * still in flight; `error` is a failed read. Neither may become "you weren't charged".
+ */
+export async function getSettleVerdict(paymentIntent: string): Promise<SettlementRead> {
+  const parsed = trackFallbackInput.safeParse({ paymentIntent });
+  if (!parsed.success || !parsed.data.paymentIntent) return { state: "undecided" };
+  const supa = serverClient(await cookies());
+  const {
+    data: { user },
+  } = await supa.auth.getUser();
+  if (!user) return { state: "undecided" };
+  return settlementVerdict(parsed.data.paymentIntent, user.id);
 }
 
 /**

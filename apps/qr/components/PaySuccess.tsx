@@ -29,6 +29,7 @@ export function PaySuccess({
   stars = null,
   milestoneStep = null,
   isUpgraded = false,
+  awaitingCapture = false,
 }: {
   /** Stars earned by this order — the honest constant (1 per paid order), 0 if the viewer isn't the earner. */
   starsEarned: number;
@@ -41,6 +42,23 @@ export function PaySuccess({
   /** K3a: a confirmed account — only then is the reward "saved to your account"; an anonymous diner's
    *  is device-bound (the copy must not over-claim). */
   isUpgraded?: boolean;
+  /**
+   * W23d — the payment is AUTHORIZED, not captured, and the order has not landed yet.
+   *
+   * Under W23c's manual capture a pickup PI reaches `requires_capture` when the diner confirms, and
+   * Stripe still sends them here with `redirect_status=succeeded` — so this component's whole
+   * premise ("this IS the success moment") is a beat early. The tap succeeded and the celebration
+   * is earned; the SENTENCE is not, because no money has moved and no Star has been counted.
+   *
+   * So the checkmark and the confetti stay (they mark the order going through, not the charge) and
+   * the two CLAIMS come off: the headline stops saying "Paid" and the Stars pill waits for a Star
+   * that is issued at fulfillment. Both come back on their own the moment the order lands — the
+   * caller passes `awaitingCapture && !order`.
+   *
+   * False for every automatic-capture payment, which is all of them until PICKUP_MANUAL_CAPTURE is
+   * on, so today's celebration is untouched.
+   */
+  awaitingCapture?: boolean;
 }) {
   const { shouldAnimate } = useAnimationPreference();
   const tier = useDeviceTier();
@@ -93,8 +111,15 @@ export function PaySuccess({
         <circle className="pay-success-check-ring" cx="26" cy="26" r="24" />
         <path className="pay-success-check-mark" d="M15 27 l7.5 7.5 L37.5 19" />
       </svg>
-      <h1 className="pay-success-title">Paid — thank you!</h1>
-      {earned && (
+      <h1 className="pay-success-title">
+        {awaitingCapture ? "Order sent — thank you!" : "Paid — thank you!"}
+      </h1>
+      {awaitingCapture && (
+        <p className="pay-success-progress">
+          Your card is authorized — we take the payment as we confirm the order.
+        </p>
+      )}
+      {!awaitingCapture && earned && (
         <span className="pay-success-stars">
           <span aria-hidden>✦ </span>+{starsEarned} {starsEarned === 1 ? "Star" : "Stars"} earned
         </span>
@@ -102,11 +127,11 @@ export function PaySuccess({
       {/* Caption only for the actual earner (gated on `earned`), so a split non-host sees no progress claim.
           K3a: "saved to your account" only when upgraded — an anonymous diner's reward is device-bound, so
           the claim would be false (the header/account still nudge them to save it). */}
-      {earned && justUnlocked ? (
+      {!awaitingCapture && earned && justUnlocked ? (
         <p className="pay-success-progress">
           {isUpgraded ? "Reward unlocked — saved to your account." : "Reward unlocked!"}
         </p>
-      ) : earned && ordersToNext != null && ordersToNext > 0 ? (
+      ) : !awaitingCapture && earned && ordersToNext != null && ordersToNext > 0 ? (
         <p className="pay-success-progress">
           {ordersToNext === 1
             ? "1 order to your next reward"

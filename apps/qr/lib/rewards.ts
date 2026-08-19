@@ -5,6 +5,7 @@ import { getStaffAuth } from "./staff";
 import { withinMutationRate } from "./rate";
 import { safeImageUrl } from "./media-url";
 import { summarizeRefund, type RefundSummary } from "./refund-view";
+import { parseDroppedLines, type DroppedSummary } from "./dropped-view";
 
 /**
  * Server-authoritative session kind for AnonAuthGate (M4): is the caller an anonymous diner, an UPGRADED
@@ -382,6 +383,10 @@ export type OrderHistoryEntry = {
    *  `status` at 'paid', so without this the history card renders a part-returned order at full
    *  price with no trace — the /account half of registry M2. */
   refund: RefundSummary;
+  /** W23d — the lines this order's own settlement removed between authorization and capture (empty
+   *  for every automatic-capture order). The history card is where a guest goes days later to work
+   *  out why a total looks small; without this the answer isn't on the screen. */
+  dropped: DroppedSummary;
 };
 
 export async function getOrderHistory(limit = 20): Promise<OrderHistoryEntry[] | null> {
@@ -412,7 +417,7 @@ export async function getOrderHistory(limit = 20): Promise<OrderHistoryEntry[] |
   let history = db
     .from("qr_orders")
     .select(
-      "id,created_at,total_cents,refunded_cents,status,tender,pickup_slot,table_number,subtotal_cents,discount_cents,service_charge_cents,tax_cents,tip_cents",
+      "id,created_at,total_cents,refunded_cents,dropped_lines,status,tender,pickup_slot,table_number,subtotal_cents,discount_cents,service_charge_cents,tax_cents,tip_cents",
     )
     .eq("status", "paid");
   history = payerIds.length
@@ -495,6 +500,7 @@ export async function getOrderHistory(limit = 20): Promise<OrderHistoryEntry[] |
     // full price with no trace — but hardcoding "paid" here would silently misreport the day that
     // filter widens, and a receipt is the wrong place to carry a second copy of a query's predicate.
     refund: summarizeRefund(o.total_cents, o.refunded_cents ?? 0, o.status),
+    dropped: parseDroppedLines(o.dropped_lines),
   }));
 }
 

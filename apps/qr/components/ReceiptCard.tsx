@@ -14,6 +14,7 @@ import {
   PARTIAL_REFUND_NOTE,
   receiptStatusLabel,
 } from "@/lib/refund-view";
+import { droppedLineLabel, droppedNoticeHeading, DROPPED_NOTICE_BODY } from "@/lib/dropped-view";
 import { formatSlotLong } from "@/lib/pickupTime";
 import {
   BRAND_ADDRESS,
@@ -149,6 +150,29 @@ export function ReceiptCard({ entry }: { entry: ReceiptEntry }) {
           back, and repeating it under a receipt whose every row is moot reads as an apology. */}
       {entry.refund.state === "partial" && <p style={disclosure}>{PARTIAL_REFUND_NOTE}</p>}
 
+      {/* W23d — what the settlement removed between the tap and the charge (registry M71). The
+          durable receipt is the copy a guest keeps and forwards to their bank, so an order whose
+          basket shrank has to say so HERE, not only on the live screen they may already have
+          closed. Never a receipt row and never a dollar figure: a figure printed for money that was
+          never charged reads as a refund line (see lib/dropped-view's money-copy rule). */}
+      {entry.dropped.count > 0 && (
+        <div style={{ margin: "10px 2px 0" }}>
+          <p id="receipt-dropped-label" style={droppedHeading}>
+            {droppedNoticeHeading(entry.dropped)}
+          </p>
+          {entry.dropped.lines.length > 0 && (
+            <ul role="list" aria-labelledby="receipt-dropped-label" style={droppedList}>
+              {entry.dropped.lines.map((l, i) => (
+                <li key={`${l.name}-${i}`} style={{ fontSize: "var(--fs-xs)", color: "var(--t2)" }}>
+                  {droppedLineLabel(l)}
+                </li>
+              ))}
+            </ul>
+          )}
+          <p style={disclosure}>{DROPPED_NOTICE_BODY}</p>
+        </div>
+      )}
+
       {/* SB-1524 — the fee never surfaces without its explanation (the north-star teardown's
           named failure is fees that appear only on the emailed receipt; this artifact IS that
           receipt, so the disclosure is structural, not optional). Verbatim from checkout. */}
@@ -267,6 +291,19 @@ const disclosure: CSSProperties = {
   color: "var(--t3)",
   margin: "8px 2px 0",
   lineHeight: 1.5,
+};
+const droppedHeading: CSSProperties = {
+  fontSize: "var(--fs-xs)",
+  fontWeight: 800,
+  color: "var(--tx)",
+  margin: 0,
+};
+const droppedList: CSSProperties = {
+  listStyle: "none",
+  padding: 0,
+  margin: "4px 0 0",
+  display: "grid",
+  gap: 2,
 };
 const farewell: CSSProperties = {
   margin: "14px 0 0",

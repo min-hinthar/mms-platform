@@ -16,6 +16,7 @@ import {
   PARTIAL_REFUND_NOTE,
   receiptStatusLabel,
 } from "@/lib/refund-view";
+import { droppedLineLabel, droppedNoticeHeading, DROPPED_NOTICE_BODY } from "@/lib/dropped-view";
 
 /**
  * W7a — the diner receipt (the artifact S1 named missing; the W2e spec's `OrderReceiptEmail`).
@@ -100,6 +101,20 @@ export function OrderReceiptEmail({
       </Section>
 
       {entry.refund.state === "partial" && <Text style={fine}>{PARTIAL_REFUND_NOTE}</Text>}
+
+      {/* W23d — the emailed copy carries the same disclosure as the durable page (registry M71).
+          Email clients strip most of what a list is, so the lines ride one Text as a comma series
+          rather than a <ul> that half the world renders as run-together paragraphs. No dollar
+          figure: nothing was charged for these. */}
+      {entry.dropped.count > 0 && (
+        <Text style={fine}>
+          {droppedNoticeHeading(entry.dropped)}
+          {entry.dropped.lines.length > 0
+            ? ` — ${entry.dropped.lines.map(droppedLineLabel).join(", ")}.`
+            : "."}{" "}
+          {DROPPED_NOTICE_BODY}
+        </Text>
+      )}
 
       {serviceDisclosed(entry.breakdown) && <Text style={fine}>{SERVICE_CHARGE_DISCLOSURE}</Text>}
 

@@ -9,6 +9,7 @@ import { resolveReceiptOrder } from "@/lib/receipt-token";
 import { reorderLink } from "@/lib/order-history-view";
 import { menuHref, menuLinkText } from "@/lib/menu-href";
 import { PaperAmbient } from "@/components/PaperAmbient";
+import { awaitingManualCapture } from "@/lib/manual-capture-mode";
 
 // /track — post-payment, live. Stripe appends `payment_intent` + `redirect_status` to the Payment
 // Element return_url; for succeeded/processing we mount the Realtime <OrderTracker> (the order shows
@@ -147,6 +148,15 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
   }
 
   if (status === "succeeded" || status === "processing") {
+    // W23d — is this a MANUAL-CAPTURE pickup order? Under W23c the Payment Element still redirects
+    // with `redirect_status=succeeded` when the PI has only reached `requires_capture`, so on this
+    // path "succeeded" means AUTHORIZED, not charged — and the tracker must not celebrate money
+    // that has not moved, nor rule out a hold that gets cancelled instead of captured.
+    //
+    // One read, and only when `PICKUP_MANUAL_CAPTURE` is on: with the flag off this is a synchronous
+    // `false` and /track costs exactly what it costs today. It fails toward FALSE on any read
+    // failure, so an automatic-capture diner can never lose "Paid — thank you!" to a blip.
+    const awaitingCapture = await awaitingManualCapture(cart ?? null);
     // The PaymentIntent id keys the live subscription. Stripe always appends it; if it's somehow
     // absent, fall back to a static confirmation rather than a tracker that can never resolve.
     if (paymentIntent)
@@ -155,6 +165,7 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
           paymentIntent={paymentIntent}
           processing={status === "processing"}
           justPaid={status === "succeeded"}
+          awaitingCapture={awaitingCapture}
         />
       );
     return (

@@ -66,9 +66,9 @@ export default async function StaffMenuPrices() {
       <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: "0 0 var(--s6)" }}>
         {canEditPrice ? (
           <>
-            One price per dish — dine-in and to-go ring the same amount, the way the register does. A
-            change takes effect on the next order; lines already in a cart keep the price they were
-            quoted, and paid orders never change. Every edit is recorded with your name.
+            One price per dish — dine-in and to-go ring the same amount, the way the register does.
+            A change takes effect on the next order; lines already in a cart keep the price they
+            were quoted, and paid orders never change. Every edit is recorded with your name.
           </>
         ) : (
           <>

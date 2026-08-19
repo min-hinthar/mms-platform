@@ -152,7 +152,11 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     menuIds.length
       ? db.from("menu_items").select("id,is_sold_out,menu_categories(slug)").in("id", menuIds)
       : Promise.resolve({
-          data: [] as { id: string; is_sold_out: boolean; menu_categories: { slug: string } | null }[],
+          data: [] as {
+            id: string;
+            is_sold_out: boolean;
+            menu_categories: { slug: string } | null;
+          }[],
           error: null,
         }),
   ]);
