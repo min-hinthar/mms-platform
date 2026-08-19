@@ -1,6 +1,7 @@
 import "server-only";
 import { serviceClient } from "@mms/db/server";
 import type { TaxCategory, LineFulfillment } from "@mms/db";
+import { itemSellable } from "./availability";
 
 /**
  * Server-authoritative line pricing + insert, shared by the diner cart (lib/cart.ts addItem) and the
@@ -33,11 +34,20 @@ export async function priceItem(
   const { data: item, error } = await db
     .from("menu_items")
     .select(
-      "id,name_en,base_price_cents,tax_category,item_modifier_groups(modifier_groups(id,min_select,max_select))",
+      "id,name_en,base_price_cents,tax_category,is_sold_out,is_active,item_modifier_groups(modifier_groups(id,min_select,max_select))",
     )
     .eq("id", menuItemId)
     .single();
   if (error || !item) throw new Error("Unknown menu item");
+
+  // W23a — the add-time half of the availability gate, and the better guest moment: refuse at the tap
+  // rather than at the Pay button, when the basket is still one dish long and swapping costs nothing.
+  // It cannot replace the charge-boundary re-read (`lib/availability.ts`) — an 86 lands MID-cart, long
+  // after every line passed this check — but it stops a diner ever assembling an order around a dish
+  // the kitchen already said no to. `is_active` rides along for the same reason: the diner menu
+  // filters delisted items at query time, which is a fact about a page that may be minutes old.
+  if (!itemSellable(item))
+    throw new Error(`${item.name_en} just sold out — pick something else and we'll get it going.`);
 
   const groups = (item.item_modifier_groups ?? [])
     .map((l) => l.modifier_groups)

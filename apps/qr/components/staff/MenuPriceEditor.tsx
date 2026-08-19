@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { setMenuPrice } from "@/lib/menu-price";
+import { setItemSoldOut } from "@/lib/menu-availability";
 
 export type PricedItem = {
   id: string;
@@ -10,6 +11,9 @@ export type PricedItem = {
   priceCents: number;
   category: string;
   soldOut: boolean;
+  /** W23a — when it was taken off, or null. The owner chose a MANUAL 86 lifetime, so this stamp is
+   *  the only thing that makes a flag which has outlived its shift visible to whoever looks next. */
+  soldOutAt: string | null;
 };
 
 /**
@@ -24,7 +28,17 @@ export type PricedItem = {
  * The authority is `setMenuPrice` (manager floor re-checked server-side, Zod + a column CHECK
  * bounding the amount). Everything here is affordance and honest feedback — never the gate.
  */
-export function MenuPriceEditor({ items }: { items: PricedItem[] }) {
+export function MenuPriceEditor({
+  items,
+  canEditPrice,
+}: {
+  items: PricedItem[];
+  /** W23a (Codex P2) — a SERVER reaches this page for the 86 control alone. The price editor is
+   *  manager-only and `setMenuPrice` re-checks that server-side; hiding the Edit button is what
+   *  keeps the screen from offering an action the authority would refuse. It is also the ONLY door
+   *  into the edit form (`openEdit` has no other caller), so withholding it withholds the form. */
+  canEditPrice: boolean;
+}) {
   const router = useRouter();
   const [q, setQ] = useState("");
   // The row being edited, and its typed dollars. One row at a time: a bulk grid of live price inputs
@@ -33,8 +47,64 @@ export function MenuPriceEditor({ items }: { items: PricedItem[] }) {
   const [draft, setDraft] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
+  // W23a — the ids whose 86 is in flight, so only those rows' controls disable (a page-wide busy flag
+  // would freeze every row while one cook flips one dish). A SET, not one id: two taps in quick
+  // succession are ordinary during a rush, and a single slot would let the first flip's completion
+  // re-enable the second row's button while that flip was still in the air.
+  const [flipping, setFlipping] = useState<ReadonlySet<string>>(() => new Set());
   // ONE live region for this view (QA §A) — outcomes and refusals both ride it.
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // W23a — the 86 toggle. ONE tap in both directions, deliberately: this is the control the cook
+  // reaches for with their hands full at the moment the pan comes up empty, and a confirm step is
+  // exactly the friction that makes people skip it and let the orders keep coming. It is also cheap
+  // to undo — unlike a price, which every future guest pays and which keeps its two-step confirm
+  // right below. The ledger is what keeps a one-tap control accountable.
+  async function toggleSoldOut(i: PricedItem) {
+    setFlipping((f) => new Set(f).add(i.id));
+    setMsg(null);
+    // Same shape as `save()` below, and for the same reason it was added there (Codex P2 on #180): a
+    // REJECTED Server Action promise — dead radio, 5xx transport — would otherwise skip the re-enable
+    // and strand the row on "…" forever, which on this control means the cook cannot retry the 86.
+    let r: Awaited<ReturnType<typeof setItemSoldOut>>;
+    try {
+      r = await setItemSoldOut({
+        menuItemId: i.id,
+        soldOut: !i.soldOut,
+        // The state this row RENDERED with — the server refuses a flip made against a stale screen.
+        expectedSoldOut: i.soldOut,
+      });
+    } catch {
+      setMsg({
+        ok: false,
+        text: `Couldn’t reach the menu — ${i.nameEn} may or may not have changed. Check the row and try again.`,
+      });
+      // The list is the only honest account of what landed; the toggle's own state is a guess.
+      router.refresh();
+      return;
+    } finally {
+      setFlipping((f) => {
+        const next = new Set(f);
+        next.delete(i.id);
+        return next;
+      });
+    }
+    if (!r.ok) {
+      setMsg({ ok: false, text: r.error });
+      // Codex P2 on #193, same rule as the price refusal: a concurrency refusal means this screen is
+      // stale, and without a refresh the row keeps feeding the SAME stale `expectedSoldOut` forever —
+      // so every retry fails identically and the cook cannot get the dish off the menu at all.
+      router.refresh();
+      return;
+    }
+    setMsg({
+      ok: true,
+      text: r.soldOut
+        ? `${i.nameEn} is off the menu — nobody can order it until you put it back.`
+        : `${i.nameEn} is back on the menu.`,
+    });
+    router.refresh();
+  }
 
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -167,7 +237,12 @@ export function MenuPriceEditor({ items }: { items: PricedItem[] }) {
               <div style={{ minWidth: 0 }}>
                 <p style={name}>
                   {i.nameEn}
-                  {i.soldOut && <span style={soldOutTag}> · sold out</span>}
+                  {i.soldOut && (
+                    <span style={soldOutTag}>
+                      {" "}
+                      · sold out{i.soldOutAt ? ` since ${clock(i.soldOutAt)}` : ""}
+                    </span>
+                  )}
                 </p>
                 {i.nameMy && (
                   <p lang="my" style={nameMy}>
@@ -180,11 +255,28 @@ export function MenuPriceEditor({ items }: { items: PricedItem[] }) {
               {!open ? (
                 <div style={{ display: "flex", alignItems: "center", gap: "var(--s3)" }}>
                   <span style={price}>{dollars(i.priceCents)}</span>
-                  <button type="button" style={ghostBtn} onClick={() => openEdit(i)}>
-                    Edit
-                    {/* The name alone reads as "Edit" on every row in the list — say which dish. */}
-                    <span style={srOnly}> the price of {i.nameEn}</span>
+                  <button
+                    type="button"
+                    style={i.soldOut ? restoreBtn : eightySixBtn}
+                    disabled={flipping.has(i.id)}
+                    onClick={() => void toggleSoldOut(i)}
+                    // The visible label is two words; the accessible name has to say WHICH dish,
+                    // because every row in this list carries the same one.
+                    aria-label={
+                      i.soldOut
+                        ? `Put ${i.nameEn} back on the menu`
+                        : `Mark ${i.nameEn} sold out — nobody can order it until you put it back`
+                    }
+                  >
+                    {flipping.has(i.id) ? "…" : i.soldOut ? "Put back" : "86"}
                   </button>
+                  {canEditPrice && (
+                    <button type="button" style={ghostBtn} onClick={() => openEdit(i)}>
+                      Edit
+                      {/* The name alone reads as "Edit" on every row in the list — say which dish. */}
+                      <span style={srOnly}> the price of {i.nameEn}</span>
+                    </button>
+                  )}
                 </div>
               ) : confirming && current ? (
                 <div
@@ -280,6 +372,35 @@ const name: CSSProperties = { margin: 0, fontWeight: 700, fontSize: "var(--fs-bo
 const nameMy: CSSProperties = { margin: 0, color: "var(--t2)", fontSize: "var(--fs-sm)" };
 const cat: CSSProperties = { margin: "2px 0 0", color: "var(--t3)", fontSize: "var(--fs-xs)" };
 const soldOutTag: CSSProperties = { color: "var(--t3)", fontWeight: 400 };
+/** The restaurant's clock, never the device's — a manager travelling must read the counter's time. */
+const clockFmt = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Los_Angeles",
+  hour: "numeric",
+  minute: "2-digit",
+});
+const clock = (iso: string): string => clockFmt.format(new Date(iso));
+const eightySixBtn: CSSProperties = {
+  minHeight: 44,
+  padding: "0 12px",
+  borderRadius: "var(--r-full)",
+  border: "1px solid color-mix(in oklab, var(--warn) 40%, var(--bd))",
+  background: "var(--warnb)",
+  color: "var(--warn)",
+  fontWeight: 800,
+  fontSize: "var(--fs-sm)",
+  cursor: "pointer",
+};
+const restoreBtn: CSSProperties = {
+  minHeight: 44,
+  padding: "0 12px",
+  borderRadius: "var(--r-full)",
+  border: "1px solid color-mix(in oklab, var(--ok) 40%, var(--bd))",
+  background: "var(--okb)",
+  color: "var(--ok)",
+  fontWeight: 800,
+  fontSize: "var(--fs-sm)",
+  cursor: "pointer",
+};
 const price: CSSProperties = { fontWeight: 800, fontSize: "var(--fs-body)" };
 const label: CSSProperties = {
   display: "block",

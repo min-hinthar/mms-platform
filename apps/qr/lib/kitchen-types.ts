@@ -16,6 +16,14 @@ export type KitchenStation = "wok" | "cold" | "drinks";
  *  rendered as the highest-contrast element on the card. */
 export type KitchenLine = {
   id: string;
+  /** W23a — the catalog id behind this line, so the cook can 86 the DISH from the ticket that just
+   *  told them it is out. Null when the line is a grocery barcode rather than a menu item (the soft
+   *  ref also carries those), which is exactly when there is nothing to 86. */
+  menuItemId: string | null;
+  /** W23a — whether that dish is ALREADY off the menu. The board reads it two ways: it is the
+   *  `expectedSoldOut` the compare-and-swap is made against (never a hardcoded guess), and it is what
+   *  turns the ticket's 86 control from an offer into a statement. */
+  soldOut: boolean;
   name: string;
   qty: number;
   /** Human-readable modifier labels (e.g. ["Spicy", "No egg"]) — empty when the line has none. */

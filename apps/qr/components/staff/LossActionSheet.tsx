@@ -13,6 +13,7 @@ type Action = "void" | "comp";
 type Reason =
   | "mistake"
   | "kitchen_error"
+  | "sold_out"
   | "quality"
   | "guest_request"
   | "service_recovery"
@@ -23,6 +24,10 @@ const REASONS: Record<Action, { value: Reason; label: string }[]> = {
   void: [
     { value: "mistake", label: "Ordered by mistake" },
     { value: "kitchen_error", label: "Kitchen made it wrong" },
+    // W23a — the dine-in twin of the refund's "We ran out". A dine-in 86 costs nothing (the line is
+    // voided before settle, no money moved), which is exactly why it has to be COUNTED — otherwise
+    // the cheapest recovery is also the most invisible one.
+    { value: "sold_out", label: "We ran out" },
     { value: "quality", label: "Quality / guest unhappy" },
     { value: "guest_request", label: "Guest changed their mind" },
     { value: "other", label: "Other" },

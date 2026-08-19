@@ -4,6 +4,86 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W23a — the 86 button, and the availability gate on the money path (2026-08-19)
+
+Owner, design-thinking the flow: _"shouldn't the checkout be allowed only after kitchen accepts the
+order per items or rejects if out of stock and food is prepared and finally ready to be served, so
+that refunds are minimal or avoided?"_
+
+**The audit answered the question by finding a different problem.** Gating checkout on kitchen
+acceptance is the wrong instrument — for dine-in it is already the shipped design (`mms_fire_cart`
+fires an OPEN, unpaid cart; the table eats, then settles, and an 86 is a free solo void), and for
+pickup it would put a blocking tap on every ticket and invert the failure mode from harmless
+bookkeeping into food-made-nobody-billed. What actually produced the exposure was this:
+
+> `menu_items.is_sold_out` has existed since the platform-init migration. **Fifteen surfaces read it.
+> Nothing has ever written it.** `menu_items` carries a public-read policy and no write policy at all.
+
+So the kitchen had no way to say "we're out", and the charge path never asked: `priceItem` — the one
+server-side pricing authority — selected no availability column, and `create-intent` contained zero
+references to `sold`, `available`, `is_active` or `menu_items` before `paymentIntents.create`.
+
+- **The 86 button** (`lib/menu-availability.ts`) on the `setMenuPrice` pattern: role gate → service
+  client → compare-and-swap on the state the screen showed → `.select("id")` row verification → an
+  audit row. Role floor is **server**, deliberately below the price editor's manager — the person who
+  discovers a dish is out is at the wok, and an 86 is operational and reversible where a price is a
+  money decision. On **both** surfaces the owner asked for: the KDS ticket line (one tap from the
+  screen that just revealed it) and `/staff/menu`. One tap each way, no confirm step — a confirm is
+  the friction that makes people skip it mid-rush; the ledger is what keeps it accountable.
+- **Manual lifetime with a visible stamp** (owner's call). `sold_out_at` is written with the flag and
+  **cleared** on the way back, so a stale timestamp can never outlive the flag it describes. There is
+  no auto-clear: a timer can quietly put a genuinely-empty dish back on sale mid-service, which is the
+  more expensive mistake. The stamp is the only signal a flag has outlived its shift.
+- **The gate, in two places.** `priceItem` refuses a sold-out or delisted dish at ADD time (the better
+  guest moment — one line, not a whole checkout). `create-intent` re-checks the assembled cart against
+  the live catalog **immediately before the Stripe mint**, in the same shape as the pickup-capacity and
+  open-hours refusals already there. Both exist on purpose: a cart sits open while the diner reads and
+  decides, and the 86 can land in that window. It **refuses and names the dish** rather than silently
+  dropping the line — an amount that changes under the diner's finger at the Pay button is exactly the
+  surprise the money doctrine forbids. Note this refuses where the pickup soft-cap over-accepts, and
+  the difference is deliberate: an over-sold slot means a dish made late, an over-sold 86 means a dish
+  that does not exist.
+- **Fail-open on a transport blip** (`availability-read.ts`): an unreadable catalog returns "nothing is
+  unavailable" and the charge proceeds. Being wrong costs one refund; failing closed blocks every
+  diner at the Pay button on every catalog blip.
+- **A `sold_out` reason code** on both the refund and the void/comp sheets. The premise was untested —
+  production shows **14 paid orders and zero refunds, zero voids, zero comps, and zero items ever
+  flagged sold out** — and an out-of-stock incident would previously have landed in "other" and been
+  invisible. This is the cheapest way to turn the owner's instinct into a number.
+
+Eight new mutants (138 total) and three new suites: `lib/availability.test.ts` pins the decision,
+`lib/order-lines-availability.test.ts` pins the add-time refusal against the real `priceItem`, and
+`lib/menu-availability.test.ts` reuses the price editor's CAS-modelling double so a CAS-less
+implementation cannot pass.
+
+**Review round 1 changed three things that could not be worked around on the floor.**
+
+- **The charge gate keyed on `state !== "voided"`, and blocked lines nobody could remove.** A dine-in
+  table whose dish was 86'd _after_ it fired — possibly after they ate it — got "remove it to keep
+  going" about a line `permissions.ts` forbids a diner to touch, with no remedy on the screen. It was
+  also the wrong question: a fired line is already made, so an 86 does not threaten it. The gate now
+  keys on **`draft`**, which is the batch an 86 actually governs and the one a diner can act on;
+  pickup and scan-and-go lose nothing, since those lines stay draft until payment fires them.
+- **Both new "We ran out" reason codes were rejected by the server.** The two action sheets offered
+  `sold_out` while `refundLineInput`, `voidLineInput` and `requestApprovalInput` all hard-failed the
+  Zod parse — the column is a length CHECK, not an enum, so the three schemas were the whole gap.
+- **The add-time half of the gate did not exist.** The edit never landed, and three comments plus the
+  commit message described a check that was not in the code. `priceItem` now selects
+  `is_sold_out,is_active` and refuses by name before deriving an amount, and both halves read one
+  predicate (`itemSellable`) so they cannot drift.
+
+Also from that round: a dish **missing from the catalog** counts as unavailable (`menu_item_id` is a
+soft ref with no FK, and absence must not answer "fine" when it means "unknown"); the gate moved
+**above** the pickup block so a refused order never spends an ASAP slot's capacity; `KitchenLine`
+carries `soldOut`, so the KDS shows "Off the menu" instead of offering an 86 the server would refuse
+and stops asserting a hardcoded `expectedSoldOut: false`; the ledger row carries the decision's own
+instant rather than the insert's clock; and split-tender is documented as a **deliberate** non-gate
+(shares freeze at split-open and dine-in food fires from the open cart, so refusing there would block
+money for food nobody is charged for).
+
+**Residual, by design:** an 86 landing between the Stripe mint and the webhook confirm still produces
+a refundable order. Closing that window is what **W23c** (manual capture for pickup) is for.
+
 ### W22b — installed-native: the live order chip expands, and the install stops being a bookmark (2026-08-17)
 
 Owner go: _"Build W22b as planned"_ (`docs/W22_DESIGN_PROPOSAL.md` · Installed-native). Two claims

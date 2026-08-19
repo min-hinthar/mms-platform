@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { bumpLine, bumpTicket, fireTicketNow, getKitchenQueue, recallTicket } from "@/lib/kitchen";
+import { setItemSoldOut } from "@/lib/menu-availability";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { useWakeLock } from "@/lib/useWakeLock";
@@ -804,7 +805,35 @@ function KdsLineRow({
   onRefresh: () => Promise<void> | void;
 }) {
   const [pending, startTransition] = useTransition();
+  const [eightySixing, setEightySixing] = useState(false);
   const to = line.state === "fired" ? "in_progress" : "served";
+
+  // W23a — take the DISH off the menu from the ticket that just revealed it is out. Deliberately does
+  // NOT touch this line: the ticket in front of the cook was already sold and someone is waiting for
+  // it, so the kitchen still owes whatever it can make. What this stops is the NEXT order — which is
+  // the only thing an 86 can honestly do.
+  const flip = async (menuItemId: string) => {
+    setEightySixing(true);
+    onError(null);
+    try {
+      const res = await setItemSoldOut({
+        menuItemId,
+        soldOut: true,
+        // The state this ticket RENDERED with — never a hardcoded `false`. The board polls, so a
+        // dish 86’d on another console is already reflected here; asserting `false` would make the
+        // compare-and-swap refuse a flip the cook can plainly see is unnecessary.
+        expectedSoldOut: line.soldOut,
+      });
+      // A refusal here is usually "someone already 86'd it", which is a success from the cook's point
+      // of view — but say what the server said rather than inventing a cheerful verdict.
+      if (!res.ok) onError(res.error);
+      else await onRefresh();
+    } catch {
+      onError(`Couldn’t take ${line.name} off the menu — try again.`);
+    } finally {
+      setEightySixing(false);
+    }
+  };
 
   const tap = () => {
     onError(null); // clear any prior board-level error as we retry
@@ -851,6 +880,31 @@ function KdsLineRow({
           )}
         </span>
       </button>
+      {/* W23a — 86 the DISH from the ticket that just told the cook it is out. This is the whole
+          point of putting it here rather than only on /staff/menu: the person who discovers the pan
+          is empty is holding this screen, and the alternative is walking to another console mid-rush
+          (which means it does not happen, and the orders keep coming).
+
+          A SIBLING of the bump button, never nested — a button inside a button is invalid, and the
+          bump must stay the full-width primary target. Grocery barcodes carry no menuItemId, and
+          there is nothing to 86 about a packaged item on a shelf. */}
+      {line.menuItemId &&
+        (line.soldOut ? (
+          // Already off. A STATEMENT, not a disabled button: there is no action left here, and the
+          // put-back lives on /staff/menu where the manager can see the whole menu at once. Saying so
+          // stops a second cook walking over to 86 a dish that is already 86'd.
+          <p className="kds-line-86-done">Off the menu</p>
+        ) : (
+          <button
+            type="button"
+            className="kds-line-86"
+            disabled={eightySixing}
+            onClick={() => void flip(line.menuItemId!)}
+            aria-label={`Mark ${line.name} sold out — it comes off the menu until someone puts it back`}
+          >
+            {eightySixing ? "…" : "86 this dish"}
+          </button>
+        ))}
       {line.notes && <p className="kds-note">{line.notes}</p>}
     </li>
   );

@@ -81,11 +81,13 @@ export default async function StaffHome() {
             Orders & refunds →
           </Link>
         )}
-        {isManager && (
-          <Link href="/staff/menu" style={ownerLink}>
-            Menu prices →
-          </Link>
-        )}
+        {/* W23a (Codex P2) — everyone sees this: the page renders the 86 control for every staff
+            member and the price editor only for managers, so the link is safe to show to all. A
+            server who runs out at the counter needs a menu-wide surface, not just whatever dish
+            happens to be on a KDS ticket. */}
+        <Link href="/staff/menu" style={ownerLink}>
+          {isManager ? "Menu prices →" : "Menu availability →"}
+        </Link>
         {/* W17c-4 — everyone sees this: a server sees their own line, a manager the whole team's.
             The role rule lives in getDayTips, so the link is safe to show to all staff. */}
         <Link href="/staff/tips" style={ownerLink}>

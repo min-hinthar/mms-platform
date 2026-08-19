@@ -345,7 +345,7 @@ export const setTogoStatusInput = z.object({
  *  (verifyStaffPin on the manager's own identity); `reason` is an audit code. */
 export const refundLineInput = z.object({
   orderItemId: uuid,
-  reason: z.enum(["unhappy", "wrong_item", "too_slow", "duplicate", "other"]),
+  reason: z.enum(["unhappy", "wrong_item", "too_slow", "duplicate", "sold_out", "other"]),
   pin: z.string().regex(/^\d{4,8}$/),
 });
 
@@ -450,6 +450,16 @@ export const setMenuPriceInput = z.object({
   expectedPriceCents: z.number().int().min(25).max(500000),
 });
 
+/** setItemSoldOut (W23a) — the 86 toggle. NOT a money amount, but it is a revenue decision: while the
+ *  flag is true nobody can order the dish. `expectedSoldOut` is the state the staff member's SCREEN
+ *  showed when they tapped, so the server can refuse a flip made against a stale render (the same
+ *  human render-to-confirm window `expectedPriceCents` guards, which on a busy console is minutes). */
+export const setItemSoldOutInput = z.object({
+  menuItemId: uuid,
+  soldOut: z.boolean(),
+  expectedSoldOut: z.boolean(),
+});
+
 /** setCartCustomerName (W6a) — the register's call-out identity for a cash order. Staff-gated; the
  *  server writes qr_carts.customer_name (bounded by the column CHECK) only while the cart is open.
  *  Empty clears — same semantics as the diner's create-intent name write. */
@@ -533,6 +543,7 @@ export const voidLineInput = z.object({
     "quality", // guest unhappy with the item
     "guest_request", // guest changed their mind
     "service_recovery", // comp to make good on a problem
+    "sold_out", // 86'd mid-service — the kitchen cannot produce it (W23a)
     "other",
   ]),
   // Present only for the manager-PIN step-up: the manager the initiating server tapped + their PIN.
@@ -561,6 +572,7 @@ export const requestApprovalInput = z.object({
     "quality",
     "guest_request",
     "service_recovery",
+    "sold_out",
     "other",
   ]),
 });
@@ -622,6 +634,7 @@ export type RecallTicketInput = z.infer<typeof recallTicketInput>;
 export type FireTicketNowInput = z.infer<typeof fireTicketNowInput>;
 export type SetLineNotesInput = z.infer<typeof setLineNotesInput>;
 export type SetMenuPriceInput = z.infer<typeof setMenuPriceInput>;
+export type SetItemSoldOutInput = z.infer<typeof setItemSoldOutInput>;
 export type SetKioskTipInput = z.infer<typeof setKioskTipInput>;
 export type StaffAddItemInput = z.infer<typeof staffAddItemInput>;
 export type SettleCashInput = z.infer<typeof settleCashInput>;
