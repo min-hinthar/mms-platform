@@ -44,7 +44,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 154 `verify:slice` mutants green · `pnpm check:docs` clean (94 files, 697 qr tests +
+> **Gate today:** 156 `verify:slice` mutants green · `pnpm check:docs` clean (94 files, 698 qr tests +
 > 41 ui tests) · CI green · then the two reviewers.
 >
 > **W23c (manual + partial capture for pickup — registry M69) — merged, migration prod-applied,
@@ -598,7 +598,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (154 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (156 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

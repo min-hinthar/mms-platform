@@ -81,6 +81,22 @@ begin
   -- whose lock is gone has no claim on this cart, whoever holds it now.
   if v_locked_by is distinct from p_payer then return -2; end if;
 
+  -- RECLAIM rather than refuse (Codex round 2 P1). `locked_by` alone does not prove the lock is
+  -- LIVE: lib/lock.ts treats one older than five minutes as stealable, so a diner who took longer
+  -- than that between minting the intent and confirming their card arrives here still named on a
+  -- lock the rest of the app already considers free.
+  --
+  -- Refusing there would cancel a perfectly good payment for being slow, which is the wrong trade —
+  -- and it would not buy much, because the money is already guarded downstream: the totals are
+  -- re-derived after the voids, so an edited basket captures LESS, and one that somehow grew is
+  -- refused by `planCapture`. What the staleness really costs is ambiguity about who may act.
+  --
+  -- So take the lock back instead. Nobody else holds it (locked_by still names this payer), we are
+  -- inside `for update` on the row, and after this line the lock is provably ours AND fresh — any
+  -- concurrent editor would have had to acquire it, which changes locked_by, which the check above
+  -- already catches.
+  update public.qr_carts set locked = true, locked_at = now() where id = p_cart;
+
   if p_menu_ids is null or array_length(p_menu_ids, 1) is null then return 0; end if;
 
   for r in

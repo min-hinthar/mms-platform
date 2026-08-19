@@ -452,6 +452,23 @@ const MUTANTS = [
     replace: "    p_menu_ids: [],",
   },
   {
+    id: "manual-capture-run/failed-cancel-acknowledged",
+    file: "apps/qr/lib/manual-capture-run.ts",
+    suite: "lib/manual-capture-run.test.ts",
+    why: "W23c (Codex round 2) — a swallowed cancel ends the event forever with the hold still standing, tying up the guest's available funds for days on a card they may need, for an order they are not getting. Cancellation is idempotent and no money has moved, so retrying is free; acknowledging is the only irreversible choice available here.",
+    find: '    if (!(await cancelHold(intentId, plan.reason))) return { kind: "retry", note: "cancel failed" };',
+    replace: "    await cancelHold(intentId, plan.reason);",
+  },
+  {
+    id: "manual-capture-run/lock-released-on-lost-lock",
+    file: "apps/qr/lib/manual-capture-run.ts",
+    suite: "lib/manual-capture-run.test.ts",
+    why: "W23c (Codex round 2) — the lock-lost branch must NOT release: that lock belongs to another payer's live settlement now, and clearing it would unfreeze a cart mid-payment for somebody else. Releasing on outcomes we own is right; releasing on this one hands another diner's basket to whoever asks next.",
+    find: '    return { kind: "canceled", reason: "lock lost to another payer" };',
+    replace:
+      '    await releaseOurLock(cartId, payerUid);\n    return { kind: "canceled", reason: "lock lost to another payer" };',
+  },
+  {
     id: "manual-capture-run/redelivery-recaptures",
     file: "apps/qr/lib/manual-capture-run.ts",
     suite: "lib/manual-capture-run.test.ts",

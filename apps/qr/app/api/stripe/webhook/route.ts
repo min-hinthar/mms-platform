@@ -497,7 +497,11 @@ export async function POST(req: NextRequest) {
           properties: {
             cart_id: cartId,
             payment_intent_id: intent.id,
-            amount_cents: intent.amount,
+            // W23c (Codex round 2) — what was COLLECTED, not what was held. On a partial capture
+            // `intent.amount` is still the original authorization, so reporting it would overstate
+            // pickup revenue on exactly the orders where the kitchen ran out — and disagree with the
+            // order the same handler just wrote.
+            amount_cents: intent.amount_received ?? intent.amount,
             currency: intent.currency,
           },
         });

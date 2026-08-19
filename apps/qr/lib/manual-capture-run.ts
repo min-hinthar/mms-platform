@@ -4,6 +4,7 @@ import { getStripe } from "./stripe";
 import { getCartTotals } from "./totals";
 import { unavailableLines } from "./availability-read";
 import { planCapture } from "./manual-capture";
+import { releaseCartLock } from "./lock";
 
 /**
  * W23c — the beat between a pickup order's authorization and its capture.
@@ -86,12 +87,16 @@ export async function settleAuthorizedPickup(
   }
   if (voided === -1) {
     // The cart is no longer open: settled or cleared out of band while this hold stood.
-    await cancelQuietly(intentId, "cart no longer open");
+    if (!(await cancelHold(intentId, "cart no longer open")))
+      return { kind: "retry", note: "cancel failed" };
+    await releaseOurLock(cartId, payerUid);
     return { kind: "canceled", reason: "cart no longer open" };
   }
   if (voided === -2) {
-    // Another payer owns this cart's settlement now — this authorization has no claim on it.
-    await cancelQuietly(intentId, "lock lost to another payer");
+    // Another payer owns this cart's settlement now — this authorization has no claim on it, and
+    // deliberately no claim on its lock either.
+    if (!(await cancelHold(intentId, "lock lost to another payer")))
+      return { kind: "retry", note: "cancel failed" };
     return { kind: "canceled", reason: "lock lost to another payer" };
   }
   if (gone.length > 0 && (voided ?? 0) === 0) {
@@ -115,7 +120,8 @@ export async function settleAuthorizedPickup(
 
   const plan = planCapture(authorizedCents, totals.totalCents);
   if (plan.action === "cancel") {
-    await cancelQuietly(intentId, plan.reason);
+    if (!(await cancelHold(intentId, plan.reason))) return { kind: "retry", note: "cancel failed" };
+    await releaseOurLock(cartId, payerUid);
     return { kind: "canceled", reason: plan.reason };
   }
 
@@ -144,20 +150,39 @@ export async function settleAuthorizedPickup(
 }
 
 /**
- * Cancel the hold, and never let the cancel's own failure mask the decision that produced it.
+ * Cancel the hold, and say whether it actually went.
  *
- * An uncancelled authorization is not a charge — it expires on its own within a week — so a failed
- * cancel is a tidiness problem, not a money one, and it must not turn into a 5xx that makes Stripe
- * redeliver an event whose work is already done.
+ * The first version swallowed the failure on the grounds that an uncancelled authorization is "not a
+ * charge, just untidy". That was wrong (Codex round 2): a hold ties up the guest's available funds
+ * for days, on a card they may need, for an order they are not getting. It is not tidiness — it is
+ * the most user-visible thing this path can leave behind.
+ *
+ * Cancellation is idempotent and no money has moved, so a transient failure is safe to retry: the
+ * caller turns a `false` into a 5xx and Stripe redelivers. What must NOT happen is a 200 that ends
+ * the event forever with the hold still standing.
  */
-async function cancelQuietly(intentId: string, reason: string): Promise<void> {
+async function cancelHold(intentId: string, reason: string): Promise<boolean> {
   try {
     await getStripe().paymentIntents.cancel(intentId);
+    return true;
   } catch (e) {
-    console.error("[manual-capture] cancel failed (hold will expire on its own)", {
-      intentId,
-      reason,
-      error: e,
-    });
+    console.error("[manual-capture] cancel failed", { intentId, reason, error: e });
+    return false;
   }
+}
+
+/**
+ * Release the pay lock this authorization was holding, scoped to its own payer.
+ *
+ * Only on the outcomes we OWN — nothing left to sell, or a total that outgrew its hold. The
+ * lock-lost branch deliberately does not come here: that lock belongs to somebody else now, and
+ * `releaseCartLock` is uid-scoped precisely so one settlement cannot clear another's.
+ *
+ * Without this the cart stays frozen for the rest of the five-minute TTL after a settlement that has
+ * definitively ended — and `payment_intent.canceled` only handles split and Terminal intents, so no
+ * later event would have released it.
+ */
+async function releaseOurLock(cartId: string, payerUid: string): Promise<void> {
+  const err = await releaseCartLock(cartId, payerUid);
+  if (err) console.error("[manual-capture] lock release failed", { cartId, message: err.message });
 }

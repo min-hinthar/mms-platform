@@ -61,7 +61,7 @@ already settles after the meal and has no window to close; scan-and-go is goods 
 holding. The 2-day pickup horizon sits inside a card authorization's ~7-day life — verified against
 prod's `pickup_config`, and recorded as the assumption that breaks first if that is ever widened.
 
-Nine new mutants (**154** total) and two new suites: `manual-capture.test.ts` pins the amount
+Eleven new mutants (**156** total) and two new suites: `manual-capture.test.ts` pins the amount
 decision (5200 / 3800 / 1400 — no two figures confusable), and `manual-capture-run.test.ts` pins the
 **order**, because three of its four risky states are ones where capturing would be wrong and the
 correct move is to leave the hold untouched. Migration `20260819200000`.

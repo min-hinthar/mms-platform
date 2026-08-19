@@ -271,6 +271,23 @@ export async function POST(req: NextRequest) {
     const manualCapture =
       process.env.PICKUP_MANUAL_CAPTURE === "1" && manualCaptureMode(sess.mode ?? "");
 
+    // W23c (Codex round 2) — the ATTEMPT discriminator for the idempotency key below. A manual
+    // intent can end CANCELLED (nothing left to sell, or a total that outgrew its hold), and Stripe
+    // replays a cached response for a reused key — so a diner who rebuilt the same basket to the
+    // same amount would get the dead intent's client secret back and be unable to pay until the key
+    // aged out. `locked_at` is refreshed on every lock acquisition, so it changes per checkout
+    // ATTEMPT while staying identical across duplicate requests inside one attempt, which is exactly
+    // the distinction the key needs to draw. Read after the lock so it reflects OUR acquisition.
+    let attemptStamp = "";
+    if (manualCapture) {
+      const { data: lockRow } = await db
+        .from("qr_carts")
+        .select("locked_at")
+        .eq("id", cartId)
+        .maybeSingle();
+      attemptStamp = lockRow?.locked_at ?? "";
+    }
+
     // tipRate rides in metadata so the webhook can recompute the identical breakdown to reconcile.
     const intent = await getStripe().paymentIntents.create(
       {
@@ -299,7 +316,9 @@ export async function POST(req: NextRequest) {
       // intent minted under the other capture method. Stripe replays the first request's response
       // for a reused key, so without this a diner retrying across a flag flip would get an
       // automatic-capture intent back and be charged on the spot.
-      { idempotencyKey: `pi_${cartId}_${amount}_t${tipRate}_${uid}${manualCapture ? "_m" : ""}` },
+      {
+        idempotencyKey: `pi_${cartId}_${amount}_t${tipRate}_${uid}${manualCapture ? `_m${attemptStamp}` : ""}`,
+      },
     );
 
     const posthog = getPostHogClient();

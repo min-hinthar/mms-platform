@@ -7,8 +7,16 @@
  * for a dish the kitchen could not make. A gate cannot close it — by the time anyone knows, the
  * money has moved, and the only remedy left is the refund this whole track exists to avoid.
  *
- * Manual capture removes the window instead of narrowing it. A pickup order is AUTHORIZED at the
- * tap and captured a beat later, and in between the app gets one more look at the live catalog:
+ * Manual capture NARROWS that window from minutes to milliseconds. It does not close it, and saying
+ * otherwise would be the kind of claim this repo keeps paying for: `setItemSoldOut` does not take the
+ * cart's lock, so an 86 landing between the catalog read below and the capture a few network calls
+ * later is still missed (Codex round 2 P1, filed as M72). Closing it completely needs a reservation
+ * the 86 write participates in — an inventory model W23a deliberately declined, on the grounds that
+ * somebody then has to count portions every service. The honest summary: the exposure goes from "the
+ * minute a diner spends typing a card number" to "the moment between two API calls".
+ *
+ * A pickup order is AUTHORIZED at the tap and captured a beat later, and in between the app gets one
+ * more look at the live catalog:
  *
  *   • everything still available → capture the full authorization; identical to today.
  *   • something ran out        → void those lines, capture the REDUCED total. The guest is charged

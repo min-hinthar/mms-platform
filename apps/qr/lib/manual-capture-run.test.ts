@@ -12,6 +12,7 @@ import { describe, expect, it, beforeEach, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 
 let intentStatus = "requires_capture";
+let cancelThrows = false;
 const captures: { id: string; amount: number }[] = [];
 const cancels: string[] = [];
 vi.mock("./stripe", () => ({
@@ -23,6 +24,7 @@ vi.mock("./stripe", () => ({
         return Promise.resolve({});
       },
       cancel: (id: string) => {
+        if (cancelThrows) return Promise.reject(new Error("stripe down"));
         cancels.push(id);
         return Promise.resolve({});
       },
@@ -47,6 +49,14 @@ vi.mock("./totals", () => ({
 }));
 
 const PAYER = "payer-uid-1";
+const lockReleases: string[] = [];
+vi.mock("./lock", () => ({
+  releaseCartLock: (cartId: string) => {
+    lockReleases.push(cartId);
+    return Promise.resolve(null);
+  },
+}));
+
 let voidResult: number | null = 0;
 let voidError: { message: string } | null = null;
 const voidCalls: unknown[] = [];
@@ -72,6 +82,8 @@ beforeEach(() => {
   voidResult = 0;
   voidError = null;
   readOk = true;
+  lockReleases.length = 0;
+  cancelThrows = false;
 });
 
 describe("settleAuthorizedPickup", () => {
@@ -153,6 +165,10 @@ describe("settleAuthorizedPickup", () => {
     expect(r).toEqual({ kind: "canceled", reason: "cart no longer open" });
     expect(cancels).toEqual(["pi_5"]);
     expect(captures).toEqual([]);
+    // The settlement is definitively over, so OUR lock comes off rather than freezing the cart for
+    // the rest of its TTL — `payment_intent.canceled` handles only split and Terminal intents, so
+    // no later event would have released it.
+    expect(lockReleases).toEqual(["cart_5"]);
   });
 
   it("cancels rather than capturing when nothing survives", async () => {
@@ -163,6 +179,20 @@ describe("settleAuthorizedPickup", () => {
     expect(r).toEqual({ kind: "canceled", reason: "nothing_left" });
     expect(cancels).toEqual(["pi_6"]);
     expect(captures).toEqual([]);
+    expect(lockReleases).toEqual(["cart_6"]);
+  });
+
+  it("RETRIES a failed cancellation instead of acknowledging it", async () => {
+    // A hold ties up the guest's available funds for days, on a card they may need, for an order
+    // they are not getting — it is the most user-visible thing this path can leave behind, not
+    // tidiness. Cancellation is idempotent and no money has moved, so a 5xx is safe.
+    cancelThrows = true;
+    liveTotal = 0;
+    const r = await settleAuthorizedPickup("pi_13", "cart_13", 5200, 0.2, PAYER);
+    expect(r.kind).toBe("retry");
+    expect(captures).toEqual([]);
+    // The lock is NOT released either — the settlement has not actually ended yet.
+    expect(lockReleases).toEqual([]);
   });
 
   it("does nothing to an intent that is no longer capturable", async () => {
@@ -192,6 +222,9 @@ describe("settleAuthorizedPickup", () => {
     expect(r).toEqual({ kind: "canceled", reason: "lock lost to another payer" });
     expect(captures).toEqual([]);
     expect(cancels).toEqual(["pi_10"]);
+    // Deliberately NOT released: that lock belongs to somebody else now, and one settlement must
+    // never clear another's.
+    expect(lockReleases).toEqual([]);
   });
 
   it("refuses to capture when lines had to go and none did", async () => {
