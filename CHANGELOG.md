@@ -4,6 +4,55 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W23b — a partial refund the guest can actually see (2026-08-19)
+
+Registry **M2**. Line-level refunds (S4.3b) leave `qr_orders.status = 'paid'`, and W1c only ever
+shipped the FULL-refund arm — so a partially-refunded order had no diner-readable trace anywhere.
+W22r made that worse rather than better: the /track slip became a full itemized receipt, so a
+part-returned order printed every line at full price under **"Paid in full · Card"**. The app took
+money back and then told the guest, in writing, on four surfaces, that they had paid in full.
+
+The ledger that knows the truth (`mms_refunds`) is manager-read by design — it carries reason codes
+and staff ids. Widening its RLS to reach a diner would expose the whole audit trail to surface two
+numbers, so the two numbers land instead on the rows the diner can already read.
+
+- **Two columns, answering different questions** — not one value stored twice.
+  `qr_orders.refunded_cents` is **how much** came back: Stripe is the authority and
+  `charge.amount_refunded` is its cumulative answer, so the reconcile writes it with `greatest()`
+  (Stripe redelivers within 72h and an out-of-order replay carries a *smaller* amount). That also
+  covers a refund issued from the Stripe **dashboard**, which writes no ledger row at all and was
+  previously invisible end to end. `qr_order_items.refunded_cents` is **which line** — Stripe has no
+  idea, so `mms_record_refund` writes it inside the same transaction as the ledger row, after the
+  `on conflict do nothing` guard so a redelivered backstop cannot double-count.
+- **The shape of the bug was in a signature.** `receiptStatusLabel` took a **boolean**, and a partial
+  refund is a third state. `lib/refund-view.ts` now owns the decision, computed once per read
+  (`track-order` · `receipt-entry` · `rewards`) and rendered by all four surfaces: the /track slip,
+  the durable `?r=` receipt, the emailed copy, and the /account history card.
+- **The Total row still prints the fulfillment-time snapshot verbatim.** A refund is a *later* fact,
+  so it gets its own rows beneath — "Refunded" then **"You paid"**, the only derived number in the
+  slice and derived once.
+- **Lines state an amount, never a strike-through.** `mms_refund_authorize` clamps a refund to the
+  order's remaining pool, so a struck line would claim the whole dish came back when only part did.
+- **`status='refunded'` with `refunded_cents = 0`** — every pre-W23b refund, and every dashboard one
+  — reports the **whole total** as returned. "$0.00 came back" is a lie in the guest's favour and no
+  less a lie for it.
+- **No `refunded_cents <= total_cents` CHECK.** The invariant is true, but a refused write means
+  money left the account with no record — the exact condition the ledger exists to prevent — and the
+  display side is already safe (the net floors at zero).
+- The email's **preview line** says "$14.00 refunded" for a refunded order: for many people that
+  line is the whole receipt.
+
+`check-money-coverage` gained `refunded_cents` and `summarizeRefund` as markers — without them
+`refund-view.ts` was a money-**decision** module the guard could not see (pure, touching none of the
+existing DB nouns), so the rule deciding whether a receipt says "Paid in full" would have been
+revertible with every gate green. **Watched it fail before trusting it:** unclaiming the file made
+the guard name it, and restoring made it green again.
+
+Six new mutants (**144** total). `lib/refund-view.test.ts` separates the three states on the one
+field that distinguishes them, with amounts chosen so no two rows are confusable (5200 / 1400 /
+3800). Migration `20260819100000`; the ledger back-fill is a genuine no-op today — verified against
+prod first (0 ledger rows, 0 refunded orders).
+
 ### W23a — the 86 button, and the availability gate on the money path (2026-08-19)
 
 Owner, design-thinking the flow: _"shouldn't the checkout be allowed only after kitchen accepts the
