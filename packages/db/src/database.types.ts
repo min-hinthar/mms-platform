@@ -2022,8 +2022,8 @@ export type Database = {
         }
         Returns: string
       }
-      mms_void_unavailable_lines: {
-        Args: { p_cart: string; p_initiator?: string; p_menu_ids: string[] }
+      mms_settle_precheck_and_void: {
+        Args: { p_cart: string; p_menu_ids: string[]; p_payer: string }
         Returns: number
       }
       staff_session_email_match: { Args: { p_email: string }; Returns: boolean }

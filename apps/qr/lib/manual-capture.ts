@@ -54,12 +54,23 @@ export type CapturePlan =
  * tip has already been recomputed at the diner's chosen rate against the reduced base — this
  * function never does money arithmetic of its own, it only decides.
  *
- * The `over_authorized` arm should be unreachable: voiding lines can only shrink a basket. It
- * refuses anyway rather than clamping to the authorization, because a live total ABOVE the hold
- * means the basket changed in some way this path does not model, and capturing "as much as we're
- * allowed" would charge a number nobody derived. Stripe would reject an over-capture regardless;
- * the point of naming it here is that the failure becomes a decision with a reason rather than an
- * API error with a stack trace.
+ * ⚠️ The `over_authorized` arm is REACHABLE, and not for the reason it looks like (Codex #203 P2).
+ * "Voiding can only shrink a basket" is false: `mms_promo_discount` drops a promotion once the
+ * subtotal falls under its `min_subtotal_cents`, so removing a line can RAISE the total. Worked
+ * example — a $30 basket with a $10-off promo requiring $25 authorizes $20; void a $6 sold-out line
+ * and the $24 subtotal no longer clears the threshold, so the promo lapses and the live total is
+ * $24 on a hold of $20.
+ *
+ * Cancelling is what this returns, and it is the SAFE answer rather than the good one. The guest is
+ * never charged a number they did not agree to: capturing $24 is impossible, and capturing the $20
+ * hold would bill the full agreed price for a smaller order. The service cost is real — one $6
+ * shortage cancels the whole order and the guest must re-order — and it is bounded to baskets whose
+ * promo sits within the shortage's value of its threshold.
+ *
+ * The good answer is to HONOUR the already-authorized promotion through settlement, which means
+ * teaching the discount authority that a granted promo survives a shortage. That is a change to the
+ * one place discounts are derived, on the money path, and it is filed as its own slice rather than
+ * improvised here (`docs/OPEN-ITEMS.md` M70). Until then this refuses loudly instead of guessing.
  */
 export function planCapture(authorizedCents: number, liveTotalCents: number): CapturePlan {
   if (liveTotalCents <= 0) return { action: "cancel", reason: "nothing_left" };
@@ -71,20 +82,17 @@ export function planCapture(authorizedCents: number, liveTotalCents: number): Ca
   };
 }
 
-/**
- * What the diner is told when the kitchen ran out between their tap and the charge.
+/*
+ * ⚠️ NOT HERE: what the diner is TOLD when a line was dropped.
  *
- * Names the dish, states that they were not charged for it, and promises nothing about timing —
- * there is no refund to wait for, which is the whole point and the one thing worth saying plainly.
- * A guest who reads "refunded" starts watching their statement for money that was never taken.
+ * A first draft of this module exported a `droppedLineNotice` string builder that nothing called.
+ * That is the W23a defect exactly — a function whose existence implies a shipped behaviour, sitting
+ * next to code that does not ship it — so it is gone rather than dressed up as coverage.
+ *
+ * The gap it papered over is real and filed as W23d (`docs/OPEN-ITEMS.md` M71). The receipt is not
+ * dishonest today: it lists what the guest got and the amount they were actually charged, both
+ * correct. It is SILENT about the change, and in the all-dropped case there is no order at all, so
+ * the tracker polls to its timeout with no explanation. Closing that needs `qr_dropped_lines` to
+ * reach a diner-readable surface — a join by `cart_id` for the receipt, and an RLS decision for the
+ * live tracker — which is a slice, not a line.
  */
-export function droppedLineNotice(names: readonly string[]): string | null {
-  if (names.length === 0) return null;
-  const list =
-    names.length === 1
-      ? names[0]
-      : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-  return names.length === 1
-    ? `${list} ran out just as you ordered — it’s off your order and you weren’t charged for it.`
-    : `${list} ran out just as you ordered — they’re off your order and you weren’t charged for them.`;
-}

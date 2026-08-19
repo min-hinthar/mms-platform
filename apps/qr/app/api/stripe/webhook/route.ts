@@ -543,7 +543,16 @@ export async function POST(req: NextRequest) {
       } else {
         let outcome;
         try {
-          outcome = await settleAuthorizedPickup(intent.id, cartId, intent.amount, tipRate);
+          outcome = await settleAuthorizedPickup(
+            intent.id,
+            cartId,
+            intent.amount,
+            tipRate,
+            // The payer who acquired the pay lock at mint time. The precheck refuses if the cart's
+            // `locked_by` has moved on — a stale lock taken over by another payer must not let this
+            // authorization void lines under their live settlement.
+            intent.metadata?.earnerUid ?? "",
+          );
         } catch (e) {
           console.error("[stripe webhook] manual capture threw", {
             paymentIntent: intent.id,

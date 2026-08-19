@@ -93,8 +93,20 @@ Preview; they belong only in Vercel **Production** scope + the Stripe **live** d
 3. **Create the LIVE webhook endpoint** — Stripe → Developers → **Webhooks** (toggle **live mode**) →
    Add endpoint:
    - URL `https://<prod-domain>/api/stripe/webhook`
-   - Events: **`payment_intent.succeeded`** _and_ **`payment_intent.payment_failed`** — the only two
-     the handler acts on (succeeded fulfills the order; failed is analytics-only).
+   - Events — **all six below**. This list was wrong until W23c (it named only the first and third,
+     as "the only two the handler acts on"), and every event missing from an endpoint is a feature
+     that fails SILENTLY there: no error, no retry, just a thing that never happens. If split-tender,
+     the saved-card flow or the refund reconcile has ever looked inert in an environment, check this
+     list against that endpoint first.
+
+     | Event | What stops working without it |
+     | --- | --- |
+     | `payment_intent.succeeded` | **everything** — this is what fulfills an order |
+     | `payment_intent.amount_capturable_updated` | split-tender shares never capture; W23c pickup holds never capture and expire uncharged |
+     | `payment_intent.payment_failed` | a declined share stays "pending" to the host; a reader decline strands the register |
+     | `payment_intent.canceled` | an abandoned settlement's freeze is not released |
+     | `setup_intent.succeeded` | a saved card is never attached |
+     | `charge.refunded` | a full refund never flips `status`, and W23b's `refunded_cents` never updates — the diner's receipt keeps saying "Paid in full" |
 4. Copy that endpoint's **Signing secret** (`whsec_…`) → Vercel Production `STRIPE_WEBHOOK_SECRET`.
 5. **Redeploy Production** (env changes don't apply to an existing build).
 6. **Smoke-test live**: a real card for a small amount, then refund — confirm a `qr_orders` row

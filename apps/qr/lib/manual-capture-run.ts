@@ -43,6 +43,7 @@ export async function settleAuthorizedPickup(
   cartId: string,
   authorizedCents: number,
   tipRate: number,
+  payerUid: string,
 ): Promise<CaptureOutcome> {
   const stripe = getStripe();
   const db = serviceClient();
@@ -57,26 +58,48 @@ export async function settleAuthorizedPickup(
 
   // The last look at the catalog. This is the window W23a's gate could not reach: it ran before the
   // mint, and the diner spent the next minute typing a card number.
-  const gone = await unavailableLines(cartId);
+  //
+  // An unreadable catalog is NOT "everything is available" (Codex #203 P1). The gate upstream fails
+  // open on purpose — blocking every diner on a blip is worse than a rare refund — but here that
+  // same silence would capture the full hold for a basket that may contain a dish nobody can make.
+  // Retrying costs nothing: the authorization stands untouched until Stripe redelivers.
+  const read = await unavailableLines(cartId);
+  if (!read.ok) return { kind: "retry", note: "catalog unreadable" };
+  const gone = read.lines;
 
-  if (gone.length > 0) {
-    const { data: voided, error: voidErr } = await db.rpc("mms_void_unavailable_lines", {
-      p_cart: cartId,
-      p_menu_ids: gone.map((g) => g.id),
+  // Called UNCONDITIONALLY, empty list included. It is the precheck as much as the void: it proves
+  // the cart is still open and that this payer still holds its lock. Running it only when there is
+  // something to drop would leave the ordinary all-available capture with no check at all — and a
+  // hold can outlive its basket, whether or not a dish ran out.
+  const { data: voided, error: voidErr } = await db.rpc("mms_settle_precheck_and_void", {
+    p_cart: cartId,
+    p_menu_ids: gone.map((g) => g.id),
+    p_payer: payerUid,
+  });
+  if (voidErr) {
+    console.error("[manual-capture] precheck/void failed", {
+      intentId,
+      cartId,
+      error: voidErr.message,
     });
-    if (voidErr) {
-      // Do NOT capture on an unreadable void. Capturing here would charge the full authorization for
-      // a basket we have just been told the kitchen cannot fill — the precise charge this path
-      // exists to prevent — so leave the hold intact and let Stripe redeliver.
-      console.error("[manual-capture] void failed", { intentId, cartId, error: voidErr.message });
-      return { kind: "retry", note: "void failed" };
-    }
-    if (voided === -1) {
-      // The cart is no longer open: it was settled or cleared out-of-band while this hold stood.
-      // There is nothing left to charge for.
-      await cancelQuietly(intentId, "cart no longer open");
-      return { kind: "canceled", reason: "cart no longer open" };
-    }
+    return { kind: "retry", note: "precheck failed" };
+  }
+  if (voided === -1) {
+    // The cart is no longer open: settled or cleared out of band while this hold stood.
+    await cancelQuietly(intentId, "cart no longer open");
+    return { kind: "canceled", reason: "cart no longer open" };
+  }
+  if (voided === -2) {
+    // Another payer owns this cart's settlement now — this authorization has no claim on it.
+    await cancelQuietly(intentId, "lock lost to another payer");
+    return { kind: "canceled", reason: "lock lost to another payer" };
+  }
+  if (gone.length > 0 && (voided ?? 0) === 0) {
+    // We were told lines had to go and none did. Rather than reason about WHY (a predicate drifting
+    // between the gate and the RPC is exactly how the comped-line hole appeared), refuse to capture:
+    // the basket still contains something the kitchen cannot make.
+    console.error("[manual-capture] nothing voided despite unavailable lines", { intentId, cartId });
+    return { kind: "retry", note: "void matched no lines" };
   }
 
   // Re-derived AFTER the voids, so the tip has already been recomputed at the diner's chosen rate

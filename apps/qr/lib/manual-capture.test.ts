@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { droppedLineNotice, manualCaptureMode, planCapture } from "./manual-capture";
+import { manualCaptureMode, planCapture } from "./manual-capture";
 
 /**
  * W23c — the authorization window (registry M69).
@@ -59,26 +59,5 @@ describe("planCapture", () => {
     const plan = planCapture(5200, 5200);
     expect(plan.action).toBe("capture");
     expect(plan.action === "capture" ? plan.partial : null).toBe(false);
-  });
-});
-
-describe("droppedLineNotice", () => {
-  it("says nothing when nothing was dropped", () => {
-    expect(droppedLineNotice([])).toBeNull();
-  });
-
-  it("names the dish and says the guest was NOT charged — never 'refunded'", () => {
-    // A guest told "refunded" starts watching their statement for money that was never taken.
-    const one = droppedLineNotice(["Mohinga"])!;
-    expect(one).toContain("Mohinga");
-    expect(one).toContain("weren’t charged");
-    expect(one).not.toContain("refund");
-  });
-
-  it("lists several dishes readably, and agrees with itself grammatically", () => {
-    expect(droppedLineNotice(["Mohinga", "Tea Leaf Salad"])).toBe(
-      "Mohinga and Tea Leaf Salad ran out just as you ordered — they’re off your order and you weren’t charged for them.",
-    );
-    expect(droppedLineNotice(["A", "B", "C"])).toContain("A, B and C");
   });
 });
