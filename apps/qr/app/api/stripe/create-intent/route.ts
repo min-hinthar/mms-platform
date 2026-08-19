@@ -7,6 +7,7 @@ import { createIntentInput } from "@mms/db/schemas";
 import { getStripe } from "@/lib/stripe";
 import { getCartTotals } from "@/lib/totals";
 import { unavailableLineNames } from "@/lib/availability-read";
+import { manualCaptureMode } from "@/lib/manual-capture";
 import { tipWithinAmountCap } from "@/lib/tip";
 import { pickupContactMissing } from "@/lib/pickup-contact";
 import { assertCartMember, AuthzError } from "@/lib/authz";
@@ -258,22 +259,66 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Tip exceeds the $1,000.00 maximum" }, { status: 400 });
     }
 
+    // W23c — MANUAL capture for pickup (registry M69), behind an env flag so it can be turned off in
+    // Vercel without a deploy revert. Absent or not "1" is today's behaviour byte-for-byte.
+    //
+    // The availability gate above runs before this mint, but the diner then spends a minute entering
+    // a card, and an 86 landing in THAT window still produced a real charge for food nobody could
+    // make. Authorizing instead of charging gives the app one more look at the catalog before any
+    // money moves: `lib/manual-capture-run.ts` captures the reduced total, or cancels the hold
+    // outright — and a cancelled hold leaves NO refund on the guest's statement, which is the whole
+    // point. Pickup only; see `manualCaptureMode` for why dine-in and scan-and-go are excluded.
+    const manualCapture =
+      process.env.PICKUP_MANUAL_CAPTURE === "1" && manualCaptureMode(sess.mode ?? "");
+
+    // W23c (Codex round 2) — the ATTEMPT discriminator for the idempotency key below. A manual
+    // intent can end CANCELLED (nothing left to sell, or a total that outgrew its hold), and Stripe
+    // replays a cached response for a reused key — so a diner who rebuilt the same basket to the
+    // same amount would get the dead intent's client secret back and be unable to pay until the key
+    // aged out. `locked_at` is refreshed on every lock acquisition, so it changes per checkout
+    // ATTEMPT while staying identical across duplicate requests inside one attempt, which is exactly
+    // the distinction the key needs to draw. Read after the lock so it reflects OUR acquisition.
+    let attemptStamp = "";
+    if (manualCapture) {
+      const { data: lockRow } = await db
+        .from("qr_carts")
+        .select("locked_at")
+        .eq("id", cartId)
+        .maybeSingle();
+      attemptStamp = lockRow?.locked_at ?? "";
+    }
+
     // tipRate rides in metadata so the webhook can recompute the identical breakdown to reconcile.
     const intent = await getStripe().paymentIntents.create(
       {
         amount,
         currency: "usd",
         automatic_payment_methods: { enabled: true },
+        ...(manualCapture && { capture_method: "manual" as const }),
         // tipRate rides in metadata so the webhook recomputes the identical breakdown to reconcile.
         // earnerUid (M4) = the authenticated payer; the webhook stamps qr_orders.earned_by + awards Stars.
-        metadata: { cartId, tipRate: String(tipRate), earnerUid: uid },
+        metadata: {
+          cartId,
+          tipRate: String(tipRate),
+          earnerUid: uid,
+          // The discriminant the webhook's amount_capturable_updated arm keys on. Split shares use
+          // the same event with kind='split_share', so this must be present and distinct — without
+          // it an authorized pickup would fall through that arm and its hold would simply expire.
+          ...(manualCapture && { kind: "pickup_manual" as const }),
+        },
       },
       // Include tipRate in the key so two different tip choices that happen to land on the same
       // total (after a cart edit) can't collide onto one intent — Stripe would otherwise return the
       // first PI (with the OLD tipRate in metadata), and the webhook would fulfill the wrong breakdown.
       // uid is in the key (Q9) so a SECOND payer minting the same cart/amount/tip gets their OWN PI —
       // otherwise they'd inherit the first payer's intent and its earnerUid (Stars/feedback attribution).
-      { idempotencyKey: `pi_${cartId}_${amount}_t${tipRate}_${uid}` },
+      // W23c — `m` rides in the key: flipping PICKUP_MANUAL_CAPTURE must not return a PREVIOUS
+      // intent minted under the other capture method. Stripe replays the first request's response
+      // for a reused key, so without this a diner retrying across a flag flip would get an
+      // automatic-capture intent back and be charged on the spot.
+      {
+        idempotencyKey: `pi_${cartId}_${amount}_t${tipRate}_${uid}${manualCapture ? `_m${attemptStamp}` : ""}`,
+      },
     );
 
     const posthog = getPostHogClient();

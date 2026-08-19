@@ -1280,6 +1280,47 @@ export type Database = {
           },
         ]
       }
+      qr_dropped_lines: {
+        Row: {
+          amount_cents: number
+          cart_id: string
+          dropped_at: string
+          id: string
+          line_id: string
+          name: string
+          qty: number
+          reason_code: string
+        }
+        Insert: {
+          amount_cents: number
+          cart_id: string
+          dropped_at?: string
+          id?: string
+          line_id: string
+          name: string
+          qty: number
+          reason_code: string
+        }
+        Update: {
+          amount_cents?: number
+          cart_id?: string
+          dropped_at?: string
+          id?: string
+          line_id?: string
+          name?: string
+          qty?: number
+          reason_code?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "qr_dropped_lines_cart_id_fkey"
+            columns: ["cart_id"]
+            isOneToOne: false
+            referencedRelation: "qr_carts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       qr_favorites: {
         Row: {
           created_at: string
@@ -1975,6 +2016,10 @@ export type Database = {
       mms_set_togo_status: {
         Args: { p_order: string; p_to: string }
         Returns: string
+      }
+      mms_settle_precheck_and_void: {
+        Args: { p_cart: string; p_menu_ids: string[]; p_payer: string }
+        Returns: number
       }
       mms_snapshot_ebt_eligibility: {
         Args: { p_order: string }

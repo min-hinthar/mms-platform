@@ -4,6 +4,68 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W23c — capture what the kitchen made, cancel the rest (2026-08-19)
+
+Registry **M69**, and the last of the three W23 slices. W23a put an availability gate immediately
+before `paymentIntents.create`, which bounded the exposure to the seconds between the mint and the
+charge but could not remove it: the diner then spends a minute typing a card number, and an 86
+landing in **that** window still produced a real charge for food nobody could make. A gate cannot
+close it — by the time anyone knows, the money has moved.
+
+Manual capture removes the window rather than narrowing it. A pickup order is now **authorized** at
+the tap, and between the authorization and the capture the app takes one more look at the live
+catalog:
+
+| What the catalog says | What happens |
+| --- | --- |
+| everything still available | capture the full hold — identical to today |
+| something ran out | void those lines, capture the **reduced** total |
+| nothing survives | **cancel** the hold |
+
+A cancelled authorization is the whole point: it leaves **nothing** on the guest's statement, where a
+capture-then-refund leaves "we took your money and gave it back" plus a week of waiting.
+
+**The design got small once the right seam appeared.** Nothing is fulfilled at authorization —
+capturing makes Stripe fire `payment_intent.succeeded`, and *that* creates the order, through the
+same handler and the same `mms_fulfill_order` as every other payment. So an order is only ever born
+already captured: there is no "authorized" limbo for the receipt, the rewards, the history or the
+refund path to learn about, and `status='paid'` never has to mean anything new. An earlier shape
+fulfilled at authorization and captured later, which needed a fourth order status and a fifth receipt
+state; this one changes two files and adds a function. `mms_fulfill_order` already excludes voided
+lines, so voiding at authorization makes the whole downstream path correct by construction — W23b's
+receipt renders the result without knowing any of this happened.
+
+The parts that are easy to get wrong, and how they are settled:
+
+- **Order of operations: void → re-derive → capture.** Money moves LAST, exactly as on the automatic
+  path, so the failure modes stay ones the app already survives. A total read before the void still
+  contains the dish the kitchen ran out of; re-reading afterwards is also what recomputes the tip at
+  the chosen rate against the reduced base.
+- **An unreadable void does not capture.** The availability read has just said this basket cannot be
+  filled — leaving the hold standing costs nothing and lets Stripe redeliver.
+- **The intent is re-read, not trusted from the event body.** Stripe redelivers for 72h, and a second
+  delivery must not re-void a basket whose money has already moved.
+- **The reconcile compares `amount_received`, not `amount`.** They are equal on the automatic path;
+  on a partial capture they deliberately differ, and comparing against the hold would 409 every
+  partial capture into 72h of retries with the diner charged and no order.
+- **`mms_void_unavailable_lines` is a new function** because `mms_void_line` answers `in_flight`
+  while the cart is locked. That guard is right against a *second* actor mutating a basket mid
+  payment — but this caller is the settlement itself, holding the lock. Widening the guard would have
+  opened that window to every void caller to serve one path that already owns it.
+- **The idempotency key carries the capture method**, or flipping the flag would replay a previous
+  intent minted the other way and charge a retrying diner on the spot.
+
+Behind **`PICKUP_MANUAL_CAPTURE=1`** (`docs/ENV.md`). Unset is the pre-W23c behaviour byte-for-byte,
+so this lands dark and gets turned on when someone is ready to watch it. **Pickup only**: dine-in
+already settles after the meal and has no window to close; scan-and-go is goods the shopper is
+holding. The 2-day pickup horizon sits inside a card authorization's ~7-day life — verified against
+prod's `pickup_config`, and recorded as the assumption that breaks first if that is ever widened.
+
+Eleven new mutants (**156** total) and two new suites: `manual-capture.test.ts` pins the amount
+decision (5200 / 3800 / 1400 — no two figures confusable), and `manual-capture-run.test.ts` pins the
+**order**, because three of its four risky states are ones where capturing would be wrong and the
+correct move is to leave the hold untouched. Migration `20260819200000`.
+
 ### W23b — a partial refund the guest can actually see (2026-08-19)
 
 Registry **M2**. Line-level refunds (S4.3b) leave `qr_orders.status = 'paid'`, and W1c only ever

@@ -44,8 +44,24 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 145 `verify:slice` mutants green · `pnpm check:docs` clean (94 files, 676 qr tests +
+> **Gate today:** 156 `verify:slice` mutants green · `pnpm check:docs` clean (94 files, 698 qr tests +
 > 41 ui tests) · CI green · then the two reviewers.
+>
+> **W23c (manual + partial capture for pickup — registry M69) — merged, migration prod-applied,
+> and shipped DARK behind `PICKUP_MANUAL_CAPTURE=1`.** The one thing a future session must not
+> re-derive: **nothing is fulfilled at authorization.** Capturing fires `payment_intent.succeeded`
+> and the EXISTING handler creates the order, so an order is only ever born already captured — that
+> is what keeps `status='paid'` honest and stops the receipt, rewards, history and refund paths from
+> needing a fourth state. An earlier design fulfilled-then-captured and needed exactly those; if you
+> find yourself adding an `authorized` order status, you have re-derived the shape this slice
+> deliberately avoided. `mms_fulfill_order` already excludes voided lines, which is why voiding at
+> authorization makes everything downstream correct for free. Order of operations IS the money rule:
+> void → re-derive → capture, money last. The succeeded reconcile compares `amount_received`, not
+> `amount` (equal on the automatic path; deliberately different on a partial capture).
+> `mms_void_unavailable_lines` exists because `mms_void_line` answers `in_flight` under the
+> settlement's own lock. ⚠️ The load-bearing assumption: a pickup slot always falls inside a card
+> authorization's ~7-day life — `pickup_config.horizon_days` is **2**; widening it past a week breaks
+> this first. Migration `20260819200000`.
 >
 > **W23b (the partial-refund diner surface — registry M2) — see the PR/CHANGELOG for the full
 > account.** The short version a future session needs: a partial refund leaves `qr_orders.status` at
@@ -582,7 +598,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (145 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (156 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

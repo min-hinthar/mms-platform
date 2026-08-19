@@ -39,6 +39,7 @@ run locally, copy [`.env.example`](../.env.example) → `apps/qr/.env.local` and
 | `KIOSK_DEVICE_TOKEN`                            | **server**    | **yes** | W6b kiosk: the device token in the lobby kiosk's `/kiosk?k=…` bookmark, verified (constant-time) by the kiosk server actions (mint/reset). Long + random (`openssl rand -base64 32`); unset ⇒ the kiosk answers "not configured" (feature off). Rotate by changing the value + updating the bookmark.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `STRIPE_TERMINAL_READER_ID`                     | **server**    | no      | W6c: the registered Terminal reader (`tmr_…`) the register's Card settle drives (server-driven S700 — no client SDK, no connection tokens). **Mode-specific** like the Stripe keys: Production = the live-registered S700, Preview = a test-mode **simulated reader** (create via the Dashboard's Terminal → Readers, or the API with a simulated registration code + a Location — see Stripe's Terminal docs for the current codes). ⚠️ A simulated reader never completes a charge on its own: drive the "tap" with `stripe.testHelpers.terminal.readers.presentPaymentMethod(reader)` (or the CLI equivalent) after `settleCard` puts the PI on it — without that step the panel honestly waits forever. Config, not a credential (every reader command runs behind `staffGate`) — but keep it server-only. Unset ⇒ the Card settle is feature-off (no button; `settleCard` refuses). |
 | `BOARD_DEVICE_TOKEN`                            | **server**    | **yes** | W3e order-ready board: the device token in the TV's `/board?k=…` URL, verified (constant-time) by `/api/board`. Long + random (`openssl rand -base64 32`); unset ⇒ the board answers 503 (feature off). Rotate by changing the value + updating the TV bookmark.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `PICKUP_MANUAL_CAPTURE`                         | **server**    | no      | W23c: set to `1` to make PICKUP orders authorize instead of charging, so the app can take one more look at the live catalog before any money moves — capturing the reduced total when a dish ran out, or cancelling the hold outright (a cancelled authorization leaves NOTHING on the guest's statement; a capture-then-refund leaves a charge and a reversal). Any other value, or unset, is the pre-W23c behaviour byte-for-byte. Config, not a credential. ⚠️ Turning it ON mid-flight is safe (the idempotency key carries the capture method, so a diner retrying across the flip gets a correctly-minted intent); turning it OFF leaves any already-authorized hold to be settled by the webhook arm, which stays wired regardless of the flag — the flag only governs how NEW intents are minted. ⚠️ The design assumes a pickup slot always falls inside a card authorization's ~7-day life; `pickup_config.horizon_days` is 2, and this is the assumption that breaks first if that is ever widened past a week. |
 
 ¹ Either `NEXT_PUBLIC_SUPABASE_ANON_KEY` **or** `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` is accepted
 (new Supabase key naming); set one. ² A PostHog **project** key is a publishable write-only key — not
@@ -92,8 +93,20 @@ Preview; they belong only in Vercel **Production** scope + the Stripe **live** d
 3. **Create the LIVE webhook endpoint** — Stripe → Developers → **Webhooks** (toggle **live mode**) →
    Add endpoint:
    - URL `https://<prod-domain>/api/stripe/webhook`
-   - Events: **`payment_intent.succeeded`** _and_ **`payment_intent.payment_failed`** — the only two
-     the handler acts on (succeeded fulfills the order; failed is analytics-only).
+   - Events — **all six below**. This list was wrong until W23c (it named only the first and third,
+     as "the only two the handler acts on"), and every event missing from an endpoint is a feature
+     that fails SILENTLY there: no error, no retry, just a thing that never happens. If split-tender,
+     the saved-card flow or the refund reconcile has ever looked inert in an environment, check this
+     list against that endpoint first.
+
+     | Event | What stops working without it |
+     | --- | --- |
+     | `payment_intent.succeeded` | **everything** — this is what fulfills an order |
+     | `payment_intent.amount_capturable_updated` | split-tender shares never capture; W23c pickup holds never capture and expire uncharged |
+     | `payment_intent.payment_failed` | a declined share stays "pending" to the host; a reader decline strands the register |
+     | `payment_intent.canceled` | an abandoned settlement's freeze is not released |
+     | `setup_intent.succeeded` | a saved card is never attached |
+     | `charge.refunded` | a full refund never flips `status`, and W23b's `refunded_cents` never updates — the diner's receipt keeps saying "Paid in full" |
 4. Copy that endpoint's **Signing secret** (`whsec_…`) → Vercel Production `STRIPE_WEBHOOK_SECRET`.
 5. **Redeploy Production** (env changes don't apply to an existing build).
 6. **Smoke-test live**: a real card for a small amount, then refund — confirm a `qr_orders` row
