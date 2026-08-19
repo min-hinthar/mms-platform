@@ -441,8 +441,8 @@ const MUTANTS = [
     file: "apps/qr/lib/menu-availability.ts",
     suite: "lib/menu-availability.test.ts",
     why: "W23a — the owner chose a MANUAL 86 lifetime, so `sold_out_at` is the only signal a flag has outlived its shift; leaving the old timestamp on the way back to available makes an available dish read 'sold out since 6:40pm' forever",
-    find: "      sold_out_at: soldOut ? new Date().toISOString() : null,",
-    replace: "      sold_out_at: new Date().toISOString(),",
+    find: "      sold_out_at: soldOut ? at : null,",
+    replace: "      sold_out_at: at,",
   },
   {
     id: "menu-availability/ledger-time-drifts-from-stamp",
