@@ -11,6 +11,7 @@ import {
   settleCanceledCopy,
   settleCanceledSpoken,
   settleCancelReason,
+  SETTLE_CANCELED_NEXT,
   SETTLE_CANCELED_NOTE,
 } from "./dropped-view";
 
@@ -154,6 +155,18 @@ describe("the copy for a CANCELLED hold", () => {
     expect(settleCanceledCopy("nothing_left").heading).toMatch(/sold out/i);
   });
 
+  it("claims no successor payment on the superseded arm", () => {
+    // `superseded` proves only that the cart's lock no longer matches this attempt — which also
+    // covers a released lock, a takeover by another payer, and a newer checkout that was abandoned.
+    // None of those is evidence a successor payment SUCCEEDED, so asserting one is the same defect
+    // as blaming a shortage on the over_authorized arm, in the other direction.
+    const sup = settleCanceledCopy("superseded");
+    const text = `${sup.heading} ${sup.body}`;
+    expect(text).not.toMatch(/was paid for again|kept the newer payment|we kept/i);
+    // It still has to be USEFUL: point at the newer attempt without asserting it completed.
+    expect(text).toMatch(/if you finished|took over/i);
+  });
+
   it("promises no charge on every arm, including the one with no dropped lines", () => {
     for (const r of [
       "nothing_left",
@@ -176,6 +189,18 @@ describe("the copy for a CANCELLED hold", () => {
     expect(SETTLE_CANCELED_NOTE).toContain("being released");
     expect(SETTLE_CANCELED_NOTE).toContain("your bank decides");
     expect(SETTLE_CANCELED_NOTE).not.toMatch(/\d+\s*(–|-|to)\s*\d+\s*(business )?days/i);
+  });
+
+  it("promises no update and names no control that is not on the screen", () => {
+    // The tracker's trailing helper paragraph is a five-arm chain whose DEFAULT promises "Status
+    // updates here as the kitchen works on it — keep this open", and whose timed-out arm points at
+    // a "Refresh above" that the cancelled state deliberately does not render. Both are false here,
+    // and both survived the first two copy fixes because the rule lived in JSX where no test could
+    // reach it. The string is a module constant for exactly that reason.
+    expect(SETTLE_CANCELED_NEXT).not.toMatch(/updates?|keep this open|check back/i);
+    expect(SETTLE_CANCELED_NEXT).not.toMatch(/refresh/i);
+    // …and it still tells the guest what they CAN do, rather than only what they cannot.
+    expect(SETTLE_CANCELED_NEXT).toMatch(/start a new one/i);
   });
 
   it("speaks the whole verdict in one string — the view has one live region", () => {

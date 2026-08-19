@@ -10,7 +10,13 @@ import {
   refundChipLabel,
   refundSpokenClause,
 } from "@/lib/refund-view";
-import { droppedChipLabel, droppedSpokenClause } from "@/lib/dropped-view";
+import {
+  droppedChipLabel,
+  droppedLineLabel,
+  droppedNoticeHeading,
+  droppedSpokenClause,
+  DROPPED_NOTICE_BODY,
+} from "@/lib/dropped-view";
 import {
   fulfillKind,
   groupByMonth,
@@ -258,6 +264,42 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
                           />
                         ))}
                       </dl>
+                      {/* W23d (Codex #205 P2) — the NAMES, not just the count. The collapsed chip
+                          says how many sold out; a guest reconciling a total needs to know WHICH
+                          dish, and the read already carries it. Without this the expanded card was
+                          the one diner surface that knew less than the tracker, the durable receipt
+                          and the email. Outside the totals list on purpose: nothing was charged for
+                          these, so they are not a money row. */}
+                      {o.dropped.count > 0 && (
+                        <div style={{ margin: "10px 0 0" }}>
+                          <p id={`history-dropped-${o.id}`} style={droppedHeadingStyle}>
+                            {droppedNoticeHeading(o.dropped)}
+                          </p>
+                          {o.dropped.lines.length > 0 && (
+                            <ul
+                              role="list"
+                              aria-labelledby={`history-dropped-${o.id}`}
+                              style={{
+                                listStyle: "none",
+                                padding: 0,
+                                margin: "4px 0 0",
+                                display: "grid",
+                                gap: 2,
+                              }}
+                            >
+                              {o.dropped.lines.map((l, di) => (
+                                <li
+                                  key={`${l.name}-${di}`}
+                                  style={{ fontSize: "var(--fs-xs)", color: "var(--t2)" }}
+                                >
+                                  {droppedLineLabel(l)}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                          <p style={{ ...detailMeta, margin: "6px 0 0" }}>{DROPPED_NOTICE_BODY}</p>
+                        </div>
+                      )}
                       <p style={detailMeta}>
                         {full}
                         {o.pickupSlot ? ` · Pickup ${formatSlotLong(o.pickupSlot)}` : ""}
@@ -372,6 +414,12 @@ const summaryStyle: CSSProperties = {
 const chipRow: CSSProperties = { display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 };
 const itemCountStyle: CSSProperties = { fontSize: "var(--fs-xs)", color: "var(--t3)" };
 const linePrice: CSSProperties = { color: "var(--t2)", fontVariantNumeric: "tabular-nums" };
+const droppedHeadingStyle: CSSProperties = {
+  margin: 0,
+  fontSize: "var(--fs-xs)",
+  fontWeight: 800,
+  color: "var(--tx)",
+};
 const detailMeta: CSSProperties = {
   margin: "10px 0 0",
   fontSize: "var(--fs-xs)",

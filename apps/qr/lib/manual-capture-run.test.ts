@@ -66,6 +66,10 @@ const voidCalls: unknown[] = [];
  *  asserted rather than assumed. `voidCalls` keeps only the precheck, so the W23c assertions above
  *  (`toHaveLength(1)`, `voidCalls[0]`) keep meaning exactly what they meant. */
 const rpcCalls: { fn: string; args: Record<string, unknown> }[] = [];
+/** W23d — a cancellation already on record for this intent, if any. The read is by primary key, so
+ *  the mock ignores the filter and answers with whatever the test set. */
+let priorCancellation: { reason: string } | null = null;
+let priorError: { message: string } | null = null;
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     rpc: (fn: string, args: Record<string, unknown>) => {
@@ -75,6 +79,14 @@ vi.mock("@mms/db/server", () => ({
       voidCalls.push({ fn, args });
       return Promise.resolve({ data: voidResult, error: voidError });
     },
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: () =>
+            Promise.resolve({ data: priorError ? null : priorCancellation, error: priorError }),
+        }),
+      }),
+    }),
   }),
 }));
 
@@ -92,6 +104,8 @@ beforeEach(() => {
   voidError = null;
   markError = null;
   rpcCalls.length = 0;
+  priorCancellation = null;
+  priorError = null;
   readOk = true;
   lockReleases.length = 0;
   cancelThrows = false;
@@ -361,5 +375,42 @@ describe("settleAuthorizedPickup", () => {
     await settleAuthorizedPickup("pi_27", "cart_27", 5200, 0.2, PAYER, ATTEMPT);
     expect(captures).toEqual([{ id: "pi_27", amount: 5200 }]);
     expect(rpcCalls.filter((c) => c.fn === "mms_mark_settle_canceled")).toEqual([]);
+  });
+
+  it("NEVER captures an intent that already has a cancellation on record", async () => {
+    // ⚠️ The durability rule (record before cancel) creates a window where a row says "no payment
+    // was taken" over an intent that is still capturable — the diner is already reading that
+    // sentence. Re-deriving a plan on the redelivery can answer CAPTURE: `over_authorized` fires
+    // when the live total outgrew the hold, and a staff price edit between deliveries brings it back
+    // under. Capturing there charges money seconds after telling the guest none was taken.
+    priorCancellation = { reason: "over_authorized" };
+    liveTotal = 3800; // comfortably under the 5200 hold — planCapture WOULD say capture
+    const r = await settleAuthorizedPickup("pi_30", "cart_30", 5200, 0.2, PAYER, ATTEMPT);
+    expect(r).toEqual({ kind: "canceled", reason: "over_authorized" });
+    expect(captures).toEqual([]);
+    expect(cancels).toEqual(["pi_30"]);
+    // It also does not re-run the precheck or re-void: the settlement is over.
+    expect(voidCalls).toEqual([]);
+    expect(lockReleases).toEqual(["cart_30"]);
+  });
+
+  it("does not clear another attempt's lock when finishing a superseded cancellation", async () => {
+    // The same asymmetry the -2 arm has on the first pass: that lock belongs to a LATER attempt now.
+    priorCancellation = { reason: "superseded" };
+    const r = await settleAuthorizedPickup("pi_31", "cart_31", 5200, 0.2, PAYER, ATTEMPT);
+    expect(r).toEqual({ kind: "canceled", reason: "superseded" });
+    expect(cancels).toEqual(["pi_31"]);
+    expect(lockReleases).toEqual([]);
+  });
+
+  it("retries rather than capturing when the cancellation ledger cannot be read", async () => {
+    // An unreadable ledger is not "no cancellation". Guessing here is precisely the capture the
+    // guard above exists to prevent, so the authorization is left standing for the next delivery.
+    priorError = { message: "transport" };
+    const r = await settleAuthorizedPickup("pi_32", "cart_32", 5200, 0.2, PAYER, ATTEMPT);
+    expect(r.kind).toBe("retry");
+    expect(captures).toEqual([]);
+    expect(cancels).toEqual([]);
+    expect(voidCalls).toEqual([]);
   });
 });

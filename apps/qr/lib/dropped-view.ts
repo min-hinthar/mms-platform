@@ -194,9 +194,15 @@ export function settleCanceledCopy(reason: SettleCancelReason): { heading: strin
         body: "It went through another way — at the counter, or on another device — so we didn’t take this payment on top of it.",
       };
     case "superseded":
+      // ⚠️ Claim ONLY what the verdict proves (Codex #205 P2). `superseded` means the cart's lock no
+      // longer matches this attempt — which covers a later checkout by the same diner, a takeover by
+      // another payer, AND a lock that was simply released. None of those is evidence that a
+      // successor payment SUCCEEDED, so the first draft's "we kept the newer payment" asserted an
+      // order that may never have been placed. Same failure as blaming a shortage on the
+      // over_authorized arm, and it is the reason both arms are written separately at all.
       return {
-        heading: "A newer payment took over",
-        body: "This order was paid for again after this attempt started, so we cancelled this one and kept the newer payment.",
+        heading: "This payment was replaced",
+        body: "Another checkout took over this order after this attempt started, so we stopped this one. If you finished the newer one, that’s the payment to look for.",
       };
     default:
       return {
@@ -205,6 +211,23 @@ export function settleCanceledCopy(reason: SettleCancelReason): { heading: strin
       };
   }
 }
+
+/**
+ * The "what happens next on this screen" line beneath a cancelled hold.
+ *
+ * It lives HERE rather than inline in the tracker because the tracker's trailing helper paragraph is
+ * a five-arm chain whose default is "Status updates here as the kitchen works on it — keep this open"
+ * — a promise about an order that will never exist. Its timed-out arm is no better: it points at a
+ * "Refresh above" that this state deliberately does not render. Both are the same defect the visible
+ * banner and the live region already had, one paragraph lower, and the reason it survived the first
+ * two fixes is that the rule sat in a component where no test could reach it.
+ *
+ * So the STRING is a module constant with a test on it, even though the branch that selects it is
+ * still JSX: promise no update, name no control that is not on the screen, and say what the guest
+ * can actually do.
+ */
+export const SETTLE_CANCELED_NEXT =
+  "Nothing else will happen on this screen — there’s no order to follow. Start a new one whenever you’re ready.";
 
 /** What the single `role="status"` region announces for a cancelled hold. One string: the region is
  *  the view's only live region (QA-CHECKLIST §A), so it carries the whole verdict, not a fragment. */

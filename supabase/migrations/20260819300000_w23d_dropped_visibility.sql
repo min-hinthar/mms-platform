@@ -75,9 +75,18 @@ comment on column public.qr_dropped_lines.payment_intent is
 -- "drop rows exist and no order does" is indistinguishable from a perfectly healthy partial capture
 -- whose fulfillment has not landed yet — so inferring a cancellation from absence would tell a guest
 -- whose money IS moving that nothing was charged. Recording it is the only honest mechanism.
+-- ⚠️ `cart_id` carries NO foreign key, and that is deliberate (Codex #205 P1). The precheck returns
+-- -1 for BOTH "cart is not open" and "cart row is gone" (`v_status is null` — an outcome it handles
+-- explicitly), and the caller records the verdict BEFORE cancelling the hold. With an FK, the gone-
+-- cart case would fail the insert, the caller would answer `retry`, and every Stripe redelivery
+-- would repeat the same violation — leaving the guest's authorization standing for its full ~7-day
+-- life because we could not write a sentence about it. Nothing deletes `qr_carts` today, so the case
+-- is not live; a guard whose failure mode is an uncancellable hold is not one to leave loaded.
+-- An orphan row here is the correct outcome for a ledger anyway: it records what happened, and what
+-- happened does not stop having happened when its cart is swept.
 create table if not exists public.qr_settlement_cancellations (
   payment_intent text primary key,
-  cart_id        uuid not null references public.qr_carts(id) on delete cascade,
+  cart_id        uuid not null,
   -- The diner this hold belonged to (the intent's `earnerUid` metadata). It is the AUTHORIZATION for
   -- the diner-facing read: `qr_carts.locked_by` is nulled by the lock release that follows a cancel,
   -- so the payer's identity has to be captured here or it is gone.

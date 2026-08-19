@@ -1607,15 +1607,7 @@ export type Database = {
           payment_intent?: string
           reason?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "qr_settlement_cancellations_cart_id_fkey"
-            columns: ["cart_id"]
-            isOneToOne: false
-            referencedRelation: "qr_carts"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       qr_tables: {
         Row: {

@@ -71,6 +71,40 @@ export async function settleAuthorizedPickup(
   if (live.status !== "requires_capture")
     return { kind: "already", note: `intent is ${live.status}, not requires_capture` };
 
+  // ⚠️ W23d (Codex #205 P1) — A RECORDED CANCELLATION IS TERMINAL FOR THIS INTENT.
+  //
+  // The verdict is written before the Stripe cancel, so a cancel that fails leaves a row saying
+  // "no payment was taken" over an intent that is still capturable. The diner is already reading
+  // that sentence. Re-deriving a plan on the redelivery could then answer `capture` — the
+  // `over_authorized` arm is the reachable one: it fires when the live total outgrew the hold, and a
+  // staff price edit (or a promo re-activation) between deliveries brings the total back under it.
+  // We would capture money seconds after telling the guest none was taken.
+  //
+  // So once a cancellation exists for this intent, the ONLY thing left to do is finish cancelling.
+  // This keeps the durability rule (record first) without letting it create a claim the code can
+  // still contradict. Read service-role by primary key; an unreadable ledger retries rather than
+  // guessing, because guessing here is exactly the capture this guard exists to prevent.
+  const { data: prior, error: priorErr } = await db
+    .from("qr_settlement_cancellations")
+    .select("reason")
+    .eq("payment_intent", intentId)
+    .maybeSingle();
+  if (priorErr) {
+    console.error("[manual-capture] prior-cancellation read failed", {
+      intentId,
+      error: priorErr.message,
+    });
+    return { kind: "retry", note: "cancellation ledger unreadable" };
+  }
+  if (prior) {
+    if (!(await cancelHold(intentId, prior.reason)))
+      return { kind: "retry", note: "cancel failed" };
+    // The same arms that own the lock on the first pass own it here. `superseded` is the one that
+    // does NOT: that lock belongs to a later attempt, and one settlement must never clear another's.
+    if (prior.reason !== "superseded") await releaseOurLock(cartId, payerUid);
+    return { kind: "canceled", reason: prior.reason };
+  }
+
   // The last look at the catalog. This is the window W23a's gate could not reach: it ran before the
   // mint, and the diner spent the next minute typing a card number.
   //

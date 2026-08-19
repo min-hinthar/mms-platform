@@ -35,6 +35,7 @@ import {
   DROPPED_NOTICE_BODY,
   settleCanceledCopy,
   settleCanceledSpoken,
+  SETTLE_CANCELED_NEXT,
   SETTLE_CANCELED_NOTE,
   type SettleCanceled,
 } from "@/lib/dropped-view";
@@ -134,29 +135,39 @@ export function OrderTracker({
     if (!awaitingCapture || !paymentIntent || liveOrder || polledSettle) return;
     let active = true;
     let tries = 0;
-    // ~32s of cover — the same order of magnitude as useOrderStatus's own give-up, so the poll
-    // stops on its own if nothing decisive lands and the fallback takes over from there.
-    const id = setInterval(() => {
-      if (++tries > 8) {
-        clearInterval(id);
-        return;
-      }
+    let timer: ReturnType<typeof setTimeout>;
+    // ⚠️ TWO-PHASE, AND IT DOES NOT STOP (Codex #205 P1). The first draft ran 8 ticks and quit,
+    // which covers the ordinary case — the verdict lands within a couple of seconds of the tap —
+    // and misses the one that matters. If the FIRST webhook delivery answers `retry` (an unreadable
+    // catalog, a totals blip, a failed ledger write), Stripe redelivers on its own schedule, which
+    // can be minutes. By then a capped poll has stopped AND the one-shot fallback has latched
+    // `not_found`, and cancellations have no Realtime channel to wake anything — so a page left
+    // open goes on saying the payment went through until the diner reloads it by hand.
+    //
+    // Fast while the celebration is on screen, then slow and indefinite: the read is one indexed
+    // lookup by primary key, it only runs on the manual-capture path, and it stops the moment the
+    // order arrives or a verdict lands. A page nobody is looking at costs two requests a minute.
+    const tick = () => {
       void getSettleVerdict(paymentIntent)
         .then((r) => {
           // ONLY a decided verdict speaks. `undecided` is what a healthy in-flight capture looks
           // like, and `error` is a failed read — neither may become "you weren't charged".
-          if (active && r.state === "decided") {
-            clearInterval(id);
-            setPolledSettle(r.settle);
-          }
+          if (!active) return;
+          if (r.state === "decided") setPolledSettle(r.settle);
+          else schedule();
         })
         .catch(() => {
-          /* a failed probe is not an answer; the next tick (or the fallback) tries again */
+          // A failed probe is not an answer; keep the schedule rather than latching silence.
+          if (active) schedule();
         });
-    }, 4000);
+    };
+    const schedule = () => {
+      timer = setTimeout(tick, ++tries <= 8 ? 4000 : 30000);
+    };
+    schedule();
     return () => {
       active = false;
-      clearInterval(id);
+      clearTimeout(timer);
     };
   }, [awaitingCapture, paymentIntent, liveOrder, polledSettle]);
   const settleCanceled: SettleCanceled | null =
@@ -1421,51 +1432,64 @@ export function OrderTracker({
       )}
 
       <p style={{ fontSize: "var(--fs-sm)", color: "var(--t3)", margin: "14px 0 0" }}>
-        {refunded
-          ? "This order is closed — the refund above is its final state."
-          : pureGrocery
-            ? "You’re free to go — this receipt lives in your order history."
-            : dineInSettled
-              ? // W9a — the old string promised live kitchen updates on a screen whose rail can never
-                // move again. State what is actually true: the bill is paid and the receipt keeps.
-                "Your table’s all settled — this receipt lives in your order history."
-              : timedOut && !arrived
-                ? // W9c — "keep this open" is a promise the code cannot keep here: `exhausted` and the
-                  // server fallback are BOTH latched, so nothing on this screen will change on its own.
-                  // It also contradicted the banner directly above it.
-                  youOffline
-                  ? // …and offline there is no Refresh above to point at (it is withdrawn), so don't.
-                    "Keep this screen open — Refresh comes back as soon as you’re online again."
-                  : "Nothing more will load here on its own — use Refresh above, or ask us and we’ll look it up."
-                : staleSnapshot
-                  ? "This is the order as we last read it — the receipt in your account is the lasting copy."
-                  : "Status updates here as the kitchen works on it — keep this open, or check back anytime."}
+        {settleCanceled
+          ? // W23d — FIRST, for the same reason the live region's arm is: with no order every
+            // predicate below is false, so this state fell through to "Status updates here as the
+            // kitchen works on it — keep this open", directly contradicting the terminal card above
+            // it. Its timed-out arm was no better — it points at a "Refresh above" this state does
+            // not render. The string lives in lib/dropped-view so the rule has a test.
+            SETTLE_CANCELED_NEXT
+          : refunded
+            ? "This order is closed — the refund above is its final state."
+            : pureGrocery
+              ? "You’re free to go — this receipt lives in your order history."
+              : dineInSettled
+                ? // W9a — the old string promised live kitchen updates on a screen whose rail can never
+                  // move again. State what is actually true: the bill is paid and the receipt keeps.
+                  "Your table’s all settled — this receipt lives in your order history."
+                : timedOut && !arrived
+                  ? // W9c — "keep this open" is a promise the code cannot keep here: `exhausted` and the
+                    // server fallback are BOTH latched, so nothing on this screen will change on its own.
+                    // It also contradicted the banner directly above it.
+                    youOffline
+                    ? // …and offline there is no Refresh above to point at (it is withdrawn), so don't.
+                      "Keep this screen open — Refresh comes back as soon as you’re online again."
+                    : "Nothing more will load here on its own — use Refresh above, or ask us and we’ll look it up."
+                  : staleSnapshot
+                    ? "This is the order as we last read it — the receipt in your account is the lasting copy."
+                    : "Status updates here as the kitchen works on it — keep this open, or check back anytime."}
       </p>
-      <div style={{ display: "flex", gap: 20, alignItems: "center", marginTop: 4 }}>
-        {/* W9a — the ONLY forward affordance on the post-pay screen, and it used to be a bare
+      {/* W23d — the terminal card above owns the recovery for a cancelled hold, and `backMode` is
+          null without an order, so this row would render a SECOND, identical door-picker link
+          directly beneath the first. The contact foot below still renders: a guest whose payment was
+          cancelled is exactly who wants the phone number. */}
+      {!settleCanceled && (
+        <div style={{ display: "flex", gap: 20, alignItems: "center", marginTop: 4 }}>
+          {/* W9a — the ONLY forward affordance on the post-pay screen, and it used to be a bare
             `/menu`: `useTableSession` defaults a mode-less menu to scan-&-go, so the tap that was
             meant to say "order something else" silently minted a fresh grocery session and orphaned
             the diner's table. The destination now comes from the ORDER's own line fulfillments —
             server truth that outlives both the table session and the device's "last door" memory. */}
-        <Link href={menuHref(backMode)} className="nav-link">
-          <span aria-hidden className="nav-arrow nav-arrow-back">
-            ←
-          </span>{" "}
-          {menuLinkText(backMode)}
-        </Link>
-        {/* The rewards hub's diner-facing entry point on a REVISIT (viewport-prefetched by <Link>).
+          <Link href={menuHref(backMode)} className="nav-link">
+            <span aria-hidden className="nav-arrow nav-arrow-back">
+              ←
+            </span>{" "}
+            {menuLinkText(backMode)}
+          </Link>
+          {/* The rewards hub's diner-facing entry point on a REVISIT (viewport-prefetched by <Link>).
             On a fresh payment the goodbye beat carries the rewards door for everyone instead — one
             clear door, decided once at mount (never a link that vanishes underfoot when the progress
             poll resolves — focus would drop to <body>). */}
-        {arrived && !justPaid && (
-          <Link href="/account" className="nav-link">
-            View your rewards{" "}
-            <span aria-hidden className="nav-arrow nav-arrow-fwd">
-              →
-            </span>
-          </Link>
-        )}
-      </div>
+          {arrived && !justPaid && (
+            <Link href="/account" className="nav-link">
+              View your rewards{" "}
+              <span aria-hidden className="nav-arrow nav-arrow-fwd">
+                →
+              </span>
+            </Link>
+          )}
+        </div>
+      )}
       {/* W22r — the restaurant's real contact foot on the live order surface (the delivery app's
           support-block pattern; every string verbatim from lib/brand). A live order is exactly
           when a diner wants the phone number without hunting for it. */}
