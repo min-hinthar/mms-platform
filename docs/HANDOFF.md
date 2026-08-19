@@ -63,6 +63,37 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > authorization's ~7-day life — `pickup_config.horizon_days` is **2**; widening it past a week breaks
 > this first. Migration `20260819200000`.
 >
+> **W23c (manual + partial capture for pickup — registry M69) — merged #203, migration prod-applied
+> + probed, and shipped DARK behind `PICKUP_MANUAL_CAPTURE=1`.** DO NOT flip that flag before
+> M70/M71/M72 are closed and a preview smoke test with a test-mode card has run: two Codex rounds
+> found FOURTEEN real defects on this path, and the suite was green throughout because it mocked the
+> RPC whose contract was wrong.
+>
+> The one thing not to re-derive: **nothing is fulfilled at authorization.** Capturing fires
+> `payment_intent.succeeded` and the EXISTING handler creates the order, so an order is only ever
+> born already captured and no surface learns a fourth status. `mms_fulfill_order` already excludes
+> voided lines, so voiding at authorization makes the downstream correct for free. Order of
+> operations is the money rule: void → re-derive → capture, money LAST. The succeeded reconcile
+> compares `amount_received`, not `amount`.
+>
+> `mms_settle_precheck_and_void` is a PRECHECK as much as a void — called unconditionally, empty
+> array included, because a check that only runs on the unusual path is a check the usual path does
+> not have. It RECLAIMS a stale-but-ours lock rather than refusing (refusing would cancel a slow
+> diner's good payment, and the money is already guarded by the post-void totals re-derive).
+>
+> ⚠️ **`docs/ENV.md`'s webhook event list was wrong for the WHOLE handler until W23c** — it named two
+> events; the handler acts on six. Any endpoint configured from the old docs silently breaks
+> split-tender, saved cards and W23b's refund reconcile. Latent, not live (prod has 0 split shares,
+> 0 refunds), but reconcile the live endpoint before any of those are used.
+>
+> Migration `20260819200000` **✅ prod-applied + probed** as `w23c_capture_void`, in a block that
+> RAISED at the end so the whole probe rolled back and prod was left untouched (verified: 0 ledger
+> rows, 0 probe rows). Results: precheck-only on an open owned cart = 0; a lock owned by someone else
+> = **-2**; the real void = **2 lines** (including the COMPED one the first version silently skipped)
+> with **2 ledger rows** — which is the `mms_approvals` NOT NULL bug proven dead — at 2800 for the
+> paid line and **0** for the comped one; a settled cart = **-1**. RLS on with exactly one SELECT
+> policy, zero grants to anon/authenticated/PUBLIC, and an `authenticated` INSERT refused.
+>
 > **W23b (the partial-refund diner surface — registry M2) — see the PR/CHANGELOG for the full
 > account.** The short version a future session needs: a partial refund leaves `qr_orders.status` at
 > `'paid'`, so `refunded_cents` on the ORDER (Stripe-authoritative, `greatest()`-guarded, and the only
@@ -237,7 +268,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > **Read this block, then `docs/W22_DESIGN_PROPOSAL.md` (the live slate) — `docs/W17_PLAN.md` only for
 > the owner-blocked POS/pricing residuals. Everything below is merged AND prod-applied.** Prod is
-> `fasnpdhtvqtzjlvruqcu`; its migration history ends at `w23b_refund_visibility` (prod stamps its own
+> `fasnpdhtvqtzjlvruqcu`; its migration history ends at `w23c_capture_void` (prod stamps its own
 > apply-time versions — match history by NAME, not timestamp), and **W22a / W22a·depth / W22r / W22b
 > needed no migration at all** — every column the itemized tracker and the live order chip read
 > already existed. **This line is the ONE statement of prod's migration head** — the W23a block above
@@ -293,7 +324,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >   own commit message claimed the head was already stated once. That is the lesson worth keeping: a
 >   fact repeated in a third place drifts exactly like a value computed in two places, and the repo
 >   has now paid for it in prose as well as in code. The repo's newest migration FILE is
->   `20260819100000_w23b_refund_visibility.sql`.
+>   `20260819200000_w23c_capture_void.sql`.
 >
 > ### ⚠️ Open decisions that BLOCK work — ask the owner, don't guess
 >
