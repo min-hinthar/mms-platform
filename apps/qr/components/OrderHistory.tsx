@@ -4,7 +4,12 @@ import type { OrderHistoryEntry } from "@/lib/rewards";
 import { formatSlotLong } from "@/lib/pickupTime";
 import { Card, Icon, type IconName } from "@mms/ui";
 import { menuHref, menuLinkText } from "@/lib/menu-href";
-import { buildRefundRows, lineRefundLabel } from "@/lib/refund-view";
+import {
+  buildRefundRows,
+  lineRefundLabel,
+  refundChipLabel,
+  refundSpokenClause,
+} from "@/lib/refund-view";
 import {
   fulfillKind,
   groupByMonth,
@@ -112,7 +117,7 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
                   <details className="history-card">
                     <summary
                       className="history-summary"
-                      aria-label={`Order ${o.code}, ${full}, total ${dollars(o.totalCents)}, paid ${TENDER_LABEL[o.tender] ?? o.tender}${o.refund.state === "partial" ? `, ${dollars(o.refund.refundedCents)} refunded, you paid ${dollars(o.refund.netPaidCents)}` : ""}${kind ? `, ${FULFILL_LABEL[kind]}` : ""}${o.tableNumber != null ? `, Table ${o.tableNumber}` : ""}. Show items.`}
+                      aria-label={`Order ${o.code}, ${full}, total ${dollars(o.totalCents)}, paid ${TENDER_LABEL[o.tender] ?? o.tender}${refundSpokenClause(o.refund)}${kind ? `, ${FULFILL_LABEL[kind]}` : ""}${o.tableNumber != null ? `, Table ${o.tableNumber}` : ""}. Show items.`}
                     >
                       <div style={summaryRow}>
                         {/* W14 — the v7.2 history-row lead photo (first line WITH one, else the
@@ -153,9 +158,14 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
                             </span>
                             {/* W23b — visible on the COLLAPSED row. A guest scanning their orders
                                 should learn money came back without opening the card; the amounts
-                                live in the detail's rows, where amounts belong. */}
-                            {o.refund.state === "partial" && (
-                              <span className="history-refunded">Partly refunded</span>
+                                live in the detail's rows, where amounts belong. The label comes from
+                                the STATE (lib/refund-view), never from a state test written here:
+                                a fully-returned order legitimately reaches this list in the `full`
+                                state — `summarizeRefund` answers `full` on refunded_cents ≥ total,
+                                before the webhook flips the status — and a partial-only test left
+                                that card saying "Paid · Card". */}
+                            {refundChipLabel(o.refund) && (
+                              <span className="history-refunded">{refundChipLabel(o.refund)}</span>
                             )}
                             {kind && <span className="history-fulfill">{FULFILL_LABEL[kind]}</span>}
                             {/* K2: the table you sat at that night (dine-in only). */}

@@ -412,6 +412,14 @@ const MUTANTS = [
     replace: "  const fullByAmount = amount >= totalCents;",
   },
   {
+    id: "refund-view/full-refund-loses-its-chip",
+    file: "apps/qr/lib/refund-view.ts",
+    suite: "lib/refund-view.test.ts",
+    why: "W23b (Codex round 2 on #201) — summarizeRefund answers `full` on refunded_cents >= total, which happens BEFORE the charge.refunded webhook flips the status, and /account's history read filters status='paid' — so a WHOLLY returned order legitimately appears in that list in the `full` state. Dropping the full arm restores the collapsed card claiming 'Paid · Card' over money that had entirely gone back, for as long as the webhook was delayed.",
+    find: '  if (summary.state === "full") return "Refunded";',
+    replace: "  if (false) return \"Refunded\";",
+  },
+  {
     id: "refund-view/refund-row-not-negative",
     file: "apps/qr/lib/refund-view.ts",
     suite: "lib/refund-view.test.ts",

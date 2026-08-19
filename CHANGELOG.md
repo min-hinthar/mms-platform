@@ -48,7 +48,7 @@ existing DB nouns), so the rule deciding whether a receipt says "Paid in full" w
 revertible with every gate green. **Watched it fail before trusting it:** unclaiming the file made
 the guard name it, and restoring made it green again.
 
-Six new mutants (**144** total). `lib/refund-view.test.ts` separates the three states on the one
+Seven new mutants (**145** total). `lib/refund-view.test.ts` separates the three states on the one
 field that distinguishes them, with amounts chosen so no two rows are confusable (5200 / 1400 /
 3800). Migration `20260819100000`; the ledger back-fill is a genuine no-op today — verified against
 prod first (0 ledger rows, 0 refunded orders).

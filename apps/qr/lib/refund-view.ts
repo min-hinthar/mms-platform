@@ -104,6 +104,37 @@ export function buildRefundRows(summary: RefundSummary): ReceiptRow[] {
 }
 
 /**
+ * The chip on a COLLAPSED order row, or null when nothing came back.
+ *
+ * Covers `full` as well as `partial`, and that is the whole point of it existing (Codex round 2 on
+ * #201): `summarizeRefund` deliberately answers `full` when `refunded_cents >= total` BEFORE the
+ * `charge.refunded` webhook flips the status, and `/account`'s history read filters `status='paid'`
+ * — so a fully-returned order legitimately appears there in the `full` state. A partial-only
+ * condition suppressed the chip for exactly that row, and the server-rendered card went on saying
+ * "Paid · Card" over a wholly refunded order until the diner happened to reload. Deriving the label
+ * from the state rather than testing one state at the call site is what makes that unrepeatable.
+ */
+export function refundChipLabel(summary: RefundSummary): string | null {
+  if (summary.state === "full") return "Refunded";
+  if (summary.state === "partial") return "Partly refunded";
+  return null;
+}
+
+/**
+ * The refund clause spoken inside a collapsed row's accessible name — "" when nothing came back.
+ *
+ * A screen-reader user must not have to expand a card to learn money moved, so the amounts go in
+ * the name even though the visible chip carries only the state. Returns a leading-comma fragment
+ * because it is spliced into a longer composed name.
+ */
+export function refundSpokenClause(summary: RefundSummary): string {
+  if (summary.state === "none") return "";
+  if (summary.state === "full")
+    return `, fully refunded, ${dollars(summary.refundedCents)} returned to you`;
+  return `, ${dollars(summary.refundedCents)} refunded, you paid ${dollars(summary.netPaidCents)}`;
+}
+
+/**
  * The mark on a single refunded line, or null.
  *
  * States the amount rather than crossing the line out: a refund can be clamped below the line's own

@@ -3,6 +3,8 @@ import {
   buildRefundRows,
   lineRefundLabel,
   receiptStatusLabel,
+  refundChipLabel,
+  refundSpokenClause,
   summarizeRefund,
 } from "./refund-view";
 
@@ -123,6 +125,39 @@ describe("buildRefundRows", () => {
     // Without the flag the row reads as another charge stacked on the total, which is the opposite
     // of what happened.
     expect(buildRefundRows(summarizeRefund(5200, 1400, "paid"))[0]!.negative).toBe(true);
+  });
+});
+
+describe("the collapsed-row chip + its spoken clause (Codex round 2 on #201)", () => {
+  // The defect these pin: `summarizeRefund` answers `full` when refunded_cents ≥ total, which
+  // happens BEFORE the charge.refunded webhook flips the status — and /account's history read
+  // filters `status='paid'`, so a wholly-returned order legitimately lands in this list in the
+  // `full` state. A partial-only test at the call site suppressed the chip for exactly that row and
+  // left the card claiming "Paid · Card" over money that had entirely gone back.
+  const fullBeforeFlip = summarizeRefund(5200, 5200, "paid");
+
+  it("labels the FULL state, not just the partial one", () => {
+    expect(fullBeforeFlip.state).toBe("full"); // the precondition the defect depended on
+    expect(refundChipLabel(fullBeforeFlip)).toBe("Refunded");
+  });
+
+  it("labels a partial refund", () => {
+    expect(refundChipLabel(summarizeRefund(5200, 1400, "paid"))).toBe("Partly refunded");
+  });
+
+  it("shows no chip when nothing came back", () => {
+    expect(refundChipLabel(summarizeRefund(5200, 0, "paid"))).toBeNull();
+  });
+
+  it("speaks the amounts, so nobody has to expand a card to learn money moved", () => {
+    expect(refundSpokenClause(summarizeRefund(5200, 1400, "paid"))).toBe(
+      ", $14.00 refunded, you paid $38.00",
+    );
+    expect(refundSpokenClause(fullBeforeFlip)).toBe(", fully refunded, $52.00 returned to you");
+  });
+
+  it("says nothing for an unrefunded order — the clause is spliced into a longer name", () => {
+    expect(refundSpokenClause(summarizeRefund(5200, 0, "paid"))).toBe("");
   });
 });
 
