@@ -47,6 +47,22 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > **Gate today:** 153 `verify:slice` mutants green · `pnpm check:docs` clean (94 files, 696 qr tests +
 > 41 ui tests) · CI green · then the two reviewers.
 >
+> **W23c (manual + partial capture for pickup — registry M69) — merged, migration prod-applied,
+> and shipped DARK behind `PICKUP_MANUAL_CAPTURE=1`.** The one thing a future session must not
+> re-derive: **nothing is fulfilled at authorization.** Capturing fires `payment_intent.succeeded`
+> and the EXISTING handler creates the order, so an order is only ever born already captured — that
+> is what keeps `status='paid'` honest and stops the receipt, rewards, history and refund paths from
+> needing a fourth state. An earlier design fulfilled-then-captured and needed exactly those; if you
+> find yourself adding an `authorized` order status, you have re-derived the shape this slice
+> deliberately avoided. `mms_fulfill_order` already excludes voided lines, which is why voiding at
+> authorization makes everything downstream correct for free. Order of operations IS the money rule:
+> void → re-derive → capture, money last. The succeeded reconcile compares `amount_received`, not
+> `amount` (equal on the automatic path; deliberately different on a partial capture).
+> `mms_void_unavailable_lines` exists because `mms_void_line` answers `in_flight` under the
+> settlement's own lock. ⚠️ The load-bearing assumption: a pickup slot always falls inside a card
+> authorization's ~7-day life — `pickup_config.horizon_days` is **2**; widening it past a week breaks
+> this first. Migration `20260819200000`.
+>
 > **W23b (the partial-refund diner surface — registry M2) — see the PR/CHANGELOG for the full
 > account.** The short version a future session needs: a partial refund leaves `qr_orders.status` at
 > `'paid'`, so `refunded_cents` on the ORDER (Stripe-authoritative, `greatest()`-guarded, and the only
