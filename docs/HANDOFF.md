@@ -200,9 +200,13 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > **Read this block, then `docs/W22_DESIGN_PROPOSAL.md` (the live slate) — `docs/W17_PLAN.md` only for
 > the owner-blocked POS/pricing residuals. Everything below is merged AND prod-applied.** Prod is
-> `fasnpdhtvqtzjlvruqcu`; its migration history ends at `w21d_allergen_amendments` (prod stamps its
-> own apply-time versions — match history by NAME, not timestamp), and **W22a / W22a·depth / W22r
-> needed no migration at all** — every column the itemized tracker reads already existed.
+> `fasnpdhtvqtzjlvruqcu`; its migration history ends at `w23a_sold_out` (prod stamps its own
+> apply-time versions — match history by NAME, not timestamp), and **W22a / W22a·depth / W22r / W22b
+> needed no migration at all** — every column the itemized tracker and the live order chip read
+> already existed. This head is stated ONCE, here: the W23a block above says what `w23a_sold_out`
+> did and what the probes returned, and this line is the only place that says where prod's history
+> stops. Two statements of a migration head is how a future session gets told a slice is unapplied
+> when it is live (Codex caught exactly that drift on #200, one commit after it was introduced).
 >
 > ### What the owner asked for, and where it landed
 >
