@@ -44,9 +44,12 @@ transient DB failure.
 
 Also in this slice: every dropped row is stamped with **its own attempt's** PaymentIntent (a cancelled
 settlement leaves the cart open, so a cart-id-only join would print “sold out before we could make
-it” on the receipt for the order the guest placed afterwards); the four cancel reasons each get their
-own copy, because `over_authorized` fires with the lines still available and blaming a shortage there
-would be a fabricated explanation; and `PaySuccess` stops claiming “Paid — thank you!” while a
+it” on the receipt for the order the guest placed afterwards); **five cancel reasons, none of which
+claims more than its verdict proves** — `over_authorized` fires with the lines still available,
+`cart_not_open` covers a cart that was CANCELLED as well as one that was settled, `nothing_left` is a
+zeroed total rather than an emptied basket (so it never says “everything sold out”; the dropped
+list's own count heading carries the shortage), and `no_cart` shares the unknown-code copy because a
+state whose whole problem is missing information cannot be explained; and `PaySuccess` stops claiming “Paid — thank you!” while a
 manual-capture PI is merely authorized — the checkmark and confetti stay (the order went through),
 the money claim and the Stars pill wait for the order to land. A dropped line is never a receipt row
 and never carries a dollar figure: a number printed for money that was never charged reads as a
