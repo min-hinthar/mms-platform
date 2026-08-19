@@ -7,6 +7,7 @@ import { releaseCartLock, releaseSettlement, releaseSettlementFor } from "@/lib/
 import { logTabEvent } from "@/lib/tab-events";
 import { getPostHogClient } from "@/lib/posthog-server";
 import { enqueueQboSync, syncOrderToQbo } from "@/lib/qbo/client";
+import { settleAuthorizedPickup } from "@/lib/manual-capture-run";
 import {
   onShareAuthorized,
   onShareCaptured,
@@ -282,7 +283,17 @@ export async function POST(req: NextRequest) {
           });
           return NextResponse.json({ error: "Totals lookup failed; will retry" }, { status: 500 });
         }
-        if (totals.totalCents !== intent.amount) {
+        // W23c — reconcile against what was CAPTURED, not what was authorized. On the automatic path
+        // these are the same number (`amount_received` equals `amount` for a fully-captured PI, and
+        // the codebase already treats amount_received as "the literally-captured amount" in the
+        // refunds-needed rows below). On the manual-capture pickup path they deliberately differ: a
+        // partial capture leaves `amount` at the original hold while `amount_received` is what the
+        // guest actually paid — and the voided lines mean getCartTotals now re-derives that smaller
+        // figure. Comparing against `amount` would 409 every partial capture into 72h of retries,
+        // stranding a charged diner with no order. ONE binding, read by the check and by the order
+        // it writes, so the reconciled figure and the recorded figure can never be different numbers.
+        const capturedCents = intent.amount_received ?? intent.amount;
+        if (totals.totalCents !== capturedCents) {
           // The PI succeeded (the diner WAS charged) but the re-derived total no longer matches — a
           // tampered/stale cart, or a discount that changed under the pay lock. For a locked cart this
           // won't self-heal, so the 72h of retries below would otherwise strand a charged diner with no
@@ -304,14 +315,14 @@ export async function POST(req: NextRequest) {
               message: refundErr.message,
             });
           return NextResponse.json(
-            { error: `amount mismatch: cart=${totals.totalCents} intent=${intent.amount}` },
+            { error: `amount mismatch: cart=${totals.totalCents} captured=${capturedCents}` },
             { status: 409 }, // non-2xx → Stripe retries; surfaces a tampered/stale cart
           );
         }
         const { data: orderId, error: fulfillErr } = await db.rpc("mms_fulfill_order", {
           p_cart_id: cartId,
           p_payment_intent: intent.id,
-          p_amount_cents: intent.amount,
+          p_amount_cents: capturedCents,
           p_subtotal_cents: totals.subtotalCents,
           p_discount_cents: totals.discountCents,
           p_service_charge_cents: totals.serviceChargeCents,
@@ -500,9 +511,67 @@ export async function POST(req: NextRequest) {
     }
   } else if (event.type === "payment_intent.amount_capturable_updated") {
     // Split-tender: a share authorized (manual-capture confirmed). Mark it; capture-all once the whole
-    // table is authorized. (Single-pay PIs are automatic-capture and never fire this event.)
+    // table is authorized. (An automatic-capture single-pay PI never fires this event; W23c's pickup
+    // holds do, and are handled in the arm below.)
     const intent = event.data.object;
-    if (intent.metadata?.kind === "split_share") {
+    if (intent.metadata?.kind === "pickup_manual") {
+      // W23c (registry M69) — a pickup order is AUTHORIZED, not charged. This is the last look at
+      // the live catalog before any money moves, and the window W23a's pre-mint gate could not
+      // reach: the diner spent the minute after it entering a card number.
+      //
+      // Nothing is fulfilled here. Capturing makes Stripe fire `payment_intent.succeeded`, and that
+      // is what creates the order — through the same handler and the same mms_fulfill_order as every
+      // other payment. So an order is only ever born already captured, and no surface that reads
+      // `status` has to learn a fourth state.
+      const cartId = intent.metadata?.cartId;
+      const tipRate = Number(intent.metadata?.tipRate ?? 0);
+      if (!cartId) {
+        // Unrecoverable and unretryable: without the cart there is nothing to re-derive. Cancel the
+        // hold so the diner is not left with a week-long pending charge for an order that cannot
+        // exist, and don't 5xx into 72h of retries that cannot succeed.
+        console.error("[stripe webhook] authorized pickup intent missing cartId metadata", {
+          paymentIntent: intent.id,
+        });
+        try {
+          await getStripe().paymentIntents.cancel(intent.id);
+        } catch (e) {
+          console.error("[stripe webhook] cancel of cartId-less hold failed", {
+            paymentIntent: intent.id,
+            error: e,
+          });
+        }
+      } else {
+        let outcome;
+        try {
+          outcome = await settleAuthorizedPickup(intent.id, cartId, intent.amount, tipRate);
+        } catch (e) {
+          console.error("[stripe webhook] manual capture threw", {
+            paymentIntent: intent.id,
+            cartId,
+            error: e,
+          });
+          return NextResponse.json({ error: "Capture failed; will retry" }, { status: 500 });
+        }
+        if (outcome.kind === "retry")
+          return NextResponse.json(
+            { error: `Capture deferred: ${outcome.note}` },
+            { status: 500 }, // Stripe redelivers; the hold stands untouched meanwhile
+          );
+        getPostHogClient().capture({
+          distinctId: cartId,
+          event: "pickup_hold_settled",
+          properties: {
+            cart_id: cartId,
+            outcome: outcome.kind,
+            ...(outcome.kind === "captured" && {
+              amount_cents: outcome.amountCents,
+              partial: outcome.partial,
+              dropped: outcome.dropped.length,
+            }),
+          },
+        });
+      }
+    } else if (intent.metadata?.kind === "split_share") {
       try {
         await onShareAuthorized(intent.id);
       } catch (e) {

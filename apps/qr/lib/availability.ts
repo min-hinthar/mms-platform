@@ -79,6 +79,22 @@ function blockableLines(lines: CartLineish[]): CartLineish[] {
  * and stably ordered so two lines of the same dish read as one problem.
  */
 export function pickUnavailableNames(lines: CartLineish[], items: CatalogItemish[]): string[] {
+  return pickUnavailable(lines, items).map((u) => u.name);
+}
+
+/** One dish that can no longer be made: the catalog id the cart line points at, and what to call it. */
+export type UnavailableLine = { id: string; name: string };
+
+/**
+ * W23c — the same verdict as `pickUnavailableNames`, keeping the ID alongside the name.
+ *
+ * The charge-boundary gate only ever needed names, because all it does is refuse and say which dish.
+ * The manual-capture path needs to ACT on the lines — void them, then capture the reduced total — so
+ * it needs the ids too. One traversal, one rule: `pickUnavailableNames` is now a projection of this,
+ * because two functions deciding "is this sellable?" would eventually disagree, and the surface they
+ * would disagree on is a charge.
+ */
+export function pickUnavailable(lines: CartLineish[], items: CatalogItemish[]): UnavailableLine[] {
   const live = blockableLines(lines);
   if (live.length === 0) return [];
 
@@ -88,12 +104,12 @@ export function pickUnavailableNames(lines: CartLineish[], items: CatalogItemish
   const sellable = new Set(items.filter(itemSellable).map((i) => i.id));
   const catalogName = new Map(items.map((i) => [i.id, i.name_en]));
   const seen = new Set<string>();
-  const out: string[] = [];
+  const out: UnavailableLine[] = [];
   for (const l of live) {
     const id = l.menu_item_id as string;
     if (sellable.has(id) || seen.has(id)) continue;
     seen.add(id);
-    out.push(catalogName.get(id) ?? l.name);
+    out.push({ id, name: catalogName.get(id) ?? l.name });
   }
   return out;
 }

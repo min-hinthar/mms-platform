@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  pickUnavailable,
   pickUnavailableNames,
   foodMenuIds,
   type CartLineish,
@@ -141,6 +142,31 @@ describe("pickUnavailableNames", () => {
         ],
       ),
     ).toEqual(["Beta", "Alpha"]);
+  });
+});
+
+describe("pickUnavailable — the ids the manual-capture path acts on (W23c)", () => {
+  it("carries the id alongside the name, so the void can target the line", () => {
+    expect(
+      pickUnavailable(
+        [line({ menu_item_id: "a" }), line({ menu_item_id: "b" })],
+        [item({ id: "a", name_en: "Mohinga", is_sold_out: true }), item({ id: "b" })],
+      ),
+    ).toEqual([{ id: "a", name: "Mohinga" }]);
+  });
+
+  it("is the SAME verdict pickUnavailableNames projects — one rule, not two", () => {
+    // Two functions deciding "is this sellable?" would eventually disagree, and the surface they
+    // would disagree on is a charge: the gate would refuse a basket the capture path was happy to
+    // void, or worse, the other way round.
+    const lines = [line({ menu_item_id: "a" }), line({ menu_item_id: "b", fulfillment: "dinein" })];
+    const items = [
+      item({ id: "a", name_en: "Alpha", is_sold_out: true }),
+      item({ id: "b", name_en: "Beta", is_active: false }),
+    ];
+    expect(pickUnavailable(lines, items).map((u) => u.name)).toEqual(
+      pickUnavailableNames(lines, items),
+    );
   });
 });
 

@@ -1,5 +1,5 @@
 import { serviceClient } from "@mms/db/server";
-import { foodMenuIds, pickUnavailableNames } from "./availability";
+import { foodMenuIds, pickUnavailable, type UnavailableLine } from "./availability";
 
 /**
  * W23a — the two reads behind the charge-boundary availability gate. Thin on purpose: every rule
@@ -13,6 +13,14 @@ import { foodMenuIds, pickUnavailableNames } from "./availability";
  * every catalog blip. The `console.error` is what makes the swallow deliberate rather than silent.
  */
 export async function unavailableLineNames(cartId: string): Promise<string[]> {
+  return (await unavailableLines(cartId)).map((u) => u.name);
+}
+
+/**
+ * W23c — the same read, keeping the ids. The charge-boundary gate only needs names (it refuses and
+ * says which dish); the manual-capture path needs to void the lines, so it needs what to void.
+ */
+export async function unavailableLines(cartId: string): Promise<UnavailableLine[]> {
   const db = serviceClient();
   const { data: lines, error: linesErr } = await db
     .from("qr_cart_items")
@@ -33,5 +41,5 @@ export async function unavailableLineNames(cartId: string): Promise<string[]> {
     console.error("[availability] catalog read failed", itemsErr?.message);
     return [];
   }
-  return pickUnavailableNames(lines, items);
+  return pickUnavailable(lines, items);
 }
