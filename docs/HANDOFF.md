@@ -203,10 +203,11 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > `fasnpdhtvqtzjlvruqcu`; its migration history ends at `w23a_sold_out` (prod stamps its own
 > apply-time versions — match history by NAME, not timestamp), and **W22a / W22a·depth / W22r / W22b
 > needed no migration at all** — every column the itemized tracker and the live order chip read
-> already existed. This head is stated ONCE, here: the W23a block above says what `w23a_sold_out`
-> did and what the probes returned, and this line is the only place that says where prod's history
-> stops. Two statements of a migration head is how a future session gets told a slice is unapplied
-> when it is live (Codex caught exactly that drift on #200, one commit after it was introduced).
+> already existed. **This line is the ONE statement of prod's migration head** — the W23a block above
+> says what `w23a_sold_out` did and what the probes returned, and the "Prod state you can rely on"
+> bullet points here rather than restating. Keep it that way: two copies of a migration head is how a
+> future session gets told a live slice is unapplied, which is precisely what Codex found on #200 —
+> twice, the second time in the fix for the first.
 >
 > ### What the owner asked for, and where it landed
 >
@@ -249,10 +250,13 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > - **34 items carry no photo** — the 3 genuinely-NULL dishes (C5's photography afternoon) plus
 >   W17d-2's 31 adds. Don't read 34 as a regression: since W16d `safeImageUrl` (containment) is the
 >   only rule and no display filter hides a real photo.
-> - **Migration history ends at `w21d_allergen_amendments`** — W21d's two allergen P1 fixes are live
->   (Sanwin Makin → dairy, Crispy Shrimp in Fish Sauce → fish). **W22a / W22a·depth / W22r needed no
->   migration**, so the repo's newest file is still `20260816080000`. Prod stamps apply-time versions:
->   match history by NAME, not timestamp.
+> - **Migration head: see the "Everything below is merged AND prod-applied" paragraph above — it is
+>   the ONE place this file states where prod's history stops.** This bullet used to restate it and
+>   drifted the moment W23a landed; Codex caught it twice on #200, the second time inside a fix whose
+>   own commit message claimed the head was already stated once. That is the lesson worth keeping: a
+>   fact repeated in a third place drifts exactly like a value computed in two places, and the repo
+>   has now paid for it in prose as well as in code. The repo's newest migration FILE is
+>   `20260819000000_w23a_sold_out.sql`.
 >
 > ### ⚠️ Open decisions that BLOCK work — ask the owner, don't guess
 >
