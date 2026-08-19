@@ -101,6 +101,13 @@ describe("settleAuthorizedPickup", () => {
       dropped: ["Mohinga"],
     });
     expect(captures).toEqual([{ id: "pi_2", amount: 3800 }]);
+    // The IDS have to reach the RPC, not just the call. Without this the suite passes whether the
+    // precheck is handed the sold-out dish or an empty list — the mocked total hides the difference,
+    // and the void becomes a no-op that still captures a reduced amount by coincidence.
+    expect(voidCalls[0]).toMatchObject({
+      fn: "mms_settle_precheck_and_void",
+      args: { p_cart: "cart_2", p_menu_ids: ["m1"], p_payer: PAYER },
+    });
   });
 
   it("re-derives the total AFTER voiding, never before", async () => {
