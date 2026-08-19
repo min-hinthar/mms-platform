@@ -132,7 +132,9 @@ export function OrderTracker({
   // Gated on `awaitingCapture`, so it costs an automatic-capture diner exactly nothing.
   const [polledSettle, setPolledSettle] = useState<SettleCanceled | null>(null);
   useEffect(() => {
-    if (!awaitingCapture || !paymentIntent || liveOrder || polledSettle) return;
+    // `order`, not `liveOrder`: the fallback can resolve an order too, and a poll that kept running
+    // past it would be asking whether a payment that demonstrably landed was cancelled.
+    if (!awaitingCapture || !paymentIntent || order || polledSettle) return;
     let active = true;
     let tries = 0;
     let timer: ReturnType<typeof setTimeout>;
@@ -169,10 +171,19 @@ export function OrderTracker({
       active = false;
       clearTimeout(timer);
     };
-  }, [awaitingCapture, paymentIntent, liveOrder, polledSettle]);
-  const settleCanceled: SettleCanceled | null =
-    polledSettle ??
-    (fallback?.ok === false && fallback.reason === "settle_canceled" ? fallback.settle : null);
+  }, [awaitingCapture, paymentIntent, order, polledSettle]);
+  //
+  // ⚠️ AN ORDER OUTRANKS A VERDICT, ALWAYS (adversarial review). `getMyOrderFallback` reads the order
+  // FIRST and only consults the ledger when none is found; the poll is a bare verdict read with no
+  // such ordering, and `polledSettle` is write-once — so without this guard a verdict could pin
+  // "No payment was taken" over a receipt for a real charge, on the same screen, for the life of the
+  // mount. The terminal-verdict rule in `manual-capture-run.ts` should make order-and-verdict
+  // unreachable for one intent (a recorded cancellation can never go on to capture), which is
+  // exactly why this costs nothing: it is the belt for a claim that must never appear even once.
+  const settleCanceled: SettleCanceled | null = order
+    ? null
+    : (polledSettle ??
+      (fallback?.ok === false && fallback.reason === "settle_canceled" ? fallback.settle : null));
   // W10c — the timed-out banner's whole vocabulary ("a moment", "refresh to check") assumes a
   // transient blip. When BOTH the live read and the uid-scoped server fallback have given up, ask
   // the one health probe whether it's us; if it is, the honest thing is not "try again" but "your
@@ -594,7 +605,7 @@ export function OrderTracker({
             Payment cancelled
           </p>
           <h1 style={{ fontSize: "var(--fs-h1)", margin: "4px 0 0" }}>
-            {settleCanceledCopy(settleCanceled.reason).heading}
+            {settleCanceledCopy(settleCanceled).heading}
           </h1>
           <p
             style={{
@@ -604,7 +615,7 @@ export function OrderTracker({
               lineHeight: 1.55,
             }}
           >
-            {settleCanceledCopy(settleCanceled.reason).body}
+            {settleCanceledCopy(settleCanceled).body}
           </p>
           {/* Named only when we can name them. `count` comes from the raw snapshot and `lines` from
               the well-formed entries, so a corrupt row degrades to the count rather than to silence

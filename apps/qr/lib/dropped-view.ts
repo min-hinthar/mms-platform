@@ -176,9 +176,19 @@ export const SETTLE_CANCELED_NOTE =
  * Every arm must also read correctly with ZERO dropped lines, which is why no body refers to "these
  * dishes" — the list is rendered separately, and only when there is one.
  */
-export function settleCanceledCopy(reason: SettleCancelReason): { heading: string; body: string } {
-  switch (reason) {
+export function settleCanceledCopy(settle: SettleCanceled): { heading: string; body: string } {
+  switch (settle.reason) {
     case "nothing_left":
+      // ⚠️ `nothing_left` is `liveTotalCents <= 0`, NOT "every line was voided" (see planCapture).
+      // A promo or reward clamped to the remaining subtotal can drive a SHRUNKEN basket to zero with
+      // dishes still on it, so the shortage sentence would be false there — the same fabricated
+      // explanation as blaming a shortage on the over_authorized arm, which this module already
+      // refuses. The dropped list is the evidence, so the copy follows it rather than the reason.
+      if (settle.dropped.count === 0)
+        return {
+          heading: "There was nothing left to charge for",
+          body: "By the time we went to take the payment your order came to nothing, so we didn’t take it — and nothing was placed.",
+        };
       return {
         heading: "Everything on your order sold out",
         body: "The last of it went while your payment was going through, so there was nothing left for us to make — and we didn’t charge you.",
@@ -189,9 +199,15 @@ export function settleCanceledCopy(reason: SettleCancelReason): { heading: strin
         body: "The price came out higher than the amount you approved — an offer expiring is the usual reason — so we stopped rather than charge you something you hadn’t agreed to.",
       };
     case "cart_not_open":
+      // ⚠️ CLAIM ONLY "no longer open" (adversarial review, HIGH). The precheck answers -1 for ANY
+      // non-open cart, and `qr_carts.status` is ('open','paid','cancelled') — so this arm covers a
+      // cart that was SETTLED another way AND one that was CANCELLED (every merge/void path writes
+      // `status = 'cancelled'`). The first draft asserted the settled reading alone, which tells a
+      // guest whose order was cancelled that it "went through another way" — an order that does not
+      // exist, on the screen they opened to find out what happened to their money.
       return {
-        heading: "This order was already settled",
-        body: "It went through another way — at the counter, or on another device — so we didn’t take this payment on top of it.",
+        heading: "This order was already closed",
+        body: "It was finished or cancelled another way before we got to this payment — so we didn’t take it. If it was settled at the counter, that’s the receipt to look for.",
       };
     case "superseded":
       // ⚠️ Claim ONLY what the verdict proves (Codex #205 P2). `superseded` means the cart's lock no
@@ -232,6 +248,6 @@ export const SETTLE_CANCELED_NEXT =
 /** What the single `role="status"` region announces for a cancelled hold. One string: the region is
  *  the view's only live region (QA-CHECKLIST §A), so it carries the whole verdict, not a fragment. */
 export function settleCanceledSpoken(settle: SettleCanceled): string {
-  const { heading, body } = settleCanceledCopy(settle.reason);
+  const { heading, body } = settleCanceledCopy(settle);
   return `${heading}. ${body} ${SETTLE_CANCELED_NOTE}`;
 }

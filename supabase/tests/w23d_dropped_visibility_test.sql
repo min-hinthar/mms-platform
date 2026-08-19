@@ -13,6 +13,8 @@
 --      order that never contained the dish.
 --   3. The cancellation ledger is per-INTENT and idempotent: a redelivery cannot mint a second row,
 --      and two attempts on one cart each keep their own verdict.
+--   4. The attempt stamp is written by the PRODUCTION writer (`mms_settle_precheck_and_void`), not
+--      by a fixture — see §0. Nothing else in the repo can catch its removal from the SQL.
 --
 -- Run against any QR DB (rolls back — leaves NO data behind):
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/w23d_dropped_visibility_test.sql
@@ -30,10 +32,44 @@ insert into public.session_members (session_id, seat_id, display_name, role) val
 insert into public.qr_carts (id, session_id) values
   ('00000000-0000-0000-0000-00000023dca7', '00000000-0000-0000-0000-00000023d000');
 
--- Two attempts on ONE cart: the first cancelled with a dropped line, the second a live capture.
-insert into public.qr_dropped_lines (cart_id, line_id, name, qty, amount_cents, reason_code, payment_intent)
-values ('00000000-0000-0000-0000-00000023dca7', '00000000-0000-0000-0000-00000023d11e',
-        'Mohinga', 2, 2400, 'sold_out', 'pi_w23d_first');
+-- ── 0. the drop row is written by the REAL writer, not by hand ─────────────────────────────────
+-- The adversarial review's sharpest finding: every other assertion below was fed by a hand-written
+-- INSERT, so `mms_settle_precheck_and_void` — the ONLY production writer of `payment_intent` — was
+-- never called by anything. Deleting the column from its INSERT would have passed the vitest suites
+-- (they mock the database), the drift guard (it compares schema to types) and this file. A guard fed
+-- by a fixture proves the fixture.
+--
+-- So the first attempt's drop row is produced by CALLING the function, under the same preconditions
+-- the settlement gives it: an OPEN cart, locked by the payer, on the matching attempt era, with a
+-- DRAFT food line whose menu id is handed in.
+insert into public.qr_cart_items (id, cart_id, menu_item_id, name, qty, unit_price_cents, state, fulfillment)
+values ('00000000-0000-0000-0000-00000023d11e', '00000000-0000-0000-0000-00000023dca7',
+        'w23d-test-mohinga', 'Mohinga', 2, 1200, 'draft', 'togo');
+update public.qr_carts
+   set locked_by = '00000000-0000-0000-0000-00000023d1ce',
+       locked_at = '2026-08-19T18:00:00Z'
+ where id = '00000000-0000-0000-0000-00000023dca7';
+
+do $$
+declare v_voided integer;
+begin
+  v_voided := public.mms_settle_precheck_and_void(
+    '00000000-0000-0000-0000-00000023dca7',
+    array['w23d-test-mohinga'],
+    '00000000-0000-0000-0000-00000023d1ce',
+    '2026-08-19T18:00:00Z'::timestamptz,
+    'pi_w23d_first');
+  assert v_voided = 1, format('the precheck should have voided exactly one line, voided %s', v_voided);
+  -- THE assertion the hand-written fixture could never make: the writer stamps the attempt.
+  assert (select payment_intent from public.qr_dropped_lines
+            where cart_id = '00000000-0000-0000-0000-00000023dca7') = 'pi_w23d_first',
+    'the precheck did not stamp the dropped line with its own PaymentIntent';
+  -- …and it really did take the line off the basket, which is what makes the capture amount right.
+  assert (select state from public.qr_cart_items
+            where id = '00000000-0000-0000-0000-00000023d11e') = 'voided',
+    'the precheck reported a void it did not perform';
+end $$;
+
 select public.mms_mark_settle_canceled(
   'pi_w23d_first', '00000000-0000-0000-0000-00000023dca7', 'nothing_left',
   '00000000-0000-0000-0000-00000023d1ce', now());

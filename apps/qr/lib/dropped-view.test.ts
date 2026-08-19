@@ -141,7 +141,7 @@ describe("the copy for a CANCELLED hold", () => {
   it("gives each reason its own explanation", () => {
     const headings = (
       ["nothing_left", "over_authorized", "cart_not_open", "superseded", "unknown"] as const
-    ).map((r) => settleCanceledCopy(r).heading);
+    ).map((r) => settleCanceledCopy({ reason: r, dropped: { count: 1, lines: [] } }).heading);
     expect(new Set(headings).size).toBe(headings.length);
   });
 
@@ -150,9 +150,35 @@ describe("the copy for a CANCELLED hold", () => {
     // lines still AVAILABLE (a promo lapses on `valid_until`, purely on time — registry M70), so
     // "everything sold out" would be a fabricated explanation on the one screen a guest reads to
     // find out where their money went.
-    const over = settleCanceledCopy("over_authorized");
+    const over = settleCanceledCopy({ reason: "over_authorized", dropped: NO_DROPS });
     expect(`${over.heading} ${over.body}`).not.toMatch(/sold out|ran out|shortage/i);
-    expect(settleCanceledCopy("nothing_left").heading).toMatch(/sold out/i);
+    expect(
+      settleCanceledCopy({ reason: "nothing_left", dropped: { count: 1, lines: [] } }).heading,
+    ).toMatch(/sold out/i);
+  });
+
+  it("does not claim a shortage when nothing was actually dropped", () => {
+    // `nothing_left` is `liveTotalCents <= 0`, not "every line was voided" — a promo or reward
+    // clamped to the remaining subtotal can zero a SHRUNKEN basket with dishes still on it. The
+    // two arms must be separable, or the copy asserts a shortage the code never observed.
+    const withDrops = settleCanceledCopy({
+      reason: "nothing_left",
+      dropped: { count: 2, lines: [] },
+    });
+    const without = settleCanceledCopy({ reason: "nothing_left", dropped: NO_DROPS });
+    expect(withDrops.heading).toMatch(/sold out/i);
+    expect(`${without.heading} ${without.body}`).not.toMatch(/sold out|ran out/i);
+    expect(withDrops.heading).not.toBe(without.heading);
+  });
+
+  it("claims only 'no longer open' on the cart_not_open arm, never 'it was paid'", () => {
+    // The precheck answers -1 for ANY non-open cart, and qr_carts.status is
+    // ('open','paid','cancelled') — every merge/void path writes 'cancelled'. Asserting the settled
+    // reading alone tells a guest whose order was CANCELLED that it went through another way.
+    const closed = settleCanceledCopy({ reason: "cart_not_open", dropped: NO_DROPS });
+    const text = `${closed.heading} ${closed.body}`;
+    expect(text).toMatch(/cancelled/i); // the reading the first draft omitted
+    expect(text).not.toMatch(/already settled|went through another way/i);
   });
 
   it("claims no successor payment on the superseded arm", () => {
@@ -160,7 +186,7 @@ describe("the copy for a CANCELLED hold", () => {
     // covers a released lock, a takeover by another payer, and a newer checkout that was abandoned.
     // None of those is evidence a successor payment SUCCEEDED, so asserting one is the same defect
     // as blaming a shortage on the over_authorized arm, in the other direction.
-    const sup = settleCanceledCopy("superseded");
+    const sup = settleCanceledCopy({ reason: "superseded", dropped: NO_DROPS });
     const text = `${sup.heading} ${sup.body}`;
     expect(text).not.toMatch(/was paid for again|kept the newer payment|we kept/i);
     // It still has to be USEFUL: point at the newer attempt without asserting it completed.
@@ -205,7 +231,7 @@ describe("the copy for a CANCELLED hold", () => {
 
   it("speaks the whole verdict in one string — the view has one live region", () => {
     const spoken = settleCanceledSpoken({ reason: "nothing_left", dropped: NO_DROPS });
-    const { heading, body } = settleCanceledCopy("nothing_left");
+    const { heading, body } = settleCanceledCopy({ reason: "nothing_left", dropped: NO_DROPS });
     expect(spoken).toContain(heading);
     expect(spoken).toContain(body);
     expect(spoken).toContain(SETTLE_CANCELED_NOTE);

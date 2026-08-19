@@ -537,6 +537,22 @@ const MUTANTS = [
     replace: "    await releaseOurLock(cartId, payerUid);",
   },
   {
+    id: "dropped-view/zero-total-blamed-on-a-shortage",
+    file: "apps/qr/lib/dropped-view.ts",
+    suite: "lib/dropped-view.test.ts",
+    why: 'W23d (adversarial review) — `nothing_left` is `liveTotalCents <= 0`, NOT "every line was voided". A promo or reward clamped to the remaining subtotal can drive a SHRUNKEN basket to zero with dishes still on it, so the shortage sentence is affirmatively false there. Same fabricated-explanation defect as blaming a shortage on the over_authorized arm; the dropped list is the evidence, so the copy has to follow it rather than the reason code.',
+    find: "      if (settle.dropped.count === 0)",
+    replace: "      if (settle.dropped.count < 0)",
+  },
+  {
+    id: "dropped-view/closed-cart-claimed-as-settled",
+    file: "apps/qr/lib/dropped-view.ts",
+    suite: "lib/dropped-view.test.ts",
+    why: "W23d (adversarial review, HIGH) — the precheck answers -1 for ANY non-open cart, and `qr_carts.status` is ('open','paid','cancelled') — every merge/void path writes 'cancelled'. Asserting the settled reading alone tells a guest whose order was CANCELLED that it \"went through another way\", pointing them at a receipt for an order that does not exist, on the one screen they opened to find out where their money went.",
+    find: '        heading: "This order was already closed",',
+    replace: '        heading: "This order was already settled",',
+  },
+  {
     id: "dropped-view/superseded-claims-a-successor-payment",
     file: "apps/qr/lib/dropped-view.ts",
     suite: "lib/dropped-view.test.ts",
