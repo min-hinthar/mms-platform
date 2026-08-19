@@ -304,7 +304,14 @@ export async function POST(req: NextRequest) {
           // The discriminant the webhook's amount_capturable_updated arm keys on. Split shares use
           // the same event with kind='split_share', so this must be present and distinct — without
           // it an authorized pickup would fall through that arm and its hold would simply expire.
-          ...(manualCapture && { kind: "pickup_manual" as const }),
+          ...(manualCapture && {
+            kind: "pickup_manual" as const,
+            // The ERA this authorization belongs to. `acquireCartLock` lets the SAME diner reacquire,
+            // so a re-checkout (a different tip, say) produces a second hold over one cart and the
+            // FIRST one's webhook still names them as lock holder. The settle path compares this
+            // against the cart's live `locked_at` and refuses a superseded era.
+            attempt: attemptStamp,
+          }),
         },
       },
       // Include tipRate in the key so two different tip choices that happen to land on the same

@@ -49,6 +49,7 @@ vi.mock("./totals", () => ({
 }));
 
 const PAYER = "payer-uid-1";
+const ATTEMPT = "2026-08-19T18:00:00.000Z";
 const lockReleases: string[] = [];
 vi.mock("./lock", () => ({
   releaseCartLock: (cartId: string) => {
@@ -88,7 +89,7 @@ beforeEach(() => {
 
 describe("settleAuthorizedPickup", () => {
   it("captures the full hold when the catalog still has everything", async () => {
-    const r = await settleAuthorizedPickup("pi_1", "cart_1", 5200, 0.2, PAYER);
+    const r = await settleAuthorizedPickup("pi_1", "cart_1", 5200, 0.2, PAYER, ATTEMPT);
     expect(r).toEqual({ kind: "captured", amountCents: 5200, partial: false, dropped: [] });
     expect(captures).toEqual([{ id: "pi_1", amount: 5200 }]);
     // The precheck runs even with nothing to drop — it is the proof the cart is still open and
@@ -97,7 +98,7 @@ describe("settleAuthorizedPickup", () => {
     expect(voidCalls).toHaveLength(1);
     expect(voidCalls[0]).toMatchObject({
       fn: "mms_settle_precheck_and_void",
-      args: { p_cart: "cart_1", p_menu_ids: [], p_payer: PAYER },
+      args: { p_cart: "cart_1", p_menu_ids: [], p_payer: PAYER, p_attempt: ATTEMPT },
     });
   });
 
@@ -105,7 +106,7 @@ describe("settleAuthorizedPickup", () => {
     gone = [{ id: "m1", name: "Mohinga" }];
     voidResult = 1;
     liveTotal = 3800; // re-derived after the void, tip recomputed at the chosen rate
-    const r = await settleAuthorizedPickup("pi_2", "cart_2", 5200, 0.2, PAYER);
+    const r = await settleAuthorizedPickup("pi_2", "cart_2", 5200, 0.2, PAYER, ATTEMPT);
     expect(r).toEqual({
       kind: "captured",
       amountCents: 3800,
@@ -118,7 +119,7 @@ describe("settleAuthorizedPickup", () => {
     // and the void becomes a no-op that still captures a reduced amount by coincidence.
     expect(voidCalls[0]).toMatchObject({
       fn: "mms_settle_precheck_and_void",
-      args: { p_cart: "cart_2", p_menu_ids: ["m1"], p_payer: PAYER },
+      args: { p_cart: "cart_2", p_menu_ids: ["m1"], p_payer: PAYER, p_attempt: ATTEMPT },
     });
   });
 
@@ -128,7 +129,7 @@ describe("settleAuthorizedPickup", () => {
     gone = [{ id: "m1", name: "Mohinga" }];
     voidResult = 1;
     liveTotal = 3800;
-    await settleAuthorizedPickup("pi_3", "cart_3", 5200, 0.2, PAYER);
+    await settleAuthorizedPickup("pi_3", "cart_3", 5200, 0.2, PAYER, ATTEMPT);
     expect(voidCalls).toHaveLength(1);
     expect(captures[0]!.amount).toBe(3800); // the post-void figure, not the 5200 hold
   });
@@ -139,10 +140,17 @@ describe("settleAuthorizedPickup", () => {
     // and let Stripe redeliver.
     gone = [{ id: "m1", name: "Mohinga" }];
     voidError = { message: "transport" };
-    const r = await settleAuthorizedPickup("pi_4", "cart_4", 5200, 0.2, PAYER);
+    const r = await settleAuthorizedPickup("pi_4", "cart_4", 5200, 0.2, PAYER, ATTEMPT);
     expect(r.kind).toBe("retry");
     expect(captures).toEqual([]);
     expect(cancels).toEqual([]); // the hold is left INTACT for the retry, not thrown away
+  });
+
+  it("carries the attempt era into the precheck", async () => {
+    // Without it a superseded authorization passes the lock check (same payer!) and captures its own
+    // older amount and tip against the successor attempt's basket.
+    await settleAuthorizedPickup("pi_14", "cart_14", 5200, 0.2, PAYER, ATTEMPT);
+    expect(voidCalls[0]).toMatchObject({ args: { p_attempt: ATTEMPT } });
   });
 
   it("does NOT capture when the precheck failed and NOTHING had run out", async () => {
@@ -152,7 +160,7 @@ describe("settleAuthorizedPickup", () => {
     // still open or still ours, which is exactly when capturing is unsafe.
     gone = [];
     voidError = { message: "transport" };
-    const r = await settleAuthorizedPickup("pi_12", "cart_12", 5200, 0.2, PAYER);
+    const r = await settleAuthorizedPickup("pi_12", "cart_12", 5200, 0.2, PAYER, ATTEMPT);
     expect(r.kind).toBe("retry");
     expect(captures).toEqual([]);
     expect(cancels).toEqual([]);
@@ -161,7 +169,7 @@ describe("settleAuthorizedPickup", () => {
   it("cancels the hold when the cart is no longer open", async () => {
     gone = [{ id: "m1", name: "Mohinga" }];
     voidResult = -1; // the RPC's "cart is not open" answer
-    const r = await settleAuthorizedPickup("pi_5", "cart_5", 5200, 0.2, PAYER);
+    const r = await settleAuthorizedPickup("pi_5", "cart_5", 5200, 0.2, PAYER, ATTEMPT);
     expect(r).toEqual({ kind: "canceled", reason: "cart no longer open" });
     expect(cancels).toEqual(["pi_5"]);
     expect(captures).toEqual([]);
@@ -175,7 +183,7 @@ describe("settleAuthorizedPickup", () => {
     gone = [{ id: "m1", name: "Mohinga" }];
     voidResult = 1;
     liveTotal = 0;
-    const r = await settleAuthorizedPickup("pi_6", "cart_6", 5200, 0.2, PAYER);
+    const r = await settleAuthorizedPickup("pi_6", "cart_6", 5200, 0.2, PAYER, ATTEMPT);
     expect(r).toEqual({ kind: "canceled", reason: "nothing_left" });
     expect(cancels).toEqual(["pi_6"]);
     expect(captures).toEqual([]);
@@ -188,7 +196,7 @@ describe("settleAuthorizedPickup", () => {
     // tidiness. Cancellation is idempotent and no money has moved, so a 5xx is safe.
     cancelThrows = true;
     liveTotal = 0;
-    const r = await settleAuthorizedPickup("pi_13", "cart_13", 5200, 0.2, PAYER);
+    const r = await settleAuthorizedPickup("pi_13", "cart_13", 5200, 0.2, PAYER, ATTEMPT);
     expect(r.kind).toBe("retry");
     expect(captures).toEqual([]);
     // The lock is NOT released either — the settlement has not actually ended yet.
@@ -199,7 +207,7 @@ describe("settleAuthorizedPickup", () => {
     // Stripe redelivers for 72h. A second delivery of this event must not re-void a basket whose
     // money has already moved.
     intentStatus = "succeeded";
-    const r = await settleAuthorizedPickup("pi_7", "cart_7", 5200, 0.2, PAYER);
+    const r = await settleAuthorizedPickup("pi_7", "cart_7", 5200, 0.2, PAYER, ATTEMPT);
     expect(r.kind).toBe("already");
     expect(captures).toEqual([]);
     expect(cancels).toEqual([]);
@@ -210,15 +218,19 @@ describe("settleAuthorizedPickup", () => {
     // The gate upstream fails OPEN on purpose. Here that same silence would capture the full hold
     // for a basket that may contain a dish nobody can make.
     readOk = false;
-    const r = await settleAuthorizedPickup("pi_9", "cart_9", 5200, 0.2, PAYER);
+    const r = await settleAuthorizedPickup("pi_9", "cart_9", 5200, 0.2, PAYER, ATTEMPT);
     expect(r.kind).toBe("retry");
     expect(captures).toEqual([]);
     expect(voidCalls).toEqual([]);
   });
 
-  it("cancels when the pay lock has moved to another payer", async () => {
+  it("cancels when the lock has moved to another payer OR to a later attempt", async () => {
+    // -2 covers both: `locked_by` naming someone else, and `locked_at` naming a LATER checkout by
+    // this same diner. The second is the era-confusion case — a re-checkout with a different tip
+    // leaves the first authorization's webhook still naming a valid payer, and only the attempt
+    // stamp separates them.
     voidResult = -2;
-    const r = await settleAuthorizedPickup("pi_10", "cart_10", 5200, 0.2, PAYER);
+    const r = await settleAuthorizedPickup("pi_10", "cart_10", 5200, 0.2, PAYER, ATTEMPT);
     expect(r).toEqual({ kind: "canceled", reason: "lock lost to another payer" });
     expect(captures).toEqual([]);
     expect(cancels).toEqual(["pi_10"]);
@@ -233,7 +245,7 @@ describe("settleAuthorizedPickup", () => {
     // something the kitchen cannot make.
     gone = [{ id: "m1", name: "Mohinga" }];
     voidResult = 0;
-    const r = await settleAuthorizedPickup("pi_11", "cart_11", 5200, 0.2, PAYER);
+    const r = await settleAuthorizedPickup("pi_11", "cart_11", 5200, 0.2, PAYER, ATTEMPT);
     expect(r.kind).toBe("retry");
     expect(captures).toEqual([]);
     expect(cancels).toEqual([]);
@@ -241,7 +253,7 @@ describe("settleAuthorizedPickup", () => {
 
   it("leaves the hold intact when the totals read fails", async () => {
     totalsThrows = true;
-    const r = await settleAuthorizedPickup("pi_8", "cart_8", 5200, 0.2, PAYER);
+    const r = await settleAuthorizedPickup("pi_8", "cart_8", 5200, 0.2, PAYER, ATTEMPT);
     expect(r.kind).toBe("retry");
     expect(captures).toEqual([]);
     expect(cancels).toEqual([]);

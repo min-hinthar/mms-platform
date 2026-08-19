@@ -45,6 +45,7 @@ export async function settleAuthorizedPickup(
   authorizedCents: number,
   tipRate: number,
   payerUid: string,
+  attempt: string,
 ): Promise<CaptureOutcome> {
   const stripe = getStripe();
   const db = serviceClient();
@@ -76,6 +77,7 @@ export async function settleAuthorizedPickup(
     p_cart: cartId,
     p_menu_ids: gone.map((g) => g.id),
     p_payer: payerUid,
+    p_attempt: attempt,
   });
   if (voidErr) {
     console.error("[manual-capture] precheck/void failed", {
@@ -93,8 +95,8 @@ export async function settleAuthorizedPickup(
     return { kind: "canceled", reason: "cart no longer open" };
   }
   if (voided === -2) {
-    // Another payer owns this cart's settlement now — this authorization has no claim on it, and
-    // deliberately no claim on its lock either.
+    // The lock belongs to someone else, or to a LATER attempt by this same diner — either way this
+    // authorization's era is over and it has no claim on the cart, nor on its lock.
     if (!(await cancelHold(intentId, "lock lost to another payer")))
       return { kind: "retry", note: "cancel failed" };
     return { kind: "canceled", reason: "lock lost to another payer" };

@@ -66,14 +66,20 @@ comment on table public.qr_dropped_lines is
   'decided this. Passing a staff id would put a name against a decision nobody made; passing null '
   'raises. Also the number the owner actually wants — how often does the kitchen run out mid-order?';
 
+-- The old three-argument shape is DROPPED rather than replaced: adding a parameter to a plpgsql
+-- function creates an OVERLOAD, and two callable shapes of a money-path function is exactly the
+-- ambiguity this repo does not want. Nothing outside W23c has ever called it.
+drop function if exists public.mms_settle_precheck_and_void(uuid, text[], uuid);
+
 create or replace function public.mms_settle_precheck_and_void(
   p_cart uuid,
   p_menu_ids text[],
-  p_payer uuid
+  p_payer uuid,
+  p_attempt timestamptz
 ) returns integer language plpgsql security definer set search_path = '' as $$
-declare v_status text; v_locked_by uuid; v_count integer := 0; r record;
+declare v_status text; v_locked_by uuid; v_locked_at timestamptz; v_count integer := 0; r record;
 begin
-  select c.status, c.locked_by into v_status, v_locked_by
+  select c.status, c.locked_by, c.locked_at into v_status, v_locked_by, v_locked_at
     from public.qr_carts c where c.id = p_cart for update;
   if v_status is null then return -1; end if;          -- cart gone: nothing to charge for
   if v_status <> 'open' then return -1; end if;        -- settled/cleared out of band
@@ -81,21 +87,23 @@ begin
   -- whose lock is gone has no claim on this cart, whoever holds it now.
   if v_locked_by is distinct from p_payer then return -2; end if;
 
-  -- RECLAIM rather than refuse (Codex round 2 P1). `locked_by` alone does not prove the lock is
-  -- LIVE: lib/lock.ts treats one older than five minutes as stealable, so a diner who took longer
-  -- than that between minting the intent and confirming their card arrives here still named on a
-  -- lock the rest of the app already considers free.
+  -- ERA CHECK (Codex #204 round 2). `locked_by` alone cannot separate a live attempt from a
+  -- superseded one, because `acquireCartLock` lets the SAME uid reacquire: a diner who backs out and
+  -- re-checks-out with a different tip gets a second authorization over the same cart, and the FIRST
+  -- one's webhook still names them as the lock holder. Without this it would pass, and capture the
+  -- older authorization — old amount, old tip — against the successor attempt's basket.
   --
-  -- Refusing there would cancel a perfectly good payment for being slow, which is the wrong trade —
-  -- and it would not buy much, because the money is already guarded downstream: the totals are
-  -- re-derived after the voids, so an edited basket captures LESS, and one that somehow grew is
-  -- refused by `planCapture`. What the staleness really costs is ambiguity about who may act.
+  -- `p_attempt` is the `locked_at` this authorization was minted under, carried in the PaymentIntent's
+  -- metadata. Equality is the whole test: every fresh acquisition moves the timestamp, so a
+  -- superseded era simply does not match and is refused as -2 (the caller cancels its hold, which is
+  -- right — its era is over).
   --
-  -- So take the lock back instead. Nobody else holds it (locked_by still names this payer), we are
-  -- inside `for update` on the row, and after this line the lock is provably ours AND fresh — any
-  -- concurrent editor would have had to acquire it, which changes locked_by, which the check above
-  -- already catches.
-  update public.qr_carts set locked = true, locked_at = now() where id = p_cart;
+  -- This REPLACES the reclaim-the-lock idea from the previous round. Refreshing `locked_at` here
+  -- would have been actively harmful under the same scenario: it would stamp a superseded era as
+  -- current, and a redelivery after a failed capture would then find its own stamp moved and cancel a
+  -- perfectly good order. Verifying is both simpler and correct; the five-minute TTL stops mattering
+  -- once the attempt itself is identified.
+  if v_locked_at is distinct from p_attempt then return -2; end if;
 
   if p_menu_ids is null or array_length(p_menu_ids, 1) is null then return 0; end if;
 
@@ -118,11 +126,13 @@ begin
   return v_count;
 end $$;
 
-revoke all on function public.mms_settle_precheck_and_void(uuid, text[], uuid) from public, anon, authenticated;
-grant execute on function public.mms_settle_precheck_and_void(uuid, text[], uuid) to service_role;
+revoke all on function public.mms_settle_precheck_and_void(uuid, text[], uuid, timestamptz) from public, anon, authenticated;
+grant execute on function public.mms_settle_precheck_and_void(uuid, text[], uuid, timestamptz) to service_role;
 
-comment on function public.mms_settle_precheck_and_void(uuid, text[], uuid) is
+comment on function public.mms_settle_precheck_and_void(uuid, text[], uuid, timestamptz) is
   'W23c — confirm a pickup authorization may still be captured (cart open AND this payer still holds '
-  'the lock), and drop any lines the catalog says can no longer be made. Called unconditionally by '
+  'the lock, on the SAME attempt), and drop any lines the catalog says can no longer be made. Called '
+  'unconditionally by '
   'the manual-capture path, empty array included, so the gate runs on EVERY capture and not only on '
-  'the ones that have something to void. -1 = cart not open, -2 = lock lost, >= 0 = lines voided.';
+  'the ones that have something to void. -1 = cart not open, -2 = lock lost or superseded era, '
+  '>= 0 = lines voided.';

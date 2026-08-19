@@ -452,6 +452,14 @@ const MUTANTS = [
     replace: "    p_menu_ids: [],",
   },
   {
+    id: "manual-capture-run/attempt-era-not-carried",
+    file: "apps/qr/lib/manual-capture-run.ts",
+    suite: "lib/manual-capture-run.test.ts",
+    why: "W23c (Codex #204 round 2) — `acquireCartLock` lets the SAME diner reacquire, so a re-checkout (a different tip, say) puts a second authorization over one cart while the FIRST one's webhook still names a valid lock holder. The attempt stamp is the only thing separating the eras; without it the older hold captures its own amount and tip against the successor attempt's basket.",
+    find: "    p_attempt: attempt,",
+    replace: '    p_attempt: "",',
+  },
+  {
     id: "manual-capture-run/failed-cancel-acknowledged",
     file: "apps/qr/lib/manual-capture-run.ts",
     suite: "lib/manual-capture-run.test.ts",

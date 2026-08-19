@@ -44,14 +44,26 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 156 `verify:slice` mutants green · `pnpm check:docs` clean (94 files, 698 qr tests +
+> **Gate today:** 157 `verify:slice` mutants green · `pnpm check:docs` clean (94 files, 699 qr tests +
 > 41 ui tests) · CI green · then the two reviewers.
 >
 > **W23c (manual + partial capture for pickup — registry M69) — merged #203, migration prod-applied
-> + probed, and shipped DARK behind `PICKUP_MANUAL_CAPTURE=1`.** DO NOT flip that flag before
-> M70/M71/M72 are closed and a preview smoke test with a test-mode card has run: two Codex rounds
-> found FOURTEEN real defects on this path, and the suite was green throughout because it mocked the
-> RPC whose contract was wrong.
+> + probed, and shipped DARK behind `PICKUP_MANUAL_CAPTURE=1`.**
+>
+> ⛔ **Before that flag is flipped, ALL of these — not most of them:**
+>
+> 1. **Confirm the LIVE Stripe endpoint is subscribed to `payment_intent.amount_capturable_updated`.**
+>    That event is W23c's ONLY entry point; without it every pickup authorization sits uncaptured
+>    until it expires — food made, nobody charged, no error anywhere. The docs that configure this
+>    endpoint listed only two events until W23c (see the ⚠️ below), so an endpoint built from them
+>    does NOT have it.
+> 2. **M70 · M71 · M72 closed** (`docs/OPEN-ITEMS.md`).
+> 3. **A preview smoke test with a test-mode card**, covering all three outcomes: full capture, a
+>    partial after an 86, and a cancel when nothing survives.
+>
+> Two Codex rounds on #203 plus one on #204 found SIXTEEN real defects on this path, and the suite was
+> green throughout because it mocked the RPC whose contract was wrong. Treat the list above as the
+> minimum, not the ceiling.
 >
 > The one thing not to re-derive: **nothing is fulfilled at authorization.** Capturing fires
 > `payment_intent.succeeded` and the EXISTING handler creates the order, so an order is only ever
@@ -62,13 +74,18 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > `mms_settle_precheck_and_void` is a PRECHECK as much as a void — called unconditionally, empty
 > array included, because a check that only runs on the unusual path is a check the usual path does
-> not have. It RECLAIMS a stale-but-ours lock rather than refusing (refusing would cancel a slow
-> diner's good payment, and the money is already guarded by the post-void totals re-derive).
+> not have. It identifies the checkout ATTEMPT (`locked_by` + `locked_at`, the latter carried in the
+> PI's metadata), because `acquireCartLock` lets the same diner reacquire: a re-checkout with a
+> different tip leaves the FIRST authorization's webhook still naming a valid lock holder, and only
+> the attempt stamp separates the eras. An earlier draft RECLAIMED the lock instead — do not go back
+> to that: refreshing `locked_at` there stamps a superseded era as current, and a redelivery after a
+> failed capture then finds its own stamp moved and cancels a good order.
 >
 > ⚠️ **`docs/ENV.md`'s webhook event list was wrong for the WHOLE handler until W23c** — it named two
 > events; the handler acts on six. Any endpoint configured from the old docs silently breaks
-> split-tender, saved cards and W23b's refund reconcile. Latent, not live (prod has 0 split shares,
-> 0 refunds), but reconcile the live endpoint before any of those are used.
+> split-tender, saved cards, W23b's refund reconcile **and W23c itself**. Latent, not live for the
+> first three (prod has 0 split shares, 0 refunds) — but for W23c it is a hard rollout prerequisite,
+> not a latent risk, because the capture event is that feature's only entry point (item 1 above).
 >
 > Migration `20260819200000` **✅ prod-applied + probed** as `w23c_capture_void`, in a block that
 > RAISED at the end so the whole probe rolled back and prod was left untouched (verified: 0 ledger
@@ -613,7 +630,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (156 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (157 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and
