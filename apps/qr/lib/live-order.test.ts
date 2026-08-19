@@ -22,10 +22,17 @@ import {
  */
 describe("liveOrderStatusWord", () => {
   it("never lets a grocery basket claim a kitchen state — the DB stamps it 'preparing' at payment", () => {
-    // Every togo_status the column can hold, including the one the webhook actually writes.
-    for (const togoStatus of [null, "preparing", "ready", "picked_up"]) {
+    // Every NON-terminal togo_status the column can hold, including the one the webhook writes.
+    for (const togoStatus of [null, "preparing", "ready"]) {
       expect(liveOrderStatusWord({ kind: "grocery", togoStatus })).toBe("Ready to go");
     }
+  });
+
+  it("still says 'Picked up' for a COLLECTED basket — terminal outranks the grocery framing", () => {
+    // Adversarial review of #198: the grocery short-circuit used to run first, so the picked_up case
+    // was unreachable for the one kind /track was already showing it for. A basket that has been
+    // collected has been collected — "Ready to go" would be the stale word, not the honest one.
+    expect(liveOrderStatusWord({ kind: "grocery", togoStatus: "picked_up" })).toBe("Picked up");
   });
 
   it("reads dine-in neutrally — a dine-in order has no bagging signal, ever", () => {

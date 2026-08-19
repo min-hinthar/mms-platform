@@ -1104,9 +1104,9 @@ const MUTANTS = [
     file: "apps/qr/lib/live-order-panel.ts",
     suite: "lib/live-order-panel.test.ts",
     why: "W22b — the panel prints the fulfillment-time total VERBATIM; recomputing it from the breakdown is the drift this repo has paid for repeatedly (a value computed in one place and quoted in another WILL diverge — here a refunded or adjusted order would show a total the receipt never printed)",
-    find: '  if (order.totalCents > 0) rows.push({ label: "Total", value: money(order.totalCents) });',
+    find: '  if (order.totalCents > 0) rows.push({ label: "Order total", value: money(order.totalCents) });',
     replace:
-      '  if (order.totalCents > 0)\n    rows.push({\n      label: "Total",\n      value: money(\n        order.breakdown.subtotalCents +\n          order.breakdown.taxCents +\n          order.breakdown.tipCents,\n      ),\n    });',
+      '  if (order.totalCents > 0)\n    rows.push({\n      label: "Order total",\n      value: money(\n        order.breakdown.subtotalCents +\n          order.breakdown.taxCents +\n          order.breakdown.tipCents,\n      ),\n    });',
   },
   {
     id: "live-order/kind-precedence-dinein",

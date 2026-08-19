@@ -16,7 +16,8 @@ import type { TrackedOrder } from "./track-order";
  *     position, no stage counter, no staff name.
  *   • "In the kitchen" gets NO clock. `togo_status='preparing'` is stamped by the Stripe webhook's
  *     drain at PAYMENT, not by a cook — using it as a cooking-start would be a fabricated time wearing
- *     a real column's clothes. /track's rail already refuses this for the same reason.
+ *     a real column's clothes. /track's rail refuses a TIMESTAMP for that step for the same reason
+ *     (it does light the step itself).
  *   • A pure GROCERY basket has no kitchen story at all: the shopper scanned it and is holding it.
  *   • A pickup slot prints as an ABSOLUTE time, never a countdown. The capped countdown is /track's
  *     (it owns the 30s tick and the ±caps); a second copy here would be a second thing to keep true.
@@ -70,7 +71,10 @@ export function buildLiveOrderPanel(order: TrackedOrder, kind: LiveOrderKind): L
   }
 
   // The money snapshot, rendered verbatim — the same fulfillment-time total the receipt prints.
-  if (order.totalCents > 0) rows.push({ label: "Total", value: money(order.totalCents) });
+  // "Order total", not "Total": on a split-tender order this is the whole table's bill, not this
+  // diner's share, and the chip above it is headed "Your order". The receipt slip is the surface that
+  // breaks a share down; the chip must not let a $14.22 payer read $42.67 as what they paid.
+  if (order.totalCents > 0) rows.push({ label: "Order total", value: money(order.totalCents) });
 
   const context =
     kind === "pickup" && order.pickupSlot

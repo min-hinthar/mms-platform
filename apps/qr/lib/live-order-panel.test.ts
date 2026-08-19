@@ -44,7 +44,7 @@ describe("buildLiveOrderPanel — real moments only", () => {
   });
 
   it("omits every stamp the expo has not written yet — no placeholders, no 'pending'", () => {
-    expect(labels(base, "togo")).toEqual(["Placed", "Total"]);
+    expect(labels(base, "togo")).toEqual(["Placed", "Order total"]);
   });
 
   it("adds the ready and picked-up stamps only once they exist", () => {
@@ -54,7 +54,7 @@ describe("buildLiveOrderPanel — real moments only", () => {
       togoReadyAt: "2026-08-17T21:31:00.000Z",
       togoPickedUpAt: "2026-08-17T21:40:00.000Z",
     };
-    expect(labels(done, "togo")).toEqual(["Placed", "Ready", "Picked up", "Total"]);
+    expect(labels(done, "togo")).toEqual(["Placed", "Ready", "Picked up", "Order total"]);
     const v = buildLiveOrderPanel(done, "togo");
     expect(v.rows.find((r) => r.label === "Ready")?.value).toBe("2:31 PM");
   });
@@ -70,7 +70,7 @@ describe("buildLiveOrderPanel — real moments only", () => {
       togoReadyAt: "2026-08-17T21:31:00.000Z",
       togoPickedUpAt: "2026-08-17T21:40:00.000Z",
     };
-    expect(labels(basket, "grocery")).toEqual(["Placed", "Total"]);
+    expect(labels(basket, "grocery")).toEqual(["Placed", "Order total"]);
   });
 
   it("frames the arrival ping as the DINER's action, never as staff acknowledgement", () => {
@@ -84,7 +84,7 @@ describe("buildLiveOrderPanel — real moments only", () => {
 
   it("carries the money snapshot verbatim — it never recomputes a total", () => {
     const v = buildLiveOrderPanel({ ...base, totalCents: 4267 }, "togo");
-    expect(v.rows.find((r) => r.label === "Total")?.value).toBe("$42.67");
+    expect(v.rows.find((r) => r.label === "Order total")?.value).toBe("$42.67");
   });
 
   it("drops the Total row rather than printing $0.00 for a zero snapshot", () => {

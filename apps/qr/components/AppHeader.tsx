@@ -126,7 +126,12 @@ export function AppHeader() {
   let singleReady = false;
   if (clientLive && order) {
     singleHref = liveOrderTrackHref(order);
-    singleBase = order.mode === "pickup" ? "Pickup" : "Your order";
+    // W22b review — the base label rides `kind` (the line-fulfillment ladder), NOT the wayfinding
+    // store's `order.mode`. The TO-GO door navigates to `/menu?mode=pickup&door=togo`, so `mode` is
+    // literally "pickup" for every to-go order — the chip read "Pickup · Ready" while the panel it
+    // opened one line below was headed "To-go". `order.mode` survives only as the pre-row fallback,
+    // where it is the only signal this device has.
+    singleBase = (kind ? kind === "pickup" : order.mode === "pickup") ? "Pickup" : "Your order";
     singleWord = statusWord; // the base+status split lets the word drop on very narrow phones (dot stays)
     singleReady = ready;
   } else if (serverSingle) {
@@ -164,9 +169,11 @@ export function AppHeader() {
   //     pattern, and the reason the panel is gated on `showSingle && chipOpen` below) — an effect
   //     here would paint one frame of a panel belonging to an order that no longer exists;
   //  2. the FOCUS, which is a DOM side effect and so belongs in an effect. A focus restore to a node
-  //     that has left the DOM silently falls to <body>, stranding a keyboard user at the top of the
-  //     document with nothing announced, so focus is re-parked on the brand link — the only
-  //     always-present focusable in the layout.
+  //     that has left the DOM silently falls to <body>, which drops a keyboard user at the top of the
+  //     document mid-task, so focus is re-parked on the brand link — the only always-present
+  //     focusable in the layout. It is a landing place, not an explanation: the brand link announces
+  //     itself, not the fact that the order retired. (On touch, `activeElement` is already <body>
+  //     because a tap does not focus a button, so this is a no-op there.)
   if (chipOpen && !showSingle) setChipOpen(false);
   const hadPanelRef = useRef(false);
   useEffect(() => {
@@ -256,6 +263,63 @@ export function AppHeader() {
             </span>
           </button>
         )}
+        {/* W22b — the expanded chip. It follows its trigger IMMEDIATELY in the DOM so the tab order
+            matches the visual order (WCAG 2.4.3 / 1.3.2) — a disclosure whose content sits after the
+            other header controls makes a keyboard user tab through Rewards and Cart to reach the
+            panel they just opened. `.app-header-actions` is `position: static`, so the containing
+            block is still `.app-header` — `position: sticky` with no `overflow`, which is what keeps
+            the panel contained (inheriting the header's stacking context: above page content, below
+            any sheet scrim) yet unclipped. It is
+            deliberately NOT a live region — kitchen transitions are ambient state, every diner route
+            already owns its one announcer, and this is chrome mounted once in the root layout, so an
+            `aria-live` here would be the second (or, on /cart, the fourth) announcer on every screen. */}
+        {showSingle && chipOpen && (
+          <div id={panelId} ref={panelRef} className="app-header-panel mms-rise">
+            {panel ? (
+              <>
+                <div className="app-header-panel-head">
+                  <span className="app-header-panel-mode">{panel.modeLabel}</span>
+                  {panel.itemSummary && (
+                    <span className="app-header-panel-count">{panel.itemSummary}</span>
+                  )}
+                </div>
+                {panel.context && <p className="app-header-panel-context">{panel.context}</p>}
+                <dl className="app-header-panel-rows">
+                  {panel.rows.map((r) => (
+                    <div key={r.label} className="app-header-panel-row">
+                      <dt>{r.label}</dt>
+                      <dd>{r.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </>
+            ) : (
+              // A cross-device order this phone did not place: the server row carries the mode, the
+              // context and the honest status word, but no totals and no expo stamps — so it renders
+              // its reduced form rather than an empty panel pretending to load.
+              serverSingle && (
+                <ul className="app-header-panel-rowlist" role="list">
+                  <li>
+                    <LiveOrderRow order={serverSingle} onNavigate={closeChip} />
+                  </li>
+                </ul>
+              )
+            )}
+            {/* Placed, but the row has not reached this device yet (the webhook is still landing, or the
+                live read has given up on a cleared table). Say only what is true — the chip's own word —
+                rather than render an empty shell that reads as a broken panel. */}
+            {!panel && !serverSingle && singleWord && (
+              <p className="app-header-panel-context">{singleWord}</p>
+            )}
+            <Link href={singleHref} className="app-header-panel-cta" onClick={closeChip}>
+              View full status
+            </Link>
+            {/* The same honest limitation the tray states: a cash-settled order records the staff member
+                who closed it, not an earner, so it cannot appear in a "your orders" read at all. Without
+                this line a cash payer reads the chip's absence as "we lost your order". */}
+            <p className="app-header-panel-note">Cash-paid orders aren’t shown here.</p>
+          </div>
+        )}
         {showTray && (
           <button
             type="button"
@@ -300,59 +364,6 @@ export function AppHeader() {
           </Link>
         )}
       </nav>
-      {/* W22b — the expanded chip. A DOM sibling of the button inside <header>, which is `position:
-          sticky` with no `overflow`: the panel is contained (so it inherits the header's stacking
-          context and sits above page content but under any sheet scrim) yet unclipped. It is
-          deliberately NOT a live region — kitchen transitions are ambient state, every diner route
-          already owns its one announcer, and this is chrome mounted once in the root layout, so an
-          `aria-live` here would be the second (or, on /cart, the fourth) announcer on every screen. */}
-      {showSingle && chipOpen && (
-        <div id={panelId} ref={panelRef} className="app-header-panel mms-rise">
-          {panel ? (
-            <>
-              <div className="app-header-panel-head">
-                <span className="app-header-panel-mode">{panel.modeLabel}</span>
-                {panel.itemSummary && (
-                  <span className="app-header-panel-count">{panel.itemSummary}</span>
-                )}
-              </div>
-              {panel.context && <p className="app-header-panel-context">{panel.context}</p>}
-              <dl className="app-header-panel-rows">
-                {panel.rows.map((r) => (
-                  <div key={r.label} className="app-header-panel-row">
-                    <dt>{r.label}</dt>
-                    <dd>{r.value}</dd>
-                  </div>
-                ))}
-              </dl>
-            </>
-          ) : (
-            // A cross-device order this phone did not place: the server row carries the mode, the
-            // context and the honest status word, but no totals and no expo stamps — so it renders
-            // its reduced form rather than an empty panel pretending to load.
-            serverSingle && (
-              <ul className="app-header-panel-rowlist" role="list">
-                <li>
-                  <LiveOrderRow order={serverSingle} onNavigate={closeChip} />
-                </li>
-              </ul>
-            )
-          )}
-          {/* Placed, but the row has not reached this device yet (the webhook is still landing, or the
-              live read has given up on a cleared table). Say only what is true — the chip's own word —
-              rather than render an empty shell that reads as a broken panel. */}
-          {!panel && !serverSingle && singleWord && (
-            <p className="app-header-panel-context">{singleWord}</p>
-          )}
-          <Link href={singleHref} className="app-header-panel-cta" onClick={closeChip}>
-            View full status
-          </Link>
-          {/* The same honest limitation the tray states: a cash-settled order records the staff member
-              who closed it, not an earner, so it cannot appear in a "your orders" read at all. Without
-              this line a cash payer reads the chip's absence as "we lost your order". */}
-          <p className="app-header-panel-note">Cash-paid orders aren’t shown here.</p>
-        </div>
-      )}
       {/* Radix portals the sheet to <body>; `open` folds to false when there's nothing to show, so a
           completing order can't leave the tray stranded open. */}
       <OrdersTray

@@ -72,6 +72,23 @@ dropped — see the amended section there.
   only `mobile-web-app-capable`, so `statusBarStyle` is inert and startup images would be links
   iOS ignores. Making it live is not theme-safe without a real notched device (**M62**).
 
+- **Review round 1 (adversarial BLOCK + Codex P2), all fixed.** The two that mattered were both
+  self-inflicted: (a) the chip's base label still rode `order.mode`, and the TO-GO door navigates to
+  `/menu?mode=pickup&door=togo` — so `mode` is literally "pickup" for every to-go order and the chip
+  read "Pickup · Ready" while the panel it opened one line below was headed "To-go", breaking the
+  very invariant this slice states for itself; it now rides `kind`, with `order.mode` surviving only
+  as the pre-row fallback. (b) The panel was a sibling AFTER `</nav>`, so a keyboard user tabbed
+  through Rewards and Cart to reach content they had just opened (WCAG 2.4.3 / 1.3.2); it now follows
+  its trigger immediately — `.app-header-actions` is `position: static`, so the containing block and
+  the absolute geometry are unchanged. Also: `picked_up` now outranks the grocery short-circuit (a
+  collected basket has been collected — /track had been losing that word); the panel's money row is
+  labelled **"Order total"**, because on a split-tender order it is the whole table's bill under a
+  chip headed "Your order"; the manifest test now READS `--pg` out of `tokens.css` instead of
+  transcribing `#faf9f5`, which would have let the seam re-open with the suite green (proven
+  red-first: `expected '#faf9f5' to be '#ff0000'`); and the icon generator no longer imports a `.ts`
+  module (native TS loading needs Node 22.6+ while the repo's floor is `node >=20`) — it reads
+  `public/email-logo.png` and asserts the source's magic bytes before drawing. The icons regenerate
+  **byte-identically**, confirming `_og/logo.ts` was only ever that file in base64. New row **M68**.
 - New registry rows: **M62** iOS splash/status-bar prerequisite chain, **M63** install
   screenshots (real captures only), **M64** a genuine cooking stage, **M65** a held scheduled
   pickup reading "Preparing" for hours, **M66** the offline pill painting over the cart CTA,

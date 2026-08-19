@@ -35,13 +35,13 @@ export type LiveOrder = {
  * (unless a to-go box on the same order is being bagged, when the togo word wins).
  */
 export function liveOrderStatusWord(o: Pick<LiveOrder, "togoStatus" | "kind">): string {
+  // Terminal for EVERY kind, so it is checked BEFORE the grocery short-circuit — a collected basket
+  // has been collected. `getMyLiveOrders` filters these out so the tray never sees one, but /track
+  // keeps showing an order after hand-off, and a total function is what lets both surfaces read this
+  // one derivation instead of keeping a second ladder that drifts from it.
+  if (o.togoStatus === "picked_up") return "Picked up";
   if (o.kind === "grocery") return "Ready to go";
   switch (o.togoStatus) {
-    case "picked_up":
-      // Terminal. `getMyLiveOrders` filters these out, so the tray never sees one — but /track does
-      // (it keeps showing the order after hand-off), and a total function is what lets BOTH surfaces
-      // read this one derivation instead of keeping a second ladder that can drift from it.
-      return "Picked up";
     case "ready":
       return o.kind === "pickup" ? "Ready for pickup" : "Ready";
     case "preparing":

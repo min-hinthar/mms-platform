@@ -44,7 +44,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 128 `verify:slice` mutants green · `pnpm check:docs` clean (94 files, 620 qr tests +
+> **Gate today:** 128 `verify:slice` mutants green · `pnpm check:docs` clean (94 files, 621 qr tests +
 > 41 ui tests) · CI green · then the two reviewers.
 >
 > **W22b (installed-native — the live order chip + the PWA install):** the header order pill is now a

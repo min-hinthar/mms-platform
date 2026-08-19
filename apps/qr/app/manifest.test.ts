@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import manifest from "./manifest";
 
 /**
@@ -12,7 +13,9 @@ import manifest from "./manifest";
  * icon sourced from it: lint, typecheck and build all pass, and the failure only shows up as a blank
  * icon on a diner's home screen, in a launcher, after install.
  */
-const PUBLIC = join(import.meta.dirname, "..", "public");
+// `fileURLToPath(import.meta.url)` rather than `import.meta.dirname`: the latter landed in Node
+// 20.11 and this repo's declared engine floor is `node >=20`.
+const PUBLIC = join(dirname(fileURLToPath(import.meta.url)), "..", "public");
 const m = manifest();
 
 describe("the PWA manifest", () => {
@@ -26,9 +29,27 @@ describe("the PWA manifest", () => {
   });
 
   it("keeps the splash and address bar seamless against the light page ground", () => {
-    // tokens.css --pg (light). A mismatch is the seam audit U-Q5 killed.
-    expect(m.background_color).toBe("#faf9f5");
-    expect(m.theme_color).toBe("#faf9f5");
+    // READ the token rather than transcribe it. A hardcoded "#faf9f5" here would let someone change
+    // `--pg` in tokens.css, re-open the seam audit U-Q5 killed, and keep this suite green — the same
+    // stale-fixture trap the delivery repo's contrast audit documented.
+    const tokens = readFileSync(
+      join(
+        dirname(fileURLToPath(import.meta.url)),
+        "..",
+        "..",
+        "..",
+        "packages",
+        "ui",
+        "src",
+        "tokens.css",
+      ),
+      "utf8",
+    );
+    // The LIGHT ground: the first `--pg:` declaration, before the `.dark` block redefines it.
+    const pg = /--pg:\s*([^;]+);/.exec(tokens)?.[1]?.trim();
+    expect(pg, "could not read --pg from tokens.css").toBeTruthy();
+    expect(m.background_color).toBe(pg);
+    expect(m.theme_color).toBe(pg);
   });
 
   it("does NOT lock orientation — the wall board and staff tablets share this scope", () => {
