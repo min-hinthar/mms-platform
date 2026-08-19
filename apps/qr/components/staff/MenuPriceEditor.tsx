@@ -28,7 +28,17 @@ export type PricedItem = {
  * The authority is `setMenuPrice` (manager floor re-checked server-side, Zod + a column CHECK
  * bounding the amount). Everything here is affordance and honest feedback — never the gate.
  */
-export function MenuPriceEditor({ items }: { items: PricedItem[] }) {
+export function MenuPriceEditor({
+  items,
+  canEditPrice,
+}: {
+  items: PricedItem[];
+  /** W23a (Codex P2) — a SERVER reaches this page for the 86 control alone. The price editor is
+   *  manager-only and `setMenuPrice` re-checks that server-side; hiding the Edit button is what
+   *  keeps the screen from offering an action the authority would refuse. It is also the ONLY door
+   *  into the edit form (`openEdit` has no other caller), so withholding it withholds the form. */
+  canEditPrice: boolean;
+}) {
   const router = useRouter();
   const [q, setQ] = useState("");
   // The row being edited, and its typed dollars. One row at a time: a bulk grid of live price inputs
@@ -260,11 +270,13 @@ export function MenuPriceEditor({ items }: { items: PricedItem[] }) {
                   >
                     {flipping.has(i.id) ? "…" : i.soldOut ? "Put back" : "86"}
                   </button>
-                  <button type="button" style={ghostBtn} onClick={() => openEdit(i)}>
-                    Edit
-                    {/* The name alone reads as "Edit" on every row in the list — say which dish. */}
-                    <span style={srOnly}> the price of {i.nameEn}</span>
-                  </button>
+                  {canEditPrice && (
+                    <button type="button" style={ghostBtn} onClick={() => openEdit(i)}>
+                      Edit
+                      {/* The name alone reads as "Edit" on every row in the list — say which dish. */}
+                      <span style={srOnly}> the price of {i.nameEn}</span>
+                    </button>
+                  )}
                 </div>
               ) : confirming && current ? (
                 <div
