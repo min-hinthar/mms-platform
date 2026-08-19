@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 // J1: header navs ride the journey grammar (direction-stamped view transitions) — drop-in Link swap.
@@ -13,6 +13,8 @@ import { liveOrderTrackHref } from "@/lib/live-order";
 import { getRewardsBadge, type RewardsBadge } from "@/lib/rewards";
 import { WalletChip } from "./WalletChip";
 import { OrdersTray } from "./OrdersTray";
+import { LiveOrderRow } from "./LiveOrderRow";
+import { buildLiveOrderPanel } from "@/lib/live-order-panel";
 
 /**
  * Persistent top app-bar (M-nav) — the diner's wayfinding spine across every route: brand→home, a contextual
@@ -43,7 +45,7 @@ export function AppHeader() {
   // (`/`), the live tracker (`/track`), and the /account "Today" section — so hide it (and skip its fetch)
   // on all three.
   const track = !hidden && pathname !== "/" && pathname !== "/track" && pathname !== "/account";
-  const { order, statusWord, ready, isDone } = useActiveOrderStatus(track);
+  const { order, tracked, kind, statusWord, ready, isDone } = useActiveOrderStatus(track);
 
   const [badge, setBadge] = useState<RewardsBadge | null>(null);
   const orderKey = order?.paymentIntent ?? order?.cartId ?? null;
@@ -52,6 +54,13 @@ export function AppHeader() {
   // fetched where the pill can show (`track`); no new realtime channels.
   const { orders: liveOrders } = useLiveOrders(track, `${orderKey ?? ""}:${pathname ?? ""}`);
   const [trayOpen, setTrayOpen] = useState(false);
+  // W22b — the single chip's disclosure. NOT a dialog: `aria-haspopup="dialog"` stays reserved for the
+  // ≥2-order tray below, so the dialog vocabulary keeps meaning "there is more than one order".
+  const [chipOpen, setChipOpen] = useState(false);
+  const panelId = useId();
+  const chipRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const brandRef = useRef<HTMLAnchorElement | null>(null);
   // Refetch on mount, a new order (orderKey), and route change — the Star may be stamped by the webhook
   // AFTER the diner leaves /track, so a route change back to /menu should refresh the count. Async setState
   // (in .then) → lint-safe; a transient failure just leaves the plain "Rewards" label.
@@ -94,8 +103,6 @@ export function AppHeader() {
     };
   }, [hidden]);
 
-  if (hidden) return null;
-
   // The order affordance is redundant on the homepage (the resume card lives there) and on /track (you're
   // already watching it); `track` excludes both, so show it everywhere else while an order is live.
   const onMenu = pathname === "/menu";
@@ -119,7 +126,12 @@ export function AppHeader() {
   let singleReady = false;
   if (clientLive && order) {
     singleHref = liveOrderTrackHref(order);
-    singleBase = order.mode === "pickup" ? "Pickup" : "Your order";
+    // W22b review — the base label rides `kind` (the line-fulfillment ladder), NOT the wayfinding
+    // store's `order.mode`. The TO-GO door navigates to `/menu?mode=pickup&door=togo`, so `mode` is
+    // literally "pickup" for every to-go order — the chip read "Pickup · Ready" while the panel it
+    // opened one line below was headed "To-go". `order.mode` survives only as the pre-row fallback,
+    // where it is the only signal this device has.
+    singleBase = (kind ? kind === "pickup" : order.mode === "pickup") ? "Pickup" : "Your order";
     singleWord = statusWord; // the base+status split lets the word drop on very narrow phones (dot stays)
     singleReady = ready;
   } else if (serverSingle) {
@@ -132,6 +144,77 @@ export function AppHeader() {
   // Cart affordance yields to ANY order pill (single or tray) — an order supersedes its now-placed cart.
   const showCart = !!cartId && !showSingle && !showTray && !onMenu && pathname !== "/cart";
 
+  // ── W22b · the chip's disclosure behaviour ─────────────────────────────────────────────────────
+  // Panel content is built in `lib/live-order-panel.ts` (a rule left in a .tsx cannot be guarded —
+  // there is no React test runner here). The chip decides only WHEN to open.
+  const panel = clientLive && tracked && kind ? buildLiveOrderPanel(tracked, kind) : null;
+  const closeChip = useCallback(() => {
+    setChipOpen(false);
+  }, []);
+
+  // A route change closes the panel. Render-time compare rather than an effect: the panel must be gone
+  // on the SAME render the route changes, and the header is snapshotted as an image during a J1 view
+  // transition — a panel caught mid-navigation would be baked into that snapshot.
+  const [prevPath, setPrevPath] = useState(pathname);
+  if (pathname !== prevPath) {
+    setPrevPath(pathname);
+    setChipOpen(false);
+  }
+
+  // The chip can vanish UNDER an open panel: `useActiveOrderStatus` retires the order the moment it
+  // reads terminal — the expo bumping `picked_up` while the diner has the panel open. Two separate
+  // problems, deliberately handled in two places:
+  //
+  //  1. the STATE, folded shut at render time (the sanctioned "adjust state when inputs change"
+  //     pattern, and the reason the panel is gated on `showSingle && chipOpen` below) — an effect
+  //     here would paint one frame of a panel belonging to an order that no longer exists;
+  //  2. the FOCUS, which is a DOM side effect and so belongs in an effect. A focus restore to a node
+  //     that has left the DOM silently falls to <body>, which drops a keyboard user at the top of the
+  //     document mid-task, so focus is re-parked on the brand link — the only always-present
+  //     focusable in the layout. It is a landing place, not an explanation: the brand link announces
+  //     itself, not the fact that the order retired. (On touch, `activeElement` is already <body>
+  //     because a tap does not focus a button, so this is a no-op there.)
+  if (chipOpen && !showSingle) setChipOpen(false);
+  const hadPanelRef = useRef(false);
+  useEffect(() => {
+    const open = chipOpen && showSingle;
+    if (open) {
+      hadPanelRef.current = true;
+      return;
+    }
+    if (!hadPanelRef.current) return;
+    hadPanelRef.current = false;
+    // Only re-park when the chip actually left AND focus was orphaned by its removal.
+    if (!showSingle && (document.activeElement === document.body || !document.activeElement))
+      brandRef.current?.focus();
+  }, [chipOpen, showSingle]);
+
+  // Esc closes and returns focus to the chip; a pointerdown outside closes WITHOUT moving focus (a
+  // tap elsewhere is not a request to be sent back to the header).
+  useEffect(() => {
+    if (!chipOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      setChipOpen(false);
+      chipRef.current?.focus();
+    };
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Node | null;
+      if (!t) return;
+      if (panelRef.current?.contains(t) || chipRef.current?.contains(t)) return;
+      setChipOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onDown);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onDown);
+    };
+  }, [chipOpen]);
+
+  if (hidden) return null;
+
   const anonWithStars = !!badge && !badge.isUpgraded && badge.stars > 0;
   const rewardsAria = badge
     ? `Rewards, ${badge.stars} ${badge.stars === 1 ? "Star" : "Stars"}${anonWithStars ? " — save them to an account" : ""}`
@@ -139,7 +222,12 @@ export function AppHeader() {
 
   return (
     <header className={`app-header${hasOrderPill ? " app-header--has-order" : ""}`}>
-      <Link href="/" className="app-header-brand" aria-label="Mandalay Morning Star — home">
+      <Link
+        href="/"
+        ref={brandRef}
+        className="app-header-brand"
+        aria-label="Mandalay Morning Star — home"
+      >
         {/* W5c·r2: the official Morning Star badge (same asset the delivery app ships) replaces the ✦
             glyph in the brand lockup — the ✦ stays the in-app accent mark everywhere else. Decorative
             here (alt="") — the Link's aria-label + the wordmark carry the name. */}
@@ -149,20 +237,88 @@ export function AppHeader() {
 
       <nav className="app-header-actions" aria-label="Account and order">
         {showSingle && (
-          <Link
-            href={singleHref}
-            className={`app-header-order${singleReady ? " app-header-order-ready" : ""}`}
-            aria-label={`${singleBase}${singleWord ? ` · ${singleWord}` : ""} — view status`}
+          // W22b — the chip is a DISCLOSURE, not a link: tapping it opens the order in place rather
+          // than spending a navigation, which is what makes it feel ambient on an installed phone.
+          // /track is still one tap away — it is the panel's primary action.
+          <button
+            type="button"
+            ref={chipRef}
+            onClick={() => setChipOpen((o) => !o)}
+            className={`app-header-order app-header-order-chip${singleReady ? " app-header-order-ready" : ""}${chipOpen ? " app-header-order-open" : ""}`}
+            aria-expanded={chipOpen}
+            // Only reference the panel while it is mounted — no dangling IDREF when closed.
+            aria-controls={chipOpen ? panelId : undefined}
+            aria-label={`${singleBase}${singleWord ? ` · ${singleWord}` : ""} — order details`}
           >
             <span className="app-header-order-dot" aria-hidden />
-            {/* `.vt-order-status` (J1): on the pill→/track cut this label MORPHS into the tracker's
-                status chip — the diner follows their order's status across the navigation. The pill
+            {/* `.vt-order-status` (J1): on the chip→/track cut this label MORPHS into the tracker's
+                status chip — the diner follows their order's status across the navigation. The chip
                 hides on /track, so the view-transition name is never duplicated in one document. */}
             <span className="app-header-order-label vt-order-status">
               {singleBase}
               {singleWord && <span className="app-header-order-status"> · {singleWord}</span>}
             </span>
-          </Link>
+            <span className={`app-header-order-caret${chipOpen ? " is-open" : ""}`} aria-hidden>
+              ⌄
+            </span>
+          </button>
+        )}
+        {/* W22b — the expanded chip. It follows its trigger IMMEDIATELY in the DOM so the tab order
+            matches the visual order (WCAG 2.4.3 / 1.3.2) — a disclosure whose content sits after the
+            other header controls makes a keyboard user tab through Rewards and Cart to reach the
+            panel they just opened. `.app-header-actions` is `position: static`, so the containing
+            block is still `.app-header` — `position: sticky` with no `overflow`, which is what keeps
+            the panel contained (inheriting the header's stacking context: above page content, below
+            any sheet scrim) yet unclipped. It is
+            deliberately NOT a live region — kitchen transitions are ambient state, every diner route
+            already owns its one announcer, and this is chrome mounted once in the root layout, so an
+            `aria-live` here would be the second (or, on /cart, the fourth) announcer on every screen. */}
+        {showSingle && chipOpen && (
+          <div id={panelId} ref={panelRef} className="app-header-panel mms-rise">
+            {panel ? (
+              <>
+                <div className="app-header-panel-head">
+                  <span className="app-header-panel-mode">{panel.modeLabel}</span>
+                  {panel.itemSummary && (
+                    <span className="app-header-panel-count">{panel.itemSummary}</span>
+                  )}
+                </div>
+                {panel.context && <p className="app-header-panel-context">{panel.context}</p>}
+                <dl className="app-header-panel-rows">
+                  {panel.rows.map((r) => (
+                    <div key={r.label} className="app-header-panel-row">
+                      <dt>{r.label}</dt>
+                      <dd>{r.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </>
+            ) : (
+              // A cross-device order this phone did not place: the server row carries the mode, the
+              // context and the honest status word, but no totals and no expo stamps — so it renders
+              // its reduced form rather than an empty panel pretending to load.
+              serverSingle && (
+                <ul className="app-header-panel-rowlist" role="list">
+                  <li>
+                    <LiveOrderRow order={serverSingle} onNavigate={closeChip} />
+                  </li>
+                </ul>
+              )
+            )}
+            {/* Placed, but the row has not reached this device yet (the webhook is still landing, or the
+                live read has given up on a cleared table). Say only what is true — the chip's own word —
+                rather than render an empty shell that reads as a broken panel. */}
+            {!panel && !serverSingle && singleWord && (
+              <p className="app-header-panel-context">{singleWord}</p>
+            )}
+            <Link href={singleHref} className="app-header-panel-cta" onClick={closeChip}>
+              View full status
+            </Link>
+            {/* The same honest limitation the tray states: a cash-settled order records the staff member
+                who closed it, not an earner, so it cannot appear in a "your orders" read at all. Without
+                this line a cash payer reads the chip's absence as "we lost your order". */}
+            <p className="app-header-panel-note">Cash-paid orders aren’t shown here.</p>
+          </div>
         )}
         {showTray && (
           <button

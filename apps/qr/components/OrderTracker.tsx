@@ -4,7 +4,7 @@ import { TransitionLink as Link } from "./nav/TransitionNav"; // J1 journey gram
 import { useOrderStatus } from "@/lib/useOrderStatus";
 import { getMyOrderFallback, type TrackFallback } from "@/lib/orders";
 import { useActiveOrder } from "./ActiveOrderProvider";
-import { formatSlotLong } from "@/lib/pickupTime";
+import { formatClock, formatSlotLong } from "@/lib/pickupTime";
 import { menuHref, menuLinkText, modeFromOrder } from "@/lib/menu-href";
 import { Icon, useAnimationPreference, useInView } from "@mms/ui";
 import { getRewardsProgress, type RewardsProgress } from "@/lib/rewards";
@@ -24,15 +24,10 @@ import {
   serviceDisclosed,
 } from "@/lib/receipt-view";
 import { BRAND_ADDRESS, BRAND_PHONE_DISPLAY, BRAND_PHONE_TEL } from "@/lib/brand";
+import { kindFromTrackedOrder, liveOrderStatusWord } from "@/lib/live-order";
 
 // W22r — real step times for the rail (LA wall clock, the restaurant's TZ rule). Only REAL
 // timestamps render (created_at, the expo's ready/picked-up stamps) — never an estimate.
-const stepTimeFmt = new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/Los_Angeles",
-  hour: "numeric",
-  minute: "2-digit",
-});
-
 // Lifecycle steps (verbatim v7.2). The active step is server-driven; at M1/M2 there's no kitchen
 // actor, so it rests at "Order placed" — the kitchen steps light up when S2's KDS lands (same Realtime
 // subscription). The pickup variant (P2.2) is chosen once the order carries a pickup_slot.
@@ -167,6 +162,14 @@ export function OrderTracker({
   // "To-go" in the header while the receipt card six lines below printed "Table 4". Its rail is still
   // truthful (a bag really is being made), so this only fixes the label + the back-link destination.
   const isDineIn = !!order && (order.hasDineInFood || order.tableNumber != null) && !isPickup;
+  // W22b — the mode as the SERVER read defines it, for the status word only. Deliberately NOT the
+  // same as `isDineIn` above: that one also counts a registered `tableNumber` (an all-to-go order
+  // placed at a seated table should be HEADED "Table 4"), while the status word must match what the
+  // tray, /account "Today" and the header chip say about the very same order — and those read
+  // `getMyLiveOrders`, which keys on the line-fulfillment snapshot alone.
+  const trackedKind = order
+    ? kindFromTrackedOrder(order)
+    : ("togo" as ReturnType<typeof kindFromTrackedOrder>);
   const STEPS = isPickup ? PICKUP_STEPS : SCANGO_STEPS;
   // Takeaway fulfillment status (S4.3a, expo-driven) — declared here because the countdown below and
   // the step rail both key off it.
@@ -350,17 +353,23 @@ export function OrderTracker({
         color: refunded ? "var(--warn)" : arrived ? "var(--ok)" : "var(--t2)",
       }}
     >
+      {/* W22b — the payment-state branches stay local (they are about the CHARGE, which
+          `liveOrderStatusWord` knows nothing about); the fulfillment word comes from the ONE shared
+          derivation. Before this, /track said "Order received" while the header pill said "Preparing"
+          about the same `togo_status`, and the two elements MORPH into each other on the pill→/track
+          cut, so the transition cross-faded contradictory claims. It also silently said "Ready for
+          pickup" over a pure GROCERY basket, which has no pickup counter and no wait. */}
       {refunded
         ? "Refunded"
-        : ready
-          ? "Ready for pickup"
-          : arrived
-            ? togo === "picked_up"
-              ? "Picked up"
-              : "Order received"
-            : processing
-              ? "Confirming payment"
-              : "Confirming order"}
+        : arrived
+          ? liveOrderStatusWord({
+              kind: trackedKind,
+              togoStatus: togo,
+              hasTogoFood: !!order?.hasTogoFood,
+            })
+          : processing
+            ? "Confirming payment"
+            : "Confirming order"}
     </span>
   );
 
@@ -608,10 +617,7 @@ export function OrderTracker({
                     {/* W22r — the step's REAL clock (created_at / the expo's stamps), only once
                         the step is reached; steps without an honest timestamp stay bare. */}
                     {state !== "pending" && stepTimes[i] && (
-                      <span style={{ color: "var(--t3)" }}>
-                        {" "}
-                        · {stepTimeFmt.format(new Date(stepTimes[i]!))}
-                      </span>
+                      <span style={{ color: "var(--t3)" }}> · {formatClock(stepTimes[i]!)}</span>
                     )}
                     {last && <span aria-hidden> 🍵</span>}
                   </div>

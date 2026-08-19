@@ -50,3 +50,20 @@ export function dayPart(iso: string): DayPart {
   if (hour < 17) return { key: "afternoon", label: "Afternoon", emoji: "☀️" };
   return { key: "evening", label: "Evening", emoji: "🌆" };
 }
+
+/**
+ * W22b — the wall-clock time of a real timestamp, in the RESTAURANT's timezone (never the device's: a
+ * diner travelling with their phone on another clock must still read the times the counter reads).
+ * Named once here because three surfaces print the same stamps — /track's step rail, the live order
+ * chip's panel, and the receipt slip — and a formatter copied per surface is how "2:14 PM" and "14:14"
+ * end up on one order.
+ */
+const clockFmt = new Intl.DateTimeFormat("en-US", {
+  timeZone: RESTAURANT_TZ,
+  hour: "numeric",
+  minute: "2-digit",
+});
+
+export function formatClock(iso: string): string {
+  return clockFmt.format(new Date(iso));
+}

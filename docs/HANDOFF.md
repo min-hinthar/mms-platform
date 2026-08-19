@@ -44,8 +44,25 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 124 `verify:slice` mutants green · `pnpm check:docs` clean (94 files, 586 qr tests +
+> **Gate today:** 129 `verify:slice` mutants green · `pnpm check:docs` clean (94 files, 623 qr tests +
 > 41 ui tests) · CI green · then the two reviewers.
+>
+> **W22b (installed-native — the live order chip + the PWA install):** the header order pill is now a
+> DISCLOSURE that expands in place. It lives INSIDE `.app-header` on purpose — sticky with no
+> `overflow`, so an absolute sibling is contained but unclipped and inherits the header's stacking
+> context: no new z token, no `--chrome-top` offset, no page-padding change, no PaperAmbient
+> isolation exposure. Panel content derives in `lib/live-order-panel.ts` (stored values only; "In the
+> kitchen" gets NO clock — `togo_status='preparing'` is a webhook stamp at payment, not a cook-start).
+> **The proposal was wrong twice and the doc says so now:** there is no "fired → cooking → ready"
+> (M64 files what a real stage would take), and the chip cannot literally follow the diner onto
+> /track (a duplicated `view-transition-name` kills the J1 morph app-wide). Two live falsehoods died
+> first: the pill said "Preparing" over a grocery basket the shopper was already holding, and "Ready"
+> off an exit-pass check — both now read the one `liveOrderStatusWord`, as does /track's chip.
+> `useOrderStatus` resets on a key change (a second order used to render the first order's word).
+> Install: `id` pinned, `scope`/`lang`/`dir`/`categories`, `launch_handler: navigate-existing`, the
+> whole-origin `orientation` lock removed, real rasters from `scripts/gen-pwa-icons.mjs`, three-door
+> shortcuts, precache 261.0KB → 93.1KB. **iOS splash/status bar deliberately NOT shipped** — inert in
+> Next 16.2.9 and not theme-safe without a real device (M62). New rows: M62–M67.
 >
 > **W22r (receipts · the receipt email · live tracking — merged #196):** the restaurant's identity is
 > named ONCE in `apps/qr/lib/brand.ts`, every string verbatim from the delivery repo's production
@@ -520,7 +537,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (124 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (129 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

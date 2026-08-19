@@ -4,6 +4,108 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W22b — installed-native: the live order chip expands, and the install stops being a bookmark (2026-08-17)
+
+Owner go: _"Build W22b as planned"_ (`docs/W22_DESIGN_PROPOSAL.md` · Installed-native). Two claims
+in that proposal turned out to be wrong and are **corrected in the doc** rather than quietly
+dropped — see the amended section there.
+
+- **There is no "fired → cooking → ready".** `qr_orders.togo_status` is CHECK-constrained to
+  `preparing | ready | picked_up`, and `preparing` is stamped by the **Stripe webhook** at
+  payment, not by a cook. Line-level `fired`/`in_progress` live on `qr_cart_items`, are absent
+  from `qr_order_items`, and are readable only while the table session holds. So the proposal's
+  parenthetical described a rail the data cannot source, and "every value in it is already real
+  (kitchen taps)" was false for stage one. The chip speaks the vocabulary that was already true.
+  A genuine cooking stage is filed as **M64**.
+
+- **Two live falsehoods fixed before the chip could make them persistent.** The header pill
+  re-derived its own ladder off the raw column instead of calling `liveOrderStatusWord`, so a
+  pure GROCERY basket read "Preparing" (nobody is cooking a basket the shopper scanned and is
+  holding) and read "Ready" when the expo had merely verified its exit pass. /track refused both —
+  and the pill MORPHS into /track's chip on the tap, so the J1 cut cross-faded two different
+  claims about one order in one second. Both now read one function; `kindFromTrackedOrder` names
+  the mode ladder once (it was hand-copied in three places).
+
+- **`useOrderStatus` resets on a key change.** `order`/`exhausted` were never cleared and
+  `AppHeader` is mounted once in the root layout, so a diner's SECOND order rendered the FIRST
+  order's word and was `timedOut` on its first frame — dropping to the "Placed" floor while
+  tracking perfectly well. A slim pill hid that; an expandable panel would not.
+
+- **The chip is a disclosure, inside the header.** `.app-header` is `position: sticky` with no
+  `overflow`, so an absolute sibling is contained but unclipped and inherits the header's stacking
+  context for free — above page content, below any sheet scrim. No new z token, no offset var, no
+  page-padding changes, no PaperAmbient isolation exposure. `aria-expanded` + a conditional
+  `aria-controls`; `aria-haspopup="dialog"` stays reserved for the ≥2-order tray. Esc closes and
+  restores focus, outside-pointerdown closes without moving it, a route change closes **at render
+  time** (the header is snapshotted during a J1 view transition). When the expo bumps `picked_up`
+  under an open panel, the state folds at render and focus re-parks on the brand link — a restore
+  to a removed node silently falls to `<body>`. Open wears the lit-gold cap; "Ready" keeps its
+  `--ok` status recipe, because a status never takes the selection vocabulary. Not a live region:
+  every diner route already owns its one announcer and this is chrome mounted once.
+
+- **Panel content is derived in `lib/live-order-panel.ts`, not in the component** — there is no
+  React test runner here, so a rule left in a `.tsx` cannot be guarded at all. It prints stored
+  values only: real expo stamps, the diner's own slot as an absolute time, the fulfillment-time
+  total rendered verbatim. No ETA, no elapsed cook time, no queue position, no stage counter.
+  "In the kitchen" gets no clock.
+
+- **The install.** `id` pinned to `start_url` (without it a later start_url move mints a second
+  home-screen icon for everyone installed, unmergeably); explicit `scope`/`lang`/`dir`/
+  `categories`; `launch_handler: navigate-existing` so re-scanning a table QR navigates the open
+  window instead of opening a second one with a second chip and a second subscription; the
+  whole-origin `orientation: "portrait"` lock **removed** (it was pinning /board's landscape wall
+  display and staff tablets); real 192/512/maskable-512 rasters generated from the one badge
+  source by `scripts/gen-pwa-icons.mjs`; three-door shortcuts with **no** "track my order" entry
+  (a bare /track is a stub for anyone without an order). Closes the raster-icon half of **S4**.
+
+- **Precache 261.0KB → 93.1KB** (measured from the generated banner). It was carrying a 117KB
+  email logo only email clients fetch and launcher icons the OS requests at install; the 245KB of
+  new icons are excluded for the same reason. Kept: `logo.png` and `icon.svg`, which the running
+  page actually renders.
+
+- **`app/manifest.test.ts`** asserts every icon exists on disk and every PNG starts with the PNG
+  signature. `public/logo.png` is WebP bytes behind a `.png` name, and an icon sourced from it
+  passes lint, typecheck and build in silence — failing only as a blank icon on a home screen
+  after install. Proven red-first both ways.
+
+- **iOS splash + status bar deliberately NOT shipped**, and not half-shipped: Next 16.2.9 emits
+  only `mobile-web-app-capable`, so `statusBarStyle` is inert and startup images would be links
+  iOS ignores. Making it live is not theme-safe without a real notched device (**M62**).
+
+- **Review round 1 (adversarial BLOCK + Codex P2), all fixed.** The two that mattered were both
+  self-inflicted: (a) the chip's base label still rode `order.mode`, and the TO-GO door navigates to
+  `/menu?mode=pickup&door=togo` — so `mode` is literally "pickup" for every to-go order and the chip
+  read "Pickup · Ready" while the panel it opened one line below was headed "To-go", breaking the
+  very invariant this slice states for itself; it now rides `kind`, with `order.mode` surviving only
+  as the pre-row fallback. (b) The panel was a sibling AFTER `</nav>`, so a keyboard user tabbed
+  through Rewards and Cart to reach content they had just opened (WCAG 2.4.3 / 1.3.2); it now follows
+  its trigger immediately — `.app-header-actions` is `position: static`, so the containing block and
+  the absolute geometry are unchanged. Also: `picked_up` now outranks the grocery short-circuit (a
+  collected basket has been collected — /track had been losing that word); the panel's money row is
+  labelled **"Order total"**, because on a split-tender order it is the whole table's bill under a
+  chip headed "Your order"; the manifest test now READS `--pg` out of `tokens.css` instead of
+  transcribing `#faf9f5`, which would have let the seam re-open with the suite green (proven
+  red-first: `expected '#faf9f5' to be '#ff0000'`); and the icon generator no longer imports a `.ts`
+  module (native TS loading needs Node 22.6+ while the repo's floor is `node >=20`) — it reads
+  `public/email-logo.png` and asserts the source's magic bytes before drawing. The icons regenerate
+  **byte-identically**, confirming `_og/logo.ts` was only ever that file in base64. New row **M68**.
+- **Review round 2 — the kitchen word now requires actual to-go FOOD.** Codex and the in-session
+  adversarial pass converged independently on the same defect, from opposite directions: a DINE-IN
+  order carrying self-scanned groceries and no to-go box has a non-null `togo_status` (the webhook
+  stamps `fulfillment in ('togo','grocery')`), so a seated diner read "Preparing", then "Ready",
+  about their own shopping — while /track's `pureGrocery` branch classified the very same order as a
+  completed exit pass. One reviewer traced it unreachable today; the other did not. Rather than bet
+  on reachability, the rule now lives in ONE place: `liveOrderStatusWord` gates the kitchen word on
+  **`hasTogoFood`** — the single predicate that separates a kitchen bag from an exit-pass check — and
+  `buildLiveOrderPanel` gates the expo stamps on the same field. This is the "name it ONCE" rule
+  applied to a predicate rather than a value, and it closes **M68** in the same PR that filed it.
+  New mutant `live-order/kitchen-word-needs-togo-food` with a fixture that separates the paths
+  (kind dinein · grocery-only takeaway · non-null `togo_status`).
+- New registry rows: **M62** iOS splash/status-bar prerequisite chain, **M63** install
+  screenshots (real captures only), **M64** a genuine cooking stage, **M65** a held scheduled
+  pickup reading "Preparing" for hours, **M66** the offline pill painting over the cart CTA,
+  **M67** the hand-copied chrome-top offset.
+
 ### Docs — the W22 sweep, and README joins the measured-count guard (2026-08-17)
 
 Owner: _"Merge when ready and update Readme, docs, etc"_ — the docs caught up to what W22a,

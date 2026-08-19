@@ -1,3 +1,5 @@
+import type { TrackedOrder } from "./track-order";
+
 // K4 — the shared vocabulary + link builders for the diner's LIVE (in-flight) orders (the orders tray +
 // /account "Today"). Pure + isomorphic (no "use server"/"use client" directive): the server read
 // (getMyLiveOrders) derives these once, and the tray/section render them — ONE source for the status
@@ -32,17 +34,55 @@ export type LiveOrder = {
  * settle, so "Order received" would read wrong for hours at the table — it says "At your table" instead
  * (unless a to-go box on the same order is being bagged, when the togo word wins).
  */
-export function liveOrderStatusWord(o: Pick<LiveOrder, "togoStatus" | "kind">): string {
+export function liveOrderStatusWord(
+  o: Pick<LiveOrder, "togoStatus" | "kind" | "hasTogoFood">,
+): string {
+  // Terminal for EVERY kind, so it is checked BEFORE the grocery short-circuit — a collected basket
+  // has been collected. `getMyLiveOrders` filters these out so the tray never sees one, but /track
+  // keeps showing an order after hand-off, and a total function is what lets both surfaces read this
+  // one derivation instead of keeping a second ladder that drifts from it.
+  if (o.togoStatus === "picked_up") return "Picked up";
   if (o.kind === "grocery") return "Ready to go";
-  switch (o.togoStatus) {
+  // ⚠️ `togo_status` is only a KITCHEN signal when the order actually carries to-go FOOD.
+  // `mms_init_togo_status` stamps 'preparing' for `fulfillment in ('togo','grocery')`, so a basket of
+  // self-scanned groceries sets the same column — and on a DINE-IN order carrying groceries but no
+  // to-go box, reading the column raw told a seated diner their shopping was "Preparing", then
+  // "Ready". Gating on `hasTogoFood` is the one predicate that separates a kitchen bag from an
+  // exit-pass check, and it is the same rule /track's own `pureGrocery` branch applies. (Two
+  // reviewers found this independently on #198 — one traced it unreachable today, the other did not;
+  // rather than bet on reachability, the rule now lives in ONE place for every caller.)
+  const kitchen = o.hasTogoFood ? o.togoStatus : null;
+  switch (kitchen) {
     case "ready":
       return o.kind === "pickup" ? "Ready for pickup" : "Ready";
     case "preparing":
       return "Preparing";
     default:
-      // null / anything else = no bagging status. Dine-in reads neutrally; to-go/pickup are freshly placed.
+      // No kitchen bag in flight. Dine-in reads neutrally; to-go/pickup are freshly placed.
       return o.kind === "dinein" ? "At your table" : "Order received";
   }
+}
+
+/**
+ * W22b — the SAME kind precedence as the server read (`getMyLiveOrders`, lib/orders.ts), expressed once
+ * so a CLIENT-tracked order and a SERVER-listed one can never disagree about what mode they are. The
+ * ladder was hand-copied in three places (the server read, OrderTracker's `isDineIn`/`isPickup`, and an
+ * implicit one in the header pill's label) — this is the "name it ONCE" rule applied to identity, the
+ * same move `lib/track-order.ts` made for the tracked-order shape.
+ *
+ * Precedence, deliberately: a dine-in line makes it a dine-in order (session-bound) EVEN alongside a
+ * to-go box; else a pickup slot ⇒ pickup; else to-go food ⇒ to-go; else a pure self-scanned basket.
+ * `tableNumber` is NOT part of it — the server read doesn't use it, and an all-to-go order placed at a
+ * seated table is genuinely a to-go order (OrderTracker keeps its own separate `isDineIn` for the page
+ * HEADING, which deliberately does count a registered table).
+ */
+export function kindFromTrackedOrder(
+  t: Pick<TrackedOrder, "hasDineInFood" | "pickupSlot" | "hasTogoFood">,
+): LiveOrderKind {
+  if (t.hasDineInFood) return "dinein";
+  if (t.pickupSlot) return "pickup";
+  if (t.hasTogoFood) return "togo";
+  return "grocery";
 }
 
 /** The mode's short label for a tray/Today row. */

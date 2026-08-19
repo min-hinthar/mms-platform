@@ -1083,6 +1083,47 @@ const MUTANTS = [
     replace:
       "export async function resolveReceiptOrder(rawToken: string): Promise<string | null> {",
   },
+  {
+    id: "live-order/grocery-word-override",
+    file: "apps/qr/lib/live-order.ts",
+    suite: "lib/live-order.test.ts",
+    why: "W22b — the grocery early-return is the ONLY thing standing between a self-scanned basket and a kitchen claim: mms_init_togo_status stamps togo_status='preparing' on grocery lines at PAYMENT, so falling through to the switch tells a shopper holding their own bag that it is being prepared",
+    find: '  if (o.kind === "grocery") return "Ready to go";',
+    replace: "",
+  },
+  {
+    id: "live-order-panel/grocery-gets-kitchen-stamps",
+    file: "apps/qr/lib/live-order-panel.ts",
+    suite: "lib/live-order-panel.test.ts",
+    why: "W22b — a grocery line stamps the SAME togo_status column as a kitchen bag (mms_init_togo_status fires on fulfillment in ('togo','grocery')), so only `hasTogoFood` separates an exit-pass check from real bagging; without it the panel prints 'Ready 2:31 PM' over goods the shopper scanned and is already carrying",
+    find: "  if (order.hasTogoFood) {",
+    replace: "  if (true) {",
+  },
+  {
+    id: "live-order-panel/total-not-a-snapshot",
+    file: "apps/qr/lib/live-order-panel.ts",
+    suite: "lib/live-order-panel.test.ts",
+    why: "W22b — the panel prints the fulfillment-time total VERBATIM; recomputing it from the breakdown is the drift this repo has paid for repeatedly (a value computed in one place and quoted in another WILL diverge — here a refunded or adjusted order would show a total the receipt never printed)",
+    find: '  if (order.totalCents > 0) rows.push({ label: "Order total", value: money(order.totalCents) });',
+    replace:
+      '  if (order.totalCents > 0)\n    rows.push({\n      label: "Order total",\n      value: money(\n        order.breakdown.subtotalCents +\n          order.breakdown.taxCents +\n          order.breakdown.tipCents,\n      ),\n    });',
+  },
+  {
+    id: "live-order/kitchen-word-needs-togo-food",
+    file: "apps/qr/lib/live-order.ts",
+    suite: "lib/live-order.test.ts",
+    why: "W22b review — `togo_status` is only a KITCHEN signal when the order carries to-go FOOD; mms_init_togo_status stamps 'preparing' for grocery lines too, so reading the column raw tells a seated diner their self-scanned shopping is being prepared, then ready",
+    find: "  const kitchen = o.hasTogoFood ? o.togoStatus : null;",
+    replace: "  const kitchen = o.togoStatus;",
+  },
+  {
+    id: "live-order/kind-precedence-dinein",
+    file: "apps/qr/lib/live-order.ts",
+    suite: "lib/live-order.test.ts",
+    why: "W22b — dine-in must win the kind even when a pickup slot rides the same order; dropping the rung reclassifies a seated diner's order as pickup, which changes the status word, the mode label and the /track back-link",
+    find: '  if (t.hasDineInFood) return "dinein";',
+    replace: "",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

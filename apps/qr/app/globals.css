@@ -3858,6 +3858,126 @@ h3 {
   font-weight: 800;
   line-height: 1;
 }
+/* ── W22b · the live order chip's disclosure ──────────────────────────────────────────────────────
+   The collapsed chip IS `.app-header-order` (44px target, live dot, the --ok ready state and its
+   pulse) — this only adds the caret, the open cap, and the panel. The panel is an absolutely
+   positioned sibling INSIDE `.app-header`, which is `position: sticky` with no `overflow`: contained
+   (so it inherits the header's stacking context — above page content, below any sheet scrim) but
+   unclipped. No new z token, no offset var, no page-padding change. */
+.app-header-order-chip {
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  font-size: 13px;
+}
+.app-header-order-caret {
+  flex: none;
+  font-size: 11px;
+  line-height: 1;
+  opacity: 0.75;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.app-header-order-caret.is-open {
+  transform: rotate(180deg);
+}
+/* OPEN wears the lit-gold cap — the app's ONE selection vocabulary, self-contained on this element
+   (docs/DESIGN-LANGUAGE.md §2), the same recipe an expanded tip control uses. "Ready" is a STATUS and
+   keeps its own --ok recipe above; a status never takes the gold cap. */
+.app-header-order-open {
+  border-color: color-mix(in oklab, var(--gold) 55%, var(--bd));
+  background: linear-gradient(180deg, color-mix(in oklab, var(--gold) 18%, var(--cd)), var(--cd));
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    0 0 18px -8px var(--glow-gold);
+}
+.app-header-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 12px;
+  right: 12px;
+  max-width: var(--w-content);
+  margin-inline: auto;
+  /* Never taller than the space under the header, minus room for a bottom CTA bar. */
+  max-height: calc(100dvh - var(--header-height) - env(safe-area-inset-top, 0px) - 120px);
+  overflow-y: auto;
+  padding: 14px;
+  border: 1px solid var(--bd);
+  border-radius: var(--r-card);
+  background: var(--cd);
+  /* The W22a·depth paper layer: an inset sheen lip over the two-tier diffuse shadow. Mobile stays
+     opaque and blur-free — the GPU budget is a hard limit. */
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-paper);
+  text-align: left;
+}
+.app-header-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.app-header-panel-mode {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--tx);
+}
+.app-header-panel-count {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--t2);
+}
+.app-header-panel-context {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--t2);
+}
+.app-header-panel-rows {
+  margin: 10px 0 0;
+  display: grid;
+  gap: 6px;
+}
+.app-header-panel-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+.app-header-panel-row dt {
+  color: var(--t2);
+}
+.app-header-panel-row dd {
+  margin: 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--tx);
+}
+.app-header-panel-rowlist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.app-header-panel-cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  margin-top: 12px;
+  border-radius: var(--r-full);
+  background: var(--ac);
+  color: var(--oa);
+  font-weight: 800;
+  font-size: 14px;
+}
+.app-header-panel-note {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--t3);
+  text-align: center;
+}
 /* Off-menu "back to cart" link — a quiet secondary. */
 .app-header-cart {
   display: inline-flex;
@@ -4141,6 +4261,9 @@ h3 {
   }
   .app-header-order-ready .app-header-order-dot {
     animation: none;
+  }
+  .app-header-order-caret {
+    transition: none;
   }
   @media (hover: hover) {
     .app-header-order:hover,

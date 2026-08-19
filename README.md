@@ -14,7 +14,7 @@
 [![Stripe](https://img.shields.io/badge/Stripe-Payment%20Element-635BFF?logo=stripe)](https://stripe.com)
 [![License](https://img.shields.io/badge/license-private-lightgrey)](#-license)
 
-**Build:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 ✅ (M1 🟡 — code done, owner-blocked infra tail) — shipped through **W22r** (receipts · receipt email · live tracking) · **Gate:** 586 qr tests + 41 ui tests · 124 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
+**Build:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 ✅ (M1 🟡 — code done, owner-blocked infra tail) — shipped through **W22b** (installed-native PWA · the expanding live order chip) · **Gate:** 623 qr tests + 41 ui tests · 129 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
 
 </div>
 
@@ -51,7 +51,7 @@ The QR app began as the productionization of the **v7.2 prototype** (graded ≈4
 
 The doctrine every build/review arc has proved out lives in [`docs/DESIGN-LANGUAGE.md`](docs/DESIGN-LANGUAGE.md) — the warm editorial-paper aesthetic, the lit-gold **selection vocabulary** shared by every chip/pill/seal, the motion idiom kit (`mms-pop` / `mms-rise` / `mms-stagger`, all reduced-motion-escorted), the **optimistic-UX doctrine** (instant flip · serialized background writes · revert-to-confirmed · drain-before-charging · amounts never optimistic), hard **honesty rules** (rank seals only from real paid-order counts, tie-aware; recommendations state the literal rule they matched; copy promises only what the code keeps), always-bilingual EN + Burmese on one surface, and receipt-language money surfaces.
 
-**Depth & ceremony (W22a, as-built):** every `.card` reads as gently-lifted warm paper — an inset `--sheen` lip over the two-tier `--sh-paper` (tight ambient + a **negative-spread** wide diffuse; a zero-spread wide layer reads as a hard square frame), hover deepening through `--sh-paper-hover` and never flattening back. Diner mains ride `PaperAmbient` — a fixed `z:-1` gradient-masked hairline grid + gold bloom + grain, print-hidden, with the page ground on `<html>` **only** and the host never isolating (an `isolation:isolate` host traps its own fixed overlays under the app header). Pages carry LINES, cards carry DOTS (`.card-textured`); `.surface-vellum` marks moments of consideration; glass frost is `md:`+ on the sticky chrome and mobile stays opaque and blur-free — the GPU budget is a hard limit. Two ceremonies pay off real events: the `/track` paid summary is a thermal slip that **prints on** when freshly paid (the print-head light a sibling of the clipped element, never a child), and Send-to-kitchen lands a paper beat — both `display:none` under reduced motion. Still ahead in [`docs/W22_DESIGN_PROPOSAL.md`](docs/W22_DESIGN_PROPOSAL.md) (W22a ✅ shipped): the installed-native PWA + live order chip, the gesture layer, designed Night mode, honest personalization, and an opt-in sound identity.
+**Depth & ceremony (W22a, as-built):** every `.card` reads as gently-lifted warm paper — an inset `--sheen` lip over the two-tier `--sh-paper` (tight ambient + a **negative-spread** wide diffuse; a zero-spread wide layer reads as a hard square frame), hover deepening through `--sh-paper-hover` and never flattening back. Diner mains ride `PaperAmbient` — a fixed `z:-1` gradient-masked hairline grid + gold bloom + grain, print-hidden, with the page ground on `<html>` **only** and the host never isolating (an `isolation:isolate` host traps its own fixed overlays under the app header). Pages carry LINES, cards carry DOTS (`.card-textured`); `.surface-vellum` marks moments of consideration; glass frost is `md:`+ on the sticky chrome and mobile stays opaque and blur-free — the GPU budget is a hard limit. Two ceremonies pay off real events: the `/track` paid summary is a thermal slip that **prints on** when freshly paid (the print-head light a sibling of the clipped element, never a child), and Send-to-kitchen lands a paper beat — both `display:none` under reduced motion. Still ahead in [`docs/W22_DESIGN_PROPOSAL.md`](docs/W22_DESIGN_PROPOSAL.md) (W22a + W22b ✅ shipped): the gesture layer, designed Night mode, honest personalization, and an opt-in sound identity.
 
 ## 🏗 Architecture
 
@@ -152,7 +152,7 @@ The gate — run all three before any PR:
 
 ```bash
 pnpm turbo lint typecheck build test   # what CI runs
-pnpm verify:slice                      # the MECHANICAL money-path gate: coverage guard + 124 semantic
+pnpm verify:slice                      # the MECHANICAL money-path gate: coverage guard + 129 semantic
                                        # mutations (each MUST turn its owning suite red) + orphan check.
                                        # ⚠️ rewrites the 38 money/authority modules it mutates IN PLACE
                                        # (37 under apps/qr/lib + create-share-intent/route.ts) and restores
