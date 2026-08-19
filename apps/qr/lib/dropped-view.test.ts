@@ -10,6 +10,8 @@ import {
   parseDroppedLines,
   settleCanceledCopy,
   settleCanceledSpoken,
+  paidClaim,
+  safeClaim,
   settleCancelReason,
   SETTLE_CANCELED_NEXT,
   SETTLE_CANCELED_NOTE,
@@ -121,6 +123,25 @@ describe("the notice a CHARGED order carries", () => {
         ],
       }),
     ).toBe(", sold out and removed: Mohinga ×1, Tea Leaf Salad ×2");
+  });
+});
+
+describe("the money claim the timed-out screen may make", () => {
+  it("does not say a payment went through while the card is only authorized", () => {
+    // The tracker's give-up arms all lead with a completed payment. Under manual capture that is
+    // false until the order lands — and PaySuccess beside them now says so, which is what turned a
+    // lone wrong sentence into two contradictory claims on one screen.
+    expect(paidClaim(true)).not.toMatch(/went through|payment (is )?(safe|complete)/i);
+    expect(safeClaim(true)).not.toMatch(/payment is safe|went through/i);
+    expect(paidClaim(true)).toMatch(/authorized/i);
+    expect(safeClaim(true)).toMatch(/authorized/i);
+  });
+
+  it("keeps today's wording for every automatic-capture payment", () => {
+    // The overwhelming case, and the one that must not regress: an automatic capture really HAS
+    // gone through by the time this screen renders.
+    expect(paidClaim(false)).toBe("Your payment went through");
+    expect(safeClaim(false)).toBe("Your payment is safe");
   });
 });
 

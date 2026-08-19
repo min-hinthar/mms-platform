@@ -33,6 +33,8 @@ import {
   droppedNoticeHeading,
   droppedSpokenNotice,
   DROPPED_NOTICE_BODY,
+  paidClaim,
+  safeClaim,
   settleCanceledCopy,
   settleCanceledSpoken,
   SETTLE_CANCELED_NEXT,
@@ -175,15 +177,27 @@ export function OrderTracker({
   //
   // ⚠️ AN ORDER OUTRANKS A VERDICT, ALWAYS (adversarial review). `getMyOrderFallback` reads the order
   // FIRST and only consults the ledger when none is found; the poll is a bare verdict read with no
-  // such ordering, and `polledSettle` is write-once — so without this guard a verdict could pin
-  // "No payment was taken" over a receipt for a real charge, on the same screen, for the life of the
-  // mount. The terminal-verdict rule in `manual-capture-run.ts` should make order-and-verdict
-  // unreachable for one intent (a recorded cancellation can never go on to capture), which is
-  // exactly why this costs nothing: it is the belt for a claim that must never appear even once.
+  // such ordering, and `polledSettle` is write-once — so without this guard a verdict pins "No
+  // payment was taken" over a receipt for a real charge, for the life of the mount.
+  //
+  // And this is NOT merely a belt for the terminal-verdict rule in `manual-capture-run.ts`. That
+  // rule stops a recorded cancellation from going on to capture; it cannot stop the reverse, which
+  // the review traced concretely: Stripe redelivers an unanswered event after ~30s, so TWO
+  // invocations can be live at once. H1 passes the `requires_capture` check and stalls; H2 runs to
+  // completion, captures, and the `succeeded` webhook creates the order; H1 then resumes, finds the
+  // cart no longer open, and records `cart_not_open` for the very intent that was just captured.
+  // An order for this PI is proof the verdict is stale, and it is the only proof available.
   const settleCanceled: SettleCanceled | null = order
     ? null
     : (polledSettle ??
       (fallback?.ok === false && fallback.reason === "settle_canceled" ? fallback.settle : null));
+  // W23d (adversarial review) — the money claim every give-up arm leads with is FALSE while a
+  // manual-capture hold is only authorized. `PaySuccess` already stopped claiming otherwise, which
+  // is exactly what made it a contradiction rather than a lone error: the headline said the card was
+  // authorized while the banner beneath it said the payment went through. One binding, read by both
+  // the visible arms and the spoken ones, so the two can never disagree again.
+  const notYetCharged = awaitingCapture && !order;
+
   // W10c — the timed-out banner's whole vocabulary ("a moment", "refresh to check") assumes a
   // transient blip. When BOTH the live read and the uid-scoped server fallback have given up, ask
   // the one health probe whether it's us; if it is, the honest thing is not "try again" but "your
@@ -568,12 +582,17 @@ export function OrderTracker({
                           : weDown
                             ? // W10c — the escalation is announced too. The reference itself is spelled
                               // out character by character in its own sr-only sibling below.
-                              "We’re having trouble on our end. Your payment is safe — show this screen to staff and we’ll match it up."
+                              `We’re having trouble on our end. ${safeClaim(notYetCharged)} — show this screen to staff and we’ll match it up.`
                             : youOffline
-                              ? "You look offline. Your payment went through — reconnect and you can check again from this screen."
+                              ? `You look offline. ${paidClaim(notYetCharged)} — reconnect and you can check again from this screen.`
                               : "Your order is taking longer than expected — use the Refresh button to check."
                         : justPaid
-                          ? "Payment confirmed — finalizing your order."
+                          ? notYetCharged
+                            ? // W23d — under manual capture this beat is an AUTHORIZATION, and the
+                              // headline beside it now says so. Announcing "Payment confirmed" here
+                              // put the screen's two money claims in direct contradiction.
+                              "Card authorized — we’re confirming your order."
+                            : "Payment confirmed — finalizing your order."
                           : processing
                             ? "Confirming your payment."
                             : "Confirming your order."}
@@ -682,7 +701,7 @@ export function OrderTracker({
               </span>
             </Link>
             <a
-              href={BRAND_PHONE_TEL}
+              href={`tel:${BRAND_PHONE_TEL}`}
               className="nav-link"
               style={{ minHeight: 44, display: "inline-flex", alignItems: "center" }}
             >
@@ -958,12 +977,12 @@ export function OrderTracker({
                 // can't help — the counter can look the order up by the reference and settle it.
                 processing
                 ? "Your payment is with your bank; our own systems are the part that’s down. Nothing is lost — show this screen to staff and we’ll take it from there."
-                : "Your payment is safe — it’s our systems we can’t reach right now, not your order. Show this screen to staff and we’ll match it to your payment."
+                : `${safeClaim(notYetCharged)} — it’s our systems we can’t reach right now, not your order. Show this screen to staff and we’ll match it up.`
               : youOffline
                 ? // Pre-PR review — the offline diner's own branch. They were being told to tap
                   // Refresh, which is `location.reload()`: on a dead radio that replaces the only
                   // proof of payment they are holding with the browser's offline error page.
-                  "Your payment went through — this screen just can’t reach us while you’re offline. Reconnect and the Refresh button comes back; don’t reload until then."
+                  `${paidClaim(notYetCharged)} — this screen just can’t reach us while you’re offline. Reconnect and the Refresh button comes back; don’t reload until then.`
                 : processing
                   ? "We’re still confirming your payment — refresh to check, or come back shortly."
                   : sharePayer
@@ -972,7 +991,7 @@ export function OrderTracker({
                       // the host — which is the entire premise of this branch. /account would greet them
                       // with "No orders yet". Say what is true and point at a person who can help.
                       "Your payment went through. The table’s bill is recorded under whoever started the split, so this screen can’t follow it — ask them for the receipt, or check with us before you go."
-                    : "Your payment went through; we just can’t reach the order from this screen yet. Refresh to try again."}
+                    : `${paidClaim(notYetCharged)}; we just can’t reach the order from this screen yet. Refresh to try again.`}
           </div>
           {/* The receipt token staff can look the payment up by. Same visible/sr-only split as the
               exit pass and the receipt card: a hex tail read aloud as one word is useless, so the

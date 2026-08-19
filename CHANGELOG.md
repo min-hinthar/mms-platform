@@ -52,7 +52,7 @@ the money claim and the Stars pill wait for the order to land. A dropped line is
 and never carries a dollar figure: a number printed for money that was never charged reads as a
 refund line.
 
-A recorded cancellation is also TERMINAL for its intent (Codex round 1): the durability rule opens a window where a row says "no payment was taken" over a still-capturable hold, and re-deriving a plan on the redelivery could answer capture — so a verdict on record short-circuits straight to cancelling. 17 new mutants (174 total), 3 new suites, 1 new SQL test. Migration `20260819300000`. Every surface
+A recorded cancellation is also TERMINAL for its intent (Codex round 1): the durability rule opens a window where a row says "no payment was taken" over a still-capturable hold, and re-deriving a plan on the redelivery could answer capture — so a verdict on record short-circuits straight to cancelling. 18 new mutants (175 total), 3 new suites, 1 new SQL test. Migration `20260819300000`. Every surface
 renders `[]` until `PICKUP_MANUAL_CAPTURE` is on, so today's behaviour is byte-for-byte unchanged.
 
 ### W23c — capture what the kitchen made, cancel the rest (2026-08-19)

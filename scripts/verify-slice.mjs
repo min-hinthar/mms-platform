@@ -537,6 +537,14 @@ const MUTANTS = [
     replace: "    await releaseOurLock(cartId, payerUid);",
   },
   {
+    id: "dropped-view/timed-out-screen-claims-a-completed-payment",
+    file: "apps/qr/lib/dropped-view.ts",
+    suite: "lib/dropped-view.test.ts",
+    why: 'W23d (adversarial review, HIGH) — every give-up arm on the tracker, visible and spoken, leads with a completed payment ("Your payment went through", "Your payment is safe"). Under manual capture that is false until the order lands, and PaySuccess beside them now says the card is only authorized — so leaving these alone put two contradictory money claims on ONE screen. The claim is named once here precisely so a future edit to either sentence cannot drift from the state it describes.',
+    find: '  return notYetCharged ? "Your card is authorized, not charged yet" : "Your payment went through";',
+    replace: '  return "Your payment went through";',
+  },
+  {
     id: "dropped-view/zero-total-blamed-on-a-shortage",
     file: "apps/qr/lib/dropped-view.ts",
     suite: "lib/dropped-view.test.ts",

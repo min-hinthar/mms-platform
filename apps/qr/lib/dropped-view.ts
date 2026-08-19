@@ -245,6 +245,30 @@ export function settleCanceledCopy(settle: SettleCanceled): { heading: string; b
 export const SETTLE_CANCELED_NEXT =
   "Nothing else will happen on this screen — there’s no order to follow. Start a new one whenever you’re ready.";
 
+// ── The claim the timed-out screen is allowed to make about the money ────────────────────────────
+//
+// The tracker's give-up arms — visible and spoken — all lead with a completed payment: "Your payment
+// went through", "Your payment is safe". Under manual capture that is false until the order lands:
+// `redirect_status=succeeded` means the PI reached `requires_capture`, and W23d already stopped
+// `PaySuccess` claiming otherwise. Leaving these arms alone put the two claims on ONE screen
+// contradicting each other (adversarial review, HIGH + MED) — the visible headline saying the card
+// was only authorized while the banner beneath it said the payment went through.
+//
+// Named ONCE here, in two shapes because the arms say it two ways, so a future edit to either
+// sentence cannot drift from the state it describes.
+
+/** "Your payment went through" — or the truth, while a manual-capture hold is only authorized. */
+export function paidClaim(notYetCharged: boolean): string {
+  return notYetCharged ? "Your card is authorized, not charged yet" : "Your payment went through";
+}
+
+/** The reassurance the platform-down arm leads with. Same rule, the other phrasing. */
+export function safeClaim(notYetCharged: boolean): string {
+  return notYetCharged
+    ? "Your card is authorized and nothing has been charged"
+    : "Your payment is safe";
+}
+
 /** What the single `role="status"` region announces for a cancelled hold. One string: the region is
  *  the view's only live region (QA-CHECKLIST §A), so it carries the whole verdict, not a fragment. */
 export function settleCanceledSpoken(settle: SettleCanceled): string {
