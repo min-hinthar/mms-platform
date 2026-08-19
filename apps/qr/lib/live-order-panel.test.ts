@@ -73,6 +73,22 @@ describe("buildLiveOrderPanel — real moments only", () => {
     expect(labels(basket, "grocery")).toEqual(["Placed", "Order total"]);
   });
 
+  it("keeps a SEATED diner's groceries out of the expo stamps too", () => {
+    // The panel gates on the same predicate as the status word. A dine-in order carrying groceries
+    // and no to-go box has a non-null togo_status (the webhook stamps grocery lines), but nothing
+    // was bagged — printing "Ready 2:31 PM" would invent a wait the diner never had.
+    const seated: TrackedOrder = {
+      ...base,
+      hasDineInFood: true,
+      hasTogoFood: false,
+      hasGrocery: true,
+      tableNumber: 4,
+      togoStatus: "ready",
+      togoReadyAt: "2026-08-17T21:31:00.000Z",
+    };
+    expect(labels(seated, "dinein")).toEqual(["Placed", "Order total"]);
+  });
+
   it("frames the arrival ping as the DINER's action, never as staff acknowledgement", () => {
     const arrived: TrackedOrder = { ...base, arrivedAt: "2026-08-17T21:20:00.000Z" };
     const v = buildLiveOrderPanel(arrived, "togo");

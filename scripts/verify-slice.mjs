@@ -1095,8 +1095,8 @@ const MUTANTS = [
     id: "live-order-panel/grocery-gets-kitchen-stamps",
     file: "apps/qr/lib/live-order-panel.ts",
     suite: "lib/live-order-panel.test.ts",
-    why: "W22b — a grocery basket's togo_status is an EXIT-PASS check, not a kitchen bag; without the kind guard the panel prints 'Ready 2:31 PM' over a basket the shopper scanned themselves and is already carrying, inventing a wait that never happened",
-    find: '  if (kind !== "grocery") {',
+    why: "W22b — a grocery line stamps the SAME togo_status column as a kitchen bag (mms_init_togo_status fires on fulfillment in ('togo','grocery')), so only `hasTogoFood` separates an exit-pass check from real bagging; without it the panel prints 'Ready 2:31 PM' over goods the shopper scanned and is already carrying",
+    find: "  if (order.hasTogoFood) {",
     replace: "  if (true) {",
   },
   {
@@ -1107,6 +1107,14 @@ const MUTANTS = [
     find: '  if (order.totalCents > 0) rows.push({ label: "Order total", value: money(order.totalCents) });',
     replace:
       '  if (order.totalCents > 0)\n    rows.push({\n      label: "Order total",\n      value: money(\n        order.breakdown.subtotalCents +\n          order.breakdown.taxCents +\n          order.breakdown.tipCents,\n      ),\n    });',
+  },
+  {
+    id: "live-order/kitchen-word-needs-togo-food",
+    file: "apps/qr/lib/live-order.ts",
+    suite: "lib/live-order.test.ts",
+    why: "W22b review — `togo_status` is only a KITCHEN signal when the order carries to-go FOOD; mms_init_togo_status stamps 'preparing' for grocery lines too, so reading the column raw tells a seated diner their self-scanned shopping is being prepared, then ready",
+    find: "  const kitchen = o.hasTogoFood ? o.togoStatus : null;",
+    replace: "  const kitchen = o.togoStatus;",
   },
   {
     id: "live-order/kind-precedence-dinein",

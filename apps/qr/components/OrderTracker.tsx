@@ -362,7 +362,11 @@ export function OrderTracker({
       {refunded
         ? "Refunded"
         : arrived
-          ? liveOrderStatusWord({ kind: trackedKind, togoStatus: togo })
+          ? liveOrderStatusWord({
+              kind: trackedKind,
+              togoStatus: togo,
+              hasTogoFood: !!order?.hasTogoFood,
+            })
           : processing
             ? "Confirming payment"
             : "Confirming order"}

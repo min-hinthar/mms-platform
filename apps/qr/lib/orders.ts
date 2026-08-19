@@ -115,7 +115,7 @@ export async function getMyLiveOrders(): Promise<LiveOrder[]> {
       arrivedAt: r.arrived_at ?? null,
       paymentIntent: r.stripe_payment_intent_id ?? null,
       cartId: r.cart_id ?? null,
-      statusWord: liveOrderStatusWord({ togoStatus: r.togo_status ?? null, kind }),
+      statusWord: liveOrderStatusWord({ togoStatus: r.togo_status ?? null, kind, hasTogoFood }),
     });
   }
   return out;

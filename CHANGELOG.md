@@ -89,6 +89,18 @@ dropped — see the amended section there.
   module (native TS loading needs Node 22.6+ while the repo's floor is `node >=20`) — it reads
   `public/email-logo.png` and asserts the source's magic bytes before drawing. The icons regenerate
   **byte-identically**, confirming `_og/logo.ts` was only ever that file in base64. New row **M68**.
+- **Review round 2 — the kitchen word now requires actual to-go FOOD.** Codex and the in-session
+  adversarial pass converged independently on the same defect, from opposite directions: a DINE-IN
+  order carrying self-scanned groceries and no to-go box has a non-null `togo_status` (the webhook
+  stamps `fulfillment in ('togo','grocery')`), so a seated diner read "Preparing", then "Ready",
+  about their own shopping — while /track's `pureGrocery` branch classified the very same order as a
+  completed exit pass. One reviewer traced it unreachable today; the other did not. Rather than bet
+  on reachability, the rule now lives in ONE place: `liveOrderStatusWord` gates the kitchen word on
+  **`hasTogoFood`** — the single predicate that separates a kitchen bag from an exit-pass check — and
+  `buildLiveOrderPanel` gates the expo stamps on the same field. This is the "name it ONCE" rule
+  applied to a predicate rather than a value, and it closes **M68** in the same PR that filed it.
+  New mutant `live-order/kitchen-word-needs-togo-food` with a fixture that separates the paths
+  (kind dinein · grocery-only takeaway · non-null `togo_status`).
 - New registry rows: **M62** iOS splash/status-bar prerequisite chain, **M63** install
   screenshots (real captures only), **M64** a genuine cooking stage, **M65** a held scheduled
   pickup reading "Preparing" for hours, **M66** the offline pill painting over the cart CTA,

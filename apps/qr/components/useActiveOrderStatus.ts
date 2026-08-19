@@ -108,7 +108,11 @@ export function useActiveOrderStatus(track: boolean): ActiveOrderStatus {
   const statusWord = !order
     ? null
     : tracked && kind
-      ? liveOrderStatusWord({ kind, togoStatus: tracked.togoStatus })
+      ? liveOrderStatusWord({
+          kind,
+          togoStatus: tracked.togoStatus,
+          hasTogoFood: tracked.hasTogoFood,
+        })
       : timedOut
         ? "Placed"
         : "Confirming";

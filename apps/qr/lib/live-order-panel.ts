@@ -62,9 +62,11 @@ export function buildLiveOrderPanel(order: TrackedOrder, kind: LiveOrderKind): L
   if (order.arrivedAt)
     rows.push({ label: "You said you're here", value: formatClock(order.arrivedAt) });
 
-  // Expo stamps. Grocery is excluded: its `togo_status` is an exit-pass check, not a kitchen bag —
-  // printing "Ready 2:31 PM" over a basket the shopper already carries invents a wait that never was.
-  if (kind !== "grocery") {
+  // Expo stamps, gated on the SAME predicate as the status word: `togo_status` is only a kitchen
+  // signal when the order carries to-go FOOD. A grocery line stamps the very same column, so without
+  // this a self-scanned basket — including one riding a dine-in order — would print "Ready 2:31 PM"
+  // over goods the shopper already carries, inventing a wait that never happened.
+  if (order.hasTogoFood) {
     if (order.togoReadyAt) rows.push({ label: "Ready", value: formatClock(order.togoReadyAt) });
     if (order.togoPickedUpAt)
       rows.push({ label: "Picked up", value: formatClock(order.togoPickedUpAt) });
