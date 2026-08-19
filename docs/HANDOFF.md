@@ -56,7 +56,17 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > surface two numbers would expose the whole audit trail. `lib/refund-view.ts` is the ONE derivation —
 > the original bug was a **type**, not arithmetic: `receiptStatusLabel` took a boolean and a partial
 > refund is a third state. The Total row still prints the fulfillment-time snapshot verbatim;
-> "Refunded" and "You paid" follow it. Migration `20260819100000`.
+> "Refunded" and "You paid" follow it. Codex round 2 caught the one corner the design created:
+> `summarizeRefund` answers `full` on `refunded_cents >= total` (before the webhook flips the
+> status) and /account's read filters `status='paid'`, so a wholly-returned order reaches that list
+> in the `full` state — the chip and its spoken clause now DERIVE from the state instead of testing
+> one at the call site.
+> Migration `20260819100000` **✅ prod-applied + probed** as `w23b_refund_visibility`: both columns
+> are `integer` defaulting to 0, both `>= 0` CHECKs exist, and the ledger back-fill moved nothing
+> (0 rows nonzero of 14 orders — there are no refunds in production). Five probes run against prod
+> and rolled back by hand: a negative was refused on BOTH tables; a legitimate 1400 still landed
+> (an over-tight bound blocks real service and no refusal-only probe would notice); a `greatest()`
+> redelivery of 900 did NOT rewind the total; and 1900 did advance it. Prod left at 0 nonzero.
 >
 > **W23a (the 86 button + the availability gate) — merged #199, migration prod-applied + probed.**
 > The owner asked whether checkout should wait on kitchen acceptance. The audit found a different
@@ -211,11 +221,11 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > **Read this block, then `docs/W22_DESIGN_PROPOSAL.md` (the live slate) — `docs/W17_PLAN.md` only for
 > the owner-blocked POS/pricing residuals. Everything below is merged AND prod-applied.** Prod is
-> `fasnpdhtvqtzjlvruqcu`; its migration history ends at `w23a_sold_out` (prod stamps its own
+> `fasnpdhtvqtzjlvruqcu`; its migration history ends at `w23b_refund_visibility` (prod stamps its own
 > apply-time versions — match history by NAME, not timestamp), and **W22a / W22a·depth / W22r / W22b
 > needed no migration at all** — every column the itemized tracker and the live order chip read
 > already existed. **This line is the ONE statement of prod's migration head** — the W23a block above
-> says what `w23a_sold_out` did and what the probes returned, and the "Prod state you can rely on"
+> says what each W23 migration did and what its probes returned, and the "Prod state you can rely on"
 > bullet points here rather than restating. Keep it that way: two copies of a migration head is how a
 > future session gets told a live slice is unapplied, which is precisely what Codex found on #200 —
 > twice, the second time in the fix for the first.
@@ -267,7 +277,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >   own commit message claimed the head was already stated once. That is the lesson worth keeping: a
 >   fact repeated in a third place drifts exactly like a value computed in two places, and the repo
 >   has now paid for it in prose as well as in code. The repo's newest migration FILE is
->   `20260819000000_w23a_sold_out.sql`.
+>   `20260819100000_w23b_refund_visibility.sql`.
 >
 > ### ⚠️ Open decisions that BLOCK work — ask the owner, don't guess
 >
