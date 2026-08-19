@@ -97,9 +97,26 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > policy, zero grants to anon/authenticated/PUBLIC, and an `authenticated` INSERT refused.
 >
 > **W23d (registry M71 — tell the diner what the settlement dropped).** Migration
-> `20260819300000_w23d_dropped_visibility.sql` is **merged but NOT yet prod-applied** — apply and probe
-> it the way W23a/b/c were, then move the prod-head line below. Its shape, so a future session does not
-> have to re-derive it: the PARTIAL fact rides `qr_orders.dropped_lines` (W23b's `refunded_cents` move —
+> `20260819300000_w23d_dropped_visibility.sql` **✅ prod-applied + probed** as `w23d_dropped_visibility`.
+> Before applying, prod's live `mms_fulfill_order` was checked against the M3 baseline it is restated
+> from (one overload, pre-W23d column list, M3 + K2 + W21 + promo-consume + open-guard all present) —
+> the one drift CI cannot catch, because CI builds from migrations rather than from prod.
+>
+> The probe ran inside a block that RAISED at the end, so everything rolled back (verified after: **0**
+> cancellation rows, **0** dropped rows, **0** orders with a non-empty `dropped_lines`, no probe
+> fixtures, 14 orders unchanged). Results: the precheck voided **1** line and stamped it
+> `pi_w23d_probe_A`, the line really went to `voided`; the snapshot for that attempt is
+> `[{"qty":2,"name":"Probe Mohinga"}]` (name + qty only — no amount, no reason code) while a DIFFERENT
+> attempt on the same cart answers `[]`, which is the whole per-attempt scoping rule; the verdict mark
+> answered **1** then **0** on redelivery and **kept** `nothing_left` rather than taking the second
+> call's `over_authorized`; a **cartless** verdict (`cart_id` null, reason `no_cart` — the webhook's
+> no-cartId branch) recorded; an out-of-vocabulary reason was **refused** by the CHECK; and the diner
+> read answered **1** row for the payer and **0** for a different uid. Structure: `cart_id` nullable
+> with **0** foreign keys, RLS on with exactly **1** policy, all four functions SECURITY DEFINER with
+> `search_path=""` and EXECUTE granted to `service_role` only, and exactly one `mms_settle_precheck_and_void`
+> (the 4-arg shape is gone — no overload).
+>
+> Its shape, so a future session does not have to re-derive it: the PARTIAL fact rides `qr_orders.dropped_lines` (W23b's `refunded_cents` move —
 > one column on a row the diner already reads, so no policy is widened and `qr_dropped_lines` KEEPS its
 > manager-read policy), while the ALL-DROPPED fact cannot ride the order (there isn't one) and must not
 > ride the line ledger (a cancellation with ZERO dropped lines is reachable: a promo lapses on
@@ -284,7 +301,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > **Read this block, then `docs/W22_DESIGN_PROPOSAL.md` (the live slate) — `docs/W17_PLAN.md` only for
 > the owner-blocked POS/pricing residuals. Everything below is merged AND prod-applied.** Prod is
-> `fasnpdhtvqtzjlvruqcu`; its migration history ends at `w23c_capture_void` (prod stamps its own
+> `fasnpdhtvqtzjlvruqcu`; its migration history ends at `w23d_dropped_visibility` (prod stamps its own
 > apply-time versions — match history by NAME, not timestamp), and **W22a / W22a·depth / W22r / W22b
 > needed no migration at all** — every column the itemized tracker and the live order chip read
 > already existed. **This line is the ONE statement of prod's migration head** — the W23a block above
@@ -340,8 +357,8 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >   own commit message claimed the head was already stated once. That is the lesson worth keeping: a
 >   fact repeated in a third place drifts exactly like a value computed in two places, and the repo
 >   has now paid for it in prose as well as in code. The repo's newest migration FILE is
->   `20260819300000_w23d_dropped_visibility.sql`, which is one AHEAD of prod's head until it is
->   applied — that gap is the normal state between a merge and its probe, not a drift.
+>   `20260819300000_w23d_dropped_visibility.sql`, and it IS applied — prod's history now ends at
+>   `w23d_dropped_visibility`.
 >
 > ### ⚠️ Open decisions that BLOCK work — ask the owner, don't guess
 >

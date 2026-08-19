@@ -203,3 +203,45 @@ multi-byte content, `grep -c "â"` it before moving on.
   and call `mcp__github__merge_pull_request` with `merge_method: "squash"` directly (or ask the
   owner to enable auto-merge from the UI). A merge commit on main is not worth a history rewrite —
   note it and move on.
+
+## #49 — A sentence written for the TYPICAL instance of a state, applied to the whole state (W23d, 2026-08-19)
+
+W23d exists to remove one false claim from `/track`: the give-up card told a diner whose hold had
+been **cancelled** that their payment went through. Three review passes then found **twelve** real
+defects in the first commit, and **eight were the same mistake** — copy asserting more than the code
+had observed. Inside the slice built to remove exactly that.
+
+Every one had the identical shape: a string written for the _common_ member of a state, then wired
+to the state itself.
+
+| Reason code     | Written for                   | Also fires when                                                                                                                           | The lie                                                                                                                     |
+| --------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `cart_not_open` | a cart settled at the counter | staff `clearTable` cancelled it (routine, once the 5-min pay lock goes stale — Stripe's 5-min and 35-min backoff steps cross that window) | "it went through another way" → go ask about money nobody took                                                              |
+| `superseded`    | a diner re-checking out       | the lock was released, or another payer took over and abandoned it                                                                        | "we kept the newer payment" → an order that may never have been placed                                                      |
+| `nothing_left`  | every dish sold out           | a promo/reward clamped to the remaining subtotal zeroed the total, dishes still on it                                                     | "everything sold out" — and **twice**: the first fix gated on `dropped.count > 0`, which still lies when SOME lines dropped |
+
+The tell is grammatical. **A reason code names a CAUSE the code observed; the copy kept naming a
+CONSEQUENCE the code inferred.** `-1` observes "the cart is not open" and infers "so it was paid".
+`-2` observes "the lock moved" and infers "so someone else paid". `<= 0` observes "the total is
+zero" and infers "so the basket is empty".
+
+The rule that falls out, and it is checkable by reading alone: **for each branch, write down what
+the predicate literally tested, then delete every clause the copy adds beyond it.** If what remains
+is too thin to be useful, the fix is a NEW predicate that observes the missing fact — not a
+confident sentence over the old one. `nothing_left` ended up with no shortage claim at all, because
+the snapshot carries only what was REMOVED and never how many lines the order started with, so
+"everything" is unverifiable in every branch. The shortage is still told — by the dropped list's own
+count heading, which states exactly what is known.
+
+Two others from the same slice:
+
+- **`verify:slice` restores its own snapshot over anything you edit while it runs.** It refuses to
+  START on a dirty target file, but nothing stops you editing during the several minutes it runs —
+  and the restore silently reverted a helper two files depended on, leaving a broken build with a
+  clean `git status` for one module and a dirty one for the other. Never edit `apps/qr/lib/**` while
+  it is running; wait for the notification.
+- **A guard fed by a fixture proves the fixture.** The W23d SQL test asserted the per-attempt stamp
+  from a hand-written `INSERT`, so `mms_settle_precheck_and_void` — the ONLY production writer of
+  that column — was exercised by nothing in the repo. Deleting the column from its `INSERT` would
+  have passed the vitest suites (they mock the DB), the drift guard (it compares schema to types)
+  and the test itself. If a test asserts what a function writes, the test must CALL the function.
