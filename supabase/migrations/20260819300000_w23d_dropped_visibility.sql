@@ -43,9 +43,13 @@
 -- SECURITY DEFINER function owned by `postgres` (no `force row level security` anywhere in this
 -- repo), and only `name` and `qty` — the guest's own order text — ever cross to the diner.
 -- `reason_code`, `amount_cents`, `line_id` and the row's existence stay staff-internal. The new
--- table follows the same discipline. `supabase/tests/w23d_dropped_visibility_test.sql` asserts a
--- non-manager `authenticated` role still selects zero rows from BOTH, so a future "helpful" widening
--- reddens CI instead of depending on a reviewer noticing.
+-- table follows the same discipline. `supabase/tests/w23d_dropped_visibility_test.sql` asserts that a
+-- genuine session MEMBER — the most-privileged diner there is — CANNOT read either ledger, so a
+-- future "helpful" widening reddens CI instead of depending on a reviewer noticing. (In practice
+-- `authenticated` has no SELECT grant on either table at all, which refuses the read before RLS is
+-- even consulted; the app reads them service-role behind an app-level staff gate, exactly as it
+-- reads `mms_refunds`. The test accepts either mechanism, because the RULE is "a diner cannot read
+-- this" and pinning one mechanism would go red the day the other legitimately changed.)
 
 -- ── 1. Which ATTEMPT dropped the line ────────────────────────────────────────────────────────────
 -- Without this the fulfillment snapshot below could only join on `cart_id`, and a cancelled

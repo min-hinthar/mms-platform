@@ -3,10 +3,10 @@
 -- Proves the three things the W23d migration promises, each of which is invisible to `tsc`,
 -- to the drift guard, and to every vitest suite (they all mock the database):
 --
---   1. NEITHER ledger is diner-readable. `qr_dropped_lines` keeps the manager-read policy W23c
---      gave it and `qr_settlement_cancellations` gets the same one — so an ordinary authenticated
---      diner selects ZERO rows from both, even for their OWN cart. A future "helpful" widening
---      reddens CI here instead of depending on a reviewer noticing.
+--   1. NEITHER ledger is diner-readable — not even for the diner's OWN cart, and not even for a
+--      genuine MEMBER of the session that owns it (the most-privileged diner there is). Two
+--      mechanisms hold that: no SELECT grant to `authenticated`, and a manager-only RLS policy
+--      behind it. Either alone passes; see the block at the end for why both are accepted.
 --   2. The fulfillment snapshot is scoped to ONE attempt. A cancelled all-dropped settlement leaves
 --      its cart open, so a second order in that same cart must NOT inherit the first attempt's
 --      dropped lines — that would print "sold out before we could make it" on a receipt for an
@@ -105,14 +105,37 @@ end $$;
 set local role authenticated;
 set local request.jwt.claims =
   '{"sub":"00000000-0000-0000-0000-00000023d1ce","role":"authenticated"}';
+--
+-- FAIL-CLOSED EITHER WAY, and the distinction matters enough to spell out. There are TWO independent
+-- mechanisms keeping a diner out of these ledgers, and the first draft of this test asserted only the
+-- second — so CI failed with `permission denied for table qr_dropped_lines` rather than a leak:
+--
+--   1. `authenticated` has no table-level SELECT GRANT, so the read is refused outright. This is the
+--      stronger of the two and it is the state both tables are actually in.
+--   2. RLS filters the rows to zero even if a grant is ever added.
+--
+-- The rule being asserted is "a diner cannot read this", so BOTH outcomes pass and neither is
+-- assumed. Asserting only zero-rows would have been green for the wrong reason the day someone added
+-- a grant and dropped the policy; asserting only the refusal would go red the day a legitimate staff
+-- surface needed the grant, even though RLS still did its job.
+--
+-- (The app never reads either ledger through a caller-scoped client — `mms_refunds` is read the same
+-- way, service-role behind an app-level staff gate — so the missing grant breaks nothing today.)
 do $$
+declare v_n integer;
 begin
-  assert (select count(*) from public.qr_dropped_lines
-            where cart_id = '00000000-0000-0000-0000-00000023dca7') = 0,
-    'LEAK: a diner read qr_dropped_lines directly';
-  assert (select count(*) from public.qr_settlement_cancellations
-            where cart_id = '00000000-0000-0000-0000-00000023dca7') = 0,
-    'LEAK: a diner read qr_settlement_cancellations directly';
+  begin
+    select count(*) into v_n from public.qr_dropped_lines
+      where cart_id = '00000000-0000-0000-0000-00000023dca7';
+    assert v_n = 0, 'LEAK: a diner read qr_dropped_lines directly';
+  exception when insufficient_privilege then null;  -- refused before RLS: stronger, also correct
+  end;
+  begin
+    select count(*) into v_n from public.qr_settlement_cancellations
+      where cart_id = '00000000-0000-0000-0000-00000023dca7';
+    assert v_n = 0, 'LEAK: a diner read qr_settlement_cancellations directly';
+  exception when insufficient_privilege then null;
+  end;
 end $$;
 reset role;
 
