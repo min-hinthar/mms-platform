@@ -133,6 +133,19 @@ describe("settleAuthorizedPickup", () => {
     expect(cancels).toEqual([]); // the hold is left INTACT for the retry, not thrown away
   });
 
+  it("does NOT capture when the precheck failed and NOTHING had run out", async () => {
+    // The separating case for the precheck guard. With lines to drop, the "nothing voided" guard
+    // below catches a failed precheck too — so only the ordinary all-available path can prove this
+    // one exists. And it is the important one: a failed precheck means we do not know the cart is
+    // still open or still ours, which is exactly when capturing is unsafe.
+    gone = [];
+    voidError = { message: "transport" };
+    const r = await settleAuthorizedPickup("pi_12", "cart_12", 5200, 0.2, PAYER);
+    expect(r.kind).toBe("retry");
+    expect(captures).toEqual([]);
+    expect(cancels).toEqual([]);
+  });
+
   it("cancels the hold when the cart is no longer open", async () => {
     gone = [{ id: "m1", name: "Mohinga" }];
     voidResult = -1; // the RPC's "cart is not open" answer
