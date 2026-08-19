@@ -47,6 +47,22 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > **Gate today:** 138 `verify:slice` mutants green · `pnpm check:docs` clean (94 files, 653 qr tests +
 > 41 ui tests) · CI green · then the two reviewers.
 >
+> **W23a (the 86 button + the availability gate) — merged #199, migration prod-applied + probed.**
+> The owner asked whether checkout should wait on kitchen acceptance. The audit found a different
+> problem: `menu_items.is_sold_out` has existed since platform-init, ~15 surfaces READ it, and
+> **nothing had ever written it** (`menu_items` is public-read with no write policy). `setItemSoldOut`
+> is the writer, on the `setMenuPrice` pattern; `/staff/menu` gates PER CONTROL (server → 86 only,
+> manager → prices too) and the KDS carries the same flip on the ticket that revealed the empty pan.
+> The gate reads ONE predicate (`itemSellable`) at BOTH boundaries — `priceItem` at add time,
+> `create-intent` before the mint — and blocks **draft lines only**: a fired line is already made, and
+> a diner cannot remove one, so widening past draft would strand a table that ate the last portion.
+> **Residual (OPEN-ITEMS M69):** an 86 landing between the mint and the webhook confirm still produces
+> a refundable order; that needs manual capture, which is **W23c**.
+> Migration `20260819000000` **✅ prod-applied + probed** as `w23a_sold_out`: `sold_out_at` is
+> timestamptz with 0 rows stamped (no fabricated back-fill), `menu_availability_audit` has RLS on with
+> exactly ONE policy and it is SELECT-only — an `authenticated` INSERT into the ledger and an
+> `authenticated` UPDATE of `menu_items` were both run against prod and both refused, 0 rows written.
+>
 > **W22b (installed-native — the live order chip + the PWA install):** the header order pill is now a
 > DISCLOSURE that expands in place. It lives INSIDE `.app-header` on purpose — sticky with no
 > `overflow`, so an absolute sibling is contained but unclipped and inherits the header's stacking
