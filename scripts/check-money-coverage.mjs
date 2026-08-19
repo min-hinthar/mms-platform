@@ -57,6 +57,13 @@ const MONEY_MARKERS = [
   // both revertible with every gate green because neither file matched a marker: the noun the
   // charged price actually lives in was missing.
   /\bunit_price_cents\b/,
+  // W23b — the refund columns and the one function that reads them into a verdict. `refund-view.ts`
+  // is pure and touches no other noun on this list, so without these it was a money-DECISION module
+  // the guard could not see: the rule that decides whether a receipt says "Paid in full" would have
+  // been revertible with every gate green. `summarizeRefund` is listed for the same reason
+  // `captureAllIfReady` is — the noun is a function when the money lives in a decision.
+  /\brefunded_cents\b/,
+  /\bsummarizeRefund\b/,
 ];
 
 const EXEMPT = /verify:slice-exempt\s*—?\s*(.+)/;

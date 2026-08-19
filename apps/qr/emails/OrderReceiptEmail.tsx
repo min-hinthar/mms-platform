@@ -7,10 +7,15 @@ import {
   dollars,
   groupReceiptLines,
   receiptDateLabel,
-  receiptStatusLabel,
   SERVICE_CHARGE_DISCLOSURE,
   serviceDisclosed,
 } from "@/lib/receipt-view";
+import {
+  buildRefundRows,
+  lineRefundLabel,
+  PARTIAL_REFUND_NOTE,
+  receiptStatusLabel,
+} from "@/lib/refund-view";
 
 /**
  * W7a — the diner receipt (the artifact S1 named missing; the W2e spec's `OrderReceiptEmail`).
@@ -27,11 +32,22 @@ export function OrderReceiptEmail({
   entry: ReceiptEntry;
   receiptUrl: string;
 }) {
-  const rows = buildReceiptRows(entry.breakdown, entry.totalCents);
+  // W23b — the same splice as the artifact. This email is the copy a guest keeps and forwards to
+  // their bank; a partial refund it does not mention is the one place the omission is permanent.
+  const rows = [
+    ...buildReceiptRows(entry.breakdown, entry.totalCents),
+    ...buildRefundRows(entry.refund),
+  ];
   const groups = groupReceiptLines(entry.lines);
   return (
     <MmsEmailLayout
-      preview={`Your receipt — ${dollars(entry.totalCents)} · #${entry.code}`}
+      preview={
+        entry.refund.state === "none"
+          ? `Your receipt — ${dollars(entry.totalCents)} · #${entry.code}`
+          : // The preview line is the only part of a receipt many people ever read. An order with
+            // money returned should say so there rather than in the body alone.
+            `Your receipt — ${dollars(entry.refund.refundedCents)} refunded · #${entry.code}`
+      }
       reason="You’re receiving this because you asked for your receipt when you ordered with us."
     >
       <Text style={h1}>Your receipt</Text>
@@ -55,6 +71,9 @@ export function OrderReceiptEmail({
                       {l.qty}× {l.name}
                       {l.mods.length > 0 && <span style={lineMods}> — {l.mods.join(" · ")}</span>}
                       {l.notes ? <span style={lineNote}>“{l.notes}”</span> : null}
+                      {lineRefundLabel(l.refundedCents) ? (
+                        <span style={lineRefund}>{lineRefundLabel(l.refundedCents)}</span>
+                      ) : null}
                     </td>
                     <td style={lineAmount}>{dollars(l.unitPriceCents * l.qty)}</td>
                   </tr>
@@ -77,8 +96,10 @@ export function OrderReceiptEmail({
             </tbody>
           </table>
         ))}
-        <Text style={paid}>{receiptStatusLabel(entry.refunded, entry.tender)}</Text>
+        <Text style={paid}>{receiptStatusLabel(entry.refund, entry.tender)}</Text>
       </Section>
+
+      {entry.refund.state === "partial" && <Text style={fine}>{PARTIAL_REFUND_NOTE}</Text>}
 
       {serviceDisclosed(entry.breakdown) && <Text style={fine}>{SERVICE_CHARGE_DISCLOSURE}</Text>}
 
@@ -119,6 +140,14 @@ const lineNote: CSSProperties = {
   fontSize: "12px",
   fontStyle: "italic",
   color: "#9b8f82",
+};
+// W23b — the per-line refund mark. A warm clay rather than a red: money coming back is an account
+// entry, not an error. Literal colors are the email-client sanctioned exception (no CSS vars).
+const lineRefund: CSSProperties = {
+  display: "block",
+  fontSize: "12px",
+  fontWeight: 700,
+  color: "#a44b34",
 };
 const lineAmount: CSSProperties = {
   fontSize: "14px",

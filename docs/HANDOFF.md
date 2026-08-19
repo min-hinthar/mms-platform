@@ -44,8 +44,19 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 138 `verify:slice` mutants green · `pnpm check:docs` clean (94 files, 653 qr tests +
+> **Gate today:** 145 `verify:slice` mutants green · `pnpm check:docs` clean (94 files, 676 qr tests +
 > 41 ui tests) · CI green · then the two reviewers.
+>
+> **W23b (the partial-refund diner surface — registry M2) — see the PR/CHANGELOG for the full
+> account.** The short version a future session needs: a partial refund leaves `qr_orders.status` at
+> `'paid'`, so `refunded_cents` on the ORDER (Stripe-authoritative, `greatest()`-guarded, and the only
+> thing that catches a **dashboard** refund — those write no ledger row) and on the **ITEM** (the line
+> attribution only `mms_record_refund` can know) are the entire diner-readable signal. `mms_refunds`
+> stays manager-only on purpose: it carries reason codes and staff ids, and widening its RLS to
+> surface two numbers would expose the whole audit trail. `lib/refund-view.ts` is the ONE derivation —
+> the original bug was a **type**, not arithmetic: `receiptStatusLabel` took a boolean and a partial
+> refund is a third state. The Total row still prints the fulfillment-time snapshot verbatim;
+> "Refunded" and "You paid" follow it. Migration `20260819100000`.
 >
 > **W23a (the 86 button + the availability gate) — merged #199, migration prod-applied + probed.**
 > The owner asked whether checkout should wait on kitchen acceptance. The audit found a different
@@ -561,7 +572,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (138 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (145 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

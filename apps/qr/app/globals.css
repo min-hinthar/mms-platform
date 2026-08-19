@@ -3212,6 +3212,21 @@ h3 {
   background: color-mix(in oklab, var(--sf) 60%, var(--cd));
   border: 1px solid var(--bd);
 }
+/* W23b — the collapsed-row refund chip. Same geometry as `.history-fulfill` so the chip row keeps
+   one rhythm; only the colour separates it, because this chip states a fact about the money rather
+   than a category of the order. */
+.history-refunded {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: var(--r-full);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--warn) 40%, var(--bd));
+}
 
 /* ── Past-orders receipt cards (elevated) — month-grouped, expandable native <details> receipts ────────── */
 /* Month divider — an editorial kicker + a gold-tick rule that fades to nothing (non-sticky: cleaner + lower
@@ -3341,6 +3356,17 @@ h3 {
   font-size: 11.5px;
   line-height: 1.4;
   color: var(--t3);
+}
+/* W23b — the per-line refund mark on the /account history card. `--warn` rather than a red: money
+   coming BACK is an account entry, not an error, and the card should read as a statement. */
+.history-line-refund {
+  display: block;
+  margin-top: 1px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  font-weight: 700;
+  color: var(--warn);
+  font-variant-numeric: tabular-nums;
 }
 .history-totals {
   margin: 10px 0 0;

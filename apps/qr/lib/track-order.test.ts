@@ -12,6 +12,7 @@ const row = {
   id: "0b6c1e58-0000-4000-8000-00000000abcd",
   status: "paid",
   total_cents: 4268,
+  refunded_cents: 0,
   subtotal_cents: 3500,
   discount_cents: 300,
   service_charge_cents: 0,
@@ -37,6 +38,7 @@ const row = {
       modifiers: "corrupt" as unknown,
       fulfillment: null,
       notes: "   ",
+      refunded_cents: 0,
     },
     {
       id: "aaaaaaaa-0000-4000-8000-000000000001",
@@ -46,9 +48,43 @@ const row = {
       modifiers: ["Extra lime"],
       fulfillment: "dinein",
       notes: "no cilantro",
+      refunded_cents: 0,
     },
   ],
 };
+
+describe("shapeTrackedOrder — the refund carriage (W23b)", () => {
+  // A PARTIAL refund leaves `status` at 'paid', so these two columns are the ONLY thing standing
+  // between a part-returned order and a /track slip that says "Paid in full". Dropping either is
+  // invisible to every other suite.
+  it("derives the refund summary from the order's own refunded_cents", () => {
+    const o = shapeTrackedOrder({ ...row, refunded_cents: 1268 });
+    expect(o.refund).toEqual({ state: "partial", refundedCents: 1268, netPaidCents: 3000 });
+  });
+
+  it("carries the per-line refund attribution", () => {
+    const o = shapeTrackedOrder({
+      ...row,
+      refunded_cents: 1268,
+      // Sorted by id, so 'aaaa…' (Mohinga) is line 0 and 'bbbb…' (Tea) is line 1.
+      qr_order_items: row.qr_order_items.map((it) =>
+        it.name === "Mohinga" ? { ...it, refunded_cents: 1268 } : it,
+      ),
+    });
+    expect(o.lines.map((l) => [l.name, l.refundedCents])).toEqual([
+      ["Mohinga", 1268],
+      ["Tea", 0],
+    ]);
+  });
+
+  it("an unrefunded order reports 'none' and the whole total as paid", () => {
+    expect(shapeTrackedOrder(row).refund).toEqual({
+      state: "none",
+      refundedCents: 0,
+      netPaidCents: 4268,
+    });
+  });
+});
 
 describe("shapeTrackedOrder — verbatim money carriage", () => {
   it("carries every breakdown cent + total + tender untouched", () => {
@@ -74,6 +110,7 @@ describe("shapeTrackedOrder — verbatim money carriage", () => {
         mods: ["Extra lime"],
         fulfillment: "dinein",
         notes: "no cilantro",
+        refundedCents: 0,
       },
       {
         name: "Tea",
@@ -82,6 +119,7 @@ describe("shapeTrackedOrder — verbatim money carriage", () => {
         mods: [],
         fulfillment: "dinein",
         notes: null,
+        refundedCents: 0,
       },
     ]);
     expect(o.itemCount).toBe(3);

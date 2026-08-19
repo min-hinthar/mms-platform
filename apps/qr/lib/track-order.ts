@@ -13,12 +13,13 @@
  * per-line).
  */
 import type { ReceiptBreakdownish } from "./receipt-view";
+import { summarizeRefund, type RefundSummary } from "./refund-view";
 
 /** The embedded-items select shared by all three reads. Items are immutable post-fulfillment,
  *  so the realtime-triggered re-fetch stays coherent. ONE string literal on purpose — a
  *  runtime-concatenated select defeats PostgREST's static type parser (GenericStringError). */
 export const TRACK_ORDER_SELECT =
-  "id,status,total_cents,subtotal_cents,discount_cents,service_charge_cents,tax_cents,tip_cents,tender,created_at,table_number,pickup_slot,customer_name,togo_status,arrived_at,togo_ready_at,togo_picked_up_at,qr_order_items(id,name,qty,unit_price_cents,modifiers,fulfillment,notes)";
+  "id,status,total_cents,refunded_cents,subtotal_cents,discount_cents,service_charge_cents,tax_cents,tip_cents,tender,created_at,table_number,pickup_slot,customer_name,togo_status,arrived_at,togo_ready_at,togo_picked_up_at,qr_order_items(id,name,qty,unit_price_cents,modifiers,fulfillment,notes,refunded_cents)";
 
 export type TrackedLine = {
   name: string;
@@ -29,6 +30,9 @@ export type TrackedLine = {
   fulfillment: string;
   /** The line's kitchen note (≤160), or null. */
   notes: string | null;
+  /** W23b — cents refunded against THIS line (0 for the overwhelming majority). Stripe knows the
+   *  charge, not the line, so this attribution exists only because `mms_record_refund` wrote it. */
+  refundedCents: number;
 };
 
 export type TrackedOrder = {
@@ -56,6 +60,10 @@ export type TrackedOrder = {
   lines: TrackedLine[];
   /** The full money breakdown (subtotal/discount/service/tax/tip) for the slip's receipt rows. */
   breakdown: ReceiptBreakdownish;
+  /** W23b — the refund state, derived ONCE here rather than in each surface that renders it. A
+   *  PARTIAL refund leaves `status` at 'paid', so this is the only thing standing between a
+   *  part-returned order and a slip that says "Paid in full". */
+  refund: RefundSummary;
   /** How it settled ('card' | 'cash' | 'terminal') → receipt-view's tenderLabel. */
   tender: string;
   /** Fulfillment time — the slip's date line + the "Order placed" step's real timestamp. */
@@ -73,6 +81,7 @@ type TrackedOrderRow = {
   id: string;
   status: string;
   total_cents: number;
+  refunded_cents: number | null;
   subtotal_cents: number | null;
   discount_cents: number | null;
   service_charge_cents: number | null;
@@ -96,6 +105,7 @@ type TrackedOrderRow = {
         modifiers: unknown;
         fulfillment: string | null;
         notes: string | null;
+        refunded_cents: number | null;
       }[]
     | null;
 };
@@ -119,6 +129,7 @@ export function shapeTrackedOrder(data: TrackedOrderRow): TrackedOrder {
       mods,
       fulfillment: it.fulfillment ?? "dinein",
       notes: typeof it.notes === "string" && it.notes.trim() !== "" ? it.notes : null,
+      refundedCents: it.refunded_cents ?? 0,
     };
   });
   return {
@@ -141,6 +152,7 @@ export function shapeTrackedOrder(data: TrackedOrderRow): TrackedOrder {
       taxCents: data.tax_cents ?? 0,
       tipCents: data.tip_cents ?? 0,
     },
+    refund: summarizeRefund(data.total_cents, data.refunded_cents ?? 0, data.status),
     tender: data.tender ?? "card",
     createdAt: data.created_at,
     customerName: data.customer_name ?? null,
