@@ -499,8 +499,10 @@ const MUTANTS = [
     file: "apps/qr/lib/manual-capture-run.ts",
     suite: "lib/manual-capture-run.test.ts",
     why: 'W23d — without the intent on each dropped row the fulfillment snapshot can only join on cart_id, and a cancelled all-dropped attempt deliberately leaves its cart OPEN. The guest re-orders into that same cart, pays, and their new receipt, email, /account card and /track slip all print "sold out before we could make it" about dishes the order never contained — a fabricated fact on a durable money artifact.',
-    find: "    p_intent: intentId,",
-    replace: "    p_intent: null as unknown as string,",
+    // Anchored on the closing `});` so it names the PRECHECK call: `markCanceled` passes the same
+    // parameter name a few lines down, and an ambiguous pattern is a STALE mutant, not a skip.
+    find: "    p_intent: intentId,\n  });",
+    replace: "    p_intent: null as unknown as string,\n  });",
   },
   {
     id: "manual-capture-run/every-cancel-blamed-on-a-shortage",
