@@ -10,6 +10,7 @@ import {
   refundChipLabel,
   refundSpokenClause,
 } from "@/lib/refund-view";
+import { droppedChipLabel, droppedSpokenClause } from "@/lib/dropped-view";
 import {
   fulfillKind,
   groupByMonth,
@@ -117,7 +118,7 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
                   <details className="history-card">
                     <summary
                       className="history-summary"
-                      aria-label={`Order ${o.code}, ${full}, total ${dollars(o.totalCents)}, paid ${TENDER_LABEL[o.tender] ?? o.tender}${refundSpokenClause(o.refund)}${kind ? `, ${FULFILL_LABEL[kind]}` : ""}${o.tableNumber != null ? `, Table ${o.tableNumber}` : ""}. Show items.`}
+                      aria-label={`Order ${o.code}, ${full}, total ${dollars(o.totalCents)}, paid ${TENDER_LABEL[o.tender] ?? o.tender}${refundSpokenClause(o.refund)}${droppedSpokenClause(o.dropped)}${kind ? `, ${FULFILL_LABEL[kind]}` : ""}${o.tableNumber != null ? `, Table ${o.tableNumber}` : ""}. Show items.`}
                     >
                       <div style={summaryRow}>
                         {/* W14 — the v7.2 history-row lead photo (first line WITH one, else the
@@ -166,6 +167,17 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
                                 that card saying "Paid · Card". */}
                             {refundChipLabel(o.refund) && (
                               <span className="history-refunded">{refundChipLabel(o.refund)}</span>
+                            )}
+                            {/* W23d — the collapsed row says the basket changed (registry M71).
+                                /account is where a guest goes days later to work out why a total
+                                looks small, so the fact has to be visible before the card is
+                                opened. Same derive-from-the-state rule as the refund chip beside
+                                it: the label comes from lib/dropped-view, never from a count test
+                                written here. */}
+                            {droppedChipLabel(o.dropped) && (
+                              <span className="history-refunded">
+                                {droppedChipLabel(o.dropped)}
+                              </span>
                             )}
                             {kind && <span className="history-fulfill">{FULFILL_LABEL[kind]}</span>}
                             {/* K2: the table you sat at that night (dine-in only). */}

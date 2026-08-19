@@ -4,6 +4,57 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W23d — tell the diner what the settlement dropped (2026-08-19)
+
+Registry **M71**. W23c's outcomes are all correct on the money and all **silent** to the guest, and
+the two silences are different problems because only one of them has an order:
+
+| What happened | What the guest saw before                                                                                                             |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| partial       | a receipt listing what they GOT, for the amount actually charged — both true, neither mentioning that the basket changed              |
+| all dropped   | no order at all → the tracker polls ~30s and lands on copy asserting a payment: _“Your payment is safe — show this screen to staff.”_ |
+
+That last sentence is the reason this slice exists: it sends a guest to the counter to ask about
+money nobody took. `OrderTracker.tsx` had already been burned twice by the same assumption (W9c's
+paid-and-eaten meal, the split-payer receipt promise), and both times the lesson was that the copy
+carried the happy path's premise into a branch where it was false.
+
+**The partial fact rides the order.** `qr_orders.dropped_lines` is W23b's `refunded_cents` move
+again: one column on a row the diner already reads under the untouched `qr_order_read` policy, so
+the live browser subscription, both server fallback reads, the durable `?r=` receipt, the emailed
+receipt and the /account card all inherit it through `track-order.ts` / `receipt-entry.ts` /
+`rewards.ts`. No policy widened, no second query, no new authorization surface.
+
+**The cancelled fact cannot ride the order, because the point is that there isn't one.** It also
+must not ride `qr_dropped_lines`: a cancellation with **zero** dropped lines is reachable — a promo
+lapses on `valid_until`, purely on time, and `planCapture` answers `over_authorized` with nothing
+voided (registry M70) — so a verdict on the line ledger would have nowhere to go in exactly the case
+whose copy differs most. It gets `qr_settlement_cancellations`, keyed on the **PaymentIntent**, one
+row per attempt and never overwritten: a diner cancelled twice is told the truth about both holds.
+
+**The verdict is recorded BEFORE the hold is cancelled**, and that ordering is the load-bearing part.
+A failed cancel is retryable (the intent is still `requires_capture`); a lost verdict is not, because
+the moment the hold is cancelled every redelivery short-circuits on the live-status guard and the
+write never runs again. Cancel-then-mark would strand the guest on the false copy permanently on one
+transient DB failure.
+
+**The verdict is asserted, never inferred.** Right after `paymentIntents.capture` and before
+`mms_fulfill_order`, “no order and no verdict” is exactly what a healthy capture looks like too — so
+`undecided` and `error` both fall through to today's answer, and only a recorded cancellation speaks.
+
+Also in this slice: every dropped row is stamped with **its own attempt's** PaymentIntent (a cancelled
+settlement leaves the cart open, so a cart-id-only join would print “sold out before we could make
+it” on the receipt for the order the guest placed afterwards); the four cancel reasons each get their
+own copy, because `over_authorized` fires with the lines still available and blaming a shortage there
+would be a fabricated explanation; and `PaySuccess` stops claiming “Paid — thank you!” while a
+manual-capture PI is merely authorized — the checkmark and confetti stay (the order went through),
+the money claim and the Stars pill wait for the order to land. A dropped line is never a receipt row
+and never carries a dollar figure: a number printed for money that was never charged reads as a
+refund line.
+
+10 new mutants (167 total), 3 new suites, 1 new SQL test. Migration `20260819300000`. Every surface
+renders `[]` until `PICKUP_MANUAL_CAPTURE` is on, so today's behaviour is byte-for-byte unchanged.
+
 ### W23c — capture what the kitchen made, cancel the rest (2026-08-19)
 
 Registry **M69**, and the last of the three W23 slices. W23a put an availability gate immediately
@@ -16,17 +67,17 @@ Manual capture removes the window rather than narrowing it. A pickup order is no
 the tap, and between the authorization and the capture the app takes one more look at the live
 catalog:
 
-| What the catalog says | What happens |
-| --- | --- |
-| everything still available | capture the full hold — identical to today |
-| something ran out | void those lines, capture the **reduced** total |
-| nothing survives | **cancel** the hold |
+| What the catalog says      | What happens                                    |
+| -------------------------- | ----------------------------------------------- |
+| everything still available | capture the full hold — identical to today      |
+| something ran out          | void those lines, capture the **reduced** total |
+| nothing survives           | **cancel** the hold                             |
 
 A cancelled authorization is the whole point: it leaves **nothing** on the guest's statement, where a
 capture-then-refund leaves "we took your money and gave it back" plus a week of waiting.
 
 **The design got small once the right seam appeared.** Nothing is fulfilled at authorization —
-capturing makes Stripe fire `payment_intent.succeeded`, and *that* creates the order, through the
+capturing makes Stripe fire `payment_intent.succeeded`, and _that_ creates the order, through the
 same handler and the same `mms_fulfill_order` as every other payment. So an order is only ever born
 already captured: there is no "authorized" limbo for the receipt, the rewards, the history or the
 refund path to learn about, and `status='paid'` never has to mean anything new. An earlier shape
@@ -49,7 +100,7 @@ The parts that are easy to get wrong, and how they are settled:
   on a partial capture they deliberately differ, and comparing against the hold would 409 every
   partial capture into 72h of retries with the diner charged and no order.
 - **`mms_void_unavailable_lines` is a new function** because `mms_void_line` answers `in_flight`
-  while the cart is locked. That guard is right against a *second* actor mutating a basket mid
+  while the cart is locked. That guard is right against a _second_ actor mutating a basket mid
   payment — but this caller is the settlement itself, holding the lock. Widening the guard would have
   opened that window to every void caller to serve one path that already owns it.
 - **The idempotency key carries the capture method**, or flipping the flag would replay a previous
@@ -81,7 +132,7 @@ numbers, so the two numbers land instead on the rows the diner can already read.
 - **Two columns, answering different questions** — not one value stored twice.
   `qr_orders.refunded_cents` is **how much** came back: Stripe is the authority and
   `charge.amount_refunded` is its cumulative answer, so the reconcile writes it with `greatest()`
-  (Stripe redelivers within 72h and an out-of-order replay carries a *smaller* amount). That also
+  (Stripe redelivers within 72h and an out-of-order replay carries a _smaller_ amount). That also
   covers a refund issued from the Stripe **dashboard**, which writes no ledger row at all and was
   previously invisible end to end. `qr_order_items.refunded_cents` is **which line** — Stripe has no
   idea, so `mms_record_refund` writes it inside the same transaction as the ledger row, after the
@@ -90,7 +141,7 @@ numbers, so the two numbers land instead on the rows the diner can already read.
   refund is a third state. `lib/refund-view.ts` now owns the decision, computed once per read
   (`track-order` · `receipt-entry` · `rewards`) and rendered by all four surfaces: the /track slip,
   the durable `?r=` receipt, the emailed copy, and the /account history card.
-- **The Total row still prints the fulfillment-time snapshot verbatim.** A refund is a *later* fact,
+- **The Total row still prints the fulfillment-time snapshot verbatim.** A refund is a _later_ fact,
   so it gets its own rows beneath — "Refunded" then **"You paid"**, the only derived number in the
   slice and derived once.
 - **Lines state an amount, never a strike-through.** `mms_refund_authorize` clamps a refund to the

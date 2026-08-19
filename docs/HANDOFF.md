@@ -44,11 +44,12 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 157 `verify:slice` mutants green · `pnpm check:docs` clean (94 files, 699 qr tests +
+> **Gate today:** 167 `verify:slice` mutants green · `pnpm check:docs` clean (94 files, 736 qr tests +
 > 41 ui tests) · CI green · then the two reviewers.
 >
-> **W23c (manual + partial capture for pickup — registry M69) — merged #203, migration prod-applied
-> + probed, and shipped DARK behind `PICKUP_MANUAL_CAPTURE=1`.**
+> \*\*W23c (manual + partial capture for pickup — registry M69) — merged #203, migration prod-applied
+>
+> - probed, and shipped DARK behind `PICKUP_MANUAL_CAPTURE=1`.\*\*
 >
 > ⛔ **Before that flag is flipped, ALL of these — not most of them:**
 >
@@ -94,6 +95,20 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > with **2 ledger rows** — which is the `mms_approvals` NOT NULL bug proven dead — at 2800 for the
 > paid line and **0** for the comped one; a settled cart = **-1**. RLS on with exactly one SELECT
 > policy, zero grants to anon/authenticated/PUBLIC, and an `authenticated` INSERT refused.
+>
+> **W23d (registry M71 — tell the diner what the settlement dropped).** Migration
+> `20260819300000_w23d_dropped_visibility.sql` is **merged but NOT yet prod-applied** — apply and probe
+> it the way W23a/b/c were, then move the prod-head line below. Its shape, so a future session does not
+> have to re-derive it: the PARTIAL fact rides `qr_orders.dropped_lines` (W23b's `refunded_cents` move —
+> one column on a row the diner already reads, so no policy is widened and `qr_dropped_lines` KEEPS its
+> manager-read policy), while the ALL-DROPPED fact cannot ride the order (there isn't one) and must not
+> ride the line ledger (a cancellation with ZERO dropped lines is reachable: a promo lapses on
+> `valid_until` purely on time, so `planCapture` answers `over_authorized` with nothing voided). It gets
+> `qr_settlement_cancellations`, keyed on the **PaymentIntent** so each attempt keeps its own verdict,
+> written **before** the Stripe cancel — a failed cancel is retryable, a lost verdict is not, because the
+> hold being cancelled short-circuits every redelivery on the live-status guard. The verdict is
+> **asserted, never inferred**: between `capture` and `mms_fulfill_order`, "no order and no verdict" is
+> exactly what a healthy capture looks like, so `undecided` and `error` both fall through to today's copy.
 >
 > **W23b (the partial-refund diner surface — registry M2) — see the PR/CHANGELOG for the full
 > account.** The short version a future session needs: a partial refund leaves `qr_orders.status` at
@@ -325,7 +340,8 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >   own commit message claimed the head was already stated once. That is the lesson worth keeping: a
 >   fact repeated in a third place drifts exactly like a value computed in two places, and the repo
 >   has now paid for it in prose as well as in code. The repo's newest migration FILE is
->   `20260819200000_w23c_capture_void.sql`.
+>   `20260819300000_w23d_dropped_visibility.sql`, which is one AHEAD of prod's head until it is
+>   applied — that gap is the normal state between a merge and its probe, not a drift.
 >
 > ### ⚠️ Open decisions that BLOCK work — ask the owner, don't guess
 >
@@ -630,7 +646,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (157 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (167 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

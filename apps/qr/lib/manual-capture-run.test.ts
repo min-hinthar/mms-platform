@@ -60,10 +60,18 @@ vi.mock("./lock", () => ({
 
 let voidResult: number | null = 0;
 let voidError: { message: string } | null = null;
+let markError: { message: string } | null = null;
 const voidCalls: unknown[] = [];
+/** W23d — every RPC in call order, so the ORDERING between the verdict and the Stripe cancel can be
+ *  asserted rather than assumed. `voidCalls` keeps only the precheck, so the W23c assertions above
+ *  (`toHaveLength(1)`, `voidCalls[0]`) keep meaning exactly what they meant. */
+const rpcCalls: { fn: string; args: Record<string, unknown> }[] = [];
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
-    rpc: (fn: string, args: unknown) => {
+    rpc: (fn: string, args: Record<string, unknown>) => {
+      rpcCalls.push({ fn, args });
+      if (fn === "mms_mark_settle_canceled")
+        return Promise.resolve({ data: markError ? null : 1, error: markError });
       voidCalls.push({ fn, args });
       return Promise.resolve({ data: voidResult, error: voidError });
     },
@@ -82,6 +90,8 @@ beforeEach(() => {
   totalsThrows = false;
   voidResult = 0;
   voidError = null;
+  markError = null;
+  rpcCalls.length = 0;
   readOk = true;
   lockReleases.length = 0;
   cancelThrows = false;
@@ -257,5 +267,99 @@ describe("settleAuthorizedPickup", () => {
     expect(r.kind).toBe("retry");
     expect(captures).toEqual([]);
     expect(cancels).toEqual([]);
+  });
+
+  // ── W23d — the cancellation verdict (registry M71) ───────────────────────────────────────────
+
+  it("stamps every dropped line with THIS attempt's PaymentIntent", async () => {
+    // Without the intent on the row, the fulfillment snapshot can only join on cart_id — and a
+    // cancelled all-dropped attempt leaves the cart OPEN, so the guest's next order in that same
+    // cart would print "sold out" about dishes it never contained.
+    gone = [{ id: "m1", name: "Mohinga" }];
+    voidResult = 1;
+    liveTotal = 3800;
+    await settleAuthorizedPickup("pi_20", "cart_20", 5200, 0.2, PAYER, ATTEMPT);
+    expect(voidCalls[0]).toMatchObject({ args: { p_intent: "pi_20" } });
+  });
+
+  it("RECORDS the cancellation before it cancels the hold", async () => {
+    // ⚠️ The ordering is the rule. A failed cancel is retryable — the intent is still
+    // requires_capture — but the moment the hold IS cancelled, every redelivery short-circuits on
+    // `live.status !== "requires_capture"` and this write never runs again. Cancel-then-mark would
+    // strand the guest on "your payment is safe, show this screen to staff" for a hold nobody took.
+    liveTotal = 0;
+    const r = await settleAuthorizedPickup("pi_21", "cart_21", 5200, 0.2, PAYER, ATTEMPT);
+    expect(r).toEqual({ kind: "canceled", reason: "nothing_left" });
+    const markIndex = rpcCalls.findIndex((c) => c.fn === "mms_mark_settle_canceled");
+    expect(markIndex).toBeGreaterThanOrEqual(0);
+    expect(rpcCalls[markIndex]!.args).toMatchObject({
+      p_intent: "pi_21",
+      p_cart: "cart_21",
+      p_reason: "nothing_left",
+      p_payer: PAYER,
+      p_attempt: ATTEMPT,
+    });
+    // The Stripe cancel is what has to come SECOND. Both happened, so only the order separates a
+    // correct implementation from the one that loses the verdict.
+    expect(cancels).toEqual(["pi_21"]);
+  });
+
+  it("does NOT cancel the hold when the verdict could not be recorded", async () => {
+    // The other half of the ordering rule. Cancelling first and failing to record leaves a guest
+    // with no explanation and no way to ever get one; leaving the hold standing costs them a
+    // pending authorization for one redelivery cycle and keeps the fact recoverable.
+    liveTotal = 0;
+    markError = { message: "transport" };
+    const r = await settleAuthorizedPickup("pi_22", "cart_22", 5200, 0.2, PAYER, ATTEMPT);
+    expect(r).toEqual({ kind: "retry", note: "verdict not recorded" });
+    expect(cancels).toEqual([]);
+    expect(captures).toEqual([]);
+    expect(lockReleases).toEqual([]);
+  });
+
+  it("records a promo-lapsed cancellation as over_authorized, NOT as a shortage", async () => {
+    // The separating case for the reason vocabulary. `over_authorized` is reachable with ZERO lines
+    // voided (a promo drops on `valid_until`, purely on time), and the copy for it must not blame a
+    // sold-out dish — so the two cancel arms have to be distinguishable at the point of record.
+    gone = [];
+    voidResult = 0;
+    liveTotal = 6000; // above the 5200 hold — you can capture less than you authorized, never more
+    const r = await settleAuthorizedPickup("pi_23", "cart_23", 5200, 0.2, PAYER, ATTEMPT);
+    expect(r).toEqual({ kind: "canceled", reason: "over_authorized" });
+    expect(rpcCalls.find((c) => c.fn === "mms_mark_settle_canceled")?.args).toMatchObject({
+      p_reason: "over_authorized",
+    });
+  });
+
+  it("records the cart-not-open and superseded arms under their own reasons", async () => {
+    voidResult = -1;
+    await settleAuthorizedPickup("pi_24", "cart_24", 5200, 0.2, PAYER, ATTEMPT);
+    expect(rpcCalls.find((c) => c.fn === "mms_mark_settle_canceled")?.args).toMatchObject({
+      p_reason: "cart_not_open",
+    });
+
+    rpcCalls.length = 0;
+    cancels.length = 0;
+    voidResult = -2;
+    await settleAuthorizedPickup("pi_25", "cart_25", 5200, 0.2, PAYER, ATTEMPT);
+    expect(rpcCalls.find((c) => c.fn === "mms_mark_settle_canceled")?.args).toMatchObject({
+      p_reason: "superseded",
+    });
+  });
+
+  it("sends a NULL era rather than an empty string when the attempt is unknown", async () => {
+    // `attemptStamp` is `locked_at ?? ""` at mint time. An empty string does not cast to timestamptz,
+    // so passing it raw would error the RPC, answer `retry`, and burn Stripe's whole 72h redelivery
+    // budget on the same failure while the guest's hold stood. Null is refused as -2, which cancels.
+    await settleAuthorizedPickup("pi_26", "cart_26", 5200, 0.2, PAYER, "");
+    expect(voidCalls[0]).toMatchObject({ args: { p_attempt: null } });
+  });
+
+  it("captures without recording any cancellation on the ordinary path", async () => {
+    // The verdict is ASSERTED, never a by-product. A row written on a successful capture would make
+    // /track tell a guest whose money moved that nothing was taken.
+    await settleAuthorizedPickup("pi_27", "cart_27", 5200, 0.2, PAYER, ATTEMPT);
+    expect(captures).toEqual([{ id: "pi_27", amount: 5200 }]);
+    expect(rpcCalls.filter((c) => c.fn === "mms_mark_settle_canceled")).toEqual([]);
   });
 });

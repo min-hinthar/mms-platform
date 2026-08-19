@@ -14,12 +14,13 @@
  */
 import type { ReceiptBreakdownish } from "./receipt-view";
 import { summarizeRefund, type RefundSummary } from "./refund-view";
+import { parseDroppedLines, type DroppedSummary } from "./dropped-view";
 
 /** The embedded-items select shared by all three reads. Items are immutable post-fulfillment,
  *  so the realtime-triggered re-fetch stays coherent. ONE string literal on purpose — a
  *  runtime-concatenated select defeats PostgREST's static type parser (GenericStringError). */
 export const TRACK_ORDER_SELECT =
-  "id,status,total_cents,refunded_cents,subtotal_cents,discount_cents,service_charge_cents,tax_cents,tip_cents,tender,created_at,table_number,pickup_slot,customer_name,togo_status,arrived_at,togo_ready_at,togo_picked_up_at,qr_order_items(id,name,qty,unit_price_cents,modifiers,fulfillment,notes,refunded_cents)";
+  "id,status,total_cents,refunded_cents,dropped_lines,subtotal_cents,discount_cents,service_charge_cents,tax_cents,tip_cents,tender,created_at,table_number,pickup_slot,customer_name,togo_status,arrived_at,togo_ready_at,togo_picked_up_at,qr_order_items(id,name,qty,unit_price_cents,modifiers,fulfillment,notes,refunded_cents)";
 
 export type TrackedLine = {
   name: string;
@@ -64,6 +65,9 @@ export type TrackedOrder = {
    *  PARTIAL refund leaves `status` at 'paid', so this is the only thing standing between a
    *  part-returned order and a slip that says "Paid in full". */
   refund: RefundSummary;
+  /** W23d — the lines this order's own settlement removed between authorization and capture. Empty
+   *  for every automatic-capture order. NEVER a money row: the guest was not charged for these. */
+  dropped: DroppedSummary;
   /** How it settled ('card' | 'cash' | 'terminal') → receipt-view's tenderLabel. */
   tender: string;
   /** Fulfillment time — the slip's date line + the "Order placed" step's real timestamp. */
@@ -82,6 +86,7 @@ type TrackedOrderRow = {
   status: string;
   total_cents: number;
   refunded_cents: number | null;
+  dropped_lines: unknown;
   subtotal_cents: number | null;
   discount_cents: number | null;
   service_charge_cents: number | null;
@@ -153,6 +158,7 @@ export function shapeTrackedOrder(data: TrackedOrderRow): TrackedOrder {
       tipCents: data.tip_cents ?? 0,
     },
     refund: summarizeRefund(data.total_cents, data.refunded_cents ?? 0, data.status),
+    dropped: parseDroppedLines(data.dropped_lines),
     tender: data.tender ?? "card",
     createdAt: data.created_at,
     customerName: data.customer_name ?? null,

@@ -5,6 +5,7 @@ import { getCartTotals } from "./totals";
 import { unavailableLines } from "./availability-read";
 import { planCapture } from "./manual-capture";
 import { releaseCartLock } from "./lock";
+import type { SettleCancelReason } from "./dropped-view";
 
 /**
  * W23c — the beat between a pickup order's authorization and its capture.
@@ -28,6 +29,18 @@ import { releaseCartLock } from "./lock";
  * today's charged-but-unfulfilled path, which already has `qr_refunds_needed` and Stripe's 72h of
  * retries behind it.
  */
+
+/**
+ * Pass a deliberate SQL NULL through Supabase's generated RPC `Args`.
+ *
+ * The generator types every plpgsql parameter as non-null because it cannot see that the function
+ * accepts NULL — so a genuine "we do not have this value" has to be cast. Keeping the cast in one
+ * named place makes it an admission rather than three scattered `as unknown as string`s, and the
+ * two callers below both mean the same thing by it: an empty metadata string is not a value.
+ */
+function orNull(value: string): string {
+  return (value === "" ? null : value) as unknown as string;
+}
 
 export type CaptureOutcome =
   | { kind: "captured"; amountCents: number; partial: boolean; dropped: string[] }
@@ -77,7 +90,15 @@ export async function settleAuthorizedPickup(
     p_cart: cartId,
     p_menu_ids: gone.map((g) => g.id),
     p_payer: payerUid,
-    p_attempt: attempt,
+    // `|| null` rather than the raw string: `attemptStamp` is `locked_at ?? ""` at mint time, and an
+    // empty string does not cast to timestamptz — the RPC would error, this would answer `retry`,
+    // and Stripe would redeliver into the same error for 72h while the hold stood. A null is the
+    // honest input for "we cannot name our era", and the RPC's `is distinct from` refuses it as -2,
+    // which cancels the hold. Refusing beats an unrecoverable retry budget on a money path.
+    p_attempt: orNull(attempt),
+    // W23d — which attempt each dropped line belongs to, so the fulfillment snapshot can scope to
+    // it and a re-order in the same still-open cart cannot inherit this attempt's drops.
+    p_intent: intentId,
   });
   if (voidErr) {
     console.error("[manual-capture] precheck/void failed", {
@@ -89,6 +110,8 @@ export async function settleAuthorizedPickup(
   }
   if (voided === -1) {
     // The cart is no longer open: settled or cleared out of band while this hold stood.
+    if (!(await markCanceled(intentId, cartId, "cart_not_open", payerUid, attempt)))
+      return { kind: "retry", note: "verdict not recorded" };
     if (!(await cancelHold(intentId, "cart no longer open")))
       return { kind: "retry", note: "cancel failed" };
     await releaseOurLock(cartId, payerUid);
@@ -97,6 +120,13 @@ export async function settleAuthorizedPickup(
   if (voided === -2) {
     // The lock belongs to someone else, or to a LATER attempt by this same diner — either way this
     // authorization's era is over and it has no claim on the cart, nor on its lock.
+    //
+    // W23d records this one too, and the reason is the diner standing on /track: their hold IS being
+    // cancelled, and the give-up card would otherwise tell them their payment went through. The
+    // verdict is keyed on the PaymentIntent, so it describes THIS attempt only and cannot paint over
+    // the successor's — which is exactly why the cancellation ledger is per-intent and not per-cart.
+    if (!(await markCanceled(intentId, cartId, "superseded", payerUid, attempt)))
+      return { kind: "retry", note: "verdict not recorded" };
     if (!(await cancelHold(intentId, "lock lost to another payer")))
       return { kind: "retry", note: "cancel failed" };
     return { kind: "canceled", reason: "lock lost to another payer" };
@@ -105,7 +135,10 @@ export async function settleAuthorizedPickup(
     // We were told lines had to go and none did. Rather than reason about WHY (a predicate drifting
     // between the gate and the RPC is exactly how the comped-line hole appeared), refuse to capture:
     // the basket still contains something the kitchen cannot make.
-    console.error("[manual-capture] nothing voided despite unavailable lines", { intentId, cartId });
+    console.error("[manual-capture] nothing voided despite unavailable lines", {
+      intentId,
+      cartId,
+    });
     return { kind: "retry", note: "void matched no lines" };
   }
 
@@ -122,6 +155,8 @@ export async function settleAuthorizedPickup(
 
   const plan = planCapture(authorizedCents, totals.totalCents);
   if (plan.action === "cancel") {
+    if (!(await markCanceled(intentId, cartId, plan.reason, payerUid, attempt)))
+      return { kind: "retry", note: "verdict not recorded" };
     if (!(await cancelHold(intentId, plan.reason))) return { kind: "retry", note: "cancel failed" };
     await releaseOurLock(cartId, payerUid);
     return { kind: "canceled", reason: plan.reason };
@@ -149,6 +184,53 @@ export async function settleAuthorizedPickup(
     partial: plan.partial,
     dropped: gone.map((g) => g.name),
   };
+}
+
+/**
+ * W23d — record that this authorization was CANCELLED, before the hold is released.
+ *
+ * ⚠️ THE ORDERING IS THE POINT, and it is the opposite of what "do the real work first" suggests.
+ * A failed CANCEL is retryable: the intent is still `requires_capture`, so Stripe's redelivery
+ * re-enters this function and tries again. A lost VERDICT is not — the moment the hold is cancelled,
+ * the `live.status !== "requires_capture"` guard at the top short-circuits every future delivery to
+ * `already`, and this line never runs again. Cancel-then-mark would therefore strand the guest on
+ * "your payment is safe — show this screen to staff" permanently on one transient DB failure, for a
+ * hold that was cancelled. Marking first costs nothing when the cancel then fails: the row describes
+ * a hold that is about to be released, which is exactly what `SETTLE_CANCELED_NOTE` says either way.
+ *
+ * The reason is typed as `SettleCancelReason` rather than `string` so a code the column's CHECK
+ * would refuse cannot be written from here — the enum and the constraint are the same vocabulary.
+ * `unknown` is excluded because it is the READER's degradation, never a stored value.
+ *
+ * `attempt` is forensics only, so an unparseable one becomes null rather than failing the write:
+ * losing the era is survivable, losing the verdict is not.
+ */
+async function markCanceled(
+  intentId: string,
+  cartId: string,
+  reason: Exclude<SettleCancelReason, "unknown">,
+  payerUid: string,
+  attempt: string,
+): Promise<boolean> {
+  const { error } = await serviceClient().rpc("mms_mark_settle_canceled", {
+    p_intent: intentId,
+    p_cart: cartId,
+    p_reason: reason,
+    // An empty metadata uid would fail the uuid cast; null is the honest value, and it simply means
+    // no diner can be authorized to read this verdict (fail-closed) rather than that anyone can.
+    p_payer: orNull(payerUid),
+    p_attempt: orNull(attempt),
+  });
+  if (error) {
+    console.error("[manual-capture] cancellation verdict not recorded", {
+      intentId,
+      cartId,
+      reason,
+      error: error.message,
+    });
+    return false;
+  }
+  return true;
 }
 
 /**
