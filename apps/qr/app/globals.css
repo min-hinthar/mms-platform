@@ -6625,6 +6625,32 @@ html[data-seen-surface] .mms-stagger {
   color: var(--ac);
 }
 /* The note band — the HIGHEST-contrast element on the card (allergy channel, W3b). */
+/* W23a — the per-line 86 control. A quiet SECONDARY next to the full-width bump target: taking a
+   dish off the menu is a deliberate act, and it must never compete for the tap that moves the ticket.
+   Still a real 44px target — kitchen hands, wet gloves, a tablet on a shelf. */
+.kds-line-86 {
+  display: block;
+  width: calc(100% - 28px);
+  min-height: 44px;
+  margin: 6px 14px 0;
+  border-radius: 10px;
+  border: 1px solid color-mix(in oklab, var(--warn) 45%, var(--bd));
+  background: transparent;
+  color: var(--warn);
+  font: inherit;
+  font-weight: 800;
+  font-size: var(--kfs-mod);
+  cursor: pointer;
+}
+.kds-line-86:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+@media (hover: hover) {
+  .kds-line-86:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--warn) 14%, transparent);
+  }
+}
 .kds-note {
   margin: 8px 14px 4px;
   padding: 8px 12px;

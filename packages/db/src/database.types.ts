@@ -99,6 +99,38 @@ export type Database = {
           },
         ]
       }
+      menu_availability_audit: {
+        Row: {
+          changed_at: string
+          changed_by: string
+          id: string
+          menu_item_id: string
+          sold_out: boolean
+        }
+        Insert: {
+          changed_at?: string
+          changed_by: string
+          id?: string
+          menu_item_id: string
+          sold_out: boolean
+        }
+        Update: {
+          changed_at?: string
+          changed_by?: string
+          id?: string
+          menu_item_id?: string
+          sold_out?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "menu_availability_audit_menu_item_id_fkey"
+            columns: ["menu_item_id"]
+            isOneToOne: false
+            referencedRelation: "menu_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       menu_categories: {
         Row: {
           created_at: string
@@ -142,6 +174,7 @@ export type Database = {
           name_en: string
           name_my: string | null
           slug: string
+          sold_out_at: string | null
           tags: string[]
           tax_category: string
           updated_at: string
@@ -161,6 +194,7 @@ export type Database = {
           name_en: string
           name_my?: string | null
           slug: string
+          sold_out_at?: string | null
           tags?: string[]
           tax_category?: string
           updated_at?: string
@@ -180,6 +214,7 @@ export type Database = {
           name_en?: string
           name_my?: string | null
           slug?: string
+          sold_out_at?: string | null
           tags?: string[]
           tax_category?: string
           updated_at?: string

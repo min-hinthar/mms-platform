@@ -197,6 +197,7 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
       state: l.state === "in_progress" ? "in_progress" : "fired",
       firedAt: l.fire_at ?? nowIso,
       fulfillment: (l.fulfillment ?? "dinein") as KitchenLine["fulfillment"],
+      menuItemId: UUID_RE.test(l.menu_item_id) ? l.menu_item_id : null,
       station: stationByItem.get(l.menu_item_id) ?? "wok",
     };
     const existing = ticketByCart.get(l.cart_id);

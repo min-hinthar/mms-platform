@@ -42,7 +42,9 @@ export default async function StaffMenuPrices() {
   const db = publicClient();
   const { data, error } = await db
     .from("menu_items")
-    .select("id,name_en,name_my,base_price_cents,is_sold_out,menu_categories(name,sort_order)")
+    .select(
+      "id,name_en,name_my,base_price_cents,is_sold_out,sold_out_at,menu_categories(name,sort_order)",
+    )
     .eq("is_active", true)
     .order("name_en");
   // A failed read is UNKNOWABLE, not "the menu is empty" — an empty editor would read as a catalog
@@ -56,6 +58,7 @@ export default async function StaffMenuPrices() {
     priceCents: i.base_price_cents,
     category: i.menu_categories?.name ?? "Menu",
     soldOut: !!i.is_sold_out,
+    soldOutAt: i.sold_out_at ?? null,
   }));
 
   return (

@@ -386,6 +386,56 @@ const MUTANTS = [
     find: "  return (p.match(/[0-9]/g) ?? []).length >= 7;",
     replace: "  return true;",
   },
+  // ── W23a — the 86 gate: the only thing between an unavailable dish and a charge ─────────────────
+  {
+    id: "availability/delisted-item-still-sellable",
+    file: "apps/qr/lib/availability.ts",
+    suite: "lib/availability.test.ts",
+    why: "W23a — the diner menu filters is_active at QUERY time, which is a fact about a page that may be minutes old; without the server-side half a stale phone (or a forged POST) pays for a dish that was pulled from the menu",
+    find: "  const blocked = new Set(items.filter((i) => i.is_sold_out || !i.is_active).map((i) => i.id));",
+    replace: "  const blocked = new Set(items.filter((i) => i.is_sold_out).map((i) => i.id));",
+  },
+  {
+    id: "availability/comped-line-slips-the-gate",
+    file: "apps/qr/lib/availability.ts",
+    suite: "lib/availability.test.ts",
+    why: "W23a — a COMPED line is $0 but still MADE, so a comped line that just sold out is a dish the kitchen cannot produce; lumping it in with voided (which really is out of the charge AND the kitchen) lets the basket through and promises food that does not exist",
+    find: '    (l) => l.state !== "voided" && l.menu_item_id != null && FOOD_FULFILLMENTS.has(l.fulfillment),\n  );\n  const blocked',
+    replace:
+      '    (l) => l.state === "draft" && l.menu_item_id != null && FOOD_FULFILLMENTS.has(l.fulfillment),\n  );\n  const blocked',
+  },
+  {
+    id: "availability/grocery-blocked-like-food",
+    file: "apps/qr/lib/availability.ts",
+    suite: "lib/availability.test.ts",
+    why: "W23a — grocery is self-scanned and already in the shopper's hands; blocking a paid basket because a grocery SKU carries a sold-out flag refuses money for goods the shopper is physically holding",
+    find: 'const FOOD_FULFILLMENTS = new Set(["dinein", "togo"]);',
+    replace: 'const FOOD_FULFILLMENTS = new Set(["dinein", "togo", "grocery"]);',
+  },
+  {
+    id: "menu-availability/role-floor-drops-away",
+    file: "apps/qr/lib/menu-availability.ts",
+    suite: "lib/menu-availability.test.ts",
+    why: "W23a — a Server Action is a public POST endpoint and the console's UI gating is cosmetic; without the staff floor any signed-in diner could take every dish off the menu, which is a denial-of-service on the whole night's revenue",
+    find: 'const gate = await staffGate("server", AVAILABILITY_OUTAGE);',
+    replace: 'const gate = { ok: true, caller: { staffId: "anon" } } as const;',
+  },
+  {
+    id: "menu-availability/stamp-outlives-its-flag",
+    file: "apps/qr/lib/menu-availability.ts",
+    suite: "lib/menu-availability.test.ts",
+    why: "W23a — the owner chose a MANUAL 86 lifetime, so `sold_out_at` is the only signal a flag has outlived its shift; leaving the old timestamp on the way back to available makes an available dish read 'sold out since 6:40pm' forever",
+    find: "      sold_out_at: soldOut ? new Date().toISOString() : null,",
+    replace: "      sold_out_at: new Date().toISOString(),",
+  },
+  {
+    id: "menu-availability/zero-row-flip-reads-as-success",
+    file: "apps/qr/lib/menu-availability.ts",
+    suite: "lib/menu-availability.test.ts",
+    why: 'W23a — `.update()` returns no row count, so without the `.select("id")` verdict a flip that matched NOTHING answers ok: the cook is told the dish is off, diners keep ordering it, and the ledger records a decision that never landed',
+    find: "  if (!written) {",
+    replace: "  if (false) {",
+  },
   // ── W17b — the price editor: the ONE human-entered amount in the app ────────────────────────────
   {
     id: "menu-price/role-floor-drops-to-server",

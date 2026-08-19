@@ -6,6 +6,11 @@ import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
 const REASONS: [value: string, label: string][] = [
   ["unhappy", "Not happy with it"],
   ["wrong_item", "Wrong item"],
+  // W23a — the reason the owner's question was really about. Before this, an out-of-stock refund
+  // landed in "other" and was invisible in the data, so nobody could say how often it happened. It
+  // is listed HIGH because if it is ever common it is the one refund reason with a cheap structural
+  // fix (86 the dish and the next order never happens).
+  ["sold_out", "We ran out"],
   ["too_slow", "Took too long"],
   ["duplicate", "Duplicate charge"],
   ["other", "Other"],
