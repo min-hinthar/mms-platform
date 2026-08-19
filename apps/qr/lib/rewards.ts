@@ -4,6 +4,7 @@ import { serverClient, serviceClient } from "@mms/db/server";
 import { getStaffAuth } from "./staff";
 import { withinMutationRate } from "./rate";
 import { safeImageUrl } from "./media-url";
+import { summarizeRefund, type RefundSummary } from "./refund-view";
 
 /**
  * Server-authoritative session kind for AnonAuthGate (M4): is the caller an anonymous diner, an UPGRADED
@@ -353,6 +354,9 @@ export type OrderHistoryLine = {
   /** W22r — the line's kitchen note (qr_order_items.notes, ≤160), rendered on receipt surfaces.
    *  Optional: the /account history mapper doesn't populate it (undefined there). */
   notes?: string | null;
+  /** W23b — cents refunded against THIS line, 0 when none. Stripe knows the charge, not the line;
+   *  this attribution exists only because `mms_record_refund` writes it. */
+  refundedCents: number;
 };
 export type OrderHistoryEntry = {
   id: string;
@@ -374,6 +378,10 @@ export type OrderHistoryEntry = {
     tipCents: number;
   };
   lines: OrderHistoryLine[];
+  /** W23b — the refund state, derived ONCE in the read (lib/refund-view). A PARTIAL refund leaves
+   *  `status` at 'paid', so without this the history card renders a part-returned order at full
+   *  price with no trace — the /account half of registry M2. */
+  refund: RefundSummary;
 };
 
 export async function getOrderHistory(limit = 20): Promise<OrderHistoryEntry[] | null> {
@@ -404,7 +412,7 @@ export async function getOrderHistory(limit = 20): Promise<OrderHistoryEntry[] |
   let history = db
     .from("qr_orders")
     .select(
-      "id,created_at,total_cents,tender,pickup_slot,table_number,subtotal_cents,discount_cents,service_charge_cents,tax_cents,tip_cents",
+      "id,created_at,total_cents,refunded_cents,tender,pickup_slot,table_number,subtotal_cents,discount_cents,service_charge_cents,tax_cents,tip_cents",
     )
     .eq("status", "paid");
   history = payerIds.length
@@ -419,7 +427,7 @@ export async function getOrderHistory(limit = 20): Promise<OrderHistoryEntry[] |
   const ids = orders.map((o) => o.id);
   const { data: items } = await db
     .from("qr_order_items")
-    .select("order_id,menu_item_id,name,qty,unit_price_cents,modifiers,fulfillment")
+    .select("order_id,menu_item_id,name,qty,unit_price_cents,modifiers,fulfillment,refunded_cents")
     .in("order_id", ids);
   // W14 — line media + Burmese names, the getCartView pattern: `menu_item_id` is a SOFT text ref
   // (a menu_items uuid for restaurant lines, a grocery barcode otherwise — disjoint keyspaces by
@@ -462,6 +470,7 @@ export async function getOrderHistory(limit = 20): Promise<OrderHistoryEntry[] |
       fulfillment: it.fulfillment ?? "dinein",
       imageUrl: media.get(it.menu_item_id)?.imageUrl ?? null,
       nameMy: media.get(it.menu_item_id)?.nameMy ?? null,
+      refundedCents: it.refunded_cents ?? 0,
     });
     byOrder.set(it.order_id, arr);
   }
@@ -481,6 +490,11 @@ export async function getOrderHistory(limit = 20): Promise<OrderHistoryEntry[] |
       tipCents: o.tip_cents ?? 0,
     },
     lines: byOrder.get(o.id) ?? [],
+    // The read filters `status = 'paid'`, so every entry here is either unrefunded or PARTIALLY
+    // refunded — the exact case that used to render at full price with no trace. Passing the status
+    // literal keeps summarizeRefund's contract intact rather than encoding the filter's consequence
+    // as an assumption at the call site.
+    refund: summarizeRefund(o.total_cents, o.refunded_cents ?? 0, "paid"),
   }));
 }
 

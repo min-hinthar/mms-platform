@@ -27,6 +27,7 @@ const base: TrackedOrder = {
     taxCents: 200,
     tipCents: 0,
   },
+  refund: { state: "none", refundedCents: 0, netPaidCents: 2100 },
   tender: "card",
   createdAt: "2026-08-17T21:14:00.000Z", // 2:14 PM in America/Los_Angeles
   customerName: null,

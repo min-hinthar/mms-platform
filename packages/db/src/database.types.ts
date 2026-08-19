@@ -1318,6 +1318,7 @@ export type Database = {
           notes: string | null
           order_id: string
           qty: number
+          refunded_cents: number
           tax_cents: number
           unit_price_cents: number
         }
@@ -1332,6 +1333,7 @@ export type Database = {
           notes?: string | null
           order_id: string
           qty: number
+          refunded_cents?: number
           tax_cents: number
           unit_price_cents: number
         }
@@ -1346,6 +1348,7 @@ export type Database = {
           notes?: string | null
           order_id?: string
           qty?: number
+          refunded_cents?: number
           tax_cents?: number
           unit_price_cents?: number
         }
@@ -1398,6 +1401,7 @@ export type Database = {
           pickup_slot: string | null
           receipt_email: string | null
           receipt_sent_at: string | null
+          refunded_cents: number
           service_charge_cents: number
           session_id: string | null
           settled_by: string | null
@@ -1425,6 +1429,7 @@ export type Database = {
           pickup_slot?: string | null
           receipt_email?: string | null
           receipt_sent_at?: string | null
+          refunded_cents?: number
           service_charge_cents: number
           session_id?: string | null
           settled_by?: string | null
@@ -1452,6 +1457,7 @@ export type Database = {
           pickup_slot?: string | null
           receipt_email?: string | null
           receipt_sent_at?: string | null
+          refunded_cents?: number
           service_charge_cents?: number
           session_id?: string | null
           settled_by?: string | null

@@ -19,10 +19,15 @@ import {
   buildReceiptRows,
   dollars,
   groupReceiptLines,
-  receiptStatusLabel,
   SERVICE_CHARGE_DISCLOSURE,
   serviceDisclosed,
 } from "@/lib/receipt-view";
+import {
+  buildRefundRows,
+  lineRefundLabel,
+  PARTIAL_REFUND_NOTE,
+  receiptStatusLabel,
+} from "@/lib/refund-view";
 import { BRAND_ADDRESS, BRAND_PHONE_DISPLAY, BRAND_PHONE_TEL } from "@/lib/brand";
 import { kindFromTrackedOrder, liveOrderStatusWord } from "@/lib/live-order";
 
@@ -957,7 +962,7 @@ export function OrderTracker({
                         vocabulary: the reader tap is never misnamed as online card, and a
                         REFUNDED order must never claim "Paid in full" (this slip renders in the
                         branch-independent arrived block, refund arm included). */}
-                    {receiptStatusLabel(order.status === "refunded", order.tender)}
+                    {receiptStatusLabel(order.refund, order.tender)}
                     {/* K2: dine-in receipts name the table (null for to-go/pickup — no table). */}
                     {order.tableNumber != null && ` · Table ${order.tableNumber}`}
                     {/* W22r — the pickup contact (W21's required field), snapshot verbatim. */}
@@ -1053,6 +1058,23 @@ export function OrderTracker({
                                   “{l.notes}”
                                 </span>
                               )}
+                              {/* W23b — which dish came back, stated as an amount (the over-refund
+                                  cap can clamp a refund below the line's own price, so a strike
+                                  would overclaim). */}
+                              {lineRefundLabel(l.refundedCents) && (
+                                <span
+                                  style={{
+                                    display: "block",
+                                    fontSize: "var(--fs-xs)",
+                                    fontWeight: 700,
+                                    color: "var(--warn)",
+                                    fontVariantNumeric: "tabular-nums",
+                                    marginTop: 1,
+                                  }}
+                                >
+                                  {lineRefundLabel(l.refundedCents)}
+                                </span>
+                              )}
                             </span>
                             <span
                               style={{ color: "var(--t2)", fontVariantNumeric: "tabular-nums" }}
@@ -1065,7 +1087,13 @@ export function OrderTracker({
                     </div>
                   ))}
                   <dl className="history-totals">
-                    {buildReceiptRows(order.breakdown, order.totalCents).map((r) => (
+                    {[
+                      ...buildReceiptRows(order.breakdown, order.totalCents),
+                      // W23b — what came back, then what the guest actually paid. Appended, never
+                      // folded into the Total: the Total is the fulfillment-time snapshot and a
+                      // refund is a later fact about it.
+                      ...buildRefundRows(order.refund),
+                    ].map((r) => (
                       <div
                         key={r.key}
                         className={
@@ -1091,6 +1119,21 @@ export function OrderTracker({
                       }}
                     >
                       {SERVICE_CHARGE_DISCLOSURE}
+                    </p>
+                  )}
+                  {/* W23b — where the money went. Only the PARTIAL case: a full refund's status
+                      line already says the whole charge came back. Promises no timing the code
+                      cannot keep — the bank's window is the bank's. */}
+                  {order.refund.state === "partial" && (
+                    <p
+                      style={{
+                        fontSize: "var(--fs-xs)",
+                        color: "var(--t3)",
+                        margin: "8px 2px 0",
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      {PARTIAL_REFUND_NOTE}
                     </p>
                   )}
                 </div>

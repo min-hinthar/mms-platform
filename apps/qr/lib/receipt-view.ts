@@ -84,13 +84,10 @@ export function tenderLabel(tender: string): string {
   return tender;
 }
 
-/** The artifact's settled-state line. A REFUNDED order keeps its receipt (review MED — the diner
- *  needs documentation of a returned charge most of all) but must never claim "Paid in full". */
-export function receiptStatusLabel(refunded: boolean, tender: string): string {
-  return refunded
-    ? "Refunded — this charge was returned to you"
-    : `Paid in full · ${tenderLabel(tender)}`;
-}
+/* W23b — `receiptStatusLabel` moved to `lib/refund-view.ts`. It now takes a RefundSummary rather
+ * than a boolean, because a partial refund is a third state and a boolean could not express it —
+ * which is precisely how a partially-refunded order came to print "Paid in full". Keeping the
+ * function here would have made this module import the refund model it exists beneath. */
 
 export const dollars = (c: number) => `$${(c / 100).toFixed(2)}`;
 

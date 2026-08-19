@@ -5,10 +5,15 @@ import {
   dollars,
   groupReceiptLines,
   receiptDateLabel,
-  receiptStatusLabel,
   SERVICE_CHARGE_DISCLOSURE,
   serviceDisclosed,
 } from "@/lib/receipt-view";
+import {
+  buildRefundRows,
+  lineRefundLabel,
+  PARTIAL_REFUND_NOTE,
+  receiptStatusLabel,
+} from "@/lib/refund-view";
 import { formatSlotLong } from "@/lib/pickupTime";
 import {
   BRAND_ADDRESS,
@@ -32,7 +37,13 @@ import {
  * per-line kitchen notes, the pickup contact name.
  */
 export function ReceiptCard({ entry }: { entry: ReceiptEntry }) {
-  const rows = buildReceiptRows(entry.breakdown, entry.totalCents);
+  // W23b — the refund rows follow the Total rather than altering it: the Total is what was charged
+  // and stays the fulfillment-time snapshot verbatim; what came back is a LATER fact, and "You paid"
+  // is the one derived number (from lib/refund-view, once).
+  const rows = [
+    ...buildReceiptRows(entry.breakdown, entry.totalCents),
+    ...buildRefundRows(entry.refund),
+  ];
   const groups = groupReceiptLines(entry.lines);
   return (
     <section className="card card-textured receipt-artifact" aria-labelledby="receipt-h">
@@ -102,6 +113,12 @@ export function ReceiptCard({ entry }: { entry: ReceiptEntry }) {
                   {/* W22r — the kitchen note, verbatim. The item sheet promised the kitchen would
                       see it; the receipt documents that it was on the order. */}
                   {l.notes && <span style={noteLine}>“{l.notes}”</span>}
+                  {/* W23b — which dish came back. Stated as an amount, never a strike-through: the
+                      over-refund cap can clamp a refund below the line's own price, and a struck
+                      line would claim the whole dish returned when only part of it did. */}
+                  {lineRefundLabel(l.refundedCents) && (
+                    <span style={lineRefund}>{lineRefundLabel(l.refundedCents)}</span>
+                  )}
                 </span>
                 <span style={lineAmount}>{dollars(l.unitPriceCents * l.qty)}</span>
               </li>
@@ -124,10 +141,13 @@ export function ReceiptCard({ entry }: { entry: ReceiptEntry }) {
 
       {/* Review MED — a refunded order KEEPS its receipt (the documentation matters most then)
           but is stamped honestly, never "Paid in full". */}
-      <p style={entry.refunded ? refundedLine : paidLine}>
-        {receiptStatusLabel(entry.refunded, entry.tender)}
-        {!entry.refunded && <span aria-hidden> ✦</span>}
+      <p style={entry.refund.state === "none" ? paidLine : refundedLine}>
+        {receiptStatusLabel(entry.refund, entry.tender)}
+        {entry.refund.state === "none" && <span aria-hidden> ✦</span>}
       </p>
+      {/* Only the PARTIAL case: a full refund's status line already says the whole charge went
+          back, and repeating it under a receipt whose every row is moot reads as an apology. */}
+      {entry.refund.state === "partial" && <p style={disclosure}>{PARTIAL_REFUND_NOTE}</p>}
 
       {/* SB-1524 — the fee never surfaces without its explanation (the north-star teardown's
           named failure is fees that appear only on the emailed receipt; this artifact IS that
@@ -220,6 +240,16 @@ const noteLine: CSSProperties = {
   marginTop: 1,
 };
 const lineAmount: CSSProperties = { color: "var(--t2)", fontVariantNumeric: "tabular-nums" };
+// W23b — the per-line refund mark. `--warn` rather than a red: money coming BACK is not an error
+// state, and the receipt should read as an account, not an alarm.
+const lineRefund: CSSProperties = {
+  display: "block",
+  fontSize: "var(--fs-xs)",
+  fontWeight: 700,
+  color: "var(--warn)",
+  fontVariantNumeric: "tabular-nums",
+  marginTop: 1,
+};
 const paidLine: CSSProperties = {
   margin: "12px 0 0",
   fontSize: "var(--fs-sm)",

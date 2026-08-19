@@ -4,6 +4,7 @@ import type { OrderHistoryEntry } from "@/lib/rewards";
 import { formatSlotLong } from "@/lib/pickupTime";
 import { Card, Icon, type IconName } from "@mms/ui";
 import { menuHref, menuLinkText } from "@/lib/menu-href";
+import { buildRefundRows, lineRefundLabel } from "@/lib/refund-view";
 import {
   fulfillKind,
   groupByMonth,
@@ -111,7 +112,7 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
                   <details className="history-card">
                     <summary
                       className="history-summary"
-                      aria-label={`Order ${o.code}, ${full}, total ${dollars(o.totalCents)}, paid ${TENDER_LABEL[o.tender] ?? o.tender}${kind ? `, ${FULFILL_LABEL[kind]}` : ""}${o.tableNumber != null ? `, Table ${o.tableNumber}` : ""}. Show items.`}
+                      aria-label={`Order ${o.code}, ${full}, total ${dollars(o.totalCents)}, paid ${TENDER_LABEL[o.tender] ?? o.tender}${o.refund.state === "partial" ? `, ${dollars(o.refund.refundedCents)} refunded, you paid ${dollars(o.refund.netPaidCents)}` : ""}${kind ? `, ${FULFILL_LABEL[kind]}` : ""}${o.tableNumber != null ? `, Table ${o.tableNumber}` : ""}. Show items.`}
                     >
                       <div style={summaryRow}>
                         {/* W14 — the v7.2 history-row lead photo (first line WITH one, else the
@@ -150,6 +151,12 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
                               <Icon name={TENDER_ICON[o.tender] ?? "check"} size={13} />
                               Paid · {TENDER_LABEL[o.tender] ?? o.tender}
                             </span>
+                            {/* W23b — visible on the COLLAPSED row. A guest scanning their orders
+                                should learn money came back without opening the card; the amounts
+                                live in the detail's rows, where amounts belong. */}
+                            {o.refund.state === "partial" && (
+                              <span className="history-refunded">Partly refunded</span>
+                            )}
                             {kind && <span className="history-fulfill">{FULFILL_LABEL[kind]}</span>}
                             {/* K2: the table you sat at that night (dine-in only). */}
                             {o.tableNumber != null && (
@@ -185,6 +192,11 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
                               {l.mods.length > 0 && (
                                 <span className="history-line-mods">{l.mods.join(" · ")}</span>
                               )}
+                              {lineRefundLabel(l.refundedCents) && (
+                                <span className="history-line-refund">
+                                  {lineRefundLabel(l.refundedCents)}
+                                </span>
+                              )}
                             </span>
                             <span style={linePrice}>{dollars(l.unitPriceCents * l.qty)}</span>
                           </li>
@@ -211,6 +223,18 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
                           <TotalRow label="Tip" value={dollars(o.breakdown.tipCents)} />
                         )}
                         <TotalRow label="Total" value={dollars(o.totalCents)} grand />
+                        {/* W23b — appended after the Total, never folded into it: the Total is what
+                            was charged and stays the fulfillment-time snapshot. Rows come from
+                            lib/refund-view so this card, the /track slip, the durable receipt and
+                            the email state the same two numbers. Empty for an unrefunded order. */}
+                        {buildRefundRows(o.refund).map((r) => (
+                          <TotalRow
+                            key={r.key}
+                            label={r.label}
+                            value={`${r.negative ? "−" : ""}${dollars(r.amountCents)}`}
+                            grand={r.grand}
+                          />
+                        ))}
                       </dl>
                       <p style={detailMeta}>
                         {full}

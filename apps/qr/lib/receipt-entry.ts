@@ -1,6 +1,7 @@
 import "server-only";
 import { serviceClient } from "@mms/db/server";
 import type { OrderHistoryEntry, OrderHistoryLine } from "./rewards";
+import { summarizeRefund } from "./refund-view";
 
 /**
  * W7a — the session-less receipt read. ⚠️ Deliberately a `server-only` MODULE, not a `"use server"`
@@ -16,8 +17,6 @@ import type { OrderHistoryEntry, OrderHistoryLine } from "./rewards";
 export const RECEIPT_STATUSES = ["paid", "refunded"] as const;
 
 export type ReceiptEntry = OrderHistoryEntry & {
-  /** The order was fully refunded after settlement — the artifact stamps "Refunded". */
-  refunded: boolean;
   /** W22r — the pickup contact name (qr_orders.customer_name); null on dine-in/legacy rows. */
   customerName: string | null;
 };
@@ -27,7 +26,7 @@ export async function getReceiptEntry(orderId: string): Promise<ReceiptEntry | n
   const { data: o, error } = await db
     .from("qr_orders")
     .select(
-      "id,created_at,total_cents,tender,pickup_slot,table_number,customer_name,subtotal_cents,discount_cents,service_charge_cents,tax_cents,tip_cents,status",
+      "id,created_at,total_cents,refunded_cents,tender,pickup_slot,table_number,customer_name,subtotal_cents,discount_cents,service_charge_cents,tax_cents,tip_cents,status",
     )
     .eq("id", orderId)
     .in("status", [...RECEIPT_STATUSES])
@@ -35,7 +34,7 @@ export async function getReceiptEntry(orderId: string): Promise<ReceiptEntry | n
   if (error || !o) return null;
   const { data: items } = await db
     .from("qr_order_items")
-    .select("name,qty,unit_price_cents,modifiers,fulfillment,notes")
+    .select("name,qty,unit_price_cents,modifiers,fulfillment,notes,refunded_cents")
     .eq("order_id", orderId)
     .order("id"); // deterministic — page, email, and print must list the same receipt identically
   const lines: OrderHistoryLine[] = (items ?? []).map((it) => {
@@ -58,6 +57,9 @@ export async function getReceiptEntry(orderId: string): Promise<ReceiptEntry | n
       // sheet promises "add any allergy in the note below and the kitchen will see it" — the
       // artifact proving the note existed matters exactly when that promise matters.
       notes: typeof it.notes === "string" && it.notes.trim() !== "" ? it.notes : null,
+      // W23b — which dish came back. The durable receipt is the artifact a guest keeps and forwards
+      // to their bank; a line that was refunded has to say so on the copy they hold.
+      refundedCents: it.refunded_cents ?? 0,
     };
   });
   return {
@@ -79,6 +81,9 @@ export async function getReceiptEntry(orderId: string): Promise<ReceiptEntry | n
       tipCents: o.tip_cents ?? 0,
     },
     lines,
-    refunded: o.status === "refunded",
+    // W23b — derived ONCE, in the read, so the durable page, the email and the print share one
+    // verdict. A PARTIAL refund leaves status at 'paid', which is why a boolean could never have
+    // carried this and why this receipt used to say "Paid in full" over returned money.
+    refund: summarizeRefund(o.total_cents, o.refunded_cents ?? 0, o.status),
   };
 }
