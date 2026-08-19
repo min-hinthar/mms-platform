@@ -188,7 +188,17 @@ describe("setItemSoldOut — the first thing that can ever set is_sold_out", () 
 
   it("records WHO took the dish off and in which direction", async () => {
     await flip(true);
-    expect(audits).toEqual([{ menu_item_id: ITEM, changed_by: "staff-1", sold_out: true }]);
+    expect(audits).toEqual([
+      {
+        menu_item_id: ITEM,
+        changed_by: "staff-1",
+        sold_out: true,
+        changed_at: updates[0]!.patch.sold_out_at,
+      },
+    ]);
+    // The invariant, not just the field's presence: ONE instant reaches both writes, so the dish's
+    // "sold out since" stamp and its ledger entry can never disagree about when the cook decided.
+    expect(typeof updates[0]!.patch.sold_out_at).toBe("string");
   });
 
   it("surfaces a ledger failure instead of swallowing it into a clean success", async () => {

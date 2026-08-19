@@ -24,6 +24,9 @@ import { staffGate } from "./staff";
  * Role floor is SERVER, deliberately lower than `setMenuPrice`'s manager. The person who discovers a
  * dish is out is at the wok or the counter, not at a manager tablet, and an 86 is operational and
  * reversible where a price change is a money decision. The ledger is what keeps it accountable.
+ * The floor is reached through the KDS, which every cook can open; /staff/menu is manager-gated at
+ * the page, so on that surface the effective floor is manager. That is not a redundancy to tidy
+ * away — this action is a public POST endpoint, and the floor here is what actually holds.
  *
  * ⚠️ NO auto-clear. The owner chose a manual lifetime with a visible "sold out since 6:40pm" stamp:
  * a flag that expires on a timer can quietly put a genuinely-empty dish back on sale mid-service,
@@ -78,6 +81,12 @@ export async function setItemSoldOut(raw: unknown): Promise<SetItemSoldOutResult
   // on the same empty pan should not read as two decisions.
   if (before.is_sold_out === soldOut) return { ok: true, soldOut };
 
+  // ONE instant for this decision, read by both writes below. Two `new Date()` calls would put the
+  // dish's stamp and its ledger entry minutes apart under a slow insert, and the stamp is the ONLY
+  // signal a manual 86 has outlived its shift — a reader comparing "sold out since" against the
+  // ledger has to see the same moment.
+  const at = new Date().toISOString();
+
   // COMPARE-AND-SWAP on the state we just read, not just the id — the server's own read-to-write
   // window. Losing the race means zero rows, which becomes an honest "someone else just changed it".
   const { data: written, error: writeErr } = await db
@@ -86,7 +95,7 @@ export async function setItemSoldOut(raw: unknown): Promise<SetItemSoldOutResult
       is_sold_out: soldOut,
       // Stamped together with the flag so the two can never disagree. Cleared on the way back to
       // available, so a stale timestamp can never outlive the flag it describes.
-      sold_out_at: soldOut ? new Date().toISOString() : null,
+      sold_out_at: soldOut ? at : null,
     })
     .eq("id", menuItemId)
     .eq("is_sold_out", before.is_sold_out)
@@ -121,9 +130,18 @@ export async function setItemSoldOut(raw: unknown): Promise<SetItemSoldOutResult
   // record of who took the dish off is exactly what this table exists to prevent. The flag itself did
   // land and the copy says so — it is not rolled back, because an unrecorded correct flag beats
   // putting a dish the kitchen cannot make back on sale.
+  // `changed_at` is passed, not left to the column default: the default is the INSERT's clock, and
+  // this row is a record of a decision that already landed. It also keeps the ledger honest under
+  // concurrency — two consoles flipping the same dish commit their inserts in whatever order the
+  // database gets to them, so an insert-time stamp could order the entries against the flips they
+  // describe. (The direction is stored explicitly as `sold_out` for the same reason: nobody should
+  // ever have to reconstruct what happened from row order. `menu_items.is_sold_out` remains the ONE
+  // authority on the current state; this table is an append-only account of who changed it, and is
+  // never read to answer "is it sold out now".)
   const { error: auditErr } = await db.from("menu_availability_audit").insert({
     menu_item_id: menuItemId,
     changed_by: gate.caller.staffId,
+    changed_at: at,
     sold_out: soldOut,
   });
 

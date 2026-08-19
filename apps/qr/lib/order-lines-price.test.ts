@@ -22,6 +22,8 @@ const ITEM = {
   name_en: "Mohinga",
   base_price_cents: 990,
   tax_category: "hot_prepared",
+  is_sold_out: false,
+  is_active: true,
   item_modifier_groups: [{ modifier_groups: { id: "g1", min_select: 0, max_select: 2 } }],
 };
 const OPTS = [

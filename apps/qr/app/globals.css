@@ -6651,6 +6651,19 @@ html[data-seen-surface] .mms-stagger {
     background: color-mix(in srgb, var(--warn) 14%, transparent);
   }
 }
+/* Already 86'd — a statement where the control was, so the row keeps its rhythm and nobody reaches
+   for an action that no longer exists. Filled rather than outlined: this is a fact, not an offer. */
+.kds-line-86-done {
+  display: block;
+  margin: 6px 14px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warn) 22%, transparent);
+  color: var(--warn);
+  font-weight: 800;
+  font-size: var(--kfs-mod);
+  text-align: center;
+}
 .kds-note {
   margin: 8px 14px 4px;
   padding: 8px 12px;

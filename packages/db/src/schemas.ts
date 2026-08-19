@@ -345,7 +345,7 @@ export const setTogoStatusInput = z.object({
  *  (verifyStaffPin on the manager's own identity); `reason` is an audit code. */
 export const refundLineInput = z.object({
   orderItemId: uuid,
-  reason: z.enum(["unhappy", "wrong_item", "too_slow", "duplicate", "other"]),
+  reason: z.enum(["unhappy", "wrong_item", "too_slow", "duplicate", "sold_out", "other"]),
   pin: z.string().regex(/^\d{4,8}$/),
 });
 
@@ -543,6 +543,7 @@ export const voidLineInput = z.object({
     "quality", // guest unhappy with the item
     "guest_request", // guest changed their mind
     "service_recovery", // comp to make good on a problem
+    "sold_out", // 86'd mid-service — the kitchen cannot produce it (W23a)
     "other",
   ]),
   // Present only for the manager-PIN step-up: the manager the initiating server tapped + their PIN.
@@ -571,6 +572,7 @@ export const requestApprovalInput = z.object({
     "quality",
     "guest_request",
     "service_recovery",
+    "sold_out",
     "other",
   ]),
 });

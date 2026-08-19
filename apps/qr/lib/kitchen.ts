@@ -150,9 +150,9 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     // /track + exit pass show, so the kitchen and the customer's phone always agree.
     db.from("qr_orders").select("id,cart_id").in("cart_id", cartIds).eq("status", "paid"),
     menuIds.length
-      ? db.from("menu_items").select("id,menu_categories(slug)").in("id", menuIds)
+      ? db.from("menu_items").select("id,is_sold_out,menu_categories(slug)").in("id", menuIds)
       : Promise.resolve({
-          data: [] as { id: string; menu_categories: { slug: string } | null }[],
+          data: [] as { id: string; is_sold_out: boolean; menu_categories: { slug: string } | null }[],
           error: null,
         }),
   ]);
@@ -165,9 +165,13 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     if (o.cart_id && !orderByCart.has(o.cart_id)) orderByCart.set(o.cart_id, o.id);
   }
   const stationByItem = new Map<string, KitchenStation>();
+  // W23a — which dishes are ALREADY off the menu, so the ticket's 86 control shows the current answer
+  // instead of an affordance the server would refuse. Same read, one more column.
+  const soldOutItems = new Set<string>();
   for (const m of menuRes.data ?? []) {
     const slug = m.menu_categories?.slug;
     stationByItem.set(m.id, (slug && STATION_BY_CATEGORY[slug]) || "wok");
+    if (m.is_sold_out) soldOutItems.add(m.id);
   }
 
   // Assemble tickets, preserving the oldest-first line order (lines is already sorted by fire_at).
@@ -198,6 +202,7 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
       firedAt: l.fire_at ?? nowIso,
       fulfillment: (l.fulfillment ?? "dinein") as KitchenLine["fulfillment"],
       menuItemId: UUID_RE.test(l.menu_item_id) ? l.menu_item_id : null,
+      soldOut: soldOutItems.has(l.menu_item_id),
       station: stationByItem.get(l.menu_item_id) ?? "wok",
     };
     const existing = ticketByCart.get(l.cart_id);

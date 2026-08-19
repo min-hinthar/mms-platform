@@ -37,9 +37,11 @@ export function MenuPriceEditor({ items }: { items: PricedItem[] }) {
   const [draft, setDraft] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
-  // W23a — the id whose 86 is in flight, so only that row's control disables (a page-wide busy flag
-  // would freeze every row while one cook flips one dish).
-  const [flipping, setFlipping] = useState<string | null>(null);
+  // W23a — the ids whose 86 is in flight, so only those rows' controls disable (a page-wide busy flag
+  // would freeze every row while one cook flips one dish). A SET, not one id: two taps in quick
+  // succession are ordinary during a rush, and a single slot would let the first flip's completion
+  // re-enable the second row's button while that flip was still in the air.
+  const [flipping, setFlipping] = useState<ReadonlySet<string>>(() => new Set());
   // ONE live region for this view (QA §A) — outcomes and refusals both ride it.
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -49,17 +51,40 @@ export function MenuPriceEditor({ items }: { items: PricedItem[] }) {
   // to undo — unlike a price, which every future guest pays and which keeps its two-step confirm
   // right below. The ledger is what keeps a one-tap control accountable.
   async function toggleSoldOut(i: PricedItem) {
-    setFlipping(i.id);
+    setFlipping((f) => new Set(f).add(i.id));
     setMsg(null);
-    const r = await setItemSoldOut({
-      menuItemId: i.id,
-      soldOut: !i.soldOut,
-      // The state this row RENDERED with — the server refuses a flip made against a stale screen.
-      expectedSoldOut: i.soldOut,
-    });
-    setFlipping(null);
+    // Same shape as `save()` below, and for the same reason it was added there (Codex P2 on #180): a
+    // REJECTED Server Action promise — dead radio, 5xx transport — would otherwise skip the re-enable
+    // and strand the row on "…" forever, which on this control means the cook cannot retry the 86.
+    let r: Awaited<ReturnType<typeof setItemSoldOut>>;
+    try {
+      r = await setItemSoldOut({
+        menuItemId: i.id,
+        soldOut: !i.soldOut,
+        // The state this row RENDERED with — the server refuses a flip made against a stale screen.
+        expectedSoldOut: i.soldOut,
+      });
+    } catch {
+      setMsg({
+        ok: false,
+        text: `Couldn’t reach the menu — ${i.nameEn} may or may not have changed. Check the row and try again.`,
+      });
+      // The list is the only honest account of what landed; the toggle's own state is a guess.
+      router.refresh();
+      return;
+    } finally {
+      setFlipping((f) => {
+        const next = new Set(f);
+        next.delete(i.id);
+        return next;
+      });
+    }
     if (!r.ok) {
       setMsg({ ok: false, text: r.error });
+      // Codex P2 on #193, same rule as the price refusal: a concurrency refusal means this screen is
+      // stale, and without a refresh the row keeps feeding the SAME stale `expectedSoldOut` forever —
+      // so every retry fails identically and the cook cannot get the dish off the menu at all.
+      router.refresh();
       return;
     }
     setMsg({
@@ -223,7 +248,7 @@ export function MenuPriceEditor({ items }: { items: PricedItem[] }) {
                   <button
                     type="button"
                     style={i.soldOut ? restoreBtn : eightySixBtn}
-                    disabled={flipping === i.id}
+                    disabled={flipping.has(i.id)}
                     onClick={() => void toggleSoldOut(i)}
                     // The visible label is two words; the accessible name has to say WHICH dish,
                     // because every row in this list carries the same one.
@@ -233,7 +258,7 @@ export function MenuPriceEditor({ items }: { items: PricedItem[] }) {
                         : `Mark ${i.nameEn} sold out — nobody can order it until you put it back`
                     }
                   >
-                    {flipping === i.id ? "…" : i.soldOut ? "Put back" : "86"}
+                    {flipping.has(i.id) ? "…" : i.soldOut ? "Put back" : "86"}
                   </button>
                   <button type="button" style={ghostBtn} onClick={() => openEdit(i)}>
                     Edit

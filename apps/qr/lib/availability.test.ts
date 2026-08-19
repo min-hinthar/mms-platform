@@ -86,15 +86,29 @@ describe("pickUnavailableNames", () => {
     ).toEqual([]);
   });
 
-  it("still blocks a COMPED line — $0 but still MADE, and the kitchen cannot make it", () => {
-    // The separating case for the comped rule: identical to the voided case in every field except
-    // the one being tested, so a guard that lumps comped in with voided goes red here and only here.
-    expect(
-      pickUnavailableNames(
-        [line({ menu_item_id: "a", state: "fired" })],
-        [item({ id: "a", name_en: "Mohinga", is_sold_out: true })],
-      ),
-    ).toEqual(["Mohinga"]);
+  it.each(["fired", "in_progress", "served"])(
+    "ignores a %s line — the kitchen already has it, and the diner cannot remove it",
+    (state) => {
+      // The remedy constraint, not a kitchen one: `permissions.ts` lets a diner mutate a DRAFT line
+      // and nothing else, so blocking here would say "remove it to keep going" about a line they
+      // cannot remove — a dine-in table that just ate the last portion could not pay at all. Same
+      // fixture as the blocking case except `state`, so a gate that widens past draft goes red here.
+      expect(
+        pickUnavailableNames(
+          [line({ menu_item_id: "a", state })],
+          [item({ id: "a", name_en: "Mohinga", is_sold_out: true })],
+        ),
+      ).toEqual([]);
+    },
+  );
+
+  it("blocks a dish that has vanished from the catalog, named from the line", () => {
+    // `qr_cart_items.menu_item_id` is a SOFT ref (text, no FK), so a deleted menu row leaves a
+    // dangling line. A dish with no catalog row cannot be made either — and the line's stamped name
+    // is the only name left to show.
+    expect(pickUnavailableNames([line({ menu_item_id: "a", name: "Ghost Curry" })], [])).toEqual([
+      "Ghost Curry",
+    ]);
   });
 
   it("ignores GROCERY lines — the shopper is already holding the item", () => {
@@ -139,6 +153,7 @@ describe("foodMenuIds", () => {
         line({ menu_item_id: "b", fulfillment: "dinein" }),
         line({ menu_item_id: "c", fulfillment: "grocery" }),
         line({ menu_item_id: "d", state: "voided" }),
+        line({ menu_item_id: "e", state: "served" }),
         line({ menu_item_id: null }),
       ]),
     ).toEqual(["a", "b"]);

@@ -816,7 +816,14 @@ function KdsLineRow({
     setEightySixing(true);
     onError(null);
     try {
-      const res = await setItemSoldOut({ menuItemId, soldOut: true, expectedSoldOut: false });
+      const res = await setItemSoldOut({
+        menuItemId,
+        soldOut: true,
+        // The state this ticket RENDERED with — never a hardcoded `false`. The board polls, so a
+        // dish 86’d on another console is already reflected here; asserting `false` would make the
+        // compare-and-swap refuse a flip the cook can plainly see is unnecessary.
+        expectedSoldOut: line.soldOut,
+      });
       // A refusal here is usually "someone already 86'd it", which is a success from the cook's point
       // of view — but say what the server said rather than inventing a cheerful verdict.
       if (!res.ok) onError(res.error);
@@ -881,17 +888,23 @@ function KdsLineRow({
           A SIBLING of the bump button, never nested — a button inside a button is invalid, and the
           bump must stay the full-width primary target. Grocery barcodes carry no menuItemId, and
           there is nothing to 86 about a packaged item on a shelf. */}
-      {line.menuItemId && (
-        <button
-          type="button"
-          className="kds-line-86"
-          disabled={eightySixing}
-          onClick={() => void flip(line.menuItemId!)}
-          aria-label={`Mark ${line.name} sold out — it comes off the menu until someone puts it back`}
-        >
-          {eightySixing ? "…" : "86 this dish"}
-        </button>
-      )}
+      {line.menuItemId &&
+        (line.soldOut ? (
+          // Already off. A STATEMENT, not a disabled button: there is no action left here, and the
+          // put-back lives on /staff/menu where the manager can see the whole menu at once. Saying so
+          // stops a second cook walking over to 86 a dish that is already 86'd.
+          <p className="kds-line-86-done">Off the menu</p>
+        ) : (
+          <button
+            type="button"
+            className="kds-line-86"
+            disabled={eightySixing}
+            onClick={() => void flip(line.menuItemId!)}
+            aria-label={`Mark ${line.name} sold out — it comes off the menu until someone puts it back`}
+          >
+            {eightySixing ? "…" : "86 this dish"}
+          </button>
+        ))}
       {line.notes && <p className="kds-note">{line.notes}</p>}
     </li>
   );

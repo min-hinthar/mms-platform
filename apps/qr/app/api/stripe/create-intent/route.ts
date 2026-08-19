@@ -80,6 +80,45 @@ export async function POST(req: NextRequest) {
         { status: 500 },
       );
     }
+    // W23a — THE AVAILABILITY GATE. Asked before ANY state is consumed on this order's behalf.
+    //
+    // `priceItem` already refuses a sold-out dish at ADD time, and that is the better guest moment —
+    // but it cannot cover this one: a cart sits open while the diner reads, chats and decides, and the
+    // 86 can land in that window. Every line was available when it was added and the basket is now
+    // unsellable. Only a re-check against the LIVE catalog, here, can see that.
+    //
+    // This is deliberately the same shape as the pickup-capacity and open-hours refusals below:
+    // read, refuse with guest-readable copy, release the lock, 409 — all BEFORE
+    // `paymentIntents.create`, so a refused order never becomes a charge that needs refunding. One
+    // batched read of the cart's distinct menu ids; no per-line round trip.
+    //
+    // It refuses rather than silently dropping the line. Dropping would re-price the basket at the
+    // last tap, and an amount that changes under the diner's finger is exactly the surprise the money
+    // doctrine forbids — worse here than elsewhere, because the diner is looking at the Pay button.
+    // Naming the dish lets them remove it themselves and keep the rest of their order.
+    //
+    // NOTE this refuses where the pickup soft-cap over-accepts, and the difference is deliberate: an
+    // over-sold pickup slot means a dish made slightly late, while an over-sold 86 means a dish that
+    // does not exist. Only one of those can be fixed by cooking faster.
+    //
+    // It sits ABOVE the pickup block for the reason that block states about its own contact gate: an
+    // ASAP snap (`mms_pickup_asap`) atomically CONSUMES a slot's capacity, and spending a slot on an
+    // order this same response is about to refuse would deny that slot to a diner who can actually
+    // be served.
+    const soldOutNames = await unavailableLineNames(cartId);
+    if (soldOutNames.length > 0) {
+      await releaseCartLock(cartId, uid);
+      return NextResponse.json(
+        {
+          error:
+            soldOutNames.length === 1
+              ? `${soldOutNames[0]} just sold out — remove it to keep going.`
+              : `${soldOutNames.join(" and ")} just sold out — remove them to keep going.`,
+        },
+        { status: 409 },
+      );
+    }
+
     // W5g: the timing the diner actually committed to at the pay boundary — 'scheduled' (a slot they
     // picked) or 'asap' (server-snapped now). Emitted as ONE event below that BOTH paths hit, so the
     // pickup funnel isn't blind to the default-ASAP path (which fires no client-side timing event).
@@ -211,40 +250,6 @@ export async function POST(req: NextRequest) {
       await releaseCartLock(cartId, uid);
       return NextResponse.json({ error: "Empty cart" }, { status: 400 });
     }
-    // W23a — THE AVAILABILITY GATE. The last thing checked before money is asked for.
-    //
-    // `priceItem` already refuses a sold-out dish at ADD time, and that is the better guest moment —
-    // but it cannot cover this one: a cart sits open while the diner reads, chats and decides, and the
-    // 86 can land in that window. Every line was available when it was added and the basket is now
-    // unsellable. Only a re-check against the LIVE catalog, here, can see that.
-    //
-    // This is deliberately the same shape as the pickup-capacity and open-hours refusals ~100 lines
-    // above: read, refuse with guest-readable copy, release the lock, 409 — all BEFORE
-    // `paymentIntents.create`, so a refused order never becomes a charge that needs refunding. One
-    // batched read of the cart's distinct menu ids; no per-line round trip.
-    //
-    // It refuses rather than silently dropping the line. Dropping would re-price the basket at the
-    // last tap, and an amount that changes under the diner's finger is exactly the surprise the money
-    // doctrine forbids — worse here than elsewhere, because the diner is looking at the Pay button.
-    // Naming the dish lets them remove it themselves and keep the rest of their order.
-    //
-    // NOTE this refuses where the pickup soft-cap over-accepts, and the difference is deliberate: an
-    // over-sold pickup slot means a dish made slightly late, while an over-sold 86 means a dish that
-    // does not exist. Only one of those can be fixed by cooking faster.
-    const soldOutNames = await unavailableLineNames(cartId);
-    if (soldOutNames.length > 0) {
-      await releaseCartLock(cartId, uid);
-      return NextResponse.json(
-        {
-          error:
-            soldOutNames.length === 1
-              ? `${soldOutNames[0]} just sold out — remove it to keep going.`
-              : `${soldOutNames.join(" and ")} just sold out — remove them to keep going.`,
-        },
-        { status: 409 },
-      );
-    }
-
     // W19 — the tip ceiling is a DOLLAR amount ($1,000, the cash tip's own bound), enforced here on
     // the DERIVED cents because a rate cannot express a dollar cap. The client clamps to the same
     // constant, so an in-app diner never sees this; it exists for the hostile/raw POST.
