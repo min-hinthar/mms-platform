@@ -412,7 +412,7 @@ export async function getOrderHistory(limit = 20): Promise<OrderHistoryEntry[] |
   let history = db
     .from("qr_orders")
     .select(
-      "id,created_at,total_cents,refunded_cents,tender,pickup_slot,table_number,subtotal_cents,discount_cents,service_charge_cents,tax_cents,tip_cents",
+      "id,created_at,total_cents,refunded_cents,status,tender,pickup_slot,table_number,subtotal_cents,discount_cents,service_charge_cents,tax_cents,tip_cents",
     )
     .eq("status", "paid");
   history = payerIds.length
@@ -490,11 +490,11 @@ export async function getOrderHistory(limit = 20): Promise<OrderHistoryEntry[] |
       tipCents: o.tip_cents ?? 0,
     },
     lines: byOrder.get(o.id) ?? [],
-    // The read filters `status = 'paid'`, so every entry here is either unrefunded or PARTIALLY
-    // refunded — the exact case that used to render at full price with no trace. Passing the status
-    // literal keeps summarizeRefund's contract intact rather than encoding the filter's consequence
-    // as an assumption at the call site.
-    refund: summarizeRefund(o.total_cents, o.refunded_cents ?? 0, "paid"),
+    // The row's OWN status, not the literal the filter above implies. Today `.eq("status","paid")`
+    // means every entry is unrefunded or PARTIALLY refunded — the exact case that used to render at
+    // full price with no trace — but hardcoding "paid" here would silently misreport the day that
+    // filter widens, and a receipt is the wrong place to carry a second copy of a query's predicate.
+    refund: summarizeRefund(o.total_cents, o.refunded_cents ?? 0, o.status),
   }));
 }
 
