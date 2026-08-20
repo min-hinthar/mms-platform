@@ -5,18 +5,37 @@ import type { Appearance } from "@stripe/stripe-js";
 // Build the Payment/Setup Element appearance from the document's resolved design tokens (light =
 // editorial, .dark = Night) — the iframe can't read our CSS vars, so we pass resolved values. Shared by
 // PaymentSection (pay) and SecureTabButton (card-save) so both match the live theme. SSR-safe fallback.
+/**
+ * W22d — the FALLBACKS have to follow the theme too.
+ *
+ * Every fallback here used to be the LIGHT hex, while `theme` correctly branched on `.dark`. The
+ * fallback only fires when `getPropertyValue` comes back empty — which is not hypothetical: this
+ * runs on mount, and a custom property read before the stylesheet has applied (a cold load on slow
+ * network, a hard refresh mid-paint) returns `""`. In dark that painted the LIGHT palette — near
+ * black text, cream card — into an iframe Stripe was rendering with `theme: "night"`. A card form
+ * that is unreadable exactly when the connection is already bad.
+ *
+ * The values mirror tokens.css and are pinned by `scripts/check-theme-parity.mjs`.
+ */
+const FALLBACK = {
+  light: { ac: "#a65f10", cd: "#fffdf8", tx: "#1b1714", t2: "#6e6358", warn: "#a44b34" },
+  dark: { ac: "#e7a53a", cd: "#271f38", tx: "#f3ecdf", t2: "#bcafc8", warn: "#e0855f" },
+} as const;
+
 export function stripeAppearance(): Appearance {
   if (typeof window === "undefined") return { theme: "stripe" };
   const cs = getComputedStyle(document.documentElement);
+  const isDark = document.documentElement.classList.contains("dark");
+  const fb = isDark ? FALLBACK.dark : FALLBACK.light;
   const v = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback;
   return {
-    theme: document.documentElement.classList.contains("dark") ? "night" : "stripe",
+    theme: isDark ? "night" : "stripe",
     variables: {
-      colorPrimary: v("--ac", "#a65f10"),
-      colorBackground: v("--cd", "#fffdf8"),
-      colorText: v("--tx", "#1b1714"),
-      colorTextSecondary: v("--t2", "#6e6358"),
-      colorDanger: v("--warn", "#a44b34"),
+      colorPrimary: v("--ac", fb.ac),
+      colorBackground: v("--cd", fb.cd),
+      colorText: v("--tx", fb.tx),
+      colorTextSecondary: v("--t2", fb.t2),
+      colorDanger: v("--warn", fb.warn),
       fontFamily: v("--font-body", "system-ui, sans-serif"),
       borderRadius: v("--r-sm", "12px"),
       spacingUnit: "4px",

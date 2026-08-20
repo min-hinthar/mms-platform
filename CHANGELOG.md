@@ -4,6 +4,69 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W22d-1 — the Night correctness floor (2026-08-20)
+
+**Dark mode was failing AA on a diner's own rewards screen, and had been since K3a.**
+`tokens.css` aliased dark `--ruby-strong: var(--ruby)` under a comment asserting the opposite —
+_"bright-on-dark clears AA on the tint"_. Measured against the real call sites it does not:
+
+| Recipe                                            | Where                                           | Ratio    |
+| ------------------------------------------------- | ----------------------------------------------- | -------- |
+| `ruby-strong` on ruby 14% over `--cd`             | `AccountStatus` tier row                        | **4.47** |
+| `ruby-strong` on ruby 16% over `--cd`             | `AccountStatus` tier card, `WelcomeBackChooser` | **4.32** |
+| `ruby-strong` on the chip's oklab 18% hover blend | `.wallet-chip-star`                             | **4.23** |
+
+The audit never caught it because ruby was not in the combo matrix at all — a rigorous test asserting
+nothing about the one hue that needed it. Fixed by lifting only the TEXT variant (`--ruby` still
+paints the dot, glyph and border at a fine 5.55): same OKLab hue and chroma, L 0.702 → 0.728, worst
+case now 4.66, searched numerically rather than picked.
+
+**The split is the point.** Deepening the ground — which is what W22d proper does — raises every dark
+ratio, and takes ruby to 4.81 on its own. Had the palette landed first, this guard would have been
+born GREEN and the defect would have survived untouched on every surface that is not `--cd`. So the
+correctness floor ships first, with the guard born red at 4.47.
+
+**Coverage added** (`contrast-audit.test.ts`, 41 → 57 tests): the reward tier tints at both live alpha
+recipes; the wallet chip's `color-mix(in oklab, …, <opaque>)` blend for all three tiers at rest AND
+hover — a genuinely different blend from every `%, transparent` tint, and where the tightest failure
+lived; `t3 on surface-elevated` (`tx` was guarded, `t3` was not); and an `--ac2` negative guard,
+light-only because dark `--ac2` IS the legible bright gold.
+
+**The badge tint percentages are now parsed out of `badge.tsx`** rather than transcribed. They were
+the one un-derived fixture left, so retuning `TONES` would have moved the shipped contrast while the
+suite kept asserting the old recipe. The regex pins the mix SPACE too, since `in srgb` → `in oklab`
+composites identically against `transparent` but not against an opaque colour.
+
+**New — `scripts/check-theme-parity.mjs`**, wired into `verify:slice`. Some hex escapes the token
+system entirely: the service worker's offline shell is a string baked into `sw.ts` and ships before
+any stylesheet exists, and `viewport.themeColor` is consumed by browser chrome before first paint.
+Neither can read a custom property, so both carry hand-copied values that no test can reach — and
+**two had already drifted** (`#1d1a2e` / `#f3effa` against a `--tx` of `#1b1714` / `#f3ecdf`). The
+guard was born red on exactly those two.
+
+Also fixed:
+
+- **`stripeAppearance` fell back to the LIGHT palette in dark.** All five fallbacks were light hex
+  while `theme` correctly branched on `.dark`. The fallback fires when `getPropertyValue` returns
+  empty — a custom property read before the stylesheet applies, i.e. a cold load on a slow
+  connection — so it painted near-black text on a cream card into an iframe Stripe was rendering as
+  `night`. An unreadable card form exactly when the network is already bad.
+- **The print re-pin could not reach an inline style.** `.receipt-artifact { color: #1b1714
+!important }` does not cover `ReceiptCard`'s `color: var(--warn)` on a descendant, because an
+  inline style outranks an ancestor rule — so printing from Night put `#e0855f`, a hue chosen for a
+  dark ground, onto forced white. `--ok`/`--warn`/`--ac` and the three `-strong` hues now re-pin too.
+- `ResilienceShell`'s toast carried a hardcoded `rgb(0 0 0 / 0.25)` shadow between four `var()`
+  properties; Night has its own `--sh-md`.
+
+Docs corrected in place: the proposal's _"recomputed contrast fixtures … hardcoded-fixture tests come
+with it"_ (that port happened at M5·P5.5 and was improved — there are no fixtures), `QR_FROM_DELIVERY`'s
+copy of the same claim and its "tightest combo" numbers, `W9_PLAN`'s _"pins hex fixtures"_, and the
+false ruby comment in `tokens.css`. **The proposal's "deeper espresso ground" is also flagged rather
+than followed**: shipped Night is aubergine (~260°), so espresso is a hue rotation, not a deepening —
+an open owner decision, not something the word should smuggle in.
+
+No migration.
+
 ### W22c — the gesture layer, and three corrections (2026-08-20)
 
 `docs/W22_DESIGN_PROPOSAL.md` listed five parts. **Three were already built**, so most of this slice

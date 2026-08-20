@@ -1607,6 +1607,17 @@ try {
   process.exit(1);
 }
 
+// W22d — the third cheap grep: the hex values that ESCAPE the token system. `contrast-audit` parses
+// tokens.css and is rigorous about everything it can see, which makes it easy to assume the palette
+// is fully covered — but the service worker's offline shell and `viewport.themeColor` ship before any
+// stylesheet exists, so both carry hand-copied hex that no test can reach. Two of those values had
+// already drifted when the guard was written, silently, for however long.
+try {
+  execFileSync("node", ["scripts/check-theme-parity.mjs"], { cwd: ROOT, stdio: "inherit" });
+} catch {
+  process.exit(1);
+}
+
 const targets = MUTANTS.filter((m) => !only || m.id.includes(only));
 const files = [...new Set(targets.map((m) => m.file))];
 

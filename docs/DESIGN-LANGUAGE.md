@@ -344,3 +344,46 @@ caller (a render stamp that changed), never inferred from the data that came bac
   a fact this module holds. "now" is true relative to what the diner was looking at; "just" is not.
 - The sentence is spoken into the view's **existing** live region. A gesture does not mint a second
   announcer (§7).
+
+## 13 · Night — what the contrast audit does and does not prove (W22d-1)
+
+`packages/ui/src/__tests__/contrast-audit.test.ts` **parses `tokens.css` at test time** and resolves
+`var()` aliases, so a token edit is checked automatically and there are no hex fixtures to refresh.
+That is real rigour, and it is exactly why the next rule is easy to forget:
+
+- **A green audit proves the combos it DEFINES, not the palette.** Dark `--ruby-strong` aliased
+  `--ruby` and scored 4.47 / 4.32 / 4.23 as text on its own tint for as long as the tier UI existed,
+  with the suite fully green — because ruby was never in the matrix. **Adding a hue to `tokens.css`
+  is not done until the combo is in the audit.** The tokens are derived; the list of what to check
+  is still hand-written, and that list is the actual coverage.
+- **`color-mix(… , transparent)` and `color-mix(… , <opaque>)` are different blends.** Mixing with
+  `transparent` is premultiplied, so the interpolation space cancels and sRGB alpha compositing gives
+  the identical answer — which is why the tint recipes can be modelled with a simple alpha flatten.
+  Mixing against an opaque colour genuinely interpolates in OKLab and lands somewhere else. The
+  tightest real failure in the app lived in that second form, unmodelled.
+- **Check the state that reduces contrast, not just the resting one.** The wallet chip's hover raises
+  its tint from 12% to 18%; rest passed at 4.70 and hover failed at 4.23. A guard that only sees the
+  default state is half a guard.
+- **Fix the TEXT variant, not the hue.** `--ruby` paints the dot, glyph and border, where it is fine.
+  Only `-strong` is rendered as text, so only `-strong` moves — the smallest lift that clears, same
+  OKLab hue and chroma, searched numerically. A hue nudged by eye to pass a ratio changes the design.
+- **Order matters: fix the floor BEFORE deepening the ground.** A darker ground raises every dark
+  ratio. Land the palette first and a contrast guard written afterwards is born green — the bug is
+  never learned, and it stays live on every surface the new ground does not cover.
+
+**Some hex cannot be a token, and that is where drift hides.** The service worker's offline shell is
+a string baked into `sw.ts` and ships before any stylesheet exists; `viewport.themeColor` is consumed
+by browser chrome before first paint. Neither can read a custom property, so both carry hand-copied
+values, and the only way to SEE a mismatch is to go offline, or to look at the address bar, in both
+themes. Two had already drifted. `scripts/check-theme-parity.mjs` pins them; add a row to it rather
+than a comment when the next one appears.
+
+**A theme-aware function needs theme-aware fallbacks.** `stripeAppearance` branched correctly on
+`.dark` while every fallback stayed light — and those fallbacks are not decorative: a custom property
+read before the stylesheet applies returns `""`, so a cold load on a slow connection painted the
+light palette into an iframe Stripe was rendering as `night`.
+
+**An `!important` on an ancestor does not reach an inline style on a descendant.** The print block's
+`.receipt-artifact { color: … !important }` could not override `ReceiptCard`'s inline
+`color: var(--warn)`, so printing from Night put a dark-ground orange onto forced white. Re-pin every
+token reachable from inside a print artifact, not just the ones set on its own node.

@@ -50,9 +50,13 @@ const OFFLINE_HTML = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Offline — Mandalay Morning Star</title>
 <style>
+  /* W22d - these four hex values are PINNED to tokens.css (--pg/--tx, both themes) by
+     scripts/check-theme-parity.mjs. They cannot be CSS custom properties: this shell is a string
+     baked into the service worker and ships before any stylesheet exists. Two had already drifted.
+     (No backticks in here - the whole shell is a TS template literal.) */
   body { margin: 0; min-height: 100vh; display: grid; place-items: center; text-align: center;
-         background: #faf9f5; color: #1d1a2e; font-family: ui-sans-serif, system-ui, sans-serif; }
-  @media (prefers-color-scheme: dark) { body { background: #171221; color: #f3effa; } }
+         background: #faf9f5; color: #1b1714; font-family: ui-sans-serif, system-ui, sans-serif; }
+  @media (prefers-color-scheme: dark) { body { background: #171221; color: #f3ecdf; } }
   main { padding: 32px 24px; max-width: 420px; }
   .glyph { font-size: 44px; }
   h1 { font-size: 22px; margin: 12px 0 4px; }
