@@ -8,7 +8,11 @@
 -- Three cases, driven by the REAL merge RPC — never by a hand-written fold (W23d's lesson that a
 -- guard fed by a fixture proves the fixture):
 --
---   1. Both sides seatless AND adderless (staff- or kiosk-added on each table) — STILL FOLDS. This is
+--   0. A STAFF-added target and a DINER-added source — DOES NOT FOLD. This is the shape that needs
+--      no prior merge at all, and the one the first draft of this note under-told: a staff line is
+--      seatless and adderless from the start, so before this change a diner's very first merge into
+--      one deleted their row.
+--   1. Both sides seatless AND adderless (a staff-added line on each table) — STILL FOLDS. This is
 --      the case the fold exists for, and the one a careless `=` instead of `is not distinct from`
 --      would silently break, since `null = null` is null.
 --   2. Different adders — DOES NOT FOLD. The source re-parents as its own line and keeps its adder,
@@ -39,6 +43,7 @@ begin
     (src_sess, 'M96S1', 'dinein', 'active', ana), (tgt_sess, 'M96T1', 'dinein', 'active', ana);
   insert into public.qr_carts (id, session_id) values (src_cart, src_sess), (tgt_cart, tgt_sess);
   -- `by_seat` null on both → the trigger seeds `added_by` null too. A staff-added line on each table.
+  -- (A KIOSK line would NOT be adderless: it carries the kiosk device's own verified anon uid.)
   insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
     values (src_cart, dish, 'Mohinga', 1, 1000, 105, null, 'dinein'),
            (tgt_cart, dish, 'Mohinga', 1, 1000, 105, null, 'dinein');
@@ -49,6 +54,25 @@ begin
   assert n = 1, format('M96.1 two adderless lines did NOT fold — %s lines, expected 1. A `=` where the code needs `is not distinct from` breaks exactly this.', n);
   select qty into n from public.qr_cart_items where cart_id = tgt_cart;
   assert n = 2, format('M96.1 the fold did not carry the qty: %s, expected 2', n);
+
+  -- ══ 1b. staff target, diner source — must NOT fold (no earlier merge required) ════════════════
+  src_sess := gen_random_uuid(); tgt_sess := gen_random_uuid();
+  src_cart := gen_random_uuid(); tgt_cart := gen_random_uuid();
+  insert into public.table_sessions (id, qr_code, mode, status, host_seat) values
+    (src_sess, 'M96S1B', 'dinein', 'active', ana), (tgt_sess, 'M96T1B', 'dinein', 'active', ana);
+  insert into public.qr_carts (id, session_id) values (src_cart, src_sess), (tgt_cart, tgt_sess);
+  -- The target is staff-added: no seat, and so no adder. The source is Ben's own.
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
+    values (tgt_cart, dish, 'Mohinga', 1, 1000, 105, null, 'dinein'),
+           (src_cart, dish, 'Mohinga', 1, 1000, 105, ben, 'dinein');
+
+  perform public.mms_merge_table_orders(src_cart, tgt_cart);
+  select count(*) into n from public.qr_cart_items where cart_id = tgt_cart;
+  assert n = 2, format('M96.1b THE FIRST-MERGE DEFECT: Ben''s dish folded into a staff line and his record of it was deleted (%s lines, expected 2)', n);
+  select count(*) into n from public.qr_cart_items where cart_id = tgt_cart and added_by = ben;
+  assert n = 1, 'M96.1b Ben''s line reached the target but lost his adder';
+  select count(*) into n from public.qr_cart_items where cart_id = tgt_cart and added_by is null;
+  assert n = 1, 'M96.1b the staff line did not survive as its own row';
 
   -- ══ 2. different adders — must NOT fold ═══════════════════════════════════════════════════════
   src_sess := gen_random_uuid(); tgt_sess := gen_random_uuid();

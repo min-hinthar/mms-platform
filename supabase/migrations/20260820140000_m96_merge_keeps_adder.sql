@@ -4,15 +4,24 @@
 -- qty and DELETING the source row. The match requires `t.by_seat is null` (R5c: never fold into a
 -- diner's own line), and before M87 that was enough — a seatless line belonged to nobody.
 --
--- M87 changed what "seatless" means. A line re-parented by an EARLIER merge has `by_seat = null` (the
--- re-parent branch clears it) but keeps its `added_by`, because the immutability trigger pins that
--- column against every update. So a twice-merged table can now fold a line B added into a line A
--- added, delete B's row, and leave B with no record of a dish they really chose.
+-- M87 changed what "seatless" means: a line can now be seatless and still belong to someone. Two
+-- ways in, and the FIRST is the common one:
+--
+--   · a STAFF-added target line (`by_seat` null from the start, so `added_by` null too) is a valid
+--     fold target for a line a DINER added — on the very first merge. B's dish folds into it and B's
+--     row is deleted. This one needed no prior merge at all.
+--   · a line re-parented by an EARLIER merge has `by_seat = null` (the re-parent branch clears it)
+--     but KEEPS its `added_by`, because the immutability trigger pins that column against every
+--     update. So a twice-merged table can fold a line B added into a line A added.
+--
+-- Either way the source diner's row is gone and they have no record of a dish they really chose.
 --
 -- The fix is one predicate: fold only when the two lines share an adder. Three cases, and only the
 -- middle one changes:
 --
---   · both null (staff- or kiosk-added on each side) — folds, exactly as today.
+--   · both null (a staff-added line on each side) — folds, exactly as today. NOT kiosk: a kiosk
+--     order carries the device's own verified anon uid as its seat (`openKioskOrder`), which the M87
+--     seed trigger copies into `added_by`, so a kiosk line has an adder like any diner's.
 --   · different adders — no longer folds; the source re-parents as its own line, which is what the
 --     `else` branch already does for every other non-match and which the cart, the split and the
 --     totals all sum per line anyway.
@@ -27,8 +36,9 @@
 -- it, and it needs none of the surgery the deferral assumed. Recording the correction because the
 -- deferral reasoning is in the registry where someone would otherwise trust it.
 --
--- The function is restated from `20260716000000_w3_kitchen.sql` — its seventh definition, and the only
--- change is the one `and t.added_by is not distinct from r.added_by` line plus the comment above it.
+-- The function is restated from `20260716000000_w3_kitchen.sql` — its seventh definition. Two lines
+-- of it differ: the predicate, and `added_by` added to the loop's `select`, without which `r.added_by`
+-- would not resolve. Everything else, comments aside, is byte-identical (diff it).
 
 create or replace function public.mms_merge_table_orders(p_source_cart uuid, p_target_cart uuid)
   returns integer language plpgsql security definer set search_path = '' as $$

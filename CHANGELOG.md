@@ -11,20 +11,25 @@ and **deleting** the source row. The match required `t.by_seat is null` — the 
 never touches a diner's own line — and before M87 that was enough, because a seatless line belonged
 to nobody.
 
-M87 changed what seatless means. A line re-parented by an **earlier** merge has `by_seat = null` (the
+M87 changed what seatless means: a line can be seatless and still belong to someone. Two ways in, and
+the first needs no prior merge at all — a **staff-added** target line is seatless and adderless from
+the start, so a diner's dish folded into it on the very first merge and their row was deleted. The
+second is the twice-merged table: a line re-parented by an earlier merge has `by_seat = null` (the
 re-parent branch clears it) but keeps its `added_by`, since the immutability trigger pins that column
-against every update. So a twice-merged table could fold a dish B chose into a line A chose, delete
-B's row, and leave B with no record of it.
+against every update, so a dish B chose could fold into a line A chose. Either way the source diner
+ends with no record of a dish they really chose.
 
 **One narrowing predicate:** `and t.added_by is not distinct from r.added_by`. `is not distinct from`
-and not `=`, because two nulls must **match** — a staff- or kiosk-added line on each table still
-folds, and `null = null` is null, which would have quietly stopped every such fold and doubled the
-register's line count. Different adders now re-parent instead, which is what the `else` branch
+and not `=`, because two nulls must **match** — a staff-added line on each table still folds, and
+`null = null` is null, which would have quietly stopped every such fold and doubled the register's
+line count. (Not kiosk: a kiosk order carries the device's own verified anon uid as its seat, which
+the M87 trigger copies into `added_by`, so a kiosk line has an adder like any diner's.) Different adders now re-parent instead, which is what the `else` branch
 already does for every other non-match; the cart, the split and the totals all sum per line anyway.
 
-Pinned by `supabase/tests/m96_merge_keeps_adder_test.sql` — all three cases (both adderless still
-folds · different adders re-parent, both adders surviving and the seat cleared · same adder still
-folds), driven by the real merge RPC rather than a hand-written fold.
+Pinned by `supabase/tests/m96_merge_keeps_adder_test.sql` — all four cases (both adderless still
+folds · a staff target and a diner source re-parent, the first-merge shape · different adders
+re-parent, both adders surviving and the seat cleared · same adder still folds), driven by the real
+merge RPC rather than a hand-written fold.
 
 ⚠️ This was filed on #214 as "justified, not fixed", calling the change a disproportionate blast
 radius. That estimate was wrong and is retracted in `docs/OPEN-ITEMS.md`: it is one predicate of the
