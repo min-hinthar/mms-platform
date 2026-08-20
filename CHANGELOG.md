@@ -4,6 +4,123 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W22d-1 — the Night correctness floor (2026-08-20)
+
+**Dark mode was failing AA on a diner's own rewards screen, and had been since K3a.**
+`tokens.css` aliased dark `--ruby-strong: var(--ruby)` under a comment asserting the opposite —
+_"bright-on-dark clears AA on the tint"_. Measured against the real call sites it does not:
+
+| Recipe                                            | Where                     | Ratio    |
+| ------------------------------------------------- | ------------------------- | -------- |
+| `ruby-strong` on ruby 14% over `--cd`             | `AccountStatus` tier row  | **4.47** |
+| `ruby-strong` on ruby 16% over `--cd`             | `AccountStatus` tier card | **4.32** |
+| `ruby-strong` on the chip's oklab 18% hover blend | `.wallet-chip-star`       | **4.23** |
+
+The audit never caught it because ruby was not in the combo matrix at all — a rigorous test asserting
+nothing about the one hue that needed it.
+
+**Two precision notes, since this slice is about claims outrunning their evidence.** Of the three
+rows above, only the tier row renders informational text: the chip's `✦` is `aria-hidden` decoration,
+outside 1.4.3, and `WelcomeBackChooser`'s 16% tint holds a colour **emoji**, so `color` has no visual
+effect there at all — an earlier draft cited it as a failing surface and was wrong. Fixing all three
+is still right (a decorative glyph nobody can make out is its own defect), but the honest count is
+one confirmed text failure, one decorative, one inert. Fixed by lifting only the TEXT variant (`--ruby` still
+paints the dot, glyph and border at a fine 5.55): same OKLab hue and chroma, L 0.702 → 0.728, worst
+case now 4.66, searched numerically rather than picked.
+
+**The split is the point.** Deepening the ground — which is what W22d proper does — raises every dark
+ratio. Against one _illustrative_ deeper ground I tested, ruby reached 4.81 unaided — a number about
+a palette that does not exist yet, and not quotable as a property of W22d. The structural point stands
+without it: had any deeper ground landed first, this guard would have been born GREEN and the defect
+would have survived untouched on every surface that is not `--cd`. So the
+correctness floor ships first, with the guard born red at 4.47.
+
+**Coverage added** (`contrast-audit.test.ts`, 41 → 57 tests): the reward tier tints at both live alpha
+recipes; the wallet chip's `color-mix(in oklab, …, <opaque>)` blend for all three tiers at rest AND
+hover — a genuinely different blend from every `%, transparent` tint, and where the tightest failure
+lived; `t3 on surface-elevated` (`tx` was guarded, `t3` was not); and an `--ac2` negative guard,
+light-only because dark `--ac2` IS the legible bright gold.
+
+**The badge tint percentages are now parsed out of `badge.tsx`** rather than transcribed. They were
+the one un-derived fixture left, so retuning `TONES` would have moved the shipped contrast while the
+suite kept asserting the old recipe. The regex pins the mix SPACE too, since `in srgb` → `in oklab`
+composites identically against `transparent` but not against an opaque colour.
+
+**New — `scripts/check-theme-parity.mjs`**, wired into `verify:slice`. Some hex escapes the token
+system entirely: the service worker's offline shell is a string baked into `sw.ts` and ships before
+any stylesheet exists, and `viewport.themeColor` is consumed by browser chrome before first paint.
+Neither can read a custom property, so both carry hand-copied values that no test can reach — and
+**two had already drifted** (`#1d1a2e` / `#f3effa` against a `--tx` of `#1b1714` / `#f3ecdf`). The
+guard was born red on exactly those two.
+
+Also fixed:
+
+- **`stripeAppearance` fell back to the LIGHT palette in dark.** All five fallbacks were light hex
+  while `theme` correctly branched on `.dark`. The fallback fires when `getPropertyValue` returns
+  empty — a custom property read before the stylesheet applies, i.e. a cold load on a slow
+  connection — so it painted near-black text on a cream card into an iframe Stripe was rendering as
+  `night`. An unreadable card form exactly when the network is already bad.
+- **The print re-pin could not reach an inline style.** `.receipt-artifact { color: #1b1714
+!important }` does not cover `ReceiptCard`'s `color: var(--warn)` on a descendant, because an
+  inline style outranks an ancestor rule — so printing from Night put `#e0855f`, a hue chosen for a
+  dark ground, onto forced white. `--ok`/`--warn`/`--ac` and the three `-strong` hues now re-pin too.
+- `ResilienceShell`'s toast carried a hardcoded `rgb(0 0 0 / 0.25)` shadow between four `var()`
+  properties; Night has its own `--sh-md`.
+
+Docs corrected in place: the proposal's _"recomputed contrast fixtures … hardcoded-fixture tests come
+with it"_ (that port happened at M5·P5.5 and was improved — there are no fixtures), `QR_FROM_DELIVERY`'s
+copy of the same claim and its "tightest combo" numbers, `W9_PLAN`'s _"pins hex fixtures"_, and the
+false ruby comment in `tokens.css`. **The proposal's "deeper espresso ground" is also flagged rather
+than followed**: shipped Night is aubergine (~260°), so espresso is a hue rotation, not a deepening —
+an open owner decision, not something the word should smuggle in.
+
+#### The adversarial round — including two failures in this commit's own thesis
+
+Two lenses (a11y/colour · product truth/guard integrity). The ruby fix itself was confirmed sound at
+every live recipe, and `mixOklab` verified against browser reference values. What it found instead:
+
+- **This commit hand-copied hex and drifted, on the commit whose thesis is that hand-copied hex
+  drifts.** Two of the eight tokens added to the print re-pin were wrong: `--gold-strong` was pasted
+  from `--ac-strong` (`#8f5009` for `#8a5a00`), and `--jade-strong` was `#25663f` — a value that
+  existed **nowhere else in the repo**. A Gold- or Jade-tier diner printing `/account` got an
+  off-brand hue on paper. The block's own new comment promised "values = the light theme's own",
+  which is precisely the kind of prose-instead-of-enforcement this slice is about.
+- **`check-theme-parity.mjs` said "three surfaces" and checked two.** The print block — the one this
+  commit edits — was the missing third, and the `stripeAppearance` fallbacks carried a comment
+  claiming the script pinned them before it did. Both are now genuinely covered: the guard grew to
+  four surfaces, was born red on exactly the two drifted values, and `--bd` comparison normalises
+  whitespace so an rgba can be pinned too.
+- **Two live AA failures in LIGHT mode, both violating a rule this file already asserts.** The audit
+  carries a negative guard declaring plain `--ac` on `--sf` must fail — and two call sites were doing
+  exactly that on a ground tighter than bare `--sf`: `.lend-banner-back` at **3.53:1** (the only way
+  out of lend mode) and `.wb-method` at **3.70:1** (the sign-in chooser on the very rewards surface
+  this slice is about). The guard was right; nothing connected it to the call sites. Both now read
+  `--ac-strong`, and both combos are asserted — `.lend-banner-back` clears at only 4.53, too thin to
+  leave on trust.
+- **The email templates use `#9b8f82`, which corresponds to no token and fails AA on all three of its
+  grounds**: 3.16:1 on the receipt slip and 3.00:1 on the email body, carrying the destination
+  headers, the per-line kitchen note and the honest "why you got this" reason line. Fixed to `--t3`'s
+  light value. The remaining ~40 hand-copied hexes in `apps/qr/emails/*` are filed as **M83** — the
+  largest uncovered contrast surface left, and the canonical "cannot read a custom property" case.
+
+Also corrected: the audit attributed its 16% recipe to `WelcomeBackChooser` "over `--cd`" when that
+component's avatar sits on `--sf`. Filed rather than fixed: **M84** (the tier/chip percentages are
+still transcribed while the badge ones are now parsed — the same reasoning applies, and this commit
+only half-applied it) and **M85** (the audit models a tinted chip's ground as flat `--cd`, but
+`AccountStatus` renders `<Card textured>`, so dots show through the translucent tint).
+
+**Two visible changes here are NOT the AA fix, and the owner scoped this slice to correctness — so
+they are disclosed rather than buried.** `ResilienceShell`'s offline pill moves from a hardcoded
+`rgb(0 0 0 / 0.25)` to `--sh-md`, which is softer in light and deeper in dark; and the print re-pin
+is on `html, html.dark`, so correcting `--gold-strong`/`--jade-strong` also changes **light-mode**
+print output for any `--jade-strong` text (teal → the real token). Both are the same class the slice
+exists to remove — a hardcoded colour and a wrong transcription — so removing them is in scope, but
+neither is an AA failure and a reader deserves to know a pixel moved.
+
+**Codex could not review this PR either** — same usage limit as #207. Recorded, not papered over.
+
+No migration.
+
 ### W22c — the gesture layer, and three corrections (2026-08-20)
 
 `docs/W22_DESIGN_PROPOSAL.md` listed five parts. **Three were already built**, so most of this slice

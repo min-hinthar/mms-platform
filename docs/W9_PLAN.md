@@ -511,8 +511,10 @@ cta-bar` at the bottom with the keyboard up.
   sweep would also map KDS px onto the smaller diner tier, shrinking ticket type at the pass,
   which F3 deliberately avoided by keeping kitchen reads on `--kfs-*`. Adding `lint:css` to the
   turbo gate turns 153 pre-existing violations into instant red CI for every in-flight branch
-  unless the rule and the conversion land in one commit. And `contrast-audit.test.ts` pins hex
-  fixtures, so it stays green through a type change and gives false assurance. Do it as its own PR
+  unless the rule and the conversion land in one commit. And `contrast-audit.test.ts` measures COLOUR only, so it
+  stays green through a type change and gives false assurance there. (W22d-1 correction: the
+  "pins hex fixtures" half of this sentence was wrong — the test parses `tokens.css` at test time
+  and always has. The font-size blind spot is real; the fixture claim never was.) Do it as its own PR
   after W9a-e stop touching these files. W9e takes only the one genuinely-below-floor 9px
   declaration.
 

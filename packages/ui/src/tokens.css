@@ -168,9 +168,16 @@
      (parity with --ac-strong, so components can use *-strong unconditionally). */
   --gold-strong: var(--gold);
   --jade-strong: var(--jade);
-  /* K3a ruby (dark) — bright-on-dark clears AA on the tint, so -strong is the same hue (like --gold). */
+  /* W22d — ruby is the ONE bright hue that does NOT clear AA as text on its own tint, and the
+     comment here used to assert the opposite. Measured against the real call sites: `--ruby` as text
+     scored 4.47 on the 14% tint and 4.32 on the 16% tint over --cd (AccountStatus' tier row + tier
+     card, WelcomeBackChooser), and 4.23 on the wallet chip's hover blend — three live AA failures on
+     a diner's own rewards screen. The FILL stays exactly as it was (it paints the dot, glyph and
+     border, where 5.55 on --cd is fine); only the TEXT variant lifts, and only enough to clear: same
+     OKLab hue and chroma, L 0.702 → 0.728, worst case now 4.66. Searched numerically, not chosen.
+     Gold and jade genuinely do clear on their tints, which is why they still alias. */
   --ruby: #e6788c;
-  --ruby-strong: var(--ruby);
+  --ruby-strong: #ef8094;
   --bd: rgba(243, 236, 223, 0.13);
   --ok: #5fb07e;
   --okb: #1f2e26;

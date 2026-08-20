@@ -113,7 +113,13 @@ QR ships ~50 bespoke domain components and rebuilds primitives inline each time.
 > to drift. Asserts the full text×surface matrix (both themes) **plus negative anti-regression guards** (plain
 > `--ac`/`--gold` as text must STAY <4.5 in light — the reason the `-strong` variants exist). + `apps/qr/lib/
 avatars.test.ts` (seat-hue×`#fff` AA + `seatColor`/`seatInitial` logic). **Finding:** every production combo
-> clears AA in both themes (tightest: light `t3`/`sf` 4.76, dark `jade-strong` 4.61) — and the P5.4b-1
+> clears AA in both themes — **and W22d-1 falsifies that claim twice over.** It was only ever true of
+> the combos the audit DEFINED. Ruby was not one of them (failing at 4.47/4.32 on the tier tints), and
+> two LIGHT call sites were failing worse than ruby ever did: `.lend-banner-back` at **3.53** and
+> `.wb-method` at **3.70**, both rendering plain `--ac` on an accent tint over `--sf` — the exact
+> pairing the audit's own negative guard already declared illegal. Tightest now: light `ac-strong` on
+> the accent tint over `sf` **4.63**; dark **4.52** (`jade-strong` on the wallet chip's hover blend, a
+> combo W22d-1 itself added — which is why the "4.61" this line briefly claimed was stale on arrival) — and the P5.4b-1
 > "seat hues sub-AA" worry was a **phantom**: all five `PCOL` hues clear 4.5:1 (lightest `#A65F10` = 4.92);
 > the `avatar.tsx` comment was corrected. (`esbuild` had to be added to `pnpm-workspace.yaml allowBuilds`.)
 > _Deferred fast-follow:_ pure money-math tests (`tax.ts`, `split-math.ts`); component tests (need jsdom +
@@ -161,7 +167,7 @@ own `@mms/ui/tokens.css` (see "The one correction to make first").
 
 **Still deferred after W22:** the installed-native PWA pass + live order chip (W22b — see also P5.6), the
 gesture layer / swipe-to-close on every sheet + a haptics vocabulary (W22c; P5.2's two-layer swipe fix
-still waits on a `@mms/ui` Drawer), designed Night mode + recomputed contrast fixtures (W22d), honest
+still waits on a `@mms/ui` Drawer), designed Night mode (W22d — note there are no contrast FIXTURES to recompute; the audit parses `tokens.css`. W22d-1 shipped the coverage gaps instead), honest
 personalization (W22e), the opt-in sound identity (W22f). `@mms/ui` primitives still without a QR
 consumer: **Drawer** and **Tooltip**.
 

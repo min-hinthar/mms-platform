@@ -134,10 +134,36 @@ themes, which a code-only PR cannot do. Filed as an OPEN-ITEMS row naming the pr
 
 ## W22d · Night, designed — the candlelit teahouse
 
-Dark mode graduates from inverted tokens to a designed theme: deeper espresso ground, gold used
-even more sparingly (glow economy — selection only), photo treatment tuned for dark (slight
-warmth lift), and the contrast fixtures recomputed. The delivery repo's dark-lift audit pattern
-(hardcoded-fixture contrast tests) comes with it.
+Dark mode graduates from inverted tokens to a designed theme: a deeper ground, gold used even more
+sparingly (glow economy — selection only), and photo treatment tuned for dark (slight warmth lift).
+
+> **Two claims here were wrong, and are corrected in place rather than quietly re-scoped.**
+>
+> 1. _"the contrast fixtures recomputed. The delivery repo's dark-lift audit pattern
+>    (hardcoded-fixture contrast tests) comes with it."_ — **that port already happened, at M5·P5.5,
+>    and it was improved on the way.** `packages/ui/src/__tests__/contrast-audit.test.ts` reads the
+>    real `tokens.css` off disk and parses it, resolving `var()` aliases; there are **no hex fixtures
+>    to recompute**. Porting delivery's version now would be a regression — it hardcodes 14 hex
+>    constants and has already drifted inside its own file. What W22d actually owes the audit is
+>    COVERAGE, not fixtures (see W22d-1 below).
+> 2. _"deeper **espresso** ground"_ — shipped Night is **aubergine/indigo** (hue ~260°), not brown.
+>    Espresso is a hue rotation, not a deepening, and it would move `--grad`, every purple-tinted
+>    composite and the seat-avatar hues with it. Which direction to take is an open owner decision;
+>    the word "espresso" should not smuggle it in.
+
+### W22d-1 · The Night correctness floor ⭐ **SHIPPED 2026-08-20**
+
+> Split out and shipped first, because the redesign would have HIDDEN the bug it found. Dark mode was
+> already failing AA: `--ruby-strong` aliased `--ruby`, under a comment asserting it cleared, and
+> scored 4.47 / 4.32 / 4.23 as text on its own tint across the rewards surfaces. Deepening the ground
+> raises every dark ratio — so had the palette landed first, the guard would have been born green and
+> the defect would have survived on every surface that is not `--cd`. Guard first, at 4.47.
+>
+> Also: the audit gained the tier tints, the wallet chip's oklab-over-opaque blend (rest AND hover),
+> `t3 on surface-elevated` and an `--ac2` negative guard; the badge tint percentages are now PARSED
+> out of `badge.tsx` instead of transcribed; and `scripts/check-theme-parity.mjs` pins the hex that
+> escapes the token system entirely — the service worker's offline shell and `viewport.themeColor`,
+> both of which ship before any stylesheet exists. Two of those had already drifted.
 
 - Effort: S–M. Risk: low. Impact: half of real usage is evenings.
 

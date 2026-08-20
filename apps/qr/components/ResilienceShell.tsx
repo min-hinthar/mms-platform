@@ -176,7 +176,7 @@ const pill: CSSProperties = {
   color: "var(--tx)",
   fontSize: "var(--fs-sm)",
   fontWeight: 600,
-  boxShadow: "0 6px 24px -8px rgb(0 0 0 / 0.25)",
+  boxShadow: "var(--sh-md)", // W22d — was a hardcoded rgb() between four var()s; Night has its own --sh-md
   maxWidth: "calc(100vw - 32px)",
 };
 const refreshBtn: CSSProperties = {

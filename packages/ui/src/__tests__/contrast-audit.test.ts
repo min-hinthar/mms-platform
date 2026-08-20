@@ -28,6 +28,48 @@ function flattenAlpha(fgHex: string, alpha: number, bgHex: string): string {
   const to2 = (n: number) => n.toString(16).padStart(2, "0");
   return `#${to2(mix(fr, br))}${to2(mix(fg, bg))}${to2(mix(fb, bb))}`;
 }
+/**
+ * `color-mix(in oklab, <hue> N%, <SOLID colour>)` → effective hex.
+ *
+ * ⚠️ NOT interchangeable with `flattenAlpha`. Mixing a hue with `transparent` is premultiplied, so
+ * the interpolation space cancels and sRGB alpha compositing gives the identical result — that is
+ * why the tint recipes above can use `flattenAlpha` even though the CSS says `oklab`. But mixing
+ * against an OPAQUE second colour (`.wallet-chip`'s `color-mix(in oklab, var(--chip-tint) 12%,
+ * var(--cd))`) genuinely interpolates in OKLab and lands somewhere sRGB compositing does not. That
+ * form was unguarded, and it is where the tightest real failure lived.
+ */
+function mixOklab(hexA: string, weight: number, hexB: string): string {
+  const srgbToLinear = (c: number) =>
+    c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  const linearToSrgb = (c: number) =>
+    c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+  const toOklab = (hex: string): [number, number, number] => {
+    const [r, g, b] = hexToRgb(hex).map((v) => srgbToLinear(v / 255)) as [number, number, number];
+    const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+    const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+    const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+    return [
+      0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+      1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+      0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
+    ];
+  };
+  const [la, aa, ba] = toOklab(hexA);
+  const [lb, ab, bb] = toOklab(hexB);
+  const L = la * weight + lb * (1 - weight);
+  const A = aa * weight + ab * (1 - weight);
+  const B = ba * weight + bb * (1 - weight);
+  const l = (L + 0.3963377774 * A + 0.2158037573 * B) ** 3;
+  const m = (L - 0.1055613458 * A - 0.0638541728 * B) ** 3;
+  const s = (L - 0.0894841775 * A - 1.291485548 * B) ** 3;
+  const to2 = (v: number) =>
+    Math.round(Math.min(1, Math.max(0, linearToSrgb(v))) * 255)
+      .toString(16)
+      .padStart(2, "0");
+  return `#${to2(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s)}${to2(
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+  )}${to2(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s)}`;
+}
 function relativeLuminance(hex: string): number {
   const [r, g, b] = hexToRgb(hex);
   const lin = (c: number) => {
@@ -75,6 +117,42 @@ function tok(map: Record<string, string>, name: string): string {
 const light = parseBlock(":root");
 const dark = parseBlock(".dark");
 
+/**
+ * W22d — the badge tint PERCENTAGES, read out of `badge.tsx` rather than transcribed.
+ *
+ * Everything else in this file derives from the real source; these three numbers were the exception,
+ * copied by hand as 14/16/16. Nothing cross-checked them, so retuning `TONES` (or switching its
+ * blend space) would move the shipped contrast while this suite kept asserting the old recipe and
+ * stayed green — the "green for the wrong reason" class. The regex also pins the MIX SPACE: an
+ * `in srgb` → `in oklab` edit against `transparent` happens to composite identically (premultiplied
+ * alpha cancels the space), but against an opaque colour it does not, so the assumption is asserted
+ * rather than assumed.
+ */
+const badgeSrc = readFileSync(fileURLToPath(new URL("../badge.tsx", import.meta.url)), "utf8");
+function badgeTintPct(tone: string, hue: string): number {
+  // The tone KEY and the token name differ for accent (`accent:` uses `var(--ac)`), so both are
+  // named rather than assumed equal.
+  const re = new RegExp(
+    `${tone}:\\s*\\{[^}]*?color-mix\\(in srgb,\\s*var\\(--${hue}\\)\\s*(\\d+)%,\\s*transparent\\)`,
+  );
+  const m = re.exec(badgeSrc);
+  if (!m?.[1]) throw new Error(`badge.tsx: no \`in srgb\` tint recipe found for tone "${tone}"`);
+  return Number(m[1]) / 100;
+}
+const ACCENT_PCT = badgeTintPct("accent", "ac");
+const GOLD_PCT = badgeTintPct("gold", "gold");
+const JADE_PCT = badgeTintPct("jade", "jade");
+
+it("reads the badge tint percentages out of badge.tsx", () => {
+  // A self-check with a floor, not an equality: the point is that the numbers came from the file.
+  // If a tone's recipe is renamed or restructured, `badgeTintPct` throws and this fails loudly
+  // rather than silently falling back to a stale constant.
+  for (const pct of [ACCENT_PCT, GOLD_PCT, JADE_PCT]) {
+    expect(pct).toBeGreaterThan(0);
+    expect(pct).toBeLessThan(1);
+  }
+});
+
 // Self-check the parser found the token block.
 it("parses tokens.css", () => {
   expect(tok(light, "--cd")).toMatch(/^#/);
@@ -99,11 +177,26 @@ function combos(map: Record<string, string>, theme: "light" | "dark") {
   // Badge tints = `color-mix(in srgb, <hue> N%, transparent)` composited over the surface BEHIND the
   // badge. The accent badge renders on more than --cd cards (the announced FloorDetailLive "Tab"
   // badge sits on the page/section surface), so assert the tint over each surface — --sf is tightest.
-  const accentTintCd = flattenAlpha(ac, 0.14, cd);
-  const accentTintPg = flattenAlpha(ac, 0.14, pg);
-  const accentTintSf = flattenAlpha(ac, 0.14, sf);
-  const goldTint = flattenAlpha(tok(map, "--gold"), 0.16, cd);
-  const jadeTint = flattenAlpha(tok(map, "--jade"), 0.16, cd);
+  const accentTintCd = flattenAlpha(ac, ACCENT_PCT, cd);
+  const accentTintPg = flattenAlpha(ac, ACCENT_PCT, pg);
+  const accentTintSf = flattenAlpha(ac, ACCENT_PCT, sf);
+  const goldTint = flattenAlpha(tok(map, "--gold"), GOLD_PCT, cd);
+  const jadeTint = flattenAlpha(tok(map, "--jade"), JADE_PCT, cd);
+  // W22d — the REWARD TIER tints, which had no coverage at all even though `--ruby` is live on four
+  // surfaces. `tierTint()` (apps/qr/lib/rewards-tiers.ts) is the one mapper: `fill` paints the dot,
+  // glyph and border; `text` is `--<hue>-strong` and is rendered ON the tint. Two alpha recipes are
+  // in production: 16% (AccountStatus' tier card) and 14% (its tier row), both over `--cd` — the
+  // tightest of the three grounds, which is why only `--cd` is asserted here. WelcomeBackChooser
+  // uses the same 16% recipe but over `.wb-chip`'s `--sf`, which is looser in both themes.
+  const rubyStrong = tok(map, "--ruby-strong");
+  const ruby = tok(map, "--ruby");
+  const rubyTint16 = flattenAlpha(ruby, 0.16, cd);
+  const rubyTint14 = flattenAlpha(ruby, 0.14, cd);
+  // The wallet chip's star, whose background is the OPAQUE-second-colour oklab form — a different
+  // blend from every tint above, and the only place the hover state changes the contrast. Hover is
+  // the tighter of the two, so both are asserted rather than just the rest state.
+  const chipRest = (hue: string) => mixOklab(hue, 0.12, cd);
+  const chipHover = (hue: string) => mixOklab(hue, 0.18, cd);
 
   // Must clear 4.5:1 (real production text×surface pairings).
   const pass: Combo[] = [
@@ -127,6 +220,45 @@ function combos(map: Record<string, string>, theme: "light" | "dark") {
     { name: "ac-strong on accent tint /sf", fg: acStrong, bg: accentTintSf },
     { name: "gold-strong on gold tint", fg: tok(map, "--gold-strong"), bg: goldTint },
     { name: "jade-strong on jade tint", fg: tok(map, "--jade-strong"), bg: jadeTint },
+    // W22d — ruby, previously uncovered on every surface.
+    { name: "ruby-strong on ruby tint 16% /cd", fg: rubyStrong, bg: rubyTint16 },
+    { name: "ruby-strong on ruby tint 14% /cd", fg: rubyStrong, bg: rubyTint14 },
+    // W22d — the wallet chip star, per tier, rest AND hover (the oklab-over-opaque blend).
+    { name: "ruby-strong on chip tint /cd", fg: rubyStrong, bg: chipRest(ruby) },
+    { name: "ruby-strong on chip tint HOVER /cd", fg: rubyStrong, bg: chipHover(ruby) },
+    {
+      name: "jade-strong on chip tint HOVER /cd",
+      fg: tok(map, "--jade-strong"),
+      bg: chipHover(tok(map, "--jade")),
+    },
+    {
+      name: "gold-strong on chip tint HOVER /cd",
+      fg: tok(map, "--gold-strong"),
+      bg: chipHover(tok(map, "--gold")),
+    },
+    // W22d — PROPHYLACTIC, and labelled as such. `--surface-elevated` has exactly one consumer today
+    // (`.aisle-fan-label`) and it uses `--tx`, which is already guarded above. An earlier version of
+    // this comment justified the combo with "timestamps, the Save X% sub-label" — neither exists;
+    // that was invented, in a file whose whole subject is claims that outrun their evidence. The
+    // combo still earns its place beside the `--ac2` guard: this token is the theme-true chrome that
+    // floats over cards and photos, muted text on it is the obvious next use, and asserting it now
+    // costs nothing. But it guards a FUTURE call site, not a current one.
+    { name: "t3 on surface-elevated", fg: tok(map, "--t3"), bg: tok(map, "--surface-elevated") },
+    // W22d-1 (adversarial review, HIGH ×2) — the two ACCENT PILLS. Both shipped `color: var(--ac)`
+    // on an accent tint over `--sf` and both failed AA in light (3.53 and 3.70), which is precisely
+    // what the `plain ac on sf` negative guard below already declared impossible — the guard was
+    // right and two live call sites were violating it, with nothing connecting the two facts.
+    // `.lend-banner-back` clears at only 4.53, so it is asserted rather than trusted.
+    {
+      name: "ac-strong on accent 16% over sf (.lend-banner-back)",
+      fg: acStrong,
+      bg: mixOklab(ac, 0.16, sf),
+    },
+    {
+      name: "ac-strong on accent 12% tint over sf (.wb-method)",
+      fg: acStrong,
+      bg: flattenAlpha(ac, 0.12, sf),
+    },
     { name: "oa on solid ac", fg: tok(map, "--oa"), bg: ac },
     { name: "ok on okb", fg: tok(map, "--ok"), bg: tok(map, "--okb") },
     { name: "warn on warnb", fg: tok(map, "--warn"), bg: tok(map, "--warnb") },
@@ -142,6 +274,11 @@ function combos(map: Record<string, string>, theme: "light" | "dark") {
           { name: "plain ac on accent tint", fg: ac, bg: accentTintCd },
           { name: "plain ac on sf", fg: ac, bg: sf },
           { name: "plain gold on gold tint", fg: tok(map, "--gold"), bg: goldTint },
+          // W22d — `--ac2` is the gradient's SECOND stop, never a text colour. In light it scores
+          // 3.25 on --pg, so a future call site reaching for it as text would look plausible and
+          // fail AA. Dark is deliberately absent: there `--ac2` IS the legible bright gold (11.69),
+          // so a negative assertion would be false — the same reason the other three are light-only.
+          { name: "plain ac2 on pg", fg: tok(map, "--ac2"), bg: pg },
         ]
       : [];
   return { pass, fail };
