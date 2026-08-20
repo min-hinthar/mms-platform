@@ -106,8 +106,30 @@ true when attribution moved off `by_seat` (a merge clears the seat but not the a
 since a seat id is a stable `auth.uid()`, and now written down); and `coalesce(refunded_cents, 0)` was
 dead code on a `not null default 0` column _and_ made the predicate non-sargable.
 
-Registry: M87 closed. No new `verify:slice` mutants — the rule is SQL, and the module next door still
-carries the eight that cover the counting.
+#### Codex round 2 — the adder can be folded away, twice
+
+Both findings are the same class and both are real: a line's adder survives a _reassignment_ (the
+trigger sees to that) but can still be lost when two lines **fold into one**.
+
+**Fixed — `insertOrIncLine` merged on `by_seat` alone.** After Ben adds a dish and Ana reassigns it
+onto her share, Ana adding the same dish matched Ben's row on the seat and bumped its quantity, while
+the trigger held `added_by` at Ben. Ana's addition then existed nowhere, so a dish she really chose
+never reached her history. The merge key now requires **both** — byte-identical for every ordinary add
+(outside a reassign the two columns agree), and for a cart still open across this migration the rows
+simply stop merging and insert fresh, which this module's own header already calls a tolerated
+outcome. New suite `order-lines-seat.test.ts` asserts the query's FILTERS rather than an outcome —
+the shared harness's `eq`/`is` are no-ops that return the same rows whatever is asked, so an outcome
+assertion there would prove the mock — plus a mutant, and three ways of breaking it watched red.
+
+**Justified and filed as M96 — the table-merge fold.** `mms_merge_table_orders` folds a source line
+into an unassigned target and deletes the source, taking that diner's adder with it. Not fixed here:
+the failure direction is **silence** rather than a false claim, the fold only ever targets lines that
+already carry no seat (the merge deliberately clears attribution on re-parent), and the merge RPC has
+been restated seven times and carries the void/comp guards — a disproportionate blast radius for a
+rare, silent under-count.
+
+Registry: M87 closed. One new `verify:slice` mutant (196 total) for the merge key; the attribution rule itself is SQL,
+and the counting module next door still carries its eight.
 
 ### M82 — a `busy` prop on the Sheet primitive, and two live defects it names (2026-08-20)
 
@@ -179,7 +201,7 @@ passes a `useTransition` flag.
 
 Registry: M82 closed; M94 · M95 filed (both `InviteSheet`, found by the scout, out of scope here).
 No new `verify:slice` mutants — `packages/ui` is outside `MONEY_PATHS` and the runner's cwd is
-hardcoded to `apps/qr`. The gate moves from **821 qr + 70 ui** to **828 qr + 87 ui**.
+hardcoded to `apps/qr`. The gate moves from **821 qr + 70 ui** to **831 qr + 87 ui**.
 
 ### M83 — the email palette, named once and pinned (2026-08-20)
 

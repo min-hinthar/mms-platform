@@ -116,7 +116,7 @@ export type PricedLine = {
 /**
  * Merge-or-insert a priced line into an OPEN cart, via the status-atomic RPCs (a webhook/settle status
  * flip can't slip a row past the app guard). Merges an identical line (same item + same modifier set +
- * **same `by_seat`**) by bumping qty rather than duplicating. Throws "Cart is no longer open" when the
+ * **same `by_seat` AND same `added_by`** — M87) by bumping qty rather than duplicating. Throws "Cart is no longer open" when the
  * cart isn't open.
  *
  * **Per-seat merge (R5c group-cart model):** `by_seat` is part of the merge key, not just provenance — an
@@ -161,6 +161,19 @@ export async function insertOrIncLine(
   // lines. NULL (staff "added by server") needs PostgREST `.is`, not `.eq`, so it merges only other null lines.
   siblingQuery =
     bySeat === null ? siblingQuery.is("by_seat", null) : siblingQuery.eq("by_seat", bySeat);
+  // M87 — and merge only into a line this diner also ADDED. `by_seat` alone is not enough once the
+  // split UI has moved a line: Ben adds a dish, Ana reassigns it onto her own share, Ana then adds
+  // the same dish — the `by_seat` match alone finds Ben's row and bumps its qty, while `added_by`
+  // stays Ben (the trigger pins it). Ana's addition then exists nowhere, so a dish she really chose
+  // never reaches her history. Requiring both means she gets her own line instead, which the cart,
+  // the split and the totals already sum per line and which this file's header already calls a
+  // tolerated outcome. (Codex round 2, P2.)
+  //
+  // Byte-identical for every ordinary add: outside a reassign `added_by === by_seat` always. The one
+  // other case is a cart still OPEN across this migration, whose rows have `added_by` null while
+  // `by_seat` is set — those stop merging and insert a fresh line instead, for the life of that cart.
+  siblingQuery =
+    bySeat === null ? siblingQuery.is("added_by", null) : siblingQuery.eq("added_by", bySeat);
   const { data: siblings } = await siblingQuery;
   const dup = line.notes
     ? undefined

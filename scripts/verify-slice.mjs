@@ -799,6 +799,14 @@ const MUTANTS = [
     find: "&redirect_status=succeeded&resume=1${cart}",
     replace: "&redirect_status=succeeded${cart}",
   },
+  {
+    id: "order-lines/reassigned-line-absorbs-another-diner-add",
+    file: "apps/qr/lib/order-lines.ts",
+    suite: "lib/order-lines-seat.test.ts",
+    why: "M87 (Codex round 2) — the merge key must be the diner who ADDED the line, not only the seat that currently owns it. The split UI reassigns `by_seat` to whoever will pay, so after Ben's dish is moved onto Ana's share, Ana adding the same dish matches Ben's row on `by_seat` and bumps its qty — while the cart trigger pins `added_by` to Ben. Ana's addition then exists nowhere, and a dish she really chose never reaches her history. Failing toward silence rather than a false claim, but silence is the whole feature.",
+    find: '    bySeat === null ? siblingQuery.is("added_by", null) : siblingQuery.eq("added_by", bySeat);',
+    replace: "    siblingQuery;",
+  },
   // ── W23b — the refund a guest can actually see (registry M2) ───────────────────────────────────
   {
     id: "refund-view/partial-reads-as-paid-in-full",
