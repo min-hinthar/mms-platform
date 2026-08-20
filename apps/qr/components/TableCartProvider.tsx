@@ -60,8 +60,13 @@ type CartCtx = {
    *  already stripped from the URL, so the mint is no longer join-only and provisions a phantom table. */
   revalidate: () => void;
   /** J5: route a one-off transactional announcement through the view's ONE polite live region (the
-   *  same `flash` every cart op uses) — never mount a second aria-live region for a new feature. */
-  announce: (msg: string) => void;
+   *  same `flash` every cart op uses) — never mount a second aria-live region for a new feature.
+   *
+   *  `ms` (W22c) exists because the default 2200 was written for "Added Mohinga", and a caller can
+   *  legitimately need longer: the menu-freshness sentence names dishes in two clauses and a price
+   *  count, and a notice that leaves before it can be read is the same defect as no notice. Derive
+   *  it (`freshnessDurationMs`) rather than picking a number per call site. */
+  announce: (msg: string, ms?: number) => void;
   /** Pickup mode only: the chosen slot (ISO instant) + a way to (re)open the picker. */
   pickupSlot: string | null;
   openSlotSheet: () => void;

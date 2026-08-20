@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAnimationPreference, useDeviceTier } from "@mms/ui";
 import { Confetti } from "./Confetti";
+import { haptic } from "@/lib/haptics";
 
 // Longest particle fall (Confetti: max dur 1700+6·160=2660ms + max delay 270ms) + buffer → unmount after.
 const CONFETTI_MS = 3200;
@@ -67,22 +68,16 @@ export function PaySuccess({
   const hapticDone = useRef(false);
 
   // One-shot success haptic — an external-system write (not React state), so it's effect-legal. Fires once
-  // per mount; a page refresh re-mounts and may re-buzz (acceptable, same as the confetti). Read the
-  // reduced-motion preference SYNCHRONOUSLY here: `useAnimationPreference()` seeds `shouldAnimate=true` until
-  // its own media-query effect resolves, so trusting it on the first-mount pass would buzz a reduced-motion
-  // user once before the off-switch flips. `matchMedia` is authoritative + race-free on the client.
+  // per mount; a page refresh re-mounts and may re-buzz (acceptable, same as the confetti).
+  //
+  // W22c — this used to inline its own `matchMedia` reduced-motion guard and call
+  // `navigator.vibrate([10, 40, 18])` directly, a second copy of a rule `lib/haptics` already owned.
+  // Two implementations of one guard is how a reduced-motion user eventually gets buzzed by exactly
+  // one of them. `celebrate` IS this pattern, and this is its only caller.
   useEffect(() => {
     if (hapticDone.current) return;
-    const reduce =
-      typeof window !== "undefined" &&
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    if (reduce) return;
     hapticDone.current = true;
-    try {
-      navigator.vibrate?.([10, 40, 18]);
-    } catch {
-      /* unsupported */
-    }
+    haptic("celebrate");
   }, []);
 
   // Unmount the confetti overlay once the particles have fallen, so a fixed full-screen layer doesn't linger

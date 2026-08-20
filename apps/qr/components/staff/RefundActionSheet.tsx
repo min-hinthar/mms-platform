@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useRef, useState, useTransition, type CSSProperties } from "react";
+import { useState, useTransition, type CSSProperties } from "react";
+import { Sheet } from "@mms/ui";
 import { refundLine, type StaffOrderLine } from "@/lib/refunds";
 import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
 
@@ -41,16 +42,6 @@ export function RefundActionSheet({
   // The server-derived refundable amount (discounted goods + the line's share of order tax) — computed in
   // getStaffOrders to mirror mms_refund_authorize, so the figure shown IS what the server will refund.
   const amount = line.refundableCents / 100;
-
-  // Money-out modal: move focus into the dialog on open + restore it to the trigger on close (WCAG 2.4.3 /
-  // QA §A). Escape closes. (A full focus trap is overkill for a 4-control sheet; focus-in + restore covers
-  // the keyboard/SR concern.)
-  const dialogRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const prev = document.activeElement as HTMLElement | null;
-    dialogRef.current?.querySelector<HTMLElement>("select, input, button")?.focus();
-    return () => prev?.focus?.();
-  }, []);
 
   const submit = () => {
     setError(null);
@@ -109,19 +100,46 @@ export function RefundActionSheet({
   };
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Refund ${line.name}`}
-      style={overlay}
-      onClick={onClose}
-      onKeyDown={(e) => {
-        if (e.key === "Escape") onClose();
-      }}
+    // W22c — the canonical `Sheet` migration this file's own `overlay` comment has been asking for
+    // since P1-5. The hand-roll carried FOUR real defects, and one migration closes all four:
+    //
+    //   1. `aria-modal="true"` with NO focus trap. The attribute PROMISES assistive tech that the
+    //      rest of the page is inert; the rationale in the deleted comment ("a full focus trap is
+    //      overkill for a 4-control sheet") argued the trap was unnecessary while leaving the claim
+    //      that it existed. A screen-reader user could tab straight out into the board behind and be
+    //      told nothing had changed. Radix traps.
+    //   2. Escape was bound with `onKeyDown` on the overlay `<div>`, which is not focusable — so it
+    //      worked only while a control inside happened to have focus and the event bubbled. Given
+    //      defect 1, focus really could leave, and Esc died the moment it did. Radix binds Esc to
+    //      the document.
+    //   3. `onClick={onClose}` on the overlay plus `stopPropagation` on the card dismissed the sheet
+    //      on any click whose common ancestor was the overlay — including a text-selection DRAG that
+    //      started inside the PIN field and released on the scrim. A manager mid-PIN losing the
+    //      refund to a slipped finger. Radix's `onPointerDownOutside` is the correct shape and is
+    //      what the primitive uses.
+    //   4. No `--kb-inset`. The sheet is bottom-anchored, the PIN is a `type="password"` field and
+    //      the Refund button sits in the row BELOW it — so on a phone the keyboard covered the one
+    //      control the sheet exists to reach. The primitive publishes the VisualViewport inset and
+    //      `.mms-sheet` lifts above the keyboard.
+    //
+    // Swipe-to-close comes with it and is safe here: the gesture CANCELS, and a cancelled refund
+    // costs a re-open. Nothing destructive is one gesture away — the money still needs the PIN.
+    //
+    // ⚠️ BUT NOT WHILE THE REFUND IS IN FLIGHT. `Cancel` has always carried `disabled={pending}`,
+    // and the migration adds three exits that did not exist before — document-level Esc, the sticky
+    // ✕, and the handle drag — so without `!pending` they would contradict the intent that button
+    // already encodes. The cost is not a lost gesture: the caller unmounts this component on close,
+    // so a dismissal mid-flight drops the server's answer on the floor. `setError` would no-op on an
+    // unmounted tree and `onDone` would never run, leaving the board un-refreshed and the manager
+    // with no confirmation and no error — a state indistinguishable from a refund that never
+    // happened, over money that may already have left the card.
+    <Sheet
+      open
+      onOpenChange={(next) => !next && !pending && onClose()}
+      title={`Refund ${line.name}`}
     >
-      <div ref={dialogRef} className="card" style={sheet} onClick={(e) => e.stopPropagation()}>
-        <h2 style={{ margin: 0, fontSize: "var(--fs-h3)" }}>Refund a line</h2>
-        <p style={{ margin: "4px 0 0", fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
+      <div style={body}>
+        <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
           {orderLabel} · {line.qty}× {line.name}
         </p>
         <p
@@ -203,29 +221,13 @@ export function RefundActionSheet({
           </button>
         </div>
       </div>
-    </div>
+    </Sheet>
   );
 }
 
-const overlay: CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  background: "var(--scrim)", // the real token (both themes) — the old rgba fallback was the only consumer
-  display: "grid",
-  placeItems: "end center",
-  // clear the iOS home-bar inset so the bottom-anchored sheet isn't obscured by it
-  padding: "16px 16px calc(16px + env(safe-area-inset-bottom, 0px))",
-  // scrim+sheet in ONE fixed overlay → the sheet layer of the token scale (canonical Sheet migration is P1-5)
-  zIndex: "var(--z-sheet)" as CSSProperties["zIndex"],
-};
-const sheet: CSSProperties = {
-  width: "100%",
-  maxWidth: 440,
-  padding: 18,
-  // match the .mms-sheet dvh discipline so a tall sheet scrolls rather than overflowing the viewport
-  maxHeight: "var(--sheet-max-h)",
-  overflowY: "auto",
-};
+// The primitive owns the scrim, the fixed positioning, the z layer, the safe-area padding and the
+// dvh/keyboard discipline — all of which this file used to restate. What is left is the body inset.
+const body: CSSProperties = { padding: "0 18px 18px" };
 const lbl: CSSProperties = {
   display: "block",
   margin: "14px 0 4px",

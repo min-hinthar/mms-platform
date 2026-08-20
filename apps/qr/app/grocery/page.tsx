@@ -32,7 +32,7 @@ import {
   type QueuedScan,
 } from "@/lib/grocery-queue";
 import { lookupCachedItem } from "@/lib/grocery-catalog-cache";
-import { hapticTap } from "@/lib/haptics";
+import { haptic } from "@/lib/haptics";
 import { setQty } from "@/lib/cart";
 import { useTableSession } from "@/lib/useTableSession";
 
@@ -420,7 +420,7 @@ export default function Grocery() {
         // W13 — deliberately POST-verdict (unlike the menu's optimistic buzz): a scan's outcome
         // (unknown barcode / unavailable / weighed) only the server can give — buzzing "added"
         // on a scan that comes back "not found" would be a physical lie.
-        hapticTap(8);
+        haptic("add");
         addedRef.current += 1;
         // The scan's OWN response carries the fresh server view (one round trip, the addItem
         // pattern) — the list is cart truth, not a parallel client ledger. `lines: null` = the

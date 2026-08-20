@@ -4,6 +4,145 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W22c — the gesture layer, and three corrections (2026-08-20)
+
+`docs/W22_DESIGN_PROPOSAL.md` listed five parts. **Three were already built**, so most of this slice
+is fixing what the docs said rather than adding what they asked for:
+
+| Proposal said                                   | Actually                                                                                                                  |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| "swipe-to-close on every sheet"                 | shipped at **R5b** — `Sheet` drags on a handle-initiated `useDragControls`, body scroll untouched                         |
+| "the R5b `useSwipeToClose` seam, still unbuilt" | **there is no such hook here** — that is the delivery repo's name; `docs/HANDOFF.md` pointed at a seam that never existed |
+| "iOS keyboard floors audited (16px inputs)"     | done earlier, app-wide                                                                                                    |
+| "edge-consistency on back navigation"           | done earlier; what was missing is `overscroll-behavior-x` on the rails (below)                                            |
+| "pick < commit < celebrate"                     | **three words, one too few** — v7.2 designed three add-weights, so the vocabulary ships as four                           |
+
+**The haptic vocabulary** (`lib/haptics.ts`) is the real defect. `hapticTap(ms)` let one weight mean
+two things and it did: **8ms was both a PICK and a COMMIT.** `ItemSheet.choose` buzzed 8 for
+selecting a modifier option — its own comment reasoning "8 < the Add's 12, a pick is smaller than a
+commit" — while the Add pill and the grocery scan-add buzzed the same 8 for putting an item in the
+basket. A diner's thumb was told "you chose something" and "you bought something" in identical
+language. `haptic()` now takes a **moment**, not a duration: `pick` 6 · `add` 8 · `commit` 12 ·
+`celebrate` pattern. The numeric export is **deleted** rather than re-typed, which is what makes a
+raw millisecond a compile error instead of a lint warning. The one weight that changes is
+`ItemSheet.choose` (8 → 6) — the defect being corrected, not a side effect of the rename.
+
+Two rules travel with it. **Reduced motion is read synchronously from `matchMedia` inside
+`haptic()`**, never via `useAnimationPreference` — that hook seeds `shouldAnimate = true` before its
+effect resolves (SSR-safe by design) and a haptic is irreversible, so an RM user would be buzzed once
+per first tap; `PaySuccess` carried its own copy of that guard, which is exactly why the rule now
+lives in one function. And **a haptic may never be the only feedback for an event**: iOS Safari
+implements no `navigator.vibrate` at all, so on this app's most common device every one of these is a
+silent no-op.
+
+**Pull-to-refresh** (`lib/pull-refresh.ts` + `components/PullToRefresh.tsx`) moves the **indicator**
+and never the page. `/menu`'s `<main>` hosts two `position: fixed` descendants — `PaperAmbient` and
+`CartBar` — and a `transform` on an ancestor creates a containing block for fixed descendants, so
+translating the page for the pull would drag the Add-to-cart bar off the bottom of the screen and
+crop the ambient. Same family as the `isolation: isolate` rule W22a·depth learned on `PaperAmbient`'s
+host. The rubber band is asymptotic to 96px and arms at 48 — the curve is its own inverse at the
+midpoint, so `pullTravel(96) === 48` exactly. Computed, not chosen: a threshold a diner reaches by
+accident while scrolling a long menu is worse than no gesture.
+
+**What the refresh is allowed to SAY** (`lib/catalog-freshness.ts`) is the load-bearing rule.
+`router.refresh()` returns `void` and cannot report failure, so freshness is **proven** by an RSC
+render stamp the page passes down, never inferred from the data that came back. And a failed catalog
+read produces an **empty** snapshot — diffed naively against a full one, every dish reads as newly
+sold out and the app announces to every diner in the room at once that the whole restaurant has run
+out. That is the delivery repo's "a failure must never read as empty" arriving at a brand-new
+boundary, and it is why the outcome is a three-state union whose third state is `unverified`. Never
+collapse it into `unchanged`: "we couldn't check" and "nothing changed" produce the same screen and
+are different sentences, and only one of them is true when the wifi drops. Price movement is reported
+as a **count**, never a delta (W17b ships a live staff price editor, so prices really do move
+mid-service — but the server owns the number and a client-stated "+$1.00" starts an argument the
+client cannot win), and nothing ever "just" sold out, because `sold_out_at` is not in the menu page's
+select.
+
+**Rail overscroll.** `overscroll-behavior-x: contain` on the seven horizontal scrollers, so a swipe
+that runs off the end of a rail stops there instead of triggering the browser's back gesture. **`-x`
+only, never the shorthand** — the shorthand would also claim the vertical axis and kill the
+pull-to-refresh this same slice adds.
+
+**`RefundActionSheet` migrated to the canonical `Sheet`** — the migration its own `overlay` comment
+had been asking for since P1-5. One migration closes four real defects: `aria-modal="true"` with no
+focus trap (the attribute promises assistive tech the rest of the page is inert; the deleted
+rationale argued the trap was unnecessary while leaving the claim that it existed); Esc bound with
+`onKeyDown` on a non-focusable overlay `<div>`, so it worked only while a control inside happened to
+hold focus; scrim `onClick` dismissal that a text-selection **drag** out of the PIN field could fire,
+losing a manager's refund to a slipped finger; and no `--kb-inset` on a bottom-anchored sheet whose
+`type="password"` PIN sits directly above the Refund button, so the phone keyboard covered the one
+control the sheet exists to reach.
+
+#### The adversarial round found the slice's own rule failing in the wiring
+
+Three lenses (product truth · a11y · concurrency). Two HIGH, and both were the module's stated rule
+holding in the unit test while the live wiring reproduced it for free:
+
+- **A render that landed is not a read that succeeded.** `catalogStale` was passed only to the
+  gesture's `disabled` prop, never to the freshness decision — and the stale branch stamps
+  `Date.now()` like any other render. So `advanced` certified a render where the database was never
+  reached, putting the DegradedStrip (_"this is the menu from a few minutes ago"_) and a toast
+  reading _"Menu is up to date."_ on screen together. Worse: `readLastGoodCatalog` is per-INSTANCE
+  module state bounded by traffic rather than a TTL, so a refresh landing on another warm instance
+  can serve an **older** cache than the diner already had — and diff it into _"Mohinga is back on."_
+  about a dish that is still 86'd. The gesture causing the exact last-tap refusal it exists to
+  prevent. `catalogFreshness` now takes two independent claims (`{ advanced, trusted }`) because
+  they fail independently.
+- **The stamp had two owners and one value.** `advanced` compared the current stamp against
+  `baseline.stamp`, which only advances when this component announces — while _any_
+  `router.refresh()` on the route advances the props' stamp. `AnonAuthGate` does one on a fresh
+  anonymous mint, i.e. on every cold QR scan, the primary entry path. So a first-session diner's
+  first pull compared a stamp the auth gate had already bumped, found it different, and reported
+  `advanced` even when the pull's own fetch never landed. The stamp is now captured at **fire** time;
+  `baseline.rows` keeps its own, longer lifetime.
+
+Also fixed, each verified before accepting it:
+
+- **`unverified` was still adopted as the new baseline** — the module refused to _speak_ from an
+  untrusted snapshot while still _remembering_ one, so a real 86 landing afterwards diffed against a
+  cache instead of against what the diner had been shown, and was reported once or lost entirely.
+- **No axis-dominance test.** `/menu` stacks four horizontal rails at exactly the height the gesture
+  arms, a thumb arc across one drifts 10–30px vertically, and `preventDefault` on a touchmove
+  cancels the scroll for that touch on **both** axes — so the rail simply would not move, and
+  carrying the arc through fired a refresh. Now bails when `|dx| >= |dy|`, and hands the gesture back
+  entirely once `e.cancelable` goes false (the compositor already owns the pan).
+- **`armedRef` survived a drag back under the deadzone** — the indicator vanished, the diner
+  believed the gesture was cancelled, and release fired anyway.
+- **The gesture was the only way to reach the function** (WCAG 2.5.1 / 2.1.1): unreachable by
+  keyboard, by switch access, and — because VoiceOver claims single-finger drags — under a screen
+  reader. A reload is not the equivalent, by the component's own argument. There is now a real
+  `<button>` on the eyebrow row calling the same `fire()`; the pull is the shortcut.
+- **The wake re-read spoke.** It reused the pull's path, and `announce` is a single-slot **visible**
+  toast — so returning to the tab within 2.6s of tapping Add replaced _"Added Mohinga"_ with an
+  unrequested _"Menu is up to date."_ A pull or a tap is a question and is always owed an answer;
+  the wake now speaks only when it has news.
+- **`catalogStale` suppressed the whole component**, wake included — so a diner who hit one blip was
+  stranded on the last-good copy with no path back short of a hard reload, the one action that
+  throws the last-good copy away. `disabled` now means what its own doc always said: a sheet is open.
+  That also closes the case where the pull claimed an open `ItemSheet`'s scroll (the listeners are on
+  `window`, the sheet is a portal, and Radix's scroll lock never stops propagation).
+- **The `preventDefault` moved above the in-flight bail.** This app declines `overscroll-behavior-y`
+  app-wide, so that call is the only thing stopping Chrome-Android's native pull-to-refresh from
+  reloading the document — and it was off during the RSC round-trip, i.e. for the second pull, on the
+  slow connection where it costs most.
+- **`.ptr` was `absolute` under an unpositioned `<main>`**, so it resolved against the document and a
+  wake-fired refresh painted its only progress state above the viewport. Now `fixed`.
+- **`RefundActionSheet` had no in-flight guard.** `Cancel` has always carried `disabled={pending}`,
+  but the migration added three exits that ignored it — and the caller unmounts on close, so a
+  dismissal mid-flight drops the server's answer: no error, no confirmation, no board refresh, over
+  money that may already have left the card.
+- An `ambient` wake can no longer downgrade an `asked` refresh already in flight.
+- The comment claiming the pull arms at "exactly 96px of FINGER movement" was wrong — the caller
+  subtracts an 8px deadzone first, so it is **104px** (computed, not read).
+- The freshness sentence is the longest this app announces and was inheriting `flash`'s 2200ms
+  default, written for "Added Mohinga". `freshnessDurationMs` derives it.
+
+**Codex could not review this PR** — the connector answered _"You have reached your Codex usage
+limits for code reviews."_ That is recorded rather than papered over: the standing two-round rule did
+not run, and the in-session pass is not an independent second reviewer.
+
+4 new mutants (**180** total), 4 new suites. No migration.
+
 ### W23d — tell the diner what the settlement dropped (2026-08-19)
 
 Registry **M71**. W23c's outcomes are all correct on the money and all **silent** to the guest, and

@@ -20,7 +20,7 @@ import {
   type Selection,
 } from "@/lib/menu/modifiers";
 import type { MenuItem } from "./MenuBrowser";
-import { hapticTap } from "@/lib/haptics";
+import { haptic } from "@/lib/haptics";
 
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const delta = (cents: number) =>
@@ -193,9 +193,12 @@ function ItemSheetBody({
       : null;
 
   function choose(group: ModGroup, optionId: string) {
-    // W19 — a light tap-weight on the pick itself (the Add CTA's rationale at addToOrder: weight
-    // the GESTURE, not the network). 8 < the Add's 12 — a pick is smaller than a commit.
-    hapticTap(8);
+    // W19 — weight the GESTURE, not the network (the Add CTA's rationale at addToOrder). W22c: this
+    // is a `pick` — reversible, nothing bought. It used to buzz 8, the SAME weight the Add pill and
+    // the grocery scan-add used for putting an item in the basket, so one thumb-feel meant both
+    // "you chose" and "you bought". Correcting that is the point of the vocabulary, not a side
+    // effect of the rename.
+    haptic("pick");
     setSelected((s) => ({ ...s, [group.id]: toggleOption(group, s[group.id] ?? [], optionId) }));
   }
 
@@ -203,7 +206,7 @@ function ItemSheetBody({
     if (!canAdd) return;
     // W13 review — the haptic weights the GESTURE, not the network (the AddButton rationale): on a
     // slow link a post-round-trip buzz lands seconds after the tap.
-    hapticTap(12);
+    haptic("commit");
     // Never reset — it guards a second tap during the close animation; the sheet unmounts anyway.
     setBusy(true);
     // Option ids only — the provider's `add` forwards to `addItem`→`priceItem`, which validates the ids

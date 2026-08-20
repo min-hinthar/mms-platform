@@ -6,7 +6,7 @@ import type { CartItem } from "@mms/db";
 import { useAnimationPreference, useRipple } from "@mms/ui";
 import { useCart } from "./TableCartProvider";
 import { MicroBurst } from "./MicroBurst";
-import { hapticTap } from "@/lib/haptics";
+import { haptic } from "@/lib/haptics";
 import { inertReason } from "@/lib/inert-reason";
 
 const MAX_QTY = 99; // matches the cart Stepper's upper bound (setQty is the authority; this is the UI gate)
@@ -179,7 +179,7 @@ export function AddButton({
   // holds `busy` (the pill's double-create guard + the focus-after-morph timing) and arms the "+" refocus.
   // The morph/digit is instant via the optimistic delta; the write drains in the background, in tap order.
   function increment(fromPill: boolean) {
-    hapticTap(fromPill ? 8 : 6); // W13 — the v7.2 weight hierarchy (8 quick-add · 6 stepper step)
+    haptic(fromPill ? "add" : "pick"); // W13/W22c — the v7.2 hierarchy, named: add (8) · pick (6)
     setBurstKey((k) => k + 1);
     setOptimistic((n) => n + 1); // instant morph / digit bump — before the round-trip resolves
     if (fromPill) {
@@ -205,7 +205,7 @@ export function AddButton({
   function decrement() {
     const nextAgg = qty - 1; // qty is optimistic-inclusive → the aggregate the user intends after this tap
     if (nextAgg < 0) return; // the "−" unmounts at 0, but never underflow
-    hapticTap(6); // W13 — stepper-step weight (no burst on remove — celebration is add-only)
+    haptic("pick"); // W13/W22c — a stepper step is reversible (no burst on remove — celebration is add-only)
     setOptimistic((n) => n - 1); // instant digit drop
     const emptying = nextAgg <= 0;
     if (emptying) {
