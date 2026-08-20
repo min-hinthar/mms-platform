@@ -7493,7 +7493,9 @@ html[data-seen-surface] .mms-stagger {
   margin: 12px 0 4px;
   padding: 12px 14px;
   border: 1px solid var(--bd);
-  border-radius: var(--r-md);
+  border-radius: var(
+    --r-card
+  ); /* --r-md does not exist; an undefined var makes this 0 and the card renders SQUARE */
   background: var(--surface-vellum);
   box-shadow: var(--sh);
 }

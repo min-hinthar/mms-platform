@@ -26,6 +26,9 @@ import {
  *  - The service-role client is needed because order rows are RLS-scoped and this aggregates across
  *    several, but the query is pinned to `earned_by = uid` and the only thing that LEAVES is a menu
  *    item id and a name the diner can already see on the menu. No amounts, no order ids, no dates.
+ *  - `getUser()`, never `getSession()`. `getSession` decodes the auth cookie WITHOUT verifying it
+ *    against GoTrue, so a tampered cookie would hand an arbitrary uid straight into an RLS-bypassing
+ *    service-role query. The whole safety argument rests on this one call, and the test pins it.
  *
  * ── Degradation ─────────────────────────────────────────────────────────────────────────────────
  * The whole body is inside try/catch, including `serviceClient()` itself, which throws on a missing
@@ -44,7 +47,8 @@ import {
 const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** One diner's 90 days is small; this is a generous ceiling, not a working limit. If it were ever
- *  hit the newest rows win, which recency-biases the answer — never fabricates one. */
+ *  hit, the ordering below decides which rows survive. (The parent IS ordered here: postgrest's
+ *  `referencedTable` ordering reaches the parent only because the embed is `!inner`, which it is.) */
 const ROW_CAP = 400;
 
 export async function getYourUsual(catalog: UsualCandidate[]): Promise<UsualOutcome> {
@@ -59,11 +63,24 @@ export async function getYourUsual(catalog: UsualCandidate[]): Promise<UsualOutc
     const since = new Date(Date.now() - USUAL_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
     const { data, error } = await db
       .from("qr_order_items")
-      .select("menu_item_id,order_id,qr_orders!inner(status,created_at,earned_by)")
-      // `earned_by` is the uid that PAID — the same column `getWelcomeBack` and the order history
-      // read use. Cash and staff-closed orders have no earner, so they never appear here, which is
-      // honest: this is "what you order", not "what was on your table".
+      .select(
+        "menu_item_id,order_id,fulfillment,refunded_cents,qr_orders!inner(status,created_at,earned_by)",
+      )
+      // `earned_by` is the uid that PAID. Cash and staff-closed orders have no earner, so they never
+      // appear here.
       .eq("qr_orders.earned_by", user.id)
+      // ⚠️ NOT the same as "what you ordered", which an earlier version of this comment claimed.
+      // `qr_order_items` carries NO seat (`by_seat` lives on the cart and is dropped at fulfillment),
+      // so on a dine-in table the host who pays owns every guest's dish in this data. Two such visits
+      // and the card would name a dish they never ordered — and hand a stranger's diet, religion or
+      // allergy back to them as their own taste. To-go and pickup have no such ambiguity: the payer
+      // chose the food. So the ATTRIBUTABLE half is what counts, and dine-in waits for a migration
+      // that snapshots the seat (registry M87).
+      .neq("fulfillment", "dinein")
+      // A fully refunded order flips `status` to 'refunded' and is excluded by the filter below — but
+      // W23b is explicit that status STAYS 'paid' for a PARTIAL refund, so a dish sent back twice
+      // would otherwise become a "usual". `refunded_cents` is the only signal that a line came back.
+      .eq("refunded_cents", 0)
       .eq("qr_orders.status", "paid")
       .gte("qr_orders.created_at", since)
       .order("created_at", { ascending: false, referencedTable: "qr_orders" })
@@ -76,6 +93,9 @@ export async function getYourUsual(catalog: UsualCandidate[]): Promise<UsualOutc
     const rows: UsualRow[] = [];
     for (const r of data ?? []) {
       const id = r.menu_item_id;
+      // Belt for the two filters above: a shape change that drops either `.eq`/`.neq` from the query
+      // still cannot produce a dine-in or refunded row here.
+      if (r.fulfillment === "dinein" || (r.refunded_cents ?? 0) > 0) continue;
       // Grocery barcode lines are not menu dishes and cannot be re-added from the menu card.
       if (!id || !uuidRe.test(id) || !r.order_id) continue;
       const at = r.qr_orders?.created_at;

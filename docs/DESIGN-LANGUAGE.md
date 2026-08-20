@@ -400,9 +400,24 @@ lands on someone who knows the truth.
   separate habits rendered as a pair is the most confident kind of fabrication: specific, plausible,
   and about the diner themselves.
 - **Break ties on a fact you hold — never on row order.** Recency is real; insertion order is an
-  accident of the query. And a comparator must return **0** for equal entries: returning anything
-  else is invalid and silently falls through to whatever sequence the database returned, which is the
-  invented preference the rule was meant to forbid.
+  accident of the query. And a comparator must return **0** for equal entries — but the reason is the
+  opposite of what an earlier draft of this section claimed. Returning 0 is what PRESERVES insertion
+  order (ES2019 sorts are stable); returning a non-zero value makes the result
+  **implementation-defined** — measured on this V8, returning `-1` for equals REVERSES the input. So
+  a broken comparator does not "fall through to database order", it produces a sort artifact. Either
+  way the order is not a fact about the person, which is why equal entries need an explicit final
+  rung (name) rather than whatever the engine leaves behind.
+- **Count the unit the CLAIM is about.** "Usual" is about visits, so count distinct DAYS in the
+  restaurant's own timezone — not rows (three of something in one sitting), not orders (this app
+  mints a fresh cart after every payment, so a second round is a second order an hour later), and not
+  UTC days (an 8pm dinner in Covina is already tomorrow in UTC, which splits one evening in two).
+- **Never offer a one-tap action the server will refuse.** A dish with a required modifier group
+  throws on a bare add (`enforceCardinality`), so a card offering it promises something the code
+  cannot keep — and the refusal surfaces as a misdiagnosed session error, not as "choose an option".
+  Availability is not only `is_sold_out`.
+- **Attribution you do not have is not attribution you may assume.** `earned_by` is who PAID. Where
+  the payer may not be the person who chose — a dine-in host covering a table — the honest move is to
+  exclude that history, not to average over it. Same call `/staff/tips` makes about `settled_by`.
 - **Filter availability BEFORE ranking, not after.** After-the-fact filtering both offers dishes that
   are gone (the last-tap refusal) and lets an unavailable favourite crowd out the one that could have
   been offered.

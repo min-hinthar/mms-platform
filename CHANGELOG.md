@@ -45,7 +45,51 @@ the server re-derives the price. Adds are serialized, not parallel — two concu
 cart closing mid-flight can land on opposite sides of the status guard, leaving the diner with half
 of what the button offered and no way to tell which half.
 
-4 new mutants (**184** total), 14 new tests, all red-first verified.
+#### The adversarial round — the premise was broken in three places
+
+Two lenses (product truth · privacy+a11y), both BLOCK. They also **contradicted each other twice**,
+which is its own finding: one claimed `--r-md` exists and one claimed it does not (it does not — the
+card was rendering square), and they split on whether a `referencedTable` order reaches the parent
+(it does, but only because the embed is `!inner`). Resolved by hand.
+
+- **The card offered dishes it could not add — including its own canonical example.** `priceItem`
+  runs with `enforceCardinality`, which THROWS for any dish holding a `min_select >= 1` group, and
+  the card adds with no modifiers. Seven seeded dishes qualify, and **Burmese Milk Tea is one of
+  them** via its required `drink_temp` group — so "Mohinga + Tea", the example in the proposal, this
+  changelog and the design language, was precisely the broken case. Worse, the failure was
+  misdiagnosed downstream: the provider read the throw as an expired session, flashed "Reconnecting
+  to your table…", re-minted the session, and the diner got four contradicting messages in one live
+  region while the first dish sat in their cart.
+- **One sitting could become a habit.** The threshold counted distinct ORDERS, and the session mints
+  a fresh cart after every payment — so a second dine-in round or a forgotten drink is a second order
+  id an hour later. `ArrivalBeat` next door already encodes the right doctrine ("two orders in one
+  sitting are two orders"); this module made exactly the claim its neighbour avoids. Now counts
+  distinct **days**, in the restaurant's timezone — an 8pm dinner in Covina is already tomorrow in
+  UTC, which would have split one evening in two.
+- **`earned_by` is who PAID, not who ate.** `qr_order_items` carries no seat (`by_seat` lives on the
+  cart and is dropped at fulfillment), so a dine-in host covering a four-top owns every guest's dish
+  in this data — and the card would name a dish they never ordered, handing a stranger's diet,
+  religion or allergy back as their own taste. The read now counts **to-go and pickup only**. That
+  costs the archetype (a solo dine-in regular is exactly who this is for) and it is still the right
+  call — the same one `/staff/tips` makes about `settled_by`. Registry **M87** carries the migration
+  that would let dine-in back in. The header comment had claimed the opposite outright.
+
+Also fixed: partial refunds still counted (W23b is explicit that `status` stays `paid`, so
+`refunded_cents` is the only signal); **the privacy guard passed with the scoping moved into a
+comment** — the review proved the bypass, so comments are stripped before asserting and `getUser()`
+vs `getSession()` is now pinned too; a retry after a half-failed pair re-added the first dish; the
+button became `disabled` while focused and dropped focus to `<body>`; "Added ✓" could contradict a
+cart the diner had since emptied; the label was a `<p>` where every sibling band uses a real heading;
+and `.usual-card` used **`--r-md`, which does not exist** — an undefined custom property computes to
+`0`, so the one new card in a 20px-rounded design language shipped with square corners.
+
+**And the comparator post-mortem in the first commit was backwards.** It claimed a non-zero return
+for equal entries "falls through to Map insertion order". Measured: returning **0** preserves
+insertion order (ES2019 stable sort), while returning `-1` REVERSES it — the broken comparator
+produces a sort artifact, not database order. That inverted rule had been promoted into
+`DESIGN-LANGUAGE.md` as normative doctrine and is corrected there.
+
+8 new mutants (**188** total), 20 tests, every one red-first verified. Registry: **M87–M89**.
 
 ### W22d-1 — the Night correctness floor (2026-08-20)
 

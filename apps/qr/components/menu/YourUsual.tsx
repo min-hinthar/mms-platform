@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useCart } from "@/components/TableCartProvider";
 import { haptic } from "@/lib/haptics";
 import { USUAL_HEADING, usualAction, usualDishes, type UsualOutcome } from "@/lib/menu/your-usual";
@@ -7,72 +7,100 @@ import { USUAL_HEADING, usualAction, usualDishes, type UsualOutcome } from "@/li
 /**
  * W22e — the recognition card on the arrival beat.
  *
- * Everything it CLAIMS is decided in `lib/menu/your-usual.ts` (counted, tie-aware, availability-gated
- * — see the five rules there). This component only renders the outcome and performs the add, so a
- * future edit cannot loosen the honesty bar from here.
+ * Everything it CLAIMS is decided in `lib/menu/your-usual.ts` (counted by day, tie-aware,
+ * offerability-gated — see the six rules there). This component only renders the outcome and performs
+ * the add, so a future edit cannot loosen the honesty bar from here.
  *
- * ⚠️ NO NEW MONEY SURFACE. The add goes through the cart context's `add`, which is the same
+ * ⚠️ NO NEW MONEY SURFACE. The add goes through the cart context's `add`, the same
  * server-authoritative path the menu row and the item sheet use: the client sends an item id, the
  * server re-derives the price. This card never sees or quotes an amount — deliberately. A recognition
- * card that also stated a total would be a second money surface to keep true, and it would have to
- * re-derive a number the cart already owns.
+ * card that also stated a total would be a second money surface to keep true.
  *
- * Adds are SERIALIZED (awaited in sequence), not fired in parallel. `insertOrIncLine` is
- * status-atomic per line, but two concurrent adds against a cart that closes mid-flight can land on
- * opposite sides of the guard — one in, one refused — leaving the diner with half of what the button
- * offered and no way to tell which half. One at a time, and the first refusal stops the rest.
+ * ── Three things the first draft got wrong, all found in review ──────────────────────────────────
+ *
+ * 1. **Adds are serialized AND resumable.** Serializing was right (two concurrent adds against a cart
+ *    closing mid-flight can land on opposite sides of the status guard), but the first version
+ *    restarted the loop from index 0 on retry — so a pair whose SECOND add failed re-added the first
+ *    dish on the next tap. `doneCount` remembers how far it got.
+ * 2. **A partial add says which half landed.** Announcing a bare "we couldn't add that" after one of
+ *    two dishes is already in the cart is the exact failure this component's own header warned about.
+ * 3. **The button never becomes `disabled` while focused.** Browsers blur a disabled element and drop
+ *    focus to `<body>`, so a keyboard or screen-reader diner pressing Enter here lost their place and
+ *    restarted from the top of the document (WCAG 2.4.3). `aria-disabled` + an early return keeps the
+ *    control focusable and announced, which is what `AddButton` already does.
  */
 export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
-  const { add, announce } = useCart();
+  const { add, announce, cartId, loading } = useCart();
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState(false);
+  /** How many of `items` are confirmed in the cart — the resume point, not a boolean. */
+  const [doneCount, setDoneCount] = useState(0);
+  const btnRef = useRef<HTMLButtonElement>(null);
 
-  if (outcome.state === "none") return null;
-
+  const items = outcome.state === "none" ? [] : outcome.items;
   const dishes = usualDishes(outcome);
-  const label = usualAction(outcome);
+  const allIn = items.length > 0 && doneCount >= items.length;
+  // The session is still minting, so `add` would answer null for a reason that is not a failure.
+  // Every other add surface (AddButton, ItemSheet) reports this state rather than firing into it.
+  const notReady = loading || !cartId;
 
-  const addAll = async () => {
-    if (busy || done) return;
+  const addAll = useCallback(async () => {
+    // Early return rather than `disabled` — see note 3. The control stays focusable throughout.
+    if (busy || allIn || notReady || items.length === 0) return;
     setBusy(true);
-    // `pick`, not `commit`: this is one tap adding a known dish, the same weight as the Add pill.
     haptic("add");
     try {
-      for (const item of outcome.items) {
+      for (let i = doneCount; i < items.length; i += 1) {
+        const item = items[i];
+        if (!item) break;
         const res = await add(item.id);
-        // `add` resolves null on a refused write (a closed or locked cart). Stop rather than press
-        // on — the second dish would refuse for the same reason, and two identical failures read as
-        // a broken button instead of a closed cart.
+        // `add` resolves null on a refused write (locked, settling, closed, or a lost session).
         if (res === null) {
-          announce("We couldn’t add that just now — try from the menu below.");
+          // Name what DID land. "We couldn't add that" after one of two dishes is already in the
+          // cart is worse than silence — the diner cannot tell which half to fix.
+          announce(
+            i > 0
+              ? `Added ${items[0]?.name ?? ""} — but we couldn’t add ${item.name}. Try it from the menu below.`
+              : `We couldn’t add ${item.name} just now — try from the menu below.`,
+          );
+          setDoneCount(i); // resume here, so a retry never re-adds what already landed
           return;
         }
       }
-      setDone(true);
-      // `dishes` already reads correctly for one or two ("Mohinga" / "Mohinga + Tea"), so one
-      // sentence covers both — no branch that returns the same string twice.
+      setDoneCount(items.length);
       announce(`Added ${dishes} to your order.`);
     } finally {
       setBusy(false);
+      // Keep focus where the diner put it; the button is never disabled, so this is a no-op in the
+      // common case and a repair if a re-render moved things.
+      btnRef.current?.focus({ preventScroll: true });
     }
-  };
+  }, [add, announce, allIn, busy, dishes, doneCount, items, notReady]);
+
+  if (outcome.state === "none") return null;
+
+  const label = usualAction(outcome);
+  const text = allIn ? "Added ✓" : busy ? "Adding…" : notReady ? "One moment…" : label;
 
   return (
     <section className="usual-card mms-rise" aria-labelledby="usual-h">
-      <p className="usual-kicker" id="usual-h">
+      {/* A real heading, like every sibling band (StartHereBand, TasteBand, FavoritesRail) — so this
+          card is reachable by heading navigation instead of being skipped between h1 and the rails. */}
+      <h2 className="usual-kicker" id="usual-h">
         <span aria-hidden>✦</span> {USUAL_HEADING}
-      </p>
+      </h2>
       <p className="usual-dishes">{dishes}</p>
       <button
+        ref={btnRef}
         type="button"
         className="usual-add"
         onClick={addAll}
-        disabled={busy || done}
-        /* The visible label is short ("Add both"); the accessible name names the dishes, so a screen
-           reader user hears WHAT is being added without having to hunt for the line above. */
-        aria-label={done ? `${dishes} added to your order` : `${label} — ${dishes}`}
+        aria-disabled={busy || allIn || notReady}
+        /* The visible label is short; the accessible name names the dishes, so a screen-reader diner
+           hears WHAT is being added without hunting for the line above. It tracks the visible text
+           rather than contradicting it (WCAG 2.5.3 — label in name). */
+        aria-label={allIn ? `${dishes} added to your order` : `${text} — ${dishes}`}
       >
-        {done ? "Added ✓" : busy ? "Adding…" : label}
+        {text}
       </button>
     </section>
   );

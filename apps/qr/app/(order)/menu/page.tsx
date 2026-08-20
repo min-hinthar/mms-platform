@@ -123,7 +123,16 @@ export default async function Menu({
   // first-timers, for anyone below the threshold, and for every failure path — the card simply is
   // not rendered, and the arrival beat is exactly what it was.
   const usual = await getYourUsual(
-    items.map((i) => ({ id: i.id, name: i.name_en, soldOut: !!i.is_sold_out })),
+    items.map((i) => ({
+      id: i.id,
+      name: i.name_en,
+      soldOut: !!i.is_sold_out,
+      // A required group means a BARE add throws server-side (priceItem's enforceCardinality), so
+      // the card must not offer it — the menu row below renders "Choose" instead of Add for exactly
+      // these. The data is already here; the first version dropped it and offered dishes that could
+      // never be one-tapped, including the proposal's own "Mohinga + Tea" example.
+      needsChoice: i.modifierGroups.some((g) => g.minSelect >= 1),
+    })),
   );
 
   return (
