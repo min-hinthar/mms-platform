@@ -236,8 +236,13 @@ function combos(map: Record<string, string>, theme: "light" | "dark") {
       fg: tok(map, "--gold-strong"),
       bg: chipHover(tok(map, "--gold")),
     },
-    // W22d — `tx on surface-elevated` was guarded but `t3` was not, though the same floating chrome
-    // carries muted text (timestamps, the "Save X%" sub-label).
+    // W22d — PROPHYLACTIC, and labelled as such. `--surface-elevated` has exactly one consumer today
+    // (`.aisle-fan-label`) and it uses `--tx`, which is already guarded above. An earlier version of
+    // this comment justified the combo with "timestamps, the Save X% sub-label" — neither exists;
+    // that was invented, in a file whose whole subject is claims that outrun their evidence. The
+    // combo still earns its place beside the `--ac2` guard: this token is the theme-true chrome that
+    // floats over cards and photos, muted text on it is the obvious next use, and asserting it now
+    // costs nothing. But it guards a FUTURE call site, not a current one.
     { name: "t3 on surface-elevated", fg: tok(map, "--t3"), bg: tok(map, "--surface-elevated") },
     // W22d-1 (adversarial review, HIGH ×2) — the two ACCENT PILLS. Both shipped `color: var(--ac)`
     // on an accent tint over `--sf` and both failed AA in light (3.53 and 3.70), which is precisely

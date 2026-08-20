@@ -29,6 +29,13 @@ jobs:
       # five arcs. Pure file + `vitest list` work: no build, no DB, no network. Runs FIRST because
       # it costs seconds and fails on exactly the kind of drift a reviewer's eye skims past.
       - run: pnpm check:docs
+      # W22d-1 (adversarial review, LOW but real) — the theme-parity guard shipped wired ONLY into
+      # `verify:slice`, and `verify:slice` is in ZERO workflows. So a hex drift on any of the five
+      # surfaces that cannot read a CSS custom property would merge green for anyone who did not run
+      # the local gate — which is exactly how the two `sw.ts` values it was written to catch drifted
+      # in the first place. A guard with no teeth on the merge path is a guard that documents a rule
+      # rather than enforcing it. Same cost profile as check:docs: pure file reads, no build, no DB.
+      - run: pnpm check:theme
       # Turborepo runs lint, typecheck, build, test across the affected workspaces (cached).
       # W8 — orphan-suite guard. `vitest run` exits 1 only when ZERO files match its include glob, so
       # a test file dropped outside a workspace's glob is INVISIBLE: it never runs and nothing reports

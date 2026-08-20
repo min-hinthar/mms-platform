@@ -86,10 +86,22 @@ function expectHex(label, actual, expected, where) {
 // `prefers-color-scheme: dark` override. Matched structurally rather than by line number so the
 // guard survives the shell being re-indented.
 const SW = "apps/qr/sw/sw.ts";
-const swSrc = read(SW);
+const swFile = read(SW);
+// ⚠️ ANCHOR INSIDE THE SHELL LITERAL. The first version searched the whole file, and an adversarial
+// pass proved two failure modes: a second `body { … }` rule anywhere earlier in the file made the
+// real shell drift SILENTLY PASS, and inserting one declaration between `background` and `color`
+// made the light regex fall through to the dark rule and report a confident wrong answer. A grep
+// guard that can match the wrong thing is worse than none — it reports on a file it never read.
+const shell = /const OFFLINE_HTML = `([\s\S]*?)`;/.exec(swFile);
+if (!shell) failures.push(`${SW}: could not find the \`OFFLINE_HTML\` template literal`);
+const swSrc = shell?.[1] ?? "";
+// The light rule must come BEFORE the dark override, so the light search is bounded to the text
+// preceding it — that is what stops a fall-through from silently answering with dark's values.
+const darkAt = swSrc.search(/@media\s*\(\s*prefers-color-scheme:\s*dark/);
+const swLightRegion = darkAt === -1 ? swSrc : swSrc.slice(0, darkAt);
 const swLight =
-  /body\s*\{[^}]*?background:\s*(#[0-9a-fA-F]{3,8})\s*;\s*color:\s*(#[0-9a-fA-F]{3,8})\s*;/.exec(
-    swSrc,
+  /body\s*\{[^}]*?background:\s*(#[0-9a-fA-F]{3,8})\s*;[^}]*?color:\s*(#[0-9a-fA-F]{3,8})\s*;/.exec(
+    swLightRegion,
   );
 const swDark =
   /prefers-color-scheme:\s*dark\s*\)\s*\{\s*body\s*\{\s*background:\s*(#[0-9a-fA-F]{3,8})\s*;\s*color:\s*(#[0-9a-fA-F]{3,8})\s*;/.exec(
@@ -175,6 +187,21 @@ for (const [theme, map] of [
     const got = new RegExp(`${key}:\\s*"(#[0-9a-fA-F]{3,8})"`).exec(block[1])?.[1];
     expectHex(`stripe fallback · ${theme} ${key}`, got, map[token], STRIPE);
   }
+}
+
+// ── 5. The OpenGraph card ───────────────────────────────────────────────────────────────────────
+// Satori renders this PNG at build time and cannot resolve CSS custom properties, so the palette is
+// literal — and the file's own comment already says "Keep in sync if the tokens change", which is
+// the prose-with-no-enforcement pattern this whole script exists to replace. The values are named in
+// that comment, so they are read from it rather than from the JSX (the JSX spreads them across
+// nested style objects, and matching a colour to a ROLE there would be guesswork).
+const OG = "apps/qr/app/opengraph-image.tsx";
+const ogSrc = read(OG);
+for (const [hex, token] of [...ogSrc.matchAll(/(#[0-9a-fA-F]{6})\s*=\s*(--[\w-]+)/g)].map((m) => [
+  m[1],
+  m[2],
+])) {
+  expectHex(`opengraph palette · ${token}`, hex, light[token], OG);
 }
 
 // ── Report ──────────────────────────────────────────────────────────────────────────────────────

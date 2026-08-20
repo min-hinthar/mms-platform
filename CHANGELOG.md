@@ -10,20 +10,29 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 `tokens.css` aliased dark `--ruby-strong: var(--ruby)` under a comment asserting the opposite —
 _"bright-on-dark clears AA on the tint"_. Measured against the real call sites it does not:
 
-| Recipe                                            | Where                                           | Ratio    |
-| ------------------------------------------------- | ----------------------------------------------- | -------- |
-| `ruby-strong` on ruby 14% over `--cd`             | `AccountStatus` tier row                        | **4.47** |
-| `ruby-strong` on ruby 16% over `--cd`             | `AccountStatus` tier card, `WelcomeBackChooser` | **4.32** |
-| `ruby-strong` on the chip's oklab 18% hover blend | `.wallet-chip-star`                             | **4.23** |
+| Recipe                                            | Where                     | Ratio    |
+| ------------------------------------------------- | ------------------------- | -------- |
+| `ruby-strong` on ruby 14% over `--cd`             | `AccountStatus` tier row  | **4.47** |
+| `ruby-strong` on ruby 16% over `--cd`             | `AccountStatus` tier card | **4.32** |
+| `ruby-strong` on the chip's oklab 18% hover blend | `.wallet-chip-star`       | **4.23** |
 
 The audit never caught it because ruby was not in the combo matrix at all — a rigorous test asserting
-nothing about the one hue that needed it. Fixed by lifting only the TEXT variant (`--ruby` still
+nothing about the one hue that needed it.
+
+**Two precision notes, since this slice is about claims outrunning their evidence.** Of the three
+rows above, only the tier row renders informational text: the chip's `✦` is `aria-hidden` decoration,
+outside 1.4.3, and `WelcomeBackChooser`'s 16% tint holds a colour **emoji**, so `color` has no visual
+effect there at all — an earlier draft cited it as a failing surface and was wrong. Fixing all three
+is still right (a decorative glyph nobody can make out is its own defect), but the honest count is
+one confirmed text failure, one decorative, one inert. Fixed by lifting only the TEXT variant (`--ruby` still
 paints the dot, glyph and border at a fine 5.55): same OKLab hue and chroma, L 0.702 → 0.728, worst
 case now 4.66, searched numerically rather than picked.
 
 **The split is the point.** Deepening the ground — which is what W22d proper does — raises every dark
-ratio, and takes ruby to 4.81 on its own. Had the palette landed first, this guard would have been
-born GREEN and the defect would have survived untouched on every surface that is not `--cd`. So the
+ratio. Against one _illustrative_ deeper ground I tested, ruby reached 4.81 unaided — a number about
+a palette that does not exist yet, and not quotable as a property of W22d. The structural point stands
+without it: had any deeper ground landed first, this guard would have been born GREEN and the defect
+would have survived untouched on every surface that is not `--cd`. So the
 correctness floor ships first, with the guard born red at 4.47.
 
 **Coverage added** (`contrast-audit.test.ts`, 41 → 57 tests): the reward tier tints at both live alpha
@@ -99,6 +108,14 @@ component's avatar sits on `--sf`. Filed rather than fixed: **M84** (the tier/ch
 still transcribed while the badge ones are now parsed — the same reasoning applies, and this commit
 only half-applied it) and **M85** (the audit models a tinted chip's ground as flat `--cd`, but
 `AccountStatus` renders `<Card textured>`, so dots show through the translucent tint).
+
+**Two visible changes here are NOT the AA fix, and the owner scoped this slice to correctness — so
+they are disclosed rather than buried.** `ResilienceShell`'s offline pill moves from a hardcoded
+`rgb(0 0 0 / 0.25)` to `--sh-md`, which is softer in light and deeper in dark; and the print re-pin
+is on `html, html.dark`, so correcting `--gold-strong`/`--jade-strong` also changes **light-mode**
+print output for any `--jade-strong` text (teal → the real token). Both are the same class the slice
+exists to remove — a hardcoded colour and a wrong transcription — so removing them is in scope, but
+neither is an AA failure and a reader deserves to know a pixel moved.
 
 **Codex could not review this PR either** — same usage limit as #207. Recorded, not papered over.
 
