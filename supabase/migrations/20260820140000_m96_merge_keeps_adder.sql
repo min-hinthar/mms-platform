@@ -104,6 +104,7 @@ begin
         -- twice-merged table folds B's dish into A's line and deletes B's record of it.
         -- `is not distinct from` because two nulls must match — `null = null` is null, which would
         -- stop every staff-added line from folding.
+        and t.added_by is not distinct from r.added_by
         and t.notes is null
         and t.state = r.state
         and t.state <> 'voided' and not t.comped

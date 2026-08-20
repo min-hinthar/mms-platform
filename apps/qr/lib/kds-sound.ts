@@ -57,7 +57,7 @@ export class KdsChime {
     // Before the preference read, not after: an un-armed station is the common case at shift start,
     // and a ticket landing must not cost a localStorage hit to discover there is nothing to play.
     if (!this.engine.armed) return;
-    const level = getKdsVolume() * (soft ? 1 : SOFT_LEVEL);
+    const level = getKdsVolume() * (soft ? SOFT_LEVEL : 1);
     // A muted station costs nothing: `chimeSchedule` returns an empty schedule at or below zero.
     this.engine.play(TONES[channel === "dinein" ? "dinein" : "pickup"], level);
   }
