@@ -1,5 +1,10 @@
+"use client";
 /**
  * M90 — the one chime engine, and the one envelope.
+ *
+ * `"use client"` even though nothing here evaluates at import time: `AudioContext` is a browser
+ * global, and the directive is what makes "a server component must never import this" a compiler
+ * rule rather than a convention nobody wrote down. Both callers already carry it.
  *
  * `kds-sound.ts` (W3c) and `diner-sound.ts` (W22f) each synthesized tones with the same fast-attack /
  * exponential-release mallet shape, ~15 duplicated lines apart. W22f filed this rather than doing it,
@@ -69,9 +74,11 @@ export type ScheduledNote = {
  *
  * Returns an empty schedule for a level at or below zero — a muted kitchen must cost nothing, and
  * ramping to zero would throw. A level ABOVE zero but below `PEAK_FLOOR` is raised to it rather than
- * dropped: the kitchen's volume slider can reach such a value, and the honest reading of "quietest
- * audible setting" is a real ramp, not a silent one scheduled anyway. Carried over verbatim from
- * `kds-sound.ts`; the diner's fixed 0.22 never reaches this branch.
+ * dropped: the kitchen's volume slider can reach such a value, and the honest reading of a
+ * barely-there setting is a real ramp rather than a silent one with a `stop()` still scheduled.
+ * Not a claim that 0.001 is audible — it is −60 dBFS and effectively is not; it is only that the
+ * ramp should still have a direction. Carried over verbatim from `kds-sound.ts`; the diner's fixed
+ * 0.22 never reaches this branch.
  */
 export function chimeSchedule(
   notes: readonly ChimeNote[],

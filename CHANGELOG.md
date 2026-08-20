@@ -23,8 +23,9 @@ change — a ramp target, a start offset, the tail on `stop()` — and none of i
 WebAudio needs a browser and there is no DOM runner in this repo. So both halves were made checkable:
 `chimeSchedule` is a pure function compared against a **verbatim transcription** of the pre-M90
 arithmetic (operator order included — float addition is not associative), and `ChimeEngine` is driven
-through a recording fake context, so the node-graph calls are asserted rather than assumed. The
-WebAudio side of either surface had no test at all before this; it now has 27.
+through a recording fake context, so the node-graph calls are asserted rather than assumed. The audio
+path of either surface had **no test at all** before this; it now has **25** (of 28 added — the other
+three are the volume preference, which touches no audio).
 
 `KdsChime`'s surface (`arm` · `armed` · `play(channel, soft)`) is unchanged, so no KDS caller was
 touched. Its tone tables, the 0.8 default, the 0.4 soft multiplier and the pickup/scango routing are

@@ -260,6 +260,49 @@ describe("ChimeEngine — the node graph, asserted rather than assumed", () => {
     expect(engine.armed).toBe(true);
   });
 
+  it("⚠️ ARMS ONCE — re-arming reuses the context instead of leaking a new one", async () => {
+    // `ctx ??=` and not `ctx =`, and this is the case that separates them. Arming is not a one-shot:
+    // `SoundToggle` calls it on every toggle-on, `primeSound` re-arms on every `visibilitychange`,
+    // and the KDS "Enable sound" control is a plain tappable button. With `=`, each of those leaks a
+    // fresh AudioContext — and browsers hard-cap concurrent contexts per document (~6), after which
+    // the constructor throws, `arm()` swallows it and answers false, and the station goes
+    // PERMANENTLY silent with the toggle reading "unavailable". A failure with no visual tell, on
+    // the surface whose whole job is to be heard.
+    //
+    // Found by adversarial review as a SURVIVING mutant: nothing here had pinned it.
+    fakeAudio();
+    const engine = new ChimeEngine();
+    await engine.arm();
+    const first = live.ctx;
+    await engine.arm();
+    await engine.arm();
+    expect(live.ctx).toBe(first);
+  });
+
+  it("⚠️ answers FALSE when resume() resolves with the context still suspended", async () => {
+    // iOS without a real user activation: `resume()` settles, but the context does not start. The
+    // return value is read from `state` AFTER the await for exactly this reason — answering "armed"
+    // off the mere fact that resume() did not throw would light the toggle on a device that will
+    // never make a sound, which is the unkept-promise shape `chime.ts` rule 1 exists to prevent.
+    // This is the `/track` scenario after Stripe's hard navigation.
+    const calls: Call[] = [];
+    Object.defineProperty(globalThis, "AudioContext", {
+      configurable: true,
+      value: class {
+        state: AudioContextState = "suspended";
+        currentTime = 5;
+        destination = {};
+        async resume() {
+          calls.push(["resume"]); // settles, but the state does not change — no activation
+        }
+      },
+    });
+    const engine = new ChimeEngine();
+    expect(await engine.arm()).toBe(false);
+    expect(calls).toStrictEqual([["resume"]]); // it really did try
+    expect(engine.armed).toBe(false);
+  });
+
   it("builds no nodes at all for a muted level", async () => {
     const calls = fakeAudio();
     const engine = new ChimeEngine();
