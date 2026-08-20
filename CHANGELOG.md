@@ -74,7 +74,7 @@ passes a `useTransition` flag.
 
 Registry: M82 closed; M94 · M95 filed (both `InviteSheet`, found by the scout, out of scope here).
 No new `verify:slice` mutants — `packages/ui` is outside `MONEY_PATHS` and the runner's cwd is
-hardcoded to `apps/qr`; 15 new tests.
+hardcoded to `apps/qr`. The gate moves from **821 qr + 70 ui** to **828 qr + 87 ui**.
 
 ### M83 — the email palette, named once and pinned (2026-08-20)
 
