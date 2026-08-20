@@ -82,6 +82,30 @@ Supabase stack and `supabase gen types --local` could not run either. The genera
 hand-written to the generator's conventions and CI's `types-fresh` job is the authority on both.
 Stated rather than glossed: if either is wrong, CI says so before merge.
 
+#### The in-session adversarial round — the index could not serve the query
+
+One lens set (SQL/migration correctness · privacy · product truth). It independently confirmed the
+three findings above were the real defects and that the three restated fulfill RPCs differ from their
+baselines by **exactly one comment, one insert column and one select expression each** — checked
+mechanically rather than by eye, with the signatures byte-identical so `create or replace` mints no
+overload. It also verified the `revoke ... from public` (required for PUBLIC's implicit EXECUTE, and
+present) and that no app query selects `*` from either table, so the new column reaches no browser.
+
+Then the finding worth the round: **the partial index cannot serve the read.** The predicate ORed
+across two TABLES — arm A on `qr_order_items.added_by`, arm B on `qr_orders.earned_by` — and Postgres
+cannot BitmapOr across a join, so _neither_ index was usable and the plan joined every paid order in
+the window against all of `qr_order_items` before filtering and sorting. On the app's highest-traffic
+page, for every signed-in diner. Now a **`union all`** of the two arms, each using its own index —
+`union all` and not `union` because the arms are provably disjoint (`added_by = uid` versus
+`added_by is null`), so there is nothing to deduplicate.
+
+Three smaller ones, all taken: the freeze trigger fired plpgsql on _every_ cart-line update while only
+ever restoring an unchanged value (now split, with `when (new.added_by is distinct from old.added_by)`
+on the UPDATE half); the column comment still named table merges as a null case, which stopped being
+true when attribution moved off `by_seat` (a merge clears the seat but not the adder — deliberate,
+since a seat id is a stable `auth.uid()`, and now written down); and `coalesce(refunded_cents, 0)` was
+dead code on a `not null default 0` column _and_ made the predicate non-sargable.
+
 Registry: M87 closed. No new `verify:slice` mutants — the rule is SQL, and the module next door still
 carries the eight that cover the counting.
 

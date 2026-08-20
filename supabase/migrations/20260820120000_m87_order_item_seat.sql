@@ -38,34 +38,52 @@ alter table public.qr_order_items add column if not exists added_by uuid;
 
 comment on column public.qr_cart_items.added_by is
   'M87 — the diner uid that ADDED this line, frozen at insert and immutable thereafter (see '
-  'mms_freeze_added_by). Distinct from by_seat, which the split-the-bill UI rewrites to whoever will '
+  'mms_seed_added_by / mms_keep_added_by). Distinct from by_seat, which the split-the-bill UI rewrites to whoever will '
   'PAY for the line. Attribution reads this one; settlement reads by_seat.';
 comment on column public.qr_order_items.added_by is
   'M87 — the fulfillment snapshot of qr_cart_items.added_by. Null for staff/kiosk lines with no seat '
   'and for every order fulfilled before M87. Never backfilled: a guessed adder is worse than none. '
+  'NOTE a table merge clears by_seat on re-parented lines but does NOT clear this: a seat id is a '
+  'stable auth.uid(), so the person who chose the dish is still that person after their table was '
+  'merged into another. Deliberate, and a change from by_seat''s behaviour. '
   'Provenance only — it authorizes nothing.';
 
--- BEFORE INSERT: seed the adder from whatever the inserting path supplied as the seat.
--- BEFORE UPDATE: refuse to move it, silently and unconditionally. `assignLine` updates `by_seat` and
--- must not be able to drag attribution along with the bill.
-create or replace function public.mms_freeze_added_by() returns trigger
+-- Two triggers, not one, and the UPDATE half carries a WHEN.
+--
+-- INSERT seeds the adder from whatever the inserting path supplied as the seat. UPDATE restores it —
+-- but only when something actually tried to move it, so the ordinary traffic on this table (a qty
+-- bump, `mms_line_transition`, a fire, a void, a merge re-parent) never enters plpgsql at all. The
+-- guard is for `assignLine`, which updates `by_seat` and must not be able to drag attribution along
+-- with the bill.
+create or replace function public.mms_seed_added_by() returns trigger
   language plpgsql security definer set search_path = '' as $$
 begin
-  if tg_op = 'INSERT' then
-    new.added_by := coalesce(new.added_by, new.by_seat);
-  else
-    new.added_by := old.added_by;
-  end if;
+  new.added_by := coalesce(new.added_by, new.by_seat);
+  return new;
+end; $$;
+
+create or replace function public.mms_keep_added_by() returns trigger
+  language plpgsql security definer set search_path = '' as $$
+begin
+  new.added_by := old.added_by;  -- silently immutable: the write is ignored, never raised on
   return new;
 end; $$;
 
 drop trigger if exists qr_cart_items_freeze_added_by on public.qr_cart_items;
-create trigger qr_cart_items_freeze_added_by
-  before insert or update on public.qr_cart_items
-  for each row execute function public.mms_freeze_added_by();
+drop trigger if exists qr_cart_items_seed_added_by on public.qr_cart_items;
+drop trigger if exists qr_cart_items_keep_added_by on public.qr_cart_items;
+create trigger qr_cart_items_seed_added_by
+  before insert on public.qr_cart_items
+  for each row execute function public.mms_seed_added_by();
+create trigger qr_cart_items_keep_added_by
+  before update on public.qr_cart_items
+  for each row when (new.added_by is distinct from old.added_by)
+  execute function public.mms_keep_added_by();
 
--- Supports the per-diner history read. Partial: null adders are the majority of old rows and are
--- never the target of an equality lookup.
+-- Arm A of `mms_usual_lines`. Partial: null adders are the majority of old rows and are never the
+-- target of an equality lookup, so they cost nothing here. (Arm B rides the existing
+-- `qr_orders_earned_by_idx` from M4 — which is why the read is a UNION ALL and not an OR: Postgres
+-- cannot BitmapOr across a join, so one OR'd predicate would leave BOTH indexes unusable.)
 create index if not exists qr_order_items_added_by_idx
   on public.qr_order_items(added_by) where added_by is not null;
 
@@ -287,25 +305,48 @@ grant execute on function public.mms_fulfill_split_order(uuid) to service_role;
 create or replace function public.mms_usual_lines(p_uid uuid, p_since timestamptz)
   returns table (menu_item_id text, order_id uuid, ordered_at timestamptz)
   language sql stable security definer set search_path = '' as $$
-  select oi.menu_item_id, oi.order_id, o.created_at
-  from public.qr_order_items oi
-  join public.qr_orders o on o.id = oi.order_id
-  where o.status = 'paid'
-    and o.created_at >= p_since
-    -- W23b: status stays 'paid' for a PARTIAL refund, so a dish sent back is excluded by the line's
-    -- own ledger, never by the order's status.
-    and coalesce(oi.refunded_cents, 0) = 0
-    and (
-      oi.added_by = p_uid
-      or (oi.added_by is null and o.earned_by = p_uid and oi.fulfillment <> 'dinein')
-    )
+  -- UNION ALL, not an OR. The two arms discriminate on columns in DIFFERENT tables — arm A on
+  -- `qr_order_items.added_by`, arm B on `qr_orders.earned_by` — and Postgres cannot BitmapOr across a
+  -- join, so a single OR'd predicate makes BOTH partial indexes unusable: the plan joins every paid
+  -- order in the window against all of `qr_order_items`, filters, then sorts. On the app's
+  -- highest-traffic page, for every signed-in diner. Split, each arm uses its own index.
+  --
+  -- `union all` and not `union`: the arms are provably DISJOINT (`added_by = p_uid` versus
+  -- `added_by is null`), so there is nothing to deduplicate and the sort a `union` would impose is
+  -- pure cost. Aliased column names inside because `returns table` puts `menu_item_id`/`order_id`/
+  -- `ordered_at` in scope as OUT parameters, and an unqualified reference to one is ambiguous.
+  select t.item_id, t.ord_id, t.made_at
+  from (
+    -- A. the diner ADDED this line, and nothing since could move that.
+    select oi.menu_item_id as item_id, oi.order_id as ord_id, o.created_at as made_at
+    from public.qr_order_items oi
+    join public.qr_orders o on o.id = oi.order_id
+    where oi.added_by = p_uid
+      and o.status = 'paid'
+      and o.created_at >= p_since
+      -- W23b: status stays 'paid' for a PARTIAL refund, so a dish sent back is excluded by the
+      -- line's own ledger, never by the order's status. `refunded_cents` is `not null default 0`,
+      -- so no coalesce — one would be dead code AND would make this non-sargable.
+      and oi.refunded_cents = 0
+    union all
+    -- B. nobody is recorded as having added it, and the mode makes paying and choosing the same act.
+    select oi.menu_item_id as item_id, oi.order_id as ord_id, o.created_at as made_at
+    from public.qr_order_items oi
+    join public.qr_orders o on o.id = oi.order_id
+    where oi.added_by is null
+      and o.earned_by = p_uid
+      and oi.fulfillment <> 'dinein'
+      and o.status = 'paid'
+      and o.created_at >= p_since
+      and oi.refunded_cents = 0
+  ) t
   -- ORDER + LIMIT because PostgREST truncates a stored-procedure result at `max_rows` (1000 in
   -- `supabase/config.toml`) and would otherwise hand back an ARBITRARY subset — which would make the
   -- caller's counts, recency tie-break and pair detection unstable rather than merely capped. Newest
-  -- first, so a truncated answer is the most recent 500 days-worth rather than a random slice, and the
-  -- bound sits BELOW max_rows so the truncation is ours and deterministic. One diner's 90 days is
-  -- nowhere near this; it is a ceiling, not a working limit. (Codex round 1, P2.)
-  order by o.created_at desc
+  -- first, so a truncated answer is the most recent history rather than a random slice, and the bound
+  -- sits BELOW max_rows so the truncation is ours and deterministic. One diner's 90 days is nowhere
+  -- near this; it is a ceiling, not a working limit. (Codex round 1, P2.)
+  order by t.made_at desc
   limit 500
 $$;
 -- Not diner-callable: it takes a uid, so an `authenticated` grant would make it an endpoint for
