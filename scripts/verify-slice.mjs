@@ -643,6 +643,32 @@ const MUTANTS = [
     replace:
       '    if (error) console.error("[manual-capture] mode read failed", error.message);\n    return true;',
   },
+  // ── W22c — what a pulled-down menu is allowed to SAY it found ─────────────────────────────────
+  {
+    id: "catalog-freshness/failed-read-announced-as-a-sold-out-restaurant",
+    file: "apps/qr/lib/catalog-freshness.ts",
+    suite: "lib/catalog-freshness.test.ts",
+    why: 'W22c — THE rule this module exists for. A failed catalog read yields an EMPTY next snapshot; diffed naively against a full previous one, every dish reads as newly sold out and the pull announces to every diner in the room at once that the whole restaurant has run out. `is_active = true` filtering means an empty catalog could not mean that even if the read had succeeded. The delivery repo\'s "a failure must never read as empty" rule, arriving at a brand-new boundary.',
+    find: '  if (next.length === 0 && prev.length > 0) return { state: "unverified" };',
+    replace: "",
+  },
+  {
+    id: "catalog-freshness/unproven-refresh-claimed-as-unchanged",
+    file: "apps/qr/lib/catalog-freshness.ts",
+    suite: "lib/catalog-freshness.test.ts",
+    why: 'W22c — `router.refresh()` returns void and cannot report failure, so a render that never landed and a render that landed with nothing new produce the SAME tree. Only the caller\'s stamp separates them. Collapsing the unproven case into `unchanged` turns "we could not reach the menu" into "your menu is up to date" on the one gesture a diner uses when they suspect it is not.',
+    find: '  if (!advanced) return { state: "unverified" };',
+    replace: '  if (!advanced) return { state: "unchanged" };',
+  },
+  {
+    id: "catalog-freshness/new-dish-announced-as-restocked",
+    file: "apps/qr/lib/catalog-freshness.ts",
+    suite: "lib/catalog-freshness.test.ts",
+    why: "W22c — a dish absent from the previous snapshot was never shown to this diner as sold out, so it cannot have come BACK for them. Treating an unseen id as restocked makes every catalog addition read as good news the diner was waiting for, which is a recognition claim the module has nothing behind.",
+    find: "    if (!was) continue; // a NEW dish is not a change the diner was promised anything about",
+    replace:
+      "    if (!was) {\n      if (!row.soldOut) restocked.push(row.name);\n      continue;\n    }",
+  },
   // ── W23b — the refund a guest can actually see (registry M2) ───────────────────────────────────
   {
     id: "refund-view/partial-reads-as-paid-in-full",

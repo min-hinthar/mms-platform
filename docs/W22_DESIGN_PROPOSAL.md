@@ -90,12 +90,41 @@ text over the cream `#faf9f5` _and_ flips `env(safe-area-inset-top)` from ~0 to 
 call sites at once. The red-first rule says that must be verified on a real notched device in both
 themes, which a code-only PR cannot do. Filed as an OPEN-ITEMS row naming the prerequisite chain.
 
-## W22c · The gesture layer — hands-first interactions
+## W22c · The gesture layer — hands-first interactions ⭐ **SHIPPED 2026-08-20**
 
-Swipe-to-close on every sheet (drag physics with spring settle), pull-to-refresh with a small
-brand moment (the ✦ star spinning up as the ambient signal), edge-consistency on back
-navigation, and a defined **haptics vocabulary** (today's 8/12ms taps codified: pick < commit <
-celebrate). iOS keyboard floors audited (16px inputs — no focus zoom).
+> **Three of the five parts listed below were already built, and this proposal is corrected here
+> rather than quietly re-scoped.**
+>
+> 1. _"Swipe-to-close on every sheet"_ — **shipped at R5b.** `packages/ui/src/sheet.tsx` already
+>    drags: handle-initiated `useDragControls` with `dragListener={false}`, so the sheet body keeps
+>    its native scroll and only the grab zone starts a gesture. There is also **no `useSwipeToClose`
+>    hook in this repo** — that is the delivery repo's name for the pattern, and `docs/HANDOFF.md`
+>    had been pointing a future session at a seam that never existed here. Both claims are fixed.
+> 2. _"iOS keyboard floors audited (16px inputs)"_ — **done earlier**, app-wide.
+> 3. _"edge-consistency on back navigation"_ — **done earlier** too. What was missing on that axis
+>    was narrower and is what actually shipped: `overscroll-behavior-x: contain` on the seven
+>    horizontal rails, so a swipe running off the end of a rail stops there instead of triggering
+>    the browser's back gesture. `-x` only, never the shorthand — the shorthand would also claim the
+>    vertical axis and kill the pull-to-refresh this same slice adds.
+> 4. _"today's 8/12ms taps codified: pick < commit < celebrate"_ — **three words were one too few.**
+>    v7.2 designed THREE add-weights (6 stepper · 8 quick-add · 12 sheet-add), so the vocabulary
+>    ships as four: `pick` 6 · `add` 8 · `commit` 12 · `celebrate` pattern. Collapsing quick-add and
+>    sheet-add into one word would delete a designed distinction and re-create, one level up, the
+>    exact ambiguity the vocabulary exists to remove.
+>
+> As-built: `lib/haptics.ts` — `haptic()` takes a MOMENT, not a duration, so a raw millisecond is a
+> compile error and the old `hapticTap(ms)` is deleted rather than re-typed. That numeric API had let
+> one weight mean two things and it did: **8ms was both a PICK and a COMMIT**. Reduced motion is read
+> SYNCHRONOUSLY from `matchMedia` (never `useAnimationPreference` — it seeds `shouldAnimate = true`
+> before its effect resolves, and a haptic is irreversible), and no moment may be the ONLY feedback
+> for its event, because iOS Safari implements no `navigator.vibrate` at all. `lib/pull-refresh.ts` +
+> `components/PullToRefresh.tsx` — the INDICATOR moves and the page never does (`/menu`'s `<main>`
+> hosts two `position: fixed` descendants, and a `transform` on an ancestor would make it their
+> containing block). `lib/catalog-freshness.ts` decides what the refresh may SAY: freshness is proven
+> by an RSC render stamp rather than inferred, a failed read is `unverified` and never a sold-out
+> restaurant, price movement is a COUNT and never a delta, and nothing ever "just" sold out. Plus the
+> `RefundActionSheet` → canonical `Sheet` migration its own comment had been asking for since P1-5.
+> Details: CHANGELOG · ROADMAP · DESIGN-LANGUAGE §12.
 
 - Effort: S–M. Risk: low (framer drag ⇒ mind the bundle; delivery's domMax lessons apply).
 - Impact: the "feels lagged" class of complaint never comes back.
@@ -131,7 +160,7 @@ error paths.
 
 ## Sequencing & the bar
 
-`W22a → W22b → W22c` is the recommended order (each rides the previous); **a and b are shipped**,
-`W22c` is next; d–f slot in as appetite allows. Every slice holds the standing gates: tokens only, RM-escorted motion, one live
+`W22a → W22b → W22c` is the recommended order (each rides the previous); **a, b and c are
+shipped**; d–f slot in as appetite allows. Every slice holds the standing gates: tokens only, RM-escorted motion, one live
 region, 44px, data-backed claims, server-authoritative money, `verify:slice` + `check:docs` +
 the two-reviewer pre-merge pass (in-session adversarial + Codex), K15 for any new MY.

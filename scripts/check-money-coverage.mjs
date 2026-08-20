@@ -72,6 +72,12 @@ const MONEY_MARKERS = [
   /\bparseDroppedLines\b/,
   /\bsettleCanceledCopy\b/,
   /\bawaitingManualCapture\b/,
+  // W22c — `catalogFreshness` names no money column either, but it is the one thing that decides
+  // whether a diner who pulls the menu down is TOLD a price moved. W17b ships a live staff price
+  // editor, so prices really do move mid-service; a rule that silently stopped reporting that would
+  // be revertible with every gate green, on the surface a diner uses precisely when they suspect
+  // what they are looking at is stale.
+  /\bcatalogFreshness\b/,
 ];
 
 const EXEMPT = /verify:slice-exempt\s*—?\s*(.+)/;

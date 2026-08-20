@@ -5,22 +5,13 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-08-17 — W22a · W22a·depth · W22r merged; the W22 slate is the live plan)
+> ## ⏭️ NEXT SESSION — start here (2026-08-20 — W22a · W22a·depth · W22r · W22b · W22c and W23a–d merged; W22d–f remain)
 >
 > ### ⏭️ Pick up here — the W22 slate is the live plan
 >
-> `docs/W22_DESIGN_PROPOSAL.md` is the plan-of-record and its **W22a slice is marked SHIPPED**. What
-> remains, in the proposal's own recommended order:
+> `docs/W22_DESIGN_PROPOSAL.md` is the plan-of-record and **a, a·depth, r, b and c are marked
+> SHIPPED**. What remains, in the proposal's own recommended order:
 >
-> - **W22b · Installed-native** — manifest + iOS splash/status-bar theme + app-icon set, standalone
->   safe-area discipline, and the **live order chip** (a Dynamic-Island-style pill that follows the
->   diner across menu/cart/track with the real kitchen state). Every value in it already exists (the
->   W18 kitchen taps) — it is the J3 timeline made ambient, not a new claim. Service-worker update
->   discipline is the risk: extend W7b's Serwist heartbeat + first-install `controllerchange` guard,
->   don't re-invent it.
-> - **W22c · The gesture layer** — swipe-to-close on every sheet (the R5b `useSwipeToClose` seam,
->   still unbuilt here), pull-to-refresh with the ✦ moment, back-nav edge consistency, and the
->   haptics the code already improvises (6/8/12ms) codified as pick < commit < celebrate.
 > - **W22d · Night, designed** — dark graduates from inverted tokens to a designed theme (deeper
 >   espresso ground, gold spent only on selection, photo warmth lift). `packages/ui`'s contrast audit
 >   parses `tokens.css` at test time so it re-derives — but re-read it before trusting green.
@@ -44,8 +35,61 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 176 `verify:slice` mutants green · `pnpm check:docs` clean (94 files, 746 qr tests +
+> **Gate today:** 179 `verify:slice` mutants green · `pnpm check:docs` clean (94 files, 771 qr tests +
 > 41 ui tests) · CI green · then the two reviewers.
+>
+> **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
+> **three already built**, and this doc said otherwise in two places, which is why the first commit is
+> mostly corrections. Swipe-to-close shipped at **R5b** (`packages/ui/src/sheet.tsx`: handle-initiated
+> `useDragControls` + `dragListener={false}`, so the body keeps its native scroll) — there is **no
+> `useSwipeToClose` hook in this repo**, that is the delivery repo's name for it and the old bullet
+> above named a seam that never existed here. 16px input floors and back-nav consistency were done
+> earlier too. What was actually missing:
+>
+> - **The haptic vocabulary** (`lib/haptics.ts`). The old `hapticTap(ms)` let one weight mean two
+>   things and it did: **8ms was both a PICK and a COMMIT** — `ItemSheet.choose` buzzed 8 for
+>   selecting a modifier while the Add pill and the grocery scan buzzed 8 for buying. `haptic()` takes
+>   a MOMENT, not a duration, so a raw millisecond is now a compile error; `hapticTap` is deleted
+>   rather than re-typed. **Four names, not the proposal's three**, because v7.2 designed three
+>   add-weights (6 stepper · 8 quick-add · 12 sheet-add): `pick` 6 · `add` 8 · `commit` 12 ·
+>   `celebrate` pattern. The one weight that CHANGES is `ItemSheet.choose` (8 → 6) — that is the
+>   defect being corrected, not a side effect of the rename. Two rules travel with it: reduced motion
+>   is read SYNCHRONOUSLY from `matchMedia` (never `useAnimationPreference`, which seeds
+>   `shouldAnimate = true` before its effect resolves, so an RM user would be buzzed once per first
+>   tap), and **a haptic may never be the only feedback for an event** — iOS Safari implements no
+>   `navigator.vibrate` at all, so on this app's most common device every one of these is a silent
+>   no-op.
+> - **Pull-to-refresh** (`lib/pull-refresh.ts` + `components/PullToRefresh.tsx`). ⚠️ **The indicator
+>   moves; the page does not.** `/menu`'s `<main>` hosts two `position: fixed` descendants —
+>   `PaperAmbient` and `CartBar` — and a `transform` on an ancestor creates a containing block for
+>   fixed descendants, so translating the page for the pull would drag the Add-to-cart bar off the
+>   bottom of the screen. Same family as the `isolation: isolate` rule W22a·depth learned on
+>   `PaperAmbient`'s host. The curve is asymptotic to 96px and arms at 48 — its own inverse at the
+>   midpoint, so `pullTravel(96) === 48` exactly, computed rather than chosen.
+> - **What the refresh is allowed to SAY** (`lib/catalog-freshness.ts`) — the load-bearing part.
+>   `router.refresh()` returns `void` and cannot report failure, so freshness has to be PROVEN by the
+>   caller (an RSC render stamp that changed), not inferred from the data. And a failed catalog read
+>   produces an EMPTY snapshot: diffed naively against a full one, every dish reads as newly sold out
+>   and the app announces to every diner in the room at once that the whole restaurant has run out.
+>   That is the delivery repo's "a failure must never read as empty" arriving at a new boundary, and
+>   it is why the outcome is a three-state union whose third state is `unverified` — **never collapse
+>   it into `unchanged`**; "we couldn't check" and "nothing changed" are different sentences and only
+>   one of them is true when the wifi drops. Price movement is reported as a COUNT, never a delta
+>   (W17b ships a live staff price editor, so prices really do move — but the server owns the number
+>   and a client-stated "+$1.00" starts an argument the client cannot win), and nothing ever "just"
+>   sold out (`sold_out_at` is not in the menu page's select, so recency is not a fact this module
+>   holds).
+> - **Rail overscroll** — `overscroll-behavior-x: contain` on the seven horizontal scrollers, so a
+>   swipe that runs off the end of a rail stops there instead of triggering the browser's back
+>   gesture. `-x` only, **never the shorthand**: the shorthand would also claim the vertical axis and
+>   kill the pull-to-refresh the same slice adds.
+> - **`RefundActionSheet` migrated to the canonical `Sheet`** — the migration its own comment had been
+>   asking for since P1-5, closing four real defects at once: `aria-modal="true"` with no focus trap
+>   (the attribute PROMISES the rest of the page is inert; the deleted rationale argued the trap was
+>   unnecessary while leaving the claim it existed), Esc bound via `onKeyDown` on a non-focusable
+>   overlay `<div>`, `onClick` dismissal on the scrim that a text-selection DRAG out of the PIN field
+>   could fire, and no `--kb-inset` on a bottom-anchored sheet whose PIN field sits directly above the
+>   Refund button.
 >
 > \*\*W23c (manual + partial capture for pickup — registry M69) — merged #203, migration prod-applied
 >
@@ -663,7 +707,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (176 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (179 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

@@ -4,6 +4,77 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W22c — the gesture layer, and three corrections (2026-08-20)
+
+`docs/W22_DESIGN_PROPOSAL.md` listed five parts. **Three were already built**, so most of this slice
+is fixing what the docs said rather than adding what they asked for:
+
+| Proposal said                                   | Actually                                                                                                                  |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| "swipe-to-close on every sheet"                 | shipped at **R5b** — `Sheet` drags on a handle-initiated `useDragControls`, body scroll untouched                         |
+| "the R5b `useSwipeToClose` seam, still unbuilt" | **there is no such hook here** — that is the delivery repo's name; `docs/HANDOFF.md` pointed at a seam that never existed |
+| "iOS keyboard floors audited (16px inputs)"     | done earlier, app-wide                                                                                                    |
+| "edge-consistency on back navigation"           | done earlier; what was missing is `overscroll-behavior-x` on the rails (below)                                            |
+| "pick < commit < celebrate"                     | **three words, one too few** — v7.2 designed three add-weights, so the vocabulary ships as four                           |
+
+**The haptic vocabulary** (`lib/haptics.ts`) is the real defect. `hapticTap(ms)` let one weight mean
+two things and it did: **8ms was both a PICK and a COMMIT.** `ItemSheet.choose` buzzed 8 for
+selecting a modifier option — its own comment reasoning "8 < the Add's 12, a pick is smaller than a
+commit" — while the Add pill and the grocery scan-add buzzed the same 8 for putting an item in the
+basket. A diner's thumb was told "you chose something" and "you bought something" in identical
+language. `haptic()` now takes a **moment**, not a duration: `pick` 6 · `add` 8 · `commit` 12 ·
+`celebrate` pattern. The numeric export is **deleted** rather than re-typed, which is what makes a
+raw millisecond a compile error instead of a lint warning. The one weight that changes is
+`ItemSheet.choose` (8 → 6) — the defect being corrected, not a side effect of the rename.
+
+Two rules travel with it. **Reduced motion is read synchronously from `matchMedia` inside
+`haptic()`**, never via `useAnimationPreference` — that hook seeds `shouldAnimate = true` before its
+effect resolves (SSR-safe by design) and a haptic is irreversible, so an RM user would be buzzed once
+per first tap; `PaySuccess` carried its own copy of that guard, which is exactly why the rule now
+lives in one function. And **a haptic may never be the only feedback for an event**: iOS Safari
+implements no `navigator.vibrate` at all, so on this app's most common device every one of these is a
+silent no-op.
+
+**Pull-to-refresh** (`lib/pull-refresh.ts` + `components/PullToRefresh.tsx`) moves the **indicator**
+and never the page. `/menu`'s `<main>` hosts two `position: fixed` descendants — `PaperAmbient` and
+`CartBar` — and a `transform` on an ancestor creates a containing block for fixed descendants, so
+translating the page for the pull would drag the Add-to-cart bar off the bottom of the screen and
+crop the ambient. Same family as the `isolation: isolate` rule W22a·depth learned on `PaperAmbient`'s
+host. The rubber band is asymptotic to 96px and arms at 48 — the curve is its own inverse at the
+midpoint, so `pullTravel(96) === 48` exactly. Computed, not chosen: a threshold a diner reaches by
+accident while scrolling a long menu is worse than no gesture.
+
+**What the refresh is allowed to SAY** (`lib/catalog-freshness.ts`) is the load-bearing rule.
+`router.refresh()` returns `void` and cannot report failure, so freshness is **proven** by an RSC
+render stamp the page passes down, never inferred from the data that came back. And a failed catalog
+read produces an **empty** snapshot — diffed naively against a full one, every dish reads as newly
+sold out and the app announces to every diner in the room at once that the whole restaurant has run
+out. That is the delivery repo's "a failure must never read as empty" arriving at a brand-new
+boundary, and it is why the outcome is a three-state union whose third state is `unverified`. Never
+collapse it into `unchanged`: "we couldn't check" and "nothing changed" produce the same screen and
+are different sentences, and only one of them is true when the wifi drops. Price movement is reported
+as a **count**, never a delta (W17b ships a live staff price editor, so prices really do move
+mid-service — but the server owns the number and a client-stated "+$1.00" starts an argument the
+client cannot win), and nothing ever "just" sold out, because `sold_out_at` is not in the menu page's
+select.
+
+**Rail overscroll.** `overscroll-behavior-x: contain` on the seven horizontal scrollers, so a swipe
+that runs off the end of a rail stops there instead of triggering the browser's back gesture. **`-x`
+only, never the shorthand** — the shorthand would also claim the vertical axis and kill the
+pull-to-refresh this same slice adds.
+
+**`RefundActionSheet` migrated to the canonical `Sheet`** — the migration its own `overlay` comment
+had been asking for since P1-5. One migration closes four real defects: `aria-modal="true"` with no
+focus trap (the attribute promises assistive tech the rest of the page is inert; the deleted
+rationale argued the trap was unnecessary while leaving the claim that it existed); Esc bound with
+`onKeyDown` on a non-focusable overlay `<div>`, so it worked only while a control inside happened to
+hold focus; scrim `onClick` dismissal that a text-selection **drag** out of the PIN field could fire,
+losing a manager's refund to a slipped finger; and no `--kb-inset` on a bottom-anchored sheet whose
+`type="password"` PIN sits directly above the Refund button, so the phone keyboard covered the one
+control the sheet exists to reach.
+
+3 new mutants (**179** total), 4 new suites. No migration.
+
 ### W23d — tell the diner what the settlement dropped (2026-08-19)
 
 Registry **M71**. W23c's outcomes are all correct on the money and all **silent** to the guest, and

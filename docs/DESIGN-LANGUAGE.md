@@ -251,3 +251,54 @@ that source, which is what `app/manifest.test.ts`'s magic-byte assertion exists 
    value is safe against two grounds (`default` = white bar over Night; `black-translucent` = white
    text over cream **and** flips `env(safe-area-inset-top)` at 19 call sites at once). That needs a
    real notched device in both themes, per the red-first rule. Registry: **M62**.
+
+## 12 · Hands — gestures, haptics, and what a refresh may claim (W22c)
+
+**Haptics are a vocabulary, not a number.** `haptic(moment)` takes one of four names —
+`pick` (6ms, a reversible adjustment: a stepper step, a modifier option) · `add` (8ms, one tap put
+an item in the basket) · `commit` (12ms, a configured dish entered the basket from a sheet) ·
+`celebrate` (a pattern; money moved, exactly one caller). The old `hapticTap(ms)` is deleted rather
+than re-typed, because the numeric API let one weight mean two things and it did: **8ms was both a
+PICK and a COMMIT**, so a thumb heard "you chose something" and "you bought something" in identical
+language. Taking a moment instead of a duration makes a raw millisecond a compile error.
+
+- **Reduced motion is read synchronously from `matchMedia`**, inside `haptic()` — never via
+  `useAnimationPreference`, which seeds `shouldAnimate = true` before its effect resolves (SSR-safe
+  by design). A haptic is irreversible: an RM user would be buzzed once per first tap, every session.
+- **A haptic may never be the only feedback for an event.** iOS Safari implements no
+  `navigator.vibrate` at all, so on this app's most common device every one of these is a silent
+  no-op. Each moment ships with its visible half — the stepper digit, the cart-count capsule, the
+  sheet closing, the confetti. A new moment brings its own.
+- **Adding a fifth name is a design decision, not a plumbing one.** Four exist because v7.2 designed
+  three add-weights; a fifth needs a distinction a diner can feel and a visible partner.
+
+**Gestures may not move a page that hosts fixed children.** Pull-to-refresh translates the
+INDICATOR only. `/menu`'s `<main>` hosts `PaperAmbient` and `CartBar`, both `position: fixed`, and a
+`transform` on an ancestor becomes their containing block — so pulling the page would drag the
+primary CTA off the bottom of the screen and crop the ambient. Same family as W22a·depth's
+`isolation: isolate` rule on `PaperAmbient`'s host: **a page-level visual property is a contract with
+every fixed descendant.** The rubber band is asymptotic (never "the page tore off") and arms at the
+curve's own midpoint — computed, because a threshold a diner trips by accident on a long menu is
+worse than no gesture at all.
+
+**`overscroll-behavior-x: contain` on every horizontal rail, and `-x` only — never the shorthand.**
+The shorthand claims the vertical axis too, which would kill the pull-to-refresh on the same screen.
+
+**What a refresh may SAY is a three-state union, and the third state is load-bearing.**
+`router.refresh()` returns `void` and cannot report failure, so freshness has to be **proven** by the
+caller (a render stamp that changed), never inferred from the data that came back. Rules, all in
+`lib/catalog-freshness.ts` so they can carry mutants:
+
+- **A failed read is `unverified`, never a sold-out restaurant.** An empty snapshot diffed against a
+  full one makes every dish read as newly 86'd — the app would announce to every diner in the room at
+  once that the whole kitchen had run out. The delivery repo's "a failure must never read as empty",
+  at a new boundary.
+- **Never collapse `unverified` into `unchanged`.** "We couldn't check" and "nothing changed" produce
+  the same screen and are different sentences; only one of them is true when the wifi drops.
+- **Price movement is a COUNT, never a delta.** W17b ships a live staff price editor, so prices
+  really do move mid-service — but the server owns the number, and a client-stated "+$1.00" starts an
+  argument the client cannot win.
+- **Nothing ever "just" sold out.** `sold_out_at` is not in the menu page's select, so recency is not
+  a fact this module holds. "now" is true relative to what the diner was looking at; "just" is not.
+- The sentence is spoken into the view's **existing** live region. A gesture does not mint a second
+  announcer (§7).
