@@ -129,6 +129,12 @@ const light = parseBlock(":root");
  * so reading the raw `.dark` block alone reports them as missing. Before M83 no assertion happened
  * to touch one; the first that did (the email CTA's `--oa` on `--ink`) produced a `NaN`. Merging
  * makes the dark map mean what a browser means by it.
+ *
+ * ⚠️ **PROPHYLACTIC, and it cannot currently fail.** `--ink` is the only colour token `.dark` never
+ * re-declares, and the one pair that reads it was made light-only in the same commit — so reverting
+ * this merge leaves every test green. That is the repo's red-first rule pointing at itself: the
+ * modelling is right and the guard is unfalsifiable today, so it is LABELLED rather than claimed.
+ * M93 (a dark negative bucket) is what would give it teeth.
  */
 const dark = { ...light, ...parseBlock(".dark") };
 

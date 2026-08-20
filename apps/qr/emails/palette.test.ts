@@ -31,15 +31,22 @@ import type { ReceiptEntry } from "@/lib/receipt-entry";
 /** Every colour the palette can emit, lowercased — the only values allowed in rendered output. */
 const ALLOWED = new Set(Object.values(EMAIL).map((v) => v.toLowerCase()));
 
-/** A realistic receipt: a refunded line, a kitchen note, mods, a dropped line and a pickup slot —
- *  every branch that paints a colour. A thin fixture would render half the palette and prove half. */
+/**
+ * A receipt that actually reaches every branch that paints: a refunded line (`--warn`), a kitchen
+ * note and mods (`--t3`/`--t2`), a dropped line, a pickup slot, and a group heading.
+ *
+ * The first version of this comment claimed all that while the fixture carried `dropped: {count: 0}`
+ * and `pickupSlot: null` — two branches that never rendered. No colour was actually lost (the dropped
+ * notice reuses the shared `fine` style and the slot only changes text), but a fixture whose stated
+ * coverage is larger than its real coverage is how a suite ends up proving less than it says.
+ */
 const entry: ReceiptEntry = {
   id: "11111111-1111-4111-8111-111111111111",
   code: "A1B2",
   createdAt: "2026-08-20T02:14:00.000Z",
   totalCents: 2247,
   tender: "card",
-  pickupSlot: null,
+  pickupSlot: "2026-08-20T03:00:00.000Z",
   tableNumber: 4,
   customerName: null,
   breakdown: {
@@ -74,7 +81,7 @@ const entry: ReceiptEntry = {
     },
   ],
   refund: { state: "partial", refundedCents: 500, netPaidCents: 1747 },
-  dropped: { count: 0, lines: [] },
+  dropped: { count: 1, lines: [{ name: "Tea Leaf Salad", qty: 1 }] },
 };
 
 const RENDERED: [string, () => Promise<string>][] = [
@@ -114,27 +121,110 @@ const RENDERED: [string, () => Promise<string>][] = [
  */
 const shellHtml = () => render(createElement(StaffDeactivatedEmail));
 
+/** Reverse map for reporting — several tokens share a value (`--tx`/`--ink`, `--cd`/`--oa`), so a
+ *  hex can name more than one key. Only used to make a failure readable. */
+const NAME_OF = new Map<string, string>();
+for (const [k, v] of Object.entries(EMAIL)) {
+  const key = v.toLowerCase();
+  NAME_OF.set(key, NAME_OF.has(key) ? `${NAME_OF.get(key)}/${k}` : k);
+}
+
+/** The only two grounds an email's text can sit on: the page behind the card, and the card itself. */
+const GROUNDS = [EMAIL.pg, EMAIL.cd];
+
+/** Words that appear in a colour-valued declaration and are not colours. `none` and `solid` come
+ *  from border shorthands; `transparent` and `inherit` are colour KEYWORDS but carry no value of
+ *  their own, so they cannot drift away from the palette. */
+const KEYWORDS_OK = new Set(["none", "solid", "dashed", "dotted", "transparent", "inherit"]);
+
+function srgb(hex: string): number {
+  const h = hex.replace("#", "");
+  const ch = [0, 2, 4].map((i) => {
+    const c = parseInt(h.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * ch[0]! + 0.7152 * ch[1]! + 0.0722 * ch[2]!;
+}
+function ratio(a: string, b: string): number {
+  const [x, y] = [srgb(a), srgb(b)];
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+}
+
+/** Every `prop: value` inside every `style="…"`, as a list of one element's declarations. */
+function declarationSets(html: string): Record<string, string>[] {
+  return [...html.matchAll(/style="([^"]*)"/g)].map((m) => {
+    const out: Record<string, string> = {};
+    for (const decl of (m[1] ?? "").split(";")) {
+      const at = decl.indexOf(":");
+      if (at > 0) out[decl.slice(0, at).trim().toLowerCase()] = decl.slice(at + 1).trim();
+    }
+    return out;
+  });
+}
+
+/**
+ * Colour-valued properties, parsed by NAME rather than by hunting for hex-shaped substrings.
+ *
+ * ⚠️ This is the inversion an adversarial pass forced. Searching the markup for `#…`/`rgba(…)` can
+ * only ever catch colours that LOOK like colours: `color: "white"` (or `red`, `hsl(…)`,
+ * `color-mix(…)`) sailed past both this test and the parity sweep, on a surface whose whole stated
+ * rule is "no colour except the table". Reading the declarations and asserting each VALUE is in the
+ * palette catches every spelling, including ones CSS has not grown yet.
+ */
+const COLOUR_PROPS = /^(color|background|background-color|border[a-z-]*color|outline-color)$/;
+
 describe("every rendered email speaks only the pinned palette", () => {
   it.each(RENDERED)("%s emits no colour outside palette.ts", async (_name, renderIt) => {
     const html = await renderIt();
-    // Scan STYLE ATTRIBUTES only, never the whole document. Two things in rendered email HTML look
-    // exactly like a hex colour and are not: React Email's `&#8202;`/`&#8203;` spacing entities, and
-    // any receipt code that happens to be four hex digits — the first run of this test reported
-    // `#8202`, `#8203` and the fixture's own order reference `#A1B2` as rogue colours. A guard that
-    // flags text nobody paints is the same class of wrong as one that misses a real drift, so this
-    // looks where colours actually live.
-    const styles = [...html.matchAll(/style="([^"]*)"/g)].map((m) => m[1] ?? "").join(";");
-    const found = [...styles.matchAll(/#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)/g)].map((m) =>
-      m[0].toLowerCase(),
-    );
-    // Deliberately asserts the SET, not a count: a template that renders one colour twice is fine,
-    // a template that renders one colour nobody pinned is the whole failure this exists to catch.
-    expect([...new Set(found)].filter((v) => !ALLOWED.has(v))).toEqual([]);
+    const rogue: string[] = [];
+    for (const decls of declarationSets(html))
+      for (const [prop, value] of Object.entries(decls)) {
+        if (!COLOUR_PROPS.test(prop)) continue;
+        // A shorthand like `border-top: 1px solid #ebe7e2` is matched by `border[a-z-]*color` only
+        // in its longhand form; the shorthands are swept below by scanning the whole value.
+        for (const tokenish of value.split(/\s+/))
+          if (/^(#|rgb|hsl|color-mix|[a-z]{3,})/.test(tokenish) && !/^\d/.test(tokenish))
+            if (!ALLOWED.has(tokenish.toLowerCase()) && !KEYWORDS_OK.has(tokenish.toLowerCase()))
+              rogue.push(`${prop}: ${tokenish}`);
+      }
+    expect([...new Set(rogue)]).toEqual([]);
+  });
+
+  it("⚠️ every text colour clears AA against the ground it actually sits on", async () => {
+    // The pairing guard, and the one the other three could not provide. `check-theme-parity` proves
+    // each VALUE is a token and `contrast-audit` proves those tokens clear AA — but neither knows
+    // which colour a template puts on which ground, so swapping a body line from `EMAIL.t2` to
+    // `EMAIL.gold` shipped 2.05:1 text with all of them green.
+    //
+    // Two cases, and they are exhaustive for these templates: a declaration that carries its OWN
+    // `background-color` is a filled element (the CTA buttons), so assert that pair; anything else is
+    // text on one of the two grounds, and since the markup does not say which, it must clear BOTH.
+    // Stricter than reality by design — the alternative is resolving the cascade, and every genuine
+    // text token passes on both grounds anyway (the decorative `--gold` and on-fill `--oa` do not,
+    // which is precisely the pair of mistakes this catches).
+    const failures: string[] = [];
+    for (const [name, renderIt] of RENDERED) {
+      for (const decls of declarationSets(await renderIt())) {
+        const fg = decls.color;
+        if (!fg || !ALLOWED.has(fg.toLowerCase())) continue;
+        const own = decls["background-color"] ?? decls.background;
+        const grounds = own && ALLOWED.has(own.toLowerCase()) ? [own] : GROUNDS;
+        for (const bg of grounds) {
+          const r = ratio(fg, bg);
+          if (r < 4.5)
+            failures.push(
+              `${name}: ${NAME_OF.get(fg.toLowerCase()) ?? fg} on ` +
+                `${NAME_OF.get(bg.toLowerCase()) ?? bg} = ${r.toFixed(2)}`,
+            );
+        }
+      }
+    }
+    expect(failures).toEqual([]);
   });
 
   it("⚠️ the shell really carries the palette — not merely no stray values", async () => {
-    // The negative assertion above passes trivially on a template that emits NO colour at all (a
-    // style object that stopped being applied, say). This is its positive twin.
+    // The negative assertions above pass trivially on a template that emits NO colour at all (a
+    // style object that stopped being applied, say). This is their positive twin.
     const html = await shellHtml();
     for (const hex of [EMAIL.pg, EMAIL.cd, EMAIL.tx, EMAIL.t2, EMAIL.ac, EMAIL.gold, EMAIL.bd])
       expect(html.toLowerCase()).toContain(hex.toLowerCase());

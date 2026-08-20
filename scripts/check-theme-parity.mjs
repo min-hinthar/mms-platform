@@ -4,7 +4,9 @@
  *
  * `contrast-audit.test.ts` parses `tokens.css` and checks every text×surface pair, so a token edit
  * is caught automatically. But SIX surfaces cannot read a CSS custom property at all, and each one
- * therefore carries a hand-copied hex that nothing had ever cross-checked:
+ * therefore carries a hand-copied hex that nothing had ever cross-checked. (5 and 6 were added after
+ * this list was first written; the number was bumped without them being listed, which is its own
+ * small instance of the drift below.)
  *
  *   1. `apps/qr/sw/sw.ts` — the offline shell is a STRING baked into the service worker. It ships
  *      before any stylesheet exists, so it cannot use `var()`. It had ALREADY drifted when this
@@ -23,6 +25,11 @@
  *   4. `apps/qr/lib/stripe-client.ts`'s `FALLBACK` map — the appearance values Stripe's iframe gets
  *      when a custom property is read before the stylesheet applies. Another hand-copied set, whose
  *      comment claimed this script pinned it before this script actually did.
+ *   5. `apps/qr/app/opengraph-image.tsx` — Satori renders the card to PNG at build time and resolves
+ *      no custom properties, so its palette is literal; the file's own comment said "keep in sync",
+ *      which is the prose-with-no-enforcement pattern this script replaces.
+ *   6. `apps/qr/emails/*` — five React Email templates. Email clients load no external CSS at all.
+ *      The biggest of the six by value count, and the last to be covered (M83).
  *
  * These are the "green for the wrong reason" class one step out: the audit is rigorous about the
  * values it can see, which makes it easy to believe the whole palette is covered. It is not.
@@ -276,24 +283,46 @@ for (const [, doc, key, hex] of paletteEntries) {
   }
 }
 
-// Every colour key in the table must have been reached above — one declared without a doc comment
-// would be unchecked while the surface still reported clean.
-const declaredKeys = [...tableBody.matchAll(/^\s{2}(\w+):\s*"#/gm)].map((m) => m[1]);
+// Every string-valued key in the table must have been reached above.
+//
+// ⚠️ This deliberately does NOT require the value to start with `#`. The first version did, and an
+// adversarial pass demonstrated the hole in one line: add `shade: "rgba(58,35,23,0.4)"` with no doc
+// comment, use it in a template, and every guard stayed green — the completeness check could not see
+// a non-hex value, `paletteEntries` never matched it, and the render sweep waved it through because
+// it was in `Object.values(EMAIL)`. An unpinned colour shipping with all three guards green is
+// exactly the failure surface 6 exists to prevent, and `--bd` proves non-hex entries are not
+// hypothetical. The indentation anchor is gone for the same reason (a nested object at four spaces
+// was invisible too); `paletteEntries` still requires a hex, so a documented non-hex entry now fails
+// LOUDLY rather than silently.
+const declaredKeys = [...tableBody.matchAll(/^\s*(\w+):\s*"/gm)].map((m) => m[1]);
 const checkedKeys = new Set(paletteEntries.map((m) => m[2]));
 for (const key of declaredKeys)
   if (!checkedKeys.has(key))
     failures.push(`email palette · ${key}: declared with no doc comment, so nothing checks it`);
 
-// (b) — the sweep. Comments are stripped FIRST: the templates legitimately discuss `#196` and the
-// `#ffffff` they used to carry, and a guard that matches prose reports on text nobody renders. Same
-// bypass the privacy guard hit from the other side, where a rule moved INTO a comment and passed.
+// (b) — the sweep, over EVERY source file under the directory.
+//
+// ⚠️ RECURSIVE, and `.ts` as well as `.tsx`. The first version read the top level and matched `.tsx`
+// only, so `emails/extra-styles.ts` and `emails/parts/Badge.tsx` could both carry raw colour with the
+// guard green — while the commit message claimed "no raw colour exists anywhere under
+// `apps/qr/emails/`". A guard whose scope is narrower than its stated claim is the claim being wrong.
+//
+// Comments are stripped first, because the templates legitimately discuss `#196` and the `#ffffff`
+// they used to carry, and a guard that matches prose reports on text nobody renders. ⚠️ But a
+// blanket `//[^\n]*` also deletes from any `//` INSIDE A STRING to end of line, so one
+// `backgroundImage: "url(https://…)"` blinded the rest of its line — demonstrated with a raw
+// `#ff0000` sailing straight through. The strip meant to stop false positives was manufacturing
+// false negatives. A `//` preceded by `:` is a URL scheme, never a comment, so it is left alone.
 const EMAIL_DIR = "apps/qr/emails";
-for (const file of readdirSync(path.join(ROOT, EMAIL_DIR))) {
-  if (!file.endsWith(".tsx")) continue;
-  const rel = `${EMAIL_DIR}/${file}`;
+for (const file of readdirSync(path.join(ROOT, EMAIL_DIR), { recursive: true })) {
+  const name = String(file);
+  if (!/\.tsx?$/.test(name)) continue;
+  // `palette.ts` IS the table (checked above); a test file's fixtures are not shipped markup.
+  if (name === "palette.ts" || /\.test\.tsx?$/.test(name)) continue;
+  const rel = `${EMAIL_DIR}/${name}`;
   const code = read(rel)
     .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/\/\/[^\n]*/g, "");
+    .replace(/(^|[^:])\/\/[^\n]*/g, "$1");
   for (const m of code.matchAll(/#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)/g))
     failures.push(
       `${rel}: raw colour \`${m[0]}\` — every email colour must come from \`emails/palette.ts\`, ` +

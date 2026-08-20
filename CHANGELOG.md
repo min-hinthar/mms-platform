@@ -60,7 +60,7 @@ four templates and asserts the set of colours in their style attributes is a sub
 plus a positive twin, since "no stray colours" passes trivially on a template that emits none. It
 immediately found one: React Email's `<Hr>` carries its own default as a **shorthand**
 (`border-top: 1px solid #eaeaea`), and the receipt's `borderColor` override merged _beside_ it rather
-than replacing it, so every emailed receipt shipped `border-top:1px solid #eaeaea;border-color:#ebe7e2`.
+than replacing it, so every emailed receipt shipped `border-top:1px solid #eaeaea;border-color:#e8e2d9`.
 A browser resolves that to the palette value; an email client is not a browser, several drop or
 reorder the longhand, and `#eaeaea` is a cool grey that appears nowhere in this palette. Overriding
 `borderTop` removes it from the output. Nothing that reads source could have seen it.
@@ -71,6 +71,45 @@ code that happens to be four hex digits (`#A1B2`) parses as a colour. It now sca
 only. `vitest.config.ts` also gains `esbuild: { jsx: "automatic" }` — `tsconfig` says
 `"jsx": "preserve"` because Next owns the transform, so any `.tsx` reached from a test was compiled
 against the classic runtime and threw `React is not defined` at render.
+
+#### The adversarial round — the guards' own bypasses
+
+One lens (guard integrity, the right one for a commit that is almost entirely new guards). It
+verified every load-bearing claim independently — 48 literals, `--ac` on `--cd` at 4.843, `--oa` on
+`--ink` at 1.012, the `--bd` composite, React Email's `<Hr>` base — and then **demonstrated six ways
+to ship an unpinned colour with all three guards green.** Each is fixed and each was watched red:
+
+- **A non-hex entry was unchecked end to end.** The completeness check matched `key: "#`, so adding
+  `shade: "rgba(58,35,23,0.4)"` with no doc comment and using it in a template passed every guard:
+  the check could not see it, the entry parser never matched it, and the render sweep waved it
+  through because it _was_ in the table. `--bd` is itself an rgba token, so this was not
+  hypothetical. Now matches any string-valued key, at any indentation.
+- **A colour KEYWORD bypassed both scanners.** `color: "white"` is invisible to a search for
+  `#…`/`rgba(…)`, on a surface whose whole rule is "no colour except the table". The render test is
+  inverted: it parses colour-valued DECLARATIONS by property name and asserts each value is in the
+  palette, which catches every spelling including ones CSS has not grown yet.
+- **Nothing bound the PAIRINGS.** Switching a body line from `EMAIL.t2` to `EMAIL.gold` shipped
+  **2.05:1** text with parity, the audit and the render sweep all green — because the parity guard
+  proves each VALUE is a token and the audit proves those tokens clear AA, and neither knows which
+  colour a template puts on which ground. The claim "every text×surface pair rendered by
+  `apps/qr/emails/*`" was one no guard held. There is now a real pairing assertion: a declaration
+  carrying its own `background-color` is a filled element and is checked against that; anything else
+  is text on one of the two grounds and must clear **both**.
+- **The sweep was top-level `.tsx` only.** `emails/extra-styles.ts` and `emails/parts/Badge.tsx`
+  could both carry raw colour — while the commit claimed no raw colour existed anywhere under the
+  directory. A guard whose scope is narrower than its stated claim is the claim being wrong.
+- **The comment strip ate real code.** `//[^\n]*` deletes from any `//` inside a string, so one
+  `backgroundImage: "url(https://…)"` blinded the rest of its line and a raw `#ff0000` sailed
+  through. The strip that existed to prevent false positives was manufacturing false negatives; a
+  `//` preceded by `:` is a URL scheme and is now left alone.
+- **The `.dark` merge cannot fail today** — `--ink` is the only light-only colour token and the pair
+  reading it was made light-only in the same commit. The modelling is right; the guard is
+  unfalsifiable, so it is **labelled prophylactic** rather than claimed, which is what the red-first
+  rule requires when it points at your own work.
+
+Also corrected: this file said the pre-fix receipt shipped `border-color:#ebe7e2`; it shipped
+`#e8e2d9` (`#ebe7e2` is the post-fix value). And the render fixture's comment claimed it exercised a
+dropped line and a pickup slot while carrying neither — the fixture now does.
 
 That fix immediately surfaced **M93**: `--oa` on `--ink` is **1.01:1** in dark. No live surface uses
 it and the emails are light-only, so nothing is broken — but it is exactly the plausible-looking,
