@@ -4,6 +4,69 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M90 — one chime engine, and one envelope (2026-08-20)
+
+`kds-sound.ts` (W3c) and `diner-sound.ts` (W22f) each synthesized tones with the same fast-attack /
+exponential-release mallet shape, ~15 duplicated lines apart. W22f filed this rather than doing it,
+because converting the **kitchen's** chime inside a diner-facing slice would have risked the cook's
+ticket sound for a nice-to-have. On its own, with the KDS behaviour pinned, it is safe.
+
+**What is shared and what is not.** `chime-core.ts` owns creating and resuming the AudioContext and
+turning a list of notes into oscillator + gain-ramp calls. It owns none of the policy, because every
+axis of that inverts between the two callers — default (0.8 loud versus OFF), arming (an explicit
+"Enable sound" tap at shift start versus the preference toggle being the gesture), what a failure
+costs (the visual channel still covers a ticket; a diner loses garnish), and the vocabulary itself.
+`chime.ts` still owns the diner's rules and `kds-sound.ts` still keeps the kitchen's.
+
+**The seam is worth more than the saved lines.** The envelope is exactly what a refactor can silently
+change — a ramp target, a start offset, the tail on `stop()` — and none of it was observable, because
+WebAudio needs a browser and there is no DOM runner in this repo. So both halves were made checkable:
+`chimeSchedule` is a pure function compared against a **verbatim transcription** of the pre-M90
+arithmetic (operator order included — float addition is not associative), and `ChimeEngine` is driven
+through a recording fake context, so the node-graph calls are asserted rather than assumed. The audio
+path of either surface had **no test at all** before this; it now has **25** (of 28 added — the other
+three are the volume preference, which touches no audio).
+
+`KdsChime`'s surface (`arm` · `armed` · `play(channel, soft)`) is unchanged, so no KDS caller was
+touched. Its tone tables, the 0.8 default, the 0.4 soft multiplier and the pickup/scango routing are
+each pinned against the numbers that shipped with W3c.
+
+Two details the refactor deliberately did **not** tidy: `PEAK_FLOOR` (0.001) stays ten times `FLOOR`
+(0.0001), because a peak equal to the ramp's start is a ramp with no direction — audible as silence,
+with a `stop()` still scheduled; and the KDS reads its volume only **after** confirming the station is
+armed, so a ticket landing before shift start costs no storage hit.
+
+### M96 — a table merge must not fold away one diner's attribution (2026-08-20)
+
+`mms_merge_table_orders` folds a source line into a matching target line by bumping the target's qty
+and **deleting** the source row. The match required `t.by_seat is null` — the R5c rule that a fold
+never touches a diner's own line — and before M87 that was enough, because a seatless line belonged
+to nobody.
+
+M87 changed what seatless means: a line can be seatless and still belong to someone. Two ways in, and
+the first needs no prior merge at all — a **staff-added** target line is seatless and adderless from
+the start, so a diner's dish folded into it on the very first merge and their row was deleted. The
+second is the twice-merged table: a line re-parented by an earlier merge has `by_seat = null` (the
+re-parent branch clears it) but keeps its `added_by`, since the immutability trigger pins that column
+against every update, so a dish B chose could fold into a line A chose. Either way the source diner
+ends with no record of a dish they really chose.
+
+**One narrowing predicate:** `and t.added_by is not distinct from r.added_by`. `is not distinct from`
+and not `=`, because two nulls must **match** — a staff-added line on each table still folds, and
+`null = null` is null, which would have quietly stopped every such fold and doubled the register's
+line count. (Not kiosk: a kiosk order carries the device's own verified anon uid as its seat, which
+the M87 trigger copies into `added_by`, so a kiosk line has an adder like any diner's.) Different adders now re-parent instead, which is what the `else` branch
+already does for every other non-match; the cart, the split and the totals all sum per line anyway.
+
+Pinned by `supabase/tests/m96_merge_keeps_adder_test.sql` — all four cases (both adderless still
+folds · a staff target and a diner source re-parent, the first-merge shape · different adders
+re-parent, both adders surviving and the seat cleared · same adder still folds), driven by the real
+merge RPC rather than a hand-written fold.
+
+⚠️ This was filed on #214 as "justified, not fixed", calling the change a disproportionate blast
+radius. That estimate was wrong and is retracted in `docs/OPEN-ITEMS.md`: it is one predicate of the
+same shape as the two narrowings beside it.
+
 ### M87 — the seat that CHOSE the dish, carried into the order (2026-08-20)
 
 `qr_cart_items.by_seat` is the verified diner uid that added a line. Every fulfill RPC dropped it

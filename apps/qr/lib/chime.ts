@@ -15,8 +15,8 @@
  *   | arm | an explicit "Enable sound" tap at shift start | the preference toggle itself is the gesture |
  *   | if it fails | the visual channel still covers it (O-C) | nothing is lost; it was garnish |
  *
- * Two modules, one envelope. `chime-core` unification is filed as M90 rather than done here, because
- * converting `KdsChime` in a diner-facing slice risks the cook's chime for a nice-to-have.
+ * Two modules, one envelope — and since **M90** that envelope is literally one: both engines schedule
+ * through `chime-core.ts`, which owns the oscillator and knows none of the policy above.
  *
  * ── The rules ────────────────────────────────────────────────────────────────────────────────────
  *
@@ -40,8 +40,12 @@
 /** The preference key. Per-device, like the KDS volume — a guest's phone, not an account setting. */
 export const SOUND_KEY = "mms.sound";
 
-/** One scheduled note. `at` and `dur` are seconds relative to the start of the sequence. */
-export type ChimeNote = { freq: number; at: number; dur: number };
+/**
+ * One scheduled note. Re-exported from `chime-core` rather than re-declared: a second structural
+ * definition would let the two drift into silently-incompatible shapes while both still typecheck.
+ */
+export type { ChimeNote } from "./chime-core";
+import type { ChimeNote } from "./chime-core";
 
 /**
  * The two moments, and only these two (rule 4).

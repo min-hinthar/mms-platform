@@ -1,4 +1,5 @@
 "use client";
+import { ChimeEngine } from "./chime-core";
 import { CHIME, CHIME_LEVEL, SOUND_KEY, mayChime, soundEnabled, type ChimeMoment } from "./chime";
 
 /**
@@ -6,11 +7,12 @@ import { CHIME, CHIME_LEVEL, SOUND_KEY, mayChime, soundEnabled, type ChimeMoment
  * there is no error sound) lives in `chime.ts`, which is pure and carries the mutants. This file is
  * WebAudio plumbing and a preference write.
  *
- * The synthesis approach is `kds-sound.ts`'s, deliberately: oscillator + a fast attack and
- * exponential release, which reads as a soft mallet rather than a buzzer, and no audio asset to load
- * or cache-miss. That envelope now exists in two places; unifying it onto a shared core is filed as
- * **M90** rather than done here, because converting the KDS engine in a diner slice would put the
- * cook's ticket chime at risk for a nice-to-have.
+ * The synthesis is `chime-core.ts`'s, shared with the kitchen since **M90**: oscillator + a fast
+ * attack and exponential release, which reads as a soft mallet rather than a buzzer, and no audio
+ * asset to load or cache-miss. W22f duplicated that envelope rather than unifying it, because
+ * converting the KDS engine inside a diner slice would have put the cook's ticket chime at risk for
+ * a nice-to-have. The core holds the plumbing and none of the policy — this file still owns the
+ * preference and `chime.ts` still owns the rules.
  *
  * ⚠️ ARMING MUST HAPPEN INSIDE A USER GESTURE. Browsers create an AudioContext `suspended` and only
  * `resume()` from a real interaction — on iOS this is enforced strictly. The KDS has an explicit
@@ -20,7 +22,7 @@ import { CHIME, CHIME_LEVEL, SOUND_KEY, mayChime, soundEnabled, type ChimeMoment
  * `mayChime`: enabled and armed fail separately and neither implies the other).
  */
 
-let ctx: AudioContext | null = null;
+const engine = new ChimeEngine();
 
 /**
  * In-memory fallback for a preference the store REFUSED to persist.
@@ -34,7 +36,7 @@ let override: boolean | null = null;
 
 /** Is a real, running context available? Read by `mayChime`, never assumed. */
 export function soundArmed(): boolean {
-  return ctx?.state === "running";
+  return engine.armed;
 }
 
 /**
@@ -42,14 +44,10 @@ export function soundArmed(): boolean {
  * Returns whether audio is actually usable — a device with no WebAudio answers false and the caller
  * shows the toggle as unavailable rather than lying about it.
  */
-export async function armSound(): Promise<boolean> {
-  try {
-    ctx ??= new AudioContext();
-    if (ctx.state === "suspended") await ctx.resume();
-    return ctx.state === "running";
-  } catch {
-    return false; // no audio here; sound is garnish and its absence costs nothing
-  }
+export function armSound(): Promise<boolean> {
+  // `ChimeEngine.arm` answers false rather than throwing on a device with no WebAudio; sound is
+  // garnish here and its absence costs nothing, so the caller shows the toggle as unavailable.
+  return engine.arm();
 }
 
 /**
@@ -122,10 +120,10 @@ export function setSoundOn(on: boolean): boolean {
  * Re-arm across page loads — the defect both adversarial lenses found independently, and the one that
  * falsified this slice's central claim.
  *
- * `ctx` is module state and dies with the document; the preference is `localStorage` and does not. So
- * after the load on which the diner armed it, every subsequent document had `enabled = true` and
- * `armed = false` — the switch read ON, the copy named two bells, and nothing could ever sound again
- * short of toggling off and on. The arming has to be re-established once per document, and the only
+ * The engine's AudioContext is module state and dies with the document; the preference is
+ * `localStorage` and does not. So after the load on which the diner armed it, every subsequent
+ * document had `enabled = true` and `armed = false` — the switch read ON, the copy named two bells,
+ * and nothing could ever sound again short of toggling off and on. The arming has to be re-established once per document, and the only
  * currency a browser accepts for that is a real gesture.
  *
  * `pointerdown` in the CAPTURE phase, `{ once: true }` — the diner's first touch on any page, before
@@ -168,22 +166,7 @@ export function primeSound(): () => void {
 export function chime(moment: ChimeMoment): void {
   try {
     if (!mayChime({ enabled: isSoundOn(), armed: soundArmed() })) return;
-    const audio = ctx;
-    if (!audio) return;
-    const t0 = audio.currentTime + 0.02;
-    for (const n of CHIME[moment]) {
-      const osc = audio.createOscillator();
-      const gain = audio.createGain();
-      osc.type = "sine";
-      osc.frequency.value = n.freq;
-      // Fast attack, exponential release — a soft mallet, not a buzzer. (kds-sound.ts, same shape.)
-      gain.gain.setValueAtTime(0.0001, t0 + n.at);
-      gain.gain.exponentialRampToValueAtTime(CHIME_LEVEL, t0 + n.at + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + n.at + n.dur);
-      osc.connect(gain).connect(audio.destination);
-      osc.start(t0 + n.at);
-      osc.stop(t0 + n.at + n.dur + 0.05);
-    }
+    engine.play(CHIME[moment], CHIME_LEVEL);
   } catch {
     /* deliberate: sound is garnish — never let an audio quirk break a send or a payment */
   }

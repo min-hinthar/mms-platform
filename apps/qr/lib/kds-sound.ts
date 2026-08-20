@@ -1,7 +1,8 @@
 "use client";
+import { ChimeEngine, type ChimeNote } from "./chime-core";
 
 /**
- * W3c (O-C): the KDS chime engine — synthesized WebAudio tones, no audio assets to load or cache-miss
+ * W3c (O-C): the KDS chime — synthesized WebAudio tones, no audio assets to load or cache-miss
  * mid-rush. Browsers gate audio behind a user gesture, so the engine stays dormant until arm() runs
  * inside a tap ("Enable sound" at shift start); volume + mute persist per device (localStorage).
  *
@@ -9,13 +10,18 @@
  * scango = a brighter three-note rise — that customer is standing at the counter, the cook should hear
  * WHICH kind of work landed without looking. The re-chime (a ticket sitting un-started) reuses the
  * channel tone at a lower volume so it nags without startling.
+ *
+ * **M90** moved the synthesis into `chime-core.ts`, shared with the diner's chime. What stayed here is
+ * everything the kitchen decides for itself: the tone vocabulary, the 0.8 default, the `soft` re-chime
+ * level, and the persisted per-device volume. The diner's policy inverts on every one of those axes
+ * (`chime.ts` has the table), so the two policies are still two files — only the oscillator plumbing
+ * is one. `KdsChime`'s surface (`arm` · `armed` · `play(channel, soft)`) is unchanged, so no KDS
+ * caller was touched by that move.
  */
 
 const VOLUME_KEY = "mms.kds.volume"; // 0..1, persisted per device
 
-type Note = { freq: number; at: number; dur: number };
-
-const TONES: Record<"dinein" | "pickup", Note[]> = {
+const TONES: Record<"dinein" | "pickup", ChimeNote[]> = {
   dinein: [
     { freq: 660, at: 0, dur: 0.18 },
     { freq: 880, at: 0.2, dur: 0.26 },
@@ -27,45 +33,33 @@ const TONES: Record<"dinein" | "pickup", Note[]> = {
   ],
 };
 
+/** The re-chime multiplier — the 60–90s un-started nag plays the same tone at this fraction. */
+export const SOFT_LEVEL = 0.4;
+
+/** Loud by default (SPEC-KDS §3) — a cook must hear a ticket land across a hot line. */
+export const KDS_DEFAULT_VOLUME = 0.8;
+
 export class KdsChime {
-  private ctx: AudioContext | null = null;
+  private engine = new ChimeEngine();
 
   /** Must be called from a user gesture (the "Enable sound" tap) — creates/resumes the AudioContext. */
-  async arm(): Promise<boolean> {
-    try {
-      this.ctx ??= new AudioContext();
-      if (this.ctx.state === "suspended") await this.ctx.resume();
-      return this.ctx.state === "running";
-    } catch {
-      return false; // no audio on this device — the visual channel (flash + pill) still covers O-C
-    }
+  arm(): Promise<boolean> {
+    // A device with no audio answers false; the visual channel (flash + pill) still covers O-C.
+    return this.engine.arm();
   }
 
   get armed(): boolean {
-    return this.ctx?.state === "running";
+    return this.engine.armed;
   }
 
   /** Play the channel's tone. `soft` halves the level (the 60–90s un-started re-chime). */
   play(channel: "dinein" | "pickup" | "scango", soft = false): void {
-    const ctx = this.ctx;
-    if (!ctx || ctx.state !== "running") return;
-    const level = getKdsVolume() * (soft ? 0.4 : 1);
-    if (level <= 0) return;
-    const notes = TONES[channel === "dinein" ? "dinein" : "pickup"];
-    const t0 = ctx.currentTime + 0.02;
-    for (const n of notes) {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "sine";
-      osc.frequency.value = n.freq;
-      // A fast attack + exponential release reads as a soft mallet, not a buzzer.
-      gain.gain.setValueAtTime(0.0001, t0 + n.at);
-      gain.gain.exponentialRampToValueAtTime(Math.max(level, 0.001), t0 + n.at + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + n.at + n.dur);
-      osc.connect(gain).connect(ctx.destination);
-      osc.start(t0 + n.at);
-      osc.stop(t0 + n.at + n.dur + 0.05);
-    }
+    // Before the preference read, not after: an un-armed station is the common case at shift start,
+    // and a ticket landing must not cost a localStorage hit to discover there is nothing to play.
+    if (!this.engine.armed) return;
+    const level = getKdsVolume() * (soft ? SOFT_LEVEL : 1);
+    // A muted station costs nothing: `chimeSchedule` returns an empty schedule at or below zero.
+    this.engine.play(TONES[channel === "dinein" ? "dinein" : "pickup"], level);
   }
 }
 
@@ -73,9 +67,9 @@ export function getKdsVolume(): number {
   try {
     const raw = localStorage.getItem(VOLUME_KEY);
     const v = raw == null ? NaN : Number(raw);
-    return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0.8; // loud by default (SPEC-KDS §3)
+    return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : KDS_DEFAULT_VOLUME;
   } catch {
-    return 0.8;
+    return KDS_DEFAULT_VOLUME;
   }
 }
 
