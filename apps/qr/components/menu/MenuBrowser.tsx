@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge, DegradedStrip, Icon } from "@mms/ui";
 import { AddButton } from "@/components/AddButton";
 import { CartBar } from "@/components/CartBar";
@@ -19,6 +19,8 @@ import { StartHereBand } from "./StartHereBand";
 import { TasteBand } from "./TasteBand";
 import { FavoritesRail } from "./FavoritesRail";
 import { useCart } from "@/components/TableCartProvider";
+import { PullToRefresh } from "@/components/PullToRefresh";
+import { catalogFreshness, freshnessSentence, type CatalogRow } from "@/lib/catalog-freshness";
 import { toggleFavorite } from "@/lib/favorites";
 import { reorderOrder } from "@/lib/reorder";
 import { LEND_CHANGE_EVENT } from "@/lib/deviceIdentity";
@@ -51,6 +53,17 @@ const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
  * server-fetched (RLS, fast TTFB); only the interaction is client-side. The item rows keep the R5a
  * textured card + the AddButton morph; the item DETAIL sheet is R6b.
  */
+/** W22c — the comparable projection of the catalog: what the freshness diff is allowed to see.
+ *  Deliberately tiny — no price is ever handed to a surface that could print a delta. */
+function catalogRows(items: MenuItem[]): CatalogRow[] {
+  return items.map((i) => ({
+    id: i.id,
+    name: i.name_en,
+    soldOut: !!i.is_sold_out,
+    priceCents: i.base_price_cents,
+  }));
+}
+
 export function MenuBrowser({
   items,
   mode,
@@ -59,6 +72,7 @@ export function MenuBrowser({
   welcome = null,
   reorderId = null,
   catalogStale = false,
+  catalogStamp = 0,
 }: {
   items: MenuItem[];
   mode: string;
@@ -79,6 +93,11 @@ export function MenuBrowser({
   /** W10a: the catalog shown is the LAST-GOOD copy (the live read failed) — render the honest
    *  staleness strip. Prices are re-derived server-side at add time, so ordering stays safe. */
   catalogStale?: boolean;
+  /** W22c — a `Date.now()` stamped at RSC render. Never shown; it is the only PROOF available that a
+   *  `router.refresh()` actually produced a new server render, because `router.refresh()` returns
+   *  void and cannot report failure. An unchanged stamp means we could not check, which is a
+   *  different sentence from "nothing changed". */
+  catalogStamp?: number;
 }) {
   const [q, setQ] = useState("");
   const [diets, setDiets] = useState<Diet[]>([]);
@@ -143,6 +162,25 @@ export function MenuBrowser({
   // run the earner-gated server reorder EXACTLY once, strip the param (so refresh/back can't double-
   // run it), announce the honest outcome through the provider's ONE live region, and re-sync the cart.
   const { cartId, announce, refresh } = useCart();
+
+  // ── W22c — the refresh baseline ────────────────────────────────────────────────────────────────
+  // `baseline` is what the diner was last TOLD about; the settle callback diffs the current props
+  // against it and then adopts them, so a second pull reports what changed since the last sentence
+  // rather than since arrival. The stamp comparison is the proof a server render landed at all.
+  //
+  // The callback closes over the current props rather than mirroring them into a second ref, and
+  // that is deliberate: `PullToRefresh` is a CHILD, so its effects run BEFORE this component's, and
+  // a ref synced in an effect here would still be one render stale by the time the child called
+  // back. `baseline` itself is only read and written at event time, never during render.
+  const baseline = useRef({ rows: catalogRows(items), stamp: catalogStamp });
+  const onRefreshSettled = useCallback(() => {
+    const now = { rows: catalogRows(items), stamp: catalogStamp };
+    const base = baseline.current;
+    const outcome = catalogFreshness(base.rows, now.rows, now.stamp !== base.stamp);
+    baseline.current = now;
+    // Through the provider's ONE live region — this view mints no second one (QA-CHECKLIST §A).
+    announce(freshnessSentence(outcome));
+  }, [items, catalogStamp, announce]);
   const reorderRan = useRef(false);
   const [reorderNote, setReorderNote] = useState<string | null>(null);
   const menuHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -358,6 +396,11 @@ export function MenuBrowser({
     // W22a — no isolation on purpose: the page ground lives on <html> (canvas), so the fixed
     // z:-1 PaperAmbient is visible without a stacking context that would trap fixed overlays.
     <main style={{ maxWidth: 440, margin: "0 auto", paddingBottom: 96 }}>
+      {/* W22c — the catalog is the one diner surface with neither a push channel nor a wake re-read,
+          so an 86 landing mid-service never reaches a phone already sitting here. Suppressed while
+          the catalog is already the last-good copy: pulling toward a read we know is failing would
+          promise a freshness the strip above has just denied. */}
+      <PullToRefresh onSettled={onRefreshSettled} disabled={catalogStale} />
       <PaperAmbient />
       {/* The persistent AppHeader now owns the notch clearance (it's sticky above this in-flow title), so
           this header must NOT add env(safe-area-inset-top) again — that double-counted the inset. */}

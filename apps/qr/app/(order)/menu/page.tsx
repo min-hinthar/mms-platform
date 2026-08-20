@@ -137,6 +137,21 @@ export default async function Menu({
         welcome={welcome}
         reorderId={reorder ?? null}
         catalogStale={catalogStale}
+        // W22c — the ONLY proof available that a `router.refresh()` produced a new server render:
+        // `router.refresh()` returns void and cannot report failure, so the pull compares this
+        // stamp before and after. Never rendered — a visible "as of 6:41pm" would be a NEW promise,
+        // and it would collide with W22b's one-countdown-surface rule. This value is a signal, not
+        // a claim. It is deliberately outside the last-good cache: a served-from-cache render still
+        // advances it, and `catalogStale` (which suppresses the gesture) is what carries that fact.
+        //
+        // `react-hooks/purity` flags `Date.now()` here, and the rule is right about CLIENT
+        // components and wrong about this one. This is a Server Component: there is no re-render to
+        // destabilise, each render IS a fresh request, and a value that changes per request is the
+        // entire definition of a render stamp. A content hash cannot substitute — it could not tell
+        // "the refresh landed and nothing changed" apart from "the refresh never landed", which is
+        // the one distinction this exists to make.
+        // eslint-disable-next-line react-hooks/purity -- impure by design; RSC render stamp (above)
+        catalogStamp={Date.now()}
       />
     </TableCartProvider>
   );

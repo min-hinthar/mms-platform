@@ -1019,6 +1019,13 @@ h3 {
   display: flex;
   gap: 7px;
   overflow-x: auto;
+  /* W22c — the rail must not chain its scroll into the browser's BACK gesture. A rail already
+     at scrollLeft 0 that keeps receiving a rightward swipe hands the overscroll to the
+     document, and on iOS that IS the back gesture: a diner flicking the category rail back to
+     the start leaves the page. `-x` ONLY — the shorthand must never appear here or on
+     :root/html/body, because `contain` on both axes would also kill the vertical pull the
+     platform owns, app-wide. */
+  overscroll-behavior-x: contain;
   scrollbar-width: none;
   /* vertical padding gives the active pill's lift shadow room to render — overflow-x:auto forces
      overflow-y:auto, which would otherwise CLIP the shadow to invisibility. margin-top drops to 2px so
@@ -1073,6 +1080,8 @@ h3 {
   display: flex;
   gap: 8px;
   overflow-x: auto;
+  /* W22c — see `.menu-rail`: `-x` only, never the shorthand. */
+  overscroll-behavior-x: contain;
   scrollbar-width: none;
   padding: 4px 0 16px;
   scroll-snap-type: x proximity;
@@ -1478,6 +1487,8 @@ h3 {
   display: flex;
   gap: 10px;
   overflow-x: auto;
+  /* W22c — see `.menu-rail`: `-x` only, never the shorthand. */
+  overscroll-behavior-x: contain;
   scrollbar-width: none;
   list-style: none;
   padding: 0;
@@ -4434,6 +4445,8 @@ html[data-seen-surface] .mms-stagger {
   display: flex;
   gap: 10px;
   overflow-x: auto;
+  /* W22c — see `.menu-rail`: `-x` only, never the shorthand. */
+  overscroll-behavior-x: contain;
   scroll-snap-type: x proximity;
   -webkit-overflow-scrolling: touch;
 }
@@ -4695,6 +4708,8 @@ html[data-seen-surface] .mms-stagger {
   margin: 2px -20px 8px;
   padding: 2px 20px;
   overflow-x: auto;
+  /* W22c — see `.menu-rail`: `-x` only, never the shorthand. */
+  overscroll-behavior-x: contain;
   scrollbar-width: none;
 }
 .taste-rail::-webkit-scrollbar {
@@ -5542,6 +5557,8 @@ html[data-seen-surface] .mms-stagger {
   /* extra end padding lets the next tile peek ("more →") */
   padding-right: 18px;
   overflow-x: auto;
+  /* W22c — see `.menu-rail`: `-x` only, never the shorthand. */
+  overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
 }
@@ -6851,6 +6868,8 @@ html[data-seen-surface] .mms-stagger {
   align-items: center;
   gap: var(--s2);
   overflow-x: auto;
+  /* W22c — see `.menu-rail`: `-x` only, never the shorthand. */
+  overscroll-behavior-x: contain;
   padding: 2px 0;
 }
 .kds-recall-btn {
@@ -7358,5 +7377,50 @@ html[data-seen-surface] .mms-stagger {
     border: none !important;
     background: #fff !important;
     color: #1b1714 !important;
+  }
+}
+
+/* ── W22c · pull-to-refresh (the /menu gesture) ─────────────────────────────────────────────────
+   The indicator is the ONLY thing that moves: `/menu`'s <main> hosts two position:fixed children
+   (PaperAmbient at z:-1 and CartBar, the primary CTA), and a transform on an ancestor would become
+   their containing block — dragging the Add bar off-screen and cropping the ambient. Same family as
+   the isolation:isolate rule PaperAmbient's host already carries.
+
+   No new z token: it sits below the header's bottom edge and above the page ground, which plain
+   `--z-toolbar`-adjacent stacking already gives it via DOM order inside <main>. */
+.ptr {
+  position: absolute;
+  top: calc(var(--header-height) + env(safe-area-inset-top) + 4px);
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  pointer-events: none;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--t2);
+  will-change: transform, opacity;
+}
+.ptr-star {
+  font-size: var(--fs-body);
+  color: var(--ac);
+  display: inline-block;
+}
+/* The ✦ is the only continuous signal — deliberately NOT the lit-gold cap, which
+   docs/DESIGN-LANGUAGE.md reserves for chosen, PERSISTED selections. A transient gesture state
+   borrowing it would dilute the one selection vocabulary the design language exists to protect. */
+.ptr-star-spin {
+  animation: ptr-spin 900ms linear infinite;
+}
+@keyframes ptr-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ptr-star-spin {
+    animation: none;
   }
 }
