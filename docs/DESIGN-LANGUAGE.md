@@ -436,9 +436,15 @@ lands on someone who knows the truth.
   throws on a bare add (`enforceCardinality`), so a card offering it promises something the code
   cannot keep — and the refusal surfaces as a misdiagnosed session error, not as "choose an option".
   Availability is not only `is_sold_out`.
-- **Attribution you do not have is not attribution you may assume.** `earned_by` is who PAID. Where
-  the payer may not be the person who chose — a dine-in host covering a table — the honest move is to
-  exclude that history, not to average over it. Same call `/staff/tips` makes about `settled_by`.
+- **Attribution you do not have is not attribution you may assume — and when the gap is structural,
+  close it rather than living with it.** `earned_by` is who PAID, so where the payer may not be the
+  person who chose — a dine-in host covering a table — excluding that history was the only honest
+  move available. It was also a real cost: the archetype the feature exists for was the one it could
+  not serve. **M87 carried the seat into the order**, so the same surface now counts the person who
+  CHOSE, and the payer only where no seat was ever recorded and the mode makes paying and choosing
+  the same act. The lesson generalises: an exclusion made for honesty is correct and temporary — it
+  names a missing fact, and the fix is usually to record the fact, not to loosen the rule. Where the
+  fact is still missing, the old call stands (`/staff/tips` on `settled_by`).
 - **Filter availability BEFORE ranking, not after.** After-the-fact filtering both offers dishes that
   are gone (the last-tap refusal) and lets an unavailable favourite crowd out the one that could have
   been offered.

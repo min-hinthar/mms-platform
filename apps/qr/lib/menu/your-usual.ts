@@ -42,14 +42,30 @@
  * 5. **Say nothing rather than something thin.** Below the threshold the outcome is `none` and the
  *    arrival beat renders exactly what a first-timer sees.
  *
- * 6. **Only history where the payer is certainly the eater counts** — enforced in the read.
- *    `earned_by` is who PAID, and `qr_order_items` carries no seat, so a dine-in host who picks up
- *    the tab for a four-top owns every guest's dish in this data. Two such visits and the card would
- *    name a dish they have never once ordered — and hand a stranger's diet, religion or allergy back
- *    to them as their own taste. The read counts to-go and pickup lines only. That is a real cost (a
- *    solo dine-in regular is the archetype, and is excluded), and it is the same call `/staff/tips`
- *    already makes about `settled_by`: some things genuinely cannot be attributed, and guessing is
- *    worse than saying so.
+ * 6. **Only history that is honestly THIS person's counts** — enforced in the read, and since
+ *    **M87** enforced by the seat rather than by the receipt.
+ *
+ *    W22e shipped with `earned_by` — who PAID — as the only person attached to a dish, because
+ *    `qr_order_items` carried no seat. On a dine-in table the host who picks up the tab owned every
+ *    guest's dish in that data, so two such visits would name a dish they had never once ordered,
+ *    and hand a stranger's diet, religion or allergy back to them as their own taste. The only
+ *    honest response was to exclude dine-in wholesale — which cost the archetype, since a solo
+ *    dine-in regular is exactly who this card is for.
+ *
+ *    M87 adds an ADDER identity that nothing may rewrite — `qr_cart_items.added_by`, frozen at insert
+ *    by a trigger — and carries it through the three fulfill RPCs, so a line now records who CHOSE
+ *    it. It is deliberately NOT `by_seat`: the split-the-bill UI rewrites that column to whoever will
+ *    PAY for a line, so reading it would credit a host who took a guest's dish onto her own share
+ *    with that guest's taste — the same defect in a more convincing disguise.
+ *    `mms_usual_lines` counts a line for the diner who added it, and falls back to the
+ *    payer only where no adder was ever recorded AND the mode makes paying and choosing the same act
+ *    — which keeps every pre-M87 to-go habit counting without resurrecting the dine-in case. The
+ *    rule lives in that function's WHERE clause and is pinned by
+ *    `supabase/tests/m87_order_item_seat_test.sql`, driven by the real fulfill RPCs.
+ *
+ *    What has NOT changed is the principle, and it still binds wherever the seat is null: some
+ *    things genuinely cannot be attributed, and guessing is worse than saying so — the same call
+ *    `/staff/tips` makes about `settled_by`.
  */
 
 /** One line of the caller's own paid history, already narrowed by the read. */

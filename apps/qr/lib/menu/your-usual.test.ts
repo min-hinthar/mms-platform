@@ -235,9 +235,16 @@ describe("the read is scoped to the caller — guarded as TEXT, not by import", 
   const raw = readFileSync(new URL("./your-usual-read.ts", import.meta.url), "utf8");
   const src = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
 
-  it("⚠️ pins the history query to the caller's OWN uid", () => {
-    expect(src).toContain('.eq("qr_orders.earned_by", user.id)');
-    expect(src).toContain('.eq("qr_orders.status", "paid")');
+  it("⚠️ pins the history read to the caller's OWN uid", () => {
+    // M87 — the predicate moved into `mms_usual_lines` (a SECURITY DEFINER function whose WHERE
+    // clause does the scoping, revoked from anon/authenticated). What this file must still get right
+    // is WHICH uid it passes: the verified session's, never a value that reached it from outside.
+    expect(src).toContain('db.rpc("mms_usual_lines", { p_uid: user.id');
+    // …and passes it EXACTLY once, so a second call site cannot hand the function a different uid.
+    // (An earlier negative lookahead here was vacuous: `\s*` matches empty, so it fired on the
+    // correct source too. A count is unambiguous.)
+    expect([...src.matchAll(/p_uid:/g)]).toHaveLength(1);
+    expect([...src.matchAll(/db\.rpc\(/g)]).toHaveLength(1);
   });
 
   it("⚠️ verifies the session with getUser(), never getSession()", () => {
@@ -248,11 +255,15 @@ describe("the read is scoped to the caller — guarded as TEXT, not by import", 
     expect(src).not.toContain("getSession");
   });
 
-  it("⚠️ counts only history where the payer is certainly the eater", () => {
-    // `qr_order_items` carries no seat, so a dine-in host owns every guest's dish in this data.
-    expect(src).toContain('.neq("fulfillment", "dinein")');
-    // A partial refund leaves status='paid' (W23b), so the line filter is the only signal.
-    expect(src).toContain('.eq("refunded_cents", 0)');
+  it("⚠️ no longer re-implements the attribution rule in TypeScript", () => {
+    // M87 — the rule ("the seat that ADDED the line, or the payer where no seat was recorded and the
+    // mode makes paying and choosing the same act") is the function's WHERE clause, proved against a
+    // real database by `supabase/tests/m87_order_item_seat_test.sql`. A second copy here would be a
+    // value computed in one place and quoted in another, which this repo has paid for repeatedly —
+    // and the copy in TypeScript would be the one nobody could test.
+    expect(src).not.toContain("dinein");
+    expect(src).not.toContain("earned_by");
+    expect(src).not.toContain("refunded_cents");
   });
 
   it("takes NO uid parameter — the uid comes from the verified session only", () => {

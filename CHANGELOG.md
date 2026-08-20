@@ -4,6 +4,133 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M87 — the seat that CHOSE the dish, carried into the order (2026-08-20)
+
+`qr_cart_items.by_seat` is the verified diner uid that added a line. Every fulfill RPC dropped it
+when copying the cart into `qr_order_items`, so once an order existed the only person attached to a
+dish was `qr_orders.earned_by` — **who paid**.
+
+W22e's "your usual" is built on that history, and the gap forced it to exclude dine-in entirely: on a
+dine-in table the host who picks up the tab owned every guest's dish in the data, so two such visits
+would name a dish they had never once ordered — and hand a stranger's diet, religion or allergy back
+to them as their own taste. Honest, and it cost the archetype: **a solo dine-in regular is exactly
+who the card is for, and they never saw it.**
+
+**An IMMUTABLE adder, three writers, one added expression each.** `added_by uuid` on both
+`qr_cart_items` and `qr_order_items`, and `ci.added_by` added to the item-copy in `mms_fulfill_order` (restated from its W23d body),
+`mms_fulfill_cash_order` and `mms_fulfill_split_order` (from M3). Nothing else in any of the three
+changes, so a diff against those files is a one-line-per-function read.
+
+#### Codex round 1 killed the premise, and it was right
+
+**`qr_cart_items.by_seat` is not "who chose" — and the first draft of this migration snapshotted it.**
+It starts as the adder's uid, but `assignLine` REWRITES it: the split-the-bill UI on `/cart` assigns
+a line to the seat that will **pay** for it. So the column carries two meanings — "who added this"
+until someone splits, "who owes for this" afterwards — and a host who generously takes her guest's
+dish onto her own share would have inherited that guest's taste. **Precisely the false-preference
+defect this migration exists to prevent, wearing a more precise-looking label.** The repo's own
+comment calls `by_seat` "provenance-only", which stopped being true when the split UI shipped.
+
+The fix is an adder identity nothing may rewrite, enforced by the database rather than by convention:
+`qr_cart_items.added_by`, seeded at INSERT from whatever the inserting path supplied and pinned
+against every later UPDATE by `mms_freeze_added_by`. A **trigger** rather than three more restated
+insert RPCs, because it covers every insert path — diner, staff, kiosk, grocery — including ones
+added later. `supabase/tests/…` now proves it against the real production write: a reassign moves
+`by_seat` and cannot move `added_by`, and the payer is credited with nothing.
+
+Two more from the same round, both real: the split fixture pinned `settle_expected_cents = 1000`
+against a 1105 capture, so `mms_fulfill_split_order` would have raised its reconcile mismatch before
+reaching any attribution assertion (the SQL test could not have passed); and `mms_usual_lines` had no
+`ORDER BY`, so PostgREST's `max_rows = 1000` would truncate a heavy history to an **arbitrary**
+subset rather than a capped one — now `order by created_at desc limit 500`, deterministic and below
+the cap.
+
+**Nullable, with no default and no backfill.** An order fulfilled before this migration has no seat
+and must not acquire a guessed one. A merge-reparented line has none either — the merge deliberately
+clears attribution — and neither does a staff- or kiosk-added line.
+
+**The attribution rule is a SQL function, not a query built in TypeScript.** `mms_usual_lines(uid,
+since)` is `SECURITY DEFINER`, revoked from `public`/`anon`/`authenticated` (it takes a uid, so an
+`authenticated` grant would be an endpoint for reading any stranger's eating habits), and its WHERE
+clause is the whole rule:
+
+- **`added_by = uid`** — the diner ADDED this line. True regardless of who paid or how the order
+  settled, which is what finally recognises a dine-in regular, and what makes a **split** table
+  attributable at all: its order row carries no payer, because each share has its own PaymentIntent.
+- **`added_by is null AND earned_by = uid AND fulfillment <> 'dinein'`** — the pre-M87 fallback,
+  unchanged in meaning, so no existing habit stops counting on deploy day. Both extra conditions are
+  load-bearing: `added_by is null` because a line we KNOW somebody else added must never be
+  re-attributed to the payer, and the dine-in exclusion because that is precisely where paying and
+  choosing come apart.
+
+It lives in SQL because the union cannot be expressed as a PostgREST filter across an embedded table,
+and a rule spread over a `.or()` string is a rule nobody can test. It also **strictly improves the
+modes W22e already counted**: the old justification for to-go was "the payer chose the food", which
+is an assumption; with the seat on the line it is a fact, or it is null and not guessed at.
+
+**Proved against a real database, driven by the real writers.** `supabase/tests/m87_order_item_seat_test.sql`
+(registered in `ci.yml`'s required list) calls the three fulfill RPCs rather than inserting into
+`qr_order_items` by hand — W23d's sharpest review finding was that a guard fed by a fixture proves the
+fixture. It asserts: the seat survives all three writers; **a dine-in host does not inherit her
+guest's dish** while the guest who chose it is credited although he paid nothing; a split diner is
+attributable at all; a pre-M87 to-go habit still counts; the fallback never reaches dine-in and never
+re-attributes a line whose seat is known; voided, comped and refunded lines stay out; and the function
+is not diner-callable.
+
+⚠️ **The SQL test could not be run locally** — this container has no Docker, so there is no local
+Supabase stack and `supabase gen types --local` could not run either. The generated types were
+hand-written to the generator's conventions and CI's `types-fresh` job is the authority on both.
+Stated rather than glossed: if either is wrong, CI says so before merge.
+
+#### The in-session adversarial round — the index could not serve the query
+
+One lens set (SQL/migration correctness · privacy · product truth). It independently confirmed the
+three findings above were the real defects and that the three restated fulfill RPCs differ from their
+baselines by **exactly one comment, one insert column and one select expression each** — checked
+mechanically rather than by eye, with the signatures byte-identical so `create or replace` mints no
+overload. It also verified the `revoke ... from public` (required for PUBLIC's implicit EXECUTE, and
+present) and that no app query selects `*` from either table, so the new column reaches no browser.
+
+Then the finding worth the round: **the partial index cannot serve the read.** The predicate ORed
+across two TABLES — arm A on `qr_order_items.added_by`, arm B on `qr_orders.earned_by` — and Postgres
+cannot BitmapOr across a join, so _neither_ index was usable and the plan joined every paid order in
+the window against all of `qr_order_items` before filtering and sorting. On the app's highest-traffic
+page, for every signed-in diner. Now a **`union all`** of the two arms, each using its own index —
+`union all` and not `union` because the arms are provably disjoint (`added_by = uid` versus
+`added_by is null`), so there is nothing to deduplicate.
+
+Three smaller ones, all taken: the freeze trigger fired plpgsql on _every_ cart-line update while only
+ever restoring an unchanged value (now split, with `when (new.added_by is distinct from old.added_by)`
+on the UPDATE half); the column comment still named table merges as a null case, which stopped being
+true when attribution moved off `by_seat` (a merge clears the seat but not the adder — deliberate,
+since a seat id is a stable `auth.uid()`, and now written down); and `coalesce(refunded_cents, 0)` was
+dead code on a `not null default 0` column _and_ made the predicate non-sargable.
+
+#### Codex round 2 — the adder can be folded away, twice
+
+Both findings are the same class and both are real: a line's adder survives a _reassignment_ (the
+trigger sees to that) but can still be lost when two lines **fold into one**.
+
+**Fixed — `insertOrIncLine` merged on `by_seat` alone.** After Ben adds a dish and Ana reassigns it
+onto her share, Ana adding the same dish matched Ben's row on the seat and bumped its quantity, while
+the trigger held `added_by` at Ben. Ana's addition then existed nowhere, so a dish she really chose
+never reached her history. The merge key now requires **both** — byte-identical for every ordinary add
+(outside a reassign the two columns agree), and for a cart still open across this migration the rows
+simply stop merging and insert fresh, which this module's own header already calls a tolerated
+outcome. New suite `order-lines-seat.test.ts` asserts the query's FILTERS rather than an outcome —
+the shared harness's `eq`/`is` are no-ops that return the same rows whatever is asked, so an outcome
+assertion there would prove the mock — plus a mutant, and three ways of breaking it watched red.
+
+**Justified and filed as M96 — the table-merge fold.** `mms_merge_table_orders` folds a source line
+into an unassigned target and deletes the source, taking that diner's adder with it. Not fixed here:
+the failure direction is **silence** rather than a false claim, the fold only ever targets lines that
+already carry no seat (the merge deliberately clears attribution on re-parent), and the merge RPC has
+been restated seven times and carries the void/comp guards — a disproportionate blast radius for a
+rare, silent under-count.
+
+Registry: M87 closed. One new `verify:slice` mutant (196 total) for the merge key; the attribution rule itself is SQL,
+and the counting module next door still carries its eight.
+
 ### M82 — a `busy` prop on the Sheet primitive, and two live defects it names (2026-08-20)
 
 `Sheet` hands every caller four ways to dismiss. While a sheet body has an irreversible write in
@@ -74,7 +201,7 @@ passes a `useTransition` flag.
 
 Registry: M82 closed; M94 · M95 filed (both `InviteSheet`, found by the scout, out of scope here).
 No new `verify:slice` mutants — `packages/ui` is outside `MONEY_PATHS` and the runner's cwd is
-hardcoded to `apps/qr`. The gate moves from **821 qr + 70 ui** to **828 qr + 87 ui**.
+hardcoded to `apps/qr`. The gate moves from **821 qr + 70 ui** to **831 qr + 87 ui**.
 
 ### M83 — the email palette, named once and pinned (2026-08-20)
 
