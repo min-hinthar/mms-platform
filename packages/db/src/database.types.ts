@@ -1052,6 +1052,7 @@ export type Database = {
       }
       qr_cart_items: {
         Row: {
+          added_by: string | null
           bumped_at: string | null
           by_seat: string | null
           cart_id: string
@@ -1073,6 +1074,7 @@ export type Database = {
           unit_price_cents: number
         }
         Insert: {
+          added_by?: string | null
           bumped_at?: string | null
           by_seat?: string | null
           cart_id: string
@@ -1094,6 +1096,7 @@ export type Database = {
           unit_price_cents: number
         }
         Update: {
+          added_by?: string | null
           bumped_at?: string | null
           by_seat?: string | null
           cart_id?: string
@@ -1352,7 +1355,7 @@ export type Database = {
       }
       qr_order_items: {
         Row: {
-          by_seat: string | null
+          added_by: string | null
           ebt_eligible: boolean
           fulfillment: string
           id: string
@@ -1368,7 +1371,7 @@ export type Database = {
           unit_price_cents: number
         }
         Insert: {
-          by_seat?: string | null
+          added_by?: string | null
           ebt_eligible?: boolean
           fulfillment?: string
           id?: string
@@ -1384,7 +1387,7 @@ export type Database = {
           unit_price_cents: number
         }
         Update: {
-          by_seat?: string | null
+          added_by?: string | null
           ebt_eligible?: boolean
           fulfillment?: string
           id?: string

@@ -16,10 +16,34 @@ would name a dish they had never once ordered — and hand a stranger's diet, re
 to them as their own taste. Honest, and it cost the archetype: **a solo dine-in regular is exactly
 who the card is for, and they never saw it.**
 
-**One column, three writers, one added expression each.** `by_seat uuid` on `qr_order_items`, and
-`ci.by_seat` added to the item-copy in `mms_fulfill_order` (restated from its W23d body),
+**An IMMUTABLE adder, three writers, one added expression each.** `added_by uuid` on both
+`qr_cart_items` and `qr_order_items`, and `ci.added_by` added to the item-copy in `mms_fulfill_order` (restated from its W23d body),
 `mms_fulfill_cash_order` and `mms_fulfill_split_order` (from M3). Nothing else in any of the three
 changes, so a diff against those files is a one-line-per-function read.
+
+#### Codex round 1 killed the premise, and it was right
+
+**`qr_cart_items.by_seat` is not "who chose" — and the first draft of this migration snapshotted it.**
+It starts as the adder's uid, but `assignLine` REWRITES it: the split-the-bill UI on `/cart` assigns
+a line to the seat that will **pay** for it. So the column carries two meanings — "who added this"
+until someone splits, "who owes for this" afterwards — and a host who generously takes her guest's
+dish onto her own share would have inherited that guest's taste. **Precisely the false-preference
+defect this migration exists to prevent, wearing a more precise-looking label.** The repo's own
+comment calls `by_seat` "provenance-only", which stopped being true when the split UI shipped.
+
+The fix is an adder identity nothing may rewrite, enforced by the database rather than by convention:
+`qr_cart_items.added_by`, seeded at INSERT from whatever the inserting path supplied and pinned
+against every later UPDATE by `mms_freeze_added_by`. A **trigger** rather than three more restated
+insert RPCs, because it covers every insert path — diner, staff, kiosk, grocery — including ones
+added later. `supabase/tests/…` now proves it against the real production write: a reassign moves
+`by_seat` and cannot move `added_by`, and the payer is credited with nothing.
+
+Two more from the same round, both real: the split fixture pinned `settle_expected_cents = 1000`
+against a 1105 capture, so `mms_fulfill_split_order` would have raised its reconcile mismatch before
+reaching any attribution assertion (the SQL test could not have passed); and `mms_usual_lines` had no
+`ORDER BY`, so PostgREST's `max_rows = 1000` would truncate a heavy history to an **arbitrary**
+subset rather than a capped one — now `order by created_at desc limit 500`, deterministic and below
+the cap.
 
 **Nullable, with no default and no backfill.** An order fulfilled before this migration has no seat
 and must not acquire a guessed one. A merge-reparented line has none either — the merge deliberately
@@ -30,12 +54,12 @@ since)` is `SECURITY DEFINER`, revoked from `public`/`anon`/`authenticated` (it 
 `authenticated` grant would be an endpoint for reading any stranger's eating habits), and its WHERE
 clause is the whole rule:
 
-- **`by_seat = uid`** — the diner ADDED this line. True regardless of who paid or how the order
+- **`added_by = uid`** — the diner ADDED this line. True regardless of who paid or how the order
   settled, which is what finally recognises a dine-in regular, and what makes a **split** table
   attributable at all: its order row carries no payer, because each share has its own PaymentIntent.
-- **`by_seat is null AND earned_by = uid AND fulfillment <> 'dinein'`** — the pre-M87 fallback,
+- **`added_by is null AND earned_by = uid AND fulfillment <> 'dinein'`** — the pre-M87 fallback,
   unchanged in meaning, so no existing habit stops counting on deploy day. Both extra conditions are
-  load-bearing: `by_seat is null` because a line we KNOW belongs to another seat must never be
+  load-bearing: `added_by is null` because a line we KNOW somebody else added must never be
   re-attributed to the payer, and the dine-in exclusion because that is precisely where paying and
   choosing come apart.
 

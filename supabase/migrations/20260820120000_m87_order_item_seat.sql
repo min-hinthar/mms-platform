@@ -1,43 +1,73 @@
 -- M87 — who CHOSE the dish, not who paid for it.
 --
--- `qr_cart_items.by_seat` is the verified diner uid that added a line (set by every diner-path insert;
--- see `apps/qr/lib/cart.ts`). Every fulfill RPC dropped it when copying the cart into
--- `qr_order_items`, so once an order existed the only person attached to a dish was
--- `qr_orders.earned_by` — **who PAID**.
+-- Every fulfill RPC dropped the diner's identity when copying the cart into `qr_order_items`, so once
+-- an order existed the only person attached to a dish was `qr_orders.earned_by` — **who PAID**.
 --
 -- W22e's "your usual" is built on that history, and the gap forced it to exclude dine-in entirely
 -- (`.neq("fulfillment", "dinein")`): on a dine-in table the host who picks up the tab owns every
--- guest's dish in the data, so two such visits would name a dish they never ordered — and hand a
--- stranger's diet, religion or allergy back to them as their own taste. Honest, and it cost the
--- archetype: a solo dine-in regular is exactly who the card is for, and they never saw it.
+-- guest's dish, so two such visits would name a dish they never ordered — and hand a stranger's diet,
+-- religion or allergy back to them as their own taste. Honest, and it cost the archetype: a solo
+-- dine-in regular is exactly who the card is for, and they never saw it.
 --
--- Carrying the seat forward closes that, and it is strictly MORE honest for the modes that were
--- already counted: W22e's justification for to-go was "the payer chose the food", which is an
--- assumption. With the seat on the line it is a fact or it is null, and null is not guessed at.
+-- ⚠️ **`qr_cart_items.by_seat` IS NOT THE ANSWER, AND THE FIRST DRAFT OF THIS MIGRATION USED IT.**
+-- It starts life as the adder's uid, but `assignLine` (`apps/qr/lib/cart.ts`) REWRITES it: the
+-- split-the-bill UI on /cart assigns a line to the seat that will PAY for it. So the column carries
+-- two meanings — "who added this" until someone splits, "who owes for this" afterwards — and
+-- snapshotting it would credit a host who generously took a guest's dish onto her own share with that
+-- guest's taste. Precisely the false-preference defect this migration exists to prevent, wearing a
+-- more precise-looking label. (Codex found this on the draft; the repo's own comment calls `by_seat`
+-- "provenance-only", which stopped being true when the split UI shipped.)
 --
--- Three writers, one added column each — the W23d pattern. `mms_fulfill_order` is restated from its
--- W23d body (20260819300000), the other two from M3 (20260815100000); nothing else in any of them
--- changes, so a diff of this file against those is a one-line-per-function read.
+-- So M87 adds an ADDER identity that nothing may rewrite, and enforces the immutability in the
+-- database rather than by convention:
 --
--- SAFE ON EXISTING DATA. The column is nullable with no default and no backfill: an order fulfilled
--- before this migration has no seat and must not acquire a guessed one. `mms_usual_lines` treats a
--- null seat as "not attributable to anybody" and falls back to the payer only where the old
--- assumption was already accepted — which keeps every pre-migration to-go habit counting exactly as
--- it does today, and never resurrects the dine-in case this exists to fix.
+--   · `qr_cart_items.added_by` — frozen at INSERT from whatever the inserting path put in `by_seat`,
+--     and pinned against every later UPDATE by a trigger. A reassign moves `by_seat` and cannot move
+--     this. A trigger rather than three restated insert RPCs because it covers EVERY insert path,
+--     including the staff, kiosk and grocery ones, and any path added later.
+--   · `qr_order_items.added_by` — the fulfillment snapshot of it, carried by all three fulfill RPCs.
+--
+-- SAFE ON EXISTING DATA. Both columns are nullable with no default and **no backfill**. Backfilling
+-- `added_by := by_seat` on open carts would copy exactly the bill-allocation this is trying to avoid,
+-- and an order fulfilled before this migration has no adder to recover. A null adder falls back to
+-- the payer only where the pre-M87 assumption was already accepted — see `mms_usual_lines`.
 
--- ── 1. the column ───────────────────────────────────────────────────────────────────────────────
-alter table public.qr_order_items add column if not exists by_seat uuid;
+-- ── 1. the columns, and the trigger that makes the adder immutable ─────────────────────────────
+alter table public.qr_cart_items  add column if not exists added_by uuid;
+alter table public.qr_order_items add column if not exists added_by uuid;
 
-comment on column public.qr_order_items.by_seat is
-  'M87 — the verified diner uid that ADDED this line, snapshotted from qr_cart_items.by_seat at '
-  'fulfillment. Null for staff/kiosk-added lines, for lines re-parented by a table merge (which '
-  'deliberately clears attribution), and for every order fulfilled before M87. Never backfilled: a '
-  'guessed seat is worse than no seat. Provenance only — it authorizes nothing.';
+comment on column public.qr_cart_items.added_by is
+  'M87 — the diner uid that ADDED this line, frozen at insert and immutable thereafter (see '
+  'mms_freeze_added_by). Distinct from by_seat, which the split-the-bill UI rewrites to whoever will '
+  'PAY for the line. Attribution reads this one; settlement reads by_seat.';
+comment on column public.qr_order_items.added_by is
+  'M87 — the fulfillment snapshot of qr_cart_items.added_by. Null for staff/kiosk lines with no seat '
+  'and for every order fulfilled before M87. Never backfilled: a guessed adder is worse than none. '
+  'Provenance only — it authorizes nothing.';
 
--- Supports the per-diner history read. Partial: the null seats are the majority of old rows and are
+-- BEFORE INSERT: seed the adder from whatever the inserting path supplied as the seat.
+-- BEFORE UPDATE: refuse to move it, silently and unconditionally. `assignLine` updates `by_seat` and
+-- must not be able to drag attribution along with the bill.
+create or replace function public.mms_freeze_added_by() returns trigger
+  language plpgsql security definer set search_path = '' as $$
+begin
+  if tg_op = 'INSERT' then
+    new.added_by := coalesce(new.added_by, new.by_seat);
+  else
+    new.added_by := old.added_by;
+  end if;
+  return new;
+end; $$;
+
+drop trigger if exists qr_cart_items_freeze_added_by on public.qr_cart_items;
+create trigger qr_cart_items_freeze_added_by
+  before insert or update on public.qr_cart_items
+  for each row execute function public.mms_freeze_added_by();
+
+-- Supports the per-diner history read. Partial: null adders are the majority of old rows and are
 -- never the target of an equality lookup.
-create index if not exists qr_order_items_by_seat_idx
-  on public.qr_order_items(by_seat) where by_seat is not null;
+create index if not exists qr_order_items_added_by_idx
+  on public.qr_order_items(added_by) where added_by is not null;
 
 -- ── 2. mms_fulfill_order — restated from W23d (20260819300000) ──────────────────────────────────
 create or replace function public.mms_fulfill_order(
@@ -82,9 +112,9 @@ begin
             public.mms_dropped_snapshot(p_cart_id, p_payment_intent))
     returning id into v_order;
 
-  -- M87: `ci.by_seat` is the ONLY change in this function.
-  insert into public.qr_order_items (order_id, menu_item_id, name, qty, modifiers, modifier_option_ids, unit_price_cents, tax_cents, fulfillment, notes, by_seat)
-    select v_order, ci.menu_item_id, ci.name, ci.qty, ci.modifiers, ci.modifier_option_ids, ci.unit_price_cents, ci.tax_cents, ci.fulfillment, ci.notes, ci.by_seat
+  -- M87: `ci.added_by` is the ONLY change in this function.
+  insert into public.qr_order_items (order_id, menu_item_id, name, qty, modifiers, modifier_option_ids, unit_price_cents, tax_cents, fulfillment, notes, added_by)
+    select v_order, ci.menu_item_id, ci.name, ci.qty, ci.modifiers, ci.modifier_option_ids, ci.unit_price_cents, ci.tax_cents, ci.fulfillment, ci.notes, ci.added_by
     from public.qr_cart_items ci
     where ci.cart_id = p_cart_id and ci.state <> 'voided' and not ci.comped;
 
@@ -134,9 +164,9 @@ begin
             p_tax_cents, p_tip_cents, v_total, 'paid', 'cash', p_cart_id, p_settled_by, v_table, v_name)
     returning id into v_order;
 
-  -- M87: `ci.by_seat` is the ONLY change in this function.
-  insert into public.qr_order_items (order_id, menu_item_id, name, qty, modifiers, modifier_option_ids, unit_price_cents, tax_cents, fulfillment, notes, by_seat)
-    select v_order, ci.menu_item_id, ci.name, ci.qty, ci.modifiers, ci.modifier_option_ids, ci.unit_price_cents, ci.tax_cents, ci.fulfillment, ci.notes, ci.by_seat
+  -- M87: `ci.added_by` is the ONLY change in this function.
+  insert into public.qr_order_items (order_id, menu_item_id, name, qty, modifiers, modifier_option_ids, unit_price_cents, tax_cents, fulfillment, notes, added_by)
+    select v_order, ci.menu_item_id, ci.name, ci.qty, ci.modifiers, ci.modifier_option_ids, ci.unit_price_cents, ci.tax_cents, ci.fulfillment, ci.notes, ci.added_by
     from public.qr_cart_items ci
     where ci.cart_id = p_cart_id and ci.state <> 'voided' and not ci.comped;
 
@@ -210,9 +240,9 @@ begin
     from public.qr_cart_shares where cart_id = p_cart_id and status = 'captured'
     returning id into v_order;
 
-  -- M87: `ci.by_seat` is the ONLY change in this function.
-  insert into public.qr_order_items (order_id, menu_item_id, name, qty, modifiers, modifier_option_ids, unit_price_cents, tax_cents, fulfillment, notes, by_seat)
-    select v_order, ci.menu_item_id, ci.name, ci.qty, ci.modifiers, ci.modifier_option_ids, ci.unit_price_cents, ci.tax_cents, ci.fulfillment, ci.notes, ci.by_seat
+  -- M87: `ci.added_by` is the ONLY change in this function.
+  insert into public.qr_order_items (order_id, menu_item_id, name, qty, modifiers, modifier_option_ids, unit_price_cents, tax_cents, fulfillment, notes, added_by)
+    select v_order, ci.menu_item_id, ci.name, ci.qty, ci.modifiers, ci.modifier_option_ids, ci.unit_price_cents, ci.tax_cents, ci.fulfillment, ci.notes, ci.added_by
     from public.qr_cart_items ci
     where ci.cart_id = p_cart_id and ci.state <> 'voided' and not ci.comped;
 
@@ -240,14 +270,15 @@ grant execute on function public.mms_fulfill_split_order(uuid) to service_role;
 --
 -- The union, and why each arm is honest:
 --
---   A. `oi.by_seat = p_uid` — the diner ADDED this line. True regardless of who paid or how the
---      order settled, which is what finally lets a dine-in regular be recognised, and what makes a
---      split table attributable at all (its order row has no payer).
+--   A. `oi.added_by = p_uid` — the diner ADDED this line, and nothing since could move that (the
+--      cart-side trigger pins it against every UPDATE). True regardless of who paid, who the bill was
+--      split onto, or how the order settled — which is what finally lets a dine-in regular be
+--      recognised, and what makes a split table attributable at all (its order row has no payer).
 --
---   B. `oi.by_seat is null and o.earned_by = p_uid and oi.fulfillment <> 'dinein'` — the pre-M87
+--   B. `oi.added_by is null and o.earned_by = p_uid and oi.fulfillment <> 'dinein'` — the pre-M87
 --      fallback, unchanged in meaning from what W22e shipped, so no existing habit stops counting on
---      the day this deploys. Both extra conditions are load-bearing: `by_seat is null` because a line
---      we KNOW belongs to another seat must never be re-attributed to the payer, and the dine-in
+--      the day this deploys. Both extra conditions are load-bearing: `added_by is null` because a
+--      line we KNOW somebody else added must never be re-attributed to the payer, and the dine-in
 --      exclusion because that is precisely the case where paying and choosing come apart.
 --
 -- Deliberately NOT here: the threshold, the window arithmetic, the pairing rule and the tie-break.
@@ -265,9 +296,17 @@ create or replace function public.mms_usual_lines(p_uid uuid, p_since timestampt
     -- own ledger, never by the order's status.
     and coalesce(oi.refunded_cents, 0) = 0
     and (
-      oi.by_seat = p_uid
-      or (oi.by_seat is null and o.earned_by = p_uid and oi.fulfillment <> 'dinein')
+      oi.added_by = p_uid
+      or (oi.added_by is null and o.earned_by = p_uid and oi.fulfillment <> 'dinein')
     )
+  -- ORDER + LIMIT because PostgREST truncates a stored-procedure result at `max_rows` (1000 in
+  -- `supabase/config.toml`) and would otherwise hand back an ARBITRARY subset — which would make the
+  -- caller's counts, recency tie-break and pair detection unstable rather than merely capped. Newest
+  -- first, so a truncated answer is the most recent 500 days-worth rather than a random slice, and the
+  -- bound sits BELOW max_rows so the truncation is ours and deterministic. One diner's 90 days is
+  -- nowhere near this; it is a ceiling, not a working limit. (Codex round 1, P2.)
+  order by o.created_at desc
+  limit 500
 $$;
 -- Not diner-callable: it takes a uid, so an `authenticated` grant would make it an endpoint for
 -- reading any stranger's history. The caller is an internal server module that passes the

@@ -52,9 +52,13 @@
  *    honest response was to exclude dine-in wholesale — which cost the archetype, since a solo
  *    dine-in regular is exactly who this card is for.
  *
- *    M87 carries `qr_cart_items.by_seat` through the three fulfill RPCs, so a line now records who
- *    CHOSE it. `mms_usual_lines` counts a line for the seat that added it, and falls back to the
- *    payer only where no seat was ever recorded AND the mode makes paying and choosing the same act
+ *    M87 adds an ADDER identity that nothing may rewrite — `qr_cart_items.added_by`, frozen at insert
+ *    by a trigger — and carries it through the three fulfill RPCs, so a line now records who CHOSE
+ *    it. It is deliberately NOT `by_seat`: the split-the-bill UI rewrites that column to whoever will
+ *    PAY for a line, so reading it would credit a host who took a guest's dish onto her own share
+ *    with that guest's taste — the same defect in a more convincing disguise.
+ *    `mms_usual_lines` counts a line for the diner who added it, and falls back to the
+ *    payer only where no adder was ever recorded AND the mode makes paying and choosing the same act
  *    — which keeps every pre-M87 to-go habit counting without resurrecting the dine-in case. The
  *    rule lives in that function's WHERE clause and is pinned by
  *    `supabase/tests/m87_order_item_seat_test.sql`, driven by the real fulfill RPCs.

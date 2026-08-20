@@ -67,8 +67,8 @@ export async function getYourUsual(catalog: UsualCandidate[]): Promise<UsualOutc
     const since = new Date(Date.now() - USUAL_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
     // M87 — ONE call, and the attribution predicate lives inside it. Before M87 this was a PostgREST
     // query pinned to `qr_orders.earned_by` (who PAID) with dine-in excluded wholesale, because a
-    // line carried no seat; the union that replaced it — "the seat that added this line, or the payer
-    // where no seat was ever recorded and the mode makes paying and choosing the same act" — cannot
+    // line carried no adder; the union that replaced it — "the diner who ADDED this line, or the payer
+    // where no adder was ever recorded and the mode makes paying and choosing the same act" — cannot
     // be written as a PostgREST filter across an embedded table, and a rule spread over a `.or()`
     // string is a rule nobody can test. See the function's own header for why each arm is honest.
     const { data, error } = await db.rpc("mms_usual_lines", { p_uid: user.id, p_since: since });
