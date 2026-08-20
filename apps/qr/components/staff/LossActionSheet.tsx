@@ -228,7 +228,13 @@ export function LossActionSheet({
   const verb = action === "comp" ? "Comp" : "Void";
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title={`${verb} “${line.name}”`}>
+    // M82 — `busy` while a void/comp or an approval request is in flight. This sheet had NO guard at
+    // all while its sibling `RefundActionSheet` did, and it is the worse case of the two: `voidLine`
+    // runs `verifyStaffPin` BEFORE the RPC, which atomically spends one of the manager's five
+    // attempts. A dismissal mid-flight therefore loses the verdict AND the attempt — and the natural
+    // response, trying again, walks a manager toward a floor-wide lockout with nothing on screen
+    // ever having said why. `pending` is `useTransition`'s flag, so it settles on the failure path.
+    <Sheet open={open} onOpenChange={onOpenChange} busy={pending} title={`${verb} “${line.name}”`}>
       <form onSubmit={submit} style={{ marginTop: 8 }} noValidate>
         <p style={lineSummary}>
           {line.qty}× {line.name} · {fmt(line.unitPriceCents * line.qty)}

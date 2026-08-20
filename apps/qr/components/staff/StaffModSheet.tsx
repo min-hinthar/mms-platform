@@ -48,7 +48,13 @@ export function StaffModSheet({
   );
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title={itemName}>
+    // M82 — `busy` while the add is in flight. The refusal from `staffAddItem` ("This table is
+    // mid-payment — wait until they've finished.") is rendered ONLY inside this sheet, and
+    // deliberately so: `StaffMenuBrowser` routes it here with the comment "the page-level one is
+    // behind the modal scrim". Dismissing mid-add destroys the one surface that message has, so the
+    // server is told nothing and the item is simply not there. `pending` is the parent's transition
+    // flag, threaded down.
+    <Sheet open={open} onOpenChange={onOpenChange} busy={pending} title={itemName}>
       {/* The Sheet renders its title visibly — no duplicate heading here. */}
       <div style={body}>
         {groups.map((g) => (

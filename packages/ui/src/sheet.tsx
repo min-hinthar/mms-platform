@@ -4,6 +4,7 @@ import * as React from "react";
 import { m, useDragControls } from "framer-motion";
 import { DomMaxProvider } from "./dom-max-provider";
 import { Icon } from "./icon";
+import { sheetDismiss } from "./sheet-dismiss";
 
 /**
  * Accessible bottom sheet built on Radix Dialog — replaces the prototype's hand-rolled
@@ -17,18 +18,43 @@ import { Icon } from "./icon";
  * (`useDragControls` + `dragListener={false}`) so the body's own `overflow-y:auto` scroll is
  * untouched — only the handle starts a drag. Needs framer `domMax` (drag), loaded lazily via the
  * nested `DomMaxProvider` (kept off the root chunk). A drag past a distance/velocity threshold closes.
+ *
+ * M82 — **`busy`**: while the body has an irreversible write in flight, none of the FOUR dismissal
+ * vectors may close the sheet. The policy lives in `sheet-dismiss.ts` (pure, tested, and the place
+ * the vector list is enumerated); this file is the wiring that consults it. See the `busy` prop.
  */
 export function Sheet({
   open,
   onOpenChange,
   title,
   children,
+  busy = false,
   onCloseAutoFocus,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   title: string;
   children: React.ReactNode;
+  /**
+   * M82 — an irreversible write is in flight; refuse every way of closing until it settles.
+   *
+   * Dismissing mid-write does not cancel anything. The refund still moves, the void still spends one
+   * of the manager's five PIN attempts, the add still reaches the server — the only thing dismissal
+   * changes is that nobody sees how it ended, usually on a tree that has already unmounted by the
+   * time the answer lands. `RefundActionSheet` solved this locally in W22c; this prop is that rule
+   * stated once, plus the honest affordance the local version could not give (the ✕ stays visible
+   * and named but reads as unavailable, instead of looking live and silently doing nothing).
+   *
+   * **Pass a flag that SETTLES on the failure path too** — a `useTransition` pending, or a promise's
+   * `finally`; never a bare boolean a branch can strand. All four exits are blocked while this is
+   * true and the focus scope is `trapped`, so a `busy` that never clears is a permanent keyboard
+   * trap (WCAG 2.1.2). The primitive cannot enforce that and does not pretend to; it is the one part
+   * of this contract the caller owns.
+   *
+   * Do NOT pass it on a sheet that performs no irreversible write. Of the eleven callers today, only
+   * three qualify — see `docs/DESIGN-LANGUAGE.md` §16.
+   */
+  busy?: boolean;
   /** Close-restore override. Since W9e the primitive restores the OPENER by default (it captures
    *  `document.activeElement` at mount — Radix would otherwise focus a `Dialog.Trigger` this
    *  primitive never renders and drop focus on <body>; J21). Pass this only when the default is
@@ -37,12 +63,25 @@ export function Sheet({
   onCloseAutoFocus?: (event: Event) => void;
 }) {
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+    // THE choke point. Radix funnels Esc (`useEscapeKeydown` → `onDismiss`), the scrim
+    // (`usePointerDownOutside` → `onDismiss`) and the ✕ (`Dialog.Close`'s composed `onClick`) all
+    // into this ONE `onOpenChange` — which is what makes a complete guard possible at all, and why
+    // there are deliberately no `onEscapeKeyDown` / `onPointerDownOutside` handlers here: parallel
+    // gates over the same decision are how one of them drifts. The fourth vector, the drag, never
+    // enters Radix and is gated at its own `onDragEnd` below.
+    <Dialog.Root
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && !sheetDismiss({ busy, via: "close" })) return;
+        onOpenChange(next);
+      }}
+    >
       <Dialog.Portal>
         <Dialog.Overlay className="mms-scrim" />
         <DomMaxProvider>
           <SheetContent
             title={title}
+            busy={busy}
             onClose={() => onOpenChange(false)}
             onCloseAutoFocus={onCloseAutoFocus}
           >
@@ -68,11 +107,13 @@ function writeKbInset(px: number) {
 // Separate component so the drag-controls hook runs UNDER the DomMaxProvider (where `m`/drag resolve).
 function SheetContent({
   title,
+  busy,
   onClose,
   children,
   onCloseAutoFocus,
 }: {
   title: string;
+  busy: boolean;
   onClose: () => void;
   children: React.ReactNode;
   onCloseAutoFocus?: (event: Event) => void;
@@ -141,6 +182,11 @@ function SheetContent({
     <Dialog.Content
       asChild
       aria-describedby={undefined}
+      // A STATE, not an announcement: it tells assistive tech this region is mid-update and to hold
+      // off re-reading it. Deliberately not a live region — QA §A P1 allows exactly ONE polite
+      // region per view and four Sheet callers already render a `role="status"` in the body, so a
+      // second here would double-announce every transactional message in those sheets.
+      aria-busy={busy || undefined}
       onCloseAutoFocus={restoreFocus}
       // W9e — pin INITIAL focus to the sheet container (announces the dialog + its title), not the
       // first tabbable. Moving the ✕ into the sticky head put it FIRST in the DOM, so Radix's
@@ -164,8 +210,15 @@ function SheetContent({
         dragElastic={{ top: 0, bottom: 0.55 }}
         dragMomentum={false}
         onDragEnd={(_, info) => {
-          // Close on a decisive downward drag (≥120px) or a fast downward flick.
-          if (info.offset.y > 120 || info.velocity.y > 700) onClose();
+          // The fourth vector, and the only one that is ours. Both gates — "was this decisive" and
+          // "may we close at all" — live in the policy, so the thresholds cannot be re-derived here
+          // and drift. Below the threshold (or while busy) framer springs the sheet back to y:0 on
+          // the existing `dragConstraints` path: no new motion, nothing new for reduced motion, and
+          // a rubber-band that reads as "not now" rather than as a dead handle.
+          if (
+            sheetDismiss({ busy, via: "drag", offsetY: info.offset.y, velocityY: info.velocity.y })
+          )
+            onClose();
         }}
       >
         {/* W9e — ONE sticky head (grab zone + title + ✕) so the exit chrome never scrolls out of
@@ -180,7 +233,17 @@ function SheetContent({
             <div className="mms-grab" />
           </div>
           <Dialog.Title className="mms-sheet-title">{title}</Dialog.Title>
-          <Dialog.Close aria-label="Close" className="mms-sheet-close">
+          {/* Visible, named, 44×44 throughout (QA §A P0) — and while busy, ANNOUNCED as unavailable
+              rather than natively disabled. `disabled` would blur it, and it is the second tabbable
+              element in the sheet (the container takes initial focus, Tab lands here next), so a
+              focused ✕ going disabled destroys the user's place — the WCAG 2.4.3 rule W22e learned.
+              `aria-disabled` states it without moving focus; the choke point above is the real
+              enforcement, since `aria-disabled` does not stop Enter or Space. */}
+          <Dialog.Close
+            aria-label={busy ? "Close — finishing, please wait" : "Close"}
+            aria-disabled={busy || undefined}
+            className="mms-sheet-close"
+          >
             <Icon name="close" size={18} />
           </Dialog.Close>
         </div>
