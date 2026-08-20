@@ -120,11 +120,14 @@ themes, which a code-only PR cannot do. Filed as an OPEN-ITEMS row naming the pr
 > for its event, because iOS Safari implements no `navigator.vibrate` at all. `lib/pull-refresh.ts` +
 > `components/PullToRefresh.tsx` — the INDICATOR moves and the page never does (`/menu`'s `<main>`
 > hosts two `position: fixed` descendants, and a `transform` on an ancestor would make it their
-> containing block). `lib/catalog-freshness.ts` decides what the refresh may SAY: freshness is proven
-> by an RSC render stamp rather than inferred, a failed read is `unverified` and never a sold-out
-> restaurant, price movement is a COUNT and never a delta, and nothing ever "just" sold out. Plus the
-> `RefundActionSheet` → canonical `Sheet` migration its own comment had been asking for since P1-5.
-> Details: CHANGELOG · ROADMAP · DESIGN-LANGUAGE §12.
+> containing block); the pull is the shortcut, and a real button beside it is the mechanism (WCAG
+> 2.5.1). `lib/catalog-freshness.ts` decides what the refresh may SAY: freshness is proven by an RSC
+> render stamp captured at FIRE time rather than inferred, a landed render and a succeeded read are
+> two separate flags (`{ advanced, trusted }` — the adversarial round found the wiring conflating
+> them, so a stale render was certified as verified), a failed read is `unverified` and never a
+> sold-out restaurant, price movement is a COUNT and never a delta, and nothing ever "just" sold out.
+> Plus the `RefundActionSheet` → canonical `Sheet` migration its own comment had been asking for
+> since P1-5. Details: CHANGELOG · ROADMAP · DESIGN-LANGUAGE §12.
 
 - Effort: S–M. Risk: low (framer drag ⇒ mind the bundle; delivery's domMax lessons apply).
 - Impact: the "feels lagged" class of complaint never comes back.

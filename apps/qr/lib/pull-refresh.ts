@@ -15,9 +15,11 @@
  *  pull. Keeps the gesture from reading as "the page tore off". */
 export const PULL_MAX_PX = 96;
 
-/** Indicator travel at which the gesture arms. Reached at exactly 96px of FINGER movement — the
- *  curve below is its own inverse at the midpoint, so `pullTravel(96) === 48`. Computed, not chosen:
- *  a threshold a diner reaches by accident while scrolling a long menu is worse than none. */
+/** Indicator travel at which the gesture arms. The curve below is its own inverse at the midpoint,
+ *  so `pullTravel(96) === 48` exactly — and since the caller feeds it `dy - DEADZONE` (8px), arming
+ *  takes **104px of finger movement**, not 96. Stated precisely because the first version of this
+ *  comment said 96 and the deadzone falsified it. Computed, not chosen: a threshold a diner reaches
+ *  by accident while scrolling a long menu is worse than none. */
 export const PULL_TRIGGER_PX = 48;
 
 /**

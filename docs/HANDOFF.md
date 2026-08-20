@@ -35,7 +35,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 179 `verify:slice` mutants green · `pnpm check:docs` clean (94 files, 771 qr tests +
+> **Gate today:** 180 `verify:slice` mutants green · `pnpm check:docs` clean (94 files, 774 qr tests +
 > 41 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
@@ -90,6 +90,40 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >   overlay `<div>`, `onClick` dismissal on the scrim that a text-selection DRAG out of the PIN field
 >   could fire, and no `--kb-inset` on a bottom-anchored sheet whose PIN field sits directly above the
 >   Refund button.
+>
+> **The adversarial round found the slice's own rule failing in the WIRING, twice, and both times the
+> unit test was green.** Worth carrying forward as a shape, not just as two fixes:
+>
+> 1. **A render that landed is not a read that succeeded.** `catalogStale` reached the gesture's
+>    `disabled` prop and never the freshness decision, and the stale branch stamps `Date.now()` like
+>    any other render — so `advanced` certified a render where the DB was never reached. The
+>    DegradedStrip and a toast reading "Menu is up to date." appeared together; and because
+>    `readLastGoodCatalog` is per-INSTANCE module state bounded by traffic rather than a TTL, a
+>    refresh landing on a different warm instance can serve an OLDER cache than the diner had and
+>    diff it into "Mohinga is back on." about a dish still 86'd. Two claims, two flags:
+>    `catalogFreshness` now takes `{ advanced, trusted }`.
+> 2. **A render stamp used as proof must be captured when the work STARTS.** `advanced` compared the
+>    current stamp against `baseline.stamp`, which only advances when the component announces —
+>    while ANY `router.refresh()` on the route advances the props' stamp, and `AnonAuthGate` does one
+>    on every cold QR scan. First-session diners' first pull therefore read `advanced` even when the
+>    fetch never landed. Capture at fire time; let `baseline.rows` keep its own lifetime.
+>
+> Also from that round, each verified before accepting: `unverified` was still being adopted as the
+> new baseline (refusing to speak from an untrusted snapshot while still remembering one); no
+> axis-dominance test, so a rail flick at page top was claimed vertically and `preventDefault`
+> cancelled the rail's scroll on both axes; `armedRef` survived a drag back under the deadzone, so a
+> visibly-cancelled pull still fired; the gesture was the ONLY way to reach the function (WCAG 2.5.1
+> — there is now a real button on the eyebrow row); the wake path SPOKE, replacing "Added Mohinga"
+> with an unrequested "Menu is up to date." on every app switch; `catalogStale` suppressed the whole
+> component including the wake, stranding a blipped diner with no path back; the `preventDefault`
+> sat below the in-flight bail, handing Chrome-Android's document reload the second pull; `.ptr` was
+> `absolute` under an unpositioned `<main>` so a wake-fired refresh painted off-screen; and
+> `RefundActionSheet` had no in-flight guard, so Esc/✕/drag mid-refund dropped the server's answer
+> on an unmounted tree. New rows: **M80–M82**.
+>
+> ⚠️ **Codex could not review #207** — "You have reached your Codex usage limits for code reviews."
+> The two-round rule did not run, and the in-session pass is not an independent second reviewer.
+> If credits return, `@codex review` on that PR still works retroactively.
 >
 > \*\*W23c (manual + partial capture for pickup — registry M69) — merged #203, migration prod-applied
 >
@@ -707,7 +741,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (179 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (180 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

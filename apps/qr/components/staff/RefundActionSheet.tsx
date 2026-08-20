@@ -124,7 +124,20 @@ export function RefundActionSheet({
     //
     // Swipe-to-close comes with it and is safe here: the gesture CANCELS, and a cancelled refund
     // costs a re-open. Nothing destructive is one gesture away — the money still needs the PIN.
-    <Sheet open onOpenChange={(next) => !next && onClose()} title={`Refund ${line.name}`}>
+    //
+    // ⚠️ BUT NOT WHILE THE REFUND IS IN FLIGHT. `Cancel` has always carried `disabled={pending}`,
+    // and the migration adds three exits that did not exist before — document-level Esc, the sticky
+    // ✕, and the handle drag — so without `!pending` they would contradict the intent that button
+    // already encodes. The cost is not a lost gesture: the caller unmounts this component on close,
+    // so a dismissal mid-flight drops the server's answer on the floor. `setError` would no-op on an
+    // unmounted tree and `onDone` would never run, leaving the board un-refreshed and the manager
+    // with no confirmation and no error — a state indistinguishable from a refund that never
+    // happened, over money that may already have left the card.
+    <Sheet
+      open
+      onOpenChange={(next) => !next && !pending && onClose()}
+      title={`Refund ${line.name}`}
+    >
       <div style={body}>
         <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
           {orderLabel} · {line.qty}× {line.name}

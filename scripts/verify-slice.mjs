@@ -657,8 +657,16 @@ const MUTANTS = [
     file: "apps/qr/lib/catalog-freshness.ts",
     suite: "lib/catalog-freshness.test.ts",
     why: 'W22c — `router.refresh()` returns void and cannot report failure, so a render that never landed and a render that landed with nothing new produce the SAME tree. Only the caller\'s stamp separates them. Collapsing the unproven case into `unchanged` turns "we could not reach the menu" into "your menu is up to date" on the one gesture a diner uses when they suspect it is not.',
-    find: '  if (!advanced) return { state: "unverified" };',
-    replace: '  if (!advanced) return { state: "unchanged" };',
+    find: '  if (!proof.advanced) return { state: "unverified" };',
+    replace: '  if (!proof.advanced) return { state: "unchanged" };',
+  },
+  {
+    id: "catalog-freshness/stale-render-treated-as-a-live-read",
+    file: "apps/qr/lib/catalog-freshness.ts",
+    suite: "lib/catalog-freshness.test.ts",
+    why: 'W22c (adversarial review, HIGH — this shipped in the first commit). A RENDER THAT LANDED IS NOT A READ THAT SUCCEEDED. /menu serves a last-good catalog when the live read fails (W10a), and that stale render still advances the render stamp — so `advanced` alone certified a render where the database was never reached, putting the DegradedStrip and a toast reading "Menu is up to date." on screen together. Worse: `readLastGoodCatalog` is per-INSTANCE module state bounded by traffic rather than a TTL, so a refresh landing on another warm instance can serve an OLDER cache than the diner already had and diff it into "Mohinga is back on." about a dish that is still 86\'d — the gesture causing the exact last-tap refusal it exists to prevent.',
+    find: '  if (!proof.trusted) return { state: "unverified" };',
+    replace: "",
   },
   {
     id: "catalog-freshness/new-dish-announced-as-restocked",

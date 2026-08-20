@@ -38,17 +38,39 @@ export type FreshnessOutcome =
   | { state: "unverified" };
 
 /**
+ * The caller's two separate claims about the snapshot it is handing over. They are separate because
+ * they fail separately, and collapsing them was a real defect (see `trusted` below).
+ */
+export type FreshnessProof = {
+  /** A server render actually happened — a render stamp that changed. Without it the tree is
+   *  whatever it already was, so any diff would be against ourselves. */
+  advanced: boolean;
+  /** The render that landed was built from a LIVE catalog read. False when the page served its
+   *  last-good cache because the read failed (`catalogStale`). */
+  trusted: boolean;
+};
+
+/**
  * Diff two catalog snapshots.
- *
- * `advanced` is the caller's PROOF that a server render actually happened (a render stamp that
- * changed). Without it the tree is whatever it already was, so any diff would be against ourselves.
  */
 export function catalogFreshness(
   prev: CatalogRow[],
   next: CatalogRow[],
-  advanced: boolean,
+  proof: FreshnessProof,
 ): FreshnessOutcome {
-  if (!advanced) return { state: "unverified" };
+  if (!proof.advanced) return { state: "unverified" };
+  // ⚠️ A RENDER THAT LANDED IS NOT A READ THAT SUCCEEDED, and the first version of this module
+  // treated them as one fact. `/menu` serves a LAST-GOOD catalog when the live read fails (W10a:
+  // stale menu ≫ no menu) — and that stale render still advances the stamp, so `advanced` alone
+  // said "verified" about a render where the database was never reached. Two live falsehoods came
+  // out of that: the DegradedStrip ("this is the menu from a few minutes ago") and a toast reading
+  // "Menu is up to date." on screen together, and — worse — `readLastGoodCatalog` is per-INSTANCE
+  // module state bounded by traffic, not a TTL, so a refresh landing on a different warm instance
+  // can serve an OLDER cache than the diner already had and diff it into "Mohinga is back on."
+  // about a dish that is still 86'd. That is the exact "assemble an order around a dish you cannot
+  // have, meet the refusal at the last tap" failure the gesture exists to prevent, caused by the
+  // gesture. `trusted` is the caller's second, independent claim, and it is required.
+  if (!proof.trusted) return { state: "unverified" };
   // ⚠️ See the header. An empty catalog after a non-empty one is a failed read, not a sold-out
   // restaurant — and `is_active = true` filtering means it could not mean that even if it were.
   if (next.length === 0 && prev.length > 0) return { state: "unverified" };
@@ -98,4 +120,17 @@ export function freshnessSentence(outcome: FreshnessOutcome): string {
   if (outcome.priceChanges > 0)
     parts.push(`${outcome.priceChanges} price${outcome.priceChanges === 1 ? "" : "s"} updated.`);
   return parts.join(" ");
+}
+
+/**
+ * How long the freshness sentence stays on screen.
+ *
+ * `flash` defaults to 2200ms, which was written for "Added Mohinga" — but the longest sentence this
+ * module can emit names dishes in two clauses and a price count, and that is roughly five times the
+ * text. A notice that leaves before it can be read is the same defect as no notice. Scaled at a
+ * deliberately unhurried ~13 characters per second, floored at the provider default (never shorter
+ * than an ordinary toast) and capped so a toast never becomes furniture on the screen.
+ */
+export function freshnessDurationMs(sentence: string): number {
+  return Math.min(7000, Math.max(2200, Math.round((sentence.length / 13) * 1000)));
 }

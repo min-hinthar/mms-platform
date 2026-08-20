@@ -19,8 +19,13 @@ import { StartHereBand } from "./StartHereBand";
 import { TasteBand } from "./TasteBand";
 import { FavoritesRail } from "./FavoritesRail";
 import { useCart } from "@/components/TableCartProvider";
-import { PullToRefresh } from "@/components/PullToRefresh";
-import { catalogFreshness, freshnessSentence, type CatalogRow } from "@/lib/catalog-freshness";
+import { PullToRefresh, type RefreshReason } from "@/components/PullToRefresh";
+import {
+  catalogFreshness,
+  freshnessDurationMs,
+  freshnessSentence,
+  type CatalogRow,
+} from "@/lib/catalog-freshness";
 import { toggleFavorite } from "@/lib/favorites";
 import { reorderOrder } from "@/lib/reorder";
 import { LEND_CHANGE_EVENT } from "@/lib/deviceIdentity";
@@ -163,24 +168,62 @@ export function MenuBrowser({
   // run it), announce the honest outcome through the provider's ONE live region, and re-sync the cart.
   const { cartId, announce, refresh } = useCart();
 
-  // ── W22c — the refresh baseline ────────────────────────────────────────────────────────────────
-  // `baseline` is what the diner was last TOLD about; the settle callback diffs the current props
-  // against it and then adopts them, so a second pull reports what changed since the last sentence
-  // rather than since arrival. The stamp comparison is the proof a server render landed at all.
+  // ── W22c — the refresh baseline, and the two facts it does NOT conflate ────────────────────────
+  // `baseline.rows` is what the diner was last TOLD about, so a second pull reports what changed
+  // since the last sentence rather than since arrival. `atFire` is a different fact with a
+  // different lifetime: the render stamp AS IT STOOD when this particular refresh was fired.
   //
-  // The callback closes over the current props rather than mirroring them into a second ref, and
+  // ⚠️ THEY MUST NOT SHARE A STAMP. The first version proved "a server render landed" by comparing
+  // the current stamp against `baseline.stamp` — but `baseline` only advances when THIS component
+  // announces, while ANY `router.refresh()` on the route advances the props' stamp. There is one in
+  // the root layout: `AnonAuthGate` refreshes on a fresh anonymous mint, i.e. on every cold QR scan,
+  // which is the primary entry path. So a diner's first pull compared a stamp already bumped by the
+  // auth gate against an arrival baseline, found them different, and reported `advanced` — even
+  // when the pull's own fetch never landed at all. "Menu is up to date." asserted while nothing was
+  // checked, deterministically, for every first-session diner. Comparing against the value observed
+  // at FIRE time is the only honest test, and it stays honest for the next unrelated refresh
+  // somebody adds.
+  //
+  // The callbacks close over the current props rather than mirroring them into a second ref, and
   // that is deliberate: `PullToRefresh` is a CHILD, so its effects run BEFORE this component's, and
   // a ref synced in an effect here would still be one render stale by the time the child called
-  // back. `baseline` itself is only read and written at event time, never during render.
+  // back. Both refs are only read and written at event time, never during render.
   const baseline = useRef({ rows: catalogRows(items), stamp: catalogStamp });
-  const onRefreshSettled = useCallback(() => {
-    const now = { rows: catalogRows(items), stamp: catalogStamp };
-    const base = baseline.current;
-    const outcome = catalogFreshness(base.rows, now.rows, now.stamp !== base.stamp);
-    baseline.current = now;
-    // Through the provider's ONE live region — this view mints no second one (QA-CHECKLIST §A).
-    announce(freshnessSentence(outcome));
-  }, [items, catalogStamp, announce]);
+  const atFire = useRef<number | null>(null);
+  const onRefreshStart = useCallback(() => {
+    atFire.current = catalogStamp;
+  }, [catalogStamp]);
+  const onRefreshSettled = useCallback(
+    (reason: RefreshReason) => {
+      const fired = atFire.current;
+      atFire.current = null;
+      if (fired == null) return; // a settle with no fire we recorded — say nothing rather than guess
+      const now = { rows: catalogRows(items), stamp: catalogStamp };
+      const outcome = catalogFreshness(baseline.current.rows, now.rows, {
+        advanced: now.stamp !== fired,
+        // ⚠️ A RENDER THAT LANDED IS NOT A READ THAT SUCCEEDED. `catalogStale` means this render
+        // served the last-good cache because the live read failed — and it still advances the
+        // stamp. Without this the DegradedStrip and a toast reading "Menu is up to date." appeared
+        // on screen together. See `catalog-freshness.ts` for the second, worse consequence.
+        trusted: !catalogStale,
+      });
+      // ⚠️ NEVER adopt a snapshot the module just refused to trust. Adopting it made the untrusted
+      // rows the reference for the NEXT comparison, so a real 86 landing afterwards diffed against
+      // a cache instead of against what the diner had actually been shown — reported once, or not
+      // at all, and then silently lost. The module declines to speak from an unverified snapshot;
+      // it must equally decline to remember one.
+      if (outcome.state !== "unverified") baseline.current = now;
+      // A pull or a button tap is a QUESTION and is always owed an answer. The wake re-read is not:
+      // nobody asked, and `announce` is a single-slot VISIBLE toast that replaces whatever it lands
+      // on — so an ambient "Menu is up to date." on every app switch would overwrite the "Added
+      // Mohinga" confirmation of the thing the diner just tapped. Ambient speaks only with news.
+      if (reason !== "asked" && outcome.state !== "changed") return;
+      // Through the provider's ONE live region — this view mints no second one (QA-CHECKLIST §A).
+      const sentence = freshnessSentence(outcome);
+      announce(sentence, freshnessDurationMs(sentence));
+    },
+    [items, catalogStamp, catalogStale, announce],
+  );
   const reorderRan = useRef(false);
   const [reorderNote, setReorderNote] = useState<string | null>(null);
   const menuHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -396,11 +439,6 @@ export function MenuBrowser({
     // W22a — no isolation on purpose: the page ground lives on <html> (canvas), so the fixed
     // z:-1 PaperAmbient is visible without a stacking context that would trap fixed overlays.
     <main style={{ maxWidth: 440, margin: "0 auto", paddingBottom: 96 }}>
-      {/* W22c — the catalog is the one diner surface with neither a push channel nor a wake re-read,
-          so an 86 landing mid-service never reaches a phone already sitting here. Suppressed while
-          the catalog is already the last-good copy: pulling toward a read we know is failing would
-          promise a freshness the strip above has just denied. */}
-      <PullToRefresh onSettled={onRefreshSettled} disabled={catalogStale} />
       <PaperAmbient />
       {/* The persistent AppHeader now owns the notch clearance (it's sticky above this in-flow title), so
           this header must NOT add env(safe-area-inset-top) again — that double-counted the inset. */}
@@ -414,9 +452,24 @@ export function MenuBrowser({
             Prices are confirmed when you add a dish.
           </DegradedStrip>
         )}
-        <p className="eyebrow">
-          {mode === "dinein" ? "Dine-in" : mode === "pickup" ? "Pickup" : "To-go"}
-        </p>
+        {/* W22c — the catalog is the one diner surface with neither a push channel nor a wake
+            re-read, so an 86 landing mid-service never reaches a phone already sitting here. The
+            control lives on the eyebrow row because it IS the mechanism (WCAG 2.5.1 — the pull is
+            the shortcut); the transient pull indicator it also renders is viewport-fixed, so this
+            spot in the flow only positions the button. Suppressed while an ItemSheet is open: the
+            listeners are on `window`, the sheet is a portal, and Radix's scroll lock never stops
+            propagation — so the pull would otherwise claim the sheet's own scroll. NOT suppressed
+            while the catalog is stale: that says the LAST read failed, not the next one. */}
+        <div className="menu-eyebrow-row">
+          <p className="eyebrow">
+            {mode === "dinein" ? "Dine-in" : mode === "pickup" ? "Pickup" : "To-go"}
+          </p>
+          <PullToRefresh
+            onRefresh={onRefreshStart}
+            onSettled={onRefreshSettled}
+            disabled={!!sheetItem}
+          />
+        </div>
         <h1
           ref={menuHeadingRef}
           tabIndex={-1}

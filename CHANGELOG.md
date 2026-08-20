@@ -73,7 +73,75 @@ losing a manager's refund to a slipped finger; and no `--kb-inset` on a bottom-a
 `type="password"` PIN sits directly above the Refund button, so the phone keyboard covered the one
 control the sheet exists to reach.
 
-3 new mutants (**179** total), 4 new suites. No migration.
+#### The adversarial round found the slice's own rule failing in the wiring
+
+Three lenses (product truth · a11y · concurrency). Two HIGH, and both were the module's stated rule
+holding in the unit test while the live wiring reproduced it for free:
+
+- **A render that landed is not a read that succeeded.** `catalogStale` was passed only to the
+  gesture's `disabled` prop, never to the freshness decision — and the stale branch stamps
+  `Date.now()` like any other render. So `advanced` certified a render where the database was never
+  reached, putting the DegradedStrip (_"this is the menu from a few minutes ago"_) and a toast
+  reading _"Menu is up to date."_ on screen together. Worse: `readLastGoodCatalog` is per-INSTANCE
+  module state bounded by traffic rather than a TTL, so a refresh landing on another warm instance
+  can serve an **older** cache than the diner already had — and diff it into _"Mohinga is back on."_
+  about a dish that is still 86'd. The gesture causing the exact last-tap refusal it exists to
+  prevent. `catalogFreshness` now takes two independent claims (`{ advanced, trusted }`) because
+  they fail independently.
+- **The stamp had two owners and one value.** `advanced` compared the current stamp against
+  `baseline.stamp`, which only advances when this component announces — while _any_
+  `router.refresh()` on the route advances the props' stamp. `AnonAuthGate` does one on a fresh
+  anonymous mint, i.e. on every cold QR scan, the primary entry path. So a first-session diner's
+  first pull compared a stamp the auth gate had already bumped, found it different, and reported
+  `advanced` even when the pull's own fetch never landed. The stamp is now captured at **fire** time;
+  `baseline.rows` keeps its own, longer lifetime.
+
+Also fixed, each verified before accepting it:
+
+- **`unverified` was still adopted as the new baseline** — the module refused to _speak_ from an
+  untrusted snapshot while still _remembering_ one, so a real 86 landing afterwards diffed against a
+  cache instead of against what the diner had been shown, and was reported once or lost entirely.
+- **No axis-dominance test.** `/menu` stacks four horizontal rails at exactly the height the gesture
+  arms, a thumb arc across one drifts 10–30px vertically, and `preventDefault` on a touchmove
+  cancels the scroll for that touch on **both** axes — so the rail simply would not move, and
+  carrying the arc through fired a refresh. Now bails when `|dx| >= |dy|`, and hands the gesture back
+  entirely once `e.cancelable` goes false (the compositor already owns the pan).
+- **`armedRef` survived a drag back under the deadzone** — the indicator vanished, the diner
+  believed the gesture was cancelled, and release fired anyway.
+- **The gesture was the only way to reach the function** (WCAG 2.5.1 / 2.1.1): unreachable by
+  keyboard, by switch access, and — because VoiceOver claims single-finger drags — under a screen
+  reader. A reload is not the equivalent, by the component's own argument. There is now a real
+  `<button>` on the eyebrow row calling the same `fire()`; the pull is the shortcut.
+- **The wake re-read spoke.** It reused the pull's path, and `announce` is a single-slot **visible**
+  toast — so returning to the tab within 2.6s of tapping Add replaced _"Added Mohinga"_ with an
+  unrequested _"Menu is up to date."_ A pull or a tap is a question and is always owed an answer;
+  the wake now speaks only when it has news.
+- **`catalogStale` suppressed the whole component**, wake included — so a diner who hit one blip was
+  stranded on the last-good copy with no path back short of a hard reload, the one action that
+  throws the last-good copy away. `disabled` now means what its own doc always said: a sheet is open.
+  That also closes the case where the pull claimed an open `ItemSheet`'s scroll (the listeners are on
+  `window`, the sheet is a portal, and Radix's scroll lock never stops propagation).
+- **The `preventDefault` moved above the in-flight bail.** This app declines `overscroll-behavior-y`
+  app-wide, so that call is the only thing stopping Chrome-Android's native pull-to-refresh from
+  reloading the document — and it was off during the RSC round-trip, i.e. for the second pull, on the
+  slow connection where it costs most.
+- **`.ptr` was `absolute` under an unpositioned `<main>`**, so it resolved against the document and a
+  wake-fired refresh painted its only progress state above the viewport. Now `fixed`.
+- **`RefundActionSheet` had no in-flight guard.** `Cancel` has always carried `disabled={pending}`,
+  but the migration added three exits that ignored it — and the caller unmounts on close, so a
+  dismissal mid-flight drops the server's answer: no error, no confirmation, no board refresh, over
+  money that may already have left the card.
+- An `ambient` wake can no longer downgrade an `asked` refresh already in flight.
+- The comment claiming the pull arms at "exactly 96px of FINGER movement" was wrong — the caller
+  subtracts an 8px deadzone first, so it is **104px** (computed, not read).
+- The freshness sentence is the longest this app announces and was inheriting `flash`'s 2200ms
+  default, written for "Added Mohinga". `freshnessDurationMs` derives it.
+
+**Codex could not review this PR** — the connector answered _"You have reached your Codex usage
+limits for code reviews."_ That is recorded rather than papered over: the standing two-round rule did
+not run, and the in-session pass is not an independent second reviewer.
+
+4 new mutants (**180** total), 4 new suites. No migration.
 
 ### W23d — tell the diner what the settlement dropped (2026-08-19)
 

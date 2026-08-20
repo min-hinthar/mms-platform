@@ -7387,9 +7387,15 @@ html[data-seen-surface] .mms-stagger {
    the isolation:isolate rule PaperAmbient's host already carries.
 
    No new z token: it sits below the header's bottom edge and above the page ground, which plain
-   `--z-toolbar`-adjacent stacking already gives it via DOM order inside <main>. */
+   `--z-toolbar`-adjacent stacking already gives it via DOM order inside <main>.
+
+   ⚠️ `fixed`, not `absolute`. <main> is unpositioned (maxWidth + margin only), so `absolute` here
+   resolved against the INITIAL containing block — i.e. the document, not the viewport — and `top`
+   measured from the top of the page. The pull itself only arms at scrollY 0, where the two are the
+   same, which is why that read as correct; the WAKE re-read has no such constraint, so a phone
+   woken while scrolled to "Curries" painted its only progress state above the viewport. */
 .ptr {
-  position: absolute;
+  position: fixed;
   top: calc(var(--header-height) + env(safe-area-inset-top) + 4px);
   left: 0;
   right: 0;
@@ -7423,4 +7429,36 @@ html[data-seen-surface] .mms-stagger {
   .ptr-star-spin {
     animation: none;
   }
+}
+
+/* The pointer-gesture alternative (WCAG 2.5.1 / 2.1.1) — a real button, because the pull is a
+   path-based gesture that keyboard, switch access and VoiceOver all cannot perform. Quiet by
+   design: it sits on the eyebrow row as a text affordance, not a second CTA competing with Add. */
+.menu-eyebrow-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ptr-btn {
+  flex: none;
+  /* 44px target kept by padding rather than height, so the visible text still sits on the eyebrow's
+     optical line instead of inflating the row (QA §A: the TARGET is 44, the ink need not be). */
+  min-height: 44px;
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: var(--t2);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ptr-btn:disabled {
+  cursor: default;
+  opacity: 0.65;
+}
+.ptr-btn:hover:not(:disabled) {
+  color: var(--tx);
 }

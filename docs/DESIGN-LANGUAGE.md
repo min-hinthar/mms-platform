@@ -272,6 +272,26 @@ language. Taking a moment instead of a duration makes a raw millisecond a compil
 - **Adding a fifth name is a design decision, not a plumbing one.** Four exist because v7.2 designed
   three add-weights; a fifth needs a distinction a diner can feel and a visible partner.
 
+**A gesture may never be the ONLY way to reach a function** (WCAG 2.5.1 Pointer Gestures, 2.1.1
+Keyboard). A path-based drag is unreachable by keyboard, by switch access, and — because VoiceOver
+claims single-finger drags for explore-by-touch — under a screen reader. Ship the real control and
+let the gesture be the shortcut. "The browser can reload" is not the alternative when the whole point
+of the in-place refetch is that a reload throws state away.
+
+**Ambient work stays silent unless it has news; a gesture is a question and is always owed an
+answer.** `announce` is a single-slot **visible** toast, so anything it says replaces whatever the
+diner was reading — an unrequested "Menu is up to date." on every app switch overwrites the "Added
+Mohinga" confirmation of the thing they just tapped. Wake re-reads inherit the J3 pattern, which
+re-fetches _without speaking_; if a new surface makes an ambient path talk, that is the bug.
+
+**Never suppress a retry because the last attempt failed.** The first draft disabled the whole
+pull-to-refresh while the catalog was stale, reasoning that "pulling toward a read we know is failing
+would promise a freshness the strip has just denied." That is backwards: a stale flag says the LAST
+read failed, not that the next one will — and with the wake path suppressed too, one blip stranded
+the diner on the last-good copy with no path back short of a hard reload, the one action that throws
+the last-good copy away. Honesty about a failing read belongs in the SENTENCE, never in removing the
+retry.
+
 **Gestures may not move a page that hosts fixed children.** Pull-to-refresh translates the
 INDICATOR only. `/menu`'s `<main>` hosts `PaperAmbient` and `CartBar`, both `position: fixed`, and a
 `transform` on an ancestor becomes their containing block — so pulling the page would drag the
@@ -283,12 +303,34 @@ worse than no gesture at all.
 
 **`overscroll-behavior-x: contain` on every horizontal rail, and `-x` only — never the shorthand.**
 The shorthand claims the vertical axis too, which would kill the pull-to-refresh on the same screen.
+The corollary is that a vertical gesture on a page with horizontal rails **must test axis dominance
+before it calls `preventDefault`**: that call cancels the browser's scroll for the touch on BOTH
+axes, and a thumb arc across a rail drifts 10–30px vertically (far more with tremor or limited
+dexterity), so without the test the rail simply does not move. Hand the gesture back, too, the moment
+`e.cancelable` goes false — the compositor already owns that pan, and running alongside it gives one
+drag two responses.
 
 **What a refresh may SAY is a three-state union, and the third state is load-bearing.**
 `router.refresh()` returns `void` and cannot report failure, so freshness has to be **proven** by the
 caller (a render stamp that changed), never inferred from the data that came back. Rules, all in
 `lib/catalog-freshness.ts` so they can carry mutants:
 
+- **A RENDER THAT LANDED IS NOT A READ THAT SUCCEEDED**, and they are two flags, not one. `/menu`
+  serves a last-good catalog when the live read fails (W10a) — and that stale render still advances
+  the stamp, so a single "did it land?" flag certifies a render where the database was never reached.
+  Two false claims came out of conflating them: the DegradedStrip and "Menu is up to date." on screen
+  together, and — because `readLastGoodCatalog` is per-INSTANCE module state bounded by traffic, not
+  a TTL — a refresh landing on another warm instance serving an **older** cache and diffing it into
+  "Mohinga is back on." about a dish that is still 86'd.
+- **A render stamp used as proof must be captured when the work STARTS, not held in a long-lived
+  baseline.** Any `router.refresh()` on the route advances the props' stamp, and there is one in the
+  root layout (`AnonAuthGate`, on every cold QR scan) that no feature component knows about. Compare
+  against the value observed at fire time, or the next unrelated refresh somebody adds silently
+  becomes your evidence.
+- **Never adopt a snapshot you just refused to trust.** Declining to _speak_ from an unverified
+  snapshot while still _remembering_ it makes the untrusted rows the reference for the next
+  comparison — so the real change that lands afterwards is measured against a cache and reported
+  once, or lost.
 - **A failed read is `unverified`, never a sold-out restaurant.** An empty snapshot diffed against a
   full one makes every dish read as newly 86'd — the app would announce to every diner in the room at
   once that the whole kitchen had run out. The delivery repo's "a failure must never read as empty",
