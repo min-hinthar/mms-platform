@@ -4,6 +4,37 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M90 — one chime engine, and one envelope (2026-08-20)
+
+`kds-sound.ts` (W3c) and `diner-sound.ts` (W22f) each synthesized tones with the same fast-attack /
+exponential-release mallet shape, ~15 duplicated lines apart. W22f filed this rather than doing it,
+because converting the **kitchen's** chime inside a diner-facing slice would have risked the cook's
+ticket sound for a nice-to-have. On its own, with the KDS behaviour pinned, it is safe.
+
+**What is shared and what is not.** `chime-core.ts` owns creating and resuming the AudioContext and
+turning a list of notes into oscillator + gain-ramp calls. It owns none of the policy, because every
+axis of that inverts between the two callers — default (0.8 loud versus OFF), arming (an explicit
+"Enable sound" tap at shift start versus the preference toggle being the gesture), what a failure
+costs (the visual channel still covers a ticket; a diner loses garnish), and the vocabulary itself.
+`chime.ts` still owns the diner's rules and `kds-sound.ts` still keeps the kitchen's.
+
+**The seam is worth more than the saved lines.** The envelope is exactly what a refactor can silently
+change — a ramp target, a start offset, the tail on `stop()` — and none of it was observable, because
+WebAudio needs a browser and there is no DOM runner in this repo. So both halves were made checkable:
+`chimeSchedule` is a pure function compared against a **verbatim transcription** of the pre-M90
+arithmetic (operator order included — float addition is not associative), and `ChimeEngine` is driven
+through a recording fake context, so the node-graph calls are asserted rather than assumed. The
+WebAudio side of either surface had no test at all before this; it now has 27.
+
+`KdsChime`'s surface (`arm` · `armed` · `play(channel, soft)`) is unchanged, so no KDS caller was
+touched. Its tone tables, the 0.8 default, the 0.4 soft multiplier and the pickup/scango routing are
+each pinned against the numbers that shipped with W3c.
+
+Two details the refactor deliberately did **not** tidy: `PEAK_FLOOR` (0.001) stays ten times `FLOOR`
+(0.0001), because a peak equal to the ramp's start is a ramp with no direction — audible as silence,
+with a `stop()` still scheduled; and the KDS reads its volume only **after** confirming the station is
+armed, so a ticket landing before shift start costs no storage hit.
+
 ### M96 — a table merge must not fold away one diner's attribution (2026-08-20)
 
 `mms_merge_table_orders` folds a source line into a matching target line by bumping the target's qty
