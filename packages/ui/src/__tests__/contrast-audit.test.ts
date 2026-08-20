@@ -111,11 +111,26 @@ function tok(map: Record<string, string>, name: string): string {
     if (next === undefined) break;
     v = next.trim();
   }
+  // M83 — a missing token used to return "" and surface as `expected NaN to be >= 4.5`, a message
+  // that names neither the token nor the reason. Every assertion here is about a real pair, so an
+  // unresolvable one is a bug in the suite, not a contrast failure, and it should say so.
+  if (!/^#[0-9a-fA-F]{3,8}$/.test(v))
+    throw new Error(`tokens.css: ${name} did not resolve to a hex (got ${v || "nothing"})`);
   return v;
 }
 
 const light = parseBlock(":root");
-const dark = parseBlock(".dark");
+/**
+ * `.dark` OVERRIDES `:root`; it does not replace it.
+ *
+ * That is what the cascade does, and this map now says so. Some tokens are deliberately declared
+ * once and never re-declared — `--ink` carries a comment in `tokens.css` explaining that it is a
+ * CONSTANT deep ink precisely so dark text on a constant-bright fill stays legible in both themes —
+ * so reading the raw `.dark` block alone reports them as missing. Before M83 no assertion happened
+ * to touch one; the first that did (the email CTA's `--oa` on `--ink`) produced a `NaN`. Merging
+ * makes the dark map mean what a browser means by it.
+ */
+const dark = { ...light, ...parseBlock(".dark") };
 
 /**
  * W22d — the badge tint PERCENTAGES, read out of `badge.tsx` rather than transcribed.
@@ -262,6 +277,43 @@ function combos(map: Record<string, string>, theme: "light" | "dark") {
     { name: "oa on solid ac", fg: tok(map, "--oa"), bg: ac },
     { name: "ok on okb", fg: tok(map, "--ok"), bg: tok(map, "--okb") },
     { name: "warn on warnb", fg: tok(map, "--warn"), bg: tok(map, "--warnb") },
+    // ── M83 · the EMAIL pairs ────────────────────────────────────────────────────────────────
+    // Every text×surface pair rendered by `apps/qr/emails/*`, asserted here as TOKEN pairs.
+    //
+    // The templates cannot import `tokens.css` — email clients resolve no custom properties — so
+    // they bake literals from `apps/qr/emails/palette.ts`, and `check-theme-parity.mjs` (surface 6)
+    // pins each of those literals to the token named below. That is the whole chain: the guard
+    // proves the emails ARE these tokens, and these assertions prove the tokens clear AA. Neither
+    // half alone says anything about what a diner reads.
+    //
+    // This package cannot reach into `apps/qr` (one-way deps), and it does not need to: the pairs
+    // are the palette's own, and naming them here is what makes a future token edit — which is
+    // exactly what W22d proper is — fail on the email surface too rather than only on screen.
+    //
+    // ⚠️ LIGHT ONLY, and that is a fact about the emails rather than a convenience. They bake the
+    // LIGHT literals and declare `color-scheme: light`; there is no dark variant to assert. Running
+    // them against the dark map would not be a free extra, it would be a claim about values the
+    // templates never send — and it is not even a safe one: `--oa` on `--ink` scores **1.01** in
+    // dark, because `--ink` is a CONSTANT (never re-declared in `.dark`) while `--oa` flips to a
+    // dark ink. That pair is fine in every email and would be near-invisible on a dark screen, which
+    // is worth knowing (registry M93) and is not what this block is measuring.
+    ...(theme === "light"
+      ? [
+          { name: "email · tx body on cd card", fg: tok(map, "--tx"), bg: cd },
+          { name: "email · t2 kicker/meta/footer on cd card", fg: tok(map, "--t2"), bg: cd },
+          { name: "email · ac eyebrow + auth code on cd card", fg: ac, bg: cd },
+          { name: "email · tx footer name on pg", fg: tok(map, "--tx"), bg: pg },
+          { name: "email · t2 footer lines + links on pg", fg: tok(map, "--t2"), bg: pg },
+          { name: "email · t3 honest reason line on pg", fg: tok(map, "--t3"), bg: pg },
+          {
+            name: "email · t3 slip labels + kitchen notes on cd slip",
+            fg: tok(map, "--t3"),
+            bg: cd,
+          },
+          { name: "email · warn refunded line on cd slip", fg: tok(map, "--warn"), bg: cd },
+          { name: "email · oa on the ink CTA fill", fg: tok(map, "--oa"), bg: tok(map, "--ink") },
+        ]
+      : []),
   ];
 
   // Anti-regression (LIGHT only): the vivid hues must STAY below 4.5 as text — this is why the

@@ -4,6 +4,78 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M83 — the email palette, named once and pinned (2026-08-20)
+
+The largest surface that had never been checked: five React Email templates carrying **48 hand-copied
+hex literals**, on the artifact a diner is most likely to open on an unknown client in unknown light.
+No migration, no behaviour change on screen.
+
+**Nothing here was failing AA — this is coverage, not correctness, and saying so is the point.** Every
+one of the nine text pairs already cleared 4.5:1, the tightest being `--ac` on `--cd` at **4.84**. The
+gap was that no guard could see them: `contrast-audit.test.ts` parses `tokens.css` (which an email
+cannot import), and `check-theme-parity.mjs` covered five other `var()`-less surfaces but not this
+one. W22d proper is a token edit by definition, and it would have split the emails from the app in
+silence.
+
+**One table, and a link back.** `apps/qr/emails/palette.ts` holds 11 entries, each naming in its own
+doc comment the light token it mirrors. `check-theme-parity.mjs` gains **surface 6** and makes two
+assertions, because either alone is insufficient: every entry equals its token, **and** no raw colour
+exists anywhere else under `apps/qr/emails/` — a guard on the table alone would have passed on all
+five templates the day before this ran. `contrast-audit.test.ts` then asserts the nine pairs as token
+pairs, which is the other half of the chain: the parity guard proves the emails _are_ these tokens,
+the audit proves the tokens clear AA, and neither alone says anything about what a diner reads.
+
+**Three invented values retired.** `#e8e2d9` appeared three times and is the composite of nothing —
+not `--bd` over `--cd`, `--pg` or white — and `AuthCodeEmail` carried a lone `rgba(58,35,23,0.12)`, a
+different alpha from `--bd`'s 0.1 for no stated reason. Both become one **derived** value the guard
+_recomputes_ from `--bd` over `--cd` rather than comparing to a stored string, so it tracks a change
+in either half. (Flattened rather than left as rgba because Outlook's Word rendering engine drops an
+rgba border outright.) The receipt slip's `#ffffff` becomes `--cd`, which is what the on-screen slip
+already is. Two semantic drifts fixed while the names were being assigned: text on a solid fill is
+`--oa`, not `--cd`, and the constant fills are `--ink`, not `--tx`.
+
+**`color-scheme: light` is now declared.** The templates bake a light editorial palette with
+hand-picked contrast, and Apple Mail, iOS Mail and Outlook will otherwise apply an automatic dark
+transform to pairs nobody has ever measured. The declaration makes those clients render the message
+as authored. It is a mitigation and not a guarantee — Gmail's Android app inverts regardless — which
+is a reason to keep the pairs comfortably above the floor, not a reason to skip it.
+
+**Two defects in the guards themselves, both found by falsifying them.**
+
+- The first version of surface 6 searched the whole palette file for a `= --token` marker, so the
+  file's own header prose ("Do not add a key without a `= --token` marker") matched first and bound a
+  token named `--token` to the key `pg`. One entry parsed; nine were silently unchecked. The parse is
+  now anchored inside the `EMAIL = { … }` table and each marker is bound to its own key in a single
+  match — the same failure mode the offline shell taught this script, arriving from a new direction.
+- `contrast-audit`'s dark map read the `.dark` block alone, but **`.dark` overrides `:root`, it does
+  not replace it**. Tokens declared once on purpose — `--ink` carries a comment explaining it is a
+  CONSTANT so dark text on a constant-bright fill stays legible — came back missing. No assertion had
+  ever happened to touch one; the first that did produced a bare `expected NaN to be >= 4.5`, naming
+  neither the token nor the reason. The dark map now merges over light (what a browser does) and
+  `tok()` throws by name instead of returning `""`.
+
+**A third guard, because the source is not the artifact.** Pinning the table proves what the
+templates _say_; only rendering proves what a diner _receives_. `emails/palette.test.ts` renders all
+four templates and asserts the set of colours in their style attributes is a subset of the palette —
+plus a positive twin, since "no stray colours" passes trivially on a template that emits none. It
+immediately found one: React Email's `<Hr>` carries its own default as a **shorthand**
+(`border-top: 1px solid #eaeaea`), and the receipt's `borderColor` override merged _beside_ it rather
+than replacing it, so every emailed receipt shipped `border-top:1px solid #eaeaea;border-color:#ebe7e2`.
+A browser resolves that to the palette value; an email client is not a browser, several drop or
+reorder the longhand, and `#eaeaea` is a cool grey that appears nowhere in this palette. Overriding
+`borderTop` removes it from the output. Nothing that reads source could have seen it.
+
+Two false positives were fixed in that guard before trusting it, both from scanning the whole
+document: React Email's `&#8202;`/`&#8203;` spacing entities parse as `#8202`/`#8203`, and a receipt
+code that happens to be four hex digits (`#A1B2`) parses as a colour. It now scans style attributes
+only. `vitest.config.ts` also gains `esbuild: { jsx: "automatic" }` — `tsconfig` says
+`"jsx": "preserve"` because Next owns the transform, so any `.tsx` reached from a test was compiled
+against the classic runtime and threw `React is not defined` at render.
+
+That fix immediately surfaced **M93**: `--oa` on `--ink` is **1.01:1** in dark. No live surface uses
+it and the emails are light-only, so nothing is broken — but it is exactly the plausible-looking,
+catastrophic pair the audit's negative bucket exists for, and that bucket is light-only today.
+
 ### W22f — a sound identity, opt-in and off by default (2026-08-20)
 
 Two sounds, and only two: a rising two-note bell when an order goes to the kitchen, and a downward

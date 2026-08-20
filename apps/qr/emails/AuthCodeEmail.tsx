@@ -1,6 +1,7 @@
 import { Button, Heading, Section, Text } from "@react-email/components";
 import type { CSSProperties } from "react";
 import { MmsEmailLayout } from "./MmsEmailLayout";
+import { EMAIL } from "./palette";
 
 /**
  * The staff sign-in email (magic-link / OTP), rendered for the Supabase Send-Email Hook. The 6-digit
@@ -52,17 +53,17 @@ const h1: CSSProperties = {
   fontWeight: 700,
   letterSpacing: "-0.01em",
   margin: "0 0 8px",
-  color: "#1b1714",
+  color: EMAIL.tx,
 };
 const text: CSSProperties = {
   fontSize: "15px",
   lineHeight: "1.6",
-  color: "#1b1714",
+  color: EMAIL.tx,
   margin: "0 0 18px",
 };
 const codeBox: CSSProperties = {
-  backgroundColor: "#fffdf8",
-  border: "1px solid rgba(58,35,23,0.12)",
+  backgroundColor: EMAIL.cd,
+  border: `1px solid ${EMAIL.bd}`,
   borderRadius: "14px",
   padding: "18px",
   textAlign: "center",
@@ -71,19 +72,19 @@ const codeText: CSSProperties = {
   fontSize: "34px",
   fontWeight: 700,
   letterSpacing: "0.3em",
-  color: "#a65f10",
+  color: EMAIL.ac,
   margin: 0,
   // tabular so the digits sit evenly; the trailing letter-spacing pads the right — offset with padding-left
   fontVariantNumeric: "tabular-nums",
   paddingLeft: "0.3em",
 };
 const button: CSSProperties = {
-  backgroundColor: "#a65f10",
-  color: "#fffdf8",
+  backgroundColor: EMAIL.ac,
+  color: EMAIL.oa,
   fontSize: "15px",
   fontWeight: 700,
   textDecoration: "none",
   padding: "12px 22px",
   borderRadius: "999px",
 };
-const fine: CSSProperties = { fontSize: "13px", color: "#6e6358", margin: "18px 0 0" };
+const fine: CSSProperties = { fontSize: "13px", color: EMAIL.t2, margin: "18px 0 0" };

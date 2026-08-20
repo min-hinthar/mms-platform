@@ -20,6 +20,7 @@ import {
   BRAND_PHONE_DISPLAY,
   BRAND_PHONE_TEL,
 } from "@/lib/brand";
+import { EMAIL } from "./palette";
 
 /**
  * Shared brand shell for every MMS email (React Email) — W22r: brought to the delivery app's
@@ -29,9 +30,13 @@ import {
  * street address · phone · email · socials — every string verbatim from lib/brand). A 3-cell
  * solid top bar stands in for the triad (email clients drop gradients — flat cells only).
  *
- * Email clients can't load `@mms/ui` tokens (no external CSS / custom properties), so colors here
- * are LITERAL light-palette values — the sanctioned exception. The honest reason line is
- * QR-specific: these are receipts the diner ASKED for, not marketing.
+ * Email clients can't load `@mms/ui` tokens (no external CSS / custom properties), so the colours
+ * must be baked. They now come from `./palette` — ONE table, each entry naming the token it mirrors
+ * and pinned to `tokens.css` by `check-theme-parity.mjs` (M83). Never write a colour here directly:
+ * the guard refuses a raw hex anywhere under `apps/qr/emails/`, because 48 hand-copied literals
+ * across five templates is exactly how this surface drifted out of the palette unnoticed.
+ *
+ * The honest reason line is QR-specific: these are receipts the diner ASKED for, not marketing.
  */
 export function MmsEmailLayout({
   preview,
@@ -48,7 +53,15 @@ export function MmsEmailLayout({
   const logoUrl = `${siteUrl()}/email-logo.png`;
   return (
     <Html lang="en">
-      <Head />
+      <Head>
+        {/* M83 — declare the palette light, so the clients that honour it skip their automatic dark
+            transform. Apple Mail / iOS Mail / Outlook read these two and leave the message as
+            authored, which means a diner reads the pairs that were actually measured rather than an
+            inversion nobody has ever seen. Gmail's Android app inverts regardless of what a message
+            says — a reason to keep the pairs comfortably above the floor, not a reason to skip this. */}
+        <meta name="color-scheme" content="light" />
+        <meta name="supported-color-schemes" content="light" />
+      </Head>
       <Preview>{preview}</Preview>
       <Body style={body}>
         <Container style={container}>
@@ -57,9 +70,9 @@ export function MmsEmailLayout({
             <table width="100%" cellPadding={0} cellSpacing={0} role="presentation">
               <tbody>
                 <tr>
-                  <td style={{ ...bar, backgroundColor: "#e8a83c", width: "50%" }} />
-                  <td style={{ ...bar, backgroundColor: "#a65f10", width: "30%" }} />
-                  <td style={{ ...bar, backgroundColor: "#1b1714", width: "20%" }} />
+                  <td style={{ ...bar, backgroundColor: EMAIL.gold, width: "50%" }} />
+                  <td style={{ ...bar, backgroundColor: EMAIL.ac, width: "30%" }} />
+                  <td style={{ ...bar, backgroundColor: EMAIL.ink, width: "20%" }} />
                 </tr>
               </tbody>
             </table>
@@ -102,16 +115,16 @@ export function MmsEmailLayout({
 }
 
 const body: CSSProperties = {
-  backgroundColor: "#faf9f5",
+  backgroundColor: EMAIL.pg,
   fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif",
-  color: "#1b1714",
+  color: EMAIL.tx,
   margin: 0,
   padding: 0,
 };
 const container: CSSProperties = { maxWidth: "480px", margin: "0 auto", padding: "32px 16px" };
 const card: CSSProperties = {
-  backgroundColor: "#fffdf8",
-  border: "1px solid #e8e2d9",
+  backgroundColor: EMAIL.cd,
+  border: `1px solid ${EMAIL.bd}`,
   borderRadius: "16px",
   overflow: "hidden",
 };
@@ -120,7 +133,7 @@ const inner: CSSProperties = { padding: "24px 24px 28px" };
 const logo: CSSProperties = { display: "block", margin: "0 0 12px" };
 const kicker: CSSProperties = {
   fontSize: "12px",
-  color: "#6e6358",
+  color: EMAIL.t2,
   margin: "0 0 2px",
 };
 const eyebrow: CSSProperties = {
@@ -128,26 +141,26 @@ const eyebrow: CSSProperties = {
   fontWeight: 700,
   letterSpacing: "0.13em",
   textTransform: "uppercase",
-  color: "#a65f10",
+  color: EMAIL.ac,
   margin: "0 0 14px",
 };
 const footerStrong: CSSProperties = {
   fontSize: "12px",
   fontWeight: 700,
-  color: "#1b1714",
+  color: EMAIL.tx,
   margin: "0 0 2px",
   textAlign: "center" as const,
 };
 const footerLine: CSSProperties = {
   fontSize: "12px",
-  color: "#6e6358",
+  color: EMAIL.t2,
   margin: "0 0 2px",
   textAlign: "center" as const,
 };
-const footerLink: CSSProperties = { color: "#6e6358", textDecoration: "underline" };
+const footerLink: CSSProperties = { color: EMAIL.t2, textDecoration: "underline" };
 const footerFine: CSSProperties = {
   fontSize: "11px",
-  color: "#726859",
+  color: EMAIL.t3,
   margin: "10px 0 0",
   textAlign: "center" as const,
 };

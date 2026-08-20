@@ -1,6 +1,7 @@
 import { Heading, Text } from "@react-email/components";
 import type { CSSProperties } from "react";
 import { MmsEmailLayout } from "./MmsEmailLayout";
+import { EMAIL } from "./palette";
 
 /** Sent (best-effort) when an owner deactivates a staff member — an honest heads-up, no alarm. */
 export function StaffDeactivatedEmail() {
@@ -26,12 +27,12 @@ const h1: CSSProperties = {
   fontSize: "23px",
   fontWeight: 700,
   margin: "0 0 8px",
-  color: "#1b1714",
+  color: EMAIL.tx,
 };
 const text: CSSProperties = {
   fontSize: "15px",
   lineHeight: "1.6",
-  color: "#1b1714",
+  color: EMAIL.tx,
   margin: "0 0 18px",
 };
-const fine: CSSProperties = { fontSize: "13px", color: "#6e6358", margin: 0 };
+const fine: CSSProperties = { fontSize: "13px", color: EMAIL.t2, margin: 0 };

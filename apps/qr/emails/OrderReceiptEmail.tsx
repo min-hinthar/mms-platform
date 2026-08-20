@@ -17,6 +17,7 @@ import {
   receiptStatusLabel,
 } from "@/lib/refund-view";
 import { droppedLineLabel, droppedNoticeHeading, DROPPED_NOTICE_BODY } from "@/lib/dropped-view";
+import { EMAIL } from "./palette";
 
 /**
  * W7a — the diner receipt (the artifact S1 named missing; the W2e spec's `OrderReceiptEmail`).
@@ -133,10 +134,11 @@ export function OrderReceiptEmail({
 }
 
 const h1: CSSProperties = { fontSize: "22px", fontWeight: 800, margin: "0 0 4px" };
-const meta: CSSProperties = { fontSize: "13px", color: "#6e6358", margin: "0 0 16px" };
+const meta: CSSProperties = { fontSize: "13px", color: EMAIL.t2, margin: "0 0 16px" };
 const slip: CSSProperties = {
-  backgroundColor: "#ffffff",
-  border: "1px solid #e8e2d9",
+  // The on-screen slip is `var(--cd)`; the email's was a pure `#ffffff` that matched nothing.
+  backgroundColor: EMAIL.cd,
+  border: `1px solid ${EMAIL.bd}`,
   borderRadius: "12px",
   padding: "16px 18px",
 };
@@ -145,71 +147,78 @@ const groupHead: CSSProperties = {
   fontWeight: 800,
   letterSpacing: "0.08em",
   textTransform: "uppercase",
-  color: "#726859",
+  color: EMAIL.t3,
   margin: "8px 0 2px",
 };
-const lineName: CSSProperties = { fontSize: "14px", color: "#1b1714", padding: "3px 0" };
-const lineMods: CSSProperties = { fontSize: "12px", color: "#6e6358" };
+const lineName: CSSProperties = { fontSize: "14px", color: EMAIL.tx, padding: "3px 0" };
+const lineMods: CSSProperties = { fontSize: "12px", color: EMAIL.t2 };
 const lineNote: CSSProperties = {
   display: "block",
   fontSize: "12px",
   fontStyle: "italic",
-  color: "#726859",
+  color: EMAIL.t3,
 };
 // W23b — the per-line refund mark. A warm clay rather than a red: money coming back is an account
-// entry, not an error. Literal colors are the email-client sanctioned exception (no CSS vars).
+// entry, not an error.
 const lineRefund: CSSProperties = {
   display: "block",
   fontSize: "12px",
   fontWeight: 700,
-  color: "#a44b34",
+  color: EMAIL.warn,
 };
 const lineAmount: CSSProperties = {
   fontSize: "14px",
-  color: "#1b1714",
+  color: EMAIL.tx,
   textAlign: "right" as const,
   whiteSpace: "nowrap" as const,
   padding: "3px 0 3px 12px",
 };
-const rule: CSSProperties = { borderColor: "#e8e2d9", margin: "10px 0" };
-const rowLabel: CSSProperties = { fontSize: "13px", color: "#6e6358", padding: "2px 0" };
+// M83 — overrides `borderTop`, not `borderColor`. React Email's `<Hr>` base style is a SHORTHAND
+// (`borderTop: "1px solid #eaeaea"`), and a `borderColor` override merges as a second declaration:
+// the rendered tag carried `border-top:1px solid #eaeaea;border-color:#ebe7e2`. A browser resolves
+// that to the palette value, but an email client is not a browser — several drop or reorder the
+// longhand — and `#eaeaea` is a cool grey that appears nowhere in this palette. Replacing the
+// shorthand key removes it from the output entirely. Caught by `emails/palette.test.ts`, which reads
+// the rendered HTML; nothing that reads the SOURCE could have seen it.
+const rule: CSSProperties = { borderTop: `1px solid ${EMAIL.bd}`, margin: "10px 0" };
+const rowLabel: CSSProperties = { fontSize: "13px", color: EMAIL.t2, padding: "2px 0" };
 const rowAmount: CSSProperties = {
   fontSize: "13px",
-  color: "#1b1714",
+  color: EMAIL.tx,
   textAlign: "right" as const,
   padding: "2px 0 2px 12px",
 };
 const rowLabelGrand: CSSProperties = {
   fontSize: "15px",
   fontWeight: 800,
-  color: "#1b1714",
+  color: EMAIL.tx,
   padding: "6px 0 2px",
 };
 const rowAmountGrand: CSSProperties = {
   fontSize: "15px",
   fontWeight: 800,
-  color: "#1b1714",
+  color: EMAIL.tx,
   textAlign: "right" as const,
   padding: "6px 0 2px 12px",
 };
 const paid: CSSProperties = {
   fontSize: "13px",
   fontWeight: 700,
-  color: "#a65f10",
+  color: EMAIL.ac,
   margin: "10px 0 0",
 };
 const fine: CSSProperties = {
   fontSize: "12px",
-  color: "#6e6358",
+  color: EMAIL.t2,
   margin: "10px 0 0",
   lineHeight: "1.5",
 };
 const button: CSSProperties = {
-  backgroundColor: "#1b1714",
-  color: "#faf9f5",
+  backgroundColor: EMAIL.ink,
+  color: EMAIL.oa,
   fontSize: "14px",
   fontWeight: 700,
   borderRadius: "10px",
   padding: "12px 20px",
 };
-const farewell: CSSProperties = { fontSize: "13px", color: "#6e6358", margin: "18px 0 0" };
+const farewell: CSSProperties = { fontSize: "13px", color: EMAIL.t2, margin: "18px 0 0" };

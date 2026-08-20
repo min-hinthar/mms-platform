@@ -388,6 +388,29 @@ light palette into an iframe Stripe was rendering as `night`.
 `color: var(--warn)`, so printing from Night put a dark-ground orange onto forced white. Re-pin every
 token reachable from inside a print artifact, not just the ones set on its own node.
 
+**A surface that cannot read a token must still NAME the tokens it means.** Six surfaces in this app
+resolve no custom property — the offline shell, `viewport.themeColor`, the print re-pin, Stripe's
+appearance fallbacks, the Satori OpenGraph card, and the emails — so each one bakes literals. The
+literal is not the problem; the missing link back is. Put the values in ONE table where each entry
+names the token it mirrors, pin that table to `tokens.css` in a guard, and **refuse a raw colour
+anywhere else on the surface** — a guard on the table alone passes happily on files that never use
+it. Where the value is a composite (an alpha border flattened for clients that drop rgba),
+**recompute it** in the guard rather than storing the answer, so it tracks a change in either half.
+
+**The source is not the artifact.** Pinning the table proves what the templates _say_; only rendering
+proves what a person _receives_. An email's `<Hr>` inherited a library default as a **shorthand**
+(`border-top: 1px solid #eaeaea`) that the override merged beside rather than replaced — correct in a
+browser, off-palette in the output, and invisible to every guard that reads source. Render the thing
+and scan the output, but scan it where colours actually live: whole-document greps flag spacing
+entities (`&#8202;`) and any four-hex-digit order reference as rogue colours.
+
+**Assert a surface in the theme it actually ships.** The emails bake light values and declare
+`color-scheme: light`; running their pairs against the dark map would be a claim about values they
+never send. It is not even a safe one — `--oa` on `--ink` is 1.01:1 in dark, because `--ink` is a
+CONSTANT that `.dark` deliberately never re-declares while `--oa` flips. Which is the other half of
+the same lesson: **a `.dark` block OVERRIDES `:root`, it does not replace it**, so a parser that reads
+the dark block alone reports every deliberately-constant token as missing.
+
 ## 14 · Recognition — what the app may say it knows about you (W22e)
 
 `mostLoved` set the bar for claims about the ROOM. W22e applies it to ONE diner, which is harder:
