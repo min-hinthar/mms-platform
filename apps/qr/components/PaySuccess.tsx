@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAnimationPreference, useDeviceTier } from "@mms/ui";
 import { Confetti } from "./Confetti";
 import { haptic } from "@/lib/haptics";
+import { chime } from "@/lib/diner-sound";
 
 // Longest particle fall (Confetti: max dur 1700+6·160=2660ms + max delay 270ms) + buffer → unmount after.
 const CONFETTI_MS = 3200;
@@ -78,6 +79,9 @@ export function PaySuccess({
     if (hapticDone.current) return;
     hapticDone.current = true;
     haptic("celebrate");
+    // W22f — the same beat, the other channel. Silent unless the diner asked for it, and the
+    // confetti + receipt carry this moment on their own for everyone else.
+    chime("paid");
   }, []);
 
   // Unmount the confetti overlay once the particles have fallen, so a fixed full-screen layer doesn't linger

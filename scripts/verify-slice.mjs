@@ -742,6 +742,55 @@ const MUTANTS = [
     replace:
       "    if (!was) {\n      if (!row.soldOut) restocked.push(row.name);\n      continue;\n    }",
   },
+  // ── W22f — what the diner's phone is allowed to make a NOISE about ────────────────────────────
+  {
+    id: "chime/silence-turned-on-by-default",
+    file: "apps/qr/lib/chime.ts",
+    suite: "lib/chime.test.ts",
+    why: 'W22f — the whole opt-in promise, in one comparison. An unset preference must read as OFF: a guest who has never been asked is sitting in a dining room with other people, and a sound cannot be un-played. Loosening the exact-value check to "anything that is not 0" turns every phone that has never touched the setting on.',
+    find: '    return store?.getItem(SOUND_KEY) === "1";',
+    replace: '    return store?.getItem(SOUND_KEY) !== "0";',
+  },
+  {
+    id: "chime/broken-store-read-as-consent",
+    file: "apps/qr/lib/chime.ts",
+    suite: "lib/chime.test.ts",
+    why: 'W22f — private mode, partitioned storage and a locked-down browser all THROW on read. Failing toward "on" would make the one setting whose entire purpose is consent behave as though consent had been given, on precisely the devices where it could not have been. Same direction the delivery repo\'s "a failure must never read as empty" rule points, applied to a preference.',
+    find: "    // A disabled or partitioned store is not consent. Rule 1.\n    return false;",
+    replace: "    return true;",
+  },
+  {
+    id: "chime/enabled-collapsed-into-armed",
+    file: "apps/qr/lib/chime.ts",
+    suite: "lib/chime.test.ts",
+    why: "W22f — enabled and armed fail for DIFFERENT reasons and neither implies the other. A diner can have sound on from a previous session while this session's AudioContext was never unlocked (no gesture yet, or the resume was refused). Dropping `armed` sends the engine at a suspended or absent context, which is a throw on the send and pay paths — the two places an exception costs the most.",
+    find: "  return opts.enabled && opts.armed;",
+    replace: "  return opts.enabled;",
+  },
+  {
+    id: "chime/diner-phone-as-loud-as-the-kitchen",
+    file: "apps/qr/lib/chime.ts",
+    suite: "lib/chime.test.ts",
+    why: "W22f — 0.8 is the KDS default: a working device on a hot line that a cook must hear across the room. This is someone's phone at a table with other people at it. The level is the difference between a sound the diner hears and a sound their whole table hears, and it is a policy, not a magic number — so it gets an assertion.",
+    find: "export const CHIME_LEVEL = 0.22;",
+    replace: "export const CHIME_LEVEL = 0.8;",
+  },
+  {
+    id: "chime/pay-rises-instead-of-resolving",
+    file: "apps/qr/lib/chime.ts",
+    suite: "lib/chime.test.ts",
+    why: "W22f — the two moments are ONE phrase across the meal: `sent` lifts G5→C6 and `paid` comes back C6→G5. If pay rises too, the pair stops reading as a beginning and an end and becomes two unrelated beeps — the difference between a restaurant's sound and an app's notification tone.",
+    find: "    { freq: 784, at: 0.28, dur: 0.4 }, // G5 — resolves home",
+    replace: "    { freq: 1319, at: 0.28, dur: 0.4 }, // E6",
+  },
+  {
+    id: "chime/an-error-moment-grows-back",
+    file: "apps/qr/lib/chime.ts",
+    suite: "lib/chime.test.ts",
+    why: "W22f — rule 3, and the one rule here that a future edit is most likely to break kindly. A sound on failure turns a recoverable, private problem into a public one: the whole table looks over at someone whose card just declined. Errors are read, not heard — the vocabulary is closed at two moments and the test pins the exact key list rather than a count, so an added moment cannot slip in under a rename.",
+    find: "  ],\n};\n\nexport type ChimeMoment",
+    replace: "  ],\n  error: [{ freq: 440, at: 0, dur: 0.3 }],\n};\n\nexport type ChimeMoment",
+  },
   // ── W23b — the refund a guest can actually see (registry M2) ───────────────────────────────────
   {
     id: "refund-view/partial-reads-as-paid-in-full",

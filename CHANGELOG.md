@@ -4,13 +4,68 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W22f — a sound identity, opt-in and off by default (2026-08-20)
+
+Two sounds, and only two: a rising two-note bell when an order goes to the kitchen, and a downward
+phrase when payment lands. No migration, no server change, no new dependency — an oscillator and a
+`localStorage` key.
+
+**The policy is a pure module (`lib/chime.ts`, six mutants); only the WebAudio plumbing is not.** The
+split is the same one W22e made and for the same reason: `apps/qr/vitest.config.ts` is
+`environment: "node"`, so a rule left beside the audio code could not be guarded at all.
+
+1. **Off by default, and off means silent.** `soundEnabled()` answers false for an unset preference
+   **and for every failure of the store** — private mode, partitioned storage, a locked-down browser
+   all throw on read, and a broken store is not consent. A sound cannot be un-played, and the guest is
+   sitting in a room with other people.
+2. **Sound is never the only feedback.** Exactly the rule `haptics.ts` already states. Both moments
+   own a visible half already (the send beat's paper settle, PaySuccess's confetti and receipt), so a
+   diner with sound off — which is everyone, by default — loses nothing.
+3. **Never on an error path.** There is no `error` moment and there must not be one: a sound on
+   failure turns a recoverable, private problem into a public one, and the whole table looks over at
+   someone whose card just declined. Errors are read, not heard. The test pins the exact key list
+   rather than a count, so a moment cannot slip in under a rename.
+4. **Two moments, both already ceremony.** Sending and being paid. An add, a tap, a step is traffic,
+   and giving traffic a sound is how an app becomes a slot machine.
+5. **Quieter than the kitchen.** `CHIME_LEVEL` is 0.22 against `KdsChime`'s 0.8 default. That is a
+   working device on a hot line a cook must hear across the room; this is someone's phone at a table
+   with other people at it.
+6. **`enabled` and `armed` fail separately and neither implies the other.** A diner can have sound on
+   from a previous session while this session's AudioContext was never unlocked. That must be silence,
+   not a throw on the send and pay paths.
+
+**The toggle tap IS the arming gesture** — the correction that shaped the whole slice. Browsers create
+an AudioContext `suspended` and resume it only from a real interaction (strictly, on iOS). The KDS
+gets an explicit "Enable sound" tap at shift start; a diner never does. So the `role="switch"` on
+`/account` arms inside its own handler and reports ON only if audio is genuinely usable afterwards —
+and rolls the write back if it is not. A switch reading "on" while the device refused the context
+would promise a sound that cannot happen, which is the same class of lie as any other unkept copy.
+
+**`localStorage` is the store, not a mirror of it.** The switch reads through `useSyncExternalStore`
+with an explicit server snapshot of OFF, rather than copying the value into state in an effect —
+which React Compiler's `set-state-in-effect` rule forbids and which would also go stale the moment a
+second tab wrote the preference.
+
+**The proposal's placement was wrong and is corrected in writing, not quietly re-scoped.** W22f said
+"a toggle beside reduced motion"; there is no diner-facing reduced-motion control, and there should
+not be one — reduced motion is honored from the OS media query alone (`MotionConfig
+reducedMotion="user"` plus explicit `shouldAnimate` gates), which is the accessible behaviour.
+Inventing a second, app-local motion switch to give this one a neighbour would have been the worse
+outcome. Noted in `docs/W22_DESIGN_PROPOSAL.md`.
+
+**Not unified with the KDS chime, deliberately.** `KdsChime` and `diner-sound.ts` share ~15 lines of
+mallet envelope while every policy above inverts between them. Converting the kitchen engine inside a
+diner slice would put the cook's ticket chime at risk for a nice-to-have — filed as **M90** with its
+own PR and the KDS suite watched. M91 records that the preference is discoverable only on `/account`.
+
 ### W22e — "your usual," honestly (2026-08-20)
 
 One recognition card on the arrival beat, built from the diner's OWN paid history. No migration; no
 new server action (the add rides the cart context's existing server-authoritative `add`).
 
 **The whole slice is the honesty bar.** A personal history is small enough that one coincidence looks
-like a pattern, so `lib/menu/your-usual.ts` is a pure module carrying five rules, each with a mutant:
+like a pattern, so `lib/menu/your-usual.ts` is a pure module carrying six rules, each with a mutant. Rules 1
+and 4 are shown **as first built**; the adversarial round below rewrote both:
 
 1. **An occurrence is a DISTINCT ORDER, never a quantity.** Three teas in one sitting is one order of
    tea. Counting rows would let a single large party crown a dish for whoever happened to pay — and

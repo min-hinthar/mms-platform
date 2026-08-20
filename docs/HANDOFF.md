@@ -1,25 +1,32 @@
-# Session Handoff — MMS Platform (2026-08-17)
+# Session Handoff — MMS Platform (2026-08-20)
 
 The originating chat context does not carry across sessions — **this file is the durable pickup point.**
 Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — decisions, QA gate, rubric,
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-08-20 — W22a · W22a·depth · W22r · W22b · W22c and W23a–d merged; W22d–f remain)
+> ## ⏭️ NEXT SESSION — start here (2026-08-20 — W22a · a·depth · r · b · c · d-1 · e · f and W23a–d merged; only W22d proper remains, and it is OWNER-BLOCKED)
 >
-> ### ⏭️ Pick up here — the W22 slate is the live plan
+> ### ⏭️ Pick up here — the W22 slate is down to one owner decision
 >
-> `docs/W22_DESIGN_PROPOSAL.md` is the plan-of-record and **a, a·depth, r, b and c are marked
-> SHIPPED**. What remains, in the proposal's own recommended order:
+> `docs/W22_DESIGN_PROPOSAL.md` is the plan-of-record and **every slice is marked SHIPPED except
+> W22d**. What remains:
 >
-> - **W22d · Night, designed** — dark graduates from inverted tokens to a designed theme (deeper
->   espresso ground, gold spent only on selection, photo warmth lift). `packages/ui`'s contrast audit
->   parses `tokens.css` at test time so it re-derives — but re-read it before trusting green.
-> - **W22e · "Your usual," honestly** — one data-backed card on the arrival beat from the diner's OWN
->   paid history (≥2 occurrences, the rank-seal honesty bar), one tap to re-add; the taste picker
->   (`lib/menu/taste.ts`) starts learning from real orders and still never invents an affinity.
-> - **W22f · A sound identity** — two-note service bell + pay chime, opt-in beside reduced motion,
->   silent by default, never on an error path.
+> - **W22d · Night, designed — BLOCKED ON THE OWNER, not on code.** The direction is decided (owner,
+>   2026-08-20: _"brand logo maroon hue theme for light mode and slightly-purple-aubergine-hue theme
+>   for dark mode… let's defer visual theme builds"_) and the full note is
+>   [`docs/W22D_HUE_DECISION.md`](W22D_HUE_DECISION.md): two candidate maroons (`#a41034` declared
+>   canon vs `#a71b1d` measured off the logo), the brand-mark-reservation conflict, and the measured
+>   **luminance window** any accent must land in (Y > 0.153066 so the negative guard still holds,
+>   Y ≤ 0.171484 so `--ac` on `--pg` clears 4.5) — today's `#a65f10` sits inside it at 0.16329 and
+>   **every candidate maroon is outside at 0.085–0.110**, so the hue cannot simply be swapped onto
+>   `--ac`. Registry **M86** carries the two open questions. Do not start the build before they are
+>   answered. Its correctness floor (**W22d-1**) shipped ahead of it and is independent.
+>
+> Shipped since this block was last rewritten: **W22c** (the gesture layer), **W22d-1** (the Night
+> correctness floor + `pnpm check:theme` in CI), **W22e** ("your usual", honestly) and **W22f** (the
+> opt-in sound identity). Their findings live in `CHANGELOG.md`; the durable rules they produced are
+> `docs/DESIGN-LANGUAGE.md` §12 (hands), §13 (Night), §14 (recognition) and §15 (sound).
 >
 > **Also open, small — `docs/OPEN-ITEMS.md` M56**, the three W22a polish to-dos noted-and-merged under
 > the 2-round rule: ① the empty-Surprise-me copy blames a diet filter when the WHOLE menu is sold out
@@ -35,7 +42,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 188 `verify:slice` mutants green · `pnpm check:docs` clean (95 files, 794 qr tests +
+> **Gate today:** 194 `verify:slice` mutants green · `pnpm check:docs` clean (95 files, 807 qr tests +
 > 61 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
@@ -741,7 +748,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (188 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (194 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

@@ -9,6 +9,7 @@ import { OrderHistory } from "@/components/OrderHistory";
 import { TodayOrders } from "@/components/TodayOrders";
 import { AccountUpgrade } from "@/components/AccountUpgrade";
 import { AccountStatus } from "@/components/AccountStatus";
+import { SoundToggle } from "@/components/SoundToggle";
 import { AccountFavorites } from "@/components/AccountFavorites";
 import { RememberIdentity } from "@/components/RememberIdentity";
 import { MergeRedeemer } from "@/components/MergeRedeemer";
@@ -148,6 +149,10 @@ export default async function Account() {
           exactly this list. */}
       {/* W14 — the hearts finally have a home on the profile (renders nothing without any). */}
       <AccountFavorites dishes={favorites} />
+      {/* W22f — the ONE place sound can be switched on. It lives here, on the diner's own surface,
+          rather than "beside reduced motion" as the proposal said: there is no reduced-motion
+          control to sit beside (it is honored from the OS media query alone). */}
+      <SoundToggle />
       <TodayOrders orders={live} />
       {history === null ? (
         <p
