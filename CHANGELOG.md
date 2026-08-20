@@ -4,6 +4,78 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M82 — a `busy` prop on the Sheet primitive, and two live defects it names (2026-08-20)
+
+`Sheet` hands every caller four ways to dismiss. While a sheet body has an irreversible write in
+flight, dismissing does not cancel it — the refund still moves, the void still spends one of a
+manager's five PIN attempts, the add still reaches the server. All dismissal changes is that nobody
+sees how it ended, on a tree that has usually unmounted by the time the answer lands.
+
+**The registry entry miscounted the vectors.** M82 said "three dismissal vectors" and "blocks the
+three exits", counting Esc, ✕ and drag and **omitting the SCRIM** — the easiest of the four to hit by
+accident on a phone, since a bottom-anchored sheet with the keyboard up leaves the entire upper
+screen as scrim.
+
+**The first version of this entry then overstated what that miscount would have cost, and the claim
+is retracted.** It said a `busy` built to that description "would have blocked three and leaked the
+fourth". In this code shape it would not have: Radix funnels Esc, the scrim and the ✕ into one
+`onOpenChange`, so a guard there catches the scrim whether or not its author was thinking about the
+scrim, and leaking it would take deliberately _adding_ an `onPointerDownOutside`. The miscount is a
+real documentation error — someone planning this work would have reasoned about three exits — but it
+was never one edit from shipping a hole, and saying so was a scarier story than the facts support.
+
+What the enumeration actually buys is now stated and tested: `channelOf` maps the four vectors onto
+the **two channels** the wiring can distinguish (`radix`, `drag`), which proves the single choke
+point covers three of the four and stops a future edit from quietly moving one onto its own path.
+
+It was also wrong about the scale. "Eleven callers today" reads as eleven that need this. A scout of
+every one found **eight perform no irreversible write at all** — the pickers and viewers, plus the
+cart sheets, whose write lands in a provider that outlives the sheet and is plainly visible in the
+cart afterwards. One was already guarded. **Two were live defects:**
+
+- **`LossActionSheet` had no guard while its sibling did, and is the worse case.** `voidLine` runs
+  `verifyStaffPin` _before_ the RPC, and that atomically spends one of the manager's five attempts.
+  Dismiss mid-flight — a downward flick on a tablet being handed across a pass — and the verdict and
+  the attempt are both gone, with nothing on screen having said so. The natural response is to try
+  again, which walks the manager toward a floor-wide lockout.
+- **`StaffModSheet` loses a refusal that has nowhere else to go.** `staffAddItem`'s "This table is
+  mid-payment — wait until they've finished." is rendered _only_ inside the sheet, and deliberately:
+  `StaffMenuBrowser` routes it there with the comment _"the page-level one is behind the modal
+  scrim."_ Dismissing mid-add destroys the only surface that message has, so the server is told
+  nothing and the item simply is not there.
+
+**The policy is a pure module.** `packages/ui/src/sheet-dismiss.ts` owns the busy gate, the vector
+enumeration, and the R5b drag thresholds — `120px` and `700`, inline magic numbers with no assertion
+of any kind since they were written, deciding whether a scroll that wandered downward closes
+someone's half-filled sheet. They are now tested, including that the drag is **downward only** (an
+upward tug is someone pulling the sheet further open).
+
+**The wiring is asserted as source text, on purpose.** There is no DOM runner anywhere in this
+monorepo — `packages/ui` and `apps/qr` are both `environment: "node"`, and CI hard-fails on an
+orphan `.test.tsx` — so a behavioural "Esc while busy leaves the dialog open" test costs an infra
+slice, not a file. But W22c, W22e and W22f each shipped a correct module whose _caller_ defeated it,
+and a pure predicate cannot notice that `sheet.tsx` forgot one of the four vectors — which is the
+entire defect class M82 exists to close. Six wiring assertions cover it, each watched red.
+
+**The affordance the local fix could not give.** `RefundActionSheet`'s guard was complete (all four
+vectors converge on one `onOpenChange`), but the ✕ stayed visually enabled and silently inert, and
+the handle rubber-banded for no stated reason. The prop keeps the ✕ **visible, 44×44 and named** —
+QA §A P0 asks for visible and labelled, never for always-enabled — while announcing it as
+unavailable via `aria-disabled` and naming the reason ("Close — finishing, please wait"). Never
+native `disabled`: the ✕ is the FIRST tabbable element in the sheet, so disabling a focused one
+destroys the user's place (WCAG 2.4.3, the rule W22e learned). The dialog carries `aria-busy`; the
+primitive mounts **no** live region, because QA §A P1 allows exactly one per view and four callers
+already render a `role="status"` in the sheet body.
+
+**One thing the primitive cannot enforce, stated on the prop:** `busy` must be driven by something
+that settles on the failure path. All four exits are blocked while it is true and the focus scope is
+`trapped`, so a `busy` that never clears is a permanent keyboard trap (WCAG 2.1.2). Every caller
+passes a `useTransition` flag.
+
+Registry: M82 closed; M94 · M95 filed (both `InviteSheet`, found by the scout, out of scope here).
+No new `verify:slice` mutants — `packages/ui` is outside `MONEY_PATHS` and the runner's cwd is
+hardcoded to `apps/qr`. The gate moves from **821 qr + 70 ui** to **828 qr + 87 ui**.
+
 ### M83 — the email palette, named once and pinned (2026-08-20)
 
 The largest surface that had never been checked: five React Email templates carrying **48 hand-copied

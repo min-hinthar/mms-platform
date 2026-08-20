@@ -523,3 +523,43 @@ had to hear it twice.
 nothing else — default, arming, level, and what a failure costs all invert. Unify the ~15 lines of
 synthesis if you like; never unify the policy, and never convert the kitchen's chime as a side effect
 of a diner change (the cook's ticket sound is load-bearing; this one is garnish).
+
+## 16 · Sheets — what a dismissal may cost (M82)
+
+A bottom sheet is the app's most-used modal and its most-dismissed surface: four ways out, three of
+them one careless thumb away. That is right for a dish sheet and wrong for a sheet that is spending
+someone's money.
+
+- **Enumerate the exits, in a type.** A `Sheet` can be dismissed by **Esc**, the **scrim**, the **✕**
+  and a **downward drag** — four, not three. Radix funnels the first three into one `onOpenChange`
+  and the drag is ours, which is what makes a complete guard possible at all; it is also what makes
+  an _incomplete_ one invisible, because three-quarters of a guard looks exactly like a whole one
+  a guard on that callback cheap. Map the vectors onto the **channels** the code can actually
+  distinguish and assert the mapping: that proves one gate covers three exits, and stops a later edit
+  moving one onto a path of its own. Do not claim more than that — the entry that asked for this
+  feature miscounted the vectors, and an early draft of this section said the miscount "would have
+  leaked the scrim". It would not have, in this shape. A documentation error is worth fixing on its
+  own; dressing it as a near-miss is the same overclaim this file forbids elsewhere.
+- **`busy` is for an irreversible write, and nothing else.** Dismissing does not cancel the write. It
+  only guarantees nobody sees how it ended — usually on a tree that unmounted while the server was
+  still answering. Of eleven callers, three qualify; the other eight write nothing irreversible, or
+  write into a provider that outlives the sheet and shows the result plainly afterwards. **Do not add
+  it "for consistency"** — a lock with no reason is a lock a user cannot predict.
+- **A blocked exit must look blocked.** The local version of this rule swallowed the ✕'s click and
+  let the handle rubber-band, which is a control that looks live and does nothing — the thing the
+  feature request itself said to avoid. Keep the ✕ **visible, 44×44 and named**, mark it
+  `aria-disabled`, and say _why_ in the name. Never native `disabled`: it is the **first** tabbable
+  element in the sheet (the container above it is `tabIndex={-1}` — focusable, not tabbable), and
+  disabling a focused control destroys the user's place (§7).
+- **Mark the region busy; do not announce it.** `aria-busy` is a state — it tells assistive tech to
+  hold off re-reading. A live region in the primitive would be the _second_ one in any sheet that
+  already has a `role="status"` in its body, and four do. The caller already owns the message
+  ("Refunding…", "Working…"); the primitive owns the state.
+- **A lock that cannot clear is a trap.** All four exits blocked, inside a trapped focus scope, is
+  WCAG 2.1.2 if the flag ever strands. Drive it from a transition or a `finally`, never a bare
+  boolean a branch can miss. The primitive cannot enforce this and should say so rather than imply
+  it has.
+- **Thresholds are rules, not constants.** "A drag closes past 120px or 700px/s" decides whether a
+  wandering scroll discards a half-filled form. It belongs next to the policy it serves, with a test
+  — including that it is **downward only**, since an upward tug is someone pulling the sheet further
+  open, and a sheet that closes when you try to see more of it is the opposite of the gesture.

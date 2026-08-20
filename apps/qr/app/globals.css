@@ -235,6 +235,15 @@ h3 {
   place-items: center;
   cursor: pointer;
 }
+/* M82 — busy: the ✕ reads as unavailable while an irreversible write is in flight, and stays a
+   visible, labelled, 44×44 control throughout (QA §A P0 asks for visible + labelled, never for
+   always-enabled). NOT `pointer-events: none`: that hides the affordance from a pointer while
+   leaving the button tabbable and Enter-activatable, i.e. all of the appearance of a guard and none
+   of it. The enforcement is the choke point in sheet.tsx. */
+.mms-sheet-close[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: default;
+}
 @keyframes fade {
   from {
     opacity: 0;

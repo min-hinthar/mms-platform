@@ -135,7 +135,8 @@ export function RefundActionSheet({
     // happened, over money that may already have left the card.
     <Sheet
       open
-      onOpenChange={(next) => !next && !pending && onClose()}
+      busy={pending}
+      onOpenChange={(next) => !next && onClose()}
       title={`Refund ${line.name}`}
     >
       <div style={body}>

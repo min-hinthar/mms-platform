@@ -166,14 +166,23 @@ export function LossActionSheet({
     if (!canSubmit) return;
     setMsg(null);
     startTransition(async () => {
-      const res = await voidLine({
-        sessionId,
-        cartItemId: line.id,
-        action,
-        reason: effectiveReason,
-        ...(showStepUp ? { approverStaffId, pin } : {}),
-      });
-      handleResult(res);
+      // ⚠️ The transport itself can reject — offline, a server-action version skew after a deploy —
+      // and an unhandled rejection inside a transition scope surfaces as a THROW into the nearest
+      // error boundary, taking the whole staff table page down instead of showing the outage copy
+      // every other failure reason gets. Both siblings (`RefundActionSheet`, `StaffMenuBrowser`)
+      // already wrap; this file was the one that did not. M82 adversarial pass, LOW.
+      try {
+        const res = await voidLine({
+          sessionId,
+          cartItemId: line.id,
+          action,
+          reason: effectiveReason,
+          ...(showStepUp ? { approverStaffId, pin } : {}),
+        });
+        handleResult(res);
+      } catch {
+        setMsg(STAFF_WRITE_OUTAGE);
+      }
     });
   }
 
@@ -188,12 +197,20 @@ export function LossActionSheet({
     }
     setMsg(null);
     startTransition(async () => {
-      const res = await requestApproval({
-        sessionId,
-        cartItemId: line.id,
-        action,
-        reason: effectiveReason,
-      });
+      let res: Awaited<ReturnType<typeof requestApproval>>;
+      // Same rule as the direct path above — a rejected transport must read as an outage, not as a
+      // crashed page. This is also the arm that keeps `busy` honest: the flag settles either way.
+      try {
+        res = await requestApproval({
+          sessionId,
+          cartItemId: line.id,
+          action,
+          reason: effectiveReason,
+        });
+      } catch {
+        setMsg(STAFF_WRITE_OUTAGE);
+        return;
+      }
       if (res.ok) {
         onDone(action);
         onOpenChange(false);
@@ -228,7 +245,13 @@ export function LossActionSheet({
   const verb = action === "comp" ? "Comp" : "Void";
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title={`${verb} “${line.name}”`}>
+    // M82 — `busy` while a void/comp or an approval request is in flight. This sheet had NO guard at
+    // all while its sibling `RefundActionSheet` did, and it is the worse case of the two: `voidLine`
+    // runs `verifyStaffPin` BEFORE the RPC, which atomically spends one of the manager's five
+    // attempts. A dismissal mid-flight therefore loses the verdict AND the attempt — and the natural
+    // response, trying again, walks a manager toward a floor-wide lockout with nothing on screen
+    // ever having said why. `pending` is `useTransition`'s flag, so it settles on the failure path.
+    <Sheet open={open} onOpenChange={onOpenChange} busy={pending} title={`${verb} “${line.name}”`}>
       <form onSubmit={submit} style={{ marginTop: 8 }} noValidate>
         <p style={lineSummary}>
           {line.qty}× {line.name} · {fmt(line.unitPriceCents * line.qty)}
