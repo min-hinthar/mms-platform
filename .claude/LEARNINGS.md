@@ -245,3 +245,48 @@ Two others from the same slice:
   that column — was exercised by nothing in the repo. Deleting the column from its `INSERT` would
   have passed the vitest suites (they mock the DB), the drift guard (it compares schema to types)
   and the test itself. If a test asserts what a function writes, the test must CALL the function.
+
+## #50 — Two confident reviewers, one wrong. Averaging them ships the bug. (W22e, 2026-08-20)
+
+The W22e adversarial round ran two lenses over the same diff, and they **contradicted each other on
+two verifiable facts**:
+
+| Claim                                           | Lens A                                  | Lens B                                   | Truth (settled with `grep`, in seconds)                                                                                                    |
+| ----------------------------------------------- | --------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--r-md` exists in `tokens.css`                 | "exists nowhere"                        | "all tokens exist, clean"                | **Does not exist.** The scale is `--r-sm/-card/-sheet/-full`, so `border-radius: var(--r-md)` computed to `0` and the card shipped SQUARE. |
+| `.order(…, referencedTable)` reaches the parent | "no-op — the cap truncates arbitrarily" | "correct, because the embed is `!inner`" | **Lens B.** postgrest applies it to the parent when the join is `!inner`.                                                                  |
+
+Both cited file:line. Both sounded certain. **Believing either one wholesale, or splitting the
+difference, gets one of them wrong in each direction** — a square card, or a working query ordering
+deleted for a reason that was never true.
+
+The rule this repo already applies to its own code applies to reviewers: **a guard that cannot fail
+is decorative, and a reviewer you have not checked is a guard that cannot fail.** Verify the
+load-bearing claim yourself before acting on it. It cost seconds each time here; it would have cost a
+shipped defect either way.
+
+Corollary, from the same round: an agent can be right about the DEFECT and wrong about the
+MECHANISM. The first commit's comparator post-mortem claimed a non-zero return for equal entries
+"falls through to Map insertion order". Measured on this V8: returning `0` **preserves** insertion
+order (ES2019 stable sort) and returning `-1` **reverses** it. The defect was real; the explanation
+was inverted — and it had already been promoted into `docs/DESIGN-LANGUAGE.md` as normative doctrine,
+where the next reader would have cited it. **Measure the mechanism before you write it down as a
+rule.**
+
+Two more from the same slice, both about claims rather than code:
+
+- **Count the unit the CLAIM is about.** "Your usual" is about visits, so it counts distinct DAYS —
+  not rows (three of something in one sitting), not orders (this app mints a fresh cart after every
+  payment, so a second round is a second order an hour later), and not UTC days (an 8pm dinner in
+  Covina is already tomorrow in UTC, which splits one evening in two). The first version counted
+  orders and would have crowned a dish after a single evening — the exact claim `ArrivalBeat`, one
+  component above it, is careful to avoid: _"two orders in one sitting are two orders."_ **When a
+  neighbouring surface has already solved your honesty problem, read it before inventing an answer.**
+- **Attribution you do not have is not attribution you may assume — this is now the THIRD time.**
+  `earned_by` is who PAID, and `qr_order_items` carries no seat, so a dine-in host covering a table
+  owns every guest's dish in the data. Same shape as `qr_orders.settled_by` being null for a
+  guest-paid share (`/staff/tips` reports a shared bucket rather than inventing a split) and as
+  W23d's reason codes (a cause observed, never a consequence inferred). The answer is the same every
+  time: **narrow to the history that IS attributable and say so, rather than averaging over the part
+  that is not.** Here that meant counting to-go and pickup only — which costs the archetype (a solo
+  dine-in regular is exactly who the card is for) and is still correct.

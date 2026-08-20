@@ -14,6 +14,8 @@ import type { ModGroup } from "@/lib/menu/modifiers";
 import { itemBadges } from "@/lib/menu/badges";
 import { ItemSheet } from "./ItemSheet";
 import { ArrivalBeat } from "./ArrivalBeat";
+import { YourUsual } from "./YourUsual";
+import type { UsualOutcome } from "@/lib/menu/your-usual";
 import { MenuTimeline } from "@/components/TableTimeline";
 import { StartHereBand } from "./StartHereBand";
 import { TasteBand } from "./TasteBand";
@@ -75,6 +77,7 @@ export function MenuBrowser({
   favorites = [],
   heartedIds = [],
   welcome = null,
+  usual,
   reorderId = null,
   catalogStale = false,
   catalogStamp = 0,
@@ -92,6 +95,9 @@ export function MenuBrowser({
   heartedIds?: string[];
   /** J5: recognition facts for the arrival greeting (upgraded name / paid-orders-this-month). */
   welcome?: WelcomeBack | null;
+  /** W22e — the recognition outcome, decided server-side against today's catalog. `none` renders
+   *  nothing, which is what a first-timer and every failure path both get. */
+  usual: UsualOutcome;
   /** J5: a past order id to bring back as draft lines once the session's cart is ready (the
    *  /account "Order this again" path); validated + earner-gated server-side. */
   reorderId?: string | null;
@@ -480,6 +486,9 @@ export function MenuBrowser({
         {/* J2 arrival beat — the bilingual place-setting greeting; premieres once per session (J1's
             SurfaceMemory gates the stagger), lands settled on revisits. */}
         <ArrivalBeat mode={mode} welcome={welcome} />
+        {/* W22e — recognition sits directly under the greeting, before the mode chips: it is part
+            of the arrival beat, not a promotion. Renders nothing below the threshold. */}
+        <YourUsual outcome={usual} />
         {mode === "dinein" && <GuestList />}
         {mode === "pickup" && <PickupSlotChip />}
         {/* J3: the wait, narrated from real kitchen taps — renders only once something is with the
