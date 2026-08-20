@@ -4,6 +4,49 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### W22e — "your usual," honestly (2026-08-20)
+
+One recognition card on the arrival beat, built from the diner's OWN paid history. No migration; no
+new server action (the add rides the cart context's existing server-authoritative `add`).
+
+**The whole slice is the honesty bar.** A personal history is small enough that one coincidence looks
+like a pattern, so `lib/menu/your-usual.ts` is a pure module carrying five rules, each with a mutant:
+
+1. **An occurrence is a DISTINCT ORDER, never a quantity.** Three teas in one sitting is one order of
+   tea. Counting rows would let a single large party crown a dish for whoever happened to pay — and
+   on a personal card that reads far worse than on an aggregate, because the diner knows they have
+   only been in once.
+2. **A pair must have actually co-occurred.** The copy joins dishes with a `+`, which asserts they
+   were ordered _together_. If Mohinga rode orders A and B while Tea rode C and D, they are two
+   separate habits and the `+` states a meal that never happened. A pair needs ≥2 shared orders.
+3. **Ties break on RECENCY, then on name — never on row order.** The first draft's comparator
+   returned a non-zero value for genuinely equal entries, which is an invalid comparator; the order
+   then fell through to Map insertion order, i.e. whatever sequence the database returned. That is
+   exactly the invented preference the rule forbids. **My own test caught it.**
+4. **Unavailable dishes are filtered BEFORE ranking.** Offering an 86'd dish is the W23a
+   anti-pattern the app already paid for. Filtering first also means a sold-out favourite does not
+   crowd out the runner-up — the diner gets the dish they _can_ have rather than nothing.
+5. **Say nothing rather than something thin.** Below the threshold the outcome is `none` and the
+   arrival beat renders exactly what a first-timer sees.
+
+**The copy asks rather than tells.** "Your usual?" keeps its question mark: two orders is enough to
+ask and nowhere near enough to assert. A question that misses is a shrug; a statement that misses is
+the app claiming to know someone it does not. No count is shown — "you've ordered this 7 times" is
+equally true and reads like surveillance.
+
+**Privacy by construction.** The read is not a Server Action, takes no uid parameter (the moment it
+does, it becomes an endpoint for reading strangers' habits), and pins the query to
+`earned_by = <the SSR-verified uid>`. The only things that leave are a menu item id and a name the
+diner can already see. Whole-body try/catch: a config gap degrades to "no card", never a 500 on the
+app's highest-traffic page.
+
+**No second money surface.** The card never sees or quotes an amount; the add sends an item id and
+the server re-derives the price. Adds are serialized, not parallel — two concurrent adds against a
+cart closing mid-flight can land on opposite sides of the status guard, leaving the diner with half
+of what the button offered and no way to tell which half.
+
+4 new mutants (**184** total), 14 new tests, all red-first verified.
+
 ### W22d-1 — the Night correctness floor (2026-08-20)
 
 **Dark mode was failing AA on a diner's own rewards screen, and had been since K3a.**

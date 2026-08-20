@@ -387,3 +387,36 @@ light palette into an iframe Stripe was rendering as `night`.
 `.receipt-artifact { color: … !important }` could not override `ReceiptCard`'s inline
 `color: var(--warn)`, so printing from Night put a dark-ground orange onto forced white. Re-pin every
 token reachable from inside a print artifact, not just the ones set on its own node.
+
+## 14 · Recognition — what the app may say it knows about you (W22e)
+
+`mostLoved` set the bar for claims about the ROOM. W22e applies it to ONE diner, which is harder:
+a personal history is small enough that a single coincidence looks like a pattern, and a wrong guess
+lands on someone who knows the truth.
+
+- **An occurrence is a distinct ORDER, never a quantity.** Three of something in one sitting is one
+  order of it. Counting rows lets a large party's basket become the habit of whoever happened to pay.
+- **Never join two things with a `+` unless they co-occurred.** "Mohinga + Tea" asserts one meal. Two
+  separate habits rendered as a pair is the most confident kind of fabrication: specific, plausible,
+  and about the diner themselves.
+- **Break ties on a fact you hold — never on row order.** Recency is real; insertion order is an
+  accident of the query. And a comparator must return **0** for equal entries: returning anything
+  else is invalid and silently falls through to whatever sequence the database returned, which is the
+  invented preference the rule was meant to forbid.
+- **Filter availability BEFORE ranking, not after.** After-the-fact filtering both offers dishes that
+  are gone (the last-tap refusal) and lets an unavailable favourite crowd out the one that could have
+  been offered.
+- **ASK, don't tell, and never quote the count.** "Your usual?" with the question mark: enough
+  evidence to ask, nowhere near enough to assert. A question that misses is a shrug; a statement that
+  misses is the app claiming to know someone it does not. "You've ordered this 7 times" is equally
+  true and reads like surveillance — recognition should feel like a host, not an audit.
+- **Below the threshold, render nothing.** Not a placeholder, not a softer variant. A card that
+  appears for a first-timer is a guess wearing recognition's clothes.
+
+**A personal read takes no id.** The uid comes from the SSR-verified session and never from an
+argument — the moment such a function accepts one, it is an endpoint for reading strangers' habits.
+Keep it out of Server Actions, pin the query to the caller, and let only what the diner can already
+see leave the module.
+
+**Recognition is not a selection, so it does not wear the gold cap** (§2). Vellum and a hairline are
+enough to read as "for you" without diluting the one signal that means _you chose this_.

@@ -78,6 +78,12 @@ const MONEY_MARKERS = [
   // be revertible with every gate green, on the surface a diner uses precisely when they suspect
   // what they are looking at is stale.
   /\bcatalogFreshness\b/,
+  // W22e — same reasoning again, for a RECOGNITION claim rather than a price one. `yourUsual`
+  // decides whether the app tells a diner "this is your usual" and whether two dishes are joined by
+  // a `+` that asserts they were ordered together. It names no money column, so without this the
+  // honesty rules would be revertible with every gate green — on a card that speaks about the diner
+  // themselves, which is where a fabrication is least forgivable.
+  /\byourUsual\b/,
 ];
 
 const EXEMPT = /verify:slice-exempt\s*—?\s*(.+)/;

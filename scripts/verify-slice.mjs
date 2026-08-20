@@ -643,6 +643,39 @@ const MUTANTS = [
     replace:
       '    if (error) console.error("[manual-capture] mode read failed", error.message);\n    return true;',
   },
+  // ── W22e — what the app is allowed to call "your usual" ───────────────────────────────────────
+  {
+    id: "your-usual/quantity-mistaken-for-a-habit",
+    file: "apps/qr/lib/menu/your-usual.ts",
+    suite: "lib/menu/your-usual.test.ts",
+    why: "W22e — an occurrence is a DISTINCT ORDER. Counting rows (or qty) lets ONE visit crown a dish: three teas in a single sitting becomes \"your usual tea\", and a large party's order becomes the habit of whoever happened to pay. That is the same failure `mostLoved`'s MIN_DISTINCT_ORDERS exists to prevent, one scope in — and on a personal card it reads far worse, because the diner knows perfectly well they have only been in once.",
+    find: "      seen.orders.add(row.orderId);",
+    replace: "      seen.orders.add(row.orderId + String(Math.random()));",
+  },
+  {
+    id: "your-usual/pair-invented-from-two-separate-habits",
+    file: "apps/qr/lib/menu/your-usual.ts",
+    suite: "lib/menu/your-usual.test.ts",
+    why: "W22e — the copy joins two dishes with a `+`, which ASSERTS they were ordered together. If Mohinga rode orders A and B while Tea rode C and D, they are two separate habits and the `+` states a meal that never happened. Dropping the co-occurrence test turns the card into the most confident kind of fabrication: specific, plausible, and about the diner themselves.",
+    find: "    if (together >= MIN_DISTINCT_ORDERS) {",
+    replace: "    if (together >= 0) {",
+  },
+  {
+    id: "your-usual/sold-out-dish-offered-back",
+    file: "apps/qr/lib/menu/your-usual.ts",
+    suite: "lib/menu/your-usual.test.ts",
+    why: "W22e — availability is filtered BEFORE ranking for two reasons, and this mutant breaks both. Offering an 86'd dish is the W23a anti-pattern the app already paid for (assemble an order around something gone, meet the refusal at the last tap), and filtering afterwards would ALSO let the sold-out favourite crowd out the runner-up — so the diner gets nothing instead of the dish they could actually have had.",
+    find: "  const sellable = new Map(catalog.filter((c) => !c.soldOut).map((c) => [c.id, c]));",
+    replace: "  const sellable = new Map(catalog.map((c) => [c.id, c]));",
+  },
+  {
+    id: "your-usual/tie-broken-by-database-row-order",
+    file: "apps/qr/lib/menu/your-usual.ts",
+    suite: "lib/menu/your-usual.test.ts",
+    why: "W22e — when two dishes sit at the same count, whichever the database happened to return first is not a preference, it is an accident of row order. Recency is a fact the history actually holds, so it is the tiebreak. (The third rung, name, exists because the first version returned a non-zero value for genuinely equal entries — an invalid comparator — and the order then fell through to Map insertion order, i.e. exactly the accident this rule forbids.)",
+    find: "        b[1].newest.localeCompare(a[1].newest) ||",
+    replace: "        0 ||",
+  },
   // ── W22c — what a pulled-down menu is allowed to SAY it found ─────────────────────────────────
   {
     id: "catalog-freshness/failed-read-announced-as-a-sold-out-restaurant",

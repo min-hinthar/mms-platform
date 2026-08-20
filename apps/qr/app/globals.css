@@ -7482,3 +7482,53 @@ html[data-seen-surface] .mms-stagger {
 .ptr-btn:hover:not(:disabled) {
   color: var(--tx);
 }
+
+/* ── W22e · "your usual" — the recognition card on the arrival beat ─────────────────────────────
+   Deliberately QUIET. It sits between the greeting and the mode chips, and it is recognition rather
+   than a promotion: no photo, no price, no gold. The gold cap is the selection vocabulary
+   (docs/DESIGN-LANGUAGE.md §2) and this card is not a selection — borrowing it here would dilute the
+   one signal the design language protects. The vellum tier + a hairline is enough to read as "for
+   you" without competing with the Add bar or the Start-here band below. */
+.usual-card {
+  margin: 12px 0 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--bd);
+  border-radius: var(--r-md);
+  background: var(--surface-vellum);
+  box-shadow: var(--sh);
+}
+.usual-kicker {
+  margin: 0;
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--t2);
+}
+.usual-dishes {
+  margin: 2px 0 0;
+  font-size: var(--fs-body);
+  font-weight: 700;
+  color: var(--tx);
+}
+.usual-add {
+  margin-top: 10px;
+  min-height: 44px; /* QA §A touch target */
+  padding: 0 16px;
+  border: 1px solid var(--ac-strong);
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--ac-strong);
+  font-size: var(--fs-sm);
+  font-weight: 800;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.usual-add:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--ac) 10%, transparent);
+}
+.usual-add:disabled {
+  cursor: default;
+  border-color: var(--bd);
+  color: var(--t2);
+}

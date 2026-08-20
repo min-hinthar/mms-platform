@@ -9,6 +9,7 @@ import { getWelcomeBack } from "@/lib/rewards";
 import { getFavoriteIds } from "@/lib/favorites";
 import { OutageRefresh } from "@/components/OutageRefresh";
 import { readLastGoodCatalog, storeLastGoodCatalog } from "@/lib/menu/catalog-cache";
+import { getYourUsual } from "@/lib/menu/your-usual-read";
 import { safeImageUrl } from "@/lib/media-url";
 
 // RSC menu — reads the catalog (`menu_items`) server-side with the ANON/publishable key (gated by
@@ -117,6 +118,13 @@ export default async function Menu({
   const favorites = mostLoved.map((m, i) => ({ id: m.menuItemId, rank: ranks[i]! }));
   const welcome = await welcomeP;
   const heartedIds = await heartedP;
+  // W22e — recognition, decided server-side against TODAY's catalog so a sold-out or discontinued
+  // dish can never be offered (the rules live in lib/menu/your-usual.ts). Resolves to `none` for
+  // first-timers, for anyone below the threshold, and for every failure path — the card simply is
+  // not rendered, and the arrival beat is exactly what it was.
+  const usual = await getYourUsual(
+    items.map((i) => ({ id: i.id, name: i.name_en, soldOut: !!i.is_sold_out })),
+  );
 
   return (
     <TableCartProvider
@@ -135,6 +143,7 @@ export default async function Menu({
         favorites={favorites}
         heartedIds={heartedIds}
         welcome={welcome}
+        usual={usual}
         reorderId={reorder ?? null}
         catalogStale={catalogStale}
         // W22c — the ONLY proof available that a `router.refresh()` produced a new server render:
