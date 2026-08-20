@@ -147,7 +147,7 @@ const footerLine: CSSProperties = {
 const footerLink: CSSProperties = { color: "#6e6358", textDecoration: "underline" };
 const footerFine: CSSProperties = {
   fontSize: "11px",
-  color: "#9b8f82",
+  color: "#726859",
   margin: "10px 0 0",
   textAlign: "center" as const,
 };

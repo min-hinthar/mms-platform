@@ -3614,7 +3614,10 @@ h3 {
   font-weight: 800;
   letter-spacing: 0.02em;
   text-transform: uppercase;
-  color: var(--ac);
+  /* W22d-1 — was `var(--ac)`: 3.70:1 in light on this tint. Same shape as `.lend-banner-back`, and
+     on the sign-in chooser of the very rewards surface this slice is about. `aria-hidden` does not
+     exempt it — 1.4.3 governs visible text. */
+  color: var(--ac-strong);
   padding: 3px 8px;
   border-radius: 999px;
   background: color-mix(in oklab, var(--ac) 12%, transparent);
@@ -3699,7 +3702,11 @@ h3 {
   border-radius: 999px;
   border: 1px solid color-mix(in oklab, var(--ac) 45%, var(--bd));
   background: color-mix(in oklab, var(--ac) 16%, var(--sf));
-  color: var(--ac);
+  /* W22d-1 — was `var(--ac)`: 3.53:1 in light on this tint, a live AA failure on the ONLY way out
+     of lend mode. The audit's own negative guard already asserts plain `--ac` on `--sf` must fail;
+     this was a call site doing exactly that, on a ground tighter than bare `--sf`. 4.53 is thin, so
+     the combo is now asserted rather than trusted. */
+  color: var(--ac-strong);
   font-weight: 800;
   font-size: 13px;
   cursor: pointer;
@@ -7369,8 +7376,8 @@ html[data-seen-surface] .mms-stagger {
     --warn: #a44b34;
     --warnb: #f6e9e4;
     --ac: #a65f10;
-    --gold-strong: #8f5009;
-    --jade-strong: #25663f;
+    --gold-strong: #8a5a00;
+    --jade-strong: #1a5e54;
     --ruby-strong: #8c1f36;
   }
   .print-hide,

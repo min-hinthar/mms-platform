@@ -185,8 +185,9 @@ function combos(map: Record<string, string>, theme: "light" | "dark") {
   // W22d — the REWARD TIER tints, which had no coverage at all even though `--ruby` is live on four
   // surfaces. `tierTint()` (apps/qr/lib/rewards-tiers.ts) is the one mapper: `fill` paints the dot,
   // glyph and border; `text` is `--<hue>-strong` and is rendered ON the tint. Two alpha recipes are
-  // in production — 16% (AccountStatus tier card, WelcomeBackChooser) and 14% (AccountStatus tier
-  // row) — over `--cd`, which is the tightest ground of the three.
+  // in production: 16% (AccountStatus' tier card) and 14% (its tier row), both over `--cd` — the
+  // tightest of the three grounds, which is why only `--cd` is asserted here. WelcomeBackChooser
+  // uses the same 16% recipe but over `.wb-chip`'s `--sf`, which is looser in both themes.
   const rubyStrong = tok(map, "--ruby-strong");
   const ruby = tok(map, "--ruby");
   const rubyTint16 = flattenAlpha(ruby, 0.16, cd);
@@ -238,6 +239,21 @@ function combos(map: Record<string, string>, theme: "light" | "dark") {
     // W22d — `tx on surface-elevated` was guarded but `t3` was not, though the same floating chrome
     // carries muted text (timestamps, the "Save X%" sub-label).
     { name: "t3 on surface-elevated", fg: tok(map, "--t3"), bg: tok(map, "--surface-elevated") },
+    // W22d-1 (adversarial review, HIGH ×2) — the two ACCENT PILLS. Both shipped `color: var(--ac)`
+    // on an accent tint over `--sf` and both failed AA in light (3.53 and 3.70), which is precisely
+    // what the `plain ac on sf` negative guard below already declared impossible — the guard was
+    // right and two live call sites were violating it, with nothing connecting the two facts.
+    // `.lend-banner-back` clears at only 4.53, so it is asserted rather than trusted.
+    {
+      name: "ac-strong on accent 16% over sf (.lend-banner-back)",
+      fg: acStrong,
+      bg: mixOklab(ac, 0.16, sf),
+    },
+    {
+      name: "ac-strong on accent 12% tint over sf (.wb-method)",
+      fg: acStrong,
+      bg: flattenAlpha(ac, 0.12, sf),
+    },
     { name: "oa on solid ac", fg: tok(map, "--oa"), bg: ac },
     { name: "ok on okb", fg: tok(map, "--ok"), bg: tok(map, "--okb") },
     { name: "warn on warnb", fg: tok(map, "--warn"), bg: tok(map, "--warnb") },

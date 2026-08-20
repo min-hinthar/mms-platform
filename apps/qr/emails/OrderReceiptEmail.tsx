@@ -145,7 +145,7 @@ const groupHead: CSSProperties = {
   fontWeight: 800,
   letterSpacing: "0.08em",
   textTransform: "uppercase",
-  color: "#9b8f82",
+  color: "#726859",
   margin: "8px 0 2px",
 };
 const lineName: CSSProperties = { fontSize: "14px", color: "#1b1714", padding: "3px 0" };
@@ -154,7 +154,7 @@ const lineNote: CSSProperties = {
   display: "block",
   fontSize: "12px",
   fontStyle: "italic",
-  color: "#9b8f82",
+  color: "#726859",
 };
 // W23b — the per-line refund mark. A warm clay rather than a red: money coming back is an account
 // entry, not an error. Literal colors are the email-client sanctioned exception (no CSS vars).

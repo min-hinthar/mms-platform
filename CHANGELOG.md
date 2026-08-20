@@ -65,6 +65,43 @@ false ruby comment in `tokens.css`. **The proposal's "deeper espresso ground" is
 than followed**: shipped Night is aubergine (~260°), so espresso is a hue rotation, not a deepening —
 an open owner decision, not something the word should smuggle in.
 
+#### The adversarial round — including two failures in this commit's own thesis
+
+Two lenses (a11y/colour · product truth/guard integrity). The ruby fix itself was confirmed sound at
+every live recipe, and `mixOklab` verified against browser reference values. What it found instead:
+
+- **This commit hand-copied hex and drifted, on the commit whose thesis is that hand-copied hex
+  drifts.** Two of the eight tokens added to the print re-pin were wrong: `--gold-strong` was pasted
+  from `--ac-strong` (`#8f5009` for `#8a5a00`), and `--jade-strong` was `#25663f` — a value that
+  existed **nowhere else in the repo**. A Gold- or Jade-tier diner printing `/account` got an
+  off-brand hue on paper. The block's own new comment promised "values = the light theme's own",
+  which is precisely the kind of prose-instead-of-enforcement this slice is about.
+- **`check-theme-parity.mjs` said "three surfaces" and checked two.** The print block — the one this
+  commit edits — was the missing third, and the `stripeAppearance` fallbacks carried a comment
+  claiming the script pinned them before it did. Both are now genuinely covered: the guard grew to
+  four surfaces, was born red on exactly the two drifted values, and `--bd` comparison normalises
+  whitespace so an rgba can be pinned too.
+- **Two live AA failures in LIGHT mode, both violating a rule this file already asserts.** The audit
+  carries a negative guard declaring plain `--ac` on `--sf` must fail — and two call sites were doing
+  exactly that on a ground tighter than bare `--sf`: `.lend-banner-back` at **3.53:1** (the only way
+  out of lend mode) and `.wb-method` at **3.70:1** (the sign-in chooser on the very rewards surface
+  this slice is about). The guard was right; nothing connected it to the call sites. Both now read
+  `--ac-strong`, and both combos are asserted — `.lend-banner-back` clears at only 4.53, too thin to
+  leave on trust.
+- **The email templates use `#9b8f82`, which corresponds to no token and fails AA on all three of its
+  grounds**: 3.16:1 on the receipt slip and 3.00:1 on the email body, carrying the destination
+  headers, the per-line kitchen note and the honest "why you got this" reason line. Fixed to `--t3`'s
+  light value. The remaining ~40 hand-copied hexes in `apps/qr/emails/*` are filed as **M83** — the
+  largest uncovered contrast surface left, and the canonical "cannot read a custom property" case.
+
+Also corrected: the audit attributed its 16% recipe to `WelcomeBackChooser` "over `--cd`" when that
+component's avatar sits on `--sf`. Filed rather than fixed: **M84** (the tier/chip percentages are
+still transcribed while the badge ones are now parsed — the same reasoning applies, and this commit
+only half-applied it) and **M85** (the audit models a tinted chip's ground as flat `--cd`, but
+`AccountStatus` renders `<Card textured>`, so dots show through the translucent tint).
+
+**Codex could not review this PR either** — same usage limit as #207. Recorded, not papered over.
+
 No migration.
 
 ### W22c — the gesture layer, and three corrections (2026-08-20)
