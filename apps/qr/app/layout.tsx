@@ -6,6 +6,7 @@ import { Fraunces, Hanken_Grotesk, Padauk } from "next/font/google";
 import { ViewTransitions } from "next-view-transitions";
 import { AnonAuthGate } from "@/components/AnonAuthGate";
 import { ThemeSync } from "@/components/ThemeSync";
+import { SoundPrimer } from "@/components/SoundPrimer";
 import { MotionProvider } from "@/components/MotionProvider";
 import { ActiveOrderProvider } from "@/components/ActiveOrderProvider";
 import { AppHeader } from "@/components/AppHeader";
@@ -119,6 +120,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             }}
           />
           <ThemeSync />
+          <SoundPrimer />
           <AnonAuthGate />
           <NavDirectionSync />
           <SurfaceMemory />

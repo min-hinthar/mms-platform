@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAnimationPreference, useDeviceTier } from "@mms/ui";
 import { Confetti } from "./Confetti";
 import { haptic } from "@/lib/haptics";
+import { chime } from "@/lib/diner-sound";
 
 // Longest particle fall (Confetti: max dur 1700+6·160=2660ms + max delay 270ms) + buffer → unmount after.
 const CONFETTI_MS = 3200;
@@ -79,6 +80,24 @@ export function PaySuccess({
     hapticDone.current = true;
     haptic("celebrate");
   }, []);
+
+  // W22f — the same beat, the other channel. Silent unless the diner asked for it; the confetti and
+  // the receipt carry this moment on their own for everyone else (rule 2 — sound is never the only
+  // feedback), which is what lets it be best-effort.
+  //
+  // Its own latch, NOT the haptic's. `awaitingCapture` is live — the caller passes
+  // `awaitingCapture && !order`, so it flips false the moment the order lands — and the bell must
+  // wait for that flip rather than be swallowed by a latch that already fired. While the flag is up
+  // this component deliberately drops the word "Paid" because no money has moved, and the `paid`
+  // chime's whole documented meaning is "the payment resolved home"; ringing it under a headline
+  // softened for exactly that reason would put two contradicting claims on one screen — and the
+  // audible one is the one no reviewer sees.
+  const chimeDone = useRef(false);
+  useEffect(() => {
+    if (chimeDone.current || awaitingCapture) return;
+    chimeDone.current = true;
+    chime("paid");
+  }, [awaitingCapture]);
 
   // Unmount the confetti overlay once the particles have fallen, so a fixed full-screen layer doesn't linger
   // for the page's life. setState in the timeout callback is async (not a synchronous setState-in-effect).

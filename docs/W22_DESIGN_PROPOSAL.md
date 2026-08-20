@@ -184,11 +184,28 @@ get recognition.
 
 - Effort: M. Risk: low (reads existing RLS-scoped history). Impact: the return-visit wow.
 
-## W22f · A sound identity (opt-in, off by default)
+## W22f · A sound identity (opt-in, off by default) ⭐ **SHIPPED 2026-08-20**
+
+> As-built: `lib/chime.ts` (pure policy — the two moments, the level, and the rule that there is
+> no error sound; six mutants) + `lib/diner-sound.ts` (the WebAudio engine, `kds-sound.ts`'s
+> mallet envelope) + a `role="switch"` on `/account`. Details: CHANGELOG · DESIGN-LANGUAGE §15.
 
 A two-note "service bell" on send-to-kitchen and a soft chime on pay success — the sonic version
-of the gold cap. Strictly opt-in (a toggle beside reduced motion), silent by default, never on
-error paths.
+of the gold cap. Strictly opt-in, silent by default, never on error paths.
+
+**Two corrections the build forced, recorded rather than quietly re-scoped:**
+
+1. **There is no "toggle beside reduced motion" to sit beside.** This proposal assumed a diner-facing
+   motion setting; there is none, and there should not be one — reduced motion is honored from the OS
+   media query alone (`MotionConfig reducedMotion="user"` plus explicit `shouldAnimate` gates), which
+   is the accessible behaviour. Inventing a second, app-local motion switch to give the sound toggle a
+   neighbour would have been a worse outcome than moving it. It lives on `/account`, the one surface
+   already the diner's own.
+2. **The toggle tap IS the arming gesture.** Browsers create an AudioContext `suspended` and resume it
+   only from a real interaction (strictly, on iOS). The KDS gets an explicit "Enable sound" tap at
+   shift start; a diner never does. So the switch arms inside its own handler and reports ON only if
+   audio is genuinely usable afterwards — a switch reading "on" while the device refused the context
+   would be promising a sound that cannot happen.
 
 - Effort: S. Risk: none if default-off. Impact: delight for the diners who turn it on.
 
@@ -197,6 +214,7 @@ error paths.
 ## Sequencing & the bar
 
 `W22a → W22b → W22c` is the recommended order (each rides the previous); **a, b and c are
-shipped**; d–f slot in as appetite allows. Every slice holds the standing gates: tokens only, RM-escorted motion, one live
+shipped**, as are **e and f**; **d** (the hue re-theme) is owner-blocked on the maroon/aubergine
+decision recorded in `docs/W22D_HUE_DECISION.md` — its correctness floor (W22d-1) shipped ahead of it. Every slice holds the standing gates: tokens only, RM-escorted motion, one live
 region, 44px, data-backed claims, server-authoritative money, `verify:slice` + `check:docs` +
 the two-reviewer pre-merge pass (in-session adversarial + Codex), K15 for any new MY.

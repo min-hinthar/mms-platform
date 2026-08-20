@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, useTransition, type CSSProperties } from "react";
+import { chime } from "@/lib/diner-sound";
 import { Icon } from "@mms/ui";
 import { sendToKitchen, undoFire } from "@/lib/cart";
 import { t, type DictKey } from "@/lib/i18n";
@@ -115,6 +116,11 @@ export function SendToKitchenButton({
         // they can retry from, not strand them on a confirm whose proceed already fired.
         setConfirming(false);
         if (res.ok) {
+          // W22f — the service bell, on the SUCCESS arm only. Silent unless the diner asked for it,
+          // and the visible half (this message + W22a·depth's paper settle) carries the moment for
+          // everyone else. Deliberately not in the refusal branch below: a sound on failure turns a
+          // recoverable problem into a public one — the whole table looks over.
+          chime("sent");
           setMsg({
             kind: "ok",
             text: `Sent to the kitchen — ${res.fired} ${res.fired === 1 ? "item" : "items"} on the way.`,

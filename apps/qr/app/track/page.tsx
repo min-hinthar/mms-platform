@@ -22,6 +22,18 @@ type SearchParams = Promise<{
   cart?: string;
   payment_intent?: string;
   paid?: string; // set by the split-tender SettlementBoard redirect (no Stripe redirect params)
+  /**
+   * W22f — "I am a RESUME, not a fresh payment."
+   *
+   * `HomeResumeCard` links here with Stripe's own `payment_intent` + `redirect_status=succeeded`
+   * shape, because that is what resolves the tracker — but the tap is someone checking on an order
+   * they placed hours ago. Without this marker the page could not tell the two apart, so every
+   * resume replayed the full arrival celebration: confetti, the celebrate haptic, "Payment
+   * confirmed", and (once W22f wired it) the pay chime. The card is a link, not a document load, so
+   * the resume was in fact the ONE path where that chime was reliably audible — a bell announcing a
+   * payment that had happened long before, on a tap that moved no money at all.
+   */
+  resume?: string;
   /** W7a — the durable receipt bearer (`?r=<token>`): the session-less artifact view. */
   r?: string;
 }>;
@@ -53,6 +65,7 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
     cart,
     payment_intent: paymentIntent,
     paid,
+    resume,
     r,
   } = await searchParams;
 
@@ -164,7 +177,8 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
         <OrderTracker
           paymentIntent={paymentIntent}
           processing={status === "processing"}
-          justPaid={status === "succeeded"}
+          // A resume is not an arrival — see `resume` in SearchParams.
+          justPaid={status === "succeeded" && resume !== "1"}
           awaitingCapture={awaitingCapture}
         />
       );

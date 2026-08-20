@@ -28,7 +28,11 @@ export function HomeResumeCard() {
         ? "Preparing your order"
         : "Your order is in";
   const href = order.paymentIntent
-    ? `/track?payment_intent=${encodeURIComponent(order.paymentIntent)}&redirect_status=succeeded${order.cartId ? `&cart=${encodeURIComponent(order.cartId)}` : ""}`
+    ? // `resume=1` — this is someone checking on an order, not arriving from a payment. Without it
+      // /track cannot tell this tap from Stripe's return and replays the whole arrival celebration
+      // (confetti, the celebrate haptic, "Payment confirmed", the pay chime) on an order placed
+      // hours ago. The Stripe-shaped params stay because they are what resolves the tracker.
+      `/track?payment_intent=${encodeURIComponent(order.paymentIntent)}&redirect_status=succeeded&resume=1${order.cartId ? `&cart=${encodeURIComponent(order.cartId)}` : ""}`
     : `/track?cart=${encodeURIComponent(order.cartId ?? "")}&paid=1`;
 
   return (

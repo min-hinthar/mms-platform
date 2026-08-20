@@ -394,8 +394,6 @@ token reachable from inside a print artifact, not just the ones set on its own n
 a personal history is small enough that a single coincidence looks like a pattern, and a wrong guess
 lands on someone who knows the truth.
 
-- **An occurrence is a distinct ORDER, never a quantity.** Three of something in one sitting is one
-  order of it. Counting rows lets a large party's basket become the habit of whoever happened to pay.
 - **Never join two things with a `+` unless they co-occurred.** "Mohinga + Tea" asserts one meal. Two
   separate habits rendered as a pair is the most confident kind of fabrication: specific, plausible,
   and about the diner themselves.
@@ -435,3 +433,70 @@ see leave the module.
 
 **Recognition is not a selection, so it does not wear the gold cap** (§2). Vellum and a hairline are
 enough to read as "for you" without diluting the one signal that means _you chose this_.
+
+## 15 · Sound — what the diner's phone may make a noise about (W22f)
+
+The app has a voice (§9) and a touch (§12). Sound is the third channel, and it is the only one that
+reaches **people who did not ask for it** — everyone else at the table, the next table, a quiet room.
+So it is the one channel that is off until someone says otherwise.
+
+- **Off by default, and off means silent.** An unset preference is OFF. So is a preference the store
+  could not be read from — private mode, partitioned storage and a locked-down browser all THROW, and
+  **a broken store is not consent**. There is no "probably on". (Same direction as the delivery
+  repo's "a failure must never read as empty", one boundary out: a failure must never read as _yes_.)
+- **Never on an error path.** No sound fires when something goes wrong, and no `error` moment may be
+  added. A sound on failure turns a recoverable, private problem into a public one — the whole table
+  looks over at someone whose card just declined. Errors are read, not heard.
+- **Sound is never the only feedback.** Exactly the §12 haptics rule. Every moment that makes a noise
+  already owns a visible half, because the default state of this channel is silence: a diner who
+  never turns it on must lose nothing at all.
+- **Only ceremony, never traffic.** Two moments — sending to the kitchen, and being paid — because
+  those are the two the app already treats as ceremony everywhere else. An add, a tap, a step is
+  traffic. Giving traffic a sound is how an app becomes a slot machine.
+- **The moments are one phrase, not two alerts.** `sent` lifts G5→C6; `paid` picks up on C6 and
+  resolves home to G5. A beginning and an end across the meal, in the same register as the gold cap —
+  a restaurant's sound rather than a notification tone.
+- **A guest's phone is not a working device.** The kitchen chime defaults to 0.8 because a cook must
+  hear a ticket land across a hot line. The diner level is 0.22: loud enough for the person holding
+  the phone, quiet enough not to announce their dinner to the room.
+- **Enabled and armed are two facts and neither implies the other.** Browsers create an AudioContext
+  `suspended` and resume it only from a real user gesture (strictly, on iOS). A diner can therefore
+  have sound ON with no usable context at all — from a previous session, or a refused resume. That
+  state is **silence**, never a throw on the send or pay path.
+- **If the only gesture available is the toggle itself, the toggle must do the arming.** Staff get an
+  explicit "Enable sound" tap at shift start; a diner never does. So the switch arms inside its own
+  handler and reports ON **only if audio is genuinely usable afterwards** — otherwise it rolls the
+  write back and says the device refused. A control that reads "on" while nothing can sound is an
+  unkept copy promise (§5) wearing a switch.
+- **A stored preference is the store, not a mirror of it.** Read it through `useSyncExternalStore`
+  with an explicit server snapshot of the OFF default. Copying it into state in an effect is both
+  what React Compiler forbids and a real staleness bug the moment a second surface writes the value.
+
+**A preference outlives the page; the thing that makes it work does not.** A browser's audio context
+is per-document and dies on every navigation, while the preference sits in storage and does not — so
+"the diner turned it on" and "this page can make a sound" are two facts with different lifetimes, and
+a switch that shows the first while implying the second is wrong on every load after the first. Re-arm
+from the first gesture of each document, and re-arm again when the tab becomes visible (an interrupted
+context does not resume itself). This generalises: **any capability unlocked by a gesture must be
+re-unlocked per document, even though the preference that asked for it was not.**
+
+**Some moments cannot carry a sound at all, and the copy is what has to change.** A payment returns
+through a hard navigation from the processor, so the page that celebrates it has no user activation —
+and on iOS an audio context in that document can never resume. That moment's bell is best-effort
+forever. The honest response is not to promise it and quietly miss: it is to promise only what every
+device can keep (the kitchen bell), let the rest play where it can, and lean on the rule that the
+sound is never the only feedback. This is the same bargain the haptic layer already lives with, where
+the most common device implements nothing at all.
+
+**A resume is not an arrival.** Deep-links back into a post-payment screen tend to reuse the
+processor's own return-URL shape, because that is what resolves the view — which means the screen
+cannot tell "I just paid" from "I am checking on the order I paid for hours ago" unless the link says
+so. Every celebration on that screen fires on both: confetti, the haptic, the headline, the bell. Mark
+the resume in the link and gate the celebration on it. The audible channel is what exposed this, but
+it was wrong in three channels before sound existed — a celebration nobody questioned because nobody
+had to hear it twice.
+
+**Shared engine, split policy.** The kitchen and diner chimes share a mallet envelope and agree on
+nothing else — default, arming, level, and what a failure costs all invert. Unify the ~15 lines of
+synthesis if you like; never unify the policy, and never convert the kitchen's chime as a side effect
+of a diner change (the cook's ticket sound is load-bearing; this one is garnish).

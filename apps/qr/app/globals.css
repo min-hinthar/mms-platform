@@ -7534,3 +7534,76 @@ html[data-seen-surface] .mms-stagger {
   border-color: var(--bd);
   color: var(--t2);
 }
+
+/* ── W22f · the sound switch (the ONE place a diner can turn the chime on) ──────────────────────
+   A settings row, not a card: it sits with the account's other quiet chrome and must not compete
+   with the rewards panel above it. No gold — the gold cap is the selection vocabulary
+   (docs/DESIGN-LANGUAGE.md §2) and a preference is not a selection. */
+.sound-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 20px 0 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--bd);
+  border-radius: var(--r-card);
+  background: var(--surface-vellum);
+}
+.sound-copy {
+  min-width: 0;
+}
+.sound-h {
+  margin: 0;
+  font-size: var(--fs-body);
+  font-weight: 800;
+  color: var(--tx);
+}
+.sound-sub {
+  margin: 2px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+/* The switch keeps a 44px TARGET via padding while the visible track stays small — the same trick
+   the sheet's ✕ uses, so the control reads as chrome without failing QA §A. */
+.sound-switch {
+  flex: none;
+  position: relative;
+  width: 56px;
+  min-height: 44px;
+  padding: 0;
+  border: 1px solid var(--bd);
+  border-radius: var(--r-full);
+  background: var(--sf);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+.sound-switch.is-on {
+  background: color-mix(in oklab, var(--ac) 22%, var(--sf));
+  border-color: var(--ac-strong);
+}
+.sound-knob {
+  position: absolute;
+  top: 50%;
+  left: 6px;
+  width: 18px;
+  height: 18px;
+  margin-top: -9px;
+  border-radius: var(--r-full);
+  background: var(--t2);
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+.sound-switch.is-on .sound-knob {
+  transform: translateX(24px);
+  background: var(--ac-strong);
+}
+@media (prefers-reduced-motion: reduce) {
+  .sound-switch,
+  .sound-knob {
+    transition: none;
+  }
+}
