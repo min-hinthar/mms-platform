@@ -59,7 +59,13 @@ begin
            (cart, dish_b, 'Tea Leaf Salad', 1, 900, 95, ben, 'dinein');
 
   -- THE REAL WRITER. Not an INSERT into qr_order_items.
-  ord := public.mms_fulfill_order(cart, 'pi_m87_dinein', 2100, 1900, 0, 0, 200, 0, ana, 'card');
+  --
+  -- `p_settled_by` is NULL, and that is the realistic shape as well as the only legal one here:
+  -- `qr_orders.settled_by` carries an FK to `staff`, so it is a STAFF id — the member who rang the
+  -- order in — and a diner paying on their own phone leaves it null. (CI caught this: the first
+  -- version passed a diner uid and the fulfill RPC raised on the foreign key.) It is also exactly
+  -- the state `/staff/tips` reasons about when it refuses to split an unattributable bucket.
+  ord := public.mms_fulfill_order(cart, 'pi_m87_dinein', 2100, 1900, 0, 0, 200, 0, null, 'card');
   update public.qr_orders set earned_by = ana where id = ord;  -- the webhook stamps the payer
 
   select count(*) into n from public.qr_order_items where order_id = ord and by_seat is not null;
@@ -106,7 +112,7 @@ begin
   insert into public.qr_carts (id, session_id) values (cart, '00000000-0000-0000-0000-000000887002');
   insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
     values (cart, dish_b, 'Tea Leaf Salad', 1, 900, 95, ana, 'togo');
-  ord := public.mms_fulfill_order(cart, 'pi_m87_legacy', 995, 900, 0, 0, 95, 0, ana, 'card');
+  ord := public.mms_fulfill_order(cart, 'pi_m87_legacy', 995, 900, 0, 0, 95, 0, null, 'card');
   update public.qr_orders set earned_by = ana where id = ord;
   update public.qr_order_items set by_seat = null where order_id = ord;
 
@@ -144,7 +150,7 @@ begin
     values (cart, dish_a, 'Mohinga', 1, 1000, 105, cai, 'togo', true);
   insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
     values (cart, dish_a, 'Mohinga', 1, 1000, 105, cai, 'togo');
-  ord := public.mms_fulfill_order(cart, 'pi_m87_states', 1105, 1000, 0, 0, 105, 0, cai, 'card');
+  ord := public.mms_fulfill_order(cart, 'pi_m87_states', 1105, 1000, 0, 0, 105, 0, null, 'card');
 
   select count(*) into n from public.qr_order_items where order_id = ord;
   assert n = 1, format('M87.6 a voided or comped line was fulfilled: %s lines', n);
