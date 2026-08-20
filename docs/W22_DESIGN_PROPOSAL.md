@@ -134,6 +134,13 @@ themes, which a code-only PR cannot do. Filed as an OPEN-ITEMS row naming the pr
 
 ## W22d · Night, designed — the candlelit teahouse
 
+> **⭐ HUE DIRECTION DECIDED 2026-08-20 — see [`docs/W22D_HUE_DECISION.md`](W22D_HUE_DECISION.md).**
+> Owner: _"brand logo maroon hue theme for light mode and slightly-purple-aubergine-hue theme for
+> dark mode."_ **"Deeper espresso ground" below is superseded and retired.** Light rotates out of
+> amber into the brand red; dark stays at its current hue 260° and goes ~+10–25° more purple. Build
+> deferred. The note carries the measured blast radius (308 accent call sites in light, ~10 tokens in
+> dark), the guard rewrite the light half requires first, and the open owner questions.
+
 Dark mode graduates from inverted tokens to a designed theme: a deeper ground, gold used even more
 sparingly (glow economy — selection only), and photo treatment tuned for dark (slight warmth lift).
 
