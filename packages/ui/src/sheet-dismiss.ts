@@ -18,12 +18,23 @@
  *   · `close` — the ✕; `Dialog.Close` is a plain button whose composed `onClick` calls the same thing
  *   · `drag`  — ours: a decisive downward flick on the grab handle, thresholds below
  *
- * All four converge on ONE `onOpenChange`, which is what makes a complete guard possible at all — and
- * `docs/OPEN-ITEMS.md`'s M82 nonetheless described "three dismissal vectors" and "the three exits",
- * counting Esc, ✕ and drag and **omitting the scrim**. A `busy` prop built to that description would
- * have blocked three and leaked the fourth, and on a phone the scrim is the EASIEST of the four to
- * hit by accident: the sheet is bottom-anchored with the keyboard up, so everything above it is
- * scrim. Naming the vectors in a type is how that particular mistake stops being possible.
+ * ── Vectors are what a PERSON does; channels are what the code can tell apart ─────────────────────
+ *
+ * Radix funnels `esc`, `scrim` and `close` into ONE `onOpenChange` callback, so the primitive cannot
+ * distinguish them and does not pretend to — `channelOf` maps all three to `"radix"`, and the drag,
+ * which never enters Radix, to `"drag"`. Two channels, four vectors. That collapse is exactly why a
+ * complete guard is cheap here, and why the enumeration below is documentation rather than dispatch.
+ *
+ * ⚠️ **An earlier version of this header overclaimed and the claim is retracted.** It said that a
+ * `busy` built to `docs/OPEN-ITEMS.md`'s description — which counts "three dismissal vectors",
+ * naming Esc, ✕ and drag and **omitting the scrim** — "would have blocked three and leaked the
+ * fourth". In THIS code shape it would not have: a guard on `onOpenChange` catches the scrim whether
+ * or not its author was thinking about the scrim, and leaking it would take deliberately ADDING an
+ * `onPointerDownOutside`. The registry's miscount is a real documentation error worth fixing — a
+ * reader planning this work would have reasoned about three exits — but it was never one edit away
+ * from shipping a hole, and saying so was a scarier story than the facts support. What the
+ * enumeration actually buys is stated plainly: `channelOf` proves the choke point covers three of
+ * the four, so a future edit cannot quietly move one of them onto its own path.
  *
  * ── The thresholds live here too ─────────────────────────────────────────────────────────────────
  *
@@ -37,6 +48,20 @@ export type DismissVector = "esc" | "scrim" | "close" | "drag";
 
 /** Every vector, for a caller (or a test) that needs to prove it covered all of them. */
 export const DISMISS_VECTORS: readonly DismissVector[] = ["esc", "scrim", "close", "drag"];
+
+/**
+ * What the WIRING can actually distinguish. Three vectors share one callback, so there are two.
+ *
+ * Naming this is the honest alternative to threading a `via` the primitive would have to invent:
+ * the choke point passes `"radix"` because that is genuinely all it knows, rather than passing
+ * `"close"` for an Esc keypress and quietly making the vector type decorative.
+ */
+export type DismissChannel = "radix" | "drag";
+
+/** Which callback a vector arrives on. The three-into-one collapse, stated once and testable. */
+export function channelOf(vector: DismissVector): DismissChannel {
+  return vector === "drag" ? "drag" : "radix";
+}
 
 /** A downward drag past this many pixels is a decisive "close". */
 export const DRAG_CLOSE_PX = 120;
@@ -76,13 +101,14 @@ export function mayDismiss(opts: { busy: boolean }): boolean {
 /**
  * The whole decision, for one vector, in one call — what `sheet.tsx` actually consults.
  *
- * The `drag` vector carries its own threshold test, so a caller cannot accidentally apply the busy
- * gate while re-deriving "was that flick decisive" somewhere else and letting the two disagree. Every
- * other vector has already decided it wants to close by the time it reaches this.
+ * Takes a CHANNEL, not a vector — see `channelOf`. The `drag` channel carries its own threshold
+ * test, so a caller cannot apply the busy gate while re-deriving "was that flick decisive" somewhere
+ * else and letting the two disagree. Anything arriving on the `radix` channel has already decided it
+ * wants to close.
  */
 export function sheetDismiss(
   opts: { busy: boolean } & (
-    | { via: Exclude<DismissVector, "drag"> }
+    | { via: "radix" }
     | { via: "drag"; offsetY: number; velocityY: number }
   ),
 ): boolean {

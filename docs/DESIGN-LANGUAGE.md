@@ -534,8 +534,12 @@ someone's money.
   and a **downward drag** — four, not three. Radix funnels the first three into one `onOpenChange`
   and the drag is ours, which is what makes a complete guard possible at all; it is also what makes
   an _incomplete_ one invisible, because three-quarters of a guard looks exactly like a whole one
-  until the fourth vector happens. The registry entry that asked for this feature miscounted them,
-  and the miscount is now a test.
+  a guard on that callback cheap. Map the vectors onto the **channels** the code can actually
+  distinguish and assert the mapping: that proves one gate covers three exits, and stops a later edit
+  moving one onto a path of its own. Do not claim more than that — the entry that asked for this
+  feature miscounted the vectors, and an early draft of this section said the miscount "would have
+  leaked the scrim". It would not have, in this shape. A documentation error is worth fixing on its
+  own; dressing it as a near-miss is the same overclaim this file forbids elsewhere.
 - **`busy` is for an irreversible write, and nothing else.** Dismissing does not cancel the write. It
   only guarantees nobody sees how it ended — usually on a tree that unmounted while the server was
   still answering. Of eleven callers, three qualify; the other eight write nothing irreversible, or
@@ -544,8 +548,9 @@ someone's money.
 - **A blocked exit must look blocked.** The local version of this rule swallowed the ✕'s click and
   let the handle rubber-band, which is a control that looks live and does nothing — the thing the
   feature request itself said to avoid. Keep the ✕ **visible, 44×44 and named**, mark it
-  `aria-disabled`, and say _why_ in the name. Never native `disabled`: it is the second tabbable
-  element in the sheet, and disabling a focused control destroys the user's place (§7).
+  `aria-disabled`, and say _why_ in the name. Never native `disabled`: it is the **first** tabbable
+  element in the sheet (the container above it is `tabIndex={-1}` — focusable, not tabbable), and
+  disabling a focused control destroys the user's place (§7).
 - **Mark the region busy; do not announce it.** `aria-busy` is a state — it tells assistive tech to
   hold off re-reading. A live region in the primitive would be the _second_ one in any sheet that
   already has a `role="status"` in its body, and four do. The caller already owns the message

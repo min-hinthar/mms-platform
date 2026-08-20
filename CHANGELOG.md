@@ -11,13 +11,22 @@ flight, dismissing does not cancel it — the refund still moves, the void still
 manager's five PIN attempts, the add still reaches the server. All dismissal changes is that nobody
 sees how it ended, on a tree that has usually unmounted by the time the answer lands.
 
-**The registry entry was wrong in a way that would have shipped a half-guard.** M82 said "three
-dismissal vectors" and "blocks the three exits", counting Esc, ✕ and drag and **omitting the SCRIM**.
-A `busy` built to that description blocks three and leaks the fourth — and on a phone the scrim is
-the _easiest_ of the four to hit by accident, because a bottom-anchored sheet with the keyboard up
-leaves the entire upper screen as scrim. The four-vector list is now a type, an exported constant and
-an assertion; a mutant that reproduces the registry's own three-vector description turns the suite
-red.
+**The registry entry miscounted the vectors.** M82 said "three dismissal vectors" and "blocks the
+three exits", counting Esc, ✕ and drag and **omitting the SCRIM** — the easiest of the four to hit by
+accident on a phone, since a bottom-anchored sheet with the keyboard up leaves the entire upper
+screen as scrim.
+
+**The first version of this entry then overstated what that miscount would have cost, and the claim
+is retracted.** It said a `busy` built to that description "would have blocked three and leaked the
+fourth". In this code shape it would not have: Radix funnels Esc, the scrim and the ✕ into one
+`onOpenChange`, so a guard there catches the scrim whether or not its author was thinking about the
+scrim, and leaking it would take deliberately _adding_ an `onPointerDownOutside`. The miscount is a
+real documentation error — someone planning this work would have reasoned about three exits — but it
+was never one edit from shipping a hole, and saying so was a scarier story than the facts support.
+
+What the enumeration actually buys is now stated and tested: `channelOf` maps the four vectors onto
+the **two channels** the wiring can distinguish (`radix`, `drag`), which proves the single choke
+point covers three of the four and stops a future edit from quietly moving one onto its own path.
 
 It was also wrong about the scale. "Eleven callers today" reads as eleven that need this. A scout of
 every one found **eight perform no irreversible write at all** — the pickers and viewers, plus the
@@ -53,7 +62,7 @@ vectors converge on one `onOpenChange`), but the ✕ stayed visually enabled and
 the handle rubber-banded for no stated reason. The prop keeps the ✕ **visible, 44×44 and named** —
 QA §A P0 asks for visible and labelled, never for always-enabled — while announcing it as
 unavailable via `aria-disabled` and naming the reason ("Close — finishing, please wait"). Never
-native `disabled`: the ✕ is the second tabbable element in the sheet, so disabling a focused one
+native `disabled`: the ✕ is the FIRST tabbable element in the sheet, so disabling a focused one
 destroys the user's place (WCAG 2.4.3, the rule W22e learned). The dialog carries `aria-busy`; the
 primitive mounts **no** live region, because QA §A P1 allows exactly one per view and four callers
 already render a `role="status"` in the sheet body.

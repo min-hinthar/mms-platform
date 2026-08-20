@@ -6,10 +6,10 @@ import {
   DISMISS_VECTORS,
   DRAG_CLOSE_PX,
   DRAG_CLOSE_VELOCITY,
+  channelOf,
   dragClosed,
   mayDismiss,
   sheetDismiss,
-  type DismissVector,
 } from "../sheet-dismiss";
 
 /**
@@ -26,14 +26,20 @@ import {
  * of the four vectors — which is the entire defect class M82 exists to close.
  */
 
-const SHEET = readFileSync(
-  path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "sheet.tsx"),
-  "utf8",
-);
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const strip = (src: string) =>
+  src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+const SHEET = readFileSync(path.join(HERE, "..", "sheet.tsx"), "utf8");
+/**
+ * ⚠️ The CALLER half of this guard lives in `apps/qr/lib/sheet-busy-callers.test.ts`, not here.
+ * A test in `packages/ui` that reads `apps/qr` off disk inverts the one-way dependency rule — the
+ * package would fail because an app changed — so the assertion sits on the side that already
+ * depends on this one. It is not optional: see that file's header for what it caught.
+ */
 /** Comments stripped — a rule that lives only in prose has repeatedly passed a source assertion in
  *  this repo (the `your-usual-read` privacy guard, W22e). Block comments only: a `//` inside a
  *  string is not a comment, which is the trap M83's review demonstrated. */
-const SHEET_CODE = SHEET.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+const SHEET_CODE = strip(SHEET);
 
 describe("mayDismiss — busy blocks, idle allows", () => {
   it("⚠️ refuses while an irreversible write is in flight", () => {
@@ -82,17 +88,28 @@ describe("sheetDismiss — every vector, and the one the registry forgot", () =>
     // leaves the whole upper screen as scrim. A guard built to that description blocks three and
     // leaks the fourth, which is indistinguishable from no guard the first time it happens.
     const refused = DISMISS_VECTORS.filter(
-      (via) => !sheetDismiss({ busy: true, ...dragArgs(via) }),
+      (v) =>
+        !sheetDismiss(
+          channelOf(v) === "drag"
+            ? { busy: true, via: "drag", offsetY: 999, velocityY: 9999 }
+            : { busy: true, via: "radix" },
+        ),
     );
     expect(refused).toEqual([...DISMISS_VECTORS]);
     expect(DISMISS_VECTORS).toHaveLength(4);
     expect(DISMISS_VECTORS).toContain("scrim");
   });
 
-  it("allows every non-drag vector when idle", () => {
-    for (const via of ["esc", "scrim", "close"] as const) {
-      expect(sheetDismiss({ busy: false, via })).toBe(true);
-    }
+  it("⚠️ maps the three Radix-funnelled vectors onto ONE channel, and the drag onto its own", () => {
+    // This is what makes the enumeration load-bearing rather than decorative: it proves the single
+    // choke point covers three of the four vectors, so a future edit cannot quietly move one of
+    // them onto a path of its own without this failing.
+    expect(DISMISS_VECTORS.map(channelOf)).toEqual(["radix", "radix", "radix", "drag"]);
+    expect(new Set(DISMISS_VECTORS.map(channelOf)).size).toBe(2);
+  });
+
+  it("allows the radix channel when idle", () => {
+    expect(sheetDismiss({ busy: false, via: "radix" })).toBe(true);
   });
 
   it("still applies the drag threshold when idle — busy is not the only gate", () => {
@@ -107,20 +124,15 @@ describe("sheetDismiss — every vector, and the one the registry forgot", () =>
   });
 });
 
-/** Test-side helper so the vector sweep can pass drag coordinates without special-casing. */
-function dragArgs(
-  via: DismissVector,
-): { via: Exclude<DismissVector, "drag"> } | { via: "drag"; offsetY: number; velocityY: number } {
-  return via === "drag"
-    ? { via: "drag", offsetY: 999, velocityY: 9999 }
-    : { via: via as Exclude<DismissVector, "drag"> };
-}
-
 describe("the wiring — sheet.tsx must actually consult the policy", () => {
   it("⚠️ routes onOpenChange through the policy", () => {
     // The single choke point: Radix funnels Esc, the scrim and the ✕ into `onOpenChange`, so this
     // one call covers three of the four vectors. Its absence is the whole bug.
-    expect(SHEET_CODE).toMatch(/sheetDismiss\(\s*\{\s*busy[^}]*via:\s*"(esc|close|scrim)"/s);
+    // ⚠️ SHORTHAND ONLY. The first version of this regex was `busy[^}]*via:` — which happily matches
+    // `{ busy: false, via: "radix" }`, i.e. the feature switched off. An adversarial pass turned the
+    // whole guard off with that one token and the suite stayed 85/85 green. `\s*,` cannot match a
+    // colon, so the property shorthand is now required.
+    expect(SHEET_CODE).toMatch(/sheetDismiss\(\{\s*busy\s*,\s*via:\s*"radix"\s*\}\)/);
   });
 
   it("⚠️ routes the drag through the policy, thresholds and all", () => {
@@ -128,7 +140,7 @@ describe("the wiring — sheet.tsx must actually consult the policy", () => {
     // on `onOpenChange` alone leaves the handle live, and the handle is the vector a person uses
     // while impatient.
     expect(SHEET_CODE).toMatch(/onDragEnd/);
-    expect(SHEET_CODE).toMatch(/sheetDismiss\([^)]*via:\s*"drag"/s);
+    expect(SHEET_CODE).toMatch(/sheetDismiss\(\{\s*busy\s*,\s*via:\s*"drag"/);
     // The magic numbers must NOT have been re-inlined beside the policy that owns them.
     expect(SHEET_CODE).not.toMatch(/offset\.y\s*>\s*\d/);
     expect(SHEET_CODE).not.toMatch(/velocity\.y\s*>\s*\d/);
@@ -136,8 +148,9 @@ describe("the wiring — sheet.tsx must actually consult the policy", () => {
 
   it("⚠️ keeps the ✕ visible and named while busy, and never natively disables it", () => {
     // QA §A P0 demands a visible, labelled ✕ on every sheet; M82 asks for visible-but-disabled. And
-    // W22e's rule applies: the ✕ is the second tabbable element here, so a native `disabled` blurs
-    // a focused control and destroys the user's place (WCAG 2.4.3). `aria-disabled` announces the
+    // W22e's rule applies: the ✕ is the FIRST tabbable element here — the container above it is
+    // `tabIndex={-1}`, focusable but not tabbable — so a native `disabled` blurs a focused control
+    // and destroys the user's place (WCAG 2.4.3). `aria-disabled` announces the
     // state without moving focus, and the handler is the real enforcement.
     expect(SHEET_CODE).toMatch(/aria-disabled=\{busy/);
     expect(SHEET_CODE).toMatch(/aria-label=\{busy\s*\?/);
@@ -161,7 +174,23 @@ describe("the wiring — sheet.tsx must actually consult the policy", () => {
     expect(SHEET_CODE).not.toMatch(/onEscapeKeyDown/);
     expect(SHEET_CODE).not.toMatch(/onPointerDownOutside/);
     expect(SHEET_CODE).not.toMatch(/onInteractOutside/);
-    // …and the policy is consulted at least once per vector.
+    // …and the policy is consulted once per channel.
     expect([...SHEET_CODE.matchAll(/sheetDismiss\(/g)]).toHaveLength(2);
+    // ⚠️ EVERY exit is counted, because banning three Radix prop names does not stop a FIFTH path.
+    // The adversarial pass added `onClick={() => onOpenChange(false)}` to `Dialog.Overlay` — a
+    // hand-rolled scrim close, the exact defect W22c deleted from `RefundActionSheet` — and the
+    // suite stayed green. Three is the whole budget: the guarded wrapper's declaration, its one
+    // guarded call, and the guarded descent handed to `SheetContent`. A fourth is a new way out.
+    expect([...SHEET_CODE.matchAll(/onOpenChange\(/g)]).toHaveLength(2);
+    expect(SHEET_CODE).toMatch(
+      /onClose=\{\(\) => \{\s*if \(mayDismiss\(\{ busy \}\)\) onOpenChange\(false\);/,
+    );
+  });
+
+  it("⚠️ hands SheetContent a GUARDED close, not a raw one", () => {
+    // `onClose` is the drag's exit. It carries its own `sheetDismiss`, so today this is belt over
+    // brace — but a raw `() => onOpenChange(false)` makes the NEXT consumer of `onClose` unguarded
+    // by construction, and nothing else in this file would notice.
+    expect(SHEET_CODE).not.toMatch(/onClose=\{\(\) => onOpenChange\(false\)\}/);
   });
 });

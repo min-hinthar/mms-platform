@@ -4,7 +4,7 @@ import * as React from "react";
 import { m, useDragControls } from "framer-motion";
 import { DomMaxProvider } from "./dom-max-provider";
 import { Icon } from "./icon";
-import { sheetDismiss } from "./sheet-dismiss";
+import { mayDismiss, sheetDismiss } from "./sheet-dismiss";
 
 /**
  * Accessible bottom sheet built on Radix Dialog — replaces the prototype's hand-rolled
@@ -65,14 +65,15 @@ export function Sheet({
   return (
     // THE choke point. Radix funnels Esc (`useEscapeKeydown` → `onDismiss`), the scrim
     // (`usePointerDownOutside` → `onDismiss`) and the ✕ (`Dialog.Close`'s composed `onClick`) all
-    // into this ONE `onOpenChange` — which is what makes a complete guard possible at all, and why
-    // there are deliberately no `onEscapeKeyDown` / `onPointerDownOutside` handlers here: parallel
-    // gates over the same decision are how one of them drifts. The fourth vector, the drag, never
-    // enters Radix and is gated at its own `onDragEnd` below.
+    // into this ONE `onOpenChange` — the `"radix"` channel — which is what makes a complete guard
+    // cheap here, and why there are deliberately no `onEscapeKeyDown` / `onPointerDownOutside`
+    // handlers: parallel gates over the same decision are how one of them drifts, and adding one is
+    // the only way to LOSE the scrim from this guard. The fourth vector, the drag, never enters
+    // Radix and is gated at its own `onDragEnd` below.
     <Dialog.Root
       open={open}
       onOpenChange={(next) => {
-        if (!next && !sheetDismiss({ busy, via: "close" })) return;
+        if (!next && !sheetDismiss({ busy, via: "radix" })) return;
         onOpenChange(next);
       }}
     >
@@ -82,7 +83,15 @@ export function Sheet({
           <SheetContent
             title={title}
             busy={busy}
-            onClose={() => onOpenChange(false)}
+            // Guarded at the DESCENT, not only at each consumer. Today `onDragEnd` is the sole
+            // caller and it runs its own `sheetDismiss` — but handing the child a raw
+            // `onOpenChange(false)` means the NEXT consumer is unguarded by construction, and the
+            // adversarial pass showed exactly that shape sailing past the suite (a hand-rolled
+            // `onClick` on the scrim, the defect W22c deleted from `RefundActionSheet`). Belt and
+            // brace: two gates on one path is cheap, an ungated second path is the whole bug.
+            onClose={() => {
+              if (mayDismiss({ busy })) onOpenChange(false);
+            }}
             onCloseAutoFocus={onCloseAutoFocus}
           >
             {children}
@@ -234,11 +243,14 @@ function SheetContent({
           </div>
           <Dialog.Title className="mms-sheet-title">{title}</Dialog.Title>
           {/* Visible, named, 44×44 throughout (QA §A P0) — and while busy, ANNOUNCED as unavailable
-              rather than natively disabled. `disabled` would blur it, and it is the second tabbable
-              element in the sheet (the container takes initial focus, Tab lands here next), so a
-              focused ✕ going disabled destroys the user's place — the WCAG 2.4.3 rule W22e learned.
+              rather than natively disabled. `disabled` would blur it, and it is the first tabbable
+              element in the sheet — the container takes initial focus but is `tabIndex={-1}`, i.e.
+              focusable, NOT tabbable — so a focused ✕ going disabled destroys the user's place, the
+              WCAG 2.4.3 rule W22e learned.
               `aria-disabled` states it without moving focus; the choke point above is the real
-              enforcement, since `aria-disabled` does not stop Enter or Space. */}
+              enforcement, since `aria-disabled` does not stop Enter or Space. (The ✕ is the FIRST
+              tabbable element here — the container above is `tabIndex={-1}`, i.e. focusable but not
+              tabbable — which makes the point stronger, not weaker.) */}
           <Dialog.Close
             aria-label={busy ? "Close — finishing, please wait" : "Close"}
             aria-disabled={busy || undefined}
