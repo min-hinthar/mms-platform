@@ -53,6 +53,57 @@ reducedMotion="user"` plus explicit `shouldAnimate` gates), which is the accessi
 Inventing a second, app-local motion switch to give this one a neighbour would have been the worse
 outcome. Noted in `docs/W22_DESIGN_PROPOSAL.md`.
 
+#### The adversarial round — the claim was true of the module and false of the app
+
+Two lenses (product truth · a11y+concurrency), both BLOCK, and **both found the same HIGH
+independently** without seeing each other's output. Every finding below was reproduced by hand before
+being acted on.
+
+- **The switch read ON while nothing could ever sound.** `ctx` is module state and dies with the
+  document; the preference is `localStorage` and does not. `armSound()` had exactly one call site —
+  the toggle — so on every page load AFTER the one where the diner armed it, `enabled` was true,
+  `armed` was false, and `mayChime` correctly returned silence while the switch said ON and the copy
+  named two bells. The module was right; the app around it falsified the module's central claim. Fixed
+  with `primeSound()` (a root `SoundPrimer`): a one-shot capture-phase `pointerdown`/`keydown` re-arm
+  per document, plus a `visibilitychange` re-arm for the iOS interruption case (a call suspends the
+  context and nothing was resuming it).
+- **The pay chime could not fire on the pay path, and DID fire where nothing was paid.** Stripe's
+  Payment Element hard-navigates to `return_url`, so `/track` mounts in a brand-new document with no
+  user activation — and activation does not survive a navigation, so on iOS that document can never
+  resume an AudioContext. Meanwhile `HomeResumeCard` and `liveOrderTrackHref` link to `/track` with
+  Stripe's own `redirect_status=succeeded` shape, and those are client-side navigations that KEEP the
+  document — so tapping "In progress — track your order" hours later was the one place the pay bell
+  was reliably audible. **That link was already replaying the whole arrival celebration** (confetti,
+  the celebrate haptic, "Payment confirmed") long before this slice; the chime just made it audible.
+  Both links now carry `resume=1` and `/track` gates `justPaid` on it — a resume is not an arrival —
+  with a mutant and a test on the marker. The pay chime itself stays **best-effort by construction**,
+  and the toggle's copy therefore names only the kitchen bell, which the code keeps on every device.
+  This is the same bargain `haptics.ts` already ships: iOS Safari implements no `navigator.vibrate` at
+  all, and the celebrate haptic ships anyway _because nothing depends on it_. Rule 2 is what makes
+  that acceptable, and it is why rule 2 is not decorative.
+- **The paid chime rang under a headline that had just stopped saying "Paid".** `PaySuccess` softens
+  its copy while `awaitingCapture` because no money has moved — and chimed the sound whose documented
+  meaning is "the payment resolved home". Now gated, on its own latch rather than the haptic's, so it
+  still fires when the flag flips as the order lands.
+- **`window.localStorage` was read outside the try.** With all site data blocked the _property getter_
+  throws `SecurityError`, before `soundEnabled`'s own guard can run — and `isSoundOn` is
+  `useSyncExternalStore`'s `getSnapshot`, so the throw took `/account` to the error boundary instead
+  of failing to OFF. `chime.test.ts` proved the rule for one shape only (a stub whose `getItem`
+  throws), which a stub object is incapable of expressing. New `diner-sound.test.ts` covers the real one.
+- **The private-mode swallow's own comment was false.** `setSoundOn` caught a throwing `setItem` and
+  claimed "the toggle still works for this session" — but every read went straight back to the store,
+  so the switch snapped to OFF and nothing sounded. An in-memory override now makes the sentence true.
+- Also fixed: a double-tap during the `await` computed `next` from a stale render value, so an
+  OFF-intent tap landed as a second ON (now reads the store, behind a busy ref); the "this device
+  wouldn't let us play sound" message was sticky and could sit under a switch that was now on; the
+  refusal was announced to nobody (`role="status"` + `aria-describedby`, since a refused tap changes
+  no `aria-checked` and a screen-reader diner otherwise heard nothing at all); the `sr-only` On/Off
+  span was dead (`aria-label` overrides children — `aria-checked` already carries the state); a
+  `.sound-switch:disabled` rule for a state the component never sets; and one mutant's rationale
+  claimed a collapsed `enabled && armed` would THROW — it does not, it queues notes into a suspended
+  context that the browser plays whenever it later resumes, i.e. a bell minutes late on an unrelated
+  tap, which is a worse failure and the real reason the two flags stay separate.
+
 **Not unified with the KDS chime, deliberately.** `KdsChime` and `diner-sound.ts` share ~15 lines of
 mallet envelope while every policy above inverts between them. Converting the kitchen engine inside a
 diner slice would put the cook's ticket chime at risk for a nice-to-have — filed as **M90** with its

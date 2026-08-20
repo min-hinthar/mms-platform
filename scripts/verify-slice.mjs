@@ -763,7 +763,7 @@ const MUTANTS = [
     id: "chime/enabled-collapsed-into-armed",
     file: "apps/qr/lib/chime.ts",
     suite: "lib/chime.test.ts",
-    why: "W22f — enabled and armed fail for DIFFERENT reasons and neither implies the other. A diner can have sound on from a previous session while this session's AudioContext was never unlocked (no gesture yet, or the resume was refused). Dropping `armed` sends the engine at a suspended or absent context, which is a throw on the send and pay paths — the two places an exception costs the most.",
+    why: "W22f — enabled and armed fail for DIFFERENT reasons and neither implies the other. A diner can have sound on from a previous session while this session's AudioContext was never unlocked (no gesture yet, or the resume was refused). Dropping `armed` does NOT throw — `chime` returns on a null context and its body is wrapped — it schedules notes into a SUSPENDED context, which the browser then plays whenever that context is later resumed: a kitchen bell ringing minutes late, on an unrelated tap, for an order already eaten. A chime out of its moment is worse than silence, which is why this gate is separate. (An earlier version of this `why` claimed a throw; corrected in review.)",
     find: "  return opts.enabled && opts.armed;",
     replace: "  return opts.enabled;",
   },
@@ -790,6 +790,14 @@ const MUTANTS = [
     why: "W22f — rule 3, and the one rule here that a future edit is most likely to break kindly. A sound on failure turns a recoverable, private problem into a public one: the whole table looks over at someone whose card just declined. Errors are read, not heard — the vocabulary is closed at two moments and the test pins the exact key list rather than a count, so an added moment cannot slip in under a rename.",
     find: "  ],\n};\n\nexport type ChimeMoment",
     replace: "  ],\n  error: [{ freq: 440, at: 0, dur: 0.3 }],\n};\n\nexport type ChimeMoment",
+  },
+  {
+    id: "live-order/resume-link-poses-as-a-fresh-payment",
+    file: "apps/qr/lib/live-order.ts",
+    suite: "lib/live-order.test.ts",
+    why: 'W22f (adversarial review, HIGH — this shipped long before W22f and W22f made it audible). Every link this module builds is a RESUME — the live chip, the tray, /account "Today" — but it wears Stripe\'s own `payment_intent` + `redirect_status=succeeded` shape because that is what resolves the tracker. `resume=1` is the ONLY thing separating the two, so dropping it makes /track replay the whole arrival celebration on a tap that moved no money: confetti, the celebrate haptic, "Payment confirmed", and the pay chime — announcing a payment that happened hours earlier. Worse, because the chip is a client-side link the document survives, so the resume was the one path where that chime was reliably audible while the real payment path (a Stripe hard-navigation into a gesture-less document) could not play it at all.',
+    find: "&redirect_status=succeeded&resume=1${cart}",
+    replace: "&redirect_status=succeeded${cart}",
   },
   // ── W23b — the refund a guest can actually see (registry M2) ───────────────────────────────────
   {

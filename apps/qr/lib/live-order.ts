@@ -117,11 +117,20 @@ export function liveOrderGlyph(kind: LiveOrderKind): string {
  * Build the /track deep-link for the diner's OWN order — the SAME URL shape the header pill has always
  * used (single-pay carries the PI; split-tender has no PI and resumes via cart+paid). Centralised here so
  * the pill, the tray, and /account "Today" all link identically.
+ *
+ * ⚠️ **Every link this builds is a RESUME, never an arrival** — that is what this whole module is: the
+ * live chip, the tray and /account "Today" all mean "check on the order you already placed". The URL
+ * has to keep Stripe's `payment_intent` + `redirect_status=succeeded` shape because that is what
+ * resolves the tracker, so `resume=1` is the only thing separating it from Stripe's own return. Without
+ * it /track cannot tell them apart and replays the arrival celebration — confetti, the celebrate
+ * haptic, "Payment confirmed" and (W22f) the pay chime — on a tap that moved no money, hours later.
+ * The split-tender branch needs no marker: `paid=1` is already a distinct shape, and `HomeResumeCard`
+ * builds the same two links by hand.
  */
 export function liveOrderTrackHref(o: Pick<LiveOrder, "paymentIntent" | "cartId">): string {
   if (o.paymentIntent) {
     const cart = o.cartId ? `&cart=${encodeURIComponent(o.cartId)}` : "";
-    return `/track?payment_intent=${encodeURIComponent(o.paymentIntent)}&redirect_status=succeeded${cart}`;
+    return `/track?payment_intent=${encodeURIComponent(o.paymentIntent)}&redirect_status=succeeded&resume=1${cart}`;
   }
   return `/track?cart=${encodeURIComponent(o.cartId ?? "")}&paid=1`;
 }

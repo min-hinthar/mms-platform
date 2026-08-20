@@ -146,8 +146,17 @@ describe("the derivations that ride the kind", () => {
 
   it("builds the single-pay /track link from the PaymentIntent, carrying the cart when present", () => {
     expect(liveOrderTrackHref({ paymentIntent: "pi_abc", cartId: "cart-1" })).toBe(
-      "/track?payment_intent=pi_abc&redirect_status=succeeded&cart=cart-1",
+      "/track?payment_intent=pi_abc&redirect_status=succeeded&resume=1&cart=cart-1",
     );
+  });
+
+  it("⚠️ marks every single-pay link as a RESUME, not an arrival", () => {
+    // The link wears Stripe's return shape because that is what resolves the tracker — so `resume=1`
+    // is the ONLY thing telling /track this tap is someone checking on an order rather than arriving
+    // from a payment. Drop it and every chip tap replays the arrival celebration (confetti, the
+    // celebrate haptic, "Payment confirmed", the pay chime) over money that moved hours ago.
+    expect(liveOrderTrackHref({ paymentIntent: "pi_abc", cartId: "cart-1" })).toContain("resume=1");
+    expect(liveOrderTrackHref({ paymentIntent: "pi_abc", cartId: null })).toContain("resume=1");
   });
 
   it("falls back to the split-tender shape when there is no PaymentIntent", () => {

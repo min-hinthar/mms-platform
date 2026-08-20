@@ -188,7 +188,7 @@ get recognition.
 
 > As-built: `lib/chime.ts` (pure policy — the two moments, the level, and the rule that there is
 > no error sound; six mutants) + `lib/diner-sound.ts` (the WebAudio engine, `kds-sound.ts`'s
-> mallet envelope) + a `role="switch"` on `/account`. Details: CHANGELOG · DESIGN-LANGUAGE §7.
+> mallet envelope) + a `role="switch"` on `/account`. Details: CHANGELOG · DESIGN-LANGUAGE §15.
 
 A two-note "service bell" on send-to-kitchen and a soft chime on pay success — the sonic version
 of the gold cap. Strictly opt-in, silent by default, never on error paths.

@@ -472,6 +472,30 @@ So it is the one channel that is off until someone says otherwise.
   with an explicit server snapshot of the OFF default. Copying it into state in an effect is both
   what React Compiler forbids and a real staleness bug the moment a second surface writes the value.
 
+**A preference outlives the page; the thing that makes it work does not.** A browser's audio context
+is per-document and dies on every navigation, while the preference sits in storage and does not — so
+"the diner turned it on" and "this page can make a sound" are two facts with different lifetimes, and
+a switch that shows the first while implying the second is wrong on every load after the first. Re-arm
+from the first gesture of each document, and re-arm again when the tab becomes visible (an interrupted
+context does not resume itself). This generalises: **any capability unlocked by a gesture must be
+re-unlocked per document, even though the preference that asked for it was not.**
+
+**Some moments cannot carry a sound at all, and the copy is what has to change.** A payment returns
+through a hard navigation from the processor, so the page that celebrates it has no user activation —
+and on iOS an audio context in that document can never resume. That moment's bell is best-effort
+forever. The honest response is not to promise it and quietly miss: it is to promise only what every
+device can keep (the kitchen bell), let the rest play where it can, and lean on the rule that the
+sound is never the only feedback. This is the same bargain the haptic layer already lives with, where
+the most common device implements nothing at all.
+
+**A resume is not an arrival.** Deep-links back into a post-payment screen tend to reuse the
+processor's own return-URL shape, because that is what resolves the view — which means the screen
+cannot tell "I just paid" from "I am checking on the order I paid for hours ago" unless the link says
+so. Every celebration on that screen fires on both: confetti, the haptic, the headline, the bell. Mark
+the resume in the link and gate the celebration on it. The audible channel is what exposed this, but
+it was wrong in three channels before sound existed — a celebration nobody questioned because nobody
+had to hear it twice.
+
 **Shared engine, split policy.** The kitchen and diner chimes share a mallet envelope and agree on
 nothing else — default, arming, level, and what a failure costs all invert. Unify the ~15 lines of
 synthesis if you like; never unify the policy, and never convert the kitchen's chime as a side effect

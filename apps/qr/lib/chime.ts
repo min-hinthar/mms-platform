@@ -96,7 +96,10 @@ export function soundEnabled(store: Pick<Storage, "getItem"> | null | undefined)
  * `armed` is whether a real AudioContext is running. It is separate from `enabled` because they fail
  * for different reasons and a future edit must not collapse them — a diner can have sound ON while
  * the context was never unlocked (they toggled it in a previous session, or the resume was refused),
- * and that must be silence rather than a throw.
+ * and that must be SILENCE. Not because collapsing them would throw (it would not: the engine returns
+ * on a null context and wraps its body) but because notes scheduled into a suspended context are
+ * played when that context is eventually resumed — a bell ringing minutes late, on an unrelated tap,
+ * for an order already eaten. A chime out of its moment is worse than no chime.
  */
 export function mayChime(opts: { enabled: boolean; armed: boolean }): boolean {
   return opts.enabled && opts.armed;

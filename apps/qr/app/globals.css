@@ -7584,10 +7584,6 @@ html[data-seen-surface] .mms-stagger {
   background: color-mix(in oklab, var(--ac) 22%, var(--sf));
   border-color: var(--ac-strong);
 }
-.sound-switch:disabled {
-  cursor: default;
-  opacity: 0.6;
-}
 .sound-knob {
   position: absolute;
   top: 50%;

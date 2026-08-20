@@ -22,6 +22,16 @@ import { CHIME, CHIME_LEVEL, SOUND_KEY, mayChime, soundEnabled, type ChimeMoment
 
 let ctx: AudioContext | null = null;
 
+/**
+ * In-memory fallback for a preference the store REFUSED to persist.
+ *
+ * `null` means "the store is the truth". A private-mode `setItem` throws, and the old comment below
+ * claimed the toggle "still works for this session" — it did not: every read went straight back to
+ * the store, so the switch snapped back to OFF and nothing sounded. Adversarial review, MED. This is
+ * what makes that sentence true.
+ */
+let override: boolean | null = null;
+
 /** Is a real, running context available? Read by `mayChime`, never assumed. */
 export function soundArmed(): boolean {
   return ctx?.state === "running";
@@ -42,10 +52,23 @@ export async function armSound(): Promise<boolean> {
   }
 }
 
-/** The current preference, read synchronously from the real store. */
+/**
+ * The current preference, read synchronously.
+ *
+ * The `window.localStorage` ACCESS is inside the try, not just the `getItem` call: with all site data
+ * blocked (and in some partitioned frames) the property GETTER itself throws `SecurityError`, before
+ * `soundEnabled`'s own guard can run. This is `useSyncExternalStore`'s `getSnapshot`, so a throw here
+ * takes `/account` to the error boundary — the one shape `chime.test.ts` could not express, because a
+ * stub store object can only throw from `getItem`. Fails to OFF, like every other arm of rule 1.
+ */
 export function isSoundOn(): boolean {
   if (typeof window === "undefined") return false;
-  return soundEnabled(window.localStorage);
+  if (override !== null) return override;
+  try {
+    return soundEnabled(window.localStorage);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -84,12 +107,56 @@ export function soundServerSnapshot(): boolean {
 export function setSoundOn(on: boolean): boolean {
   try {
     window.localStorage.setItem(SOUND_KEY, on ? "1" : "0");
+    override = null; // the store took it; it is the truth again
   } catch {
-    // Private mode: the preference will not survive a reload. Deliberate swallow — the toggle still
-    // works for this session, which is better than refusing to turn on at all.
+    // Private mode: the preference will not survive a reload. Deliberate swallow — but the toggle has
+    // to actually work for THIS session, which means the reads must see it. Without the override the
+    // switch snapped straight back to OFF and stayed mute, which is not "swallowed", it is broken.
+    override = on;
   }
   for (const cb of listeners) cb();
   return on ? soundArmed() : true;
+}
+
+/**
+ * Re-arm across page loads — the defect both adversarial lenses found independently, and the one that
+ * falsified this slice's central claim.
+ *
+ * `ctx` is module state and dies with the document; the preference is `localStorage` and does not. So
+ * after the load on which the diner armed it, every subsequent document had `enabled = true` and
+ * `armed = false` — the switch read ON, the copy named two bells, and nothing could ever sound again
+ * short of toggling off and on. The arming has to be re-established once per document, and the only
+ * currency a browser accepts for that is a real gesture.
+ *
+ * `pointerdown` in the CAPTURE phase, `{ once: true }` — the diner's first touch on any page, before
+ * any handler can stop it. `keydown` covers a keyboard or switch-access diner who never generates a
+ * pointer event. `visibilitychange` re-arms after an iOS interruption (a call, another app) leaves the
+ * context suspended, which is the same failure one layer down.
+ *
+ * ⚠️ This does NOT reach the pay chime, and cannot. Stripe's Payment Element hard-navigates to
+ * `return_url`, so `/track` mounts in a brand-new document with no user activation at all — and
+ * activation does not survive a navigation. On iOS that document can never resume an AudioContext,
+ * so `paid` is best-effort by construction: it plays where the browser allows and is silent where it
+ * does not. That is why the toggle's copy names only the kitchen bell (a promise the code keeps on
+ * every device) and why rule 2 — sound is never the only feedback — is load-bearing rather than
+ * decorative here. Exactly the shape `haptics.ts` already lives with: iOS Safari implements no
+ * `navigator.vibrate`, and the celebrate haptic ships anyway because nothing depends on it.
+ */
+export function primeSound(): () => void {
+  const tryArm = () => {
+    if (isSoundOn() && !soundArmed()) void armSound();
+  };
+  const onVisible = () => {
+    if (document.visibilityState === "visible") tryArm();
+  };
+  document.addEventListener("pointerdown", tryArm, { capture: true, once: true });
+  document.addEventListener("keydown", tryArm, { capture: true, once: true });
+  document.addEventListener("visibilitychange", onVisible);
+  return () => {
+    document.removeEventListener("pointerdown", tryArm, { capture: true });
+    document.removeEventListener("keydown", tryArm, { capture: true });
+    document.removeEventListener("visibilitychange", onVisible);
+  };
 }
 
 /**
