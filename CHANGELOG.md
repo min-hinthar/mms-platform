@@ -4,6 +4,63 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M87 — the seat that CHOSE the dish, carried into the order (2026-08-20)
+
+`qr_cart_items.by_seat` is the verified diner uid that added a line. Every fulfill RPC dropped it
+when copying the cart into `qr_order_items`, so once an order existed the only person attached to a
+dish was `qr_orders.earned_by` — **who paid**.
+
+W22e's "your usual" is built on that history, and the gap forced it to exclude dine-in entirely: on a
+dine-in table the host who picks up the tab owned every guest's dish in the data, so two such visits
+would name a dish they had never once ordered — and hand a stranger's diet, religion or allergy back
+to them as their own taste. Honest, and it cost the archetype: **a solo dine-in regular is exactly
+who the card is for, and they never saw it.**
+
+**One column, three writers, one added expression each.** `by_seat uuid` on `qr_order_items`, and
+`ci.by_seat` added to the item-copy in `mms_fulfill_order` (restated from its W23d body),
+`mms_fulfill_cash_order` and `mms_fulfill_split_order` (from M3). Nothing else in any of the three
+changes, so a diff against those files is a one-line-per-function read.
+
+**Nullable, with no default and no backfill.** An order fulfilled before this migration has no seat
+and must not acquire a guessed one. A merge-reparented line has none either — the merge deliberately
+clears attribution — and neither does a staff- or kiosk-added line.
+
+**The attribution rule is a SQL function, not a query built in TypeScript.** `mms_usual_lines(uid,
+since)` is `SECURITY DEFINER`, revoked from `public`/`anon`/`authenticated` (it takes a uid, so an
+`authenticated` grant would be an endpoint for reading any stranger's eating habits), and its WHERE
+clause is the whole rule:
+
+- **`by_seat = uid`** — the diner ADDED this line. True regardless of who paid or how the order
+  settled, which is what finally recognises a dine-in regular, and what makes a **split** table
+  attributable at all: its order row carries no payer, because each share has its own PaymentIntent.
+- **`by_seat is null AND earned_by = uid AND fulfillment <> 'dinein'`** — the pre-M87 fallback,
+  unchanged in meaning, so no existing habit stops counting on deploy day. Both extra conditions are
+  load-bearing: `by_seat is null` because a line we KNOW belongs to another seat must never be
+  re-attributed to the payer, and the dine-in exclusion because that is precisely where paying and
+  choosing come apart.
+
+It lives in SQL because the union cannot be expressed as a PostgREST filter across an embedded table,
+and a rule spread over a `.or()` string is a rule nobody can test. It also **strictly improves the
+modes W22e already counted**: the old justification for to-go was "the payer chose the food", which
+is an assumption; with the seat on the line it is a fact, or it is null and not guessed at.
+
+**Proved against a real database, driven by the real writers.** `supabase/tests/m87_order_item_seat_test.sql`
+(registered in `ci.yml`'s required list) calls the three fulfill RPCs rather than inserting into
+`qr_order_items` by hand — W23d's sharpest review finding was that a guard fed by a fixture proves the
+fixture. It asserts: the seat survives all three writers; **a dine-in host does not inherit her
+guest's dish** while the guest who chose it is credited although he paid nothing; a split diner is
+attributable at all; a pre-M87 to-go habit still counts; the fallback never reaches dine-in and never
+re-attributes a line whose seat is known; voided, comped and refunded lines stay out; and the function
+is not diner-callable.
+
+⚠️ **The SQL test could not be run locally** — this container has no Docker, so there is no local
+Supabase stack and `supabase gen types --local` could not run either. The generated types were
+hand-written to the generator's conventions and CI's `types-fresh` job is the authority on both.
+Stated rather than glossed: if either is wrong, CI says so before merge.
+
+Registry: M87 closed. No new `verify:slice` mutants — the rule is SQL, and the module next door still
+carries the eight that cover the counting.
+
 ### M82 — a `busy` prop on the Sheet primitive, and two live defects it names (2026-08-20)
 
 `Sheet` hands every caller four ways to dismiss. While a sheet body has an irreversible write in

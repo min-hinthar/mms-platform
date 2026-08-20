@@ -1352,6 +1352,7 @@ export type Database = {
       }
       qr_order_items: {
         Row: {
+          by_seat: string | null
           ebt_eligible: boolean
           fulfillment: string
           id: string
@@ -1367,6 +1368,7 @@ export type Database = {
           unit_price_cents: number
         }
         Insert: {
+          by_seat?: string | null
           ebt_eligible?: boolean
           fulfillment?: string
           id?: string
@@ -1382,6 +1384,7 @@ export type Database = {
           unit_price_cents: number
         }
         Update: {
+          by_seat?: string | null
           ebt_eligible?: boolean
           fulfillment?: string
           id?: string
@@ -2116,6 +2119,14 @@ export type Database = {
       mms_undo_fire: {
         Args: { p_batch: string; p_cart_id: string }
         Returns: number
+      }
+      mms_usual_lines: {
+        Args: { p_since: string; p_uid: string }
+        Returns: {
+          menu_item_id: string
+          order_id: string
+          ordered_at: string
+        }[]
       }
       mms_void_line: {
         Args: {
