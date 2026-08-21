@@ -4,6 +4,51 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M102 — the second session, and the guard that had never been exercised (2026-08-21)
+
+M97 added a concurrency guard to `mms_merge_table_orders` and shipped it **reasoned-correct and
+unproven**, saying so in its own header: none of its predicates can differ from the cursor's values
+without a _concurrent committed write_, and every file in `supabase/tests/` is single-session by
+construction. `scripts/verify-merge-race.mjs` is that missing session.
+
+**How the window is entered deterministically.** B mutates the SOURCE row and holds its transaction
+open. A then calls the merge: it takes the cart locks (B holds none), opens its loop cursor — reading
+the source at its pre-B value, because a reader never blocks on an uncommitted write — locks the
+target, and **blocks at the guarded DELETE**, the statement under test. B commits; A's delete
+re-checks its WHERE against the new tuple under EvalPlanQual and refuses.
+
+Two properties make that sound rather than lucky: the sync device **is** the production mutation (a
+diner tapping `+` mid-merge is literally `update … set qty` on the source row), and the wait graph is
+**acyclic by construction** — B takes its only lock before A starts and requests nothing afterwards.
+Synchronisation is `pg_blocking_pids`, never a sleep.
+
+An earlier design had B lock the _target_ instead. Rejected: A would block at a statement that is not
+the one under test, and B would have committed and released before A reached the delete, so
+EvalPlanQual — the actual mechanism the guard depends on — would never fire. That variant survives as
+**S7** only, whose sole job is to prove the match query's `for update` exists; it is proved by a
+**timeout**, not by a wrong number, and that is written down as a known coverage shape rather than
+left for someone to discover.
+
+**Controls are not optional.** Every scenario that asserts the guard _refuses_ is also passed by a
+`delete … where id = r.id and false` mutant. **C0** (B locks without writing) and **C1** (B changes a
+column the guard does not re-assert) are the only things proving the guard still **allows** a
+legitimate fold — and that EvalPlanQual's recheck can pass, not only refuse. S1–S6 then cover qty,
+state, comped, **price** (the branch M98's header explicitly flagged as unproven), fulfillment and
+notes.
+
+⚠️ **It commits, and nothing else here does.** Session B must see session A's fixtures, so they cannot
+live in a rolled-back transaction — which makes the refusal the strictest thing in the file. It takes
+**no DSN argument at all** (there is no input through which production can be named), scrubs every
+libpq environment variable out of its children, and refuses in-DB on `usesuper`/`ssl`. Two obvious
+discriminators are deliberately **not** used, because measurement refuted them: `inet_server_port()`
+is 5432 on _both_ (the local 54322 is a host-side Docker map the backend never sees), and the hosted
+project's `inet_server_addr()` is a public address, so "private ⇒ local" is false in both directions.
+Cleanup is keyed to an `M102-` tag — never a `truncate`, never an unqualified delete.
+
+It also asserts `provolatile = 'v'` before anything else. The function is VOLATILE by _omission_ of a
+marker; mark it `STABLE` and the delete would inherit the caller's snapshot, never see B's commit, and
+every scenario would go green having proved nothing.
+
 ### M104 — the next add really does get the new price (2026-08-21)
 
 `insertOrIncLine`'s sibling query matched a repeat add on cart, item, fulfillment, state, notes, seat,
