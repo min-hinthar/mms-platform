@@ -173,6 +173,63 @@ function q(sql, appName = `mms-m102-probe`) {
  * the live database would not be. The fingerprint is printed on EVERY run, not only on refusal, so
  * the next person to touch this reads measured values instead of inferring them as I did.
  */
+/**
+ * Layer 0 — and the ONLY layer that can see a tunnel.
+ *
+ * Codex round 1, P1, and it is correct: point 127.0.0.1:54322 at an EMPTY remote postgres whose
+ * backend has a private address and a plaintext hop, and all three in-DB predicates pass. The
+ * harness then commits fixtures, and `--mutants` runs `create or replace function` on it.
+ *
+ * NO IN-DB PREDICATE CAN FIX THAT. The database cannot know how the client reached it, so every
+ * check inside it describes the server, never the route. What CAN see it is PORT EXCLUSIVITY: ask
+ * the supabase CLI whether a local stack is running and which port its database is on. If it says
+ * 54322, something is already bound there and a tunnel cannot also be — so 127.0.0.1:54322 IS that
+ * stack. This is the only interlock here that is a property of the CONNECTION rather than of
+ * whatever happens to answer it.
+ *
+ * The escape hatch is deliberate and narrow: a bare disposable cluster (no supabase CLI, no Docker)
+ * is a legitimate way to develop this file, and `M102_ASSUME_DISPOSABLE=1` says "I assert this
+ * cluster is mine to destroy". It skips ONLY this check — never the three in-DB ones — and prints
+ * loudly. CI never sets it.
+ */
+function assertNotATunnel() {
+  if (process.env.M102_ASSUME_DISPOSABLE === "1") {
+    console.log(
+      dim(
+        "  ⚠️  M102_ASSUME_DISPOSABLE=1 — port-exclusivity check SKIPPED (in-DB guards still on)",
+      ),
+    );
+    return;
+  }
+  const r = spawnSync("supabase", ["status", "-o", "env"], { env: childEnv(), encoding: "utf8" });
+  const dbUrl = /DB_URL="?([^"\n]+)"?/.exec(r.stdout || "")?.[1] ?? "";
+  const wanted = new URL(DSN);
+  let ok = false;
+  try {
+    const got = new URL(dbUrl);
+    ok = r.status === 0 && got.hostname === wanted.hostname && got.port === wanted.port;
+  } catch {
+    ok = false;
+  }
+  if (!ok) {
+    console.error(
+      red(`\n${TAG} REFUSED — could not confirm ${wanted.host} is the local supabase stack.\n`) +
+        `  supabase status ${r.status === 0 ? `reported DB_URL=${JSON.stringify(dbUrl)}` : `failed (status=${r.status})`}\n` +
+        // Print what it actually said. If a future CLI renames or drops DB_URL this refusal is the
+        // first thing anyone sees, and it should diagnose itself rather than send the reader to go
+        // and reproduce it — the same reason `q()` names ENOENT instead of printing "undefined".
+        `  --- supabase status stdout ---\n${(r.stdout || "<empty>").split("\n").slice(0, 12).join("\n")}\n` +
+        `  --- stderr ---\n${(r.stderr || "<empty>").split("\n").slice(0, 4).join("\n")}\n` +
+        `  This is the only check that can see a TUNNEL: if the CLI reports a stack on this port,\n` +
+        `  nothing else can be bound there. Without it 127.0.0.1:54322 could be forwarded to a\n` +
+        `  remote database, and this harness COMMITS rows and (with --mutants) replaces a function.\n` +
+        `  Start the stack: supabase start\n` +
+        `  Bare disposable cluster on purpose? M102_ASSUME_DISPOSABLE=1 (skips ONLY this check).\n`,
+    );
+    process.exit(1);
+  }
+}
+
 function assertLocalOnly() {
   const out = q(`select
       current_user,
@@ -812,10 +869,43 @@ function transformLine(src, re, to) {
   return lines.join("\n");
 }
 
+/**
+ * One child harness run. It inherits the advisory lock the battery already holds, so it must not
+ * try to take it itself. Strips ANSI, because `✗` is emitted wrapped in colour codes and a naive
+ * /✗\s+(\w+)/ matches NOTHING — every mutant then reports "expected S4, saw none", which is broken
+ * in the direction of reporting failure, at least the safe one.
+ */
+function childRun() {
+  const child = spawnSync(process.execPath, [process.argv[1]], {
+    encoding: "utf8",
+    env: { ...process.env, M102_LOCK_HELD_BY_PARENT: "1" },
+  });
+  return {
+    status: child.status,
+    out: ((child.stdout || "") + (child.stderr || "")).replace(/\x1b\[[0-9;]*m/g, ""),
+  };
+}
+
 function runMutants() {
   const original = q(FNDEF);
   const baseline = q(BODY_MD5);
   console.log(`\n${TAG} mutation battery — ${MUTANTS.length} mutants against the LIVE function\n`);
+
+  // A GREEN BASELINE FIRST (Codex round 1, P2). Without it a scenario that is ALREADY failing — a
+  // drifted fixture, a half-applied migration, someone's leftover mutant — gets credited to
+  // whichever mutant happens to name it, and the battery reports `caught` for a failure it did not
+  // cause. Leaning on the preceding CI step is not enough: `--mutants` can be run on its own.
+  const base = childRun();
+  if (base.status !== 0) {
+    console.error(
+      red(`${TAG} REFUSED — the UNMUTATED function does not pass all nine scenarios.\n`) +
+        `  Every "caught" below would credit a mutant for a failure that already existed.\n` +
+        `  Fix the baseline first:\n\n${base.out.split("\n").slice(-25).join("\n")}\n`,
+    );
+    process.exit(1);
+  }
+  console.log(`  ${green("baseline")} ${dim("unmutated function passes all nine scenarios")}`);
+
   let bad = 0;
 
   for (const m of MUTANTS) {
@@ -841,42 +931,55 @@ function runMutants() {
       continue;
     }
 
-    const child = spawnSync(process.execPath, [process.argv[1]], { encoding: "utf8" });
-    // Strip ANSI first: `✗` is emitted wrapped in colour codes, so a naive /✗\s+(\w+)/ matches
-    // NOTHING and every mutant reports "expected S4, saw none" — a battery that is broken in the
-    // direction of reporting failure, which is at least the safe direction.
-    const out = ((child.stdout || "") + (child.stderr || "")).replace(/\x1b\[[0-9;]*m/g, "");
-    const failing = new Set(
-      [...out.matchAll(/✗\s+(\w+)/g)].map((x) => x[1]).filter((x) => /^[CS]\d$/.test(x)),
-    );
-    const missed = m.expect.filter((e) => !failing.has(e));
-    const controlsFired = ["C0", "C1"].filter((c) => failing.has(c));
-    const controlLeak = !m.controlsExpected && controlsFired.length > 0;
+    // From here the mutant is LIVE, so every exit runs the restore (Codex round 1, P2). Restoring
+    // only at the bottom of the loop meant a throw in between — a transient q(BODY_MD5), a killed
+    // child — reached the top-level catch and left a developer's persistent stack running a mutated
+    // money function. `process.on("exit")` covers the paths a `finally` cannot: an uncaught throw
+    // that skips it, and process.exit() called from inside.
+    let live = true;
+    const restoreNow = () => {
+      if (!live) return;
+      live = false;
+      exec(original);
+    };
+    process.once("exit", restoreNow);
+    try {
+      const child = childRun();
+      const out = child.out;
+      const failing = new Set(
+        [...out.matchAll(/✗\s+(\w+)/g)].map((x) => x[1]).filter((x) => /^[CS]\d$/.test(x)),
+      );
+      const missed = m.expect.filter((e) => !failing.has(e));
+      const controlsFired = ["C0", "C1"].filter((c) => failing.has(c));
+      const controlLeak = !m.controlsExpected && controlsFired.length > 0;
 
-    if (child.status === 0) {
-      console.log(`  ${red("SURVIVED")} ${m.id} — the harness stayed GREEN. ${m.why}`);
-      bad++;
-    } else if (missed.length) {
-      console.log(
-        `  ${red("MISDIRECTED")} ${m.id} — expected ${m.expect.join("+")} to fail, saw ` +
-          `${[...failing].join("+") || "none"}. Missing: ${missed.join("+")}`,
-      );
-      bad++;
-    } else if (controlLeak) {
-      // A mutant that also reddens the controls is not targeted: it proves "something broke", which
-      // is exactly the undiscriminating signal the controls exist to rule out.
-      console.log(
-        `  ${red("UNTARGETED")} ${m.id} — killed ${m.expect.join("+")} but also the CONTROLS ` +
-          `(${controlsFired.join("+")}), so it does not isolate the rule it names.`,
-      );
-      bad++;
-    } else {
-      console.log(`  ${green("caught")} ${m.id} ${dim(`by ${[...failing].sort().join(", ")}`)}`);
+      if (child.status === 0) {
+        console.log(`  ${red("SURVIVED")} ${m.id} — the harness stayed GREEN. ${m.why}`);
+        bad++;
+      } else if (missed.length) {
+        console.log(
+          `  ${red("MISDIRECTED")} ${m.id} — expected ${m.expect.join("+")} to fail, saw ` +
+            `${[...failing].join("+") || "none"}. Missing: ${missed.join("+")}`,
+        );
+        bad++;
+      } else if (controlLeak) {
+        // A mutant that also reddens the controls is not targeted: it proves "something broke", which
+        // is exactly the undiscriminating signal the controls exist to rule out.
+        console.log(
+          `  ${red("UNTARGETED")} ${m.id} — killed ${m.expect.join("+")} but also the CONTROLS ` +
+            `(${controlsFired.join("+")}), so it does not isolate the rule it names.`,
+        );
+        bad++;
+      } else {
+        console.log(`  ${green("caught")} ${m.id} ${dim(`by ${[...failing].sort().join(", ")}`)}`);
+      }
+    } finally {
+      restoreNow();
+      process.removeListener("exit", restoreNow);
     }
 
-    const restored = exec(original);
     const md5Now = q(BODY_MD5);
-    if (!restored.ok || md5Now !== baseline) {
+    if (md5Now !== baseline) {
       console.error(
         red(`\n${TAG} FATAL — could not restore mms_merge_table_orders after ${m.id}.`) +
           `\n  md5 now ${md5Now}, baseline ${baseline}. Re-apply supabase/migrations and re-run.\n`,
@@ -895,12 +998,9 @@ function runMutants() {
 }
 
 async function main() {
+  const mutantMode = process.argv.includes("--mutants");
+  assertNotATunnel();
   assertLocalOnly();
-
-  if (process.argv.includes("--mutants")) {
-    runMutants();
-    return;
-  }
 
   // The whole harness rests on each SPI statement getting a fresh snapshot, which is true because the
   // function is VOLATILE — by omission of a marker, not by intent. Mark it STABLE and the delete
@@ -919,16 +1019,21 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(`\n${TAG} — the merge's concurrency guard, against a real second session\n`);
-
-  // MUTUAL EXCLUSION. The fixtures are COMMITTED and cleanup is a `like 'M102-%'` sweep, so two
+  // MUTUAL EXCLUSION — and it must cover MUTATION MODE, which is strictly more dangerous than the
+  // scenario run (Codex round 1, P2). The `--mutants` branch used to return before this, so two
+  // batteries could interleave: the second captures the FIRST's active mutant as its `original` and
+  // later "restores" that mutant after the first has restored the real body. Both check byte
+  // identity only against their own baseline, so both report success and the stack is left running
+  // a mutated money function. The fixtures are COMMITTED and cleanup is a `like 'M102-%'` sweep, so two
   // overlapping runs against one stack delete each other's rows mid-flight — and the damage is not
   // a clean failure: depending on timing a scenario either reports a mismatch that never happened
   // or PASSES for the wrong reason. A concurrency harness that is not itself concurrency-safe can
   // report a guard as proven when it never ran. A session-level advisory lock dies with the
   // connection, so a SIGKILL cannot leave it stuck.
   const guard = new Session("guard");
+  const lockHeldByParent = process.env.M102_LOCK_HELD_BY_PARENT === "1";
   if (
+    !lockHeldByParent &&
     (await guard.run(`select pg_try_advisory_lock(hashtext('m102-merge-race'));`)).trim() !== "t"
   ) {
     console.error(
@@ -938,6 +1043,19 @@ async function main() {
     await guard.close();
     process.exit(1);
   }
+
+  // The battery's child harness runs inherit the lock the parent already holds, so they must not
+  // try to take it themselves — every child would refuse.
+  if (mutantMode) {
+    try {
+      runMutants();
+    } finally {
+      await guard.close();
+    }
+    return;
+  }
+
+  console.log(`\n${TAG} — the merge's concurrency guard, against a real second session\n`);
 
   try {
     cleanup(); // in case a previous run died mid-flight
