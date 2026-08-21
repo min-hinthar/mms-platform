@@ -68,6 +68,17 @@ is not a guard, it is a narrower race. The delete runs **first** and the qty bum
 only if it landed; bumping first would double-count a row the delete then refused. A refused delete
 falls through to the re-parent, which is always safe.
 
+**Codex round 2 then found the guard's other two edges** — both real, both fixed. (1) A row voided or
+comped **after** the loop's snapshot correctly fails the guarded delete, but the fallback re-parent was
+**unconditional**, so it carried a $0'd line into the target — contradicting the very invariant the
+loop's own WHERE states (`state <> 'voided' and not comped`) and stranding the accepted void audit on a
+cart about to be cancelled. Eligibility is now re-asserted in the re-parent too, and an ineligible row
+is **left on the source**, where its audit already lives. (2) `v_moved` — which `mergeTables` records as
+the units moved — was incremented from the snapshot's `r.qty` in every branch, so a concurrent `+`
+that made the delete refuse would re-parent a two-unit row and report one. It now counts what actually
+moved: `r.qty` on a fold (the delete just re-asserted it), and the value read back from the row on a
+re-parent.
+
 ⚠️ **The race itself is not covered by a test, and cannot be from a single psql session** — the five
 cases prove the fold still behaves, not that the guard serializes. Verifying it needs two concurrent
 sessions, which no harness in this repo has.

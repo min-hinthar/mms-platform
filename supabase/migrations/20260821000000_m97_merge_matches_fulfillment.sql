@@ -70,6 +70,8 @@ declare
   r record;
   v_match uuid;
   v_match_qty integer;
+  v_folded boolean;      -- did the fold actually land? (not "was a match found")
+  v_moved_qty integer;   -- what a re-parent ACTUALLY moved, read back from the row
 begin
   if p_source_cart = p_target_cart then
     raise exception 'merge requires two different carts';
@@ -116,6 +118,7 @@ begin
     -- a note is per-line identity; folding would apply/erase it on units it doesn't belong to).
     -- No match → re-parent as its own null line (assignable later).
     v_match := null;
+    v_folded := false;
     if r.notes is null then
       select t.id, t.qty into v_match, v_match_qty
       from public.qr_cart_items t
@@ -181,16 +184,34 @@ begin
           and not comped;
       if found then
         update public.qr_cart_items set qty = v_match_qty + r.qty where id = v_match;
-      else
-        update public.qr_cart_items set cart_id = p_target_cart, by_seat = null where id = r.id;
+        -- Exact, not optimistic: the delete just re-asserted `qty = r.qty`, so r.qty IS current.
+        v_moved := v_moved + r.qty;
+        v_folded := true;
       end if;
-    else
+    end if;
+
+    if not v_folded then
       -- Re-parent, losing the SEAT (a source seat is not a member of the target session) but NOT the
       -- adder: this update never names `added_by`, and M87's keep-trigger only fires when something
       -- tries to change it. The person who chose the dish is still that person after a merge.
-      update public.qr_cart_items set cart_id = p_target_cart, by_seat = null where id = r.id;
+      --
+      -- ⚠️ ELIGIBILITY IS RE-ASSERTED HERE TOO (Codex round 2, P2). The loop selected only chargeable
+      -- lines (`state <> 'voided' and not comped`, S2.3), but that was a snapshot: `mms_void_line` can
+      -- void or comp this row afterwards, and an unconditional re-parent would then carry a $0'd line
+      -- into the target — contradicting the very invariant the loop's WHERE states, and stranding the
+      -- accepted void audit on a cart that is about to be cancelled. A row that became ineligible is
+      -- LEFT ON THE SOURCE, where its own audit already lives. This branch is now reached both by a
+      -- no-match and by a refused delete, so guarding it once covers both.
+      --
+      -- And `v_moved` counts what MOVED, not what the snapshot said (Codex round 2, P3): a concurrent
+      -- `+` makes the guarded delete refuse, the row re-parents at its CURRENT qty of 2, and adding
+      -- the stale 1 would hand `mergeTables` an audit number that never happened. Read it back.
+      update public.qr_cart_items
+        set cart_id = p_target_cart, by_seat = null
+        where id = r.id and state <> 'voided' and not comped
+        returning qty into v_moved_qty;
+      if found then v_moved := v_moved + v_moved_qty; end if;
     end if;
-    v_moved := v_moved + r.qty;
   end loop;
 
   -- S3.1 [A1]: carry a trust tab forward (inherit up, earliest open time; a secure target is refused above).
