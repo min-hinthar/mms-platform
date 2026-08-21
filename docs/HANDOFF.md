@@ -5,9 +5,33 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-08-20 — W22a · a·depth · r · b · c · d-1 · e · f and W23a–d merged; only W22d proper remains, and it is OWNER-BLOCKED)
+> ## ⏭️ NEXT SESSION — start here (2026-08-21 — the M-registry backlog is being worked in severity order; W22d proper remains and is OWNER-BLOCKED)
 >
-> ### ⏭️ Pick up here — the W22 slate is down to one owner decision
+> ### ⏭️ Pick up here — M108 is the next open row, and it is M100's mirror
+>
+> **M100 · M107 shipped (#220)** — the session's mode is now re-derived server-side in
+> `mms_set_line_fulfillment` and `mms_fire_line`. Both are closed in `docs/OPEN-ITEMS.md` with the
+> measured census; the durable rule they produced is that a client render gate (`isDineIn &&`) is
+> advisory on a public POST, and the three sibling fire RPCs had been joining `table_sessions` inside
+> their write since S4.2 while these two never adopted it.
+>
+> - **M108 (med, open) — the same rule on the INSERT path, failing the other way.** `addItem` and
+>   `reorderOrder` discard the error on their `table_sessions.mode` read, so an unreadable session
+>   silently tags a dine-in table's line `togo`: the cold-food tax is never collected (the direction
+>   M97's header calls the worse one legally) and the line stops firing on "Send to kitchen".
+>   `staff-open-cart.ts` reads the same column and fails CLOSED, so the correct shape is already in
+>   the repo. The fix is not error handling — `assertCartMember` already reads that row one call
+>   earlier and throws `UNAVAILABLE`; returning `mode` from it deletes the second read entirely.
+> - **M17 (med, open)** — same RPC as M100, and M100 NARROWED it: an orphaned line on a non-dine-in
+>   session can no longer be flipped to `dinein` at all, so the over-collection path is now dine-in
+>   only. Its registry row's migration citation was re-pointed to the live definition.
+> - Still open from the merge-fold chain: **M99 · M103 · M105 · M106** (all low).
+>
+> **A rule worth carrying, from #220:** a multi-case `plpgsql` ASSERT file can only ever prove its
+> FIRST case — red-then-green on eight cases is a claim about one. `scripts/verify-mode-authority.mjs`
+> is the pattern for the other seven (`.claude/LEARNINGS.md` #51).
+>
+> ### The W22 slate is still down to one owner decision
 >
 > `docs/W22_DESIGN_PROPOSAL.md` is the plan-of-record and **every slice is marked SHIPPED except
 > W22d**. What remains:
@@ -42,7 +66,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 197 `verify:slice` mutants green · `pnpm check:docs` clean (95 files, 865 qr tests +
+> **Gate today:** 199 `verify:slice` mutants green · `pnpm check:docs` clean (95 files, 875 qr tests +
 > 87 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
@@ -748,7 +772,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (197 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (199 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

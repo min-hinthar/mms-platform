@@ -290,3 +290,43 @@ Two more from the same slice, both about claims rather than code:
   time: **narrow to the history that IS attributable and say so, rather than averaging over the part
   that is not.** Here that meant counting to-go and pickup only — which costs the archetype (a solo
   dine-in regular is exactly who the card is for) and is still correct.
+
+## #51 — A multi-case `plpgsql` ASSERT file can only ever prove its FIRST case (M100, 2026-08-21)
+
+`ASSERT` aborts the whole `do $$` block on the first failure and `ON_ERROR_STOP=1` aborts the file.
+So the red-first ritual on an eight-case SQL test — run it before the migration, watch it go red, run
+it after, watch it go green — proves **case 1**. Cases 2 through 8 were never executed in the red
+run, so nothing has established that any of them is capable of failing. Offering that as "the guard
+is proven" is a claim about one case dressed as a claim about eight, which is the same shape as the
+green test file this repo already has a mutation battery for.
+
+The fix is the M102 pattern at a smaller scale: `scripts/verify-mode-authority.mjs` mutates the LIVE
+function and requires **the case that names the rule** to be the one that reddens. "It went red" is
+not enough — two mutants both credited to case 1 means one of them is testing nothing, and that is
+exactly what happened: a guard mutation intended for case 4 was caught by case 1 instead, because the
+in-write copy of the predicate degraded the verdict to `stale` before case 4 was ever reached. The
+mutant was rewritten to be ADDITIVE (leave the real guard, add the over-tightening beside it) so it
+lands on the case it claims.
+
+Three more rules the same battery earned, each from a defect in its own first draft:
+
+- **A guard that heals what the next check looks for is decorative.** The startup assertion — "this
+  migration must still be the LAST definition of these functions, or `restore()` silently reverts to
+  dead code" — hashed and restored one function at a time. `restore()` re-applies the whole migration,
+  so the first iteration repaired the drift the second was hunting. Stubbing out `mms_fire_line` and
+  re-running produced a clean pass. Hash every target BEFORE the first restore.
+- **A survivor asserted as a survivor is a measurement; a survivor left unlisted is a hole.** The
+  mode term inside the UPDATE cannot diverge from its pre-check while `table_sessions.mode` is
+  immutable, and the migration header says so. That claim is checked in the same direction as every
+  other mutant — expected to survive, and a KILL means the header has become false. Pair it with the
+  complement (delete the pre-check, keep the term) to show the term still earns its place.
+- **`pg_get_functiondef` has no trailing semicolon.** Piping it back to `psql` leaves an unterminated
+  statement and relies on the client flushing its query buffer at EOF. It does. A battery whose
+  RESTORE path rests on that is the thing it exists to prevent.
+
+And the finding that started it, worth its own line: **a client render gate is advisory, and the
+value it gates on must be re-derived in the write.** `Checkout.tsx` hid the For-here/To-go pills and
+"Make it now" behind `isDineIn &&`; a Server Action is a public POST. Both RPCs behind those controls
+had gone their whole lives without reading `table_sessions.mode`, while three sibling fire RPCs had
+been joining that table inside their write since S4.2. When a rule exists correctly somewhere in the
+schema, the question is not whether it is right — it is which call sites never adopted it.
