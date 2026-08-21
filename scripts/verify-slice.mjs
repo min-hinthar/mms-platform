@@ -1487,6 +1487,26 @@ const MUTANTS = [
     replace: "  if (false) {",
   },
   {
+    // The board's poll decisions moved OUT of ReadyBoard.tsx to be mutable at all: a component in
+    // this app cannot be tested (vitest is node-env, `*.test.ts` only), so three defects lived in
+    // that logic at once with the whole suite green. These two mutants are the standing proof that
+    // the extraction bought something.
+    id: "board-poll/bodyless-refusal-is-a-verdict",
+    file: "apps/qr/lib/board-poll.ts",
+    suite: "lib/board-poll.test.ts",
+    why: "a 401/503 whose body will not parse (a platform throttle or paused deployment answers with an HTML page) says NOTHING about the device — treating it as a verdict destroys a live board's snapshot mid-service and tells the house the screen was never linked, which is the W10b unavailable-vs-denied failure one layer out from the route",
+    find: '  if (!body) return { kind: "retry" };',
+    replace: '  if (!body) return { kind: "verdict", message: null };',
+  },
+  {
+    id: "board-poll/no-snapshot-board-claims-it-is-connecting",
+    file: "apps/qr/lib/board-poll.ts",
+    suite: "lib/board-poll.test.ts",
+    why: "a board that BOOTED into an outage has no snapshot to keep, so folding it back to `loading` leaves it on 'Connecting…' indefinitely above a Ready column promising 'Ready orders light up here' — the screen asserts two false things and the floor is told nothing",
+    find: '  if (fails < BOARD_FAIL_THRESHOLD) return prev.kind === "offline" ? prev : { kind: "loading" };',
+    replace: '  return prev.kind === "offline" ? prev : { kind: "loading" };',
+  },
+  {
     id: "kiosk/reset-not-scoped-to-kiosk-sessions",
     file: "apps/qr/lib/kiosk.ts",
     suite: "lib/kiosk.test.ts",
