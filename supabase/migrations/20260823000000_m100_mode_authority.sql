@@ -56,7 +56,10 @@
 -- cart exist today — every line written before this applies", and that reason is FALSE. `addItem`
 -- (`cart.ts:56-64`) yields `togo` for EVERY non-dine-in mode, and the one-time S4 backfill
 -- (`20260623100000:16-22`) did the same, so no ordinary add has ever produced this shape. The only
--- writer that can is the toggle itself. Case 5 stays because it forbids a guard SHAPE that would make
+-- writer a DINER can reach is the toggle itself — `mms_merge_table_orders` re-parents lines keeping
+-- `fulfillment` verbatim and has no SQL mode check at all, but its same-mode rule lives in TypeScript
+-- (`floor.ts:666`), which is this migration's own defect shape one function over. It is service_role
+-- + staff-gated rather than a public POST, so it is filed (OPEN-ITEMS M109) rather than fixed here. Case 5 stays because it forbids a guard SHAPE that would make
 -- repair impossible, not because a diner can reach it today — the pills are hidden off dine-in
 -- (`Checkout.tsx:1243`), and the two live rows below sit on a PAID cart, where `not_open` fires first.
 --
@@ -79,7 +82,10 @@
 -- The pre-check produces a NAMED reason; the copy inside the UPDATE is the atomicity guarantee. Both
 -- functions already do exactly this for open/draft/grocery. Unlike those, the mode copy cannot
 -- diverge from its pre-check AT RUNTIME: no statement in this schema or in `apps/` ever sets
--- `table_sessions.mode` after the insert that mints the session (only `status` is ever updated), and
+-- `table_sessions.mode` after the insert that mints the session — other columns on that row DO get
+-- rewritten (`status` on close, `expires_at` by the sliding renewal in `authz.ts`, `host_seat` by
+-- `/api/session`), so the claim is about `mode` specifically and an earlier draft's "only `status` is
+-- ever updated" was simply wrong — and
 -- `qr_carts.session_id` is `not null` and likewise never rewritten — so mode is immutable for a
 -- cart's whole life and no concurrent session can make the two disagree. `scripts/
 -- verify-mode-authority.mjs` MEASURES that rather than asserting it: deleting the in-write term while
@@ -153,6 +159,16 @@ begin
         select 1 from public.qr_carts c
         join public.table_sessions s on s.id = c.session_id
         where c.id = ci.cart_id and c.status = 'open'
+          -- ⚠️ THE PARENTHESES ARE LOAD-BEARING. This is the first OR ever introduced into this
+          -- EXISTS; before M100 it was a single conjunct with no grouping hazard. Drop them and
+          -- `AND` binds tighter, so the predicate becomes
+          -- `(c.id = … and c.status = 'open' and p_fulfillment <> 'dinein') or s.mode = 'dinein'`
+          -- — which is TRUE for any dine-in session regardless of cart status, and a cart that
+          -- raced open→paid between the SELECT above and this UPDATE would be re-routed and
+          -- re-taxed after settlement. Measured, on the mis-parenthesized form: `ok`, row moved to
+          -- dinein, tax 0 → 147 on a PAID cart; correctly parenthesized it answers `stale` and the
+          -- row does not move. No case in the SQL test reaches this — every one is short-circuited
+          -- by the `not_open` pre-check, which is what OPEN-ITEMS M110 is for.
           and (p_fulfillment <> 'dinein' or s.mode = 'dinein')
       );
   if not found then return 'stale'; end if;   -- raced a fire / pay between the read and the write

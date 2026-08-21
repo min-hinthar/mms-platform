@@ -147,8 +147,15 @@ begin
   -- The guard is ONE-DIRECTIONAL on purpose. `dinein` is the value a non-dine-in session may not
   -- reach; `togo` is the value that repairs one. A guard written as "no toggling at all off a
   -- dine-in session" passes cases 1-4 and traps every already-mis-tagged line as permanently
-  -- taxable, which is the exact damage this file exists to undo. Rows in this shape are reachable
-  -- today (every line tagged before this migration applies) — this is not a synthetic case.
+  -- taxable, which is the exact damage this file exists to undo.
+  --
+  -- ⚠️ An earlier version of this comment justified the case with "rows in this shape are reachable
+  -- today — every line tagged before this migration applies", and the migration header RETRACTS
+  -- exactly that claim: `addItem` yields `togo` for every non-dine-in mode and the S4 backfill did
+  -- the same, so no ordinary add has ever produced this shape. Two files in one commit gave opposite
+  -- answers to "can a diner reach this". The real reason the case exists is narrower and enough: it
+  -- forbids a guard SHAPE that would make repair impossible. The two rows that DO carry this shape in
+  -- production came from the toggle itself and sit on a paid cart, where `not_open` refuses first.
   sess := gen_random_uuid(); cart := gen_random_uuid(); line := gen_random_uuid();
   insert into public.table_sessions (id, qr_code, mode, status, host_seat)
     values (sess, 'M100S5', 'pickup', 'active', ana);

@@ -260,6 +260,23 @@ const MUTANTS = [
     replace: "ci.fulfillment in ('grocery')",
   },
   {
+    id: "toggle/in-write-parens-dropped",
+    fn: "mms_set_line_fulfillment",
+    // DOCUMENTED SURVIVOR, and unlike the one below this is a survivor that names a GAP rather than
+    // a property. Dropping the parentheses lets `AND` bind tighter, so the in-write predicate reads
+    // `(… and c.status='open' and p_fulfillment <> 'dinein') or s.mode='dinein'` — true for every
+    // dine-in session whatever the cart's status. Measured on the mis-parenthesized form with the
+    // `not_open` pre-check bypassed: a PAID cart's line is re-routed and re-taxed (0 → 147¢).
+    // Every case in the SQL test is short-circuited by that pre-check, so nothing here can kill it
+    // single-session; only a two-session harness can (OPEN-ITEMS M110, the same shape M98 filed as
+    // M102). It is listed anyway so a maintainer who reworks that predicate sees this row rather
+    // than a silently-absent one.
+    expect: null,
+    why: "the parentheses in the in-write EXISTS — load-bearing, and unkillable from one session because the pre-check refuses first (M110)",
+    find: "          and (p_fulfillment <> 'dinein' or s.mode = 'dinein')",
+    replace: "          and p_fulfillment <> 'dinein' or s.mode = 'dinein'",
+  },
+  {
     id: "toggle/in-write-mode-term-deleted",
     fn: "mms_set_line_fulfillment",
     expect: null, // DOCUMENTED SURVIVOR — see the header
