@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 
 import { useRouter } from "next/navigation";
 import { browserClient } from "@mms/db";
 import { isRetryableAuthShape } from "@/lib/staff-outage";
+import { DEFAULT_NEXT, NEXT_COOKIE } from "@/lib/safe-next";
 
 /**
  * Staff sign-in (S1.1a) — passwordless magic-link / email-OTP. Two steps: request a 6-digit code to
@@ -11,7 +12,19 @@ import { isRetryableAuthShape } from "@/lib/staff-outage";
  * @supabase/ssr browser client persists the session to cookies, so the /staff server shell reads the
  * verified uid and the staff row gates the rest. The PIN fast-path on a shared tablet is S1.1b.
  */
-export function StaffLogin({ denied = false }: { denied?: boolean }) {
+export function StaffLogin({
+  denied = false,
+  next = DEFAULT_NEXT,
+}: {
+  denied?: boolean;
+  /**
+   * Where this sign-in is FOR — already validated by the page against the allowlist, so it is safe
+   * to put in a redirect and in the magic link. Signing in on the lobby kiosk or the ready-board TV
+   * has to land back on that surface; sending every device to /staff would leave someone re-typing
+   * a device URL on a screen with no keyboard.
+   */
+  next?: string;
+}) {
   const router = useRouter();
   const [step, setStep] = useState<"email" | "code">("email");
   const [email, setEmail] = useState("");
@@ -54,6 +67,40 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
   // Gates only bite while the field still holds the address they were sent to — so they can't be wiped
   // by editing the email, but a different address is free to send immediately. `blockedThis` (429) has
   // no honest countdown → steer to Google; `coolingThis` (post-send) shows the real ~60s window.
+  // ONE callback URL, read by the Google redirect AND the magic link in the email. It is the BARE
+  // callback — no query string — because Supabase glob-matches `redirectTo` against the project's
+  // Redirect URL allow list and a query string makes an exact entry miss (see `safe-next.ts`). The
+  // destination rides in a cookie instead.
+  //
+  // ⚠️ A FUNCTION, called from the event handlers — never a `useMemo`. This is a Client Component,
+  // but Next still SERVER-renders it on first load, and a useMemo factory runs during that render,
+  // where `window` is undefined. Written as a memo it threw before the page could paint, taking the
+  // whole sign-in surface down for every anonymous visit (Codex round 1, P1). The original code read
+  // `window` inside the handlers for exactly this reason; moving it "somewhere tidier" broke it.
+  const callbackUrl = () => `${window.location.origin}/staff/auth/callback`;
+
+  /**
+   * Park the destination where the callback can read it, right before any sign-in leaves this page.
+   * 10 minutes covers the walk to a mailbox and expires well inside the link's own lifetime; Lax so
+   * the top-level navigation back from a mail client still carries it.
+   *
+   * The DEFAULT case actively CLEARS rather than returning early. A stale cookie from an abandoned
+   * `?next=/kiosk` attempt would otherwise still be sitting there, and the next ordinary sign-in —
+   * which parks nothing — would have its callback consume that stale destination and send someone to
+   * the kiosk instead of the console (Codex round 1, P2).
+   */
+  const parkNext = () => {
+    document.cookie =
+      next === DEFAULT_NEXT
+        ? `${NEXT_COOKIE}=; Path=/staff; Max-Age=0; SameSite=Lax`
+        : `${NEXT_COOKIE}=${encodeURIComponent(next)}; Path=/staff; Max-Age=600; SameSite=Lax`;
+  };
+
+  /** The typed-code path never reaches the callback, so it clears the parked destination itself. */
+  const clearParkedNext = () => {
+    document.cookie = `${NEXT_COOKIE}=; Path=/staff; Max-Age=0; SameSite=Lax`;
+  };
+
   const norm = (s: string) => s.trim().toLowerCase();
   const sameAddr = norm(email) === sentTo;
   const blockedThis = sameAddr && emailBlocked;
@@ -66,9 +113,10 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
     setBusy(true);
     setError(null);
     setNotice(null);
+    parkNext();
     const { error: err } = await browserClient().auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: `${window.location.origin}/staff/auth/callback` },
+      options: { redirectTo: callbackUrl() },
     });
     if (err) {
       setBusy(false);
@@ -88,6 +136,7 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
     setError(null);
     setNotice(null);
     const addr = norm(email); // send + verify + gate on ONE normalized form (matches the staff allowlist)
+    parkNext();
     const { error: err } = await browserClient().auth.signInWithOtp({
       email: addr,
       // emailRedirectTo makes the magic LINK in the email land on our callback (the email carries both
@@ -95,7 +144,7 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
       // staff account (provisionStaff pre-creates it) can request a code.
       options: {
         shouldCreateUser: false,
-        emailRedirectTo: `${window.location.origin}/staff/auth/callback`,
+        emailRedirectTo: callbackUrl(),
       },
     });
     setBusy(false);
@@ -154,8 +203,11 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
       );
       return;
     }
-    // Session is now in cookies — let the server shell re-gate against the staff row.
-    router.replace("/staff");
+    // Session is now in cookies — let the destination shell re-gate (the staff row for /staff,
+    // authorizeDevice for /kiosk and /board). The typed-code path never leaves the browser, so it
+    // does the routing the callback route does for the link path.
+    clearParkedNext(); // single-use, exactly like the callback route's clear on the link path
+    router.replace(next);
     router.refresh();
   }
 

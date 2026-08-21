@@ -118,6 +118,17 @@ const STRINGS = {
     en: "Something went wrong — please order at the counter.",
     my: "တစ်ခုခု မှားသွားပါတယ် — ကောင်တာမှာ မှာလိုက်ပါနော်။",
   },
+  /**
+   * The TRANSIENT refusals — `unavailable` (we could not reach the sign-in service) and `no_auth`
+   * (this device has no session yet). Both used to render `somethingWrong`, which tells a guest
+   * standing at the screen to give up and walk to the counter over a blip that is very likely gone
+   * by the next tap. "Try again" is the only honest instruction here, because trying again is what
+   * actually works.
+   */
+  justAMoment: {
+    en: "Just a moment — we couldn’t reach our system. Please tap again.",
+    my: "ခဏလေးပါ — စနစ်နဲ့ ချိတ်ဆက်လို့ မရသေးပါ။ ထပ်နှိပ်ကြည့်ပါနော်။",
+  },
 } as const;
 
 export type KioskStringKey = keyof typeof STRINGS;

@@ -4,6 +4,151 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Staff sign-in on every surface, and sessions that survive the night (2026-08-21)
+
+Owner: _"I want the kitchen staff portal, kiosk, board, and front house staff portal, to login with
+OTP email via url and stays logged in on device until logged out."_
+
+**Why it did not stay logged in, measured rather than guessed.** Two independent causes, and neither
+was the login:
+
+1. **Nothing refreshed the session server-side.** `@supabase/ssr`'s browser client persists to
+   cookies and refreshes the access token WHILE A TAB IS OPEN AND AWAKE. It cannot do that for the
+   request that arrives after the tab was closed, after a wall display slept, or on the first cold
+   navigation the next morning — the server reads an expired JWT, `getStaffAuth()` answers `anon`,
+   and the shell redirects to the login. A Server Component cannot fix this itself: RSC render is
+   READ-ONLY for cookies, so even when the SSR client refreshes it has nowhere to persist the result.
+   `proxy.ts` now does it, scoped to `/staff`, `/kiosk`, `/board`.
+2. **`AnonAuthGate` was signing staff out on purpose.** It exempted `/staff` only, so a staff session
+   on `/kiosk` or `/board` was swapped for an anonymous diner session within a second of landing.
+   Both surfaces are now exempt.
+
+⚠️ An earlier note in this session said "no middleware.ts — that's where staying-logged-in lives".
+That was wrong: Next 16 renamed the convention and this app has had `proxy.ts` all along (it carries
+the per-request CSP nonce). The refresh is a scoped addition to it, not a new file — and the scoping
+matters, because that matcher covers EVERY document route and an auth round-trip in front of every QR
+scan would be a real cost on the hot path for anonymous sessions that need none of it.
+
+**All four surfaces now take the same email sign-in.** `/staff` (front-of-house, kitchen, expo) had
+it; `/kiosk` and `/board` gain it via `lib/device-auth.ts`, which replaces two hand-copied
+constant-time token checks with one gate accepting EITHER the device token OR a staff session.
+
+Two properties were nearly lost adding that, and the existing suite caught the first:
+
+- **A wrong token used to cost zero database work** (`kiosk.test.ts` counts queries). Falling through
+  to `getStaffAuth()` on every miss quietly retired it — an anonymous client hammering `/kiosk?k=wrong`
+  would each buy a `getUser()` round-trip plus a `staff` row read. The staff lookup now runs only when
+  the request actually carries a Supabase auth cookie: a routing hint, never a credential, since
+  `getStaffAuth` still verifies the session and the row.
+- **The token is checked BEFORE auth**, so a bookmarked device keeps working through an auth-plane
+  outage instead of acquiring a new dependency on it (W10b's rule, one surface further out). A failed
+  auth read is now `unavailable`, never `denied` — a 401 would tell a running TV it had been
+  de-authorized during a database blip.
+
+**Landing where you signed in.** `/staff/login?next=/kiosk` carries the destination through both the
+magic link and the Google redirect, so an email opened on the lobby iPad lands on the kiosk rather
+than the console — which matters most on a screen with no keyboard to re-type a URL with. `next`
+arrives in a URL and rides into a mailbox, so it is treated as attacker-controlled: `lib/safe-next.ts`
+rejects the two candidates a naive predicate accepts — `/\evil.com` (a backslash aliases to `/`) and
+`/<TAB>/evil.com` (TAB/LF/CR are STRIPPED before parsing), both of which resolve to `https://evil.com`
+— then resolves against a throwaway origin and demands it back, and finally allowlists the three
+sign-in surfaces. A test asserts the PREMISE too, so if a runtime ever stops normalizing those the
+comments get rewritten rather than trusted.
+
+**Codex round 1 found SEVEN — 4×P1, 3×P2 — and all seven were real.** Every P1 lived in a CLIENT
+consumer of a server contract this slice changed, which is precisely why the self-review missed them:
+the modules were tested, their callers were never opened.
+
+- **The board never polled without a token.** `ReadyBoard` initialised to `unlinked` and returned
+  early from `poll()` on an empty token, so the documented `/staff/login?next=/board` flow dead-ended
+  on "not linked" — the headline feature, non-functional. It now starts LOADING and lets the server
+  adjudicate, because a staff session lives in a cookie the client cannot read.
+- **`window` was read during server render.** `StaffLogin` is a Client Component, but Next still
+  SSRs it, and a `useMemo` factory runs in that pass — so the callback URL threw before the page
+  could paint, taking the whole sign-in surface down. The original code read `window` inside the
+  handlers for exactly this reason; moving it somewhere tidier broke it.
+- **The refresh dropped cookies.** `setAll` rebuilt the response per cookie, discarding each prior
+  `Set-Cookie`, and `rebuild()` closed over a header clone taken BEFORE the cookie writes. A real
+  session is CHUNKED (`.0`/`.1` once the JWT passes 4KB), so only the last chunk shipped — half a
+  session, which reads as none. Invisible on a short token, permanent on a real one, in exactly the
+  overnight path this exists for. Now accumulates and builds once, and `build()` re-reads the request.
+- **The kiosk lost its anonymous session.** Exempting `/kiosk` outright stopped `AnonAuthGate`
+  minting the anon user `openKioskOrder` requires (`no_auth`), so a token-only kiosk could not start
+  an order. The exemption is now `keepStaff`: it suppresses only the sign-OUT swap and leaves the
+  mint alone.
+- **An auth blip blanked a live board**, because `ReadyBoard` treated every 503 as unlinked. The API
+  now says `reason`, and only `not_configured` is a verdict about the device.
+- **`unavailable` was flattened to `denied` on the kiosk reset**, and its detached abandonment path
+  only retries `error` — so a blip left the cart live and a dine-in table reported occupied until
+  TTL. Reverting that fix left every other test green, so it is now pinned red-first.
+- **The parked destination survived a typed-code sign-in**, so a later default login consumed a stale
+  `/kiosk` destination. Cleared on that path, and the default case now clears rather than no-ops.
+
+56 new tests (931 qr). `docs/ENV.md` carries the two dashboard settings that decide how long "until
+logged out" actually is — neither is in code.
+
+**Codex round 2** found three more, two real defects and one accepted trade:
+
+- **The callback decoded the parked destination twice**, and Next's request-cookie parser had already
+  decoded it once. A device token is base64: `k=aB%2Bc%2Fd%3D%3D` survives one decode and becomes
+  `k=aB+c/d==` after two — and `+` in a query string means SPACE, so `/board` read the token as
+  `aB c/d==`. The token-first fallback that exists to outlive an auth outage was silently dead on
+  the one path nobody re-tests after signing in. Measured, then pinned by a route test that runs the
+  written cookie through the REAL parser rather than typing out what it thinks Next does.
+- **A repeated `?next=` crashed the sign-in page.** Next hands `?next=/board&next=/kiosk` through as
+  a `string[]`, which sails past `!raw`, past `STRIPPABLE.test` (it stringifies), and then dies on
+  `raw.startsWith` — a crafted URL returning a 500 instead of the login form. `safeNext` now takes
+  `unknown` and rejects on TYPE, including an object that stringifies to a permitted path.
+- **A staff sign-in on the kiosk or board is a full console session** — origin-wide, so `/staff` on
+  that device accepts it. Reported correctly; **deliberately not taken**, per the owner's "staff
+  login, no extra restriction" (the point of the slice is testing production flows). Filed as M111
+  with the one-line close, since the console lock already exists.
+
+Also pinned the round-1 cookie fix, which had shipped with no test at all: `withRefreshedStaffSession`
+now has four, and the chunked-rotation case was watched failing against the old shape first.
+
+**The in-session adversarial pass** (3 lenses — security/privacy · concurrency · product truth) then
+found **six more, all real**, and the headline one means the feature did not work:
+
+- **The tokenless kiosk could never open an order.** `kioskOpenInput.k` was `z.string().min(1)`, and
+  the parse runs BEFORE `authorizeDevice` — so on an iPad signed in via `/staff/login?next=/kiosk`,
+  with no `?k=` by design, every tap returned "Something went wrong — please order at the counter."
+  forever. It hid because the tokenless case was proved against **board**, whose route calls the gate
+  directly with no schema in front of it. A contract tested through one caller says nothing about
+  another. Bound kept at `.max(200)`; the gate still refuses an empty token when one is configured.
+- **A bodyless 503 blanked a live board.** `body?.reason !== "unavailable"` is `true` when `body` is
+  null, and a platform-level 503 (Vercel throttle, paused deployment) answers with an HTML page that
+  will not parse. The least informative response we can receive was treated as the most authoritative
+  one — the same W10b shape as the round-1 fix, one layer further out.
+- **A board that BOOTED into an outage said "Connecting…" indefinitely**, over a Ready column reading
+  "Ready orders light up here." It never reached `live`, so the failure fold sent it back to
+  `loading` forever. There is now an `offline` state that says the true thing and escalates to the
+  paper instruction past the shared two-minute window.
+- **"Isn't linked — open the board with its device link"** was rendered to installs that have no
+  device link, discarding the honest sentence the API had already written. The verdict now carries
+  the server's own message plus the recovery that actually applies.
+- **The 5s poll had no in-flight guard**, so a late response rewound `prevReady` and the next tick
+  re-flashed and re-CHIMED an order already called — sending a customer who collected their bag back
+  to the counter. Every other staff board already had this lock.
+- **A dead arm in `safeNext`'s allowlist** (`startsWith(`${p}?`)`) — a resolved `URL.pathname` can
+  never contain a raw `?`. Harmless, but its comment credited it with keeping `/board?k=…` working
+  when `path === p` is what does, so a maintainer trimming the "redundant" line could delete the
+  load-bearing one.
+
+**Codex round 3** found one more, and it is the last: `next=/staff/login` and `/staff/auth/callback`
+were accepted as post-auth destinations, so a successful sign-in could land you back on the login
+page — which reads as a failed sign-in, on exactly this flow. Reported as an infinite redirect loop;
+traced, it terminates in three hops (each peels a layer, a bare `/staff/login` falls back to
+`/staff`, no fixed point). The bounced sign-in is the real defect and is closed by segment-matched
+exclusion, so a future `/staff/logins-report` is unaffected.
+
+Three of the adversarial findings lived in `ReadyBoard.tsx`, which has no test and **cannot** have one (vitest here is
+`environment: "node"`, `include: ["**/*.test.ts"]`). So the poll's two decisions moved to
+`lib/board-poll.ts` as pure functions with 11 tests — the repo's own rule that decision logic belongs
+in `lib/`, applied outside the money paths for the first time. `mintFail` also grew honest arms:
+`unavailable` and `no_auth` are transient and the guest's next tap fixes them, so sending that person
+to the counter was both false and the most expensive possible answer.
+
 ### M100 · M107 — the session's mode is the authority, and two RPCs never asked (2026-08-21)
 
 `Checkout.tsx` renders the For-here/To-go pills and "Make it now" behind `isDineIn &&`, and its own

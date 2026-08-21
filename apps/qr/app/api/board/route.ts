@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { timingSafeEqual } from "node:crypto";
 import { serviceClient } from "@mms/db/server";
+import { authorizeDevice } from "@/lib/device-auth";
 
 export const runtime = "nodejs"; // node:crypto timingSafeEqual
 export const dynamic = "force-dynamic";
@@ -11,9 +11,13 @@ export const dynamic = "force-dynamic";
  * read on the house 5s-backstop cadence — no `realtime.messages` policy change, no staff session on a
  * wall-mounted device.
  *
- * Auth = a single device token (BOARD_DEVICE_TOKEN) carried in the board URL. Constant-time compare,
- * checked BEFORE any DB read (an invalid token costs nothing); unset env ⇒ 503 (the board is opt-in
- * config, docs/ENV.md). The response is deliberately minimal — first name (diner-chosen call-out),
+ * Auth = `authorizeDevice` (lib/device-auth.ts), shared with the kiosk: the BOARD_DEVICE_TOKEN in the
+ * URL — constant-time, checked BEFORE any DB read and before any auth round-trip, so a TV that is
+ * already bookmarked keeps working through an auth-plane outage — OR a staff session, so a display
+ * can be signed in with the same email OTP as the portals (owner, 2026-08-21). Neither credential ⇒
+ * 401; no token configured AND not staff ⇒ 503 (the board stays opt-in config, docs/ENV.md); an auth
+ * read that FAILS ⇒ 503 with the outage sentence, never 401 — "we cannot tell" is not "you are not
+ * allowed". The response is deliberately minimal — first name (diner-chosen call-out),
  * short order code, status, ready-time — never items, amounts, tables, or ids beyond the 6-char tail
  * the diner's own /track shows.
  *
@@ -22,17 +26,29 @@ export const dynamic = "force-dynamic";
  * in the Ready column, then auto-clears (SPEC-KDS §6).
  */
 export async function GET(req: NextRequest) {
-  const expected = process.env.BOARD_DEVICE_TOKEN;
-  if (!expected) {
-    return NextResponse.json(
-      { error: "The order-ready board isn’t configured (BOARD_DEVICE_TOKEN)." },
-      { status: 503 },
-    );
-  }
-  const given = req.nextUrl.searchParams.get("k") ?? "";
-  const a = Buffer.from(given);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length || !timingSafeEqual(a, b)) {
+  const gate = await authorizeDevice("board", req.nextUrl.searchParams.get("k") ?? "");
+  if (!gate.ok) {
+    if (gate.reason === "not_configured") {
+      return NextResponse.json(
+        {
+          reason: "not_configured",
+          error:
+            "The order-ready board isn’t configured — set BOARD_DEVICE_TOKEN, or sign in on this device with a staff account.",
+        },
+        { status: 503 },
+      );
+    }
+    if (gate.reason === "unavailable") {
+      // W10b: the auth read failed, so whether this device is allowed is UNKNOWABLE. A 401 here
+      // would tell a running TV it had been de-authorized during a database blip.
+      // The `reason` is what lets the TV tell this apart from `not_configured`: both are 503, but
+      // one is a setup answer and the other is a blip. Without it the client blanked a live board
+      // on an auth wobble — the opposite of what this branch exists for (Codex round 1, P2).
+      return NextResponse.json(
+        { reason: "unavailable", error: "We can’t reach the sign-in service right now." },
+        { status: 503 },
+      );
+    }
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

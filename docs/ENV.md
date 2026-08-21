@@ -150,6 +150,40 @@ Staff (`/staff/login`) can sign in three ways; all resolve to the same **email a
 > `insert into public.staff (user_id, email, role, display_name) values ('<uid>','you@…','owner','Min');`
 > Refresh `/staff` → owner. (Or dashboard **Add user**, then the same insert.)
 
+### Signing in ON a device — kiosk + ready board (owner, 2026-08-21)
+
+The kiosk (`/kiosk`) and the order-ready board (`/board`) accept **two** credentials, either
+sufficient (`apps/qr/lib/device-auth.ts`):
+
+1. the **device token** in the URL (`?k=…`) — unchanged, still checked FIRST and still constant-time;
+2. a **staff session** — the same email OTP / magic link as the portals.
+
+So a fresh iPad or TV can be signed in with an email instead of a hand-copied token, and a display
+whose bookmarked token was rotated keeps working if someone is signed in on it. Two properties are
+deliberately preserved and pinned by `lib/device-auth.test.ts`:
+
+- **The token is checked before any auth round-trip**, so a device that is already bookmarked keeps
+  working through an auth-plane outage — it gains no new dependency.
+- **A wrong token from a session-less caller still costs ZERO database work.** The staff lookup only
+  runs when the request actually carries a Supabase auth cookie (a routing hint, never a credential —
+  `getStaffAuth` still decides).
+
+**Landing on the right surface.** `/staff/login?next=/kiosk` carries the destination through the
+magic link and the Google redirect, so the email link opened on the device lands back on that device's
+screen rather than the console. `next` is validated against an allowlist (`/staff`, `/kiosk`,
+`/board`) by `apps/qr/lib/safe-next.ts` before it can reach a redirect — it arrives in a URL and rides
+into a mailbox, so it is treated as attacker-controlled.
+
+**Staying signed in.** `apps/qr/proxy.ts` refreshes the Supabase session on those three prefixes
+(`apps/qr/lib/proxy-session.ts`). Without it the access token expires (1h by default) and the next
+cold request reads a dead session — which is what "it logged me out overnight" was. Diner routes are
+excluded on purpose: an auth round-trip in front of every QR scan buys nothing.
+
+⚠️ **Two dashboard settings decide how long "until logged out" actually is**, and neither is in code:
+Supabase → Authentication → **Sessions** (leave the inactivity timeout and time-box UNSET for
+sign-in-until-signed-out) and **Rate Limits → email** (see the ⚠️ above — this is the "Too many code
+requests" loop).
+
 ## Email — all on Resend + React Email (same stack as the delivery app)
 
 1. **Staff sign-in (magic-link / OTP) — via the Supabase Send-Email Hook (preferred; NO SMTP).** GoTrue

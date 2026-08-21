@@ -18,6 +18,26 @@ import { publishAuthPlaneStatus } from "@/lib/session-status";
  * a REAL (staff) session must be swapped for an anonymous one (a staff uid is is_staff() → it would
  * read every table and attribute diner writes to the staff user).
  */
+/**
+ * Device surfaces that ACCEPT a staff session but may also run on a device token alone. A staff
+ * session here is kept; the anonymous mint still happens when there is no session at all.
+ *
+ * ⚠️ ACCEPTED RISK, decided by the owner (2026-08-21), not an oversight. Supabase auth is
+ * ORIGIN-wide, so the staff session kept here is the same session `/staff` accepts: anyone who
+ * walks up to the lobby kiosk and types `/staff` into that browser reaches the floor console as
+ * whoever last signed the device in. Asked whether the device surfaces should carry a narrower
+ * credential, the owner chose "staff login, no extra restriction" — the point of this slice is
+ * testing every flow against production with Stripe test cards, and a second gate on the device is
+ * friction against exactly that.
+ *
+ * What it would take to close, if that trade stops being worth it: the console lock already
+ * EXISTS and is already enforced on every staff page (`isConsoleLocked()` → `/staff/lock`, a pure
+ * cookie read in `requireStaffPage`). Engaging it when a sign-in lands on a device surface is the
+ * whole fix — no new credential type, no new gate. Tracked as M111 in `docs/OPEN-ITEMS.md`
+ * (Codex round 2, P1 — reported correctly, deliberately not taken).
+ */
+const DEVICE_SURFACES = ["/kiosk", "/board"] as const;
+
 export function AnonAuthGate() {
   const pathname = usePathname();
   const router = useRouter();
@@ -27,7 +47,16 @@ export function AnonAuthGate() {
   const running = useRef(false);
 
   useEffect(() => {
+    // `/staff` is exempt OUTRIGHT — it needs no anonymous session and never did.
+    //
+    // `/kiosk` and `/board` are different, and getting this wrong broke the kiosk once already
+    // (Codex round 1, P1): they now accept a staff sign-in, so a staff session there must NOT be
+    // swapped away — but a TOKEN-only kiosk still needs the anonymous user that `openKioskOrder`
+    // requires (it reads `getUser()` and refuses with `no_auth` without one). So they are not
+    // skipped; they are marked `keepStaff`, which suppresses only the sign-OUT swap below and
+    // leaves the anonymous mint exactly as it was.
     if (pathname?.startsWith("/staff") || running.current) return;
+    const keepStaff = DEVICE_SURFACES.some((p) => pathname === p || pathname?.startsWith(`${p}/`));
     running.current = true;
     const supa = browserClient();
     void (async () => {
@@ -56,7 +85,13 @@ export function AnonAuthGate() {
             publishAuthPlaneStatus("ok");
             return; // upgraded diner (or anon) → keep
           }
-          await supa.auth.signOut(); // staff on a diner route → swap to an anonymous diner session
+          // Staff on a DINER route → swap to an anonymous diner session. On a device surface the
+          // staff session is the credential, so it is kept and we return before the mint below.
+          if (keepStaff) {
+            publishAuthPlaneStatus("ok");
+            return;
+          }
+          await supa.auth.signOut();
         }
         // Establish the anonymous session, with one retry — signInAnonymously can transiently fail
         // (network, or GoTrue's anon-signup rate limit, see app/api/session). Don't strand the diner

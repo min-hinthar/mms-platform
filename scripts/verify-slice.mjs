@@ -1467,12 +1467,44 @@ const MUTANTS = [
     replace: '    .eq("session_id", sessionId)\n    .select("id");',
   },
   {
-    id: "kiosk/unset-token-answers-open",
-    file: "apps/qr/lib/kiosk.ts",
-    suite: "lib/kiosk.test.ts",
-    why: "W6b — an UNSET device token must mean the kiosk feature is OFF; degrading to open lets any visitor mint sessions and fire the reset with an empty string",
+    // FOLLOWED THE RULE to its new home. The kiosk and the board had hand-copied token checks; both
+    // now share `lib/device-auth.ts`, so this mutant moved with the predicate rather than being
+    // deleted when it went STALE — a stale mutant is a failure, and "the code moved" is the one
+    // reason it is tempting to just drop one.
+    id: "device-auth/unset-token-answers-open",
+    file: "apps/qr/lib/device-auth.ts",
+    suite: "lib/device-auth.test.ts",
+    why: "W6b — an UNSET device token must mean the surface is OFF, not open. Degrading to authorized lets any visitor mint kiosk sessions, fire the reset with an empty string, and read the board feed; it is also the shape a 'make it work on a fresh device' change would reach for first",
     find: '  if (!expected) return { ok: false, reason: "not_configured" };',
-    replace: "  if (!expected) return { ok: true };",
+    replace: '  if (!expected) return { ok: true, via: "token" };',
+  },
+  {
+    id: "device-auth/staff-lookup-runs-for-every-wrong-token",
+    file: "apps/qr/lib/device-auth.ts",
+    suite: "lib/device-auth.test.ts",
+    why: "the cookie pre-check is the only thing keeping the original 'an invalid token costs nothing' property alive now that a staff session is a second credential — without it, an anonymous client hammering /kiosk?k=wrong buys a getUser() round-trip plus a staff row read on every request",
+    find: "  if (!(await hasSessionCookie())) {",
+    replace: "  if (false) {",
+  },
+  {
+    // The board's poll decisions moved OUT of ReadyBoard.tsx to be mutable at all: a component in
+    // this app cannot be tested (vitest is node-env, `*.test.ts` only), so three defects lived in
+    // that logic at once with the whole suite green. These two mutants are the standing proof that
+    // the extraction bought something.
+    id: "board-poll/bodyless-refusal-is-a-verdict",
+    file: "apps/qr/lib/board-poll.ts",
+    suite: "lib/board-poll.test.ts",
+    why: "a 401/503 whose body will not parse (a platform throttle or paused deployment answers with an HTML page) says NOTHING about the device — treating it as a verdict destroys a live board's snapshot mid-service and tells the house the screen was never linked, which is the W10b unavailable-vs-denied failure one layer out from the route",
+    find: '  if (!body) return { kind: "retry" };',
+    replace: '  if (!body) return { kind: "verdict", message: null };',
+  },
+  {
+    id: "board-poll/no-snapshot-board-claims-it-is-connecting",
+    file: "apps/qr/lib/board-poll.ts",
+    suite: "lib/board-poll.test.ts",
+    why: "a board that BOOTED into an outage has no snapshot to keep, so folding it back to `loading` leaves it on 'Connecting…' indefinitely above a Ready column promising 'Ready orders light up here' — the screen asserts two false things and the floor is told nothing",
+    find: '  if (fails < BOARD_FAIL_THRESHOLD) return prev.kind === "offline" ? prev : { kind: "loading" };',
+    replace: '  return prev.kind === "offline" ? prev : { kind: "loading" };',
   },
   {
     id: "kiosk/reset-not-scoped-to-kiosk-sessions",

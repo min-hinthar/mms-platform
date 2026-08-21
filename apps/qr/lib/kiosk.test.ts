@@ -19,6 +19,24 @@ vi.mock("server-only", () => ({}));
 vi.mock("next/headers", () => ({ cookies: () => Promise.resolve({}) }));
 vi.mock("./session-code", () => ({ generateJoinCode: () => "ABCD1234" }));
 
+/**
+ * The device gate moved to `./device-auth` (shared with the board). It is mocked here so this file
+ * can drive the one thing it owns: how `kioskReset` MAPS a gate refusal to its own reason. The gate's
+ * own rules — token first, the zero-cost wrong-token path, the staff credential — are asserted in
+ * `device-auth.test.ts`; duplicating them here would be two copies of one rule.
+ */
+let gateAnswer: { ok: boolean; via?: string; reason?: string } | null = null;
+vi.mock("./device-auth", async (importOriginal) => {
+  const real = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...real,
+    authorizeDevice: (surface: "kiosk" | "board", given: string) =>
+      gateAnswer
+        ? Promise.resolve(gateAnswer)
+        : (real.authorizeDevice as (s: string, g: string) => Promise<unknown>)(surface, given),
+  };
+});
+
 type Q = {
   table: string;
   op: "select" | "insert" | "update";
@@ -111,6 +129,7 @@ const TOKEN = "kiosk-device-token-for-tests";
 
 beforeEach(() => {
   queries = [];
+  gateAnswer = null;
   tableRow = null;
   occupiedRow = null;
   sessionRow = { id: SESSION };
@@ -135,6 +154,40 @@ describe("the device-token gate", () => {
     const r = await openKioskOrder({ k: "wrong-token", kind: "togo" });
     expect(r).toEqual({ ok: false, reason: "denied" });
     expect(queries).toHaveLength(0);
+  });
+
+  /**
+   * The tokenless kiosk — the whole point of the staff credential, and it was DEAD.
+   *
+   * `authorizeDevice("kiosk", "")` answers correctly for every case: staff session → ok, no token
+   * configured → not_configured, token configured but absent → denied. None of that was reachable,
+   * because `kioskOpenInput.k` was `z.string().min(1)` and the parse runs BEFORE the gate. Every tap
+   * on a staff-signed-in iPad returned `error` → "Something went wrong — please order at the
+   * counter.", forever, on the flow `docs/ENV.md` tells the owner to use.
+   *
+   * The reason it hid: `device-auth.test.ts` proves the tokenless path against **board**, whose route
+   * calls `authorizeDevice` directly with no schema in front of it. The kiosk's schema was never in
+   * the picture. A contract tested through one caller says nothing about the other.
+   */
+  it("an EMPTY token reaches the gate — the staff session is the credential", async () => {
+    gateAnswer = { ok: true, via: "staff" };
+    const r = await openKioskOrder({ k: "", kind: "togo", customerName: "Thiri" });
+    expect(r.ok).toBe(true);
+    expect(queries.some((q) => q.table === "table_sessions" && q.op === "insert")).toBe(true);
+  });
+
+  it("an EMPTY token with no staff session still refuses — honestly, not as 'error'", async () => {
+    vi.stubEnv("KIOSK_DEVICE_TOKEN", "");
+    const r = await openKioskOrder({ k: "", kind: "togo" });
+    // `not_configured` is a verdict about the DEVICE; `error` would blame the guest for our config.
+    expect(r).toEqual({ ok: false, reason: "not_configured" });
+    expect(queries).toHaveLength(0);
+  });
+
+  it("kioskReset accepts an empty token too — the abandon path needs the same credential", async () => {
+    gateAnswer = { ok: true, via: "staff" };
+    const r = await kioskReset({ k: "", sessionId: SESSION });
+    expect(r.ok).toBe(true);
   });
 });
 
@@ -226,5 +279,37 @@ describe("kioskReset — prefix-scoped, register-deferring destruction", () => {
     const r = await kioskReset({ k: "wrong", sessionId: SESSION });
     expect(r.ok).toBe(false);
     expect(queries).toHaveLength(0);
+  });
+});
+
+/**
+ * Red-first: reverting the mapping below leaves every other test in this file GREEN, which is how a
+ * flattened reason would have shipped. `unavailable` authorizes a RETRY in the detached abandonment
+ * path (`KioskOrderFlow`); reported as `denied` it stops the retry, and the cart — plus, for a
+ * dine-in kiosk order, the table's occupancy — stays live until the session TTL expires.
+ */
+describe("kioskReset — an unknowable gate is not a refusal", () => {
+  it("passes `unavailable` through instead of flattening it to `denied`", async () => {
+    gateAnswer = { ok: false, reason: "unavailable" };
+    expect(await kioskReset({ k: TOKEN, sessionId: SESSION })).toEqual({
+      ok: false,
+      reason: "unavailable",
+    });
+  });
+
+  it("still reports a real refusal as `denied`", async () => {
+    // The other direction: a mapping that answered `unavailable` for everything would make the
+    // caller retry a genuine refusal forever.
+    gateAnswer = { ok: false, reason: "denied" };
+    expect(await kioskReset({ k: TOKEN, sessionId: SESSION })).toEqual({
+      ok: false,
+      reason: "denied",
+    });
+  });
+
+  it("writes NOTHING on an unknowable gate", async () => {
+    gateAnswer = { ok: false, reason: "unavailable" };
+    await kioskReset({ k: TOKEN, sessionId: SESSION });
+    expect(queries.filter((q) => q.op !== "select")).toHaveLength(0);
   });
 });
