@@ -295,41 +295,73 @@ console.log(c.bold(`\nverify:mode-authority — ${MUTANTS.length} mutants over 2
  * `restore()` re-applies THIS migration, which is only a restore while this migration is still the
  * LAST definition of both functions. The day a later one redefines either, every mutant below would
  * quietly revert to the M100 body and each verdict would be about dead code — a battery reporting
- * green about a function the database no longer runs. So prove that first, and refuse to mutate
- * anything unless the live bodies are already exactly what this file produces.
+ * green about a function the database no longer runs. So prove that first, and touch NOTHING until
+ * it is proven.
  *
- * Two things this check got wrong before, both measured rather than reasoned:
+ * This check was wrong three times, each caught by inducing the violation rather than reasoning
+ * about it, and the shape of the mistake was the same every time — *the guard damaged the thing it
+ * existed to protect*:
  *
  *  1. It hashed and restored ONE FUNCTION AT A TIME. `restore()` re-applies the whole migration, so
  *     the first iteration healed the exact drift the second was looking for — stubbing out
- *     `mms_fire_line` and re-running produced a clean pass. Hash every target before the first
- *     restore.
- *  2. It detected drift by APPLYING the migration and then comparing, which overwrites the newer
- *     bodies — so on the one database this check exists to protect, it downgraded both functions and
- *     THEN announced it was refusing to proceed (Codex P1 on #220; measured: a sentinel body was
- *     destroyed by the guard that exists to protect it). Capture the full definitions, not just
- *     their hashes, and put them back before aborting.
+ *     `mms_fire_line` produced a clean pass.
+ *  2. It detected drift by APPLYING the migration and comparing afterwards, which overwrote the
+ *     newer bodies: on the one database this exists for, it downgraded both functions and THEN
+ *     announced it was refusing to proceed (Codex round 1; measured, a sentinel body was destroyed).
+ *  3. It compared `md5(prosrc)` — the BODY. `alter function … security invoker` leaves prosrc
+ *     byte-identical, so attribute drift (SECURITY, `search_path`, volatility, parallel safety) read
+ *     as "no drift" while `restore()` silently reverted it. Measured: the run printed a green ✓ and
+ *     put `security definer` back. And `pg_get_functiondef` carries no GRANTs, so replaying it could
+ *     never have restored an EXECUTE grant this migration's `revoke` had just removed (Codex
+ *     round 2).
+ *
+ * The fix retires the whole class instead of patching the third instance: compute what the migration
+ * WOULD produce by applying it inside a transaction and rolling back. DDL is transactional in
+ * Postgres, so nothing is written at all — there is no restore path left to get wrong. The
+ * comparison is the FULL `pg_get_functiondef` (body + every attribute) plus `proacl`, so identity is
+ * everything a caller could observe, not just the source text.
  */
-const BEFORE = new Map(
-  ["mms_set_line_fulfillment", "mms_fire_line"].map((fn) => [
-    fn,
-    { hash: bodyHash(fn), def: functionDef(fn) },
-  ]),
-);
-restore();
-const drifted = [...BEFORE].filter(([fn, b]) => bodyHash(fn) !== b.hash);
-if (drifted.length) {
-  for (const [, b] of BEFORE) psql(["-q"], b.def); // put the newer bodies back FIRST
-  for (const [fn] of drifted) {
-    console.log(
-      c.red(
-        `  ABORT  ${fn}'s live body is NOT this migration's — a later migration redefines it.\n` +
-          `         Re-applying 20260823000000 would REVERT it, so every verdict below would be\n` +
-          `         about dead code. The database is unchanged; point this battery at the newest\n` +
-          `         definition first.`,
-      ),
-    );
-  }
+const TARGETS = ["mms_set_line_fulfillment", "mms_fire_line"];
+
+/** proname → "<md5 of full definition>|<acl>" for each target, as the given SQL leaves the database. */
+function identity(prelude = "") {
+  const probe = `select p.proname || '|' || md5(pg_get_functiondef(p.oid)) || '|' ||
+                        coalesce(array_to_string(p.proacl::text[], ','), '(default)')
+                   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                  where n.nspname = 'public' and p.proname in (${TARGETS.map((t) => `'${t}'`).join(",")})
+                  order by 1;`;
+  const out = prelude
+    ? psql(["-tA"], `begin;\n${prelude}\n${probe}\nrollback;`)
+    : psql(["-tAc", probe]);
+  // Keep the TUPLES only. With a prelude, psql also echoes a command tag for every statement the
+  // migration runs (BEGIN, CREATE FUNCTION, REVOKE, GRANT, ROLLBACK), and treating those as rows
+  // made the identities differ for a reason that had nothing to do with drift — the baseline
+  // aborted while all three real drift axes were being detected correctly.
+  const row = new RegExp(`^(?:${TARGETS.join("|")})\\|`);
+  return out
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => row.test(l));
+}
+
+const live = identity();
+const expected = identity(source); // applied and rolled back — the database is not written to
+if (live.join("\n") !== expected.join("\n")) {
+  console.log(
+    c.red(
+      `  ABORT  the live definitions are NOT what 20260823000000 produces — a later migration\n` +
+        `         redefines or re-grants one of these functions. Re-applying it would REVERT that,\n` +
+        `         so every verdict below would be about dead code.\n` +
+        `         Nothing was written: the comparison ran inside a rolled-back transaction.\n\n` +
+        live
+          .filter((l, i) => l !== expected[i])
+          .map(
+            (l) =>
+              `         live     ${l}\n         migration ${expected[live.indexOf(l)] ?? "(absent)"}`,
+          )
+          .join("\n"),
+    ),
+  );
   process.exit(1);
 }
 
