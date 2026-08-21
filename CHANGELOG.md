@@ -4,6 +4,50 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M97 — the table-merge fold must match on `fulfillment` too (2026-08-21)
+
+`mms_merge_table_orders` folds a source line into a matching target line by bumping the target's qty
+and **deleting** the source row. The match tests state, notes, `by_seat`, `added_by` (M96), the menu
+item and the modifier key — but not `fulfillment`, while `insertOrIncLine` has always refused exactly
+that fold on the client side (_"a for-here add must NOT merge into a to-go line (different
+routing/tax)"_). `mergeTables` blocks cross-**session-mode** merges, which is a different thing: two
+dine-in tables are always eligible, and either one's lines may carry any tag.
+
+**This is a wrong charged amount, not only a wrong kitchen route.** `getCartTotals` reads a line's
+stored `tax_cents` **only as a boolean** taxable-or-not flag and taxes the full `unit_price_cents ×
+qty`; cold food and cold beverages are taxable dine-in and exempt to-go (CDTFA Reg 1603). The fold
+deletes the source row, so its units inherit the target's tag and the target's `tax_cents` wholesale,
+and nothing recomputes:
+
+- to-go folds into dine-in → both units taxable → **the guest is over-charged**
+- dine-in folds into to-go → neither taxable → **California sales tax is never collected**
+
+On a $14.00 cold-food line that is **147¢ in each direction**. Nothing downstream notices: the
+PaymentIntent amount and the webhook reconcile are derived from the same corrupted rows and therefore
+agree, so `mms_fulfill_order`'s amount-mismatch assert never fires, and the tag is then copied
+verbatim into `qr_order_items` — permanent through receipt, email and `/track`.
+
+**`=` and not `is not distinct from`.** `fulfillment` is `not null` with a backfill, so plain
+equality is right — matching the `state` and `menu_item_id` predicates beside it. The line directly
+**above** needs `is not distinct from` for the opposite reason (`added_by` is nullable and never
+backfilled). They are different on purpose, and no test can tell the two operators apart here, so
+`m97_merge_matches_fulfillment_test.sql` says so rather than shipping a case that pretends otherwise.
+
+**Scope, stated honestly:** the live collision is `dinein ⇄ togo` only. A grocery line cannot reach
+the fold at all — its `menu_item_id` is a barcode and a food line's is a uuid, so the existing item
+predicate already separates them, and it carries a real `by_seat` so it can never be a fold target.
+The registry's original wording ("a `togo` **or `grocery`** source line") was wrong and is corrected.
+
+The test was committed **before** the fix and CI was watched failing on it — there is no Docker in
+this container, so CI is the only place a SQL guard can be seen to bite.
+
+⚠️ **Correction to a merged migration.** `20260820140000_m96_merge_keeps_adder.sql` calls itself "its
+seventh definition". That was measured with a grep requiring the `public.` prefix, and **four** of the
+definitions omit it, so the real count was eleven and this is the **twelfth**. The M96 adversarial
+review "verified" the seven by re-running the same pattern out of the same file — two independent
+measurements, one shared blind spot. The applied migration is left untouched; the correction lives in
+the new migration's header and in `docs/OPEN-ITEMS.md`.
+
 ### M90 — one chime engine, and one envelope (2026-08-20)
 
 `kds-sound.ts` (W3c) and `diner-sound.ts` (W22f) each synthesized tones with the same fast-attack /
@@ -188,7 +232,7 @@ assertion there would prove the mock — plus a mutant, and three ways of breaki
 into an unassigned target and deletes the source, taking that diner's adder with it. Not fixed here:
 the failure direction is **silence** rather than a false claim, the fold only ever targets lines that
 already carry no seat (the merge deliberately clears attribution on re-parent), and the merge RPC has
-been restated seven times and carries the void/comp guards — a disproportionate blast radius for a
+been restated many times and carries the void/comp guards — a disproportionate blast radius for a
 rare, silent under-count.
 
 Registry: M87 closed. One new `verify:slice` mutant (196 total) for the merge key; the attribution rule itself is SQL,
