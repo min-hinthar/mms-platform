@@ -374,14 +374,36 @@ informative response we can possibly receive took the most authoritative branch:
 destroyed mid-service and the house was told the screen had never been linked.
 
 Optional chaining plus a negated equality is the trap — it reads as "unless it says unavailable" but
-means "unless it definitely says unavailable, including when it says nothing at all". Test the
-POSITIVE (`if (body && body.reason !== "unavailable")`), or better, hoist the decision into a named
-function whose contract is "a verdict must actually BE one" (`lib/board-poll.ts readBoardRefusal`).
+means "unless it definitely says unavailable, including when it says nothing at all".
+
+**But testing the positive is not the fix either, and getting that wrong twice is the real lesson.**
+The first correction was `if (body && body.reason !== "unavailable")`, which still treats every
+parseable body except that one as an authoritative de-authorization. Codex caught it on the very PR
+that was documenting the original bug: an upstream 503 emitting `{ error: "Service unavailable" }`
+parses fine, carries no `reason`, and blanks the board exactly as before — and so would any transient
+reason the API gains later, which is the shape MOST likely to be new.
+
+A blacklist is the wrong polarity for a safety decision. **Whitelist the refusals you actually know,
+and key on the status**: `401` is the route's only genuine denial and is a verdict whatever its body;
+a `503` is a verdict only when it names a device reason in a known set. Everything else — unparseable,
+unrecognised, or new — is "we can't tell", which keeps the board up. The failure mode of an unknown
+answer must be the safe one.
+
+The general form: when a predicate decides whether to take something away from a user, enumerate the
+cases that JUSTIFY the removal, never the cases that excuse it.
 
 ## #54 — Decision logic in a component this repo cannot test is unguardable, outside money too (W-staff-auth, 2026-08-21)
 
-`apps/qr` runs vitest with `environment: "node"` and `include: ["**/*.test.ts"]`. There is no
-component test and no way to write one. `ReadyBoard.tsx` held **three** live defects simultaneously
+`apps/qr` runs vitest with `environment: "node"` and `include: ["**/*.test.ts"]`, and no DOM test
+environment is configured. That is a missing SETUP, not an impossibility — `include` restricts test
+filenames, not what they import, and `emails/palette.test.ts` already renders components from a
+`.test.ts` via `createElement`; the config comment even says "add jsdom + @vitejs/plugin-react here
+when the first React component test lands." (The first draft of this entry said components "cannot"
+be tested. Codex refuted it on the PR that added it, correctly: a categorical false premise in a
+rules doc steers the next person away from standing up the environment, which is the actual fix.)
+
+What is true is enough: nobody stands up a test harness in the middle of a fix, so a rule written
+inside a component stays unguarded in practice. `ReadyBoard.tsx` held **three** live defects simultaneously
 — #53's bodyless verdict, a board that booted into an outage and said "Connecting…" forever above a
 column promising "Ready orders light up here", and a hardcoded "open the board with its device link"
 rendered to installs that have no device link — with the entire suite green and `verify:slice` clean.

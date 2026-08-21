@@ -2,12 +2,16 @@
  * The ready board's two poll DECISIONS, as pure functions.
  *
  * They live here rather than inside `ReadyBoard.tsx` for the reason the repo already learned on the
- * money paths: a rule written inside a component cannot be guarded. `apps/qr` runs vitest with
- * `environment: "node"` and `include: ["**\/*.test.ts"]`, so there is no component test and there was
- * no way to write one. Three separate defects lived in this logic at once — a bodyless 503 read as a
- * de-authorization, a board that booted into an outage claiming to still be "Connecting…", and two
- * different verdicts collapsed into one wrong instruction — and every one of them was invisible to
- * the whole suite. Moved out here, each is one assertion.
+ * money paths: a rule written inside a component does not get guarded. `apps/qr` has no DOM test
+ * environment configured — vitest runs `environment: "node"` with `include: ["**\/*.test.ts"]` — so
+ * testing this board's behaviour would have meant standing that up first (the config comment says as
+ * much: "add jsdom + @vitejs/plugin-react here when the first React component test lands"). It is a
+ * missing setup, not an impossibility; `emails/palette.test.ts` already renders components from a
+ * `.test.ts` via `createElement`. But nobody stands up a test harness mid-fix, which is exactly how
+ * three defects came to live in this logic at once — a bodyless 503 read as a de-authorization, a
+ * board that booted into an outage claiming to still be "Connecting…", and two different verdicts
+ * collapsed into one wrong instruction — every one invisible to the whole suite. Out here, each is
+ * one assertion.
  */
 
 /** What a 401/503 from `/api/board` actually licenses the board to conclude. */
@@ -18,23 +22,43 @@ export type BoardRefusal =
   | { kind: "retry" };
 
 /**
- * Read a refusal body.
+ * Read a refusal.
  *
- * The rule in one line: **a verdict must actually BE one.** Two things are NOT verdicts about the
- * device, and conflating either with "you are not authorized" blanks a working display mid-service:
+ * The rule in one line: **only a KNOWN device refusal is a verdict.** Everything else — including
+ * everything this client does not recognise — is "we can't tell", which means retry and keep
+ * whatever is already on screen.
  *
- *  · `reason: "unavailable"` — the server could not reach the sign-in service. That is a statement
- *    about the platform, not about this screen (W10b: unavailable ≠ denied).
- *  · a body that will not parse at all — a platform-level 503 (Vercel throttle, a paused deployment,
- *    any upstream gateway) answers with an HTML error page. The first cut tested
- *    `body?.reason !== "unavailable"`, and on a null body that is `undefined !== "unavailable"` →
- *    TRUE, so the least informative response we can possibly receive was treated as the most
- *    authoritative one.
+ * The first cut had the polarity backwards. It BLACKLISTED `reason: "unavailable"` and treated every
+ * other parseable body as authoritative, which blanked a live board for three separate shapes:
+ *
+ *  · a body that will not parse at all — a platform 503 (Vercel throttle, a paused deployment, any
+ *    upstream gateway) answers with an HTML error page, and `body?.reason !== "unavailable"` is TRUE
+ *    when `body` is null, so the least informative response we can receive was the most authoritative;
+ *  · an upstream that DOES emit JSON — `{ error: "Service unavailable" }` parses fine, carries no
+ *    `reason`, and sailed straight through to the verdict branch;
+ *  · any transient reason added to the API later. A reason this client has never heard of is the one
+ *    MOST likely to be new and transient, and a blacklist de-authorizes the board on all of them.
+ *
+ * Hence the status is part of the decision. `401` is the route's only genuine denial and is a verdict
+ * whatever its body; a `503` is a verdict only when it names a device reason we actually know. The
+ * failure mode of an unrecognised answer is now a board that stays up (W10b: unavailable ≠ denied,
+ * and "we can't tell" is neither).
  */
-export function readBoardRefusal(body: { reason?: string; error?: string } | null): BoardRefusal {
-  if (!body) return { kind: "retry" };
-  if (body.reason === "unavailable") return { kind: "retry" };
-  return { kind: "verdict", message: typeof body.error === "string" ? body.error : null };
+/** 503 reasons that really are statements about THIS DEVICE, and nothing else. */
+const DEVICE_REFUSAL_REASONS = new Set(["not_configured"]);
+
+export function readBoardRefusal(
+  status: number,
+  body: { reason?: string; error?: string } | null,
+): BoardRefusal {
+  const message = typeof body?.error === "string" ? body.error : null;
+  // The route's only 401 is `authorizeDevice` answering `denied` — a real statement about the device,
+  // and it carries no `reason`, so it cannot be recognised from the body alone.
+  if (status === 401) return { kind: "verdict", message };
+  if (status === 503 && body && DEVICE_REFUSAL_REASONS.has(body.reason ?? "")) {
+    return { kind: "verdict", message };
+  }
+  return { kind: "retry" };
 }
 
 /** The board's screen state, mirrored from `ReadyBoard` so this module stays free of React. */

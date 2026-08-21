@@ -1491,12 +1491,15 @@ const MUTANTS = [
     // this app cannot be tested (vitest is node-env, `*.test.ts` only), so three defects lived in
     // that logic at once with the whole suite green. These two mutants are the standing proof that
     // the extraction bought something.
-    id: "board-poll/bodyless-refusal-is-a-verdict",
+    // MOVED, not deleted: the rule it guards was rewritten from a blacklist to a whitelist after
+    // Codex showed the blacklist still blanked the board on a parseable-but-unrecognised body. A
+    // stale mutant is a failure, and "the code moved" is the one reason it is tempting to drop one.
+    id: "board-poll/any-503-is-a-verdict",
     file: "apps/qr/lib/board-poll.ts",
     suite: "lib/board-poll.test.ts",
-    why: "a 401/503 whose body will not parse (a platform throttle or paused deployment answers with an HTML page) says NOTHING about the device — treating it as a verdict destroys a live board's snapshot mid-service and tells the house the screen was never linked, which is the W10b unavailable-vs-denied failure one layer out from the route",
-    find: '  if (!body) return { kind: "retry" };',
-    replace: '  if (!body) return { kind: "verdict", message: null };',
+    why: 'only a KNOWN device reason makes a 503 a verdict. Accepting every 503 de-authorizes a live board on anything that did not come from our route — an HTML error page from a platform throttle, an upstream `{error:"Service unavailable"}`, or any transient reason the API gains later (the shape most likely to be new). W10b, one layer out from the route: the failure mode of an answer we do not recognise must be a board that stays up',
+    find: '  if (status === 503 && body && DEVICE_REFUSAL_REASONS.has(body.reason ?? "")) {',
+    replace: "  if (status === 503) {",
   },
   {
     id: "board-poll/no-snapshot-board-claims-it-is-connecting",

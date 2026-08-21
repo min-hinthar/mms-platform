@@ -99,7 +99,7 @@ export function ReadyBoard({ token }: { token: string }) {
           reason?: string;
           error?: string;
         } | null;
-        const refusal = readBoardRefusal(body);
+        const refusal = readBoardRefusal(res.status, body);
         if (refusal.kind === "verdict") {
           setState({ kind: "unlinked", message: refusal.message });
           return;
