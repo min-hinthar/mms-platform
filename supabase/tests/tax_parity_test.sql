@@ -55,7 +55,9 @@ begin
 end $$;
 
 -- ── 2 · mms_line_tax — the rounding table (the SAME integers as apps/qr/lib/tax.test.ts) ───────────
--- Every expected value is computed against rate 0.105 (W16a — owner-confirmed L.A rate) and
+-- Every expected value is computed against rate 0.105 (W16a — owner-confirmed; the jurisdiction is
+-- COVINA, re-confirmed by the owner 2026-08-21, not L.A. County: the city stacks a district tax on the
+-- county base, so the county number is lower and checking against it would condemn a correct rate) and
 -- duplicated in the TS half. At 0.105 the exact .5 ties sit on the ODD hundreds (100 -> 10.5);
 -- the old tie rows (200/600/1400) are now EXACT products. A table built only from rows that round
 -- identically under a drifted rate would stay GREEN through exactly the drift this file exists to
@@ -100,7 +102,7 @@ declare
 begin
   -- 1,000,000c x 0.105 = 105,000 exactly, so this reads the rate back with no rounding involved.
   v_rate := public.mms_line_tax(1000000, 'hot_prepared', true)::numeric / 1000000;
-  assert v_rate = 0.105, format('PARITY: SQL tax rate is %s, expected 0.105 (L.A combined, W16a)', v_rate);
+  assert v_rate = 0.105, format('PARITY: SQL tax rate is %s, expected 0.105 (COVINA combined, W16a)', v_rate);
 end $$;
 
 -- ── 4 · rounding MODE, asserted THROUGH the function under test ────────────────────────────────────

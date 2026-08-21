@@ -115,7 +115,7 @@ The client **never computes a price**; the server re-derives every amount from t
 
 **Staff & kitchen** — KDS · expo · floor board · table detail + add-to-table · approvals · orders · register (cash + kiosk tip) · tips reporting (unattributable settles reported as a shared bucket, never an invented per-head split) · team + staff auth/lock · a `board` view and a `kiosk` mode.
 
-**Platform** — server-authoritative cart + pricing · **category-aware CA tax** (one 10.5% L.A. rate; CDTFA Reg 1603/80-80 decides _what_ is taxable — hot/prepared + retail always, cold food dine-in only, grocery staples exempt — TS `lib/tax.ts` and SQL `mms_line_tax` pinned in parity by tests) · Stripe Payment Element (SAQ-A) · multi-device group cart (Realtime + RLS) · PostHog funnel · CSP/security headers · WCAG-grade accessibility.
+**Platform** — server-authoritative cart + pricing · **category-aware CA tax** (one 10.5% Covina rate; CDTFA Reg 1603/80-80 decides _what_ is taxable — hot/prepared + retail always, cold food dine-in only, grocery staples exempt — TS `lib/tax.ts` and SQL `mms_line_tax` pinned in parity by tests) · Stripe Payment Element (SAQ-A) · multi-device group cart (Realtime + RLS) · PostHog funnel · CSP/security headers · WCAG-grade accessibility.
 
 ## 📊 Status & roadmap
 

@@ -64,7 +64,8 @@ describe("isTaxable — the CDTFA category matrix", () => {
 });
 
 describe("lineTax — rounding", () => {
-  // Computed in Node against RATE = 0.105 (W16a, owner-confirmed L.A rate). Each row is
+  // Computed in Node against RATE = 0.105 (W16a; jurisdiction re-confirmed by the owner 2026-08-21 as
+  // COVINA, not L.A. County — same number, and the name is what a future reader will check). Each row is
   // `amount × 0.105` shown exactly, then rounded.
   //
   // The drift column is the point of this table: it marks rows whose value CHANGES if the rate is
@@ -139,7 +140,7 @@ describe("lineTax — rounding", () => {
 });
 
 describe("the rate constant", () => {
-  it("is 0.105 — the L.A combined rate (owner-confirmed, W16a)", () => {
+  it("is 0.105 — the COVINA combined rate (owner-confirmed; jurisdiction re-confirmed 2026-08-21)", () => {
     // The SQL half asserts the same literal from the database side. A rate change that lands on ONE
     // side only reddens exactly one of the two jobs, which is the whole point of the pair.
     //
