@@ -54,11 +54,18 @@ vi.mock("@mms/db/server", () => ({
         },
         // Awaiting the builder IS sending the request, so only the filters recorded by now can
         // narrow the result — a predicate appended afterwards is dead code, here and in postgrest-js.
+        //
+        // EVERY predicate is evaluated, with no exemption for a column the fixture omits. An earlier
+        // version skipped unmodelled columns (`!(f.col in r) || …`) so existing fixtures could opt
+        // in; Codex round 2 showed that treats a predicate on an omitted column as SATISFIED, so an
+        // accidental extra filter — say `.eq("comped", true)` — would return no rows in production
+        // while all of these cases stayed green. Now an unmodelled column yields `undefined !==
+        // value`, the row drops out, and the suite fails LOUDLY, forcing the fixture to be updated
+        // in the same commit as the query. Fail-safe, the same shape as the M102 harness's
+        // `assertFoldable`.
         then: (res: (v: { data: unknown; error: null }) => unknown) => {
           const sent = [...filters];
-          const rows = siblingRows.filter((r) =>
-            sent.every((f) => !(f.col in r) || r[f.col] === f.val),
-          );
+          const rows = siblingRows.filter((r) => sent.every((f) => r[f.col] === f.val));
           return Promise.resolve({ data: rows, error: null }).then(res);
         },
       };
@@ -87,6 +94,28 @@ beforeEach(() => {
   filters = [];
   siblingRows = [];
   rpcCalls = [];
+});
+
+/**
+ * A draft sibling modelling EVERY column the lookup filters on — cart_id, menu_item_id, fulfillment,
+ * state, notes, by_seat, added_by, unit_price_cents — plus the two it selects. `by_seat`/`added_by`
+ * follow the path under test, since the diner arm filters them with `.eq` and the staff arm `.is`.
+ *
+ * Override exactly the one column a case is about, so "it did not merge" can only be attributed to
+ * that column.
+ */
+const sibling = (bySeat: string | null, over: Record<string, unknown> = {}) => ({
+  id: "sibling-1",
+  modifiers: [],
+  cart_id: CART,
+  menu_item_id: LINE.menuItemId,
+  fulfillment: LINE.fulfillment,
+  state: "draft",
+  notes: null,
+  by_seat: bySeat,
+  added_by: bySeat,
+  unit_price_cents: LINE.unitPriceCents,
+  ...over,
 });
 
 describe("insertOrIncLine — the merge key includes the ADDER (M87)", () => {
@@ -142,14 +171,14 @@ describe("insertOrIncLine — the merge key includes the PRICE (M104)", () => {
   // together: same fixture, same call, one column different, opposite branch. That is also the only
   // thing here that separates the price predicate from the ones above it.
   it("⚠️ a sibling quoted at a DIFFERENT price is NOT merged into — a fresh line is inserted", async () => {
-    siblingRows = [{ id: "quoted-before-the-edit", modifiers: [], unit_price_cents: 300 }];
+    siblingRows = [sibling("seat-ana", { id: "quoted-before-the-edit", unit_price_cents: 300 })];
     await insertOrIncLine(CART, LINE, "seat-ana");
     expect(rpcCalls.map((c) => c.fn)).not.toContain("mms_cart_item_inc_qty");
     expect(rpcCalls.map((c) => c.fn)).toContain("mms_cart_item_insert_if_open");
   });
 
   it("a sibling at the SAME price still merges — the control that keeps the test above honest", async () => {
-    siblingRows = [{ id: "same-price-line", modifiers: [], unit_price_cents: LINE.unitPriceCents }];
+    siblingRows = [sibling("seat-ana", { id: "same-price-line" })];
     await insertOrIncLine(CART, LINE, "seat-ana");
     expect(rpcCalls.map((c) => c.fn)).toContain("mms_cart_item_inc_qty");
     expect(rpcCalls.find((c) => c.fn === "mms_cart_item_inc_qty")?.args).toMatchObject({
@@ -163,7 +192,11 @@ describe("insertOrIncLine — the merge key includes the PRICE (M104)", () => {
     // menu, register, kiosk, reorder)". The predicate is unconditional, so this shares a statement
     // with the diner arm — but it exercises the OTHER `by_seat`/`added_by` branch around it, where a
     // future seat-scoped refactor is exactly where the promise would quietly break for one surface.
-    siblingRows = [{ id: "staff-line-before-the-edit", modifiers: [], unit_price_cents: 300 }];
+    //
+    // It asserts the INSERT positively, not merely the absence of the merge (Codex round 2): a staff
+    // branch that returned early and wrote NO line at all would satisfy "did not increment", and a
+    // register add that silently drops the line is a worse bug than the one under test.
+    siblingRows = [sibling(null, { id: "staff-line-before-the-edit", unit_price_cents: 300 })];
     await insertOrIncLine(CART, LINE, null);
     expect(filters).toContainEqual({
       op: "eq",
@@ -171,6 +204,20 @@ describe("insertOrIncLine — the merge key includes the PRICE (M104)", () => {
       val: LINE.unitPriceCents,
     });
     expect(rpcCalls.map((c) => c.fn)).not.toContain("mms_cart_item_inc_qty");
+    expect(rpcCalls.map((c) => c.fn)).toContain("mms_cart_item_insert_if_open");
+  });
+
+  it("⚠️ the fixture models EVERY filtered column — or none of the cases above mean anything", async () => {
+    // The load-bearing self-check for the mock's fail-safe semantics. If the lookup gains a
+    // predicate and `sibling()` is not updated in the same commit, every behavioural row silently
+    // stops matching and the merge cases go green for the wrong reason. This names the column
+    // instead of letting that happen quietly.
+    siblingRows = [sibling("seat-ana")];
+    await insertOrIncLine(CART, LINE, "seat-ana");
+    const modelled = Object.keys(sibling("seat-ana"));
+    expect([...new Set(filters.map((f) => f.col))].filter((c) => !modelled.includes(c))).toEqual(
+      [],
+    );
   });
 
   it("uses `eq` and never `is` for the price — it is `not null` by column definition", () => {
