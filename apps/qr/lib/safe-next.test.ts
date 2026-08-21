@@ -83,3 +83,32 @@ describe("safeNext — the open-redirect guard on the staff magic link", () => {
     expect(safeNext("/staff/../account")).toBe(DEFAULT_NEXT);
   });
 });
+
+/**
+ * The input is not necessarily a string, whatever the call site's type says. This is the class of
+ * bug where TypeScript's confidence is the vulnerability: `searchParams.next` is declared `string`
+ * everywhere it is read, and Next hands over a `string[]` the moment the parameter repeats.
+ */
+describe("safeNext — inputs that are not strings at all", () => {
+  it("rejects a REPEATED ?next= parameter instead of throwing", () => {
+    // `?next=/board&next=/kiosk`. Both entries are individually allowlisted, which is what makes the
+    // array dangerous rather than obviously wrong: it sails past `!raw` and past `STRIPPABLE.test`
+    // (which stringifies its argument), then dies on `raw.startsWith` — a TypeError during server
+    // render, so a crafted sign-in URL returns a 500 error page instead of the login form.
+    const repeated = ["/board", "/kiosk"] as unknown as string;
+    expect(() => safeNext(repeated)).not.toThrow();
+    expect(safeNext(repeated)).toBe(DEFAULT_NEXT);
+  });
+
+  it.each([
+    ["a single-element array", ["/kiosk"]],
+    ["an empty array", []],
+    ["a number", 42],
+    ["an object", { toString: () => "/kiosk" }],
+    ["a boolean", true],
+  ])("falls back on %s", (_why, value) => {
+    // Note the object case: it stringifies to a PERMITTED path. Fail-safe means rejecting on TYPE,
+    // before anything coerces — never trusting a value that merely looks right once flattened.
+    expect(safeNext(value as unknown as string)).toBe(DEFAULT_NEXT);
+  });
+});

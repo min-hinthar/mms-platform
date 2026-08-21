@@ -12,7 +12,11 @@ export const dynamic = "force-dynamic";
 export default async function StaffLoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ denied?: string; next?: string }>;
+  // `next` is typed as it ACTUALLY arrives, not as it is usually written: Next hands a REPEATED
+  // query parameter (`?next=/board&next=/kiosk`) through as a `string[]`. The narrow `string` type
+  // was a claim about the URL that a caller controls, and `safeNext` now rejects the array itself —
+  // this signature just stops the lie (Codex round 2, P2).
+  searchParams: Promise<{ denied?: string; next?: string | string[] }>;
 }) {
   const auth = await getStaffAuth();
   const params = await searchParams;

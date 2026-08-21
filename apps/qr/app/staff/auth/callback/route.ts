@@ -18,10 +18,16 @@ export async function GET(req: NextRequest) {
   // `?next=` still wins for a hand-built URL. Either way it is attacker-reachable, so `safeNext`
   // re-validates and falls back to /staff. Preserved through the failure paths too, so a retry after
   // an expired link still lands on the surface the sign-in was for.
+  //
+  // ⚠️ Read the cookie value AS-IS — do NOT `decodeURIComponent` it. Next's request-cookie parser
+  // already decodes what `document.cookie` wrote, so a second decode is one decode too many, and it
+  // is not harmless: a device token is base64 and routinely contains `+`. `/board?k=aB%2Bc%2Fd%3D%3D`
+  // survives one decode intact, but a second turns it into `/board?k=aB+c/d==`, and `+` in a query
+  // string means SPACE — so `/board` then reads the token as `aB c/d==` and the token-first fallback
+  // this whole flow exists to preserve is silently dead. `url.searchParams.get` decodes once too,
+  // which is why that carrier never had the bug (Codex round 2, P2 — measured, not reasoned).
   const parked = (await cookies()).get(NEXT_COOKIE)?.value;
-  const next = safeNext(
-    url.searchParams.get("next") ?? (parked ? decodeURIComponent(parked) : null),
-  );
+  const next = safeNext(url.searchParams.get("next") ?? parked);
   const backToLogin = `${origin}/staff/login${next === DEFAULT_NEXT ? "" : `?next=${encodeURIComponent(next)}`}`;
 
   /** Redirect, always clearing the parked destination — it is single-use, whatever the outcome. */

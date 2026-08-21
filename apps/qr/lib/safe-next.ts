@@ -14,10 +14,10 @@
  *   ·  `/\evil.com`      — a backslash aliases to `/` for http/https schemes
  *   ·  `/⇥/evil.com`     — TAB, LF and CR are STRIPPED before parsing, so `/<TAB>/evil.com` is `//evil.com`
  *
- * So the check is three layers, cheapest first, and the last one is the belt that catches the next
- * normalization quirk nobody has thought of yet: reject the strippable characters outright, require a
- * single leading slash, then RESOLVE the candidate against a throwaway origin and demand that exact
- * origin back.
+ * So the check is layered, cheapest first, and the resolve step is the belt that catches the next
+ * normalization quirk nobody has thought of yet: require an actual string, reject the strippable
+ * characters outright, require a single leading slash, then RESOLVE the candidate against a
+ * throwaway origin and demand that exact origin back.
  */
 
 /** Where a staff sign-in lands when `next` is absent, unusable, or not a permitted surface. */
@@ -62,8 +62,15 @@ const STRIPPABLE = /[\\\t\n\r]/;
  * Returns a path, never an absolute URL, so the caller cannot accidentally forward an origin. Query
  * and hash on the candidate are preserved (`/board?k=…` must survive — the device token rides there).
  */
-export function safeNext(raw: string | null | undefined): string {
-  if (!raw) return DEFAULT_NEXT;
+export function safeNext(raw: unknown): string {
+  // 0. It must actually BE a string. `unknown` rather than `string | null` because TypeScript's
+  //    claim about a search param is not load-bearing: Next hands a REPEATED parameter
+  //    (`?next=/board&next=/kiosk`) through as a `string[]`, and an array sails past a `!raw` check,
+  //    past `STRIPPABLE.test` (which stringifies), and then throws `TypeError: raw.startsWith is not
+  //    a function` — a crafted sign-in URL returning a 500 instead of falling back. Rejecting the
+  //    type here rather than at each caller is the point of this being the ONE place that decides
+  //    (Codex round 2, P2).
+  if (typeof raw !== "string" || raw === "") return DEFAULT_NEXT;
   // 1. The strippable characters, before anything parses them.
   if (STRIPPABLE.test(raw)) return DEFAULT_NEXT;
   // 2. Exactly one leading slash. `//evil.com` is protocol-relative — an absolute URL in disguise.

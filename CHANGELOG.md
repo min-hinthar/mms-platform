@@ -87,6 +87,26 @@ the modules were tested, their callers were never opened.
 56 new tests (931 qr). `docs/ENV.md` carries the two dashboard settings that decide how long "until
 logged out" actually is — neither is in code.
 
+**Codex round 2** found three more, two real defects and one accepted trade:
+
+- **The callback decoded the parked destination twice**, and Next's request-cookie parser had already
+  decoded it once. A device token is base64: `k=aB%2Bc%2Fd%3D%3D` survives one decode and becomes
+  `k=aB+c/d==` after two — and `+` in a query string means SPACE, so `/board` read the token as
+  `aB c/d==`. The token-first fallback that exists to outlive an auth outage was silently dead on
+  the one path nobody re-tests after signing in. Measured, then pinned by a route test that runs the
+  written cookie through the REAL parser rather than typing out what it thinks Next does.
+- **A repeated `?next=` crashed the sign-in page.** Next hands `?next=/board&next=/kiosk` through as
+  a `string[]`, which sails past `!raw`, past `STRIPPABLE.test` (it stringifies), and then dies on
+  `raw.startsWith` — a crafted URL returning a 500 instead of the login form. `safeNext` now takes
+  `unknown` and rejects on TYPE, including an object that stringifies to a permitted path.
+- **A staff sign-in on the kiosk or board is a full console session** — origin-wide, so `/staff` on
+  that device accepts it. Reported correctly; **deliberately not taken**, per the owner's "staff
+  login, no extra restriction" (the point of the slice is testing production flows). Filed as M111
+  with the one-line close, since the console lock already exists.
+
+Also pinned the round-1 cookie fix, which had shipped with no test at all: `withRefreshedStaffSession`
+now has four, and the chunked-rotation case was watched failing against the old shape first.
+
 ### M100 · M107 — the session's mode is the authority, and two RPCs never asked (2026-08-21)
 
 `Checkout.tsx` renders the For-here/To-go pills and "Make it now" behind `isDineIn &&`, and its own

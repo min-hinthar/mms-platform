@@ -21,6 +21,20 @@ import { publishAuthPlaneStatus } from "@/lib/session-status";
 /**
  * Device surfaces that ACCEPT a staff session but may also run on a device token alone. A staff
  * session here is kept; the anonymous mint still happens when there is no session at all.
+ *
+ * ⚠️ ACCEPTED RISK, decided by the owner (2026-08-21), not an oversight. Supabase auth is
+ * ORIGIN-wide, so the staff session kept here is the same session `/staff` accepts: anyone who
+ * walks up to the lobby kiosk and types `/staff` into that browser reaches the floor console as
+ * whoever last signed the device in. Asked whether the device surfaces should carry a narrower
+ * credential, the owner chose "staff login, no extra restriction" — the point of this slice is
+ * testing every flow against production with Stripe test cards, and a second gate on the device is
+ * friction against exactly that.
+ *
+ * What it would take to close, if that trade stops being worth it: the console lock already
+ * EXISTS and is already enforced on every staff page (`isConsoleLocked()` → `/staff/lock`, a pure
+ * cookie read in `requireStaffPage`). Engaging it when a sign-in lands on a device surface is the
+ * whole fix — no new credential type, no new gate. Tracked as M111 in `docs/OPEN-ITEMS.md`
+ * (Codex round 2, P1 — reported correctly, deliberately not taken).
  */
 const DEVICE_SURFACES = ["/kiosk", "/board"] as const;
 
