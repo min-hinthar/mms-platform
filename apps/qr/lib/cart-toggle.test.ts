@@ -98,7 +98,7 @@ vi.mock("@mms/db/server", () => ({
   }),
 }));
 
-const { setLineFulfillment } = await import("./cart");
+const { setLineFulfillment, makeItNow } = await import("./cart");
 
 const LINE = "44444444-4444-4444-8444-444444444444";
 
@@ -126,13 +126,22 @@ describe("setLineFulfillment — tax-only (W17a: a flip never re-prices)", () =>
     expect(priceItemCalls).toHaveLength(0);
   });
 
-  it.each(["is_grocery", "not_draft", "not_open", "stale", "not_found"])(
-    "surfaces the SQL verdict %s as a refusal — never swallowed into ok",
-    async (verdict) => {
-      rpcVerdict = { data: verdict, error: null };
-      expect(await setLineFulfillment(LINE, "togo")).toEqual({ ok: false, reason: verdict });
-    },
-  );
+  it.each([
+    "is_grocery",
+    "not_draft",
+    "not_open",
+    "stale",
+    "not_found",
+    // M100 — the session-mode refusal. The RULE has one home, and it is the SQL statement (a second
+    // copy here would be the "computed in one place, quoted in another" drift this repo keeps
+    // paying for). What this pins is that the new verdict reaches the caller by NAME rather than
+    // being flattened into a generic "error", so a reader grepping `not_dinein_session` finds both
+    // sides of it.
+    "not_dinein_session",
+  ])("surfaces the SQL verdict %s as a refusal — never swallowed into ok", async (verdict) => {
+    rpcVerdict = { data: verdict, error: null };
+    expect(await setLineFulfillment(LINE, "togo")).toEqual({ ok: false, reason: verdict });
+  });
 
   it("an RPC error is a refusal, not a silent success", async () => {
     rpcVerdict = { data: null, error: { message: "boom" } };
@@ -142,5 +151,36 @@ describe("setLineFulfillment — tax-only (W17a: a flip never re-prices)", () =>
   it("a null verdict with no error still refuses (never a truthy-ok fallthrough)", async () => {
     rpcVerdict = { data: null, error: null };
     expect(await setLineFulfillment(LINE, "togo")).toEqual({ ok: false, reason: "error" });
+  });
+});
+
+/**
+ * M107 — "Make it now" had no test at all: this file mocked `makeItNowInput` and never called the
+ * action. Its guard is the same shape as the toggle's (the rule lives in `mms_fire_line`, and the
+ * client's `isDineIn &&` render gate is advisory), so what belongs here is the same thing — that the
+ * SQL's verdict reaches the caller by name and is never flattened into a success.
+ */
+describe("makeItNow — the SQL owns the verdict", () => {
+  it("sends ONLY the line — the fire decision is entirely the RPC's", async () => {
+    expect(await makeItNow(LINE)).toEqual({ ok: true });
+    expect(rpcCalls).toEqual([{ fn: "mms_fire_line", args: { p_line: LINE } }]);
+  });
+
+  it.each(["not_togo", "not_draft", "not_open", "stale", "not_found", "not_dinein_session"])(
+    "surfaces the SQL verdict %s as a refusal — never swallowed into ok",
+    async (verdict) => {
+      rpcVerdict = { data: verdict, error: null };
+      expect(await makeItNow(LINE)).toEqual({ ok: false, reason: verdict });
+    },
+  );
+
+  it("an RPC error is a refusal, not a silent fire", async () => {
+    rpcVerdict = { data: null, error: { message: "boom" } };
+    expect(await makeItNow(LINE)).toEqual({ ok: false, reason: "error" });
+  });
+
+  it("a null verdict with no error still refuses (never a truthy-ok fallthrough)", async () => {
+    rpcVerdict = { data: null, error: null };
+    expect(await makeItNow(LINE)).toEqual({ ok: false, reason: "error" });
   });
 });

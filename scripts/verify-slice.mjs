@@ -244,6 +244,14 @@ const MUTANTS = [
     replace: "    p_fulfillment: input.fulfillment,\n    p_unit_price_cents: 1234,\n  });",
   },
   {
+    id: "cart/make-it-now-swallows-a-refusal",
+    file: "apps/qr/lib/cart.ts",
+    suite: "lib/cart-toggle.test.ts",
+    why: "M107 — mms_fire_line's mode gate is the only thing stopping an UNPAID pickup cart putting food on the KDS (kitchen.ts reads carts in open+paid). A caller that reports every refusal as ok hands the diner a fired-looking line the kitchen never got, and hides the guard's verdict from the one surface that could show it",
+    find: '  if (data !== "ok") return { ok: false, reason: data ?? "error" };\n  // No touchCart: mms_fire_line\'s write',
+    replace: '  if (data !== "ok") return { ok: true };\n  // No touchCart: mms_fire_line\'s write',
+  },
+  {
     id: "reorder/mode-fork-collapses-to-dinein",
     file: "apps/qr/lib/reorder.ts",
     suite: "lib/reorder-mode.test.ts",
