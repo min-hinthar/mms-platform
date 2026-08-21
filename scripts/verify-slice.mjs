@@ -807,6 +807,14 @@ const MUTANTS = [
     find: '    bySeat === null ? siblingQuery.is("added_by", null) : siblingQuery.eq("added_by", bySeat);',
     replace: "    siblingQuery;",
   },
+  {
+    id: "order-lines/second-add-keeps-the-stale-price",
+    file: "apps/qr/lib/order-lines.ts",
+    suite: "lib/order-lines-seat.test.ts",
+    why: "M104 — `priceItem` re-derives the live price on every add, and on the MERGE branch that value was computed and then discarded: `mms_cart_item_inc_qty` carries no price and only bumps qty. So a manager raising a price mid-visit left the diner's second add charged at the first add's snapshot, and a manager LOWERING one charged MORE than the menu was showing. Up to 98 units can ride one stale snapshot (the qty cap), the wrong price freezes verbatim into qr_order_items, and nothing downstream notices because create-intent and the webhook reconcile both derive from the same corrupted row. It also falsifies menu-price.ts's own promise that the new price takes effect on the next add everywhere at once.",
+    find: '  siblingQuery = siblingQuery.eq("unit_price_cents", line.unitPriceCents);',
+    replace: "  siblingQuery = siblingQuery;",
+  },
   // ── W23b — the refund a guest can actually see (registry M2) ───────────────────────────────────
   {
     id: "refund-view/partial-reads-as-paid-in-full",

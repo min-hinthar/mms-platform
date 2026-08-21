@@ -10,6 +10,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * cart trigger pins `added_by` to Ben. Ana's addition then exists nowhere, and a dish she really
  * chose never reaches her history. (Codex round 2, P2.)
  *
+ * M104 extends the same idea to PRICE (see the block at the end of this file), and reuses this
+ * harness for the same reason.
+ *
  * ⚠️ This asserts the FILTERS, not the outcome, and that is deliberate: the shared harness's `eq`/`is`
  * are no-ops that return the same rows whatever is asked, so a behavioural assertion here would prove
  * the mock. Recording the filter calls is the strongest thing this runner can say about a PostgREST
@@ -87,6 +90,45 @@ describe("insertOrIncLine — the merge key includes the ADDER (M87)", () => {
       expect(filters).toContainEqual({ op: "eq", col: "fulfillment", val: "dinein" });
       expect(filters).toContainEqual({ op: "eq", col: "state", val: "draft" });
       expect(filters).toContainEqual({ op: "is", col: "notes", val: null });
+    });
+  });
+});
+
+describe("insertOrIncLine — the merge key includes the PRICE (M104)", () => {
+  it("⚠️ scopes the sibling lookup to the price `priceItem` just re-derived", () => {
+    // Without this, `line.unitPriceCents` is computed and then DISCARDED on the merge branch:
+    // `mms_cart_item_inc_qty` carries no price and only bumps qty. A manager raising a price
+    // mid-visit would leave the diner's second add charged at the first add's snapshot, and a
+    // manager LOWERING one would charge more than the menu is showing.
+    return insertOrIncLine(CART, LINE, "seat-ana").then(() => {
+      expect(filters).toContainEqual({
+        op: "eq",
+        col: "unit_price_cents",
+        val: LINE.unitPriceCents,
+      });
+    });
+  });
+
+  it("⚠️ scopes it on the STAFF path too — a register add is not exempt from the live price", () => {
+    // The register, the kiosk and reorder all reach this same function, and `menu-price.ts` promises
+    // the new price takes effect on the next add "everywhere at once (diner menu, register, kiosk,
+    // reorder)". A predicate applied only to the diner arm would keep that promise for one surface.
+    return insertOrIncLine(CART, LINE, null).then(() => {
+      expect(filters).toContainEqual({
+        op: "eq",
+        col: "unit_price_cents",
+        val: LINE.unitPriceCents,
+      });
+    });
+  });
+
+  it("uses `eq` and never `is` for the price — it is `not null` by column definition", () => {
+    // The mirror of the by_seat/added_by rule one block up, and the opposite conclusion:
+    // `unit_price_cents` is `not null` since `create table` with no default, so `.is` would be wrong
+    // here for exactly the reason `.eq` is wrong there. Three adjacent predicates, three nullability
+    // stories — the same trap M98's migration header names on the SQL side.
+    return insertOrIncLine(CART, LINE, "seat-ana").then(() => {
+      expect(filters.filter((f) => f.col === "unit_price_cents" && f.op === "is")).toEqual([]);
     });
   });
 });

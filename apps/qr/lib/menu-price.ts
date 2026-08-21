@@ -21,6 +21,22 @@ import { staffGate } from "./staff";
  *   - Paid orders are history and are untouched by definition.
  *   - The new price takes effect on the NEXT add, everywhere at once (diner menu, register, kiosk,
  *     reorder), because all four go through `priceItem`.
+ *
+ * ⚠️ That third bullet was FALSE for two years on one path, and M104 is what made it true. Going
+ * THROUGH `priceItem` is not the same as USING its result: `insertOrIncLine` merges a repeat add into
+ * an existing draft line by calling `mms_cart_item_inc_qty`, which carries no price and only bumps
+ * qty — so the re-derived value was computed and discarded, and the second unit was charged at the
+ * FIRST add's snapshot. A price rise under-charged the restaurant; a price DROP charged the diner
+ * more than the menu was showing, on up to 98 units.
+ *
+ * It was never a "the quote holds" policy, however much it looked like one. Whether the second unit
+ * got the old price was decided by the merge predicates: the new price after "send to kitchen" and
+ * the old one before it, the new price with an allergy note and the old one without. No coherent
+ * quote-holding policy is keyed on allergy notes.
+ *
+ * The seam now matches on price too, so a mismatch inserts a FRESH line at the current price. Both
+ * bullets above are therefore true at once: already-quoted units keep their quote, and the next add
+ * really does get the new price. The diner sees two lines, which every surface already sums per line.
  */
 
 export type SetMenuPriceResult = { ok: true; priceCents: number } | { ok: false; error: string };

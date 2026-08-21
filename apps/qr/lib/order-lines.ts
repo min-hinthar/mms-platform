@@ -174,6 +174,27 @@ export async function insertOrIncLine(
   // `by_seat` is set — those stop merging and insert a fresh line instead, for the life of that cart.
   siblingQuery =
     bySeat === null ? siblingQuery.is("added_by", null) : siblingQuery.eq("added_by", bySeat);
+  // M104 — and merge only into a line quoted at the SAME price. `priceItem` re-derived
+  // `line.unitPriceCents` from the live menu a few lines above; without this predicate that value is
+  // computed and then DISCARDED on the merge branch, because `mms_cart_item_inc_qty` carries no price
+  // and only bumps qty. So a manager raising a price mid-visit leaves the diner's second add charged
+  // at the first add's snapshot — and a manager LOWERING one charges more than the menu is showing.
+  //
+  // This is not a "the quote holds" policy, and `menu-price.ts` is where that is settled: its header
+  // promises "the new price takes effect on the NEXT add, everywhere at once … because all four go
+  // through `priceItem`". Going THROUGH priceItem is not the same as using its result. The promise was
+  // the intended behaviour all along; this predicate is what makes it true.
+  //
+  // Nor was the old behaviour a policy in any coherent sense — whether the second unit got the old
+  // price was decided by the predicates above it: same diner, same dish, minutes apart, but the new
+  // price after "send to kitchen" and the old one before, the new price with an allergy note and the
+  // old one without. No quote-holding policy is keyed on allergy notes.
+  //
+  // The already-quoted units are untouched: a mismatch inserts a FRESH line at the new price rather
+  // than re-pricing anything, so `menu-price.ts`'s other promise — "lines ALREADY in a cart keep the
+  // price they were quoted" — still holds exactly. The diner simply sees two lines, which the cart,
+  // the split and the totals all sum per line already.
+  siblingQuery = siblingQuery.eq("unit_price_cents", line.unitPriceCents);
   const { data: siblings } = await siblingQuery;
   const dup = line.notes
     ? undefined

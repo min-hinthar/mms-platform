@@ -4,6 +4,42 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M104 — the next add really does get the new price (2026-08-21)
+
+`insertOrIncLine`'s sibling query matched a repeat add on cart, item, fulfillment, state, notes, seat,
+adder and modifier labels — but **not on `unit_price_cents`**. On that merge branch the price
+`priceItem` had just re-derived from the live menu was **computed and discarded**, because
+`mms_cart_item_inc_qty` carries no price and only bumps qty. So the second unit was charged at the
+_first_ add's snapshot.
+
+**This was not a "the quote holds" policy**, and `menu-price.ts` is where that gets settled. Its own
+header promises: _"the new price takes effect on the NEXT add, everywhere at once (diner menu,
+register, kiosk, reorder), because all four go through `priceItem`."_ Going **through** `priceItem` is
+not the same as **using** its result — the promise was the intended behaviour all along, and this
+predicate is what makes it true. That header now records that the bullet was false until this shipped.
+
+Nor was the old behaviour coherent as a policy. Whether the second unit got the old price was decided
+by the _other_ merge predicates: the new price after "send to kitchen" and the old one before it, the
+new price with an allergy note and the old one without. **No quote-holding policy is keyed on allergy
+notes.**
+
+**Both directions bite.** A price rise under-charges the restaurant; a price **drop** charges the
+diner _more_ than the menu is showing. On the real applied Balachaung edit ($3.00 → $10.00) that is
+**±774¢ per unit**, and up to **98 units** can ride one stale snapshot (the qty cap) — then it freezes
+verbatim into `qr_order_items` and travels to the receipt, the email, `/track`, refund math and QBO.
+Nothing notices, because create-intent and the webhook reconcile both derive from the same row.
+
+**Fewer preconditions than M98**, which is why it was filed as the more reachable twin: one cart, one
+diner, one open session — versus two carts, two active sessions, a seatless target and a matching
+adder. Already-quoted units are untouched: a mismatch inserts a **fresh line** at the current price
+rather than re-pricing anything, so `menu-price.ts`'s other promise still holds exactly.
+
+Guarded by three cases in `lib/order-lines-seat.test.ts` (filters, not outcomes — the harness's `eq`
+is a no-op, so a behavioural assertion would prove the mock) and by the new
+`order-lines/second-add-keeps-the-stale-price` mutant. `.eq` and never `.is`, because
+`unit_price_cents` is `not null` — the opposite conclusion from the `by_seat`/`added_by` predicates
+directly above it, which is the same three-nullability-stories trap M98's migration header names.
+
 ### M98 — the merge fold must match on `unit_price_cents` too (2026-08-21)
 
 The **price** hole in the fold's identity key, the one M97's registry row explicitly left open.
