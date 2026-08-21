@@ -53,6 +53,20 @@ export const NEXT_COOKIE = "mms_staff_next";
  */
 const ALLOWED_PREFIXES = ["/staff", "/kiosk", "/board"] as const;
 
+/**
+ * The sign-in surfaces themselves, which sit UNDER `/staff` and are therefore admitted by the
+ * allowlist — but are not places to arrive after signing in.
+ *
+ * Landing back on the login page immediately after a successful OTP or magic-link sign-in reads as
+ * "that didn't work, try again", on exactly the flow this slice ships. `/staff/auth/callback` is
+ * the same outcome one hop later: reached without a `?code=` it bounces straight to the login.
+ *
+ * Reported (Codex round 3) as a self-redirect LOOP; traced, it is not one — each hop peels a layer
+ * of nesting and a bare `/staff/login` falls back to `/staff`, so it terminates in three hops with
+ * no fixed point. The bounced sign-in is the real defect, and it is worth closing on its own.
+ */
+const AUTH_ENDPOINTS = ["/staff/login", "/staff/auth"] as const;
+
 /** Characters the URL parser STRIPS or re-reads before resolving — never let them reach it. */
 const STRIPPABLE = /[\\\t\n\r]/;
 
@@ -99,6 +113,9 @@ export function safeNext(raw: unknown): string {
   const path = resolved.pathname;
   const permitted = ALLOWED_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
   if (!permitted) return DEFAULT_NEXT;
+  //    …and never an auth endpoint. Matched by SEGMENT, exactly like the allowlist above, so a
+  //    future `/staff/logins-report` or `/staff/authors` is not caught by a substring.
+  if (AUTH_ENDPOINTS.some((p) => path === p || path.startsWith(`${p}/`))) return DEFAULT_NEXT;
 
   // 5. Re-attach query and hash. THIS is what preserves `/board?k=<device token>` — the allowlist
   //    match above deliberately ignores them.

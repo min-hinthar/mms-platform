@@ -135,7 +135,14 @@ found **six more, all real**, and the headline one means the feature did not wor
   when `path === p` is what does, so a maintainer trimming the "redundant" line could delete the
   load-bearing one.
 
-Three of those lived in `ReadyBoard.tsx`, which has no test and **cannot** have one (vitest here is
+**Codex round 3** found one more, and it is the last: `next=/staff/login` and `/staff/auth/callback`
+were accepted as post-auth destinations, so a successful sign-in could land you back on the login
+page — which reads as a failed sign-in, on exactly this flow. Reported as an infinite redirect loop;
+traced, it terminates in three hops (each peels a layer, a bare `/staff/login` falls back to
+`/staff`, no fixed point). The bounced sign-in is the real defect and is closed by segment-matched
+exclusion, so a future `/staff/logins-report` is unaffected.
+
+Three of the adversarial findings lived in `ReadyBoard.tsx`, which has no test and **cannot** have one (vitest here is
 `environment: "node"`, `include: ["**/*.test.ts"]`). So the poll's two decisions moved to
 `lib/board-poll.ts` as pure functions with 11 tests — the repo's own rule that decision logic belongs
 in `lib/`, applied outside the money paths for the first time. `mintFail` also grew honest arms:

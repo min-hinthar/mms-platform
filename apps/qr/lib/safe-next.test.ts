@@ -112,3 +112,34 @@ describe("safeNext — inputs that are not strings at all", () => {
     expect(safeNext(value as unknown as string)).toBe(DEFAULT_NEXT);
   });
 });
+
+/**
+ * The sign-in surfaces are not places to arrive AFTER signing in.
+ *
+ * Codex round 3 called this a self-redirect loop. Traced, it is not: each hop peels one layer of
+ * nesting and `/staff/login` with no `?next=` falls back to `/staff`, so it terminates in three
+ * hops with no fixed point. The real defect is smaller and still worth closing — landing back on
+ * the LOGIN PAGE immediately after a successful OTP or magic-link sign-in reads as "that didn't
+ * work, try again", on exactly the flow this slice ships. `/staff/auth/callback` is the same story
+ * one hop longer: reached without a `?code=` it bounces straight back to the login.
+ */
+describe("safeNext — the auth endpoints are not destinations", () => {
+  it.each([
+    ["the login page itself", "/staff/login"],
+    ["the login page carrying its own next", "/staff/login?next=/kiosk"],
+    ["the OAuth/magic-link callback", "/staff/auth/callback"],
+    ["anything under the auth namespace", "/staff/auth/whatever"],
+  ])("refuses %s", (_why, candidate) => {
+    expect(safeNext(candidate)).toBe(DEFAULT_NEXT);
+  });
+
+  it("still admits the real surfaces, including the ones that merely LOOK like auth paths", () => {
+    // The exclusion is by segment, not substring: a future `/staff/logins-report` or
+    // `/staff/authors` is an ordinary console page and must not be caught by it.
+    expect(safeNext("/staff")).toBe("/staff");
+    expect(safeNext("/staff/kitchen")).toBe("/staff/kitchen");
+    expect(safeNext("/staff/logins-report")).toBe("/staff/logins-report");
+    expect(safeNext("/staff/authors")).toBe("/staff/authors");
+    expect(safeNext("/board?k=abc")).toBe("/board?k=abc");
+  });
+});
