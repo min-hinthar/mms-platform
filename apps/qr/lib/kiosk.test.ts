@@ -155,6 +155,40 @@ describe("the device-token gate", () => {
     expect(r).toEqual({ ok: false, reason: "denied" });
     expect(queries).toHaveLength(0);
   });
+
+  /**
+   * The tokenless kiosk — the whole point of the staff credential, and it was DEAD.
+   *
+   * `authorizeDevice("kiosk", "")` answers correctly for every case: staff session → ok, no token
+   * configured → not_configured, token configured but absent → denied. None of that was reachable,
+   * because `kioskOpenInput.k` was `z.string().min(1)` and the parse runs BEFORE the gate. Every tap
+   * on a staff-signed-in iPad returned `error` → "Something went wrong — please order at the
+   * counter.", forever, on the flow `docs/ENV.md` tells the owner to use.
+   *
+   * The reason it hid: `device-auth.test.ts` proves the tokenless path against **board**, whose route
+   * calls `authorizeDevice` directly with no schema in front of it. The kiosk's schema was never in
+   * the picture. A contract tested through one caller says nothing about the other.
+   */
+  it("an EMPTY token reaches the gate — the staff session is the credential", async () => {
+    gateAnswer = { ok: true, via: "staff" };
+    const r = await openKioskOrder({ k: "", kind: "togo", customerName: "Thiri" });
+    expect(r.ok).toBe(true);
+    expect(queries.some((q) => q.table === "table_sessions" && q.op === "insert")).toBe(true);
+  });
+
+  it("an EMPTY token with no staff session still refuses — honestly, not as 'error'", async () => {
+    vi.stubEnv("KIOSK_DEVICE_TOKEN", "");
+    const r = await openKioskOrder({ k: "", kind: "togo" });
+    // `not_configured` is a verdict about the DEVICE; `error` would blame the guest for our config.
+    expect(r).toEqual({ ok: false, reason: "not_configured" });
+    expect(queries).toHaveLength(0);
+  });
+
+  it("kioskReset accepts an empty token too — the abandon path needs the same credential", async () => {
+    gateAnswer = { ok: true, via: "staff" };
+    const r = await kioskReset({ k: "", sessionId: SESSION });
+    expect(r.ok).toBe(true);
+  });
 });
 
 describe("openKioskOrder — the mint shape", () => {

@@ -510,14 +510,27 @@ export const openRegisterInput = z.object({
 /** openKioskOrder / kioskReset (W6b) — the self-serve kiosk's device-token-gated mint and abandon
  *  reset. `k` is the device token from the kiosk bookmark (verified constant-time server-side, the
  *  /board pattern); the client never asserts a session code or a price. */
+/**
+ * The device token is `.max(200)` but deliberately NOT `.min(1)` — an EMPTY `k` must reach the gate.
+ *
+ * A kiosk signed in by a staff account carries no token at all (`/staff/login?next=/kiosk` →
+ * `/kiosk` with no `?k=`), and `authorizeDevice` is what decides that case: staff session → ok, no
+ * token configured → `not_configured`, token configured but absent → `denied`. A `.min(1)` here ran
+ * BEFORE that gate and turned every one of those answers into a bare parse failure, so the tokenless
+ * kiosk this whole credential exists for answered "Something went wrong — please order at the
+ * counter." on every tap. The upper bound is the real transport rail and stays.
+ *
+ * Not a widening of authority: the gate is unchanged and still refuses an empty token whenever a
+ * token is configured and no staff session is present (`kiosk.test.ts`, red-first).
+ */
 export const kioskOpenInput = z.object({
-  k: z.string().min(1).max(200),
+  k: z.string().max(200),
   kind: z.enum(["dinein", "togo", "grocery"]),
   tableNumber: z.number().int().min(1).max(999).optional(),
   customerName: z.string().trim().max(40).optional(),
 });
 export const kioskResetInput = z.object({
-  k: z.string().min(1).max(200),
+  k: z.string().max(200),
   sessionId: uuid,
 });
 

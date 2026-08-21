@@ -1,6 +1,8 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useWakeLock } from "@/lib/useWakeLock";
+import { raceTimeout } from "@/lib/staff-outage";
+import { nextBoardStateOnFailure, readBoardRefusal } from "@/lib/board-poll";
 import { KdsChime } from "@/lib/kds-sound";
 
 /**
@@ -22,7 +24,25 @@ type BoardOrder = {
 
 type BoardState =
   | { kind: "loading" }
-  | { kind: "unlinked" } // no/bad token or unconfigured — an honest setup message, not an error wall
+  /**
+   * A verdict about THIS DEVICE, carrying the server's own sentence. The message matters because the
+   * two verdicts need different instructions and the board cannot tell them apart on its own: a
+   * `denied` board has a device link it is not using, a `not_configured` board has none to use and
+   * its operator must sign in instead. Rendering one hardcoded "open the board with its device link"
+   * for both told a staff-signed-in TV to go find a link that does not exist.
+   */
+  | { kind: "unlinked"; message: string | null }
+  /**
+   * We could not reach the server AT ALL and have no snapshot to fall back on — a board that booted
+   * into an outage. Distinct from `loading`, which claims we are still connecting, and distinct from
+   * a stale `live`, which has real orders to keep showing. Without this state such a board sat on
+   * "Connecting…" forever under a Ready column promising "Ready orders light up here."
+   *
+   * `escalated` is computed by the fold rather than at render — `Date.now()` in a render body is
+   * impure and React Compiler rejects it, and measuring a duration across two clock domains is the
+   * skew bug `staff-outage.ts` already documents.
+   */
+  | { kind: "offline"; since: number; fails: number; escalated: boolean }
   | { kind: "live"; orders: BoardOrder[]; stale: boolean };
 
 export function ReadyBoard({ token }: { token: string }) {
@@ -37,27 +57,54 @@ export function ReadyBoard({ token }: { token: string }) {
   const prevReady = useRef<Set<string>>(new Set());
   const seeded = useRef(false); // first poll = baseline only, never a flash storm (LOW-2)
   const fails = useRef(0);
+  /**
+   * The concurrent-poll lock every other staff board already has (`lib/staff-outage.ts` documents the
+   * idiom). Without it the 5s interval fires regardless of whether the previous poll is still out,
+   * and `prevReady` — the ONLY memory the flash/chime machinery has — is whatever response lands
+   * LAST. A slow poll overtaken by a newer one rewinds that set, so the next tick re-announces an
+   * order already called: a second gold flash and a second chime for a bag someone collected, which
+   * sends that customer back to the counter. This diff made it likelier, not less: a board on the
+   * staff-session path pays a `getUser()` round-trip per poll before the orders read.
+   */
+  const inFlight = useRef(false);
   const [soundOn, setSoundOn] = useState(false);
   const chime = useRef<KdsChime | null>(null);
 
   useWakeLock(); // a TV browser tab must never sleep mid-service
 
   const poll = useCallback(async () => {
+    if (inFlight.current) return; // a tick that overtakes its predecessor rewinds prevReady — see the ref
+    inFlight.current = true;
     try {
       // Always polls, token or not: an empty `k` is the staff-session path, which only the server
-      // can adjudicate.
-      const res = await fetch(`/api/board?k=${encodeURIComponent(token)}`, { cache: "no-store" });
+      // can adjudicate. Raced against a timeout so a hung socket becomes a rejection (the honest
+      // offline path) instead of holding the lock and silently stopping the board mid-service.
+      const res = await raceTimeout(
+        fetch(`/api/board?k=${encodeURIComponent(token)}`, { cache: "no-store" }),
+      );
       if (res.status === 401 || res.status === 503) {
         // 401 and a `not_configured` 503 are verdicts about the DEVICE — say so. An `unavailable`
         // 503 is the auth service being unreachable, which is not a verdict about anything: fall
         // through to the retry path so a running display keeps its last-known orders instead of
         // blanking mid-service on a blip (W10b; Codex round 1, P2).
-        const body = (await res.json().catch(() => null)) as { reason?: string } | null;
-        if (body?.reason !== "unavailable") {
-          setState({ kind: "unlinked" });
+        //
+        // ⚠️ A verdict must actually BE one. Not every 401/503 reaching this branch came from our
+        // route: a platform-level 503 (Vercel throttle, a paused deployment, any upstream gateway)
+        // carries an HTML error page, so `res.json()` rejects and `body` is null — and the first cut
+        // wrote `body?.reason !== "unavailable"`, where `undefined !== "unavailable"` is TRUE. A
+        // blip that said nothing about the device destroyed a live snapshot and told the house the
+        // screen was never linked. An absent body is "we can't tell", which is the retry path
+        // (adversarial pass; the same W10b shape one layer further out).
+        const body = (await res.json().catch(() => null)) as {
+          reason?: string;
+          error?: string;
+        } | null;
+        const refusal = readBoardRefusal(body);
+        if (refusal.kind === "verdict") {
+          setState({ kind: "unlinked", message: refusal.message });
           return;
         }
-        throw new Error("board poll: sign-in service unavailable");
+        throw new Error("board poll: no verdict available");
       }
       if (!res.ok) throw new Error(`board poll ${res.status}`);
       const data = (await res.json()) as { orders: BoardOrder[] };
@@ -86,14 +133,12 @@ export function ReadyBoard({ token }: { token: string }) {
       setState({ kind: "live", orders: data.orders, stale: false });
     } catch {
       fails.current += 1;
-      // Keep the last good snapshot through a blip; after 2 misses say so (never silently stale).
-      setState((prev) =>
-        prev.kind === "live" && fails.current >= 2
-          ? { ...prev, stale: true }
-          : prev.kind === "live"
-            ? prev
-            : { kind: "loading" },
-      );
+      // The fold lives in `lib/board-poll.ts` so it can be tested: keep a live board's snapshot and
+      // admit staleness after two misses; move a board that has NO snapshot to `offline` rather than
+      // letting it claim forever that it is still connecting.
+      setState((prev) => nextBoardStateOnFailure(prev, fails.current, Date.now()) as BoardState);
+    } finally {
+      inFlight.current = false; // released on EVERY exit, including the verdict return above
     }
   }, [token]);
 
@@ -120,8 +165,33 @@ export function ReadyBoard({ token }: { token: string }) {
         <header className="orb-head">
           <h1 className="orb-title">Mandalay Morning Star</h1>
         </header>
+        {/* The server already worked out WHICH verdict this is and wrote the sentence for it; render
+            that rather than a guess. The fallback only covers a body that carried a reason but no
+            message. */}
         <p className="orb-empty">
-          This screen isn’t linked yet — open the board with its device link (ask a manager).
+          {state.message ?? "This screen isn’t linked yet — ask a manager to set it up."}
+        </p>
+        <p className="orb-empty">
+          A manager can sign in on this screen at <strong>/staff/login?next=/board</strong>.
+        </p>
+      </div>
+    );
+  }
+
+  if (state.kind === "offline") {
+    // Never reached a snapshot, so there is nothing to keep showing and nothing to be stale about.
+    // Past the shared escalation window, stop implying this is momentary — the floor needs to know
+    // the screen is not coming back on its own. `escalated` is decided in the fold, not here: a
+    // `Date.now()` in render is impure and React Compiler rejects it outright.
+    return (
+      <div className="orb-root dark">
+        <header className="orb-head">
+          <h1 className="orb-title">Mandalay Morning Star</h1>
+        </header>
+        <p className="orb-empty" role="status">
+          {state.escalated
+            ? "Still can’t reach the ordering system — this screen isn’t updating. Call orders out from the kitchen for now."
+            : "Can’t reach the ordering system — this screen isn’t updating. Trying again…"}
         </p>
       </div>
     );

@@ -107,6 +107,41 @@ logged out" actually is — neither is in code.
 Also pinned the round-1 cookie fix, which had shipped with no test at all: `withRefreshedStaffSession`
 now has four, and the chunked-rotation case was watched failing against the old shape first.
 
+**The in-session adversarial pass** (3 lenses — security/privacy · concurrency · product truth) then
+found **six more, all real**, and the headline one means the feature did not work:
+
+- **The tokenless kiosk could never open an order.** `kioskOpenInput.k` was `z.string().min(1)`, and
+  the parse runs BEFORE `authorizeDevice` — so on an iPad signed in via `/staff/login?next=/kiosk`,
+  with no `?k=` by design, every tap returned "Something went wrong — please order at the counter."
+  forever. It hid because the tokenless case was proved against **board**, whose route calls the gate
+  directly with no schema in front of it. A contract tested through one caller says nothing about
+  another. Bound kept at `.max(200)`; the gate still refuses an empty token when one is configured.
+- **A bodyless 503 blanked a live board.** `body?.reason !== "unavailable"` is `true` when `body` is
+  null, and a platform-level 503 (Vercel throttle, paused deployment) answers with an HTML page that
+  will not parse. The least informative response we can receive was treated as the most authoritative
+  one — the same W10b shape as the round-1 fix, one layer further out.
+- **A board that BOOTED into an outage said "Connecting…" indefinitely**, over a Ready column reading
+  "Ready orders light up here." It never reached `live`, so the failure fold sent it back to
+  `loading` forever. There is now an `offline` state that says the true thing and escalates to the
+  paper instruction past the shared two-minute window.
+- **"Isn't linked — open the board with its device link"** was rendered to installs that have no
+  device link, discarding the honest sentence the API had already written. The verdict now carries
+  the server's own message plus the recovery that actually applies.
+- **The 5s poll had no in-flight guard**, so a late response rewound `prevReady` and the next tick
+  re-flashed and re-CHIMED an order already called — sending a customer who collected their bag back
+  to the counter. Every other staff board already had this lock.
+- **A dead arm in `safeNext`'s allowlist** (`startsWith(`${p}?`)`) — a resolved `URL.pathname` can
+  never contain a raw `?`. Harmless, but its comment credited it with keeping `/board?k=…` working
+  when `path === p` is what does, so a maintainer trimming the "redundant" line could delete the
+  load-bearing one.
+
+Three of those lived in `ReadyBoard.tsx`, which has no test and **cannot** have one (vitest here is
+`environment: "node"`, `include: ["**/*.test.ts"]`). So the poll's two decisions moved to
+`lib/board-poll.ts` as pure functions with 11 tests — the repo's own rule that decision logic belongs
+in `lib/`, applied outside the money paths for the first time. `mintFail` also grew honest arms:
+`unavailable` and `no_auth` are transient and the guest's next tap fixes them, so sending that person
+to the counter was both false and the most expensive possible answer.
+
 ### M100 · M107 — the session's mode is the authority, and two RPCs never asked (2026-08-21)
 
 `Checkout.tsx` renders the For-here/To-go pills and "Make it now" behind `isDineIn &&`, and its own

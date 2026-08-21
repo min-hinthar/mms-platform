@@ -87,11 +87,20 @@ export function safeNext(raw: unknown): string {
 
   // 4. The allowlist, checked on the RESOLVED pathname (so `/staff/../kiosk` is judged as `/kiosk`,
   //    which is what the browser would actually request — never on the raw string).
+  //
+  //    Two arms, and both are load-bearing. There is deliberately NO `startsWith(`${p}?`)` arm: a
+  //    resolved `URL.pathname` can never contain a raw `?` (a `?` opens the search component; an
+  //    encoded one stays `%3F`), so such an arm is unreachable on every input — a decorative guard
+  //    in the one predicate that decides where an emailed magic link may land. It was here, and it
+  //    read as if it were what kept `/board?k=…` working. It was not: `path === p` admits that URL
+  //    and step 5 re-attaches the token from `resolved.search`. Removed so the arm a maintainer must
+  //    not touch is the only one left (adversarial pass; verified exhaustively — 15k candidates plus
+  //    every code point below U+3000 produced zero pathnames containing `?`).
   const path = resolved.pathname;
-  const permitted = ALLOWED_PREFIXES.some(
-    (p) => path === p || path.startsWith(`${p}/`) || path.startsWith(`${p}?`),
-  );
+  const permitted = ALLOWED_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
   if (!permitted) return DEFAULT_NEXT;
 
+  // 5. Re-attach query and hash. THIS is what preserves `/board?k=<device token>` — the allowlist
+  //    match above deliberately ignores them.
   return `${path}${resolved.search}${resolved.hash}`;
 }

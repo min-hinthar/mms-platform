@@ -63,10 +63,20 @@ export function KioskOrderFlow({
   const [minting, startMint] = useTransition();
   const mintedForGrocery = useRef(false);
 
+  /**
+   * Every reason `openKioskOrder` can answer with gets a TRUE sentence. Three used to fall through
+   * to "Something went wrong — please order at the counter.": `denied`, `unavailable` and `no_auth`.
+   * Two of those are transient and the guest's next tap fixes them, so sending that person to the
+   * counter was both wrong and the most expensive possible response (W-staff-auth adversarial pass).
+   */
   function mintFail(reason: string): string {
-    if (reason === "not_configured") return t(lang, "notConfigured");
+    // A device-configuration verdict. The guest cannot act on it either way, so `denied` — a token
+    // is set and this device does not have it — reads the same as never having been set up.
+    if (reason === "not_configured" || reason === "denied") return t(lang, "notConfigured");
     if (reason === "occupied") return t(lang, "tableTaken");
     if (reason === "table") return t(lang, "tableUnknown");
+    // Transient: the auth read failed, or this device has no session yet. Tapping again is the fix.
+    if (reason === "unavailable" || reason === "no_auth") return t(lang, "justAMoment");
     return t(lang, "somethingWrong");
   }
 
