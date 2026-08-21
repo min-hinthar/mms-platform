@@ -321,7 +321,10 @@ export const applyRewardInput = z.object({
 
 /** setLineFulfillment (S4) — toggle a FOOD line's destination for-here↔to-go. Shape only; the server
  *  re-derives membership + own/host-draft authority and refuses a grocery line; the RPC recomputes the
- *  line's tax (cold food is taxable only dine-in). Grocery is never client-flippable. */
+ *  line's tax (cold food is taxable only dine-in). Grocery is never client-flippable. M100: the RPC
+ *  also re-derives the SESSION's mode and refuses `dinein` off a dine-in session
+ *  (`not_dinein_session`) — one-directionally, so `togo` stays reachable everywhere and a
+ *  mis-tagged line can always be repaired. The enum here is the transport rail, not the rule. */
 export const setLineFulfillmentInput = z.object({
   cartItemId: uuid,
   fulfillment: z.enum(["dinein", "togo"]),
@@ -329,7 +332,9 @@ export const setLineFulfillmentInput = z.object({
 
 /** makeItNow (S4.2) — fire ONE to-go food line to the kitchen early. Shape only; the server re-derives
  *  membership + own/host-draft authority, and mms_fire_line refuses anything that isn't an open-cart,
- *  draft, `togo` line (a dine-in line uses the batch send; grocery never fires). */
+ *  draft, `togo` line on a DINE-IN session (a dine-in line uses the batch send; grocery never fires;
+ *  M107 — pickup and scan-and-go are pay-first, so their food fires at settlement via
+ *  mms_fire_pending_food, never from an open cart). */
 export const makeItNowInput = z.object({ cartItemId: uuid });
 
 /** setTogoStatus (S4.3a) — the expo bumps a paid order's takeaway bag forward. Shape only; the action
