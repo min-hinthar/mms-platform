@@ -330,3 +330,67 @@ value it gates on must be re-derived in the write.** `Checkout.tsx` hid the For-
 had gone their whole lives without reading `table_sessions.mode`, while three sibling fire RPCs had
 been joining that table inside their write since S4.2. When a rule exists correctly somewhere in the
 schema, the question is not whether it is right — it is which call sites never adopted it.
+
+## #52 — A contract tested through ONE caller says nothing about another (W-staff-auth, 2026-08-21)
+
+`authorizeDevice` was written to accept an empty device token, because a kiosk or board signed in by
+a staff account carries none — that is the entire point of the second credential. `device-auth.test.ts`
+proved it, red-first, and the whole gate is correct.
+
+The kiosk still could not open an order. `kioskOpenInput.k` was `z.string().min(1)`, and the parse
+runs **before** the gate, so an iPad on the documented `/staff/login?next=/kiosk` flow answered
+`reason:"error"` — "Something went wrong, please order at the counter" — on every tap, forever. The
+feature, not an edge of it.
+
+It hid because the tokenless case was proved against **board**, whose route calls `authorizeDevice`
+directly with **no schema in front of it**. Two Codex rounds and my own review missed it; the
+adversarial pass found it by walking the journey end to end instead of reading the module.
+
+The rule: when a shared contract gains a new accepted input, enumerate **every** caller and check what
+sits between the caller and the contract — a Zod schema, a route guard, a client-side early return. A
+green test on the contract is evidence about the contract, not about the paths that reach it. This is
+the same shape as the four round-1 P1s in the same PR, all of which were client consumers of server
+contracts that had been changed without their callers being opened, so treat it as the dominant
+failure mode of any "add a second credential / second mode" change.
+
+## #53 — `body?.reason !== "unavailable"` inverts fail-safe on a null body (W-staff-auth, 2026-08-21)
+
+The board's poll distinguishes a verdict about the DEVICE (401, `not_configured`) from the platform
+being unreachable (`unavailable`), because telling a running TV it is de-authorized during a blip is
+the W10b/M32 outage. The check was written:
+
+```ts
+const body = (await res.json().catch(() => null)) as { reason?: string } | null;
+if (body?.reason !== "unavailable") {
+  setState({ kind: "unlinked" });
+  return;
+}
+```
+
+Not every 401/503 comes from our route. A platform-level 503 — Vercel throttle, paused deployment,
+any upstream gateway — answers with an HTML error page, so `res.json()` rejects and `body` is `null`.
+Then `null?.reason` is `undefined`, and `undefined !== "unavailable"` is **TRUE**. The least
+informative response we can possibly receive took the most authoritative branch: a live board was
+destroyed mid-service and the house was told the screen had never been linked.
+
+Optional chaining plus a negated equality is the trap — it reads as "unless it says unavailable" but
+means "unless it definitely says unavailable, including when it says nothing at all". Test the
+POSITIVE (`if (body && body.reason !== "unavailable")`), or better, hoist the decision into a named
+function whose contract is "a verdict must actually BE one" (`lib/board-poll.ts readBoardRefusal`).
+
+## #54 — Decision logic in a component this repo cannot test is unguardable, outside money too (W-staff-auth, 2026-08-21)
+
+`apps/qr` runs vitest with `environment: "node"` and `include: ["**/*.test.ts"]`. There is no
+component test and no way to write one. `ReadyBoard.tsx` held **three** live defects simultaneously
+— #53's bodyless verdict, a board that booted into an outage and said "Connecting…" forever above a
+column promising "Ready orders light up here", and a hardcoded "open the board with its device link"
+rendered to installs that have no device link — with the entire suite green and `verify:slice` clean.
+
+The W17 rule ("decision logic belongs in `lib/`, not a component") was written about money paths and
+`Checkout.tsx`. It is not a money rule. Any component holding a rule about **what is true** — an
+authorization verdict, an outage state, what a screen is allowed to assert — is equally unguardable,
+and the failure is quieter because no number is wrong. Moving the two decisions to `lib/board-poll.ts`
+turned each defect into one assertion and let two mutants pin them.
+
+Heuristic: if you can phrase the code as a sentence with "must" or "never" in it, it belongs in a
+module, whatever layer it currently lives in.
