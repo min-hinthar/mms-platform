@@ -4,6 +4,92 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M97 — the table-merge fold must match on `fulfillment` too (2026-08-21)
+
+`mms_merge_table_orders` folds a source line into a matching target line by bumping the target's qty
+and **deleting** the source row. The match tests state, notes, `by_seat`, `added_by` (M96), the menu
+item and the modifier key — but not `fulfillment`, while `insertOrIncLine` has always refused exactly
+that fold on the client side (_"a for-here add must NOT merge into a to-go line (different
+routing/tax)"_). `mergeTables` blocks cross-**session-mode** merges, which is a different thing: two
+dine-in tables are always eligible, and either one's lines may carry any tag.
+
+**This is a wrong charged amount, not only a wrong kitchen route.** `getCartTotals` reads a line's
+stored `tax_cents` **only as a boolean** taxable-or-not flag and taxes the full `unit_price_cents ×
+qty`; cold food and cold beverages are taxable dine-in and exempt to-go (CDTFA Reg 1603). The fold
+deletes the source row, so its units inherit the target's tag and the target's `tax_cents` wholesale,
+and nothing recomputes:
+
+- to-go folds into dine-in → both units taxable → **the guest is over-charged**
+- dine-in folds into to-go → neither taxable → **California sales tax is never collected**
+
+On a $14.00 cold-food line that is **147¢ in each direction**. Nothing downstream notices: the
+PaymentIntent amount and the webhook reconcile are derived from the same corrupted rows and therefore
+agree, so `mms_fulfill_order`'s amount-mismatch assert never fires, and the tag is then copied
+verbatim into `qr_order_items` — permanent through receipt, email and `/track`.
+
+**`=` and not `is not distinct from`.** `fulfillment` is `not null` with a backfill, so plain
+equality is right — matching the `state` and `menu_item_id` predicates beside it. The line directly
+**above** needs `is not distinct from` for the opposite reason (`added_by` is nullable and never
+backfilled). They are different on purpose, and no test can tell the two operators apart here, so
+`m97_merge_matches_fulfillment_test.sql` says so rather than shipping a case that pretends otherwise.
+
+**Scope, stated honestly:** the live collision is `dinein ⇄ togo` only. A grocery line cannot reach
+the fold at all — its `menu_item_id` is a barcode and a food line's is a uuid, so the existing item
+predicate already separates them, and it carries a real `by_seat` so it can never be a fold target.
+The registry's original wording ("a `togo` **or `grocery`** source line") was wrong and is corrected. A second ground offered for grocery's unreachability — _"it carries a real `by_seat` so it can never
+be a fold target"_ — is also **false** and is withdrawn: the re-parent branch nulls `by_seat`, so an
+already-re-parented grocery line is seatless and is a perfectly good target. The conclusion stands on
+the item-id half alone; the wrong half is recorded because a wrong reason for a right answer is how
+the answer later gets overturned.
+
+The test was committed **before** the fix and CI was watched failing on it — there is no Docker in
+this container, so CI is the only place a SQL guard can be seen to bite.
+
+**A predicate on a MUTABLE column needs more than a predicate** (Codex round 1, P2 — real, and
+specific to this change). The loop runs on a READ COMMITTED snapshot, and `fulfillment` can change
+under it: a diner taps For-here/To-go mid-merge and `mms_set_line_fulfillment` commits, because that
+function takes no lock on `qr_carts` — it only _reads_ `status` through an `exists`, and a reader
+never blocks against `for update`. A stale `r.fulfillment` would then fold a now-dine-in row into a
+to-go target: the exact wrong tax this change exists to prevent, back through the door. M96 needed
+none of this, because `added_by` is immutable by trigger and cannot change under a cursor.
+
+Both halves are closed without widening the lock footprint beyond the rows being written: the target
+is held by a `for update` on the match query, and the source re-asserts its own identity **in the
+delete** — the same in-statement re-assertion `mms_set_line_fulfillment` performs one function over,
+and the rule CLAUDE.md states for every guarded mutation.
+
+⚠️ **The first draft of that guard re-asserted four of the five mutable columns and omitted `qty`** —
+caught by adversarial review, HIGH. `qty` is the one re-asserted column the very next statement does
+arithmetic on, and `mms_cart_item_inc_qty` commits straight through the cart lock for exactly the
+same reason the tag does. A diner tapping `+` mid-merge leaves tag/state/notes/comped unchanged, so
+the delete would have **succeeded** and the target been bumped by the stale qty — **one unit silently
+destroyed**: not charged, not cooked, no error. A guard that re-asserts four of five mutable columns
+is not a guard, it is a narrower race. The delete runs **first** and the qty bump
+only if it landed; bumping first would double-count a row the delete then refused. A refused delete
+falls through to the re-parent, which is always safe.
+
+**Codex round 2 then found the guard's other two edges** — both real, both fixed. (1) A row voided or
+comped **after** the loop's snapshot correctly fails the guarded delete, but the fallback re-parent was
+**unconditional**, so it carried a $0'd line into the target — contradicting the very invariant the
+loop's own WHERE states (`state <> 'voided' and not comped`) and stranding the accepted void audit on a
+cart about to be cancelled. Eligibility is now re-asserted in the re-parent too, and an ineligible row
+is **left on the source**, where its audit already lives. (2) `v_moved` — which `mergeTables` records as
+the units moved — was incremented from the snapshot's `r.qty` in every branch, so a concurrent `+`
+that made the delete refuse would re-parent a two-unit row and report one. It now counts what actually
+moved: `r.qty` on a fold (the delete just re-asserted it), and the value read back from the row on a
+re-parent.
+
+⚠️ **The race itself is not covered by a test, and cannot be from a single psql session** — the five
+cases prove the fold still behaves, not that the guard serializes. Verifying it needs two concurrent
+sessions, which no harness in this repo has.
+
+⚠️ **Correction to a merged migration.** `20260820140000_m96_merge_keeps_adder.sql` calls itself "its
+seventh definition". That was measured with a grep requiring the `public.` prefix, and **four** of the
+definitions omit it, so the real count was eleven and this is the **twelfth**. The M96 adversarial
+review "verified" the seven by re-running the same pattern out of the same file — two independent
+measurements, one shared blind spot. The applied migration is left untouched; the correction lives in
+the new migration's header and in `docs/OPEN-ITEMS.md`.
+
 ### M90 — one chime engine, and one envelope (2026-08-20)
 
 `kds-sound.ts` (W3c) and `diner-sound.ts` (W22f) each synthesized tones with the same fast-attack /
@@ -188,7 +274,8 @@ assertion there would prove the mock — plus a mutant, and three ways of breaki
 into an unassigned target and deletes the source, taking that diner's adder with it. Not fixed here:
 the failure direction is **silence** rather than a false claim, the fold only ever targets lines that
 already carry no seat (the merge deliberately clears attribution on re-parent), and the merge RPC has
-been restated seven times and carries the void/comp guards — a disproportionate blast radius for a
+been restated many times [⚠️ corrected 2026-08-21: this sentence originally read "seven times"; the
+real count was eleven — see the M97 entry] and carries the void/comp guards — a disproportionate blast radius for a
 rare, silent under-count.
 
 Registry: M87 closed. One new `verify:slice` mutant (196 total) for the merge key; the attribution rule itself is SQL,

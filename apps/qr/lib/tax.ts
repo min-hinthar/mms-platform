@@ -4,7 +4,10 @@ import type { TaxCategory } from "@mms/db";
 // CA CDTFA Reg 1603 / 80-80: hot & prepared always taxable; cold food taxable only dine-in;
 // retail non-food always taxable; grocery staples exempt.
 // Amounts are integer CENTS (parity with the SQL engine + the delivery schema).
-const RATE = 0.105; // L.A combined (owner-confirmed, W16a — closes C13); update here and in SQL together.
+const RATE = 0.105; // COVINA combined (owner-confirmed, W16a closes C13; jurisdiction re-confirmed
+// 2026-08-21: "Covina Tax Rate is 10.5%"). The rate is the CITY's, not the county's — Covina stacks a
+// district tax on the L.A. County base, so a reader who checks this against "L.A." finds a lower number
+// and "fixes" a correct rate into a wrong one. Update here and in SQL together.
 
 export function isTaxable(category: TaxCategory, dineIn: boolean): boolean {
   switch (category) {
