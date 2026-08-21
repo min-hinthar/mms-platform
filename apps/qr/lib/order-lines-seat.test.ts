@@ -13,16 +13,32 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * M104 extends the same idea to PRICE (see the block at the end of this file), and reuses this
  * harness for the same reason.
  *
- * ⚠️ This asserts the FILTERS, not the outcome, and that is deliberate: the shared harness's `eq`/`is`
- * are no-ops that return the same rows whatever is asked, so a behavioural assertion here would prove
- * the mock. Recording the filter calls is the strongest thing this runner can say about a PostgREST
- * query — the same reasoning behind the delivery repo's phantom-column guard.
+ * ⚠️ THE FILTER-ONLY ASSERTIONS ARE NOT ENOUGH ON THEIR OWN, and the first version of this file said
+ * they were. Its note read: "a behavioural assertion here would prove the mock". That was true of the
+ * mock AS THEN WRITTEN — `eq`/`is` were no-ops and `rpc` recorded nothing — but it is a statement
+ * about the harness, not a law. Adversarial review demonstrated the gap by building the mutant: move
+ * the price predicate BELOW `await siblingQuery` and every filter assertion still passes, because
+ * `filters` is inspected after the function returns and cannot tell "applied to the query" from
+ * "applied after the query ran". In real postgrest-js the request is already sent, so that mutant
+ * reintroduces M104 in full with a green suite. It is not an exotic edit — it is what a re-order or a
+ * merge-conflict resolution produces.
+ *
+ * So the harness now does two more things, and both are load-bearing:
+ *   · `then` applies the filters RECORDED SO FAR to `siblingRows` — the query is "sent" there, so a
+ *     predicate added afterwards narrows nothing, exactly as in the real client. A filter is applied
+ *     only to columns the fixture row actually declares, so an existing fixture opts in rather than
+ *     being silently excluded by a column it never modelled.
+ *   · `rpc` records which function was called, so a test can assert the BRANCH — merge or fresh line.
+ *
+ * The filter assertions stay: they localise a failure to the predicate. The behavioural ones say it
+ * still does its job where it is written.
  */
 
 vi.mock("server-only", () => ({}));
 
 let filters: { op: "eq" | "is"; col: string; val: unknown }[] = [];
-let siblingRows: { id: string; modifiers: unknown }[] = [];
+let siblingRows: Record<string, unknown>[] = [];
+let rpcCalls: { fn: string; args: Record<string, unknown> }[] = [];
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     from: () => {
@@ -36,12 +52,22 @@ vi.mock("@mms/db/server", () => ({
           filters.push({ op: "is", col, val });
           return chain;
         },
-        then: (res: (v: { data: unknown; error: null }) => unknown) =>
-          Promise.resolve({ data: siblingRows, error: null }).then(res),
+        // Awaiting the builder IS sending the request, so only the filters recorded by now can
+        // narrow the result — a predicate appended afterwards is dead code, here and in postgrest-js.
+        then: (res: (v: { data: unknown; error: null }) => unknown) => {
+          const sent = [...filters];
+          const rows = siblingRows.filter((r) =>
+            sent.every((f) => !(f.col in r) || r[f.col] === f.val),
+          );
+          return Promise.resolve({ data: rows, error: null }).then(res);
+        },
       };
       return chain;
     },
-    rpc: () => Promise.resolve({ data: "line-1", error: null }),
+    rpc: (fn: string, args: Record<string, unknown>) => {
+      rpcCalls.push({ fn, args });
+      return Promise.resolve({ data: "line-1", error: null });
+    },
   }),
 }));
 
@@ -60,6 +86,7 @@ const LINE = {
 beforeEach(() => {
   filters = [];
   siblingRows = [];
+  rpcCalls = [];
 });
 
 describe("insertOrIncLine — the merge key includes the ADDER (M87)", () => {
@@ -109,17 +136,41 @@ describe("insertOrIncLine — the merge key includes the PRICE (M104)", () => {
     });
   });
 
-  it("⚠️ scopes it on the STAFF path too — a register add is not exempt from the live price", () => {
-    // The register, the kiosk and reorder all reach this same function, and `menu-price.ts` promises
-    // the new price takes effect on the next add "everywhere at once (diner menu, register, kiosk,
-    // reorder)". A predicate applied only to the diner arm would keep that promise for one surface.
-    return insertOrIncLine(CART, LINE, null).then(() => {
-      expect(filters).toContainEqual({
-        op: "eq",
-        col: "unit_price_cents",
-        val: LINE.unitPriceCents,
-      });
+  // ── The behavioural pair. These are what survive a MISPLACED predicate, not merely a missing one.
+  //
+  // A "never merges" assertion alone is passed by code that never merges at all, so the two run
+  // together: same fixture, same call, one column different, opposite branch. That is also the only
+  // thing here that separates the price predicate from the ones above it.
+  it("⚠️ a sibling quoted at a DIFFERENT price is NOT merged into — a fresh line is inserted", async () => {
+    siblingRows = [{ id: "quoted-before-the-edit", modifiers: [], unit_price_cents: 300 }];
+    await insertOrIncLine(CART, LINE, "seat-ana");
+    expect(rpcCalls.map((c) => c.fn)).not.toContain("mms_cart_item_inc_qty");
+    expect(rpcCalls.map((c) => c.fn)).toContain("mms_cart_item_insert_if_open");
+  });
+
+  it("a sibling at the SAME price still merges — the control that keeps the test above honest", async () => {
+    siblingRows = [{ id: "same-price-line", modifiers: [], unit_price_cents: LINE.unitPriceCents }];
+    await insertOrIncLine(CART, LINE, "seat-ana");
+    expect(rpcCalls.map((c) => c.fn)).toContain("mms_cart_item_inc_qty");
+    expect(rpcCalls.find((c) => c.fn === "mms_cart_item_inc_qty")?.args).toMatchObject({
+      p_id: "same-price-line",
     });
+    expect(rpcCalls.map((c) => c.fn)).not.toContain("mms_cart_item_insert_if_open");
+  });
+
+  it("⚠️ the STAFF path is not exempt either — the register, kiosk and reorder all reach this function", async () => {
+    // `menu-price.ts` promises the new price takes effect on the next add "everywhere at once (diner
+    // menu, register, kiosk, reorder)". The predicate is unconditional, so this shares a statement
+    // with the diner arm — but it exercises the OTHER `by_seat`/`added_by` branch around it, where a
+    // future seat-scoped refactor is exactly where the promise would quietly break for one surface.
+    siblingRows = [{ id: "staff-line-before-the-edit", modifiers: [], unit_price_cents: 300 }];
+    await insertOrIncLine(CART, LINE, null);
+    expect(filters).toContainEqual({
+      op: "eq",
+      col: "unit_price_cents",
+      val: LINE.unitPriceCents,
+    });
+    expect(rpcCalls.map((c) => c.fn)).not.toContain("mms_cart_item_inc_qty");
   });
 
   it("uses `eq` and never `is` for the price — it is `not null` by column definition", () => {

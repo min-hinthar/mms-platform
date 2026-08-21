@@ -25,7 +25,12 @@ notes.**
 
 **Both directions bite.** A price rise under-charges the restaurant; a price **drop** charges the
 diner _more_ than the menu is showing. On the real applied Balachaung edit ($3.00 → $10.00) that is
-**±774¢ per unit**, and up to **98 units** can ride one stale snapshot (the qty cap) — then it freezes
+**−774¢ on a rise and +773¢ on a drop** for the second unit — asymmetric, because `computeTotals`
+rounds ONE aggregate taxable base rather than each line, and 1300¢ × 10.5% = 136.5 rounds up. (Both
+figures come from running `computeTotals` itself, not from differencing per-line taxes by hand: an
+earlier draft wrote the pair as "±774¢", and a review round differencing it the other way proposed
+"±773¢". Neither is right; the engine is.) Up to **98 units** can ride one stale snapshot (the qty
+cap) — then it freezes
 verbatim into `qr_order_items` and travels to the receipt, the email, `/track`, refund math and QBO.
 Nothing notices, because create-intent and the webhook reconcile both derive from the same row.
 

@@ -190,6 +190,12 @@ export async function insertOrIncLine(
   // price after "send to kitchen" and the old one before, the new price with an allergy note and the
   // old one without. No quote-holding policy is keyed on allergy notes.
   //
+  // `tax_cents` rides along on this branch too and is NOT in the key — deliberately, and safely only
+  // because it is a pure function of three things: the price (now in the key), the fulfillment tag
+  // (already in the key), and `menu_items.tax_category`, which no app path writes. That is three
+  // conventions rather than a guarantee, so if a tax-category editor is ever added, this predicate
+  // list is the second place it has to be thought about.
+  //
   // The already-quoted units are untouched: a mismatch inserts a FRESH line at the new price rather
   // than re-pricing anything, so `menu-price.ts`'s other promise — "lines ALREADY in a cart keep the
   // price they were quoted" — still holds exactly. The diner simply sees two lines, which the cart,

@@ -22,7 +22,11 @@ import { staffGate } from "./staff";
  *   - The new price takes effect on the NEXT add, everywhere at once (diner menu, register, kiosk,
  *     reorder), because all four go through `priceItem`.
  *
- * ⚠️ That third bullet was FALSE for two years on one path, and M104 is what made it true. Going
+ * ⚠️ That third bullet was FALSE on one path from the day it was written — this file landed in W17b
+ * (2026-08-15) and `insertOrIncLine` predates it by a month (2026-07-12, the repo's first commit) —
+ * and M104 is what made it true. (An earlier draft of this line said "for two years", a duration
+ * nothing in a 40-day-old repo can have. Adversarial review caught it; it is corrected here rather
+ * than quietly deleted, because a fabricated number in a money header is read as evidence.) Going
  * THROUGH `priceItem` is not the same as USING its result: `insertOrIncLine` merges a repeat add into
  * an existing draft line by calling `mms_cart_item_inc_qty`, which carries no price and only bumps
  * qty — so the re-derived value was computed and discarded, and the second unit was charged at the
