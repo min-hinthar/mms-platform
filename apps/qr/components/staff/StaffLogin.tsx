@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEven
 import { useRouter } from "next/navigation";
 import { browserClient } from "@mms/db";
 import { isRetryableAuthShape } from "@/lib/staff-outage";
-import { DEFAULT_NEXT } from "@/lib/safe-next";
+import { DEFAULT_NEXT, NEXT_COOKIE } from "@/lib/safe-next";
 
 /**
  * Staff sign-in (S1.1a) — passwordless magic-link / email-OTP. Two steps: request a 6-digit code to
@@ -67,13 +67,19 @@ export function StaffLogin({
   // Gates only bite while the field still holds the address they were sent to — so they can't be wiped
   // by editing the email, but a different address is free to send immediately. `blockedThis` (429) has
   // no honest countdown → steer to Google; `coolingThis` (post-send) shows the real ~60s window.
-  // ONE callback URL, read by the Google redirect AND the magic link in the email. Built from the
-  // page-validated `next` so both paths land on the same surface; `useMemo` because it reads
-  // `window` (client-only) and both callers must see the identical string.
-  const callbackUrl = useMemo(() => {
-    const base = `${window.location.origin}/staff/auth/callback`;
-    return next === DEFAULT_NEXT ? base : `${base}?next=${encodeURIComponent(next)}`;
-  }, [next]);
+  // ONE callback URL, read by the Google redirect AND the magic link in the email. It is the BARE
+  // callback — no query string — because Supabase glob-matches `redirectTo` against the project's
+  // Redirect URL allow list and a query string makes an exact entry miss (see `safe-next.ts`). The
+  // destination rides in a cookie instead.
+  const callbackUrl = useMemo(() => `${window.location.origin}/staff/auth/callback`, []);
+
+  // Park the destination where the callback can read it, right before any sign-in leaves this page.
+  // 10 minutes covers the walk to a mailbox and expires well inside the link's own lifetime; Lax so
+  // the top-level navigation back from a mail client still carries it.
+  const parkNext = () => {
+    if (next === DEFAULT_NEXT) return; // nothing to remember — the callback already defaults here
+    document.cookie = `${NEXT_COOKIE}=${encodeURIComponent(next)}; Path=/staff; Max-Age=600; SameSite=Lax`;
+  };
 
   const norm = (s: string) => s.trim().toLowerCase();
   const sameAddr = norm(email) === sentTo;
@@ -87,6 +93,7 @@ export function StaffLogin({
     setBusy(true);
     setError(null);
     setNotice(null);
+    parkNext();
     const { error: err } = await browserClient().auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo: callbackUrl },
@@ -109,6 +116,7 @@ export function StaffLogin({
     setError(null);
     setNotice(null);
     const addr = norm(email); // send + verify + gate on ONE normalized form (matches the staff allowlist)
+    parkNext();
     const { error: err } = await browserClient().auth.signInWithOtp({
       email: addr,
       // emailRedirectTo makes the magic LINK in the email land on our callback (the email carries both

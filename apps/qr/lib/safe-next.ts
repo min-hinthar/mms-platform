@@ -24,6 +24,28 @@
 export const DEFAULT_NEXT = "/staff";
 
 /**
+ * The destination rides in a COOKIE, not in `redirectTo` — and that is a Supabase constraint, not a
+ * style choice.
+ *
+ * Supabase matches `redirectTo` against the project's Redirect URL allow list as a GLOB over the
+ * whole URL, where the separators are `.` and `/` (docs: "Use wildcards in redirect URLs"). So an
+ * allow-list entry of `https://qr.mandalaymorningstar.com/staff/auth/callback` matches that string
+ * and nothing else: appending `?next=%2Fkiosk` makes it MISS, and a miss silently falls back to the
+ * Site URL. The magic link would land on the site root and the sign-in would look broken, with
+ * nothing in the app able to say why.
+ *
+ * Covering it would need a `…/callback**` entry added in the dashboard — a config dependency for a
+ * code feature, on the one path that is hardest to debug remotely. A cookie needs no dashboard
+ * change and keeps the already-allow-listed callback URL exactly as it is.
+ *
+ * Not httpOnly (the browser sets it before leaving for the mail provider) and not a secret: its value
+ * is re-validated by `safeNext` on read, so the worst a hostile page can do is send a staff member to
+ * one of the three surfaces they were already going to. `SameSite=Lax` is deliberate — a magic link
+ * is a top-level GET navigation from a mail client, which Lax permits and Strict would drop.
+ */
+export const NEXT_COOKIE = "mms_staff_next";
+
+/**
  * The surfaces a magic link may land on. An allowlist rather than "any same-origin path" on purpose:
  * `next` rides in a URL that reaches a mailbox, so the blast radius of a mistake here is every future
  * route. These four are the ones a staff member is asked to sign in FOR — the two portals and the two
