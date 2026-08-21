@@ -4,6 +4,71 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M102 — the second session, and a battery that says what it proves (2026-08-21)
+
+M97 added a concurrency guard to `mms_merge_table_orders` and shipped it **reasoned-correct and
+unproven**, saying so in its own header: none of its predicates can differ from the cursor's values
+without a concurrent committed write, and every file in `supabase/tests/` is single-session by
+construction. `scripts/verify-merge-race.mjs` is that missing session — three `psql` processes, no
+new dependency, ~4s.
+
+**How the window is entered.** B mutates the SOURCE row and holds its transaction open. A calls the
+merge: it takes the cart locks, opens its loop cursor — reading the source at its pre-B value,
+because a reader never blocks on an uncommitted write — locks the target, and BLOCKS at the guarded
+DELETE, the statement under test. B commits; A's delete re-checks its WHERE against the new tuple
+under EvalPlanQual and refuses. The sync device IS the production mutation (a diner tapping `+`
+mid-merge is literally `update … set qty`), and the wait graph is acyclic by construction: B takes
+its only lock before A starts and requests nothing after.
+
+**Eleven scenarios.** C0/C1 are CONTROLS and are not optional — every scenario that asserts the guard
+REFUSES is also passed by a `delete … and false` mutant, so the controls are the only thing proving
+it still ALLOWS a legitimate fold. S1–S6 cover qty, state, comped, price, fulfillment and notes, and **S1b/S4b cover the OTHER
+DIRECTION of the two numeric ones** — every scenario mutating its column one way makes the whole
+`>=`/`<=` mis-write family invisible, and `and qty >= r.qty` (a one-character typo) survives a
+decrease while destroying a unit on the increase that every document here names as the hazard. The
+repo already states that rule in `m98_merge_matches_price_test.sql`; M102's first version dropped
+it. S7
+covers the TARGET: B re-prices the target row, and the match query's `for update` forces READ
+COMMITTED to re-evaluate against the new version and skip it, so the source re-parents at the price
+it was quoted instead of being folded into a line now priced $10.00.
+
+**A committed battery, because a green run proves nothing on its own.** `--mutants` applies fourteen
+mutations to the LIVE function and requires each to be caught by the scenario that names it, with
+the controls staying green. Every mutant asserts the pattern still matches, the apply succeeded,
+`md5(prosrc)` actually changed, and the body is restored byte-identical — the first ad-hoc version
+reported a SURVIVOR that was really a malformed `sed` leaving a syntax error, so the mutant never
+applied and the harness ran against the unmutated function. It also proves a GREEN BASELINE before
+the first mutant, or an already-failing scenario is credited to whichever mutant names it. Wired
+into CI.
+
+**Defects only the battery could find**, all invisible from inside a passing run: S7's first version
+asserted liveness alone and its mutant SURVIVED (removing the `for update` does not stop A blocking —
+the bump takes the same row lock one statement later); the fixture was DEGENERATE, both lines at
+qty 1, so a fold's `v_moved += r.qty` could not be told from a literal 1; and `assertFoldable` — the
+hand-copied anti-degeneracy check — was LOOSER than the fold it copies, omitting the modifier key
+and the qty cap. Its header claimed it "fails safe: a stale copy returns 0 and this aborts", which is
+exactly inverted: an omitted predicate makes the copy looser, so it passes while the real fold
+refuses, and six scenarios then land on their expected numbers via the no-match path having never
+entered the guarded DELETE.
+
+**A correction, not a discovery**: the `provolatile` guard's stated reason was false. It claimed
+marking the function STABLE would make every scenario "go green having proved nothing". Measured, a
+non-VOLATILE plpgsql function cannot run its first statement — `ERROR: SELECT FOR UPDATE is not
+allowed in a non-volatile function` — so it goes loudly RED. The assertion is kept because it turns
+that mid-run error into a named refusal; it is a diagnostics guard, not a silent-green one.
+
+**It COMMITS, and nothing else in this repo does** — session B must see session A's fixtures, so
+they cannot live in a rolled-back transaction. It therefore takes no DSN argument at all, states its
+transport (`sslmode`/`gssencmode`) rather than inheriting libpq defaults, scrubs every libpq variable
+that could redirect it OR flip a guard predicate, and refuses in-DB on three measured facts: `ssl`,
+a private/loopback `inet_server_addr()`, and the absence of any cart line that is not its own.
+`usesuper` is PRINTED and deliberately NOT asserted — an earlier version asserted it, on a value that
+had been reasoned rather than measured, and it is `f` on hosted AND `f` on the CLI stack, so the
+first CI run refused to run at all. `inet_server_port()` is 5432 on both and must never be used.
+Every write is behind a latch set only when that refusal RETURNS, so a throw inside it cannot fall
+through to the top-level catch and make cleanup's cascading delete the first thing to touch the
+database. A session advisory lock stops two runs deleting each other's committed fixtures.
+
 ### M104 — the next add really does get the new price (2026-08-21)
 
 `insertOrIncLine`'s sibling query matched a repeat add on cart, item, fulfillment, state, notes, seat,

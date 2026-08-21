@@ -31,6 +31,10 @@
 --     already blocks the fold and every assert below passes for the wrong reason.
 --  2. Never discriminate on the RPC's return value: `v_moved := v_moved + r.qty` runs in BOTH the
 --     fold and the re-parent branch, so `moved` is identical either way. Count rows instead.
+--     ⚠️ That rule is true HERE and false in `scripts/verify-merge-race.mjs` (M102): since M98 the
+--     fold adds `r.qty` while the re-parent adds a value read BACK from the row, and the two diverge
+--     exactly when qty changed under the cursor — which only a second session can arrange. Do not
+--     carry this rule over there; the two-session harness asserts the return value deliberately.
 --
 -- Run against any QR DB (rolls back — leaves NO data behind):
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/m97_merge_matches_fulfillment_test.sql
