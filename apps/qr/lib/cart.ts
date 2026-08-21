@@ -437,8 +437,12 @@ export type SetFulfillmentResult = { ok: true } | { ok: false; reason: string };
  * Toggle a FOOD line's destination for-here↔to-go (S4 unified basket). Member-gated + canMutateLine
  * (host-any / guest-own, draft only — a fired line can't be re-routed); the RPC refuses a grocery line and
  * RECOMPUTES the line's tax (cold food is taxable only dine-in). The tag, not the session mode, drives
- * routing + tax. Returns a Result so the toggle UI can show an honest reason; touches updated_at via the
- * RPC's row write so peers re-sync.
+ * routing + tax — but M100 bounds WHICH tags a session can reach: `mms_set_line_fulfillment` re-derives
+ * `table_sessions.mode` and answers `not_dinein_session` when a pickup/scango cart asks for `dinein`,
+ * because `Checkout.tsx`'s `isDineIn &&` render gate is advisory on a public POST. The refusal is
+ * one-directional — `togo` stays reachable on every mode, so an already-mis-tagged line can be repaired.
+ * The rule has ONE home and it is the SQL statement; nothing here re-derives it. Returns a Result so the
+ * toggle UI can show an honest reason; touches updated_at via the RPC's row write so peers re-sync.
  */
 export async function setLineFulfillment(
   cartItemId: string,
@@ -474,8 +478,11 @@ export async function setLineFulfillment(
  * "Make it now" (S4.2): fire ONE to-go food line to the kitchen early (draft→fired, +10s grace), instead
  * of waiting for checkout. Member-gated + canMutateLine (host-any / guest-own, draft only); mms_fire_line
  * re-derives in SQL that it's an open-cart, draft, `togo` line (a dine-in line uses sendToKitchen's batch;
- * grocery never fires). Returns a Result so the UI shows an honest reason; the RPC's row write touches the
- * line so the KDS + peers re-sync via realtime.
+ * grocery never fires) on a DINE-IN session (M107 — pickup and scan-and-go are pay-first, so their food
+ * reaches the kitchen through `mms_fire_pending_food` at settlement, never from an open cart; before that
+ * gate an unpaid pickup cart could put a line on the KDS, since `kitchen.ts` reads carts in open+paid).
+ * Returns a Result so the UI shows an honest reason; the RPC's row write touches the line so the KDS +
+ * peers re-sync via realtime.
  */
 export async function makeItNow(cartItemId: string): Promise<SetFulfillmentResult> {
   const input = makeItNowInput.parse({ cartItemId });

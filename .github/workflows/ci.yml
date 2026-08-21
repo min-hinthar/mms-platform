@@ -107,7 +107,7 @@ jobs:
           # count is not enough: once a third file lands, deleting or renaming one of these would still
           # satisfy the count and leave the job green with a whole guard silently gone. Add a new .sql
           # to this list when it becomes load-bearing.
-          for required in supabase/tests/rls_membership_test.sql supabase/tests/tax_parity_test.sql supabase/tests/scan_dedupe_test.sql supabase/tests/cash_tip_bound_test.sql supabase/tests/reward_follows_owner_test.sql supabase/tests/pickup_phone_bound_test.sql supabase/tests/w23d_dropped_visibility_test.sql supabase/tests/m87_order_item_seat_test.sql supabase/tests/m96_merge_keeps_adder_test.sql supabase/tests/m97_merge_matches_fulfillment_test.sql supabase/tests/m98_merge_matches_price_test.sql; do
+          for required in supabase/tests/rls_membership_test.sql supabase/tests/tax_parity_test.sql supabase/tests/scan_dedupe_test.sql supabase/tests/cash_tip_bound_test.sql supabase/tests/reward_follows_owner_test.sql supabase/tests/pickup_phone_bound_test.sql supabase/tests/w23d_dropped_visibility_test.sql supabase/tests/m87_order_item_seat_test.sql supabase/tests/m96_merge_keeps_adder_test.sql supabase/tests/m97_merge_matches_fulfillment_test.sql supabase/tests/m98_merge_matches_price_test.sql supabase/tests/m100_session_mode_authority_test.sql; do
             if [ ! -f "$required" ]; then
               echo "::error::Required SQL test missing: $required (renamed or deleted?)"
               exit 1
@@ -137,6 +137,18 @@ jobs:
       - name: Merge-race mutants (can the guards fail?)
         timeout-minutes: 6
         run: node scripts/verify-merge-race.mjs --mutants
+      # M100 · M107 — can each of the eight cases in m100_session_mode_authority_test.sql actually
+      # FAIL? plpgsql ASSERT stops at the first one, so running that file red-then-green proves ONE
+      # case and silently skips seven. Twelve mutations of the two LIVE functions (plus one of
+      # mms_init_togo_status, the only way to falsify the end-to-end case), each requiring a green
+      # baseline first, an md5(prosrc) that actually changed, and the NAMED case — not just some
+      # case — to be the one that goes red. One mutant is a documented SURVIVOR and is asserted as
+      # such: it measures the migration header's claim that the in-write mode term cannot diverge
+      # from its pre-check while table_sessions.mode is immutable. ~4s measured locally (12 mutants,
+      # ~26 psql invocations); the generous timeout is for a cold runner, not for the work.
+      - name: Mode-authority mutants (can the guards fail?)
+        timeout-minutes: 5
+        run: node scripts/verify-mode-authority.mjs
       - name: Stop stack
         if: always()
         run: supabase stop || true

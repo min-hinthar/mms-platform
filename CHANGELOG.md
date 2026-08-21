@@ -4,6 +4,84 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M100 · M107 — the session's mode is the authority, and two RPCs never asked (2026-08-21)
+
+`Checkout.tsx` renders the For-here/To-go pills and "Make it now" behind `isDineIn &&`, and its own
+comment says why that gate fails closed on an unknown mode: "a missing control costs a tap, a wrong
+one costs the order". A Server Action is a public POST, so the gate is advisory — and neither
+`mms_set_line_fulfillment` nor `mms_fire_line` ever read `table_sessions.mode`. Measured on a
+migrated database, one $14.00 cold-food line on a `pickup` session:
+
+    mms_set_line_fulfillment(line,'dinein') -> ok    fulfillment=dinein  tax_cents 0 -> 147
+    mms_fire_line(line)                     -> ok    state=fired         cart status=open
+    …settle it, then mms_init_togo_status   -> NULL  expo-visible lines: 0
+
+**M100's money is the smaller half.** `getCartTotals` reads a line's `tax_cents` only as a boolean
+taxable flag and taxes the whole `unit_price_cents * qty`, so the tag moves the ENTIRE line across
+the taxable base — 147¢ of tax CDTFA does not levy to-go, on the only two fulfillment-sensitive
+categories (`cold_food`, `beverage_cold`). The larger harm is routing: `mms_init_togo_status` stamps
+`preparing` only when a `togo`/`grocery` line exists and `expo.ts` reads
+`.in("fulfillment",["togo","grocery"])`, so a SINGLE-line pickup order tagged dine-in settles with
+`togo_status` NULL and zero expo lines — /track never leaves "Order placed", nobody bags it, nobody
+calls the customer. The food is still cooked (`mms_fire_pending_food` lost its mode gate in W3), so
+it reaches the pass with no destination. A paid order that no staff surface shows.
+
+**M107, found while proving M100.** `mms_fire_line` needs only an open cart and a `togo` line, which
+every pickup cart satisfies BEFORE payment, and `kitchen.ts` reads carts `in ('open','paid')` — so an
+unpaid pickup line lands on the KDS, against that file's own comment that "pickup/scango only ever
+fire paid". Dine-in fires pre-payment by design; pickup and scan-and-go are pay-first.
+
+**Neither is a new idea.** `mms_fire_cart` and `mms_fire_pending_food` have joined `table_sessions`
+inside their write since S4.2. Four lines differ per function against a verbatim restatement.
+
+**The guard is one-directional.** `dinein` is what a non-dine-in session may not reach; `togo` stays
+open on every mode, because a guard phrased "no toggling off a dine-in session" passes every refusal
+case and traps a mis-tagged line as permanently taxable — the damage, made unfixable.
+
+**Reachability, measured on the live project rather than reasoned.** Fourteen mode/tag/state/status
+combinations exist and exactly ONE is illegitimate: `pickup/dinein/draft/paid`, 2 lines on 1 cart. So
+the hole has been REACHED in production — and the instance that landed is harmless on both axes,
+which is part of reporting it honestly: both lines are `hot_prepared` ($13.00 Nan-Gyi Mont Ti and
+Shan Noodles), which `mms_line_tax` prices at 137¢ dine-in AND 137¢ to-go, and their order carried
+four other bag lines so `togo_status` stamped and the expo saw it. ⚠️ An earlier draft of the
+migration header justified the one-directional guard with "rows tagged `dinein` on a pickup cart
+exist today — every line written before this applies". That is FALSE: `addItem` yields `togo` for
+every non-dine-in mode and the S4 backfill did the same, so the only writer that can produce this
+shape is the toggle itself.
+
+**A green run proves nothing on its own, and here the reason is structural.** `plpgsql` ASSERT stops
+at the FIRST failure, so running the new eight-case SQL test red-then-green proves ONE case and
+silently skips seven — a statement about one case offered as if it covered eight.
+`scripts/verify-mode-authority.mjs` is the missing half: twelve mutations of the live functions, each
+requiring a green BASELINE first (or an already-red case is credited to the mutant), a changed
+`md5(prosrc)` (a patch that never applied would otherwise read as a hole in the test), and the NAMED
+case — not merely some case — to be the one that reddens, then a byte-identical restore. One mutant
+is a documented SURVIVOR: it MEASURES the migration header's claim that the in-write mode term cannot
+diverge from its pre-check while `table_sessions.mode` is immutable, instead of leaving that claim an
+untested comment. Its complement proves the term still earns its place — delete the PRE-CHECK and the
+write is still refused, the verdict degrading to `stale` rather than a dine-in tag reaching a pickup
+line.
+
+**Three defects the battery found in its own first draft**, all invisible from a passing run: a
+mutant credited to the WRONG case (replacing the pre-check outright makes case 1 fail with `stale`,
+so it never reached the case it named); two test cases with no mutant at all (the reverse dine-in
+flip, and the end-to-end expo assertion — the latter falsifiable only by mutating
+`mms_init_togo_status`, a function this migration does not contain, because mutating the guards makes
+case 1 fail first); and a startup assertion that was itself decorative — it hashed and restored one
+function at a time, so the first iteration's restore healed the drift the second was looking for, and
+stubbing out `mms_fire_line` produced a clean pass until the loop was split in two.
+
+`makeItNow` had **no test at all** before this — the suite mocked `makeItNowInput` and never called
+the action. The rule has ONE home and it is the SQL statement; what the TS tests pin is that the
+verdict reaches the caller by NAME rather than flattened into a generic "error", with a
+`verify:slice` mutant on each of the two callers (199 total).
+
+Scoped out and filed rather than folded in: **M17** (same RPC, but a different product decision and a
+fixture none of the eight cases produce — and M100 narrows it, since an orphaned line on a
+non-dine-in session can no longer be flipped to `dinein` at all) and **M108** (`addItem` and
+`reorderOrder` discard their session-mode read's error and default to `togo`, where the
+`staff-open-cart.ts` read beside them fails closed).
+
 ### M102 — the second session, and a battery that says what it proves (2026-08-21)
 
 M97 added a concurrency guard to `mms_merge_table_orders` and shipped it **reasoned-correct and
