@@ -31,6 +31,7 @@ export async function GET(req: NextRequest) {
     if (gate.reason === "not_configured") {
       return NextResponse.json(
         {
+          reason: "not_configured",
           error:
             "The order-ready board isn’t configured — set BOARD_DEVICE_TOKEN, or sign in on this device with a staff account.",
         },
@@ -40,8 +41,11 @@ export async function GET(req: NextRequest) {
     if (gate.reason === "unavailable") {
       // W10b: the auth read failed, so whether this device is allowed is UNKNOWABLE. A 401 here
       // would tell a running TV it had been de-authorized during a database blip.
+      // The `reason` is what lets the TV tell this apart from `not_configured`: both are 503, but
+      // one is a setup answer and the other is a blip. Without it the client blanked a live board
+      // on an auth wobble — the opposite of what this branch exists for (Codex round 1, P2).
       return NextResponse.json(
-        { error: "We can’t reach the sign-in service right now." },
+        { reason: "unavailable", error: "We can’t reach the sign-in service right now." },
         { status: 503 },
       );
     }

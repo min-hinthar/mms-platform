@@ -26,11 +26,12 @@ type BoardState =
   | { kind: "live"; orders: BoardOrder[]; stale: boolean };
 
 export function ReadyBoard({ token }: { token: string }) {
-  // A missing token is knowable at mount (the URL never changes under the board) — resolve it in the
-  // initializer so poll() never has a synchronous setState path.
-  const [state, setState] = useState<BoardState>(() =>
-    token ? { kind: "loading" } : { kind: "unlinked" },
-  );
+  // A tokenless board is no longer knowably unlinked at mount: a staff sign-in on the device is now
+  // a credential too (`authorizeDevice`), and that lives in a cookie the client can't read. So it
+  // starts LOADING and lets the server answer — the old initializer short-circuited to "unlinked"
+  // and the documented `/staff/login?next=/board` flow could never leave that screen
+  // (Codex round 1, P1).
+  const [state, setState] = useState<BoardState>({ kind: "loading" });
   const [flashes, setFlashes] = useState<Map<string, number>>(new Map());
   const flashNonce = useRef(0);
   const prevReady = useRef<Set<string>>(new Set());
@@ -42,12 +43,21 @@ export function ReadyBoard({ token }: { token: string }) {
   useWakeLock(); // a TV browser tab must never sleep mid-service
 
   const poll = useCallback(async () => {
-    if (!token) return; // resolved to "unlinked" at mount — nothing to poll
     try {
+      // Always polls, token or not: an empty `k` is the staff-session path, which only the server
+      // can adjudicate.
       const res = await fetch(`/api/board?k=${encodeURIComponent(token)}`, { cache: "no-store" });
       if (res.status === 401 || res.status === 503) {
-        setState({ kind: "unlinked" });
-        return;
+        // 401 and a `not_configured` 503 are verdicts about the DEVICE — say so. An `unavailable`
+        // 503 is the auth service being unreachable, which is not a verdict about anything: fall
+        // through to the retry path so a running display keeps its last-known orders instead of
+        // blanking mid-service on a blip (W10b; Codex round 1, P2).
+        const body = (await res.json().catch(() => null)) as { reason?: string } | null;
+        if (body?.reason !== "unavailable") {
+          setState({ kind: "unlinked" });
+          return;
+        }
+        throw new Error("board poll: sign-in service unavailable");
       }
       if (!res.ok) throw new Error(`board poll ${res.status}`);
       const data = (await res.json()) as { orders: BoardOrder[] };

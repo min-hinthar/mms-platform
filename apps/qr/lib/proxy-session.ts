@@ -65,7 +65,16 @@ export async function withRefreshedStaffSession(
   response: NextResponse,
   rebuild: () => NextResponse,
 ): Promise<NextResponse> {
-  let current = response;
+  // Every cookie the refresh emits, accumulated — NOT applied one at a time.
+  //
+  // ⚠️ A real session is CHUNKED: `@supabase/ssr` splits `sb-<ref>-auth-token` into `.0`/`.1` once
+  // the JWT outgrows 4KB, and a refresh can also DELETE stale chunks. So `setAll` routinely emits
+  // several cookies in one call. Rebuilding the response inside that loop threw away the
+  // `Set-Cookie` headers of every prior iteration and shipped only the last chunk — half a session,
+  // which reads to the browser as no session at all. The bug would have been invisible on a short
+  // token and permanent on a real one, in exactly the overnight path this module exists for
+  // (Codex round 1, P1).
+  const pending: { name: string; value: string; options?: unknown }[] = [];
   try {
     // The package's own SSR client, via a CookieStore adapter over the middleware request/response
     // pair — `@mms/db` owns Supabase construction and the env binding (apps import from package
@@ -73,11 +82,10 @@ export async function withRefreshedStaffSession(
     const supabase = serverClient({
       getAll: () => request.cookies.getAll(),
       set: (name, value, options) => {
-        // Write onto the REQUEST too, so the render downstream reads the NEW token rather than the
-        // expired one the request arrived with.
+        // Write onto the REQUEST as we go, so the rebuilt response's request headers carry the NEW
+        // token rather than the expired one the request arrived with.
         request.cookies.set(name, value);
-        current = rebuild();
-        current.cookies.set(name, value, options as Parameters<typeof current.cookies.set>[2]);
+        pending.push({ name, value, options });
       },
     });
     // The call that performs the refresh. Its RESULT is deliberately unused — see the header: this
@@ -89,5 +97,12 @@ export async function withRefreshedStaffSession(
     // auth read produces the verdict a moment later.
     return response;
   }
-  return current;
+  if (pending.length === 0) return response; // nothing rotated — the arriving response is correct
+
+  // ONE rebuild, after every mutation, then every cookie onto it.
+  const refreshed = rebuild();
+  for (const { name, value, options } of pending) {
+    refreshed.cookies.set(name, value, options as Parameters<typeof refreshed.cookies.set>[2]);
+  }
+  return refreshed;
 }

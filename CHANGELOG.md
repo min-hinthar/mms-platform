@@ -55,7 +55,36 @@ rejects the two candidates a naive predicate accepts — `/\evil.com` (a backsla
 sign-in surfaces. A test asserts the PREMISE too, so if a runtime ever stops normalizing those the
 comments get rewritten rather than trusted.
 
-51 new tests (926 qr). `docs/ENV.md` carries the two dashboard settings that decide how long "until
+**Codex round 1 found SEVEN — 4×P1, 3×P2 — and all seven were real.** Every P1 lived in a CLIENT
+consumer of a server contract this slice changed, which is precisely why the self-review missed them:
+the modules were tested, their callers were never opened.
+
+- **The board never polled without a token.** `ReadyBoard` initialised to `unlinked` and returned
+  early from `poll()` on an empty token, so the documented `/staff/login?next=/board` flow dead-ended
+  on "not linked" — the headline feature, non-functional. It now starts LOADING and lets the server
+  adjudicate, because a staff session lives in a cookie the client cannot read.
+- **`window` was read during server render.** `StaffLogin` is a Client Component, but Next still
+  SSRs it, and a `useMemo` factory runs in that pass — so the callback URL threw before the page
+  could paint, taking the whole sign-in surface down. The original code read `window` inside the
+  handlers for exactly this reason; moving it somewhere tidier broke it.
+- **The refresh dropped cookies.** `setAll` rebuilt the response per cookie, discarding each prior
+  `Set-Cookie`, and `rebuild()` closed over a header clone taken BEFORE the cookie writes. A real
+  session is CHUNKED (`.0`/`.1` once the JWT passes 4KB), so only the last chunk shipped — half a
+  session, which reads as none. Invisible on a short token, permanent on a real one, in exactly the
+  overnight path this exists for. Now accumulates and builds once, and `build()` re-reads the request.
+- **The kiosk lost its anonymous session.** Exempting `/kiosk` outright stopped `AnonAuthGate`
+  minting the anon user `openKioskOrder` requires (`no_auth`), so a token-only kiosk could not start
+  an order. The exemption is now `keepStaff`: it suppresses only the sign-OUT swap and leaves the
+  mint alone.
+- **An auth blip blanked a live board**, because `ReadyBoard` treated every 503 as unlinked. The API
+  now says `reason`, and only `not_configured` is a verdict about the device.
+- **`unavailable` was flattened to `denied` on the kiosk reset**, and its detached abandonment path
+  only retries `error` — so a blip left the cart live and a dine-in table reported occupied until
+  TTL. Reverting that fix left every other test green, so it is now pinned red-first.
+- **The parked destination survived a typed-code sign-in**, so a later default login consumed a stale
+  `/kiosk` destination. Cleared on that path, and the default case now clears rather than no-ops.
+
+56 new tests (931 qr). `docs/ENV.md` carries the two dashboard settings that decide how long "until
 logged out" actually is — neither is in code.
 
 ### M100 · M107 — the session's mode is the authority, and two RPCs never asked (2026-08-21)

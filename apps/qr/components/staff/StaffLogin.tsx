@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { browserClient } from "@mms/db";
 import { isRetryableAuthShape } from "@/lib/staff-outage";
@@ -71,14 +71,34 @@ export function StaffLogin({
   // callback — no query string — because Supabase glob-matches `redirectTo` against the project's
   // Redirect URL allow list and a query string makes an exact entry miss (see `safe-next.ts`). The
   // destination rides in a cookie instead.
-  const callbackUrl = useMemo(() => `${window.location.origin}/staff/auth/callback`, []);
+  //
+  // ⚠️ A FUNCTION, called from the event handlers — never a `useMemo`. This is a Client Component,
+  // but Next still SERVER-renders it on first load, and a useMemo factory runs during that render,
+  // where `window` is undefined. Written as a memo it threw before the page could paint, taking the
+  // whole sign-in surface down for every anonymous visit (Codex round 1, P1). The original code read
+  // `window` inside the handlers for exactly this reason; moving it "somewhere tidier" broke it.
+  const callbackUrl = () => `${window.location.origin}/staff/auth/callback`;
 
-  // Park the destination where the callback can read it, right before any sign-in leaves this page.
-  // 10 minutes covers the walk to a mailbox and expires well inside the link's own lifetime; Lax so
-  // the top-level navigation back from a mail client still carries it.
+  /**
+   * Park the destination where the callback can read it, right before any sign-in leaves this page.
+   * 10 minutes covers the walk to a mailbox and expires well inside the link's own lifetime; Lax so
+   * the top-level navigation back from a mail client still carries it.
+   *
+   * The DEFAULT case actively CLEARS rather than returning early. A stale cookie from an abandoned
+   * `?next=/kiosk` attempt would otherwise still be sitting there, and the next ordinary sign-in —
+   * which parks nothing — would have its callback consume that stale destination and send someone to
+   * the kiosk instead of the console (Codex round 1, P2).
+   */
   const parkNext = () => {
-    if (next === DEFAULT_NEXT) return; // nothing to remember — the callback already defaults here
-    document.cookie = `${NEXT_COOKIE}=${encodeURIComponent(next)}; Path=/staff; Max-Age=600; SameSite=Lax`;
+    document.cookie =
+      next === DEFAULT_NEXT
+        ? `${NEXT_COOKIE}=; Path=/staff; Max-Age=0; SameSite=Lax`
+        : `${NEXT_COOKIE}=${encodeURIComponent(next)}; Path=/staff; Max-Age=600; SameSite=Lax`;
+  };
+
+  /** The typed-code path never reaches the callback, so it clears the parked destination itself. */
+  const clearParkedNext = () => {
+    document.cookie = `${NEXT_COOKIE}=; Path=/staff; Max-Age=0; SameSite=Lax`;
   };
 
   const norm = (s: string) => s.trim().toLowerCase();
@@ -96,7 +116,7 @@ export function StaffLogin({
     parkNext();
     const { error: err } = await browserClient().auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: callbackUrl },
+      options: { redirectTo: callbackUrl() },
     });
     if (err) {
       setBusy(false);
@@ -124,7 +144,7 @@ export function StaffLogin({
       // staff account (provisionStaff pre-creates it) can request a code.
       options: {
         shouldCreateUser: false,
-        emailRedirectTo: callbackUrl,
+        emailRedirectTo: callbackUrl(),
       },
     });
     setBusy(false);
@@ -186,6 +206,7 @@ export function StaffLogin({
     // Session is now in cookies — let the destination shell re-gate (the staff row for /staff,
     // authorizeDevice for /kiosk and /board). The typed-code path never leaves the browser, so it
     // does the routing the callback route does for the link path.
+    clearParkedNext(); // single-use, exactly like the callback route's clear on the link path
     router.replace(next);
     router.refresh();
   }

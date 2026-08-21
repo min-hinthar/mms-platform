@@ -117,3 +117,35 @@ describe("authorizeDevice — the token stays free, the staff session is additiv
     expect(await authorizeDevice("board", TOKEN)).toEqual({ ok: false, reason: "not_configured" });
   });
 });
+
+/**
+ * Codex round 1 found FOUR P1s in this slice, and every one lived in a CLIENT consumer of a server
+ * contract I had changed — a board that never polls, a kiosk that lost its anonymous session, a
+ * `window` read at render, cookies dropped mid-refresh. None were reachable from the module tests
+ * above, which is exactly why they survived my own sweep.
+ *
+ * This block pins the one piece of that class that IS a pure function: the reason a caller receives,
+ * because two of the P2s were downstream code flattening `unavailable` into `denied` and losing the
+ * retry it authorizes.
+ */
+describe("the reason a caller gets is the reason it must act on", () => {
+  it("never reports `unavailable` as `denied`", async () => {
+    // The distinction is the whole W10b rule. `denied` is a verdict about the caller; `unavailable`
+    // is "we could not tell" — and callers RETRY the second (the kiosk's detached abandonment) and
+    // hold their snapshot on it (the board). Collapsing them silently strands a cart and blanks a TV.
+    process.env.KIOSK_DEVICE_TOKEN = TOKEN;
+    cookieNames = [SESSION_COOKIE];
+    staffAuth = { kind: "unavailable" };
+    const r = await authorizeDevice("kiosk", "wrong");
+    expect(r).toEqual({ ok: false, reason: "unavailable" });
+    expect(r.ok === false && r.reason === "denied").toBe(false);
+  });
+
+  it("a tokenless board with a staff session is authorized — the flow the docs tell staff to use", async () => {
+    // `/staff/login?next=/board` lands on `/board` with no `?k=`. If this ever answers anything but
+    // ok, the documented sign-in flow dead-ends on the "not linked" screen.
+    cookieNames = [SESSION_COOKIE];
+    staffAuth = { kind: "staff", caller: {} };
+    expect(await authorizeDevice("board", "")).toEqual({ ok: true, via: "staff" });
+  });
+});

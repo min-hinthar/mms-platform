@@ -148,7 +148,12 @@ export async function kioskReset(raw: unknown): Promise<KioskResetResult> {
   if (!parsed.success) return { ok: false, reason: "denied" };
   const { k, sessionId } = parsed.data;
   const gate = await authorizeDevice("kiosk", k);
-  if (!gate.ok) return { ok: false, reason: "denied" };
+  // Pass `unavailable` THROUGH rather than flattening it to `denied`. The reset runs detached from
+  // the idle timer and from "start over", and its caller only retries `error`-shaped outcomes — so a
+  // transient auth blip reported as `denied` leaves the cart live and, for a dine-in kiosk order,
+  // the table reported occupied until the session TTL expires (Codex round 1, P2).
+  if (!gate.ok)
+    return { ok: false, reason: gate.reason === "unavailable" ? "unavailable" : "denied" };
   const db = serviceClient();
 
   // Scope first, in the READ's predicate: a non-kiosk session id matches nothing and NOTHING is

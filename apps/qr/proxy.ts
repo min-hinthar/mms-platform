@@ -72,8 +72,16 @@ export async function proxy(request: NextRequest) {
 
   // One place that builds a response carrying the per-request CSP, so the session refresh below can
   // re-create it after a cookie write without this file's CSP knowledge leaking into that module.
+  //
+  // ⚠️ It re-clones `request.headers` on EVERY call rather than reusing the clone above. The refresh
+  // mutates `request.cookies`, which updates the request's own `cookie` header — a clone taken
+  // BEFORE that still carries the EXPIRED token, so the downstream render would read the stale
+  // session even though a fresh one had just been fetched (Codex round 1, P1).
   const build = () => {
-    const res = NextResponse.next({ request: { headers: requestHeaders } });
+    const headers = new Headers(request.headers);
+    headers.set("x-nonce", nonce);
+    headers.set("content-security-policy", csp);
+    const res = NextResponse.next({ request: { headers } });
     res.headers.set("content-security-policy", csp);
     return res;
   };

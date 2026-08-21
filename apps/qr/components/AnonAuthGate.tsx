@@ -18,8 +18,11 @@ import { publishAuthPlaneStatus } from "@/lib/session-status";
  * a REAL (staff) session must be swapped for an anonymous one (a staff uid is is_staff() → it would
  * read every table and attribute diner writes to the staff user).
  */
-/** Routes whose session belongs to STAFF, not to a diner — never swapped to an anonymous session. */
-const STAFF_OWNED = ["/staff", "/kiosk", "/board"] as const;
+/**
+ * Device surfaces that ACCEPT a staff session but may also run on a device token alone. A staff
+ * session here is kept; the anonymous mint still happens when there is no session at all.
+ */
+const DEVICE_SURFACES = ["/kiosk", "/board"] as const;
 
 export function AnonAuthGate() {
   const pathname = usePathname();
@@ -30,13 +33,16 @@ export function AnonAuthGate() {
   const running = useRef(false);
 
   useEffect(() => {
-    // The surfaces a STAFF session legitimately owns. `/staff` was always exempt; `/kiosk` and
-    // `/board` join it because they now accept a staff sign-in (owner, 2026-08-21) — without this
-    // the gate would sign that session straight back out and the device would look like it "forgot"
-    // the login within a second of it landing. Everything else is a DINER route, where a staff uid
-    // is swapped for an anonymous one: it cannot be a session member, so it could not order anyway.
-    if (STAFF_OWNED.some((p) => pathname === p || pathname?.startsWith(`${p}/`)) || running.current)
-      return;
+    // `/staff` is exempt OUTRIGHT — it needs no anonymous session and never did.
+    //
+    // `/kiosk` and `/board` are different, and getting this wrong broke the kiosk once already
+    // (Codex round 1, P1): they now accept a staff sign-in, so a staff session there must NOT be
+    // swapped away — but a TOKEN-only kiosk still needs the anonymous user that `openKioskOrder`
+    // requires (it reads `getUser()` and refuses with `no_auth` without one). So they are not
+    // skipped; they are marked `keepStaff`, which suppresses only the sign-OUT swap below and
+    // leaves the anonymous mint exactly as it was.
+    if (pathname?.startsWith("/staff") || running.current) return;
+    const keepStaff = DEVICE_SURFACES.some((p) => pathname === p || pathname?.startsWith(`${p}/`));
     running.current = true;
     const supa = browserClient();
     void (async () => {
@@ -65,7 +71,13 @@ export function AnonAuthGate() {
             publishAuthPlaneStatus("ok");
             return; // upgraded diner (or anon) → keep
           }
-          await supa.auth.signOut(); // staff on a diner route → swap to an anonymous diner session
+          // Staff on a DINER route → swap to an anonymous diner session. On a device surface the
+          // staff session is the credential, so it is kept and we return before the mint below.
+          if (keepStaff) {
+            publishAuthPlaneStatus("ok");
+            return;
+          }
+          await supa.auth.signOut();
         }
         // Establish the anonymous session, with one retry — signInAnonymously can transiently fail
         // (network, or GoTrue's anon-signup rate limit, see app/api/session). Don't strand the diner

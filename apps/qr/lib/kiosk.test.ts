@@ -19,6 +19,24 @@ vi.mock("server-only", () => ({}));
 vi.mock("next/headers", () => ({ cookies: () => Promise.resolve({}) }));
 vi.mock("./session-code", () => ({ generateJoinCode: () => "ABCD1234" }));
 
+/**
+ * The device gate moved to `./device-auth` (shared with the board). It is mocked here so this file
+ * can drive the one thing it owns: how `kioskReset` MAPS a gate refusal to its own reason. The gate's
+ * own rules — token first, the zero-cost wrong-token path, the staff credential — are asserted in
+ * `device-auth.test.ts`; duplicating them here would be two copies of one rule.
+ */
+let gateAnswer: { ok: boolean; via?: string; reason?: string } | null = null;
+vi.mock("./device-auth", async (importOriginal) => {
+  const real = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...real,
+    authorizeDevice: (surface: "kiosk" | "board", given: string) =>
+      gateAnswer
+        ? Promise.resolve(gateAnswer)
+        : (real.authorizeDevice as (s: string, g: string) => Promise<unknown>)(surface, given),
+  };
+});
+
 type Q = {
   table: string;
   op: "select" | "insert" | "update";
@@ -111,6 +129,7 @@ const TOKEN = "kiosk-device-token-for-tests";
 
 beforeEach(() => {
   queries = [];
+  gateAnswer = null;
   tableRow = null;
   occupiedRow = null;
   sessionRow = { id: SESSION };
@@ -226,5 +245,37 @@ describe("kioskReset — prefix-scoped, register-deferring destruction", () => {
     const r = await kioskReset({ k: "wrong", sessionId: SESSION });
     expect(r.ok).toBe(false);
     expect(queries).toHaveLength(0);
+  });
+});
+
+/**
+ * Red-first: reverting the mapping below leaves every other test in this file GREEN, which is how a
+ * flattened reason would have shipped. `unavailable` authorizes a RETRY in the detached abandonment
+ * path (`KioskOrderFlow`); reported as `denied` it stops the retry, and the cart — plus, for a
+ * dine-in kiosk order, the table's occupancy — stays live until the session TTL expires.
+ */
+describe("kioskReset — an unknowable gate is not a refusal", () => {
+  it("passes `unavailable` through instead of flattening it to `denied`", async () => {
+    gateAnswer = { ok: false, reason: "unavailable" };
+    expect(await kioskReset({ k: TOKEN, sessionId: SESSION })).toEqual({
+      ok: false,
+      reason: "unavailable",
+    });
+  });
+
+  it("still reports a real refusal as `denied`", async () => {
+    // The other direction: a mapping that answered `unavailable` for everything would make the
+    // caller retry a genuine refusal forever.
+    gateAnswer = { ok: false, reason: "denied" };
+    expect(await kioskReset({ k: TOKEN, sessionId: SESSION })).toEqual({
+      ok: false,
+      reason: "denied",
+    });
+  });
+
+  it("writes NOTHING on an unknowable gate", async () => {
+    gateAnswer = { ok: false, reason: "unavailable" };
+    await kioskReset({ k: TOKEN, sessionId: SESSION });
+    expect(queries.filter((q) => q.op !== "select")).toHaveLength(0);
   });
 });
