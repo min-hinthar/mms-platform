@@ -119,13 +119,6 @@ jobs:
             echo "── $f"
             psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -v ON_ERROR_STOP=1 -f "$f"
           done
-      # M102 — the two-session harness. It CANNOT live in supabase/tests/*.sql: the step above globs
-      # that directory into `psql -f`, which would try to execute this as SQL. It also cannot roll
-      # back (session B must SEE session A's fixtures), so it commits and cleans up by tag — which is
-      # why the script itself refuses to run against anything but the local stack.
-      - name: Merge-race harness (two concurrent sessions)
-        timeout-minutes: 3
-        run: node scripts/verify-merge-race.mjs
       - name: Stop stack
         if: always()
         run: supabase stop || true

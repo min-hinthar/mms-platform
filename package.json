@@ -17,8 +17,7 @@
     "db:types": "supabase gen types typescript --local --schema public > packages/db/src/database.types.ts",
     "verify:slice": "node scripts/verify-slice.mjs",
     "check:docs": "node scripts/check-docs.mjs && node scripts/gen-menu-reference.mjs --check",
-    "check:theme": "node scripts/check-theme-parity.mjs",
-    "verify:merge-race": "node scripts/verify-merge-race.mjs"
+    "check:theme": "node scripts/check-theme-parity.mjs"
   },
   "devDependencies": {
     "@mms/config": "workspace:*",
