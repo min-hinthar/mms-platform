@@ -1,8 +1,8 @@
 "use server";
-import { timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { serverClient, serviceClient } from "@mms/db/server";
 import { kioskOpenInput, kioskResetInput } from "@mms/db/schemas";
+import { authorizeDevice } from "./device-auth";
 import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock";
 import { generateJoinCode } from "./session-code";
 
@@ -23,28 +23,33 @@ const KIOSK_PREFIX = "kiosk-";
 /** Counter-style kiosk sessions share the register's abandoned-order horizon (W6a). */
 const KIOSK_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 
-type KioskGate = { ok: true } | { ok: false; reason: "not_configured" | "denied" };
-
-/** Constant-time device-token check. Unset token = the kiosk feature is OFF (503-style refusal),
- *  never a crash — the /board opt-in semantics. */
-function kioskGate(k: string): KioskGate {
-  const expected = process.env.KIOSK_DEVICE_TOKEN;
-  if (!expected) return { ok: false, reason: "not_configured" };
-  const a = Buffer.from(k);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return { ok: false, reason: "denied" };
-  return { ok: true };
-}
+/**
+ * The device gate now lives in `lib/device-auth.ts`, shared with `/api/board`: the two surfaces had
+ * hand-copied constant-time token checks, and both gained a second credential at once (a staff
+ * sign-in — owner, 2026-08-21). The token is still checked FIRST and still refuses the same way, so
+ * an already-bookmarked kiosk behaves exactly as before; the staff session is purely additive, and a
+ * failed AUTH read now surfaces as `unavailable` rather than being flattened into `denied`.
+ */
 
 export type OpenKioskResult =
   | { ok: true; sessionId: string; cartId: string }
-  | { ok: false; reason: "not_configured" | "denied" | "no_auth" | "table" | "occupied" | "error" };
+  | {
+      ok: false;
+      reason:
+        | "not_configured"
+        | "denied"
+        | "unavailable"
+        | "no_auth"
+        | "table"
+        | "occupied"
+        | "error";
+    };
 
 export async function openKioskOrder(raw: unknown): Promise<OpenKioskResult> {
   const parsed = kioskOpenInput.safeParse(raw);
   if (!parsed.success) return { ok: false, reason: "error" };
   const { k, kind, tableNumber, customerName } = parsed.data;
-  const gate = kioskGate(k);
+  const gate = await authorizeDevice("kiosk", k);
   if (!gate.ok) return { ok: false, reason: gate.reason };
 
   // The seat: the kiosk device's own anon Supabase session (AnonAuthGate minted it). Verified
@@ -132,7 +137,7 @@ export type KioskResetResult =
   /** `frozen` = the register owns this order now (settle in flight or already settled) — the reset
    *  correctly stood down; the client's only remaining job is the screen-clear. `gone` = not an
    *  active kiosk session (already reset, or not ours to touch). */
-  | { ok: false; reason: "denied" | "gone" | "frozen" | "error" };
+  | { ok: false; reason: "denied" | "unavailable" | "gone" | "frozen" | "error" };
 
 /** The ABANDON reset (idle mid-order): cancel the open cart, then close the session. Scoped in
  *  every statement to `kiosk-`-prefixed sessions — the device token is not a skeleton key over
@@ -142,7 +147,7 @@ export async function kioskReset(raw: unknown): Promise<KioskResetResult> {
   const parsed = kioskResetInput.safeParse(raw);
   if (!parsed.success) return { ok: false, reason: "denied" };
   const { k, sessionId } = parsed.data;
-  const gate = kioskGate(k);
+  const gate = await authorizeDevice("kiosk", k);
   if (!gate.ok) return { ok: false, reason: "denied" };
   const db = serviceClient();
 

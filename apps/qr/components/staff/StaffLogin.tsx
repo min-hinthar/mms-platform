@@ -1,8 +1,9 @@
 "use client";
-import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { browserClient } from "@mms/db";
 import { isRetryableAuthShape } from "@/lib/staff-outage";
+import { DEFAULT_NEXT } from "@/lib/safe-next";
 
 /**
  * Staff sign-in (S1.1a) — passwordless magic-link / email-OTP. Two steps: request a 6-digit code to
@@ -11,7 +12,19 @@ import { isRetryableAuthShape } from "@/lib/staff-outage";
  * @supabase/ssr browser client persists the session to cookies, so the /staff server shell reads the
  * verified uid and the staff row gates the rest. The PIN fast-path on a shared tablet is S1.1b.
  */
-export function StaffLogin({ denied = false }: { denied?: boolean }) {
+export function StaffLogin({
+  denied = false,
+  next = DEFAULT_NEXT,
+}: {
+  denied?: boolean;
+  /**
+   * Where this sign-in is FOR — already validated by the page against the allowlist, so it is safe
+   * to put in a redirect and in the magic link. Signing in on the lobby kiosk or the ready-board TV
+   * has to land back on that surface; sending every device to /staff would leave someone re-typing
+   * a device URL on a screen with no keyboard.
+   */
+  next?: string;
+}) {
   const router = useRouter();
   const [step, setStep] = useState<"email" | "code">("email");
   const [email, setEmail] = useState("");
@@ -54,6 +67,14 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
   // Gates only bite while the field still holds the address they were sent to — so they can't be wiped
   // by editing the email, but a different address is free to send immediately. `blockedThis` (429) has
   // no honest countdown → steer to Google; `coolingThis` (post-send) shows the real ~60s window.
+  // ONE callback URL, read by the Google redirect AND the magic link in the email. Built from the
+  // page-validated `next` so both paths land on the same surface; `useMemo` because it reads
+  // `window` (client-only) and both callers must see the identical string.
+  const callbackUrl = useMemo(() => {
+    const base = `${window.location.origin}/staff/auth/callback`;
+    return next === DEFAULT_NEXT ? base : `${base}?next=${encodeURIComponent(next)}`;
+  }, [next]);
+
   const norm = (s: string) => s.trim().toLowerCase();
   const sameAddr = norm(email) === sentTo;
   const blockedThis = sameAddr && emailBlocked;
@@ -68,7 +89,7 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
     setNotice(null);
     const { error: err } = await browserClient().auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: `${window.location.origin}/staff/auth/callback` },
+      options: { redirectTo: callbackUrl },
     });
     if (err) {
       setBusy(false);
@@ -95,7 +116,7 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
       // staff account (provisionStaff pre-creates it) can request a code.
       options: {
         shouldCreateUser: false,
-        emailRedirectTo: `${window.location.origin}/staff/auth/callback`,
+        emailRedirectTo: callbackUrl,
       },
     });
     setBusy(false);
@@ -154,8 +175,10 @@ export function StaffLogin({ denied = false }: { denied?: boolean }) {
       );
       return;
     }
-    // Session is now in cookies — let the server shell re-gate against the staff row.
-    router.replace("/staff");
+    // Session is now in cookies — let the destination shell re-gate (the staff row for /staff,
+    // authorizeDevice for /kiosk and /board). The typed-code path never leaves the browser, so it
+    // does the routing the callback route does for the link path.
+    router.replace(next);
     router.refresh();
   }
 

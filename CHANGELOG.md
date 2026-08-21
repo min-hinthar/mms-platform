@@ -4,6 +4,60 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Staff sign-in on every surface, and sessions that survive the night (2026-08-21)
+
+Owner: _"I want the kitchen staff portal, kiosk, board, and front house staff portal, to login with
+OTP email via url and stays logged in on device until logged out."_
+
+**Why it did not stay logged in, measured rather than guessed.** Two independent causes, and neither
+was the login:
+
+1. **Nothing refreshed the session server-side.** `@supabase/ssr`'s browser client persists to
+   cookies and refreshes the access token WHILE A TAB IS OPEN AND AWAKE. It cannot do that for the
+   request that arrives after the tab was closed, after a wall display slept, or on the first cold
+   navigation the next morning — the server reads an expired JWT, `getStaffAuth()` answers `anon`,
+   and the shell redirects to the login. A Server Component cannot fix this itself: RSC render is
+   READ-ONLY for cookies, so even when the SSR client refreshes it has nowhere to persist the result.
+   `proxy.ts` now does it, scoped to `/staff`, `/kiosk`, `/board`.
+2. **`AnonAuthGate` was signing staff out on purpose.** It exempted `/staff` only, so a staff session
+   on `/kiosk` or `/board` was swapped for an anonymous diner session within a second of landing.
+   Both surfaces are now exempt.
+
+⚠️ An earlier note in this session said "no middleware.ts — that's where staying-logged-in lives".
+That was wrong: Next 16 renamed the convention and this app has had `proxy.ts` all along (it carries
+the per-request CSP nonce). The refresh is a scoped addition to it, not a new file — and the scoping
+matters, because that matcher covers EVERY document route and an auth round-trip in front of every QR
+scan would be a real cost on the hot path for anonymous sessions that need none of it.
+
+**All four surfaces now take the same email sign-in.** `/staff` (front-of-house, kitchen, expo) had
+it; `/kiosk` and `/board` gain it via `lib/device-auth.ts`, which replaces two hand-copied
+constant-time token checks with one gate accepting EITHER the device token OR a staff session.
+
+Two properties were nearly lost adding that, and the existing suite caught the first:
+
+- **A wrong token used to cost zero database work** (`kiosk.test.ts` counts queries). Falling through
+  to `getStaffAuth()` on every miss quietly retired it — an anonymous client hammering `/kiosk?k=wrong`
+  would each buy a `getUser()` round-trip plus a `staff` row read. The staff lookup now runs only when
+  the request actually carries a Supabase auth cookie: a routing hint, never a credential, since
+  `getStaffAuth` still verifies the session and the row.
+- **The token is checked BEFORE auth**, so a bookmarked device keeps working through an auth-plane
+  outage instead of acquiring a new dependency on it (W10b's rule, one surface further out). A failed
+  auth read is now `unavailable`, never `denied` — a 401 would tell a running TV it had been
+  de-authorized during a database blip.
+
+**Landing where you signed in.** `/staff/login?next=/kiosk` carries the destination through both the
+magic link and the Google redirect, so an email opened on the lobby iPad lands on the kiosk rather
+than the console — which matters most on a screen with no keyboard to re-type a URL with. `next`
+arrives in a URL and rides into a mailbox, so it is treated as attacker-controlled: `lib/safe-next.ts`
+rejects the two candidates a naive predicate accepts — `/\evil.com` (a backslash aliases to `/`) and
+`/<TAB>/evil.com` (TAB/LF/CR are STRIPPED before parsing), both of which resolve to `https://evil.com`
+— then resolves against a throwaway origin and demands it back, and finally allowlists the three
+sign-in surfaces. A test asserts the PREMISE too, so if a runtime ever stops normalizing those the
+comments get rewritten rather than trusted.
+
+51 new tests (926 qr). `docs/ENV.md` carries the two dashboard settings that decide how long "until
+logged out" actually is — neither is in code.
+
 ### M100 · M107 — the session's mode is the authority, and two RPCs never asked (2026-08-21)
 
 `Checkout.tsx` renders the For-here/To-go pills and "Make it now" behind `isDineIn &&`, and its own

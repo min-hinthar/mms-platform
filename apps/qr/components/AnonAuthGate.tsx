@@ -18,6 +18,9 @@ import { publishAuthPlaneStatus } from "@/lib/session-status";
  * a REAL (staff) session must be swapped for an anonymous one (a staff uid is is_staff() → it would
  * read every table and attribute diner writes to the staff user).
  */
+/** Routes whose session belongs to STAFF, not to a diner — never swapped to an anonymous session. */
+const STAFF_OWNED = ["/staff", "/kiosk", "/board"] as const;
+
 export function AnonAuthGate() {
   const pathname = usePathname();
   const router = useRouter();
@@ -27,7 +30,13 @@ export function AnonAuthGate() {
   const running = useRef(false);
 
   useEffect(() => {
-    if (pathname?.startsWith("/staff") || running.current) return;
+    // The surfaces a STAFF session legitimately owns. `/staff` was always exempt; `/kiosk` and
+    // `/board` join it because they now accept a staff sign-in (owner, 2026-08-21) — without this
+    // the gate would sign that session straight back out and the device would look like it "forgot"
+    // the login within a second of it landing. Everything else is a DINER route, where a staff uid
+    // is swapped for an anonymous one: it cannot be a session member, so it could not order anyway.
+    if (STAFF_OWNED.some((p) => pathname === p || pathname?.startsWith(`${p}/`)) || running.current)
+      return;
     running.current = true;
     const supa = browserClient();
     void (async () => {

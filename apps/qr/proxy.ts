@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { needsStaffSession, withRefreshedStaffSession } from "@/lib/proxy-session";
 
 /**
  * Per-request nonce CSP (M1·P1.6). A fresh nonce on every response lets us drop `script-src
@@ -27,7 +28,7 @@ function supabaseOrigins(): { https: string; wss: string } {
   }
 }
 
-export function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const nonce = btoa(crypto.randomUUID());
   // `next dev` (React's dev runtime + Turbopack HMR) evaluates code via eval(), which 'strict-dynamic'
   // + a nonce can't authorize — only 'unsafe-eval' does. Add it in development ONLY; production never
@@ -69,10 +70,24 @@ export function proxy(request: NextRequest) {
   requestHeaders.set("x-nonce", nonce);
   requestHeaders.set("content-security-policy", csp);
 
-  const response = NextResponse.next({ request: { headers: requestHeaders } });
-  response.headers.set("content-security-policy", csp);
+  // One place that builds a response carrying the per-request CSP, so the session refresh below can
+  // re-create it after a cookie write without this file's CSP knowledge leaking into that module.
+  const build = () => {
+    const res = NextResponse.next({ request: { headers: requestHeaders } });
+    res.headers.set("content-security-policy", csp);
+    return res;
+  };
+  const response = build();
   // (W16b: the W5 Accept-Language locale-cookie seed is retired with the toggle — the app is
   // always bilingual. Stale mms_locale cookies on devices are inert; nothing reads them.)
+
+  // Staff surfaces only. The matcher above covers EVERY document route, and an auth round-trip in
+  // front of every QR scan would be a real cost on the hot path for anonymous sessions that need
+  // none of it. `/staff`, `/kiosk` and `/board` are the four surfaces an owner signs into, and the
+  // ones where a session going stale overnight reads as "it logged me out" (owner, 2026-08-21).
+  if (needsStaffSession(request.nextUrl.pathname)) {
+    return withRefreshedStaffSession(request, response, build);
+  }
   return response;
 }
 

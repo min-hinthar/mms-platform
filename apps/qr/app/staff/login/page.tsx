@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getStaffAuth } from "@/lib/staff";
+import { safeNext } from "@/lib/safe-next";
 import { StaffLogin } from "@/components/staff/StaffLogin";
 
 export const metadata = { title: "Staff sign-in — Mandalay Morning Star" };
@@ -11,12 +12,18 @@ export const dynamic = "force-dynamic";
 export default async function StaffLoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ denied?: string }>;
+  searchParams: Promise<{ denied?: string; next?: string }>;
 }) {
   const auth = await getStaffAuth();
-  // Already a staff member? Skip the form. Signed in but NOT staff (or sent here with ?denied)? Show
-  // the form WITH a clear reason + a way out (sign out), so a wrong account can recover, not loop.
-  if (auth.kind === "staff") redirect("/staff");
-  const denied = auth.kind === "not_staff" || (await searchParams).denied === "1";
-  return <StaffLogin denied={denied} />;
+  const params = await searchParams;
+  // VALIDATED here, once, before it can reach a redirect or the magic link (`?next=` arrives from a
+  // URL and later rides into a mailbox — `safeNext` rejects off-origin and non-sign-in destinations).
+  const next = safeNext(params.next);
+  // Already a staff member? Skip the form — and land on the surface this sign-in was for, so a
+  // bookmarked `/staff/login?next=/kiosk` on the lobby iPad is idempotent. Signed in but NOT staff
+  // (or sent here with ?denied)? Show the form WITH a clear reason + a way out (sign out), so a
+  // wrong account can recover, not loop.
+  if (auth.kind === "staff") redirect(next);
+  const denied = auth.kind === "not_staff" || params.denied === "1";
+  return <StaffLogin denied={denied} next={next} />;
 }
