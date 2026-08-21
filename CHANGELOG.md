@@ -20,24 +20,42 @@ under EvalPlanQual and refuses. The sync device IS the production mutation (a di
 mid-merge is literally `update … set qty`), and the wait graph is acyclic by construction: B takes
 its only lock before A starts and requests nothing after.
 
-**Nine scenarios.** C0/C1 are CONTROLS and are not optional — every scenario that asserts the guard
+**Eleven scenarios.** C0/C1 are CONTROLS and are not optional — every scenario that asserts the guard
 REFUSES is also passed by a `delete … and false` mutant, so the controls are the only thing proving
-it still ALLOWS a legitimate fold. S1–S6 cover qty, state, comped, price, fulfillment and notes. S7
+it still ALLOWS a legitimate fold. S1–S6 cover qty, state, comped, price, fulfillment and notes, and **S1b/S4b cover the OTHER
+DIRECTION of the two numeric ones** — every scenario mutating its column one way makes the whole
+`>=`/`<=` mis-write family invisible, and `and qty >= r.qty` (a one-character typo) survives a
+decrease while destroying a unit on the increase that every document here names as the hazard. The
+repo already states that rule in `m98_merge_matches_price_test.sql`; M102's first version dropped
+it. S7
 covers the TARGET: B re-prices the target row, and the match query's `for update` forces READ
 COMMITTED to re-evaluate against the new version and skip it, so the source re-parents at the price
 it was quoted instead of being folded into a line now priced $10.00.
 
-**A committed battery, because a green run proves nothing on its own.** `--mutants` applies ten
+**A committed battery, because a green run proves nothing on its own.** `--mutants` applies fourteen
 mutations to the LIVE function and requires each to be caught by the scenario that names it, with
 the controls staying green. Every mutant asserts the pattern still matches, the apply succeeded,
 `md5(prosrc)` actually changed, and the body is restored byte-identical — the first ad-hoc version
 reported a SURVIVOR that was really a malformed `sed` leaving a syntax error, so the mutant never
-applied and the harness ran against the unmutated function. ~42s, wired into CI.
+applied and the harness ran against the unmutated function. It also proves a GREEN BASELINE before
+the first mutant, or an already-failing scenario is credited to whichever mutant names it. Wired
+into CI.
 
-**Two defects only the battery could find**, both invisible from inside a passing run: S7's first
-version asserted liveness alone and its mutant SURVIVED (removing the `for update` does not stop A
-blocking — the bump takes the same row lock one statement later), and the fixture was DEGENERATE,
-both lines at qty 1, so a fold's `v_moved += r.qty` could not be told from a literal 1.
+**Defects only the battery could find**, all invisible from inside a passing run: S7's first version
+asserted liveness alone and its mutant SURVIVED (removing the `for update` does not stop A blocking —
+the bump takes the same row lock one statement later); the fixture was DEGENERATE, both lines at
+qty 1, so a fold's `v_moved += r.qty` could not be told from a literal 1; and `assertFoldable` — the
+hand-copied anti-degeneracy check — was LOOSER than the fold it copies, omitting the modifier key
+and the qty cap. Its header claimed it "fails safe: a stale copy returns 0 and this aborts", which is
+exactly inverted: an omitted predicate makes the copy looser, so it passes while the real fold
+refuses, and six scenarios then land on their expected numbers via the no-match path having never
+entered the guarded DELETE.
+
+**A correction, not a discovery**: the `provolatile` guard's stated reason was false. It claimed
+marking the function STABLE would make every scenario "go green having proved nothing". Measured, a
+non-VOLATILE plpgsql function cannot run its first statement — `ERROR: SELECT FOR UPDATE is not
+allowed in a non-volatile function` — so it goes loudly RED. The assertion is kept because it turns
+that mid-run error into a named refusal; it is a diagnostics guard, not a silent-green one.
 
 **It COMMITS, and nothing else in this repo does** — session B must see session A's fixtures, so
 they cannot live in a rolled-back transaction. It therefore takes no DSN argument at all, states its

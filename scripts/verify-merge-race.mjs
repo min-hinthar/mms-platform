@@ -140,16 +140,23 @@ function q(sql, appName = `mms-m102-probe`) {
  *
  * So this now asserts only what has actually been measured on BOTH sides:
  *
- *   |                      | hosted (fasnpdhtvqtzjlvruqcu) | supabase CLI stack | bare local cluster |
+ *   |                      | hosted (fasnpdhtvqtzjlvruqcu) | supabase CLI stack | scratch cluster    |
  *   | -------------------- | ----------------------------- | ------------------ | ------------------ |
  *   | `usesuper`           | f                             | f                  | t                  |
  *   | `ssl`                | **t**                         | **f**              | **f**              |
  *   | `inet_server_addr()` | **2600:1f14:… (public)**      | **172.18.0.2**     | **127.0.0.1**      |
  *   | foreign `qr_cart_items` | **245**                    | **0**              | **0**              |
  *
- * Every cell is measured. The CLI-stack column comes from CI run 32493251873 — the first green run
- * of this file — and NOT from reasoning about what a Docker bridge address ought to look like. That
- * distinction is the entire reason the previous version of this guard was wrong.
+ * Every cell is measured, and each column says where. Hosted: a probe of that project. CLI stack:
+ * CI run 32493251873, the first green run of this file — NOT reasoning about what a Docker bridge
+ * address ought to look like, which is the entire reason the previous version of this guard was
+ * wrong. Scratch cluster: a local postgres-16 with this repo's migration and production's constraint
+ * and trigger surface applied, which is how every local proof in this PR was obtained.
+ *
+ * ⚠️ The third column was originally labelled "bare local cluster", which was wrong in a way worth
+ * recording: a BARE cluster has no `public.qr_cart_items` at all, so the guard's count query would
+ * ERROR rather than return 0. The column only ever described a MIGRATED scratch cluster. A cell that
+ * cannot exist in the environment its column names is the same defect as an unmeasured one.
  *
  * The same run measured `statement_timeout`, `lock_timeout` and `idle_in_transaction_session_timeout`
  * as ALL ZERO on the CLI stack, so zeroing the first two on session A is belt-and-braces against a
@@ -458,8 +465,21 @@ function fixture(n) {
  * unrelated predicate refuses for the wrong reason and every assertion below passes.
  *
  * ⚠️ A deliberate COPY that WILL go stale if the fold gains a predicate. Update it in the same commit,
- * exactly as `m98_merge_matches_price_test.sql`'s header instructs. It fails safe: a stale copy
- * returns 0 and this aborts.
+ * exactly as `m98_merge_matches_price_test.sql`'s header instructs.
+ *
+ * ⚠️⚠️ AN EARLIER VERSION OF THIS COMMENT CLAIMED "it fails safe: a stale copy returns 0 and this
+ * aborts". That is EXACTLY INVERTED, and the inversion is the whole hazard. An omitted predicate
+ * makes this copy LOOSER than the fold, so it returns 1 and PASSES while the real fold refuses —
+ * and every drift mode the sentence above names (the fold GAINING a predicate) is that direction.
+ * A copy can only fail safe if it is STRICTER.
+ *
+ * The consequence is not abstract. If the two fixture lines ever differ on a predicate this copy
+ * omits, the match query finds no target, EVERY source line takes the re-parent path — and S1, S2,
+ * S3, S4, S5 and S6 all land on exactly their expected numbers by that path, printing `caught`
+ * having never once entered the guarded DELETE. Only C0/C1 would go red, and their message names
+ * neither the fixture nor the guard. That is why the modifier key and the qty cap are now here: it
+ * was missing both, while the anti-degeneracy block it was copied FROM
+ * (`m98_merge_matches_price_test.sql`) carries the modifier key.
  */
 function assertFoldable(f, scenario) {
   const n = q(`select count(*) from public.qr_cart_items t, public.qr_cart_items s
@@ -471,7 +491,14 @@ function assertFoldable(f, scenario) {
       and t.state = s.state and t.state <> 'voided' and not t.comped
       and s.state <> 'voided' and not s.comped
       and t.menu_item_id = s.menu_item_id
-      and t.unit_price_cents = s.unit_price_cents`);
+      and t.unit_price_cents = s.unit_price_cents
+      -- The modifier key, copied verbatim from the fold. Omitting it was NOT harmless: see below.
+      and coalesce((select jsonb_agg(e order by e) from jsonb_array_elements_text(t.modifiers) e),
+                   '[]'::jsonb)
+        = coalesce((select jsonb_agg(e order by e) from jsonb_array_elements_text(s.modifiers) e),
+                   '[]'::jsonb)
+      -- And the cap, which is the other half of the IF that decides whether a fold is attempted.
+      and t.qty + s.qty <= 99`);
   if (n !== "1") {
     throw new Error(
       `${TAG} DEGENERATE FIXTURE (${scenario}) — the two lines are not foldable-but-for-the-race ` +
@@ -515,7 +542,29 @@ const SCENARIOS = [
     tgtQty: TGT_QTY + 2,
     tgtLines: 2,
     srcLines: 0,
+    movedLineQty: 2,
     why: "qty — drop `and qty = r.qty` and the fold lands on the STALE r.qty: one unit silently destroyed, not charged, not cooked, no error. The RPC value is the only thing that catches a revert of the read-back `v_moved`.",
+  },
+  {
+    id: "S1b",
+    mutate: (f) =>
+      `update public.qr_cart_items set qty = ${SRC_QTY + 1} where id = '${f.srcLine}' returning id`,
+    moved: SRC_QTY + 1,
+    tgtQty: TGT_QTY + SRC_QTY + 1,
+    tgtLines: 2,
+    srcLines: 0,
+    movedLineQty: SRC_QTY + 1,
+    why: "qty, the OTHER DIRECTION — and the one every document here names as the hazard: a diner tapping `+`. S1 only ever DECREASES, so it is passed by `and qty >= r.qty`, a one-character mis-write that then deletes the source and bumps the target by the STALE r.qty. One unit destroyed, which is verbatim the HIGH M97's review found.",
+  },
+  {
+    id: "S4b",
+    mutate: (f) =>
+      `update public.qr_cart_items set unit_price_cents = 100 where id = '${f.srcLine}' returning id`,
+    moved: SRC_QTY,
+    tgtQty: TGT_QTY + SRC_QTY,
+    tgtLines: 2,
+    srcLines: 0,
+    why: "price, the OTHER DIRECTION. S4 only ever RAISES, so `and unit_price_cents <= r.unit_price_cents` survives it. Same family, same one-character shape.",
   },
   {
     id: "S2",
@@ -622,12 +671,27 @@ async function runScenario(s) {
         check(`${label} target lines`, tgtLines, s.tgtLines),
         check(`${label} target units`, tgtQty, s.tgtQty),
         check(`${label} source lines`, srcLines, s.srcLines),
+        // Postconditions, asserted on EVERY scenario because the merge's trailing statements run
+        // unconditionally. Nothing here read outside the two carts' line rows until now, so a
+        // refactor dropping either of these was invisible to the whole battery — two open carts
+        // for one set of lines, and a table session that never closes.
+        check(
+          `${label} source cart cancelled`,
+          q(`select status from public.qr_carts where id = '${f.srcCart}'`),
+          "cancelled",
+        ),
+        check(
+          `${label} source session closed`,
+          q(`select s.status from public.table_sessions s
+               join public.qr_carts c on c.session_id = s.id where c.id = '${f.srcCart}'`),
+          "closed",
+        ),
       ].every(Boolean) &&
-      (s.id !== "S1" ||
+      (s.movedLineQty === undefined ||
         check(
           `${label} the moved line kept its CURRENT qty, not the cursor's stale ${SRC_QTY}`,
           q(`select qty from public.qr_cart_items where id = '${f.srcLine}'`),
-          2,
+          s.movedLineQty,
         ));
 
     console.log(`  ${ok ? green("caught") : red("FAILED")} ${label} — ${s.why}`);
@@ -785,6 +849,36 @@ const MUTANTS = [
     why: "M97's qty re-assertion — without it a concurrent + silently destroys a unit",
   },
   {
+    id: "delete-qty-loosened",
+    expect: ["S1b"],
+    find: /^\s*and qty = r\.qty\s*$/,
+    to: "          and qty >= r.qty",
+    why: "the inequality family — survives S1's decrease, dies only on S1b's increase. The repo already states this rule in m98_merge_matches_price_test.sql: an inequality mis-write survives one direction and dies in the other, so BOTH are needed.",
+  },
+  {
+    id: "delete-price-loosened",
+    expect: ["S4b"],
+    find: /^\s*and unit_price_cents = r\.unit_price_cents\b/,
+    to: "          and unit_price_cents <= r.unit_price_cents",
+    why: "the same family on price — survives S4's raise, dies only on S4b's drop.",
+  },
+  {
+    id: "delete-overtight-taxcents",
+    expect: ["C1"],
+    controlsExpected: true,
+    find: /^\s*and not comped;\s*$/,
+    to: "          and not comped and tax_cents = 32;",
+    why: "an OVER-tight guard, and the only mutant that separates C1 from C0: C1 bumps tax_cents so the recheck must fail, while C0 (lock only, no new tuple version) still folds. Without it the two controls have identical expectations and C1 strictly subsumes C0. It compares against the fixture's literal 32 rather than `r.tax_cents` because tax_cents is NOT in the loop's cursor — the record-field version applied cleanly and then errored at runtime, which the battery reported as MISDIRECTED rather than caught.",
+  },
+  {
+    id: "drops-source-cart-cancel",
+    expect: ["C0"],
+    controlsExpected: true,
+    find: /^\s*update public\.qr_carts set status = 'cancelled' where id = p_source_cart;\s*$/,
+    to: "",
+    why: "a POSTCONDITION rather than a guard: without it the merge leaves two open carts for one set of lines. No scenario asserted it until the postcondition checks were added, so every mutation of the merge's trailing statements was invisible.",
+  },
+  {
     id: "delete-drops-fulfillment",
     expect: ["S5"],
     find: /^\s*and fulfillment = r\.fulfillment\s*$/,
@@ -898,13 +992,15 @@ function runMutants() {
   const base = childRun();
   if (base.status !== 0) {
     console.error(
-      red(`${TAG} REFUSED — the UNMUTATED function does not pass all nine scenarios.\n`) +
+      red(`${TAG} REFUSED — the UNMUTATED function does not pass every scenario.\n`) +
         `  Every "caught" below would credit a mutant for a failure that already existed.\n` +
         `  Fix the baseline first:\n\n${base.out.split("\n").slice(-25).join("\n")}\n`,
     );
     process.exit(1);
   }
-  console.log(`  ${green("baseline")} ${dim("unmutated function passes all nine scenarios")}`);
+  console.log(
+    `  ${green("baseline")} ${dim(`unmutated function passes all ${SCENARIOS.length + 1} scenarios`)}`,
+  );
 
   let bad = 0;
 
@@ -943,11 +1039,18 @@ function runMutants() {
       exec(original);
     };
     process.once("exit", restoreNow);
+    // 'exit' does NOT fire on a signal with no listener — Node terminates directly — so Ctrl-C
+    // during a mutant would leave the money function mutated on a persistent local stack.
+    process.once("SIGINT", restoreNow);
+    process.once("SIGTERM", restoreNow);
     try {
       const child = childRun();
       const out = child.out;
       const failing = new Set(
-        [...out.matchAll(/✗\s+(\w+)/g)].map((x) => x[1]).filter((x) => /^[CS]\d$/.test(x)),
+        // `[CS]\d[a-z]?` — the trailing letter matters: S1b and S4b exist precisely because they are
+        // the OTHER direction of S1 and S4, and a `/^[CS]\d$/` parser silently drops them, so their
+        // mutants reported "expected S1b, saw none" while the scenario had failed correctly.
+        [...out.matchAll(/✗\s+(\w+)/g)].map((x) => x[1]).filter((x) => /^[CS]\d[a-z]?$/.test(x)),
       );
       const missed = m.expect.filter((e) => !failing.has(e));
       const controlsFired = ["C0", "C1"].filter((c) => failing.has(c));
@@ -976,6 +1079,8 @@ function runMutants() {
     } finally {
       restoreNow();
       process.removeListener("exit", restoreNow);
+      process.removeListener("SIGINT", restoreNow);
+      process.removeListener("SIGTERM", restoreNow);
     }
 
     const md5Now = q(BODY_MD5);
@@ -1002,10 +1107,21 @@ async function main() {
   assertNotATunnel();
   assertLocalOnly();
 
-  // The whole harness rests on each SPI statement getting a fresh snapshot, which is true because the
-  // function is VOLATILE — by omission of a marker, not by intent. Mark it STABLE and the delete
-  // would inherit the caller's snapshot, never see B's commit, and every scenario below would go
-  // green having proved nothing.
+  // The function is VOLATILE by OMISSION of a marker rather than by intent, and each SPI statement
+  // therefore gets a fresh snapshot — which is what lets the guarded DELETE see B's commit.
+  //
+  // ⚠️ THIS CHECK IS A DIAGNOSTICS GUARD, NOT A SILENT-GREEN GUARD, and an earlier version of this
+  // comment said the opposite: "mark it STABLE and every scenario would go green having proved
+  // nothing". Measured, that is impossible — plpgsql runs SPI read-only for a non-VOLATILE function,
+  // so the merge aborts at its FIRST statement:
+  //
+  //     ERROR:  SELECT FOR UPDATE is not allowed in a non-volatile function
+  //     CONTEXT:  SQL statement "SELECT 1 from public.qr_carts ... order by id for update"
+  //
+  // It would go loudly RED, not silently green. The assertion is kept because it is cheap and turns
+  // a confusing mid-run psql error into a named refusal — but the reason is now the measured one.
+  // (Another reasoned mechanism written in the language of an observation, in the file whose header
+  // spends fifteen lines retracting exactly that mistake about `usesuper`.)
   const vol = q(`select provolatile from pg_proc p join pg_namespace n on n.oid = p.pronamespace
                   where n.nspname = 'public' and p.proname = 'mms_merge_table_orders'`);
   if (vol !== "v") {
@@ -1013,8 +1129,10 @@ async function main() {
       red(
         `${TAG} WRONG VOLATILITY — mms_merge_table_orders is provolatile='${vol}', expected 'v'.`,
       ) +
-        `\n  A non-VOLATILE function reuses the caller's snapshot, so the guarded DELETE would never see\n` +
-        `  the concurrent commit and every scenario here would pass without testing anything.\n`,
+        `\n  plpgsql runs SPI read-only for a non-VOLATILE function, so the merge would abort at its\n` +
+        `  FIRST statement with "SELECT FOR UPDATE is not allowed in a non-volatile function" rather\n` +
+        `  than reaching any guard. Refusing here names the cause instead of leaving a psql error\n` +
+        `  mid-run for the reader to diagnose.\n`,
     );
     process.exit(1);
   }
@@ -1083,7 +1201,9 @@ async function main() {
   );
   console.log(
     dim(
-      "  (S1–S6 prove the source guard refuses; C0/C1 prove it still allows; S7 covers the target.)\n",
+      "  (S1-S6 prove the source guard refuses, S1b/S4b the OTHER direction of the two numeric ones;\n" +
+        "   C0/C1 prove it still allows; S7 covers the target; every scenario checks the merge's\n" +
+        "   postconditions on the source cart and session.)\n",
     ),
   );
 }
