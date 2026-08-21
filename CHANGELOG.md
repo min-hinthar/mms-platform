@@ -4,6 +4,69 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M98 — the merge fold must match on `unit_price_cents` too (2026-08-21)
+
+The **price** hole in the fold's identity key, the one M97's registry row explicitly left open.
+⚠️ An earlier draft called it the _last_ hole. That is **refuted, twice over** (adversarial review):
+`modifier_option_ids` is still unmatched — the fold keys on the display-LABEL array, which is exactly
+the lossiness M3 exists to fix and which M3's own header names ("the SQL fold key rides display
+text") — and the same price hole exists on the ordinary **add** path (M104), which needs one cart and
+one diner rather than two active sessions. Filed as M103 and M104 rather than claimed closed.
+`mms_merge_table_orders` matched on seat, adder (M96), tag (M97), state, notes, item and modifiers —
+but not on **price**. It bumps the target's qty and **deletes** the source row, so the source's units
+silently adopt the target's price snapshot.
+
+Two carts hold the same dish at two prices because `setMenuPrice` writes `menu_items.base_price_cents`
+**live**, and says so: _"Lines ALREADY in a cart keep the price they were quoted … nothing here
+touches `qr_cart_items`."_ A cart line is an insert-time snapshot, and the price editor is a floor
+surface sitting beside the 86 button.
+
+**Worse than M97, and the registry understated it.** Error = `srcQty × (targetPrice − sourcePrice)`
+on the subtotal, plus 10.5% tax on that, plus the tip riding the corrupted net. M97 was capped at
+10.5% of one line and only bit cold categories — a hot dish's tag flip cost nothing. This is
+**uncapped**, multiplies by qty, and applies to every category. On the real applied Balachaung change
+($3.00 → $10.00), one unit each side is **+773¢ or −774¢**, and which one depends only on the merge
+direction, so there is no safe ordering. Break-even against M97's worst case is a price edit of about
+**$1.33**.
+
+**`=` and not `is not distinct from` — right operator, different reason.** `unit_price_cents` is
+`not null` since `create table`, with no default and no `alter` ever touching it. Do not copy M97's
+argument one row down (`fulfillment` is not-null _with_ a default and a backfill), and note that
+`added_by` two rows above needs the opposite operator because it _is_ nullable. Three adjacent
+predicates, three different nullability stories.
+
+**Reachability, stated honestly:** nothing in production can hit this today — a probe found **0**
+non-closed `table_sessions`, so every merge raises at the "both tables still active" gate before
+reaching the loop. That is a pre-launch fact, not a safety property: both preconditions are
+by-construction, and prod already holds the shape (several menu items sit at two distinct
+`unit_price_cents` across existing cart lines). A correctness tightening on an unreached path, not an
+incident.
+
+The predicate joins the **guarded delete** too, and the reason is deliberately not the `qty` reason:
+the fold does no arithmetic on price, so omitting it would yield "decided eligibility on a stale
+price" (the `fulfillment` class) rather than a destroyed unit (the `qty` class). It is included
+because the column's immutability today rests on two _caller conventions_ — an early return and one
+call site that omits the argument — not on a database guarantee. ⚠️ Reasoned-correct and **unproven**:
+no single-session SQL test can make that branch fail (M102).
+
+Pinned by `supabase/tests/m98_merge_matches_price_test.sql`.
+
+⚠️ **The first version of this entry claimed the test was "watched failing on CI". It was not, and it
+could not have been** (adversarial review, HIGH). `ci.yml` triggers on `pull_request` and on pushes to
+`main` — nothing else — so the test-only commit, pushed while the previous PR was already merged and
+this one did not yet exist, produced **zero** check runs. M97's identical claim is sound only because
+_opening_ its PR triggered CI at the then-head. The red was therefore re-obtained for real, by
+removing the migration on an open PR and watching the SQL job fail, and this entry now points at that
+run. A reasoned assertion written in the language of an observation is the exact failure this repo's
+first rule exists to prevent.
+
+**Cases 1 and 2** open with an **anti-degeneracy assert** that their two lines are foldable on every
+other predicate and differ only on price — because a fixture that quietly violates an unrelated
+predicate has passed for the wrong reason twice in this repo's merge tests, caught by review both
+times rather than by the suite. Cases 3–5 cannot carry it (3 and 4 are same-price by construction, 5
+holds two candidates), and an earlier draft wrongly claimed all five did. Case 5 is labelled order-dependent (`limit 1` with no
+`order by`) and is never the only case catching a mutation.
+
 ### M97 — the table-merge fold must match on `fulfillment` too (2026-08-21)
 
 `mms_merge_table_orders` folds a source line into a matching target line by bumping the target's qty
