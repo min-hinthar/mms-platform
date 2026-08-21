@@ -47,11 +47,32 @@
 -- ── The guard is ONE-DIRECTIONAL, on purpose ───────────────────────────────────────────────────
 --
 -- `dinein` is the value a non-dine-in session may not reach. `togo` is the value that REPAIRS one, so
--- it stays open on every mode: rows already tagged `dinein` on a pickup cart exist today (every line
--- written before this applies), and a guard phrased as "no toggling at all off a dine-in session"
--- would trap each of them as permanently taxable — the exact damage this migration exists to stop,
--- made unfixable. Over-blocking is as bad as under-blocking; `supabase/tests/
--- m100_session_mode_authority_test.sql` case 5 is the case that fails if this is ever tightened.
+-- it stays open on every mode. A guard phrased as "no toggling at all off a dine-in session" passes
+-- every refusal case below and traps each mis-tagged line as permanently taxable — the exact damage
+-- this migration exists to stop, made unfixable. Over-blocking is as bad as under-blocking;
+-- `supabase/tests/m100_session_mode_authority_test.sql` case 5 fails if this is ever tightened.
+--
+-- ⚠️ An earlier draft of this paragraph justified that with "rows already tagged `dinein` on a pickup
+-- cart exist today — every line written before this applies", and that reason is FALSE. `addItem`
+-- (`cart.ts:56-64`) yields `togo` for EVERY non-dine-in mode, and the one-time S4 backfill
+-- (`20260623100000:16-22`) did the same, so no ordinary add has ever produced this shape. The only
+-- writer that can is the toggle itself. Case 5 stays because it forbids a guard SHAPE that would make
+-- repair impossible, not because a diner can reach it today — the pills are hidden off dine-in
+-- (`Checkout.tsx:1243`), and the two live rows below sit on a PAID cart, where `not_open` fires first.
+--
+-- ── Reachability, measured on the live project rather than reasoned ─────────────────────────────
+--
+--   select s.mode, ci.fulfillment, ci.state, c.status, count(*) from qr_cart_items ci
+--     join qr_carts c on c.id=ci.cart_id join table_sessions s on s.id=c.session_id group by 1,2,3,4;
+--
+-- Fourteen combinations, and exactly ONE is illegitimate: `pickup / dinein / draft / paid` — 2 lines
+-- on 1 cart. So this is not a theoretical hole; it has been reached in production. It is also, in
+-- that one instance, harmless on both axes, and saying so is part of reporting it honestly: both
+-- lines are **Nan-Gyi Mont Ti** and **Shan Noodles** at $13.00, both `hot_prepared`, which
+-- `mms_line_tax` prices at 137¢ dine-in AND 137¢ to-go — zero money delta — and their order carried
+-- four other `togo`/`grocery` lines, so `mms_init_togo_status` stamped `preparing` and the expo saw
+-- the bag. The damage this file describes needs a COLD line (the only two fulfillment-sensitive
+-- categories) or an order with no other bag line. Neither has happened yet.
 --
 -- ── Two homes for one predicate, and an honest note about the second ───────────────────────────
 --

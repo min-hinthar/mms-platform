@@ -66,13 +66,29 @@ function psql(args, input) {
   });
 }
 
-/** md5 of a function's body — the proof a mutation applied and, later, that the restore was exact. */
+/**
+ * md5 of a function's body — the proof a mutation applied and, later, that the restore was exact.
+ *
+ * Asserts a SINGLE row rather than pinning a signature string (which would rot on the next re-sign):
+ * `proname` alone matches every overload, and two rows would `.trim()` into a two-line "hash" that
+ * compares unequal to itself for a reason nobody would read. All three targets have exactly one
+ * overload today; this fails loudly on the day one of them gains a second.
+ */
 function bodyHash(fn) {
-  return psql([
+  const rows = psql([
     "-tAc",
     `select md5(prosrc) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = '${fn}'`,
-  ]).trim();
+  ])
+    .split("\n")
+    .filter(Boolean);
+  if (rows.length !== 1) {
+    throw new Error(
+      `${fn}: expected exactly 1 definition, found ${rows.length}. An overload landed — this battery ` +
+        `mutates by name and cannot tell them apart.`,
+    );
+  }
+  return rows[0].trim();
 }
 
 /** Run the SQL test. Returns null when it passes, or the failing ASSERT's message when it fails. */
@@ -100,11 +116,16 @@ function restore() {
  * migration whose other statements may not be re-runnable.
  */
 function functionDef(fn) {
-  return psql([
+  const def = psql([
     "-tAc",
     `select pg_get_functiondef(p.oid) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'public' and p.proname = '${fn}'`,
-  ]);
+  ]).trimEnd();
+  // Measured: `pg_get_functiondef` ends `end $function$` with NO terminating semicolon. Piping that
+  // to psql would leave an unterminated statement and rely on the client flushing its query buffer
+  // at EOF. It does — but a battery whose RESTORE path rests on that is the "green for the wrong
+  // reason" shape this file exists to prevent, so terminate it explicitly.
+  return `${def};\n`;
 }
 
 /**
@@ -237,7 +258,32 @@ const source = readFileSync(MIGRATION, "utf8");
 let failures = 0;
 
 console.log(c.bold(`\nverify:mode-authority — ${MUTANTS.length} mutants over 2 functions\n`));
+
+/**
+ * `restore()` re-applies THIS migration, which is only a restore while this migration is still the
+ * LAST definition of both functions. The day a later one redefines either, every mutant below would
+ * quietly revert to the M100 body and each verdict would be about dead code — a battery reporting
+ * green about a function the database no longer runs. So prove it first: hash, apply, re-hash, and
+ * refuse to mutate anything unless the bodies are already exactly what this file produces.
+ */
+// Hash EVERY target before the first restore, not one at a time: `restore()` re-applies the whole
+// migration, so checking function-by-function lets the first iteration's restore heal the exact
+// drift the second iteration is looking for. (Measured: written that way, stubbing out `mms_fire_line`
+// and re-running produced a clean pass — the guard was decorative until this loop was split in two.)
+const LIVE = new Map(["mms_set_line_fulfillment", "mms_fire_line"].map((fn) => [fn, bodyHash(fn)]));
 restore();
+for (const [fn, live] of LIVE) {
+  if (bodyHash(fn) !== live) {
+    console.log(
+      c.red(
+        `  ABORT  ${fn}'s live body is NOT this migration's — a later migration redefines it.\n` +
+          `         Re-applying 20260823000000 would REVERT it, so every verdict below would be\n` +
+          `         about dead code. Point this battery at the newest definition first.`,
+      ),
+    );
+    process.exit(1);
+  }
+}
 
 for (const m of MUTANTS) {
   // The text a mutant patches: the migration itself, or (fnPatch) the live definition of a function

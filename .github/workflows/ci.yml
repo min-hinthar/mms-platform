@@ -144,7 +144,8 @@ jobs:
       # baseline first, an md5(prosrc) that actually changed, and the NAMED case — not just some
       # case — to be the one that goes red. One mutant is a documented SURVIVOR and is asserted as
       # such: it measures the migration header's claim that the in-write mode term cannot diverge
-      # from its pre-check while table_sessions.mode is immutable.
+      # from its pre-check while table_sessions.mode is immutable. ~4s measured locally (12 mutants,
+      # ~26 psql invocations); the generous timeout is for a cold runner, not for the work.
       - name: Mode-authority mutants (can the guards fail?)
         timeout-minutes: 5
         run: node scripts/verify-mode-authority.mjs

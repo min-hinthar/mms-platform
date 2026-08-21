@@ -244,6 +244,16 @@ const MUTANTS = [
     replace: "    p_fulfillment: input.fulfillment,\n    p_unit_price_cents: 1234,\n  });",
   },
   {
+    id: "cart/toggle-swallows-a-refusal",
+    file: "apps/qr/lib/cart.ts",
+    suite: "lib/cart-toggle.test.ts",
+    why: "M100 — mms_set_line_fulfillment's mode gate answers not_dinein_session, and this line is the only thing carrying that verdict out of the RPC. A caller that reports every refusal as ok tells the diner their tap landed while the row never moved — the blocked-write-reads-as-success shape, one process boundary out from the .update() lesson",
+    // The bare `if (data !== "ok") …` line occurs TWICE in cart.ts (the toggle and makeItNow); the
+    // `return { ok: true };` suffix is what makes this one unique. Measured, not assumed.
+    find: '  if (data !== "ok") return { ok: false, reason: data ?? "error" };\n  return { ok: true };',
+    replace: '  if (data !== "ok") return { ok: true };\n  return { ok: true };',
+  },
+  {
     id: "cart/make-it-now-swallows-a-refusal",
     file: "apps/qr/lib/cart.ts",
     suite: "lib/cart-toggle.test.ts",
