@@ -27,8 +27,18 @@ describe("readBoardRefusal — only a KNOWN device refusal is a verdict", () => 
     expect(readBoardRefusal(status, body)).toEqual({ kind: "retry" });
   });
 
-  it("a 401 is a verdict even with no reason — it is the route's only genuine denial", () => {
-    expect(readBoardRefusal(401, { error: "Unauthorized" })).toEqual({
+  it.each([
+    ["Vercel deployment protection (HTML body)", 401, null],
+    ["an edge auth layer with an unrelated envelope", 401, { error: undefined }],
+  ])("retries on %s — an upstream 401 is not OUR denial", (_why, status, body) => {
+    // The symmetric hole to the 503 one, and left behind by the first fix: the 401 branch was
+    // unconditional, so any edge service answering 401 blanked a live board. Vercel's own deployment
+    // protection does exactly this on a protected preview.
+    expect(readBoardRefusal(status, body)).toEqual({ kind: "retry" });
+  });
+
+  it("a 401 NAMING our denial is a verdict", () => {
+    expect(readBoardRefusal(401, { reason: "denied", error: "Unauthorized" })).toEqual({
       kind: "verdict",
       message: "Unauthorized",
     });
@@ -58,7 +68,7 @@ describe("readBoardRefusal — a verdict must actually BE one", () => {
 
   it.each([
     [503, "not_configured", "Set BOARD_DEVICE_TOKEN, or sign in on this device."],
-    [401, undefined, "This device isn’t authorized."],
+    [401, "denied", "This device isn’t authorized."],
   ])("status %s IS a verdict, and carries the server's own sentence", (status, reason, error) => {
     // The message is carried because the two verdicts need DIFFERENT instructions: a denied board
     // has a device link it isn't using; a not_configured board has none to use and its operator has
@@ -71,11 +81,11 @@ describe("readBoardRefusal — a verdict must actually BE one", () => {
   });
 
   it("a verdict with no sentence still resolves — message is null, never undefined", () => {
-    expect(readBoardRefusal(401, { error: "Unauthorized" })).toEqual({
+    expect(readBoardRefusal(401, { reason: "denied", error: "Unauthorized" })).toEqual({
       kind: "verdict",
       message: "Unauthorized",
     });
-    expect(readBoardRefusal(401, {})).toEqual({ kind: "verdict", message: null });
+    expect(readBoardRefusal(401, { reason: "denied" })).toEqual({ kind: "verdict", message: null });
   });
 });
 

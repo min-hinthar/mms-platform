@@ -44,18 +44,26 @@ export type BoardRefusal =
  * failure mode of an unrecognised answer is now a board that stays up (W10b: unavailable ≠ denied,
  * and "we can't tell" is neither).
  */
-/** 503 reasons that really are statements about THIS DEVICE, and nothing else. */
-const DEVICE_REFUSAL_REASONS = new Set(["not_configured"]);
+/**
+ * The reasons that really are statements about THIS DEVICE, and nothing else. `/api/board` names one
+ * on every refusal it issues — that is what makes them distinguishable from a refusal issued by
+ * something else in front of the route.
+ */
+const DEVICE_REFUSAL_REASONS = new Set(["not_configured", "denied"]);
 
 export function readBoardRefusal(
   status: number,
   body: { reason?: string; error?: string } | null,
 ): BoardRefusal {
   const message = typeof body?.error === "string" ? body.error : null;
-  // The route's only 401 is `authorizeDevice` answering `denied` — a real statement about the device,
-  // and it carries no `reason`, so it cannot be recognised from the body alone.
-  if (status === 401) return { kind: "verdict", message };
-  if (status === 503 && body && DEVICE_REFUSAL_REASONS.has(body.reason ?? "")) {
+  // ONE rule for both statuses: a refusal counts only when it NAMES a device reason we know. The
+  // first cut whitelisted the 503 and left the 401 unconditional, which left the same hole open on
+  // the other status — Vercel's deployment protection answers 401 with HTML on a protected preview,
+  // and that blanked a live board (Codex round 2 on #222).
+  //
+  // Deploy skew runs the safe way: a new client against an older server that omits `reason` on its
+  // 401 retries instead of unlinking, so the board stays up and self-heals once the deploy lands.
+  if ((status === 401 || status === 503) && body && DEVICE_REFUSAL_REASONS.has(body.reason ?? "")) {
     return { kind: "verdict", message };
   }
   return { kind: "retry" };

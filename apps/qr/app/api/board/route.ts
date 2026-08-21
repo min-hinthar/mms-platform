@@ -49,7 +49,16 @@ export async function GET(req: NextRequest) {
         { status: 503 },
       );
     }
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // `reason` on the 401 too, not just on the 503s: it is what lets the TV tell OUR denial apart
+    // from any other 401 it might receive. An edge service in front of this route — Vercel's own
+    // deployment protection on a protected preview, a corporate proxy, an SSO gateway — answers 401
+    // with HTML or its own envelope, and a client that trusts the status alone blanks a live board
+    // on it (Codex round 2 on #222). Naming the reason makes the discriminator explicit rather than
+    // a shape heuristic.
+    return NextResponse.json(
+      { reason: "denied", error: "This screen isn’t authorized for the order-ready board." },
+      { status: 401 },
+    );
   }
 
   const db = serviceClient();

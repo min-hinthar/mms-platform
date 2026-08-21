@@ -1491,15 +1491,15 @@ const MUTANTS = [
     // this app cannot be tested (vitest is node-env, `*.test.ts` only), so three defects lived in
     // that logic at once with the whole suite green. These two mutants are the standing proof that
     // the extraction bought something.
-    // MOVED, not deleted: the rule it guards was rewritten from a blacklist to a whitelist after
-    // Codex showed the blacklist still blanked the board on a parseable-but-unrecognised body. A
+    // MOVED TWICE, never deleted. The rule went blacklist -> 503-only whitelist -> both statuses, as
+    // two Codex rounds showed each version still blanked a live board on some upstream refusal. A
     // stale mutant is a failure, and "the code moved" is the one reason it is tempting to drop one.
-    id: "board-poll/any-503-is-a-verdict",
+    id: "board-poll/unnamed-refusal-is-a-verdict",
     file: "apps/qr/lib/board-poll.ts",
     suite: "lib/board-poll.test.ts",
-    why: 'only a KNOWN device reason makes a 503 a verdict. Accepting every 503 de-authorizes a live board on anything that did not come from our route — an HTML error page from a platform throttle, an upstream `{error:"Service unavailable"}`, or any transient reason the API gains later (the shape most likely to be new). W10b, one layer out from the route: the failure mode of an answer we do not recognise must be a board that stays up',
-    find: '  if (status === 503 && body && DEVICE_REFUSAL_REASONS.has(body.reason ?? "")) {',
-    replace: "  if (status === 503) {",
+    why: 'a refusal counts only when it NAMES a device reason we know. Trusting the STATUS alone de-authorizes a live board on any 401/503 that did not come from our route — Vercel deployment protection answers 401 with HTML on a protected preview, a platform throttle answers 503 with an error page, an upstream may send `{error:"Service unavailable"}`, and a transient reason the API gains later is the shape most likely to be new. W10b one layer out: the failure mode of an answer we do not recognise must be a board that stays up',
+    find: '  if ((status === 401 || status === 503) && body && DEVICE_REFUSAL_REASONS.has(body.reason ?? "")) {',
+    replace: "  if (status === 401 || status === 503) {",
   },
   {
     id: "board-poll/no-snapshot-board-claims-it-is-connecting",
