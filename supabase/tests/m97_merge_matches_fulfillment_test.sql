@@ -109,10 +109,12 @@ begin
            'merge. A base of 0 means the state was never charged.', base, price);
 
   -- ══ 3. grocery does not fold into dine-in — SYNTHETIC, and labelled ═══════════════════════════
-  -- ⚠️ Unreachable in production: a grocery line's `menu_item_id` is a BARCODE and a food line's is a
-  -- `menu_items` uuid, so `t.menu_item_id = r.menu_item_id` already separates them — and a grocery
-  -- line carries a real `by_seat`, so it can never be a fold TARGET either. Kept anyway, because it
-  -- pins the whole `fulfillment` CHECK enum rather than just the two tags that collide today.
+  -- ⚠️ Unreachable in production, on ONE ground: a grocery line's `menu_item_id` is a BARCODE and a
+  -- food line's is a `menu_items` uuid, so `t.menu_item_id = r.menu_item_id` already separates them.
+  -- (A second ground was claimed and is FALSE — "a grocery line carries a real `by_seat` so it can
+  -- never be a fold TARGET": the re-parent branch NULLS `by_seat`, so a re-parented grocery line is
+  -- seatless and is a fine target. Adversarial review.) Kept anyway, because it pins the whole
+  -- `fulfillment` CHECK enum rather than just the two tags that collide today.
   src_sess := gen_random_uuid(); tgt_sess := gen_random_uuid();
   src_cart := gen_random_uuid(); tgt_cart := gen_random_uuid();
   insert into public.table_sessions (id, qr_code, mode, status, host_seat) values
@@ -148,10 +150,16 @@ begin
   select count(*) into n from public.qr_cart_items where cart_id = tgt_cart and fulfillment = 'togo';
   assert n = 1, 'M97.4 the folded line did not keep its to-go tag';
 
-  -- ══ 5. M96 and M97 compose — REGRESSION ONLY, detects neither mutation ════════════════════════
+  -- ══ 5. M96 and M97 compose — detects neither DELETION, but it is not idle ════════════════════
   -- Two narrowings on the same predicate list, both satisfied at once: same adder AND same tag. It
-  -- would pass with either predicate deleted, and that is the point — it exists to prove that adding
-  -- a second narrowing did not quietly cost the fold the first one already allowed.
+  -- passes with either predicate DELETED, and that is the point — it exists to prove that adding a
+  -- second narrowing did not quietly cost the fold the first one already allowed.
+  --
+  -- It is NOT dead weight, and an earlier version of this comment ("detects nothing") undersold it
+  -- badly enough to invite a future maintainer to delete it. It also kills a predicate mis-written as
+  -- the constant `= 'togo'`, and it is the ONLY case here with a non-null `added_by` on both sides —
+  -- so it also kills an M96 mutation to `t.added_by is null`, which case 4 (null on both sides)
+  -- survives. Caught by adversarial review.
   src_sess := gen_random_uuid(); tgt_sess := gen_random_uuid();
   src_cart := gen_random_uuid(); tgt_cart := gen_random_uuid();
   insert into public.table_sessions (id, qr_code, mode, status, host_seat) values

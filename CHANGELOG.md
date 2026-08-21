@@ -36,7 +36,11 @@ backfilled). They are different on purpose, and no test can tell the two operato
 **Scope, stated honestly:** the live collision is `dinein ⇄ togo` only. A grocery line cannot reach
 the fold at all — its `menu_item_id` is a barcode and a food line's is a uuid, so the existing item
 predicate already separates them, and it carries a real `by_seat` so it can never be a fold target.
-The registry's original wording ("a `togo` **or `grocery`** source line") was wrong and is corrected.
+The registry's original wording ("a `togo` **or `grocery`** source line") was wrong and is corrected. A second ground offered for grocery's unreachability — _"it carries a real `by_seat` so it can never
+be a fold target"_ — is also **false** and is withdrawn: the re-parent branch nulls `by_seat`, so an
+already-re-parented grocery line is seatless and is a perfectly good target. The conclusion stands on
+the item-id half alone; the wrong half is recorded because a wrong reason for a right answer is how
+the answer later gets overturned.
 
 The test was committed **before** the fix and CI was watched failing on it — there is no Docker in
 this container, so CI is the only place a SQL guard can be seen to bite.
@@ -52,7 +56,15 @@ none of this, because `added_by` is immutable by trigger and cannot change under
 Both halves are closed without widening the lock footprint beyond the rows being written: the target
 is held by a `for update` on the match query, and the source re-asserts its own identity **in the
 delete** — the same in-statement re-assertion `mms_set_line_fulfillment` performs one function over,
-and the rule CLAUDE.md states for every guarded mutation. The delete runs **first** and the qty bump
+and the rule CLAUDE.md states for every guarded mutation.
+
+⚠️ **The first draft of that guard re-asserted four of the five mutable columns and omitted `qty`** —
+caught by adversarial review, HIGH. `qty` is the one re-asserted column the very next statement does
+arithmetic on, and `mms_cart_item_inc_qty` commits straight through the cart lock for exactly the
+same reason the tag does. A diner tapping `+` mid-merge leaves tag/state/notes/comped unchanged, so
+the delete would have **succeeded** and the target been bumped by the stale qty — **one unit silently
+destroyed**: not charged, not cooked, no error. A guard that re-asserts four of five mutable columns
+is not a guard, it is a narrower race. The delete runs **first** and the qty bump
 only if it landed; bumping first would double-count a row the delete then refused. A refused delete
 falls through to the re-parent, which is always safe.
 
@@ -251,7 +263,8 @@ assertion there would prove the mock — plus a mutant, and three ways of breaki
 into an unassigned target and deletes the source, taking that diner's adder with it. Not fixed here:
 the failure direction is **silence** rather than a false claim, the fold only ever targets lines that
 already carry no seat (the merge deliberately clears attribution on re-parent), and the merge RPC has
-been restated many times and carries the void/comp guards — a disproportionate blast radius for a
+been restated many times [⚠️ corrected 2026-08-21: this sentence originally read "seven times"; the
+real count was eleven — see the M97 entry] and carries the void/comp guards — a disproportionate blast radius for a
 rare, silent under-count.
 
 Registry: M87 closed. One new `verify:slice` mutant (196 total) for the merge key; the attribution rule itself is SQL,

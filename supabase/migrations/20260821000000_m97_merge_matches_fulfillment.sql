@@ -39,11 +39,15 @@
 --
 -- ── Scope, stated honestly ──────────────────────────────────────────────────────────────────────
 --
--- The live collision is `dinein ⇄ togo` only. A grocery line cannot reach the fold at all: its
--- `menu_item_id` is a BARCODE and a food line's is a `menu_items` uuid, so `t.menu_item_id =
--- r.menu_item_id` already separates them, and a grocery line carries a real `by_seat` so it can
--- never be a fold target. The predicate covers all three tags anyway, because a predicate that
--- names the column is cheaper than a comment explaining which values matter this quarter.
+-- The live collision is `dinein ⇄ togo` only. A grocery line cannot reach the fold at all, on ONE
+-- ground: its `menu_item_id` is a BARCODE and a food line's is a `menu_items` uuid, so
+-- `t.menu_item_id = r.menu_item_id` already separates them. (An earlier draft offered a second
+-- ground — "a grocery line carries a real `by_seat` so it can never be a fold target" — which is
+-- FALSE, and adversarial review caught it: the re-parent branch below NULLS `by_seat`, so an
+-- already-re-parented grocery line is seatless and is a perfectly good target. The conclusion stands
+-- on the item-id half alone; the discarded half is recorded because a wrong reason for a right
+-- answer is how the answer later gets overturned.) The predicate covers all three tags anyway,
+-- because naming the column is cheaper than a comment explaining which values matter this quarter.
 --
 -- ⚠️ CORRECTION to a merged migration. `20260820140000_m96_merge_keeps_adder.sql` calls itself "its
 -- seventh definition". That count was measured with a grep requiring the `public.` prefix, and FOUR
@@ -156,6 +160,15 @@ begin
       --     does one function over ("Re-assert open + draft + food IN THE WRITE"), and the same rule
       --     CLAUDE.md states for every guarded mutation.
       --
+      -- ⚠️ `qty` is in that list, and the first draft of this guard OMITTED it — caught by adversarial
+      -- review, HIGH. It is the one re-asserted column the very next statement does ARITHMETIC on, and
+      -- it is just as mutable as the tag: `mms_cart_item_inc_qty` updates `qr_cart_items` joined to
+      -- `qr_carts` as a plain READER of `status`, so it too commits straight through the cart lock. A
+      -- diner tapping `+` mid-merge leaves tag/state/notes/comped all unchanged, so the delete would
+      -- have SUCCEEDED and the target been bumped by the stale `r.qty` — one unit silently destroyed:
+      -- not charged, not cooked, no error, and the source session closes a few statements later. A
+      -- guard that re-asserts four of five mutable columns is not a guard, it is a narrower race.
+      --
       -- Delete FIRST and bump only if it landed: bumping first would double-count a source row the
       -- delete then refused. A refused delete falls through to the re-parent, which is always safe —
       -- the line survives as its own row and nobody's attribution or tag is lost.
@@ -163,6 +176,7 @@ begin
         where id = r.id
           and fulfillment = r.fulfillment
           and state = r.state
+          and qty = r.qty
           and notes is null
           and not comped;
       if found then
