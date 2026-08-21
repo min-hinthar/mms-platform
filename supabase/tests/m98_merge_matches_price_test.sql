@@ -14,7 +14,7 @@
 -- Error = srcQty × (targetPrice − sourcePrice) on the SUBTOTAL, +10.5% tax on top, plus the tip
 -- rate riding the corrupted net. M97's damage was capped at 10.5% of one line's value and only on
 -- cold categories; this is uncapped, multiplies by qty, and applies to every category. On the real
--- applied Balachaung change ($3.00 → $10.00) one unit each side is ±773¢ depending on which cart the
+-- applied Balachaung change ($3.00 → $10.00) one unit each side is +773¢ or −774¢ depending on which cart the
 -- server picked. Direction is set by the merge direction, not by which way the price moved — there
 -- is no safe ordering.
 --
@@ -31,10 +31,16 @@
 -- two rows above it in the function.
 --
 -- ── The anti-degeneracy guard, and its known cost ───────────────────────────────────────────────
--- Every case below first asserts that its two lines are foldable on EVERY OTHER predicate and differ
--- only on price. Without it a fixture that accidentally violates some unrelated predicate (a seat, a
--- tag, an adder) passes for the wrong reason — which has now happened twice in this repo's merge
--- tests and was caught by review both times, not by the suite.
+-- Cases 1 and 2 — the two load-bearing ones — each open by asserting that their two lines are
+-- foldable on EVERY OTHER predicate and differ only on price. Without it a fixture that accidentally
+-- violates some unrelated predicate (a seat, a tag, an adder) passes for the wrong reason — which has
+-- now happened twice in this repo's merge tests and was caught by review both times, not by the suite.
+--
+-- ⚠️ Cases 3, 4 and 5 do NOT carry it, and cannot: 3 and 4 are SAME-price fixtures, so "differ only on
+-- price" is incoherent for them, and 5 deliberately holds two candidate targets. An earlier version of
+-- this header claimed every case opened with the guard, and only case 1 did — a false claim about
+-- coverage inside the paragraph whose entire purpose is preventing green-for-the-wrong-reason
+-- (adversarial review, MED).
 --
 -- ⚠️ That guard is a deliberate COPY of the fold's predicate list and WILL go stale if the fold gains
 -- a predicate. Update it in the same commit that adds one. A stale guard here fails safe (it would
@@ -51,6 +57,8 @@ do $$
 declare
   ana  uuid := '00000000-0000-0000-0000-0000009800a0';
   dish text := 'cccccccc-0000-4000-8000-000000000d98';
+  cat  text := 'cold_food';  -- so the dine-in / to-go split is meaningful rather than decorative
+  ta_in integer; tb_in integer; tb_out integer;   -- asked of the engine, never transcribed
   pa   integer := 1600;    -- the cheaper snapshot
   pb   integer := 1800;    -- the dearer one; deliberately NOT a value used elsewhere in this file,
                            -- so a predicate mis-written as a constant cannot accidentally match it
@@ -58,6 +66,12 @@ declare
   n integer; total integer;
 begin
   assert pa <> pb, 'M98 fixture drift: the two prices must differ or nothing here measures anything';
+  -- The tax engine is the fixture, never the expectation — the practice m97's test established and
+  -- this file's first draft dropped, transcribing 168/189/0 by hand (adversarial review, LOW). Nothing
+  -- below asserts on these, which is exactly why a wrong one would have gone unnoticed.
+  ta_in  := public.mms_line_tax(pa, cat, true);
+  tb_in  := public.mms_line_tax(pb, cat, true);
+  tb_out := public.mms_line_tax(pb, cat, false);
 
   -- ══ 1. cheap source folds into a DEAR target — the OVER-CHARGE direction ══════════════════════
   src_sess := gen_random_uuid(); tgt_sess := gen_random_uuid();
@@ -66,8 +80,8 @@ begin
     (src_sess, 'M98S1', 'dinein', 'active', ana), (tgt_sess, 'M98T1', 'dinein', 'active', ana);
   insert into public.qr_carts (id, session_id) values (src_cart, src_sess), (tgt_cart, tgt_sess);
   insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
-    values (tgt_cart, dish, 'Balachaung', 1, pb, 189, null, 'dinein'),
-           (src_cart, dish, 'Balachaung', 1, pa, 168, null, 'dinein');
+    values (tgt_cart, dish, 'Balachaung', 1, pb, tb_in, null, 'dinein'),
+           (src_cart, dish, 'Balachaung', 1, pa, ta_in, null, 'dinein');
 
   -- ANTI-DEGENERACY: these two must be foldable on everything except price.
   select count(*) into n
@@ -108,8 +122,25 @@ begin
     (src_sess, 'M98S2', 'dinein', 'active', ana), (tgt_sess, 'M98T2', 'dinein', 'active', ana);
   insert into public.qr_carts (id, session_id) values (src_cart, src_sess), (tgt_cart, tgt_sess);
   insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
-    values (tgt_cart, dish, 'Balachaung', 1, pa, 168, null, 'dinein'),
-           (src_cart, dish, 'Balachaung', 1, pb, 189, null, 'dinein');
+    values (tgt_cart, dish, 'Balachaung', 1, pa, ta_in, null, 'dinein'),
+           (src_cart, dish, 'Balachaung', 1, pb, tb_in, null, 'dinein');
+
+  -- ANTI-DEGENERACY, case 2. Its fixture is column-for-column case 1's with pa/pb swapped, so it
+  -- inherits that guarantee in substance — but "in substance" is how a fixture rots, so it gets its own.
+  select count(*) into n
+    from public.qr_cart_items t, public.qr_cart_items s
+    where t.cart_id = tgt_cart and s.cart_id = src_cart
+      and t.by_seat is null
+      and t.added_by is not distinct from s.added_by
+      and t.fulfillment = s.fulfillment
+      and t.notes is null and s.notes is null
+      and t.state = s.state and t.state <> 'voided' and not t.comped
+      and s.state <> 'voided' and not s.comped
+      and t.menu_item_id = s.menu_item_id
+      and coalesce((select jsonb_agg(e order by e) from jsonb_array_elements_text(t.modifiers) e), '[]'::jsonb)
+        = coalesce((select jsonb_agg(e order by e) from jsonb_array_elements_text(s.modifiers) e), '[]'::jsonb)
+      and t.unit_price_cents <> s.unit_price_cents;
+  assert n = 1, 'M98.2 DEGENERATE FIXTURE: the two lines are not foldable-but-for-price';
 
   perform public.mms_merge_table_orders(src_cart, tgt_cart);
   select count(*) into n from public.qr_cart_items where cart_id = tgt_cart;
@@ -129,8 +160,8 @@ begin
     (src_sess, 'M98S3', 'dinein', 'active', ana), (tgt_sess, 'M98T3', 'dinein', 'active', ana);
   insert into public.qr_carts (id, session_id) values (src_cart, src_sess), (tgt_cart, tgt_sess);
   insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
-    values (tgt_cart, dish, 'Balachaung', 1, pb, 189, null, 'dinein'),
-           (src_cart, dish, 'Balachaung', 1, pb, 189, null, 'dinein');
+    values (tgt_cart, dish, 'Balachaung', 1, pb, tb_in, null, 'dinein'),
+           (src_cart, dish, 'Balachaung', 1, pb, tb_in, null, 'dinein');
 
   perform public.mms_merge_table_orders(src_cart, tgt_cart);
   select count(*) into n from public.qr_cart_items where cart_id = tgt_cart;
@@ -153,10 +184,10 @@ begin
   -- Built the way production builds a re-parented line: insert with the seat, then clear it. M87's
   -- keep-trigger holds `added_by` because the UPDATE never names that column.
   insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
-    values (tgt_cart, dish, 'Balachaung', 1, pb, 0, ana, 'togo');
+    values (tgt_cart, dish, 'Balachaung', 1, pb, tb_out, ana, 'togo');
   update public.qr_cart_items set by_seat = null where cart_id = tgt_cart;
   insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
-    values (src_cart, dish, 'Balachaung', 1, pb, 0, ana, 'togo');
+    values (src_cart, dish, 'Balachaung', 1, pb, tb_out, ana, 'togo');
 
   perform public.mms_merge_table_orders(src_cart, tgt_cart);
   select count(*) into n from public.qr_cart_items where cart_id = tgt_cart;
@@ -182,9 +213,9 @@ begin
     (src_sess, 'M98S5', 'dinein', 'active', ana), (tgt_sess, 'M98T5', 'dinein', 'active', ana);
   insert into public.qr_carts (id, session_id) values (src_cart, src_sess), (tgt_cart, tgt_sess);
   insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
-    values (tgt_cart, dish, 'Balachaung', 1, pa, 168, null, 'dinein'),
-           (tgt_cart, dish, 'Balachaung', 1, pb, 189, null, 'dinein'),
-           (src_cart, dish, 'Balachaung', 1, pb, 189, null, 'dinein');
+    values (tgt_cart, dish, 'Balachaung', 1, pa, ta_in, null, 'dinein'),
+           (tgt_cart, dish, 'Balachaung', 1, pb, tb_in, null, 'dinein'),
+           (src_cart, dish, 'Balachaung', 1, pb, tb_in, null, 'dinein');
 
   perform public.mms_merge_table_orders(src_cart, tgt_cart);
   select count(*) into n from public.qr_cart_items where cart_id = tgt_cart;

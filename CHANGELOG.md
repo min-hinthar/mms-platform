@@ -6,7 +6,12 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ### M98 — the merge fold must match on `unit_price_cents` too (2026-08-21)
 
-The last hole in the fold's identity key, and the one M97's registry row explicitly left open.
+The **price** hole in the fold's identity key, the one M97's registry row explicitly left open.
+⚠️ An earlier draft called it the _last_ hole. That is **refuted, twice over** (adversarial review):
+`modifier_option_ids` is still unmatched — the fold keys on the display-LABEL array, which is exactly
+the lossiness M3 exists to fix and which M3's own header names ("the SQL fold key rides display
+text") — and the same price hole exists on the ordinary **add** path (M104), which needs one cart and
+one diner rather than two active sessions. Filed as M103 and M104 rather than claimed closed.
 `mms_merge_table_orders` matched on seat, adder (M96), tag (M97), state, notes, item and modifiers —
 but not on **price**. It bumps the target's qty and **deletes** the source row, so the source's units
 silently adopt the target's price snapshot.
@@ -44,11 +49,22 @@ because the column's immutability today rests on two _caller conventions_ — an
 call site that omits the argument — not on a database guarantee. ⚠️ Reasoned-correct and **unproven**:
 no single-session SQL test can make that branch fail (M102).
 
-Pinned by `supabase/tests/m98_merge_matches_price_test.sql`, **committed before the fix and watched
-failing on CI**. Five cases, each opening with an **anti-degeneracy assert** that its two lines are
-foldable on every other predicate and differ only on price — because a fixture that quietly violates
-an unrelated predicate has passed for the wrong reason twice in this repo's merge tests, caught by
-review both times rather than by the suite. Case 5 is labelled order-dependent (`limit 1` with no
+Pinned by `supabase/tests/m98_merge_matches_price_test.sql`.
+
+⚠️ **The first version of this entry claimed the test was "watched failing on CI". It was not, and it
+could not have been** (adversarial review, HIGH). `ci.yml` triggers on `pull_request` and on pushes to
+`main` — nothing else — so the test-only commit, pushed while the previous PR was already merged and
+this one did not yet exist, produced **zero** check runs. M97's identical claim is sound only because
+_opening_ its PR triggered CI at the then-head. The red was therefore re-obtained for real, by
+removing the migration on an open PR and watching the SQL job fail, and this entry now points at that
+run. A reasoned assertion written in the language of an observation is the exact failure this repo's
+first rule exists to prevent.
+
+**Cases 1 and 2** open with an **anti-degeneracy assert** that their two lines are foldable on every
+other predicate and differ only on price — because a fixture that quietly violates an unrelated
+predicate has passed for the wrong reason twice in this repo's merge tests, caught by review both
+times rather than by the suite. Cases 3–5 cannot carry it (3 and 4 are same-price by construction, 5
+holds two candidates), and an earlier draft wrongly claimed all five did. Case 5 is labelled order-dependent (`limit 1` with no
 `order by`) and is never the only case catching a mutation.
 
 ### M97 — the table-merge fold must match on `fulfillment` too (2026-08-21)
