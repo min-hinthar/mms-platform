@@ -176,12 +176,24 @@ begin
   insert into public.qr_cart_items (id, cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
     values (line, cart, dish::text, 'Pickled Tea Salad', 1, price, tax_out, ana, 'togo');
 
+  -- The forged flip happens while the cart is still OPEN (a `paid` cart would be refused by
+  -- `not_open` before the mode gate was ever consulted, which would make this case prove nothing
+  -- about the mode gate). Settlement is stamped below, in that order, exactly as production does it.
   perform public.mms_set_line_fulfillment(line, 'dinein');   -- refused; case 1 already asserted that
   -- The order row is inserted directly rather than via mms_fulfill_order: this case is about what the
   -- expo pipeline SEES, and routing through a ten-argument money RPC would couple the assertion to a
   -- signature that has nothing to do with it.
-  insert into public.qr_orders (id, cart_id, subtotal_cents, service_charge_cents, tax_cents, total_cents)
-    values (ordid, cart, price, 0, tax_out, price + tax_out);
+  --
+  -- ⚠️ `status` is named EXPLICITLY, and that is the whole point of this line. `qr_orders.status`
+  -- defaults to `'pending'`, and `mms_init_togo_status` never checks it — so the first version of
+  -- this case asserted the PAID pickup pipeline against an UNPAID order and passed, exercising a
+  -- state real settlement never produces. A fixture that reaches the right answer through a state
+  -- the system cannot be in is not evidence (Codex round 1 on #220). The cart is stamped `paid` for
+  -- the same reason: that is what settlement leaves behind, and `kitchen.ts` reads carts in
+  -- ('open','paid').
+  update public.qr_carts set status = 'paid' where id = cart;
+  insert into public.qr_orders (id, cart_id, status, subtotal_cents, service_charge_cents, tax_cents, total_cents)
+    values (ordid, cart, 'paid', price, 0, tax_out, price + tax_out);
   insert into public.qr_order_items (order_id, menu_item_id, name, qty, unit_price_cents, tax_cents, fulfillment)
     select ordid, ci.menu_item_id, ci.name, ci.qty, ci.unit_price_cents, ci.tax_cents, ci.fulfillment
       from public.qr_cart_items ci where ci.id = line;

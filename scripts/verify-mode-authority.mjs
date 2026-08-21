@@ -141,9 +141,19 @@ const MUTANTS = [
     id: "toggle/mode-gate-deleted",
     fn: "mms_set_line_fulfillment",
     expect: "M100.1",
-    why: "the whole M100 guard — a pickup session tags a line dine-in again",
-    find: "  if p_fulfillment = 'dinein' and v_mode <> 'dinein' then return 'not_dinein_session'; end if;\n",
-    replace: "",
+    why: "the whole M100 guard — BOTH copies, so the row actually moves and the tax is actually rewritten. This is the original defect, not merely a changed verdict",
+    // Both edits, deliberately. Removing only the pre-check leaves the in-write term refusing the
+    // write as 'stale', which is a different mutant entirely (`pre-check-deleted-in-write-term-kept`
+    // below) — so a one-edit "whole guard deleted" would be a duplicate of it under a name claiming
+    // to test the corruption path, and nothing would ever exercise a mutation where the row moves.
+    // Caught by Codex round 1 on #220.
+    edits: [
+      {
+        find: "  if p_fulfillment = 'dinein' and v_mode <> 'dinein' then return 'not_dinein_session'; end if;\n",
+        replace: "",
+      },
+      { find: "\n          and (p_fulfillment <> 'dinein' or s.mode = 'dinein')", replace: "" },
+    ],
   },
   {
     id: "toggle/mode-gate-names-pickup",
@@ -210,9 +220,14 @@ const MUTANTS = [
     id: "fire-line/mode-gate-deleted",
     fn: "mms_fire_line",
     expect: "M107 THE DEFECT",
-    why: "the whole M107 guard — an unpaid pickup cart fires food to the kitchen again",
-    find: "  if v_mode <> 'dinein' then return 'not_dinein_session'; end if;\n",
-    replace: "",
+    why: "the whole M107 guard — BOTH copies, so the line actually fires. Same reason as the toggle above: one edit only degrades the verdict to 'stale' and nothing reaches the KDS",
+    edits: [
+      { find: "  if v_mode <> 'dinein' then return 'not_dinein_session'; end if;\n", replace: "" },
+      {
+        find: "        where c.id = ci.cart_id and c.status = 'open' and s.mode = 'dinein'",
+        replace: "        where c.id = ci.cart_id and c.status = 'open'",
+      },
+    ],
   },
   {
     id: "fire-line/mode-gate-names-pickup",
@@ -263,26 +278,42 @@ console.log(c.bold(`\nverify:mode-authority — ${MUTANTS.length} mutants over 2
  * `restore()` re-applies THIS migration, which is only a restore while this migration is still the
  * LAST definition of both functions. The day a later one redefines either, every mutant below would
  * quietly revert to the M100 body and each verdict would be about dead code — a battery reporting
- * green about a function the database no longer runs. So prove it first: hash, apply, re-hash, and
- * refuse to mutate anything unless the bodies are already exactly what this file produces.
+ * green about a function the database no longer runs. So prove that first, and refuse to mutate
+ * anything unless the live bodies are already exactly what this file produces.
+ *
+ * Two things this check got wrong before, both measured rather than reasoned:
+ *
+ *  1. It hashed and restored ONE FUNCTION AT A TIME. `restore()` re-applies the whole migration, so
+ *     the first iteration healed the exact drift the second was looking for — stubbing out
+ *     `mms_fire_line` and re-running produced a clean pass. Hash every target before the first
+ *     restore.
+ *  2. It detected drift by APPLYING the migration and then comparing, which overwrites the newer
+ *     bodies — so on the one database this check exists to protect, it downgraded both functions and
+ *     THEN announced it was refusing to proceed (Codex P1 on #220; measured: a sentinel body was
+ *     destroyed by the guard that exists to protect it). Capture the full definitions, not just
+ *     their hashes, and put them back before aborting.
  */
-// Hash EVERY target before the first restore, not one at a time: `restore()` re-applies the whole
-// migration, so checking function-by-function lets the first iteration's restore heal the exact
-// drift the second iteration is looking for. (Measured: written that way, stubbing out `mms_fire_line`
-// and re-running produced a clean pass — the guard was decorative until this loop was split in two.)
-const LIVE = new Map(["mms_set_line_fulfillment", "mms_fire_line"].map((fn) => [fn, bodyHash(fn)]));
+const BEFORE = new Map(
+  ["mms_set_line_fulfillment", "mms_fire_line"].map((fn) => [
+    fn,
+    { hash: bodyHash(fn), def: functionDef(fn) },
+  ]),
+);
 restore();
-for (const [fn, live] of LIVE) {
-  if (bodyHash(fn) !== live) {
+const drifted = [...BEFORE].filter(([fn, b]) => bodyHash(fn) !== b.hash);
+if (drifted.length) {
+  for (const [, b] of BEFORE) psql(["-q"], b.def); // put the newer bodies back FIRST
+  for (const [fn] of drifted) {
     console.log(
       c.red(
         `  ABORT  ${fn}'s live body is NOT this migration's — a later migration redefines it.\n` +
           `         Re-applying 20260823000000 would REVERT it, so every verdict below would be\n` +
-          `         about dead code. Point this battery at the newest definition first.`,
+          `         about dead code. The database is unchanged; point this battery at the newest\n` +
+          `         definition first.`,
       ),
     );
-    process.exit(1);
   }
+  process.exit(1);
 }
 
 for (const m of MUTANTS) {
@@ -290,10 +321,15 @@ for (const m of MUTANTS) {
   // this migration does not contain. Either way the match must be unique — a zero- or multi-match
   // `find` is a failure, never a skip.
   const original = m.fnPatch ? functionDef(m.fn) : source;
-  const occurrences = original.split(m.find).length - 1;
-  if (occurrences !== 1) {
+  // A mutant is one or more edits. Most are one; the "whole guard" mutants are two, because this
+  // guard deliberately lives in two places and deleting one of them is a different mutation.
+  const edits = m.edits ?? [{ find: m.find, replace: m.replace }];
+  const stale = edits.filter((e) => original.split(e.find).length - 1 !== 1);
+  if (stale.length) {
     console.log(
-      c.red(`  STALE  ${m.id} — \`find\` matched ${occurrences} times, expected exactly 1`),
+      c.red(
+        `  STALE  ${m.id} — ${stale.length} of ${edits.length} edit(s) did not match exactly once`,
+      ),
     );
     failures++;
     continue;
@@ -309,7 +345,10 @@ for (const m of MUTANTS) {
   const before = bodyHash(m.fn);
 
   // (2) apply, and (3) prove it actually landed.
-  psql(["-q"], original.replace(m.find, m.replace));
+  psql(
+    ["-q"],
+    edits.reduce((text, e) => text.replace(e.find, e.replace), original),
+  );
   const mutated = bodyHash(m.fn);
   if (mutated === before) {
     console.log(c.red(`  NO-OP  ${m.id} — ${m.fn}'s body is unchanged; the patch never applied`));
