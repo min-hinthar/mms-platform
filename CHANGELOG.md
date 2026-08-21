@@ -41,6 +41,25 @@ The registry's original wording ("a `togo` **or `grocery`** source line") was wr
 The test was committed **before** the fix and CI was watched failing on it — there is no Docker in
 this container, so CI is the only place a SQL guard can be seen to bite.
 
+**A predicate on a MUTABLE column needs more than a predicate** (Codex round 1, P2 — real, and
+specific to this change). The loop runs on a READ COMMITTED snapshot, and `fulfillment` can change
+under it: a diner taps For-here/To-go mid-merge and `mms_set_line_fulfillment` commits, because that
+function takes no lock on `qr_carts` — it only _reads_ `status` through an `exists`, and a reader
+never blocks against `for update`. A stale `r.fulfillment` would then fold a now-dine-in row into a
+to-go target: the exact wrong tax this change exists to prevent, back through the door. M96 needed
+none of this, because `added_by` is immutable by trigger and cannot change under a cursor.
+
+Both halves are closed without widening the lock footprint beyond the rows being written: the target
+is held by a `for update` on the match query, and the source re-asserts its own identity **in the
+delete** — the same in-statement re-assertion `mms_set_line_fulfillment` performs one function over,
+and the rule CLAUDE.md states for every guarded mutation. The delete runs **first** and the qty bump
+only if it landed; bumping first would double-count a row the delete then refused. A refused delete
+falls through to the re-parent, which is always safe.
+
+⚠️ **The race itself is not covered by a test, and cannot be from a single psql session** — the five
+cases prove the fold still behaves, not that the guard serializes. Verifying it needs two concurrent
+sessions, which no harness in this repo has.
+
 ⚠️ **Correction to a merged migration.** `20260820140000_m96_merge_keeps_adder.sql` calls itself "its
 seventh definition". That was measured with a grep requiring the `public.` prefix, and **four** of the
 definitions omit it, so the real count was eleven and this is the **twelfth**. The M96 adversarial

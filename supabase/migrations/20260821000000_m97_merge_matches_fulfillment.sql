@@ -53,9 +53,10 @@
 -- shared one blind spot. The applied migration is left untouched; the correction lives here and in
 -- docs/OPEN-ITEMS.md.
 --
--- Restated from `20260820140000_m96_merge_keeps_adder.sql`. Exactly two lines differ: `fulfillment`
--- added to the loop's `select` (without which `r.fulfillment` will not resolve) and the predicate.
--- Diff the two bodies to confirm.
+-- Restated from `20260820140000_m96_merge_keeps_adder.sql`. Three things differ: `fulfillment` added
+-- to the loop's `select` (without which `r.fulfillment` will not resolve), the predicate itself, and
+-- the concurrency guard described above (a `for update` on the match query plus a guarded delete).
+-- Diff the two bodies to confirm — the guard was added in review, not in the first draft.
 
 create or replace function public.mms_merge_table_orders(p_source_cart uuid, p_target_cart uuid)
   returns integer language plpgsql security definer set search_path = '' as $$
@@ -132,12 +133,43 @@ begin
         and t.menu_item_id = r.menu_item_id
         and coalesce((select jsonb_agg(e order by e) from jsonb_array_elements_text(t.modifiers) e),
                      '[]'::jsonb) = r.modkey
-      limit 1;
+      limit 1
+      for update;   -- M97/Codex-P2: hold the row we are about to bump (see the note below)
     end if;
 
     if v_match is not null and v_match_qty + r.qty <= 99 then
-      update public.qr_cart_items set qty = v_match_qty + r.qty where id = v_match;
-      delete from public.qr_cart_items where id = r.id;
+      -- M97 (Codex round 1, P2 — real, and specific to THIS change). The cursor above runs on a READ
+      -- COMMITTED snapshot taken when the loop opened, and `fulfillment` is MUTABLE: a diner can tap
+      -- For-here/To-go mid-merge and `mms_set_line_fulfillment` will commit it, because that function
+      -- takes no lock on `qr_carts` — it only READS `status` through an `exists`, and a reader never
+      -- blocks against `for update`. So `r.fulfillment` can be stale by the time we act on it, and the
+      -- fold would delete a now-dine-in row into a to-go target: exactly the wrong tax this migration
+      -- exists to prevent, reintroduced through the back door.
+      --
+      -- M96 needed none of this because `added_by` is immutable by trigger — it CANNOT change under a
+      -- cursor. Matching on a mutable column is a different problem and needs a different guarantee.
+      --
+      -- Both halves are closed, and neither widens the lock footprint beyond the row being written:
+      --   · the TARGET is held by the `for update` on the match query above;
+      --   · the SOURCE re-asserts its own identity IN THE DELETE, so a row that changed under us is
+      --     simply not deleted. That is the same in-statement re-assertion `mms_set_line_fulfillment`
+      --     does one function over ("Re-assert open + draft + food IN THE WRITE"), and the same rule
+      --     CLAUDE.md states for every guarded mutation.
+      --
+      -- Delete FIRST and bump only if it landed: bumping first would double-count a source row the
+      -- delete then refused. A refused delete falls through to the re-parent, which is always safe —
+      -- the line survives as its own row and nobody's attribution or tag is lost.
+      delete from public.qr_cart_items
+        where id = r.id
+          and fulfillment = r.fulfillment
+          and state = r.state
+          and notes is null
+          and not comped;
+      if found then
+        update public.qr_cart_items set qty = v_match_qty + r.qty where id = v_match;
+      else
+        update public.qr_cart_items set cart_id = p_target_cart, by_seat = null where id = r.id;
+      end if;
     else
       -- Re-parent, losing the SEAT (a source seat is not a member of the target session) but NOT the
       -- adder: this update never names `added_by`, and M87's keep-trigger only fires when something
