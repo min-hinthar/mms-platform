@@ -144,7 +144,17 @@ function q(sql, appName = `mms-m102-probe`) {
  *   | -------------------- | ----------------------------- | ------------------ | ------------------ |
  *   | `usesuper`           | f                             | f                  | t                  |
  *   | `ssl`                | **t**                         | **f**              | **f**              |
- *   | `inet_server_addr()` | **2600:1f14:… (public)**      | private            | 127.0.0.1          |
+ *   | `inet_server_addr()` | **2600:1f14:… (public)**      | **172.18.0.2**     | **127.0.0.1**      |
+ *   | foreign `qr_cart_items` | **245**                    | **0**              | **0**              |
+ *
+ * Every cell is measured. The CLI-stack column comes from CI run 32493251873 — the first green run
+ * of this file — and NOT from reasoning about what a Docker bridge address ought to look like. That
+ * distinction is the entire reason the previous version of this guard was wrong.
+ *
+ * The same run measured `statement_timeout`, `lock_timeout` and `idle_in_transaction_session_timeout`
+ * as ALL ZERO on the CLI stack, so zeroing the first two on session A is belt-and-braces against a
+ * future image rather than a fix for a live problem — and the fingerprint prints them every run, so
+ * the day that changes it will be visible rather than an intermittent red.
  *
  * `usesuper` is not a discriminator in either direction and is now only PRINTED, never asserted.
  * The two that are left are independent of each other: one is about the transport, one about the
