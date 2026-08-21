@@ -97,6 +97,11 @@ const dim = (s) => `\x1b[2m${s}\x1b[0m`;
 let failures = 0;
 // Set ONLY at the end of assertLocalOnly(). cleanup() refuses while it is false.
 let localVerified = false;
+// Set ONLY once this process holds the advisory lock (or its parent does). cleanup() is a
+// `like 'M102-%'` SWEEP, so running it without exclusion deletes a CONCURRENT run's committed
+// fixtures — and the top-level catch used to call it on the strength of localVerified alone, which
+// is true from well before the lock is taken (Codex round 2, P2).
+let lockOwned = false;
 const check = (label, got, want) => {
   const ok = String(got) === String(want);
   if (!ok) {
@@ -193,6 +198,15 @@ function q(sql, appName = `mms-m102-probe`) {
  * 54322, something is already bound there and a tunnel cannot also be — so 127.0.0.1:54322 IS that
  * stack. This is the only interlock here that is a property of the CONNECTION rather than of
  * whatever happens to answer it.
+ *
+ * ⚠️ AND IT HAS A PRECONDITION I FAILED TO STATE, which Codex round 2 named: port exclusivity only
+ * holds if the CLI and THIS PROCESS share a network namespace. In a devcontainer with the host
+ * Docker socket mounted they do not — `supabase status` reports the HOST's healthy stack and its
+ * 127.0.0.1:54322, while 127.0.0.1 in here is the container's own loopback, where a tunnel can bind
+ * that port without conflicting with anything the CLI can see. So this is a strong interlock for the
+ * ordinary case (a developer's machine, CI) and NOT a proof in a socket-mounted devcontainer.
+ * Residual risk is filed as M106 rather than described as closed; the three in-DB predicates and the
+ * refusal to take a DSN are what stand behind it there.
  *
  * The escape hatch is deliberate and narrow: a bare disposable cluster (no supabase CLI, no Docker)
  * is a legitimate way to develop this file, and `M102_ASSUME_DISPOSABLE=1` says "I assert this
@@ -794,9 +808,11 @@ async function runS7() {
 }
 
 function cleanup() {
-  if (!localVerified) {
+  if (!localVerified || !lockOwned) {
     console.error(
-      red(`${TAG} cleanup SKIPPED — assertLocalOnly() never returned, so nothing here may write.`),
+      red(
+        `${TAG} cleanup SKIPPED — ${!localVerified ? "assertLocalOnly() never returned, so nothing here may write." : "this process does not hold the advisory lock, and cleanup is a tag SWEEP that would delete a concurrent run's fixtures."}`,
+      ),
     );
     return;
   }
@@ -980,7 +996,7 @@ function childRun() {
   };
 }
 
-function runMutants() {
+function runMutants(guard) {
   const original = q(FNDEF);
   const baseline = q(BODY_MD5);
   console.log(`\n${TAG} mutation battery — ${MUTANTS.length} mutants against the LIVE function\n`);
@@ -1019,19 +1035,12 @@ function runMutants() {
       exec(original);
       continue;
     }
-    if (q(BODY_MD5) === baseline) {
-      console.log(`  ${red("INERT")} ${m.id} — applied but the body is unchanged; it would be a
-        FALSE survivor.`);
-      bad++;
-      exec(original);
-      continue;
-    }
-
-    // From here the mutant is LIVE, so every exit runs the restore (Codex round 1, P2). Restoring
-    // only at the bottom of the loop meant a throw in between — a transient q(BODY_MD5), a killed
-    // child — reached the top-level catch and left a developer's persistent stack running a mutated
-    // money function. `process.on("exit")` covers the paths a `finally` cannot: an uncaught throw
-    // that skips it, and process.exit() called from inside.
+    // ARM THE RESTORE FIRST. The mutant is live the instant `exec(mutated)` returns, so anything
+    // between that and the arming is an unprotected window — and the very next statement used to be
+    // a `q(BODY_MD5)`, whose own connection can fail (Codex round 2, P2). `process.on("exit")`
+    // covers what a `finally` cannot: an uncaught throw that skips it, and process.exit() from
+    // inside. Signals need their own handlers — Node terminates directly on SIGINT/SIGTERM with no
+    // listener and never emits 'exit'.
     let live = true;
     const restoreNow = () => {
       if (!live) return;
@@ -1044,6 +1053,22 @@ function runMutants() {
     process.once("SIGINT", restoreNow);
     process.once("SIGTERM", restoreNow);
     try {
+      if (q(BODY_MD5) === baseline) {
+        console.log(
+          `  ${red("INERT")} ${m.id} — applied but the body is unchanged; it would be a FALSE survivor.`,
+        );
+        bad++;
+        continue;
+      }
+      // The parent's advisory lock lives on ONE idle connection. If that backend dies — an
+      // idle_session_timeout shorter than the battery, a pg_terminate_backend — the lock is released
+      // while children go on skipping acquisition purely because the env flag is set, and a second
+      // run can interleave under a live mutant (Codex round 2, P2).
+      if (guard.proc.exitCode !== null) {
+        throw new Error(
+          `${TAG} the advisory-lock session DIED while ${m.id} was live — mutual exclusion is gone.`,
+        );
+      }
       const child = childRun();
       const out = child.out;
       const failing = new Set(
@@ -1161,12 +1186,13 @@ async function main() {
     await guard.close();
     process.exit(1);
   }
+  lockOwned = true;
 
   // The battery's child harness runs inherit the lock the parent already holds, so they must not
   // try to take it themselves — every child would refuse.
   if (mutantMode) {
     try {
-      runMutants();
+      runMutants(guard);
     } finally {
       await guard.close();
     }
