@@ -392,6 +392,24 @@ answer must be the safe one.
 The general form: when a predicate decides whether to take something away from a user, enumerate the
 cases that JUSTIFY the removal, never the cases that excuse it.
 
+**And fix every branch, not the one you were shown.** The correction above whitelisted the 503 and
+left the 401 unconditional, so the next round found the identical hole on the other status — an
+upstream 401 (Vercel's deployment protection answers one with HTML on a protected preview) still
+unlinked a live board. Three rounds landed on this one predicate and each found the previous fix
+insufficient in the SAME direction, too eager to treat an unrecognised answer as authoritative:
+
+| round            | the rule                                            | what still slipped through       |
+| ---------------- | --------------------------------------------------- | -------------------------------- |
+| adversarial pass | blacklist `unavailable`                             | a body that will not parse       |
+| Codex 1          | whitelist the 503                                   | a parseable-but-unknown 503 body |
+| Codex 2          | whitelist the 503, trust the 401                    | any upstream 401                 |
+| final            | the route NAMES its reason; whitelist both statuses | —                                |
+
+The fix that finally held was not a better heuristic but a better contract: `/api/board` names a
+`reason` on every refusal it issues, so "is this OUR refusal?" stops being a guess about status codes
+and body shapes. When you catch yourself sniffing a response to work out who sent it, add the marker
+at the source instead.
+
 ## #54 — Decision logic in a component this repo cannot test is unguardable, outside money too (W-staff-auth, 2026-08-21)
 
 `apps/qr` runs vitest with `environment: "node"` and `include: ["**/*.test.ts"]`, and no DOM test
