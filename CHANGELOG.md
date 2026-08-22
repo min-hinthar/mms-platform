@@ -34,6 +34,35 @@ comment forbids the redelivery the plan introduced.
 Recorded as `.claude/LEARNINGS.md` #55; `CLAUDE.md` and `docs/WORKFLOW.md` now route the adversarial
 step through the bundle.
 
+**Codex round 1 found nine real defects in the review tooling itself**, which is the strongest
+available evidence for the premise. Every one was verified against source before it was fixed:
+
+- **P1** — with every changed path secret-like, the allow-list pathspec was empty and
+  `git diff <range> --` has no pathspec at all, so git emitted the **unrestricted** diff and wrote the
+  credential into the patch the bundle swears never contains one. Reproduced on a throwaway repo whose
+  only change was a tracked `.env`; the patch is now 0 bytes and the omission is listed in
+  `MANIFEST.md` rather than only on stdout.
+- **P1** — the auditor was granted `Bash` while the changelog called its toolset read-only. On a
+  hostile branch that is arbitrary execution with the parent session's credentials. Narrowed to
+  `Read`/`Grep`/`Glob`, and the constraint is now stated in the agent prompt so a later editor knows it
+  is load-bearing.
+- Allow-listing destination paths rendered a **pure rename** as an addition with no deletion, hiding
+  that the old module vanished — replaced with `:(exclude,literal)` pathspecs, which also fixed the P1.
+- `a/b__c.ts` and `a__b/c.ts` **both flattened to `a__b__c.ts`**, the second write destroying the first
+  while `MANIFEST.md` claimed both were present. Names are now assigned once with collisions suffixed.
+- `.env.example` — the canonical env-var list per `README.md` — was being **filtered out as a secret**,
+  hiding deployment-contract changes. Placeholders are exempt.
+- Git **quotes non-ASCII paths** by default (`café.ts` → `"caf\303\251.ts"`), so the pathspec matched
+  nothing and the manifest called a present file deleted. Now `-z` NUL-delimited.
+- A **dirty worktree** was silently excluded while `PROMPT.md` called the bundle the complete change.
+  Now aborts, matching `verify:slice`.
+- The blast radius listed **filenames only**, but the evidence standard demands a `file:line` quote and
+  forbids reading outside the bundle — so an architectural finding could only ever be an open question.
+  Now carries `file:line` plus the matching source line.
+- A dynamic route built the term `staff/table/[id]`, which `git grep` reads as a **character class** —
+  it matched a file containing `staff/table/i` and missed every real caller. Terms truncate at the
+  first dynamic segment and search fixed-string.
+
 ### Connector sweep — Supabase · Stripe · Vercel (2026-08-22)
 
 A full read-only check of all three connectors. Vercel was clean (zero runtime errors in 7 days);
