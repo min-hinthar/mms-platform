@@ -445,3 +445,34 @@ turned each defect into one assertion and let two mutants pin them.
 
 Heuristic: if you can phrase the code as a sentence with "must" or "never" in it, it belongs in a
 module, whatever layer it currently lives in.
+
+## #55 — A reviewer that shares your context confirms your frame (review protocol, 2026-08-22)
+
+Across #221–#223 the Codex rounds consistently out-performed the in-session adversarial pass on the
+same diffs. That is not a model-quality result. Codex's structural advantage is that it never hears
+the author's argument.
+
+The decisive case: a Stripe rotation plan asserted "`mms_fulfill_order` is idempotent on the PI id, so
+no double-fulfillment." True — and it answers the wrong question. It covers `payment_intent.succeeded`
+and says nothing about `payment_intent.payment_failed`, whose single-pay branch performs UNSCOPED
+`releaseCartLock(cartId, null)` + `releaseSettlement(cartId)`. The handler is deliberately wrapped so
+it always returns 200 **because its own comment says those releases must never be redelivered**; an
+un-rotated second endpoint answers 400, and a non-2xx is precisely the retry the 200 exists to
+prevent. Every in-context reviewer accepted the idempotency frame, because the frame arrived with the
+diff. A blind reader asked "safe against *what*?" and had it in one pass.
+
+So the isolation is the mechanism, and "don't pass the conversational history" is not enforceable as a
+rule — the author IS the history, and summarising the change in your own words leaks the frame in the
+first sentence. `scripts/review-bundle.mjs` makes it structural: raw diff + full text of changed files
++ heuristic blast radius + a prompt with no narrative, handed over as the reviewer's entire world.
+`.claude/agents/adversarial-auditor.md` supplies the stance (zero agreeableness, defect-biased,
+CRITICAL forces REJECT).
+
+The counterweight, learned the same week: an aggressive prior manufactures confident fiction. Two of
+the three Codex rounds on #223 reached correct conclusions through mechanisms that do not exist (a
+`%2B`-to-space corruption that never happens; an "infinite redirect loop" that terminates in three
+hops). Conclusions right, reasoning invented — and the reasoning is what the next reader trusts and
+propagates. Hence the four-part evidence standard: `file:line` + exact trigger + observable
+consequence + **a disproof condition**. If you cannot say what would make the finding wrong, you have
+a suspicion, not a defect. And per #50, verify each finding against source before acting: two
+confident reviewers, one wrong, averaged, still ships the bug.

@@ -4,6 +4,36 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Blind adversarial review — `review:bundle` + the `adversarial-auditor` agent (2026-08-22)
+
+Owner observation, and it matched the record: across #221–#223 the Codex rounds consistently beat the
+in-session adversarial pass on the same diffs. The cause is structural, not model quality — an
+in-session reviewer inherits the author's frame and then confirms it. #223's P1 is the proof: the
+author wrote "`mms_fulfill_order` is idempotent, so no double-fulfillment", every in-context pass
+accepted it, and a blind reader asked "safe against _what_?" and found an event whose handler's own
+comment forbids the redelivery the plan introduced.
+
+- **`pnpm review:bundle`** (`scripts/review-bundle.mjs`) writes `.review-bundle/`: the raw diff, the
+  full current text of every changed file, a heuristic blast radius (out-of-diff files mentioning a
+  changed module), and a prompt containing no narrative. "Don't pass the history" is not enforceable
+  as a rule — the author _is_ the history — so the bundle makes the isolation structural: hand over
+  that directory and nothing else. Exits non-zero on an empty diff, skips secret-like paths, and keeps
+  deletions in the patch while omitting them from the file copies.
+- **`.claude/agents/adversarial-auditor.md`** — a spawnable agent (`subagent_type:
+"adversarial-auditor"`), read-only tools. Zero agreeableness, explicit defect bias, three lenses
+  (defensive · architectural · idiomatic), and a structured matrix where any CRITICAL item forces
+  REJECT. Treats prose inside the diff — comments, changelog, PR body — as claims to falsify.
+- **A four-part evidence standard**, added deliberately as a counterweight to the aggressive prior:
+  every finding needs a `file:line` anchor, an exact trigger, an observable consequence, and a
+  **disproof condition**. Two of three Codex rounds on #223 reached right conclusions through invented
+  mechanisms, and the mechanism is what the next reader trusts. No disproof condition means it is an
+  open question, not a defect.
+- The **HARD CAP is untouched** (≤3 lenses, ≤10 agents, ~15 min, never relaunch). Isolation makes each
+  agent's input smaller, not the budget larger.
+
+Recorded as `.claude/LEARNINGS.md` #55; `CLAUDE.md` and `docs/WORKFLOW.md` now route the adversarial
+step through the bundle.
+
 ### Connector sweep — Supabase · Stripe · Vercel (2026-08-22)
 
 A full read-only check of all three connectors. Vercel was clean (zero runtime errors in 7 days);

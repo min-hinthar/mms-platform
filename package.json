@@ -20,7 +20,8 @@
     "check:theme": "node scripts/check-theme-parity.mjs",
     "verify:merge-race": "node scripts/verify-merge-race.mjs",
     "verify:merge-race:mutants": "node scripts/verify-merge-race.mjs --mutants",
-    "verify:mode-authority": "node scripts/verify-mode-authority.mjs"
+    "verify:mode-authority": "node scripts/verify-mode-authority.mjs",
+    "review:bundle": "node scripts/review-bundle.mjs"
   },
   "devDependencies": {
     "@mms/config": "workspace:*",
