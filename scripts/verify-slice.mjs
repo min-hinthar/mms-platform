@@ -1491,15 +1491,16 @@ const MUTANTS = [
     // this app cannot be tested (vitest is node-env, `*.test.ts` only), so three defects lived in
     // that logic at once with the whole suite green. These two mutants are the standing proof that
     // the extraction bought something.
-    // MOVED TWICE, never deleted. The rule went blacklist -> 503-only whitelist -> both statuses, as
-    // two Codex rounds showed each version still blanked a live board on some upstream refusal. A
+    // MOVED THREE TIMES, never deleted. blacklist -> 503-only whitelist -> both statuses -> exact
+    // (status, reason) pairs, as three Codex rounds each showed the previous version still able to
+    // blank a live board on some refusal our route never sent. A
     // stale mutant is a failure, and "the code moved" is the one reason it is tempting to drop one.
     id: "board-poll/unnamed-refusal-is-a-verdict",
     file: "apps/qr/lib/board-poll.ts",
     suite: "lib/board-poll.test.ts",
     why: 'a refusal counts only when it NAMES a device reason we know. Trusting the STATUS alone de-authorizes a live board on any 401/503 that did not come from our route — Vercel deployment protection answers 401 with HTML on a protected preview, a platform throttle answers 503 with an error page, an upstream may send `{error:"Service unavailable"}`, and a transient reason the API gains later is the shape most likely to be new. W10b one layer out: the failure mode of an answer we do not recognise must be a board that stays up',
-    find: '  if ((status === 401 || status === 503) && body && DEVICE_REFUSAL_REASONS.has(body.reason ?? "")) {',
-    replace: "  if (status === 401 || status === 503) {",
+    find: '  if (body && DEVICE_REFUSALS.get(status) === body.reason) return { kind: "verdict", message };',
+    replace: '  if (status === 401 || status === 503) return { kind: "verdict", message };',
   },
   {
     id: "board-poll/no-snapshot-board-claims-it-is-connecting",

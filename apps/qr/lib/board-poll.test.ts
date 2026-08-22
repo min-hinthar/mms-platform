@@ -44,6 +44,17 @@ describe("readBoardRefusal — only a KNOWN device refusal is a verdict", () => 
     });
   });
 
+  it.each([
+    ["a 503 carrying the 401's reason", 503, { reason: "denied" }],
+    ["a 401 carrying the 503's reason", 401, { reason: "not_configured" }],
+  ])("retries on %s — the PAIR must match, not either field", (_why, status, body) => {
+    // The route emits exactly two refusals: (401,"denied") and (503,"not_configured"). Testing the
+    // status and the reason INDEPENDENTLY accepts two combinations it never sends, so an upstream
+    // that happened to emit one would still blank the board — and the test above claimed a guarantee
+    // the code did not make (Codex round 3 on #222).
+    expect(readBoardRefusal(status, body)).toEqual({ kind: "retry" });
+  });
+
   it("only `not_configured` makes a 503 a verdict", () => {
     expect(
       readBoardRefusal(503, { reason: "not_configured", error: "set BOARD_DEVICE_TOKEN" }),

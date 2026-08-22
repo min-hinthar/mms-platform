@@ -45,27 +45,32 @@ export type BoardRefusal =
  * and "we can't tell" is neither).
  */
 /**
- * The reasons that really are statements about THIS DEVICE, and nothing else. `/api/board` names one
- * on every refusal it issues — that is what makes them distinguishable from a refusal issued by
- * something else in front of the route.
+ * The exact refusals `/api/board` issues, as (status → reason) PAIRS. It emits these two and nothing
+ * else, so matching the pair is what "did this come from our route?" actually means.
+ *
+ * A `Set` of reasons checked independently of the status was one step too loose: it also accepted
+ * `(503, "denied")` and `(401, "not_configured")`, combinations the route never sends, so an upstream
+ * emitting either would still have blanked the board — and the suite carried a test named "only
+ * `not_configured` makes a 503 a verdict" asserting a guarantee the code did not make (Codex round 3).
  */
-const DEVICE_REFUSAL_REASONS = new Set(["not_configured", "denied"]);
+const DEVICE_REFUSALS = new Map<number, string>([
+  [401, "denied"],
+  [503, "not_configured"],
+]);
 
 export function readBoardRefusal(
   status: number,
   body: { reason?: string; error?: string } | null,
 ): BoardRefusal {
   const message = typeof body?.error === "string" ? body.error : null;
-  // ONE rule for both statuses: a refusal counts only when it NAMES a device reason we know. The
-  // first cut whitelisted the 503 and left the 401 unconditional, which left the same hole open on
-  // the other status — Vercel's deployment protection answers 401 with HTML on a protected preview,
-  // and that blanked a live board (Codex round 2 on #222).
+  // ONE rule: a refusal counts only when its (status, reason) pair is one this route actually sends.
+  // The first cut whitelisted the 503 and left the 401 unconditional, which left the same hole open
+  // on the other status — Vercel's deployment protection answers 401 with HTML on a protected
+  // preview, and that blanked a live board (Codex round 2).
   //
   // Deploy skew runs the safe way: a new client against an older server that omits `reason` on its
   // 401 retries instead of unlinking, so the board stays up and self-heals once the deploy lands.
-  if ((status === 401 || status === 503) && body && DEVICE_REFUSAL_REASONS.has(body.reason ?? "")) {
-    return { kind: "verdict", message };
-  }
+  if (body && DEVICE_REFUSALS.get(status) === body.reason) return { kind: "verdict", message };
   return { kind: "retry" };
 }
 
