@@ -4,6 +4,53 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Connector sweep — Supabase · Stripe · Vercel (2026-08-22)
+
+A full read-only check of all three connectors. Vercel was clean (zero runtime errors in 7 days);
+Supabase healthy with no 4xx/5xx in its edge logs. Two things were not.
+
+**The Stripe webhook delivered only 2 of the 6 events its handler implements.** The **test-mode**
+endpoint (`we_1TkFUz…`) carried three events, but one of them (`payment_intent.created`) has no handler at all, so the overlap with
+the six implemented types was two. `charge.refunded`,
+`payment_intent.canceled`, `setup_intent.succeeded` and `payment_intent.amount_capturable_updated`
+were all unsubscribed — so a refunded order never flipped `qr_orders.status` (and the M4 Star never
+receded), a canceled split-share hold stayed on the board as live money, a saved card never flipped
+the tab to `secure`, and manual capture never completed. The Supabase Stripe **sync** endpoint
+subscribes to ~90 events but does not substitute: it mirrors into `stripe.*` tables the app never
+reads (`grep` returns zero hits). All four added to it.
+
+**Both modes needed that fix, and the first pass only checked one.** Stripe webhook endpoints are
+**per-mode objects**, so the sweep's “the endpoint” was never the whole story: it examined the test
+endpoint and left the LIVE one (`we_1Tjz1l…`, a separate object on a different production alias)
+still carrying only `payment_intent.succeeded` + `payment_intent.payment_failed`. That was inert
+while Production ran test keys — and stopped being inert the moment it ran live ones, which enabling
+Apple Pay requires. The live endpoint now carries the same six, so a live refund, a released hold, a
+saved card and a manual capture all reach their handlers. It is subscribed to **exactly** the six the
+route implements; the test endpoint additionally carries the handler-less `payment_intent.created`,
+left alone as pre-existing noise rather than churned. Both remain pinned to `api_version`
+`2022-08-01` against an SDK on `2026-05-27.dahlia`, and that half needs a new endpoint plus a signing-
+secret rotation (below).
+
+**91 Supabase security advisories triaged to two actionable items**, the rest being this app's design:
+28 anonymous-sign-in notices (diners ARE anonymous), 21 `rls_enabled_no_policy` (deny-all = the safe
+shape), 7 SECURITY DEFINER RLS helpers (`anon_exec=false`, `search_path=''`, and RLS cannot work
+without them), 2 more that are TRIGGER functions and not callable at all — verified on production:
+`trigger functions can only be called as triggers` — and 3 mutable-`search_path` functions inside the
+vendor `stripe` schema.
+
+Of the two that remained, only one was fixable, and finding that out was the useful part:
+
+- the `auth_rls_initplan` warnings are on policies that **never execute**. `mms_profiles` and
+  `mms_rewards` grant SELECT to `service_role` only, and a policy can only narrow what a GRANT
+  permits. The InitPlan rewrite ships anyway as hygiene, documented explicitly as **not** a
+  performance fix so nobody cites it as one.
+- the `pg_graphql` revoke is a **silent no-op** — the grant is owned by `supabase_admin` and
+  `postgres` cannot revoke it. Removed rather than shipped, and filed as M112. It was caught only
+  because the test asserted the outcome instead of trusting the statement.
+
+`supabase/tests/advisor_sweep_test.sql` guards what actually protects those tables — the absence of a
+client grant — rather than the dead policy. Both cases induced red against production first.
+
 ### Staff sign-in on every surface, and sessions that survive the night (2026-08-21)
 
 Owner: _"I want the kitchen staff portal, kiosk, board, and front house staff portal, to login with
