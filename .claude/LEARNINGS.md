@@ -330,3 +330,118 @@ value it gates on must be re-derived in the write.** `Checkout.tsx` hid the For-
 had gone their whole lives without reading `table_sessions.mode`, while three sibling fire RPCs had
 been joining that table inside their write since S4.2. When a rule exists correctly somewhere in the
 schema, the question is not whether it is right — it is which call sites never adopted it.
+
+## #52 — A contract tested through ONE caller says nothing about another (W-staff-auth, 2026-08-21)
+
+`authorizeDevice` was written to accept an empty device token, because a kiosk or board signed in by
+a staff account carries none — that is the entire point of the second credential. `device-auth.test.ts`
+proved it, red-first, and the whole gate is correct.
+
+The kiosk still could not open an order. `kioskOpenInput.k` was `z.string().min(1)`, and the parse
+runs **before** the gate, so an iPad on the documented `/staff/login?next=/kiosk` flow answered
+`reason:"error"` — "Something went wrong, please order at the counter" — on every tap, forever. The
+feature, not an edge of it.
+
+It hid because the tokenless case was proved against **board**, whose route calls `authorizeDevice`
+directly with **no schema in front of it**. Two Codex rounds and my own review missed it; the
+adversarial pass found it by walking the journey end to end instead of reading the module.
+
+The rule: when a shared contract gains a new accepted input, enumerate **every** caller and check what
+sits between the caller and the contract — a Zod schema, a route guard, a client-side early return. A
+green test on the contract is evidence about the contract, not about the paths that reach it. This is
+the same shape as the four round-1 P1s in the same PR, all of which were client consumers of server
+contracts that had been changed without their callers being opened, so treat it as the dominant
+failure mode of any "add a second credential / second mode" change.
+
+## #53 — `body?.reason !== "unavailable"` inverts fail-safe on a null body (W-staff-auth, 2026-08-21)
+
+The board's poll distinguishes a verdict about the DEVICE (401, `not_configured`) from the platform
+being unreachable (`unavailable`), because telling a running TV it is de-authorized during a blip is
+the W10b/M32 outage. The check was written:
+
+```ts
+const body = (await res.json().catch(() => null)) as { reason?: string } | null;
+if (body?.reason !== "unavailable") {
+  setState({ kind: "unlinked" });
+  return;
+}
+```
+
+Not every 401/503 comes from our route. A platform-level 503 — Vercel throttle, paused deployment,
+any upstream gateway — answers with an HTML error page, so `res.json()` rejects and `body` is `null`.
+Then `null?.reason` is `undefined`, and `undefined !== "unavailable"` is **TRUE**. The least
+informative response we can possibly receive took the most authoritative branch: a live board was
+destroyed mid-service and the house was told the screen had never been linked.
+
+Optional chaining plus a negated equality is the trap — it reads as "unless it says unavailable" but
+means "unless it definitely says unavailable, including when it says nothing at all".
+
+**But testing the positive is not the fix either, and getting that wrong twice is the real lesson.**
+The first correction was `if (body && body.reason !== "unavailable")`, which still treats every
+parseable body except that one as an authoritative de-authorization. Codex caught it on the very PR
+that was documenting the original bug: an upstream 503 emitting `{ error: "Service unavailable" }`
+parses fine, carries no `reason`, and blanks the board exactly as before — and so would any transient
+reason the API gains later, which is the shape MOST likely to be new.
+
+A blacklist is the wrong polarity for a safety decision. **Whitelist the refusals you actually know —
+as (status, reason) PAIRS.** `/api/board` emits exactly two, `(401, "denied")` and
+`(503, "not_configured")`, so those two pairs are what "did this come from our route?" means.
+Everything else — unparseable, unrecognised, a known reason on the wrong status, or new — is "we
+can't tell", which keeps the board up. The failure mode of an unknown answer must be the safe one.
+
+⚠️ The PAIR, not either field. This paragraph twice prescribed something looser, in a doc whose whole
+purpose is to stop this bug. "A 401 is a verdict whatever its body" was one draft — and that is
+exactly the unconditional-401 the table below shows an upstream HTML 401 walking straight through.
+Checking status and reason INDEPENDENTLY was the next, and it accepts `(503,"denied")` and
+`(401,"not_configured")`, combinations the route never sends.
+
+The general form: when a predicate decides whether to take something away from a user, enumerate the
+cases that JUSTIFY the removal, never the cases that excuse it.
+
+**And fix every branch, not the one you were shown.** The correction above whitelisted the 503 and
+left the 401 unconditional, so the next round found the identical hole on the other status — an
+upstream 401 (Vercel's deployment protection answers one with HTML on a protected preview) still
+unlinked a live board. FOUR rounds landed on this one predicate and each found the previous fix
+insufficient in the SAME direction, too eager to treat an unrecognised answer as authoritative:
+
+| round            | the rule                                         | what still slipped through                 |
+| ---------------- | ------------------------------------------------ | ------------------------------------------ |
+| adversarial pass | blacklist `unavailable`                          | a body that will not parse                 |
+| Codex 1          | whitelist the 503                                | a parseable-but-unknown 503 body           |
+| Codex 2          | whitelist the 503, trust the 401                 | any upstream 401                           |
+| Codex 3          | either known reason, either status               | `(503,"denied")`, `(401,"not_configured")` |
+| final            | the exact (status, reason) pairs the route sends | —                                          |
+
+The fix that finally held was not a better heuristic but a better contract: `/api/board` names a
+`reason` on every refusal it issues, so "is this OUR refusal?" stops being a guess about status codes
+and body shapes. When you catch yourself sniffing a response to work out who sent it, add the marker
+at the source instead.
+
+A further round then caught THIS ENTRY still prescribing an earlier version — a normative doc teaching
+a fix its own table refutes. Which is the last lesson: when you write down the rule a fix taught you,
+write down the fix you SHIPPED, not the one you had in mind when you started typing.
+
+## #54 — Decision logic in a component this repo cannot test is unguardable, outside money too (W-staff-auth, 2026-08-21)
+
+`apps/qr` runs vitest with `environment: "node"` and `include: ["**/*.test.ts"]`, and no DOM test
+environment is configured. That is a missing SETUP, not an impossibility — `include` restricts test
+filenames, not what they import, and `emails/palette.test.ts` already renders components from a
+`.test.ts` via `createElement`; the config comment even says "add jsdom + @vitejs/plugin-react here
+when the first React component test lands." (The first draft of this entry said components "cannot"
+be tested. Codex refuted it on the PR that added it, correctly: a categorical false premise in a
+rules doc steers the next person away from standing up the environment, which is the actual fix.)
+
+What is true is enough: nobody stands up a test harness in the middle of a fix, so a rule written
+inside a component stays unguarded in practice. `ReadyBoard.tsx` held **three** live defects simultaneously
+— #53's bodyless verdict, a board that booted into an outage and said "Connecting…" forever above a
+column promising "Ready orders light up here", and a hardcoded "open the board with its device link"
+rendered to installs that have no device link — with the entire suite green and `verify:slice` clean.
+
+The W17 rule ("decision logic belongs in `lib/`, not a component") was written about money paths and
+`Checkout.tsx`. It is not a money rule. Any component holding a rule about **what is true** — an
+authorization verdict, an outage state, what a screen is allowed to assert — is equally unguardable,
+and the failure is quieter because no number is wrong. Moving the two decisions to `lib/board-poll.ts`
+turned each defect into one assertion and let two mutants pin them.
+
+Heuristic: if you can phrase the code as a sentence with "must" or "never" in it, it belongs in a
+module, whatever layer it currently lives in.

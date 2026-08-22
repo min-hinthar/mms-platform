@@ -12,38 +12,91 @@ import {
  * inside a component this project cannot test. Each case below is one of them.
  */
 
+describe("readBoardRefusal — only a KNOWN device refusal is a verdict", () => {
+  it.each([
+    ["an upstream 503 that happens to emit JSON", 503, { error: "Service unavailable" }],
+    ["a gateway envelope with no fields we know", 503, { error: undefined }],
+    ["a transient reason added to the API LATER", 503, { reason: "rate_limited" }],
+  ])("retries on %s", (_why, status, body) => {
+    // The first cut BLACKLISTED `unavailable` and treated every other parseable body as a verdict,
+    // so all three of these blanked a live board. The polarity was backwards: an unrecognised body
+    // is "we can't tell", and a reason this client has never heard of is the MOST likely to be a new
+    // transient one. Whitelisting means an unknown answer leaves the board up rather than letting it
+    // de-authorize itself (Codex on #222 — LEARNINGS #53's own recommendation was insufficient, and
+    // the shipped code had the same gap).
+    expect(readBoardRefusal(status, body)).toEqual({ kind: "retry" });
+  });
+
+  it.each([
+    ["Vercel deployment protection (HTML body)", 401, null],
+    ["an edge auth layer with an unrelated envelope", 401, { error: undefined }],
+  ])("retries on %s — an upstream 401 is not OUR denial", (_why, status, body) => {
+    // The symmetric hole to the 503 one, and left behind by the first fix: the 401 branch was
+    // unconditional, so any edge service answering 401 blanked a live board. Vercel's own deployment
+    // protection does exactly this on a protected preview.
+    expect(readBoardRefusal(status, body)).toEqual({ kind: "retry" });
+  });
+
+  it("a 401 NAMING our denial is a verdict", () => {
+    expect(readBoardRefusal(401, { reason: "denied", error: "Unauthorized" })).toEqual({
+      kind: "verdict",
+      message: "Unauthorized",
+    });
+  });
+
+  it.each([
+    ["a 503 carrying the 401's reason", 503, { reason: "denied" }],
+    ["a 401 carrying the 503's reason", 401, { reason: "not_configured" }],
+  ])("retries on %s — the PAIR must match, not either field", (_why, status, body) => {
+    // The route emits exactly two refusals: (401,"denied") and (503,"not_configured"). Testing the
+    // status and the reason INDEPENDENTLY accepts two combinations it never sends, so an upstream
+    // that happened to emit one would still blank the board — and the test above claimed a guarantee
+    // the code did not make (Codex round 3 on #222).
+    expect(readBoardRefusal(status, body)).toEqual({ kind: "retry" });
+  });
+
+  it("only `not_configured` makes a 503 a verdict", () => {
+    expect(
+      readBoardRefusal(503, { reason: "not_configured", error: "set BOARD_DEVICE_TOKEN" }),
+    ).toEqual({ kind: "verdict", message: "set BOARD_DEVICE_TOKEN" });
+  });
+});
+
 describe("readBoardRefusal — a verdict must actually BE one", () => {
   it("an UNPARSEABLE body is not a verdict — it is the least informative answer there is", () => {
     // The shipped bug: a platform 503 (Vercel throttle / paused deployment) returns an HTML error
     // page, `res.json()` rejects, and the old predicate `body?.reason !== "unavailable"` evaluated
     // `undefined !== "unavailable"` → TRUE. A live board was destroyed and the house was told the
     // screen had never been linked, by a response that said nothing about the screen at all.
-    expect(readBoardRefusal(null)).toEqual({ kind: "retry" });
+    expect(readBoardRefusal(503, null)).toEqual({ kind: "retry" });
   });
 
   it("`unavailable` is about the PLATFORM, never about this device (W10b)", () => {
-    expect(readBoardRefusal({ reason: "unavailable", error: "can’t reach sign-in" })).toEqual({
+    expect(readBoardRefusal(503, { reason: "unavailable", error: "can’t reach sign-in" })).toEqual({
       kind: "retry",
     });
   });
 
   it.each([
-    ["not_configured", "Set BOARD_DEVICE_TOKEN, or sign in on this device."],
-    ["denied", "This device isn’t authorized."],
-  ])("`%s` IS a verdict, and carries the server's own sentence", (reason, error) => {
+    [503, "not_configured", "Set BOARD_DEVICE_TOKEN, or sign in on this device."],
+    [401, "denied", "This device isn’t authorized."],
+  ])("status %s IS a verdict, and carries the server's own sentence", (status, reason, error) => {
     // The message is carried because the two verdicts need DIFFERENT instructions: a denied board
     // has a device link it isn't using; a not_configured board has none to use and its operator has
     // to sign in instead. One hardcoded "open the board with its device link" was false for the
     // staff-signed-in install this slice exists to enable.
-    expect(readBoardRefusal({ reason, error })).toEqual({ kind: "verdict", message: error });
+    expect(readBoardRefusal(status, { reason, error })).toEqual({
+      kind: "verdict",
+      message: error,
+    });
   });
 
   it("a verdict with no sentence still resolves — message is null, never undefined", () => {
-    expect(readBoardRefusal({ error: "Unauthorized" })).toEqual({
+    expect(readBoardRefusal(401, { reason: "denied", error: "Unauthorized" })).toEqual({
       kind: "verdict",
       message: "Unauthorized",
     });
-    expect(readBoardRefusal({ reason: "denied" })).toEqual({ kind: "verdict", message: null });
+    expect(readBoardRefusal(401, { reason: "denied" })).toEqual({ kind: "verdict", message: null });
   });
 });
 
