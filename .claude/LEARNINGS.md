@@ -383,11 +383,17 @@ that was documenting the original bug: an upstream 503 emitting `{ error: "Servi
 parses fine, carries no `reason`, and blanks the board exactly as before — and so would any transient
 reason the API gains later, which is the shape MOST likely to be new.
 
-A blacklist is the wrong polarity for a safety decision. **Whitelist the refusals you actually know,
-and key on the status**: `401` is the route's only genuine denial and is a verdict whatever its body;
-a `503` is a verdict only when it names a device reason in a known set. Everything else — unparseable,
-unrecognised, or new — is "we can't tell", which keeps the board up. The failure mode of an unknown
-answer must be the safe one.
+A blacklist is the wrong polarity for a safety decision. **Whitelist the refusals you actually know —
+as (status, reason) PAIRS.** `/api/board` emits exactly two, `(401, "denied")` and
+`(503, "not_configured")`, so those two pairs are what "did this come from our route?" means.
+Everything else — unparseable, unrecognised, a known reason on the wrong status, or new — is "we
+can't tell", which keeps the board up. The failure mode of an unknown answer must be the safe one.
+
+⚠️ The PAIR, not either field. This paragraph twice prescribed something looser, in a doc whose whole
+purpose is to stop this bug. "A 401 is a verdict whatever its body" was one draft — and that is
+exactly the unconditional-401 the table below shows an upstream HTML 401 walking straight through.
+Checking status and reason INDEPENDENTLY was the next, and it accepts `(503,"denied")` and
+`(401,"not_configured")`, combinations the route never sends.
 
 The general form: when a predicate decides whether to take something away from a user, enumerate the
 cases that JUSTIFY the removal, never the cases that excuse it.
@@ -395,20 +401,25 @@ cases that JUSTIFY the removal, never the cases that excuse it.
 **And fix every branch, not the one you were shown.** The correction above whitelisted the 503 and
 left the 401 unconditional, so the next round found the identical hole on the other status — an
 upstream 401 (Vercel's deployment protection answers one with HTML on a protected preview) still
-unlinked a live board. Three rounds landed on this one predicate and each found the previous fix
+unlinked a live board. FOUR rounds landed on this one predicate and each found the previous fix
 insufficient in the SAME direction, too eager to treat an unrecognised answer as authoritative:
 
-| round            | the rule                                            | what still slipped through       |
-| ---------------- | --------------------------------------------------- | -------------------------------- |
-| adversarial pass | blacklist `unavailable`                             | a body that will not parse       |
-| Codex 1          | whitelist the 503                                   | a parseable-but-unknown 503 body |
-| Codex 2          | whitelist the 503, trust the 401                    | any upstream 401                 |
-| final            | the route NAMES its reason; whitelist both statuses | —                                |
+| round            | the rule                                         | what still slipped through                 |
+| ---------------- | ------------------------------------------------ | ------------------------------------------ |
+| adversarial pass | blacklist `unavailable`                          | a body that will not parse                 |
+| Codex 1          | whitelist the 503                                | a parseable-but-unknown 503 body           |
+| Codex 2          | whitelist the 503, trust the 401                 | any upstream 401                           |
+| Codex 3          | either known reason, either status               | `(503,"denied")`, `(401,"not_configured")` |
+| final            | the exact (status, reason) pairs the route sends | —                                          |
 
 The fix that finally held was not a better heuristic but a better contract: `/api/board` names a
 `reason` on every refusal it issues, so "is this OUR refusal?" stops being a guess about status codes
 and body shapes. When you catch yourself sniffing a response to work out who sent it, add the marker
 at the source instead.
+
+A further round then caught THIS ENTRY still prescribing an earlier version — a normative doc teaching
+a fix its own table refutes. Which is the last lesson: when you write down the rule a fix taught you,
+write down the fix you SHIPPED, not the one you had in mind when you started typing.
 
 ## #54 — Decision logic in a component this repo cannot test is unguardable, outside money too (W-staff-auth, 2026-08-21)
 
