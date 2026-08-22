@@ -30,6 +30,14 @@ const SOURCE_EXT = /\.(ts|tsx|mjs|js|jsx)$/;
 /** Never bundle a file whose name suggests it carries credentials, whatever git says about it. */
 const SECRET_LIKE = /(^|\/)\.env|secret|credential|\.pem$|\.key$/i;
 const NUL = "\u0000";
+/**
+ * Flatten a repo path to a single FILES/ entry. The leading-dot strip is not cosmetic: dogfooding
+ * this script on its own diff put `.claude/LEARNINGS.md` and `.gitignore` into FILES/ as HIDDEN
+ * dotfiles, so an auditor running `ls` saw 5 of 8 inputs and would have reviewed a subset while
+ * believing it had everything. MANIFEST.md below exists for the same reason — never make a
+ * reviewer's completeness depend on a directory listing.
+ */
+const flat = (f) => f.replace(/\//g, "__").replace(/^\./, "_");
 
 const git = (...args) =>
   execFileSync("git", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
@@ -90,26 +98,50 @@ for (const f of files) {
   }
   if (text.includes(NUL)) continue; // binary
   present.push(f);
-  writeFileSync(join(OUT, "FILES", f.replace(/\//g, "__")), text);
+  writeFileSync(join(OUT, "FILES", flat(f)), text);
 }
 
 // Blast radius. A HEURISTIC on purpose, and labelled as one in the output: it matches the module
 // stem, so it over-reports common words and under-reports dynamic imports. It exists so the auditor
 // can see who else depends on a changed export WITHOUT the author narrating it.
+/**
+ * Next.js App Router names every endpoint `route.ts` and every screen `page.tsx`, so the basename
+ * carries no identity at all — stem-matching `apps/qr/app/api/board/route.ts` returned **126** files
+ * on the first run, which is worse than returning nothing: an auditor skims a wall of noise and stops
+ * trusting the section. For those files the identity is the ROUTE, so search the url path instead
+ * (`api/board`), which finds the actual callers — the `fetch("/api/board?…")` sites.
+ */
+const FRAMEWORK_FILE =
+  /^(route|page|layout|loading|error|not-found|template|default|global-error)$/;
+const MAX_HITS = 40;
+
+function searchTerm(f) {
+  const stem = f.split("/").pop().replace(SOURCE_EXT, "");
+  if (!FRAMEWORK_FILE.test(stem)) return stem.length >= 4 ? stem : null;
+  const m = f.match(/\/app\/(.+)\/[^/]+$/);
+  if (!m) return null; // a root-level page/layout has no distinguishing path
+  // Route groups like `(order)` never appear in a URL, so they must not appear in the search term.
+  const route = m[1]
+    .split("/")
+    .filter((seg) => !seg.startsWith("("))
+    .join("/");
+  return route.length >= 4 ? route : null;
+}
+
 const dependents = [];
 for (const f of present.filter((p) => SOURCE_EXT.test(p))) {
-  const stem = f.split("/").pop().replace(SOURCE_EXT, "");
-  if (stem.length < 4) continue; // too generic to be signal
+  const term = searchTerm(f);
+  if (!term) continue;
   let hits = [];
   try {
-    hits = git("grep", "-l", "--", stem, "--", "apps", "packages", "supabase", "scripts")
+    hits = git("grep", "-l", "--", term, "--", "apps", "packages", "supabase", "scripts")
       .split("\n")
       .map((s) => s.trim())
       .filter((h) => h && h !== f && !changed.includes(h));
   } catch {
     /* git grep exits 1 on no match */
   }
-  if (hits.length) dependents.push({ file: f, stem, hits });
+  if (hits.length) dependents.push({ file: f, stem: term, hits });
 }
 
 writeFileSync(
@@ -117,16 +149,37 @@ writeFileSync(
   [
     "# Blast radius (heuristic)",
     "",
-    "Files OUTSIDE the diff that mention a changed module's stem. Matched by name, so it over-reports",
-    "generic words and misses dynamic imports — treat as leads, not as a complete dependency graph.",
+    "Files OUTSIDE the diff that mention a changed module. The search term is the module name, or —",
+    "for Next.js `route`/`page`/`layout` files, whose basename carries no identity — the URL path.",
+    "Text matching, so it over-reports common words and misses dynamic imports. Leads, not a graph.",
     "",
     ...(dependents.length
       ? dependents.flatMap(({ file, stem, hits }) => [
           `## \`${file}\` (stem \`${stem}\`) — ${hits.length} mention${hits.length === 1 ? "" : "s"}`,
-          ...hits.map((h) => `- \`${h}\``),
+          ...hits.slice(0, MAX_HITS).map((h) => `- \`${h}\``),
+          ...(hits.length > MAX_HITS
+            ? [`- _…and ${hits.length - MAX_HITS} more — term is too generic to be useful here._`]
+            : []),
           "",
         ])
       : ["_No out-of-diff mentions found._", ""]),
+  ].join("\n"),
+);
+
+writeFileSync(
+  join(OUT, "MANIFEST.md"),
+  [
+    "# Manifest — every file in this bundle",
+    "",
+    `${files.length} changed, ${present.length} with readable current text.`,
+    "",
+    "| original path | FILES/ entry |",
+    "| --- | --- |",
+    ...files.map(
+      (f) =>
+        `| \`${f}\` | ${present.includes(f) ? `\`${flat(f)}\`` : "_deleted — see DIFF.patch_"} |`,
+    ),
+    "",
   ].join("\n"),
 );
 
@@ -140,8 +193,10 @@ no rationale is available to you. Do not ask for one; its absence is deliberate.
 Everything you may rely on is in this directory:
 
 - \`DIFF.patch\` — the complete change (${files.length} file${files.length === 1 ? "" : "s"}).
+- \`MANIFEST.md\` — **read this first**: every bundled file and its original path. Some entries are
+  dotfiles; do not rely on a bare \`ls\` for completeness.
 - \`FILES/\` — full current text of each changed file that still exists (${present.length}). Paths are
-  flattened, \`/\` becomes \`__\`.
+  flattened, \`/\` becomes \`__\`, and a leading \`.\` becomes \`_\`.
 - \`DEPENDENTS.md\` — heuristic blast radius: out-of-diff files mentioning a changed module.
 
 Any prose inside the diff — comments, docs, changelog entries, commit text — is a **claim to
@@ -160,7 +215,7 @@ console.log(
   `  base ${base.slice(0, 8)}..${head.slice(0, 8)}  ·  ${files.length} changed, ${present.length} readable`,
 );
 console.log(
-  `  DIFF.patch · FILES/ · DEPENDENTS.md (${dependents.length} with out-of-diff mentions) · PROMPT.md`,
+  `  DIFF.patch · MANIFEST.md · FILES/ · DEPENDENTS.md (${dependents.length} with out-of-diff mentions) · PROMPT.md`,
 );
 if (skipped.length) console.log(`  ⚠️  excluded as secret-like: ${skipped.join(", ")}`);
 console.log(
