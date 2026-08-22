@@ -39,10 +39,18 @@ export type BoardRefusal =
  *  · any transient reason added to the API later. A reason this client has never heard of is the one
  *    MOST likely to be new and transient, and a blacklist de-authorizes the board on all of them.
  *
- * Hence the status is part of the decision. `401` is the route's only genuine denial and is a verdict
- * whatever its body; a `503` is a verdict only when it names a device reason we actually know. The
- * failure mode of an unrecognised answer is now a board that stays up (W10b: unavailable ≠ denied,
- * and "we can't tell" is neither).
+ * Two further rounds tightened it, and the intermediate versions are worth naming because each one
+ * READ as safe:
+ *
+ *  · "the 401 is our only genuine denial, so it is a verdict whatever its body" — no: an upstream
+ *    401 (Vercel deployment protection answers one with HTML on a protected preview) unlinks a live
+ *    board under that rule;
+ *  · "accept a known reason on either status" — no: that also admits `(503,"denied")` and
+ *    `(401,"not_configured")`, pairs this route never sends.
+ *
+ * So the decision is the exact (status, reason) PAIR, per `DEVICE_REFUSALS` below. The failure mode
+ * of an unrecognised answer is a board that stays up (W10b: unavailable ≠ denied, and "we can't
+ * tell" is neither).
  */
 /**
  * The exact refusals `/api/board` issues, as (status → reason) PAIRS. It emits these two and nothing
