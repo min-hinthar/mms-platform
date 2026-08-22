@@ -13,8 +13,9 @@
 --   1. no client role can reach `mms_profiles` / `mms_rewards` at all — the real protection, and the
 --      regression that would matter (a stray `grant select … to authenticated` would expose every
 --      profile row the policy's `using` clause failed to cover);
---   2. the policies are nonetheless kept in the InitPlan-hoisted form, so they are correct on the day
---      a grant IS added and the two advisories stay silent.
+--   2. BOTH policies are still present AND in the InitPlan-hoisted form, so they are correct on the
+--      day a grant IS added and the two advisories stay silent. Asserted as a positive count of
+--      correct policies — counting offenders instead passes vacuously when a policy is dropped.
 --
 -- A third case (GraphQL usage revoked) was written and then DELETED — see the note at the bottom;
 -- no migration can satisfy it.
@@ -28,8 +29,8 @@
 -- ⚠️ Per LEARNINGS #51, ASSERT aborts the whole block on the FIRST failure, so one red-then-green run
 -- proves only case 1. Both cases were induced separately against production, rolled back: case 1
 -- reported `a client role gained SELECT on a service-role-only table: mms_profiles(authenticated)`
--- after an induced grant, and case 2 reported `2 owner-read policy(ies) regressed to a per-row
--- auth.uid()` against the pre-migration schema. Neither is green by default.
+-- after an induced grant, and case 2 reported `expected 2 hoisted owner-read
+-- policies, found 0` against the pre-migration schema. Neither is green by default.
 
 begin;
 set local plpgsql.check_asserts = on;
@@ -55,16 +56,21 @@ end $$;
 
 -- ── 2. The policies stay in the InitPlan-hoisted form ────────────────────────────────────────────
 do $$
-declare bare int;
+declare hoisted int;
 begin
-  select count(*) into bare
+  -- Count the policies that are PRESENT and correct, not the ones that are wrong. Counting
+  -- offenders passes vacuously when there are no rows to offend: drop either policy, or recreate it
+  -- with no USING clause (`qual` IS NULL, and NULL fails a NOT ILIKE), and the offender count is
+  -- still 0 while the guarantee this case advertises — both policies retained, both hoisted — is
+  -- broken. Codex round 1 on #223.
+  select count(*) into hoisted
   from pg_policies
   where schemaname = 'public'
     and policyname in ('mms_profiles_owner_read', 'mms_rewards_owner_read')
-    and qual not ilike '%( SELECT auth.uid()%';
+    and qual ilike '%( SELECT auth.uid()%';
 
-  assert bare = 0,
-    format('%s owner-read policy(ies) regressed to a per-row auth.uid()', bare);
+  assert hoisted = 2,
+    format('expected 2 hoisted owner-read policies, found %s (dropped, un-qualified, or regressed to a per-row auth.uid())', hoisted);
 end $$;
 
 -- ── (no GraphQL case) ───────────────────────────────────────────────────────────────────────────

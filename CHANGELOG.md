@@ -2,12 +2,16 @@
 
 All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this repo tracks milestones (see [`ROADMAP.md`](ROADMAP.md)), not semver releases yet.
 
+## [Unreleased]
+
 ### Connector sweep — Supabase · Stripe · Vercel (2026-08-22)
 
 A full read-only check of all three connectors. Vercel was clean (zero runtime errors in 7 days);
 Supabase healthy with no 4xx/5xx in its edge logs. Two things were not.
 
-**The Stripe webhook was subscribed to 3 of the 6 events its handler implements.** `charge.refunded`,
+**The Stripe webhook delivered only 2 of the 6 events its handler implements.** The endpoint carried
+three events, but one of them (`payment_intent.created`) has no handler at all, so the overlap with
+the six implemented types was two. `charge.refunded`,
 `payment_intent.canceled`, `setup_intent.succeeded` and `payment_intent.amount_capturable_updated`
 were all unsubscribed — so a refunded order never flipped `qr_orders.status` (and the M4 Star never
 receded), a canceled split-share hold stayed on the board as live money, a saved card never flipped
@@ -35,8 +39,6 @@ Of the two that remained, only one was fixable, and finding that out was the use
 
 `supabase/tests/advisor_sweep_test.sql` guards what actually protects those tables — the absence of a
 client grant — rather than the dead policy. Both cases induced red against production first.
-
-## [Unreleased]
 
 ### Staff sign-in on every surface, and sessions that survive the night (2026-08-21)
 

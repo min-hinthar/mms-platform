@@ -47,8 +47,12 @@ create policy mms_rewards_owner_read on public.mms_rewards for select to authent
 -- `pg_graphql` is installed and `anon`/`authenticated` hold USAGE on `graphql_public` (and on
 -- `graphql`), so every table PostgREST can reach is reachable over GraphQL too — 29 of the 91
 -- advisories from that one grant. Not a data hole (GraphQL evaluates the same RLS), but an
--- unnecessary second query surface this codebase never opens: `grep -rn graphql` across `apps/`,
--- `packages/` and `docs/` returns nothing.
+-- unnecessary second query surface this codebase never opens: a case-INSENSITIVE grep over
+-- `apps/` and `packages/` `.ts`/`.tsx` returns zero hits.
+--
+-- (The first draft of this comment cited "`grep -rn graphql` across apps/, packages/ and docs/
+-- returns nothing". That was false — the grep was case-SENSITIVE and missed `GraphQL` in four doc
+-- files, which discuss it in prose. The conclusion survives; the evidence did not. Codex round 1.)
 --
 -- The obvious hunk — `revoke usage on schema graphql_public from anon, authenticated` — was written,
 -- and it is a SILENT NO-OP. The ACL is `anon=U/supabase_admin`: the grant was issued BY
