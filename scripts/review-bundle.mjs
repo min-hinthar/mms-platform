@@ -26,8 +26,9 @@
  * all real). The comments below name which, because each is a trap the next editor can walk back into.
  */
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 
 const OUT = ".review-bundle";
 const SOURCE_EXT = /\.(ts|tsx|mjs|js|jsx)$/;
@@ -43,6 +44,8 @@ const isSecret = (f) => SECRET_LIKE.test(f) && !SECRET_EXEMPT.test(f);
 
 const NUL = "\u0000";
 const MAX_HITS = 40;
+/** Filesystem per-component limit is commonly 255 bytes; stay well inside it. */
+const MAX_COMPONENT = 200;
 /** Next.js special files whose basename carries no identity — the route path is the identity. */
 const FRAMEWORK_FILE =
   /^(route|page|layout|loading|error|not-found|template|default|global-error)$/;
@@ -85,7 +88,23 @@ const head = git("rev-parse", "HEAD").trim();
 // `-z` because git QUOTES non-ASCII paths by default (`café.ts` arrives as `"caf\303\251.ts"`), and a
 // newline in a filename splits one path into two. Both corruptions end the same way: a pathspec that
 // matches nothing and a manifest that calls a present file deleted.
-const changed = git("diff", "--name-only", "-z", `${base}..${head}`).split(NUL).filter(Boolean);
+const raw = git("diff", "--name-status", "-z", `${base}..${head}`).split(NUL).filter(Boolean);
+
+/**
+ * `--name-status` rather than `--name-only`, because a rename reports ONLY its destination — and that
+ * defeats the secret filter outright. Reproduced: `.env.secret` → `safe.txt` put an AWS key into
+ * `FILES/safe.txt` under an innocuous name, because only the destination was ever tested (Codex round
+ * 2, P1). Records are NUL-separated; a rename or copy carries TWO paths, everything else one.
+ */
+const entries = [];
+for (let i = 0; i < raw.length; ) {
+  const status = raw[i++];
+  const from = /^[RC]/.test(status) ? raw[i++] : null;
+  const path = raw[i++];
+  if (path === undefined) break;
+  entries.push({ status, from, path });
+}
+const changed = entries.map((e) => e.path);
 
 if (changed.length === 0) {
   console.error(
@@ -94,8 +113,15 @@ if (changed.length === 0) {
   process.exit(1);
 }
 
-const omitted = changed.filter(isSecret);
-const files = changed.filter((f) => !isSecret(f));
+// Secret if EITHER side is: the filter must not be escapable by renaming out of a matching name.
+const secretEntries = entries.filter((e) => isSecret(e.path) || (e.from && isSecret(e.from)));
+const secretSet = new Set(secretEntries.map((e) => e.path));
+const files = changed.filter((f) => !secretSet.has(f));
+// BOTH sides go into the exclusion pathspec, or the patch still carries the old blob's content.
+const omittedPaths = [
+  ...new Set(secretEntries.flatMap((e) => (e.from ? [e.from, e.path] : [e.path]))),
+];
+const omittedDisplay = secretEntries.map((e) => (e.from ? `${e.from} → ${e.path}` : e.path));
 
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(join(OUT, "FILES"), { recursive: true });
@@ -115,7 +141,7 @@ const patch = git(
   `${base}..${head}`,
   "--",
   ".",
-  ...omitted.map((f) => `:(exclude,literal)${f}`),
+  ...omittedPaths.map((f) => `:(exclude,literal)${f}`),
 );
 writeFileSync(join(OUT, "DIFF.patch"), patch);
 
@@ -129,7 +155,14 @@ const bundleName = new Map();
 {
   const taken = new Set();
   for (const f of files) {
-    const stem = f.replace(/\//g, "__").replace(/^\./, "_");
+    let stem = f.replace(/\//g, "__").replace(/^\./, "_");
+    // A deep path flattens into ONE component and can breach the filesystem's 255-byte limit, so
+    // writeFileSync throws ENAMETOOLONG *after* the previous bundle was removed — leaving no bundle
+    // at all rather than a degraded one.
+    if (Buffer.byteLength(stem) > MAX_COMPONENT) {
+      const digest = createHash("sha1").update(f).digest("hex").slice(0, 8);
+      stem = `${stem.slice(0, MAX_COMPONENT - 12)}~${digest}`;
+    }
     let name = stem;
     for (let i = 2; taken.has(name); i++) name = `${stem}~${i}`;
     taken.add(name);
@@ -141,12 +174,14 @@ const bundleName = new Map();
 // contains it, and the auditor must be able to quote rather than paraphrase.
 const present = [];
 for (const f of files) {
-  if (!existsSync(f)) continue; // deleted — it lives in DIFF.patch only
+  // `git show` is authoritative for "present at HEAD"; `existsSync` was not — it FOLLOWS a symlink,
+  // so a changed-but-dangling one (target removed in the same commit, or deployment-only) reported
+  // false and got labelled deleted while its blob was perfectly readable.
   let text;
   try {
     text = git("show", `${head}:${f}`);
   } catch {
-    continue; // unreadable at this ref
+    continue; // genuinely absent at HEAD — it lives in DIFF.patch only
   }
   if (text.includes(NUL)) continue; // binary
   present.push(f);
@@ -180,8 +215,22 @@ function searchTerm(f) {
  * bundle — so an architectural finding could only ever be downgraded to an open question. `-F` keeps
  * the term a fixed string (see `searchTerm`), `-n` gives the anchor.
  */
+/**
+ * Deleted and renamed-FROM paths matter most here and have no file snapshot at all: an unchanged
+ * caller still importing a module that just vanished is exactly the regression the architectural lens
+ * exists to catch, and preserving the rename in the patch does not search the old name. Terms come
+ * from the union, not from `present`.
+ */
+const searchTargets = [
+  ...new Set([
+    ...present,
+    ...entries.filter((e) => e.status.startsWith("D")).map((e) => e.path),
+    ...entries.filter((e) => e.from).map((e) => e.from),
+  ]),
+].filter((t) => SOURCE_EXT.test(t) && !secretSet.has(t));
+
 const dependents = [];
-for (const f of present.filter((p) => SOURCE_EXT.test(p))) {
+for (const f of searchTargets) {
   const term = searchTerm(f);
   if (!term) continue;
   let lines = [];
@@ -243,14 +292,14 @@ writeFileSync(
     "",
     // The omission has to be visible INSIDE the bundle. It used to be a stdout warning the auditor
     // never sees, so the bundle could hide a changed file while advertising completeness.
-    ...(omitted.length
+    ...(omittedDisplay.length
       ? [
           "## Deliberately omitted (secret-like paths)",
           "",
           "These changed but are **not** in `DIFF.patch` or `FILES/`. If the change under review",
           "depends on them, say so and stop — do not assume they are unrelated.",
           "",
-          ...omitted.map((f) => `- \`${f}\``),
+          ...omittedDisplay.map((f) => `- \`${f}\``),
           "",
         ]
       : []),
@@ -291,8 +340,8 @@ console.log(
 console.log(
   `  DIFF.patch · MANIFEST.md · FILES/ · DEPENDENTS.md (${dependents.length} with out-of-diff mentions) · PROMPT.md`,
 );
-if (omitted.length)
-  console.log(`  ⚠️  omitted as secret-like (listed in MANIFEST): ${omitted.join(", ")}`);
+if (omittedDisplay.length)
+  console.log(`  ⚠️  omitted as secret-like (listed in MANIFEST): ${omittedDisplay.join(", ")}`);
 console.log(
   `\nHand the auditor ONLY this directory. Do not summarise the change in your own words.`,
 );

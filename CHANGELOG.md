@@ -63,6 +63,24 @@ available evidence for the premise. Every one was verified against source before
   it matched a file containing `staff/table/i` and missed every real caller. Terms truncate at the
   first dynamic segment and search fixed-string.
 
+**Codex round 2 found four more, one of them the sharpest yet.**
+
+- **P1** — the secret filter was **escapable by renaming**. `--name-only` reports only a rename's
+  destination, so `.env.secret` → `safe.txt` passed `isSecret` on the innocuous name and the script
+  copied an AWS key into `FILES/safe.txt`. Reproduced end-to-end. Now parsed from `--name-status -z`,
+  which carries both paths (`R100`, old, new); an entry is secret if **either** side matches, and both
+  sides go into the exclusion pathspec so the old blob cannot surface in the patch either.
+- Callers of **deleted** and **renamed-from** modules were never searched, because terms came from the
+  files that still exist. That is the one case the architectural lens most needs — an unchanged caller
+  importing a module that just vanished. Terms now come from the union of present, deleted and
+  renamed-from paths; verified reporting `Consumer.tsx:1 — import { helper } from "@/lib/order-helper"`
+  for a module deleted in the same commit.
+- `existsSync` **follows symlinks**, so a changed-but-dangling one was labelled deleted while its blob
+  was perfectly readable. `git show` is authoritative for presence at HEAD and is now the only test.
+- A deep path flattens into one component and can breach the filesystem's 255-byte limit, throwing
+  `ENAMETOOLONG` **after** the previous bundle was removed — no bundle at all. Names now bound at 200
+  bytes with a content hash; verified at 197.
+
 ### Connector sweep — Supabase · Stripe · Vercel (2026-08-22)
 
 A full read-only check of all three connectors. Vercel was clean (zero runtime errors in 7 days);
