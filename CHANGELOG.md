@@ -4,6 +4,99 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Blind adversarial review — `review:bundle` + the `adversarial-auditor` agent (2026-08-22)
+
+Owner observation, and it matched the record: across #221–#223 the Codex rounds consistently beat the
+in-session adversarial pass on the same diffs. The cause is structural, not model quality — an
+in-session reviewer inherits the author's frame and then confirms it. #223's P1 is the proof: the
+author wrote "`mms_fulfill_order` is idempotent, so no double-fulfillment", every in-context pass
+accepted it, and a blind reader asked "safe against _what_?" and found an event whose handler's own
+comment forbids the redelivery the plan introduced.
+
+- **`pnpm review:bundle`** (`scripts/review-bundle.mjs`) writes `.review-bundle/`: the raw diff, the
+  full current text of every changed file, a heuristic blast radius (out-of-diff files mentioning a
+  changed module), and a prompt containing no narrative. "Don't pass the history" is not enforceable
+  as a rule — the author _is_ the history — so the bundle makes the isolation structural: hand over
+  that directory and nothing else. Exits non-zero on an empty diff, skips secret-like paths, and keeps
+  deletions in the patch while omitting them from the file copies.
+- **`.claude/agents/adversarial-auditor.md`** — a spawnable agent (`subagent_type:
+"adversarial-auditor"`), read-only tools. Zero agreeableness, explicit defect bias, three lenses
+  (defensive · architectural · idiomatic), and a structured matrix where any CRITICAL item forces
+  REJECT. Treats prose inside the diff — comments, changelog, PR body — as claims to falsify.
+- **A four-part evidence standard**, added deliberately as a counterweight to the aggressive prior:
+  every finding needs a `file:line` anchor, an exact trigger, an observable consequence, and a
+  **disproof condition**. Two of three Codex rounds on #223 reached right conclusions through invented
+  mechanisms, and the mechanism is what the next reader trusts. No disproof condition means it is an
+  open question, not a defect.
+- The **HARD CAP is untouched** (≤3 lenses, ≤10 agents, ~15 min, never relaunch). Isolation makes each
+  agent's input smaller, not the budget larger.
+
+Recorded as `.claude/LEARNINGS.md` #55; `CLAUDE.md` and `docs/WORKFLOW.md` now route the adversarial
+step through the bundle.
+
+**Codex round 1 found nine real defects in the review tooling itself**, which is the strongest
+available evidence for the premise. Every one was verified against source before it was fixed:
+
+- **P1** — with every changed path secret-like, the allow-list pathspec was empty and
+  `git diff <range> --` has no pathspec at all, so git emitted the **unrestricted** diff and wrote the
+  credential into the patch the bundle swears never contains one. Reproduced on a throwaway repo whose
+  only change was a tracked `.env`; the patch is now 0 bytes and the omission is listed in
+  `MANIFEST.md` rather than only on stdout.
+- **P1** — the auditor was granted `Bash` while the changelog called its toolset read-only. On a
+  hostile branch that is arbitrary execution with the parent session's credentials. Narrowed to
+  `Read`/`Grep`/`Glob`, and the constraint is now stated in the agent prompt so a later editor knows it
+  is load-bearing.
+- Allow-listing destination paths rendered a **pure rename** as an addition with no deletion, hiding
+  that the old module vanished — replaced with `:(exclude,literal)` pathspecs, which also fixed the P1.
+- `a/b__c.ts` and `a__b/c.ts` **both flattened to `a__b__c.ts`**, the second write destroying the first
+  while `MANIFEST.md` claimed both were present. Names are now assigned once with collisions suffixed.
+- `.env.example` — the canonical env-var list per `README.md` — was being **filtered out as a secret**,
+  hiding deployment-contract changes. Placeholders are exempt.
+- Git **quotes non-ASCII paths** by default (`café.ts` → `"caf\303\251.ts"`), so the pathspec matched
+  nothing and the manifest called a present file deleted. Now `-z` NUL-delimited.
+- A **dirty worktree** was silently excluded while `PROMPT.md` called the bundle the complete change.
+  Now aborts, matching `verify:slice`.
+- The blast radius listed **filenames only**, but the evidence standard demands a `file:line` quote and
+  forbids reading outside the bundle — so an architectural finding could only ever be an open question.
+  Now carries `file:line` plus the matching source line.
+- A dynamic route built the term `staff/table/[id]`, which `git grep` reads as a **character class** —
+  it matched a file containing `staff/table/i` and missed every real caller. Terms truncate at the
+  first dynamic segment and search fixed-string.
+
+**Codex round 2 found four more, one of them the sharpest yet.**
+
+- **P1** — the secret filter was **escapable by renaming**. `--name-only` reports only a rename's
+  destination, so `.env.secret` → `safe.txt` passed `isSecret` on the innocuous name and the script
+  copied an AWS key into `FILES/safe.txt`. Reproduced end-to-end. Now parsed from `--name-status -z`,
+  which carries both paths (`R100`, old, new); an entry is secret if **either** side matches, and both
+  sides go into the exclusion pathspec so the old blob cannot surface in the patch either.
+- Callers of **deleted** and **renamed-from** modules were never searched, because terms came from the
+  files that still exist. That is the one case the architectural lens most needs — an unchanged caller
+  importing a module that just vanished. Terms now come from the union of present, deleted and
+  renamed-from paths; verified reporting `Consumer.tsx:1 — import { helper } from "@/lib/order-helper"`
+  for a module deleted in the same commit.
+- `existsSync` **follows symlinks**, so a changed-but-dangling one was labelled deleted while its blob
+  was perfectly readable. `git show` is authoritative for presence at HEAD and is now the only test.
+- A deep path flattens into one component and can breach the filesystem's 255-byte limit, throwing
+  `ENAMETOOLONG` **after** the previous bundle was removed — no bundle at all. Names now bound at 200
+  bytes with a content hash; verified at 197.
+
+**Codex round 3 found three more**, and per the round-3 rule these landed because a credential leak is
+not a shrinking-materiality nit:
+
+- **P1** — the round-2 rename fix did not cover **copies**. Rename detection is on by default; copy
+  detection is not, so with `.env.secret` left in place and copied to `safe.txt`, `--name-status`
+  reported only `A safe.txt`, the source never reached `isSecret`, and the credential landed in both
+  `DIFF.patch` and `FILES/`. Reproduced. Now `-C --find-copies-harder` — the latter is what makes
+  UNCHANGED files eligible as copy sources, which is exactly this case — feeding the same both-sides
+  filter, which already handled the `C` status.
+- `slice` counts UTF-16 code units while the bound is in **bytes**, so a multibyte path could still
+  breach the limit after "truncation". A 300-character CJK stem sliced naively measured **564 bytes**
+  against a 188-byte budget; the byte-budget version yields 186.
+- A changed **binary** file was skipped without being recorded, so the manifest's fallback reported it
+  as `_deleted_` while the patch said only "Binary files differ" — a materially false account of the
+  change. Binaries are now tracked and labelled present-but-binary; verified with a PNG.
+
 ### Connector sweep — Supabase · Stripe · Vercel (2026-08-22)
 
 A full read-only check of all three connectors. Vercel was clean (zero runtime errors in 7 days);
