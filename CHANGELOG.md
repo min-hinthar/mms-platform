@@ -81,6 +81,22 @@ available evidence for the premise. Every one was verified against source before
   `ENAMETOOLONG` **after** the previous bundle was removed — no bundle at all. Names now bound at 200
   bytes with a content hash; verified at 197.
 
+**Codex round 3 found three more**, and per the round-3 rule these landed because a credential leak is
+not a shrinking-materiality nit:
+
+- **P1** — the round-2 rename fix did not cover **copies**. Rename detection is on by default; copy
+  detection is not, so with `.env.secret` left in place and copied to `safe.txt`, `--name-status`
+  reported only `A safe.txt`, the source never reached `isSecret`, and the credential landed in both
+  `DIFF.patch` and `FILES/`. Reproduced. Now `-C --find-copies-harder` — the latter is what makes
+  UNCHANGED files eligible as copy sources, which is exactly this case — feeding the same both-sides
+  filter, which already handled the `C` status.
+- `slice` counts UTF-16 code units while the bound is in **bytes**, so a multibyte path could still
+  breach the limit after "truncation". A 300-character CJK stem sliced naively measured **564 bytes**
+  against a 188-byte budget; the byte-budget version yields 186.
+- A changed **binary** file was skipped without being recorded, so the manifest's fallback reported it
+  as `_deleted_` while the patch said only "Binary files differ" — a materially false account of the
+  change. Binaries are now tracked and labelled present-but-binary; verified with a PNG.
+
 ### Connector sweep — Supabase · Stripe · Vercel (2026-08-22)
 
 A full read-only check of all three connectors. Vercel was clean (zero runtime errors in 7 days);

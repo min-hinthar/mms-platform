@@ -50,6 +50,23 @@ const MAX_COMPONENT = 200;
 const FRAMEWORK_FILE =
   /^(route|page|layout|loading|error|not-found|template|default|global-error)$/;
 
+/**
+ * `String.prototype.slice` counts UTF-16 code units while the limit above is BYTES, so a path of
+ * multibyte characters could still breach the filesystem component limit after "truncation" and throw
+ * ENAMETOOLONG — with the previous bundle already deleted (Codex round 3).
+ */
+function truncateToBytes(str, maxBytes) {
+  let out = "";
+  let bytes = 0;
+  for (const ch of str) {
+    const b = Buffer.byteLength(ch);
+    if (bytes + b > maxBytes) break;
+    out += ch;
+    bytes += b;
+  }
+  return out;
+}
+
 const git = (...args) =>
   execFileSync("git", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
 
@@ -88,13 +105,21 @@ const head = git("rev-parse", "HEAD").trim();
 // `-z` because git QUOTES non-ASCII paths by default (`café.ts` arrives as `"caf\303\251.ts"`), and a
 // newline in a filename splits one path into two. Both corruptions end the same way: a pathspec that
 // matches nothing and a manifest that calls a present file deleted.
-const raw = git("diff", "--name-status", "-z", `${base}..${head}`).split(NUL).filter(Boolean);
+const raw = git("diff", "--name-status", "-z", "-C", "--find-copies-harder", `${base}..${head}`)
+  .split(NUL)
+  .filter(Boolean);
 
 /**
  * `--name-status` rather than `--name-only`, because a rename reports ONLY its destination — and that
  * defeats the secret filter outright. Reproduced: `.env.secret` → `safe.txt` put an AWS key into
  * `FILES/safe.txt` under an innocuous name, because only the destination was ever tested (Codex round
  * 2, P1). Records are NUL-separated; a rename or copy carries TWO paths, everything else one.
+ *
+ * `-C --find-copies-harder` because rename detection is on by default but COPY detection is not, and
+ * a copy leaks exactly like a rename did: with `.env.secret` left in place and copied to `safe.txt`,
+ * plain `--name-status` reports only `A safe.txt`, so the source never reaches `isSecret` and the
+ * credential landed in both DIFF.patch and FILES/. Reproduced (Codex round 3, P1). `--find-copies-harder`
+ * is what makes UNCHANGED files eligible as copy sources, which is precisely this case.
  */
 const entries = [];
 for (let i = 0; i < raw.length; ) {
@@ -161,7 +186,7 @@ const bundleName = new Map();
     // at all rather than a degraded one.
     if (Buffer.byteLength(stem) > MAX_COMPONENT) {
       const digest = createHash("sha1").update(f).digest("hex").slice(0, 8);
-      stem = `${stem.slice(0, MAX_COMPONENT - 12)}~${digest}`;
+      stem = `${truncateToBytes(stem, MAX_COMPONENT - 12)}~${digest}`;
     }
     let name = stem;
     for (let i = 2; taken.has(name); i++) name = `${stem}~${i}`;
@@ -173,6 +198,7 @@ const bundleName = new Map();
 // Full current text, not just the hunk: a defect is usually visible only against the function that
 // contains it, and the auditor must be able to quote rather than paraphrase.
 const present = [];
+const binary = [];
 for (const f of files) {
   // `git show` is authoritative for "present at HEAD"; `existsSync` was not — it FOLLOWS a symlink,
   // so a changed-but-dangling one (target removed in the same commit, or deployment-only) reported
@@ -183,7 +209,13 @@ for (const f of files) {
   } catch {
     continue; // genuinely absent at HEAD — it lives in DIFF.patch only
   }
-  if (text.includes(NUL)) continue; // binary
+  if (text.includes(NUL)) {
+    // Present at HEAD but unreadable as text. It must NOT fall through to the manifest's deleted
+    // branch: reporting a changed PNG or font as "deleted", while the patch says only "Binary files
+    // differ", is a materially false account of the change (Codex round 3).
+    binary.push(f);
+    continue;
+  }
   present.push(f);
   writeFileSync(join(OUT, "FILES", bundleName.get(f)), text);
 }
@@ -287,7 +319,13 @@ writeFileSync(
     "| --- | --- |",
     ...files.map(
       (f) =>
-        `| \`${f}\` | ${present.includes(f) ? `\`${bundleName.get(f)}\`` : "_deleted — see DIFF.patch_"} |`,
+        `| \`${f}\` | ${
+          present.includes(f)
+            ? `\`${bundleName.get(f)}\``
+            : binary.includes(f)
+              ? "_binary — present at HEAD, see DIFF.patch_"
+              : "_deleted — see DIFF.patch_"
+        } |`,
     ),
     "",
     // The omission has to be visible INSIDE the bundle. It used to be a stdout warning the auditor
