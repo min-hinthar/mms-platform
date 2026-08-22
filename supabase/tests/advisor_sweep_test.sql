@@ -54,23 +54,34 @@ begin
     format('a client role gained SELECT on a service-role-only table: %s', leaked);
 end $$;
 
--- ── 2. The policies stay in the InitPlan-hoisted form ────────────────────────────────────────────
+-- ── 2. The policies are bound to their EXACT expected definitions ───────────────────────────────
 do $$
-declare hoisted int;
+declare matched int;
 begin
-  -- Count the policies that are PRESENT and correct, not the ones that are wrong. Counting
-  -- offenders passes vacuously when there are no rows to offend: drop either policy, or recreate it
-  -- with no USING clause (`qual` IS NULL, and NULL fails a NOT ILIKE), and the offender count is
-  -- still 0 while the guarantee this case advertises — both policies retained, both hoisted — is
-  -- broken. Codex round 1 on #223.
-  select count(*) into hoisted
+  -- Compare whole (table, policy, command, roles, qualification) tuples, not just a name and a
+  -- substring. Two earlier drafts of this case were too loose and each looked sufficient:
+  --
+  --   · counting policies whose qual did NOT match passed vacuously once a policy was dropped —
+  --     nothing left to offend (Codex round 1);
+  --   · counting policies whose qual merely CONTAINED a hoisted `auth.uid()` passed for a policy
+  --     moved to a different table, and for `using ((select auth.uid()) IS NOT NULL)`, which is a
+  --     hoisted auth.uid() that authorises every signed-in user rather than the owner
+  --     (Codex round 2).
+  --
+  -- The owner-column comparison is the whole point of an owner-read policy, so it is asserted
+  -- literally. `qual` text is read back from `pg_policies` exactly as Postgres normalises it —
+  -- captured from the live database rather than typed from memory.
+  select count(*) into matched
   from pg_policies
-  where schemaname = 'public'
-    and policyname in ('mms_profiles_owner_read', 'mms_rewards_owner_read')
-    and qual ilike '%( SELECT auth.uid()%';
+  where (schemaname, tablename, policyname, cmd, roles::text, qual) in (
+    ('public', 'mms_profiles', 'mms_profiles_owner_read', 'SELECT', '{authenticated}',
+      '(( SELECT auth.uid() AS uid) = id)'),
+    ('public', 'mms_rewards',  'mms_rewards_owner_read',  'SELECT', '{authenticated}',
+      '(( SELECT auth.uid() AS uid) = user_id)')
+  );
 
-  assert hoisted = 2,
-    format('expected 2 hoisted owner-read policies, found %s (dropped, un-qualified, or regressed to a per-row auth.uid())', hoisted);
+  assert matched = 2,
+    format('expected both owner-read policies at their exact definitions, matched %s — a policy was dropped, moved to another table, re-scoped to different roles/command, or its qualification no longer compares the owner column', matched);
 end $$;
 
 -- ── (no GraphQL case) ───────────────────────────────────────────────────────────────────────────
