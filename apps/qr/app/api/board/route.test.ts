@@ -106,22 +106,44 @@ describe("GET /api/board — dine-in never reaches the wall", () => {
     expect(body.reason).toBe("unavailable");
   });
 
-  it("still publishes when the mode read succeeds but is EMPTY — an order with no session", async () => {
-    // A grocery/kiosk order can carry a null session_id; that is not a dine-in table, and the
-    // fail-closed branch above must not swallow it.
-    orders = [order(TOGO, null, "Nilar")];
-    sessions = [];
+  it("publishes scan-and-go as well as pickup — both are board modes", async () => {
+    orders = [order(TOGO, "sess-togo", "Nilar")];
+    sessions = [{ id: "sess-togo", mode: "scango" }];
     const res = await GET(req());
     expect(res.status).toBe(200);
     const body = (await res.json()) as { orders: { name: string | null }[] };
     expect(body.orders.map((o) => o.name)).toEqual(["Nilar"]);
   });
 
+  it("a mode this code has never heard of is NOT published", async () => {
+    // The allowlist's whole reason to exist. `table_sessions.mode`'s CHECK admits three values
+    // today; the day it gains a fourth that means table service, `!== "dinein"` would have put those
+    // names on the wall with nobody having decided that. Staff can see a missing name; nobody can
+    // see a name that should not be there.
+    orders = [order(TOGO, "sess-togo", "Nilar")];
+    sessions = [{ id: "sess-togo", mode: "counter-seated" }];
+    const res = await GET(req());
+    const body = (await res.json()) as { orders: { name: string | null }[] };
+    expect(body.orders).toEqual([]);
+  });
+
   it("a session whose row is MISSING from a successful read is not published", async () => {
-    // Not the same as a failed read: the read answered, and it did not answer "to-go". The board's
-    // rule is a positive one — publish what we know is not dine-in, never what we merely did not see.
+    // Not the same as a failed read: the read answered, and it did not name a board mode. Publish
+    // what is known to belong on the wall, never what was merely not seen.
     sessions = [{ id: "sess-togo", mode: "pickup" }];
     orders = [order(DINEIN, "sess-dinein", "Thura")];
+    const res = await GET(req());
+    const body = (await res.json()) as { orders: { name: string | null }[] };
+    expect(body.orders).toEqual([]);
+  });
+
+  it("a null session_id is unknowable, not to-go", async () => {
+    // `qr_orders.session_id` is nullable but every insert sources it from `qr_carts.session_id`,
+    // which is NOT NULL — so this cannot happen today. Pinned anyway because the previous version of
+    // this branch published such a row on the strength of a comment that claimed grocery orders
+    // carry a null session, which the schema does not support.
+    orders = [order(TOGO, null, "Nilar")];
+    sessions = [];
     const res = await GET(req());
     const body = (await res.json()) as { orders: { name: string | null }[] };
     expect(body.orders).toEqual([]);

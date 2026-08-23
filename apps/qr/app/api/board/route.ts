@@ -6,6 +6,14 @@ export const runtime = "nodejs"; // node:crypto timingSafeEqual
 export const dynamic = "force-dynamic";
 
 /**
+ * The session modes whose orders belong on a public screen — takeout and scan-and-go (SPEC-KDS §6).
+ * `table_sessions.mode`'s CHECK admits exactly `dinein` · `scango` · `pickup`
+ * (`20260618000000_qr_platform_init.sql`), so this is that set minus dine-in — written as the set it
+ * IS, so a mode added later has to be added here deliberately instead of appearing on the wall.
+ */
+const BOARD_MODES = new Set(["pickup", "scango"]);
+
+/**
  * W3e: the order-ready board's poll (GET /api/board?k=<device token>). The TV can't join the private
  * RLS-gated realtime channels (an unauthenticated browser has no staff JWT), so it polls this SANITIZED
  * read on the house 5s-backstop cadence — no `realtime.messages` policy change, no staff session on a
@@ -114,15 +122,19 @@ export async function GET(req: NextRequest) {
   const modeBySession = new Map((sessions ?? []).map((s) => [s.id, s.mode]));
 
   const orders = (data ?? [])
-    // POSITIVE: an order with a session is published only when that session's mode came back and is
-    // not dine-in. `!== "dinein"` was the same fail-open polarity as the discarded error one row up,
-    // just narrower — a row absent from the answer (a truncated `.in()`, a future soft-delete) read
-    // as "not dine-in" and published a name. Today's FK makes the absent case unreachable, which is
-    // exactly why the weaker test would have stayed green forever; the rule is the point.
+    // ALLOWLIST, not "anything that isn't dine-in". Two rounds got this wrong in the same direction:
+    // the shipped `!== "dinein"` on an EMPTY map published everything, and the first fix
+    // (`mode !== undefined && mode !== "dinein"`) only closed the absent-row half — it is still a
+    // one-string blacklist, so the day `table_sessions.mode`'s CHECK gains a fourth value that means
+    // table service, every such order publishes a name with nobody having decided that. The board is
+    // defined POSITIVELY (SPEC-KDS §6: takeout + grocery), so name those modes and let a mode this
+    // code has never heard of be absent from the wall rather than on it — staff can see a missing
+    // name; nobody can see a name that should not be there. A null session_id is unknowable, not
+    // to-go: the column is nullable, but every insert sources it from `qr_carts.session_id`, which is
+    // NOT NULL, so today it cannot happen at all and the safe reading costs nothing.
     .filter((o) => {
-      if (!o.session_id) return true; // no session at all — a counter/kiosk bag, never a table
-      const mode = modeBySession.get(o.session_id);
-      return mode !== undefined && mode !== "dinein";
+      const mode = o.session_id ? modeBySession.get(o.session_id) : undefined;
+      return mode !== undefined && BOARD_MODES.has(mode);
     })
     .map((o) => ({
       code: o.id.slice(-6).toUpperCase(), // the same uuid-tail code the diner's /track + exit pass show

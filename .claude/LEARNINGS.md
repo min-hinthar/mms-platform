@@ -481,14 +481,14 @@ confident reviewers, one wrong, averaged, still ships the bug.
 
 ## #56 — A second read of a fact you already hold fails in whichever direction the call site defaults (M108 · M113, 2026-08-23)
 
-`table_sessions.mode` was read in four places. `assertCartMember` reads it to prove the session is
-active and throws 503 when the read fails — correct. Three callers then read it AGAIN, and every one
-of them discarded the `{ error }`:
+`table_sessions.mode` has eleven readers. `assertCartMember` reads it to prove the session is active
+and throws 503 when the read fails — correct. Three callers then read it AGAIN, and every one of them
+discarded the `{ error }`:
 
 - `addItem` and `reorderOrder`: `sess?.mode === "dinein"` → `false` on a failed read → a dine-in
   table's line tagged `togo` at the to-go tax. Under-collection.
-- `api/board/route.ts`: `modeBySession.get(id) !== "dinein"` → `true` on a failed read → the whole
-  table's diner-chosen first names published to a public TV. Over-exposure.
+- `api/board/route.ts`: `modeBySession.get(id) !== "dinein"` → `true` on a failed read → a dine-in
+  diner's staff-entered call-out name published to a public TV. Over-exposure.
 
 Same column, same swallow, opposite harms — because the harm is not chosen by the bug, it is chosen
 by whatever the surrounding expression treats as its default. That is the part worth carrying: you
@@ -507,11 +507,29 @@ rather than assumed, and the third defect was in the fourth one. When a defect i
 rather than by a location, grep the shape before closing the row — the row's author found the
 instances they happened to be looking at.
 
-A corollary the board test surfaced on its own: `!== "dinein"` was still fail-open one notch
-narrower, because a row absent from an answer that DID arrive (a truncated `.in()`, a future
-soft-delete) also reads as "not dine-in". Today's FK makes that unreachable, which is exactly why the
-weaker predicate would have stayed green forever. Write the positive form (`mode !== undefined &&
-mode !== "dinein"`) anyway: the guard's job is to survive the schema change nobody has made yet.
+**Two rounds got the board predicate wrong in the same direction, and the second one called itself
+"positive".** `!== "dinein"` on an empty map publishes everything. The first fix,
+`mode !== undefined && mode !== "dinein"`, closed only the absent-row half — it is still a
+one-string blacklist, so the day `table_sessions.mode`'s CHECK gains a fourth value meaning table
+service, every such order publishes a name with nobody having decided that. Writing "POSITIVE" in
+the comment did not make it one. A genuinely positive rule names the set it admits
+(`BOARD_MODES = {pickup, scango}`); everything else is a blacklist wearing a `!== undefined` guard.
+Test for a value the allowlist has never heard of, not just for a missing row.
+
+**And the sharpest one, from the blind pass on the fix itself: deleting a fail-open read MOVES the
+decision, and it can move it out of the guards' sight.** The mode now originates in `authz.ts` — a
+file with no test (every suite mocks it wholesale), no mutant, and no marker `check-money-coverage`
+could see, because it names no money column. So `mode: sess.mode` → `mode: "pickup"` left 205
+mutants, 981 tests and CI green while every dine-in add rang the to-go tax: the exact defect just
+closed, reproduced one file upstream of where its new guards point. The three mutants pinned the
+_consumers_ of the decision and none pinned its _producer_. **When a fix consolidates a rule into one
+place, that place is the new money path** — check that the coverage guard can see it before calling
+the fix done. (`CartAuthz` is now a MONEY_MARKER; `lib/authz.test.ts` executes the real function.)
+
+Scope note, so the next reader is not misled by "read ONCE": the consolidation is the DINER path.
+`staffAddItem` derives the same fork from `staff-open-cart`'s own read, because staff authorize
+through a different guard entirely — that read fails closed, so it is a second derivation, not a
+second chance to fail.
 
 Also, mechanically: prettier turns a line-leading `+` in a wrapped markdown sentence into a list item
 and silently corrupts the prose. `pnpm format` did it to #55 in this very file. Don't start a

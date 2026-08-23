@@ -128,8 +128,11 @@ describe("addItem — the session-mode fork tags the line (and with it, the tax)
     expect(lineTax(UNIT, "cold_food", true)).toBeGreaterThan(0);
   });
 
-  it("a GROCERY/scan session is togo too — only 'dinein' is dine-in", async () => {
-    sessionMode = "grocery";
+  it("a SCAN-AND-GO session is togo too — only 'dinein' is dine-in", async () => {
+    // `scango`, not "grocery": `table_sessions.mode`'s CHECK admits exactly dinein · scango · pickup
+    // (`20260618000000_qr_platform_init.sql`), so a fixture outside that set proves nothing the
+    // pickup case above does not already prove.
+    sessionMode = "scango";
     await addItem(CART, ITEM);
     expect(insertCalls[0]?.fulfillment).toBe("togo");
   });

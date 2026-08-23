@@ -15,9 +15,11 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > in `docs/OPEN-ITEMS.md`. Two durable rules came out of them: a client render gate (`isDineIn &&`) is
 > advisory on a public POST, and — from #226 — **a second read of a fact you already hold is a second
 > chance to fail, and it will fail in whichever direction the call site's default happens to point.**
-> The same `table_sessions.mode` column was read in four places with three different polarities: two
-> discarded the error and under-collected tax, one discarded it and published dine-in diners' names to
-> a public TV, one fails closed correctly. Deleting the read beat handling the error at every site.
+> Three sites discarded the error on that column: two under-collected tax, one published a dine-in
+> diner's name to a public TV. Deleting the read beat handling the error at every site. The full
+> census is **eleven** readers (`addItem` · `reorderOrder` · `api/board` · `api/session/peek` ·
+> `manual-capture-mode` · `kitchen` · `register` · `expo` · `staff-open-cart` · `create-intent` ·
+> `setup-intent`), every one re-read; the eight not fixed here fail closed or are caller-scoped.
 >
 > - **The twin-audit is the reusable move.** After fixing the two rows M108 named, every remaining
 >   read of that column was classified rather than assumed — which is the only reason M113 (the board
@@ -70,7 +72,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 205 `verify:slice` mutants green · `pnpm check:docs` clean (95 files, 981 qr tests +
+> **Gate today:** 208 `verify:slice` mutants green · `pnpm check:docs` clean (95 files, 998 qr tests +
 > 87 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
@@ -776,7 +778,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (205 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (208 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

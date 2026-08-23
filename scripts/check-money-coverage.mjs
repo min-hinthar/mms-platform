@@ -84,6 +84,12 @@ const MONEY_MARKERS = [
   // honesty rules would be revertible with every gate green — on a card that speaks about the diner
   // themselves, which is where a fabrication is least forgivable.
   /\byourUsual\b/,
+  // M108 review (blind pass) — `authz.ts` names no money column, but since M108 it is the ONE
+  // producer of the session mode every dine-in/to-go tax fork reads. It matched nothing on this
+  // list, so the file that DECIDES the fork was invisible here while `cart.ts`, which merely reads
+  // the decision, was visible. `CartAuthz` occurs in exactly one file (measured), so this makes the
+  // producer visible without dragging in every consumer that calls the guard.
+  /\bCartAuthz\b/,
 ];
 
 const EXEMPT = /verify:slice-exempt\s*—?\s*(.+)/;

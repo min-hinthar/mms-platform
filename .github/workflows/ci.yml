@@ -55,8 +55,15 @@ jobs:
           # `--cached --others --exclude-standard` = tracked + untracked-minus-ignored, so a new
           # test file is still caught before it is committed. Keep this in step with
           # scripts/verify-slice.mjs, which mirrors it.
-          ts_orphans=$(git ls-files --cached --others --exclude-standard -- '*.test.ts' \
-            | grep -v -E '^(apps/qr/|packages/ui/src/)' || true)
+          all_ts=$(git ls-files --cached --others --exclude-standard -- '*.test.ts')
+          # A guard that passes because it enumerated NOTHING is worse than no guard. `git ls-files`
+          # can answer empty-and-zero where `find` could not (no .git, a safe.directory refusal), so
+          # floor it: the repo has ~88 tracked *.test.ts files.
+          if [ "$(echo "$all_ts" | grep -c .)" -lt 10 ]; then
+            echo "::error::orphan-suite guard enumerated almost no test files — it cannot have run."
+            exit 1
+          fi
+          ts_orphans=$(echo "$all_ts" | grep -v -E '^(apps/qr/|packages/ui/src/)' || true)
           tsx_any=$(git ls-files --cached --others --exclude-standard -- '*.test.tsx' || true)
           if [ -n "$ts_orphans" ] || [ -n "$tsx_any" ]; then
             echo "::error::Test file(s) that NO vitest config runs — they never execute:"

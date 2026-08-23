@@ -1741,6 +1741,34 @@ const MUTANTS = [
   },
   // ── M108 — the session-mode fork, and the privacy filter that fails the other way ────────────
   {
+    id: "authz/mode-pinned-to-a-constant",
+    file: "apps/qr/lib/authz.ts",
+    suite: "lib/authz.test.ts",
+    why: 'M108 review (blind pass) — `assertCartMember` is now the ONE producer of the mode every dine-in/to-go fork reads, and this exact edit was the auditor\'s demonstration: with no test here, `mode: "pickup"` left all mutants, 981 tests and CI green while every dine-in add rang the to-go tax. The defect M108 closed, relocated one file upstream of its guards',
+    find: "    mode: sess.mode,",
+    replace: '    mode: "pickup",',
+  },
+  {
+    id: "authz/mode-not-selected",
+    file: "apps/qr/lib/authz.ts",
+    suite: "lib/authz.test.ts",
+    why: "M108 review — a column PostgREST was never asked for is simply absent from the row, so dropping `mode` from the select makes `sess.mode` undefined and collapses every fork to to-go, with the return statement still reading as correct",
+    find: '    .select("status,expires_at,mode")',
+    replace: '    .select("status,expires_at")',
+  },
+  {
+    id: "authz/session-read-fails-open",
+    file: "apps/qr/lib/authz.ts",
+    suite: "lib/authz.test.ts",
+    why: "M108 — this is the read that now decides a tax fork, so it refusing rather than defaulting is the whole reason deleting the two downstream reads was safe. Fail it open and an unreadable session picks a tax arm again (and W10a's original harm returns: a diner told their live session expired during a DB blip)",
+    // Anchored through the mode SELECT: `assertSessionMember` a few lines down carries a
+    // byte-identical guard, so the bare line matches twice and the mutant reports STALE. Only
+    // assertCartMember asks for `mode`.
+    find: '    .select("status,expires_at,mode")\n    .eq("id", cart.session_id)\n    .maybeSingle();\n  if (sessErr) throw UNAVAILABLE();',
+    replace:
+      '    .select("status,expires_at,mode")\n    .eq("id", cart.session_id)\n    .maybeSingle();\n  if (false) throw UNAVAILABLE();',
+  },
+  {
     id: "cart/add-mode-fork-collapses-to-togo",
     file: "apps/qr/lib/cart.ts",
     suite: "lib/cart-add-mode.test.ts",
@@ -1757,11 +1785,11 @@ const MUTANTS = [
     replace: "  if (false) {",
   },
   {
-    id: "board/absent-session-reads-as-not-dinein",
+    id: "board/allowlist-becomes-a-blacklist",
     file: "apps/qr/app/api/board/route.ts",
     suite: "app/api/board/route.test.ts",
-    why: "M108-adjacent — the same fail-open polarity one notch narrower: a row absent from an answer that DID arrive (a truncated `.in()`, a future soft-delete) is not evidence of to-go. The board publishes what it knows is not dine-in, never what it merely did not see",
-    find: '      return mode !== undefined && mode !== "dinein";',
+    why: 'M108-adjacent, and the shape TWO rounds got wrong in the same direction — `!== "dinein"` publishes a row absent from an answer that DID arrive (a truncated `.in()`) AND any mode value the CHECK gains later that means table service. The board is defined positively (takeout + grocery), so it must name the modes it publishes; an unknown mode belongs off the wall, not on it',
+    find: "      return mode !== undefined && BOARD_MODES.has(mode);",
     replace: '      return mode !== "dinein";',
   },
 ];
@@ -1923,15 +1951,27 @@ process.stdout.write("\norphan-suite guard … ");
 // --exclude-standard` is tracked + untracked-minus-ignored, so a brand-new test file is still checked
 // before it is committed, and no future artifact directory can trip this again.
 const find = (pattern) =>
-  run(
-    "bash",
-    ["-c", `git ls-files --cached --others --exclude-standard -- '${pattern}' || true`],
-    ROOT,
-  )
+  run("bash", ["-c", `git ls-files --cached --others --exclude-standard -- '${pattern}'`], ROOT)
     .split("\n")
     .filter(Boolean)
     .map((p) => `./${p}`);
-const tsOrphans = find("*.test.ts").filter((p) => !/^\.\/(apps\/qr\/|packages\/ui\/src\/)/.test(p));
+const allTs = find("*.test.ts");
+// A guard that reports "clean" because it enumerated NOTHING is the failure mode this whole script
+// exists to prevent, and the git form can hit it where `find` could not: no `.git` (an exported
+// tarball, a Docker context), or a `safe.directory` ownership refusal. `run()` throws on a nonzero
+// exit — the earlier `|| true` suppressed exactly that — and this floor catches the empty-but-zero
+// case. The repo has ~88 tracked `.test.ts` files; a single digit means the enumeration, not the
+// tree, is what changed.
+if (allTs.length < 10) {
+  console.log(c.red("FAIL"));
+  console.error(
+    c.red(
+      `\n✗ orphan-suite guard enumerated only ${allTs.length} test file(s) — it cannot have run.\n`,
+    ) + c.dim("  Check that this is a git checkout `git ls-files` can read.\n"),
+  );
+  process.exit(1);
+}
+const tsOrphans = allTs.filter((p) => !/^\.\/(apps\/qr\/|packages\/ui\/src\/)/.test(p));
 const tsxAny = find("*.test.tsx"); // no vitest config includes .tsx — any is an orphan
 const orphans = [...tsOrphans, ...tsxAny];
 console.log(orphans.length ? c.red("FAIL") : c.green("clean"));
