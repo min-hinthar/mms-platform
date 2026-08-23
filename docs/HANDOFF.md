@@ -33,11 +33,29 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >   cancels the source cart and closes its session. "A guard refuses" and "nothing moves" are different
 >   claims, and reading the first as the second is how this sat filed as merely `med`. The fix is a
 >   whole-merge GATE, not a fold predicate, because there is no per-line outcome that is correct.
-> - **Two of the five cases carry the weight, and neither is the obvious one.** Case 3
+> - **⚠️ The most valuable finding of the whole item: the first suite could not tell WHICH COLUMN the
+>   gate read.** A session's `mode` and its lines' `fulfillment` tags travel together in ordinary data
+>   (a pickup session's lines are `togo`, a scan-and-go session's are `grocery`), so five fixtures
+>   built from ordinary tables left the two perfectly correlated — and the suite was **measured green
+>   against a gate that never read `mode` at all**, comparing line tags instead. That is M109's own
+>   defect, reintroduced with every test passing. Found by the blind adversarial pass, then reproduced
+>   directly. **The generalisation worth carrying: when a rule is about column A, ask what else moves
+>   with A in your fixtures — a suite over ordinary data cannot separate two columns that ordinary
+>   data keeps in lockstep.** The way out is that the correlation is usually not a law: a seated diner
+>   can tap "To go", so a `dinein` session legitimately holds a `togo` line. Case 4 (modes equal, tags
+>   differ → must succeed) and case 5 (modes differ, tags match → must refuse) break it in opposite
+>   directions, and both are needed — a gate ANDing a tag conjunct onto a real mode comparison passes
+>   4 and only 5 sees it.
+> - **Two more cases carry the other mis-write family, and neither is the obvious one.** Case 3
 >   (scan-and-go → pickup) is the only one that kills a `dinein`-flavoured gate copied from M100's
->   neighbouring guard; case 5 (pickup ↔ pickup) is the only one that kills the over-tightening to
+>   neighbouring guard; case 7 (pickup ↔ pickup) is the only one that kills the over-tightening to
 >   "both must be dine-in". Cases 1 and 2 — the ones anybody would write first — pass both mis-writes.
 >   When the guard next door is spelled around ONE enum value, the copy-paste failure is that shape.
+> - **A post-refusal assertion cannot prove ORDERING.** The same pass killed a claim in the test's
+>   comments: a plpgsql `begin … exception` block is an implicit savepoint, so catching the raise
+>   rolls the merge back wherever the gate sits. Measured by relocating the gate below
+>   `update table_sessions set status = 'closed'` — the whole file stayed green. Those asserts are
+>   fixture-drift checks and are now labelled as such.
 > - **A lock shipped and was removed before merge, and that is the reusable part.** M109 first took
 >   `for update` on both session rows. It bought nothing for `mode` (no writer of that column exists
 >   anywhere), so its real justification was a `status` race one column over — and it was not free:

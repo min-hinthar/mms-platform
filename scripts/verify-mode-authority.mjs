@@ -420,11 +420,22 @@ const MUTANTS = [
     replace:
       "         (select mi.tax_category from public.menu_items mi where mi.id = p_menu_item_id::uuid)",
   },
-  // ── M109 — the merge refuses two tables of different KINDS. The `dinein`-flavoured mis-write is
-  // the one to fear here: M100's gate, one function over, is spelled `p_fulfillment = 'dinein' and
-  // v_mode <> 'dinein'`, and copying that shape produces a guard that passes cases 1 and 2 while
-  // merging scan-and-go into pickup. Cases 3 and 5 exist for the two mis-writes that survive the
-  // obvious ones; these rows are what prove they do. ─────────────────────────────────────────────
+  // ── M109 — the merge refuses two tables of different KINDS.
+  //
+  // TWO mis-write families survive the obvious cases, and each has a case built for it.
+  //
+  // (a) The `dinein`-flavoured gate. M100's guard, one function over, is spelled
+  //     `p_fulfillment = 'dinein' and v_mode <> 'dinein'`; copying that shape yields a guard that
+  //     passes cases 1 and 2 while merging scan-and-go into pickup. Case 3 kills it, case 7 kills
+  //     the opposite over-tightening.
+  //
+  // (b) A gate that reads the wrong COLUMN. A session's `mode` and its lines' `fulfillment` tags
+  //     travel together in ordinary data, so a suite built only from ordinary tables leaves the two
+  //     perfectly correlated and cannot tell them apart. The FIRST version of this suite was
+  //     measured green against a gate that never read `mode` at all — the defect M109 closes,
+  //     reintroduced with every test passing (blind adversarial pass, HIGH). Cases 4 and 5 break the
+  //     correlation in opposite directions, and `reads-line-tags-not-mode` /
+  //     `mode-gate-weakened-by-tag-conjunct` below are what keep it broken. ────────────────────────
   {
     id: "merge/mode-gate-deleted",
     fn: "mms_merge_table_orders",
@@ -460,10 +471,32 @@ const MUTANTS = [
     fn: "mms_merge_table_orders",
     src: "m109",
     suite: "m109",
-    expect: "M109.5",
-    why: "the OPPOSITE failure, and the one cases 1-4 all pass: a gate demanding both tables be dine-in refuses two pickup tables merging, an ordinary floor action. Over-blocking is as expensive as under-blocking",
+    expect: "M109.7",
+    why: "the OPPOSITE failure, and the one cases 1-6 all pass: a gate demanding both tables be dine-in refuses two pickup tables merging, an ordinary floor action. Over-blocking is as expensive as under-blocking",
     find: M109_GATE,
     replace: "  if v_src_mode <> 'dinein' or v_tgt_mode <> 'dinein' then",
+  },
+  {
+    id: "merge/reads-line-tags-not-mode",
+    fn: "mms_merge_table_orders",
+    src: "m109",
+    suite: "m109",
+    expect: "M109.4",
+    why: "the wrong COLUMN, and the mutant the first version of this suite could not kill. A session's `mode` and its lines' `fulfillment` tags are perfectly correlated in ordinary data, so a gate comparing TAGS answers identically on every ordinary fixture — M109's whole defect, reintroduced green. Case 4 holds the modes equal while the tags differ (a seated diner who tapped To go), which is the only shape that separates them",
+    find: M109_GATE,
+    replace:
+      "  if exists (select 1 from public.qr_cart_items a, public.qr_cart_items b\n               where a.cart_id = p_source_cart and b.cart_id = p_target_cart\n                 and a.fulfillment <> b.fulfillment) then",
+  },
+  {
+    id: "merge/mode-gate-weakened-by-tag-conjunct",
+    fn: "mms_merge_table_orders",
+    src: "m109",
+    suite: "m109",
+    expect: "M109.5",
+    why: "the half-right version of the row above, and the reason case 5 is not redundant with case 4: a real mode comparison WEAKENED by an extra tag conjunct. Case 4 passes it (the modes match, so the gate is never reached), and only case 5 — modes differing while both lines happen to read `togo` — sees a pickup table merge into a dine-in one",
+    find: M109_GATE,
+    replace:
+      "  if v_src_mode is null or v_tgt_mode is null or (v_src_mode <> v_tgt_mode\n        and exists (select 1 from public.qr_cart_items a, public.qr_cart_items b\n                      where a.cart_id = p_source_cart and b.cart_id = p_target_cart\n                        and a.fulfillment <> b.fulfillment)) then",
   },
   {
     id: "merge/null-mode-branch-dropped",
