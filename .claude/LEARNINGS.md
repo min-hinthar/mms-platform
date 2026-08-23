@@ -550,3 +550,60 @@ second chance to fail.
 Also, mechanically: prettier turns a line-leading `+` in a wrapped markdown sentence into a list item
 and silently corrupts the prose. `pnpm format` did it to #55 in this very file. Don't start a
 continuation line with `+`.
+
+---
+
+## #57 — Assert on the CHARGE, not on the column (M17, 2026-08-23)
+
+`mms_set_line_fulfillment` coalesced an unresolvable tax category to `'hot_prepared'`. That reads as
+a defensive default and is really a decision: hot food is taxable BOTH ways, so the "safe" fallback
+silently answered the one question the function exists to ask, in the over-collecting direction.
+
+I fixed it by refusing when the category would not resolve, measured `tax_cents` before and after on
+a real Postgres, watched it stop changing, and shipped that as proof. **Both reviewers rejected it
+and both were right.** `getCartTotals` reads `tax_cents` only as a BOOLEAN — a line joins the taxable
+base when `taxCents > 0` — so the stored number is not the charge. Re-measured against the boolean,
+with the catalog row pruned:
+
+|                 | correct | before  | refusing |
+| --------------- | ------- | ------- | -------- |
+| dine-in → to-go | exempt  | TAXABLE | TAXABLE  |
+| to-go → dine-in | TAXABLE | TAXABLE | exempt   |
+
+Refusing changed **nothing** the guest pays in the direction the defect was filed for, additionally
+stranded the order (a refused flip leaves the line `dinein`, so `mms_init_togo_status` never stamps
+and the counter never sees a bag), and turned a case the old code got RIGHT into an under-collection.
+Strictly worse than the code it replaced, with a green test file over it.
+
+The lesson is not "measure" — I did measure. It is **measure the quantity the user experiences**. A
+money assertion has to be written against the thing that reaches the bill; the column it is stored in
+may be a flag, a snapshot, or an input to something else. Every assertion in the shipped SQL test is
+now `tax_cents = 0` / `> 0`, never an integer comparison.
+
+**And the fix for a fact you keep losing is to stop losing it.** No rule over `(fulfillment,
+tax_cents)` recovers the category: the CDTFA rule (cold to-go exempt, hot to-go taxable, dine-in all
+taxable, except groceries) leaves two of four transitions ambiguous — `grocery_food` is exempt in
+BOTH directions, which falsified my own "three are derivable" header, caught independently by both
+reviewers. `qr_cart_items` already snapshots `name`, `modifiers`, `unit_price_cents`; `tax_category`
+was the one field left as a live lookup, which is precisely why a pruned catalog row could revoke it.
+Snapshot it at insert — where the item is certain to exist, because the caller just priced off that
+row — and the entire class disappears. **Before writing a rule to reconstruct a lost value, ask why
+it is being lost.**
+
+Mechanically: derive the category INSIDE the insert RPC from the id it already receives, rather than
+adding a parameter every caller must thread. Signature unchanged ⇒ no deploy-order window, no caller
+edits, and the value cannot drift from the catalog because it IS the catalog's, read once.
+
+**Addendum, caught by CI:** the first push failed with
+`duplicate key value violates unique constraint "schema_migrations_pkey"`. A migration's VERSION is
+its filename's leading timestamp and `schema_migrations` is keyed on that alone, so two files sharing
+a prefix collided — after CI had pulled images, started a stack and replayed all 92 migrations. The
+fact was visible in `ls`; my `grep` had filtered out the very file I collided with.
+`scripts/check-migration-versions.mjs` now asserts one version per file plus the
+`<timestamp>_name.sql` shape the CLI matches, inside `verify:slice`. Its own first cut filtered on
+`.endsWith(".sql")` before checking the shape — removing exactly the malformed names it existed to
+catch — and my red-first probe missed that because the probe's filename ended in `.sql`. **A probe
+that only exercises the half that works proves the half that works.**
+
+Also: `RAISE`'s placeholder is a bare `%`; `format()`'s is `%s`. `raise notice 'cold %s'` prints
+`cold 147s` and reads as correct forever.

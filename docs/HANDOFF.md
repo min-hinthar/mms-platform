@@ -7,7 +7,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 
 > ## ⏭️ NEXT SESSION — start here (2026-08-21 — the M-registry backlog is being worked in severity order; W22d proper remains and is OWNER-BLOCKED)
 >
-> ### ⏭️ Pick up here — M17 is the next open row in the mode chain
+> ### ⏭️ Pick up here — the mode chain is closed; M109 · M111 are the next open rows
 >
 > **M100 · M107 shipped (#220); M108 · M113 shipped (#226)** — the session's mode is now re-derived
 > server-side in `mms_set_line_fulfillment` and `mms_fire_line`, and on the INSERT path it is read
@@ -25,13 +25,32 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >   read of that column was classified rather than assumed — which is the only reason M113 (the board
 >   leak) was found at all; nothing had filed it. When you close a defect defined by a SHAPE, grep the
 >   shape before closing the row.
-> - **M114 (low, open)** is the audit's leftover: `setup-intent/route.ts:32` fails closed but answers
+> - **M116 (low, open)** is the audit's leftover — re-filed from M114, which was RETIRED in #227
+>   because it had been written around a refusal that never shipped: `setup-intent/route.ts:32` fails closed but answers
 >   "Tabs are for dine-in tables" on an unknowable read — the refusal is right, the sentence is a
 >   fabricated diagnosis. It reads the same column and should read `mode` off `assertCartMember` too.
-> - **M17 (med, open)** — same RPC as M100, and M100 NARROWED it: an orphaned line on a non-dine-in
->   session can no longer be flipped to `dinein` at all, so the over-collection path is now dine-in
->   only. Its registry row's migration citation was re-pointed to the live definition.
-> - Still open from the merge-fold chain: **M99 · M103 · M105 · M106** (all low).
+> - **M17 shipped (#227) — but the first fix was REJECTED, and that is the part worth carrying.**
+>   The obvious move (refuse the toggle when the category will not resolve) was measured against the
+>   wrong quantity: `getCartTotals` reads `tax_cents` as a **boolean**, so comparing the stored NUMBER
+>   before and after says nothing about the charge. Measured properly it changed nothing in the
+>   direction M17 was filed for, stranded the box (a refused flip leaves the line `dinein`, so the
+>   counter never sees a bag), and introduced an under-collection in the other direction. **Assert on
+>   the charge, not on the column.**
+> - **The shipped fix snapshots the fact instead of re-deriving it.** `qr_cart_items` already froze
+>   `name`, `modifiers` and `unit_price_cents` and left `tax_category` a live lookup — so a pruned
+>   catalog row could revoke it. It now carries the category, stamped at insert (inside
+>   `mms_cart_item_insert_if_open`, signature unchanged, so no deploy window and no caller edit) and
+>   backfilled. Two of the four transitions are genuinely un-derivable from the row (`grocery_food` is
+>   exempt BOTH ways, which falsified an earlier header's claim of three), so keeping the fact was the
+>   only correct answer.
+> - **`verify:mode-authority` now replays a migration CHAIN.** M17 is the fourth definition of
+>   `mms_set_line_fulfillment`, and the battery's drift check caught it on the first run: replaying
+>   M100 alone would have reverted the fix and every verdict would have been about dead code. A mutant
+>   now names which migration text it patches, and that file must be the LAST one defining its
+>   function. Add a migration that restates either function and this is the file to update.
+> - **M115 (low, open)** is what #227 deliberately did not widen into: `Checkout.tsx:642` discards the
+>   toggle's result, so every refusal reaches the diner as a pill that moves and moves back.
+> - Still open from the merge-fold chain: **M99 · M103 · M105 · M106** (all low), plus **M109 · M111**.
 >
 > **A rule worth carrying, from #220:** a multi-case `plpgsql` ASSERT file can only ever prove its
 > FIRST case — red-then-green on eight cases is a claim about one. `scripts/verify-mode-authority.mjs`

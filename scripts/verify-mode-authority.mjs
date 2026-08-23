@@ -40,13 +40,35 @@
  * somewhere should take a visible act, and there is no argument shape that can be passed by accident.
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const MIGRATION = path.join(ROOT, "supabase/migrations/20260823000000_m100_mode_authority.sql");
-const TEST = path.join(ROOT, "supabase/tests/m100_session_mode_authority_test.sql");
+/**
+ * The migrations that define the functions under test, IN APPLY ORDER, and the suite each one is
+ * measured by. This was a single (migration, test) pair until M17 restated
+ * `mms_set_line_fulfillment` a fourth time. That is the exact situation the drift check below was
+ * written to catch, and it caught it: with only M100 in the chain the battery ABORTED, because
+ * re-applying M100 would have reverted M17's fix and every verdict would have been about dead code.
+ *
+ * So the chain is the fix, not a workaround. `restore()` replays BOTH in order, and a mutant names
+ * the file whose text it patches — which must be the LAST one defining its function, or the mutation
+ * is overwritten by a later migration and "survives" for a reason that has nothing to do with the
+ * guard. `mms_set_line_fulfillment` therefore lives in m17 now; `mms_fire_line` is still m100's.
+ */
+const SUITES = {
+  m100: {
+    migration: path.join(ROOT, "supabase/migrations/20260823000000_m100_mode_authority.sql"),
+    test: path.join(ROOT, "supabase/tests/m100_session_mode_authority_test.sql"),
+  },
+  m17: {
+    migration: path.join(ROOT, "supabase/migrations/20260826000000_m17_line_tax_category.sql"),
+    test: path.join(ROOT, "supabase/tests/m17_line_tax_category_test.sql"),
+  },
+};
+/** Apply order. Later entries redefine earlier ones, so this order is load-bearing. */
+const CHAIN = ["m100", "m17"];
 
 const DSN =
   process.env.MODE_AUTHORITY_DSN ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
@@ -92,9 +114,9 @@ function bodyHash(fn) {
 }
 
 /** Run the SQL test. Returns null when it passes, or the failing ASSERT's message when it fails. */
-function runTest() {
+function runTest(suite) {
   try {
-    psql(["-f", TEST]);
+    psql(["-f", SUITES[suite].test]);
     return null;
   } catch (e) {
     const out = `${e.stdout ?? ""}${e.stderr ?? ""}`;
@@ -103,9 +125,13 @@ function runTest() {
   }
 }
 
-/** Re-apply the migration verbatim — the only restore path, so a mutant can never leave a body behind. */
+/**
+ * Re-apply the whole chain verbatim, in order — the only restore path, so a mutant can never leave a
+ * body behind. Replaying only the mutated file would leave an EARLIER migration's definition in
+ * place for any function a later one restates.
+ */
 function restore() {
-  psql(["-q", "-f", MIGRATION]);
+  for (const k of CHAIN) psql(["-q", "-f", SUITES[k].migration]);
 }
 
 /**
@@ -140,6 +166,7 @@ const MUTANTS = [
   {
     id: "toggle/mode-gate-deleted",
     fn: "mms_set_line_fulfillment",
+    src: "m17", // M17 restates this function; patch the LAST definition or it is overwritten
     expect: "M100.1",
     why: "the whole M100 guard — BOTH copies, so the row actually moves and the tax is actually rewritten. This is the original defect, not merely a changed verdict",
     // Both edits, deliberately. Removing only the pre-check leaves the in-write term refusing the
@@ -158,6 +185,7 @@ const MUTANTS = [
   {
     id: "toggle/mode-gate-names-pickup",
     fn: "mms_set_line_fulfillment",
+    src: "m17", // M17 restates this function; patch the LAST definition or it is overwritten
     expect: "M100.2",
     why: "the guard written as the mode it was FOUND on rather than the one it must allow — passes case 1, lets scan-and-go through",
     find: "if p_fulfillment = 'dinein' and v_mode <> 'dinein' then",
@@ -166,6 +194,7 @@ const MUTANTS = [
   {
     id: "toggle/mode-gate-blocks-both-directions",
     fn: "mms_set_line_fulfillment",
+    src: "m17", // M17 restates this function; patch the LAST definition or it is overwritten
     expect: "M100.5",
     why: "the guard phrased as 'no toggling off a dine-in session' — traps every already-mis-tagged line as permanently taxable",
     find: "if p_fulfillment = 'dinein' and v_mode <> 'dinein' then",
@@ -174,6 +203,7 @@ const MUTANTS = [
   {
     id: "toggle/mode-gate-refuses-everything",
     fn: "mms_set_line_fulfillment",
+    src: "m17", // M17 restates this function; patch the LAST definition or it is overwritten
     expect: "M100.3",
     why: "the guard as an unconditional refusal — the seated diner loses the For-here pill the feature exists for",
     find: "if p_fulfillment = 'dinein' and v_mode <> 'dinein' then",
@@ -182,6 +212,7 @@ const MUTANTS = [
   {
     id: "toggle/refusal-still-writes",
     fn: "mms_set_line_fulfillment",
+    src: "m17", // M17 restates this function; patch the LAST definition or it is overwritten
     // Deliberately NOT just "M100.1": this mutant must be caught by that case's ROW assertion, not by
     // its return-value assertion, or the row check is decoration riding a verdict someone else made.
     expect: "the RPC refused but the row moved anyway",
@@ -195,6 +226,7 @@ const MUTANTS = [
   {
     id: "toggle/mode-gate-inverts-direction",
     fn: "mms_set_line_fulfillment",
+    src: "m17", // M17 restates this function; patch the LAST definition or it is overwritten
     expect: "M100.4",
     why: "'a dine-in session's lines must be dine-in' — the plausible over-tightening, which takes away the seated diner's To go",
     // ADDITIVE, not a swap. Replacing the guard outright makes case 1 fail first (with 'stale', since
@@ -208,6 +240,7 @@ const MUTANTS = [
   {
     id: "toggle/pre-check-deleted-in-write-term-kept",
     fn: "mms_set_line_fulfillment",
+    src: "m17", // M17 restates this function; patch the LAST definition or it is overwritten
     // The complement of the documented survivor below, and the reason that term is worth its clause:
     // with the named pre-check gone, the copy inside the UPDATE still refuses the write — the verdict
     // degrades from a named reason to 'stale', but no row moves. Deleting BOTH is the first mutant.
@@ -262,6 +295,7 @@ const MUTANTS = [
   {
     id: "toggle/in-write-parens-dropped",
     fn: "mms_set_line_fulfillment",
+    src: "m17", // M17 restates this function; patch the LAST definition or it is overwritten
     // DOCUMENTED SURVIVOR, and unlike the one below this is a survivor that names a GAP rather than
     // a property. Dropping the parentheses lets `AND` bind tighter, so the in-write predicate reads
     // `(… and c.status='open' and p_fulfillment <> 'dinein') or s.mode='dinein'` — true for every
@@ -279,17 +313,106 @@ const MUTANTS = [
   {
     id: "toggle/in-write-mode-term-deleted",
     fn: "mms_set_line_fulfillment",
+    src: "m17", // M17 restates this function; patch the LAST definition or it is overwritten
     expect: null, // DOCUMENTED SURVIVOR — see the header
     why: "the migration header claims this term cannot diverge from its pre-check while `table_sessions.mode` is immutable. A survivor MEASURES that claim; a kill would mean the claim is false",
     find: "\n          and (p_fulfillment <> 'dinein' or s.mode = 'dinein')",
     replace: "",
   },
+  // ── M17 — the line carries its own tax category. One mutant per case: `plpgsql` ASSERT stops at
+  // the first failure, so the SQL file alone can only ever prove case 1 (LEARNINGS #51). ────────
+  {
+    id: "insert/tax-category-not-stamped",
+    fn: "mms_cart_item_insert_if_open",
+    src: "m17",
+    suite: "m17",
+    expect: "M17.1",
+    why: "the whole premise: a line minted without its category is a line whose tax the catalog can revoke later. Everything else in this suite rests on the stamp happening at insert, while the item is certain to exist",
+    find: "         case when p_menu_item_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'\n              then (select mi.tax_category from public.menu_items mi where mi.id = p_menu_item_id::uuid)\n              else null end",
+    replace: "         null",
+  },
+  {
+    id: "toggle/ignores-the-line-category",
+    fn: "mms_set_line_fulfillment",
+    src: "m17",
+    suite: "m17",
+    expect: "M17.2",
+    why: "M17 itself, restored: resolving the category from menu_items on every flip instead of reading the line means a pruned catalog row assumes hot_prepared — taxable BOTH ways — so cold food in a bag is charged tax CDTFA exempts, AND (refusing instead) the box never reaches expo",
+    find: "  select ci.cart_id, c.status, ci.state, ci.fulfillment, ci.menu_item_id, ci.unit_price_cents, s.mode,\n         ci.tax_category\n    into v_cart, v_status, v_state, v_cur, v_mid, v_price, v_mode, v_cat",
+    replace:
+      "  select ci.cart_id, c.status, ci.state, ci.fulfillment, ci.menu_item_id, ci.unit_price_cents, s.mode,\n         null::text\n    into v_cart, v_status, v_state, v_cur, v_mid, v_price, v_mode, v_cat",
+  },
+  {
+    id: "toggle/category-forced-exempt",
+    fn: "mms_set_line_fulfillment",
+    src: "m17",
+    suite: "m17",
+    expect: "M17.3",
+    why: "the under-collection direction, and the one the rejected first attempt shipped: dine-in is all taxable except groceries, so treating every unresolved line as grocery charges $0 on food eaten at the table. Passes case 2 exactly — which is why case 3 exists",
+    find: "public.mms_line_tax(v_new_price, coalesce(v_cat, 'hot_prepared'), p_fulfillment = 'dinein')",
+    // Forces the CATEGORY, not the fallback. The first cut mutated `coalesce(v_cat, …)`'s default and
+    // SURVIVED — correctly: the line now carries `cold_food`, so the coalesce never fires. A mutant
+    // that cannot reach the code it names is the degenerate case this battery exists to surface.
+    replace: "public.mms_line_tax(v_new_price, 'grocery_food', p_fulfillment = 'dinein')",
+  },
+  {
+    id: "toggle/category-forced-cold",
+    fn: "mms_set_line_fulfillment",
+    src: "m17",
+    suite: "m17",
+    expect: "M17.4",
+    why: "hot food silently exempted in the bag. Passes cases 2 and 3 — both cold — so only a HOT fixture separates it. This is the mutant that stops 'make the pruned case exempt' from being satisfied by exempting everything to-go",
+    find: "public.mms_line_tax(v_new_price, coalesce(v_cat, 'hot_prepared'), p_fulfillment = 'dinein')",
+    replace: "public.mms_line_tax(v_new_price, 'cold_food', p_fulfillment = 'dinein')",
+  },
+  {
+    id: "toggle/legacy-catalog-bridge-deleted",
+    fn: "mms_set_line_fulfillment",
+    src: "m17",
+    suite: "m17",
+    expect: "M17.5",
+    why: "the catalog read is BOTH the bridge for rows written before this migration (no stamp) and the path a live re-classification travels. Delete it and a legacy line falls to `mms_line_tax(…, NULL, …)`, where `mms_taxable`'s `else true` taxes cold food in a bag",
+    find: "  if v_mid ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then\n    select tax_category into v_cat_live from public.menu_items where id = v_mid::uuid;\n    if v_cat_live is not null then v_cat := v_cat_live; end if;\n  end if;",
+    replace: "",
+  },
+  {
+    id: "toggle/stamp-preferred-over-catalog",
+    fn: "mms_set_line_fulfillment",
+    src: "m17",
+    suite: "m17",
+    expect: "M17.7",
+    why: "the ORDER of the two reads, and the shape this fix originally shipped as. Preferring the line's stamp means an operator correcting a mis-classified dish (supabase/data/w15_pos_apply.sql does exactly this, and one is pending for lemon-salad) never reaches lines already in an open cart — the corrected dish keeps ringing its old tax, silently, for a change they believe they just made",
+    find: "  if v_mid ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then\n    select tax_category into v_cat_live",
+    replace:
+      "  if v_cat is null and v_mid ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then\n    select tax_category into v_cat_live",
+  },
+  {
+    id: "insert/uuid-guard-deleted",
+    fn: "mms_cart_item_insert_if_open",
+    src: "m17",
+    suite: "m17",
+    // Not a case name: without the CASE guard the cast RAISES at insert, before any assert can run.
+    // That 22P02 is precisely the symptom case 6 exists to keep out of a diner's face.
+    expect: "invalid input syntax for type uuid",
+    why: "a grocery barcode in menu_item_id is not a uuid, and a bare cast raises 22P02 — a 500 on the scan path rather than a stamped line",
+    find: "         case when p_menu_item_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'\n              then (select mi.tax_category from public.menu_items mi where mi.id = p_menu_item_id::uuid)\n              else null end",
+    replace:
+      "         (select mi.tax_category from public.menu_items mi where mi.id = p_menu_item_id::uuid)",
+  },
 ];
 
-const source = readFileSync(MIGRATION, "utf8");
+/** Each migration's text, and the two concatenated in apply order (what the chain WOULD produce). */
+const sources = Object.fromEntries(
+  CHAIN.map((k) => [k, readFileSync(SUITES[k].migration, "utf8")]),
+);
+const chainSource = CHAIN.map((k) => sources[k]).join("\n");
 let failures = 0;
 
-console.log(c.bold(`\nverify:mode-authority — ${MUTANTS.length} mutants over 2 functions\n`));
+console.log(
+  c.bold(
+    `\nverify:mode-authority — ${MUTANTS.length} mutants over 3 functions, ${CHAIN.length} suites\n`,
+  ),
+);
 
 /**
  * `restore()` re-applies THIS migration, which is only a restore while this migration is still the
@@ -321,7 +444,49 @@ console.log(c.bold(`\nverify:mode-authority — ${MUTANTS.length} mutants over 2
  * comparison is the FULL `pg_get_functiondef` (body + every attribute) plus `proacl`, so identity is
  * everything a caller could observe, not just the source text.
  */
-const TARGETS = ["mms_set_line_fulfillment", "mms_fire_line"];
+const TARGETS = ["mms_set_line_fulfillment", "mms_fire_line", "mms_cart_item_insert_if_open"];
+
+/**
+ * Which migration LAST defines a function, read from the migration directory in apply order.
+ *
+ * The identity check below cannot answer this (Codex round 2, P2): if a later migration restates a
+ * function byte-identically, `live === expected` even on a fresh database, and the runner would then
+ * patch an earlier file whose mutation the later one silently overwrites — a mutant reported as
+ * killed while nothing it wrote ever reached the database. Identity proves the chain produces the
+ * live body; only the filenames prove the chain is COMPLETE.
+ */
+function lastDefiningMigration(fn) {
+  const dir = path.join(ROOT, "supabase/migrations");
+  const re = new RegExp(
+    `create\\s+(?:or\\s+replace\\s+)?function\\s+(?:public\\.)?${fn}\\s*\\(`,
+    "i",
+  );
+  let last = null;
+  for (const f of readdirSync(dir)
+    .filter((f) => f.endsWith(".sql"))
+    .sort()) {
+    if (re.test(readFileSync(path.join(dir, f), "utf8"))) last = f;
+  }
+  return last;
+}
+
+{
+  const chainFiles = new Set(CHAIN.map((k) => path.basename(SUITES[k].migration)));
+  const drift = TARGETS.map((fn) => [fn, lastDefiningMigration(fn)]).filter(
+    ([, f]) => !f || !chainFiles.has(f),
+  );
+  if (drift.length) {
+    console.log(
+      c.red(
+        `  ABORT  a migration OUTSIDE this battery's chain now defines a target function:\n` +
+          drift.map(([fn, f]) => `         ${fn} → ${f ?? "(no definition found)"}`).join("\n") +
+          `\n         Add it to CHAIN/SUITES and repoint the affected mutants' \`src\`, or every\n` +
+          `         verdict about that function is about a body the chain does not produce.\n`,
+      ),
+    );
+    process.exit(1);
+  }
+}
 
 /** proname → "<md5 of full definition>|<acl>" for each target, as the given SQL leaves the database. */
 function identity(prelude = "") {
@@ -345,12 +510,13 @@ function identity(prelude = "") {
 }
 
 const live = identity();
-const expected = identity(source); // applied and rolled back — the database is not written to
+const expected = identity(chainSource); // applied and rolled back — the database is not written to
 if (live.join("\n") !== expected.join("\n")) {
   console.log(
     c.red(
-      `  ABORT  the live definitions are NOT what 20260823000000 produces — a later migration\n` +
-        `         redefines or re-grants one of these functions. Re-applying it would REVERT that,\n` +
+      `  ABORT  the live definitions are NOT what the migration CHAIN produces — a migration\n` +
+        `         outside ${CHAIN.join(" + ")} redefines or re-grants one of these functions.\n` +
+        `         Re-applying the chain would REVERT that,\n` +
         `         so every verdict below would be about dead code.\n` +
         `         Nothing was written: the comparison ran inside a rolled-back transaction.\n\n` +
         live
@@ -369,7 +535,9 @@ for (const m of MUTANTS) {
   // The text a mutant patches: the migration itself, or (fnPatch) the live definition of a function
   // this migration does not contain. Either way the match must be unique — a zero- or multi-match
   // `find` is a failure, never a skip.
-  const original = m.fnPatch ? functionDef(m.fn) : source;
+  const suite = m.suite ?? "m100";
+  const src = m.src ?? suite;
+  const original = m.fnPatch ? functionDef(m.fn) : sources[src];
   // A mutant is one or more edits. Most are one; the "whole guard" mutants are two, because this
   // guard deliberately lives in two places and deleting one of them is a different mutation.
   const edits = m.edits ?? [{ find: m.find, replace: m.replace }];
@@ -385,7 +553,7 @@ for (const m of MUTANTS) {
   }
 
   // (1) a green baseline, every time — otherwise an already-red case is credited to this mutant.
-  const baseline = runTest();
+  const baseline = runTest(suite);
   if (baseline !== null) {
     console.log(c.red(`  ABORT  ${m.id} — baseline is already RED: ${baseline}`));
     failures++;
@@ -393,11 +561,22 @@ for (const m of MUTANTS) {
   }
   const before = bodyHash(m.fn);
 
-  // (2) apply, and (3) prove it actually landed.
-  psql(
-    ["-q"],
-    edits.reduce((text, e) => text.replace(e.find, e.replace), original),
-  );
+  // (2) apply, and (3) prove it actually landed. A migration mutant replays the WHOLE chain with the
+  // patched file substituted in place — applying the patched file alone would leave any earlier
+  // migration's statements unapplied, and applying it out of order would let a later one overwrite
+  // the mutation, which reads as a surviving mutant and is really a broken harness.
+  // `() => e.replace`, never a bare string: String.replace treats `$&`, `$'`, `` $` `` and `$1` in a
+  // STRING replacement as substitution patterns. Several of these mutants carry the uuid regex, whose
+  // `…{12}$'` contains `$'` — "everything after the match" — so a literal-looking replacement spliced
+  // the entire remainder of the migration into the function body and psql failed with a syntax error
+  // that named a line nobody wrote. A function replacement is always literal. (Same class as
+  // Python's re.sub backslash handling; both bit this file in one afternoon.)
+  const mutatedText = edits.reduce((text, e) => text.replace(e.find, () => e.replace), original);
+  if (m.fnPatch) {
+    psql(["-q"], mutatedText);
+  } else {
+    for (const k of CHAIN) psql(["-q"], k === src ? mutatedText : sources[k]);
+  }
   const mutated = bodyHash(m.fn);
   if (mutated === before) {
     console.log(c.red(`  NO-OP  ${m.id} — ${m.fn}'s body is unchanged; the patch never applied`));
@@ -408,7 +587,7 @@ for (const m of MUTANTS) {
   }
 
   // (4) the named case must be the one that fails.
-  const got = runTest();
+  const got = runTest(suite);
   const survived = got === null;
   let verdict;
   if (m.expect === null) {
@@ -437,10 +616,12 @@ for (const m of MUTANTS) {
   console.log(`  ${verdict}  ${c.bold(m.id)}\n    ${c.dim(m.why)}`);
 }
 
-const finalCheck = runTest();
-if (finalCheck !== null) {
-  console.log(c.red(`\n  the suite is RED after restore: ${finalCheck}`));
-  failures++;
+for (const k of CHAIN) {
+  const finalCheck = runTest(k);
+  if (finalCheck !== null) {
+    console.log(c.red(`\n  the ${k} suite is RED after restore: ${finalCheck}`));
+    failures++;
+  }
 }
 
 console.log(

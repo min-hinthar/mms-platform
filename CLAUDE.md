@@ -30,6 +30,10 @@ pnpm verify:slice        # the MECHANICAL pre-PR gate: money-path coverage guard
 pnpm verify:slice --no-gate --only=totals   # iterate on one module
 pnpm format              # prettier --write
 pnpm knip                # dead-code / unused deps
+pnpm check:migration-versions   # one version per migration + the <timestamp>_name.sql shape the
+                         # CLI matches. A duplicate prefix fails only at INSERT into
+                         # schema_migrations — after a whole stack has started (M17 cost a CI cycle);
+                         # a malformed name is SKIPPED silently. Runs inside verify:slice too.
 pnpm check:docs          # tables render in EVERY tracked .md (GFM header/delimiter parity — prettier
                          # INTRODUCES breaks) + live-state counts (README · OPEN-ITEMS · HANDOFF)
                          # measured via `vitest list`, never transcribed + MENU_REFERENCE fresh

@@ -454,6 +454,9 @@ export async function setLineFulfillment(
   if (locked || settling) return { ok: false, reason: "busy" };
   if (!canMutateLine(lineState, { kind: "diner", role, isOwner: lineSeat === uid }, comped))
     return { ok: false, reason: "not_yours" };
+  // M17 — no `priceItem` call here, so nothing in TS re-reads the menu item on a flip. It doesn't
+  // need to: the line carries its own `tax_category`, stamped at insert and read by the RPC, so a
+  // catalog row pruned mid-session can no longer change what this toggle charges.
   // W17a — the toggle is TAX-ONLY again. Under mode pricing it had to re-derive the charged
   // price on every flip; now dine-in and to-go are the same POS price, so a flip changes only the
   // routing tag and the per-line tax (cold food is taxable dine-in, exempt to-go). The SQL fn keeps

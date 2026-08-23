@@ -194,7 +194,11 @@ export async function insertOrIncLine(
   // because it is a pure function of three things: the price (now in the key), the fulfillment tag
   // (already in the key), and `menu_items.tax_category`, which no app path writes. That is three
   // conventions rather than a guarantee, so if a tax-category editor is ever added, this predicate
-  // list is the second place it has to be thought about.
+  // list is the second place it has to be thought about — and since M17 there is a THIRD:
+  // `qr_cart_items.tax_category`, stamped at insert. A correction to `menu_items.tax_category` still
+  // reaches open draft lines (the toggle reads the catalog first and falls back to the stamp), but a
+  // line whose dish was pruned answers from its stamp, and `supabase/data/m17_recategorize.sql` is
+  // the companion statement for keeping the two in step.
   //
   // The already-quoted units are untouched: a mismatch inserts a FRESH line at the new price rather
   // than re-pricing anything, so `menu-price.ts`'s other promise — "lines ALREADY in a cart keep the
