@@ -34,6 +34,16 @@ let sessionsError: { message: string } | null = null;
 
 vi.mock("@/lib/device-auth", () => ({ authorizeDevice: () => Promise.resolve(gate) }));
 
+/** The ids the route actually asked the session read for — the predicate, not just the shape. */
+let requestedSessionIds: unknown[] = [];
+
+/**
+ * The mock APPLIES the `.in()` predicate rather than ignoring it (Codex round 2, P2). A chain that
+ * answers the configured rows for any arguments would keep every allowlist case and the board mutant
+ * green while the route queried the wrong ids entirely (`o.id` instead of `o.session_id`) — which in
+ * production returns no modes at all and empties the board of every legitimate pickup order. A mock
+ * looser than the database cannot express that bug.
+ */
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     from: (table: string) => {
@@ -44,7 +54,14 @@ vi.mock("@mms/db/server", () => ({
         or: () => chain,
         order: () => chain,
         limit: () => Promise.resolve({ data: orders, error: ordersError }),
-        in: () => Promise.resolve({ data: sessions, error: sessionsError }),
+        in: (col: string, ids: unknown[]) => {
+          requestedSessionIds = ids;
+          if (sessionsError) return Promise.resolve({ data: null, error: sessionsError });
+          return Promise.resolve({
+            data: sessions.filter((s) => col === "id" && ids.includes(s.id)),
+            error: null,
+          });
+        },
       };
       if (table !== "qr_orders" && table !== "table_sessions")
         throw new Error(`unexpected ${table}`);
@@ -82,10 +99,19 @@ beforeEach(() => {
     { id: "sess-dinein", mode: "dinein" },
   ];
   sessionsError = null;
+  requestedSessionIds = [];
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
 describe("GET /api/board — dine-in never reaches the wall", () => {
+  it("resolves modes by the orders' SESSION ids, not their order ids", async () => {
+    // Named explicitly because everything else here would survive the substitution: asking for
+    // `o.id` returns no modes, and under the allowlist that empties the board — a total outage of
+    // the wall display that reads exactly like "nothing is ready".
+    await GET(req());
+    expect([...requestedSessionIds].sort()).toEqual(["sess-dinein", "sess-togo"]);
+  });
+
   it("publishes the to-go order and drops the dine-in one", async () => {
     const res = await GET(req());
     expect(res.status).toBe(200);

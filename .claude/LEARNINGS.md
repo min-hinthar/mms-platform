@@ -526,6 +526,22 @@ _consumers_ of the decision and none pinned its _producer_. **When a fix consoli
 place, that place is the new money path** — check that the coverage guard can see it before calling
 the fix done. (`CartAuthz` is now a MONEY_MARKER; `lib/authz.test.ts` executes the real function.)
 
+**And the round after that, on the guards themselves: a mock looser than the database cannot express
+the bug it is there to catch.** Three chains accepted any arguments — `eq: () => chain`,
+`in: () => Promise.resolve(rows)` — so the assertions proved the SHAPE of each answer and nothing
+about its PREDICATE. A session read filtered on the uid instead of `cart.session_id`, or a board read
+asking for order ids instead of session ids, kept every case green: one hands a cart another table's
+tax treatment, the other empties the wall display in a way that reads exactly like "nothing is ready".
+The fix is to key the fixture rows and apply the filter, then fixture a SECOND row with the opposite
+value so a wrong predicate resolves to the wrong answer rather than to null — null can be mistaken
+for a missing fixture; a wrong mode cannot.
+
+**A count floor is not a coverage floor.** The orphan guard's self-check required ten enumerated test
+files, which `apps/qr` alone (87) clears — so a listing accidentally scoped to one subtree passed
+while `packages/*`, `scripts/` and the repo root went unlooked-at, and the guard printed "clean". A
+self-check has to assert the SHAPE of what was enumerated (every configured suite root represented),
+not its size. Same lesson as the degenerate-fixture rule, applied to a guard's own inputs.
+
 Scope note, so the next reader is not misled by "read ONCE": the consolidation is the DINER path.
 `staffAddItem` derives the same fork from `staff-open-cart`'s own read, because staff authorize
 through a different guard entirely — that read fails closed, so it is a second derivation, not a

@@ -1956,22 +1956,33 @@ const find = (pattern) =>
     .filter(Boolean)
     .map((p) => `./${p}`);
 const allTs = find("*.test.ts");
-// A guard that reports "clean" because it enumerated NOTHING is the failure mode this whole script
-// exists to prevent, and the git form can hit it where `find` could not: no `.git` (an exported
-// tarball, a Docker context), or a `safe.directory` ownership refusal. `run()` throws on a nonzero
-// exit — the earlier `|| true` suppressed exactly that — and this floor catches the empty-but-zero
-// case. The repo has ~88 tracked `.test.ts` files; a single digit means the enumeration, not the
-// tree, is what changed.
-if (allTs.length < 10) {
+/**
+ * The guard's own self-check, because "no orphans found" and "nothing was looked at" print the same
+ * word. The git form can enumerate empty-and-zero where `find` could not (no `.git`, a
+ * `safe.directory` refusal); `run()` throws on a nonzero exit, so the earlier `|| true` was removed.
+ *
+ * A bare count is not enough, though (Codex round 2): with ~89 tests under `apps/qr` alone, an
+ * enumeration accidentally scoped to that one subtree clears any total-count floor while every
+ * potential orphan root — `packages/*`, `scripts/`, the repo root itself — goes unlooked-at, and the
+ * guard prints "clean". So the check is per-ROOT: every configured suite root must be represented,
+ * which cannot hold for a listing scoped inside any one of them.
+ */
+const SUITE_ROOTS = [
+  { label: "apps/qr", re: /^\.\/apps\/qr\// },
+  { label: "packages/ui/src", re: /^\.\/packages\/ui\/src\// },
+];
+const unseen = SUITE_ROOTS.filter((r) => !allTs.some((p) => r.re.test(p)));
+if (allTs.length < 10 || unseen.length) {
   console.log(c.red("FAIL"));
   console.error(
-    c.red(
-      `\n✗ orphan-suite guard enumerated only ${allTs.length} test file(s) — it cannot have run.\n`,
-    ) + c.dim("  Check that this is a git checkout `git ls-files` can read.\n"),
+    c.red(`\n✗ orphan-suite guard enumerated ${allTs.length} test file(s)`) +
+      (unseen.length ? c.red(`, none under ${unseen.map((r) => r.label).join(" / ")}`) : "") +
+      c.red(" — it cannot have run.\n") +
+      c.dim("  Check that this is a whole-repo git checkout `git ls-files` can read.\n"),
   );
   process.exit(1);
 }
-const tsOrphans = allTs.filter((p) => !/^\.\/(apps\/qr\/|packages\/ui\/src\/)/.test(p));
+const tsOrphans = allTs.filter((p) => !SUITE_ROOTS.some((r) => r.re.test(p)));
 const tsxAny = find("*.test.tsx"); // no vitest config includes .tsx — any is an orphan
 const orphans = [...tsOrphans, ...tsxAny];
 console.log(orphans.length ? c.red("FAIL") : c.green("clean"));

@@ -56,11 +56,16 @@ jobs:
           # test file is still caught before it is committed. Keep this in step with
           # scripts/verify-slice.mjs, which mirrors it.
           all_ts=$(git ls-files --cached --others --exclude-standard -- '*.test.ts')
-          # A guard that passes because it enumerated NOTHING is worse than no guard. `git ls-files`
-          # can answer empty-and-zero where `find` could not (no .git, a safe.directory refusal), so
-          # floor it: the repo has ~88 tracked *.test.ts files.
-          if [ "$(echo "$all_ts" | grep -c .)" -lt 10 ]; then
-            echo "::error::orphan-suite guard enumerated almost no test files — it cannot have run."
+          # The guard's own self-check: "no orphans" and "nothing was looked at" print the same word.
+          # A bare total is not enough — apps/qr alone holds ~87 tests, so a listing accidentally
+          # scoped to that subtree clears any count floor while packages/*, scripts/ and the repo
+          # root go unlooked-at. Require every configured suite root to be represented, which cannot
+          # hold for a listing scoped inside one of them. Keep in step with scripts/verify-slice.mjs.
+          if [ "$(echo "$all_ts" | grep -c .)" -lt 10 ] \
+            || ! echo "$all_ts" | grep -q '^apps/qr/' \
+            || ! echo "$all_ts" | grep -q '^packages/ui/src/'; then
+            echo "::error::orphan-suite guard did not enumerate the whole repo — it cannot have run."
+            echo "$all_ts"
             exit 1
           fi
           ts_orphans=$(echo "$all_ts" | grep -v -E '^(apps/qr/|packages/ui/src/)' || true)

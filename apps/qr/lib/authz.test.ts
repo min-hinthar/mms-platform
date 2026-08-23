@@ -21,6 +21,7 @@ vi.mock("server-only", () => ({}));
 vi.mock("next/headers", () => ({ cookies: () => Promise.resolve({}) }));
 
 const SESSION = "5e551011-0000-4000-8000-000000000001";
+const OTHER_SESSION = "5e551011-0000-4000-8000-0000000000ff";
 const CART = "ca97f000-0000-4000-8000-000000000002";
 const UID = "u-diner-1";
 
@@ -29,35 +30,65 @@ type Answer<T> = { data: T | null; error: { message: string } | null };
 let authUser: Answer<{ user: { id: string } | null }>;
 let cartRow: Answer<Record<string, unknown>>;
 let sessionRow: Answer<Record<string, unknown>>;
+/** A DIFFERENT session, so a query that filters on the wrong id resolves to the wrong mode, not null. */
+let otherSessionRow: Answer<Record<string, unknown>>;
 let memberRow: Answer<Record<string, unknown>>;
 /** Columns the session SELECT actually asked PostgREST for — a column not requested is not returned. */
 let sessionCols = "";
 
+/**
+ * The mock ENFORCES each query's predicates rather than ignoring them (Codex round 2, P2). A chain
+ * whose `.eq()` accepts anything answers the same row for `.eq("id", cart.session_id)` and for
+ * `.eq("id", uid)` — so every assertion below would have stayed green while a cart took ANOTHER
+ * session's mode, and with it the wrong routing tag and tax. A mock looser than the database is a
+ * fixture that cannot express the bug.
+ */
 vi.mock("@mms/db/server", () => ({
   serverClient: () => ({ auth: { getUser: () => Promise.resolve(authUser) } }),
   serviceClient: () => ({
     from: (table: string) => {
-      const answer: Record<string, Answer<Record<string, unknown>>> = {
-        qr_carts: cartRow,
-        table_sessions: sessionRow,
-        session_members: memberRow,
-      };
+      const eqs: [string, unknown][] = [];
+      const pred = (col: string) => eqs.find(([c]) => c === col)?.[1];
       const chain: Record<string, unknown> = {
         select: (cols: string) => {
           if (table === "table_sessions") sessionCols = cols;
           return chain;
         },
-        eq: () => chain,
+        eq: (col: string, val: unknown) => {
+          eqs.push([col, val]);
+          return chain;
+        },
         lt: () => Promise.resolve({ error: null }),
         update: () => chain,
-        // Model PostgREST honestly: a column the caller did not SELECT is simply absent from the row.
         maybeSingle: () => {
-          const a = answer[table] ?? { data: null, error: null };
-          if (table !== "table_sessions" || !a.data) return Promise.resolve(a);
-          const picked: Record<string, unknown> = {};
-          for (const c of sessionCols.split(",").map((s) => s.trim()))
-            if (c in a.data) picked[c] = a.data[c];
-          return Promise.resolve({ data: picked, error: a.error });
+          const miss = { data: null, error: null };
+          if (table === "qr_carts") {
+            return Promise.resolve(pred("id") === CART ? cartRow : miss);
+          }
+          if (table === "table_sessions") {
+            const a =
+              pred("id") === SESSION
+                ? sessionRow
+                : pred("id") === OTHER_SESSION
+                  ? otherSessionRow
+                  : miss;
+            if (!a.data) return Promise.resolve(a);
+            // Model PostgREST honestly: a column the caller did not SELECT is absent from the row.
+            const picked: Record<string, unknown> = {};
+            for (const c of sessionCols.split(",").map((s) => s.trim()))
+              if (c in a.data) picked[c] = a.data[c];
+            return Promise.resolve({ data: picked, error: a.error });
+          }
+          if (table === "session_members") {
+            // Both known sessions have this seat as a member, so the mode test below can repoint the
+            // cart without tripping membership — but the query must still be scoped to a REAL
+            // session and to THIS seat, or it misses.
+            const scoped =
+              (pred("session_id") === SESSION || pred("session_id") === OTHER_SESSION) &&
+              pred("seat_id") === UID;
+            return Promise.resolve(scoped ? memberRow : miss);
+          }
+          return Promise.resolve(miss);
         },
       };
       return chain;
@@ -85,6 +116,11 @@ beforeEach(() => {
     error: null,
   };
   sessionRow = { data: { status: "active", expires_at: future(), mode: "dinein" }, error: null };
+  // Same shape, different mode: a read filtered on the wrong id lands here and reports "pickup".
+  otherSessionRow = {
+    data: { status: "active", expires_at: future(), mode: "pickup" },
+    error: null,
+  };
   memberRow = { data: { seat_id: UID, role: "guest" }, error: null };
   sessionCols = "";
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -105,6 +141,17 @@ describe("assertCartMember — the mode it returns IS the session's mode", () =>
   it("actually SELECTs the mode column — it cannot be returned without being asked for", async () => {
     await assertCartMember(CART);
     expect(sessionCols.split(",").map((s) => s.trim())).toContain("mode");
+  });
+
+  it("reads the mode of THIS CART's session, not some other row", async () => {
+    // The predicate, not just the column. A second active session exists with the opposite mode, so
+    // a read filtered on the wrong id (the cart id, the uid, nothing at all) either resolves to
+    // "pickup" or to no row — both fail. Without this, `.eq()` could be dropped entirely and every
+    // other assertion here would still pass while a cart took another table's tax treatment.
+    cartRow.data!.session_id = OTHER_SESSION;
+    expect((await assertCartMember(CART)).mode).toBe("pickup");
+    cartRow.data!.session_id = SESSION;
+    expect((await assertCartMember(CART)).mode).toBe("dinein");
   });
 
   it("carries the tax fork end to end — the two arms differ on cold food", async () => {
