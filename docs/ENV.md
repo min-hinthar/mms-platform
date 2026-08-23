@@ -184,6 +184,16 @@ Supabase → Authentication → **Sessions** (leave the inactivity timeout and t
 sign-in-until-signed-out) and **Rate Limits → email** (see the ⚠️ above — this is the "Too many code
 requests" loop).
 
+**Owner-confirmed 2026-08-23** — these are the live values, reported by the owner rather than measured
+from a session (no MCP surface exists for Supabase Auth config, so none of the three is machine-readable
+from here):
+
+| setting                                         | state                                        |
+| ----------------------------------------------- | -------------------------------------------- |
+| Auth → Rate Limits → email                      | **10000**                                    |
+| Auth → Sessions → inactivity timeout / time-box | **unset**, as intended                       |
+| Auth → Hooks → Send Email Hook                  | enabled, **URL and secret verified correct** |
+
 ## Email — all on Resend + React Email (same stack as the delivery app)
 
 1. **Staff sign-in (magic-link / OTP) — via the Supabase Send-Email Hook (preferred; NO SMTP).** GoTrue

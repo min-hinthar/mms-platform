@@ -18,16 +18,20 @@ endpoint was created, so the rotated secret could not have been serving and dele
 would have stopped fulfillment. After the redeploy reached READY, a **forged** `stripe-signature` was
 confirmed to be rejected `400`.
 
-**That last check proves less than it looks like, and the gap is worth stating.** A forged signature
-returns `400` against _any_ non-empty secret — the correct one, the predecessor's, or a typo. So it
-establishes that a secret is set and enforced; it does **not** establish that the value matches
-`we_1U7KIJ…`. Because the predecessor is now disabled, a mis-pasted secret would leave the sole live
-endpoint rejecting every real delivery. `docs/ENV.md` step 6 is the check that actually closes this — a
-legitimately signed live delivery showing **200** in Stripe → Webhooks, or a small real card charge and
-refund landing a `qr_orders` row — and it has NOT been performed. The failure is bounded and
-self-healing (Stripe retries non-2xx for 72h and `mms_fulfill_order` is idempotent on the PI id, so
-correcting the secret drains the backlog), but until that smoke test runs the cutover is _applied_,
-not _proven_.
+**That forged-signature check proved less than it looked like, and the correction is the useful part.**
+A forged signature returns `400` against _any_ non-empty secret — the correct one, the predecessor's, or
+a typo. So it establishes that a secret is set and enforced; it does **not** establish that the value
+matches `we_1U7KIJ…`, and with the predecessor disabled a mis-pasted secret would have left the sole
+live endpoint rejecting every real delivery. The cutover was briefly recorded as complete on that
+evidence, which it did not support (Codex #225 P1). The Stripe connector exposes no Events API, so
+`pending_webhooks` and per-endpoint delivery status are both unreachable from a session — the gap could
+not be closed by measuring harder.
+
+**It was then closed properly: the owner confirmed the endpoint's delivery log shows all `200`s
+(2026-08-23).** That is `docs/ENV.md` step 6 — legitimately signed live deliveries verifying against the
+rotated secret — so the cutover is now proven, not merely applied. Recorded this way deliberately: the
+sequence (claimed → challenged → actually verified) is more useful to the next reader than a clean
+"verified" would have been.
 
 The predecessor is **disabled, not deleted**: the Stripe connector exposes no delete for webhook
 endpoints (list/create/retrieve/update only). Disabling is what carries the safety property — a
