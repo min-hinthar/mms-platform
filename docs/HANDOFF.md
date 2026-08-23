@@ -7,7 +7,37 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 
 > ## ⏭️ NEXT SESSION — start here (2026-08-21 — the M-registry backlog is being worked in severity order; W22d proper remains and is OWNER-BLOCKED)
 >
-> ### ⏭️ Pick up here — the mode chain is closed; M109 · M111 are the next open rows
+> ### ⏭️ Pick up here — M109 closed too; M111 · M116 · M112 are the next open rows
+>
+> **M17's migration is APPLIED to production** (`fasnpdhtvqtzjlvruqcu`, 2026-08-23, via the Supabase
+> MCP — prod's `schema_migrations` is keyed by that path's timestamps, not the repo filenames, which is
+> why the recorded versions differ). Verified after: `qr_cart_items.tax_category` exists with the CHECK
+> mirroring `menu_items`, the backfill stamped **226** rows and left **19** (the grocery barcode lines)
+> null with **0** uuid-shaped rows unstamped, one signature on the insert RPC, grants `postgres` +
+> `service_role` only, `search_path=""` on both functions, and both `md5(prosrc)` values byte-identical
+> to what the migration file produces. The drift check ran FIRST and is the part to repeat next time:
+> prod's live bodies were compared against the repo's last-defining migrations (m100 for the toggle, m3
+> for the insert) before applying, so the restatement was known to clobber nothing newer. They matched
+> on logic, not bytes — prod's copies carry fewer inline comments, because they were applied through
+> the MCP rather than the CLI. **Still pending, and deliberately not done here:** the `lemon-salad`
+> tax-category correction is a per-item CDTFA classification call for the owner. Four items are filed
+> `hot_prepared` with salad-shaped names — `lemon-salad`, `fishcake-stuffed-salad`, `ngapi-rice-salad`,
+> `rice-with-pickled-tea-salad` — and each is only exempt to-go if it is genuinely served cold.
+> Guessing in the exempt direction is under-collection. Run `supabase/data/m17_recategorize.sql` right
+> after whichever corrections the owner confirms.
+>
+> - **M109 closed — the same-mode rule now exists in SQL.** `mms_merge_table_orders`'s body never
+>   mentioned `mode`; the rule lived only at `floor.ts:666`, in front of a service_role RPC. The thing
+>   worth carrying is what M97 did NOT buy: its fold predicate refuses to FOLD two lines whose tags
+>   differ, but **a refused fold re-parents** — the line lands on the target cart anyway, and the tail
+>   cancels the source cart and closes its session. "A guard refuses" and "nothing moves" are different
+>   claims, and reading the first as the second is how this sat filed as merely `med`. The fix is a
+>   whole-merge GATE, not a fold predicate, because there is no per-line outcome that is correct.
+> - **Two of the five cases carry the weight, and neither is the obvious one.** Case 3
+>   (scan-and-go → pickup) is the only one that kills a `dinein`-flavoured gate copied from M100's
+>   neighbouring guard; case 5 (pickup ↔ pickup) is the only one that kills the over-tightening to
+>   "both must be dine-in". Cases 1 and 2 — the ones anybody would write first — pass both mis-writes.
+>   When the guard next door is spelled around ONE enum value, the copy-paste failure is that shape.
 >
 > **M100 · M107 shipped (#220); M108 · M113 shipped (#226)** — the session's mode is now re-derived
 > server-side in `mms_set_line_fulfillment` and `mms_fire_line`, and on the INSERT path it is read

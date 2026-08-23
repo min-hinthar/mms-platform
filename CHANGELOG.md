@@ -4,6 +4,43 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The table merge refuses two tables of different kinds (2026-08-23)
+
+**M109 closed — the same-mode rule moves from TypeScript into the database.**
+
+`mms_merge_table_orders` re-parents a source cart's lines into a target cart keeping `fulfillment`
+verbatim, and its body never mentioned `mode`. The rule that a pickup table cannot be merged into a
+dine-in one lived only at `floor.ts:666` — a client-side check in front of a service_role RPC. M100's
+exact defect shape, one function over: the invariant asserted in one place and enforced in another.
+
+M97's fold predicate looked like cover and was not. It refuses to FOLD two lines whose tags differ,
+but a refused fold **re-parents** — the line lands on the target cart as its own row anyway, and the
+merge tail then cancels the source cart and closes the source session. A pickup guest's session is
+gone and their food is on somebody else's table; the tag survives the move, so the toggle will now
+accept a flip to `dinein` (M100's gate reads the target session, which really is dine-in) and re-tax
+the line, while the to-go routing no longer matches the table it sits on.
+
+The fix is a whole-merge **gate**, not a fold predicate — two tables of different kinds should not be
+merged at all, so it raises and rolls back beside the existing open/active and secured-tab gates. A
+mode term on the delete and the re-parent instead would make a cross-mode merge silently move nothing
+while still cancelling the source cart, which is worse than the defect it replaces.
+
+Two of the five test cases carry the weight, and neither is the obvious one:
+
+- **Case 3** (scan-and-go → pickup) kills the `dinein`-flavoured gate. M100's neighbouring guard is
+  spelled `p_fulfillment = 'dinein' and v_mode <> 'dinein'`; copy that shape and you get a gate that
+  refuses both dine-in directions and merges scan-and-go straight into pickup. Cases 1 and 2 pass it.
+- **Case 5** (pickup ↔ pickup) kills the opposite over-tightening, "both must be dine-in", which
+  cases 1–4 all pass. Over-blocking is as expensive as under-blocking.
+
+`floor.ts` now maps the new raise to its own sentence. Without that, a refusal would have surfaced as
+"a table changed" — a fabricated diagnosis, and the branch's own comment would have become false.
+
+Proven red-first against the pre-M109 body; 6 mutants in `verify-mode-authority.mjs` (26 total, four
+functions). Two are DOCUMENTED SURVIVORS: the fail-closed null test (unreachable while the gate above
+it proves both carts exist) and the session-row lock, whose reachable purpose is a `status` race
+rather than `mode` — filed as M118 with the two-session technique that could prove it.
+
 ### The cart line keeps its own tax category (2026-08-23)
 
 **M17 closed — by snapshotting the category, after the obvious fix was measured and rejected.**
