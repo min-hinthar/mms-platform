@@ -156,15 +156,18 @@ jobs:
       - name: Merge-race mutants (can the guards fail?)
         timeout-minutes: 6
         run: node scripts/verify-merge-race.mjs --mutants
-      # M100 · M107 — can each of the eight cases in m100_session_mode_authority_test.sql actually
-      # FAIL? plpgsql ASSERT stops at the first one, so running that file red-then-green proves ONE
-      # case and silently skips seven. Twelve mutations of the two LIVE functions (plus one of
-      # mms_init_togo_status, the only way to falsify the end-to-end case), each requiring a green
-      # baseline first, an md5(prosrc) that actually changed, and the NAMED case — not just some
-      # case — to be the one that goes red. One mutant is a documented SURVIVOR and is asserted as
-      # such: it measures the migration header's claim that the in-write mode term cannot diverge
-      # from its pre-check while table_sessions.mode is immutable. ~4s measured locally (12 mutants,
-      # ~26 psql invocations); the generous timeout is for a cold runner, not for the work.
+      # M100 · M107 · M17 — can each case in the SQL suites actually FAIL? plpgsql ASSERT stops at the
+      # FIRST one, so running either file red-then-green proves ONE case and silently skips the rest.
+      # 20 mutations across three LIVE functions (mms_set_line_fulfillment, mms_fire_line and
+      # mms_cart_item_insert_if_open) plus one of mms_init_togo_status — the only way to falsify the
+      # end-to-end case — each requiring a green baseline first, a body hash that actually changed,
+      # and the NAMED case (not just some case) to be the one that goes red. Two mutants are
+      # documented SURVIVORS and are asserted as such rather than left as untested comments.
+      # The battery replays an ordered migration CHAIN and verifies from the migration FILENAMES that
+      # its chain is complete: a function whose last definition moves outside the chain ABORTS the
+      # run, because every verdict about it would otherwise be about a body the database never runs.
+      # Keep this count in step — measured with:
+      #   grep -c 'id: "' scripts/verify-mode-authority.mjs
       - name: Mode-authority mutants (can the guards fail?)
         timeout-minutes: 5
         run: node scripts/verify-mode-authority.mjs

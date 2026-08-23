@@ -371,9 +371,20 @@ const MUTANTS = [
     src: "m17",
     suite: "m17",
     expect: "M17.5",
-    why: "rows written before this migration carry no stamp, and the catalog lookup is the only thing keeping them correct until their carts close. Without it `mms_line_tax` receives NULL and `mms_taxable` falls to its `else true`, taxing cold food in a bag",
-    find: "  if v_cat is null and v_mid ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then\n    select tax_category into v_cat from public.menu_items where id = v_mid::uuid;\n  end if;",
+    why: "the catalog read is BOTH the bridge for rows written before this migration (no stamp) and the path a live re-classification travels. Delete it and a legacy line falls to `mms_line_tax(…, NULL, …)`, where `mms_taxable`'s `else true` taxes cold food in a bag",
+    find: "  if v_mid ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then\n    select tax_category into v_cat_live from public.menu_items where id = v_mid::uuid;\n    if v_cat_live is not null then v_cat := v_cat_live; end if;\n  end if;",
     replace: "",
+  },
+  {
+    id: "toggle/stamp-preferred-over-catalog",
+    fn: "mms_set_line_fulfillment",
+    src: "m17",
+    suite: "m17",
+    expect: "M17.7",
+    why: "the ORDER of the two reads, and the shape this fix originally shipped as. Preferring the line's stamp means an operator correcting a mis-classified dish (supabase/data/w15_pos_apply.sql does exactly this, and one is pending for lemon-salad) never reaches lines already in an open cart — the corrected dish keeps ringing its old tax, silently, for a change they believe they just made",
+    find: "  if v_mid ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then\n    select tax_category into v_cat_live",
+    replace:
+      "  if v_cat is null and v_mid ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then\n    select tax_category into v_cat_live",
   },
   {
     id: "insert/uuid-guard-deleted",
@@ -554,7 +565,13 @@ for (const m of MUTANTS) {
   // patched file substituted in place — applying the patched file alone would leave any earlier
   // migration's statements unapplied, and applying it out of order would let a later one overwrite
   // the mutation, which reads as a surviving mutant and is really a broken harness.
-  const mutatedText = edits.reduce((text, e) => text.replace(e.find, e.replace), original);
+  // `() => e.replace`, never a bare string: String.replace treats `$&`, `$'`, `` $` `` and `$1` in a
+  // STRING replacement as substitution patterns. Several of these mutants carry the uuid regex, whose
+  // `…{12}$'` contains `$'` — "everything after the match" — so a literal-looking replacement spliced
+  // the entire remainder of the migration into the function body and psql failed with a syntax error
+  // that named a line nobody wrote. A function replacement is always literal. (Same class as
+  // Python's re.sub backslash handling; both bit this file in one afternoon.)
+  const mutatedText = edits.reduce((text, e) => text.replace(e.find, () => e.replace), original);
   if (m.fnPatch) {
     psql(["-q"], mutatedText);
   } else {

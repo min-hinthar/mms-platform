@@ -25,7 +25,8 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >   read of that column was classified rather than assumed — which is the only reason M113 (the board
 >   leak) was found at all; nothing had filed it. When you close a defect defined by a SHAPE, grep the
 >   shape before closing the row.
-> - **M114 (low, open)** is the audit's leftover: `setup-intent/route.ts:32` fails closed but answers
+> - **M116 (low, open)** is the audit's leftover — re-filed from M114, which was RETIRED in #227
+>   because it had been written around a refusal that never shipped: `setup-intent/route.ts:32` fails closed but answers
 >   "Tabs are for dine-in tables" on an unknowable read — the refusal is right, the sentence is a
 >   fabricated diagnosis. It reads the same column and should read `mode` off `assertCartMember` too.
 > - **M17 shipped (#227) — but the first fix was REJECTED, and that is the part worth carrying.**

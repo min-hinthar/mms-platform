@@ -57,6 +57,19 @@
 -- the legally safer of the two wrong answers (under-collection is the worse direction, M97). That set
 -- cannot grow, only drain: it is draft lines on open carts, and every new line carries its category.
 -- Refusing those instead was the rejected first attempt; it does not restore a cent.
+--
+-- ── What a catalog CORRECTION still does, and the one thing it no longer does ──────────────────
+-- Correcting a mis-classified dish (`update menu_items set tax_category = …`) is an established
+-- operation here — `supabase/data/w15_pos_apply.sql:30,33` — and one is still pending for
+-- `lemon-salad`. Because the toggle reads the CATALOG first, that correction still reaches lines
+-- already sitting in an open cart on their next flip, exactly as before M17 (case 7 pins it).
+--
+-- What it does NOT do, and never did: a line nobody flips is never recomputed at all, so its stored
+-- `tax_cents` keeps the taxability it was quoted at add time. `supabase/data/m17_recategorize.sql`
+-- is the companion statement for that — run it after any tax-category correction to bring DRAFT
+-- lines on OPEN carts into line. Fired lines and closed carts are deliberately out of scope: the
+-- kitchen owns one and the other is a settled receipt, which is a fulfillment-time snapshot rendered
+-- verbatim.
 
 -- ── 1. the column ────────────────────────────────────────────────────────────────────────────────
 -- Nullable on purpose: existing rows have no category yet, and grocery lines never will (their
@@ -152,7 +165,7 @@ create or replace function public.mms_set_line_fulfillment(
 ) returns text
   language plpgsql security definer set search_path = '' as $$
 declare v_cart uuid; v_status text; v_state text; v_cur text; v_mid text; v_price integer; v_cat text;
-        v_new_price integer; v_mode text;
+        v_new_price integer; v_mode text; v_cat_live text;
 begin
   if p_fulfillment not in ('dinein','togo') then return 'bad_fulfillment'; end if;
   -- Bound the server-derived price (belt: the caller is service-role TS, never the client, but a
@@ -182,12 +195,29 @@ begin
   -- Per-line tax from the food item's category + the new fulfillment, on the NEW price (the
   -- taxable-base flag getCartTotals reads).
   --
-  -- M17 — the category comes off the LINE first. It is stamped at insert (above) and backfilled for
-  -- every resolvable row by this migration, so the catalog lookup below is now only a bridge for
-  -- rows that predate both. It is uuid-guarded because `menu_item_id` is a soft text ref: a grocery
-  -- barcode made the bare cast raise 22P02, which reached the diner as a 500 rather than an answer.
-  if v_cat is null and v_mid ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
-    select tax_category into v_cat from public.menu_items where id = v_mid::uuid;
+  -- M17 — the CATALOG still wins while it can answer; the line's stamp is the FALLBACK.
+  --
+  -- Order matters, and the reverse (stamp-first) was written first and caught in review. A
+  -- `tax_category` is a statement about what a dish IS, and correcting a mis-classified one is the
+  -- repo's established operation — `supabase/data/w15_pos_apply.sql:30,33` does exactly that, and
+  -- `docs/HANDOFF.md` still has a pending one for `lemon-salad`. Before M17 that correction reached
+  -- lines already sitting in an open cart, because this function re-read the catalog on every flip.
+  -- Preferring the stamp would have silently taken that away: a dish corrected cold→hot would keep
+  -- ringing exempt to-go on every open line, which is under-collection — M97's worse direction — for
+  -- a change the operator believes they just made. So the snapshot answers only where the catalog
+  -- CANNOT, which is precisely the case M17 exists for.
+  --
+  -- `into v_cat_live`, never straight `into v_cat`: plpgsql sets the target to NULL when a SELECT
+  -- INTO matches no row, so reading a pruned item directly into `v_cat` would ERASE the very stamp
+  -- this migration adds — the defect, restored, by the line meant to fix it.
+  --
+  -- uuid-guarded because `menu_item_id` is a soft text ref with no FK and holds a grocery BARCODE for
+  -- scan lines, on which a bare `::uuid` raises 22P02. Defense in depth: no shipped path reaches it,
+  -- because `is_grocery` returns above and `grocery.ts` is the only barcode writer (it always tags
+  -- `grocery`). The insert's own guard, by contrast, is load-bearing — it runs before any such gate.
+  if v_mid ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
+    select tax_category into v_cat_live from public.menu_items where id = v_mid::uuid;
+    if v_cat_live is not null then v_cat := v_cat_live; end if;
   end if;
   -- Re-assert open + draft + food IN THE WRITE (not just the if-checks above): a concurrent
   -- mms_fire_cart (draft→fired) or webhook open→paid flip landing between the SELECT and this

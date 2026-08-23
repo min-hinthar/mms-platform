@@ -137,7 +137,37 @@ begin
   assert r = 'is_grocery',
     format('M17.6 a grocery line must refuse by fulfillment, not raise from a uuid cast: %L', r);
 
-  raise notice 'M17 — 6 cases passed (cold % dine-in / % to-go)', tax_in, tax_out;
+  -- ══ 7. a catalog CORRECTION still reaches a line already in an open cart ═════════════════════
+  -- The behaviour a stamp-first read would have silently removed. Correcting a mis-classified dish
+  -- is an established operation here (`supabase/data/w15_pos_apply.sql:30,33`), and one is still
+  -- pending for `lemon-salad`. Before M17 the toggle re-read the catalog every flip, so the fix had
+  -- to keep that: the snapshot answers only where the catalog cannot.
+  line := public.mms_cart_item_insert_if_open(
+            cart, cold::text, 'Pickled Tea Salad', '[]'::jsonb, price, tax_in, ana, 'dinein');
+  select tax_category into v_cat from public.qr_cart_items where id = line;
+  assert v_cat = 'cold_food', format('M17.7 fixture: the line was stamped %L, expected cold_food', v_cat);
+
+  -- the operator corrects it: this dish is actually served hot, so it is taxable in a bag too
+  update public.menu_items set tax_category = 'hot_prepared' where id = cold;
+
+  r := public.mms_set_line_fulfillment(line, 'togo');
+  assert r = 'ok', format('M17.7 the toggle was refused after a catalog correction: %L', r);
+  select tax_cents into v_tax from public.qr_cart_items where id = line;
+  assert v_tax > 0,
+    format('M17.7 a corrected dish must ring its CORRECTED tax on lines already in the cart: this '
+           'line came back at %s¢ on a hot dish sent to-go. Reading the stamp in preference to the '
+           'catalog takes an operator''s correction away from every open cart — under-collection '
+           'for a change they believe they just made.', v_tax);
+  update public.menu_items set tax_category = 'cold_food' where id = cold;
+
+  -- No case for "the catalog lookup must not ERASE the stamp" (plpgsql sets a SELECT INTO target to
+  -- NULL when no row matches, so reading a pruned item straight into `v_cat` would wipe it). One was
+  -- written and DELETED as degenerate: erasure falls back to 'hot_prepared', which is taxable, so any
+  -- case expecting TAX still passes. Case 2 is the guard — it is the only one expecting EXEMPT on a
+  -- pruned item, so it is the only one the erasure can fail. Adding a second, weaker case would have
+  -- read as extra coverage while pinning nothing.
+
+  raise notice 'M17 — 7 cases passed (cold % dine-in / % to-go)', tax_in, tax_out;
 end $$;
 
 rollback;
