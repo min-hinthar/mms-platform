@@ -1915,17 +1915,22 @@ try {
 
 // ── 3 · the orphan-suite guard (mirrors ci.yml) ───────────────────────────────────────────────────
 process.stdout.write("\norphan-suite guard … ");
+// Enumerated through git, not `find`: the guard asks "does any test file exist that no config
+// runs?", and only files git would SHIP can answer yes. A bare `find` walks build artifacts too, and
+// `.review-bundle/` — which the workflow tells you to generate right before every adversarial pass —
+// copies each changed file, `.test.ts` included, into one flat directory. That reported 30+ orphans
+// and made the gate unusable at exactly the moment it is supposed to run. `--cached --others
+// --exclude-standard` is tracked + untracked-minus-ignored, so a brand-new test file is still checked
+// before it is committed, and no future artifact directory can trip this again.
 const find = (pattern) =>
   run(
     "bash",
-    [
-      "-c",
-      `find . -name '${pattern}' -not -path '*/node_modules/*' -not -path '*/.next/*' -not -path '*/.git/*' || true`,
-    ],
+    ["-c", `git ls-files --cached --others --exclude-standard -- '${pattern}' || true`],
     ROOT,
   )
     .split("\n")
-    .filter(Boolean);
+    .filter(Boolean)
+    .map((p) => `./${p}`);
 const tsOrphans = find("*.test.ts").filter((p) => !/^\.\/(apps\/qr\/|packages\/ui\/src\/)/.test(p));
 const tsxAny = find("*.test.tsx"); // no vitest config includes .tsx — any is an orphan
 const orphans = [...tsOrphans, ...tsxAny];
