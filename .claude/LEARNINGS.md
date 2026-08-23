@@ -591,3 +591,14 @@ defining its function, or a later migration silently overwrites the mutation and
 
 Also: `RAISE`'s placeholder is a bare `%`. `format()`'s is `%s`. A `raise notice 'cold %s'` prints
 `cold 147s` and reads as correct forever.
+
+**Addendum (same PR, caught by CI):** the first push of this migration failed with
+`duplicate key value violates unique constraint "schema_migrations_pkey"`. A migration's VERSION is
+its filename's leading timestamp and `schema_migrations` is keyed on that alone, so
+`20260824000000_advisor_sweep.sql` and `20260824000000_m17_unknown_item_tax.sql` collided — after CI
+had pulled images, started a stack and replayed all 92 migrations. Nothing local looked, and the fact
+was visible in `ls`. `scripts/check-migration-versions.mjs` now asserts one version per file plus the
+`<timestamp>_name.sql` shape the CLI actually matches (the delivery repo's silent-skip gotcha, same
+filename fact), and runs inside `verify:slice` ahead of the expensive part. Both rules watched fail
+on the real collision. The habit that would have caught it: after picking a timestamp, `ls` the
+directory rather than `grep`ping it — my grep pattern filtered out the very file I collided with.

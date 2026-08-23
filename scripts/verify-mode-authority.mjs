@@ -63,7 +63,7 @@ const SUITES = {
     test: path.join(ROOT, "supabase/tests/m100_session_mode_authority_test.sql"),
   },
   m17: {
-    migration: path.join(ROOT, "supabase/migrations/20260824000000_m17_unknown_item_tax.sql"),
+    migration: path.join(ROOT, "supabase/migrations/20260825000000_m17_unknown_item_tax.sql"),
     test: path.join(ROOT, "supabase/tests/m17_unknown_item_tax_test.sql"),
   },
 };

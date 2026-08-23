@@ -1842,6 +1842,16 @@ try {
   process.exit(1);
 }
 
+// M17 — the cheapest guard in this file, added because CI caught what `ls` could have. Two
+// migrations shared a timestamp; the CLI keys `schema_migrations` on that prefix alone, so the
+// collision surfaced as a duplicate-key INSERT only after a full stack had started and replayed
+// every migration. Pure filename facts belong before the expensive gate, not inside it.
+try {
+  execFileSync("node", ["scripts/check-migration-versions.mjs"], { cwd: ROOT, stdio: "inherit" });
+} catch {
+  process.exit(1);
+}
+
 // W16d review BLOCK — the same shape of cheap grep, for the photo filter. A unit test on
 // `safeImageUrl` is BLIND to a filter re-added at a CALL SITE (proven: re-adding it inside
 // getCartView's media map leaves media-url.test.ts fully green), and that is precisely how W13
