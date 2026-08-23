@@ -16,7 +16,18 @@ Verified rather than assumed, twice over. Before touching anything irreversible,
 deployment list was checked: at the first "go" there was **no READY production deployment** since the
 endpoint was created, so the rotated secret could not have been serving and deleting the predecessor
 would have stopped fulfillment. After the redeploy reached READY, a **forged** `stripe-signature` was
-confirmed to be rejected `400` — proving the secret is enforced, not bypassed.
+confirmed to be rejected `400`.
+
+**That last check proves less than it looks like, and the gap is worth stating.** A forged signature
+returns `400` against _any_ non-empty secret — the correct one, the predecessor's, or a typo. So it
+establishes that a secret is set and enforced; it does **not** establish that the value matches
+`we_1U7KIJ…`. Because the predecessor is now disabled, a mis-pasted secret would leave the sole live
+endpoint rejecting every real delivery. `docs/ENV.md` step 6 is the check that actually closes this — a
+legitimately signed live delivery showing **200** in Stripe → Webhooks, or a small real card charge and
+refund landing a `qr_orders` row — and it has NOT been performed. The failure is bounded and
+self-healing (Stripe retries non-2xx for 72h and `mms_fulfill_order` is idempotent on the PI id, so
+correcting the secret drains the backlog), but until that smoke test runs the cutover is _applied_,
+not _proven_.
 
 The predecessor is **disabled, not deleted**: the Stripe connector exposes no delete for webhook
 endpoints (list/create/retrieve/update only). Disabling is what carries the safety property — a
