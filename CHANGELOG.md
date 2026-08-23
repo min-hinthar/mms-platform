@@ -36,10 +36,17 @@ Two of the five test cases carry the weight, and neither is the obvious one:
 `floor.ts` now maps the new raise to its own sentence. Without that, a refusal would have surfaced as
 "a table changed" — a fabricated diagnosis, and the branch's own comment would have become false.
 
-Proven red-first against the pre-M109 body; 6 mutants in `verify-mode-authority.mjs` (26 total, four
-functions). Two are DOCUMENTED SURVIVORS: the fail-closed null test (unreachable while the gate above
-it proves both carts exist) and the session-row lock, whose reachable purpose is a `status` race
-rather than `mode` — filed as M118 with the two-session technique that could prove it.
+Proven red-first against the pre-M109 body; 5 mutants in `verify-mode-authority.mjs` (25 total, four
+functions), one a DOCUMENTED SURVIVOR — the fail-closed null test, unreachable while the gate above it
+proves both carts exist.
+
+The gate reads `mode` **without a lock**, deliberately. This first shipped with a `for update` on both
+session rows and it was removed before merge: it bought nothing for `mode` (that column has no writer
+anywhere), so its real justification was a `status` race one column over — and it was not free.
+`explain` gives `LockRows → Sort (Sort Key: s.id)` while `mms_sweep_expired_sessions` (pg_cron, every
+15 min) is `Update → Seq Scan`. Two orders over the same rows is a deadlock path that does not exist
+today only because the merge tail locks exactly one session row. The `status` race is real and keeps
+its own row (M118) rather than a half-fix here, with that ordering constraint recorded.
 
 ### The cart line keeps its own tax category (2026-08-23)
 

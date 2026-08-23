@@ -24,12 +24,12 @@
  *
  * DOCUMENTED SURVIVORS
  * --------------------
- * Four mutations are expected to SURVIVE, and asserting that is the point. They are not one kind:
+ * Three mutations are expected to SURVIVE, and asserting that is the point. They are not one kind:
  *
- *   · A survivor that measures a PROPERTY. `toggle/in-write-mode-term-deleted` and
- *     `merge/session-lock-dropped` both rest on `table_sessions.mode` having no writer; the
- *     migration headers state that in writing and these rows MEASURE it. A kill means the claim has
- *     become false and the header must be rewritten.
+ *   · A survivor that measures a PROPERTY. `toggle/in-write-mode-term-deleted` rests on
+ *     `table_sessions.mode` having no writer; the migration's header states that in writing and this
+ *     row MEASURES it. A kill means the claim has become false and the header must be rewritten.
+ *     (M109's gate rests on the same property, which is why it reads that column WITHOUT a lock.)
  *   · A survivor that names a GAP. `toggle/in-write-parens-dropped` (M110) and
  *     `merge/null-mode-branch-dropped` are real guards no SINGLE-session test can reach — the first
  *     because a pre-check refuses first, the second because the gate above it proves both carts
@@ -176,14 +176,12 @@ function functionDef(fn) {
  * red") is what stops two mutants from both being credited to case 1.
  */
 /**
- * M109's two anchors, named once because five mutants below patch the same gate. A typo in an
+ * M109's gate, named once because five mutants below patch it. A typo in an
  * inlined copy would make that mutant fail to apply — which the md5 check catches, but reported
  * as "the patch did not land" rather than "the guard has a hole", and those read very
  * differently at 2am.
  */
 const M109_GATE = "  if v_src_mode is null or v_tgt_mode is null or v_src_mode <> v_tgt_mode then";
-const M109_LOCK =
-  "  perform 1 from public.table_sessions s\n    where s.id in (select c.session_id from public.qr_carts c\n                     where c.id in (p_source_cart, p_target_cart))\n    order by s.id for update;";
 
 const MUTANTS = [
   {
@@ -481,23 +479,6 @@ const MUTANTS = [
     why: "the fail-closed null test. Unreachable while the open/active gate above it proves both carts exist — belt against that gate moving, not against today's schema",
     find: M109_GATE,
     replace: "  if v_src_mode <> v_tgt_mode then",
-  },
-  {
-    id: "merge/session-lock-dropped",
-    fn: "mms_merge_table_orders",
-    src: "m109",
-    suite: "m109",
-    // DOCUMENTED SURVIVOR — a PROPERTY plus a GAP. The lock is not there for `mode` (no writer of
-    // that column exists, measured). It is there for `status`: the open/active gate reads
-    // `s.status <> 'closed'` unlocked, and `closeTable` (floor.ts:493-494) commits a bare
-    // `update table_sessions set status = 'closed'` as its own statement, so a table cleared
-    // mid-merge lands between that gate and the tail. Holding both session rows makes the close WAIT.
-    // Staging that needs two concurrent sessions (M102's technique) — filed as M118. Unlike M110's
-    // survivor there IS a real writer to drive it, so it is reachable, just not from here.
-    expect: null,
-    why: "the session row lock. Its reachable purpose is `status`, not `mode` — a concurrent closeTable between the open/active gate and the tail — and only a two-session harness can stage that (M118)",
-    find: M109_LOCK,
-    replace: "  -- M109 lock removed by the mutant battery",
   },
 ];
 

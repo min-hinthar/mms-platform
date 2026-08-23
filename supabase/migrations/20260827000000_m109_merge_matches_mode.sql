@@ -55,30 +55,34 @@
 -- it: `null <> null` is null, which `if` treats as false, so without the explicit test the guard
 -- would silently admit exactly the case it cannot evaluate.
 --
--- ── The lock, and the honest reason it is there ────────────────────────────────────────────────
+-- ── Why the modes are read WITHOUT a lock, which was the other way round first ─────────────────
 --
--- NOT for `mode`. No writer of `table_sessions.mode` exists — every `.update()` on that table across
--- `apps` + `packages` assigns only `status`, `expires_at` or `host_seat` (measured), and no migration
--- assigns `mode` outside an INSERT. That is a caller CONVENTION rather than a database guarantee
--- (unlike `added_by`, which M96 could lean on because a trigger makes it immutable), so locking the
--- rows the modes are read from costs nothing and is correct in advance of a writer. But a lock
--- justified only by a writer that does not exist is decorative, and this file will not claim that.
+-- No writer of `table_sessions.mode` exists. Every `.update()` on that table across `apps` +
+-- `packages` assigns only `status`, `expires_at` or `host_seat` (measured), and no migration assigns
+-- `mode` outside an INSERT; `qr_carts.session_id` is never reassigned either, so the row read here is
+-- the row the cart had when the lock above was taken. An unlocked read is therefore exactly as good
+-- as a locked one for this column. That is a caller CONVENTION rather than a database guarantee
+-- (unlike `added_by`, which M96 could lean on because a trigger makes it immutable), so it is stated
+-- here to be re-checked the day someone adds a `mode` writer.
 --
--- The reachable reason is `status`, one column over. The open/active gate directly above reads
--- `s.status <> 'closed'` with NO lock, and a real writer runs concurrently: `closeTable`
--- (`floor.ts:493-494`) issues a bare `update table_sessions set status = 'closed'` as its own
--- autocommit statement. Between that gate and the tail, a server clearing the target table commits
--- straight through — and the merge finishes onto a session that is already closed. Holding both
--- session rows `for update` from before the gate makes that close WAIT instead of interleave, so the
--- gate's answer is still true when the tail acts on it. Ordered by id, the discipline the cart lock
--- ten lines above uses; and it adds no table to the footprint, because the tail ALREADY row-locks the
--- source session (`update table_sessions set status = 'closed'`) — this replaces one late unordered
--- lock with two early ordered ones.
+-- This function first shipped with `perform 1 from public.table_sessions … order by s.id for update`
+-- in front of these reads, and it was REMOVED before merge. The reasoning is worth keeping, because
+-- the lock looked free:
 --
--- ⚠️ UNPROVEN HERE. No single-session SQL test can stage that interleaving (the same limit M102 was
--- built for and M110 is filed under), so `verify-mode-authority.mjs` carries `merge/session-lock-dropped`
--- as a DOCUMENTED SURVIVOR. Unlike M110's, this one has a real writer to drive it, so it is
--- reachable by the two-session harness technique rather than merely reasoned — filed as M118.
+--   · It bought nothing for `mode` (no writer), so its real justification was `status` one column
+--     over — the open/active gate above reads `s.status <> 'closed'` UNLOCKED, and `closeTable`
+--     (`floor.ts:493-494`) commits a bare `update table_sessions set status = 'closed'` as its own
+--     autocommit statement, so a table cleared between that gate and the tail lands the merge on a
+--     closed session. That is a real defect. It is also a DIFFERENT defect from the one M109 is about.
+--   · And the lock is not free. `explain` on that statement is `LockRows → Sort (Sort Key: s.id)`,
+--     while `mms_sweep_expired_sessions` (pg_cron, every 15 min) is `Update → Seq Scan` — physical
+--     order. Two orders over the same rows is a deadlock path, and it does not exist today only
+--     because the merge tail locks exactly ONE session row: a single-row lock cannot hold A while
+--     waiting for B. Taking two would have introduced it.
+--
+-- So the `status` race keeps its own row (OPEN-ITEMS M118) rather than a half-fix here, and whoever
+-- takes it inherits the constraint: any lock added must not oppose the sweeper's scan order, and it
+-- needs M102's two-session harness to prove, because no single-session test can stage the interleave.
 --
 -- Restated from `20260822000000_m98_merge_matches_price.sql` — the FOURTEENTH definition of this
 -- function (measured: `grep -rEoh "create or replace function[[:space:]]+(public\.)?mms_merge_table_orders" supabase/migrations/*.sql | wc -l`
@@ -118,13 +122,8 @@ begin
 
   -- M109: …and both tables the same KIND. Until now this rule existed only at `floor.ts:666`, in
   -- front of a service_role RPC — the invariant asserted in one place and enforced in another, which
-  -- is precisely what M100 cost one function over. Lock both session rows in id order first (see the
-  -- header: the tail already locks the source, so this narrows the window rather than opening one),
-  -- then read the modes off the rows we hold.
-  perform 1 from public.table_sessions s
-    where s.id in (select c.session_id from public.qr_carts c
-                     where c.id in (p_source_cart, p_target_cart))
-    order by s.id for update;
+  -- is precisely what M100 cost one function over. Read unlocked: `mode` has no writer anywhere, and
+  -- a lock here would oppose `mms_sweep_expired_sessions`'s scan order (see the header).
   select s.mode into v_src_mode from public.qr_carts c
     join public.table_sessions s on s.id = c.session_id where c.id = p_source_cart;
   select s.mode into v_tgt_mode from public.qr_carts c

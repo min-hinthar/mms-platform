@@ -38,6 +38,14 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >   neighbouring guard; case 5 (pickup ↔ pickup) is the only one that kills the over-tightening to
 >   "both must be dine-in". Cases 1 and 2 — the ones anybody would write first — pass both mis-writes.
 >   When the guard next door is spelled around ONE enum value, the copy-paste failure is that shape.
+> - **A lock shipped and was removed before merge, and that is the reusable part.** M109 first took
+>   `for update` on both session rows. It bought nothing for `mode` (no writer of that column exists
+>   anywhere), so its real justification was a `status` race one column over — and it was not free:
+>   `explain` gives `LockRows → Sort (Sort Key: s.id)` while `mms_sweep_expired_sessions` (pg_cron,
+>   every 15 min) is `Update → Seq Scan`. Two orders over the same rows is a deadlock path that does
+>   NOT exist today, only because the merge tail locks exactly one session row. **Read the plan before
+>   adding a lock**, and do not fix defect B half-way inside a PR about defect A — the `status` race
+>   is real and is now M118, with that ordering constraint written down.
 >
 > **M100 · M107 shipped (#220); M108 · M113 shipped (#226)** — the session's mode is now re-derived
 > server-side in `mms_set_line_fulfillment` and `mms_fire_line`, and on the INSERT path it is read
