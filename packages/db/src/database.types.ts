@@ -1070,6 +1070,7 @@ export type Database = {
           qty: number
           started_at: string | null
           state: string
+          tax_category: string | null
           tax_cents: number
           unit_price_cents: number
         }
@@ -1092,6 +1093,7 @@ export type Database = {
           qty: number
           started_at?: string | null
           state?: string
+          tax_category?: string | null
           tax_cents?: number
           unit_price_cents: number
         }
@@ -1114,6 +1116,7 @@ export type Database = {
           qty?: number
           started_at?: string | null
           state?: string
+          tax_category?: string | null
           tax_cents?: number
           unit_price_cents?: number
         }

@@ -4,45 +4,54 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
-### A line whose menu item is gone is no longer taxed as if it were hot food (2026-08-23)
+### The cart line keeps its own tax category (2026-08-23)
 
-**M17 closed.** `mms_set_line_fulfillment` recomputes a line's tax from its menu item's
-`tax_category`, and coalesced a MISS to `'hot_prepared'`. `menu_item_id` is a soft text ref with no
-FK, so a pruned catalog row leaves a live draft line pointing at nothing — and `hot_prepared` is
-taxable BOTH ways, while the two categories that actually separate the tags are exempt to-go under
-CDTFA Reg 1603.
+**M17 closed — by snapshotting the category, after the obvious fix was measured and rejected.**
 
-Measured before anything was written, on a real Postgres 16 running the previous body verbatim (a
-$14.00 cold-food line, dine-in → to-go):
+`mms_set_line_fulfillment` re-resolved a line's `tax_category` from `menu_items` on every for-here ⇄
+to-go flip, coalescing a MISS to `'hot_prepared'`. `menu_item_id` is a soft text ref with no FK, so a
+pruned catalog row left a live draft line pointing at nothing — and hot food is taxable both ways
+while cold food is exempt to-go.
 
-|              | verdict | tax_cents     |
-| ------------ | ------- | ------------- |
-| item present | `ok`    | 147 → **0**   |
-| item DELETED | `ok`    | 147 → **147** |
+The first fix refused the toggle when the category would not resolve. The blind adversarial pass and
+Codex both rejected it, and they were right. `getCartTotals` reads `tax_cents` only as a **boolean**
+(`totals-math.ts`: a line joins the taxable base when `taxCents > 0`), so comparing the stored
+_number_ before and after says nothing about what the guest pays. Measured properly, on a real
+Postgres with the catalog row pruned after the line was minted:
 
-Same line, same call, same answer word — 147¢ charged on a transaction that owes nothing, and
-`getCartTotals` then folds the whole line into the taxable base off that boolean flag. Over-collection.
+|                 | correct | before  | refusing                        | **this fix** |
+| --------------- | ------- | ------- | ------------------------------- | ------------ |
+| dine-in → to-go | exempt  | TAXABLE | TAXABLE — _identical charge_    | **exempt**   |
+| to-go → dine-in | TAXABLE | TAXABLE | exempt — _new under-collection_ | **TAXABLE**  |
 
-Auditing the same shape found a second unresolvable case nobody had filed: a non-uuid
-`menu_item_id` made `v_mid::uuid` raise 22P02, so the diner got a 500 rather than a reason. Both are
-one question — _what is this line's tax category?_ — and both now answer `unknown_item`.
+Refusing bought nothing in the direction M17 was filed for, additionally stranded the box (the line
+stays tagged `dinein`, so `mms_init_togo_status` never stamps and the counter never sees a bag), and
+introduced an under-collection in the other — M97's worse direction. It was strictly worse than the
+code it replaced.
 
-**Refuse, don't derive.** Three of the four transitions are recoverable from `tax_cents` alone (every
-category that is exempt to-go is taxable dine-in), and that derivation is deliberately not
-implemented: it would infer a tax CATEGORY from a previously computed TAX, which is the "computed in
-one place, quoted in another" drift this repo has paid for. The honest answer is that the category is
-gone. Over-blocking was checked in the same harness — every case with a real menu item is unchanged,
-cold food still toggles 147 ⇄ 0 in both directions and hot food stays taxable in the bag.
+No rule over the row recovers the category either. The owner states the CDTFA rule as: cold to-go
+exempt, hot to-go taxable, dine-in all taxable, except groceries — which is exactly what
+`mms_taxable` implements, and it leaves `(togo, tax = 0)` as cold-or-grocery and `(dinein, tax > 0)`
+as hot-or-cold. Two of four transitions are genuinely ambiguous. An earlier header claimed three were
+derivable; `grocery_food` (exempt in **both** directions) falsifies it, and both reviewers caught
+that independently.
 
-Guarded per case, not per file. `supabase/tests/m17_unknown_item_tax_test.sql` has five cases and
-`plpgsql` ASSERT stops at the first, so red-then-green on it would be a claim about case 1 only
-(LEARNINGS #51). Five new mutants in `verify:mode-authority` kill exactly one case each. That battery
-also had to grow: M17 is the FOURTH definition of this function, and its drift check caught that
-immediately — replaying M100 alone would have reverted the fix, so the battery now replays an ordered
-migration CHAIN and a mutant names which file it patches. All 18 mutants accounted for.
+So the fix is to stop losing the fact. `qr_cart_items` already snapshots `name`, `modifiers` and
+`unit_price_cents` and left the category a live lookup — that is the whole defect. It now carries
+`tax_category`, backfilled for every resolvable row and stamped inside
+`mms_cart_item_insert_if_open`, where the item is certain to exist because the caller has just priced
+off that row. The signature is unchanged, so there is no deploy window and no caller edit. The toggle
+reads the line, both directions are exact, and the tag still moves.
 
-M115 files what was deliberately left alone: the toggle discards the RPC's result, so every refusal —
-including this one — reaches the diner as a pill that moves and moves back with no sentence.
+Six cases in `supabase/tests/m17_line_tax_category_test.sql`, each pinned by its own mutant (19/19 in
+`verify:mode-authority`, which now also proves from the migration filenames — not from function
+identity — that its chain is complete). Residual, stated honestly: a row already orphaned when this
+applied keeps the taxable default, which is unrecoverable and drains as carts close.
+
+Also: `scripts/check-migration-versions.mjs` — a duplicate version prefix used to fail only at the
+INSERT into `schema_migrations`, after CI had started a stack and replayed 92 migrations. It cost a
+cycle here. Now a millisecond-scale filename check inside `verify:slice`, covering both the duplicate
+and the malformed-name-is-silently-skipped shape.
 
 ### The session mode is read ONCE, and the board stops publishing dine-in on a dropped read (2026-08-23)
 

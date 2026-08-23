@@ -40,7 +40,7 @@
  * somewhere should take a visible act, and there is no argument shape that can be passed by accident.
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -63,8 +63,8 @@ const SUITES = {
     test: path.join(ROOT, "supabase/tests/m100_session_mode_authority_test.sql"),
   },
   m17: {
-    migration: path.join(ROOT, "supabase/migrations/20260825000000_m17_unknown_item_tax.sql"),
-    test: path.join(ROOT, "supabase/tests/m17_unknown_item_tax_test.sql"),
+    migration: path.join(ROOT, "supabase/migrations/20260826000000_m17_line_tax_category.sql"),
+    test: path.join(ROOT, "supabase/tests/m17_line_tax_category_test.sql"),
   },
 };
 /** Apply order. Later entries redefine earlier ones, so this order is load-bearing. */
@@ -319,70 +319,74 @@ const MUTANTS = [
     find: "\n          and (p_fulfillment <> 'dinein' or s.mode = 'dinein')",
     replace: "",
   },
-  // ── M17 — the unresolvable tax category. One mutant per case: `plpgsql` ASSERT stops at the
-  // first failure, so the SQL file alone can only ever prove case 1 (LEARNINGS #51). ────────────
+  // ── M17 — the line carries its own tax category. One mutant per case: `plpgsql` ASSERT stops at
+  // the first failure, so the SQL file alone can only ever prove case 1 (LEARNINGS #51). ────────
   {
-    id: "toggle/unknown-item-falls-back-to-hot",
-    fn: "mms_set_line_fulfillment",
+    id: "insert/tax-category-not-stamped",
+    fn: "mms_cart_item_insert_if_open",
     src: "m17",
     suite: "m17",
     expect: "M17.1",
-    why: "M17 itself, restored verbatim: a deleted menu item assumed 'hot_prepared', which is taxable BOTH ways, so a cold line went to-go still carrying the dine-in tax on a transaction CDTFA Reg 1603 exempts",
-    // Two edits, because the refusal and the fallback are two halves of one rule. Dropping only the
-    // null check leaves `mms_line_tax(…, NULL, …)` — `mms_taxable`'s CASE falls to its `else true`,
-    // which taxes it, so a one-edit version would over-collect for a DIFFERENT reason and credit
-    // this mutant to a behaviour the fallback line never had.
-    edits: [
-      { find: "  if v_cat is null then return 'unknown_item'; end if;\n", replace: "" },
-      {
-        find: "public.mms_line_tax(v_new_price, v_cat, p_fulfillment = 'dinein')",
-        replace:
-          "public.mms_line_tax(v_new_price, coalesce(v_cat, 'hot_prepared'), p_fulfillment = 'dinein')",
-      },
-    ],
+    why: "the whole premise: a line minted without its category is a line whose tax the catalog can revoke later. Everything else in this suite rests on the stamp happening at insert, while the item is certain to exist",
+    find: "         case when p_menu_item_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'\n              then (select mi.tax_category from public.menu_items mi where mi.id = p_menu_item_id::uuid)\n              else null end",
+    replace: "         null",
   },
   {
-    id: "toggle/unknown-item-uuid-guard-deleted",
+    id: "toggle/ignores-the-line-category",
     fn: "mms_set_line_fulfillment",
     src: "m17",
     suite: "m17",
-    // NOT a case name: without the shape guard the cast RAISES before any assert runs, so the thing
-    // that must be observed is postgres's own 22P02 — which is precisely the symptom case 2 exists
-    // to convert into a verdict. Naming the exception text is as specific as naming a case.
-    expect: "invalid input syntax for type uuid",
-    why: "a non-uuid menu_item_id (a grocery barcode on a non-grocery line) raised 22P02 out of `v_mid::uuid` — the diner got a 500 instead of a reason",
-    find: "  if v_mid !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then\n    return 'unknown_item';\n  end if;\n",
-    replace: "",
+    expect: "M17.2",
+    why: "M17 itself, restored: resolving the category from menu_items on every flip instead of reading the line means a pruned catalog row assumes hot_prepared — taxable BOTH ways — so cold food in a bag is charged tax CDTFA exempts, AND (refusing instead) the box never reaches expo",
+    find: "  select ci.cart_id, c.status, ci.state, ci.fulfillment, ci.menu_item_id, ci.unit_price_cents, s.mode,\n         ci.tax_category\n    into v_cart, v_status, v_state, v_cur, v_mid, v_price, v_mode, v_cat",
+    replace:
+      "  select ci.cart_id, c.status, ci.state, ci.fulfillment, ci.menu_item_id, ci.unit_price_cents, s.mode,\n         null::text\n    into v_cart, v_status, v_state, v_cur, v_mid, v_price, v_mode, v_cat",
   },
   {
-    id: "toggle/unknown-item-refuses-everything",
+    id: "toggle/category-forced-exempt",
     fn: "mms_set_line_fulfillment",
     src: "m17",
     suite: "m17",
     expect: "M17.3",
-    why: "the over-blocking shape: a refusal written without its condition traps every line at its current tag, so cold food can never leave the table and stop being taxed. Over-blocking is as bad as under-blocking",
-    find: "  if v_cat is null then return 'unknown_item'; end if;\n",
-    replace: "  if true then return 'unknown_item'; end if;\n",
+    why: "the under-collection direction, and the one the rejected first attempt shipped: dine-in is all taxable except groceries, so treating every unresolved line as grocery charges $0 on food eaten at the table. Passes case 2 exactly — which is why case 3 exists",
+    find: "public.mms_line_tax(v_new_price, coalesce(v_cat, 'hot_prepared'), p_fulfillment = 'dinein')",
+    // Forces the CATEGORY, not the fallback. The first cut mutated `coalesce(v_cat, …)`'s default and
+    // SURVIVED — correctly: the line now carries `cold_food`, so the coalesce never fires. A mutant
+    // that cannot reach the code it names is the degenerate case this battery exists to surface.
+    replace: "public.mms_line_tax(v_new_price, 'grocery_food', p_fulfillment = 'dinein')",
   },
   {
-    id: "toggle/tax-category-hardcoded-grocery",
+    id: "toggle/category-forced-cold",
     fn: "mms_set_line_fulfillment",
     src: "m17",
     suite: "m17",
     expect: "M17.4",
-    why: "the category read but not USED — a hardcoded exempt category passes case 3 (which expects 0) and under-collects on every for-here toggle. The mirror of M17: same defect, other direction",
-    find: "public.mms_line_tax(v_new_price, v_cat, p_fulfillment = 'dinein')",
-    replace: "public.mms_line_tax(v_new_price, 'grocery_food', p_fulfillment = 'dinein')",
+    why: "hot food silently exempted in the bag. Passes cases 2 and 3 — both cold — so only a HOT fixture separates it. This is the mutant that stops 'make the pruned case exempt' from being satisfied by exempting everything to-go",
+    find: "public.mms_line_tax(v_new_price, coalesce(v_cat, 'hot_prepared'), p_fulfillment = 'dinein')",
+    replace: "public.mms_line_tax(v_new_price, 'cold_food', p_fulfillment = 'dinein')",
   },
   {
-    id: "toggle/tax-category-hardcoded-cold",
+    id: "toggle/legacy-catalog-bridge-deleted",
     fn: "mms_set_line_fulfillment",
     src: "m17",
     suite: "m17",
     expect: "M17.5",
-    why: "a hardcoded COLD category passes cases 1-4 exactly — both cold cases agree with it — and silently exempts hot food in the bag. This is the mutant that makes case 5 earn its place rather than merely documenting the fixture",
-    find: "public.mms_line_tax(v_new_price, v_cat, p_fulfillment = 'dinein')",
-    replace: "public.mms_line_tax(v_new_price, 'cold_food', p_fulfillment = 'dinein')",
+    why: "rows written before this migration carry no stamp, and the catalog lookup is the only thing keeping them correct until their carts close. Without it `mms_line_tax` receives NULL and `mms_taxable` falls to its `else true`, taxing cold food in a bag",
+    find: "  if v_cat is null and v_mid ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then\n    select tax_category into v_cat from public.menu_items where id = v_mid::uuid;\n  end if;",
+    replace: "",
+  },
+  {
+    id: "insert/uuid-guard-deleted",
+    fn: "mms_cart_item_insert_if_open",
+    src: "m17",
+    suite: "m17",
+    // Not a case name: without the CASE guard the cast RAISES at insert, before any assert can run.
+    // That 22P02 is precisely the symptom case 6 exists to keep out of a diner's face.
+    expect: "invalid input syntax for type uuid",
+    why: "a grocery barcode in menu_item_id is not a uuid, and a bare cast raises 22P02 — a 500 on the scan path rather than a stamped line",
+    find: "         case when p_menu_item_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'\n              then (select mi.tax_category from public.menu_items mi where mi.id = p_menu_item_id::uuid)\n              else null end",
+    replace:
+      "         (select mi.tax_category from public.menu_items mi where mi.id = p_menu_item_id::uuid)",
   },
 ];
 
@@ -429,7 +433,49 @@ console.log(
  * comparison is the FULL `pg_get_functiondef` (body + every attribute) plus `proacl`, so identity is
  * everything a caller could observe, not just the source text.
  */
-const TARGETS = ["mms_set_line_fulfillment", "mms_fire_line"];
+const TARGETS = ["mms_set_line_fulfillment", "mms_fire_line", "mms_cart_item_insert_if_open"];
+
+/**
+ * Which migration LAST defines a function, read from the migration directory in apply order.
+ *
+ * The identity check below cannot answer this (Codex round 2, P2): if a later migration restates a
+ * function byte-identically, `live === expected` even on a fresh database, and the runner would then
+ * patch an earlier file whose mutation the later one silently overwrites — a mutant reported as
+ * killed while nothing it wrote ever reached the database. Identity proves the chain produces the
+ * live body; only the filenames prove the chain is COMPLETE.
+ */
+function lastDefiningMigration(fn) {
+  const dir = path.join(ROOT, "supabase/migrations");
+  const re = new RegExp(
+    `create\\s+(?:or\\s+replace\\s+)?function\\s+(?:public\\.)?${fn}\\s*\\(`,
+    "i",
+  );
+  let last = null;
+  for (const f of readdirSync(dir)
+    .filter((f) => f.endsWith(".sql"))
+    .sort()) {
+    if (re.test(readFileSync(path.join(dir, f), "utf8"))) last = f;
+  }
+  return last;
+}
+
+{
+  const chainFiles = new Set(CHAIN.map((k) => path.basename(SUITES[k].migration)));
+  const drift = TARGETS.map((fn) => [fn, lastDefiningMigration(fn)]).filter(
+    ([, f]) => !f || !chainFiles.has(f),
+  );
+  if (drift.length) {
+    console.log(
+      c.red(
+        `  ABORT  a migration OUTSIDE this battery's chain now defines a target function:\n` +
+          drift.map(([fn, f]) => `         ${fn} → ${f ?? "(no definition found)"}`).join("\n") +
+          `\n         Add it to CHAIN/SUITES and repoint the affected mutants' \`src\`, or every\n` +
+          `         verdict about that function is about a body the chain does not produce.\n`,
+      ),
+    );
+    process.exit(1);
+  }
+}
 
 /** proname → "<md5 of full definition>|<acl>" for each target, as the given SQL leaves the database. */
 function identity(prelude = "") {

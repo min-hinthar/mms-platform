@@ -553,52 +553,57 @@ continuation line with `+`.
 
 ---
 
-## #57 — A fallback IS a decision, and `coalesce(x, <default>)` on a money input hides it (M17, 2026-08-23)
+## #57 — Assert on the CHARGE, not on the column (M17, 2026-08-23)
 
-`mms_set_line_fulfillment` read a line's tax category and wrote
-`coalesce(v_cat, 'hot_prepared')`. That reads as defensive. It is not: `hot_prepared` is taxable in
-BOTH fulfillments, and the only categories that make the dine-in/to-go toggle mean anything
-(`cold_food`, `beverage_cold`) are exempt to-go. So the "safe default" silently answered the one
-question the function exists to ask, and answered it in the direction that over-collects — 147¢ on a
-$14.00 line CDTFA Reg 1603 exempts, with the RPC returning `ok`.
+`mms_set_line_fulfillment` coalesced an unresolvable tax category to `'hot_prepared'`. That reads as
+a defensive default and is really a decision: hot food is taxable BOTH ways, so the "safe" fallback
+silently answered the one question the function exists to ask, in the over-collecting direction.
 
-The tell is grammatical: a `coalesce` in the middle of a money expression is a decision written as
-punctuation. `if v_cat is null then return 'unknown_item'; end if;` is the same logic with the
-decision visible, and it is the one a reviewer can argue with.
+I fixed it by refusing when the category would not resolve, measured `tax_cents` before and after on
+a real Postgres, watched it stop changing, and shipped that as proof. **Both reviewers rejected it
+and both were right.** `getCartTotals` reads `tax_cents` only as a BOOLEAN — a line joins the taxable
+base when `taxCents > 0` — so the stored number is not the charge. Re-measured against the boolean,
+with the catalog row pruned:
 
-**Measure the defect against the real database before writing the fix, even with no stack
-available.** There is no Docker here, so `supabase db start` was out — but Postgres 16 is installed,
-and the function body extracted VERBATIM from its migration (never retyped) plus four tables and the
-real tax engine reproduced it in minutes: 0¢ with the item present, 147¢ with it deleted, `ok` both
-times. That harness then ran the SQL test red-first, ran it green after the migration, and ran the
-whole 18-mutant battery. "No local stack" is a reason to build a smaller one, not to reason instead
-of measuring.
+|                 | correct | before  | refusing |
+| --------------- | ------- | ------- | -------- |
+| dine-in → to-go | exempt  | TAXABLE | TAXABLE  |
+| to-go → dine-in | TAXABLE | TAXABLE | exempt   |
 
-**Refusing beats deriving when the input is gone — even when deriving is possible.** Three of the
-four transitions here are recoverable from the row's stored `tax_cents` (every category exempt to-go
-is taxable dine-in, so `togo → dinein` is always taxable). Implementing that would infer a tax
-CATEGORY from a previously computed TAX: a second derivation of a fact whose first derivation no
-longer exists, which is #W17's "computed in one place and quoted in another" with extra steps. The
-cheap correct answer is that we no longer know.
+Refusing changed **nothing** the guest pays in the direction the defect was filed for, additionally
+stranded the order (a refused flip leaves the line `dinein`, so `mms_init_togo_status` never stamps
+and the counter never sees a bag), and turned a case the old code got RIGHT into an under-collection.
+Strictly worse than the code it replaced, with a green test file over it.
 
-**When one guard becomes the Nth definition of a function, the mutation battery is part of the
-diff.** `verify-mode-authority.mjs` restores by replaying its migration — so M17, restating the same
-function a fourth time, would have made every one of its verdicts a statement about a body the
-database no longer runs. Its own drift check caught this on the first run and ABORTED without
-writing, which is the guard working; but a guard that aborts is a guard that no longer runs. It now
-replays an ordered CHAIN, and each mutant names which file it patches — which must be the LAST one
-defining its function, or a later migration silently overwrites the mutation and it "survives".
+The lesson is not "measure" — I did measure. It is **measure the quantity the user experiences**. A
+money assertion has to be written against the thing that reaches the bill; the column it is stored in
+may be a flag, a snapshot, or an input to something else. Every assertion in the shipped SQL test is
+now `tax_cents = 0` / `> 0`, never an integer comparison.
 
-Also: `RAISE`'s placeholder is a bare `%`. `format()`'s is `%s`. A `raise notice 'cold %s'` prints
-`cold 147s` and reads as correct forever.
+**And the fix for a fact you keep losing is to stop losing it.** No rule over `(fulfillment,
+tax_cents)` recovers the category: the CDTFA rule (cold to-go exempt, hot to-go taxable, dine-in all
+taxable, except groceries) leaves two of four transitions ambiguous — `grocery_food` is exempt in
+BOTH directions, which falsified my own "three are derivable" header, caught independently by both
+reviewers. `qr_cart_items` already snapshots `name`, `modifiers`, `unit_price_cents`; `tax_category`
+was the one field left as a live lookup, which is precisely why a pruned catalog row could revoke it.
+Snapshot it at insert — where the item is certain to exist, because the caller just priced off that
+row — and the entire class disappears. **Before writing a rule to reconstruct a lost value, ask why
+it is being lost.**
 
-**Addendum (same PR, caught by CI):** the first push of this migration failed with
+Mechanically: derive the category INSIDE the insert RPC from the id it already receives, rather than
+adding a parameter every caller must thread. Signature unchanged ⇒ no deploy-order window, no caller
+edits, and the value cannot drift from the catalog because it IS the catalog's, read once.
+
+**Addendum, caught by CI:** the first push failed with
 `duplicate key value violates unique constraint "schema_migrations_pkey"`. A migration's VERSION is
-its filename's leading timestamp and `schema_migrations` is keyed on that alone, so
-`20260824000000_advisor_sweep.sql` and `20260824000000_m17_unknown_item_tax.sql` collided — after CI
-had pulled images, started a stack and replayed all 92 migrations. Nothing local looked, and the fact
-was visible in `ls`. `scripts/check-migration-versions.mjs` now asserts one version per file plus the
-`<timestamp>_name.sql` shape the CLI actually matches (the delivery repo's silent-skip gotcha, same
-filename fact), and runs inside `verify:slice` ahead of the expensive part. Both rules watched fail
-on the real collision. The habit that would have caught it: after picking a timestamp, `ls` the
-directory rather than `grep`ping it — my grep pattern filtered out the very file I collided with.
+its filename's leading timestamp and `schema_migrations` is keyed on that alone, so two files sharing
+a prefix collided — after CI had pulled images, started a stack and replayed all 92 migrations. The
+fact was visible in `ls`; my `grep` had filtered out the very file I collided with.
+`scripts/check-migration-versions.mjs` now asserts one version per file plus the
+`<timestamp>_name.sql` shape the CLI matches, inside `verify:slice`. Its own first cut filtered on
+`.endsWith(".sql")` before checking the shape — removing exactly the malformed names it existed to
+catch — and my red-first probe missed that because the probe's filename ended in `.sql`. **A probe
+that only exercises the half that works proves the half that works.**
+
+Also: `RAISE`'s placeholder is a bare `%`; `format()`'s is `%s`. `raise notice 'cold %s'` prints
+`cold 147s` and reads as correct forever.

@@ -30,7 +30,15 @@ const c = {
 
 process.stdout.write("migration versions — unique + CLI-visible … ");
 
-const files = readdirSync(DIR).filter((f) => f.endsWith(".sql"));
+// EVERY entry, not just the `.sql` ones (Codex round 2, P2). The first cut filtered on
+// `.endsWith(".sql")` and THEN checked the shape — which removed from consideration exactly the
+// malformed names this script exists to catch. `20260826000000_example.sqlx` is skipped by the
+// Supabase CLI *and* was skipped by this checker, which then printed `clean`: green for the wrong
+// reason, inside the guard written to prevent green for the wrong reason. The red-first probe missed
+// it because the probe's filename ended in `.sql`, so it only ever exercised the half that worked.
+const files = readdirSync(DIR, { withFileTypes: true })
+  .filter((e) => e.isFile())
+  .map((e) => e.name);
 const problems = [];
 
 // 1. the shape the CLI actually matches. Anything else never applies, and says nothing about it.
@@ -41,9 +49,9 @@ for (const f of files.filter((f) => !SHAPE.test(f))) {
   );
 }
 
-// 2. one version, one file.
+// 2. one version, one file — over the files the CLI would actually apply.
 const byVersion = new Map();
-for (const f of files) {
+for (const f of files.filter((f) => SHAPE.test(f))) {
   const v = f.slice(0, 14);
   byVersion.set(v, [...(byVersion.get(v) ?? []), f]);
 }

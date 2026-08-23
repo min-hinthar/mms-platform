@@ -28,14 +28,20 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > - **M114 (low, open)** is the audit's leftover: `setup-intent/route.ts:32` fails closed but answers
 >   "Tabs are for dine-in tables" on an unknowable read — the refusal is right, the sentence is a
 >   fabricated diagnosis. It reads the same column and should read `mode` off `assertCartMember` too.
-> - **M17 shipped (#227)** — the same RPC's OTHER hole: it assumed `'hot_prepared'` when the menu item
->   could not be resolved, which is taxable both ways, so a cold line sent to-go kept its dine-in tax.
->   Reproduced on a real Postgres against the previous body before anything was written (0¢ present,
->   147¢ deleted, `ok` both times); the fix REFUSES rather than derives, and the three derivable
->   transitions are deliberately left refused — inferring a tax category from a previously computed
->   tax is the W17 drift shape. **The reusable move, again: audit the SHAPE.** A second unresolvable
->   case (a non-uuid id raising 22P02) was sitting next to it, unfiled — the same thing that turned
->   M108 into M113.
+> - **M17 shipped (#227) — but the first fix was REJECTED, and that is the part worth carrying.**
+>   The obvious move (refuse the toggle when the category will not resolve) was measured against the
+>   wrong quantity: `getCartTotals` reads `tax_cents` as a **boolean**, so comparing the stored NUMBER
+>   before and after says nothing about the charge. Measured properly it changed nothing in the
+>   direction M17 was filed for, stranded the box (a refused flip leaves the line `dinein`, so the
+>   counter never sees a bag), and introduced an under-collection in the other direction. **Assert on
+>   the charge, not on the column.**
+> - **The shipped fix snapshots the fact instead of re-deriving it.** `qr_cart_items` already froze
+>   `name`, `modifiers` and `unit_price_cents` and left `tax_category` a live lookup — so a pruned
+>   catalog row could revoke it. It now carries the category, stamped at insert (inside
+>   `mms_cart_item_insert_if_open`, signature unchanged, so no deploy window and no caller edit) and
+>   backfilled. Two of the four transitions are genuinely un-derivable from the row (`grocery_food` is
+>   exempt BOTH ways, which falsified an earlier header's claim of three), so keeping the fact was the
+>   only correct answer.
 > - **`verify:mode-authority` now replays a migration CHAIN.** M17 is the fourth definition of
 >   `mms_set_line_fulfillment`, and the battery's drift check caught it on the first run: replaying
 >   M100 alone would have reverted the fix and every verdict would have been about dead code. A mutant
@@ -84,7 +90,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 208 `verify:slice` mutants green · `pnpm check:docs` clean (95 files, 1001 qr tests +
+> **Gate today:** 208 `verify:slice` mutants green · `pnpm check:docs` clean (95 files, 1000 qr tests +
 > 87 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
