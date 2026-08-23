@@ -196,9 +196,25 @@ requests" loop).
      code** (typed on `/staff/login`, immune to link-prefetchers) + a secondary magic-link button.
    - The route (`/api/auth/send-email`) verifies the Standard-Webhooks signature + a ±5-min replay window
      before sending; a send failure returns 500 so GoTrue surfaces it (the user is waiting on the code).
+   - **Checking whether the Vercel half is already done, without sending an email.** The route answers
+     **500 `Hook not configured`** when `SEND_EMAIL_HOOK_SECRET` is unset, and **401** once it is set (the
+     request then reaches signature/replay checks). So one bogus-signature POST distinguishes them:
+
+     ```bash
+     curl -s -X POST https://qr.mandalaymorningstar.com/api/auth/send-email \
+       -H 'content-type: application/json' -H 'webhook-id: probe' \
+       -H 'webhook-timestamp: 1' -H 'webhook-signature: v1,ZGVhZGJlZWY=' \
+       -d '{"user":{"email":"probe@example.com"},"email_data":{"token":"000000","email_action_type":"magiclink"}}'
+     ```
+
+     Verified 2026-08-23 against production: **401 `Stale timestamp`**, i.e. the secret **is** set. Note what
+     this does and does not prove — it confirms the Vercel variable only. Whether the hook is **enabled**
+     Supabase-side, and pointed at this URL, is not observable from here and needs the Dashboard.
+
    - _SMTP alternative (only if you skip the hook): Supabase → Auth → SMTP Settings → Resend
      (`smtp.resend.com`, user `resend`, pass = Resend API key) + a **code-only** Magic Link template
      (`{{ .Token }}`, drop `{{ .ConfirmationURL }}` so a scanner can't consume the shared token)._
+
 2. **App transactional email** (staff invite + deactivation notice — `apps/qr/lib/email.tsx`, React Email)
    is sent by the app via the **Resend SDK** (`RESEND_API_KEY` + `RESEND_FROM`). Best-effort + fired from
    `after()` so a Resend outage never fails provisioning; unset keys ⇒ the send is skipped (logged) and

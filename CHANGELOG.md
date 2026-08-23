@@ -4,6 +4,37 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Stripe live cutover completed, and the remaining advisories pinned down (2026-08-23)
+
+**The live webhook cutover is done.** Owner rotated `STRIPE_WEBHOOK_SECRET` in Vercel Production and
+redeployed (`dpl_2t9dAXQ`, READY on `3223f9a`); the withheld `payment_intent.payment_failed` was then
+restored to `we_1U7KIJ…` and the predecessor `we_1Tjz1l…` disabled. Live QR fulfillment now runs on one
+endpoint, on the SDK's own `api_version` `2026-05-27.dahlia`, at the canonical
+`qr.mandalaymorningstar.com`.
+
+Verified rather than assumed, twice over. Before touching anything irreversible, the production
+deployment list was checked: at the first "go" there was **no READY production deployment** since the
+endpoint was created, so the rotated secret could not have been serving and deleting the predecessor
+would have stopped fulfillment. After the redeploy reached READY, a **forged** `stripe-signature` was
+confirmed to be rejected `400` — proving the secret is enforced, not bypassed.
+
+The predecessor is **disabled, not deleted**: the Stripe connector exposes no delete for webhook
+endpoints (list/create/retrieve/update only). Disabling is what carries the safety property — a
+disabled endpoint takes no deliveries, so its now-stale secret cannot queue 72h of retries, and
+`payment_failed` can never replay from it.
+
+**M112 re-proven unreachable by a second, independent route.** The first proof concerned the GRANT
+(`anon=U/supabase_admin`; REVOKE only removes grants made by the revoking role). Dropping the extension
+instead is equally barred: `pg_graphql` is owned by `supabase_admin` with
+`pg_has_role(current_user, extowner, 'MEMBER') = false`. Neither path is reachable from a migration, and
+the Supabase MCP exposes no auth/config surface — so it is a Dashboard action or nothing. Recorded so a
+third attempt is not spent on it.
+
+**`SEND_EMAIL_HOOK_SECRET` confirmed set in production** by a non-destructive probe: the route answers
+`500 Hook not configured` when unset and `401` once set, and production returns `401 Stale timestamp`.
+`docs/ENV.md` now carries the one-line curl. Scope stated honestly — it proves the Vercel variable only;
+Supabase-side hook enablement is not observable from here.
+
 ### Blind adversarial review — `review:bundle` + the `adversarial-auditor` agent (2026-08-22)
 
 Owner observation, and it matched the record: across #221–#223 the Codex rounds consistently beat the
