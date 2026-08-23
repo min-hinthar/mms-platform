@@ -138,6 +138,11 @@ describe("setLineFulfillment — tax-only (W17a: a flip never re-prices)", () =>
     // being flattened into a generic "error", so a reader grepping `not_dinein_session` finds both
     // sides of it.
     "not_dinein_session",
+    // M17 — the line's menu item is gone (or its id is not a uuid), so its tax CATEGORY is
+    // unknowable and the RPC refuses rather than assuming 'hot_prepared', which is taxable both
+    // ways and over-collected on every cold line sent to-go. Same rule as above: one home, in the
+    // SQL; what this pins is that the verdict arrives by name.
+    "unknown_item",
   ])("surfaces the SQL verdict %s as a refusal — never swallowed into ok", async (verdict) => {
     rpcVerdict = { data: verdict, error: null };
     expect(await setLineFulfillment(LINE, "togo")).toEqual({ ok: false, reason: verdict });

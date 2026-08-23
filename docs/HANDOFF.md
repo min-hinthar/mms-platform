@@ -7,7 +7,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 
 > ## ⏭️ NEXT SESSION — start here (2026-08-21 — the M-registry backlog is being worked in severity order; W22d proper remains and is OWNER-BLOCKED)
 >
-> ### ⏭️ Pick up here — M17 is the next open row in the mode chain
+> ### ⏭️ Pick up here — the mode chain is closed; M109 · M111 are the next open rows
 >
 > **M100 · M107 shipped (#220); M108 · M113 shipped (#226)** — the session's mode is now re-derived
 > server-side in `mms_set_line_fulfillment` and `mms_fire_line`, and on the INSERT path it is read
@@ -28,10 +28,22 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > - **M114 (low, open)** is the audit's leftover: `setup-intent/route.ts:32` fails closed but answers
 >   "Tabs are for dine-in tables" on an unknowable read — the refusal is right, the sentence is a
 >   fabricated diagnosis. It reads the same column and should read `mode` off `assertCartMember` too.
-> - **M17 (med, open)** — same RPC as M100, and M100 NARROWED it: an orphaned line on a non-dine-in
->   session can no longer be flipped to `dinein` at all, so the over-collection path is now dine-in
->   only. Its registry row's migration citation was re-pointed to the live definition.
-> - Still open from the merge-fold chain: **M99 · M103 · M105 · M106** (all low).
+> - **M17 shipped (#227)** — the same RPC's OTHER hole: it assumed `'hot_prepared'` when the menu item
+>   could not be resolved, which is taxable both ways, so a cold line sent to-go kept its dine-in tax.
+>   Reproduced on a real Postgres against the previous body before anything was written (0¢ present,
+>   147¢ deleted, `ok` both times); the fix REFUSES rather than derives, and the three derivable
+>   transitions are deliberately left refused — inferring a tax category from a previously computed
+>   tax is the W17 drift shape. **The reusable move, again: audit the SHAPE.** A second unresolvable
+>   case (a non-uuid id raising 22P02) was sitting next to it, unfiled — the same thing that turned
+>   M108 into M113.
+> - **`verify:mode-authority` now replays a migration CHAIN.** M17 is the fourth definition of
+>   `mms_set_line_fulfillment`, and the battery's drift check caught it on the first run: replaying
+>   M100 alone would have reverted the fix and every verdict would have been about dead code. A mutant
+>   now names which migration text it patches, and that file must be the LAST one defining its
+>   function. Add a migration that restates either function and this is the file to update.
+> - **M115 (low, open)** is what #227 deliberately did not widen into: `Checkout.tsx:642` discards the
+>   toggle's result, so every refusal reaches the diner as a pill that moves and moves back.
+> - Still open from the merge-fold chain: **M99 · M103 · M105 · M106** (all low), plus **M109 · M111**.
 >
 > **A rule worth carrying, from #220:** a multi-case `plpgsql` ASSERT file can only ever prove its
 > FIRST case — red-then-green on eight cases is a claim about one. `scripts/verify-mode-authority.mjs`
@@ -72,7 +84,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 208 `verify:slice` mutants green · `pnpm check:docs` clean (95 files, 1000 qr tests +
+> **Gate today:** 208 `verify:slice` mutants green · `pnpm check:docs` clean (95 files, 1001 qr tests +
 > 87 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found

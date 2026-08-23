@@ -550,3 +550,44 @@ second chance to fail.
 Also, mechanically: prettier turns a line-leading `+` in a wrapped markdown sentence into a list item
 and silently corrupts the prose. `pnpm format` did it to #55 in this very file. Don't start a
 continuation line with `+`.
+
+---
+
+## #57 — A fallback IS a decision, and `coalesce(x, <default>)` on a money input hides it (M17, 2026-08-23)
+
+`mms_set_line_fulfillment` read a line's tax category and wrote
+`coalesce(v_cat, 'hot_prepared')`. That reads as defensive. It is not: `hot_prepared` is taxable in
+BOTH fulfillments, and the only categories that make the dine-in/to-go toggle mean anything
+(`cold_food`, `beverage_cold`) are exempt to-go. So the "safe default" silently answered the one
+question the function exists to ask, and answered it in the direction that over-collects — 147¢ on a
+$14.00 line CDTFA Reg 1603 exempts, with the RPC returning `ok`.
+
+The tell is grammatical: a `coalesce` in the middle of a money expression is a decision written as
+punctuation. `if v_cat is null then return 'unknown_item'; end if;` is the same logic with the
+decision visible, and it is the one a reviewer can argue with.
+
+**Measure the defect against the real database before writing the fix, even with no stack
+available.** There is no Docker here, so `supabase db start` was out — but Postgres 16 is installed,
+and the function body extracted VERBATIM from its migration (never retyped) plus four tables and the
+real tax engine reproduced it in minutes: 0¢ with the item present, 147¢ with it deleted, `ok` both
+times. That harness then ran the SQL test red-first, ran it green after the migration, and ran the
+whole 18-mutant battery. "No local stack" is a reason to build a smaller one, not to reason instead
+of measuring.
+
+**Refusing beats deriving when the input is gone — even when deriving is possible.** Three of the
+four transitions here are recoverable from the row's stored `tax_cents` (every category exempt to-go
+is taxable dine-in, so `togo → dinein` is always taxable). Implementing that would infer a tax
+CATEGORY from a previously computed TAX: a second derivation of a fact whose first derivation no
+longer exists, which is #W17's "computed in one place and quoted in another" with extra steps. The
+cheap correct answer is that we no longer know.
+
+**When one guard becomes the Nth definition of a function, the mutation battery is part of the
+diff.** `verify-mode-authority.mjs` restores by replaying its migration — so M17, restating the same
+function a fourth time, would have made every one of its verdicts a statement about a body the
+database no longer runs. Its own drift check caught this on the first run and ABORTED without
+writing, which is the guard working; but a guard that aborts is a guard that no longer runs. It now
+replays an ordered CHAIN, and each mutant names which file it patches — which must be the LAST one
+defining its function, or a later migration silently overwrites the mutation and it "survives".
+
+Also: `RAISE`'s placeholder is a bare `%`. `format()`'s is `%s`. A `raise notice 'cold %s'` prints
+`cold 147s` and reads as correct forever.
