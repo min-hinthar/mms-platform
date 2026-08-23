@@ -1739,6 +1739,31 @@ const MUTANTS = [
     find: '  if (t.hasDineInFood) return "dinein";',
     replace: "",
   },
+  // ── M108 — the session-mode fork, and the privacy filter that fails the other way ────────────
+  {
+    id: "cart/add-mode-fork-collapses-to-togo",
+    file: "apps/qr/lib/cart.ts",
+    suite: "lib/cart-add-mode.test.ts",
+    why: "M108 — addItem's session-mode fork sets every added line's routing tag and, through it, its per-line tax. Collapsing it to togo is exactly what the discarded-error second read did on an unreadable session: cold food that CDTFA Reg 1603 taxes at a table rings EXEMPT, under-collecting on the busiest money fork in the app",
+    find: '  const dineIn = mode === "dinein";',
+    replace: "  const dineIn = false;",
+  },
+  {
+    id: "board/mode-read-fails-open",
+    file: "apps/qr/app/api/board/route.ts",
+    suite: "app/api/board/route.test.ts",
+    why: "M108-adjacent — this second read is the ONLY thing keeping dine-in off a wall-mounted public screen. Discarding its error empties the mode map, every comparison passes, and the whole table's diner-chosen first names publish. A dropped read must never expose more than a successful one",
+    find: "  if (sessionsError) {",
+    replace: "  if (false) {",
+  },
+  {
+    id: "board/absent-session-reads-as-not-dinein",
+    file: "apps/qr/app/api/board/route.ts",
+    suite: "app/api/board/route.test.ts",
+    why: "M108-adjacent — the same fail-open polarity one notch narrower: a row absent from an answer that DID arrive (a truncated `.in()`, a future soft-delete) is not evidence of to-go. The board publishes what it knows is not dine-in, never what it merely did not see",
+    find: '      return mode !== undefined && mode !== "dinein";',
+    replace: '      return mode !== "dinein";',
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

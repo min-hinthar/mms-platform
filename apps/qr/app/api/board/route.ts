@@ -93,13 +93,37 @@ export async function GET(req: NextRequest) {
   const sessionIds = [
     ...new Set((data ?? []).map((o) => o.session_id).filter((s): s is string => !!s)),
   ];
-  const { data: sessions } = sessionIds.length
+  const { data: sessions, error: sessionsError } = sessionIds.length
     ? await db.from("table_sessions").select("id,mode").in("id", sessionIds)
-    : { data: [] as { id: string; mode: string }[] };
+    : { data: [] as { id: string; mode: string }[], error: null };
+  // M108-adjacent: this filter is the ONLY thing keeping dine-in off a wall-mounted public screen,
+  // and it read fail-OPEN — a failed read left the map empty, every `undefined !== "dinein"` passed,
+  // and the whole table's diner-chosen first names went up on the TV. The exposure a dropped read
+  // causes must never exceed the one a successful read allows, so an unknowable mode is 503 (the
+  // board's own retry-and-hold refusal, already handled by `readBoardRefusal`), never a publish.
+  if (sessionsError) {
+    console.error("[board] session mode read failed:", sessionsError.message);
+    // `unavailable`, the reason the board's client already folds to retry-and-hold (board-poll.ts) —
+    // but its OWN sentence: the sign-in service is fine here, the second read is what dropped, and a
+    // message that names the wrong subsystem is the next reader's first wrong turn.
+    return NextResponse.json(
+      { reason: "unavailable", error: "We can’t read the board right now." },
+      { status: 503 },
+    );
+  }
   const modeBySession = new Map((sessions ?? []).map((s) => [s.id, s.mode]));
 
   const orders = (data ?? [])
-    .filter((o) => (o.session_id ? modeBySession.get(o.session_id) !== "dinein" : true))
+    // POSITIVE: an order with a session is published only when that session's mode came back and is
+    // not dine-in. `!== "dinein"` was the same fail-open polarity as the discarded error one row up,
+    // just narrower — a row absent from the answer (a truncated `.in()`, a future soft-delete) read
+    // as "not dine-in" and published a name. Today's FK makes the absent case unreachable, which is
+    // exactly why the weaker test would have stayed green forever; the rule is the point.
+    .filter((o) => {
+      if (!o.session_id) return true; // no session at all — a counter/kiosk bag, never a table
+      const mode = modeBySession.get(o.session_id);
+      return mode !== undefined && mode !== "dinein";
+    })
     .map((o) => ({
       code: o.id.slice(-6).toUpperCase(), // the same uuid-tail code the diner's /track + exit pass show
       name: o.customer_name ?? null,

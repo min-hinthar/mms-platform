@@ -4,6 +4,37 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The session mode is read ONCE, and the board stops publishing dine-in on a dropped read (2026-08-23)
+
+**M108 · M113 closed.** Four places read `table_sessions.mode`, and three of them re-read a fact the
+caller already held one frame earlier. `assertCartMember` selects that row to prove the session is
+active and throws 503 when the read fails — so `addItem` and `reorderOrder` each issued a SECOND query
+for the mode whose `{ error }` they discarded. An unreadable session therefore resolved to
+`undefined !== "dinein"`, tagged a real dine-in table's line `togo`, and rang the to-go tax: cold food
+that CDTFA Reg 1603 taxes at a table came out EXEMPT. Under-collection is the direction M97 calls the
+legally worse one, and it happened on the app's busiest money fork.
+
+The fix is a deletion, not error handling: `CartAuthz` now carries `mode`, both call sites read the
+one binding, and a round-trip leaves every add. The read that survives already fails closed, so an
+unreadable session can no longer decide a tax fork at all.
+
+**Auditing for twins is what found M113.** Every other read of that column was classified rather than
+assumed, and `api/board/route.ts` turned out to have the same defect failing the opposite way. It
+resolves each order's session mode to keep dine-in off the order-ready board (`table_number is null`
+alone does not express the rule — a dine-in session at an unregistered sticker stamps null too), and
+its discarded error left the mode map EMPTY: every comparison passed, and the whole table's
+diner-chosen first names published to a wall-mounted screen the dining room can read. It now answers
+`reason: "unavailable"` 503 — the refusal `board-poll.ts` already folds to retry-and-hold, so a live
+board keeps its last snapshot instead of blanking — and the filter went POSITIVE, so a row absent from
+an answer that DID arrive is not read as evidence of to-go either.
+
+Guarded red-first, both of them. `lib/cart-add-mode.test.ts` is new (the add path had no coverage at
+all — a `cold_food` fixture, the only shape whose two arms produce different integers, with the cents
+computed by the real `lineTax` rather than transcribed) and so is `app/api/board/route.test.ts`; three
+mutants pin the rules, and `reorder-mode.test.ts`'s DB mock now carries NO `table_sessions` row, so
+re-introducing either second read turns it red. M114 files the leftover: `setup-intent` fails closed
+but explains itself with a sentence that is false during an outage.
+
 ### Stripe live cutover completed, and the remaining advisories pinned down (2026-08-23)
 
 **The live webhook cutover is done.** Owner rotated `STRIPE_WEBHOOK_SECRET` in Vercel Production and

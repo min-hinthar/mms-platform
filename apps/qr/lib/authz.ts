@@ -131,6 +131,13 @@ export type CartAuthz = {
   settling: boolean;
   /** The host that opened the settlement (null when not effectively settling). */
   settleBy: string | null;
+  /** The session's mode, read from the SAME row that proved the session is active (M108). Callers
+   *  that fork on dine-in vs to-go — the line's routing tag and, through it, its per-line tax — read
+   *  it from here rather than re-reading `table_sessions`: a second read is a second chance to fail,
+   *  and both callers that had one discarded its error and defaulted to `togo`, silently
+   *  under-collecting tax at a real dine-in table. This read already fails CLOSED (503 above), so
+   *  the fork can no longer be decided by an unreadable row. */
+  mode: string;
 };
 
 /**
@@ -169,7 +176,7 @@ export async function assertCartMember(cartId: string): Promise<CartAuthz> {
 
   const { data: sess, error: sessErr } = await db
     .from("table_sessions")
-    .select("status,expires_at")
+    .select("status,expires_at,mode")
     .eq("id", cart.session_id)
     .maybeSingle();
   if (sessErr) throw UNAVAILABLE(); // W10a — unknowable ≠ expired
@@ -198,6 +205,7 @@ export async function assertCartMember(cartId: string): Promise<CartAuthz> {
     lockedBy: lockedFresh ? cart.locked_by : null,
     settling: settlingFresh,
     settleBy: settlingFresh ? cart.settle_by : null,
+    mode: sess.mode,
   };
 }
 

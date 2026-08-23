@@ -11,6 +11,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * collapsed fork pass). The tax integers are computed in Node, never transcribed.
  */
 
+/** The current session's mode, as `assertCartMember` reports it. */
+let sessionMode = "pickup";
+
 vi.mock("server-only", () => ({}));
 vi.mock("next/server", () => ({ after: (fn: () => void) => fn() }));
 vi.mock("@mms/db/schemas", () => ({
@@ -21,8 +24,17 @@ vi.mock("./posthog-server", () => ({
   getPostHogClient: () => ({ capture() {}, flush: () => Promise.resolve() }),
 }));
 vi.mock("./authz", () => ({
+  // M108 — the mode rides OUT of authz now, off the same row that proved the session active. The DB
+  // mock below deliberately has NO `table_sessions` row: if reorder ever re-reads that table for the
+  // mode, it gets null, `dineIn` collapses to false, and the dine-in case below goes red.
   assertCartMember: () =>
-    Promise.resolve({ uid: "u-1", sessionId: "s-1", locked: false, settling: false }),
+    Promise.resolve({
+      uid: "u-1",
+      sessionId: "s-1",
+      locked: false,
+      settling: false,
+      mode: sessionMode,
+    }),
 }));
 
 const UNIT = 1200;
@@ -55,13 +67,11 @@ const ITEM = "11111111-1111-4111-8111-111111111111";
 const ORDER = "22222222-2222-4222-8222-222222222222";
 const CART = "33333333-3333-4333-8333-333333333333";
 
-let sessionMode = "pickup";
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     from: (table: string) => {
       const rows: Record<string, unknown> = {
         qr_orders: { id: ORDER, earned_by: "u-1", status: "paid" },
-        table_sessions: { mode: sessionMode },
       };
       const list: Record<string, unknown[]> = {
         qr_order_items: [
