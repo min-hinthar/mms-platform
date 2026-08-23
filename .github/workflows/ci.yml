@@ -48,9 +48,28 @@ jobs:
       # widen the vitest include FIRST, then relax this.
       - name: No orphaned test files
         run: |
-          ts_orphans=$(find . -name '*.test.ts' -not -path '*/node_modules/*' -not -path '*/.next/*' -not -path '*/.git/*' \
-            | grep -v -E '^\./(apps/qr/|packages/ui/src/)' || true)
-          tsx_any=$(find . -name '*.test.tsx' -not -path '*/node_modules/*' -not -path '*/.next/*' -not -path '*/.git/*' || true)
+          # Enumerated through git, not `find`: only files git would SHIP can answer "a test no
+          # config runs". `find` also walks build artifacts and gitignored working directories —
+          # `.review-bundle/` (scripts/review-bundle.mjs) copies every changed file, `.test.ts`
+          # included, into one flat directory, which reported 30+ phantom orphans locally.
+          # `--cached --others --exclude-standard` = tracked + untracked-minus-ignored, so a new
+          # test file is still caught before it is committed. Keep this in step with
+          # scripts/verify-slice.mjs, which mirrors it.
+          all_ts=$(git ls-files --cached --others --exclude-standard -- '*.test.ts')
+          # The guard's own self-check: "no orphans" and "nothing was looked at" print the same word.
+          # A bare total is not enough — apps/qr alone holds ~87 tests, so a listing accidentally
+          # scoped to that subtree clears any count floor while packages/*, scripts/ and the repo
+          # root go unlooked-at. Require every configured suite root to be represented, which cannot
+          # hold for a listing scoped inside one of them. Keep in step with scripts/verify-slice.mjs.
+          if [ "$(echo "$all_ts" | grep -c .)" -lt 10 ] \
+            || ! echo "$all_ts" | grep -q '^apps/qr/' \
+            || ! echo "$all_ts" | grep -q '^packages/ui/src/'; then
+            echo "::error::orphan-suite guard did not enumerate the whole repo — it cannot have run."
+            echo "$all_ts"
+            exit 1
+          fi
+          ts_orphans=$(echo "$all_ts" | grep -v -E '^(apps/qr/|packages/ui/src/)' || true)
+          tsx_any=$(git ls-files --cached --others --exclude-standard -- '*.test.tsx' || true)
           if [ -n "$ts_orphans" ] || [ -n "$tsx_any" ]; then
             echo "::error::Test file(s) that NO vitest config runs — they never execute:"
             [ -n "$ts_orphans" ] && echo "$ts_orphans"

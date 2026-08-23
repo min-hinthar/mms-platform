@@ -73,14 +73,14 @@ export async function reorderOrder(raw: {
   // the (seconds-long) line loop can race lines into the pay window. Bounded + recoverable by design:
   // the webhook re-derives totals and 409s on an amount mismatch (qr_refunds_needed ledger) — never a
   // mispriced capture. Same class as addItem's ~100ms window, just wider; revisit if it ever bites.
-  let uid: string, sessionId: string;
+  let uid: string, mode: string;
   try {
     const authz = await assertCartMember(cartId);
     if (authz.locked) return { ok: false, error: "Order is locked while someone checks out" };
     if (authz.settling)
       return { ok: false, error: "The table is settling up — you can’t edit while everyone pays" };
     uid = authz.uid;
-    sessionId = authz.sessionId;
+    mode = authz.mode;
     await assertMutationRate(uid);
   } catch {
     // One generic string for every guard miss (no-such-cart / not-a-member / expired / rate): thrown
@@ -115,13 +115,11 @@ export async function reorderOrder(raw: {
   if (capped) lines.length = LINE_CAP;
 
   // The new lines' dine-in/to-go default follows the CURRENT session's mode (same rule as addItem) —
-  // reordering last week's pickup at the table today makes table food, not a phantom bag.
-  const { data: sess } = await db
-    .from("table_sessions")
-    .select("mode")
-    .eq("id", sessionId)
-    .single();
-  const dineIn = sess?.mode === "dinein";
+  // reordering last week's pickup at the table today makes table food, not a phantom bag. M108: the
+  // mode rides out of `assertCartMember`, which read it off the row that proved the session active
+  // and 503s when that read fails. The second read this replaced discarded its error, so an
+  // unreadable session re-added a dine-in table's food as `togo` at the to-go tax.
+  const dineIn = mode === "dinein";
 
   // Today's availability for the food lines, one batch read.
   const foodIds = [

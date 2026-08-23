@@ -6,6 +6,14 @@ export const runtime = "nodejs"; // node:crypto timingSafeEqual
 export const dynamic = "force-dynamic";
 
 /**
+ * The session modes whose orders belong on a public screen — takeout and scan-and-go (SPEC-KDS §6).
+ * `table_sessions.mode`'s CHECK admits exactly `dinein` · `scango` · `pickup`
+ * (`20260618000000_qr_platform_init.sql`), so this is that set minus dine-in — written as the set it
+ * IS, so a mode added later has to be added here deliberately instead of appearing on the wall.
+ */
+const BOARD_MODES = new Set(["pickup", "scango"]);
+
+/**
  * W3e: the order-ready board's poll (GET /api/board?k=<device token>). The TV can't join the private
  * RLS-gated realtime channels (an unauthenticated browser has no staff JWT), so it polls this SANITIZED
  * read on the house 5s-backstop cadence — no `realtime.messages` policy change, no staff session on a
@@ -93,13 +101,41 @@ export async function GET(req: NextRequest) {
   const sessionIds = [
     ...new Set((data ?? []).map((o) => o.session_id).filter((s): s is string => !!s)),
   ];
-  const { data: sessions } = sessionIds.length
+  const { data: sessions, error: sessionsError } = sessionIds.length
     ? await db.from("table_sessions").select("id,mode").in("id", sessionIds)
-    : { data: [] as { id: string; mode: string }[] };
+    : { data: [] as { id: string; mode: string }[], error: null };
+  // M108-adjacent: this filter is the ONLY thing keeping dine-in off a wall-mounted public screen,
+  // and it read fail-OPEN — a failed read left the map empty, every `undefined !== "dinein"` passed,
+  // and the whole table's diner-chosen first names went up on the TV. The exposure a dropped read
+  // causes must never exceed the one a successful read allows, so an unknowable mode is 503 (the
+  // board's own retry-and-hold refusal, already handled by `readBoardRefusal`), never a publish.
+  if (sessionsError) {
+    console.error("[board] session mode read failed:", sessionsError.message);
+    // `unavailable`, the reason the board's client already folds to retry-and-hold (board-poll.ts) —
+    // but its OWN sentence: the sign-in service is fine here, the second read is what dropped, and a
+    // message that names the wrong subsystem is the next reader's first wrong turn.
+    return NextResponse.json(
+      { reason: "unavailable", error: "We can’t read the board right now." },
+      { status: 503 },
+    );
+  }
   const modeBySession = new Map((sessions ?? []).map((s) => [s.id, s.mode]));
 
   const orders = (data ?? [])
-    .filter((o) => (o.session_id ? modeBySession.get(o.session_id) !== "dinein" : true))
+    // ALLOWLIST, not "anything that isn't dine-in". Two rounds got this wrong in the same direction:
+    // the shipped `!== "dinein"` on an EMPTY map published everything, and the first fix
+    // (`mode !== undefined && mode !== "dinein"`) only closed the absent-row half — it is still a
+    // one-string blacklist, so the day `table_sessions.mode`'s CHECK gains a fourth value that means
+    // table service, every such order publishes a name with nobody having decided that. The board is
+    // defined POSITIVELY (SPEC-KDS §6: takeout + grocery), so name those modes and let a mode this
+    // code has never heard of be absent from the wall rather than on it — staff can see a missing
+    // name; nobody can see a name that should not be there. A null session_id is unknowable, not
+    // to-go: the column is nullable, but every insert sources it from `qr_carts.session_id`, which is
+    // NOT NULL, so today it cannot happen at all and the safe reading costs nothing.
+    .filter((o) => {
+      const mode = o.session_id ? modeBySession.get(o.session_id) : undefined;
+      return mode !== undefined && BOARD_MODES.has(mode);
+    })
     .map((o) => ({
       code: o.id.slice(-6).toUpperCase(), // the same uuid-tail code the diner's /track + exit pass show
       name: o.customer_name ?? null,

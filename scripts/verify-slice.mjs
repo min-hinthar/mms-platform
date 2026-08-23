@@ -1739,6 +1739,59 @@ const MUTANTS = [
     find: '  if (t.hasDineInFood) return "dinein";',
     replace: "",
   },
+  // ── M108 — the session-mode fork, and the privacy filter that fails the other way ────────────
+  {
+    id: "authz/mode-pinned-to-a-constant",
+    file: "apps/qr/lib/authz.ts",
+    suite: "lib/authz.test.ts",
+    why: 'M108 review (blind pass) — `assertCartMember` is now the ONE producer of the mode every dine-in/to-go fork reads, and this exact edit was the auditor\'s demonstration: with no test here, `mode: "pickup"` left all mutants, 981 tests and CI green while every dine-in add rang the to-go tax. The defect M108 closed, relocated one file upstream of its guards',
+    find: "    mode: sess.mode,",
+    replace: '    mode: "pickup",',
+  },
+  {
+    id: "authz/mode-not-selected",
+    file: "apps/qr/lib/authz.ts",
+    suite: "lib/authz.test.ts",
+    why: "M108 review — a column PostgREST was never asked for is simply absent from the row, so dropping `mode` from the select makes `sess.mode` undefined and collapses every fork to to-go, with the return statement still reading as correct",
+    find: '    .select("status,expires_at,mode")',
+    replace: '    .select("status,expires_at")',
+  },
+  {
+    id: "authz/session-read-fails-open",
+    file: "apps/qr/lib/authz.ts",
+    suite: "lib/authz.test.ts",
+    why: "M108 — this is the read that now decides a tax fork, so it refusing rather than defaulting is the whole reason deleting the two downstream reads was safe. Fail it open and an unreadable session picks a tax arm again (and W10a's original harm returns: a diner told their live session expired during a DB blip)",
+    // Anchored through the mode SELECT: `assertSessionMember` a few lines down carries a
+    // byte-identical guard, so the bare line matches twice and the mutant reports STALE. Only
+    // assertCartMember asks for `mode`.
+    find: '    .select("status,expires_at,mode")\n    .eq("id", cart.session_id)\n    .maybeSingle();\n  if (sessErr) throw UNAVAILABLE();',
+    replace:
+      '    .select("status,expires_at,mode")\n    .eq("id", cart.session_id)\n    .maybeSingle();\n  if (false) throw UNAVAILABLE();',
+  },
+  {
+    id: "cart/add-mode-fork-collapses-to-togo",
+    file: "apps/qr/lib/cart.ts",
+    suite: "lib/cart-add-mode.test.ts",
+    why: "M108 — addItem's session-mode fork sets every added line's routing tag and, through it, its per-line tax. Collapsing it to togo is exactly what the discarded-error second read did on an unreadable session: cold food that CDTFA Reg 1603 taxes at a table rings EXEMPT, under-collecting on the busiest money fork in the app",
+    find: '  const dineIn = mode === "dinein";',
+    replace: "  const dineIn = false;",
+  },
+  {
+    id: "board/mode-read-fails-open",
+    file: "apps/qr/app/api/board/route.ts",
+    suite: "app/api/board/route.test.ts",
+    why: "M108-adjacent — this second read is the ONLY thing keeping dine-in off a wall-mounted public screen. Discarding its error empties the mode map, every comparison passes, and the whole table's diner-chosen first names publish. A dropped read must never expose more than a successful one",
+    find: "  if (sessionsError) {",
+    replace: "  if (false) {",
+  },
+  {
+    id: "board/allowlist-becomes-a-blacklist",
+    file: "apps/qr/app/api/board/route.ts",
+    suite: "app/api/board/route.test.ts",
+    why: 'M108-adjacent, and the shape TWO rounds got wrong in the same direction — `!== "dinein"` publishes a row absent from an answer that DID arrive (a truncated `.in()`) AND any mode value the CHECK gains later that means table service. The board is defined positively (takeout + grocery), so it must name the modes it publishes; an unknown mode belongs off the wall, not on it',
+    find: "      return mode !== undefined && BOARD_MODES.has(mode);",
+    replace: '      return mode !== "dinein";',
+  },
 ];
 
 const args = new Set(process.argv.slice(2));
@@ -1890,18 +1943,46 @@ try {
 
 // ── 3 · the orphan-suite guard (mirrors ci.yml) ───────────────────────────────────────────────────
 process.stdout.write("\norphan-suite guard … ");
+// Enumerated through git, not `find`: the guard asks "does any test file exist that no config
+// runs?", and only files git would SHIP can answer yes. A bare `find` walks build artifacts too, and
+// `.review-bundle/` — which the workflow tells you to generate right before every adversarial pass —
+// copies each changed file, `.test.ts` included, into one flat directory. That reported 30+ orphans
+// and made the gate unusable at exactly the moment it is supposed to run. `--cached --others
+// --exclude-standard` is tracked + untracked-minus-ignored, so a brand-new test file is still checked
+// before it is committed, and no future artifact directory can trip this again.
 const find = (pattern) =>
-  run(
-    "bash",
-    [
-      "-c",
-      `find . -name '${pattern}' -not -path '*/node_modules/*' -not -path '*/.next/*' -not -path '*/.git/*' || true`,
-    ],
-    ROOT,
-  )
+  run("bash", ["-c", `git ls-files --cached --others --exclude-standard -- '${pattern}'`], ROOT)
     .split("\n")
-    .filter(Boolean);
-const tsOrphans = find("*.test.ts").filter((p) => !/^\.\/(apps\/qr\/|packages\/ui\/src\/)/.test(p));
+    .filter(Boolean)
+    .map((p) => `./${p}`);
+const allTs = find("*.test.ts");
+/**
+ * The guard's own self-check, because "no orphans found" and "nothing was looked at" print the same
+ * word. The git form can enumerate empty-and-zero where `find` could not (no `.git`, a
+ * `safe.directory` refusal); `run()` throws on a nonzero exit, so the earlier `|| true` was removed.
+ *
+ * A bare count is not enough, though (Codex round 2): with ~89 tests under `apps/qr` alone, an
+ * enumeration accidentally scoped to that one subtree clears any total-count floor while every
+ * potential orphan root — `packages/*`, `scripts/`, the repo root itself — goes unlooked-at, and the
+ * guard prints "clean". So the check is per-ROOT: every configured suite root must be represented,
+ * which cannot hold for a listing scoped inside any one of them.
+ */
+const SUITE_ROOTS = [
+  { label: "apps/qr", re: /^\.\/apps\/qr\// },
+  { label: "packages/ui/src", re: /^\.\/packages\/ui\/src\// },
+];
+const unseen = SUITE_ROOTS.filter((r) => !allTs.some((p) => r.re.test(p)));
+if (allTs.length < 10 || unseen.length) {
+  console.log(c.red("FAIL"));
+  console.error(
+    c.red(`\n✗ orphan-suite guard enumerated ${allTs.length} test file(s)`) +
+      (unseen.length ? c.red(`, none under ${unseen.map((r) => r.label).join(" / ")}`) : "") +
+      c.red(" — it cannot have run.\n") +
+      c.dim("  Check that this is a whole-repo git checkout `git ls-files` can read.\n"),
+  );
+  process.exit(1);
+}
+const tsOrphans = allTs.filter((p) => !SUITE_ROOTS.some((r) => r.re.test(p)));
 const tsxAny = find("*.test.tsx"); // no vitest config includes .tsx — any is an orphan
 const orphans = [...tsOrphans, ...tsxAny];
 console.log(orphans.length ? c.red("FAIL") : c.green("clean"));

@@ -77,6 +77,15 @@ const COUNT_RULES = [
   // two lines from an already-rotted claim. The lesson is the guard's own: a narrow rule set must
   // still cover every phrasing the docs actually use, or the doc drifts in the gap.
   { re: /(\d+)\s+semantic\s+mutations?/gi, key: "mutants", label: "verify:slice mutants" },
+  // M108 review (blind pass): the same hole one phrasing over. CLAUDE.md's command block said
+  // "gate + 197 mutations + orphan check" — no "semantic", so no rule matched, and the count sat
+  // stale while the line two below it was kept current. Requires nearby verify:slice/gate context so
+  // this cannot grab an unrelated "5 mutations".
+  {
+    re: /(?:verify:slice|gate)[^.\n]{0,40}?(\d+)\s+mutations?\b/gi,
+    key: "mutants",
+    label: "verify:slice mutants",
+  },
   // The "N mutants at the time (M today)" form: the historical N is exempt, but M is a CURRENT-state
   // claim and must be measured. Requires nearby mutant context so this can't grab an unrelated
   // "(3 today)". Found in round 2 — HANDOFF carried a `(124 today)` nothing could falsify.

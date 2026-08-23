@@ -14,7 +14,7 @@
 [![Stripe](https://img.shields.io/badge/Stripe-Payment%20Element-635BFF?logo=stripe)](https://stripe.com)
 [![License](https://img.shields.io/badge/license-private-lightgrey)](#-license)
 
-**Build:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 ✅ (M1 🟡 — code done, owner-blocked infra tail) — shipped through **W22c** (the gesture layer — a haptic vocabulary, pull-to-refresh, rail overscroll) · **Gate:** 973 qr tests + 87 ui tests · 202 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
+**Build:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 ✅ (M1 🟡 — code done, owner-blocked infra tail) — shipped through **W22c** (the gesture layer — a haptic vocabulary, pull-to-refresh, rail overscroll) · **Gate:** 1000 qr tests + 87 ui tests · 208 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
 
 </div>
 
@@ -152,11 +152,12 @@ The gate — run all three before any PR:
 
 ```bash
 pnpm turbo lint typecheck build test   # what CI runs
-pnpm verify:slice                      # the MECHANICAL money-path gate: coverage guard + 202 semantic
+pnpm verify:slice                      # the MECHANICAL money-path gate: coverage guard + 208 semantic
                                        # mutations (each MUST turn its owning suite red) + orphan check.
-                                       # ⚠️ rewrites the 38 money/authority modules it mutates IN PLACE
-                                       # (37 under apps/qr/lib + create-share-intent/route.ts) and restores
-                                       # them. It ABORTS if a target file is DIRTY, so commit first.
+                                       # ⚠️ rewrites the 54 money/authority modules it mutates IN PLACE
+                                       # (52 under apps/qr/lib, plus create-share-intent/route.ts and
+                                       # board/route.ts) and restores them. It ABORTS if a target file
+                                       # is DIRTY, so commit first.
 pnpm check:docs                        # GFM table parity (prettier INTRODUCES the breaks) + live-state
                                        # doc counts MEASURED via `vitest list`, never transcribed
 ```

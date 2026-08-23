@@ -459,12 +459,12 @@ and says nothing about `payment_intent.payment_failed`, whose single-pay branch 
 it always returns 200 **because its own comment says those releases must never be redelivered**; an
 un-rotated second endpoint answers 400, and a non-2xx is precisely the retry the 200 exists to
 prevent. Every in-context reviewer accepted the idempotency frame, because the frame arrived with the
-diff. A blind reader asked "safe against *what*?" and had it in one pass.
+diff. A blind reader asked "safe against _what_?" and had it in one pass.
 
 So the isolation is the mechanism, and "don't pass the conversational history" is not enforceable as a
 rule — the author IS the history, and summarising the change in your own words leaks the frame in the
-first sentence. `scripts/review-bundle.mjs` makes it structural: raw diff + full text of changed files
-+ heuristic blast radius + a prompt with no narrative, handed over as the reviewer's entire world.
+first sentence. `scripts/review-bundle.mjs` makes it structural: raw diff, full text of changed files, heuristic
+blast radius and a prompt with no narrative, handed over as the reviewer's entire world.
 `.claude/agents/adversarial-auditor.md` supplies the stance (zero agreeableness, defect-biased,
 CRITICAL forces REJECT).
 
@@ -476,3 +476,77 @@ propagates. Hence the four-part evidence standard: `file:line` + exact trigger +
 consequence + **a disproof condition**. If you cannot say what would make the finding wrong, you have
 a suspicion, not a defect. And per #50, verify each finding against source before acting: two
 confident reviewers, one wrong, averaged, still ships the bug.
+
+---
+
+## #56 — A second read of a fact you already hold fails in whichever direction the call site defaults (M108 · M113, 2026-08-23)
+
+`table_sessions.mode` has eleven readers. `assertCartMember` reads it to prove the session is active
+and throws 503 when the read fails — correct. Three callers then read it AGAIN, and every one of them
+discarded the `{ error }`:
+
+- `addItem` and `reorderOrder`: `sess?.mode === "dinein"` → `false` on a failed read → a dine-in
+  table's line tagged `togo` at the to-go tax. Under-collection.
+- `api/board/route.ts`: `modeBySession.get(id) !== "dinein"` → `true` on a failed read → a dine-in
+  diner's staff-entered call-out name published to a public TV. Over-exposure.
+
+Same column, same swallow, opposite harms — because the harm is not chosen by the bug, it is chosen
+by whatever the surrounding expression treats as its default. That is the part worth carrying: you
+cannot reason about a discarded error's blast radius from the read; you have to look at what the
+value is compared against three lines down.
+
+The fix at all three sites was the same, and it was not error handling. **Delete the read.** The
+mode rides out on `CartAuthz` from the one read that already fails closed, and a round-trip leaves
+every add. Handling the error at each site would have produced three correct answers to a question
+nobody needed to ask twice — the "name it ONCE" rule (W17), applied to a READ rather than to a
+computed amount.
+
+**M113 exists only because the twin-audit was run.** M108's registry row named two files; nothing had
+filed the board. After fixing the two named rows, every remaining read of that column was classified
+rather than assumed, and the third defect was in the fourth one. When a defect is defined by a SHAPE
+rather than by a location, grep the shape before closing the row — the row's author found the
+instances they happened to be looking at.
+
+**Two rounds got the board predicate wrong in the same direction, and the second one called itself
+"positive".** `!== "dinein"` on an empty map publishes everything. The first fix,
+`mode !== undefined && mode !== "dinein"`, closed only the absent-row half — it is still a
+one-string blacklist, so the day `table_sessions.mode`'s CHECK gains a fourth value meaning table
+service, every such order publishes a name with nobody having decided that. Writing "POSITIVE" in
+the comment did not make it one. A genuinely positive rule names the set it admits
+(`BOARD_MODES = {pickup, scango}`); everything else is a blacklist wearing a `!== undefined` guard.
+Test for a value the allowlist has never heard of, not just for a missing row.
+
+**And the sharpest one, from the blind pass on the fix itself: deleting a fail-open read MOVES the
+decision, and it can move it out of the guards' sight.** The mode now originates in `authz.ts` — a
+file with no test (every suite mocks it wholesale), no mutant, and no marker `check-money-coverage`
+could see, because it names no money column. So `mode: sess.mode` → `mode: "pickup"` left 205
+mutants, 981 tests and CI green while every dine-in add rang the to-go tax: the exact defect just
+closed, reproduced one file upstream of where its new guards point. The three mutants pinned the
+_consumers_ of the decision and none pinned its _producer_. **When a fix consolidates a rule into one
+place, that place is the new money path** — check that the coverage guard can see it before calling
+the fix done. (`CartAuthz` is now a MONEY_MARKER; `lib/authz.test.ts` executes the real function.)
+
+**And the round after that, on the guards themselves: a mock looser than the database cannot express
+the bug it is there to catch.** Three chains accepted any arguments — `eq: () => chain`,
+`in: () => Promise.resolve(rows)` — so the assertions proved the SHAPE of each answer and nothing
+about its PREDICATE. A session read filtered on the uid instead of `cart.session_id`, or a board read
+asking for order ids instead of session ids, kept every case green: one hands a cart another table's
+tax treatment, the other empties the wall display in a way that reads exactly like "nothing is ready".
+The fix is to key the fixture rows and apply the filter, then fixture a SECOND row with the opposite
+value so a wrong predicate resolves to the wrong answer rather than to null — null can be mistaken
+for a missing fixture; a wrong mode cannot.
+
+**A count floor is not a coverage floor.** The orphan guard's self-check required ten enumerated test
+files, which `apps/qr` alone (87) clears — so a listing accidentally scoped to one subtree passed
+while `packages/*`, `scripts/` and the repo root went unlooked-at, and the guard printed "clean". A
+self-check has to assert the SHAPE of what was enumerated (every configured suite root represented),
+not its size. Same lesson as the degenerate-fixture rule, applied to a guard's own inputs.
+
+Scope note, so the next reader is not misled by "read ONCE": the consolidation is the DINER path.
+`staffAddItem` derives the same fork from `staff-open-cart`'s own read, because staff authorize
+through a different guard entirely — that read fails closed, so it is a second derivation, not a
+second chance to fail.
+
+Also, mechanically: prettier turns a line-leading `+` in a wrapped markdown sentence into a list item
+and silently corrupts the prose. `pnpm format` did it to #55 in this very file. Don't start a
+continuation line with `+`.

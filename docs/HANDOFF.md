@@ -7,21 +7,27 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 
 > ## ⏭️ NEXT SESSION — start here (2026-08-21 — the M-registry backlog is being worked in severity order; W22d proper remains and is OWNER-BLOCKED)
 >
-> ### ⏭️ Pick up here — M108 is the next open row, and it is M100's mirror
+> ### ⏭️ Pick up here — M17 is the next open row in the mode chain
 >
-> **M100 · M107 shipped (#220)** — the session's mode is now re-derived server-side in
-> `mms_set_line_fulfillment` and `mms_fire_line`. Both are closed in `docs/OPEN-ITEMS.md` with the
-> measured census; the durable rule they produced is that a client render gate (`isDineIn &&`) is
-> advisory on a public POST, and the three sibling fire RPCs had been joining `table_sessions` inside
-> their write since S4.2 while these two never adopted it.
+> **M100 · M107 shipped (#220); M108 · M113 shipped (#226)** — the session's mode is now re-derived
+> server-side in `mms_set_line_fulfillment` and `mms_fire_line`, and on the INSERT path it is read
+> ONCE, by `assertCartMember`, off the row that already proves the session active. All four are closed
+> in `docs/OPEN-ITEMS.md`. Two durable rules came out of them: a client render gate (`isDineIn &&`) is
+> advisory on a public POST, and — from #226 — **a second read of a fact you already hold is a second
+> chance to fail, and it will fail in whichever direction the call site's default happens to point.**
+> Three sites discarded the error on that column: two under-collected tax, one published a dine-in
+> diner's name to a public TV. Deleting the read beat handling the error at every site. The full
+> census is **eleven** readers (`addItem` · `reorderOrder` · `api/board` · `api/session/peek` ·
+> `manual-capture-mode` · `kitchen` · `register` · `expo` · `staff-open-cart` · `create-intent` ·
+> `setup-intent`), every one re-read; the eight not fixed here fail closed or are caller-scoped.
 >
-> - **M108 (med, open) — the same rule on the INSERT path, failing the other way.** `addItem` and
->   `reorderOrder` discard the error on their `table_sessions.mode` read, so an unreadable session
->   silently tags a dine-in table's line `togo`: the cold-food tax is never collected (the direction
->   M97's header calls the worse one legally) and the line stops firing on "Send to kitchen".
->   `staff-open-cart.ts` reads the same column and fails CLOSED, so the correct shape is already in
->   the repo. The fix is not error handling — `assertCartMember` already reads that row one call
->   earlier and throws `UNAVAILABLE`; returning `mode` from it deletes the second read entirely.
+> - **The twin-audit is the reusable move.** After fixing the two rows M108 named, every remaining
+>   read of that column was classified rather than assumed — which is the only reason M113 (the board
+>   leak) was found at all; nothing had filed it. When you close a defect defined by a SHAPE, grep the
+>   shape before closing the row.
+> - **M114 (low, open)** is the audit's leftover: `setup-intent/route.ts:32` fails closed but answers
+>   "Tabs are for dine-in tables" on an unknowable read — the refusal is right, the sentence is a
+>   fabricated diagnosis. It reads the same column and should read `mode` off `assertCartMember` too.
 > - **M17 (med, open)** — same RPC as M100, and M100 NARROWED it: an orphaned line on a non-dine-in
 >   session can no longer be flipped to `dinein` at all, so the over-collection path is now dine-in
 >   only. Its registry row's migration citation was re-pointed to the live definition.
@@ -66,7 +72,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 202 `verify:slice` mutants green · `pnpm check:docs` clean (95 files, 973 qr tests +
+> **Gate today:** 208 `verify:slice` mutants green · `pnpm check:docs` clean (95 files, 1000 qr tests +
 > 87 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
@@ -772,7 +778,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (202 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (208 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

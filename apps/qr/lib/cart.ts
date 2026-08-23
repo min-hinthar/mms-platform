@@ -45,18 +45,16 @@ export async function addItem(
 ) {
   const input = addItemInput.parse({ cartId, menuItemId, modifierIds, notes, qty });
   // AuthZ first: a verified member of this cart's active session, and the host hasn't locked it.
-  const { uid, sessionId, locked, settling } = await assertCartMember(input.cartId);
+  const { uid, locked, settling, mode } = await assertCartMember(input.cartId);
   await assertMutationRate(uid); // per-device flood guard (P3.4) — after authz, before the write
   if (locked) throw new Error("Order is locked while someone checks out");
   if (settling) throw new Error("The table is settling up — you can’t edit while everyone pays");
 
-  const db = serviceClient();
-  const { data: sess } = await db
-    .from("table_sessions")
-    .select("mode")
-    .eq("id", sessionId)
-    .single();
-  const dineIn = sess?.mode === "dinein";
+  // M108 — the mode comes from `assertCartMember`, which read it off the SAME row it used to prove
+  // the session is active and throws 503 when that read fails. The second read this replaced
+  // discarded its error, so an unreadable session tagged a dine-in table's line `togo` and charged
+  // the to-go tax — under-collecting, which M97 calls the legally worse direction of the two.
+  const dineIn = mode === "dinein";
   // S4 unified basket: a food line's fulfillment defaults from context — a dine-in table → 'dinein', any
   // other entry (pickup/scan) → 'togo'. The diner can toggle it per line; the tag (not the session mode)
   // drives routing and per-line tax. W17a: it does NOT drive the price — dine-in and to-go ring the same
