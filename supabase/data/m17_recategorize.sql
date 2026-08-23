@@ -12,9 +12,20 @@
 -- Without it a mis-classified dish keeps its old taxability on every line already in a cart until
 -- someone happens to tap the pill.
 --
--- Scope is deliberate: DRAFT lines on OPEN carts only. A fired line belongs to the kitchen and a
--- closed cart is a settled receipt — neither may be re-taxed after the fact (the receipt is a
--- fulfillment-time snapshot rendered verbatim, CLAUDE.md).
+-- Scope: every CHARGEABLE line on an OPEN cart — which is not the same as "draft lines", and the
+-- first draft of this file got that wrong (Codex round 2, P1). `totals-math.ts:60-61` states the rule
+-- and warns against exactly the restatement made here: "only `voided` is excluded by state —
+-- `fired`/`in_progress`/`served` lines are all charged, correctly (the food exists). Do not restate
+-- this rule as 'only draft lines are charged'." A diner who taps "Make it now" moves a line to
+-- `fired` while the cart stays OPEN and unpaid (`mms_fire_line` requires `status = 'open'`), and
+-- `mms_set_line_fulfillment` answers `not_draft` for it — so a fired line can never repair itself on
+-- a flip. Skipping it left a known-wrong classification on a line the cart was still going to charge.
+--
+-- Kitchen ownership freezes ROUTING, not tax: this statement never touches `fulfillment`.
+--
+-- A CLOSED cart is out of scope and stays that way — it is a settled receipt, and a receipt is a
+-- fulfillment-time snapshot rendered verbatim (CLAUDE.md). Re-taxing one after the fact would make
+-- the stored total disagree with the slip the guest was handed.
 --
 -- Usage: run AFTER the `update menu_items set tax_category = …` in the same session.
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/data/m17_recategorize.sql
@@ -28,7 +39,7 @@ update public.qr_cart_items ci
   from public.menu_items mi, public.qr_carts c
  where c.id = ci.cart_id
    and c.status = 'open'
-   and ci.state = 'draft'
+   and ci.state <> 'voided'          -- everything else on an open cart is still charged
    and ci.fulfillment <> 'grocery'
    -- `menu_item_id` is a soft text ref: a grocery barcode is not a uuid, and a bare cast raises 22P02.
    and ci.menu_item_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
@@ -41,7 +52,7 @@ select ci.id, ci.name, ci.fulfillment, ci.tax_category, ci.tax_cents,
        case when ci.tax_cents > 0 then 'TAXABLE' else 'exempt' end as charged
   from public.qr_cart_items ci
   join public.qr_carts c on c.id = ci.cart_id
- where c.status = 'open' and ci.state = 'draft'
+ where c.status = 'open' and ci.state <> 'voided'
  order by ci.name;
 
 commit;

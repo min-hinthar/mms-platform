@@ -40,8 +40,18 @@
 -- `qr_cart_items` already snapshots everything else the line needs after the fact — `name`,
 -- `modifiers`, `unit_price_cents` — and left `tax_category` as a live lookup. That is the whole
 -- defect: a catalog row can take back a fact the line had in hand. This migration adds the column,
--- backfills every resolvable row, and stamps it at INSERT, where the item is guaranteed present
--- because the caller has just priced off that very row. `mms_set_line_fulfillment` then reads the
+-- backfills every resolvable row, and stamps it at INSERT, where the item is overwhelmingly likely to
+-- be present because the caller has just priced off that very row.
+--
+-- "Likely", not "guaranteed", and the distinction is Codex's (round 2, P2): `priceItem` reads
+-- `menu_items` from Node and the stamp re-reads it inside this RPC — two requests, no shared
+-- transaction. A prune landing between them stamps NULL. That is a missed improvement rather than a
+-- regression (the line then behaves exactly as it did before M17), and a category CORRECTION landing
+-- between them is unobservable, because the only consumer of the stamp reads the catalog first and
+-- only falls back when the catalog cannot answer at all. Threading the priced category through as an
+-- RPC parameter would close the window and is the better shape, but it changes the signature of the
+-- one function every add path goes through — a new-app-before-migration deploy would fail every ADD,
+-- not just a toggle. Filed as M117 rather than smuggled into this PR. `mms_set_line_fulfillment` then reads the
 -- LINE, and both directions are exactly right for the entire lifetime of every line minted after
 -- this applies.
 --
