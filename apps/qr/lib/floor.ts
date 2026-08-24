@@ -702,6 +702,13 @@ export async function mergeTables(raw: unknown): Promise<MergeResult> {
         ok: false,
         error: "A secured tab can’t be merged — close it on the card on file first.",
       };
+    // M109 — the same-mode rule now exists in the SQL too, so this raise is reachable. The check at
+    // the top of this function refuses first for anyone arriving through the floor console, which
+    // means seeing this message is itself the signal that a caller reached the RPC another way.
+    // Mapped rather than left to the generic sentence below: "a table changed" would be a fabricated
+    // diagnosis, the same fail-closed-but-says-something-false shape as OPEN-ITEMS M116.
+    if (error?.message?.includes("same kind"))
+      return { ok: false, error: "Only tables of the same kind can be merged." };
     // Otherwise a raise means a cart flipped out of 'open' under the merge (a race with settle/clear).
     return { ok: false, error: "Couldn’t merge — a table changed. Check both and try again." };
   }

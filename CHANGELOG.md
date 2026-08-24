@@ -4,6 +4,70 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The table merge refuses two tables of different kinds (2026-08-23)
+
+**M109 closed — the same-mode rule moves from TypeScript into the database.**
+
+`mms_merge_table_orders` re-parents a source cart's lines into a target cart keeping `fulfillment`
+verbatim, and its body never mentioned `mode`. The rule that a pickup table cannot be merged into a
+dine-in one lived only at `floor.ts:666` — a client-side check in front of a service_role RPC. M100's
+exact defect shape, one function over: the invariant asserted in one place and enforced in another.
+
+M97's fold predicate looked like cover and was not. It refuses to FOLD two lines whose tags differ,
+but a refused fold **re-parents** — the line lands on the target cart as its own row anyway, and the
+merge tail then cancels the source cart and closes the source session. A pickup guest's session is
+gone and their food is on somebody else's table; the tag survives the move, so the toggle will now
+accept a flip to `dinein` (M100's gate reads the target session, which really is dine-in) and re-tax
+the line, while the to-go routing no longer matches the table it sits on.
+
+The fix is a whole-merge **gate**, not a fold predicate — two tables of different kinds should not be
+merged at all, so it raises and rolls back beside the existing open/active and secured-tab gates. A
+mode term on the delete and the re-parent instead would make a cross-mode merge silently move nothing
+while still cancelling the source cart, which is worse than the defect it replaces.
+
+**The suite shipped for review with a hole, and the blind adversarial pass found it (HIGH).** A
+session's `mode` and its lines' `fulfillment` tags travel together in ordinary data — a pickup
+session's lines are `togo`, a scan-and-go session's are `grocery` — so five fixtures built from
+ordinary tables left the two perfectly correlated, and the suite was measured **green against a gate
+that never read `mode` at all**, comparing line tags instead. M109's own defect, reintroduced with
+every test passing.
+
+The correlation is not a law, and that is the way out: a seated diner can tap "To go", which is what
+`mms_set_line_fulfillment` exists for, so a `dinein` session legitimately holds a `togo` line. Two
+cases now break it in opposite directions, and both are needed:
+
+- **Case 4** — modes EQUAL, tags DIFFER. A tag-reading gate refuses; the merge must succeed.
+- **Case 5** — modes DIFFER, tags MATCH. A tag-reading gate allows; the merge must refuse. A gate
+  that ANDs a tag conjunct onto a real mode comparison passes case 4 and is caught only here.
+
+Two more cases carry the other pair of mis-writes:
+
+- **Case 3** (scan-and-go → pickup) kills the `dinein`-flavoured gate. M100's neighbouring guard is
+  spelled `p_fulfillment = 'dinein' and v_mode <> 'dinein'`; copy that shape and you get a gate that
+  refuses both dine-in directions and merges scan-and-go straight into pickup. Cases 1 and 2 pass it.
+- **Case 7** (pickup ↔ pickup) kills the opposite over-tightening, "both must be dine-in", which
+  cases 1–6 all pass. Over-blocking is as expensive as under-blocking.
+
+The same pass corrected a second claim: the post-refusal assertions cannot prove the gate **precedes**
+the destructive tail. A plpgsql `begin … exception` block is an implicit savepoint, so the merge rolls
+back wherever the gate sits — measured, by relocating it below `update table_sessions set status =
+'closed'` and watching the file stay green. They are now labelled as the fixture-drift checks they are.
+
+`floor.ts` now maps the new raise to its own sentence. Without that, a refusal would have surfaced as
+"a table changed" — a fabricated diagnosis, and the branch's own comment would have become false.
+
+Proven red-first against the pre-M109 body; 7 mutants in `verify-mode-authority.mjs` (27 total, four
+functions), one a DOCUMENTED SURVIVOR — the fail-closed null test, unreachable while the gate above it
+proves both carts exist.
+
+The gate reads `mode` **without a lock**, deliberately. This first shipped with a `for update` on both
+session rows and it was removed before merge: it bought nothing for `mode` (that column has no writer
+anywhere), so its real justification was a `status` race one column over — and it was not free.
+`explain` gives `LockRows → Sort (Sort Key: s.id)` while `mms_sweep_expired_sessions` (pg_cron, every
+15 min) is `Update → Seq Scan`. Two orders over the same rows is a deadlock path that does not exist
+today only because the merge tail locks exactly one session row. The `status` race is real and keeps
+its own row (M118) rather than a half-fix here, with that ordering constraint recorded.
+
 ### The cart line keeps its own tax category (2026-08-23)
 
 **M17 closed — by snapshotting the category, after the obvious fix was measured and rejected.**

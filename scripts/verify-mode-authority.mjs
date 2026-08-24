@@ -22,13 +22,22 @@
  * A mutant that fails the WRONG case is a failure: it means two cases overlap and neither pins what
  * its name claims.
  *
- * DOCUMENTED SURVIVOR
- * -------------------
- * One mutation is expected to SURVIVE, and asserting that is the point: the mode term inside
- * `mms_set_line_fulfillment`'s UPDATE cannot diverge from its pre-check while `table_sessions.mode`
- * is immutable. The migration's header states that in writing; this battery MEASURES it. If that
- * mutant is ever killed, the header's claim has become false and the note must be rewritten — so it
- * is checked in the same direction as every other row, not left as an untested comment.
+ * DOCUMENTED SURVIVORS
+ * --------------------
+ * Three mutations are expected to SURVIVE, and asserting that is the point. They are not one kind:
+ *
+ *   · A survivor that measures a PROPERTY. `toggle/in-write-mode-term-deleted` rests on
+ *     `table_sessions.mode` having no writer; the migration's header states that in writing and this
+ *     row MEASURES it. A kill means the claim has become false and the header must be rewritten.
+ *     (M109's gate rests on the same property, which is why it reads that column WITHOUT a lock.)
+ *   · A survivor that names a GAP. `toggle/in-write-parens-dropped` (M110) and
+ *     `merge/null-mode-branch-dropped` are real guards no SINGLE-session test can reach — the first
+ *     because a pre-check refuses first, the second because the gate above it proves both carts
+ *     exist. They are listed rather than omitted so a maintainer reworking either predicate sees the
+ *     row instead of an absence.
+ *
+ * Either way the expectation is checked in the same direction as every other row, never left as an
+ * untested comment.
  *
  * USAGE
  * -----
@@ -66,9 +75,13 @@ const SUITES = {
     migration: path.join(ROOT, "supabase/migrations/20260826000000_m17_line_tax_category.sql"),
     test: path.join(ROOT, "supabase/tests/m17_line_tax_category_test.sql"),
   },
+  m109: {
+    migration: path.join(ROOT, "supabase/migrations/20260827000000_m109_merge_matches_mode.sql"),
+    test: path.join(ROOT, "supabase/tests/m109_merge_matches_mode_test.sql"),
+  },
 };
 /** Apply order. Later entries redefine earlier ones, so this order is load-bearing. */
-const CHAIN = ["m100", "m17"];
+const CHAIN = ["m100", "m17", "m109"];
 
 const DSN =
   process.env.MODE_AUTHORITY_DSN ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
@@ -162,6 +175,14 @@ function functionDef(fn) {
  * `expect` is the substring the failing assertion MUST contain. Naming the case (not just "it went
  * red") is what stops two mutants from both being credited to case 1.
  */
+/**
+ * M109's gate, named once because five mutants below patch it. A typo in an
+ * inlined copy would make that mutant fail to apply — which the md5 check catches, but reported
+ * as "the patch did not land" rather than "the guard has a hole", and those read very
+ * differently at 2am.
+ */
+const M109_GATE = "  if v_src_mode is null or v_tgt_mode is null or v_src_mode <> v_tgt_mode then";
+
 const MUTANTS = [
   {
     id: "toggle/mode-gate-deleted",
@@ -399,6 +420,99 @@ const MUTANTS = [
     replace:
       "         (select mi.tax_category from public.menu_items mi where mi.id = p_menu_item_id::uuid)",
   },
+  // ── M109 — the merge refuses two tables of different KINDS.
+  //
+  // TWO mis-write families survive the obvious cases, and each has a case built for it.
+  //
+  // (a) The `dinein`-flavoured gate. M100's guard, one function over, is spelled
+  //     `p_fulfillment = 'dinein' and v_mode <> 'dinein'`; copying that shape yields a guard that
+  //     passes cases 1 and 2 while merging scan-and-go into pickup. Case 3 kills it, case 7 kills
+  //     the opposite over-tightening.
+  //
+  // (b) A gate that reads the wrong COLUMN. A session's `mode` and its lines' `fulfillment` tags
+  //     travel together in ordinary data, so a suite built only from ordinary tables leaves the two
+  //     perfectly correlated and cannot tell them apart. The FIRST version of this suite was
+  //     measured green against a gate that never read `mode` at all — the defect M109 closes,
+  //     reintroduced with every test passing (blind adversarial pass, HIGH). Cases 4 and 5 break the
+  //     correlation in opposite directions, and `reads-line-tags-not-mode` /
+  //     `mode-gate-weakened-by-tag-conjunct` below are what keep it broken. ────────────────────────
+  {
+    id: "merge/mode-gate-deleted",
+    fn: "mms_merge_table_orders",
+    src: "m109",
+    suite: "m109",
+    expect: "M109.1",
+    why: "the whole M109 guard. A pickup table merges into a dine-in one: M97's fold predicate refuses to FOLD the mismatched tag, but the line re-parents onto the target cart anyway, and the tail then cancels the source cart and closes the source session",
+    find: M109_GATE,
+    replace: "  if false then",
+  },
+  {
+    id: "merge/mode-gate-is-dinein-flavoured",
+    fn: "mms_merge_table_orders",
+    src: "m109",
+    suite: "m109",
+    expect: "M109.3",
+    why: 'the gate written as "is one of them dine-in?" — the shape M100 uses one function over. It refuses both dine-in-vs-other directions and merges scan-and-go straight into pickup, which is why case 3 holds two NON-dine-in modes',
+    find: M109_GATE,
+    replace: "  if (v_src_mode = 'dinein') <> (v_tgt_mode = 'dinein') then",
+  },
+  {
+    id: "merge/mode-gate-checks-one-side",
+    fn: "mms_merge_table_orders",
+    src: "m109",
+    suite: "m109",
+    expect: "M109.2",
+    why: "a one-sided gate — it refuses a pickup source landing on a dine-in target and admits the reverse. Case 1 alone cannot see this, which is the whole reason case 2 is not a mirror written for symmetry",
+    find: M109_GATE,
+    replace: "  if v_tgt_mode = 'dinein' and v_src_mode <> 'dinein' then",
+  },
+  {
+    id: "merge/mode-gate-over-tightened",
+    fn: "mms_merge_table_orders",
+    src: "m109",
+    suite: "m109",
+    expect: "M109.7",
+    why: "the OPPOSITE failure, and the one cases 1-6 all pass: a gate demanding both tables be dine-in refuses two pickup tables merging, an ordinary floor action. Over-blocking is as expensive as under-blocking",
+    find: M109_GATE,
+    replace: "  if v_src_mode <> 'dinein' or v_tgt_mode <> 'dinein' then",
+  },
+  {
+    id: "merge/reads-line-tags-not-mode",
+    fn: "mms_merge_table_orders",
+    src: "m109",
+    suite: "m109",
+    expect: "M109.4",
+    why: "the wrong COLUMN, and the mutant the first version of this suite could not kill. A session's `mode` and its lines' `fulfillment` tags are perfectly correlated in ordinary data, so a gate comparing TAGS answers identically on every ordinary fixture — M109's whole defect, reintroduced green. Case 4 holds the modes equal while the tags differ (a seated diner who tapped To go), which is the only shape that separates them",
+    find: M109_GATE,
+    replace:
+      "  if exists (select 1 from public.qr_cart_items a, public.qr_cart_items b\n               where a.cart_id = p_source_cart and b.cart_id = p_target_cart\n                 and a.fulfillment <> b.fulfillment) then",
+  },
+  {
+    id: "merge/mode-gate-weakened-by-tag-conjunct",
+    fn: "mms_merge_table_orders",
+    src: "m109",
+    suite: "m109",
+    expect: "M109.5",
+    why: "the half-right version of the row above, and the reason case 5 is not redundant with case 4: a real mode comparison WEAKENED by an extra tag conjunct. Case 4 passes it (the modes match, so the gate is never reached), and only case 5 — modes differing while both lines happen to read `togo` — sees a pickup table merge into a dine-in one",
+    find: M109_GATE,
+    replace:
+      "  if v_src_mode is null or v_tgt_mode is null or (v_src_mode <> v_tgt_mode\n        and exists (select 1 from public.qr_cart_items a, public.qr_cart_items b\n                      where a.cart_id = p_source_cart and b.cart_id = p_target_cart\n                        and a.fulfillment <> b.fulfillment)) then",
+  },
+  {
+    id: "merge/null-mode-branch-dropped",
+    fn: "mms_merge_table_orders",
+    src: "m109",
+    suite: "m109",
+    // DOCUMENTED SURVIVOR — a GAP, not a property. `select … into` yields NULL when no row matches,
+    // and `null <> null` is null, which `if` treats as false: without the explicit test an unreadable
+    // mode would be ADMITTED. Nothing single-session can reach it, because the open/active gate
+    // directly above the guard already proves both carts exist. It is belt against that gate being
+    // reordered or relaxed, and it is listed so the next maintainer sees the row rather than nothing.
+    expect: null,
+    why: "the fail-closed null test. Unreachable while the open/active gate above it proves both carts exist — belt against that gate moving, not against today's schema",
+    find: M109_GATE,
+    replace: "  if v_src_mode <> v_tgt_mode then",
+  },
 ];
 
 /** Each migration's text, and the two concatenated in apply order (what the chain WOULD produce). */
@@ -410,7 +524,7 @@ let failures = 0;
 
 console.log(
   c.bold(
-    `\nverify:mode-authority — ${MUTANTS.length} mutants over 3 functions, ${CHAIN.length} suites\n`,
+    `\nverify:mode-authority — ${MUTANTS.length} mutants over 4 functions, ${CHAIN.length} suites\n`,
   ),
 );
 
@@ -444,7 +558,12 @@ console.log(
  * comparison is the FULL `pg_get_functiondef` (body + every attribute) plus `proacl`, so identity is
  * everything a caller could observe, not just the source text.
  */
-const TARGETS = ["mms_set_line_fulfillment", "mms_fire_line", "mms_cart_item_insert_if_open"];
+const TARGETS = [
+  "mms_set_line_fulfillment",
+  "mms_fire_line",
+  "mms_cart_item_insert_if_open",
+  "mms_merge_table_orders",
+];
 
 /**
  * Which migration LAST defines a function, read from the migration directory in apply order.
