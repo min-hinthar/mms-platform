@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
 
     // Only a verified member of this cart's session may secure it (C3; IDOR by default otherwise). Also
     // enforces the cart is still open + the session active.
-    const { sessionId, uid } = await assertCartMember(cartId);
+    const { sessionId, uid, mode } = await assertCartMember(cartId);
 
     // Per-seat flood guard (parity with create-intent) — bound Customer/SetupIntent minting. Fail-open.
     if (!(await withinMutationRate(uid)))
@@ -28,17 +28,26 @@ export async function POST(req: NextRequest) {
       );
 
     // Tabs are a dine-in concept (pickup/grocery pay at checkout). Mirror mms_open_tab's guard.
-    const db = serviceClient();
-    const { data: sess } = await db
-      .from("table_sessions")
-      .select("mode")
-      .eq("id", sessionId)
-      .single();
-    if (sess?.mode !== "dinein")
+    //
+    // M116 — the mode comes off `assertCartMember` (M108), which read it from the SAME row that
+    // proved the session active. This used to be a SECOND read of `table_sessions` whose `{ error }`
+    // was discarded, and the discard is what made the sentence below a lie: on a failed read `sess`
+    // was null, `sess?.mode` undefined, `undefined !== "dinein"` passed, and a diner sitting at a
+    // real dine-in table was told their table is not one. The refusal was right and the DIAGNOSIS
+    // was invented — the route stated a fact about their session it had never learned.
+    //
+    // Deleting the read is the fix, not handling its error: the window it opened was the gap between
+    // authz's read and this one, so a blip landing in between turned a dine-in table into a pickup
+    // one. There is no window left because there is no second read. An unreadable session now
+    // surfaces as the 503 `assertCartMember` already raises for it (W10a — unknowable is never a
+    // verdict), and this 400 is reached only when the mode was genuinely read and is genuinely not
+    // dine-in. `route.test.ts` case 2 pins the old behaviour red.
+    if (mode !== "dinein")
       return NextResponse.json({ error: "Tabs are for dine-in tables." }, { status: 400 });
 
     // One ephemeral Customer per tab (T10): reuse the recorded one, else mint + record it. The tokens
     // live in the service-role-only sidecar (mms_tab_secure), never on the realtime-fanned cart row.
+    const db = serviceClient();
     const { data: existing } = await db
       .from("mms_tab_secure")
       .select("stripe_customer_id")
