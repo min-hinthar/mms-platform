@@ -1785,6 +1785,23 @@ const MUTANTS = [
     replace: "  if (false) {",
   },
   {
+    id: "setup-intent/tab-gate-dropped",
+    file: "apps/qr/app/api/stripe/setup-intent/route.ts",
+    suite: "app/api/stripe/setup-intent/route.test.ts",
+    why: "the dine-in gate is the only thing stopping a pickup or scan-and-go session from saving a card against a tab it can never open — `mms_open_tab` refuses those modes, so the card would be stored for a settlement that never comes. Drop it and a SetupIntent is minted for a session the tab primitive will not serve",
+    find: '    if (mode !== "dinein")',
+    replace: "    if (false)",
+  },
+  {
+    id: "setup-intent/mode-from-a-second-read",
+    file: "apps/qr/app/api/stripe/setup-intent/route.ts",
+    suite: "app/api/stripe/setup-intent/route.test.ts",
+    why: 'M116, restored. Resolving the mode in a SECOND read whose `{ error }` is discarded is what made the refusal fabricate a diagnosis: on a failed read `sess?.mode` is undefined, `undefined !== "dinein"` passes, and a diner at a real dine-in table is told their table is not one. The window is the gap between authz\'s read and this one — deleting the read is what closes it, so this mutant proves the deletion is load-bearing rather than cosmetic',
+    find: "    const { sessionId, uid, mode } = await assertCartMember(cartId);",
+    replace:
+      '    const { sessionId, uid } = await assertCartMember(cartId);\n    const mode = (await serviceClient().from("table_sessions").select("mode").eq("id", sessionId).single()).data?.mode;',
+  },
+  {
     id: "board/allowlist-becomes-a-blacklist",
     file: "apps/qr/app/api/board/route.ts",
     suite: "app/api/board/route.test.ts",

@@ -4,6 +4,63 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### A refusal that fails closed must not also invent a reason (2026-08-24)
+
+**M116 closed.** Securing a tab is a dine-in concept, so `setup-intent` refused a pickup or
+scan-and-go session with _"Tabs are for dine-in tables."_ That sentence is true for a genuine pickup
+session and false for an unreadable one — and the route reached it either way, because it resolved
+the mode in a **second** read whose `{ error }` it discarded:
+
+```ts
+const { data: sess } = await db.from("table_sessions").select("mode")…
+if (sess?.mode !== "dinein") return … "Tabs are for dine-in tables." … 400
+```
+
+On a failed read `sess` is null, `sess?.mode` is undefined, the comparison passes, and a diner
+sitting at a real dine-in table is told their table is not one. The refusal was right; the
+**diagnosis** was invented — the route stated a fact about their session it had never learned.
+
+**The window is not what it looks like.** `assertCartMember` reads `table_sessions` too and already
+fails closed with 503, so this was never "the database is down for the whole request". It was the gap
+_between_ the two reads: authz succeeds, a blip lands, this read fails. Handling the error would have
+narrowed that gap; deleting the read removes it. `mode` now comes off the row `assertCartMember`
+already proved active (M108).
+
+Five cases in a new `route.test.ts`, watched failing first — case 2 fails on the unfixed route with
+the false sentence verbatim, and case 5 asserts the route never touches `table_sessions` at all, so
+the deletion stays deleted rather than drifting back to a corrected re-read. Two mutants (210 total),
+both measured killing.
+
+⚠️ **`check-money-coverage` reported "clean" for this file before either mutant existed** — and it was
+clean over an _empty set_, because it diffs `base...HEAD` and the change was still uncommitted.
+Committing first turned it red. A guard run at the wrong moment is not a guard.
+
+**The shape turned out not to be confined to one route (M119, filed).** A blind sweep for it — four
+auditors over the routes, the lib modules, the authz/lock primitives and the Server Actions, each
+candidate then put to a refute-biased verifier against real source — returned **7 confirmed, 1
+refuted**. (The refuted one was `setup-intent` itself, refuted because this fix had already landed
+mid-sweep.) The #226 census that had cleared these asked _"does it fail closed?"_, and every one of
+them does; it never asked whether the sentence is true.
+
+One is a different and worse class, and should go first:
+
+- `tabs.ts:66` **fails OPEN**. A discarded `{ error }` leaves `payCart` null, so
+  `paymentInFlightReason(null)` cannot see an in-flight payment and the refusal _"Someone's paying
+  right now — try the tab again in a moment."_ is silently **skipped**. A wrong outcome on a money
+  guard, not a wrong sentence.
+
+Two of the five fabricated diagnoses are worth naming:
+
+- `lock.ts:68` drops `error` and returns `"closed"`, so a diner with an open order is told _"This
+  order is no longer open."_ The sibling read **three lines above** binds its error, directly under a
+  comment promising to _"message it honestly"_.
+- `pay-guard.ts:67` **does** bind and log the error — and returns `"split_in_progress"` anyway.
+  Binding an error is not the same as answering honestly with it: the outage needs its own return
+  value, not the nearest refusal.
+
+Not fixed here. This PR closes the row it was filed for; the class gets its own change, so each fix
+can be watched failing on its own surface.
+
 ### The table merge refuses two tables of different kinds (2026-08-23)
 
 **M109 closed — the same-mode rule moves from TypeScript into the database.**

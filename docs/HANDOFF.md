@@ -7,7 +7,30 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 
 > ## ⏭️ NEXT SESSION — start here (2026-08-21 — the M-registry backlog is being worked in severity order; W22d proper remains and is OWNER-BLOCKED)
 >
-> ### ⏭️ Pick up here — M109 closed too; M111 · M116 · M112 are the next open rows
+> ### ⏭️ Pick up here — M116 closed; M111 · M112 are the next open rows, plus the new M119 class
+>
+> **M17 AND M109 are both APPLIED to production** (`fasnpdhtvqtzjlvruqcu`; M17 2026-08-23, M109
+> 2026-08-24 — via the Supabase MCP, which is why prod's recorded `schema_migrations` versions differ
+> from the repo filenames). **Repeat the drift check before every push, because it is what makes the
+> restatement safe:** compare prod's live `prosrc` against the repo's LAST-DEFINING migration for that
+> function before applying, so you know the body you are replacing is the one you think it is. Both
+> times prod matched on LOGIC but not on bytes — prod's copies carry fewer inline comments, an
+> artifact of the MCP path — so normalize comments away and diff the tokens, then verify `md5(prosrc)`
+> against the repo body AFTER applying (M109 came back byte-identical: `a5d28c3a…`). M109's own probe
+> also confirmed the defect was live: `position('mode' in prosrc)` was **0** on the old body. Prod has
+> 0 active sessions and 0 open carts, so neither apply moved live data.
+>
+> - **M116 closed — and the lesson is about the FIX SHAPE, not the sentence.** `setup-intent` answered
+>   "Tabs are for dine-in tables" on an unreadable read. The tempting fix is to handle the error; the
+>   right one was to DELETE the read. `assertCartMember` already reads `table_sessions` and already
+>   fails closed, so the window was never "the DB is down" — it was the GAP between authz's read and
+>   this one. Handling the error narrows a gap; removing the read removes it. Case 5 of the new test
+>   asserts the route touches `table_sessions` **not at all**, so the deletion cannot drift back into a
+>   corrected re-read.
+> - **⚠️ `check-money-coverage` reported "clean" over an EMPTY SET.** It diffs `base...HEAD`, so an
+>   uncommitted change is invisible to it — it said clean for a money-path file with no mutant at all.
+>   Committing first turned it red, which is the verdict that meant something. **Run the coverage guard
+>   after committing, never before**, and treat a "clean" on an uncommitted tree as no information.
 >
 > **M17's migration is APPLIED to production** (`fasnpdhtvqtzjlvruqcu`, 2026-08-23, via the Supabase
 > MCP — prod's `schema_migrations` is keyed by that path's timestamps, not the repo filenames, which is
@@ -147,7 +170,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 208 `verify:slice` mutants green · `pnpm check:docs` clean (95 files, 1000 qr tests +
+> **Gate today:** 210 `verify:slice` mutants green · `pnpm check:docs` clean (95 files, 1005 qr tests +
 > 87 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
@@ -853,7 +876,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (208 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (210 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and
