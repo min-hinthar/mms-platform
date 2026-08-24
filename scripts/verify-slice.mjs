@@ -1785,6 +1785,14 @@ const MUTANTS = [
     replace: "  if (false) {",
   },
   {
+    id: "tabs/pay-mutex-fails-open",
+    file: "apps/qr/lib/tabs.ts",
+    suite: "lib/tabs.test.ts",
+    why: 'M119a — the money mutex, reverted. `paymentInFlightReason(null)` returns null by DELIBERATE contract (`pay-guard.ts:38`, pinned by pay-guard.test.ts): null means "there is no cart", not "we could not tell". So skipping the fail-closed does not mis-word the refusal, it SKIPS it — a tab opens on a cart whose card is mid-authorization, and nothing downstream re-checks because `mms_open_tab` gates on the cart being `open`, which it still is during an authorization. This is the shape that shipped: eight of the nine `paymentInFlightReason` call sites already refuse an unreadable cart before calling; this was the one that did not',
+    find: "  if (payCartError) {",
+    replace: "  if (false) {",
+  },
+  {
     id: "setup-intent/tab-gate-dropped",
     file: "apps/qr/app/api/stripe/setup-intent/route.ts",
     suite: "app/api/stripe/setup-intent/route.test.ts",

@@ -63,11 +63,35 @@ export async function openTab(raw: unknown): Promise<OpenTabResult> {
   // tab is a cart mutation, so it waits like every other one: the staff floor already hides Open-tab
   // mid-payment (canWrite), and this is the server backstop that also covers the diner /cart path
   // (whose review screen stays mounted under a single-pay lock).
-  const { data: payCart } = await db
+  const { data: payCart, error: payCartError } = await db
     .from("qr_carts")
     .select("id,session_id,locked,locked_at,settle_at")
     .eq("id", cartId)
     .maybeSingle();
+  // M119a — FAIL CLOSED on the read error, because this guard FAILED OPEN without it.
+  //
+  // `paymentInFlightReason(null)` returns null by deliberate contract (`pay-guard.ts:38`, pinned by
+  // `pay-guard.test.ts`): null means "there is no cart", NOT "we could not tell". So a discarded
+  // `{ error }` did not merely mis-word the refusal below — it SKIPPED it, and a tab opened on a cart
+  // whose card was mid-authorization. Nothing downstream re-checks: `mms_open_tab` gates on the cart
+  // being `open`, which it still is during an authorization. A wrong outcome on a money path, not a
+  // wrong sentence — which is why this one goes first out of M119.
+  //
+  // Binding the error is also what separates the two reasons `payCart` can be null. A genuinely
+  // ABSENT cart still falls through to the RPC, which is authoritative on existence and answers
+  // `not_open`; only an UNREADABLE one refuses here. That distinction is the whole fix, and it is why
+  // the null contract in `pay-guard` is left alone: all nine call sites were read, and the other
+  // eight already refuse an unreadable or absent cart before calling (`floor.ts:463`,
+  // `approvals.ts`/`voids.ts` bind `cartError`; `staff-cart.ts` and `terminal.ts` go through
+  // `openCartFor`'s `unavailable`/`!cart` branches; `approvals.ts:170` spells it `if (cart && …)`).
+  // One caller not honouring a contract is not a reason to change the contract at nine sites.
+  //
+  // The message is the one this function already uses for an unreadable authz read a few lines above —
+  // an outage is not an authorization verdict, and it is not a payment verdict either.
+  if (payCartError) {
+    console.error("[tabs] pay-state read failed", { cartId, error: payCartError.message });
+    return { ok: false, error: "We’re having trouble on our end — try again in a moment." };
+  }
   if (await paymentInFlightReason(payCart)) {
     return { ok: false, error: "Someone’s paying right now — try the tab again in a moment." };
   }
