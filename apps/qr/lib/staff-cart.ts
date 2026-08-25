@@ -296,6 +296,10 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
       p_settled_by: caller.staffId,
       p_subtotal_cents: totals.subtotalCents,
       p_discount_cents: totals.discountCents,
+      // M22 — the PROMO's own contribution, so fulfillment consumes a redemption only when the
+      // code actually delivered. `p_discount_cents` folds promo + reward, and a reward covering
+      // the whole basket clamps the promo to 0 while keeping that sum positive.
+      p_promo_cents: totals.promoCents,
       p_service_charge_cents: totals.serviceChargeCents,
       p_tax_cents: totals.taxCents,
       p_tip_cents: tipCents,

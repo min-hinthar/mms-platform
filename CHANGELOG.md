@@ -4,6 +4,35 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fulfillment consumes a promo only when the promo delivered (2026-08-25)
+
+**Codex round 1 on the M22 PR, and it falsified the claim the change rested on.** I argued reward-first
+was free because "a promo's budget is a redemption COUNT — it costs the same one redemption either
+way." It does not. `mms_fulfill_order` and `mms_fulfill_cash_order` both gated consumption on
+`p_discount_cents > 0` — the **combined** discount, which is not a fact about the promo at all. A
+reward large enough to cover the basket clamps the promo to 0 while keeping that sum positive, so the
+code was consumed having delivered **nothing**: `promo_codes.used` incremented and a
+`promo_redemptions` row landed, spending global and per-session budget that bought no discount.
+
+⚠️ **The hole PRE-EXISTS — M22 widened it, it did not dig it.** An attached code that has expired or
+fallen under its min-subtotal already made `mms_promo_discount` return 0 while an applied reward kept
+the combined value positive. Reward-first simply made a second, more ordinary route to the same
+place. Both are closed here.
+
+`CartTotals` gains `promoCents` — the promo's own post-reward contribution, derived once beside the
+clamp — and both fulfillment RPCs take `p_promo_cents` and gate on it. The parameter is added LAST,
+DEFAULTED, and the predicate coalesces to the old value, so a caller that has not been updated keeps
+exactly today's behaviour: the migration is safe to land ahead of the app deploy rather than in
+lockstep with it. Adding a parameter makes a NEW signature rather than replacing the old one
+(Postgres keys functions by argument types), so each old signature is dropped first — which drops its
+grants, hence the explicit re-grants.
+
+`supabase/tests/m22_promo_consumed_on_its_own_contribution_test.sql` (registered in `ci.yml`) carries
+four cases: the defect, the legitimate consume (without which deleting `mms_promo_consume` outright
+would leave the file green), the omitted-parameter fallback that makes the deploy safe, and the cash
+path — the same gate behind a different door. `promoCents` also replaced the three places
+`Checkout.tsx` re-derived the promo as `discountCents - rewardCents`.
+
 ### A reward coupon stopped being burned at less than its face (2026-08-25)
 
 **M22 closed.** `mms_redeem_cart_reward` flips `redeemed_at` unconditionally, so a coupon is spent in

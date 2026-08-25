@@ -1881,6 +1881,7 @@ export type Database = {
         Args: {
           p_cart_id: string
           p_discount_cents: number
+          p_promo_cents?: number
           p_service_charge_cents: number
           p_settled_by: string
           p_subtotal_cents: number
@@ -1895,6 +1896,7 @@ export type Database = {
           p_cart_id: string
           p_discount_cents: number
           p_payment_intent: string
+          p_promo_cents?: number
           p_service_charge_cents: number
           p_settled_by?: string
           p_subtotal_cents: number

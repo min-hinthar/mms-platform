@@ -63,6 +63,14 @@ const MUTANTS = [
       "  const rewardCents = Math.min(rewardCentsRaw, Math.max(subtotalCents - Math.min(promoCentsRaw, subtotalCents), 0));",
   },
   {
+    id: "totals/promo-contribution-reports-its-raw-face",
+    file: "apps/qr/lib/totals-math.ts",
+    suite: "lib/totals-math.test.ts",
+    why: "M22, Codex round 1 P2 — `promoCents` is what fulfillment consumes a redemption ON. Report the RAW promo instead of the post-reward contribution and the consumption predicate is back to believing a promo delivered when it delivered nothing — the exact hole `p_promo_cents` was added to close, reopened one layer up where the SQL gate cannot see it",
+    find: "    promoCents,",
+    replace: "    promoCents: promoCentsRaw,",
+  },
+  {
     id: "totals/reward-face-collapses-to-the-clamped-amount",
     file: "apps/qr/lib/totals-math.ts",
     suite: "lib/totals-math.test.ts",

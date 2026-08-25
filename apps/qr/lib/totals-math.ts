@@ -154,6 +154,7 @@ export function computeTotals(
     // lookup: a value quoted from a different read is exactly how the burn went unnoticed. Equal to
     // `rewardCents` in every case except the one worth disclosing.
     rewardFaceCents: Math.max(rewardCentsRaw, 0),
+    promoCents,
     serviceChargeCents,
     taxCents,
     tipCents,

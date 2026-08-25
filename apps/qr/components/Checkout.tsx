@@ -1039,9 +1039,7 @@ export function Checkout({
               <BillLines items={viewItems} isGroup={isGroup} splitContext={splitContext} />
               <dl style={{ borderTop: "1px solid var(--bd)", paddingTop: 6, marginTop: 8 }}>
                 <Row k="rowSubtotal" cents={payTotals.subtotalCents} />
-                {payTotals.discountCents - payTotals.rewardCents > 0 && (
-                  <Row k="rowPromo" cents={-(payTotals.discountCents - payTotals.rewardCents)} />
-                )}
+                {payTotals.promoCents > 0 && <Row k="rowPromo" cents={-payTotals.promoCents} />}
                 {payTotals.rewardCents > 0 && <Row k="rowReward" cents={-payTotals.rewardCents} />}
                 {/* M22 (Codex round 1, P1) — the shortfall has to be repeated HERE, not just on the
                     review step's RewardField. `payTotals` is re-derived after the cart lock, so a
@@ -1470,9 +1468,7 @@ export function Checkout({
                 <BillLines items={viewItems} isGroup={isGroup} splitContext={splitContext} />
                 <dl style={{ borderTop: "1px solid var(--bd)", paddingTop: 6, marginTop: 8 }}>
                   <Row k="rowSubtotal" cents={totals.subtotalCents} />
-                  {totals.discountCents - totals.rewardCents > 0 && (
-                    <Row k="rowPromo" cents={-(totals.discountCents - totals.rewardCents)} />
-                  )}
+                  {totals.promoCents > 0 && <Row k="rowPromo" cents={-totals.promoCents} />}
                   {totals.rewardCents > 0 && <Row k="rowReward" cents={-totals.rewardCents} />}
                   <Row
                     k="rowTax"
@@ -1678,9 +1674,7 @@ export function Checkout({
               <div className="card card-textured checkout-receipt">
                 <dl>
                   <Row k="rowSubtotal" cents={totals.subtotalCents} />
-                  {totals.discountCents - totals.rewardCents > 0 && (
-                    <Row k="rowPromo" cents={-(totals.discountCents - totals.rewardCents)} />
-                  )}
+                  {totals.promoCents > 0 && <Row k="rowPromo" cents={-totals.promoCents} />}
                   {totals.rewardCents > 0 && <Row k="rowReward" cents={-totals.rewardCents} />}
                   <Row
                     k="rowTax"

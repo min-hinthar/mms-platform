@@ -84,6 +84,12 @@ export type CartTotals = {
    *  reward is applied. Never quote a coupon's face from a separate read — this is the one derived
    *  beside the clamp that discarded it. */
   rewardFaceCents: number;
+  /** M22 — the PROMO's own contribution, after the reward has taken its share of the base.
+   *  `discountCents` folds promo + reward together, and that combined value is not a fact about
+   *  either one: fulfillment used it as the promo's consumption predicate and so spent a redemption
+   *  for a promo that delivered nothing. Surfaced here so the amount is derived ONCE, beside the
+   *  clamp that produced it, and read by the fulfillment callers and the UI's promo row alike. */
+  promoCents: number;
   serviceChargeCents: number;
   taxCents: number;
   tipCents: number;
