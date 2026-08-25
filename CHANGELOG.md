@@ -36,10 +36,11 @@ a basket lowers them. Those four drops are the entire surface.
 
 ⚠️ **The pin deliberately outlives the lock.** Fulfillment re-derives the breakdown and reconciles it
 against the captured amount; clearing the pin at release or capture would make the derived total
-disagree with what was charged and raise `reconcile_mismatch`. It is cleared in exactly two places
+disagree with what was charged and raise `reconcile_mismatch`. It is cleared in exactly three places
 that end its meaning — a new promo code (same UPDATE as the code write, so they cannot drift) and a
-cancelled settlement (guarded on the insert's row count, so a redelivered cancel cannot wipe a newer
-hold's grant).
+cancelled settlement (scoped to the cancelled attempt's ERA, so neither a redelivery nor a
+first-time cancel for a superseded intent can wipe a newer hold's grant) — plus an attempt that
+abandons before minting an intent, which the cancellation path cannot see at all.
 
 ⚠️ **A pin of 0 is a real answer** (`is not null`, never `> 0`). A cart with no valid promo at
 authorization grants 0, and a promo becoming valid mid-settlement must not lower the total below what
@@ -53,6 +54,20 @@ would have left every gate in this repo green while M70 silently regressed.
 ones) now asserts the pin is taken AND taken before the amount is derived; both rules watched failing
 first. The exemption comment now says what it actually covers. **An exemption is a claim about what
 is covered elsewhere; when a file grows a rule the claim does not cover, the exemption is stale.**
+
+⚠️ **A fast step that gates a slow proof is not a small failure.** `database.types.ts` is
+`pnpm db:types` output and `db:types` needs Docker, so in a cloud session a new RPC's entry is typed
+by hand — and the first thing that checks it is `migrations-check + types-fresh`: six image pulls and
+120 replayed migrations to reject one misplaced line. This PR burned two of those cycles on plain
+alphabetical slips. The cost was not the minutes: `types-fresh` runs BEFORE that job's SQL tests, so
+each slip tore the stack down with all eleven of M70's assertions still unrun — the migration read
+"checked" when nothing about it had executed, under a red check naming a types file.
+`scripts/check-generated-types-sorted.mjs` (a fifth cheap grep) decides it from the file alone in
+milliseconds: the generator emits `Tables` keys, `Functions` keys and every `Args` list in plain ASCII
+order (46 · 70 · 64 blocks), and the error names the exact pair to swap. It deliberately does not
+guard the entry's line-breaking — that is prettier's 80-column printer, and position is both the
+cheap half and the half that was actually wrong. Wired into `verify:slice` and CI's fast lane; six
+failure modes, including both "parsed zero keys" cases, watched failing first.
 
 **Codex round 1 found two P1s in the pin's lifecycle, both real, both mine.**
 

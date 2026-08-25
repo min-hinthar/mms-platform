@@ -663,3 +663,27 @@ types, so `create or replace` with a new arg list creates an OVERLOAD and leaves
 Drop the old signature explicitly — which also drops its grants, so re-grant. Making the new arg LAST
 and DEFAULTED, with the predicate coalescing to the old value, is what lets the migration land ahead
 of the app deploy instead of in lockstep; assert that fallback in the SQL test, or nothing proves it.
+
+**A generated file edited by hand is a guess, and the cheapest check for it is not the one CI runs.**
+`packages/db/src/database.types.ts` is `pnpm db:types` output, and `db:types` needs a local Supabase
+stack. A cloud session has no Docker, so a new RPC's entry gets typed by hand — and the first thing
+that checks it is CI's `migrations-check + types-fresh`: six image pulls and 120 replayed migrations
+to reject one misplaced line. M70 burned TWO of those cycles on plain alphabetical slips
+(`mms_pin_promo_grant` filed after `mms_promo_attempt`; `mms_release_promo_grant` after
+`mms_request_approval` — `pin` < `promo`, `rele` < `requ`).
+
+The expensive part was not the minutes. **`types-fresh` runs BEFORE that job's SQL tests**
+(`ci.yml:109` vs `:122`), so a sort slip tears down the stack with every `supabase/tests/*.sql`
+assertion still unrun. Twice, M70's migration — the entire point of the PR — reported "checked" when
+nothing about it had executed, and the red check named a types file, which reads like a bookkeeping
+nit rather than _your SQL is still unverified_. When a fast step gates a slow proof, a failure in the
+fast step is not a small failure; look at what it stopped from running.
+
+`scripts/check-generated-types-sorted.mjs` decides all of it from the file alone in milliseconds: the
+generator emits `Tables` keys, `Functions` keys and each `Args` key list in plain ASCII order (46 ·
+70 · 64 blocks, all already sorted when the guard was written), and the error names the exact pair to
+swap. It deliberately does NOT guard the entry's SHAPE — the generator breaks at ~80 columns, so
+`mms_reward_discount` stays inline while the seven-character-longer `mms_release_promo_grant` does
+not, and reimplementing that is prettier's job. Position is the half that is cheap and the half that
+was actually wrong both times. Both "parsed zero keys" cases fail loudly, because a guard that looked
+at nothing prints the same word as a guard that found nothing wrong.

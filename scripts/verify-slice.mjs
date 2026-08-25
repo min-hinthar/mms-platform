@@ -2000,6 +2000,18 @@ try {
   process.exit(1);
 }
 
+// M70 — the fifth cheap grep: `packages/db/src/database.types.ts` is hand-edited in a container with
+// no Postgres, so a new RPC's entry is typed by guess and the first thing that checks it is CI's
+// `migrations-check + types-fresh` — six image pulls and 120 migrations before a one-line diff. M70
+// burned TWO of those cycles on plain alphabetical slips. Worse, `types-fresh` runs BEFORE the SQL
+// tests in that job, so the slip aborts the stack before a single `supabase/tests/*.sql` assertion
+// executes: the migration's real proof never runs, and the red check names the types file.
+try {
+  execFileSync("node", ["scripts/check-generated-types-sorted.mjs"], { cwd: ROOT, stdio: "inherit" });
+} catch {
+  process.exit(1);
+}
+
 const targets = MUTANTS.filter((m) => !only || m.id.includes(only));
 const files = [...new Set(targets.map((m) => m.file))];
 
