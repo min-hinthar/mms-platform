@@ -47,7 +47,10 @@ vi.mock("@mms/db/server", () => ({
             error: null,
           });
         },
-        single: () => Promise.resolve({ data: table === "menu_items" ? ITEM : null, error: null }),
+        // `.maybeSingle()`, not `.single()` — priceItem needs a genuine no-row (`{null, null}`) to be
+        // distinguishable from a failed read (M119, Codex round 2).
+        maybeSingle: () =>
+          Promise.resolve({ data: table === "menu_items" ? ITEM : null, error: null }),
       };
       return chain;
     },

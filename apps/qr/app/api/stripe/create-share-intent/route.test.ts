@@ -49,6 +49,8 @@ type Recorded = {
 let recorded: Recorded[] = [];
 
 let share: ShareRow | null = null;
+/** M119 (c) — the FIRST share read's error, which the route used to discard. */
+let shareError: { message: string } | null = null;
 let cartStatus = "open";
 /** Rows the claim UPDATE matches. */
 let claimMatches = 1;
@@ -88,7 +90,8 @@ function selectBuilder(table: string, cols: string) {
         return Promise.resolve({ data: { status: cartStatus }, error: null });
       // Two reads hit qr_cart_shares: the initial share fetch (asks for the money columns) and the
       // lost-claim re-read (asks for status + the intent pointer).
-      if (cols.includes("subtotal_cents")) return Promise.resolve({ data: share, error: null });
+      if (cols.includes("subtotal_cents"))
+        return Promise.resolve({ data: shareError ? null : share, error: shareError });
       return Promise.resolve({ data: rowAfter, error: rowAfterError });
     },
   };
@@ -185,6 +188,7 @@ function request(tipRate = 0.2) {
 }
 
 beforeEach(() => {
+  shareError = null;
   recorded = [];
   share = {
     id: "share-1",
@@ -356,5 +360,37 @@ describe("create-share-intent — a lost claim must not void the payer's own hol
     rowAfterError = { message: "connection reset" };
     await POST(request());
     expect(cancelled).toEqual([]);
+  });
+});
+
+/**
+ * M119 (c) — an unreadable share read is not a membership verdict.
+ *
+ *     const { data: share } = await db.from("qr_cart_shares").select(…).eq("seat_id", uid).maybeSingle();
+ *     if (!share) return NextResponse.json({ error: "You're not part of this split." }, { status: 400 });
+ *
+ * The `{ error }` was DISCARDED, so a transport failure made `share` null and told a payer looking at
+ * their own share on the live split board that they are not in the split — with a 400, a client-fault
+ * status, for our outage.
+ *
+ * The standard this file already holds itself to is 200 lines below, on the SAME table: the lost-claim
+ * re-read binds `nowErr` and answers 503, under a comment reading "an UNREADABLE re-read must not pick
+ * the destructive branch". Only the first read never bound its error.
+ */
+describe("M119c — a failed share read must not deny membership", () => {
+  it("THE DEFECT — an unreadable read answers 503, never 'not part of this split'", async () => {
+    shareError = { message: "transport failure" };
+    const res = await POST(request());
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).not.toBe("You’re not part of this split.");
+  });
+
+  it("a seat genuinely absent from the split still gets the true, specific 400", async () => {
+    share = null;
+    shareError = null;
+    const res = await POST(request());
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({ error: "You’re not part of this split." });
   });
 });

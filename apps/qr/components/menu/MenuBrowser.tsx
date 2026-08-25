@@ -249,12 +249,20 @@ export function MenuBrowser({
           return;
         }
         // Per-reason honesty: a dish that NEEDS choices is on today's menu (say "tap to choose");
-        // a grocery line is on the SHELF, not unavailable (scan it in the store); only
-        // gone/sold-out lines are truly unavailable — never collapse the three.
+        // a grocery line is on the SHELF, not unavailable (scan it in the store); an UNREADABLE line
+        // is one we could not check at all; only gone/sold-out lines are truly unavailable — never
+        // collapse them.
+        //
+        // ⚠️ M119 (Codex round 2) — `unavailable` is an INCLUSION list on purpose. It used to be
+        // "everything that isn't needs_choices or grocery", so the moment a new reason existed it
+        // landed silently in "isn't available today" — which is exactly the fabricated diagnosis
+        // `unreadable` was added to stop. An exclusion bucket makes every future reason default to
+        // the strongest claim on the screen. Name what belongs here.
         const needsChoice = res.skipped.filter((k) => k.reason === "needs_choices");
         const grocery = res.skipped.filter((k) => k.reason === "grocery");
+        const unreadable = res.skipped.filter((k) => k.reason === "unreadable");
         const unavailable = res.skipped.filter(
-          (k) => k.reason !== "needs_choices" && k.reason !== "grocery",
+          (k) => k.reason === "gone" || k.reason === "sold_out",
         );
         const bits: string[] = [];
         if (res.added > 0)
@@ -301,6 +309,15 @@ export function MenuBrowser({
             unavailable.length === 1
               ? `${unavailable[0]?.name ?? "1 item"} isn’t available today`
               : `${unavailable.length} items aren’t available today`,
+          );
+        // Deliberately NOT "isn't available": we never got an answer about these dishes. Phrased so
+        // the diner knows the dish may be perfectly orderable and where to go next — the menu is
+        // already on screen, so this one names a real affordance (unlike the round-1 refusal copy).
+        if (unreadable.length > 0)
+          bits.push(
+            unreadable.length === 1
+              ? `couldn’t check ${unreadable[0]?.name ?? "1 dish"} just now — tap it on the menu`
+              : `couldn’t check ${unreadable.length} dishes just now — tap them on the menu`,
           );
         if (res.capped) bits.push("only the first 30 lines were brought back");
         const msg = bits.length > 0 ? bits.join(" · ") : "Nothing to bring back from that order.";

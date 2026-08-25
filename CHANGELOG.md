@@ -4,6 +4,86 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The rest of the fabricated diagnoses — and two of them weren't (2026-08-25)
+
+**M119 closed.** Four remaining sites where a refusal stated a cause the code never established. Two
+turned out to be worse than filed: not wrong sentences, wrong **outcomes**.
+
+**`grocery.ts:73` destroyed the shopper's scan.** `unknown_barcode` sits in `grocery-queue.ts`'s
+`REJECT_REASONS`, so the offline queue treats it as definitive — dequeue, tell the shopper, never
+retry. An unreadable catalog read answering `unknown_barcode` therefore **permanently discarded a
+queued scan** during a reconnect drain. The queue's own fall-through names the right bucket:
+
+```ts
+if (REJECT_REASONS.has(result.reason)) return "rejected";   // dequeue + tell the shopper
+…
+return "retry";                                            // locked / settling / unreadable
+```
+
+The fix needed nothing new. `ScanAddFailure` already includes `CartUnavailable`, whose `unreadable`
+variant is documented as _"a failed read … the caller must offer Retry and MUST NOT offer to start a
+fresh basket"_; `isTerminal` is false for it, `classifyReplay` already retries it, and the page's
+final `else` already renders honest transient copy. The right answer was in the codebase — this one
+read wasn't using it.
+
+**`reorder.ts:128` added zero reorder dishes and called each one unavailable.** An empty `itemById`
+doesn't mean nothing is available, it means **we never asked** — so every food line was skipped as
+`gone`, the reorder added nothing, and the diner got one false statement per dish.
+
+_(An earlier draft of this entry said "empty cart". Codex was right that that overstates it:
+`reorderOrder` only inserts, never clears, so a cart that already held dishes stays non-empty. The
+functional claim stands; the wording doesn't.)_
+
+**The first fix over-blocked, and Codex caught that too.** It refused the whole reorder. But
+`priceItem` re-reads `is_active,is_sold_out` on **every** add and throws — so the batch read is an
+optimisation plus a source of precise skip reasons, never the only thing between a diner and a
+delisted dish. Aborting every otherwise-valid dish to re-check something already checked one layer
+down is cost with no cover. Worse, the refusal advertised _"try again in a moment"_ into a screen
+with **no way to try again**: `MenuBrowser` sets `reorderRan.current = true` and strips the `reorder`
+URL param _before_ calling, so the effect never re-runs. A promise the code doesn't keep — in the
+change that exists to stop making them.
+
+So the fallback now proceeds and lets the per-line gate decide. That needed one more piece to stay
+honest: `priceItem`'s availability refusal carries its reason (`ItemUnsellableError`), because
+otherwise a sold-out dish on that path came back `needs_choices` — swapping a wrong outcome for a
+wrong sentence, which is not a fix here. A mutant pins each half.
+
+The other two are the filed shape:
+
+- **`lock.ts:68`** returned `closed` on an unreadable status read, so checkout told a diner whose
+  order is open that it is _"no longer open."_ `LockResult` gains `unavailable` → a retryable 503.
+- **`create-share-intent:51`** denied membership on a dropped error — a **400**, client fault, for
+  our outage.
+
+**The through-line, and the thing worth carrying:** in `lock.ts`, `create-share-intent` and
+`reorder.ts`, the identical shape sat **immediately beside a corrected instance**. `lock.ts` is the
+sharpest — the comment one statement above the defect describes this exact bug and fixes it on the
+UPDATE, where it had given _every_ checkout a spurious 409 after the PostgREST 14 upgrade. The fix
+landed three lines too high. Fixing one read does not fix its neighbour, and the neighbour is where
+the next defect lives.
+
+All four watched failing first, and each is pinned by a mutant.
+
+**Codex round 2 found the fix's own version of the defect, and it was the sharpest one here.**
+`priceItem` read the item with `.single()`, which reports a **0-row result as an ERROR** — so
+`if (error || !item)` folded _"this dish is no longer in the catalog"_ together with _"we could not
+reach the catalog"_ and answered `gone` for both. That was unreachable while `reorderOrder` refused
+outright on a failed batch read. The round-1 fallback made it reachable, and it put the fabricated
+diagnosis straight back onto the screen the fallback exists to keep honest. `.maybeSingle()` is what
+separates them (`{ data: null, error: null }` for a genuine no-row — the same reason the Stripe
+webhook's idempotency read uses it), which leaves `error` meaning exactly one thing. A new
+`ItemUnreadableError` carries that, and `ReorderSkipReason` gains `unreadable`.
+
+⚠️ `MenuBrowser`'s `unavailable` bucket was an **exclusion** list — everything that wasn't
+`needs_choices` or `grocery` — so the new reason would have landed silently in _"isn't available
+today"_, re-fabricating the diagnosis it was added to prevent. An exclusion bucket makes every future
+reason default to the strongest claim on the screen; it is an inclusion list now.
+
+⚠️ The reorder fixture initially passed at an **earlier** guard — the order-lookup mock lacked
+`earned_by`/`status`, so both cases bailed out before the read under test and the defect case was red
+for an unrelated reason. An anti-degeneracy assert now pins that the case reaches the availability
+logic at all.
+
 ### The tab's payment mutex failed open (2026-08-25)
 
 **M119 (a) closed — the first item off the class M116 uncovered, and the only one that was a wrong

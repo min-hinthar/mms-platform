@@ -47,6 +47,13 @@ export async function POST(req: NextRequest) {
     // re-acquiring (refresh / retry) succeeds, a stale lock is taken over, a fresh lock by ANOTHER
     // member is rejected. Released on decline (webhook), "Edit order" (releasePayLock), or the TTL.
     const lock = await acquireCartLock(cartId, uid);
+    // M119 (b) — an unreadable status read is not a verdict about the order. Mapped before `closed`
+    // so an outage can never be reported as "no longer open", which is what it used to say.
+    if (lock === "unavailable")
+      return NextResponse.json(
+        { error: "We’re having trouble on our end — try again in a moment." },
+        { status: 503 },
+      );
     if (lock === "closed")
       return NextResponse.json({ error: "This order is no longer open." }, { status: 400 });
     if (lock === "held_by_other")
