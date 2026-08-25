@@ -20,7 +20,7 @@ import { getCartTotals } from "./totals";
 import { assertCartItemMember, assertCartMember, AuthzError } from "./authz";
 import { assertMutationRate, withinMutationRate } from "./rate";
 import { canMutateLine } from "./permissions";
-import { releaseCartLock } from "./lock";
+import { CART_LOCK_TTL_MS, SETTLE_TTL_MS, releaseCartLock } from "./lock";
 import { getPostHogClient } from "./posthog-server";
 import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
 import { safeImageUrl } from "./media-url";
@@ -324,6 +324,40 @@ export type ApplyPromoResult =
   | { ok: true; discountCents: number }
   | { ok: false; reason: PromoReason };
 
+/**
+ * Why the freeze-atomic promo write matched no row — READ, never assumed.
+ *
+ * Three different facts land on the same zero row count (the cart closed, a tablemate took the pay
+ * lock, the table began settling), and answering `cart_closed` for all three is the fabricated
+ * diagnosis this repo spent M116 and M119 removing: a diner whose tablemate is simply mid-checkout
+ * would be told their order is no longer open. A fourth outcome is honest too — if this read fails
+ * we do not KNOW why the write was refused, and `error` says exactly that rather than inventing a
+ * verdict. Same shape as `acquireCartLock`'s "0 rows: read the status to message it honestly".
+ */
+async function refusedPromoReason(cartId: string): Promise<PromoReason> {
+  const { data: cart, error } = await serviceClient()
+    .from("qr_carts")
+    .select("status,locked,locked_at,settle_at")
+    .eq("id", cartId)
+    .maybeSingle();
+  // `maybeSingle` so a genuinely missing cart is `{ data: null, error: null }` and not an error —
+  // the same separation `order-lines.ts` needed for exactly this reason.
+  if (error) return "error";
+  if (!cart || cart.status !== "open") return "cart_closed";
+  const lockedFresh =
+    cart.locked &&
+    cart.locked_at !== null &&
+    new Date(cart.locked_at).getTime() > Date.now() - CART_LOCK_TTL_MS;
+  const settlingFresh =
+    cart.settle_at !== null && new Date(cart.settle_at).getTime() > Date.now() - SETTLE_TTL_MS;
+  // "locked" is the shared frozen-order copy — the same reason the pre-check above returns for a
+  // settling cart, so the diner sees one consistent explanation for one consistent situation.
+  if (lockedFresh || settlingFresh) return "locked";
+  // Open, unfrozen, and still no row: the cart vanished between the two statements. `cart_closed` is
+  // the honest floor here — we read the cart and it does not justify a freeze answer.
+  return "cart_closed";
+}
+
 export async function applyPromo(cartId: string, code: string): Promise<ApplyPromoResult> {
   const input = applyPromoInput.parse({ cartId, code });
   const { uid, sessionId, locked, settling } = await assertCartMember(input.cartId);
@@ -351,20 +385,37 @@ export async function applyPromo(cartId: string, code: string): Promise<ApplyPro
   const check = rows?.[0];
   if (!check?.valid) return { ok: false, reason: (check?.reason ?? "invalid") as PromoReason };
 
-  // Status-atomic write — only sets the promo on a still-`open` cart (symmetric with the other
-  // mutation paths against a webhook flip between the authz check and this update). 0 rows ⇒ closed.
+  // FREEZE-atomic write, not merely status-atomic (M70, Codex round 2 P1). The `locked || settling`
+  // refusal above is read at authz time, and TWO awaited RPCs run between it and this UPDATE — long
+  // enough for a tablemate to reach the pay screen, take the lock, and pin the grant. A write gated
+  // only on `status = 'open'` sails through that and clears a LIVE attempt's pin: its PaymentIntent
+  // was minted under the old code, the webhook re-derives under the new one, and the amounts
+  // disagree — `reconcile_mismatch` after the card is charged. The freeze has to be re-tested in the
+  // same statement that writes, which is the same rule every other mutation here follows for status.
+  //
+  // The predicates mirror `assertCartMember`'s EFFECTIVE checks (authz.ts:168-175), not the raw
+  // columns: a lock is only real while `locked_at` is within CART_LOCK_TTL, and `locked = true` with
+  // a null `locked_at` is not a lock. Diverging here would refuse promos the UI still offers.
+  //
+  // ⚠️ `{ count: "exact" }` and NOT `.select("id")`. A mutation with `.select()` asks PostgREST for
+  // `return=representation`, and PostgREST 14 re-applies the top-level `or()` against the RETURNING
+  // projection — with only `id` in scope, `locked` falls out and the whole UPDATE 400s with 42703.
+  // That is documented at `lock.ts:49-56`, where it once gave every checkout a spurious 409.
   const normalized = input.code.toUpperCase();
-  const { data: updated, error: updErr } = await db
+  const lockCutoff = new Date(Date.now() - CART_LOCK_TTL_MS).toISOString();
+  const settleCutoff = new Date(Date.now() - SETTLE_TTL_MS).toISOString();
+  const { count, error: updErr } = await db
     .from("qr_carts")
     // M70 — a new code voids any grant pinned for the OLD one, and it rides in the SAME statement
     // as the code write so the two cannot drift apart. (`mms_pin_promo_grant` only pins when null,
     // so a stale grant left here would silently outrank the code the diner just entered.)
-    .update({ promo_code: normalized, promo_granted_cents: null })
+    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })
     .eq("id", input.cartId)
     .eq("status", "open")
-    .select("id");
+    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)
+    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`);
   if (updErr) return { ok: false, reason: "error" };
-  if (!updated || updated.length === 0) return { ok: false, reason: "cart_closed" };
+  if ((count ?? 0) === 0) return { ok: false, reason: await refusedPromoReason(input.cartId) };
 
   getPostHogClient().capture({
     distinctId: uid, // the verified diner uid (matches add_to_cart) — not the cart id

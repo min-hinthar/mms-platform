@@ -93,6 +93,28 @@ The clear is era-scoped now (`locked_at is not distinct from p_attempt`, the sam
 `mms_settle_precheck_and_void` uses). **Third time this session the fix was already written next
 door** — after `lock.ts` three lines up and the analytics lesson one property above.
 
+**Codex round 2 also found the promo write racing the pay lock, and that one is separate.**
+`applyPromo` refuses a `locked || settling` cart — but it reads that at authz time, and TWO awaited
+RPCs run before the write. Long enough for a tablemate to reach the pay screen, take the lock and pin
+the grant; the write, gated only on `status = 'open'`, then clears a LIVE attempt's pin. Its
+PaymentIntent was minted under the old code, the webhook re-derives under the new one, and
+`reconcile_mismatch` lands after the card is charged. The freeze is now re-tested in the same
+statement that writes, against the same EFFECTIVE predicates `assertCartMember` uses (a lock is only
+real inside `CART_LOCK_TTL`; `locked = true` with a null `locked_at` is not a lock).
+
+⚠️ `{ count: "exact" }`, not `.select("id")` — a mutation with `.select()` asks PostgREST for
+`return=representation`, and PostgREST 14 re-applies the top-level `or()` against the RETURNING
+projection, so `locked` falls out of scope and the whole UPDATE 400s with 42703. That is written down
+at `lock.ts:49-56`, where it once gave every checkout a spurious 409. **Fifth time this session the
+answer was already next door.**
+
+And the refusal is READ, not assumed: three facts land on the same zero row count (closed · a
+tablemate holds the lock · the table is settling), and a fourth outcome is honest too — if the
+diagnosis read fails we do not know why, so it answers `error` rather than inventing a verdict. Eight
+cases in `lib/cart-promo-freeze.test.ts` on a fake PostgREST that EVALUATES the filters, so a deleted
+predicate moves the row instead of merely changing a call list; both directions pinned (a STALE lock
+must still let a promo through). Five mutants, each watched failing first.
+
 **Then CI overturned the era fix, and the third draft is the simplest of the three.** Round 1's
 correction re-derived the era as `locked_at is not distinct from p_attempt`, and case 8 went red.
 Two reasons, and the column states the first itself: `qr_settlement_cancellations.attempt` is
