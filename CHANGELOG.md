@@ -60,7 +60,7 @@ is covered elsewhere; when a file grows a rule the claim does not cover, the exe
 by hand — and the first thing that checks it is `migrations-check + types-fresh`: six image pulls and
 120 replayed migrations to reject one misplaced line. This PR burned two of those cycles on plain
 alphabetical slips. The cost was not the minutes: `types-fresh` runs BEFORE that job's SQL tests, so
-each slip tore the stack down with all eleven of M70's assertions still unrun — the migration read
+each slip tore the stack down with every one of M70's assertions still unrun — the migration read
 "checked" when nothing about it had executed, under a red check naming a types file.
 `scripts/check-generated-types-sorted.mjs` (a fifth cheap grep) decides it from the file alone in
 milliseconds: the generator emits `Tables` keys, `Functions` keys and every `Args` list in plain ASCII
@@ -93,10 +93,29 @@ The clear is era-scoped now (`locked_at is not distinct from p_attempt`, the sam
 `mms_settle_precheck_and_void` uses). **Third time this session the fix was already written next
 door** — after `lock.ts` three lines up and the analytics lesson one property above.
 
-Eleven SQL cases (registered in `ci.yml`), one per trigger plus the zero-pin, idempotence, cancel-
+**Then CI overturned the era fix, and the third draft is the simplest of the three.** Round 1's
+correction re-derived the era as `locked_at is not distinct from p_attempt`, and case 8 went red.
+Two reasons, and the column states the first itself: `qr_settlement_cancellations.attempt` is
+"forensics only, never read by the diner path" and `markCanceled` nulls an unparseable one on
+purpose — _"losing the era is survivable, losing the verdict is not"_ — so a predicate must not make
+it authoritative. And the cart lock has a TTL that auto-releases an abandoned pay screen, nulling
+`locked_at`, so an ordinary cancel naming a real era stops matching and the grant leaks. **A guard
+tightened until the valid case fails is not safer; it moves the defect.**
+
+The era test was already computed and did not need re-deriving: `mms_settle_precheck_and_void`
+returns -2 exactly when `v_locked_at is distinct from p_attempt` (the null attempt included), and the
+caller maps -2 to the one reason `superseded`. So the grant follows the LOCK's rule, stated one line
+above that mapping — `if (prior.reason !== "superseded") await releaseOurLock(…)` — because the grant
+and the lock have the same owner. `and p_reason <> 'superseded'`, plus `status = 'open'` (the only
+state where a stale grant can price a next basket, and the gate `mms_pin_promo_grant` already uses).
+**Fourth time this session the answer was already written next door.**
+
+Twelve SQL cases (registered in `ci.yml`), one per trigger plus the zero-pin, idempotence, cancel-
 release, redelivery, code-change, abandoned-attempt and superseded-era rules. Case 1 is a control with no pin — without it the file
 could not tell "the pin works" from "the promo never drops any more" — and each lapse case asserts
-the _live_ value is 0 alongside, so none of them can pass vacuously.
+the _live_ value is 0 alongside, so none of them can pass vacuously. Cases 11 and 12 pull in opposite
+directions on purpose — a superseded cancel must not clear, a TTL-released one must — and only the
+verdict satisfies both.
 
 ### Promo reporting records what was delivered, not what was quoted (2026-08-25)
 

@@ -687,3 +687,29 @@ swap. It deliberately does NOT guard the entry's SHAPE — the generator breaks 
 not, and reimplementing that is prettier's job. Position is the half that is cheap and the half that
 was actually wrong both times. Both "parsed zero keys" cases fail loudly, because a guard that looked
 at nothing prints the same word as a guard that found nothing wrong.
+
+**Before re-deriving a decision from raw columns, check whether the system already computed it.** My
+round-1 fix to M70's cancel clear was right about the defect (a cart-scoped clear can wipe a live
+successor's grant) and wrong about the instrument. I wrote the era test myself —
+`locked_at is not distinct from p_attempt` — and CI turned case 8 red. Two reasons, and the column
+declares the first one itself: `qr_settlement_cancellations.attempt` is _"forensics only, never read
+by the diner path"_, and `markCanceled` nulls an unparseable one on purpose because _"losing the era
+is survivable, losing the verdict is not."_ A predicate cannot make a deliberately-lossy field
+load-bearing. The second is plainer: the cart lock has a TTL that auto-releases an abandoned pay
+screen and nulls `locked_at`, so an ordinary cancel naming a real era stops matching and the grant
+leaks — the exact hole the clear exists to close.
+
+The era test was already computed one layer up. `mms_settle_precheck_and_void` returns -2 exactly
+when `v_locked_at is distinct from p_attempt` (null attempt included), and the caller maps -2 to the
+single reason `superseded`. So the answer was `p_reason <> 'superseded'`, which is also the rule the
+LOCK already follows — `if (prior.reason !== "superseded") await releaseOurLock(…)` — because the
+grant and the lock have the same owner. **The "name it ONCE" rule is not only about money values; it
+covers decisions.** Two derivations of "does this attempt own the cart" drift exactly like two
+derivations of a total.
+
+**And a guard tightened until the VALID case fails is not safer — it moves the defect.** Both my
+first two drafts were wrong in opposite directions (too loose: wipes a successor's grant; too tight:
+leaks on every TTL-expired pay screen), and each was written while thinking only about the failure
+mode in front of me. Cases 11 and 12 now pull against each other in the same file on purpose, so
+neither direction can be "fixed" alone again. When a review asks you to tighten a bound, write the
+test for what the tightened bound does to the legitimate case, in the same commit.

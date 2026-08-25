@@ -26,13 +26,17 @@
 --      key embeds the derived amount, so a re-pin that moved would mint a SECOND PaymentIntent.
 --   8. A CANCELLED SETTLEMENT RELEASES THE GRANT, and a REDELIVERED cancel does not. The clear is
 --      guarded on the insert's row count; without that guard a duplicate webhook delivery would
---      wipe a pin belonging to a newer hold.
+--      wipe a pin belonging to a newer hold. Note this cart is UNLOCKED — see 12.
 --   9. A NEW CODE VOIDS THE OLD GRANT — the app clears it in the same UPDATE as the code write;
 --      this asserts the column actually allows that and the reader then re-derives.
 --  10. AN ABANDONED ATTEMPT releases its grant — a pin with no PaymentIntent behind it authorizes
 --      nothing, and cancellation cannot cover it (that records the end of a hold that EXISTED).
 --  11. A SUPERSEDED CANCEL must not clear the SUCCESSOR's grant. The row count only rules out
 --      redelivery of the same intent; a first-time cancel for a stale attempt still inserts.
+--  12. …and the OVER-TIGHTENING that guards, which CI caught: a cancel whose lock has already been
+--      released by its TTL must STILL release the grant. 11 and 12 pull in opposite directions, and
+--      only the VERDICT (`reason <> 'superseded'`) satisfies both — `locked_at` cannot, because it
+--      is forensics-only and null on a released lock.
 --
 -- Run against any QR DB (rolls back — leaves NO data behind):
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/m70_promo_grant_survives_settlement_test.sql
@@ -267,6 +271,12 @@ begin
   --
   -- `manual-capture-run.ts:159-161` states the invariant: the cancellation ledger is per-INTENT
   -- precisely so a superseded attempt "cannot paint over the successor's".
+  --
+  -- The gate is the REASON, not the era. `superseded` is what the caller writes when
+  -- `mms_settle_precheck_and_void` answers -2, i.e. exactly when `v_locked_at is distinct from
+  -- p_attempt` (w23d:188) — so the era test is already computed, and the grant follows the LOCK's
+  -- own rule (`if (prior.reason !== "superseded") await releaseOurLock(…)`). Case 12 is why this
+  -- must not be re-derived from `locked_at` here.
   sess := gen_random_uuid(); cart := gen_random_uuid();
   insert into public.table_sessions (id, qr_code, mode, status, host_seat)
     values (sess, 'M70C11', 'pickup', 'active', ana);
@@ -286,8 +296,8 @@ begin
   select promo_granted_cents into d from public.qr_carts where id = cart;
   assert d = 1000,
     format('M70.11 SUCCESSOR GRANT WIPED: a first-time cancel for a SUPERSEDED attempt cleared the '
-           'live hold''s grant — got %s, want 1000. The clear needs an era predicate; the row count '
-           'only rules out REDELIVERY of the same intent.', d);
+           'live hold''s grant — got %s, want 1000. The clear must skip the superseded verdict; the '
+           'row count only rules out REDELIVERY of the same intent.', d);
 
   -- …and the CURRENT attempt's cancel, matching the era, still releases it.
   select locked_at into pinned_at from public.qr_carts where id = cart;
@@ -297,7 +307,43 @@ begin
   assert d is null,
     'M70.11 OVER-TIGHTENED: the attempt that OWNS the cart''s era must still release its grant';
 
-  raise notice 'M70 promo-grant pin: all 11 cases passed';
+  -- ══ 12. A CANCEL WHOSE LOCK IS ALREADY RELEASED STILL RELEASES THE GRANT ══════════════════════
+  -- The over-tightening case, and CI caught it: the second draft of the clear re-derived the era as
+  -- `locked_at is not distinct from p_attempt`. Two things break under that predicate, and both are
+  -- ordinary production, not corners.
+  --
+  --   · `qr_settlement_cancellations.attempt` is declared "forensics only, never read by the diner
+  --     path" (w23d:105), and `markCanceled` nulls an unparseable one deliberately — "losing the era
+  --     is survivable, losing the verdict is not". A predicate must not make that field authoritative.
+  --   · The cart lock has a TTL (`lib/lock.ts CART_LOCK_TTL`) that auto-releases an abandoned pay
+  --     screen, nulling `locked_at`. The authorization outlives it, so a perfectly ordinary cancel
+  --     naming a REAL era arrives at a cart whose `locked_at` is null — no match, grant leaks, and
+  --     the next checkout on that cart inherits an abandoned attempt's discount.
+  --
+  -- Over-blocking is as bad as under-blocking: a guard tightened until the VALID case fails is not
+  -- safer, it just moves the defect. This case is the valid case.
+  sess := gen_random_uuid(); cart := gen_random_uuid();
+  insert into public.table_sessions (id, qr_code, mode, status, host_seat)
+    values (sess, 'M70C12', 'pickup', 'active', ana);
+  insert into public.qr_carts (id, session_id, promo_code) values (cart, sess, 'M70TEN');
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
+    values (cart, dish, 'Mohinga', 1, 3000, 0, null, 'togo');
+  assert public.mms_pin_promo_grant(cart) = 1000, 'M70.12 fixture drift: pin should be 1000';
+
+  -- The hold was minted under a real era; the TTL then released the lock, so `locked_at` is null.
+  select locked_at into pinned_at from public.qr_carts where id = cart;
+  assert pinned_at is null,
+    'M70.12 fixture drift: this case needs an UNLOCKED cart to stand for the TTL-released lock';
+  rows_first := public.mms_mark_settle_canceled(
+    'pi_m70_c12', cart, 'over_authorized', ana, now() - interval '6 minutes');
+  assert rows_first = 1, format('M70.12 fixture drift: the cancel should insert, got %s', rows_first);
+  select promo_granted_cents into d from public.qr_carts where id = cart;
+  assert d is null,
+    format('M70.12 OVER-TIGHTENED: a cancel naming a real era must still release the grant when the '
+           'lock has already been released — got %s, want null. Keying the clear on `locked_at` '
+           'instead of the verdict reopens the leak for every TTL-expired pay screen.', d);
+
+  raise notice 'M70 promo-grant pin: all 12 cases passed';
 end $$;
 
 rollback;
