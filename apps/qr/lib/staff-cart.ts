@@ -417,6 +417,9 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
               mode: session.mode,
               sessionId,
               total_cents: collectedCents,
+              // M22 (Codex round 2) — the promo's DELIVERED contribution, matching the card path and
+              // the value this settle just consumed a redemption on.
+              promo_cents: totals.promoCents,
               item_count: count ?? 0,
             },
           });

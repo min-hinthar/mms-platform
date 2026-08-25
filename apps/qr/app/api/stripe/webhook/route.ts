@@ -507,6 +507,14 @@ export async function POST(req: NextRequest) {
             // order the same handler just wrote.
             amount_cents: intent.amount_received ?? intent.amount,
             currency: intent.currency,
+            // M22 (Codex round 2) — the promo's DELIVERED contribution, the same figure fulfillment
+            // consumes a redemption on. `promo_applied` fires at APPLY time and records
+            // `mms_promo_check`'s quote, which is what the code was worth against the basket as it
+            // stood then: a reward, a void or a comp landing afterwards all move the delivered
+            // amount, and reward-first can take it to 0. Reporting the quote as the outcome
+            // overstates campaign cost on exactly the orders where the promo gave least. Same
+            // lesson as the amount_cents comment above — report what happened, not what was asked.
+            promo_cents: totals.promoCents,
           },
         });
       } else if (!existing && !cartId) {

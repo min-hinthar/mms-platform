@@ -4,6 +4,23 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Promo reporting records what was delivered, not what was quoted (2026-08-25)
+
+**Codex round 2, and it was right to press.** Round 1 raised the analytics gap and I filed it as
+superseded; round 2 pointed out that once `promoCents` exists and is threaded into both fulfillment
+callers, leaving the reporting on the apply-time quote is a choice rather than a gap — a zero-total
+settle could report a promo's full face while fulfillment consumed it on a smaller contribution, or
+did not consume it at all.
+
+`payment_succeeded` (card) and `staff_settle_cash` both now carry `promo_cents`: the promo's
+DELIVERED contribution, the same figure the redemption is consumed on. `promo_applied` keeps
+recording `mms_promo_check`'s value and is labelled in place as the **quote** — what the code was
+worth against the basket as it stood at apply time. It was always approximate (a void or a comp after
+apply already moved the delivered amount); reward-first just made 0 reachable.
+
+The card event's neighbouring comment already carried this exact lesson from W23c round 2 —
+_"what was COLLECTED, not what was held"_ — one property up. Report what happened, not what was asked.
+
 ### Fulfillment consumes a promo only when the promo delivered (2026-08-25)
 
 **Codex round 1 on the M22 PR, and it falsified the claim the change rested on.** I argued reward-first
