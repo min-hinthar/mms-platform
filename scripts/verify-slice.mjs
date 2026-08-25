@@ -71,12 +71,12 @@ const MUTANTS = [
     replace: "    rewardFaceCents: rewardCents,",
   },
   {
-    id: "totals/shortfall-gated-on-the-face-not-the-applied",
+    id: "totals/shortfall-gated-on-the-applied-not-the-attachment",
     file: "apps/qr/lib/totals-math.ts",
     suite: "lib/totals-math.test.ts",
-    why: "M22 — the gate must be the APPLIED amount. `rewardFaceCents` is truthfully non-zero for a coupon attached to a basket that charges nothing, so gating on the face fires a disclosure with no reward row on screen to qualify — noise where the copy is supposed to be honesty",
-    find: "  if (totals.rewardCents <= 0) return 0;",
-    replace: "  if (totals.rewardFaceCents <= 0) return 0;",
+    why: "M22, Codex round 1 P1 — the gate must be ATTACHMENT. Gating on the applied amount goes silent exactly where the whole coupon is at risk: a basket voided or comped away under an attached coupon drops `rewardCents` to 0 while `qr_carts.applied_reward_id` still holds an unredeemed reward a settle would burn in full — and the applied row keys on the same value, so the Remove control disappears with the warning. This mutant restores the first draft's inverted gate",
+    find: "  if (totals.rewardFaceCents <= 0) return 0;",
+    replace: "  if (totals.rewardCents <= 0) return 0;",
   },
   {
     id: "totals/grocery-in-tip-gate",

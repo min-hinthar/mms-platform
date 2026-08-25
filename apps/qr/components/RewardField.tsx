@@ -5,6 +5,9 @@ import { applyReward, clearReward, type ApplyRewardReason } from "@/lib/cart";
 import { getMyRewardCoupons, type RewardCoupon } from "@/lib/rewards";
 import { failureCopy, useConnectionTruth } from "@/lib/useConnectionTruth";
 
+/** Stable id so the focused Remove control can name the shortfall warning (M22). */
+const SHORTFALL_ID = "reward-shortfall-note";
+
 const dollars = (c: number) => `$${(c / 100).toFixed(c % 100 === 0 ? 0 : 2)}`;
 
 // Per-reason copy (honest + on-brand) — the action returns a reason; never a fabricated state.
@@ -59,7 +62,12 @@ export function RewardField({
       });
   }, []);
 
-  const applied = appliedRewardCents > 0;
+  // M22 (Codex round 1, P1) — the row keys on ATTACHMENT, not on the applied amount. A basket voided
+  // or comped away under an attached coupon drops `appliedRewardCents` to 0, and the old
+  // `appliedRewardCents > 0` took the whole row — including the Remove control — away with it, while
+  // `qr_carts.applied_reward_id` still held the coupon and any settle would redeem it in full. The
+  // moment the diner most needs the affordance is the moment it used to disappear.
+  const applied = appliedRewardCents > 0 || rewardShortfallCents > 0;
 
   // Focus handoff (WCAG 2.4.3): an apply unmounts the tapped coupon button (panel → applied row) and a
   // remove unmounts the Remove button (applied row → "Use a reward"). Move focus to the control that
@@ -205,11 +213,31 @@ export function RewardField({
                 keep burning it and SAY SO, before the diner pays, next to the Remove they'd use if
                 they'd rather save it. States the amount and the consequence; promises nothing. */}
             {rewardShortfallCents > 0 && (
-              <span style={{ display: "block", fontSize: "var(--fs-xs)", color: "var(--t2)" }}>
-                Uses the whole reward — {dollars(rewardShortfallCents)} won’t apply to this order.
-                <span lang="my" style={{ display: "block" }}>
-                  ဒီအော်ဒါမှာ {dollars(rewardShortfallCents)} ပိုနေလို့ မသုံးရပါဘူး
-                </span>
+              <span
+                id={SHORTFALL_ID}
+                style={{ display: "block", fontSize: "var(--fs-xs)", color: "var(--t2)" }}
+              >
+                {appliedRewardCents > 0 ? (
+                  <>
+                    Uses the whole reward — {dollars(rewardShortfallCents)} won’t apply to this
+                    order.
+                    <span lang="my" style={{ display: "block" }}>
+                      ဒီအော်ဒါမှာ {dollars(rewardShortfallCents)} ပိုနေလို့ မသုံးရပါဘူး
+                    </span>
+                  </>
+                ) : (
+                  /* Nothing chargeable is left to discount, but the coupon is still attached and a
+                     settle would spend it whole. Say what paying now costs; the Remove beside it is
+                     the way out. */
+                  <>
+                    Nothing here uses your reward yet — paying now spends all{" "}
+                    {dollars(rewardShortfallCents)} of it.
+                    <span lang="my" style={{ display: "block" }}>
+                      ဒီအော်ဒါမှာ ဆုလက်ဆောင် မသုံးရသေးပါဘူး — အခုပေးရင်{" "}
+                      {dollars(rewardShortfallCents)} လုံးလုံး ကုန်သွားပါမယ်
+                    </span>
+                  </>
+                )}
               </span>
             )}
           </span>
@@ -218,6 +246,13 @@ export function RewardField({
             type="button"
             onClick={remove}
             disabled={busy}
+            /* M22 (Codex round 1, P2) — apply moves focus straight here, and "Remove" alone never
+               says what there is to remove FROM. The warning is inserted asynchronously and sits in
+               no live region, so a screen-reader diner could complete the apply and reach Pay
+               without ever hearing the money sentence. Naming it from the focused control puts it in
+               the same breath as the button, and adds no second live region to compete with the
+               error one below (QA-CHECKLIST §A: one live region per view). */
+            aria-describedby={rewardShortfallCents > 0 ? SHORTFALL_ID : undefined}
             style={{ ...linkBtn, position: "relative", zIndex: 1 }}
           >
             {busy ? "…" : "Remove"}

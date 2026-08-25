@@ -583,13 +583,26 @@ describe("M22 — the shortfall a surface must disclose", () => {
     expect(rewardShortfallCents(t)).toBe(500);
   });
 
-  it("stays 0 when NOTHING applied — a disclosure with no reward line to point at is noise", () => {
-    // A coupon attached to a basket that cannot charge anything. `rewardFaceCents` is truthfully
-    // 500, but there is no reward row on screen for the copy to qualify, so the gate is on the
-    // APPLIED amount. This is the assertion that fails if the gate is moved to the face.
+  it("is the WHOLE face when nothing applied — the worst case, not the quiet one", () => {
+    // A coupon attached to a basket that cannot charge anything (every line voided or comped).
+    //
+    // ⚠️ This assertion was `toBe(0)` on the first draft, gated on the APPLIED amount, with the
+    // rationale that "a disclosure with no reward row to point at is noise". Codex round 1 (P1)
+    // showed the rationale inverts its own case: `rewardFaceCents > 0` means an unredeemed coupon is
+    // still ATTACHED (`mms_reward_discount` reads `qr_carts.applied_reward_id` and never looks at
+    // the lines), a settle can still fulfill and redeem it in full, and the row keyed on the same
+    // value — so the warning went quiet AND the Remove control vanished at the exact moment the
+    // diner's entire coupon was at risk. The gate is attachment now.
     const t = computeTotals([], 0, 500, 0);
     expect(t.rewardFaceCents).toBe(500);
     expect(t.rewardCents).toBe(0);
+    expect(rewardShortfallCents(t)).toBe(500);
+  });
+
+  it("is 0 only when NO coupon is attached at all", () => {
+    // The one case that must stay silent — nothing attached, nothing to lose, nothing to say.
+    const t = computeTotals([line({ unitPriceCents: 5000 })], 0, 0, 0);
+    expect(t.rewardFaceCents).toBe(0);
     expect(rewardShortfallCents(t)).toBe(0);
   });
 

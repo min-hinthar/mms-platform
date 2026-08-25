@@ -60,14 +60,20 @@ export type TotalsLine = {
  * It lives here, not in the checkout component, for the reason W17 paid for twice: a rule left in
  * `Checkout.tsx` sits outside `check-money-coverage`'s MONEY_PATHS and cannot be guarded at all.
  *
- * ⚠️ Gated on `rewardCents > 0`, NOT on the face alone. `rewardFaceCents` states what the attached
- * coupon is worth even when none of it applied (an empty or fully-comped basket), and a disclosure
- * on a basket with no reward line to point at is noise, not honesty.
+ * ⚠️ Gated on ATTACHMENT (`rewardFaceCents > 0`), not on the applied amount — and the first draft of
+ * this function had it the other way round, on the argument that "a disclosure with no reward row to
+ * point at is noise". Codex round 1 (P1) showed that argument inverts the case it was meant to
+ * protect. `rewardFaceCents > 0` means exactly "an unredeemed coupon is attached to this cart"
+ * (`mms_reward_discount` reads `qr_carts.applied_reward_id`; it never looks at the lines), so the
+ * applied amount falling to 0 — a basket voided or comped away under an attached coupon — is not the
+ * quiet case, it is the WORST one: the entire face is at risk and the diner is closest to losing it.
+ * Gating on the applied amount silenced the warning and, because the row keys on the same value, took
+ * the Remove control away with it. The row and the warning both key on attachment now.
  */
 export function rewardShortfallCents(
   totals: Pick<CartTotals, "rewardCents" | "rewardFaceCents">,
 ): number {
-  if (totals.rewardCents <= 0) return 0;
+  if (totals.rewardFaceCents <= 0) return 0;
   return Math.max(totals.rewardFaceCents - totals.rewardCents, 0);
 }
 
