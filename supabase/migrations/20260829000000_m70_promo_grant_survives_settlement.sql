@@ -32,11 +32,15 @@
 -- Stripe idempotency key embeds the amount, so a retry that re-derived a DIFFERENT grant would mint
 -- a second PaymentIntent. First grant wins for as long as the hold does.
 --
--- CLEARED in exactly two places, both of which end the grant's meaning:
+-- CLEARED in exactly three places, each of which ends the grant's meaning:
 --   · a new promo code is applied (the grant was for the old code) — done in the same UPDATE
 --     statement as the code write in `applyPromo`, so the two cannot drift apart;
---   · the settlement is CANCELLED (`mms_mark_settle_canceled`) — the hold is gone, so a later
---     checkout must re-derive honestly rather than inherit an abandoned attempt's discount.
+--   · the settlement is CANCELLED (`mms_mark_settle_canceled`), scoped to the cancelled attempt's
+--     era — the hold is gone, so a later checkout must re-derive honestly rather than inherit an
+--     abandoned attempt's discount;
+--   · the attempt ABANDONS before minting an intent (`mms_release_promo_grant`, called from every
+--     create-intent exit between the pin and a live PaymentIntent). A grant with no hold behind it
+--     authorizes nothing, and the lock release alone does not remove it.
 --
 -- ⚠️ Deliberately NOT cleared on lock release or on capture. Fulfillment re-derives the breakdown
 -- (`getCartTotals` in the webhook) and reconciles it against the captured amount; clearing the pin
@@ -123,8 +127,22 @@ grant execute on function public.mms_pin_promo_grant(uuid) to service_role;
 -- ── 4. a cancelled settlement releases the grant with the hold ───────────────────────────────────
 -- Restated from 20260819300000_w23d_dropped_visibility.sql:232. The insert and its `on conflict do
 -- nothing` are unchanged; the clear rides in the same function so the grant cannot outlive the
--- verdict that ended it. Guarded on the row count for exactly that reason: a REDELIVERED cancel
--- (conflict, 0 rows) must not clear a pin belonging to a newer hold taken since.
+-- verdict that ended it.
+--
+-- ⚠️ The clear is scoped to the CANCELLED ATTEMPT'S ERA, not to the cart (Codex round 1, P1). A row
+-- count of 1 proves only that THIS PaymentIntent had not been recorded before — not that it is the
+-- cart's current attempt. A late webhook for a superseded intent is recorded for the FIRST time
+-- (v_rows = 1) while a successor hold is already live, and a cart-scoped clear would wipe the
+-- successor's grant; its own webhook would then re-derive the live promo and hit the very
+-- reconciliation mismatch this migration exists to prevent.
+--
+-- `manual-capture-run.ts:159-161` states the invariant this restores, three lines above the
+-- `superseded` call site: "The verdict is keyed on the PaymentIntent, so it describes THIS attempt
+-- only and cannot paint over the successor's — which is exactly why the cancellation ledger is
+-- per-intent and not per-cart." The first draft of this clear was per-cart and broke exactly that.
+--
+-- `is not distinct from` rather than `=` so a null attempt matches a null `locked_at` — the same
+-- comparison `mms_settle_precheck_and_void` (w23d:188) uses to decide the era question.
 create or replace function public.mms_mark_settle_canceled(
   p_intent text,
   p_cart uuid,
@@ -140,12 +158,38 @@ begin
   get diagnostics v_rows = row_count;
 
   -- M70 — the hold is gone, so the grant it authorized is gone. A later checkout on this cart must
-  -- re-derive honestly rather than inherit an abandoned attempt's discount.
+  -- re-derive honestly rather than inherit an abandoned attempt's discount. Scoped to the era: only
+  -- the attempt that OWNS the cart's current lock may release its grant.
   if v_rows > 0 then
-    update public.qr_carts set promo_granted_cents = null where id = p_cart;
+    update public.qr_carts
+       set promo_granted_cents = null
+     where id = p_cart
+       and locked_at is not distinct from p_attempt;
   end if;
 
   return v_rows;
 end $$;
 revoke all on function public.mms_mark_settle_canceled(text, uuid, text, uuid, timestamptz) from public, anon, authenticated;
 grant execute on function public.mms_mark_settle_canceled(text, uuid, text, uuid, timestamptz) to service_role;
+
+-- ── 5. an attempt that never minted an intent releases its grant ─────────────────────────────────
+-- Codex round 1, P1. `mms_pin_promo_grant` runs BEFORE the amount is derived, so every exit between
+-- the pin and a live PaymentIntent leaves a grant behind that authorizes nothing: create-intent's
+-- "Empty cart" and tip-ceiling refusals, and its outer catch (a `getCartTotals` throw, a Stripe
+-- failure). Each releases the cart lock, the diner edits the now-unlocked cart, and the next
+-- checkout finds `mms_pin_promo_grant` a no-op because the pin is not null — so the STALE grant
+-- prices the new basket. Both directions are wrong: a $10 grant survives onto a basket that no
+-- longer clears the minimum, and a 0 grant survives onto one that has become eligible.
+--
+-- Cancellation could not cover this: `mms_mark_settle_canceled` records the end of a hold that
+-- EXISTED, and here none ever did.
+--
+-- Deliberately NOT status- or lock-scoped. The caller is abandoning its own attempt on a cart it
+-- holds, and the honest post-condition is simply "no grant" — a guard that could leave one behind
+-- would reintroduce the leak it exists to close.
+create or replace function public.mms_release_promo_grant(p_cart_id uuid)
+returns void language sql security definer set search_path = '' as $$
+  update public.qr_carts set promo_granted_cents = null where id = p_cart_id;
+$$;
+revoke all on function public.mms_release_promo_grant(uuid) from public, anon, authenticated;
+grant execute on function public.mms_release_promo_grant(uuid) to service_role;

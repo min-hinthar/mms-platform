@@ -279,17 +279,33 @@ export async function POST(req: NextRequest) {
     if (pinErr)
       console.error("[create-intent] promo grant not pinned", { cartId, error: pinErr.message });
 
+    // M70 (Codex round 1, P1) — every exit BETWEEN the pin and a live PaymentIntent must release the
+    // grant, because a grant with no hold behind it authorizes nothing. The lock alone is not enough:
+    // the diner edits the now-unlocked cart, re-checks-out, and `mms_pin_promo_grant` is a no-op
+    // (the pin is not null) — so the abandoned attempt's grant prices the NEW basket. Both directions
+    // are wrong: a $10 grant survives onto a basket that no longer clears the minimum, and a 0 grant
+    // survives onto one that has become eligible. Cancellation cannot cover this — that records the
+    // end of a hold that EXISTED, and here none ever did.
+    const abandonAttempt = async (id: string, u: string) => {
+      const { error } = await db.rpc("mms_release_promo_grant", { p_cart_id: id });
+      // Logged, never thrown: this runs on paths that are already returning an error to the diner,
+      // and the pin's own `status = 'open'` gate plus the next attempt's re-derivation bound the
+      // damage. Failing here would replace a stale discount with a stranded lock.
+      if (error) console.error("[create-intent] promo grant not released", { cartId: id, error: error.message });
+      await releaseCartLock(id, u);
+    };
+
     const totals = await getCartTotals(cartId, tipRate);
     const amount = totals.totalCents; // already cents, server-derived
     if (amount <= 0) {
-      await releaseCartLock(cartId, uid);
+      await abandonAttempt(cartId, uid);
       return NextResponse.json({ error: "Empty cart" }, { status: 400 });
     }
     // W19 — the tip ceiling is a DOLLAR amount ($1,000, the cash tip's own bound), enforced here on
     // the DERIVED cents because a rate cannot express a dollar cap. The client clamps to the same
     // constant, so an in-app diner never sees this; it exists for the hostile/raw POST.
     if (!tipWithinAmountCap(totals.tipCents)) {
-      await releaseCartLock(cartId, uid);
+      await abandonAttempt(cartId, uid);
       return NextResponse.json({ error: "Tip exceeds the $1,000.00 maximum" }, { status: 400 });
     }
 
@@ -379,7 +395,27 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     // A post-acquire failure (totals / Stripe / etc.) must not strand the lock — release now so the
     // table isn't frozen on a transient error (the TTL is the backstop). Best-effort; never mask `e`.
-    if (acquired) await releaseCartLock(acquired.cartId, acquired.uid).catch(() => {});
+    //
+    // M70 — and it must not strand the promo GRANT either. This is the path that reaches here after
+    // `mms_pin_promo_grant` succeeded and `getCartTotals` or `paymentIntents.create` then threw: a
+    // pin with no PaymentIntent behind it. Released inline rather than via `abandonAttempt`, which
+    // is scoped to the try block; same two writes, same best-effort posture.
+    if (acquired) {
+      const { cartId: abandonedCart, uid: abandonedUid } = acquired;
+      try {
+        const { error: relErr } = await serviceClient().rpc("mms_release_promo_grant", {
+          p_cart_id: abandonedCart,
+        });
+        if (relErr)
+          console.error("[create-intent] promo grant not released", {
+            cartId: abandonedCart,
+            error: relErr.message,
+          });
+      } catch {
+        /* best-effort, exactly like the lock release below — never mask `e` */
+      }
+      await releaseCartLock(abandonedCart, abandonedUid).catch(() => {});
+    }
     if (e instanceof AuthzError)
       return NextResponse.json({ error: e.message }, { status: e.status });
     const err = e as Error;

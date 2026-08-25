@@ -29,6 +29,10 @@
 --      wipe a pin belonging to a newer hold.
 --   9. A NEW CODE VOIDS THE OLD GRANT — the app clears it in the same UPDATE as the code write;
 --      this asserts the column actually allows that and the reader then re-derives.
+--  10. AN ABANDONED ATTEMPT releases its grant — a pin with no PaymentIntent behind it authorizes
+--      nothing, and cancellation cannot cover it (that records the end of a hold that EXISTED).
+--  11. A SUPERSEDED CANCEL must not clear the SUCCESSOR's grant. The row count only rules out
+--      redelivery of the same intent; a first-time cancel for a stale attempt still inserts.
 --
 -- Run against any QR DB (rolls back — leaves NO data behind):
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/m70_promo_grant_survives_settlement_test.sql
@@ -42,7 +46,7 @@ declare
   ana   uuid := '00000000-0000-0000-0000-0000000070a0';
   dish  text := 'cccccccc-0000-4000-8000-000000000070';
   sess  uuid; cart uuid;
-  d integer; pinned integer; rows_first integer; rows_again integer;
+  d integer; pinned integer; rows_first integer; rows_again integer; pinned_at timestamptz;
 begin
   -- $10 off, needs a $25 basket. Every case below builds a $30 basket and shrinks or lapses it.
   insert into public.promo_codes (code, kind, value, max_uses, used, active, per_session_limit,
@@ -224,7 +228,76 @@ begin
     format('M70.9 STALE GRANT: after a code change the reader must fall back to the live value — '
            'got %s vs live %s', d, public.mms_promo_discount_live(cart));
 
-  raise notice 'M70 promo-grant pin: all 9 cases passed';
+  -- ══ 10. AN ABANDONED ATTEMPT RELEASES ITS GRANT (Codex round 1, P1) ══════════════════════════
+  -- `mms_pin_promo_grant` runs BEFORE the amount is derived, so every create-intent exit between the
+  -- pin and a live PaymentIntent leaves a grant authorizing nothing. Cancellation cannot cover it —
+  -- that records the end of a hold that EXISTED. Without the release, the diner edits the unlocked
+  -- cart, re-checks-out, and the pin is a no-op (not null), so the abandoned grant prices the NEW
+  -- basket: a $10 grant onto a basket that no longer clears the minimum, or a 0 grant onto one that
+  -- has become eligible.
+  sess := gen_random_uuid(); cart := gen_random_uuid();
+  insert into public.table_sessions (id, qr_code, mode, status, host_seat)
+    values (sess, 'M70C10', 'pickup', 'active', ana);
+  insert into public.qr_carts (id, session_id, promo_code) values (cart, sess, 'M70TEN');
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
+    values (cart, dish, 'Mohinga', 1, 3000, 0, null, 'togo');
+  assert public.mms_pin_promo_grant(cart) = 1000, 'M70.10 fixture drift: pin should be 1000';
+
+  perform public.mms_release_promo_grant(cart);
+  select promo_granted_cents into d from public.qr_carts where id = cart;
+  assert d is null,
+    format('M70.10 ABANDONED GRANT SURVIVED: got %s, want null. A pin with no PaymentIntent behind '
+           'it must not price the next checkout.', d);
+
+  -- …and the reader is back on the live path, which is the point of releasing it.
+  update public.qr_cart_items set state = 'voided' where cart_id = cart;
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
+    values (cart, dish, 'Mohinga', 1, 2400, 0, null, 'togo');
+  d := public.mms_promo_discount(cart);
+  assert d = 0,
+    format('M70.10 STALE GRANT STILL APPLIED: a $24 basket must not earn the $25-min promo after '
+           'the attempt was abandoned — got %s', d);
+
+  -- ══ 11. A SUPERSEDED CANCEL MUST NOT CLEAR THE SUCCESSOR'S GRANT (Codex round 1, P1) ══════════
+  -- The row-count guard alone is not enough. A row count of 1 proves only that THIS PaymentIntent
+  -- had not been recorded before — not that it is the cart's current attempt. A late webhook for a
+  -- superseded intent is recorded for the FIRST time (v_rows = 1) while a successor hold is already
+  -- live; a cart-scoped clear would wipe the successor's grant and its webhook would then re-derive
+  -- the live promo and hit the reconciliation mismatch this migration exists to prevent.
+  --
+  -- `manual-capture-run.ts:159-161` states the invariant: the cancellation ledger is per-INTENT
+  -- precisely so a superseded attempt "cannot paint over the successor's".
+  sess := gen_random_uuid(); cart := gen_random_uuid();
+  insert into public.table_sessions (id, qr_code, mode, status, host_seat)
+    values (sess, 'M70C11', 'pickup', 'active', ana);
+  insert into public.qr_carts (id, session_id, promo_code, locked, locked_at, locked_by)
+    values (cart, sess, 'M70TEN', true, now(), ana);
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
+    values (cart, dish, 'Mohinga', 1, 3000, 0, null, 'togo');
+  assert public.mms_pin_promo_grant(cart) = 1000, 'M70.11 fixture drift: pin should be 1000';
+
+  -- A late cancel for an OLDER attempt: never recorded before (so v_rows = 1), but its era is not
+  -- the cart's. `now() - 10 minutes` stands in for the superseded attempt's `locked_at`.
+  rows_first := public.mms_mark_settle_canceled(
+    'pi_m70_c11_old', cart, 'superseded', ana, now() - interval '10 minutes');
+  assert rows_first = 1,
+    format('M70.11 DEGENERATE: the stale cancel must insert (v_rows=1) or this case proves nothing '
+           'about the era predicate — got %s', rows_first);
+  select promo_granted_cents into d from public.qr_carts where id = cart;
+  assert d = 1000,
+    format('M70.11 SUCCESSOR GRANT WIPED: a first-time cancel for a SUPERSEDED attempt cleared the '
+           'live hold''s grant — got %s, want 1000. The clear needs an era predicate; the row count '
+           'only rules out REDELIVERY of the same intent.', d);
+
+  -- …and the CURRENT attempt's cancel, matching the era, still releases it.
+  select locked_at into pinned_at from public.qr_carts where id = cart;
+  rows_first := public.mms_mark_settle_canceled('pi_m70_c11_now', cart, 'over_authorized', ana, pinned_at);
+  assert rows_first = 1, format('M70.11 fixture drift: current-era cancel should insert, got %s', rows_first);
+  select promo_granted_cents into d from public.qr_carts where id = cart;
+  assert d is null,
+    'M70.11 OVER-TIGHTENED: the attempt that OWNS the cart''s era must still release its grant';
+
+  raise notice 'M70 promo-grant pin: all 11 cases passed';
 end $$;
 
 rollback;

@@ -2050,6 +2050,7 @@ export type Database = {
         }
         Returns: string
       }
+      mms_release_promo_grant: { Args: { p_cart_id: string }; Returns: undefined }
       mms_resolve_approval: {
         Args: { p_approver: string; p_decision: string; p_id: string }
         Returns: string

@@ -54,8 +54,32 @@ ones) now asserts the pin is taken AND taken before the amount is derived; both 
 first. The exemption comment now says what it actually covers. **An exemption is a claim about what
 is covered elsewhere; when a file grows a rule the claim does not cover, the exemption is stale.**
 
-Nine SQL cases (registered in `ci.yml`), one per trigger plus the zero-pin, idempotence, cancel-
-release, redelivery and code-change rules. Case 1 is a control with no pin — without it the file
+**Codex round 1 found two P1s in the pin's lifecycle, both real, both mine.**
+
+The first: `mms_pin_promo_grant` runs before the amount is derived, so every create-intent exit
+between the pin and a live PaymentIntent — the "Empty cart" and tip-ceiling refusals, and the outer
+catch on a `getCartTotals` throw or a Stripe failure — left a grant authorizing nothing. The diner
+edits the now-unlocked cart, re-checks-out, and the pin is a no-op because it is not null, so the
+abandoned attempt's grant prices the new basket. Cancellation could not cover it: that records the
+end of a hold that _existed_. `mms_release_promo_grant` now runs on all three paths.
+
+The second is sharper, and the codebase had already written the rule down. My clear inside
+`mms_mark_settle_canceled` was scoped to the CART and guarded only on the insert's row count — which
+rules out a redelivery of the same intent, but not a _first-time_ cancel for a superseded attempt
+arriving while a successor hold is live. That would wipe the successor's grant, and its webhook would
+then re-derive the live promo and hit the exact reconciliation mismatch this change exists to
+prevent. `manual-capture-run.ts:159-161`, three lines above the `superseded` call site:
+
+> _"The verdict is keyed on the PaymentIntent, so it describes THIS attempt only and cannot paint
+> over the successor's — which is exactly why the cancellation ledger is per-intent and not
+> per-cart."_
+
+The clear is era-scoped now (`locked_at is not distinct from p_attempt`, the same comparison
+`mms_settle_precheck_and_void` uses). **Third time this session the fix was already written next
+door** — after `lock.ts` three lines up and the analytics lesson one property above.
+
+Eleven SQL cases (registered in `ci.yml`), one per trigger plus the zero-pin, idempotence, cancel-
+release, redelivery, code-change, abandoned-attempt and superseded-era rules. Case 1 is a control with no pin — without it the file
 could not tell "the pin works" from "the promo never drops any more" — and each lapse case asserts
 the _live_ value is 0 alongside, so none of them can pass vacuously.
 
