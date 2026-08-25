@@ -20,7 +20,9 @@ export const CART_LOCK_TTL_MS = 5 * 60 * 1000;
 // effective-settling check in lib/authz.ts both use this, on the app clock).
 export const SETTLE_TTL_MS = 10 * 60 * 1000;
 
-export type LockResult = "acquired" | "held_by_other" | "closed";
+/** M119 (b) — `unavailable` is the honest fourth answer: we could not READ the cart's status, so
+ *  we do not know whether it is open. It is not `closed`; see the acquire path below. */
+export type LockResult = "acquired" | "held_by_other" | "closed" | "unavailable";
 export type SettleResult = "acquired" | "locked" | "settling_other" | "closed";
 
 /**
@@ -65,7 +67,23 @@ export async function acquireCartLock(cartId: string, uid: string): Promise<Lock
   if (error) throw error;
   if ((count ?? 0) > 0) return "acquired";
   // 0 rows: closed, or a FRESH lock held by another. Read the status to message it honestly.
-  const { data: cart } = await db.from("qr_carts").select("status").eq("id", cartId).maybeSingle();
+  //
+  // M119 (b) — bind the error, because "honestly" is exactly what dropping it prevented. This is the
+  // SAME defect the comment above already describes and fixes one statement up: "The old code
+  // destructured only `data`, ignored that error, saw 0 rows, and returned 'held_by_other'". That
+  // fix landed on the UPDATE (`if (error) throw error;`) and the identical shape survived three
+  // lines below, on the read whose whole job is to tell the diner WHY.
+  //
+  // Unbound, a failed read makes `cart` null, `cart?.status === "open"` false, and the answer
+  // `closed` — so `create-intent` tells a diner whose order is open that it is "no longer open",
+  // and they cannot check out. `unavailable` instead: the caller maps it to a retryable 503, which
+  // is what an outage is.
+  const { data: cart, error: statusError } = await db
+    .from("qr_carts")
+    .select("status")
+    .eq("id", cartId)
+    .maybeSingle();
+  if (statusError) return "unavailable";
   return cart?.status === "open" ? "held_by_other" : "closed";
 }
 

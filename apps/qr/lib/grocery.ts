@@ -70,11 +70,29 @@ export async function scanAdd(
   if (settling) return { ok: false as const, reason: "settling" as const };
 
   const db = serviceClient();
-  const { data: item } = await db
+  const { data: item, error: itemError } = await db
     .from("grocery_items")
     .select("barcode,name,price_cents,tax_category,ebt_eligible,weighed,available")
     .eq("barcode", input.barcode)
     .maybeSingle();
+  // M119 (d) — an unreadable catalog read is NOT "no such barcode", and here the difference is a
+  // destroyed scan rather than a wrong sentence. `unknown_barcode` sits in `grocery-queue.ts`'s
+  // REJECT_REASONS, so the offline queue treats it as definitive: dequeue, tell the shopper, never
+  // retry. A blip during a reconnect drain therefore threw the scan away permanently — while the
+  // queue's own fall-through (`return "retry"`) names `unreadable` as the bucket for exactly this.
+  //
+  // Nothing else needs to change to accept it: `ScanAddFailure` already includes `CartUnavailable`,
+  // whose `unreadable` variant is documented as "a failed read … the caller must offer Retry and
+  // MUST NOT offer to start a fresh basket"; `isTerminal("unreadable")` is false, so the drain does
+  // not mark the cart gone; and `app/grocery/page.tsx`'s final `else` already renders honest
+  // transient copy for it. The right answer was already in this codebase — this read wasn't using it.
+  if (itemError) {
+    console.error("[grocery] catalog read failed", {
+      barcode: input.barcode,
+      error: itemError.message,
+    });
+    return { ok: false as const, reason: "unreadable" as const, barcode: input.barcode };
+  }
   if (!item) return { ok: false as const, reason: "unknown_barcode", barcode: input.barcode };
   if (!item.available) return { ok: false as const, reason: "unavailable", barcode: input.barcode };
   if (item.weighed) return { ok: false as const, reason: "weighed_item", barcode: input.barcode }; // needs a scale — deferred

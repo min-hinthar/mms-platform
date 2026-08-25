@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
       );
 
     const db = serviceClient();
-    const { data: share } = await db
+    const { data: share, error: shareError } = await db
       .from("qr_cart_shares")
       .select(
         "id,subtotal_cents,discount_cents,service_charge_cents,tax_cents,status,stripe_payment_intent_id",
@@ -48,6 +48,15 @@ export async function POST(req: NextRequest) {
       .eq("cart_id", cartId)
       .eq("seat_id", uid)
       .maybeSingle();
+    // M119 (c) — an unreadable read is not a membership verdict. This handler already holds itself
+    // to that standard for the SAME table 200 lines below (`nowErr` → 503, "an UNREADABLE re-read
+    // must not pick the destructive branch"); the first read just never bound its error, so a blip
+    // told a payer looking at their own share that they are not part of the split.
+    if (shareError)
+      return NextResponse.json(
+        { error: "Couldn’t start your payment — please try again." },
+        { status: 503 },
+      );
     if (!share)
       return NextResponse.json({ error: "You’re not part of this split." }, { status: 400 });
     // Cart-open guard (S1.3): never authorize a share on a cart that's no longer open — a staff cash

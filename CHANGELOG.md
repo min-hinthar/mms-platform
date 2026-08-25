@@ -4,6 +4,54 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The rest of the fabricated diagnoses — and two of them weren't (2026-08-25)
+
+**M119 closed.** Four remaining sites where a refusal stated a cause the code never established. Two
+turned out to be worse than filed: not wrong sentences, wrong **outcomes**.
+
+**`grocery.ts:73` destroyed the shopper's scan.** `unknown_barcode` sits in `grocery-queue.ts`'s
+`REJECT_REASONS`, so the offline queue treats it as definitive — dequeue, tell the shopper, never
+retry. An unreadable catalog read answering `unknown_barcode` therefore **permanently discarded a
+queued scan** during a reconnect drain. The queue's own fall-through names the right bucket:
+
+```ts
+if (REJECT_REASONS.has(result.reason)) return "rejected";   // dequeue + tell the shopper
+…
+return "retry";                                            // locked / settling / unreadable
+```
+
+The fix needed nothing new. `ScanAddFailure` already includes `CartUnavailable`, whose `unreadable`
+variant is documented as _"a failed read … the caller must offer Retry and MUST NOT offer to start a
+fresh basket"_; `isTerminal` is false for it, `classifyReplay` already retries it, and the page's
+final `else` already renders honest transient copy. The right answer was in the codebase — this one
+read wasn't using it.
+
+**`reorder.ts:128` handed back an empty cart.** An empty `itemById` doesn't mean nothing is
+available, it means we never asked — so every food line was skipped as `gone` and the diner got one
+false statement per dish. Refusing the whole reorder is the conservative direction: the alternative
+skips the availability check and re-adds a delisted dish, which is what W23a exists to prevent.
+
+The other two are the filed shape:
+
+- **`lock.ts:68`** returned `closed` on an unreadable status read, so checkout told a diner whose
+  order is open that it is _"no longer open."_ `LockResult` gains `unavailable` → a retryable 503.
+- **`create-share-intent:51`** denied membership on a dropped error — a **400**, client fault, for
+  our outage.
+
+**The through-line, and the thing worth carrying:** in `lock.ts`, `create-share-intent` and
+`reorder.ts`, the identical shape sat **immediately beside a corrected instance**. `lock.ts` is the
+sharpest — the comment one statement above the defect describes this exact bug and fixes it on the
+UPDATE, where it had given _every_ checkout a spurious 409 after the PostgREST 14 upgrade. The fix
+landed three lines too high. Fixing one read does not fix its neighbour, and the neighbour is where
+the next defect lives.
+
+All four watched failing first; four mutants (215 total).
+
+⚠️ The reorder fixture initially passed at an **earlier** guard — the order-lookup mock lacked
+`earned_by`/`status`, so both cases bailed out before the read under test and the defect case was red
+for an unrelated reason. An anti-degeneracy assert now pins that the case reaches the availability
+logic at all.
+
 ### The tab's payment mutex failed open (2026-08-25)
 
 **M119 (a) closed — the first item off the class M116 uncovered, and the only one that was a wrong

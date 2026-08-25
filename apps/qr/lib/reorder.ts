@@ -125,9 +125,28 @@ export async function reorderOrder(raw: {
   const foodIds = [
     ...new Set(lines.filter((l) => UUID_RE.test(l.menu_item_id)).map((l) => l.menu_item_id)),
   ];
-  const { data: itemRows } = foodIds.length
+  //
+  // M119 (e) — bind the error. Unbound, a failed read left `itemById` EMPTY, and an empty map does
+  // not mean "nothing is available" — it means we never asked. Every food line then failed the
+  // availability lookup below and the diner was told each dish "isn't available today", ending with
+  // an empty cart and a shelf of false statements about the menu. That is a functional failure
+  // wearing a product answer.
+  //
+  // Refusing the whole reorder is the conservative direction and the right one here: the alternative
+  // is skipping the availability check, which would re-add a delisted or sold-out dish — precisely
+  // what W23a's server-side half exists to prevent. A reorder is a convenience the diner can retry;
+  // selling them a pulled dish is not recoverable that cheaply.
+  //
+  // Note the neighbouring read was already fixed for this same shape: the comment above records that
+  // M108 removed a session-mode read which "discarded its error", in this very function.
+  const { data: itemRows, error: itemsError } = foodIds.length
     ? await db.from("menu_items").select("id,is_active,is_sold_out").in("id", foodIds)
-    : { data: [] as { id: string; is_active: boolean; is_sold_out: boolean }[] };
+    : { data: [] as { id: string; is_active: boolean; is_sold_out: boolean }[], error: null };
+  if (itemsError)
+    return {
+      ok: false as const,
+      error: "We’re having trouble on our end — try again in a moment.",
+    };
   const itemById = new Map((itemRows ?? []).map((i) => [i.id, i]));
 
   let added = 0;
