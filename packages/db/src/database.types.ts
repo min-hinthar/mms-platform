@@ -1980,6 +1980,7 @@ export type Database = {
           slot_time: string
         }[]
       }
+      mms_pin_promo_grant: { Args: { p_cart_id: string }; Returns: number }
       mms_promo_attempt: {
         Args: {
           p_max?: number
@@ -1988,7 +1989,6 @@ export type Database = {
         }
         Returns: boolean
       }
-      mms_pin_promo_grant: { Args: { p_cart_id: string }; Returns: number }
       mms_promo_check: {
         Args: { p_cart_id: string; p_code: string }
         Returns: {
