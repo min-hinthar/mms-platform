@@ -325,6 +325,10 @@ export async function POST(req: NextRequest) {
           p_amount_cents: capturedCents,
           p_subtotal_cents: totals.subtotalCents,
           p_discount_cents: totals.discountCents,
+          // M22 — the PROMO's own contribution, so fulfillment consumes a redemption only when the
+          // code actually delivered. `p_discount_cents` folds promo + reward, and a reward covering
+          // the whole basket clamps the promo to 0 while keeping that sum positive.
+          p_promo_cents: totals.promoCents,
           p_service_charge_cents: totals.serviceChargeCents,
           p_tax_cents: totals.taxCents,
           p_tip_cents: totals.tipCents,
@@ -503,6 +507,14 @@ export async function POST(req: NextRequest) {
             // order the same handler just wrote.
             amount_cents: intent.amount_received ?? intent.amount,
             currency: intent.currency,
+            // M22 (Codex round 2) — the promo's DELIVERED contribution, the same figure fulfillment
+            // consumes a redemption on. `promo_applied` fires at APPLY time and records
+            // `mms_promo_check`'s quote, which is what the code was worth against the basket as it
+            // stood then: a reward, a void or a comp landing afterwards all move the delivered
+            // amount, and reward-first can take it to 0. Reporting the quote as the outcome
+            // overstates campaign cost on exactly the orders where the promo gave least. Same
+            // lesson as the amount_cents comment above — report what happened, not what was asked.
+            promo_cents: totals.promoCents,
           },
         });
       } else if (!existing && !cartId) {

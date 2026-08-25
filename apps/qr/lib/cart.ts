@@ -369,6 +369,10 @@ export async function applyPromo(cartId: string, code: string): Promise<ApplyPro
     properties: {
       cart_id: input.cartId,
       promo_code: normalized,
+      // The QUOTE, not the outcome: what the code is worth against the basket as it stands right
+      // now. A reward, a void or a comp landing afterwards all move what is actually delivered, and
+      // M22's reward-first clamp can take it to 0. The delivered figure is `promo_cents` on
+      // `payment_succeeded` / `staff_settle_cash` — the one fulfillment consumes a redemption on.
       discount_cents: check.discount_cents,
     },
   });

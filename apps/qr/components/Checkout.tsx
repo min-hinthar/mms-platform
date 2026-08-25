@@ -31,6 +31,7 @@ import {
 } from "@/lib/tip";
 import { menuHref, menuLinkText } from "@/lib/menu-href";
 import { taxRate } from "@/lib/tax";
+import { rewardShortfallCents } from "@/lib/totals-math";
 import { normalizePickupSlot } from "@/lib/pickup-slot";
 import { pickupContactMissing } from "@/lib/pickup-contact";
 import { DINER_STATE_COPY } from "@/lib/line-state-copy";
@@ -67,6 +68,14 @@ const T = (k: DictKey) => t("en", k);
 // of order including sales tax %?"). Derived from the one authority (lib/tax.ts) so a rate change
 // there re-labels every surface; never a transcribed literal.
 const TAX_NOTE = `(${(taxRate() * 100).toFixed(1)}%)`;
+
+/** M22 — the pay-step shortfall note. Muted like the other sub-row notes; it qualifies the reward
+ *  row above it rather than competing with the total below. */
+const rewardShortfallNote: CSSProperties = {
+  margin: "2px 0 0",
+  fontSize: "var(--fs-xs)",
+  color: "var(--t2)",
+};
 function My({
   k,
   inline = false,
@@ -1030,10 +1039,24 @@ export function Checkout({
               <BillLines items={viewItems} isGroup={isGroup} splitContext={splitContext} />
               <dl style={{ borderTop: "1px solid var(--bd)", paddingTop: 6, marginTop: 8 }}>
                 <Row k="rowSubtotal" cents={payTotals.subtotalCents} />
-                {payTotals.discountCents - payTotals.rewardCents > 0 && (
-                  <Row k="rowPromo" cents={-(payTotals.discountCents - payTotals.rewardCents)} />
-                )}
+                {payTotals.promoCents > 0 && <Row k="rowPromo" cents={-payTotals.promoCents} />}
                 {payTotals.rewardCents > 0 && <Row k="rowReward" cents={-payTotals.rewardCents} />}
+                {/* M22 (Codex round 1, P1) — the shortfall has to be repeated HERE, not just on the
+                    review step's RewardField. `payTotals` is re-derived after the cart lock, so a
+                    peer edit or a void landing between the last review render and that locked read
+                    can produce a shortfall — or grow one — that the diner has never seen, and this
+                    screen is the last thing before the card confirmation. Derived from the same
+                    authoritative totals the amount is minted from, never re-computed here. */}
+                {rewardShortfallCents(payTotals) > 0 && (
+                  <p style={rewardShortfallNote}>
+                    {payTotals.rewardCents > 0
+                      ? `Uses the whole reward — $${(rewardShortfallCents(payTotals) / 100).toFixed(2)} won’t apply to this order.`
+                      : `Nothing here uses your reward — paying now spends all $${(rewardShortfallCents(payTotals) / 100).toFixed(2)} of it.`}
+                    <span lang="my" style={{ display: "block" }}>
+                      ဆုလက်ဆောင် အားလုံး သုံးသွားပါမယ်
+                    </span>
+                  </p>
+                )}
                 {/* The rate note only where tax was actually applied — "(10.5%)" beside $0.00 on a
                     fully-exempt basket would name a rate that touched nothing (review LOW). */}
                 <Row
@@ -1445,9 +1468,7 @@ export function Checkout({
                 <BillLines items={viewItems} isGroup={isGroup} splitContext={splitContext} />
                 <dl style={{ borderTop: "1px solid var(--bd)", paddingTop: 6, marginTop: 8 }}>
                   <Row k="rowSubtotal" cents={totals.subtotalCents} />
-                  {totals.discountCents - totals.rewardCents > 0 && (
-                    <Row k="rowPromo" cents={-(totals.discountCents - totals.rewardCents)} />
-                  )}
+                  {totals.promoCents > 0 && <Row k="rowPromo" cents={-totals.promoCents} />}
                   {totals.rewardCents > 0 && <Row k="rowReward" cents={-totals.rewardCents} />}
                   <Row
                     k="rowTax"
@@ -1520,6 +1541,7 @@ export function Checkout({
               <RewardField
                 cartId={cartId}
                 appliedRewardCents={totals.rewardCents}
+                rewardShortfallCents={rewardShortfallCents(totals)}
                 onChanged={refresh}
               />
             )}
@@ -1652,9 +1674,7 @@ export function Checkout({
               <div className="card card-textured checkout-receipt">
                 <dl>
                   <Row k="rowSubtotal" cents={totals.subtotalCents} />
-                  {totals.discountCents - totals.rewardCents > 0 && (
-                    <Row k="rowPromo" cents={-(totals.discountCents - totals.rewardCents)} />
-                  )}
+                  {totals.promoCents > 0 && <Row k="rowPromo" cents={-totals.promoCents} />}
                   {totals.rewardCents > 0 && <Row k="rowReward" cents={-totals.rewardCents} />}
                   <Row
                     k="rowTax"

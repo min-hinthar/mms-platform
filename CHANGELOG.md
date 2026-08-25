@@ -4,6 +4,94 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Promo reporting records what was delivered, not what was quoted (2026-08-25)
+
+**Codex round 2, and it was right to press.** Round 1 raised the analytics gap and I filed it as
+superseded; round 2 pointed out that once `promoCents` exists and is threaded into both fulfillment
+callers, leaving the reporting on the apply-time quote is a choice rather than a gap — a zero-total
+settle could report a promo's full face while fulfillment consumed it on a smaller contribution, or
+did not consume it at all.
+
+`payment_succeeded` (card) and `staff_settle_cash` both now carry `promo_cents`: the promo's
+DELIVERED contribution, the same figure the redemption is consumed on. `promo_applied` keeps
+recording `mms_promo_check`'s value and is labelled in place as the **quote** — what the code was
+worth against the basket as it stood at apply time. It was always approximate (a void or a comp after
+apply already moved the delivered amount); reward-first just made 0 reachable.
+
+The card event's neighbouring comment already carried this exact lesson from W23c round 2 —
+_"what was COLLECTED, not what was held"_ — one property up. Report what happened, not what was asked.
+
+### Fulfillment consumes a promo only when the promo delivered (2026-08-25)
+
+**Codex round 1 on the M22 PR, and it falsified the claim the change rested on.** I argued reward-first
+was free because "a promo's budget is a redemption COUNT — it costs the same one redemption either
+way." It does not. `mms_fulfill_order` and `mms_fulfill_cash_order` both gated consumption on
+`p_discount_cents > 0` — the **combined** discount, which is not a fact about the promo at all. A
+reward large enough to cover the basket clamps the promo to 0 while keeping that sum positive, so the
+code was consumed having delivered **nothing**: `promo_codes.used` incremented and a
+`promo_redemptions` row landed, spending global and per-session budget that bought no discount.
+
+⚠️ **The hole PRE-EXISTS — M22 widened it, it did not dig it.** An attached code that has expired or
+fallen under its min-subtotal already made `mms_promo_discount` return 0 while an applied reward kept
+the combined value positive. Reward-first simply made a second, more ordinary route to the same
+place. Both are closed here.
+
+`CartTotals` gains `promoCents` — the promo's own post-reward contribution, derived once beside the
+clamp — and both fulfillment RPCs take `p_promo_cents` and gate on it. The parameter is added LAST,
+DEFAULTED, and the predicate coalesces to the old value, so a caller that has not been updated keeps
+exactly today's behaviour: the migration is safe to land ahead of the app deploy rather than in
+lockstep with it. Adding a parameter makes a NEW signature rather than replacing the old one
+(Postgres keys functions by argument types), so each old signature is dropped first — which drops its
+grants, hence the explicit re-grants.
+
+`supabase/tests/m22_promo_consumed_on_its_own_contribution_test.sql` (registered in `ci.yml`) carries
+four cases: the defect, the legitimate consume (without which deleting `mms_promo_consume` outright
+would leave the file green), the omitted-parameter fallback that makes the deploy safe, and the cash
+path — the same gate behind a different door. `promoCents` also replaced the three places
+`Checkout.tsx` re-derived the promo as `discountCents - rewardCents`.
+
+### A reward coupon stopped being burned at less than its face (2026-08-25)
+
+**M22 closed.** `mms_redeem_cart_reward` flips `redeemed_at` unconditionally, so a coupon is spent in
+full whatever it delivered — while `computeTotals` clamped the reward to whatever the promo left of
+the subtotal. The gap between the two was value destroyed silently, for one diner, permanently.
+
+**The fix that costs nothing: the reward clamps FIRST.** Both orders equal `min(promo + reward,
+subtotal)` — the diner's total, the tax base, the order snapshot and the promo's redemption
+accounting are byte-identical either way, which the new order-independence sweep measures rather than
+asserts. All the order decides is **which instrument absorbs the clamp**, and the two are not alike:
+
+|               | clamped                                                              |                                                  |
+| ------------- | -------------------------------------------------------------------- | ------------------------------------------------ |
+| reward coupon | single-use, personal, **destroyed** on redemption                    | every discarded cent is gone for that diner      |
+| promo code    | budget is a redemption **count**, consumed by `p_discount_cents > 0` | costs the same one redemption at 100¢ as at 600¢ |
+
+Clamping the destructible one first was strictly the worse of two identically-priced choices. Reward-
+first removes the promo collision outright.
+
+**What it can't fix, the diner is now told.** A coupon still loses value when the whole chargeable
+basket is smaller than its face. Owner's call (2026-08-25) was **burn in full, but disclose it**, so
+`CartTotals` carries `rewardFaceCents` beside the clamped `rewardCents`, `rewardShortfallCents()`
+derives the residual, and the applied-reward row says so bilingually — next to the Remove the diner
+would use if they'd rather save it. It promises nothing and states the amount.
+
+⚠️ **The registry's own repro was unreachable.** M22 was filed with subtotal $10 / promo $6 / reward
+$9. Prod's `mms_rewards_config` is `reward_base_cents` **500** against `reward_min_redeem_cents`
+**5000**, so a $9 coupon does not exist and a $10 basket is refused at apply. Real exposure was ≤ the
+coupon's $5 face, reached either by a promo eating the base or by the basket shrinking after apply —
+the numbers came from a unit fixture and had never been checked against the live config.
+
+⚠️ `rewardFaceCents` is deliberately non-zero on a basket that charges nothing: it states what the
+attached coupon is _worth_, which is a fact about the coupon. The disclosure gates on the **applied**
+amount instead, so it stays quiet with no reward row to qualify — and blanking the face would have
+hidden the worst case, a basket that shrank away under an attached coupon.
+
+Three rules, each watched failing first: reverting the ordering reddens 4 (`expected 400 to be 900`,
+plus the sweep's anti-degeneracy assert), deriving the face from the clamp reddens 6 (`expected 400
+not to be 400`), gating the disclosure on the face reddens 1 (`expected 500 to be 0`). The stale
+`totals/reward-clamp-order` mutant MOVED to the promo clamp rather than being deleted — the second
+clamp is what keeps the total non-negative, and it changed owner.
+
 ### The rest of the fabricated diagnoses — and two of them weren't (2026-08-25)
 
 **M119 closed.** Four remaining sites where a refusal stated a cause the code never established. Two

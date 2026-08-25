@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeTotals, type TotalsLine } from "./totals-math";
+import { computeTotals, rewardShortfallCents, type TotalsLine } from "./totals-math";
 
 /**
  * W8a — the charge invariants (recomputed for W16a: service charge RETIRED, tax rate 0.105).
@@ -66,6 +66,8 @@ describe("invariant 1 — voided and comped lines are excluded from every base",
       subtotalCents: 2000,
       discountCents: 0,
       rewardCents: 0,
+      rewardFaceCents: 0,
+      promoCents: 0,
       serviceChargeCents: 0,
       taxCents: 210,
       tipCents: 400,
@@ -91,11 +93,18 @@ describe("invariant 1 — voided and comped lines are excluded from every base",
     expect(totals.totalCents).toBe(3000);
   });
 
-  it("returns an all-zero breakdown for an empty cart without dividing by zero", () => {
+  it("returns an all-zero CHARGE for an empty cart without dividing by zero", () => {
+    // Every charged figure is 0. `rewardFaceCents` is NOT, and deliberately so: it states what the
+    // attached coupon is WORTH, which is a fact about the coupon, not about the basket. Zeroing it
+    // when nothing applies would blank the field in precisely the worst case — a basket that shrank
+    // away under an attached coupon, where the entire face is at risk — so the disclosure gates on
+    // `rewardCents > 0 && rewardFaceCents > rewardCents` instead, and stays quiet here on its own.
     expect(computeTotals([], 500, 500, 0.2)).toEqual({
       subtotalCents: 0,
       discountCents: 0,
       rewardCents: 0,
+      rewardFaceCents: 500,
+      promoCents: 0,
       serviceChargeCents: 0,
       taxCents: 0,
       tipCents: 0,
@@ -114,6 +123,8 @@ describe("invariant 2 — the discount clamp ORDER", () => {
       subtotalCents: 1000,
       discountCents: 1000,
       rewardCents: 0,
+      rewardFaceCents: 0,
+      promoCents: 1000,
       serviceChargeCents: 0,
       taxCents: 0,
       tipCents: 0,
@@ -121,27 +132,80 @@ describe("invariant 2 — the discount clamp ORDER", () => {
     });
   });
 
-  it("CASE B (M22 pin) — the reward clamps to what remains AFTER the promo", () => {
-    // ORDER MATTERS. subtotal 1000, promo 600 → remaining 400. Reward 900 clamps to 400.
-    // If the two clamped independently against the subtotal, the discount would be 600 + 900 = 1500
-    // and the total would go NEGATIVE.
+  it("CASE B (M22) — the REWARD clamps first; the promo takes the remainder", () => {
+    // ORDER MATTERS, and this is the fixture where it shows. subtotal 1000, promo 600, reward 900.
+    //   · reward first (shipped): reward = min(900, 1000) = 900, promo = min(600, 100) = 100
+    //   · promo first (was):      promo  = min(600, 1000) = 600, reward = min(900, 400) = 400
+    // Both sum to 1000 and both total 0 — but the first delivers the coupon's full face and the
+    // second destroys 500¢ of it, because `mms_redeem_cart_reward` burns the coupon either way.
     const totals = computeTotals(
       [line({ unitPriceCents: 1000, taxCents: TAXABLE })],
       600,
       900,
       0.2,
     );
-    expect(totals.rewardCents).toBe(400);
+    expect(totals.rewardCents).toBe(900);
+    // …and the promo absorbs the clamp instead. A promo's budget is a redemption COUNT, consumed by
+    // `p_discount_cents > 0` at fulfillment, so it costs the same one redemption at 100 as at 600.
+    expect(totals.discountCents - totals.rewardCents).toBe(100);
+
+    // Unchanged by the reordering — the two claims that make it safe.
     expect(totals.discountCents).toBe(1000);
     expect(totals.totalCents).toBe(0);
 
-    // ⚠️ PINNED DEFECT — OPEN-ITEMS **M22**. The clamp is right; the coupon lifecycle is not.
-    // `mms_redeem_cart_reward` flips `redeemed_at` unconditionally, so 500¢ of a 900¢ coupon is
-    // destroyed here while the coupon is consumed in full. When M22 is fixed (by refusing/deferring
-    // the redemption rather than by changing this clamp), `rewardCents` stays 400 and the coupon
-    // survives — so this assertion should NOT need to change. It is here to make the discarded
-    // residual visible in a test name.
-    expect(rewardResidual(900, totals.rewardCents)).toBe(500);
+    // M22 — nothing of the coupon is discarded here any more. This is the assertion that was
+    // `toBe(500)` while the burn was pinned.
+    expect(rewardResidual(totals.rewardFaceCents, totals.rewardCents)).toBe(0);
+    expect(totals.rewardFaceCents).toBe(900);
+  });
+
+  it("CASE B′ (M22) — the residual survives only when the BASKET is smaller than the coupon", () => {
+    // The one case reward-first cannot fix, and therefore the one a surface must disclose: a $9
+    // coupon against a $4 basket. No promo is involved — the whole chargeable base is the ceiling.
+    const totals = computeTotals([line({ unitPriceCents: 400, taxCents: TAXABLE })], 0, 900, 0);
+    expect(totals.rewardCents).toBe(400);
+    expect(totals.rewardFaceCents).toBe(900);
+    expect(rewardResidual(totals.rewardFaceCents, totals.rewardCents)).toBe(500);
+    expect(totals.totalCents).toBe(0);
+  });
+
+  it("CASE B″ (M22) — the FACE is the coupon's, never the clamped amount", () => {
+    // Guards the disclosure's only input. If `rewardFaceCents` were derived from the clamp (or from
+    // a second read), it would equal `rewardCents` here and the residual would vanish — the surface
+    // would go silent in exactly the case it exists for.
+    const totals = computeTotals([line({ unitPriceCents: 400 })], 0, 900, 0);
+    expect(totals.rewardFaceCents).not.toBe(totals.rewardCents);
+    // …and it agrees with the applied amount whenever there IS room, so the disclosure stays quiet.
+    const roomy = computeTotals([line({ unitPriceCents: 5000 })], 0, 500, 0);
+    expect(roomy.rewardFaceCents).toBe(roomy.rewardCents);
+  });
+
+  it("CASE B‴ (M22) — reordering the clamp moves NO total, only the split", () => {
+    // The claim the whole change rests on, measured rather than argued: for every promo/reward pair
+    // the two orders agree on subtotal, discount, tax, tip and total, and differ only in how much of
+    // the discount is attributed to the reward. `promoFirst` is the OLD engine, restated here.
+    const promoFirst = (subtotal: number, promoRaw: number, rewardRaw: number) => {
+      const promo = Math.min(promoRaw, subtotal);
+      return { promo, reward: Math.min(rewardRaw, Math.max(subtotal - promo, 0)) };
+    };
+    let sawADifferentSplit = false;
+    for (const promo of [0, 100, 600, 1000, 4000]) {
+      for (const reward of [0, 100, 900, 1000, 4000]) {
+        const t = computeTotals(
+          [line({ unitPriceCents: 1000, taxCents: TAXABLE })],
+          promo,
+          reward,
+          0.2,
+        );
+        const old = promoFirst(1000, promo, reward);
+        expect(t.discountCents).toBe(old.promo + old.reward);
+        expect(t.totalCents).toBeGreaterThanOrEqual(0);
+        if (t.rewardCents !== old.reward) sawADifferentSplit = true;
+      }
+    }
+    // ANTI-DEGENERACY: if the two orders never disagreed on the split, this test would be asserting
+    // nothing about the change at all.
+    expect(sawADifferentSplit).toBe(true);
   });
 
   it("never lets the combined discount drive a negative total, across the boundary", () => {
@@ -167,7 +231,8 @@ describe("invariant 2 — the discount clamp ORDER", () => {
   });
 });
 
-/** How much reward value the clamp discarded. Not part of the engine — a readable name for the pin. */
+/** How much of the coupon's face the clamp discarded — value the diner loses, since the coupon is
+ *  redeemed in full either way. Not part of the engine; a readable name at the call sites. */
 function rewardResidual(couponCents: number, appliedCents: number): number {
   return couponCents - appliedCents;
 }
@@ -199,6 +264,8 @@ describe("invariant 3 — tax is on the DISCOUNTED TAXABLE base, pro-rated by ta
       subtotalCents: 3333,
       discountCents: 1000,
       rewardCents: 0,
+      rewardFaceCents: 0,
+      promoCents: 1000,
       serviceChargeCents: 0,
       taxCents: 74,
       tipCents: 420,
@@ -293,6 +360,8 @@ describe("invariant 4 — the service charge is RETIRED (W16a)", () => {
       subtotalCents: 10000,
       discountCents: 0,
       rewardCents: 0,
+      rewardFaceCents: 0,
+      promoCents: 0,
       serviceChargeCents: 0,
       taxCents: 1050,
       tipCents: 2000,
@@ -357,8 +426,10 @@ describe("invariant 6 — a randomised sweep against an INDEPENDENT oracle", () 
     const live = lines.filter((l) => l.state !== "voided" && !l.comped);
     const amount = (l: TotalsLine) => l.unitPriceCents * l.qty;
     const subtotal = live.reduce((a, l) => a + amount(l), 0);
-    const promo = Math.min(promoRaw, subtotal);
-    const reward = Math.min(rewardRaw, Math.max(subtotal - promo, 0));
+    // M22 — reward first, promo takes the remainder (see totals-math.ts for WHY the order matters
+    // even though the sum does not). Kept as an independent restatement, not a copy of the engine.
+    const reward = Math.min(rewardRaw, subtotal);
+    const promo = Math.min(promoRaw, Math.max(subtotal - reward, 0));
     const discount = promo + reward;
     const net = subtotal - discount;
     const taxable = live.reduce((a, l) => a + (l.taxCents > 0 ? amount(l) : 0), 0);
@@ -370,6 +441,8 @@ describe("invariant 6 — a randomised sweep against an INDEPENDENT oracle", () 
       subtotalCents: subtotal,
       discountCents: discount,
       rewardCents: reward,
+      rewardFaceCents: Math.max(rewardRaw, 0),
+      promoCents: promo,
       serviceChargeCents: 0,
       taxCents: tax,
       tipCents: tip,
@@ -463,6 +536,8 @@ describe("M6 (known-open) — a sub-5¢ taxable line reads EXEMPT", () => {
       subtotalCents: 400,
       discountCents: 0,
       rewardCents: 0,
+      rewardFaceCents: 0,
+      promoCents: 0,
       serviceChargeCents: 0,
       taxCents: 0,
       tipCents: 0,
@@ -497,5 +572,55 @@ describe("M7 (known-open) — aggregate tax ≠ Σ per-unit line tax", () => {
     const sumOfPerUnitSnapshots = 469 * 3;
     expect(sumOfPerUnitSnapshots).toBe(1407);
     expect(totals.taxCents - sumOfPerUnitSnapshots).toBe(1);
+  });
+});
+
+describe("M22 — the shortfall a surface must disclose", () => {
+  // The owner's call was BURN IN FULL, BUT DISCLOSE IT. `rewardShortfallCents` is the whole of the
+  // second half, so it is a money rule and lives in lib/, not in Checkout.tsx (W17: a rule in a
+  // component sits outside check-money-coverage's MONEY_PATHS and cannot be guarded at all).
+  it("is 0 when the coupon fits — the surface must stay silent", () => {
+    const t = computeTotals([line({ unitPriceCents: 5000 })], 0, 500, 0);
+    expect(t.rewardCents).toBe(500);
+    expect(rewardShortfallCents(t)).toBe(0);
+  });
+
+  it("is the discarded residual when the basket is smaller than the coupon", () => {
+    const t = computeTotals([line({ unitPriceCents: 400 })], 0, 900, 0);
+    expect(rewardShortfallCents(t)).toBe(500);
+  });
+
+  it("is the WHOLE face when nothing applied — the worst case, not the quiet one", () => {
+    // A coupon attached to a basket that cannot charge anything (every line voided or comped).
+    //
+    // ⚠️ This assertion was `toBe(0)` on the first draft, gated on the APPLIED amount, with the
+    // rationale that "a disclosure with no reward row to point at is noise". Codex round 1 (P1)
+    // showed the rationale inverts its own case: `rewardFaceCents > 0` means an unredeemed coupon is
+    // still ATTACHED (`mms_reward_discount` reads `qr_carts.applied_reward_id` and never looks at
+    // the lines), a settle can still fulfill and redeem it in full, and the row keyed on the same
+    // value — so the warning went quiet AND the Remove control vanished at the exact moment the
+    // diner's entire coupon was at risk. The gate is attachment now.
+    const t = computeTotals([], 0, 500, 0);
+    expect(t.rewardFaceCents).toBe(500);
+    expect(t.rewardCents).toBe(0);
+    expect(rewardShortfallCents(t)).toBe(500);
+  });
+
+  it("is 0 only when NO coupon is attached at all", () => {
+    // The one case that must stay silent — nothing attached, nothing to lose, nothing to say.
+    const t = computeTotals([line({ unitPriceCents: 5000 })], 0, 0, 0);
+    expect(t.rewardFaceCents).toBe(0);
+    expect(rewardShortfallCents(t)).toBe(0);
+  });
+
+  it("never goes negative, whatever the caller passes", () => {
+    expect(rewardShortfallCents({ rewardCents: 900, rewardFaceCents: 400 })).toBe(0);
+  });
+
+  it("REGRESSION — the promo collision no longer produces a shortfall at all", () => {
+    // The M22 repro shape: a promo eating the base under an applied coupon. Under promo-first this
+    // discarded 500¢ and would have disclosed it; reward-first means there is nothing to disclose.
+    const t = computeTotals([line({ unitPriceCents: 1000 })], 600, 900, 0);
+    expect(rewardShortfallCents(t)).toBe(0);
   });
 });

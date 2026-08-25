@@ -14,7 +14,7 @@
 [![Stripe](https://img.shields.io/badge/Stripe-Payment%20Element-635BFF?logo=stripe)](https://stripe.com)
 [![License](https://img.shields.io/badge/license-private-lightgrey)](#-license)
 
-**Build:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 ✅ (M1 🟡 — code done, owner-blocked infra tail) — shipped through **W22c** (the gesture layer — a haptic vocabulary, pull-to-refresh, rail overscroll) · **Gate:** 1027 qr tests + 87 ui tests · 218 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
+**Build:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 ✅ (M1 🟡 — code done, owner-blocked infra tail) — shipped through **W22c** (the gesture layer — a haptic vocabulary, pull-to-refresh, rail overscroll) · **Gate:** 1036 qr tests + 87 ui tests · 222 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
 
 </div>
 
@@ -152,7 +152,7 @@ The gate — run all three before any PR:
 
 ```bash
 pnpm turbo lint typecheck build test   # what CI runs
-pnpm verify:slice                      # the MECHANICAL money-path gate: coverage guard + 218 semantic
+pnpm verify:slice                      # the MECHANICAL money-path gate: coverage guard + 222 semantic
                                        # mutations (each MUST turn its owning suite red) + orphan check.
                                        # ⚠️ rewrites the 57 money/authority modules it mutates IN PLACE
                                        # (54 under apps/qr/lib, plus the create-share-intent,

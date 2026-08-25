@@ -54,6 +54,39 @@ const MUTANTS = [
     replace: "Math.round(taxableBaseCents * taxRate())",
   },
   {
+    id: "totals/promo-clamped-before-the-reward",
+    file: "apps/qr/lib/totals-math.ts",
+    suite: "lib/totals-math.test.ts",
+    why: "M22 — restores promo-first ordering. The combined discount and the diner's total are IDENTICAL either way, so nothing about the charge reddens; what changes is which instrument absorbs the clamp. Promo-first clamps the destructible one: a reward coupon is single-use and `mms_redeem_cart_reward` burns it in full, so every discarded cent is gone permanently for that diner, while a clamped promo code costs the same one redemption either way (its budget is a COUNT, consumed by `p_discount_cents > 0`). CASE B and the order-independence sweep are what tell the two apart",
+    find: "  const rewardCents = Math.min(rewardCentsRaw, subtotalCents);",
+    replace:
+      "  const rewardCents = Math.min(rewardCentsRaw, Math.max(subtotalCents - Math.min(promoCentsRaw, subtotalCents), 0));",
+  },
+  {
+    id: "totals/promo-contribution-reports-its-raw-face",
+    file: "apps/qr/lib/totals-math.ts",
+    suite: "lib/totals-math.test.ts",
+    why: "M22, Codex round 1 P2 — `promoCents` is what fulfillment consumes a redemption ON. Report the RAW promo instead of the post-reward contribution and the consumption predicate is back to believing a promo delivered when it delivered nothing — the exact hole `p_promo_cents` was added to close, reopened one layer up where the SQL gate cannot see it",
+    find: "    promoCents,",
+    replace: "    promoCents: promoCentsRaw,",
+  },
+  {
+    id: "totals/reward-face-collapses-to-the-clamped-amount",
+    file: "apps/qr/lib/totals-math.ts",
+    suite: "lib/totals-math.test.ts",
+    why: "M22 — the disclosure's only input. Derive the FACE from the clamp and it equals the applied amount by construction, so the shortfall is always 0 and the surface goes permanently silent in exactly the case it exists for: a coupon larger than the basket, burned in full at fulfillment with the diner never told",
+    find: "    rewardFaceCents: Math.max(rewardCentsRaw, 0),",
+    replace: "    rewardFaceCents: rewardCents,",
+  },
+  {
+    id: "totals/shortfall-gated-on-the-applied-not-the-attachment",
+    file: "apps/qr/lib/totals-math.ts",
+    suite: "lib/totals-math.test.ts",
+    why: "M22, Codex round 1 P1 — the gate must be ATTACHMENT. Gating on the applied amount goes silent exactly where the whole coupon is at risk: a basket voided or comped away under an attached coupon drops `rewardCents` to 0 while `qr_carts.applied_reward_id` still holds an unredeemed reward a settle would burn in full — and the applied row keys on the same value, so the Remove control disappears with the warning. This mutant restores the first draft's inverted gate",
+    find: "  if (totals.rewardFaceCents <= 0) return 0;",
+    replace: "  if (totals.rewardCents <= 0) return 0;",
+  },
+  {
     id: "totals/grocery-in-tip-gate",
     file: "apps/qr/lib/totals-math.ts",
     suite: "lib/totals-math.test.ts",
@@ -62,12 +95,16 @@ const MUTANTS = [
     replace: "Number(i.unitPriceCents) * i.qty",
   },
   {
-    id: "totals/reward-clamp-order",
+    id: "totals/second-discount-clamp-order",
+    // M22 rewrote this one. It used to mutate the REWARD clamp, because the reward went second; the
+    // reward now goes FIRST and the promo takes the remainder, so the second clamp — the one that
+    // keeps the combined discount inside the chargeable base — is the promo's. Same rule, new owner:
+    // a STALE mutant is a failure, not a skip, so it moves rather than being deleted.
     file: "apps/qr/lib/totals-math.ts",
     suite: "lib/totals-math.test.ts",
-    why: "the reward must clamp to what REMAINS after the promo, or the total goes negative",
-    find: "Math.min(rewardCentsRaw, Math.max(subtotalCents - promoCents, 0))",
-    replace: "Math.min(rewardCentsRaw, subtotalCents)",
+    why: "the SECOND discount must clamp to what REMAINS after the first, or the combined discount exceeds the subtotal and the total goes negative",
+    find: "Math.min(promoCentsRaw, Math.max(subtotalCents - rewardCents, 0))",
+    replace: "Math.min(promoCentsRaw, subtotalCents)",
   },
   {
     id: "totals/rounding-inside-the-ratio",
