@@ -62,7 +62,22 @@ UPDATE, where it had given _every_ checkout a spurious 409 after the PostgREST 1
 landed three lines too high. Fixing one read does not fix its neighbour, and the neighbour is where
 the next defect lives.
 
-All four watched failing first; four mutants (215 total).
+All four watched failing first, and each is pinned by a mutant.
+
+**Codex round 2 found the fix's own version of the defect, and it was the sharpest one here.**
+`priceItem` read the item with `.single()`, which reports a **0-row result as an ERROR** — so
+`if (error || !item)` folded _"this dish is no longer in the catalog"_ together with _"we could not
+reach the catalog"_ and answered `gone` for both. That was unreachable while `reorderOrder` refused
+outright on a failed batch read. The round-1 fallback made it reachable, and it put the fabricated
+diagnosis straight back onto the screen the fallback exists to keep honest. `.maybeSingle()` is what
+separates them (`{ data: null, error: null }` for a genuine no-row — the same reason the Stripe
+webhook's idempotency read uses it), which leaves `error` meaning exactly one thing. A new
+`ItemUnreadableError` carries that, and `ReorderSkipReason` gains `unreadable`.
+
+⚠️ `MenuBrowser`'s `unavailable` bucket was an **exclusion** list — everything that wasn't
+`needs_choices` or `grocery` — so the new reason would have landed silently in _"isn't available
+today"_, re-fabricating the diagnosis it was added to prevent. An exclusion bucket makes every future
+reason default to the strongest claim on the screen; it is an inclusion list now.
 
 ⚠️ The reorder fixture initially passed at an **earlier** guard — the order-lookup mock lacked
 `earned_by`/`status`, so both cases bailed out before the read under test and the defect case was red

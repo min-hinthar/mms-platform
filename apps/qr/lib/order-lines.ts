@@ -46,6 +46,29 @@ export class ItemUnsellableError extends Error {
   }
 }
 
+/**
+ * M119 (Codex round 2, P2) — an outage is not an availability verdict, and `.single()` could not
+ * tell them apart.
+ *
+ * PostgREST reports a 0-row `.single()` as an ERROR, so `if (error || !item)` folded "this dish is
+ * no longer in the catalog" together with "we could not reach the catalog" and answered `gone` for
+ * both. Harmless while `reorderOrder` refused outright on a failed batch read — that path never
+ * reached here. The round-1 fallback made it reachable, and it would have reported a dish the
+ * kitchen is happily cooking as unavailable: the fabricated diagnosis this whole change removes,
+ * reintroduced by its own fix.
+ *
+ * `.maybeSingle()` is what separates them — a genuine no-row arrives as `{ data: null, error: null }`
+ * (the same reason the Stripe webhook's idempotency read uses it), which leaves `error` meaning
+ * exactly one thing: the read failed. Callers that can only say something about SELLABILITY must
+ * not answer at all when this is thrown.
+ */
+export class ItemUnreadableError extends Error {
+  constructor(readonly menuItemId: string) {
+    super("Menu item unreadable");
+    this.name = "ItemUnreadableError";
+  }
+}
+
 export async function priceItem(
   menuItemId: string,
   modifierIds: string[],
@@ -58,8 +81,10 @@ export async function priceItem(
       "id,name_en,base_price_cents,tax_category,is_sold_out,is_active,item_modifier_groups(modifier_groups(id,min_select,max_select))",
     )
     .eq("id", menuItemId)
-    .single();
-  if (error || !item) throw new ItemUnsellableError("Unknown menu item", "gone");
+    .maybeSingle();
+  // Two different facts, and `.single()` put both in `error` (see ItemUnreadableError above).
+  if (error) throw new ItemUnreadableError(menuItemId);
+  if (!item) throw new ItemUnsellableError("Unknown menu item", "gone");
 
   // W23a — the add-time half of the availability gate, and the better guest moment: refuse at the tap
   // rather than at the Pay button, when the basket is still one dish long and swapping costs nothing.

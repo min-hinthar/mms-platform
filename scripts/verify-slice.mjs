@@ -1817,6 +1817,22 @@ const MUTANTS = [
     replace: "      if (false) {",
   },
   {
+    id: "reorder/read-failure-reported-as-gone",
+    file: "apps/qr/lib/reorder.ts",
+    suite: "lib/reorder.test.ts",
+    why: "M119, Codex round 2 P2 — the fallback's OWN fabricated diagnosis. Without this arm an `ItemUnreadableError` (the per-line catalog read failed) falls into the generic catch and is reported `needs_choices`, and before `priceItem` split the two facts it was reported `gone` — an availability verdict about a dish nobody could check, on the very path that exists to stop making them",
+    find: "      if (e instanceof ItemUnreadableError) {",
+    replace: "      if (false) {",
+  },
+  {
+    id: "order-lines/outage-conflated-with-a-delisted-dish",
+    file: "apps/qr/lib/order-lines.ts",
+    suite: "lib/order-lines-availability.test.ts",
+    why: 'M119, Codex round 2 P2 — `.single()` reports a 0-row result as an ERROR, so `error` alone cannot mean "this dish is gone". Collapsing the two branches back answers `gone` for a transport failure, which is how an outage reaches the diner as a fact about today\'s menu. `.maybeSingle()` is what makes `error` mean exactly one thing',
+    find: "  if (error) throw new ItemUnreadableError(menuItemId);",
+    replace: "  if (false) throw new ItemUnreadableError(menuItemId);",
+  },
+  {
     id: "share-intent/unreadable-read-denies-membership",
     file: "apps/qr/app/api/stripe/create-share-intent/route.ts",
     suite: "app/api/stripe/create-share-intent/route.test.ts",

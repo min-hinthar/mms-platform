@@ -6,7 +6,13 @@ import { carryNote } from "./reorder-notes";
 import { assertCartMember } from "./authz";
 import { assertMutationRate } from "./rate";
 import { lineTax } from "./tax";
-import { insertOrIncLine, priceItem, touchCart, ItemUnsellableError } from "./order-lines";
+import {
+  insertOrIncLine,
+  priceItem,
+  touchCart,
+  ItemUnreadableError,
+  ItemUnsellableError,
+} from "./order-lines";
 import { optionsCameBackDifferent, storedOptionIds } from "./reorder-options";
 import { getPostHogClient } from "./posthog-server";
 
@@ -36,7 +42,15 @@ import { getPostHogClient } from "./posthog-server";
 
 const LINE_CAP = 30; // bound the work regardless of history size
 
-export type ReorderSkipReason = "gone" | "sold_out" | "needs_choices" | "grocery";
+export type ReorderSkipReason =
+  | "gone"
+  | "sold_out"
+  | "needs_choices"
+  | "grocery"
+  // M119 (Codex round 2) — "we could not check this dish", which is NOT "it isn't available".
+  // Callers must give it its own copy; folding it into the unavailable bucket re-fabricates the
+  // very diagnosis the reason exists to prevent.
+  | "unreadable";
 export type ReorderResult =
   | {
       ok: true;
@@ -128,14 +142,10 @@ export async function reorderOrder(raw: {
   //
   // M119 (e) — bind the error. Unbound, a failed read left `itemById` EMPTY, and an empty map does
   // not mean "nothing is available" — it means we never asked. Every food line then failed the
-  // availability lookup below and the diner was told each dish "isn't available today", ending with
-  // an empty cart and a shelf of false statements about the menu. That is a functional failure
-  // wearing a product answer.
-  //
-  // Refusing the whole reorder is the conservative direction and the right one here: the alternative
-  // is skipping the availability check, which would re-add a delisted or sold-out dish — precisely
-  // what W23a's server-side half exists to prevent. A reorder is a convenience the diner can retry;
-  // selling them a pulled dish is not recoverable that cheaply.
+  // availability lookup below, so the reorder added ZERO dishes and made one false statement per
+  // dish about today's menu. (It does not EMPTY the cart — this function only ever inserts — but a
+  // diner who came here to bring back an order gets none of it, and is told why in words that are
+  // not true.) A functional failure wearing a product answer.
   //
   // Note the neighbouring read was already fixed for this same shape: the comment above records that
   // M108 removed a session-mode read which "discarded its error", in this very function.
@@ -251,6 +261,14 @@ export async function reorderOrder(raw: {
       // outcome, which is not a fix on this change.
       if (e instanceof ItemUnsellableError) {
         skipped.push({ name: l.name, reason: e.reason });
+        continue;
+      }
+      // M119 (Codex round 2, P2) — the per-line read itself failed. `priceItem` used to answer
+      // `gone` for this, so on the unverified path an outage came back as "isn't available today":
+      // the same fabricated diagnosis, reached through the fallback that replaced the refusal. Say
+      // we could not check, and skip only THIS line — the lines that priced fine still go in.
+      if (e instanceof ItemUnreadableError) {
+        skipped.push({ name: l.name, reason: "unreadable" });
         continue;
       }
       // Otherwise priceItem threw: required choices on an empty selection (or a mid-loop vanish).

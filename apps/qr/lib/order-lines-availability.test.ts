@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * W23a — the ADD-TIME half of the availability gate, pinned against the real `priceItem`.
@@ -25,7 +25,9 @@ const BASE = {
   item_modifier_groups: [],
 };
 
-let ITEM: Record<string, unknown> = { ...BASE };
+let ITEM: Record<string, unknown> | null = { ...BASE };
+/** A transport-level failure on the item read — distinct from "the row is not there" (ITEM = null). */
+let ITEM_ERROR: { message: string } | null = null;
 
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
@@ -34,14 +36,24 @@ vi.mock("@mms/db/server", () => ({
         select: () => chain,
         eq: () => chain,
         in: () => Promise.resolve({ data: [], error: null }),
-        single: () => Promise.resolve({ data: table === "menu_items" ? ITEM : null, error: null }),
+        maybeSingle: () =>
+          Promise.resolve(
+            ITEM_ERROR
+              ? { data: null, error: ITEM_ERROR }
+              : { data: table === "menu_items" ? ITEM : null, error: null },
+          ),
       };
       return chain;
     },
   }),
 }));
 
-const { priceItem } = await import("./order-lines");
+const { priceItem, ItemUnsellableError, ItemUnreadableError } = await import("./order-lines");
+
+beforeEach(() => {
+  ITEM = { ...BASE };
+  ITEM_ERROR = null;
+});
 
 describe("priceItem — the add-time availability refusal", () => {
   it("prices a sellable dish (the control: 990, no refusal)", async () => {
@@ -69,5 +81,34 @@ describe("priceItem — the add-time availability refusal", () => {
     // priced line could still be threaded onto a cart by a caller that swallowed the throw.
     ITEM = { ...BASE, is_sold_out: true, base_price_cents: 123456 };
     await expect(priceItem(BASE.id, [])).rejects.toThrow();
+  });
+});
+
+/**
+ * M119 (Codex round 2, P2) — the read that could not tell an outage from a delisting.
+ *
+ * `.single()` reports a 0-row result as an ERROR, so `if (error || !item)` answered `gone` for both
+ * "this dish is no longer in the catalog" and "we could not reach the catalog". That was unreachable
+ * from `reorderOrder` while it refused outright on a failed batch read; the round-1 fallback made it
+ * reachable, and it put the fabricated diagnosis straight back on the screen the fallback exists to
+ * keep honest. `.maybeSingle()` is what separates the two.
+ */
+describe("priceItem — a failed read is not an availability verdict", () => {
+  it("THE DEFECT — a transport failure must NOT come back as 'gone'", async () => {
+    ITEM_ERROR = { message: "transport failure" };
+    await expect(priceItem(BASE.id, [])).rejects.toBeInstanceOf(ItemUnreadableError);
+    // The specific wrong answer: an availability verdict about a dish nobody could check.
+    await expect(priceItem(BASE.id, [])).rejects.not.toBeInstanceOf(ItemUnsellableError);
+  });
+
+  it("a genuine no-row is STILL 'gone' — the fix must not blunt the real refusal", async () => {
+    ITEM = null;
+    await expect(priceItem(BASE.id, [])).rejects.toBeInstanceOf(ItemUnsellableError);
+    await expect(priceItem(BASE.id, [])).rejects.toMatchObject({ reason: "gone" });
+  });
+
+  it("the unreadable error carries the id it could not read (diagnosable without the message)", async () => {
+    ITEM_ERROR = { message: "transport failure" };
+    await expect(priceItem(BASE.id, [])).rejects.toMatchObject({ menuItemId: BASE.id });
   });
 });

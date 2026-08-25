@@ -54,7 +54,7 @@ vi.mock("./rate", () => ({
  * class as a VALUE. The mutable fixtures below do not need hoisting — they are only dereferenced
  * inside the factory's function bodies, at call time.
  */
-const { ItemUnsellableError } = vi.hoisted(() => {
+const { ItemUnsellableError, ItemUnreadableError } = vi.hoisted(() => {
   class ItemUnsellableError extends Error {
     reason: "sold_out" | "gone";
     constructor(message: string, reason: "sold_out" | "gone") {
@@ -63,20 +63,28 @@ const { ItemUnsellableError } = vi.hoisted(() => {
       this.reason = reason;
     }
   }
-  return { ItemUnsellableError };
+  class ItemUnreadableError extends Error {
+    constructor(readonly menuItemId: string) {
+      super("Menu item unreadable");
+      this.name = "ItemUnreadableError";
+    }
+  }
+  return { ItemUnsellableError, ItemUnreadableError };
 });
 
 /** What `priceItem` should do when called — the per-line gate the fallback now leans on. */
-let priceItemThrows: "sold_out" | "gone" | "cardinality" | null = null;
+let priceItemThrows: "sold_out" | "gone" | "cardinality" | "unreadable" | null = null;
 let priceItemCalls = 0;
 
 vi.mock("./order-lines", () => ({
   ItemUnsellableError,
+  ItemUnreadableError,
   insertOrIncLine: () => Promise.resolve({ ok: true }),
   touchCart: () => Promise.resolve(),
   priceItem: () => {
     priceItemCalls += 1;
     if (priceItemThrows === "cardinality") throw new Error("This item needs a required choice");
+    if (priceItemThrows === "unreadable") throw new ItemUnreadableError("m1");
     if (priceItemThrows) throw new ItemUnsellableError("unsellable", priceItemThrows);
     return Promise.resolve({
       name: "Mohinga",
@@ -161,6 +169,29 @@ describe("M119e — an unreadable availability read is not a sold-out menu", () 
       expect(res.skipped.map((s) => s.reason)).not.toContain("needs_choices");
     }
     expect(priceItemCalls).toBeGreaterThan(0); // the gate actually ran
+  });
+
+  // Codex round 2, P2 — the fallback's own fabricated diagnosis. `priceItem` folded a FAILED read
+  // together with a genuine no-row (`.single()` reports both in `error`) and answered `gone`, so on
+  // the very path that exists to stop reporting outages as menu facts, an outage came back as
+  // "isn't available today" once more.
+  it("THE ROUND-2 DEFECT — a per-line read FAILURE is not 'gone'", async () => {
+    itemRows = null;
+    itemsError = { message: "transport failure" };
+    priceItemThrows = "unreadable";
+    const res = (await mod.reorderOrder({ orderId: "o1", cartId: "c1" })) as
+      | { ok: true; added: number; skipped: { reason: string }[] }
+      | { ok: false; error: string };
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      const reasons = res.skipped.map((k) => k.reason);
+      expect(reasons).toContain("unreadable");
+      // The two claims this must never make about a dish nobody checked.
+      expect(reasons).not.toContain("gone");
+      expect(reasons).not.toContain("sold_out");
+      expect(res.added).toBe(0);
+    }
+    expect(priceItemCalls).toBeGreaterThan(0); // the gate ran — the reason came from it, not a default
   });
 
   it("a cardinality failure is still needs_choices — the distinction is real, not cosmetic", async () => {
