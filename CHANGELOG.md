@@ -4,6 +4,52 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### An authorized promo survives to settlement (2026-08-25)
+
+**M70 closed — and it was four defects, not one.** A promo that lapses between authorization and
+capture raises the live total above the hold, and `planCapture` cancels the entire order
+(`liveTotalCents > authorizedCents` → `over_authorized`). Safe, but one missing dish cancelled
+everything.
+
+The registry filed the min-subtotal shortage. `mms_promo_discount` returns 0 on **four** conditions,
+and three of them need no cart change at all:
+
+| trigger                                 | needs a basket change?   |
+| --------------------------------------- | ------------------------ |
+| code deleted, or `active` flipped false | no                       |
+| `now() < valid_from`                    | no                       |
+| `now() > valid_until`                   | **no — pure wall clock** |
+| `subtotal < min_subtotal_cents`         | yes (the filed case)     |
+
+A hold taken at 23:58 under a promo expiring at midnight, captured at 00:01, cancelled for exactly
+the same reason as the sold-out shortage. Owner's call (2026-08-25): honour all four.
+
+**The grant is PINNED at authorization.** `qr_carts.promo_granted_cents` is written by
+`mms_pin_promo_grant` before the amount is derived, and `mms_promo_discount` returns it from then on.
+The arithmetic is not duplicated: the existing body is renamed `mms_promo_discount_live` byte-for-
+byte, and the public reader — **same signature, so no caller changes anywhere** — is "the pin if
+there is one, else live".
+
+Also worth recording: the total can only rise when the discount drops to **zero**. For `pct`,
+total = S·(1−p); for a partial `flat`, total = S − v. Both increase with the subtotal, so shrinking
+a basket lowers them. Those four drops are the entire surface.
+
+⚠️ **The pin deliberately outlives the lock.** Fulfillment re-derives the breakdown and reconciles it
+against the captured amount; clearing the pin at release or capture would make the derived total
+disagree with what was charged and raise `reconcile_mismatch`. It is cleared in exactly two places
+that end its meaning — a new promo code (same UPDATE as the code write, so they cannot drift) and a
+cancelled settlement (guarded on the insert's row count, so a redelivered cancel cannot wipe a newer
+hold's grant).
+
+⚠️ **A pin of 0 is a real answer** (`is not null`, never `> 0`). A cart with no valid promo at
+authorization grants 0, and a promo becoming valid mid-settlement must not lower the total below what
+the reconcile expects. A `coalesce(nullif(pin, 0), live)` tidy-up would break exactly that.
+
+Nine SQL cases (registered in `ci.yml`), one per trigger plus the zero-pin, idempotence, cancel-
+release, redelivery and code-change rules. Case 1 is a control with no pin — without it the file
+could not tell "the pin works" from "the promo never drops any more" — and each lapse case asserts
+the _live_ value is 0 alongside, so none of them can pass vacuously.
+
 ### Promo reporting records what was delivered, not what was quoted (2026-08-25)
 
 **Codex round 2, and it was right to press.** Round 1 raised the analytics gap and I filed it as

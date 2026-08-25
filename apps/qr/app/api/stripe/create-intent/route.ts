@@ -252,6 +252,27 @@ export async function POST(req: NextRequest) {
       if (nameErr) console.error("[create-intent] customer_name write failed:", nameErr.message);
     }
 
+    // M70 — freeze the promo's contribution BEFORE the amount is derived, so the hold and every
+    // later read of this cart agree on one number. `mms_promo_discount` returns the pin from here
+    // on, which is what stops a promo lapsing between authorize and capture (a sold-out void
+    // dropping the subtotal under `min_subtotal_cents`, a `valid_until` passing, an admin flipping
+    // `active`) from RAISING the live total above the hold and sending `planCapture` to
+    // `over_authorized` — cancelling the whole order over one missing dish.
+    //
+    // Ordering is load-bearing: pin first, THEN derive. Deriving first would mint an amount from the
+    // live value and pin a possibly different one a moment later. The RPC is idempotent (pins only
+    // when null), so a create-intent retry re-uses the first grant and therefore the same Stripe
+    // idempotency key rather than minting a second PaymentIntent.
+    //
+    // A failure here is NOT fatal: the pin is an improvement on the settlement outcome, not an
+    // authority over the amount. Without it the cart simply behaves as it did before M70 — the
+    // amount is still server-derived from the same authority, and `planCapture` still refuses to
+    // charge more than was authorized. Failing the mint would trade a rare cancelled settlement for
+    // a certain refused checkout.
+    const { error: pinErr } = await db.rpc("mms_pin_promo_grant", { p_cart_id: cartId });
+    if (pinErr)
+      console.error("[create-intent] promo grant not pinned", { cartId, error: pinErr.message });
+
     const totals = await getCartTotals(cartId, tipRate);
     const amount = totals.totalCents; // already cents, server-derived
     if (amount <= 0) {

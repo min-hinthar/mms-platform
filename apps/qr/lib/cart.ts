@@ -356,7 +356,10 @@ export async function applyPromo(cartId: string, code: string): Promise<ApplyPro
   const normalized = input.code.toUpperCase();
   const { data: updated, error: updErr } = await db
     .from("qr_carts")
-    .update({ promo_code: normalized })
+    // M70 — a new code voids any grant pinned for the OLD one, and it rides in the SAME statement
+    // as the code write so the two cannot drift apart. (`mms_pin_promo_grant` only pins when null,
+    // so a stale grant left here would silently outrank the code the diner just entered.)
+    .update({ promo_code: normalized, promo_granted_cents: null })
     .eq("id", input.cartId)
     .eq("status", "open")
     .select("id");

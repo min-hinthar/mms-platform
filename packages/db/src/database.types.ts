@@ -1216,6 +1216,7 @@ export type Database = {
           locked_by: string | null
           pickup_slot: string | null
           promo_code: string | null
+          promo_granted_cents: number | null
           session_id: string
           settle_at: string | null
           settle_by: string | null
@@ -1238,6 +1239,7 @@ export type Database = {
           locked_by?: string | null
           pickup_slot?: string | null
           promo_code?: string | null
+          promo_granted_cents?: number | null
           session_id: string
           settle_at?: string | null
           settle_by?: string | null
@@ -1260,6 +1262,7 @@ export type Database = {
           locked_by?: string | null
           pickup_slot?: string | null
           promo_code?: string | null
+          promo_granted_cents?: number | null
           session_id?: string
           settle_at?: string | null
           settle_by?: string | null
@@ -1985,6 +1988,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      mms_pin_promo_grant: { Args: { p_cart_id: string }; Returns: number }
       mms_promo_check: {
         Args: { p_cart_id: string; p_code: string }
         Returns: {
@@ -2000,6 +2004,7 @@ export type Database = {
         Returns: undefined
       }
       mms_promo_discount: { Args: { p_cart_id: string }; Returns: number }
+      mms_promo_discount_live: { Args: { p_cart_id: string }; Returns: number }
       mms_rate_limit: {
         Args: {
           p_bucket: string

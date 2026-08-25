@@ -1,0 +1,230 @@
+-- supabase/tests/m70_promo_grant_survives_settlement_test.sql  (M70)
+--
+-- A promo that lapses between authorization and capture raises the live total above the hold, and
+-- `planCapture` cancels the whole order (`liveTotalCents > authorizedCents` → `over_authorized`,
+-- apps/qr/lib/manual-capture.ts:85). The grant is now PINNED at authorization, so it cannot lapse
+-- mid-settlement.
+--
+-- ⚠️ FOUR triggers, not one. The registry filed only the min-subtotal shortage, but
+-- `mms_promo_discount_live` returns 0 on any of: a deleted or deactivated code, `now() <
+-- valid_from`, `now() > valid_until`, or `subtotal < min_subtotal_cents`. Three need NO cart change
+-- — a hold taken at 23:58 under a promo expiring at midnight cancels at 00:01 with the basket
+-- untouched. Cases 2–5 are one per trigger; a fix that only taught the subtotal path would pass
+-- case 2 and fail the rest, which is the whole reason they are separate.
+--
+-- ── What each case is for ───────────────────────────────────────────────────────────────────────
+--   1. CONTROL — no pin: the live derivation still governs, and still drops. Without this the file
+--      could not tell "the pin works" from "the promo never drops any more".
+--   2. shortage      — subtotal falls under min_subtotal_cents after the pin.
+--   3. wall clock    — valid_until passes after the pin.
+--   4. deactivation  — `active` flipped false after the pin.
+--   5. code deleted  — the promo_codes row is gone after the pin.
+--   6. A PIN OF ZERO STICKS. `is not null`, not `> 0`: a cart with no valid promo at authorization
+--      pins 0, and a promo becoming valid mid-settlement must NOT lower the total below what the
+--      reconcile expects. This is the case a `coalesce(nullif(pin,0), live)` "tidy-up" would break.
+--   7. IDEMPOTENCE — a second pin call does not move the grant. create-intent's Stripe idempotency
+--      key embeds the derived amount, so a re-pin that moved would mint a SECOND PaymentIntent.
+--   8. A CANCELLED SETTLEMENT RELEASES THE GRANT, and a REDELIVERED cancel does not. The clear is
+--      guarded on the insert's row count; without that guard a duplicate webhook delivery would
+--      wipe a pin belonging to a newer hold.
+--   9. A NEW CODE VOIDS THE OLD GRANT — the app clears it in the same UPDATE as the code write;
+--      this asserts the column actually allows that and the reader then re-derives.
+--
+-- Run against any QR DB (rolls back — leaves NO data behind):
+--   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/m70_promo_grant_survives_settlement_test.sql
+
+begin;
+-- W8: without this GUC every ASSERT below compiles out and the file exits 0 having proved nothing.
+set local plpgsql.check_asserts = on;
+
+do $$
+declare
+  ana   uuid := '00000000-0000-0000-0000-0000000070a0';
+  dish  text := 'cccccccc-0000-4000-8000-000000000070';
+  sess  uuid; cart uuid;
+  d integer; pinned integer; rows_first integer; rows_again integer;
+begin
+  -- $10 off, needs a $25 basket. Every case below builds a $30 basket and shrinks or lapses it.
+  insert into public.promo_codes (code, kind, value, max_uses, used, active, per_session_limit,
+                                  min_subtotal_cents, valid_from, valid_until)
+    values ('M70TEN', 'flat', 1000, 999, 0, true, 99, 2500, null, null)
+    on conflict (code) do update set kind = 'flat', value = 1000, active = true, used = 0,
+      per_session_limit = 99, min_subtotal_cents = 2500, valid_from = null, valid_until = null;
+
+  -- ══ 1. CONTROL — with NO pin, a shortage still drops the promo (the defect, unfixed) ══════════
+  sess := gen_random_uuid(); cart := gen_random_uuid();
+  insert into public.table_sessions (id, qr_code, mode, status, host_seat)
+    values (sess, 'M70C1', 'pickup', 'active', ana);
+  insert into public.qr_carts (id, session_id, promo_code) values (cart, sess, 'M70TEN');
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
+    values (cart, dish, 'Mohinga', 1, 3000, 0, null, 'togo');
+
+  d := public.mms_promo_discount(cart);
+  assert d = 1000, format('M70.1 fixture drift: a $30 basket must earn the $10 promo, got %s', d);
+
+  update public.qr_cart_items set state = 'voided' where cart_id = cart;
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
+    values (cart, dish, 'Mohinga', 1, 2400, 0, null, 'togo');
+  d := public.mms_promo_discount(cart);
+  assert d = 0,
+    format('M70.1 CONTROL LOST: with no pin a $24 basket must still drop the $25-min promo, got %s. '
+           'If this is non-zero the pin is being applied where none was taken, and every case '
+           'below proves nothing.', d);
+
+  -- ══ 2. SHORTAGE — pinned at $30, then voided down to $24: the grant survives ══════════════════
+  sess := gen_random_uuid(); cart := gen_random_uuid();
+  insert into public.table_sessions (id, qr_code, mode, status, host_seat)
+    values (sess, 'M70C2', 'pickup', 'active', ana);
+  insert into public.qr_carts (id, session_id, promo_code) values (cart, sess, 'M70TEN');
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
+    values (cart, dish, 'Mohinga', 1, 3000, 0, null, 'togo');
+
+  pinned := public.mms_pin_promo_grant(cart);
+  assert pinned = 1000, format('M70.2 fixture drift: the pin should capture $10, got %s', pinned);
+
+  update public.qr_cart_items set state = 'voided' where cart_id = cart;
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
+    values (cart, dish, 'Mohinga', 1, 2400, 0, null, 'togo');
+  d := public.mms_promo_discount(cart);
+  assert d = 1000,
+    format('M70.2 THE DEFECT (shortage): a sold-out void dropped the granted promo — got %s, want '
+           '1000. The live total then exceeds the hold and planCapture cancels the whole order.', d);
+  -- …and the live derivation still says 0, which is what makes the pin the thing being tested.
+  d := public.mms_promo_discount_live(cart);
+  assert d = 0, format('M70.2 DEGENERATE: the live value should be 0 here, got %s — if it is 1000 '
+                       'the shortage never happened and the case is vacuous', d);
+
+  -- ══ 3. WALL CLOCK — the promo expires after the pin. No cart change at all. ═══════════════════
+  sess := gen_random_uuid(); cart := gen_random_uuid();
+  insert into public.table_sessions (id, qr_code, mode, status, host_seat)
+    values (sess, 'M70C3', 'pickup', 'active', ana);
+  insert into public.qr_carts (id, session_id, promo_code) values (cart, sess, 'M70TEN');
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
+    values (cart, dish, 'Mohinga', 1, 3000, 0, null, 'togo');
+  pinned := public.mms_pin_promo_grant(cart);
+  assert pinned = 1000, format('M70.3 fixture drift: pin should be 1000, got %s', pinned);
+
+  update public.promo_codes set valid_until = now() - interval '1 minute' where code = 'M70TEN';
+  assert public.mms_promo_discount_live(cart) = 0, 'M70.3 DEGENERATE: the promo should have expired';
+  d := public.mms_promo_discount(cart);
+  assert d = 1000,
+    format('M70.3 THE DEFECT (wall clock): a hold taken before valid_until must still be honoured '
+           'at capture — got %s, want 1000. Nothing about the basket changed.', d);
+  update public.promo_codes set valid_until = null where code = 'M70TEN';
+
+  -- ══ 4. DEACTIVATION — an admin flips `active` false after the pin ═════════════════════════════
+  sess := gen_random_uuid(); cart := gen_random_uuid();
+  insert into public.table_sessions (id, qr_code, mode, status, host_seat)
+    values (sess, 'M70C4', 'pickup', 'active', ana);
+  insert into public.qr_carts (id, session_id, promo_code) values (cart, sess, 'M70TEN');
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
+    values (cart, dish, 'Mohinga', 1, 3000, 0, null, 'togo');
+  pinned := public.mms_pin_promo_grant(cart);
+  assert pinned = 1000, format('M70.4 fixture drift: pin should be 1000, got %s', pinned);
+
+  update public.promo_codes set active = false where code = 'M70TEN';
+  assert public.mms_promo_discount_live(cart) = 0, 'M70.4 DEGENERATE: deactivation should drop it';
+  d := public.mms_promo_discount(cart);
+  assert d = 1000,
+    format('M70.4 THE DEFECT (deactivation): a code switched off mid-settlement must not cancel a '
+           'hold already taken under it — got %s, want 1000', d);
+  update public.promo_codes set active = true where code = 'M70TEN';
+
+  -- ══ 5. CODE DELETED — the promo_codes row is gone after the pin ═══════════════════════════════
+  -- Uses its OWN code so the delete cannot disturb the cases above.
+  insert into public.promo_codes (code, kind, value, max_uses, used, active, per_session_limit, min_subtotal_cents)
+    values ('M70GONE', 'flat', 1000, 999, 0, true, 99, 2500)
+    on conflict (code) do update set active = true, used = 0;
+  sess := gen_random_uuid(); cart := gen_random_uuid();
+  insert into public.table_sessions (id, qr_code, mode, status, host_seat)
+    values (sess, 'M70C5', 'pickup', 'active', ana);
+  insert into public.qr_carts (id, session_id, promo_code) values (cart, sess, 'M70GONE');
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
+    values (cart, dish, 'Mohinga', 1, 3000, 0, null, 'togo');
+  pinned := public.mms_pin_promo_grant(cart);
+  assert pinned = 1000, format('M70.5 fixture drift: pin should be 1000, got %s', pinned);
+
+  delete from public.promo_codes where code = 'M70GONE';
+  assert public.mms_promo_discount_live(cart) = 0, 'M70.5 DEGENERATE: a deleted code should drop it';
+  d := public.mms_promo_discount(cart);
+  assert d = 1000,
+    format('M70.5 THE DEFECT (deleted code): got %s, want 1000', d);
+
+  -- ══ 6. A PIN OF ZERO STICKS — `is not null`, never `> 0` ══════════════════════════════════════
+  -- A $20 basket does not clear the $25 minimum, so the grant is a real 0. If the promo then becomes
+  -- reachable (the diner's own earlier lines restored, say), the total must NOT drop below what the
+  -- hold reconciles against. This is the case a `coalesce(nullif(pin, 0), live)` refactor breaks.
+  sess := gen_random_uuid(); cart := gen_random_uuid();
+  insert into public.table_sessions (id, qr_code, mode, status, host_seat)
+    values (sess, 'M70C6', 'pickup', 'active', ana);
+  insert into public.qr_carts (id, session_id, promo_code) values (cart, sess, 'M70TEN');
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
+    values (cart, dish, 'Mohinga', 1, 2000, 0, null, 'togo');
+  pinned := public.mms_pin_promo_grant(cart);
+  assert pinned = 0, format('M70.6 fixture drift: a $20 basket should grant 0, got %s', pinned);
+
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
+    values (cart, dish, 'Mohinga', 1, 1000, 0, null, 'togo');
+  assert public.mms_promo_discount_live(cart) = 1000,
+    'M70.6 DEGENERATE: the enlarged basket should now clear the minimum live';
+  d := public.mms_promo_discount(cart);
+  assert d = 0,
+    format('M70.6 ZERO PIN LOST: a granted 0 must stay 0 — got %s. Treating 0 as "unpinned" lets a '
+           'promo become valid mid-settlement and lowers the total below the reconcile.', d);
+
+  -- ══ 7. IDEMPOTENCE — a second pin does not move the grant ═════════════════════════════════════
+  sess := gen_random_uuid(); cart := gen_random_uuid();
+  insert into public.table_sessions (id, qr_code, mode, status, host_seat)
+    values (sess, 'M70C7', 'pickup', 'active', ana);
+  insert into public.qr_carts (id, session_id, promo_code) values (cart, sess, 'M70TEN');
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
+    values (cart, dish, 'Mohinga', 1, 3000, 0, null, 'togo');
+  assert public.mms_pin_promo_grant(cart) = 1000, 'M70.7 fixture drift: first pin should be 1000';
+
+  update public.qr_cart_items set state = 'voided' where cart_id = cart;
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
+    values (cart, dish, 'Mohinga', 1, 2400, 0, null, 'togo');
+  pinned := public.mms_pin_promo_grant(cart);
+  assert pinned = 1000,
+    format('M70.7 NOT IDEMPOTENT: a re-pin moved the grant to %s. create-intent embeds the derived '
+           'amount in its Stripe idempotency key, so a moved grant mints a SECOND PaymentIntent.',
+           pinned);
+
+  -- ══ 8. A CANCELLED SETTLEMENT RELEASES THE GRANT — and a REDELIVERY does not ══════════════════
+  sess := gen_random_uuid(); cart := gen_random_uuid();
+  insert into public.table_sessions (id, qr_code, mode, status, host_seat)
+    values (sess, 'M70C8', 'pickup', 'active', ana);
+  insert into public.qr_carts (id, session_id, promo_code) values (cart, sess, 'M70TEN');
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
+    values (cart, dish, 'Mohinga', 1, 3000, 0, null, 'togo');
+  assert public.mms_pin_promo_grant(cart) = 1000, 'M70.8 fixture drift: pin should be 1000';
+
+  rows_first := public.mms_mark_settle_canceled('pi_m70_c8', cart, 'over_authorized', ana, now());
+  assert rows_first = 1, format('M70.8 fixture drift: first cancel should insert 1 row, got %s', rows_first);
+  select promo_granted_cents into d from public.qr_carts where id = cart;
+  assert d is null,
+    'M70.8 GRANT OUTLIVED THE HOLD: a cancelled settlement must release the pin, or a later '
+    'checkout on this cart inherits an abandoned attempt''s discount';
+
+  -- Re-pin, then redeliver the SAME cancel: the conflict inserts 0 rows and must clear nothing.
+  assert public.mms_pin_promo_grant(cart) = 1000, 'M70.8 fixture drift: re-pin should be 1000';
+  rows_again := public.mms_mark_settle_canceled('pi_m70_c8', cart, 'over_authorized', ana, now());
+  assert rows_again = 0, format('M70.8 fixture drift: redelivery should insert 0 rows, got %s', rows_again);
+  select promo_granted_cents into d from public.qr_carts where id = cart;
+  assert d = 1000,
+    format('M70.8 REDELIVERY WIPED A LIVE GRANT: got %s, want 1000. The clear must be guarded on '
+           'the insert row count, or a duplicate webhook delivery cancels a NEWER hold''s promo.', d);
+
+  -- ══ 9. A NEW CODE VOIDS THE OLD GRANT ═════════════════════════════════════════════════════════
+  -- `applyPromo` clears the pin in the same UPDATE as the code write; this pins the column's ability
+  -- to be cleared and the reader's return to the live path once it is.
+  update public.qr_carts set promo_code = 'M70TEN', promo_granted_cents = null where id = cart;
+  d := public.mms_promo_discount(cart);
+  assert d = public.mms_promo_discount_live(cart),
+    format('M70.9 STALE GRANT: after a code change the reader must fall back to the live value — '
+           'got %s vs live %s', d, public.mms_promo_discount_live(cart));
+
+  raise notice 'M70 promo-grant pin: all 9 cases passed';
+end $$;
+
+rollback;
