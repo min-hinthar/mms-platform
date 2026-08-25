@@ -25,7 +25,13 @@ pnpm verify:slice        # the MECHANICAL pre-PR gate: money-path coverage guard
                          # ⚠️ REWRITES the 57 money/authority modules it mutates IN PLACE (54 under
                          # apps/qr/lib, plus create-share-intent, setup-intent and board routes) and
                          # restores them. It ABORTS if a target file is DIRTY — commit or stash
-                         # first. One run per checkout. Measure with:
+                         # first. ⚠️ ONE RUN PER CHECKOUT, and BOTH failure modes lie: a run can
+                         # STALL alive-but-idle (seen: ~5h, empty output), and two overlapping runs
+                         # rewrite each other's modules so the second reports "✗ These suites fail
+                         # BEFORE any mutation: <file>" — which reads exactly like a real defect and
+                         # is not. On a stall or a surprising pre-flight failure: kill ALL runs,
+                         # `git checkout -- .`, confirm clean, start exactly one. Never report a
+                         # result whose run you did not watch finish. Measure with:
                          #   grep -oE '^\s+file: "[^"]+"' scripts/verify-slice.mjs | sort -u | wc -l
 pnpm verify:slice --no-gate --only=totals   # iterate on one module
 pnpm format              # prettier --write

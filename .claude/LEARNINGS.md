@@ -607,3 +607,59 @@ that only exercises the half that works proves the half that works.**
 
 Also: `RAISE`'s placeholder is a bare `%`; `format()`'s is `%s`. `raise notice 'cold %s'` prints
 `cold 147s` and reads as correct forever.
+
+## #58 — Two review rounds overturned two of my own load-bearing arguments (M22)
+
+The defects were fine. **The claims I built on top of them were not**, and both survived my own
+pre-PR sweep because I never re-asked "true against WHAT?" of a sentence I had written myself.
+
+**"The trade is free" was false, and only the consumption predicate could say so.** M22 reorders the
+discount clamp so the reward goes first. I justified it: the totals are algebraically identical, and a
+promo's budget is a redemption COUNT, so it costs the same one redemption either way. The first half
+is true and I proved it with a sweep. The second half I asserted. `mms_fulfill_order` gated
+consumption on `p_discount_cents > 0` — the **combined** discount, which is not a fact about the promo
+at all — so a reward covering the basket clamped the promo to 0 while keeping that sum positive, and
+the code was consumed having delivered nothing. **An equivalence proved on one axis says nothing about
+the axes you did not measure.** Before claiming a change is free, find the code that SPENDS the thing
+you say is unaffected, and read its predicate.
+
+**My own comment argued against my own gate.** The shortfall disclosure was gated on the APPLIED
+reward amount. I had written, in the same file, that `rewardFaceCents` states what the attached coupon
+is worth "even when none of it applied … the worst case". Both are true; the gate contradicted the
+comment. A basket voided away under an attached coupon drops the applied amount to 0, so the warning
+went silent AND the row keyed on the same value took the Remove control with it — at the exact moment
+the whole coupon was at risk. **When a comment and a predicate disagree, the comment is usually the
+one that thought it through.**
+
+**Exclusion buckets default every future case to the strongest claim on the screen.**
+`MenuBrowser`'s `unavailable` was "everything that isn't `needs_choices` or `grocery`", so M119's new
+`unreadable` reason would have landed silently in _"isn't available today"_ — the fabricated diagnosis
+it existed to prevent. Name what belongs in a bucket; never define it by what doesn't.
+
+**Fixing one read does not fix the read your own fix newly REACHES.** M119 round 2's sharpest finding
+was in the round-1 fix: `priceItem` used `.single()`, which reports a 0-row result as an ERROR, so
+`if (error || !item)` answered `gone` for both "delisted" and "we could not reach the catalog". That
+line pre-dated the PR and was unreachable while `reorderOrder` refused outright — the fallback made it
+reachable. `.maybeSingle()` is the separator (`{data: null, error: null}` for a genuine no-row).
+Three times in one PR the answer was already written next door: `lock.ts` three lines up,
+`create-share-intent` 200 lines down, and the analytics lesson one property above where it belonged.
+
+**Check a filed repro against the SHIPPED CONFIG before you size the item.** M22 was filed with
+subtotal $10 / promo $6 / reward $9. Prod is `reward_base_cents` 500 against
+`reward_min_redeem_cents` 5000: a $9 coupon does not exist and a $10 basket is refused at apply. The
+numbers came from a unit fixture and had never met the live config, so the row overstated itself for
+months. One `select` against prod is cheaper than an hour of building to a phantom.
+
+**`verify:slice` is one run per checkout, and both failure modes lie.** A run STALLED for ~5 hours
+with an empty output file — the process was alive, making no progress. Separately, two overlapping
+runs rewrote each other's money modules and the second reported
+`✗ These suites fail BEFORE any mutation: lib/order-lines-availability.test.ts`, which reads exactly
+like a real defect and is not. On any stall or surprising pre-flight failure: kill ALL runs,
+`git checkout -- .`, confirm the tree clean, then start exactly ONE. And never report a gate result
+whose run you did not watch finish — a lost output file is not a pass.
+
+**Adding a parameter to a Postgres function does not replace it.** Functions are keyed by argument
+types, so `create or replace` with a new arg list creates an OVERLOAD and leaves the old body live.
+Drop the old signature explicitly — which also drops its grants, so re-grant. Making the new arg LAST
+and DEFAULTED, with the predicate coalescing to the old value, is what lets the migration land ahead
+of the app deploy instead of in lockstep; assert that fallback in the SQL test, or nothing proves it.
