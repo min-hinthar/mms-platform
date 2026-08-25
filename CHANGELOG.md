@@ -45,6 +45,15 @@ hold's grant).
 authorization grants 0, and a promo becoming valid mid-settlement must not lower the total below what
 the reconcile expects. A `coalesce(nullif(pin, 0), live)` tidy-up would break exactly that.
 
+⚠️ **The TS half was unguardable and the coverage guard said "clean" anyway.** `create-intent` has
+no test file and carries a `verify:slice-exempt` line whose stated reason is about W19's tip
+ceiling — so the pin call was waved through by an exemption that never covered it. Deleting the pin
+would have left every gate in this repo green while M70 silently regressed.
+`scripts/check-promo-grant-pin.mjs` (a fourth cheap grep, beside the photo-filter and theme-parity
+ones) now asserts the pin is taken AND taken before the amount is derived; both rules watched failing
+first. The exemption comment now says what it actually covers. **An exemption is a claim about what
+is covered elsewhere; when a file grows a rule the claim does not cover, the exemption is stale.**
+
 Nine SQL cases (registered in `ci.yml`), one per trigger plus the zero-pin, idempotence, cancel-
 release, redelivery and code-change rules. Case 1 is a control with no pin — without it the file
 could not tell "the pin works" from "the promo never drops any more" — and each lapse case asserts

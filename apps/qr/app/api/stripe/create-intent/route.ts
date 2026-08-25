@@ -1,4 +1,10 @@
-// verify:slice-exempt — the W19 tip-amount ceiling this change adds is the pure predicate
+// verify:slice-exempt — W19: the tip-amount ceiling this route enforces is the pure predicate,
+// mutated in `lib/tip.ts` where it lives. M70 (2026-08-25) added a second money-relevant line
+// here — the `mms_pin_promo_grant` call — and this exemption did NOT cover it: the reason
+// above is about the tip ceiling, so the guard was waving through a rule nobody had guarded.
+// `scripts/check-promo-grant-pin.mjs` now asserts the pin is taken AND taken before the
+// amount is derived. An exemption is a claim about what is covered elsewhere; when the file
+// grows a rule the claim does not cover, the exemption is stale, not the rule.
 // `tipWithinAmountCap` in lib/tip.ts, where its mutant (tip/amount-cap-dropped) lives and its suite
 // reddens; this route only wires the refusal (routes have no test runner to own a mutant here).
 import { NextRequest, NextResponse } from "next/server";

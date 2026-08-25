@@ -1991,6 +1991,15 @@ try {
   process.exit(1);
 }
 
+// M70 — the fourth cheap grep: the promo grant is pinned, and pinned BEFORE the amount is derived.
+// `create-intent` has no test file and carries a `verify:slice-exempt` line, so deleting the pin
+// call leaves every other gate in this repo green while M70 silently regresses.
+try {
+  execFileSync("node", ["scripts/check-promo-grant-pin.mjs"], { cwd: ROOT, stdio: "inherit" });
+} catch {
+  process.exit(1);
+}
+
 const targets = MUTANTS.filter((m) => !only || m.id.includes(only));
 const files = [...new Set(targets.map((m) => m.file))];
 
