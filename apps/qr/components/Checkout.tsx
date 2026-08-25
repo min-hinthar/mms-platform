@@ -31,6 +31,7 @@ import {
 } from "@/lib/tip";
 import { menuHref, menuLinkText } from "@/lib/menu-href";
 import { taxRate } from "@/lib/tax";
+import { rewardShortfallCents } from "@/lib/totals-math";
 import { normalizePickupSlot } from "@/lib/pickup-slot";
 import { pickupContactMissing } from "@/lib/pickup-contact";
 import { DINER_STATE_COPY } from "@/lib/line-state-copy";
@@ -1520,6 +1521,7 @@ export function Checkout({
               <RewardField
                 cartId={cartId}
                 appliedRewardCents={totals.rewardCents}
+                rewardShortfallCents={rewardShortfallCents(totals)}
                 onChanged={refresh}
               />
             )}

@@ -32,10 +32,14 @@ const REASON: Record<ApplyRewardReason, string> = {
 export function RewardField({
   cartId,
   appliedRewardCents,
+  rewardShortfallCents = 0,
   onChanged,
 }: {
   cartId: string;
   appliedRewardCents: number;
+  /** M22 — face minus applied, from `rewardShortfallCents(totals)`. 0 when there is nothing to say.
+   *  Never computed here: the residual belongs beside the clamp that produced it. */
+  rewardShortfallCents?: number;
   onChanged: () => void | Promise<void>;
 }) {
   const [coupons, setCoupons] = useState<RewardCoupon[]>([]);
@@ -196,6 +200,18 @@ export function RewardField({
             >
               ဆုလက်ဆောင် သုံးထားပါတယ်နော်
             </span>
+            {/* M22 — the coupon is single-use and is spent in FULL at fulfillment, so when this
+                basket cannot absorb all of it the rest is gone. Owner's call (2026-08-25) was to
+                keep burning it and SAY SO, before the diner pays, next to the Remove they'd use if
+                they'd rather save it. States the amount and the consequence; promises nothing. */}
+            {rewardShortfallCents > 0 && (
+              <span style={{ display: "block", fontSize: "var(--fs-xs)", color: "var(--t2)" }}>
+                Uses the whole reward — {dollars(rewardShortfallCents)} won’t apply to this order.
+                <span lang="my" style={{ display: "block" }}>
+                  ဒီအော်ဒါမှာ {dollars(rewardShortfallCents)} ပိုနေလို့ မသုံးရပါဘူး
+                </span>
+              </span>
+            )}
           </span>
           <button
             ref={removeBtnRef}

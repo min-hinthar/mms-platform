@@ -48,6 +48,29 @@ export type TotalsLine = {
  * @param rewardCentsRaw   the raw `mms_reward_discount` return (caller applies `?? 0`)
  * @param tipRate          the diner's chosen rate; forced to 0 on a basket with no restaurant lines
  */
+/**
+ * M22 — how much of the applied coupon's face this basket cannot absorb, and therefore how much the
+ * diner LOSES by paying now. 0 when there is nothing to disclose.
+ *
+ * The owner's call (2026-08-25) was **burn in full, but disclose it**: the coupon stays single-use,
+ * `mms_redeem_cart_reward` keeps flipping `redeemed_at` unconditionally, and the diner is told before
+ * they pay so the choice is theirs. This is the whole of "disclose it" — a surface that renders
+ * nothing when this is 0 is correct.
+ *
+ * It lives here, not in the checkout component, for the reason W17 paid for twice: a rule left in
+ * `Checkout.tsx` sits outside `check-money-coverage`'s MONEY_PATHS and cannot be guarded at all.
+ *
+ * ⚠️ Gated on `rewardCents > 0`, NOT on the face alone. `rewardFaceCents` states what the attached
+ * coupon is worth even when none of it applied (an empty or fully-comped basket), and a disclosure
+ * on a basket with no reward line to point at is noise, not honesty.
+ */
+export function rewardShortfallCents(
+  totals: Pick<CartTotals, "rewardCents" | "rewardFaceCents">,
+): number {
+  if (totals.rewardCents <= 0) return 0;
+  return Math.max(totals.rewardFaceCents - totals.rewardCents, 0);
+}
+
 export function computeTotals(
   lines: TotalsLine[],
   promoCentsRaw: number,
@@ -65,14 +88,27 @@ export function computeTotals(
   // Clamp to the (voided/comped-excluded) subtotal as belt-and-suspenders: mms_promo_discount already
   // excludes the same lines, so this only bites if the two ever drift — never letting a discount exceed
   // the chargeable base (which would drive a negative total).
-  const promoCents = Math.min(promoCentsRaw, subtotalCents);
-  // Reward coupon (M4 P4.2) — clamped to the subtotal REMAINING after the promo so the combined
-  // discount never exceeds the chargeable base (no negative total). discountCents folds both → tax
-  // base, total, the order snapshot, and the loyalty net-spend all treat the reward as a discount
-  // uniformly.
-  // ⚠️ The clamp is correct; what it exposes is not. `mms_redeem_cart_reward` burns the coupon in
-  // FULL regardless of how much of it this clamp discarded — OPEN-ITEMS **M22**. Pinned, not fixed.
-  const rewardCents = Math.min(rewardCentsRaw, Math.max(subtotalCents - promoCents, 0));
+  // M22 — the REWARD clamps first, and the promo takes what is left. The combined discount is
+  // identical either way (both orders equal `min(promo + reward, subtotal)`, proven by CASE B and the
+  // boundary sweep below), so nobody's total moves; the order only decides WHICH instrument absorbs
+  // the clamp. That is not a wash, because the two are not alike when clamped:
+  //
+  //   · a reward coupon is single-use, personal, and DESTROYED on redemption — `mms_redeem_cart_reward`
+  //     flips `redeemed_at` unconditionally, so every cent the clamp discards is gone for that one
+  //     diner, permanently;
+  //   · a promo code survives being clamped. Its budget is a REDEMPTION COUNT, consumed by
+  //     `p_discount_cents > 0` at fulfillment (`mms_fulfill_order`) — not by value — so it costs the
+  //     same one redemption whether it delivers its full face or a penny of it.
+  //
+  // Clamping the destructible instrument first was strictly the worse of two identical-priced
+  // choices. Reward-first removes the promo collision entirely: a coupon can now only lose value
+  // when the whole chargeable subtotal is smaller than its face — which is the case the diner is
+  // told about (`rewardFaceCents` below), per the owner's call to burn in full but disclose.
+  const rewardCents = Math.min(rewardCentsRaw, subtotalCents);
+  // Clamped to what REMAINS so the combined discount never exceeds the chargeable base (no negative
+  // total). discountCents folds both → tax base, total, the order snapshot and the loyalty net-spend
+  // all treat the two as one discount, uniformly.
+  const promoCents = Math.min(promoCentsRaw, Math.max(subtotalCents - rewardCents, 0));
   const discountCents = promoCents + rewardCents;
   const netCents = subtotalCents - discountCents;
   // Tax on the discounted TAXABLE base only (CDTFA) — not a pro-rata of the rounded aggregate,
@@ -107,6 +143,11 @@ export function computeTotals(
     subtotalCents,
     discountCents,
     rewardCents,
+    // M22 — the coupon's FACE value, so a surface can tell "you used a $5 reward" from "your $5
+    // reward only had $4 of room here." Derived from the same raw the clamp reads, never a second
+    // lookup: a value quoted from a different read is exactly how the burn went unnoticed. Equal to
+    // `rewardCents` in every case except the one worth disclosing.
+    rewardFaceCents: Math.max(rewardCentsRaw, 0),
     serviceChargeCents,
     taxCents,
     tipCents,
