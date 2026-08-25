@@ -25,6 +25,27 @@ const modKey = (m: unknown): string => JSON.stringify(Array.isArray(m) ? [...m].
  *  style) or an over-cap single-select. Throws on violation; the diner provider recovers + re-syncs. Default
  *  OFF so the trusted staff path (`staffAddItem`) is unchanged. The item's groups are embedded in the single
  *  item query (no extra round-trip on the common add). */
+/**
+ * M119 (Codex round 1, P2) — why `priceItem`'s availability refusal carries a machine-readable reason.
+ *
+ * `priceItem` re-reads `is_active,is_sold_out` on EVERY add, so it is the real per-line availability
+ * gate; a batch pre-read is an optimisation that also supplies precise skip reasons. When that batch
+ * read fails, `reorderOrder` falls through to this gate rather than aborting — but its catch could
+ * only report `needs_choices`, so a genuinely sold-out dish would have come back as "tap to choose".
+ * Trading a wrong outcome for a wrong sentence is not a fix on a PR about exactly that, so the reason
+ * rides the error instead of being inferred from prose.
+ */
+export class ItemUnsellableError extends Error {
+  constructor(
+    message: string,
+    /** `gone` = delisted or no longer in the catalog; `sold_out` = 86'd today. */
+    readonly reason: "sold_out" | "gone",
+  ) {
+    super(message);
+    this.name = "ItemUnsellableError";
+  }
+}
+
 export async function priceItem(
   menuItemId: string,
   modifierIds: string[],
@@ -38,7 +59,7 @@ export async function priceItem(
     )
     .eq("id", menuItemId)
     .single();
-  if (error || !item) throw new Error("Unknown menu item");
+  if (error || !item) throw new ItemUnsellableError("Unknown menu item", "gone");
 
   // W23a — the add-time half of the availability gate, and the better guest moment: refuse at the tap
   // rather than at the Pay button, when the basket is still one dish long and swapping costs nothing.
@@ -47,7 +68,10 @@ export async function priceItem(
   // the kitchen already said no to. `is_active` rides along for the same reason: the diner menu
   // filters delisted items at query time, which is a fact about a page that may be minutes old.
   if (!itemSellable(item))
-    throw new Error(`${item.name_en} just sold out — pick something else and we'll get it going.`);
+    throw new ItemUnsellableError(
+      `${item.name_en} just sold out — pick something else and we'll get it going.`,
+      item.is_sold_out ? "sold_out" : "gone",
+    );
 
   const groups = (item.item_modifier_groups ?? [])
     .map((l) => l.modifier_groups)

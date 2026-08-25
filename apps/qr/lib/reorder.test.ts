@@ -13,11 +13,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * available"; it means we never asked. Every food line then missed the lookup, was skipped as `gone`,
  * and the diner got an empty cart plus one false statement per dish: "<dish> isn't available today".
  *
- * ── Why refusing is right here, and not over-blocking ──────────────────────────────────────────
- * The alternative is to skip the availability check and add everything — which re-adds a delisted or
- * sold-out dish, exactly what W23a's server-side half exists to prevent. A reorder is a convenience
- * the diner can retry; selling them a pulled dish is not recoverable that cheaply. So the whole
- * reorder refuses with the outage sentence rather than half-succeeding on a fiction.
+ * ── The first fix REFUSED the whole reorder, and Codex was right that it over-blocked ──────────
+ * `priceItem` re-reads `is_active,is_sold_out` on every single add and throws, so the batch read is
+ * an OPTIMISATION plus a source of precise skip reasons — never the only thing between a diner and a
+ * delisted dish. Aborting every otherwise-valid dish to re-check something already checked one layer
+ * down is cost with no cover. And the refusal advertised "try again in a moment" into a screen with
+ * no way to try again: `MenuBrowser` sets `reorderRan.current = true` and strips the `reorder` URL
+ * param BEFORE calling, so the effect never re-runs.
+ *
+ * So the fallback proceeds and lets the per-line gate decide — with the reason riding the throw
+ * (`ItemUnsellableError`), because otherwise a sold-out dish on that path comes back "needs_choices"
+ * and we would have swapped a wrong outcome for a wrong sentence.
  *
  * Note the sibling read in this same function was already fixed for this shape — the comment above
  * it records that M108 deleted a session-mode read which "discarded its error".
@@ -43,17 +49,43 @@ vi.mock("./rate", () => ({
   withinMutationRate: () => Promise.resolve(true),
   assertMutationRate: () => Promise.resolve(),
 }));
+/**
+ * Hoisted: `vi.mock` factories are lifted above every top-level statement, and this one uses the
+ * class as a VALUE. The mutable fixtures below do not need hoisting — they are only dereferenced
+ * inside the factory's function bodies, at call time.
+ */
+const { ItemUnsellableError } = vi.hoisted(() => {
+  class ItemUnsellableError extends Error {
+    reason: "sold_out" | "gone";
+    constructor(message: string, reason: "sold_out" | "gone") {
+      super(message);
+      this.name = "ItemUnsellableError";
+      this.reason = reason;
+    }
+  }
+  return { ItemUnsellableError };
+});
+
+/** What `priceItem` should do when called — the per-line gate the fallback now leans on. */
+let priceItemThrows: "sold_out" | "gone" | "cardinality" | null = null;
+let priceItemCalls = 0;
+
 vi.mock("./order-lines", () => ({
+  ItemUnsellableError,
   insertOrIncLine: () => Promise.resolve({ ok: true }),
   touchCart: () => Promise.resolve(),
-  priceItem: () =>
-    Promise.resolve({
-      ok: true,
+  priceItem: () => {
+    priceItemCalls += 1;
+    if (priceItemThrows === "cardinality") throw new Error("This item needs a required choice");
+    if (priceItemThrows) throw new ItemUnsellableError("unsellable", priceItemThrows);
+    return Promise.resolve({
       name: "Mohinga",
       unitPriceCents: 1200,
-      taxCents: 0,
       category: "hot_prepared",
-    }),
+      opts: [],
+      optionIds: [],
+    });
+  },
 }));
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
@@ -84,6 +116,8 @@ const mod = await import("./reorder");
 beforeEach(() => {
   itemRows = [{ id: DISH, is_active: true, is_sold_out: false }];
   itemsError = null;
+  priceItemThrows = null;
+  priceItemCalls = 0;
   orderLines = [
     {
       menu_item_id: DISH,
@@ -97,25 +131,56 @@ beforeEach(() => {
 });
 
 describe("M119e — an unreadable availability read is not a sold-out menu", () => {
-  it("THE DEFECT — a failed read must refuse, not report every dish unavailable", async () => {
+  it("THE DEFECT — a failed read must not report every dish unavailable", async () => {
     itemRows = null;
     itemsError = { message: "transport failure" };
     const res = (await mod.reorderOrder({ orderId: "o1", cartId: "c1" })) as
-      | { ok: true; skipped: { reason: string }[] }
+      | { ok: true; added: number; skipped: { reason: string }[] }
       | { ok: false; error: string };
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error).toContain("trouble on our end");
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      // The dish is genuinely available, so it must be ADDED — not skipped as "gone".
+      expect(res.skipped.map((s) => s.reason)).not.toContain("gone");
+      expect(res.added).toBe(1);
+    }
   });
 
-  it("a genuinely sold-out dish is still reported sold_out — the honest case is untouched", async () => {
+  it("the fallback still refuses a dish that is actually gone — priceItem is the real gate", async () => {
+    itemRows = null;
+    itemsError = { message: "transport failure" };
+    priceItemThrows = "sold_out";
+    const res = (await mod.reorderOrder({ orderId: "o1", cartId: "c1" })) as
+      | { ok: true; added: number; skipped: { reason: string }[] }
+      | { ok: false; error: string };
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.added).toBe(0);
+      // …and with the TRUE reason. Before `ItemUnsellableError` carried it, this path reported
+      // `needs_choices` — "tap to choose" for a dish nobody can have.
+      expect(res.skipped.map((s) => s.reason)).toContain("sold_out");
+      expect(res.skipped.map((s) => s.reason)).not.toContain("needs_choices");
+    }
+    expect(priceItemCalls).toBeGreaterThan(0); // the gate actually ran
+  });
+
+  it("a cardinality failure is still needs_choices — the distinction is real, not cosmetic", async () => {
+    itemRows = null;
+    itemsError = { message: "transport failure" };
+    priceItemThrows = "cardinality";
+    const res = (await mod.reorderOrder({ orderId: "o1", cartId: "c1" })) as
+      | { ok: true; skipped: { reason: string }[] }
+      | { ok: false; error: string };
+    if (res.ok) expect(res.skipped.map((s) => s.reason)).toContain("needs_choices");
+  });
+
+  it("a genuinely sold-out dish is still reported sold_out on the NORMAL path", async () => {
     itemRows = [{ id: DISH, is_active: true, is_sold_out: true }];
     const res = (await mod.reorderOrder({ orderId: "o1", cartId: "c1" })) as
       | { ok: true; skipped: { reason: string }[] }
       | { ok: false; error: string };
-    // ANTI-DEGENERACY: this case is only meaningful if the fixture reaches the availability logic at
-    // all. The first draft of this file did NOT — the order-lookup mock was missing `earned_by` and
-    // `status`, so both cases bailed at "That order isn't available to reorder." and the defect case
-    // was red for a reason that had nothing to do with the read it names.
+    // ANTI-DEGENERACY: only meaningful if the fixture reaches the availability logic at all. The
+    // first draft of this file did NOT — the order-lookup mock lacked `earned_by`/`status`, so both
+    // cases bailed at "That order isn't available to reorder."
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.skipped.map((s) => s.reason)).toContain("sold_out");
   });

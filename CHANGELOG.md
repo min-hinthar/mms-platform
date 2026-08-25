@@ -26,10 +26,27 @@ fresh basket"_; `isTerminal` is false for it, `classifyReplay` already retries i
 final `else` already renders honest transient copy. The right answer was in the codebase — this one
 read wasn't using it.
 
-**`reorder.ts:128` handed back an empty cart.** An empty `itemById` doesn't mean nothing is
-available, it means we never asked — so every food line was skipped as `gone` and the diner got one
-false statement per dish. Refusing the whole reorder is the conservative direction: the alternative
-skips the availability check and re-adds a delisted dish, which is what W23a exists to prevent.
+**`reorder.ts:128` added zero reorder dishes and called each one unavailable.** An empty `itemById`
+doesn't mean nothing is available, it means **we never asked** — so every food line was skipped as
+`gone`, the reorder added nothing, and the diner got one false statement per dish.
+
+_(An earlier draft of this entry said "empty cart". Codex was right that that overstates it:
+`reorderOrder` only inserts, never clears, so a cart that already held dishes stays non-empty. The
+functional claim stands; the wording doesn't.)_
+
+**The first fix over-blocked, and Codex caught that too.** It refused the whole reorder. But
+`priceItem` re-reads `is_active,is_sold_out` on **every** add and throws — so the batch read is an
+optimisation plus a source of precise skip reasons, never the only thing between a diner and a
+delisted dish. Aborting every otherwise-valid dish to re-check something already checked one layer
+down is cost with no cover. Worse, the refusal advertised _"try again in a moment"_ into a screen
+with **no way to try again**: `MenuBrowser` sets `reorderRan.current = true` and strips the `reorder`
+URL param _before_ calling, so the effect never re-runs. A promise the code doesn't keep — in the
+change that exists to stop making them.
+
+So the fallback now proceeds and lets the per-line gate decide. That needed one more piece to stay
+honest: `priceItem`'s availability refusal carries its reason (`ItemUnsellableError`), because
+otherwise a sold-out dish on that path came back `needs_choices` — swapping a wrong outcome for a
+wrong sentence, which is not a fix here. A mutant pins each half.
 
 The other two are the filed shape:
 

@@ -6,7 +6,7 @@ import { carryNote } from "./reorder-notes";
 import { assertCartMember } from "./authz";
 import { assertMutationRate } from "./rate";
 import { lineTax } from "./tax";
-import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
+import { insertOrIncLine, priceItem, touchCart, ItemUnsellableError } from "./order-lines";
 import { optionsCameBackDifferent, storedOptionIds } from "./reorder-options";
 import { getPostHogClient } from "./posthog-server";
 
@@ -142,11 +142,25 @@ export async function reorderOrder(raw: {
   const { data: itemRows, error: itemsError } = foodIds.length
     ? await db.from("menu_items").select("id,is_active,is_sold_out").in("id", foodIds)
     : { data: [] as { id: string; is_active: boolean; is_sold_out: boolean }[], error: null };
-  if (itemsError)
-    return {
-      ok: false as const,
-      error: "We’re having trouble on our end — try again in a moment.",
-    };
+  // M119 (Codex round 1, P2 — both halves real, and one fix answers both). The first attempt
+  // REFUSED the whole reorder here. That over-blocked for a safety gain that does not exist:
+  // `priceItem` re-reads `is_active,is_sold_out` on every single add (`order-lines.ts`) and throws,
+  // so this batch read is an OPTIMISATION plus a source of precise skip reasons — never the only
+  // thing between a diner and a delisted dish. Aborting every otherwise-valid dish to re-check
+  // something already checked one layer down is cost with no cover.
+  //
+  // Worse, the refusal advertised "try again in a moment" into a screen with no way to try again:
+  // `MenuBrowser` sets `reorderRan.current = true` and strips the `reorder` param from the URL
+  // BEFORE calling, so the effect never re-runs and the diner would have had to navigate back
+  // through order history. A promise the code does not keep, in the change that exists to stop
+  // making them.
+  //
+  // So fall through and let the per-line gate do its job. `unverified` records that today's
+  // availability never arrived, which is what makes the loop skip the map rather than read an EMPTY
+  // one — an empty map does not mean "nothing is available", it means we never asked, and treating
+  // it as an answer is what reported every dish unavailable.
+  const unverified = Boolean(itemsError);
+  if (itemsError) console.error("[reorder] availability read failed", itemsError.message);
   const itemById = new Map((itemRows ?? []).map((i) => [i.id, i]));
 
   let added = 0;
@@ -160,14 +174,18 @@ export async function reorderOrder(raw: {
       skipped.push({ name: l.name, reason: "grocery" });
       continue;
     }
-    const item = itemById.get(l.menu_item_id);
-    if (!item || !item.is_active) {
-      skipped.push({ name: l.name, reason: "gone" });
-      continue;
-    }
-    if (item.is_sold_out) {
-      skipped.push({ name: l.name, reason: "sold_out" });
-      continue;
+    // When today's availability never arrived, do NOT consult the empty map — `priceItem` below
+    // re-checks the same two columns per line and throws with the precise reason (M119).
+    if (!unverified) {
+      const item = itemById.get(l.menu_item_id);
+      if (!item || !item.is_active) {
+        skipped.push({ name: l.name, reason: "gone" });
+        continue;
+      }
+      if (item.is_sold_out) {
+        skipped.push({ name: l.name, reason: "sold_out" });
+        continue;
+      }
     }
     try {
       // M3 — faithful reorder: lines fulfilled after 20260815100000 carry the STABLE option ids, so
@@ -227,6 +245,14 @@ export async function reorderOrder(raw: {
       // That is NOT an availability fact about the remaining dishes — stop and say what happened.
       if (e instanceof Error && e.message === "Cart is no longer open")
         return { ok: false, error: "Your cart just closed — start a fresh order from the menu." };
+      // M119 — an availability refusal carries its own reason, so the fallback path above stays as
+      // honest as the batch one. Without this, a sold-out dish reached on the unverified path would
+      // be reported `needs_choices` ("tap to choose") — a wrong sentence swapped in for a wrong
+      // outcome, which is not a fix on this change.
+      if (e instanceof ItemUnsellableError) {
+        skipped.push({ name: l.name, reason: e.reason });
+        continue;
+      }
       // Otherwise priceItem threw: required choices on an empty selection (or a mid-loop vanish).
       skipped.push({ name: l.name, reason: "needs_choices" });
     }
