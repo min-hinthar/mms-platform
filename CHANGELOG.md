@@ -4,6 +4,46 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The tab's payment mutex failed open (2026-08-25)
+
+**M119 (a) closed — the first item off the class M116 uncovered, and the only one that was a wrong
+outcome rather than a wrong sentence.**
+
+Opening a tab is a cart mutation, so it waits behind the same mutex every other one does. It didn't:
+
+```ts
+const { data: payCart } = await db.from("qr_carts").select(…).eq("id", cartId).maybeSingle();
+if (await paymentInFlightReason(payCart)) return { ok: false, error: "Someone's paying right now…" };
+```
+
+The `{ error }` was discarded — and `paymentInFlightReason(null)` returns null by **deliberate
+contract** (`pay-guard.ts:38`, pinned by `pay-guard.test.ts:142`): null means _"there is no cart"_,
+not _"we could not tell"_. So a failed read didn't mis-word the refusal, it **skipped** it. A tab
+opened on a cart whose card was mid-authorization, and nothing downstream re-checks: `mms_open_tab`
+gates on the cart being `open`, which it still is during an authorization.
+
+Binding the error also separates the two reasons `payCart` can be null — a genuinely **absent** cart
+still falls through to the RPC, which is authoritative on existence; only an **unreadable** one
+refuses. Case 4 caught a quiet second symptom nobody had filed: on a failed read the audit row was
+written with a `NULL` session (`payCart?.session_id ?? null`).
+
+**The fix is in the caller, not the guard.** All nine `paymentInFlightReason` call sites were read;
+the other eight already refuse an unreadable or absent cart before calling. One caller not honouring
+a contract is not a reason to change that contract at nine sites.
+
+⚠️ **The coverage guard could not see this file.** `tabs.ts` matched no `MONEY_MARKER`, so the money
+mutex was revertible with every gate green — the guard was blind to exactly the file whose money
+defect it exists to catch. `paymentInFlightReason` is now a marker, listed as a _function_ for the
+same reason `captureAllIfReady` and `summarizeRefund` are: the money lives in the decision, not in a
+column. Proven red-first. This also brings `floor.ts`, `approvals.ts` and `voids.ts` under the
+marker with no mutant yet — deliberate and not silent, since the guard only demands one for a
+_changed_ file.
+
+**Retracted:** the sweep's reading of `pay-guard.ts:67` was wrong on the remedy. That
+`return "split_in_progress"` on a read error is a documented W10d fail-**closed** decision, not a
+defect; its only real residue is that staff see a specific sentence for an outage. Recorded in M119
+so nobody "fixes" it into failing open.
+
 ### A refusal that fails closed must not also invent a reason (2026-08-24)
 
 **M116 closed.** Securing a tab is a dine-in concept, so `setup-intent` refused a pickup or

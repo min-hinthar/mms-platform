@@ -52,6 +52,19 @@ const MONEY_MARKERS = [
   /stripe_payment_intent_id/,
   /idempotencyKey/,
   /\bcaptureAllIfReady\b/,
+  // M119a — `paymentInFlightReason` IS the money mutex ("the shared 'is money moving on this cart?'
+  // guard", pay-guard.ts), and this list could not see it. `tabs.ts` matched NO marker at all, so
+  // `openTab`'s copy of the guard was revertible with every gate green — and it had in fact already
+  // been reverted: the read's `{ error }` was dropped, `paymentInFlightReason(null)` returns null by
+  // contract, and the refusal was SKIPPED while a card was mid-authorization. The guard was blind to
+  // the exact file whose money defect it exists to catch. Listed as a FUNCTION for the same reason
+  // `captureAllIfReady` and `summarizeRefund` are: the money lives in the decision, not in a column.
+  //
+  // ⚠️ Three further callers now fall under this marker with no mutant yet — `floor.ts`,
+  // `approvals.ts`, `voids.ts`. That is deliberate and it is not silent: the guard only requires a
+  // mutant for a CHANGED file, so each will be asked for one the next time it is touched, rather
+  // than forcing three unrelated mutants into this change.
+  /\bpaymentInFlightReason\b/,
   /\breleaseHold\b/,
   // W16a review MED — the mode-price seam (order-lines.ts) and the toggle re-price (cart.ts) were
   // both revertible with every gate green because neither file matched a marker: the noun the
