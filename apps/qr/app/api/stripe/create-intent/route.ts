@@ -291,7 +291,11 @@ export async function POST(req: NextRequest) {
       // Logged, never thrown: this runs on paths that are already returning an error to the diner,
       // and the pin's own `status = 'open'` gate plus the next attempt's re-derivation bound the
       // damage. Failing here would replace a stale discount with a stranded lock.
-      if (error) console.error("[create-intent] promo grant not released", { cartId: id, error: error.message });
+      if (error)
+        console.error("[create-intent] promo grant not released", {
+          cartId: id,
+          error: error.message,
+        });
       await releaseCartLock(id, u);
     };
 

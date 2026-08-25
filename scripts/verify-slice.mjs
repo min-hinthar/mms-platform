@@ -2007,7 +2007,10 @@ try {
 // tests in that job, so the slip aborts the stack before a single `supabase/tests/*.sql` assertion
 // executes: the migration's real proof never runs, and the red check names the types file.
 try {
-  execFileSync("node", ["scripts/check-generated-types-sorted.mjs"], { cwd: ROOT, stdio: "inherit" });
+  execFileSync("node", ["scripts/check-generated-types-sorted.mjs"], {
+    cwd: ROOT,
+    stdio: "inherit",
+  });
 } catch {
   process.exit(1);
 }

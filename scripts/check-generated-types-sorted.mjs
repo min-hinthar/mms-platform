@@ -60,7 +60,10 @@ const fail = (msg) => {
 const section = (name) => {
   const header = new RegExp(`^    ${name}: \\{$`, "m");
   const m = header.exec(src);
-  if (!m) fail(`${FILE} has no \`${name}\` section — the generator's shape changed. Teach this guard the new shape rather than deleting it.`);
+  if (!m)
+    fail(
+      `${FILE} has no \`${name}\` section — the generator's shape changed. Teach this guard the new shape rather than deleting it.`,
+    );
   const open = src.indexOf("{", m.index);
   let depth = 0;
   for (let i = open; i < src.length; i += 1) {
