@@ -607,3 +607,136 @@ that only exercises the half that works proves the half that works.**
 
 Also: `RAISE`'s placeholder is a bare `%`; `format()`'s is `%s`. `raise notice 'cold %s'` prints
 `cold 147s` and reads as correct forever.
+
+## #58 — Two review rounds overturned two of my own load-bearing arguments (M22)
+
+The defects were fine. **The claims I built on top of them were not**, and both survived my own
+pre-PR sweep because I never re-asked "true against WHAT?" of a sentence I had written myself.
+
+**"The trade is free" was false, and only the consumption predicate could say so.** M22 reorders the
+discount clamp so the reward goes first. I justified it: the totals are algebraically identical, and a
+promo's budget is a redemption COUNT, so it costs the same one redemption either way. The first half
+is true and I proved it with a sweep. The second half I asserted. `mms_fulfill_order` gated
+consumption on `p_discount_cents > 0` — the **combined** discount, which is not a fact about the promo
+at all — so a reward covering the basket clamped the promo to 0 while keeping that sum positive, and
+the code was consumed having delivered nothing. **An equivalence proved on one axis says nothing about
+the axes you did not measure.** Before claiming a change is free, find the code that SPENDS the thing
+you say is unaffected, and read its predicate.
+
+**My own comment argued against my own gate.** The shortfall disclosure was gated on the APPLIED
+reward amount. I had written, in the same file, that `rewardFaceCents` states what the attached coupon
+is worth "even when none of it applied … the worst case". Both are true; the gate contradicted the
+comment. A basket voided away under an attached coupon drops the applied amount to 0, so the warning
+went silent AND the row keyed on the same value took the Remove control with it — at the exact moment
+the whole coupon was at risk. **When a comment and a predicate disagree, the comment is usually the
+one that thought it through.**
+
+**Exclusion buckets default every future case to the strongest claim on the screen.**
+`MenuBrowser`'s `unavailable` was "everything that isn't `needs_choices` or `grocery`", so M119's new
+`unreadable` reason would have landed silently in _"isn't available today"_ — the fabricated diagnosis
+it existed to prevent. Name what belongs in a bucket; never define it by what doesn't.
+
+**Fixing one read does not fix the read your own fix newly REACHES.** M119 round 2's sharpest finding
+was in the round-1 fix: `priceItem` used `.single()`, which reports a 0-row result as an ERROR, so
+`if (error || !item)` answered `gone` for both "delisted" and "we could not reach the catalog". That
+line pre-dated the PR and was unreachable while `reorderOrder` refused outright — the fallback made it
+reachable. `.maybeSingle()` is the separator (`{data: null, error: null}` for a genuine no-row).
+Three times in one PR the answer was already written next door: `lock.ts` three lines up,
+`create-share-intent` 200 lines down, and the analytics lesson one property above where it belonged.
+
+**Check a filed repro against the SHIPPED CONFIG before you size the item.** M22 was filed with
+subtotal $10 / promo $6 / reward $9. Prod is `reward_base_cents` 500 against
+`reward_min_redeem_cents` 5000: a $9 coupon does not exist and a $10 basket is refused at apply. The
+numbers came from a unit fixture and had never met the live config, so the row overstated itself for
+months. One `select` against prod is cheaper than an hour of building to a phantom.
+
+**`verify:slice` is one run per checkout, and both failure modes lie.** A run STALLED for ~5 hours
+with an empty output file — the process was alive, making no progress. Separately, two overlapping
+runs rewrote each other's money modules and the second reported
+`✗ These suites fail BEFORE any mutation: lib/order-lines-availability.test.ts`, which reads exactly
+like a real defect and is not. On any stall or surprising pre-flight failure: kill ALL runs,
+`git checkout -- .`, confirm the tree clean, then start exactly ONE. And never report a gate result
+whose run you did not watch finish — a lost output file is not a pass.
+
+**Adding a parameter to a Postgres function does not replace it.** Functions are keyed by argument
+types, so `create or replace` with a new arg list creates an OVERLOAD and leaves the old body live.
+Drop the old signature explicitly — which also drops its grants, so re-grant. Making the new arg LAST
+and DEFAULTED, with the predicate coalescing to the old value, is what lets the migration land ahead
+of the app deploy instead of in lockstep; assert that fallback in the SQL test, or nothing proves it.
+
+**A generated file edited by hand is a guess, and the cheapest check for it is not the one CI runs.**
+`packages/db/src/database.types.ts` is `pnpm db:types` output, and `db:types` needs a local Supabase
+stack. A cloud session has no Docker, so a new RPC's entry gets typed by hand — and the first thing
+that checks it is CI's `migrations-check + types-fresh`: six image pulls and 120 replayed migrations
+to reject one misplaced line. M70 burned TWO of those cycles on plain alphabetical slips
+(`mms_pin_promo_grant` filed after `mms_promo_attempt`; `mms_release_promo_grant` after
+`mms_request_approval` — `pin` < `promo`, `rele` < `requ`).
+
+The expensive part was not the minutes. **`types-fresh` runs BEFORE that job's SQL tests**
+(`ci.yml:109` vs `:122`), so a sort slip tears down the stack with every `supabase/tests/*.sql`
+assertion still unrun. Twice, M70's migration — the entire point of the PR — reported "checked" when
+nothing about it had executed, and the red check named a types file, which reads like a bookkeeping
+nit rather than _your SQL is still unverified_. When a fast step gates a slow proof, a failure in the
+fast step is not a small failure; look at what it stopped from running.
+
+`scripts/check-generated-types-sorted.mjs` decides all of it from the file alone in milliseconds: the
+generator emits `Tables` keys, `Functions` keys and each `Args` key list in plain ASCII order (46 ·
+70 · 64 blocks, all already sorted when the guard was written), and the error names the exact pair to
+swap. It deliberately does NOT guard the entry's SHAPE — the generator breaks at ~80 columns, so
+`mms_reward_discount` stays inline while the seven-character-longer `mms_release_promo_grant` does
+not, and reimplementing that is prettier's job. Position is the half that is cheap and the half that
+was actually wrong both times. Both "parsed zero keys" cases fail loudly, because a guard that looked
+at nothing prints the same word as a guard that found nothing wrong.
+
+**Before re-deriving a decision from raw columns, check whether the system already computed it.** My
+round-1 fix to M70's cancel clear was right about the defect (a cart-scoped clear can wipe a live
+successor's grant) and wrong about the instrument. I wrote the era test myself —
+`locked_at is not distinct from p_attempt` — and CI turned case 8 red. Two reasons, and the column
+declares the first one itself: `qr_settlement_cancellations.attempt` is _"forensics only, never read
+by the diner path"_, and `markCanceled` nulls an unparseable one on purpose because _"losing the era
+is survivable, losing the verdict is not."_ A predicate cannot make a deliberately-lossy field
+load-bearing. The second is plainer: the cart lock has a TTL that auto-releases an abandoned pay
+screen and nulls `locked_at`, so an ordinary cancel naming a real era stops matching and the grant
+leaks — the exact hole the clear exists to close.
+
+The era test was already computed one layer up. `mms_settle_precheck_and_void` returns -2 exactly
+when `v_locked_at is distinct from p_attempt` (null attempt included), and the caller maps -2 to the
+single reason `superseded`. So the answer was `p_reason <> 'superseded'`, which is also the rule the
+LOCK already follows — `if (prior.reason !== "superseded") await releaseOurLock(…)` — because the
+grant and the lock have the same owner. **The "name it ONCE" rule is not only about money values; it
+covers decisions.** Two derivations of "does this attempt own the cart" drift exactly like two
+derivations of a total.
+
+**And a guard tightened until the VALID case fails is not safer — it moves the defect.** Both my
+first two drafts were wrong in opposite directions (too loose: wipes a successor's grant; too tight:
+leaks on every TTL-expired pay screen), and each was written while thinking only about the failure
+mode in front of me. Cases 11 and 12 now pull against each other in the same file on purpose, so
+neither direction can be "fixed" alone again. When a review asks you to tighten a bound, write the
+test for what the tightened bound does to the legitimate case, in the same commit.
+
+**Changing a signature or a return shape silently disarms every guard that quotes it.** Two in one
+commit. `verify:slice` reported `lock/unreadable-status-reads-as-closed` **STALE** — its `find`
+pattern matched 0× because returning the stamped era turned `return "unavailable"` into
+`return { result: "unavailable", era: null }`. A stale mutant is not a skip: the M119(b) fail-closed
+could then have been deleted with every gate in the repo green. And CI reported
+`function public.mms_release_promo_grant(uuid) does not exist` — I widened the RPC to two arguments,
+updated the three new SQL cases, and never swept the one that already existed. **After changing any
+signature or shape, grep for its name across tests, mutants and docs before running anything** — the
+compiler covers the TypeScript callers and nothing covers the rest.
+
+That second failure is also the `drop function` earning its place. Had the one-arg signature been
+left behind as an overload, case 10 would have gone on passing **against the cart-wide body the
+change existed to remove** — green, and measuring the defect.
+
+**A discriminated union whose member carries a multi-literal discriminant never narrows.**
+`{ result: "acquired"; era: string } | { result: Exclude<LockResult, "acquired">; era: null }` looks
+right and typechecks, but `===` on a member whose discriminant is itself a union cannot ELIMINATE
+that member — so callers never narrow to the acquired branch and `era` stays nullable at every use.
+The fix is one member per literal. Worth knowing because the failure is quiet: nothing errors, the
+type just silently stops doing its job, and the natural next move is to paper over it with a
+non-null assertion — which is exactly the guarantee the union was supposed to provide for free.
+
+**Prefer returning a value you just wrote over reading it back.** `create-intent` re-`SELECT`ed
+`locked_at` a few statements after `acquireCartLock` wrote it. Same "name it ONCE" rule as a money
+value, and the same failure mode: the gap between the write and the read is precisely where a
+competing acquisition lands, so the row can answer with somebody else's era.

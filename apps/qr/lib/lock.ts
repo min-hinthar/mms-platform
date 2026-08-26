@@ -23,6 +23,25 @@ export const SETTLE_TTL_MS = 10 * 60 * 1000;
 /** M119 (b) — `unavailable` is the honest fourth answer: we could not READ the cart's status, so
  *  we do not know whether it is open. It is not `closed`; see the acquire path below. */
 export type LockResult = "acquired" | "held_by_other" | "closed" | "unavailable";
+
+/**
+ * The outcome of an acquisition, plus the ERA it stamped.
+ *
+ * M70 — `locked_at` identifies the checkout ATTEMPT: `acquireCartLock` refreshes it on every
+ * acquisition, a re-acquire by the same diner included, so two overlapping create-intent requests
+ * are two eras on one cart. Anything that later asks "am I still the attempt that owns this cart?"
+ * — releasing a promo grant, keying a Stripe idempotency key — needs the value THIS call wrote.
+ *
+ * Returned rather than re-read. create-intent used to SELECT `locked_at` back a few statements
+ * later, which is a second derivation of a value we already hold, and the gap between the write and
+ * that read is exactly where a competing acquisition lands. `era` is null on every non-acquired
+ * outcome: there is no attempt to name.
+ */
+export type LockAcquisition =
+  | { result: "acquired"; era: string }
+  | { result: "held_by_other"; era: null }
+  | { result: "closed"; era: null }
+  | { result: "unavailable"; era: null };
 export type SettleResult = "acquired" | "locked" | "settling_other" | "closed";
 
 /**
@@ -36,9 +55,12 @@ export type SettleResult = "acquired" | "locked" | "settling_other" | "closed";
  * PRECONDITION: the caller must have already `assertCartMember`'d — this UPDATE does not re-verify
  * membership (create-intent asserts immediately before, with no await-gap that could change it).
  */
-export async function acquireCartLock(cartId: string, uid: string): Promise<LockResult> {
+export async function acquireCartLock(cartId: string, uid: string): Promise<LockAcquisition> {
   const db = serviceClient();
   const cutoff = new Date(Date.now() - CART_LOCK_TTL_MS).toISOString();
+  // The era this acquisition stamps, held in a local so the value RETURNED is byte-identical to the
+  // one written — a second `new Date()` is a different millisecond and would name a different attempt.
+  const era = new Date().toISOString();
   const settleCutoff = new Date(Date.now() - SETTLE_TTL_MS).toISOString();
   // All interpolated values are SERVER-derived (uid = verified auth.uid() from assertCartMember;
   // cutoffs = server ISO timestamps) — never a client string — so these `.or()`s carry no injection
@@ -56,16 +78,13 @@ export async function acquireCartLock(cartId: string, uid: string): Promise<Lock
   // never a phantom lock conflict.
   const { count, error } = await db
     .from("qr_carts")
-    .update(
-      { locked: true, locked_at: new Date().toISOString(), locked_by: uid },
-      { count: "exact" },
-    )
+    .update({ locked: true, locked_at: era, locked_by: uid }, { count: "exact" })
     .eq("id", cartId)
     .eq("status", "open")
     .or(`locked.eq.false,locked_by.eq.${uid},locked_at.lte.${cutoff}`)
     .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`);
   if (error) throw error;
-  if ((count ?? 0) > 0) return "acquired";
+  if ((count ?? 0) > 0) return { result: "acquired", era };
   // 0 rows: closed, or a FRESH lock held by another. Read the status to message it honestly.
   //
   // M119 (b) — bind the error, because "honestly" is exactly what dropping it prevented. This is the
@@ -83,8 +102,13 @@ export async function acquireCartLock(cartId: string, uid: string): Promise<Lock
     .select("status")
     .eq("id", cartId)
     .maybeSingle();
-  if (statusError) return "unavailable";
-  return cart?.status === "open" ? "held_by_other" : "closed";
+  if (statusError) return { result: "unavailable", era: null };
+  // One member per literal, not `{ result: Exclude<LockResult, "acquired">; era: null }`: a member
+  // whose discriminant is itself a union cannot be ELIMINATED by a `===` check, so the caller would
+  // never narrow to the acquired branch and `era` would stay nullable everywhere it is used.
+  return cart?.status === "open"
+    ? { result: "held_by_other", era: null }
+    : { result: "closed", era: null };
 }
 
 /**

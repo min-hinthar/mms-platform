@@ -4,6 +4,182 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### An authorized promo survives to settlement (2026-08-25)
+
+**M70 closed — and it was four defects, not one.** A promo that lapses between authorization and
+capture raises the live total above the hold, and `planCapture` cancels the entire order
+(`liveTotalCents > authorizedCents` → `over_authorized`). Safe, but one missing dish cancelled
+everything.
+
+The registry filed the min-subtotal shortage. `mms_promo_discount` returns 0 on **four** conditions,
+and three of them need no cart change at all:
+
+| trigger                                 | needs a basket change?   |
+| --------------------------------------- | ------------------------ |
+| code deleted, or `active` flipped false | no                       |
+| `now() < valid_from`                    | no                       |
+| `now() > valid_until`                   | **no — pure wall clock** |
+| `subtotal < min_subtotal_cents`         | yes (the filed case)     |
+
+A hold taken at 23:58 under a promo expiring at midnight, captured at 00:01, cancelled for exactly
+the same reason as the sold-out shortage. Owner's call (2026-08-25): honour all four.
+
+**The grant is PINNED at authorization.** `qr_carts.promo_granted_cents` is written by
+`mms_pin_promo_grant` before the amount is derived, and `mms_promo_discount` returns it from then on.
+The arithmetic is not duplicated: the existing body is renamed `mms_promo_discount_live` byte-for-
+byte, and the public reader — **same signature, so no caller changes anywhere** — is "the pin if
+there is one, else live".
+
+Also worth recording: the total can only rise when the discount drops to **zero**. For `pct`,
+total = S·(1−p); for a partial `flat`, total = S − v. Both increase with the subtotal, so shrinking
+a basket lowers them. Those four drops are the entire surface.
+
+⚠️ **The pin deliberately outlives the lock.** Fulfillment re-derives the breakdown and reconciles it
+against the captured amount; clearing the pin at release or capture would make the derived total
+disagree with what was charged and raise `reconcile_mismatch`. It is cleared in exactly three places
+that end its meaning — a new promo code (same UPDATE as the code write, so they cannot drift) and a
+cancelled settlement (scoped to the cancelled attempt's ERA, so neither a redelivery nor a
+first-time cancel for a superseded intent can wipe a newer hold's grant) — plus an attempt that
+abandons before minting an intent, which the cancellation path cannot see at all.
+
+⚠️ **A pin of 0 is a real answer** (`is not null`, never `> 0`). A cart with no valid promo at
+authorization grants 0, and a promo becoming valid mid-settlement must not lower the total below what
+the reconcile expects. A `coalesce(nullif(pin, 0), live)` tidy-up would break exactly that.
+
+⚠️ **The TS half was unguardable and the coverage guard said "clean" anyway.** `create-intent` has
+no test file and carries a `verify:slice-exempt` line whose stated reason is about W19's tip
+ceiling — so the pin call was waved through by an exemption that never covered it. Deleting the pin
+would have left every gate in this repo green while M70 silently regressed.
+`scripts/check-promo-grant-pin.mjs` (a fourth cheap grep, beside the photo-filter and theme-parity
+ones) now asserts the pin is taken AND taken before the amount is derived; both rules watched failing
+first. The exemption comment now says what it actually covers. **An exemption is a claim about what
+is covered elsewhere; when a file grows a rule the claim does not cover, the exemption is stale.**
+
+⚠️ **A fast step that gates a slow proof is not a small failure.** `database.types.ts` is
+`pnpm db:types` output and `db:types` needs Docker, so in a cloud session a new RPC's entry is typed
+by hand — and the first thing that checks it is `migrations-check + types-fresh`: six image pulls and
+120 replayed migrations to reject one misplaced line. This PR burned two of those cycles on plain
+alphabetical slips. The cost was not the minutes: `types-fresh` runs BEFORE that job's SQL tests, so
+each slip tore the stack down with every one of M70's assertions still unrun — the migration read
+"checked" when nothing about it had executed, under a red check naming a types file.
+`scripts/check-generated-types-sorted.mjs` (a fifth cheap grep) decides it from the file alone in
+milliseconds: the generator emits `Tables` keys, `Functions` keys and every `Args` list in plain ASCII
+order (46 · 70 · 64 blocks), and the error names the exact pair to swap. It deliberately does not
+guard the entry's line-breaking — that is prettier's 80-column printer, and position is both the
+cheap half and the half that was actually wrong. Wired into `verify:slice` and CI's fast lane; six
+failure modes, including both "parsed zero keys" cases, watched failing first.
+
+**Codex round 1 found two P1s in the pin's lifecycle, both real, both mine.**
+
+The first: `mms_pin_promo_grant` runs before the amount is derived, so every create-intent exit
+between the pin and a live PaymentIntent — the "Empty cart" and tip-ceiling refusals, and the outer
+catch on a `getCartTotals` throw or a Stripe failure — left a grant authorizing nothing. The diner
+edits the now-unlocked cart, re-checks-out, and the pin is a no-op because it is not null, so the
+abandoned attempt's grant prices the new basket. Cancellation could not cover it: that records the
+end of a hold that _existed_. `mms_release_promo_grant` now runs on all three paths.
+
+The second is sharper, and the codebase had already written the rule down. My clear inside
+`mms_mark_settle_canceled` was scoped to the CART and guarded only on the insert's row count — which
+rules out a redelivery of the same intent, but not a _first-time_ cancel for a superseded attempt
+arriving while a successor hold is live. That would wipe the successor's grant, and its webhook would
+then re-derive the live promo and hit the exact reconciliation mismatch this change exists to
+prevent. `manual-capture-run.ts:159-161`, three lines above the `superseded` call site:
+
+> _"The verdict is keyed on the PaymentIntent, so it describes THIS attempt only and cannot paint
+> over the successor's — which is exactly why the cancellation ledger is per-intent and not
+> per-cart."_
+
+The clear is era-scoped now (`locked_at is not distinct from p_attempt`, the same comparison
+`mms_settle_precheck_and_void` uses). **Third time this session the fix was already written next
+door** — after `lock.ts` three lines up and the analytics lesson one property above.
+
+**Three more P1s, one root cause, and the predicate that finally satisfies all of them.** Rounds 2
+and 3 kept circling the same thing from different angles: the pin has no owner, so every clear had to
+GUESS whether it was the current attempt — from `locked_at` (which moves), from a verdict (which goes
+stale), or not at all (cart-wide). Three drafts, each wrong in a different direction:
+
+1. **cart-scoped** — a first-time cancel for a superseded intent wiped a live successor's grant.
+2. **`locked_at is not distinct from p_attempt`** — CI reddened case 8. `attempt` is declared
+   _"forensics only, never read by the diner path"_ and `markCanceled` nulls an unparseable one on
+   purpose, so a predicate must not make it authoritative; and a TTL-released lock NULLS `locked_at`,
+   so an ordinary cancel naming a real era stopped matching and the grant leaked.
+3. **`p_reason <> 'superseded'`** — the verdict is STALE. `superseded` describes what the PRECHECK
+   observed; between that check (`manual-capture-run.ts:123-144`) and the verdict write (`:192`) the
+   same payer can start another checkout, `acquireCartLock` refreshes `locked_at`, and the successor
+   pins and derives its amount while the old verdict still reads `over_authorized`.
+
+The question was never "which attempt am I?" but **"is a DIFFERENT live attempt depending on this pin
+right now?"** — and the cart's current `locked_at`, read at write time, answers it:
+`(locked_at is null or locked_at is not distinct from p_attempt)`. No live lock → nothing depends on
+the pin → clear. My era → clear. Another era → leave it. Both clears use it, and it **deletes** the
+verdict special-case rather than adding to it.
+
+Two more leaks closed with it. `mms_release_promo_grant` is now era-scoped (`acquireCartLock` lets the
+same diner re-acquire and REFRESHES `locked_at`, so two overlapping create-intents are two eras on one
+cart sharing one uid — only the era separates them). And the SUCCESS-path abandons: returning a client
+secret mints no authorization, so "Edit order" and the `pagehide` beacon were unlocking carts with a
+live pin — a diner minting on a $30 basket, tapping Edit order and dropping to $24 still got the $10
+grant, below the promo's own $25 minimum. Those two are clients that never saw an era, so they prove
+ownership the way `releaseCartLock` does (`locked_by`), via `mms_release_promo_grant_for_holder`.
+
+⚠️ `acquireCartLock` now RETURNS the era it stamped, and `create-intent` stops re-SELECTing
+`locked_at` a few statements later — a second derivation of a value we already held, whose window is
+exactly where a competing acquisition lands. `LockAcquisition` is a per-literal discriminated union so
+a real era is paired with the `acquired` outcome alone: `era`'s non-nullness is the type's, not an
+assertion, and a future fourth outcome becomes a type error. (A single member with a three-literal
+discriminant cannot be ELIMINATED by `===`, so it never narrows — that shape typechecks and silently
+leaves `era` nullable everywhere.)
+
+Fifteen SQL cases. Cases 8 · 11 · 12 · 13 pull against each other by design — a superseded cancel must
+not clear, a TTL-released one must, and a stale cancel with a non-superseded verdict must not — so no
+single direction can be "fixed" alone again.
+
+**Codex round 2 also found the promo write racing the pay lock, and that one is separate.**
+`applyPromo` refuses a `locked || settling` cart — but it reads that at authz time, and TWO awaited
+RPCs run before the write. Long enough for a tablemate to reach the pay screen, take the lock and pin
+the grant; the write, gated only on `status = 'open'`, then clears a LIVE attempt's pin. Its
+PaymentIntent was minted under the old code, the webhook re-derives under the new one, and
+`reconcile_mismatch` lands after the card is charged. The freeze is now re-tested in the same
+statement that writes, against the same EFFECTIVE predicates `assertCartMember` uses (a lock is only
+real inside `CART_LOCK_TTL`; `locked = true` with a null `locked_at` is not a lock).
+
+⚠️ `{ count: "exact" }`, not `.select("id")` — a mutation with `.select()` asks PostgREST for
+`return=representation`, and PostgREST 14 re-applies the top-level `or()` against the RETURNING
+projection, so `locked` falls out of scope and the whole UPDATE 400s with 42703. That is written down
+at `lock.ts:49-56`, where it once gave every checkout a spurious 409. **Fifth time this session the
+answer was already next door.**
+
+And the refusal is READ, not assumed: three facts land on the same zero row count (closed · a
+tablemate holds the lock · the table is settling), and a fourth outcome is honest too — if the
+diagnosis read fails we do not know why, so it answers `error` rather than inventing a verdict. Eight
+cases in `lib/cart-promo-freeze.test.ts` on a fake PostgREST that EVALUATES the filters, so a deleted
+predicate moves the row instead of merely changing a call list; both directions pinned (a STALE lock
+must still let a promo through). Five mutants, each watched failing first.
+
+**Then CI overturned the era fix, and the third draft is the simplest of the three.** Round 1's
+correction re-derived the era as `locked_at is not distinct from p_attempt`, and case 8 went red.
+Two reasons, and the column states the first itself: `qr_settlement_cancellations.attempt` is
+"forensics only, never read by the diner path" and `markCanceled` nulls an unparseable one on
+purpose — _"losing the era is survivable, losing the verdict is not"_ — so a predicate must not make
+it authoritative. And the cart lock has a TTL that auto-releases an abandoned pay screen, nulling
+`locked_at`, so an ordinary cancel naming a real era stops matching and the grant leaks. **A guard
+tightened until the valid case fails is not safer; it moves the defect.**
+
+The era test was already computed and did not need re-deriving: `mms_settle_precheck_and_void`
+returns -2 exactly when `v_locked_at is distinct from p_attempt` (the null attempt included), and the
+caller maps -2 to the one reason `superseded`. So the grant follows the LOCK's rule, stated one line
+above that mapping — `if (prior.reason !== "superseded") await releaseOurLock(…)` — because the grant
+and the lock have the same owner. `and p_reason <> 'superseded'`, plus `status = 'open'` (the only
+state where a stale grant can price a next basket, and the gate `mms_pin_promo_grant` already uses).
+**Fourth time this session the answer was already written next door.**
+
+Twelve SQL cases (registered in `ci.yml`), one per trigger plus the zero-pin, idempotence, cancel-
+release, redelivery, code-change, abandoned-attempt and superseded-era rules. Case 1 is a control with no pin — without it the file
+could not tell "the pin works" from "the promo never drops any more" — and each lapse case asserts
+the _live_ value is 0 alongside, so none of them can pass vacuously. Cases 11 and 12 pull in opposite
+directions on purpose — a superseded cancel must not clear, a TTL-released one must — and only the
+verdict satisfies both.
+
 ### Promo reporting records what was delivered, not what was quoted (2026-08-25)
 
 **Codex round 2, and it was right to press.** Round 1 raised the analytics gap and I filed it as

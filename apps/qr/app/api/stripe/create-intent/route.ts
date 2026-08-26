@@ -1,4 +1,10 @@
-// verify:slice-exempt — the W19 tip-amount ceiling this change adds is the pure predicate
+// verify:slice-exempt — W19: the tip-amount ceiling this route enforces is the pure predicate,
+// mutated in `lib/tip.ts` where it lives. M70 (2026-08-25) added a second money-relevant line
+// here — the `mms_pin_promo_grant` call — and this exemption did NOT cover it: the reason
+// above is about the tip ceiling, so the guard was waving through a rule nobody had guarded.
+// `scripts/check-promo-grant-pin.mjs` now asserts the pin is taken AND taken before the
+// amount is derived. An exemption is a claim about what is covered elsewhere; when the file
+// grows a rule the claim does not cover, the exemption is stale, not the rule.
 // `tipWithinAmountCap` in lib/tip.ts, where its mutant (tip/amount-cap-dropped) lives and its suite
 // reddens; this route only wires the refusal (routes have no test runner to own a mutant here).
 import { NextRequest, NextResponse } from "next/server";
@@ -18,7 +24,7 @@ import { getPostHogClient } from "@/lib/posthog-server";
 // Creates a PaymentIntent for the SERVER-COMPUTED total. The client sends only the
 // cartId + tip choice — never an amount. (Fixes client-authoritative pricing.)
 export async function POST(req: NextRequest) {
-  let acquired: { cartId: string; uid: string } | null = null;
+  let acquired: { cartId: string; uid: string; era: string } | null = null;
   try {
     const { cartId, tipRate, firstName, phone } = createIntentInput.parse(await req.json());
 
@@ -46,22 +52,27 @@ export async function POST(req: NextRequest) {
     // it mid-checkout → the webhook reconcile 409s / charges with no order. Atomic; the SAME payer
     // re-acquiring (refresh / retry) succeeds, a stale lock is taken over, a fresh lock by ANOTHER
     // member is rejected. Released on decline (webhook), "Edit order" (releasePayLock), or the TTL.
-    const lock = await acquireCartLock(cartId, uid);
+    const acq = await acquireCartLock(cartId, uid);
     // M119 (b) — an unreadable status read is not a verdict about the order. Mapped before `closed`
     // so an outage can never be reported as "no longer open", which is what it used to say.
-    if (lock === "unavailable")
+    if (acq.result === "unavailable")
       return NextResponse.json(
         { error: "We’re having trouble on our end — try again in a moment." },
         { status: 503 },
       );
-    if (lock === "closed")
+    if (acq.result === "closed")
       return NextResponse.json({ error: "This order is no longer open." }, { status: 400 });
-    if (lock === "held_by_other")
+    if (acq.result === "held_by_other")
       return NextResponse.json(
         { error: "Someone at your table is checking out — try again in a moment." },
         { status: 409 },
       );
-    acquired = { cartId, uid }; // release on any post-acquire failure (below) so nothing strands
+    // M70 — `era` rides along so the outer catch can scope its grant release to THIS attempt. Its
+    // non-nullness is the UNION's, not an assertion: `LockAcquisition` pairs a real era with the
+    // `acquired` result alone, and the three guards above returned on every other outcome — so
+    // `acq` is narrowed here and a future fourth outcome becomes a type error rather than a null.
+    const attemptEra = acq.era;
+    acquired = { cartId, uid, era: attemptEra };
 
     // Pickup honesty (P2.2 · W5e): a pickup order is EITHER scheduled (a slot the diner picked) OR ASAP
     // (no slot yet — "make it now"). Both are gated HERE, at the charge boundary, so a client can't dodge
@@ -252,17 +263,67 @@ export async function POST(req: NextRequest) {
       if (nameErr) console.error("[create-intent] customer_name write failed:", nameErr.message);
     }
 
+    // M70 — freeze the promo's contribution BEFORE the amount is derived, so the hold and every
+    // later read of this cart agree on one number. `mms_promo_discount` returns the pin from here
+    // on, which is what stops a promo lapsing between authorize and capture (a sold-out void
+    // dropping the subtotal under `min_subtotal_cents`, a `valid_until` passing, an admin flipping
+    // `active`) from RAISING the live total above the hold and sending `planCapture` to
+    // `over_authorized` — cancelling the whole order over one missing dish.
+    //
+    // Ordering is load-bearing: pin first, THEN derive. Deriving first would mint an amount from the
+    // live value and pin a possibly different one a moment later. The RPC is idempotent (pins only
+    // when null), so a create-intent retry re-uses the first grant and therefore the same Stripe
+    // idempotency key rather than minting a second PaymentIntent.
+    //
+    // A failure here is NOT fatal: the pin is an improvement on the settlement outcome, not an
+    // authority over the amount. Without it the cart simply behaves as it did before M70 — the
+    // amount is still server-derived from the same authority, and `planCapture` still refuses to
+    // charge more than was authorized. Failing the mint would trade a rare cancelled settlement for
+    // a certain refused checkout.
+    const { error: pinErr } = await db.rpc("mms_pin_promo_grant", { p_cart_id: cartId });
+    if (pinErr)
+      console.error("[create-intent] promo grant not pinned", { cartId, error: pinErr.message });
+
+    // M70 (Codex round 1, P1) — every exit BETWEEN the pin and a live PaymentIntent must release the
+    // grant, because a grant with no hold behind it authorizes nothing. The lock alone is not enough:
+    // the diner edits the now-unlocked cart, re-checks-out, and `mms_pin_promo_grant` is a no-op
+    // (the pin is not null) — so the abandoned attempt's grant prices the NEW basket. Both directions
+    // are wrong: a $10 grant survives onto a basket that no longer clears the minimum, and a 0 grant
+    // survives onto one that has become eligible. Cancellation cannot cover this — that records the
+    // end of a hold that EXISTED, and here none ever did.
+    const abandonAttempt = async (id: string, u: string) => {
+      // ERA-SCOPED (Codex round 2, P1). `acquireCartLock` lets the same diner re-acquire and
+      // REFRESHES `locked_at`, so two overlapping create-intent requests are two eras on one cart.
+      // A cart-wide release from the loser's catch would wipe the grant the WINNER's PaymentIntent
+      // was minted under, and its webhook would then re-derive a different amount against a charged
+      // payment. `attemptEra` is the value OUR acquisition wrote, so the RPC can tell whether the
+      // cart still belongs to us.
+      const { error } = await db.rpc("mms_release_promo_grant", {
+        p_cart_id: id,
+        p_attempt: attemptEra,
+      });
+      // Logged, never thrown: this runs on paths that are already returning an error to the diner,
+      // and the pin's own `status = 'open'` gate plus the next attempt's re-derivation bound the
+      // damage. Failing here would replace a stale discount with a stranded lock.
+      if (error)
+        console.error("[create-intent] promo grant not released", {
+          cartId: id,
+          error: error.message,
+        });
+      await releaseCartLock(id, u);
+    };
+
     const totals = await getCartTotals(cartId, tipRate);
     const amount = totals.totalCents; // already cents, server-derived
     if (amount <= 0) {
-      await releaseCartLock(cartId, uid);
+      await abandonAttempt(cartId, uid);
       return NextResponse.json({ error: "Empty cart" }, { status: 400 });
     }
     // W19 — the tip ceiling is a DOLLAR amount ($1,000, the cash tip's own bound), enforced here on
     // the DERIVED cents because a rate cannot express a dollar cap. The client clamps to the same
     // constant, so an in-app diner never sees this; it exists for the hostile/raw POST.
     if (!tipWithinAmountCap(totals.tipCents)) {
-      await releaseCartLock(cartId, uid);
+      await abandonAttempt(cartId, uid);
       return NextResponse.json({ error: "Tip exceeds the $1,000.00 maximum" }, { status: 400 });
     }
 
@@ -284,16 +345,13 @@ export async function POST(req: NextRequest) {
     // same amount would get the dead intent's client secret back and be unable to pay until the key
     // aged out. `locked_at` is refreshed on every lock acquisition, so it changes per checkout
     // ATTEMPT while staying identical across duplicate requests inside one attempt, which is exactly
-    // the distinction the key needs to draw. Read after the lock so it reflects OUR acquisition.
-    let attemptStamp = "";
-    if (manualCapture) {
-      const { data: lockRow } = await db
-        .from("qr_carts")
-        .select("locked_at")
-        .eq("id", cartId)
-        .maybeSingle();
-      attemptStamp = lockRow?.locked_at ?? "";
-    }
+    // the distinction the key needs to draw.
+    //
+    // M70 — taken from the ACQUISITION rather than re-SELECTed. `acquireCartLock` returns the era it
+    // stamped, and re-reading `locked_at` a few statements later was a second derivation of a value
+    // we already held: the gap between the write and that read is precisely where a competing
+    // acquisition lands, so the row could answer with someone else's era. Same value, one source.
+    const attemptStamp = manualCapture ? (attemptEra ?? "") : "";
 
     // tipRate rides in metadata so the webhook can recompute the identical breakdown to reconcile.
     const intent = await getStripe().paymentIntents.create(
@@ -352,7 +410,28 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     // A post-acquire failure (totals / Stripe / etc.) must not strand the lock — release now so the
     // table isn't frozen on a transient error (the TTL is the backstop). Best-effort; never mask `e`.
-    if (acquired) await releaseCartLock(acquired.cartId, acquired.uid).catch(() => {});
+    //
+    // M70 — and it must not strand the promo GRANT either. This is the path that reaches here after
+    // `mms_pin_promo_grant` succeeded and `getCartTotals` or `paymentIntents.create` then threw: a
+    // pin with no PaymentIntent behind it. Released inline rather than via `abandonAttempt`, which
+    // is scoped to the try block; same two writes, same best-effort posture.
+    if (acquired) {
+      const { cartId: abandonedCart, uid: abandonedUid, era: abandonedEra } = acquired;
+      try {
+        const { error: relErr } = await serviceClient().rpc("mms_release_promo_grant", {
+          p_cart_id: abandonedCart,
+          p_attempt: abandonedEra,
+        });
+        if (relErr)
+          console.error("[create-intent] promo grant not released", {
+            cartId: abandonedCart,
+            error: relErr.message,
+          });
+      } catch {
+        /* best-effort, exactly like the lock release below — never mask `e` */
+      }
+      await releaseCartLock(abandonedCart, abandonedUid).catch(() => {});
+    }
     if (e instanceof AuthzError)
       return NextResponse.json({ error: e.message }, { status: e.status });
     const err = e as Error;

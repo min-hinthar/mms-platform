@@ -299,6 +299,46 @@ const MUTANTS = [
     replace: '  if (data !== "ok") return { ok: true };\n  // No touchCart: mms_fire_line\'s write',
   },
   {
+    id: "cart/promo-write-ignores-the-pay-lock",
+    file: "apps/qr/lib/cart.ts",
+    suite: "lib/cart-promo-freeze.test.ts",
+    why: "M70 (Codex round 2 P1) \u2014 the `locked || settling` refusal is read at authz time and TWO awaited RPCs run before the write, so a tablemate can take the pay lock and pin the grant inside that window. A write gated only on `status = 'open'` then clears a LIVE attempt's pin: the PaymentIntent was minted under the old code, the webhook re-derives under the new one, and `reconcile_mismatch` lands after the card is charged. The freeze has to be re-tested in the statement that writes",
+    find: "    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n",
+    replace: "",
+  },
+  {
+    id: "cart/promo-write-ignores-the-settlement-freeze",
+    file: "apps/qr/lib/cart.ts",
+    suite: "lib/cart-promo-freeze.test.ts",
+    why: "M70 \u2014 the split-tender freeze is the OTHER half of the same window, and it is table-wide: every member's cart is frozen while the table pays in turn. Dropping this term lets a promo change land mid-settlement, against holds already authorized under the old code",
+    find: "    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`);",
+    replace: "    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`);",
+  },
+  {
+    id: "cart/promo-lock-check-ignores-the-ttl",
+    file: "apps/qr/lib/cart.ts",
+    suite: "lib/cart-promo-freeze.test.ts",
+    why: "M70 \u2014 the OVER-BLOCKING direction, and the one a tightening review invites. A lock is only real while `locked_at` is inside CART_LOCK_TTL (authz.ts:168-175); gating on the bare `locked` column freezes the promo field for five minutes after an abandoned pay screen, on a cart every other surface treats as editable. Over-blocking is as expensive as under-blocking",
+    find: "`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`",
+    replace: "`locked.eq.false`",
+  },
+  {
+    id: "cart/promo-refusal-fabricates-a-diagnosis",
+    file: "apps/qr/lib/cart.ts",
+    suite: "lib/cart-promo-freeze.test.ts",
+    why: "M116/M119, on a new surface \u2014 three different facts land on the same zero row count (closed \u00b7 a tablemate holds the pay lock \u00b7 the table is settling). Answering `cart_closed` for all three tells a diner whose tablemate is merely mid-checkout that their order is no longer open. The reason has to be READ, not assumed",
+    find: "if ((count ?? 0) === 0) return { ok: false, reason: await refusedPromoReason(input.cartId) };",
+    replace: 'if ((count ?? 0) === 0) return { ok: false, reason: "cart_closed" };',
+  },
+  {
+    id: "cart/promo-diagnosis-read-swallows-its-error",
+    file: "apps/qr/lib/cart.ts",
+    suite: "lib/cart-promo-freeze.test.ts",
+    why: "M119 \u2014 the diagnosis read's OWN fabricated diagnosis. Unbound, a failed read makes `cart` null, `!cart` true, and the answer `cart_closed`: an outage reaches the diner as a fact about their order. `error` is the honest fourth outcome, and `maybeSingle` is what makes `error` mean exactly one thing",
+    find: '  if (error) return "error";\n',
+    replace: "",
+  },
+  {
     id: "reorder/mode-fork-collapses-to-dinein",
     file: "apps/qr/lib/reorder.ts",
     suite: "lib/reorder-mode.test.ts",
@@ -1826,7 +1866,7 @@ const MUTANTS = [
     file: "apps/qr/lib/lock.ts",
     suite: "lib/lock.test.ts",
     why: 'M119 (b) — the diagnostic read whose entire job is to `message it honestly` reported a VERDICT it had not established. Unbound, a failed status read makes `cart` null, `cart?.status === "open"` false, and the answer `closed` — so create-intent tells a diner whose order is open that it is `no longer open` and they cannot pay. This is the SAME shape the comment one statement above already describes and fixes on the UPDATE, where it had given every checkout a spurious 409 after the PostgREST 14 upgrade',
-    find: '  if (statusError) return "unavailable";',
+    find: '  if (statusError) return { result: "unavailable", era: null };',
     replace: "  // fail-closed removed",
   },
   {
@@ -1987,6 +2027,30 @@ try {
 // already drifted when the guard was written, silently, for however long.
 try {
   execFileSync("node", ["scripts/check-theme-parity.mjs"], { cwd: ROOT, stdio: "inherit" });
+} catch {
+  process.exit(1);
+}
+
+// M70 — the fourth cheap grep: the promo grant is pinned, and pinned BEFORE the amount is derived.
+// `create-intent` has no test file and carries a `verify:slice-exempt` line, so deleting the pin
+// call leaves every other gate in this repo green while M70 silently regresses.
+try {
+  execFileSync("node", ["scripts/check-promo-grant-pin.mjs"], { cwd: ROOT, stdio: "inherit" });
+} catch {
+  process.exit(1);
+}
+
+// M70 — the fifth cheap grep: `packages/db/src/database.types.ts` is hand-edited in a container with
+// no Postgres, so a new RPC's entry is typed by guess and the first thing that checks it is CI's
+// `migrations-check + types-fresh` — six image pulls and 120 migrations before a one-line diff. M70
+// burned TWO of those cycles on plain alphabetical slips. Worse, `types-fresh` runs BEFORE the SQL
+// tests in that job, so the slip aborts the stack before a single `supabase/tests/*.sql` assertion
+// executes: the migration's real proof never runs, and the red check names the types file.
+try {
+  execFileSync("node", ["scripts/check-generated-types-sorted.mjs"], {
+    cwd: ROOT,
+    stdio: "inherit",
+  });
 } catch {
   process.exit(1);
 }

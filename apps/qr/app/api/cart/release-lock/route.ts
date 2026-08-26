@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cartViewInput } from "@mms/db/schemas";
 import { assertCartMember, AuthzError } from "@/lib/authz";
+import { serviceClient } from "@mms/db/server";
 import { releaseCartLock } from "@/lib/lock";
 import { withinMutationRate } from "@/lib/rate";
 
@@ -47,7 +48,21 @@ export async function POST(req: NextRequest) {
     const { uid } = await assertCartMember(cartId);
     // Per-device flood guard (P3.4), consistent with `releasePayLock`. A rate-limited release just
     // no-ops — the TTL is the backstop, and this path must never throw at a page that's unloading.
-    if (await withinMutationRate(uid)) await releaseCartLock(cartId, uid);
+    if (await withinMutationRate(uid)) {
+      // M70 (Codex round 2, P1) — same rule as `releasePayLock`: a successful create-intent mints no
+      // authorization, so a diner who leaves the pay step abandons a pinned grant with nothing
+      // behind it, and the next checkout's pin is a no-op. The grant is released on the same
+      // authority as the lock (`locked_by = uid`) and BEFORE it, since that predicate is only true
+      // while the lock is still ours.
+      const { error: grantErr } = await serviceClient().rpc("mms_release_promo_grant_for_holder", {
+        p_cart_id: cartId,
+        p_uid: uid,
+      });
+      // Logged, never thrown: this page is unloading and `sendBeacon` discards the response.
+      if (grantErr)
+        console.error("[cart] promo grant not released", { cartId, error: grantErr.message });
+      await releaseCartLock(cartId, uid);
+    }
   } catch (e) {
     // Every authorization outcome answers 204. There is nothing for the caller to do with a refusal —
     // `sendBeacon` discards the response and the page is gone — and a distinct 403 would turn this into

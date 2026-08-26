@@ -22,7 +22,8 @@
     "verify:merge-race:mutants": "node scripts/verify-merge-race.mjs --mutants",
     "verify:mode-authority": "node scripts/verify-mode-authority.mjs",
     "review:bundle": "node scripts/review-bundle.mjs",
-    "check:migration-versions": "node scripts/check-migration-versions.mjs"
+    "check:migration-versions": "node scripts/check-migration-versions.mjs",
+    "check:types-sorted": "node scripts/check-generated-types-sorted.mjs"
   },
   "devDependencies": {
     "@mms/config": "workspace:*",
