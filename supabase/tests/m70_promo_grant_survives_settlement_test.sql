@@ -252,12 +252,17 @@ begin
   sess := gen_random_uuid(); cart := gen_random_uuid();
   insert into public.table_sessions (id, qr_code, mode, status, host_seat)
     values (sess, 'M70C10', 'pickup', 'active', ana);
-  insert into public.qr_carts (id, session_id, promo_code) values (cart, sess, 'M70TEN');
+  -- LOCKED, because create-intent always holds the lock when it abandons: it pins immediately after
+  -- `acquireCartLock` and every exit between there and a live PaymentIntent comes through here. An
+  -- unlocked fixture would pass on the `locked_at is null` limb and never exercise the era match.
+  insert into public.qr_carts (id, session_id, promo_code, locked, locked_at, locked_by)
+    values (cart, sess, 'M70TEN', true, now(), ana);
   insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
     values (cart, dish, 'Mohinga', 1, 3000, 0, null, 'togo');
   assert public.mms_pin_promo_grant(cart) = 1000, 'M70.10 fixture drift: pin should be 1000';
 
-  perform public.mms_release_promo_grant(cart);
+  select locked_at into pinned_at from public.qr_carts where id = cart;
+  perform public.mms_release_promo_grant(cart, pinned_at);
   select promo_granted_cents into d from public.qr_carts where id = cart;
   assert d is null,
     format('M70.10 ABANDONED GRANT SURVIVED: got %s, want null. A pin with no PaymentIntent behind '
