@@ -25,14 +25,25 @@ export type AvailabilityRead = { ok: true; lines: UnavailableLine[] } | { ok: fa
 /**
  * W23c — the same read, returning the OUTCOME rather than a bare list, and keeping the ids.
  *
- * Two callers, two correct answers to the same failure, which is why the outcome has to travel
- * (Codex #203 P1). The pre-mint gate fails OPEN: it is a secondary check, and blocking every diner
- * on a catalog blip is worse than the rare refund. The manual-capture path must NOT — there, "I
- * could not read the catalog" resolving to "everything is available" captures the full hold for a
- * basket that may contain a dish the kitchen cannot make, which is the one charge this whole slice
- * exists to prevent. It retries instead; the authorization is untouched and costs nothing meanwhile.
+ * ⚠️ M72 — it now has ONE caller, and the note that used to sit here was rewritten rather than left
+ * to rot. It read "two callers, two correct answers to the same failure": the pre-mint gate fails
+ * OPEN (a secondary check must not block every diner on a catalog blip), while the manual-capture
+ * path failed CLOSED, because there "I could not read the catalog" resolving to "everything is
+ * available" captures the full hold for a basket the kitchen cannot make.
  *
- * This is the delivery repo's rule one process boundary out: a failure must never read as empty.
+ * That second caller is gone. `mms_settle_precheck_and_void` now derives the unsellable set itself,
+ * inside the statement that voids — so the capture path never reads the catalog app-side, and there
+ * is no second read there to fail. The fail-CLOSED requirement did not go away; it moved into the
+ * RPC, where an unreadable catalog is simply an error and the caller retries.
+ *
+ * So the `{ ok: false }` arm survives with only `unavailableLineNames` above it, which converts it
+ * to the documented fail-OPEN. Keeping the outcome shape is still right — collapsing it would bake
+ * the fail-open into the type and leave the next caller no way to choose — but it is now a
+ * capability rather than a live requirement, and a reader should not infer a fail-closed consumer
+ * that no longer exists.
+ *
+ * The underlying rule is unchanged and is the delivery repo's, one process boundary out: a failure
+ * must never read as empty.
  */
 export async function unavailableLines(cartId: string): Promise<AvailabilityRead> {
   const db = serviceClient();

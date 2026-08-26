@@ -114,7 +114,7 @@ beforeEach(() => {
 describe("settleAuthorizedPickup", () => {
   it("captures the full hold when the catalog still has everything", async () => {
     const r = await settleAuthorizedPickup("pi_1", "cart_1", 5200, 0.2, PAYER, ATTEMPT);
-    expect(r).toEqual({ kind: "captured", amountCents: 5200, partial: false, dropped: [] });
+    expect(r).toEqual({ kind: "captured", amountCents: 5200, partial: false, droppedCount: 0 });
     expect(captures).toEqual([{ id: "pi_1", amount: 5200 }]);
     // The precheck runs even with nothing to drop — it is the proof the cart is still open and
     // still ours, and a check that skipped the ordinary path would be a check the ordinary path
@@ -135,15 +135,19 @@ describe("settleAuthorizedPickup", () => {
       kind: "captured",
       amountCents: 3800,
       partial: true,
-      dropped: ["Mohinga"],
+      // M72 — the RPC's own count, not a length taken from an app-side list. The app never learns
+      // WHICH lines went; `mms_dropped_snapshot` re-derives the diner-facing list from the ledger.
+      droppedCount: 1,
     });
     expect(captures).toEqual([{ id: "pi_2", amount: 3800 }]);
-    // The IDS have to reach the RPC, not just the call. Without this the suite passes whether the
-    // precheck is handed the sold-out dish or an empty list — the mocked total hides the difference,
-    // and the void becomes a no-op that still captures a reduced amount by coincidence.
+    // M72 — the assertion INVERTED, and deliberately so. It used to demand the sold-out ids reach
+    // the RPC; that was the defect. The app must now send no opinion at all, because the function
+    // derives the set inside the statement that voids it. `gone` above is still populated and must
+    // still not appear here: if a future edit re-wires the catalog read into this argument, the
+    // client is deciding availability on a money path again and this goes red.
     expect(voidCalls[0]).toMatchObject({
       fn: "mms_settle_precheck_and_void",
-      args: { p_cart: "cart_2", p_menu_ids: ["m1"], p_payer: PAYER, p_attempt: ATTEMPT },
+      args: { p_cart: "cart_2", p_menu_ids: [], p_payer: PAYER, p_attempt: ATTEMPT },
     });
   });
 
@@ -238,14 +242,19 @@ describe("settleAuthorizedPickup", () => {
     expect(voidCalls).toEqual([]); // it returns before touching the cart at all
   });
 
-  it("does NOT capture when the catalog could not be read — silence is not availability", async () => {
-    // The gate upstream fails OPEN on purpose. Here that same silence would capture the full hold
-    // for a basket that may contain a dish nobody can make.
+  it("never reads the catalog app-side — an unreadable one cannot even be observed here", async () => {
+    // M72 — "silence is not availability" still holds; its MECHANISM moved. This path used to read
+    // `menu_items` itself and answer `retry` when that read failed. There is no app-side read left
+    // to fail: the RPC derives the unsellable set inside the statement that voids, so an unreadable
+    // catalog is an RPC error, covered by "does NOT capture when the void could not be read".
+    //
+    // `readOk = false` therefore has to be INERT now. Asserting that is what stops the old read
+    // being quietly reintroduced: if one comes back, this capture turns into a retry and goes red.
     readOk = false;
     const r = await settleAuthorizedPickup("pi_9", "cart_9", 5200, 0.2, PAYER, ATTEMPT);
-    expect(r.kind).toBe("retry");
-    expect(captures).toEqual([]);
-    expect(voidCalls).toEqual([]);
+    expect(r.kind).toBe("captured");
+    expect(captures).toEqual([{ id: "pi_9", amount: 5200 }]);
+    expect(voidCalls).toHaveLength(1);
   });
 
   it("cancels when the lock has moved to another payer OR to a later attempt", async () => {
@@ -263,15 +272,21 @@ describe("settleAuthorizedPickup", () => {
     expect(lockReleases).toEqual([]);
   });
 
-  it("refuses to capture when lines had to go and none did", async () => {
-    // A predicate drifting between the gate and the RPC is exactly how the comped-line hole
-    // appeared. Rather than reason about WHY nothing matched, refuse: the basket still contains
-    // something the kitchen cannot make.
+  it("captures on a zero void count — there is no app-side list to contradict it", async () => {
+    // M72 — the inverse of the old "lines had to go and none did" refusal, and the inversion is the
+    // change rather than a weakening. That guard compared the APP's unsellable list against the DB's
+    // count, because two spellings of "can we still make this?" existed and could drift. One
+    // spelling remains, in the statement that acts on it, so a zero count is now simply the truth:
+    // nothing needed voiding. Refusing here would strand every ordinary capture.
+    //
+    // `gone` is populated to prove it is genuinely ignored — under the old code this exact fixture
+    // returned `retry`. The drift this once guarded is pinned instead where the two languages still
+    // meet, in supabase/tests/m72_settlement_derives_availability_test.sql.
     gone = [{ id: "m1", name: "Mohinga" }];
     voidResult = 0;
     const r = await settleAuthorizedPickup("pi_11", "cart_11", 5200, 0.2, PAYER, ATTEMPT);
-    expect(r.kind).toBe("retry");
-    expect(captures).toEqual([]);
+    expect(r.kind).toBe("captured");
+    expect(captures).toEqual([{ id: "pi_11", amount: 5200 }]);
     expect(cancels).toEqual([]);
   });
 

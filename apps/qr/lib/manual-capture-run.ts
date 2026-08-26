@@ -2,7 +2,6 @@ import "server-only";
 import { serviceClient } from "@mms/db/server";
 import { getStripe } from "./stripe";
 import { getCartTotals } from "./totals";
-import { unavailableLines } from "./availability-read";
 import { planCapture } from "./manual-capture";
 import { releaseCartLock } from "./lock";
 import type { SettleCancelReason } from "./dropped-view";
@@ -43,7 +42,7 @@ function orNull(value: string): string {
 }
 
 export type CaptureOutcome =
-  | { kind: "captured"; amountCents: number; partial: boolean; dropped: string[] }
+  | { kind: "captured"; amountCents: number; partial: boolean; droppedCount: number }
   | { kind: "canceled"; reason: string }
   | { kind: "already"; note: string }
   | { kind: "retry"; note: string };
@@ -105,24 +104,34 @@ export async function settleAuthorizedPickup(
     return { kind: "canceled", reason: prior.reason };
   }
 
-  // The last look at the catalog. This is the window W23a's gate could not reach: it ran before the
-  // mint, and the diner spent the next minute typing a card number.
+  // M72 — the catalog is no longer read HERE. It used to be: this function read `menu_items`, computed
+  // the unsellable set, and handed the ids to the RPC as `p_menu_ids`, which voided exactly what it
+  // was told. That made "which dishes can no longer be made" a CLIENT-supplied decision on a money
+  // path, and it opened a window — one PostgREST round-trip wide — in which an 86 landed unseen and
+  // the full hold was captured for a dish the kitchen could not make.
   //
-  // An unreadable catalog is NOT "everything is available" (Codex #203 P1). The gate upstream fails
-  // open on purpose — blocking every diner on a blip is worse than a rare refund — but here that
-  // same silence would capture the full hold for a basket that may contain a dish nobody can make.
-  // Retrying costs nothing: the authorization stands untouched until Stripe redelivers.
-  const read = await unavailableLines(cartId);
-  if (!read.ok) return { kind: "retry", note: "catalog unreadable" };
-  const gone = read.lines;
-
-  // Called UNCONDITIONALLY, empty list included. It is the precheck as much as the void: it proves
-  // the cart is still open and that this payer still holds its lock. Running it only when there is
-  // something to drop would leave the ordinary all-available capture with no check at all — and a
-  // hold can outlive its basket, whether or not a dish ran out.
+  // The RPC now derives the set itself, inside the same statement that voids, under the cart-row lock
+  // it already held. Two consequences worth naming:
+  //   · the read→void window is gone, not narrowed;
+  //   · the "catalog unreadable → retry" arm is gone with it, because there is no second read to
+  //     fail. An outage that used to strand a hold here simply cannot occur now.
+  //
+  // ⚠️ This does NOT close M72. `getCartTotals` below never reads `menu_items`, and the Stripe capture
+  // after it is an HTTP call no transaction can span — so an 86 landing after this statement commits
+  // is still missed. See the scope note in 20260830000000_m72_settlement_derives_availability.sql,
+  // including why that last window is minutes rather than milliseconds.
+  //
+  // Still called UNCONDITIONALLY. It is the precheck as much as the void: it proves the cart is open
+  // and that this payer still holds its lock on this attempt. A hold can outlive its basket whether
+  // or not a dish ran out.
   const { data: voided, error: voidErr } = await db.rpc("mms_settle_precheck_and_void", {
     p_cart: cartId,
-    p_menu_ids: gone.map((g) => g.id),
+    // M72 — accepted and IGNORED by the function, kept only so app and migration stay deployable in
+    // either order (PostgREST resolves `.rpc()` by argument NAME) and so the ACL survives a signature
+    // change it does not need. EMPTY, never a derived list: there is no client opinion to send any
+    // more, and a future edit must not find one here to extend. (Empty rather than null only because
+    // the generated Args type reports parameters as non-nullable; the body reads neither.)
+    p_menu_ids: [],
     p_payer: payerUid,
     // `|| null` rather than the raw string: `attemptStamp` is `locked_at ?? ""` at mint time, and an
     // empty string does not cast to timestamptz — the RPC would error, this would answer `retry`,
@@ -165,16 +174,13 @@ export async function settleAuthorizedPickup(
       return { kind: "retry", note: "cancel failed" };
     return { kind: "canceled", reason: "lock lost to another payer" };
   }
-  if (gone.length > 0 && (voided ?? 0) === 0) {
-    // We were told lines had to go and none did. Rather than reason about WHY (a predicate drifting
-    // between the gate and the RPC is exactly how the comped-line hole appeared), refuse to capture:
-    // the basket still contains something the kitchen cannot make.
-    console.error("[manual-capture] nothing voided despite unavailable lines", {
-      intentId,
-      cartId,
-    });
-    return { kind: "retry", note: "void matched no lines" };
-  }
+  // M72 — the "told to void but nothing voided" refusal is GONE, and its absence is the point rather
+  // than a loss. It existed to catch the sellability predicate drifting between this file and the
+  // RPC, because two spellings of "can we still make this?" were being compared. There is now one
+  // spelling, and it lives in the statement that acts on it, so there is no second opinion to
+  // disagree with. The drift it guarded against is instead pinned where the two languages still meet
+  // — the pre-mint gate's `itemSellable` against the RPC's three arms — by the parity cases in
+  // supabase/tests/m72_settlement_derives_availability_test.sql, the same shape as tax_parity_test.
 
   // Re-derived AFTER the voids, so the tip has already been recomputed at the diner's chosen rate
   // against the reduced base. Nothing in this file does money arithmetic — `getCartTotals` is the
@@ -216,7 +222,10 @@ export async function settleAuthorizedPickup(
     kind: "captured",
     amountCents: plan.amountCents,
     partial: plan.partial,
-    dropped: gone.map((g) => g.name),
+    // The COUNT the RPC returned — the app never saw the names, and the only consumer was already a
+    // `.length` on the analytics event. The diner-facing list is re-derived from the RPC's own ledger
+    // by `mms_dropped_snapshot`, using each cart line's stamped name, so nothing a guest reads moved.
+    droppedCount: voided ?? 0,
   };
 }
 
