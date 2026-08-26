@@ -15,8 +15,19 @@ landing in it was missed and the whole hold captured for a dish the kitchen coul
 
 The function now derives the set itself, joining `menu_items` inside the same data-modifying
 statement that voids, under the cart-row lock it already held. One snapshot, so the read→void gap is
-**zero rather than narrowed**. It also deletes a failure mode: there is no second app-side read left
-to fail, so the "catalog unreadable → retry" arm that used to strand a hold is simply gone.
+**zero rather than narrowed** — and it closes regardless of what the caller sends, because the list
+is no longer consulted.
+
+⚠️ **No TypeScript changed, and that is a correction rather than a scope choice.** The first draft
+also deleted the app-side catalog read and sent an empty `p_menu_ids`. Codex round 1 caught why that
+is unsafe: PostgREST resolves `.rpc()` by argument NAME, so the call still SUCCEEDS against the OLD
+five-argument function — which short-circuits on `array_length(p_menu_ids, 1) is null` (w23d:190) and
+voids **nothing**. With the app-side read gone too, deploying the app before the migration captures
+the full authorization for a sold-out basket, silently. My reasoning had held that keeping the
+signature made this safe in both directions; that is true of RPC _resolution_ and false of
+_semantics_. Shipping only the SQL is safe in every order: the new function ignores what it is sent,
+the old one keeps working with the list it is given. Removing the read, the argument and the
+now-redundant cross-check is **M72b**, after `db push` lands.
 
 ⚠️ **This does not close M72, and the rollout gate needs re-deciding.** Two windows remain —
 `getCartTotals` never reads `menu_items`, and the Stripe capture is an HTTP call no transaction can

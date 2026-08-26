@@ -601,7 +601,7 @@ export async function POST(req: NextRequest) {
             ...(outcome.kind === "captured" && {
               amount_cents: outcome.amountCents,
               partial: outcome.partial,
-              dropped: outcome.droppedCount,
+              dropped: outcome.dropped.length,
             }),
           },
         });
