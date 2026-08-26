@@ -4,6 +4,85 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M72a — the settlement derives availability instead of being told it (2026-08-26)
+
+**The registry said closing M72 needed a reservation. The widest of its three windows did not.**
+`mms_settle_precheck_and_void` was HANDED the unsellable ids as `p_menu_ids` and voided exactly what
+it was told; the server never consulted `menu_items` at all. So "which dishes can no longer be made"
+was a **client-supplied decision on a money path** — the one shape this repo forbids outright — and
+the window between the app's catalog read and the void was a full PostgREST round-trip wide. An 86
+landing in it was missed and the whole hold captured for a dish the kitchen could not make.
+
+The function now derives the set itself, joining `menu_items` inside the same data-modifying
+statement that voids, under the cart-row lock it already held. One snapshot, so the app→DB
+round-trip that used to sit in front of the void is gone — and it applies regardless of what the
+caller sends, because the list is no longer consulted.
+
+⚠️ **Shrunk, not closed — an earlier draft of this entry said "zero" and Codex round 2 was right to
+call it.** Under READ COMMITTED a statement reads from a snapshot taken when the statement begins, so
+an 86 committing after that snapshot but before the statement finishes is still missed. What remains
+of window A is the statement's own execution; `setItemSoldOut` takes no cart lock, so nothing
+serialises the two. The stronger reason for this change is not the milliseconds anyway — it is that
+"which dishes can no longer be made" stops being a client-supplied decision on a money path.
+
+⚠️ **No TypeScript changed, and that is a correction rather than a scope choice.** The first draft
+also deleted the app-side catalog read and sent an empty `p_menu_ids`. Codex round 1 caught why that
+is unsafe: PostgREST resolves `.rpc()` by argument NAME, so the call still SUCCEEDS against the OLD
+five-argument function — which short-circuits on `array_length(p_menu_ids, 1) is null` (w23d:190) and
+voids **nothing**. With the app-side read gone too, deploying the app before the migration captures
+the full authorization for a sold-out basket, silently. My reasoning had held that keeping the
+signature made this safe in both directions; that is true of RPC _resolution_ and false of
+_semantics_. Shipping only the SQL is safe in every order: the new function ignores what it is sent,
+the old one keeps working with the list it is given. Removing the read, the argument and the
+now-redundant cross-check is **M72b**, after `db push` lands.
+
+⚠️ **This does not close M72, and the rollout gate needs re-deciding.** Two windows remain —
+`getCartTotals` never reads `menu_items`, and the Stripe capture is an HTTP call no transaction can
+span. `docs/HANDOFF.md` gates PICKUP_MANUAL_CAPTURE on "M70 · M71 · M72 closed"; ticking that on the
+strength of this would be the overstatement the repo keeps paying for, so the row stays **open (A
+closed)** and the gate carries the caveat.
+
+⚠️ **And the residual is minutes, not milliseconds.** `apps/qr/lib/stripe.ts` passes neither
+`timeout` nor `maxNetworkRetries`, so stripe@22.2.1 applies 80 000 ms per attempt and 2 retries,
+retrying on any connection error, on 409 and on every 5xx — precisely when a capture is slow. Every
+statement of the residual as "one round-trip" was wrong by three orders of magnitude. Capping the
+retries is the cheapest lever on that window by far and is filed as **M72c**, not done here, because
+it changes retry behaviour for every Stripe call in the app.
+
+**The signature is deliberately unchanged, and that is the security-relevant part.** `p_menu_ids` is
+retained and never read rather than dropped, because a DROP+CREATE resets `pg_proc.proacl` to NULL —
+EXECUTE **to PUBLIC**. Measured on a scratch stack: after a drop-and-recreate, an `authenticated`
+role could void lines and mint a `qr_dropped_lines` row with an attacker-chosen `payment_intent`,
+which `mms_dropped_snapshot` then renders back to a diner. It gets through because SECURITY DEFINER
+bypasses the table grants and `null is distinct from null` is FALSE, so an open cart with a released
+lock passes both `-2` gates — and every QR diner is `authenticated` (anonymous auth). `CREATE OR
+REPLACE` on the same signature preserves the ACL. Dropping the parameter is filed as **M72b**, to be
+done with the revoke/grant pair re-asserted in the same migration.
+
+**Two mechanics that were measured, not reasoned about.** `and t.state = 'draft'` on the UPDATE's own
+qual is not redundant with the CTE's filter: under READ COMMITTED the executor re-checks the UPDATE's
+qual against the new row version (EPQ) while the CTE's filter was evaluated in the earlier snapshot.
+Without it, two sessions voiding the same line wrote **two** `qr_dropped_lines` rows — and that
+ledger has no unique constraint while `mms_dropped_snapshot` aggregates without `distinct`, so the
+duplicate reaches the diner's /track card and receipt as the same dish listed twice. The ledger CTE
+also joins `voided` rather than `unsellable`, so only what the UPDATE actually claimed is recorded.
+And the join is `mi.id::text = ci.menu_item_id`, never the reverse: `menu_item_id` is a soft text ref
+that may hold a grocery barcode, and `::uuid` raises 22P02 on it, aborting the settlement and
+answering `retry` to Stripe for 72 h.
+
+**The fixture is the test.** The repo's only SQL test of this function could not falsify a single one
+of its four WHERE arms — deleting `menu_item_id = any(p_menu_ids)`, `state = 'draft'`,
+`fulfillment in (…)`, or even `cart_id = p_cart` each left it green, because a one-line fixture
+satisfies every arm vacuously. The new file uses five lines chosen to kill specific mutations, and
+the load-bearing one is the **negative control**: a dish that must SURVIVE. Without it the entire
+sellability predicate is deletable — void everything and the count still matches. It also pins the
+`-1`/`-2` authority arms, which had **zero** SQL coverage (they were pinned only in TypeScript,
+against a mocked return value), and asserts the function's privileges with `has_function_privilege`,
+a guard this repo did not previously have for any function.
+
+The general gap is filed as **T7**: `verify:slice` mutates only `.ts`, so 0 of 227 mutants name a
+`supabase/` file and a SQL predicate can be deleted with every gate in the repo green.
+
 ### An authorized promo survives to settlement (2026-08-25)
 
 **M70 closed — and it was four defects, not one.** A promo that lapses between authorization and

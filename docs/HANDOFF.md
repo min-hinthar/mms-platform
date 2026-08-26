@@ -271,7 +271,24 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >    until it expires — food made, nobody charged, no error anywhere. The docs that configure this
 >    endpoint listed only two events until W23c (see the ⚠️ below), so an endpoint built from them
 >    does NOT have it.
-> 2. **M70 · M71 · M72 closed** (`docs/OPEN-ITEMS.md`).
+> 2. **M70 · M71 · M72 closed** (`docs/OPEN-ITEMS.md`). ⚠️ **M72 cannot be closed as written and this
+>    gate needs re-deciding.** The row says closing it needs a reservation the 86 write participates
+>    in — the inventory model `20260819000000` deliberately declined. M72a (migration
+>    `20260830000000`) SHRINKS the widest DB-side window: the settlement now DERIVES the unsellable
+>    set inside the statement that voids, instead of being handed a list the app computed a
+>    round-trip earlier. ⚠️ Shrunk, not closed — under READ COMMITTED that statement reads from a
+>    snapshot taken at its start, so an 86 committing mid-statement is still missed, and
+>    `setItemSoldOut` takes no cart lock. Two further windows remain — `getCartTotals` never reads
+>    `menu_items`, and the Stripe capture is an HTTP call no transaction can span — so an 86 landing
+>    after the void still reaches a capture.
+>
+>    **Price the residual before deciding.** It is not "one round-trip": `apps/qr/lib/stripe.ts`
+>    passes neither `timeout` nor `maxNetworkRetries`, so stripe@22.2.1 applies 80 000 ms per attempt
+>    and 2 retries — up to three attempts with jittered backoff. A flapping capture holds that window
+>    open for MINUTES. Capping `maxNetworkRetries` on the capture call would shrink it far more
+>    cheaply than any schema change, and is filed separately because it changes retry behaviour for
+>    every Stripe call in the app.
+>
 > 3. **A preview smoke test with a test-mode card**, covering all three outcomes: full capture, a
 >    partial after an 86, and a cancel when nothing survives.
 >
