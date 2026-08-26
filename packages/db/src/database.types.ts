@@ -2042,7 +2042,11 @@ export type Database = {
         }[]
       }
       mms_release_promo_grant: {
-        Args: { p_cart_id: string }
+        Args: { p_attempt: string; p_cart_id: string }
+        Returns: undefined
+      }
+      mms_release_promo_grant_for_holder: {
+        Args: { p_cart_id: string; p_uid: string }
         Returns: undefined
       }
       mms_request_approval: {

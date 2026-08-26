@@ -108,25 +108,40 @@ describe("acquireCartLock — an unreadable status is not a closed order", () =>
     statusRow = null;
     statusError = { message: "transport failure" };
     const res = await acquireCartLock("cart-1", "u1");
-    expect(res).not.toBe("closed");
-    expect(res).toBe("unavailable");
+    expect(res.result).not.toBe("closed");
+    expect(res.result).toBe("unavailable");
+    // M70 — a non-acquired outcome names no attempt; there is no era to hand a later release.
+    expect(res.era).toBeNull();
   });
 
   it("a genuinely closed cart still reports closed — the honest case is untouched", async () => {
     updateCount = 0;
     statusRow = { status: "paid" };
     statusError = null;
-    await expect(acquireCartLock("cart-1", "u1")).resolves.toBe("closed");
+    await expect(acquireCartLock("cart-1", "u1")).resolves.toEqual({ result: "closed", era: null });
   });
 
   it("a fresh lock held by another member still reports held_by_other", async () => {
     updateCount = 0;
     statusRow = { status: "open" };
-    await expect(acquireCartLock("cart-1", "u1")).resolves.toBe("held_by_other");
+    await expect(acquireCartLock("cart-1", "u1")).resolves.toEqual({
+      result: "held_by_other",
+      era: null,
+    });
   });
 
   it("the ordinary acquire is unaffected", async () => {
     updateCount = 1;
-    await expect(acquireCartLock("cart-1", "u1")).resolves.toBe("acquired");
+    const ok = await acquireCartLock("cart-1", "u1");
+    expect(ok.result).toBe("acquired");
+    // M70 — the era is the value THIS acquisition wrote, and every later "am I still the attempt
+    // that owns this cart?" question reads it. An acquire that answers with no era would leave
+    // create-intent unable to scope its own grant release.
+    expect(ok.era).toEqual(expect.any(String));
+    expect(Number.isNaN(Date.parse(ok.era as string))).toBe(false);
+    // …and it is the SAME value the UPDATE wrote. A second `new Date()` inside the function would
+    // be a different millisecond, so the returned era would name an attempt the row does not hold.
+    const written = queries.find((q) => "locked_at" in q.payload)?.payload.locked_at;
+    expect(written).toBe(ok.era);
   });
 });

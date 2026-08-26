@@ -34,9 +34,19 @@
 --  11. A SUPERSEDED CANCEL must not clear the SUCCESSOR's grant. The row count only rules out
 --      redelivery of the same intent; a first-time cancel for a stale attempt still inserts.
 --  12. …and the OVER-TIGHTENING that guards, which CI caught: a cancel whose lock has already been
---      released by its TTL must STILL release the grant. 11 and 12 pull in opposite directions, and
---      only the VERDICT (`reason <> 'superseded'`) satisfies both — `locked_at` cannot, because it
---      is forensics-only and null on a released lock.
+--      released by its TTL must STILL release the grant. 11 and 12 pull in opposite directions on
+--      purpose, so neither can be "fixed" alone.
+--  13. A stale cancel whose verdict is NOT `superseded` must not clear either — the verdict describes
+--      what the precheck saw, and a successor can acquire between that check and the write.
+--  14. The abandon release is ERA-scoped: same uid, two overlapping attempts, and only the era
+--      separates them.
+--  15. The holder-scoped release behind "Edit order" and the unload beacon — a client that never saw
+--      an era proves ownership the way `releaseCartLock` does, with `locked_by`.
+--
+-- Cases 8 · 11 · 12 · 13 pull against each other by design, and ONE predicate satisfies all four:
+--     (locked_at is null or locked_at is not distinct from p_attempt)
+-- i.e. clear unless a DIFFERENT live attempt currently owns the cart, asked at write time rather
+-- than inherited from a verdict computed earlier.
 --
 -- Run against any QR DB (rolls back — leaves NO data behind):
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/m70_promo_grant_survives_settlement_test.sql
@@ -343,7 +353,99 @@ begin
            'lock has already been released — got %s, want null. Keying the clear on `locked_at` '
            'instead of the verdict reopens the leak for every TTL-expired pay screen.', d);
 
-  raise notice 'M70 promo-grant pin: all 12 cases passed';
+
+  -- ══ 13. A STALE CANCEL WITH A NON-SUPERSEDED VERDICT MUST NOT CLEAR EITHER (Codex round 3, P1) ══
+  -- Case 11 holds BOTH a stale era and the `superseded` reason, so it cannot tell which one did the
+  -- work. This one separates them: the verdict says `over_authorized` — an outcome the third draft
+  -- of this clear treated as "mine, clear it" — while the era is stale.
+  --
+  -- It is reachable, not theoretical. `superseded` describes what the PRECHECK observed, and between
+  -- that check (`manual-capture-run.ts:123-144`) and the verdict write (`:192`) the same payer can
+  -- start another checkout: `acquireCartLock` refreshes `locked_at`, the successor pins and derives
+  -- its amount, and the older attempt's verdict — computed before any of that — still reads
+  -- `over_authorized`. A verdict-keyed clear fires and wipes the era that is now current.
+  sess := gen_random_uuid(); cart := gen_random_uuid();
+  insert into public.table_sessions (id, qr_code, mode, status, host_seat)
+    values (sess, 'M70C13', 'pickup', 'active', ana);
+  insert into public.qr_carts (id, session_id, promo_code, locked, locked_at, locked_by)
+    values (cart, sess, 'M70TEN', true, now(), ana);
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
+    values (cart, dish, 'Mohinga', 1, 3000, 0, null, 'togo');
+  assert public.mms_pin_promo_grant(cart) = 1000, 'M70.13 fixture drift: pin should be 1000';
+
+  rows_first := public.mms_mark_settle_canceled(
+    'pi_m70_c13_old', cart, 'over_authorized', ana, now() - interval '10 minutes');
+  assert rows_first = 1,
+    format('M70.13 DEGENERATE: the stale cancel must insert (v_rows=1) or this proves nothing — got %s',
+           rows_first);
+  select promo_granted_cents into d from public.qr_carts where id = cart;
+  assert d = 1000,
+    format('M70.13 STALE VERDICT WIPED A LIVE ERA: got %s, want 1000. `superseded` describes what the '
+           'PRECHECK saw, not what is true when the verdict is written — the era must be read from '
+           'the cart at write time.', d);
+
+  -- ══ 14. THE ABANDON RELEASE IS ERA-SCOPED (Codex round 2, P1) ════════════════════════════════
+  -- `acquireCartLock` lets the SAME diner re-acquire and REFRESHES `locked_at` (lock.ts:60,65), so
+  -- two overlapping create-intent requests are two eras on one cart sharing one uid — which is why
+  -- `locked_by` cannot separate them and the era must. If the second pins, derives and succeeds
+  -- while the first later fails, a cart-wide release from the first's catch wipes the grant the
+  -- SECOND's PaymentIntent was minted under.
+  sess := gen_random_uuid(); cart := gen_random_uuid();
+  insert into public.table_sessions (id, qr_code, mode, status, host_seat)
+    values (sess, 'M70C14', 'pickup', 'active', ana);
+  insert into public.qr_carts (id, session_id, promo_code, locked, locked_at, locked_by)
+    values (cart, sess, 'M70TEN', true, now() - interval '2 minutes', ana);
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
+    values (cart, dish, 'Mohinga', 1, 3000, 0, null, 'togo');
+  select locked_at into pinned_at from public.qr_carts where id = cart;  -- attempt ONE's era
+  assert public.mms_pin_promo_grant(cart) = 1000, 'M70.14 fixture drift: pin should be 1000';
+
+  -- Attempt TWO re-acquires: same seat, new era. Its pin is a no-op (not null) — it inherits and
+  -- depends on the grant attempt one took.
+  update public.qr_carts set locked_at = now() where id = cart;
+  perform public.mms_release_promo_grant(cart, pinned_at);   -- attempt ONE abandons, late
+  select promo_granted_cents into d from public.qr_carts where id = cart;
+  assert d = 1000,
+    format('M70.14 SUCCESSOR GRANT WIPED: an abandoned attempt released a grant belonging to the era '
+           'that superseded it — got %s, want 1000. Same uid, different era: only the era separates '
+           'them.', d);
+
+  -- …and the era that DOES own the cart still releases its own grant.
+  select locked_at into pinned_at from public.qr_carts where id = cart;
+  perform public.mms_release_promo_grant(cart, pinned_at);
+  select promo_granted_cents into d from public.qr_carts where id = cart;
+  assert d is null,
+    'M70.14 OVER-TIGHTENED: the era that owns the cart must still be able to release its own grant';
+
+  -- ══ 15. THE HOLDER-SCOPED RELEASE — "Edit order" and the unload beacon (Codex round 2, P1) ════
+  -- Returning a client secret mints NO authorization, so the two exits that unlock a cart after a
+  -- SUCCESSFUL create-intent leave a pinned grant with nothing behind it. Those callers are clients:
+  -- they never saw a `locked_at`, so they prove ownership the same way `releaseCartLock` does —
+  -- `locked_by = p_uid` — and the grant is released on exactly the authority that releases the lock.
+  sess := gen_random_uuid(); cart := gen_random_uuid();
+  insert into public.table_sessions (id, qr_code, mode, status, host_seat)
+    values (sess, 'M70C15', 'pickup', 'active', ana);
+  insert into public.qr_carts (id, session_id, promo_code, locked, locked_at, locked_by)
+    values (cart, sess, 'M70TEN', true, now(), ana);
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
+    values (cart, dish, 'Mohinga', 1, 3000, 0, null, 'togo');
+  assert public.mms_pin_promo_grant(cart) = 1000, 'M70.15 fixture drift: pin should be 1000';
+
+  -- A DIFFERENT seat cannot drop this grant, exactly as it cannot drop the lock.
+  perform public.mms_release_promo_grant_for_holder(cart, gen_random_uuid());
+  select promo_granted_cents into d from public.qr_carts where id = cart;
+  assert d = 1000,
+    format('M70.15 UNSCOPED: a member who does not hold the lock released another diner''s grant — '
+           'got %s, want 1000', d);
+
+  -- The holder can, and must: this is the Edit-order leak.
+  perform public.mms_release_promo_grant_for_holder(cart, ana);
+  select promo_granted_cents into d from public.qr_carts where id = cart;
+  assert d is null,
+    'M70.15 EDIT-ORDER LEAK: the lock holder abandoned a reversible attempt and the grant survived — '
+    'the re-checkout''s pin is a no-op, so it would price the NEW basket at the OLD basket''s discount';
+
+  raise notice 'M70 promo-grant pin: all 15 cases passed';
 end $$;
 
 rollback;

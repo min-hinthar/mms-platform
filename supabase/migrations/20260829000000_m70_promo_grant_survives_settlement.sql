@@ -130,31 +130,39 @@ grant execute on function public.mms_pin_promo_grant(uuid) to service_role;
 -- nothing` are unchanged; the clear rides in the same function so the grant cannot outlive the
 -- verdict that ended it.
 --
--- ⚠️ The clear is keyed on the VERDICT, not on the cart and not on the era (Codex round 1 P1, then
--- CI). A row count of 1 proves only that THIS PaymentIntent had not been recorded before — not that
--- it is the cart's current attempt. A late webhook for a superseded intent is recorded for the FIRST
--- time (v_rows = 1) while a successor hold is already live, and a cart-scoped clear would wipe the
--- successor's grant; its own webhook would then re-derive the live promo and hit the very
--- reconciliation mismatch this migration exists to prevent.
+-- ⚠️ ONE predicate answers "may I clear this pin?", and both clears use it (Codex rounds 1-3, then
+-- CI). It took three wrong drafts to find, and each wrong one was wrong in a DIFFERENT direction:
 --
--- `manual-capture-run.ts:159-161`, three lines above the `superseded` call site: "The verdict is
--- keyed on the PaymentIntent, so it describes THIS attempt only and cannot paint over the
--- successor's — which is exactly why the cancellation ledger is per-intent and not per-cart."
+--   1. cart-scoped        — a first-time cancel for a superseded intent wiped a live successor's
+--                           grant (round 1 P1).
+--   2. `locked_at is not distinct from p_attempt` — CI reddened case 8. `attempt` is declared
+--                           "forensics only, never read by the diner path" (w23d:105) and
+--                           `markCanceled` nulls an unparseable one on purpose, so a predicate must
+--                           not make it authoritative; and a TTL-released lock NULLS `locked_at`, so
+--                           an ordinary cancel naming a real era stopped matching and the grant
+--                           leaked.
+--   3. `p_reason <> 'superseded'` — the verdict is STALE (round 3 P1). `superseded` describes what
+--                           the PRECHECK observed; between that check (manual-capture-run.ts:123-144)
+--                           and the verdict write (:192) the same payer can start another checkout,
+--                           `acquireCartLock` refreshes `locked_at`, and the successor pins and
+--                           derives its amount. The old verdict still reads `over_authorized`, so
+--                           the clear fired and wiped the era that is now current.
 --
--- The SECOND draft re-derived that from `locked_at is not distinct from p_attempt`, and CI caught it
--- (case 8 went red). Two reasons it was wrong, and the column says the first one itself: `attempt` is
--- "forensics only, never read by the diner path" (w23d:105) and `markCanceled` nulls an unparseable
--- one on purpose — "losing the era is survivable, losing the verdict is not". A predicate cannot make
--- a deliberately-lossy field load-bearing. And a lock RELEASED by its TTL nulls `locked_at`, so a
--- perfectly ordinary cancel naming a real era stops matching and the grant leaks — the exact hole
--- this clear exists to close.
+-- The question is not "which attempt am I?" but "is a DIFFERENT live attempt depending on this pin
+-- right now?" — and the cart's CURRENT `locked_at` answers it directly, at the moment of the write:
 --
--- `superseded` IS the era test, already computed: `mms_settle_precheck_and_void` returns -2 when
--- `v_locked_at is distinct from p_attempt` (w23d:188, the null attempt included) and the caller maps
--- -2 to that one reason (`manual-capture-run.ts:154-162`). So the grant follows the LOCK's rule,
--- stated one line up from that mapping — `if (prior.reason !== "superseded") await releaseOurLock(…)`
--- — because the grant and the lock have the SAME owner. One rule for "does this attempt own the
--- cart", read from the verdict, never re-derived. `no_cart` passes a null cart and matches no row.
+--     (locked_at is null or locked_at is not distinct from p_attempt)
+--
+-- · no live lock          → nothing depends on the pin → clear. Covers the TTL-released lock (2),
+--                           the never-locked cart, and every ordinary post-release cancel.
+-- · the lock is MY era    → I am the current attempt → clear.
+-- · the lock is ANOTHER   → a successor holds the cart → leave its grant alone. Covers (1) and (3),
+--   era                     including the stale-verdict race, because it is evaluated NOW rather
+--                           than inherited from a check that ran earlier.
+--
+-- It reads the same column `mms_settle_precheck_and_void` (w23d:188) uses to decide the era question,
+-- but asks it at write time instead of trusting a verdict computed before the race. `no_cart` passes
+-- a null cart and matches no row.
 --
 -- `status = 'open'` because that is the only state where a stale grant can price a NEXT basket, and
 -- it is the same gate `mms_pin_promo_grant` uses. It also keeps the pin readable for a `cart_not_open`
@@ -174,13 +182,14 @@ begin
   get diagnostics v_rows = row_count;
 
   -- M70 — the hold is gone, so the grant it authorized is gone. A later checkout on this cart must
-  -- re-derive honestly rather than inherit an abandoned attempt's discount. `superseded` is the one
-  -- verdict that means a LATER attempt owns this cart, so it is the one that must not clear.
-  if v_rows > 0 and p_reason <> 'superseded' then
+  -- re-derive honestly rather than inherit an abandoned attempt's discount. The era test is read
+  -- from the cart NOW (see the header): only a DIFFERENT live attempt's lock protects the pin.
+  if v_rows > 0 then
     update public.qr_carts
        set promo_granted_cents = null
      where id = p_cart
-       and status = 'open';
+       and status = 'open'
+       and (locked_at is null or locked_at is not distinct from p_attempt);
   end if;
 
   return v_rows;
@@ -200,12 +209,65 @@ grant execute on function public.mms_mark_settle_canceled(text, uuid, text, uuid
 -- Cancellation could not cover this: `mms_mark_settle_canceled` records the end of a hold that
 -- EXISTED, and here none ever did.
 --
--- Deliberately NOT status- or lock-scoped. The caller is abandoning its own attempt on a cart it
--- holds, and the honest post-condition is simply "no grant" — a guard that could leave one behind
--- would reintroduce the leak it exists to close.
-create or replace function public.mms_release_promo_grant(p_cart_id uuid)
+-- ⚠️ It also covers the exits where the route SUCCEEDS (Codex round 2, P1). Returning a client secret
+-- mints no authorization — the diner is only moved to the reversible Payment Element — so "Edit
+-- order" (`Checkout.tsx editOrder`) and the page-unload beacon (`/api/cart/release-lock`) unlock a
+-- cart whose grant is still pinned. A diner mints an intent on a $30 basket, taps Edit order, drops
+-- to $24, and the re-checkout's pin is a no-op: the $10 grant prices a basket that no longer clears
+-- the $25 minimum. Every path that releases the lock without a hold behind it releases the grant too.
+--
+-- ⚠️ ERA-SCOPED, reversing this migration's first draft (Codex round 2, P1). `acquireCartLock` lets
+-- the SAME diner re-acquire and REFRESHES `locked_at` (lock.ts:60,65), so two overlapping
+-- create-intent requests are two eras on one cart. If the second pins, derives and succeeds while
+-- the first later fails, a cart-wide clear from the first's catch wipes the grant the successor's
+-- PaymentIntent was minted under — and its webhook then re-derives a different amount and strands a
+-- charged payment in reconciliation. The predicate is the shared one from the header: clear unless a
+-- DIFFERENT live attempt currently owns the cart.
+--
+-- The old one-argument signature is DROPPED, not replaced. Postgres keys functions by argument type,
+-- so a bare `create or replace` with a new arg list mints an OVERLOAD and leaves the cart-wide body
+-- callable — the exact hazard this fix exists to remove. Dropping also drops its grants, hence the
+-- re-grant below.
+drop function if exists public.mms_release_promo_grant(uuid);
+
+create or replace function public.mms_release_promo_grant(p_cart_id uuid, p_attempt timestamptz)
 returns void language sql security definer set search_path = '' as $$
-  update public.qr_carts set promo_granted_cents = null where id = p_cart_id;
+  update public.qr_carts
+     set promo_granted_cents = null
+   where id = p_cart_id
+     and (locked_at is null or locked_at is not distinct from p_attempt);
 $$;
-revoke all on function public.mms_release_promo_grant(uuid) from public, anon, authenticated;
-grant execute on function public.mms_release_promo_grant(uuid) to service_role;
+revoke all on function public.mms_release_promo_grant(uuid, timestamptz) from public, anon, authenticated;
+grant execute on function public.mms_release_promo_grant(uuid, timestamptz) to service_role;
+
+-- ── 6. the SUCCESS-path abandons: "Edit order" and the page-unload beacon ────────────────────────
+-- Codex round 2, P1. Returning a client secret mints NO authorization — the diner is only moved to
+-- the reversible Payment Element — so the two exits that unlock a cart after a successful create-
+-- intent leave a pinned grant with nothing behind it: `Checkout.tsx editOrder` (via `releasePayLock`)
+-- and the `pagehide` beacon at `/api/cart/release-lock`. A diner mints an intent on a $30 basket,
+-- taps Edit order, drops to $24, and the re-checkout's pin is a no-op because the pin is not null —
+-- so a $10 grant prices a basket that no longer clears the $25 minimum.
+--
+-- ⚠️ Scoped by the LOCK HOLDER, not by the era, and that difference is deliberate rather than sloppy.
+-- These two callers are clients: they never saw a `locked_at` and cannot name their era without a
+-- read that would race the write it guards. What they CAN prove is the same thing `releaseCartLock`
+-- proves one statement later — `locked_by = p_uid`, this seat holds this lock — so the grant is
+-- released on exactly the authority that releases the lock, and the two cannot disagree.
+--
+-- create-intent keeps `mms_release_promo_grant` (era-scoped) instead, because `locked_by` cannot
+-- separate its case: two overlapping create-intent requests from the SAME diner share a uid and
+-- differ only by era. Two functions because there are genuinely two different proofs of ownership,
+-- each named for the one it demands — not two spellings of one rule.
+--
+-- Not folded into `releaseCartLock` itself: that would make a money write implicit at a dozen call
+-- sites including future ones, and its `releaseCartLock(cartId, null)` caller in the webhook is
+-- cart-wide, which would reintroduce the successor-wiping hazard §5 exists to remove.
+create or replace function public.mms_release_promo_grant_for_holder(p_cart_id uuid, p_uid uuid)
+returns void language sql security definer set search_path = '' as $$
+  update public.qr_carts
+     set promo_granted_cents = null
+   where id = p_cart_id
+     and locked_by = p_uid;
+$$;
+revoke all on function public.mms_release_promo_grant_for_holder(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.mms_release_promo_grant_for_holder(uuid, uuid) to service_role;

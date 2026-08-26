@@ -93,6 +93,47 @@ The clear is era-scoped now (`locked_at is not distinct from p_attempt`, the sam
 `mms_settle_precheck_and_void` uses). **Third time this session the fix was already written next
 door** — after `lock.ts` three lines up and the analytics lesson one property above.
 
+**Three more P1s, one root cause, and the predicate that finally satisfies all of them.** Rounds 2
+and 3 kept circling the same thing from different angles: the pin has no owner, so every clear had to
+GUESS whether it was the current attempt — from `locked_at` (which moves), from a verdict (which goes
+stale), or not at all (cart-wide). Three drafts, each wrong in a different direction:
+
+1. **cart-scoped** — a first-time cancel for a superseded intent wiped a live successor's grant.
+2. **`locked_at is not distinct from p_attempt`** — CI reddened case 8. `attempt` is declared
+   _"forensics only, never read by the diner path"_ and `markCanceled` nulls an unparseable one on
+   purpose, so a predicate must not make it authoritative; and a TTL-released lock NULLS `locked_at`,
+   so an ordinary cancel naming a real era stopped matching and the grant leaked.
+3. **`p_reason <> 'superseded'`** — the verdict is STALE. `superseded` describes what the PRECHECK
+   observed; between that check (`manual-capture-run.ts:123-144`) and the verdict write (`:192`) the
+   same payer can start another checkout, `acquireCartLock` refreshes `locked_at`, and the successor
+   pins and derives its amount while the old verdict still reads `over_authorized`.
+
+The question was never "which attempt am I?" but **"is a DIFFERENT live attempt depending on this pin
+right now?"** — and the cart's current `locked_at`, read at write time, answers it:
+`(locked_at is null or locked_at is not distinct from p_attempt)`. No live lock → nothing depends on
+the pin → clear. My era → clear. Another era → leave it. Both clears use it, and it **deletes** the
+verdict special-case rather than adding to it.
+
+Two more leaks closed with it. `mms_release_promo_grant` is now era-scoped (`acquireCartLock` lets the
+same diner re-acquire and REFRESHES `locked_at`, so two overlapping create-intents are two eras on one
+cart sharing one uid — only the era separates them). And the SUCCESS-path abandons: returning a client
+secret mints no authorization, so "Edit order" and the `pagehide` beacon were unlocking carts with a
+live pin — a diner minting on a $30 basket, tapping Edit order and dropping to $24 still got the $10
+grant, below the promo's own $25 minimum. Those two are clients that never saw an era, so they prove
+ownership the way `releaseCartLock` does (`locked_by`), via `mms_release_promo_grant_for_holder`.
+
+⚠️ `acquireCartLock` now RETURNS the era it stamped, and `create-intent` stops re-SELECTing
+`locked_at` a few statements later — a second derivation of a value we already held, whose window is
+exactly where a competing acquisition lands. `LockAcquisition` is a per-literal discriminated union so
+a real era is paired with the `acquired` outcome alone: `era`'s non-nullness is the type's, not an
+assertion, and a future fourth outcome becomes a type error. (A single member with a three-literal
+discriminant cannot be ELIMINATED by `===`, so it never narrows — that shape typechecks and silently
+leaves `era` nullable everywhere.)
+
+Fifteen SQL cases. Cases 8 · 11 · 12 · 13 pull against each other by design — a superseded cancel must
+not clear, a TTL-released one must, and a stale cancel with a non-superseded verdict must not — so no
+single direction can be "fixed" alone again.
+
 **Codex round 2 also found the promo write racing the pay lock, and that one is separate.**
 `applyPromo` refuses a `locked || settling` cart — but it reads that at authz time, and TWO awaited
 RPCs run before the write. Long enough for a tablemate to reach the pay screen, take the lock and pin
