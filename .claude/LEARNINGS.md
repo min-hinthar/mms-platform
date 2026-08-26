@@ -713,3 +713,30 @@ leaks on every TTL-expired pay screen), and each was written while thinking only
 mode in front of me. Cases 11 and 12 now pull against each other in the same file on purpose, so
 neither direction can be "fixed" alone again. When a review asks you to tighten a bound, write the
 test for what the tightened bound does to the legitimate case, in the same commit.
+
+**Changing a signature or a return shape silently disarms every guard that quotes it.** Two in one
+commit. `verify:slice` reported `lock/unreadable-status-reads-as-closed` **STALE** — its `find`
+pattern matched 0× because returning the stamped era turned `return "unavailable"` into
+`return { result: "unavailable", era: null }`. A stale mutant is not a skip: the M119(b) fail-closed
+could then have been deleted with every gate in the repo green. And CI reported
+`function public.mms_release_promo_grant(uuid) does not exist` — I widened the RPC to two arguments,
+updated the three new SQL cases, and never swept the one that already existed. **After changing any
+signature or shape, grep for its name across tests, mutants and docs before running anything** — the
+compiler covers the TypeScript callers and nothing covers the rest.
+
+That second failure is also the `drop function` earning its place. Had the one-arg signature been
+left behind as an overload, case 10 would have gone on passing **against the cart-wide body the
+change existed to remove** — green, and measuring the defect.
+
+**A discriminated union whose member carries a multi-literal discriminant never narrows.**
+`{ result: "acquired"; era: string } | { result: Exclude<LockResult, "acquired">; era: null }` looks
+right and typechecks, but `===` on a member whose discriminant is itself a union cannot ELIMINATE
+that member — so callers never narrow to the acquired branch and `era` stays nullable at every use.
+The fix is one member per literal. Worth knowing because the failure is quiet: nothing errors, the
+type just silently stops doing its job, and the natural next move is to paper over it with a
+non-null assertion — which is exactly the guarantee the union was supposed to provide for free.
+
+**Prefer returning a value you just wrote over reading it back.** `create-intent` re-`SELECT`ed
+`locked_at` a few statements after `acquireCartLock` wrote it. Same "name it ONCE" rule as a money
+value, and the same failure mode: the gap between the write and the read is precisely where a
+competing acquisition lands, so the row can answer with somebody else's era.
