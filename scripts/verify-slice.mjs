@@ -1866,7 +1866,7 @@ const MUTANTS = [
     file: "apps/qr/lib/lock.ts",
     suite: "lib/lock.test.ts",
     why: 'M119 (b) — the diagnostic read whose entire job is to `message it honestly` reported a VERDICT it had not established. Unbound, a failed status read makes `cart` null, `cart?.status === "open"` false, and the answer `closed` — so create-intent tells a diner whose order is open that it is `no longer open` and they cannot pay. This is the SAME shape the comment one statement above already describes and fixes on the UPDATE, where it had given every checkout a spurious 409 after the PostgREST 14 upgrade',
-    find: '  if (statusError) return "unavailable";',
+    find: '  if (statusError) return { result: "unavailable", era: null };',
     replace: "  // fail-closed removed",
   },
   {
