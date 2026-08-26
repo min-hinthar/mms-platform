@@ -14,9 +14,16 @@ the window between the app's catalog read and the void was a full PostgREST roun
 landing in it was missed and the whole hold captured for a dish the kitchen could not make.
 
 The function now derives the set itself, joining `menu_items` inside the same data-modifying
-statement that voids, under the cart-row lock it already held. One snapshot, so the read→void gap is
-**zero rather than narrowed** — and it closes regardless of what the caller sends, because the list
-is no longer consulted.
+statement that voids, under the cart-row lock it already held. One snapshot, so the app→DB
+round-trip that used to sit in front of the void is gone — and it applies regardless of what the
+caller sends, because the list is no longer consulted.
+
+⚠️ **Shrunk, not closed — an earlier draft of this entry said "zero" and Codex round 2 was right to
+call it.** Under READ COMMITTED a statement reads from a snapshot taken when the statement begins, so
+an 86 committing after that snapshot but before the statement finishes is still missed. What remains
+of window A is the statement's own execution; `setItemSoldOut` takes no cart lock, so nothing
+serialises the two. The stronger reason for this change is not the milliseconds anyway — it is that
+"which dishes can no longer be made" stops being a client-supplied decision on a money path.
 
 ⚠️ **No TypeScript changed, and that is a correction rather than a scope choice.** The first draft
 also deleted the app-side catalog read and sent an empty `p_menu_ids`. Codex round 1 caught why that

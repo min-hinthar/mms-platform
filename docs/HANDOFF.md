@@ -274,11 +274,13 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > 2. **M70 · M71 · M72 closed** (`docs/OPEN-ITEMS.md`). ⚠️ **M72 cannot be closed as written and this
 >    gate needs re-deciding.** The row says closing it needs a reservation the 86 write participates
 >    in — the inventory model `20260819000000` deliberately declined. M72a (migration
->    `20260830000000`) closes the widest DB-side window: the settlement now DERIVES the unsellable
+>    `20260830000000`) SHRINKS the widest DB-side window: the settlement now DERIVES the unsellable
 >    set inside the statement that voids, instead of being handed a list the app computed a
->    round-trip earlier. Two windows remain — `getCartTotals` never reads `menu_items`, and the
->    Stripe capture is an HTTP call no transaction can span — so an 86 landing after the void still
->    reaches a capture.
+>    round-trip earlier. ⚠️ Shrunk, not closed — under READ COMMITTED that statement reads from a
+>    snapshot taken at its start, so an 86 committing mid-statement is still missed, and
+>    `setItemSoldOut` takes no cart lock. Two further windows remain — `getCartTotals` never reads
+>    `menu_items`, and the Stripe capture is an HTTP call no transaction can span — so an 86 landing
+>    after the void still reaches a capture.
 >
 >    **Price the residual before deciding.** It is not "one round-trip": `apps/qr/lib/stripe.ts`
 >    passes neither `timeout` nor `maxNetworkRetries`, so stripe@22.2.1 applies 80 000 ms per attempt

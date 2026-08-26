@@ -29,8 +29,21 @@
 --   L5 dangling food id       — a uuid with no menu_items row, on a FOOD line. Kills LEFT->INNER
 --                               (which fails OPEN, reversing availability.ts:104-113) and pins the
 --                               cast direction: `ci.menu_item_id::uuid` raises 22P02 on L4's barcode.
+--   L6 COMPED + sold out      — takes the `case when u.comped then 0` ledger branch. Without it that
+--                               branch can be replaced with an unconditional list price and the
+--                               suite stays green (Codex #234 round 2).
+--   L7 on a SECOND cart       — unsellable, and must survive untouched. Without it,
+--                               `where ci.cart_id = p_cart` can be deleted with the file still green
+--                               — while in production it voids unrelated baskets mid-service and
+--                               stamps their ledger rows with the settling cart's id (Codex #234 r2).
 --
--- Expected: 3 voided (L1, L3, L5), 2 surviving (L2, L4).
+-- Expected on `cart`: 4 voided (L1, L3, L5, L6), 2 surviving (L2, L4). On `cart2`: nothing touched.
+--
+-- ⚠️ ONE load-bearing rule is NOT guarded here, and the file says so rather than implying coverage:
+-- the UPDATE's own `t.state = 'draft'` qual. It defends against a CONCURRENT void (EPQ re-checks the
+-- UPDATE's qual, not the CTE's filter), and no single-session test can reach it — the CTE's draft
+-- filter already excludes whatever a previous call voided. Filed as M72d for
+-- `scripts/verify-merge-race.mjs`, which already runs two sessions in CI.
 --
 -- Cases:
 --   1. The derivation — 3 voided, and the RIGHT 3. Asserts per-line state, not just the count.
@@ -41,7 +54,11 @@
 --      /track card and receipt as the same dish listed twice.
 --   4. A comped line's ledger amount is 0, not its list price.
 --   5. The caller's list is IGNORED — the whole point of M72. Passing a list naming the SELLABLE
---      line must not void it, and passing an empty list must not stop the derivation.
+--      line must not void it; passing the EMPTY ARRAY must not stop the derivation either. That
+--      second call matters most: the empty array is what the old body short-circuits on
+--      (`array_length(p_menu_ids, 1) is null`, w23d:190) and what the unchanged app sends when its
+--      catalog read comes back clean, so a regression restoring only that short-circuit would
+--      otherwise pass the whole suite (Codex #234 round 2).
 --   6-8. The authority arms (-1 cart not open, -2 lock lost, -2 superseded era), which have had
 --      ZERO SQL coverage until now — they are pinned only in TypeScript, against a MOCKED return
 --      value, i.e. the test asserts what the caller does with a number it invented.
@@ -74,6 +91,11 @@ declare
   l3 uuid := '00000000-0000-0000-0000-0000007201f3';
   l4 uuid := '00000000-0000-0000-0000-0000007201f4';
   l5 uuid := '00000000-0000-0000-0000-0000007201f5';
+  l6 uuid := '00000000-0000-0000-0000-0000007201f6';
+  -- A SECOND cart, to falsify the function's `cart_id = p_cart` scope (Codex #234 round 2).
+  sess2 uuid := '00000000-0000-0000-0000-0000000072e2';
+  cart2 uuid := '00000000-0000-0000-0000-0000000072c2';
+  l7 uuid := '00000000-0000-0000-0000-0000007201f7';
   v integer; n integer;
 begin
   insert into public.menu_categories (id, slug, name) values (cat, 'm72-cat', 'M72 fixture');
@@ -96,11 +118,26 @@ begin
     -- A grocery barcode: not a uuid. This is the line that makes `ci.menu_item_id::uuid` raise.
     (l4, cart, '0123456789012',                      'Rice 5kg',       1,  900, 0, 'draft', 'grocery', false),
     -- A well-formed uuid with no catalog row, on a FOOD line.
-    (l5, cart, '00000000-0000-4000-8000-0000007209ff','Ghost Curry',   1, 1100, 0, 'draft', 'togo',  false);
+    (l5, cart, '00000000-0000-4000-8000-0000007209ff','Ghost Curry',   1, 1100, 0, 'draft', 'togo',  false),
+    -- COMPED and sold out. Without it the `case when u.comped then 0` branch is never taken, and
+    -- replacing it with an unconditional list price leaves the suite green (Codex #234 round 2).
+    (l6, cart, m_out::text,                          'Sold Out Dish',  3, 1200, 0, 'draft', 'togo',  true);
+
+  -- A DIFFERENT cart, with its own unsellable draft food line. Without this, deleting
+  -- `where ci.cart_id = p_cart` from the function leaves the whole file green — every candidate row
+  -- belongs to `cart` anyway — while in production it would void unsellable lines out of UNRELATED
+  -- carts and stamp their ledger rows with the settling cart's id (Codex #234 round 2).
+  insert into public.table_sessions (id, qr_code, mode, status, host_seat)
+    values (sess2, 'M72QR2', 'pickup', 'active', ana);
+  insert into public.qr_carts (id, session_id, status) values (cart2, sess2, 'open');
+  insert into public.qr_cart_items
+    (id, cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, state, fulfillment, comped)
+  values
+    (l7, cart2, m_out::text, 'Sold Out Dish', 1, 1200, 0, 'draft', 'togo', false);
 
   -- ══ 1. THE DERIVATION — three void, and the right three ═══════════════════════════════════════
   v := public.mms_settle_precheck_and_void(cart, null, ana, era, 'pi_m72_1');
-  assert v = 3, format('M72.1 wrong count: got %s, want 3 (sold-out + delisted + dangling)', v);
+  assert v = 4, format('M72.1 wrong count: got %s, want 4 (sold-out + delisted + dangling + comped sold-out)', v);
 
   assert (select state from public.qr_cart_items where id = l1) = 'voided', 'M72.1 sold-out line survived';
   assert (select state from public.qr_cart_items where id = l3) = 'voided', 'M72.1 delisted line survived — is_active has no runtime writer, so this arm is only ever exercised here';
@@ -114,26 +151,45 @@ begin
     'sellability predicate still returns the expected count and passes. This line is the fixture''s '
     'only defence against "void everything"';
   assert (select state from public.qr_cart_items where id = l4) = 'draft',
-    'M72.4 A GROCERY LINE WAS VOIDED. A barcode joins no catalog row, so without the fulfillment '
+    'M72.2 A GROCERY LINE WAS VOIDED. A barcode joins no catalog row, so without the fulfillment '
     'filter it falls into the dangling arm and every scan-and-go basket is emptied at settlement';
+  assert (select state from public.qr_cart_items where id = l7) = 'draft',
+    'M72.2 ANOTHER CART''S LINE WAS VOIDED. Deleting `where ci.cart_id = p_cart` is invisible to a '
+    'single-cart fixture; in production it empties unrelated baskets mid-service';
+  assert (select count(*) from public.qr_dropped_lines where cart_id = cart2) = 0,
+    'M72.2 a foreign cart gained a dropped-lines row';
+  assert (select count(*) from public.qr_dropped_lines where line_id = l7) = 0,
+    'M72.2 another cart''s line was stamped into THIS settlement''s ledger';
 
   -- ══ 3. LEDGER PARITY — one row per voided line, and a re-run must not double-write ════════════
   select count(*) into n from public.qr_dropped_lines where cart_id = cart;
-  assert n = 3, format('M72.3 ledger rows: got %s, want 3', n);
-  assert (select count(*) from public.qr_dropped_lines where cart_id = cart and payment_intent = 'pi_m72_1') = 3,
+  assert n = 4, format('M72.3 ledger rows: got %s, want 4', n);
+  assert (select count(*) from public.qr_dropped_lines where cart_id = cart and payment_intent = 'pi_m72_1') = 4,
     'M72.3 dropped lines not stamped with THIS attempt''s intent';
 
+  -- ⚠️ IDEMPOTENCE, not the EPQ race — and the distinction is load-bearing (Codex #234 round 2).
+  -- A sequential second call cannot exercise the UPDATE's `t.state = 'draft'` qual at all: the
+  -- `unsellable` CTE's own draft filter already excludes everything the first call voided, so this
+  -- returns 0 whether or not that qual exists. The duplicate the migration describes needs a
+  -- CONCURRENT state change landing after the CTE's snapshot, which takes two sessions.
+  -- That qual is therefore NOT guarded by this file; see M72d.
   v := public.mms_settle_precheck_and_void(cart, null, ana, era, 'pi_m72_1');
-  assert v = 0, format('M72.3 second call voided %s — the lines are already voided, so the draft filter must exclude them', v);
+  assert v = 0, format('M72.3 second call voided %s — the draft filter must exclude already-voided lines', v);
   select count(*) into n from public.qr_dropped_lines where cart_id = cart;
-  assert n = 3,
-    format('M72.3 DUPLICATE LEDGER ROWS: got %s, want 3. qr_dropped_lines has no unique constraint '
-           'and mms_dropped_snapshot aggregates without `distinct`, so a duplicate reaches the '
-           'diner''s /track card and receipt as the same dish listed twice.', n);
+  assert n = 4,
+    format('M72.3 REPLAY WROTE MORE LEDGER ROWS: got %s, want 4. qr_dropped_lines has no unique '
+           'constraint and mms_dropped_snapshot aggregates without `distinct`, so a duplicate reaches '
+           'the diner''s /track card and receipt as the same dish listed twice.', n);
 
   -- ══ 4. A COMPED LINE IS WORTH ZERO TO THE LEDGER ══════════════════════════════════════════════
+  -- The heading used to sit over an assertion about an UNCOMPED line, so the `case when u.comped
+  -- then 0` branch was never taken and could be replaced with an unconditional list price with the
+  -- suite still green (Codex #234 round 2). Both directions are asserted now.
   assert (select amount_cents from public.qr_dropped_lines where line_id = l1) = 2400,
-    'M72.4 amount is qty * unit_price for an uncomped line';
+    'M72.4 an UNCOMPED line must record qty * unit_price (2 x 1200)';
+  assert (select amount_cents from public.qr_dropped_lines where line_id = l6) = 0,
+    'M72.4 A COMPED LINE RECORDED ITS LIST PRICE. The ledger answers "what did we fail to SELL"; a '
+    'comped dish was never going to be charged, so booking 3 x 1200 overstates the shortage';
 
   -- ══ 5. THE CALLER'S LIST IS IGNORED — the whole point of M72 ══════════════════════════════════
   -- Before this change the void was `where menu_item_id = any(p_menu_ids)`: the app read the
@@ -148,6 +204,22 @@ begin
     'accepted for deploy compatibility and must never be read';
   assert (select state from public.qr_cart_items where id = l1) = 'voided',
     'M72.5 an EMPTY-of-this-dish list stopped the derivation — the function must not consult it at all';
+
+  -- …and specifically the EMPTY ARRAY, which is the shape the old body short-circuits on
+  -- (`array_length(p_menu_ids, 1) is null`, w23d:190) and the shape the unchanged app sends whenever
+  -- its catalog read finds nothing unavailable. Round 1's P1 turned on exactly this value, and no
+  -- call in this file passed it: the first uses SQL NULL and the case above a non-empty array, so a
+  -- regression restoring only the empty-array short-circuit would have passed the whole suite while
+  -- missing every dish that sold out after the app's read (Codex #234 round 2).
+  update public.qr_cart_items set state = 'draft' where id = l1;
+  delete from public.qr_dropped_lines where cart_id = cart;
+  v := public.mms_settle_precheck_and_void(cart, array[]::text[], ana, era, 'pi_m72_5b');
+  assert v = 1,
+    format('M72.5 THE EMPTY ARRAY SHORT-CIRCUITED THE DERIVATION: got %s, want 1. The old body '
+           'returns 0 on `array_length(p_menu_ids, 1) is null`; the new one must derive regardless '
+           'of what it is handed.', v);
+  assert (select state from public.qr_cart_items where id = l1) = 'voided',
+    'M72.5 the sold-out line survived an empty-array call';
 
   -- ══ 6-8. THE AUTHORITY ARMS — no SQL coverage before this file ════════════════════════════════
   update public.qr_cart_items set state = 'draft' where cart_id = cart and state = 'voided';

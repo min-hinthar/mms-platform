@@ -8,11 +8,21 @@
 -- The pickup manual-capture path had THREE windows in which an 86 (staff marking a dish sold out)
 -- could be missed and the full authorization captured for a dish nobody can make:
 --
---   A. app catalog read  →  void            — ONE PostgREST round-trip.   ← THIS MIGRATION: → zero
+--   A. app catalog read  →  void            — a PostgREST ROUND-TRIP plus the void's own
+--                                             execution.                    ← THIS MIGRATION: shrunk
 --   B. void commits      →  getCartTotals   — `getCartTotals` never reads menu_items, so an 86
 --                                             landing here is invisible.  ← still open
 --   C. totals            →  Stripe capture  — an HTTP call no Postgres transaction can span.
 --                                             ← still open, and see the warning below
+--
+-- ⚠️ Window A is SHRUNK, not eliminated, and an earlier draft of this header said "zero" (Codex
+-- round 2, P1 — correctly). Under READ COMMITTED a statement reads from a snapshot taken when the
+-- statement BEGINS. An 86 committing after that snapshot but before this statement finishes is
+-- invisible to it, so the line is not voided. What goes away is the app→DB round-trip that used to
+-- sit in front of the void; what remains is the statement's own execution. That is a large
+-- reduction and not a closure, and `setItemSoldOut` writes only `menu_items` — it takes no cart
+-- lock — so nothing serialises the two. Closing A entirely needs the same synchronisation B and C
+-- need.
 --
 -- ⚠️ Window C is NOT "one round-trip". `apps/qr/lib/stripe.ts` constructs the SDK with no `timeout`
 -- and no `maxNetworkRetries`, so stripe@22.2.1 applies its defaults: 80 000 ms per attempt and 2
@@ -62,6 +72,17 @@
 --     migration undeployable apart in EITHER order — each skew direction 500s the webhook and Stripe
 --     redelivers for 72 h with the guest's hold standing.
 --
+-- ⚠️ One asymmetry is ACCEPTED rather than solved (Codex round 2, P2). New function + unchanged app
+-- is behaviourally identical in the direction that matters — a dish that sold out is derived and
+-- voided whatever the app sent. The reverse is not: if a dish the app saw as sold out becomes
+-- AVAILABLE again before this statement runs, the derivation correctly finds nothing, returns 0, and
+-- the unchanged caller's `gone.length > 0 && voided === 0` check (manual-capture-run.ts:168) reads
+-- that as a precheck failure and answers `retry`. The hold stands until Stripe redelivers, and the
+-- next delivery succeeds. That is a delayed capture, never a wrong charge, and it self-heals — where
+-- the alternative (teaching the app about the new semantics in this PR) reintroduces exactly the
+-- round-1 defect, since the app must keep sending a real list while the OLD function may still be
+-- live. M72b removes the check and the read together, after `db push`.
+--
 -- The parameter is therefore vestigial for exactly one deploy cycle. Removing it is filed as a
 -- follow-up; until then the body must never read it, so no future edit can re-wire the client's
 -- opinion back into an authority decision.
@@ -96,8 +117,10 @@ begin
   if v_locked_by is distinct from p_payer then return -2; end if;
   if v_locked_at is distinct from p_attempt then return -2; end if;
 
-  -- ONE data-modifying statement, so the derivation and the void share a single snapshot and the
-  -- read→void gap is zero rather than a round-trip. `p_menu_ids` is not read anywhere below — see §3.
+  -- ONE data-modifying statement, so the derivation and the void share a single snapshot: the
+  -- app→DB round-trip that used to precede the void is gone, and what remains of window A is this
+  -- statement's own execution (see §0 — an 86 committing after the snapshot is still missed).
+  -- `p_menu_ids` is not read anywhere below — see §3.
   with unsellable as (
     select ci.id, ci.name, ci.qty, ci.unit_price_cents, ci.comped
       from public.qr_cart_items ci
