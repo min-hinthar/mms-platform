@@ -76,9 +76,7 @@ declare
   l5 uuid := '00000000-0000-0000-0000-0000007201f5';
   v integer; n integer;
 begin
-  insert into public.menu_categories (id, slug, name_en, sort)
-    values (cat, 'm72-cat', 'M72', 720)
-    on conflict (id) do nothing;
+  insert into public.menu_categories (id, slug, name) values (cat, 'm72-cat', 'M72 fixture');
   insert into public.menu_items (id, category_id, slug, name_en, base_price_cents, is_active, is_sold_out)
     values (m_out, cat, 'm72-out', 'Sold Out Dish', 1200, true,  true),
            (m_ok,  cat, 'm72-ok',  'Available Dish', 1500, true,  false),
