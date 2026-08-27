@@ -43,7 +43,16 @@ pnpm check:migration-versions   # one version per migration + the <timestamp>_na
 pnpm check:docs          # tables render in EVERY tracked .md (GFM header/delimiter parity — prettier
                          # INTRODUCES breaks) + live-state counts (README · OPEN-ITEMS · HANDOFF)
                          # measured via `vitest list`, never transcribed + MENU_REFERENCE fresh
-supabase db push         # apply supabase/migrations (packages/db holds only clients/types/schemas)
+# ⚠️ NEVER `supabase db push` AGAINST THE QR PROD PROJECT (fasnpdhtvqtzjlvruqcu). Measured
+# 2026-08-27: prod's supabase_migrations.schema_migrations holds 97 rows whose version stamps are
+# ALL MCP-generated and share ZERO values with the repo filenames (repo
+# 20260618000000_qr_platform_init.sql vs prod 20260618063513 qr_platform_init). `db push` diffs by
+# VERSION STRING, so it reads all 97 local files as unapplied and starts replaying at
+# 20260618000000_qr_platform_init.sql:42 `create table menu_categories` — against a live database
+# that already has it. Apply ONE FILE AT A TIME with the Supabase MCP `apply_migration`, which is
+# how every migration on this project actually reached prod, then VERIFY (signatures, ACLs,
+# has_function_privilege) before moving to the next.
+supabase db push         # ⚠️ LOCAL / BRANCH STACKS ONLY — see the warning above, never QR prod
 ```
 
 ## Conventions

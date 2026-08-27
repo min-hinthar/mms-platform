@@ -4,6 +4,55 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Production: M22 · M70 · M72a applied — a live money-path outage closed (2026-08-27)
+
+**Not a routine migration push.** Production was running app code that called five database objects
+that did not exist, and had been since #233 merged.
+
+The app half of a migration auto-deploys to production on merge to `main`; the SQL half is a manual
+apply. Three migrations merged, three auto-deployed, none applied. PostgREST resolves `.rpc()` by
+argument NAME and rejects an entire query naming an unknown column, so the live production
+deployment (`fbeb809`, READY) was failing on:
+
+| call site                                  | needed                                          | production had              |
+| ------------------------------------------ | ----------------------------------------------- | --------------------------- |
+| `webhook/route.ts:322`                     | `mms_fulfill_order(…, p_promo_cents)`           | 10 args, no `p_promo_cents` |
+| `staff-cart.ts:294`                        | `mms_fulfill_cash_order(…, p_promo_cents)`      | 7 args, no `p_promo_cents`  |
+| `create-intent/route.ts:283`               | `mms_pin_promo_grant`                           | did not exist               |
+| `create-intent/route.ts:301,421`           | `mms_release_promo_grant(p_cart_id, p_attempt)` | did not exist               |
+| `release-lock/route.ts:57` · `cart.ts:746` | `mms_release_promo_grant_for_holder`            | did not exist               |
+| `cart.ts:412`                              | `qr_carts.promo_granted_cents`                  | column did not exist        |
+
+Checkout, promo-apply, card fulfillment and cash settle were all failing. The webhook correctly
+returned 5xx rather than swallowing it, so Stripe held the retry — meaning a card could be captured
+with no order written. It went unnoticed only because the app is pre-launch: 14 paid orders total,
+the last on 2026-08-17.
+
+⚠️ **`supabase db push` would have made it far worse, and `CLAUDE.md` told us to run it.** Prod's
+`supabase_migrations.schema_migrations` holds MCP-generated version stamps sharing **zero** values
+with the repo filenames (repo `20260618000000_qr_platform_init.sql` vs prod `20260618063513
+qr_platform_init`). `db push` diffs by version string, so it reads every local file as unapplied and
+replays from `create table menu_categories` against a live database that already has it. The command
+is now fenced with the measurement in `CLAUDE.md` and `docs/BACKEND_ARCHITECTURE.md`. Each migration
+was applied individually with the MCP `apply_migration` — the path every migration on this project
+has actually taken — and verified before the next: signature, shape count, and
+`has_function_privilege` for `anon` / `authenticated` / `service_role`.
+
+**Result:** prod at 97 migrations; all nine RPCs present with exactly one shape each and
+`service_role`-only execute; `promo_granted_cents` present; no ERROR-level advisories; and no
+function this pass touched appears among the SECURITY DEFINER functions `anon` or `authenticated`
+can execute (the seven that do are pre-existing RLS predicates and M87 triggers).
+
+**Two real M70 defects were found by the pre-apply audit and filed rather than fixed inline** —
+**M123**, a promo grant pinned at checkout survives lock-TTL expiry (5 min) and then prices a
+different basket, wrong in both directions; and **M124**, `mms_release_promo_grant` lacks the
+`status = 'open'` gate its sibling `mms_mark_settle_canceled` carries for a documented reason.
+Applying M70 was still strongly net-positive: it replaced a total promo outage with an edge case.
+
+**The rail, not the checklist, is the real gap.** Nothing in the repo tracks "SQL applied?"
+separately from "PR merged" — which is precisely how three migrations shipped half-deployed without
+anyone noticing. Until that exists, a merged migration is UNAPPLIED until `pg_proc` says otherwise.
+
 ### M86 · PR A — Night turns aubergine (2026-08-26)
 
 The owner asked (2026-08-20) for a _"slightly-purple-aubergine-hue theme for dark mode"_.
