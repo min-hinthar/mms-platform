@@ -169,7 +169,11 @@
      declaration in the app reads the --fx-* dial below and nothing else. ── */
 
   /* ── THE DIAL — one attribute on <html>, no redesign, no layout change ────────────────────────
-     `document.documentElement.dataset.fx = "lite" | "off"` (absent = full strength).
+     `document.documentElement.dataset.fx = "lite" | "off"` (absent = full strength), written by
+     `apps/qr/components/FxDial.tsx` — a localStorage override first, else `lite` on a low tier.
+     One full-viewport buffer at 430x932 DPR3 is 430*932*9*4 = 14.4 MB, and every figure below is a
+     multiple of it. Stated once because the same buffer had been quoted three ways in this repo —
+     13.76, 13.8 and 14.4 — which is one number in MiB and MB, and reads as a disagreement.
        full  (default)  chrome frost + the full-viewport defocus + three promoted ambient planes
        lite             the two full-viewport FILTER surfaces go: the defocus scrim's backdrop and
                         the far plane's own blur, and both ambient planes un-promote. The chrome
@@ -529,7 +533,7 @@
   /* Was --scrim's 0.62: the backdrop now passes at 0.56× instead of 0.38× — 47% brighter — and
      blur(28px) leaves nothing on it legible at any alpha, so the veil's only remaining job is
      separation. A black veil and `brightness()` are mathematically identical (both multiply), so
-     the veil stays a PAINT: cheaper than a second filter op on a 13.76 MB buffer. */
+     the veil stays a PAINT: cheaper than a second filter op on a 14.4 MB buffer. */
   --scrim-glass: rgba(0, 0, 0, 0.44);
 
   /* THE ROOM. Night carries 7.484:1 of --t3 headroom on the bare ground against light's 5.191, so

@@ -7951,7 +7951,7 @@ html[data-seen-surface] .mms-stagger {
    σ 28px: a 16px glyph's ~2px stem spreads over ~56px, below noise. Once defocused, the alpha's
    only remaining job is separation.
    Deliberately NOT `brightness()` in the filter: a black veil and brightness() are mathematically
-   identical (both multiply), and a paint is cheaper than an extra filter op on a ~13.8 MB buffer.
+   identical (both multiply), and a paint is cheaper than an extra filter op on a 14.4 MB buffer.
    saturate(0.85) is aerial perspective — the page is far away now, and distance drains chroma.
    ⚠️ THIS IS THE ENTIRE GLASS BUDGET, AND IT BELONGS TO `.mms-scrim` ALONE. A full-viewport backdrop
    buffer scales with the pane's AREA, not the blur radius, so lowering the radius would save

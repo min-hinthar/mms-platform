@@ -260,6 +260,40 @@ describe("the room — the worst pixel of the page ambient, both themes", () => 
   });
 });
 
+describe("--grad — the one ornament gradient nothing else pins", () => {
+  /**
+   * M127 records that four tokens this milestone moves are held by review alone: nothing in the
+   * repo compares `--grad`'s stops to anything, and the contrast audit only ever asserts `>= 4.5`,
+   * which a wrong-but-legible value satisfies. That is how M126 nearly shipped a real inversion —
+   * raising `--surface-elevated` put the chrome ABOVE `--grad`'s light stop, so the brightest small
+   * ornament in the app would have rendered DIMMER than the chrome behind it, and no gate could
+   * have said so. This closes the half of M127 that this PR actually touched.
+   *
+   * RED-FIRST: restoring the pre-fix `#3a2a4d` light stop fails with 0.0207 vs 0.0386. Restored.
+   */
+  function stops(map: Record<string, string>): Rgba[] {
+    const decl = raw(map, "--grad");
+    const hexes = decl.match(/#[0-9a-fA-F]{6}/g) ?? [];
+    expect(hexes.length).toBe(2); // a floor: a re-authored --grad must not pass by matching nothing
+    return hexes.map((h) => {
+      const [r, g, b] = hexToRgb(h);
+      return { r, g, b, a: 1 };
+    });
+  }
+  it("Night's light stop stays ABOVE the chrome it ornaments", () => {
+    const [lit] = stops(dark) as [Rgba, Rgba];
+    expect(luminance(lit)).toBeGreaterThan(luminance(t(dark, "--surface-elevated")));
+  });
+  it("each theme's gradient actually runs in its own direction", () => {
+    // Night lights UP from its ground, light darkens DOWN from its paper. A stop pair that lost its
+    // direction would still be legible and still pass every other gate in the repo.
+    const [dLit, dDark] = stops(dark) as [Rgba, Rgba];
+    expect(luminance(dLit)).toBeGreaterThan(luminance(dDark));
+    const [lDark, lLit] = stops(light) as [Rgba, Rgba];
+    expect(luminance(lLit)).toBeGreaterThan(luminance(lDark));
+  });
+});
+
 describe("chrome — the surface the header's own text sits on", () => {
   /**
    * `.app-header-rewards` renders BARE `--ac`, which is legible on a narrow set of surfaces: the

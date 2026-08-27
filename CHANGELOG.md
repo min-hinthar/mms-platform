@@ -15,9 +15,10 @@ written after a production iOS WebKit tab OOM-crashed on stacked `backdrop-filte
 so nothing here is free and none of it pretends to be. Every expensive declaration in the app reads
 `--fx-glass-*` / `--fx-plane-blur` / `--fx-promote` from `tokens.css` instead of a raw filter, so
 `document.documentElement.dataset.fx = "lite" | "off"` scales the whole heavy layer back with no
-redesign, no colour change and no layout change. `lite` drops the full-viewport defocus (~20.6 MB,
-80% of the glass budget on its own, because a backdrop buffer scales with a pane's AREA and not with
-its blur radius) and un-promotes the ambient's mid plane (~14.4 MB). `off` leaves no
+redesign, no colour change and no layout change. `lite` drops the two full-viewport FILTER
+surfaces — the defocus scrim's backdrop (~20.6 MB, 80% of the glass budget on its own, because a
+backdrop buffer scales with a pane's AREA and not with its blur radius) and the far plane's own
+`blur(64px)` — and un-promotes both ambient planes. `off` leaves no
 `backdrop-filter` and no plane blur anywhere, and the static composition survives whole. The dial
 re-points whole function lists rather than scaling radii to `0px`, because `blur(0px)` still
 allocates a buffer and `none` does not. `prefers-reduced-transparency: reduce` takes the glass off at
