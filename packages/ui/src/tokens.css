@@ -94,6 +94,9 @@
   --okb: #eaf2ec;
   --warn: #a44b34;
   --warnb: #f6e9e4;
+  --shadow-ink: #231810; /* byte-identical to the rgba(35, 24, 16, α) light already ships in
+                            --sh / --sh-md / --sh-xl — light has always had a warm hue-bearing
+                            shadow; Night is what was using flat black. */
   --grad: linear-gradient(135deg, #f1e7d6, #fbf4e8);
   --sh: 0 1px 3px rgba(35, 24, 16, 0.06), 0 1px 2px rgba(35, 24, 16, 0.04);
   --sh-md: 0 8px 24px rgba(35, 24, 16, 0.09), 0 3px 8px rgba(35, 24, 16, 0.05);
@@ -120,6 +123,21 @@
   --surface-elevated: #ffffff;
   /* inner top-highlight on lifted surfaces (stays a faint white in BOTH themes — see .dark) */
   --sheen: rgba(255, 255, 255, 0.55);
+  /* M126 · light halves of the four tokens Night gained. Declared here so components can read them
+     unconditionally — the alternative is a theme fork at 80+ call sites. Two are honest asymmetries
+     rather than parity, and saying so is the point:
+
+     --sunken is the DEEPEST tone light can hold: at #efece2 the muted text --t3 #726859 clears at
+     4.627, and one 8-bit step lower (#eae6da) FAILS at 4.383. Night's well drops ΔL 0.0354 like
+     every other rung; light's drops ΔL 0.0105 and is really a bevel with a whisper of tone.
+
+     --cd-raised CANNOT be a tone in light at all. Light --cd is already #fffdf8 and
+     --surface-elevated is #ffffff — a ratio of 1.0166, i.e. nothing. Above a near-white card there
+     is no room, so "raised" in light is expressed by SHADOW alone and this value is white. Do not
+     "fix" this by darkening --cd; that inverts the light ladder. */
+  --sunken: #efece2;
+  --cd-raised: #ffffff;
+  --edge-lo: rgba(58, 35, 23, 0.08);
   --sh-glow: 0 6px 22px color-mix(in oklab, var(--ac) 18%, transparent); /* accent-tinted lift */
   /* Tight accent lift for a small chip/pill INSIDE an overflow:auto scroller (e.g. the active menu tab):
      --sh-glow's 22px blur is clipped by the scroller — this stays within ~9px so a little rail padding
@@ -170,18 +188,37 @@
      (`viewport.themeColor`, the service worker's offline shell, the Stripe Appearance fallback) —
      pinned by `scripts/check-theme-parity.mjs`, so a one-sided revert reddens CI rather than
      shipping a seam. */
-  --pg: #171221;
-  --sf: #201a2e;
-  --cd: #271f38;
+  /* ── M126 · THE SIX-RUNG LADDER ────────────────────────────────────────────────────────────
+     Night was four planes spanning 1.2811:1 in total, with OKLab ΔL steps of 0.0388 / 0.0262 /
+     0.0297 — uneven, and every adjacent pair under 1.10, which is why a sheet over a card over a
+     page did not read as three planes. Six rungs now span 1.6281:1 with ΔL 0.0353 / 0.0354 /
+     0.0354 / 0.0355 / 0.0361 — dead even. Every number here was computed from these hex, and the
+     whole set was scored by RUNNING contrast-audit.test.ts (71/71) rather than by arithmetic.
+
+     Each rung also shifts MATERIAL, not just brightness: chroma climbs 0.0273 → 0.0630 and hue
+     warms 297.5° → 305.7° as a plane rises, because unlit pigment sits desaturated and cool while
+     lit pigment saturates and warms. A ladder expressed by lightness alone reads as one surface
+     under different exposures; this reads as different surfaces.
+
+     ⚠️ --t3, --jade-strong and --ruby-strong below are LOAD-BEARING, not cosmetic. Applying this
+     ladder WITHOUT them fails the audit at `t3 on surface-elevated` = 4.1175 — verified by running
+     it both ways. Do not lift --cd further without re-solving all three: the binding constraint is
+     `ruby-strong on chip tint HOVER /cd`, not jade. */
+  --pg: #100c19;
+  --sunken: #171422; /* NEW — the recessed tone Night never had: wells, inputs, photo pits */
+  --sf: #211a30;
+  --cd: #2b213c;
+  --cd-raised: #362848; /* NEW — a card that is itself raised, and the ground bottom sheets sit on */
   --tx: #f3ecdf;
   --t2: #bcafc8;
-  --t3: #9d95a8; /* AA on Night surfaces: 5.84:1 on --sf, 5.45:1 on --cd (was #897e96 → 4.40/4.10) */
+  --t3: #a69eb1; /* M126 — lifted with the ladder. Load-bearing: at the old #9d95a8 the new
+                    --surface-elevated fails `t3 on surface-elevated` at 4.1175. */
   --ac: #e7a53a;
   --ac2: #f4c879;
   /* Dark accent already clears 4.5:1 on the tinted fills (~5.6–6.3), so the strong variant is the
      same hue — defined for parity so components can use --ac-strong unconditionally. */
   --ac-strong: var(--ac);
-  --oa: #1a1326;
+  --oa: #130d1e; /* on-accent ink — tracks the new floor, NOT a ladder rung */
   --jade: #5fb07e;
   --gold: #f4c879;
   /* Gold-on-dark clears AA on its tinted fills, so its strong variant is the same hue (parity with
@@ -215,7 +252,7 @@
      a color-mix and delivers an 8-bit pixel on an sRGB display, so the quantized path is arguably
      the faithful one) is a genuine open question, filed as M122. The FILL stays --jade exactly as it
      was; only the TEXT variant lifts. */
-  --jade-strong: #62b380;
+  --jade-strong: #64b582; /* M126 — re-solved against the lifted --cd #2b213c */
   /* W22d — ruby is the ONE bright hue that does NOT clear AA as text on its own tint, and the
      comment here used to assert the opposite. Measured against the real call sites: `--ruby` as text
      scored 4.47 on the 14% tint and 4.32 on the 16% tint over --cd (AccountStatus' tier row + tier
@@ -225,7 +262,8 @@
      OKLab hue and chroma, L 0.702 → 0.728, worst case now 4.66. Searched numerically, not chosen.
      Gold and jade genuinely do clear on their tints, which is why they still alias. */
   --ruby: #e6788c;
-  --ruby-strong: #ef8094;
+  --ruby-strong: #f18295; /* M126 — re-solved against the lifted --cd. RUBY binds first, not
+                             jade: at the shipped --cd it was 4.6561 against jade's 4.6827. */
   --bd: rgba(243, 236, 223, 0.13);
   --ok: #5fb07e;
   --okb: #1f2e26;
@@ -243,16 +281,35 @@
   --tex-grain-opacity: 0.55;
   --glow-ac: color-mix(in oklab, var(--ac) 32%, transparent);
   --glow-gold: color-mix(in oklab, var(--gold) 30%, transparent);
-  --surface-glass: rgba(39, 31, 56, 0.9);
-  --surface-vellum: rgba(32, 26, 46, 0.95);
-  --surface-elevated: #2e2545;
-  --sheen: rgba(255, 255, 255, 0.06);
+  --surface-glass: rgba(43, 33, 60, 0.9); /* = --cd #2b213c — pinned by check-theme-parity surface 7 */
+  --surface-vellum: rgba(33, 26, 48, 0.95); /* = --sf #211a30 — pinned by the same surface */
+  --surface-elevated: #413053;
+  /* M126 · THE BEVEL. --sheen is the LIT TOP LIP and --edge-lo the object's own SHADE on its
+     bottom edge — Night had no bottom or side inner shadow anywhere, so every card was a flat fill
+     with a whisper of a highlight. At 0.06 the lip read 1.1869 against its own card; at 0.11 it
+     reads 1.4089, and top-edge-to-bottom-edge across one card goes from exactly 1.0000 (no bottom
+     edge existed) to 1.6025. 0.11 beats a warmer 13%: at 13% the composite hue is 309.8°, i.e.
+     brighter rather than warmer — warmth does not survive on a near-black card, so pay for the
+     edge, not for a colour that will not show. Side effect, stated up front: `checkoutShine` and
+     `.checkout-reward-applied` are both built on --sheen and have effectively not existed in
+     Night. They come back. */
+  --sheen: rgba(255, 255, 255, 0.11);
+  --edge-lo: color-mix(in oklab, var(--scrim) 70%, transparent);
   --sh-glow: 0 6px 22px color-mix(in oklab, var(--ac) 22%, transparent);
   --sh-lift: 0 2px 8px -1px color-mix(in oklab, var(--ac) 52%, transparent);
   /* W22a two-tier mirror — Night eats soft shadows, so both layers deepen (same shape). */
-  --sh-paper: 0 1px 3px -1px rgba(0, 0, 0, 0.5), 0 16px 32px -18px rgba(0, 0, 0, 0.6);
+  /* M126 · SHADOW CARRIES HUE. Black shadows grey the ground out; a shadow is the ground with the
+     light removed, so it keeps the ground's chroma. --shadow-ink is OKLCH h 296°, C 0.035 where
+     black keeps C 0. The ALPHAS are deliberately unchanged — raising them at the same time would
+     stack an unmeasured taste call on an unmeasured ink change. Change one thing. The negative
+     spread on the wide tier stays: a zero-spread wide layer reads as a hard square frame over a
+     photo (W22a·depth learned that the expensive way). */
+  --sh-paper:
+    0 1px 3px -1px color-mix(in oklab, var(--shadow-ink) 50%, transparent),
+    0 16px 32px -18px color-mix(in oklab, var(--shadow-ink) 60%, transparent);
   --sh-paper-hover: 0 2px 6px -2px rgba(0, 0, 0, 0.55), 0 22px 44px -20px rgba(0, 0, 0, 0.68);
-  --scrim: rgba(0, 0, 0, 0.6); /* deeper dim on Night so the lifted sheet still separates */
+  --scrim: rgba(0, 0, 0, 0.62); /* deeper dim on Night so the lifted sheet still separates */
+  --shadow-ink: #080412; /* the ground with the light taken out — see --sh-paper */
 }
 @media (prefers-reduced-motion: reduce) {
   :root {

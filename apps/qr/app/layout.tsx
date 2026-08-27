@@ -63,12 +63,12 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 // Next 16 split themeColor/viewport out of metadata into its own export. These MUST match the real page
-// background `--pg` (tokens.css: #faf9f5 light / #171221 Night) — the old #fffaf2/#0f1115 left a visible
+// background `--pg` (tokens.css: #faf9f5 light / #100c19 Night) — the old #fffaf2/#0f1115 left a visible
 // address-bar/status-bar seam over the Night purple (audit U-Q5).
 export const viewport: Viewport = {
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#faf9f5" },
-    { media: "(prefers-color-scheme: dark)", color: "#171221" },
+    { media: "(prefers-color-scheme: dark)", color: "#100c19" },
   ],
   width: "device-width",
   initialScale: 1,
