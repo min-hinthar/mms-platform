@@ -4,6 +4,44 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Night stays Night — the aubergine re-hue is reverted (2026-08-27)
+
+The owner looked at the shipped aubergine ground and rejected it: _"I actually prefer the Night than
+the Aubergine."_ All nine ground values #235 rotated are restored, along with the three mirrors that
+cannot read a custom property (`viewport.themeColor`, the service worker's offline shell, the Stripe
+Appearance fallback).
+
+The revert is **verified rather than asserted**: both `.dark` blocks are parsed and compared token by
+token, and all 39 dark tokens come back byte-identical to `fbeb809^` with exactly one deliberate
+exception. The comparison was falsified against a mutated `--pg` first, so a green result means the
+check can actually see a difference — the repo has shipped guards that were green for the wrong
+reason before.
+
+Because the rotation had held OKLab L fixed, undoing it costs nothing in contrast. Relative luminance
+returns to pg 0.00725 · sf 0.01243 · cd 0.01697 · oa 0.00825 · elevated 0.02334, and the depth ladder
+keeps its spacing: Y ratios pg→sf 1.716× · sf→cd 1.365× · cd→elevated 1.375×.
+
+**`--jade-strong` stays lifted**, and the reason outlives the rotation that exposed it. On the
+restored Night `--cd` the alias would score **4.5237** quantized and **4.5112** float — clearing by
+0.0112 at worst, a margin *smaller than the 0.0124 the two measurement methods disagree by on this
+same combo*. A ratio sitting inside its own measurement noise is undecided, not passing. `#62b380`
+scores 4.6827 / 4.6698, clear on both methods, so the choice stops depending on which method is
+right (that question stays filed as M122, now re-measured against Night).
+
+Also kept from #235, because neither depended on the hue: `check-theme-parity`'s **surface 7** (the
+translucent surfaces pinned to the opaque tokens whose channels they hand-copy) and the contrast
+audit's added dark combo. Coverage has no hue.
+
+Gate: `turbo lint typecheck build` 6/6 · contrast audit 71 pass · `check-theme-parity` exit 0,
+confirming dark `--surface-glass` = `--cd` rgb(39, 31, 56) and `--surface-vellum` = `--sf`
+rgb(32, 26, 46) on the restored values.
+
+**Next, and the actual ask:** Night is not just being put back, it is being deepened — _"make Night
+more enriched, enhanced, layered, shades, effects."_ Four independent directions (depth · light ·
+material · atmosphere) are being designed against measured ground truth and will be shown as a
+rendered prototype board for the owner to pick from before any token moves.
+
+
 ### Production: M22 · M70 · M72a applied — a live money-path outage closed (2026-08-27)
 
 **Not a routine migration push.** Production was running app code that called five database objects
