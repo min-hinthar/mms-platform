@@ -4,7 +4,7 @@ import { CartPublisher } from "@/components/CartPublisher";
 import { MenuBrowser, type MenuItem } from "@/components/menu/MenuBrowser";
 import { requiredChoiceUnavailable, shapeModifierGroups } from "@/lib/menu/modifiers";
 import { getMostLoved, LOVED_BADGE_MAX } from "@/lib/menu/mostLoved";
-import { competitionRanks } from "@/lib/menu/rank";
+import { competitionRanks, soleRanks } from "@/lib/menu/rank";
 import { getWelcomeBack } from "@/lib/rewards";
 import { getFavoriteIds } from "@/lib/favorites";
 import { OutageRefresh } from "@/components/OutageRefresh";
@@ -121,8 +121,13 @@ export default async function Menu({
   // W21 (Codex P2 on #191) — the seals' ordinals are computed from the COUNTS, tie-aware: two
   // dishes the comparator left tied (same distinct orders AND qty) share a numeral instead of one
   // being invented "No. 2" by insertion order.
-  const ranks = competitionRanks(badgeLoved, (a, b) => a.orders === b.orders && a.qty === b.qty);
-  const favorites = badgeLoved.map((m, i) => ({ id: m.menuItemId, rank: ranks[i]! }));
+  // M133 — competition ranks first (tied dishes MUST share a numeral), then `soleRanks` withholds
+  // every numeral that is shared. A seal that five cards wear at once is true and unreadable; see
+  // the note on `soleRanks`. `rank: null` means "in the row, makes no ordinal claim".
+  const ranks = soleRanks(
+    competitionRanks(badgeLoved, (a, b) => a.orders === b.orders && a.qty === b.qty),
+  );
+  const favorites = badgeLoved.map((m, i) => ({ id: m.menuItemId, rank: ranks[i] ?? null }));
   const popularIds = mostLoved.map((m) => m.menuItemId);
   const welcome = await welcomeP;
   const heartedIds = await heartedP;

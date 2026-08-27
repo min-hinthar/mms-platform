@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { CRAVINGS, recommendByTaste, surpriseMe } from "./taste";
+import {
+  CRAVINGS,
+  recommendByTaste,
+  surpriseMe,
+  topUpToFloor,
+  TASTE_ROW_MIN,
+  TASTE_ROW_MAX,
+} from "./taste";
 
 /** W21 — the taste picker's honesty rules: every recommendation traces to a real category/tag. */
 
@@ -68,9 +75,12 @@ describe("recommendByTaste — only matches, ranked by match count then populari
     expect(r[0]!.matched.map((c) => c.id).sort()).toEqual(["curry", "spicy"]);
   });
 
-  it("caps at 8 — a row, not a second menu", () => {
+  it("caps at 7 — a row, not a second menu", () => {
+    // The LITERAL, not the constant. `toHaveLength(TASTE_ROW_MAX)` is a tautology: the M133 mutant
+    // that loosened TASTE_ROW_MAX from 7 to 8 SURVIVED every test in this file, because each one
+    // asked the constant what it was and then agreed with the answer.
     const many = Array.from({ length: 20 }, (_, i) => item("Curries", [], `c${i}`));
-    expect(recommendByTaste(many, ["curry"])).toHaveLength(8);
+    expect(recommendByTaste(many, ["curry"])).toHaveLength(7);
   });
 });
 
@@ -142,5 +152,72 @@ describe("M131 — the surprise draw comes from the ranked tier first", () => {
     expect(surpriseMe(catalog, new Set(), 3, [], () => 0).map((p) => p.id)).toEqual(
       surpriseMe(catalog, new Set(), 3, undefined, () => 0).map((p) => p.id),
     );
+  });
+});
+
+describe("M133 — the row bounds, and the honest way to reach the floor", () => {
+  it("the owner's numbers, pinned as literals — at least 4, at most 7", () => {
+    // A product decision, not an implementation detail: "all explore your burmese taste buds
+    // suggestions (including surprise your taste buds) should offer at least 4 and at most 7 menu
+    // items". Nothing else in this file can catch a change to either bound, because every other
+    // assertion reads the constant it is trying to verify.
+    expect(TASTE_ROW_MIN).toBe(4);
+    expect(TASTE_ROW_MAX).toBe(7);
+  });
+
+  it("the bounds are a real range, not a single number", () => {
+    // A degenerate MIN >= MAX would make every top-up either impossible or unbounded, and both
+    // failures are silent: the row just comes out the wrong length. Pin the relationship itself.
+    expect(TASTE_ROW_MIN).toBeLessThan(TASTE_ROW_MAX);
+    expect(TASTE_ROW_MIN).toBeGreaterThan(0);
+  });
+
+  it("surpriseMe can now fill a whole row, not three cards", () => {
+    const catalog = Array.from({ length: 12 }, (_, k) => item("Curries", [], `i${k}`));
+    expect(surpriseMe(catalog, new Set(), TASTE_ROW_MAX, [], () => 0)).toHaveLength(TASTE_ROW_MAX);
+  });
+
+  describe("topUpToFloor", () => {
+    const pool = Array.from({ length: 8 }, (_, k) => ({ id: `p${k}` }));
+
+    it("adds nothing to a row already at the floor", () => {
+      expect(topUpToFloor(pool.slice(0, TASTE_ROW_MIN), pool, [])).toEqual([]);
+    });
+
+    it("adds nothing to a row ABOVE the floor either", () => {
+      expect(topUpToFloor(pool.slice(0, TASTE_ROW_MIN + 2), pool, [])).toEqual([]);
+    });
+
+    it("fills exactly the shortfall — never overshoots the floor", () => {
+      expect(topUpToFloor(pool.slice(0, 1), pool, [])).toHaveLength(TASTE_ROW_MIN - 1);
+    });
+
+    it("never re-offers a dish the row already holds", () => {
+      const row = [pool[0]!, pool[1]!];
+      const add = topUpToFloor(row, pool, []);
+      expect(add.some((i) => i.id === "p0" || i.id === "p1")).toBe(false);
+    });
+
+    it("draws the most-ordered dishes FIRST", () => {
+      // p7 and p6 sit last in menu order, so taking them proves the ranking drove the choice.
+      expect(topUpToFloor([pool[0]!, pool[1]!], pool, ["p7", "p6"]).map((i) => i.id)).toEqual([
+        "p7",
+        "p6",
+      ]);
+    });
+
+    it("falls back to menu order when the ranking runs out — a preference, not a filter", () => {
+      // One ranked dish, two slots to fill: the ranked one leads, the rest comes from menu order
+      // rather than the row staying short. This is the whole reason it is not a filter.
+      expect(topUpToFloor([pool[0]!, pool[1]!], pool, ["p5"]).map((i) => i.id)).toEqual([
+        "p5",
+        "p2",
+      ]);
+    });
+
+    it("cannot invent dishes: an exhausted pool returns what exists", () => {
+      const tiny = pool.slice(0, 3);
+      expect(topUpToFloor(tiny.slice(0, 1), tiny, [])).toHaveLength(2);
+    });
   });
 });

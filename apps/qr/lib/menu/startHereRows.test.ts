@@ -54,7 +54,7 @@ describe("buildStartHereRows", () => {
     ]);
   });
 
-  it("falls back to the popular tag (rank 0, not data-backed) when history is thin", () => {
+  it("falls back to the popular tag (rank null, not data-backed) when history is thin", () => {
     const items = [
       item("a", "Noodles", ["popular"]),
       item("b", "Noodles", ["popular"]),
@@ -64,7 +64,9 @@ describe("buildStartHereRows", () => {
     const { rowA, dataBacked } = buildStartHereRows(items, [{ id: "a", rank: 1 }]);
     expect(dataBacked).toBe(false);
     expect(rowA.map((e) => e.item.id)).toEqual(["a", "b", "c"]);
-    expect(rowA.every((e) => e.rank === 0)).toBe(true);
+    // M133 — `null`, not the old `0` sentinel. StartHereBand seals on `rank != null`, so a magic
+    // 0 was one careless `!== undefined` away from printing a "0" coin on every fallback card.
+    expect(rowA.every((e) => e.rank === null)).toBe(true);
   });
 
   it("returns no rows at all below the 3-card floor", () => {
@@ -136,15 +138,22 @@ describe("M131 — row B leads each category with what tables actually order", (
     expect(rowB.slice(0, 2).map((i) => i.id)).toEqual(["Noodles-2", "Curries-3"]);
   });
 
-  it("a category with NOTHING ranked still appears, led by its menu-order first item", () => {
+  it("a category with NOTHING ranked still appears — after the ranked dishes, not interleaved", () => {
     // The whole point of not FILTERING to the top 50: "a little of everything" is a coverage claim,
     // and a filter would silently drop a category while the caption still promised it.
+    //
+    // M133 changed the ORDER this arrives in, deliberately (owner, asking a second time: the row
+    // "should mostly be selected from the top 50"). Under M131 lap 1 was one dish per category
+    // regardless of ranking, so this read ["Noodles-1", "Curries-2", "Desserts-1"] — an UNRANKED
+    // dish ahead of nothing, but also no guarantee a ranked dish led at all. Selection puts every
+    // ranked dish first (here just Curries-2), then phase 2 restores coverage. The coverage
+    // assertion above is the invariant; this one records which rule is in force.
     const items = catalog({ Starters: 3, Noodles: 2, Curries: 2, Desserts: 2 });
     const { rowB } = buildStartHereRows(items, loved, ["Curries-2"]);
     expect(new Set(rowB.map((i) => i.category))).toEqual(
       new Set(["Noodles", "Curries", "Desserts"]),
     );
-    expect(rowB.slice(0, 3).map((i) => i.id)).toEqual(["Noodles-1", "Curries-2", "Desserts-1"]);
+    expect(rowB.slice(0, 3).map((i) => i.id)).toEqual(["Curries-2", "Noodles-1", "Desserts-1"]);
   });
 
   it("no ranking at all is a NO-OP — the pre-M131 menu order, exactly", () => {
@@ -159,5 +168,91 @@ describe("M131 — row B leads each category with what tables actually order", (
         .rowB.slice(0, 2)
         .map((i) => i.id),
     ).toEqual(["Noodles-1", "Curries-1"]);
+  });
+});
+
+describe("M133 — row B SELECTS from the ranking, it no longer merely orders by it", () => {
+  // Three categories, three dishes each. Row A is fed from a fourth category so it never competes
+  // for these — the ROW_MIN=3 floor means row A must be non-empty or the function returns early.
+  const items = [...catalog({ Seed: 3 }), ...catalog({ Noodles: 3, Curries: 3, Salads: 3 })];
+  const loved = catalog({ Seed: 3 }).map((i, k) => ({ id: i.id, rank: k + 1 }));
+
+  it("takes a ranked dish from EVERY category before any unranked one", () => {
+    // One ranked dish per category, and each is that category's LAST in menu order — so if the
+    // ranking only re-ordered buckets (the M131 behaviour) the first lap would still be
+    // Noodles-3, Curries-3, Salads-3 and this test could not tell the two apart. What it can tell
+    // apart is what comes NEXT: under selection, lap 2 is unranked; under ordering, lap 2 would be
+    // whatever sorted second. Both agree here, so the DISCRIMINATING assertion is the one below.
+    const { rowB } = buildStartHereRows(items, loved, ["Noodles-3", "Curries-3", "Salads-3"]);
+    expect(rowB.slice(0, 3).map((i) => i.id)).toEqual(["Noodles-3", "Curries-3", "Salads-3"]);
+  });
+
+  it("THE DISCRIMINATOR — a category with TWO ranked dishes still yields only one per lap, and both come before any unranked dish", () => {
+    // Noodles holds two ranked dishes; Curries and Salads hold none. Ordering-only (M131) would
+    // give lap 1 = [Noodles-3, Curries-1, Salads-1] and lap 2 = [Noodles-2, ...] — an unranked
+    // dish (Curries-1) ahead of a ranked one (Noodles-2). Selection puts BOTH ranked Noodles first,
+    // one per lap, before phase 2 starts on the rest.
+    const { rowB } = buildStartHereRows(items, loved, ["Noodles-3", "Noodles-2"]);
+    expect(rowB.slice(0, 2).map((i) => i.id)).toEqual(["Noodles-3", "Noodles-2"]);
+    expect(rowB.indexOf(rowB.find((i) => i.id === "Curries-1")!)).toBeGreaterThan(1);
+  });
+
+  it("phase 2 keeps the coverage the caption promises — a category with NO ranked dish still appears", () => {
+    const { rowB } = buildStartHereRows(items, loved, ["Noodles-3"]);
+    const cats = new Set(rowB.map((i) => i.category));
+    expect(cats).toContain("Curries");
+    expect(cats).toContain("Salads");
+  });
+
+  it("never offers the same dish twice across the two phases", () => {
+    const { rowB } = buildStartHereRows(items, loved, ["Noodles-3", "Curries-2"]);
+    expect(new Set(rowB.map((i) => i.id)).size).toBe(rowB.length);
+  });
+
+  it("an empty ranking still fills the row — phase 1 finds nothing and phase 2 does all of it", () => {
+    const { rowB } = buildStartHereRows(items, loved, []);
+    expect(rowB.length).toBeGreaterThanOrEqual(3);
+    expect(new Set(rowB.map((i) => i.category)).size).toBe(3);
+  });
+
+  it("row A's ranks pass through untouched, nulls included", () => {
+    // soleRanks nulls a shared numeral upstream; this function must carry that decision, never
+    // re-derive or repair it — a rank invented here would be a claim no data backs.
+    const tied = catalog({ Seed: 3 }).map((i, k) => ({ id: i.id, rank: k === 0 ? 1 : null }));
+    const { rowA } = buildStartHereRows(items, tied);
+    expect(rowA.map((e) => e.rank)).toEqual([1, null, null]);
+  });
+});
+
+describe("M133 — the ranking may not eat the 'everything' (the balance the two phases share)", () => {
+  const items = [...catalog({ Seed: 3 }), ...catalog({ Noodles: 2, Curries: 2, Desserts: 2 })];
+  const loved = catalog({ Seed: 3 }).map((i, k) => ({ id: i.id, rank: k + 1 }));
+
+  it("no category gets a SECOND dish until every category has a first", () => {
+    // The defect this pins, found by probing the first draft: phase 2 restarted its own lap count
+    // at zero, so the category that placed a ranked dish in phase 1 was served again on phase 2's
+    // first lap. With ["Curries-2"] ranked, row B opened Curries-2, Noodles-1, Curries-1 — two
+    // Curries before Desserts appeared at all, in the row whose entire caption is "a little of
+    // everything". The two phases now share one per-category counter.
+    const { rowB } = buildStartHereRows(items, loved, ["Curries-2"]);
+    const seen = new Map<string, number>();
+    for (const i of rowB) {
+      const n = (seen.get(i.category) ?? 0) + 1;
+      seen.set(i.category, n);
+      if (n < 2) continue;
+      // The moment any category reaches 2, every category must already be at 1.
+      expect([...seen.values()].filter((v) => v >= 1)).toHaveLength(3);
+    }
+  });
+
+  it("holds when the ranked dishes are ALL in one category", () => {
+    // The worst case for the balance: a single popular category could otherwise take the whole
+    // phase-1 budget and then keep taking on phase 2's first lap.
+    const { rowB } = buildStartHereRows(items, loved, ["Curries-1", "Curries-2"]);
+    expect(rowB.slice(0, 2).every((i) => i.category === "Curries")).toBe(true);
+    // …but the next two must be the categories that have nothing yet, not a third Curry.
+    expect(new Set(rowB.slice(2, 4).map((i) => i.category))).toEqual(
+      new Set(["Noodles", "Desserts"]),
+    );
   });
 });

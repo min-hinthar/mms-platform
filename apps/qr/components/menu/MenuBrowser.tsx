@@ -90,7 +90,7 @@ export function MenuBrowser({
    *  share a numeral, so a seal never orders what the data left tied). Drives the "Start here" band
    *  + the data-backed "Table favorite" badge. Empty while order history is thin → the band falls
    *  back to `popular`-tagged items, badges to the manual tag. */
-  favorites?: { id: string; rank: number }[];
+  favorites?: { id: string; rank: number | null }[];
   /** M131 — the wider most-ordered ranking (`LOVED_POOL_MAX`), most-ordered first. A SELECTION
    *  preference for the guided rows and the taste suggestions; it never becomes copy, so it is
    *  deliberately broader than `favorites`, which backs the visible "Table favorite" claim. */
@@ -541,6 +541,53 @@ export function MenuBrowser({
         )}
       </header>
 
+      {/* J2 "Start here" — the guided opening for browse mode only: hidden the moment the diner is
+          FINDING (search text or a diet filter active), when the band would be noise between them and
+          their result. Tapping a card opens the same item sheet as a row. */}
+      {/* J5 precedence: once the diner HAS favorites, their own shortlist replaces our guidance —
+          the start-here band is a first-timer's opening, not a permanent fixture. */}
+      {!q.trim() &&
+        diets.length === 0 &&
+        (favRail.length > 0 ? (
+          <div style={{ padding: "0 20px" }}>
+            <FavoritesRail items={favRail} onSelect={setSheetItem} />
+          </div>
+        ) : (
+          <div style={{ padding: "0 20px" }}>
+            <StartHereBand
+              rowA={startHere.rowA}
+              rowB={startHere.rowB}
+              dataBacked={startHere.dataBacked}
+              onSelect={setSheetItem}
+            />
+          </div>
+        ))}
+
+      {/* W21 → W22 — "Explore your Burmese taste buds": craving pills → an honest "here's why"
+          rail + Surprise-me, and now the HOME of the dietary pills (they filter this whole view,
+          so the band must stay visible while a diet is active — the search gate alone hides it,
+          since a typed query means the diner is FINDING, not exploring). */}
+      {!q.trim() && (
+        <div style={{ padding: "0 20px" }}>
+          <TasteBand
+            items={items}
+            popularIds={popularIds}
+            heartedIds={hearts}
+            diets={diets}
+            onToggleDiet={toggleDiet}
+            onSelect={setSheetItem}
+          />
+        </div>
+      )}
+
+      {/* M133 (owner: "Menu-toolbar should be positioned after taste-h before All-day breakfast so
+          customers can view the start-here and taste-h contents first"). It is `position: sticky`,
+          so moving it DOWN the document changes only where it starts: it still pins under the app
+          header the moment the diner scrolls past the bands, and every section's `scrollMarginTop`
+          is measured from its real height rather than its position, so the jump-nav still lands
+          headings clear of it. When a search or a diet hides the bands above, the toolbar simply
+          becomes the first thing under the header again — which is the right place for it exactly
+          when the diner is FINDING rather than exploring. */}
       <div className="menu-toolbar" ref={toolbarRef}>
         <div className="menu-search">
           <Icon name="search" size={18} />
@@ -590,45 +637,6 @@ export function MenuBrowser({
           </>
         )}
       </div>
-
-      {/* J2 "Start here" — the guided opening for browse mode only: hidden the moment the diner is
-          FINDING (search text or a diet filter active), when the band would be noise between them and
-          their result. Tapping a card opens the same item sheet as a row. */}
-      {/* J5 precedence: once the diner HAS favorites, their own shortlist replaces our guidance —
-          the start-here band is a first-timer's opening, not a permanent fixture. */}
-      {!q.trim() &&
-        diets.length === 0 &&
-        (favRail.length > 0 ? (
-          <div style={{ padding: "0 20px" }}>
-            <FavoritesRail items={favRail} onSelect={setSheetItem} />
-          </div>
-        ) : (
-          <div style={{ padding: "0 20px" }}>
-            <StartHereBand
-              rowA={startHere.rowA}
-              rowB={startHere.rowB}
-              dataBacked={startHere.dataBacked}
-              onSelect={setSheetItem}
-            />
-          </div>
-        ))}
-
-      {/* W21 → W22 — "Explore your Burmese taste buds": craving pills → an honest "here's why"
-          rail + Surprise-me, and now the HOME of the dietary pills (they filter this whole view,
-          so the band must stay visible while a diet is active — the search gate alone hides it,
-          since a typed query means the diner is FINDING, not exploring). */}
-      {!q.trim() && (
-        <div style={{ padding: "0 20px" }}>
-          <TasteBand
-            items={items}
-            popularIds={popularIds}
-            heartedIds={hearts}
-            diets={diets}
-            onToggleDiet={toggleDiet}
-            onSelect={setSheetItem}
-          />
-        </div>
-      )}
 
       {cats.map((c) => (
         <section

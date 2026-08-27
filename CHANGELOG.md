@@ -4,6 +4,60 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The suggestions are SELECTED from the top 50 now, and the rank seals stop repeating (M133, 2026-08-27)
+
+The owner, on the M131 preview: _"menu items for a little of everything and explore your burmese
+taste buds (surprise your taste buds, something sweet, etc.,) menu item suggestions should mostly
+selected from the top 50 of popular, customer most ordered menu items. Menu-toolbar should be
+positioned after taste-h before All-day breakfast so customers can view the start-here and taste-h
+contents first. all explore your burmese taste buds suggestions (including surprise your taste
+buds) should offer at least 4 and at most 7 menu items. and what is wrong with the numberings
+duplicates on the cards of Start here?"_
+
+**The numbering duplicates were two separate defects, and both were real.** Measured against the
+live database rather than guessed at:
+
+1. **Tied ranks, correctly shared and completely unreadable.** Over the 60-day paid window the menu
+   has 77 order lines and 17 dishes clearing the ≥2-distinct-orders floor, so the top twelve rank
+   **1, 2, 2, 4, 5, 5, 5, 8, 8, 8, 8, 8** — five cards wearing an identical "8". Competition ranking
+   is right and stays (tied dishes must share a numeral; the counts establish no order between
+   them), but a numeral repeated five times has stopped working as a rank for the person reading
+   it. `soleRanks` now withholds every SHARED numeral: a seal renders only where the rank is
+   unique, and a tied dish keeps its place in the row while making no ordinal claim. Ties break on
+   their own as order history accumulates. Deliberately not "fixed" by breaking ties on price or
+   name — that manufactures an order the data doesn't contain and prints it as a fact.
+2. **The marquee printed its loop copy even when it could not loop.** `MarqueeRail` renders a
+   duplicate card set for the seamless drift, and the drift effect bails when one set doesn't
+   overflow the rail — but the copies stayed in the DOM. A short row on a wide viewport therefore
+   showed the whole sequence, seals and all, twice and perfectly still. The rail now measures the
+   real set on its own (with a `ResizeObserver`, so a rotation re-evaluates) and renders the copies
+   only when a loop is genuinely possible.
+
+**Row B and the taste rows now SELECT from the ranking, not merely order by it.** M131's change was
+too small: sorting each category bucket meant a category holding a ranked dish and one holding none
+contributed equally, so the row could be mostly unranked while claiming to prefer what tables
+order. Row B runs two phases over the same balance — phase 1 serves only top-50 dishes, phase 2
+fills the rest — and each turn goes to the LEAST-served category, so no category takes a second
+dish while another has none. Phase 2 is what keeps "a little of everything" true: with 17 eligible
+dishes today and row A taking ten, filtering to the top 50 would quietly collapse the row to three
+or four categories while the caption still promised coverage.
+
+**Every taste row is 4–7 cards.** Surprise was 3, cravings capped at 8. The MAX is a hard slice; the
+MIN is reached only in the honest direction — matches keep the craving line they earned, and
+top-up cards say "Something else to try", never a craving they didn't match. The surprise row is
+deliberately NOT topped up: its emptiness is information ("your favorites already cover everything
+that fits"), and padding it would replace an honest answer with a filler one.
+
+**The sticky toolbar moved below the taste band** so the start-here and taste content read first.
+It is `position: sticky`, so this changes only where it starts — it still pins under the header on
+scroll, and every section's `scrollMarginTop` is measured from its height rather than its position.
+
+Two defects found by the tests during the build, both in code written this session: phase 2
+restarted its own lap counter and bailed on the first pass (row B silently vanished under its
+3-card floor), and before that the ranked category was served twice before an untouched category
+appeared at all. A `TASTE_ROW_MAX` mutant also SURVIVED — the cap test asserted through the
+constant, which is a tautology; the bounds are pinned as literals now.
+
 ### The first screen, reorganized — the door, the headings and the card wall (M131, 2026-08-27)
 
 The owner: _"arrival-beat contents, start-here-h contents, taste-h contents, for both dine-in and

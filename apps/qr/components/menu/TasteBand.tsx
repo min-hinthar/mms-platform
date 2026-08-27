@@ -1,7 +1,14 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import type { MenuItem } from "./MenuBrowser";
-import { CRAVINGS, recommendByTaste, surpriseMe, type CravingId } from "@/lib/menu/taste";
+import {
+  CRAVINGS,
+  recommendByTaste,
+  surpriseMe,
+  topUpToFloor,
+  TASTE_ROW_MAX,
+  type CravingId,
+} from "@/lib/menu/taste";
 import { passesDiets, type Diet } from "@/lib/menu/dietary";
 import { BlurUpImage } from "./BlurUpImage";
 import { PhotoPlaceholder } from "./PhotoPlaceholder";
@@ -116,12 +123,33 @@ export function TasteBand({
   // diet toggled after the tap can empty the row, and an exhausted pool empties it AT the tap —
   // either way, silently showing craving matches would change what the rail MEANS. An empty
   // requested surprise falls through to the honest empty state instead.
+  // M133 (owner: every suggestion row "should offer at least 4 and at most 7 menu items"). The MAX
+  // is enforced in lib/menu/taste.ts, on both the craving slice and the surprise draw. The MIN is
+  // reached HERE, and only in the honest direction: the matches keep the craving line they earned,
+  // and the top-up cards say something plainly weaker. A dish that did not match "🌶 Bring the
+  // heat" must never wear that line, however short the row is — the whole band is built on every
+  // card saying the true reason it is there.
+  //
+  // The surprise row is deliberately NOT topped up. Its own emptiness is INFORMATION ("your
+  // favorites already cover everything that fits"), and the empty states below say which case it
+  // is; padding it would replace an honest answer with a filler one.
+  const cravingRow = useMemo(() => {
+    const matched: { item: MenuItem; why: string }[] = recs.map(({ item, matched: m }) => ({
+      item,
+      why: m.map((c) => `${c.emoji} ${c.en}`).join(" · "),
+    }));
+    if (matched.length === 0) return matched; // no picks, or nothing matched — an honest empty row
+    const extra = topUpToFloor(
+      matched.map((e) => e.item),
+      pool,
+      popularIds,
+    );
+    return [...matched, ...extra.map((item) => ({ item, why: "Something else to try" }))];
+  }, [recs, pool, popularIds]);
+
   const showing: { item: MenuItem; why: string }[] = surpriseAsked
     ? liveSurprise.map((item) => ({ item, why: "How about this?" }))
-    : recs.map(({ item, matched }) => ({
-        item,
-        why: matched.map((c) => `${c.emoji} ${c.en}`).join(" · "),
-      }));
+    : cravingRow;
 
   return (
     <section aria-labelledby="taste-h" style={{ padding: "10px 0 2px" }}>
@@ -146,7 +174,7 @@ export function TasteBand({
           aria-describedby="taste-surprise-hint"
           onClick={() => {
             setSurpriseAsked(true);
-            setSurprise(surpriseMe(pool, heartedIds, 3, popularIds));
+            setSurprise(surpriseMe(pool, heartedIds, TASTE_ROW_MAX, popularIds));
           }}
         >
           <span aria-hidden className="taste-emoji">

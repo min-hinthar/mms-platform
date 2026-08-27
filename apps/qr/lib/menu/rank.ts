@@ -16,3 +16,27 @@ export function competitionRanks<T>(
   }
   return ranks;
 }
+
+/**
+ * M133 (owner: "what is wrong with the numberings duplicates on the cards of Start here?").
+ *
+ * Competition ranking is CORRECT and stays: tied dishes must share a numeral, because the counts
+ * establish no order between them. What was wrong is showing that numeral. On the live menu today
+ * the top twelve rank 1, 2, 2, 4, 5, 5, 5, 8, 8, 8, 8, 8 — five cards wearing an identical "8" and
+ * three wearing "5". Every one of those seals is true and the band still reads as broken, because
+ * a numeral repeated five times has stopped functioning as a rank to the person looking at it.
+ *
+ * So a seal renders only where the rank is UNIQUE. A shared rank returns null and its card carries
+ * no seal at all — it is still in the row, still one of the most-loved dishes, it just makes no
+ * ordinal claim. Nothing here weakens an existing claim; it withholds the ones that were never
+ * legible. As real order history accumulates, ties break on their own and the seals come back.
+ *
+ * Deliberately NOT solved by breaking ties on a third key (price, name, menu order): that would
+ * manufacture an order the data does not contain, print it as a numeral, and be indistinguishable
+ * from a real ranking to everyone who reads it.
+ */
+export function soleRanks(ranks: readonly number[]): (number | null)[] {
+  const seen = new Map<number, number>();
+  for (const r of ranks) seen.set(r, (seen.get(r) ?? 0) + 1);
+  return ranks.map((r) => (seen.get(r) === 1 ? r : null));
+}

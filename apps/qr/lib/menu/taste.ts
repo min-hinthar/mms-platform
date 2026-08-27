@@ -104,6 +104,21 @@ export const CRAVINGS: readonly Craving[] = [
 ] as const;
 
 /**
+ * M133 (owner: "all explore your burmese taste buds suggestions (including surprise your taste
+ * buds) should offer at least 4 and at most 7 menu items"). ONE pair of bounds every row in the
+ * band reads, so the craving rail, the surprise draw and the top-up can never disagree about how
+ * long a row is — the "name it ONCE" rule applied to a count.
+ *
+ * The MAX is a hard slice. The MIN is a TARGET, not a promise the data can always keep: a craving
+ * with two matching dishes on the whole menu has two matching dishes, and inventing a third match
+ * is the exact fabrication this file exists to prevent. `TasteBand` reaches the floor the only
+ * honest way — by topping up with dishes that carry a DIFFERENT, weaker line ("Something else to
+ * try"), never a craving match they didn't earn.
+ */
+export const TASTE_ROW_MIN = 4;
+export const TASTE_ROW_MAX = 7;
+
+/**
  * A popularity ranking as a LOOKUP — most-ordered first, so position 0 is the most ordered dish.
  * Anything unranked sorts last rather than being excluded: a preference, never a filter.
  *
@@ -148,7 +163,7 @@ export function recommendByTaste<T extends TasteItem & { id: string }>(
         rank(a.item.id) - rank(b.item.id) ||
         Number(b.item.tags.includes("popular")) - Number(a.item.tags.includes("popular")),
     )
-    .slice(0, 8);
+    .slice(0, TASTE_ROW_MAX);
 }
 
 /**
@@ -199,4 +214,33 @@ export function surpriseMe<T extends { id: string }>(
 
   const picked = draw(tierA, count);
   return picked.length >= count ? picked : [...picked, ...draw(tierB, count - picked.length)];
+}
+
+/**
+ * M133 — the honest way to reach `TASTE_ROW_MIN`. Returns the dishes to ADD to a short row, drawn
+ * from the most-ordered ranking first and then menu order, skipping anything the row already holds.
+ *
+ * It returns the ADDITIONS rather than a merged row on purpose: the caller has to label these
+ * differently, because they are NOT what the row's own rule found. A craving row that matched two
+ * dishes matched two dishes — padding it to four with cards that wear the same "🌶 Bring the heat"
+ * line would put a matched-the-craving claim on dishes that didn't. They carry a plainly weaker
+ * line instead, which is also why this can prefer the wider `LOVED_POOL_MAX` ranking: preferring a
+ * dish tables order is a better guess, and the card never states it as a fact.
+ *
+ * Deterministic, unlike `surpriseMe` — a row that reshuffles its own tail on every render reads as
+ * a glitch, and there is no surprise being offered here.
+ */
+export function topUpToFloor<T extends { id: string }>(
+  row: readonly T[],
+  candidates: readonly T[],
+  popularIds: readonly string[] = [],
+  floor: number = TASTE_ROW_MIN,
+): T[] {
+  const need = floor - row.length;
+  if (need <= 0) return [];
+  const taken = new Set(row.map((i) => i.id));
+  const eligible = candidates.filter((i) => !taken.has(i.id));
+  const rank = rankLookup(popularIds);
+  // Stable sort: unranked dishes keep the server's menu order among themselves.
+  return [...eligible].sort((a, b) => rank(a.id) - rank(b.id)).slice(0, need);
 }
