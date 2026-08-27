@@ -69,14 +69,23 @@ h3 {
   overflow-wrap: normal;
 }
 .card {
-  background: var(--cd);
+  /* M126 · SATIN — a card is a surface CATCHING light, not a flat fill. The ramp runs from the lit
+     top face to the plane's own foot; --cd-foot is derived from the ladder in tokens.css, so it
+     cannot drift when the ladder moves. */
+  background-color: var(--cd);
+  background-image: linear-gradient(180deg, transparent 0%, var(--cd-foot) 100%);
   border: 1px solid var(--bd);
   border-radius: var(--r-card);
   /* W22a depth pass — every card reads as gently-lifted warm paper: the inset sheen lip (a crisp
      printed edge) over the two-tier diffuse shadow (--sh-paper: tight ambient + negative-spread
-     wide layer, never a hard square frame). Replaces the old single-tier --sh. */
+     wide layer, never a hard square frame). Replaces the old single-tier --sh.
+     M126 adds the second half of the bevel: --edge-lo is the plane's own SHADE on its bottom edge.
+     Night had no bottom or side inner shadow anywhere, so a card was a flat fill with a whisper of
+     a highlight — top-edge-to-bottom-edge across one card read exactly 1.0000. It now reads
+     1.6025. */
   box-shadow:
     inset 0 1px 0 var(--sheen),
+    inset 0 -1px 0 var(--edge-lo),
     var(--sh-paper);
 }
 :focus-visible {
@@ -172,7 +181,12 @@ h3 {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: var(--pg);
+  /* M126 — was var(--pg), and that was a live inversion: the sheet is the HIGHEST plane in the app
+     and it painted the LOWEST tone, so a bottom sheet rendered DARKER than the card it covers. On
+     --cd-raised, sheet-over-scrimmed-page goes 1.0927 -> 1.5031, and it costs no contrast headroom
+     because every text token is looser on --cd-raised than on --cd (tx 11.5028, t2 6.5023,
+     t3 5.2428 — all asserted in contrast-audit.test.ts). */
+  background: var(--cd-raised);
   /* The --sheen paper-lip highlight rides the HEAD now — the head's opaque background overpaints
      the sheet's own top edge at scroll-top, which killed the old inset line (pre-merge LOW-4). */
   box-shadow: inset 0 1px 0 var(--sheen);
@@ -780,7 +794,16 @@ h3 {
   }
 }
 .card-interactive:active {
+  /* M126 — a press pushes the card DOWN a rung rather than merely shrinking it: the bevel flips
+     (lit foot, shaded lip) and the shadow collapses to its tight tier, which is what a plane
+     resting closer to the page actually looks like. transform + box-shadow + background-color
+     only, so it stays cheap; the RM block below already covers the transform. */
   transform: scale(0.985);
+  background-color: var(--sf);
+  box-shadow:
+    inset 0 1px 0 var(--edge-lo),
+    inset 0 -1px 0 var(--sheen),
+    var(--sh);
 }
 @media (prefers-reduced-motion: reduce) {
   .card-interactive {
@@ -2140,8 +2163,16 @@ h3 {
 /* Promo input — a calm resting field that blooms an accent focus ring (matches the global focus-visible).
    The border lives HERE (not inline) so :focus-visible can recolor it — an inline border would outrank it. */
 .checkout-promo-input {
+  /* M126 · THE WELL. An input is a hole in the panel, so it sits a rung BELOW it — Night had no
+     recessed tone at all, and these fields were a card-coloured box with an inset shadow pretending
+     to be one. The bevel INVERTS in a recess: shade on the top edge (where a well catches its own
+     wall) and the lit lip on the bottom. */
+  background: var(--sunken);
   border: 1px solid var(--bd);
-  box-shadow: inset 0 1px 2px color-mix(in oklab, var(--scrim) 12%, transparent);
+  box-shadow:
+    inset 0 1px 2px color-mix(in oklab, var(--scrim) 12%, transparent),
+    inset 0 2px 0 -1px var(--edge-lo),
+    inset 0 -1px 0 var(--sheen);
   transition:
     border-color var(--dur-fast) var(--ease-out),
     box-shadow var(--dur-base) var(--ease-out);
@@ -3465,8 +3496,16 @@ h3 {
 /* Sign-in card fields — a calm inset field that blooms the accent border on focus (keeps the global
    :focus-visible ring; border lives here so focus can recolor it — an inline border would outrank it). */
 .account-field {
+  /* M126 · THE WELL. An input is a hole in the panel, so it sits a rung BELOW it — Night had no
+     recessed tone at all, and these fields were a card-coloured box with an inset shadow pretending
+     to be one. The bevel INVERTS in a recess: shade on the top edge (where a well catches its own
+     wall) and the lit lip on the bottom. */
+  background: var(--sunken);
   border: 1px solid var(--bd);
-  box-shadow: inset 0 1px 2px color-mix(in oklab, var(--scrim) 12%, transparent);
+  box-shadow:
+    inset 0 1px 2px color-mix(in oklab, var(--scrim) 12%, transparent),
+    inset 0 2px 0 -1px var(--edge-lo),
+    inset 0 -1px 0 var(--sheen);
   transition:
     border-color var(--dur-fast) var(--ease-out),
     box-shadow var(--dur-base) var(--ease-out);

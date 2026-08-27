@@ -138,6 +138,15 @@
   --sunken: #efece2;
   --cd-raised: #ffffff;
   --edge-lo: rgba(58, 35, 23, 0.08);
+  /* M126 · SATIN — the foot of each plane's ramp, DERIVED rather than authored. Declared in :root
+     only: `ThemeSync` toggles `.dark` on `documentElement`, which is the element `:root` matches,
+     so `var(--cd)` inside the mix resolves against the live theme and one declaration serves both.
+     That is the "name it ONCE" rule applied to a shade — a hand-authored foot per theme would drift
+     the moment the ladder moves, which it just did. 3.5% of the plane's own tone: enough to read as
+     a surface under raking light, too little to move any audited ratio (and the foot is the DARKER
+     end, so text on a card is unchanged or better). */
+  --cd-foot: color-mix(in oklab, var(--pg) 3.5%, transparent);
+  --sf-foot: color-mix(in oklab, var(--pg) 2.5%, transparent);
   --sh-glow: 0 6px 22px color-mix(in oklab, var(--ac) 18%, transparent); /* accent-tinted lift */
   /* Tight accent lift for a small chip/pill INSIDE an overflow:auto scroller (e.g. the active menu tab):
      --sh-glow's 22px blur is clipped by the scroller — this stays within ~9px so a little rail padding
