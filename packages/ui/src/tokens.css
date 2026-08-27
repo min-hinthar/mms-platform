@@ -278,7 +278,17 @@
   --okb: #1f2e26;
   --warn: #e0855f;
   --warnb: #33231d;
-  --grad: linear-gradient(135deg, #3a2a4d, #241c34);
+  /* M126 — RE-RAMPED, because the ladder broke this and nothing would have caught it. --grad paints
+     the app's brightest small ornaments (the /track notice medallion 64px, the home resume medallion
+     44px, and three siblings). Its light stop was Y 0.030913; raising --surface-elevated to #413053
+     put the CHROME at Y 0.038623, i.e. ABOVE the ornament — so the brightest thing in the composition
+     would have rendered dimmer than the panel behind it. The invariant is: --grad's light stop must
+     stay above --surface-elevated. It now does, 0.055764 > 0.038623.
+     No dither needed here, and that is measured rather than assumed: the new stops span 46 distinct
+     8-bit steps, which over a 44-132px ornament is 0.96-2.87px per band — far under the ~6px where
+     banding becomes visible. (An earlier plan called --grad "the largest banded area in the app";
+     that was true of the OLD stops and is not true of these.) */
+  --grad: linear-gradient(135deg, #513963, #241c35);
   --sh: 0 1px 3px rgba(0, 0, 0, 0.45);
   --sh-md: 0 8px 22px rgba(0, 0, 0, 0.5);
   --sh-xl: 0 26px 60px rgba(0, 0, 0, 0.65);
