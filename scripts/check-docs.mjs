@@ -114,10 +114,39 @@ const joinWrappedComments = (text) =>
     (_m, before, after) => "\n" + " ".repeat(before.length + 1 + after.length),
   );
 
+/**
+ * A count with its NUMBER MISSING passes every rule above, because every rule requires `(\d+)` to
+ * match at all. Found by Codex on #238: a `sed` whose capture came back empty turned README's gate
+ * line into `1049 qr tests +  ui tests`, and this check reported CLEAN — the phrase it exists to
+ * verify had simply stopped being a phrase it could see. That is the guard's own recurring lesson
+ * ("a narrow rule set must cover every phrasing the docs actually use") pointed at its own blind
+ * spot: a rule that only fires on a well-formed claim cannot notice a malformed one.
+ *
+ * So each rule carries a NUMBERLESS twin. It matches the same words with the digits absent, and it
+ * is deliberately strict about what "absent" means — `\+\s{2,}` and a bare label with no preceding
+ * digit — so an ordinary sentence about "ui tests" in prose does not trip it.
+ */
+const MISSING_RULES = [
+  // The label reached directly from a separator or a line start with only whitespace between —
+  // i.e. the digits that belong there are gone. In a well-formed `1049 qr tests + 125 ui tests`
+  // each label is preceded by its own number, so neither half matches.
+  { re: /(?:^|[+·|(])[ \t]*(qr|ui)[ \t]+tests/gim, label: (m) => `${m[1]} tests` },
+  { re: /(?:^|[+·|(])[ \t]*(verify:slice)[ \t]+mutants/gim, label: () => "a mutant count" },
+];
+
 export function countFailures(text, truth, name = "<doc>") {
   const out = [];
   const lines = text.split("\n");
   const scan = joinWrappedComments(text);
+  for (const rule of MISSING_RULES) {
+    for (const m of scan.matchAll(rule.re)) {
+      const lineNo = scan.slice(0, m.index).split("\n").length;
+      out.push(
+        `${name}:${lineNo} — states ${rule.label(m)} with NO NUMBER; a countless claim passes every` +
+          ` count rule, so it must fail here instead`,
+      );
+    }
+  }
   for (const rule of COUNT_RULES) {
     for (const m of scan.matchAll(rule.re)) {
       const stated = Number(m[1]);

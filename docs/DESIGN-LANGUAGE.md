@@ -19,15 +19,32 @@ daylight; dark = Night. Tokens only (`@mms/ui/tokens.css`) — a hardcoded color
 **Depth (W22a·depth, as-built):** every `.card` is gently-lifted warm paper — inset `--sheen` lip
 over the two-tier `--sh-paper` (tight ambient + negative-spread wide diffuse; a zero-spread wide
 layer reads as a hard square frame; hover deepens through `--sh-paper-hover`, never back to a
-flat shadow). Diner mains sit on the `PaperAmbient` — a gradient-masked hairline grid + gold
-bloom + grain, fixed at z:-1 with **no host isolation**: the page ground lives on `<html>` ONLY
-(the canvas paints below negative-z content), because an `isolation:isolate` host traps its own
-fixed overlays — tier-up scrims, toasts, confetti — beneath the app header (the #195 review
-lesson; never reintroduce a body background or an isolate host for this layer). Never full-bleed
-uniform; the fade means opaque sticky chrome never hard-cuts it. Pages carry LINES, cards carry
-DOTS (`.card-textured`) — the two textures never read identical. Surface tiers: `.surface-vellum`
-(the warm wash) marks moments of consideration (ConfirmSwap); glass frost is md:+ only, on the
-sticky chrome. Mobile stays opaque and blur-free — the GPU budget is a hard limit.
+flat shadow). Diner mains sit on the `PaperAmbient` — since **M126** a room rather than a layer:
+three sibling planes (`.pa-far` genuinely out of focus, `.pa-mid` in focus, `.pa-grain` on the
+lens), fixed at z:-1 with **no host isolation**: the page ground lives on `<html>` ONLY (the canvas
+paints below negative-z content), because an `isolation:isolate` host traps its own fixed overlays
+— tier-up scrims, toasts, confetti — beneath the app header (the #195 review lesson; never
+reintroduce a body background or an isolate host for this layer). The `isolation:isolate` **inside**
+`.paper-ambient` is a different thing and is required: it is the boundary the grain's blend needs.
+The page grid is a **groove, not a ridge** — a dark line darkens the pixel under light text, and
+that inversion is what took the worst Night ambient pixel from 4.4743 to 4.8443 (light 3.9670 →
+4.6428). The mask is a floored **vignette**, never a cut-out: W22a's faded in viewport coordinates
+on a fixed element, so the bottom third of every screen had no ambient at any scroll position.
+Pages carry LINES, cards carry DOTS (`.card-textured`) — the two textures never read identical.
+Surface tiers: `.surface-vellum` (the warm wash) marks moments of consideration (ConfirmSwap).
+
+**The mobile GPU budget is now a DIAL, not a breakpoint (M126, owner go 2026-08-27).** W22a
+forbade `blur()`/`backdrop-filter` below `md:` after a production iOS WebKit OOM; the owner lifted
+that for M126, so glass frost runs at every viewport in **Night** and the heavy layers instead read
+`--fx-glass-*` / `--fx-plane-blur` / `--fx-promote` from `tokens.css`. One attribute on `<html>` —
+`data-fx="lite"` or `"off"` — scales the whole thing back with no redesign and no layout change
+(`lite` drops the full-viewport defocus and un-promotes the mid plane, ~35 MB; `off` leaves no
+backdrop-filter and no plane blur anywhere, and the static composition survives whole).
+`prefers-reduced-transparency: reduce` takes the glass off at the dial's own specificity, so an
+explicit `data-fx` cannot override the OS preference. **Glass is chrome you look THROUGH and never
+a surface you READ**, it is **Night-only** (light has no luminance headroom — `--t3` on an opaque
+`--sf` pane is 4.7601 there against Night's 6.4907, and dark-on-light glass is DARKENED by most
+photography), it **never nests**, and a **selected element is never glass** (§2).
 
 ## 2 · The selection vocabulary — one language, every surface
 

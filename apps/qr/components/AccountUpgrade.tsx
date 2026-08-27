@@ -532,11 +532,12 @@ const label: CSSProperties = {
 };
 const input: CSSProperties = {
   // border lives in `.account-field` (so :focus-visible can recolor it — an inline border would outrank it)
+  // — and since M126 (Codex #238 P2) the BACKGROUND does too, for exactly the same reason: an inline
+  // fill outranks the class, which is what kept the --sunken well from ever reaching these fields.
   width: "100%",
   minHeight: 48,
   padding: "0 14px",
   borderRadius: 12,
-  background: "var(--sf)",
   color: "var(--tx)",
   fontSize: "var(--fs-body)", // ≥16px → no iOS zoom-on-focus
   marginBottom: 12,

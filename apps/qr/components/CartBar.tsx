@@ -1,9 +1,10 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { NumberFlow } from "@mms/ui";
 import { useJourneyRouter } from "./nav/TransitionNav";
 import { useCart } from "./TableCartProvider";
+import { useCtaDock } from "@/lib/hooks/useCtaDock";
 
 // W13 review MED — the spring belongs to the bar's FIRST appearance this visit, not every /menu
 // remount (the SurfaceMemory precedent: entrance effects don't replay on revisit). Module-scoped:
@@ -30,6 +31,11 @@ export function CartBar() {
     cartBarSprung = true;
   }, []);
   const href = cartId ? `/cart?cart=${encodeURIComponent(cartId)}` : null;
+  // M126 — the bar publishes its own dock height so the ambient's pause coin clears it. Shared with
+  // the grocery CTA band through `useCtaDock` (Codex #238 P1 found the grocery dock unwired, which
+  // is exactly where a hand-copied second copy would have drifted).
+  const barRef = useRef<HTMLButtonElement | null>(null);
+  useCtaDock(barRef, Boolean(cartId && href && count > 0));
   // Warm the /cart route (its RSC payload + code + the new loading skeleton) as soon as the bar can
   // appear, so a tap navigates without a cold server round-trip — the "opening the cart is slow" fix.
   useEffect(() => {
@@ -41,6 +47,7 @@ export function CartBar() {
 
   return (
     <button
+      ref={barRef}
       type="button"
       // W21 (Codex P1 on #191) — drain in-flight adds BEFORE navigating: the optimistic count
       // shows this bar while an add may still be in flight, and /cart's create-intent locks the

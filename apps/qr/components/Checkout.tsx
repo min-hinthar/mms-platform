@@ -1511,7 +1511,10 @@ export function Checkout({
                     flex: 1,
                     padding: "10px 12px",
                     borderRadius: "var(--r-sm)",
-                    background: "var(--cd)",
+                    // M126 (Codex #238 P2) — the fill lives in `.checkout-promo-input` so the
+                    // --sunken well can apply; an inline background outranks the class, which is
+                    // why the well was invisible at all three of these call sites. Same reason the
+                    // border already lives in the class (so :focus-visible can recolor it).
                     color: "var(--tx)",
                   }}
                 />
@@ -1606,7 +1609,10 @@ export function Checkout({
                     width: "100%",
                     padding: "10px 12px",
                     borderRadius: "var(--r-sm)",
-                    background: "var(--cd)",
+                    // M126 (Codex #238 P2) — the fill lives in `.checkout-promo-input` so the
+                    // --sunken well can apply; an inline background outranks the class, which is
+                    // why the well was invisible at all three of these call sites. Same reason the
+                    // border already lives in the class (so :focus-visible can recolor it).
                     color: "var(--tx)",
                   }}
                 />
@@ -1649,7 +1655,7 @@ export function Checkout({
                         width: "100%",
                         padding: "10px 12px",
                         borderRadius: "var(--r-sm)",
-                        background: "var(--cd)",
+                        // M126 (Codex #238 P2) — see the note above: the fill belongs to the class.
                         color: "var(--tx)",
                       }}
                     />

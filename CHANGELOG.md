@@ -4,6 +4,145 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Night, deepened — the room, the glass and the moments, behind one dial (2026-08-27)
+
+The owner asked twice. First _"Make Night more enriched, enhanced, layered, shades, effects"_, which
+landed as the six-rung ladder, the bevel, the well and the press. Then _"go for more ultra deepen,
+enhance, layered, shades, effects, with no GPU restrictions"_ — this entry.
+
+**The mobile GPU budget is lifted, and it is now a dial rather than a breakpoint.** That budget was
+written after a production iOS WebKit tab OOM-crashed on stacked `backdrop-filter` + large `blur()`,
+so nothing here is free and none of it pretends to be. Every expensive declaration in the app reads
+`--fx-glass-*` / `--fx-plane-blur` / `--fx-promote` from `tokens.css` instead of a raw filter, so
+`document.documentElement.dataset.fx = "lite" | "off"` scales the whole heavy layer back with no
+redesign, no colour change and no layout change. `lite` drops the two full-viewport FILTER
+surfaces — the defocus scrim's backdrop (~20.6 MB, 80% of the glass budget on its own, because a
+backdrop buffer scales with a pane's AREA and not with its blur radius) and the far plane's own
+`blur(64px)` — and un-promotes both ambient planes. `off` leaves no
+`backdrop-filter` and no plane blur anywhere, and the static composition survives whole. The dial
+re-points whole function lists rather than scaling radii to `0px`, because `blur(0px)` still
+allocates a buffer and `none` does not. `prefers-reduced-transparency: reduce` takes the glass off at
+the dial's own specificity, so an explicitly-set `data-fx` cannot override the OS preference.
+
+**The room.** The page ambient is three sibling planes: a far wall genuinely out of focus (ladder-rung
+blobs plus a defocused copy of the grid at 3× gauge — the same texture at two focal depths is what
+the eye reads as space), a lit middle distance in focus, and unmasked film grain on the lens. Two
+shipped defects die on the way. The mask sat on a `position: fixed` element, so it faded in VIEWPORT
+coordinates at every scroll position — solid to ~28%vh, zero from ~68%vh — meaning the bottom third
+of every screen has never had ambient. And the grain was a child inside that mask, so it died with
+it. **M128 closes as a side effect:** the page grid is a groove now, not a ridge. A light hairline on
+a dark ground lightens the pixel under light text; a dark groove darkens it, so the grid buys
+contrast instead of spending it. Worst ambient pixel, shipped → now: **Night 4.4743 → 4.8443, light
+3.9670 → 4.6428** — both shipped values are live AA failures, and the light one was failing harder
+than Night, which M128 never noticed because it only ever looked at Night.
+
+**The glass.** Sticky chrome is frosted at every viewport in Night and opaque in light, and that
+asymmetry is a measurement rather than a preference: light-on-dark glass can only be LIGHTENED and
+the brightest possible backdrop is white, which bounds the failure, while dark-on-light glass is
+DARKENED by most photography and dark text falls with it. It also retires a live defect — the md:+
+light frost this replaces put `.app-header-cart` (`--t2`, 13px) at **3.8320:1** over a dark backdrop
+and `.app-header-rewards` (`--ac`) at **3.2238:1**; opaque restores 5.5546 / 4.6729, and tuning the
+alpha cannot save it (even 0.94 lands `--t3` at 4.172). The scrim stops dimming the page and
+DEFOCUSES it, so a diner keeps the spatial memory of where they came from while nothing on it stays
+legible. `.mms-sheet` finally leaves `--pg`: against the new scrim it separated by 1.0385:1, and on
+`--cd` it reads 1.3216.
+
+**The moments.** Five one-shots on `filter: drop-shadow()`, which follows an object's real silhouette
+and interpolates where a box-shadow list cannot — so the lit gold cap IGNITES at the instant of
+choice instead of cross-fading a static halo. A lacquer rake crosses the sheet head once as it
+settles; the send beat drags accent light behind it; pay success blooms and the confetti gains a
+per-particle depth of field; the print head becomes a defocused line of light. None loop, none fire
+on scroll, none run unattended.
+
+**Three composited bounds are now guarded, red-first.** `contrast-audit.test.ts` reads a hex per
+surface, so it is structurally blind to a translucent pane, a stack of ambient layers, and a light
+band washing across text — all three of which this work introduced, and each of which is a
+"green for the wrong reason" shape where a wrong-but-plausible alpha passes every gate in the repo.
+`composite-contrast.test.ts` computes the composite and asserts the floor; five mutations were each
+watched go red and restored md5-identical. Writing it moved a shipped value: the guard does not round
+to 8 bits and so reads up to ~0.03 tighter than a hand calculation, which put light's
+`--pa-grain-op` at 0.05 on 4.5776 — passing, but with less margin than the two methods' own
+disagreement. It is 0.04 now (4.6428), and the token comments quote the guard rather than the hand
+calculation.
+
+**At most one full-viewport backdrop-filter, and that is now mechanical.** The first draft of the
+glass layer gave the defocus to `.mms-scrim`, `.tier-up` and `.merge-beat` together. Two of those
+can be alive at once — `MergeRedeemer` and `RewardsHub` → `TierUpCelebration` are both rendered by
+`/account`, and MergeRedeemer's own comment says it refreshes the hub so the merged Stars appear,
+which is exactly the path that awards a tier. A backdrop buffer scales with a pane's AREA and not
+with its blur radius, so two viewport-sized panes is ~41 MB on a phone — the shape that OOM-crashed
+an iOS WebKit tab in this product. The defocus belongs to `.mms-scrim` alone now; the celebrations
+keep the plain deep veil they already had, which is also the right call on its own terms, since the
+page behind a celebration card is not something the diner is holding on to.
+`apps/qr/lib/fullscreen-blur-contract.test.ts` fails if a second viewport-sized selector ever takes
+one, and also fails a filter that hard-codes its own value instead of reading the dial — because a
+rule that bypasses `--fx-*` silently opts out of the escape hatch. Three mutations, each watched go
+red. It checks the STYLESHEET and not the DOM, and says so: no two sheets in this app are openable
+at once today, but that is a fact about the components, not something the guard proves.
+
+**The blind adversarial pass returned REJECT, and it was right on the load-bearing ones.** Recorded
+here rather than only in the PR, because three of them were defects this entry had already claimed
+were fixes.
+
+- **Light's header moved off `--pg` onto `--sf`, putting `.app-header-rewards` (bare `--ac`) at
+  4.2843:1.** One `--glass-chrome` token served both themes, and Night tints its chrome with `--sf`
+  on purpose so it sits below cards. Light cannot follow it there: the main audit already carries
+  `plain ac on sf` as a NEGATIVE guard asserted under 4.5, whose whole job is to force call sites
+  onto `--ac-strong`. So the header was painted on a surface this repo had already ruled out for
+  the text it carries — and the "opaque restores 5.5546 / 4.6729" figures in the code comment were
+  measured against `--pg`, the surface the code no longer painted. `--glass-chrome-opaque` is now
+  the one name for "the opaque chrome of this theme" (light `--pg`, Night `--sf`) and every
+  filter-off path reads it, so a fallback cannot drift from the pane it replaces.
+- **The light ambient failed AA in both motion states — and the new guard reported it passing.**
+  `lightWorst()` excluded the far-plane blobs and the warm pool "because both lighten, which helps
+  dark text". That is false: every light ambient source is darker than light `--pg` (`--sf` Y
+  0.86380, `--warnb` 0.83472, `--gold` 0.45487, `--jade` 0.12344, `--ruby` 0.12598 against
+  0.94668). The model therefore omitted exactly the layers that darken, reported 4.6056, and the
+  real worst pixel was **4.4738 with motion and 4.3585 under reduced motion**. Light's
+  `--pa-far-op` and all four `--pa-blob-*` were asserted by nothing whatsoever. The model now
+  stacks what actually darkens and computes BOTH motion states, and light's weights were refitted
+  against it (`--pa-far-op` 0.34 → 0.24, `--pa-mid-op` 0.55 → 0.42 with Night pinned at 0.55,
+  `--pa-grain-op` 0.04 → 0.03, groove 28% → 16%, still-groove 42% → 24%): worst case now 4.6744.
+  Worth stating plainly — reverting any ONE of those five leaves the suite green; only the original
+  combination breaches, which is what a multi-factor bound looks like and why the red-first
+  mutation had to restore all five at once.
+- **`--pa-groove-still` deepens the grid under reduced motion, and its comment called that "the
+  safer composition".** True in Night, where a darker groove darkens the ground under LIGHT text.
+  Light is dark-on-light, so the same move spends contrast instead of buying it, and reduced motion
+  is the tighter of light's two states, not the looser one.
+- **The pause control's name inverted against its own `aria-pressed`.** Once paused it announced
+  "Play the background motion, pressed" — a pressed "Play" states that motion is playing. On the
+  one control WCAG 2.2.2 requires to be comprehensible. It carries a changing name and no
+  `aria-pressed` now.
+- **`lite` did not drop the largest filter surface it claimed to.** It re-pointed only the scrim's
+  backdrop, leaving the far plane's `blur(64px)` — over an overscanned box, the biggest filtered
+  surface in the app — running, while the docs said "~35 MB". It drops `--fx-plane-blur` too now,
+  and the prose names both planes rather than "the mid plane" (one token un-promotes both).
+- **The dial had no writer anywhere in the repo.** An escape hatch that justifies lifting a budget
+  written after a production OOM, reachable only from a devtools console, is a claim and not a
+  mechanism. `FxDial` writes it: `localStorage["mms.fx"]` as a per-device manual override, else
+  `lite` on a low tier (the gate `TierUpCelebration` and `PaySuccess` already use), else absent —
+  full strength, which is the instruction. Its docblock says the part that is easy to leave out:
+  core count is a poor proxy for a per-tab memory ceiling, a recent iPhone reports 6–8 cores with a
+  tight WebKit budget, and the manual lever is therefore the real one.
+- Smaller, all verified in the built CSS: a `(0,3,0)` hover rule reinstated `--sh-lift` underneath
+  an active bloom on the tip chip (the pill had its counterpart, the chip did not); the six new
+  `filter:` effects had no `forced-colors` escape, which the UA does not force away; two comments
+  pointed at `ambient-contrast.test.ts`, a file that does not exist; a comment described the
+  `--pa-grain-op` value the same PR had already changed; the header carried a "NO backdrop-filter —
+  mobile GPU budget" note three thousand lines above the rule that frosts it; and the bevel's
+  1.4089 / 1.6025 did not reproduce (1.3971 / 1.6758 — a design figure, unguarded, now said to be).
+
+**Not shipped, and said out loud rather than quietly dropped.** The dish-card photo bleed is deferred
+(M129): it needs `--card-photo` wired at three call sites, and a raw `url()` in CSS bypasses
+`next/image`, so every rail card would fetch a second unoptimized copy of its photo to paint a hover
+tint. The scroll-driven specular sweep on the chrome is rejected outright: whether repainting a
+backdrop-filtered element forces its backdrop to be re-blurred could not be measured in this
+environment, and it would ride the app's hottest surface. The design also called for `overflow:
+hidden` on the sheet head; that would clip `.mms-sheet-close`'s focus ring (`top: 6px` against a
+4.5px ring leaves ~1.5px of margin), so the rake is painted as a background layer instead — which
+also means it cannot tint the title.
+
 ### Night stays Night — the aubergine re-hue is reverted (2026-08-27)
 
 The owner looked at the shipped aubergine ground and rejected it: _"I actually prefer the Night than

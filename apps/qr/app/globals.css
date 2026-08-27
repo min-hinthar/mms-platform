@@ -69,14 +69,23 @@ h3 {
   overflow-wrap: normal;
 }
 .card {
-  background: var(--cd);
+  /* M126 · SATIN — a card is a surface CATCHING light, not a flat fill. The ramp runs from the lit
+     top face to the plane's own foot; --cd-foot is derived from the ladder in tokens.css, so it
+     cannot drift when the ladder moves. */
+  background-color: var(--cd);
+  background-image: linear-gradient(180deg, transparent 0%, var(--cd-foot) 100%);
   border: 1px solid var(--bd);
   border-radius: var(--r-card);
   /* W22a depth pass — every card reads as gently-lifted warm paper: the inset sheen lip (a crisp
      printed edge) over the two-tier diffuse shadow (--sh-paper: tight ambient + negative-spread
-     wide layer, never a hard square frame). Replaces the old single-tier --sh. */
+     wide layer, never a hard square frame). Replaces the old single-tier --sh.
+     M126 adds the second half of the bevel: --edge-lo is the plane's own SHADE on its bottom edge.
+     Night had no bottom or side inner shadow anywhere, so a card was a flat fill with a whisper of
+     a highlight — top-edge-to-bottom-edge across one card read exactly 1.0000. It now reads
+     1.6758 (recomputed; the 1.6025 first shipped here did not reproduce). */
   box-shadow:
     inset 0 1px 0 var(--sheen),
+    inset 0 -1px 0 var(--edge-lo),
     var(--sh-paper);
 }
 :focus-visible {
@@ -127,7 +136,14 @@ h3 {
   max-height: 90vh;
   max-height: calc(var(--sheet-max-h) - var(--kb-inset, 0px));
   overflow-y: auto;
-  background: var(--pg);
+  /* M126 — was var(--pg), the app's LOWEST tone on its HIGHEST plane. Against the defocus scrim the
+     sheet separated by only 1.0385:1; on --cd it reads 1.3216, and the head one rung above it
+     (--cd-raised) then reads as pinned chrome over its own body rather than a seam. Deliberately
+     --cd and not --cd-raised: `.item-opt` fills with --sf, so a --cd sheet leaves the option row
+     recessed by exactly one rung (1.1039) while a --cd-raised sheet would recess it by two and
+     invert the whole in-sheet ladder. Every text token on --cd is long-asserted in
+     contrast-audit.test.ts. */
+  background: var(--cd);
   border-radius: var(--r-sheet) var(--r-sheet) 0 0;
   /* W9e — the sheet was the ONE overlay with no width bound in an app whose every page column caps
      at 440 (J13): on tablet/desktop it stretched edge to edge over a 440px page. Centered with AUTO
@@ -172,7 +188,12 @@ h3 {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: var(--pg);
+  /* M126 — was var(--pg), and that was a live inversion: the sheet is the HIGHEST plane in the app
+     and it painted the LOWEST tone, so a bottom sheet rendered DARKER than the card it covers. On
+     --cd-raised, sheet-over-scrimmed-page goes 1.0927 -> 1.5031, and it costs no contrast headroom
+     because every text token is looser on --cd-raised than on --cd (tx 11.5028, t2 6.5023,
+     t3 5.2428 — all asserted in contrast-audit.test.ts). */
+  background: var(--cd-raised);
   /* The --sheen paper-lip highlight rides the HEAD now — the head's opaque background overpaints
      the sheet's own top edge at scroll-top, which killed the old inset line (pre-merge LOW-4). */
   box-shadow: inset 0 1px 0 var(--sheen);
@@ -463,69 +484,275 @@ h3 {
 }
 
 /* ── W22a · Depth & ceremony (docs/W22_DESIGN_PROPOSAL.md, owner go 2026-08-16) ──────────────────
-   The warm-paper pass: the R1 kit finally CONSUMED. A masked paper ambient behind the diner mains,
-   md:+ frost on the sticky chrome, and the two ceremonies (thermal-print receipt on pay success,
-   the send-to-kitchen paper beat). All decorative layers: aria-hidden + pointer-events-none at the
-   call site; no blur()/backdrop-filter below md (mobile GPU budget); every animation RM-escorted
-   in the block at the end of this section. */
+   The warm-paper pass: the R1 kit finally CONSUMED. A paper ambient behind the diner mains, frost
+   on the sticky chrome, and the two ceremonies (thermal-print receipt on pay success, the
+   send-to-kitchen paper beat). All decorative layers: aria-hidden + pointer-events-none at the
+   call site; every animation RM-escorted in the block at the end of this section.
+   ⚠️ M126 SUPERSEDES THIS SECTION'S GPU RULE. W22a forbade blur()/backdrop-filter below md: — the
+   mobile budget written after a production iOS WebKit OOM. The owner lifted that budget for M126
+   (2026-08-27) and the heavy layers now sit behind the --fx-* dial in tokens.css instead, so the
+   limit is a DIAL SETTING rather than a breakpoint. Cards keep the DOTS via .card-textured, so the
+   page's grid and a card's texture still never read identical. */
+/* ══ M126 · THE ROOM — the page atmosphere, rebuilt as three planes ═══════════════════════════
+   Night stops being a flat backdrop and becomes a room: a far wall genuinely out of focus, a lit
+   middle distance in focus, and film on the lens. What changed, and why each change is a repair:
 
-/* The page ambient — a hairline line grid (cards keep the DOTS via .card-textured, so the two
-   textures never read identical) under a soft gold bloom, grain over both, the whole layer
-   gradient-masked to fade before mid-page (a uniform full-bleed grid reads as cheap wallpaper,
-   and the fade means the opaque sticky chrome never hard-cuts a visible texture). Fixed at z:-1
-   with NO host isolation (Codex P2 on #195): the page ground lives on <html> only, so the canvas
-   paints below this layer while every fixed overlay (tier-up, toast, confetti) keeps its place
-   in the root stacking context. Static by design: no motion, nothing to pause. */
+   (a) THE MASK WAS BROKEN. The old `radial-gradient(130% 92% at 50% 0%, #000 30%, transparent 74%)`
+       sat on a `position: fixed` element, so it faded in VIEWPORT coordinates at every scroll
+       position: alpha 1.000 down to ~28%vh and 0.000 from ~68%vh. The bottom third of every screen
+       has never had ambient. The vignette below is FLOORED — it attenuates, it never cuts out.
+   (b) THE GRAIN DIED WITH THE MASK. It was `.paper-ambient::after`, i.e. a child inside the masked
+       group, so it faded out with the grid. It is a sibling plane now, full-bleed and unmasked.
+   (c) THE GROUND MOVED ONTO THIS LAYER. `overlay` needs a real backdrop inside the group; blending
+       against transparent is skipped and would paint raw grey haze. So this div paints --pg itself.
+       <html>'s --pg (above) STAYS — that is the overscroll canvas and the pre-hydration ground.
+       This is NOT the body background #195 banned: that one COVERED negative-z layers; this one IS
+       the negative-z layer. The host still must not isolate; this isolate is the ambient's own, and
+       `z-index:-1` on a positioned element already established the same stacking context.
+   (d) THE GRID IS A GROOVE, NOT A RIDGE, and that is a contrast decision before a taste one. A
+       light hairline on a dark ground LIGHTENS the pixel under light text; a dark groove darkens
+       it. The shipped ambient's worst pixel measures --t3 4.4743 in Night and 3.9670 in light —
+       both live AA failures, which is open task M128. This composition measures 4.8443 and 4.6428
+       through `composite-contrast.test.ts`, which computes the stack without rounding to 8 bits.
+       Every --pa-* alpha was fitted by search against that floor and is guarded, red-first, by
+       `packages/ui/src/__tests__/composite-contrast.test.ts`. Re-run it if you touch one. ── */
 .paper-ambient {
   position: fixed;
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  opacity: 0.55;
+  background: var(--pg);
+  isolation: isolate;
+  overflow: hidden;
+}
+/* The far wall. Four soft blobs built from the LADDER'S OWN RUNGS (no gold — at page scale gold
+   reads as selection) plus a DEFOCUSED COPY OF THE GRID at 3× gauge. The same texture at two focal
+   depths is what the eye reads as space; one blurred gradient reads as a gradient.
+   `--fx-plane-blur: none` degrades gracefully — the blobs are soft-stopped radial gradients, so the
+   blur enhances an already-soft field rather than being the thing that makes it work. */
+.pa-far {
+  position: absolute;
+  inset: var(--pa-overscan);
+  opacity: var(--pa-far-op);
+  filter: var(--fx-plane-blur);
   background-image:
-    radial-gradient(
-      120% 60% at 50% -10%,
-      color-mix(in oklab, var(--gold) 10%, transparent),
-      transparent 62%
-    ),
-    linear-gradient(to right, var(--tex-line) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--tex-line) 1px, transparent 1px);
+    radial-gradient(38% 30% at 22% 18%, var(--pa-blob-1), transparent 70%),
+    radial-gradient(44% 34% at 78% 40%, var(--pa-blob-2), transparent 72%),
+    radial-gradient(30% 26% at 62% 82%, var(--pa-blob-3), transparent 68%),
+    radial-gradient(26% 22% at 12% 74%, var(--pa-blob-4), transparent 66%),
+    linear-gradient(to right, var(--pa-groove) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--pa-groove) 1px, transparent 1px);
   background-size:
     100% 100%,
-    44px 44px,
-    44px 44px;
-  -webkit-mask-image: radial-gradient(130% 92% at 50% 0%, #000 30%, transparent 74%);
-  mask-image: radial-gradient(130% 92% at 50% 0%, #000 30%, transparent 74%);
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    var(--pa-grid-far) var(--pa-grid-far),
+    var(--pa-grid-far) var(--pa-grid-far);
+  /* Parallax rides `translate`, the drift rides `transform`. Separate properties applied in order,
+     so they compose instead of overwriting each other — no wrapper element, and each keeps its own
+     reduced-motion off-switch. */
+  translate: calc(var(--pa-px, 0) * var(--pa-parallax-far))
+    calc(var(--pa-py, 0) * var(--pa-parallax-far));
+  transition: translate 600ms var(--ease-out);
+  will-change: var(--fx-promote);
 }
-.paper-ambient::after {
-  content: "";
+/* AUTO-motion only where there is no pointer to drive the parallax — i.e. phones, which is where
+   most diners are. Desktop gets the pointer sway and never auto-animates, so the pause control
+   never renders there (a stop button for still content is noise). */
+@media (pointer: coarse) {
+  .pa-far {
+    animation: paFarDrift var(--pa-drift-far) var(--ease-in-out) infinite alternate;
+  }
+}
+@keyframes paFarDrift {
+  from {
+    transform: translate3d(-1.2%, 0.9%, 0) scale(1.04);
+  }
+  to {
+    transform: translate3d(1.5%, -0.7%, 0) scale(1.09);
+  }
+}
+/* The middle distance: the warm pool (halved from the shipped 10%) and the debossed grid — the only
+   plane in focus. The mask is a floored VIGNETTE: still graded, so it never reads as wallpaper, but
+   it bottoms out around 18-55% instead of reaching zero two-thirds up the screen. */
+.pa-mid {
   position: absolute;
   inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
-  background-size: 140px 140px;
-  /* Plain-value fallback FIRST (Codex P2 on #195): if a UA rejects the calc at computed-value
-     time, opacity would revert to its initial 1 — a full-viewport high-contrast noise layer.
-     The calc then refines it where supported (dark lifts --tex-grain-opacity slightly). */
-  opacity: 0.14;
-  opacity: calc(var(--tex-grain-opacity, 0.4) * 0.35);
+  opacity: var(--pa-mid-op);
+  background-image:
+    radial-gradient(120% 62% at 50% -8%, var(--pa-pool), transparent 62%),
+    linear-gradient(to right, var(--pa-groove) 0 1px, var(--pa-lip) 1px 2px, transparent 2px),
+    linear-gradient(to bottom, var(--pa-groove) 0 1px, var(--pa-lip) 1px 2px, transparent 2px);
+  background-size:
+    100% 100%,
+    var(--pa-grid) var(--pa-grid),
+    var(--pa-grid) var(--pa-grid);
+  -webkit-mask-image: radial-gradient(
+    148% 118% at 50% 8%,
+    #000 0 42%,
+    rgba(0, 0, 0, 0.55) 76%,
+    rgba(0, 0, 0, 0.18) 100%
+  );
+  mask-image: radial-gradient(
+    148% 118% at 50% 8%,
+    #000 0 42%,
+    rgba(0, 0, 0, 0.55) 76%,
+    rgba(0, 0, 0, 0.18) 100%
+  );
+  /* Nearer plane, larger displacement — correct parallax ordering (13px vs the far plane's 6px). */
+  translate: calc(var(--pa-px, 0) * var(--pa-parallax-mid))
+    calc(var(--pa-py, 0) * var(--pa-parallax-mid));
+  transition: translate 520ms var(--ease-out);
+  will-change: var(--fx-promote);
 }
-/* A receipt prints on white paper — the ambient (a fixed layer, which print engines repeat on
-   every page) must never reach the printer. */
+@media (pointer: coarse) {
+  .pa-mid {
+    animation: paMidDrift var(--pa-drift-mid) var(--ease-in-out) infinite alternate;
+  }
+}
+/* Sub-grid amplitude on purpose: the grid must never visibly crawl past the content, only breathe.
+   11px is a quarter of the 44px gauge, so no lattice ever lands where the last one was. */
+@keyframes paMidDrift {
+  from {
+    transform: translate3d(-11px, 6px, 0);
+  }
+  to {
+    transform: translate3d(11px, -6px, 0);
+  }
+}
+/* Film on the lens. Three changes from the `::after` it replaces: it is outside the mask, it is
+   MONOCHROME (the shipped tile is a raw feTurbulence rect — RGBA noise, i.e. coloured confetti;
+   feColorMatrix collapses it to luminance and forces alpha to 1, feComponentTransfer clamps it to
+   [0.34, 0.66] around mid-grey, which is the envelope the contrast numbers were computed from —
+   and `color-interpolation-filters='sRGB'` is REQUIRED, since the SVG default is linearRGB and
+   would silently move every one of them), and it BLENDS. `overlay` in Night: mid-grey is identity,
+   so the grain deviates symmetrically around what is underneath instead of hazing it toward grey,
+   and because overlay compresses into darks its lift scales with what the far plane already lit —
+   which is exactly where the ladder's 8-bit banding lives. Light keeps `normal`, where the
+   lightening direction is capped by white and the darkening direction helps dark text.
+   Never animated: film grain sits on the lens, not in the room, and a still near plane is what
+   sells the other two as moving. */
+.pa-grain {
+  position: absolute;
+  inset: 0;
+  opacity: var(--pa-grain-op);
+  mix-blend-mode: var(--pa-grain-blend);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='.33 .33 .33 0 0 .33 .33 .33 0 0 .33 .33 .33 0 0 0 0 0 0 1'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='.32' intercept='.34'/%3E%3CfeFuncG type='linear' slope='.32' intercept='.34'/%3E%3CfeFuncB type='linear' slope='.32' intercept='.34'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+}
+html[data-ambient="paused"] .pa-far,
+html[data-ambient="paused"] .pa-mid {
+  animation-play-state: paused;
+}
+/* `off` stills the room (Codex #238 P2). The dial's own comment promises "a still room", and the
+   coarse-pointer drift rule above is unconditional, so without this it kept running and `off` was
+   telling the truth about blur and a lie about motion. It also genuinely costs: a running transform
+   animation self-promotes its layer whatever `will-change` says, so a drifting plane keeps a
+   full-viewport backing store alive that `off` exists to give back.
+   The pause coin goes with it — a stop control for content that is not moving is noise, which is
+   the same rule that keeps it off desktop. `display: none` (not `visibility`) so it leaves the
+   accessibility tree and the tab order too, and it tracks the attribute live rather than depending
+   on a React read of `dataset` that nothing would re-run. */
+html[data-fx="off"] .pa-far,
+html[data-fx="off"] .pa-mid {
+  animation: none;
+}
+html[data-fx="off"] .pa-far {
+  transform: var(--pa-still);
+}
+html[data-fx="off"] .pa-pause {
+  display: none;
+}
+/* WCAG 2.2.2 for the coarse-pointer drift, and a VISIBLE one — hover luck is not a stop mechanism.
+   A SIBLING of .paper-ambient, never a child: a child of a z:-1 layer paints behind every pixel of
+   content and cannot be clicked. It reuses `.start-here-pause`'s vellum-coin vocabulary rather than
+   inventing a second one, and it is the only element in the whole system that takes a pointer
+   event. AmbientMotion renders it only when the drift can actually run. */
+.pa-pause {
+  position: fixed;
+  left: max(12px, env(safe-area-inset-left, 0px));
+  bottom: calc(env(safe-area-inset-bottom, 0px) + var(--cta-dock-h, 0px) + 12px);
+  z-index: var(--z-toolbar);
+  display: grid;
+  place-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--t2);
+  cursor: pointer;
+}
+.pa-pause > span {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-full);
+  border: 1px solid color-mix(in oklab, var(--gold) 30%, var(--bd));
+  background: var(--cd);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh);
+  font-size: 9px;
+  line-height: 1;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+@media (hover: hover) {
+  .pa-pause:hover {
+    color: var(--tx);
+  }
+  .pa-pause:hover > span {
+    transform: scale(1.1);
+  }
+}
+.pa-pause:active > span {
+  transform: scale(0.94);
+}
+/* The reduced-motion composition is not this one minus movement: it trades motion for CUT. The grid
+   is incised deeper (--pa-groove-still) and the far plane is pinned to the most asymmetric moment
+   of its cycle rather than to a neutral origin — a room photographed at its best angle. Deepening
+   is also the SAFE direction (it darkens, so it buys contrast), which is why it was chosen over the
+   obvious alternative of stepping the grain up. The JS half is in AmbientMotion: under RM no
+   listener is attached and no control is rendered, so --pa-px/--pa-py are never written. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --pa-groove: var(--pa-groove-still);
+  }
+  .pa-far,
+  .pa-mid {
+    animation: none;
+    translate: none;
+    transition: none;
+    will-change: auto;
+  }
+  .pa-far {
+    transform: var(--pa-still);
+  }
+  .pa-mid {
+    transform: none;
+  }
+  .pa-pause > span {
+    transition: none;
+  }
+}
+/* A receipt prints on white paper — a fixed layer repeats on every printed page. */
 @media print {
-  .paper-ambient {
+  .paper-ambient,
+  .pa-pause {
     display: none;
   }
 }
-
-/* Sticky chrome frost — desktop only (the mobile GPU budget forbids backdrop-filter below md:).
-   With the ambient now scrolling underneath, the header/toolbar read as frosted glass shelves
-   instead of hard --pg slabs. Mobile keeps today's exact opaque paint. */
-@media (min-width: 768px) {
-  .app-header,
-  .menu-toolbar {
-    background: color-mix(in oklab, var(--pg) 84%, transparent);
-    -webkit-backdrop-filter: blur(12px) saturate(1.12);
-    backdrop-filter: blur(12px) saturate(1.12);
+/* Windows High Contrast: the OS owns the palette, and it forces background-COLOR without forcing
+   background-IMAGE — so every gradient, groove and grain tile in here would survive and paint over
+   a ground the user explicitly asked the system to control. The whole room is decorative; the right
+   answer is to get out of the way, not to tint it differently. The pause control goes with it,
+   because there is then nothing left moving for it to stop. */
+@media (forced-colors: active) {
+  .paper-ambient,
+  .pa-pause {
+    display: none;
   }
 }
 
@@ -780,7 +1007,16 @@ h3 {
   }
 }
 .card-interactive:active {
+  /* M126 — a press pushes the card DOWN a rung rather than merely shrinking it: the bevel flips
+     (lit foot, shaded lip) and the shadow collapses to its tight tier, which is what a plane
+     resting closer to the page actually looks like. transform + box-shadow + background-color
+     only, so it stays cheap; the RM block below already covers the transform. */
   transform: scale(0.985);
+  background-color: var(--sf);
+  box-shadow:
+    inset 0 1px 0 var(--edge-lo),
+    inset 0 -1px 0 var(--sheen),
+    var(--sh);
 }
 @media (prefers-reduced-motion: reduce) {
   .card-interactive {
@@ -1753,7 +1989,9 @@ h3 {
 @keyframes mmsConfettiFall {
   0% {
     transform: translate3d(0, -12vh, 0) rotate(0deg);
-    opacity: 1;
+    /* M126 — opacity now rides the particle's depth (--cf-z). The default of 1 reproduces the
+       pre-M126 behaviour exactly, so an unwired caller loses the depth and nothing else. */
+    opacity: calc(0.5 + var(--cf-z, 1) * 0.5);
   }
   100% {
     transform: translate3d(var(--cf-drift, 0), 112vh, 0) rotate(var(--cf-rot, 360deg));
@@ -2140,8 +2378,16 @@ h3 {
 /* Promo input — a calm resting field that blooms an accent focus ring (matches the global focus-visible).
    The border lives HERE (not inline) so :focus-visible can recolor it — an inline border would outrank it. */
 .checkout-promo-input {
+  /* M126 · THE WELL. An input is a hole in the panel, so it sits a rung BELOW it — Night had no
+     recessed tone at all, and these fields were a card-coloured box with an inset shadow pretending
+     to be one. The bevel INVERTS in a recess: shade on the top edge (where a well catches its own
+     wall) and the lit lip on the bottom. */
+  background: var(--sunken);
   border: 1px solid var(--bd);
-  box-shadow: inset 0 1px 2px color-mix(in oklab, var(--scrim) 12%, transparent);
+  box-shadow:
+    inset 0 1px 2px color-mix(in oklab, var(--scrim) 12%, transparent),
+    inset 0 2px 0 -1px var(--edge-lo),
+    inset 0 -1px 0 var(--sheen);
   transition:
     border-color var(--dur-fast) var(--ease-out),
     box-shadow var(--dur-base) var(--ease-out);
@@ -3465,8 +3711,16 @@ h3 {
 /* Sign-in card fields — a calm inset field that blooms the accent border on focus (keeps the global
    :focus-visible ring; border lives here so focus can recolor it — an inline border would outrank it). */
 .account-field {
+  /* M126 · THE WELL. An input is a hole in the panel, so it sits a rung BELOW it — Night had no
+     recessed tone at all, and these fields were a card-coloured box with an inset shadow pretending
+     to be one. The bevel INVERTS in a recess: shade on the top edge (where a well catches its own
+     wall) and the lit lip on the bottom. */
+  background: var(--sunken);
   border: 1px solid var(--bd);
-  box-shadow: inset 0 1px 2px color-mix(in oklab, var(--scrim) 12%, transparent);
+  box-shadow:
+    inset 0 1px 2px color-mix(in oklab, var(--scrim) 12%, transparent),
+    inset 0 2px 0 -1px var(--edge-lo),
+    inset 0 -1px 0 var(--sheen);
   transition:
     border-color var(--dur-fast) var(--ease-out),
     box-shadow var(--dur-base) var(--ease-out);
@@ -3771,7 +4025,8 @@ h3 {
 
 /* ── Persistent app-header + homepage order-resume (M-nav wayfinding) ──────────────────────────────────
    The diner's wayfinding spine: a slim sticky top bar (brand · contextual order pill · rewards · off-menu
-   cart) and a homepage "resume your order" card. Opaque surface (NO backdrop-filter — mobile GPU budget),
+   cart) and a homepage "resume your order" card. (M126: the header IS frosted now in Night — see THE GLASS
+   at the end of this file; the md:-only rule this line described is retired and the limit is the --fx dial.)
    sits at --z-toolbar so sheets/scrims/toasts still paint above it, tokens only, ≥44px targets, light + Night,
    reduced-motion off-switch at the end. */
 .app-header {
@@ -6993,7 +7248,7 @@ html[data-seen-surface] .mms-stagger {
 }
 /* The READY column's heading. --gold is CORRECT here and must stay: every `.orb-root` wrapper is
    Night-forced (`<div className="orb-root dark">`, ReadyBoard.tsx:164/187/208) and `.orb-col-ready`
-   renders nowhere else, so this resolves to the dark `--gold` #f4c879 on the dark `--pg` — 11.69:1,
+   renders nowhere else, so this resolves to the dark `--gold` #f4c879 on the dark `--pg` — 12.29:1,
    asserted in contrast-audit.test.ts. An earlier pass in this PR "fixed" it to --gold-strong on the
    strength of a 1.97:1 measurement taken against the LIGHT ground this heading never renders on;
    the edit was a byte-identical no-op (--gold-strong aliases --gold in .dark) and the defect did not
@@ -7621,5 +7876,428 @@ html[data-seen-surface] .mms-stagger {
   .sound-switch,
   .sound-knob {
     transition: none;
+  }
+}
+
+/* ══ M126 · THE GLASS ═════════════════════════════════════════════════════════════════════════
+   Replaces W22a's md:+-only frost. Three rules decide membership, and each is a measurement:
+
+   1. GLASS IS CHROME YOU LOOK THROUGH; IT IS NEVER A SURFACE YOU READ. Cards, sheets, the header
+      disclosure panel, the toast and the cart bar stay opaque — see the opaque register below.
+   2. NEVER NEST GLASS IN GLASS. A backdrop-filter element's child samples the parent's ALREADY
+      filtered output: double the buffer, near-zero visual delta. `.menu-search` keeps its opaque
+      --sf fill inside the frosted toolbar.
+   3. A SELECTED ELEMENT NEVER GETS GLASS. The lit gold cap needs --oa ink on an OPAQUE fill; a
+      translucent cap leaks backdrop through the ink and reads as disabled. Selection is the one
+      vocabulary glass may not touch (docs/DESIGN-LANGUAGE.md §2).
+
+   AND THE SHEET HEAD IS NOT GLASS EITHER, which is where this design and its own first draft part
+   company. Frosting it needs a tint, and both candidates fail: --cd-raised at 0.90 over a white
+   backdrop puts --t3 at 3.8679 and --t2 at 4.7972, while tinting it with --sf instead would put the
+   app's HIGHEST plane back on rung 3 — reopening the exact inversion the head was just moved off.
+   It stays opaque and gets the lacquer rake instead.
+
+   THE LIGHT THEME LOSES ITS DESKTOP FROST, AND THAT IS A FIX, NOT A REGRESSION. The block this
+   replaces frosted the LIGHT header at md:+ with `--pg 84%`: .app-header-cart (--t2, 13px)
+   measured 3.8320:1 over a dark backdrop and 4.1859 over a merely mid-dark photo, and
+   .app-header-rewards (--ac) 3.2238 / 3.5215. Opaque restores 5.5546 / 4.6729. If light glass is
+   ever wanted back, the ONLY safe route is removing small text from the pane — not tuning the
+   alpha, because even 0.94 lands --t3 at 4.172. ── */
+
+/* The pane. Opaque paint in BOTH themes — the frost is added only under .dark below, so light never
+   allocates a backdrop buffer at all (a `blur(0px)` would still allocate one; `none` does not). */
+.app-header,
+.menu-toolbar {
+  background-color: var(--glass-chrome);
+  /* The frost EDGE, all on ONE element: a lit top lip plus the light-piping band inside the lower
+     cut edge. Painted as a BACKGROUND-IMAGE, never a ::after — a positioned pseudo would paint
+     above the pane's own inline text, and giving `.app-header > *` a z-index would make
+     .app-header-actions a containing block and break .app-header-panel's left/right offsets
+     (AppHeader.tsx documents that it must stay `position: static`). A background layer paints
+     under all content, so there is no stacking game to lose. */
+  background-image: linear-gradient(to top, var(--frost-pipe), transparent 22px);
+  background-repeat: no-repeat;
+  border-bottom: 1px solid var(--frost-rim);
+  box-shadow:
+    inset 0 1px 0 var(--frost-edge),
+    inset 0 -1px 0 var(--edge-lo),
+    var(--sh);
+}
+/* The frost itself — NIGHT ONLY, at every viewport. `saturate()` preserves luma and clamps at 255,
+   so no backdrop can composite brighter than white: that is what makes the 0.90 alpha floor a
+   rigorous bound rather than a hopeful one. NEVER add `brightness()` above 1 to a text-bearing
+   pane — it breaks the bound. The saturation boost is the actual glass tell: the eye reads
+   chromatic variation, not the mean, so a gold chip or a curry photo passing underneath is what
+   makes 10% of backdrop read as glass at all. */
+.dark .app-header,
+.dark .menu-toolbar {
+  -webkit-backdrop-filter: var(--fx-glass-mid);
+  backdrop-filter: var(--fx-glass-mid);
+}
+/* Without backdrop-filter a 0.90 pane is just a translucent slab: content shows through UNBLURRED
+   and the AA bound above no longer holds. Opaque is the correct fallback, not a degraded one. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .dark .app-header,
+  .dark .menu-toolbar {
+    background-color: var(--sf);
+  }
+}
+
+/* ── THE DEFOCUS SCRIM ────────────────────────────────────────────────────────────────────────
+   The scrim was a flat veil: it dimmed the page and threw away its structure, so an open sheet read
+   as a slab on a void. Defocused instead, the diner keeps the spatial memory of the page they came
+   from while nothing on it stays legible. The veil drops 0.62 → 0.44, so the backdrop passes at
+   0.56× instead of 0.38× — 47% brighter — and that is safe because blur(28px) is a Gaussian with
+   σ 28px: a 16px glyph's ~2px stem spreads over ~56px, below noise. Once defocused, the alpha's
+   only remaining job is separation.
+   Deliberately NOT `brightness()` in the filter: a black veil and brightness() are mathematically
+   identical (both multiply), and a paint is cheaper than an extra filter op on a 14.4 MB buffer.
+   saturate(0.85) is aerial perspective — the page is far away now, and distance drains chroma.
+   ⚠️ THIS IS THE ENTIRE GLASS BUDGET, AND IT BELONGS TO `.mms-scrim` ALONE. A full-viewport backdrop
+   buffer scales with the pane's AREA, not the blur radius, so lowering the radius would save
+   nothing and this one layer is ~80% of the total.
+
+   `.tier-up` and `.merge-beat` are the same shape — fixed, inset:0 — and they are DELIBERATELY not
+   here. They can co-mount: `MergeRedeemer` and `RewardsHub`→`TierUpCelebration` are BOTH rendered
+   by apps/qr/app/account/page.tsx (lines 48 and 138), and MergeRedeemer's own comment says it
+   refreshes the hub so the merged Stars appear — which is exactly the path that awards a tier. Two
+   of these alive at once is ~41 MB of backing store on a phone, squarely the pattern that
+   OOM-crashed an iOS WebKit tab in production. A celebration card is also the wrong place to spend
+   it: the page behind it is not something the diner is trying to keep hold of, which is the entire
+   argument FOR defocusing a sheet's scrim. They keep the plain deep veil they already had.
+   Pinned by `apps/qr/lib/fullscreen-blur-contract.test.ts`, which fails if a second full-viewport
+   selector ever takes a backdrop-filter.
+
+   Same reason `.mms-sheet` gets no filter of its own: a second large blur stacked directly on this
+   already-blurred output is the same stack. Never set `will-change: backdrop-filter` on any of
+   these — it keeps the buffer resident after close. */
+.mms-scrim {
+  background: var(--scrim-glass);
+  -webkit-backdrop-filter: var(--fx-glass-far);
+  backdrop-filter: var(--fx-glass-far);
+}
+/* No backdrop-filter can be assumed to exist — and here the fallback matters more than usual,
+   because without it the LOWERED veil would leave the page crisp and readable behind an open
+   sheet, which is worse than what shipped. Fall back to the original dim. The same rule covers the
+   `off` dial: it re-points --fx-glass-far to `none`, so the veil must come back with it. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .mms-scrim {
+    background: var(--scrim);
+  }
+}
+html[data-fx="off"] .mms-scrim,
+html[data-fx="lite"] .mms-scrim {
+  background: var(--scrim);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .mms-scrim {
+    background: var(--scrim);
+  }
+}
+/* The entrance animates OPACITY only, never the blur radius: animating `blur(0→28px)` re-derives
+   the downsample pyramid every frame on the largest buffer in the app, while element opacity
+   composites the filtered result at a FIXED radius, which the compositor can cache. */
+.tier-up,
+.merge-beat {
+  animation: fade 0.24s var(--ease-out);
+}
+
+/* Windows High Contrast: the OS owns the palette, and a backdrop-filter there produces an
+   unreadable smear the user cannot override. Print: a frosted shelf must never reach paper. */
+/* `.mms-sheet-head` is in this list because the lacquer rake is a background-IMAGE, and
+   forced-colors forces background-COLOR only — without it the band survives and paints a light
+   wash over a ground the user asked the system to control. */
+@media (forced-colors: active) {
+  .app-header,
+  .menu-toolbar,
+  .mms-scrim,
+  .mms-sheet-head {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background-image: none;
+    box-shadow: none;
+  }
+}
+@media print {
+  .app-header,
+  .menu-toolbar {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background-image: none;
+    box-shadow: none;
+  }
+}
+
+/* ── THE OPAQUE REGISTER — what glass may NOT touch, written as code ───────────────────────────
+   These are not omissions. Each is a surface where the backdrop moves contrast in the direction the
+   palette has no headroom for, or a surface whose whole job is to be read.
+
+   ── .app-header-panel — a dl of --t3/--t2 rows, i.e. a reading surface; it is the second-largest
+      candidate buffer in the app; and it hangs DIRECTLY beneath the frosted header, so frosting it
+      would nest one blur under another. Opaque --cd, unchanged.
+   ── .mms-toast — an INVERTED pill (`background: var(--tx)`, `color: var(--pg)`). An inverted
+      surface has zero headroom in the direction a backdrop moves it: a translucent cream pill over
+      dark content greys out and the dark ink collapses with it. The clearest case of rule 1.
+   ── .cartbar — a solid --ac primary CTA. Gold is the colour of action AND of selection; a
+      translucent CTA reads as disabled, and --oa ink on a leaky gold fill is the same failure as a
+      glass selection cap.
+   ── .menu-search — lives INSIDE the frosted toolbar. Nested glass doubles the buffer for a delta
+      the eye cannot resolve, because the child samples the parent's already-filtered output.
+   ── `.surface-glass` / `.surface-paper` (above) have zero call sites in apps/ or packages/. Do NOT
+      revive them into a second glass vocabulary. Note what the TOKEN measures: --surface-glass is
+      --cd at 0.9, which puts --t3 at 4.3328 over a white backdrop — a FAIL. It is safe for
+      text-free overlays only, which is why the chrome got its own --glass-chrome (--sf at 0.90).
+
+   Belt and brace on selection, so a future `.something-on` inherits the ban rather than having to
+   re-derive it: */
+.menu-tab-active,
+.checkout-pill-on,
+.checkout-tip-on,
+.slot-time-on,
+.slot-day-on,
+.taste-chip-on,
+[aria-selected="true"],
+[aria-pressed="true"] {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* The scrim's own fade is already killed above; these two were never covered — and the FROST is
+     deliberately not removed with it. A defocused page is a static property of the rendering, not
+     motion, so under RM the overlay simply appears already-defocused, which is the better of the
+     two designs anyway (the transition was never carrying information). */
+  .tier-up,
+  .merge-beat {
+    animation: none;
+  }
+}
+
+/* ══ M126 · THE MOMENTS — six one-shots, none of them ambient ══════════════════════════════════
+   Every effect here is tied to a user action or a confirmed state arrival. Not one loops, not one
+   fires on scroll, not one runs unattended. The new primitive is `filter: drop-shadow()`, which
+   replaces the box-shadow halo the app has been faking glow with: it follows the object's real
+   silhouette instead of its border box and, unlike a box-shadow LIST, it interpolates — so a cap
+   can IGNITE at the instant it is chosen rather than cross-fade a static shadow.
+   ⚠️ Wherever a bloom lands, `--sh-lift` comes OUT of the same element's box-shadow. drop-shadow
+   blurs the element's rendered alpha INCLUDING its outer box-shadows, so leaving it renders a
+   shadow of a shadow and muddies the bloom. If a future edit restores it "for safety", the bloom
+   degrades and nothing fails. ── */
+
+/* ── 1 · The lacquer rake — the sheet coming to rest ──────────────────────────────────────────
+   A band of light crosses the head once as the sheet settles, then never again. Painted as a
+   BACKGROUND LAYER on the head itself, not as a ::after — three reasons, and the third is the one
+   that matters: a background paints under content so it can never tint the title; it needs no
+   `overflow: hidden`, which on this element would clip `.mms-sheet-close`'s focus ring (top: 6px
+   against a 4.5px ring leaves ~1.5px of margin — a WCAG 2.4.7 failure one nudge away, with no test
+   behind it); and animating `background-position` keeps the travel inside the element's own box.
+   Night rakes with LIGHT, light rakes with SHADOW: a white highlight on --cd #fffdf8 is invisible.
+   0.04 in Night is a bound, not a taste — over --cd-raised it puts --t3 at 4.6367, and 0.05 puts
+   it at 4.5003, on the line. */
+.mms-sheet-head {
+  background-image: linear-gradient(100deg, transparent 40%, var(--rake-peak) 50%, transparent 60%);
+  background-repeat: no-repeat;
+  background-size: 260% 100%;
+  background-position: -80% 0;
+  animation: mmsRake var(--rake-dur) var(--ease-out) var(--dur-sheet) both;
+}
+@keyframes mmsRake {
+  from {
+    background-position: -80% 0;
+  }
+  to {
+    background-position: 180% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Not "the rake minus movement": a still band of light resting across the head, which is what
+     the moving one is on its way to being. The composition survives, the travel does not. */
+  .mms-sheet-head {
+    animation: none;
+    background-image: linear-gradient(
+      100deg,
+      transparent 0%,
+      var(--rake-peak) 32%,
+      transparent 72%
+    );
+    background-size: 100% 100%;
+    background-position: 0 0;
+  }
+}
+
+/* ── 2 · Cap ignition — the lit gold cap gets real bloom ───────────────────────────────────────
+   The one selection vocabulary in the app (DESIGN-LANGUAGE §2) stops wearing a static halo and
+   starts LIGHTING UP at the moment of choice. All three --bloom-gold-* lists carry the same
+   function count, which is what lets `filter` interpolate instead of discretely swapping. */
+.checkout-pill-on,
+.checkout-tip-on,
+.taste-chip-on {
+  filter: var(--bloom-gold);
+  animation: mmsIgnite 420ms var(--ease-out);
+}
+.checkout-pill-on,
+.checkout-tip-on {
+  box-shadow: inset 0 1px 0 var(--sheen);
+}
+.taste-chip-on {
+  box-shadow: inset 0 1px 0 var(--sheen);
+  animation:
+    taste-chip-pop 260ms var(--ease-out),
+    mmsIgnite 420ms var(--ease-out);
+}
+.checkout-pill-on:not(:disabled):hover,
+/* The tip chip needs the SAME (0,3,0) form, not the bare class: a selected chip carries both
+   `.checkout-tip` and `.checkout-tip-on`, and `.checkout-tip:not(:disabled):hover` (0,3,0) outranks
+   `.checkout-tip-on` (0,1,0) — so on hover it restored `var(--sh-lift)` underneath an active
+   drop-shadow bloom, which is the shadow-of-a-shadow this section's own warning forbids. */
+.checkout-tip-on:not(:disabled):hover {
+  box-shadow: inset 0 1px 0 var(--sheen);
+  filter: var(--bloom-gold-lit);
+  transition: filter var(--dur-base) var(--ease-out);
+}
+/* The rank seal sits 12px inside its card, so it takes the SHORT recipe — the full 14px halo would
+   run past the card edge. Same precedent as --sh-lift vs --sh-glow. Static: a seal is a statement
+   about the row, not a thing the diner just did. */
+.start-here-rank-top {
+  box-shadow: inset 0 1px 0 var(--sheen);
+  filter: var(--bloom-gold-seal);
+}
+@keyframes mmsIgnite {
+  0% {
+    filter: var(--bloom-gold-off);
+  }
+  36% {
+    filter: var(--bloom-gold-lit);
+  }
+  100% {
+    filter: var(--bloom-gold);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .checkout-pill-on,
+  .checkout-tip-on,
+  .taste-chip-on {
+    animation: none;
+    filter: var(--bloom-gold);
+  }
+  .checkout-pill-on:not(:disabled):hover,
+  /* The tip chip's hover rule is the same (0,3,0) form and installs the same filter transition, so
+     it needs the same off-switch — naming only the pill left a reduced-motion diner watching the
+     glow animate on the one surface where every other transition is already off. */
+  .checkout-tip-on:not(:disabled):hover {
+    transition: none;
+  }
+}
+
+/* ── 3 · The order leaves the table — the send beat gains a trail ──────────────────────────────
+   The departing glyph already rises and fades; now it drags accent light behind it and lets go. */
+.mms-send-beat {
+  animation:
+    mmsSendBeat 760ms var(--ease-out) both,
+    mmsSendTrail 760ms var(--ease-out) both;
+}
+@keyframes mmsSendTrail {
+  0% {
+    filter: drop-shadow(0 0 14px color-mix(in oklab, var(--ac) 62%, transparent));
+  }
+  100% {
+    filter: drop-shadow(0 0 2px transparent);
+  }
+}
+
+/* ── 4 · Pay success — the check blooms, the confetti gains depth ──────────────────────────────
+   The one moment allowed a non-gold bloom: --ok is the colour the ring already wears, so it spends
+   nothing from the gold economy. The confetti gets a z per particle — nearer pieces are crisp and
+   fully opaque, farther ones are softly out of focus and dimmer. Real depth on a field that was
+   flat, at the cost of a sub-kilobyte filter buffer per 6-14px span. */
+.pay-success-check {
+  filter: var(--bloom-ok);
+  animation: mmsCheckBloom 760ms var(--ease-out) 120ms both;
+}
+@keyframes mmsCheckBloom {
+  0% {
+    filter: var(--bloom-ok-off);
+  }
+  44% {
+    filter: var(--bloom-ok-lit);
+  }
+  100% {
+    filter: var(--bloom-ok);
+  }
+}
+.mms-confetti-pc {
+  filter: blur(calc((1 - var(--cf-z, 1)) * 2.6px));
+}
+@media (prefers-reduced-motion: reduce) {
+  .pay-success-check {
+    animation: none;
+    filter: var(--bloom-ok);
+  }
+}
+
+/* ── 5 · The print head becomes real light ─────────────────────────────────────────────────────
+   A print head is a DEFOCUSED line of light, not a hard gradient bar: it casts warmth on the paper
+   ahead of the frontier and burns brightest at the line itself. Sibling of the clipped slip (a
+   child would be clipped away), riding the same duration and ease as the reveal.
+   ⚠️ --print-head is NOT --sheen, and that is the measurement that earned the token: at --sheen's
+   0.11 the core strip drops --t3 on --cd to 4.2088 — an AA failure on a receipt, invisible to the
+   contrast audit. 0.08 measures 4.6028. A bevel value and a light-band value are different
+   budgets; do not collapse them. */
+.receipt-printhead::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  right: -6px;
+  bottom: 11px;
+  height: 150px;
+  pointer-events: none;
+  background: linear-gradient(to top, var(--print-head) 0%, var(--print-cast) 10%, transparent 92%);
+  filter: blur(6px);
+}
+
+/* Windows High Contrast: the UA forces COLORS, not `filter` — so every bloom above would keep
+   painting its author-chosen gold and jade halo over a palette the user asked the OS to control,
+   and the print head would keep its blurred band. `filter: none` is the whole fix; the underlying
+   surfaces already respond to forced-colors on their own. Grouped here rather than beside each rule
+   so the next bloom added to this section has one obvious place to be listed. */
+@media (forced-colors: active) {
+  .checkout-pill-on,
+  .checkout-tip-on,
+  .taste-chip-on,
+  .start-here-rank-top,
+  .mms-send-beat,
+  .pay-success-check,
+  .mms-confetti-pc,
+  .receipt-printhead::before {
+    filter: none;
+  }
+  /* ⚠️ `filter: none` above CANNOT suppress a filter that a keyframe is currently animating: an
+     animated value sits in a higher cascade origin than a normal author declaration, so while
+     mmsIgnite / mmsSendTrail / mmsCheckBloom run they keep painting their author-chosen gold and
+     jade regardless. Killing the animation is what actually wins (Codex #238 round 2 P2). The
+     static composition is the correct forced-colors rendering anyway — these are one-shots, so
+     there is nothing to lose but the travel. */
+  .checkout-pill-on,
+  .checkout-tip-on,
+  .taste-chip-on,
+  .mms-send-beat,
+  .pay-success-check {
+    animation: none;
+  }
+}
+
+/* ── 6 · The dish card takes the press ─────────────────────────────────────────────────────────
+   A tap pushes the card down a rung instead of scaling it — the press cue Night has never had, in
+   the ladder's own vocabulary (the bevel inverts: lit lip to the bottom, shade to the top). */
+.start-here-card:active {
+  transform: scale(0.985);
+  background: var(--sunken);
+  box-shadow:
+    inset 0 1px 0 var(--edge-lo),
+    inset 0 -1px 0 var(--sheen),
+    var(--sh);
+}
+@media (prefers-reduced-motion: reduce) {
+  .start-here-card:active {
+    transform: none;
   }
 }

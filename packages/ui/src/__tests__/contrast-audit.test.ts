@@ -265,6 +265,19 @@ function combos(map: Record<string, string>, theme: "light" | "dark") {
     // floats over cards and photos, muted text on it is the obvious next use, and asserting it now
     // costs nothing. But it guards a FUTURE call site, not a current one.
     { name: "t3 on surface-elevated", fg: tok(map, "--t3"), bg: tok(map, "--surface-elevated") },
+    // M126 — THE LADDER'S OWN COVERAGE. The ladder gained two rungs (`--sunken`, `--cd-raised`) and
+    // this array is a hand-written literal, so a new surface token ships with ZERO coverage until it
+    // is named here. `--surface-elevated` also rose far enough that `t3` on it is now the tightest
+    // solid pair in the dark set at 4.5965 — it was 4.9757 — which is why the ladder had to lift
+    // `--t3` with it. Each of these was watched RED (by reverting the token it asserts) before being
+    // committed green; a combo nobody has seen fail is decoration.
+    { name: "tx on cd-raised", fg: tok(map, "--tx"), bg: tok(map, "--cd-raised") },
+    { name: "t2 on cd-raised", fg: tok(map, "--t2"), bg: tok(map, "--cd-raised") },
+    { name: "t3 on cd-raised", fg: tok(map, "--t3"), bg: tok(map, "--cd-raised") },
+    { name: "tx on sunken", fg: tok(map, "--tx"), bg: tok(map, "--sunken") },
+    { name: "t2 on sunken", fg: tok(map, "--t2"), bg: tok(map, "--sunken") },
+    { name: "t3 on sunken", fg: tok(map, "--t3"), bg: tok(map, "--sunken") },
+    { name: "t2 on surface-elevated", fg: tok(map, "--t2"), bg: tok(map, "--surface-elevated") },
     // W22d-1 (adversarial review, HIGH ×2) — the two ACCENT PILLS. Both shipped `color: var(--ac)`
     // on an accent tint over `--sf` and both failed AA in light (3.53 and 3.70), which is precisely
     // what the `plain ac on sf` negative guard below already declared impossible — the guard was
@@ -308,7 +321,7 @@ function combos(map: Record<string, string>, theme: "light" | "dark") {
     //
     // Every `.orb-root` wrapper is Night-forced (`<div className="orb-root dark">`,
     // `ReadyBoard.tsx:164/187/208`) and `.orb-col-ready` renders nowhere else, so this heading's
-    // `color: var(--gold)` always resolves through `.dark` — #f4c879 on #171221, 11.69:1. Asserting
+    // `color: var(--gold)` always resolves through `.dark` — #f4c879 on #100c19, 12.29:1. Asserting
     // it in LIGHT would be asserting a pairing the app never renders, and it would fail: light
     // `--gold` on light `--pg` is 1.97.
     //
@@ -355,6 +368,12 @@ function combos(map: Record<string, string>, theme: "light" | "dark") {
       ? [
           { name: "plain ac on accent tint", fg: ac, bg: accentTintCd },
           { name: "plain ac on sf", fg: ac, bg: sf },
+          // M126 — `--sunken` is the new recessed tone, and in LIGHT it is the deepest surface the
+          // theme holds (one 8-bit step lower fails `--t3` at 4.383). Plain `--ac` on it reads
+          // 4.1649, i.e. illegible — a form field's label or helper text is exactly where somebody
+          // reaches for the vivid accent. `--ac-strong` clears at 5.3524 and is what a call site
+          // must use. Same shape as the two accent pills W22d-1 caught shipping at 3.53 and 3.70.
+          { name: "plain ac on sunken", fg: ac, bg: tok(map, "--sunken") },
           { name: "plain gold on gold tint", fg: tok(map, "--gold"), bg: goldTint },
           // W22d — `--ac2` is the gradient's SECOND stop, never a text colour. In light it scores
           // 3.25 on --pg, so a future call site reaching for it as text would look plausible and

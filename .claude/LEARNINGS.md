@@ -740,3 +740,85 @@ non-null assertion — which is exactly the guarantee the union was supposed to 
 `locked_at` a few statements after `acquireCartLock` wrote it. Same "name it ONCE" rule as a money
 value, and the same failure mode: the gap between the write and the read is precisely where a
 competing acquisition lands, so the row can answer with somebody else's era.
+
+## #59 M126 · Night, deepened — eight ways a visual change hides a defect nobody can see
+
+Two independent reviewers (the blind in-session pass, and two Codex rounds) plus my own sweep found
+fourteen real defects in one CSS-and-tokens milestone. Every one of them is invisible to `tsc`, to
+`verify:slice`, and to the contrast audit — which is the point. These are the durable ones.
+
+**A guard model that EXCLUDES a layer on a reasoned-but-unverified premise is worse than no guard,
+because it reports passing.** The new composite guard's light-theme model skipped the far-plane
+blobs and the warm pool "because both lighten, which helps dark text". Every one of those sources is
+DARKER than light `--pg`: `--sf` Y 0.86380, `--warnb` 0.83472, `--gold` 0.45487, `--jade` 0.12344,
+`--ruby` 0.12598 against 0.94668. So the model omitted precisely what darkens, reported 4.6056, and
+the real worst pixel was 4.4738 with motion and 4.3585 under reduced motion — two live AA failures,
+with light's `--pa-far-op` and all four `--pa-blob-*` asserted by nothing in either direction. The
+rule: when a model DROPS an input, that exclusion is a claim and needs the same measurement as an
+included one. Write down the direction each layer moves the number, and check it.
+
+**A multi-factor bound needs a multi-factor mutation.** Reverting any ONE of the five refitted light
+values leaves the suite green; only the original combination breaches. Five surviving single-token
+mutants look exactly like a degenerate fixture and are not one here — so the red-first mutation
+restores all five at once, and the fact is stated rather than glossed, because the next reader will
+otherwise try one at a time and conclude the guard is fake.
+
+**An inline `style` fill outranks a class, so a token change aimed at a class can reach nothing.**
+`--sunken` — "the recessed tone Night has never had" — never rendered on a single input: all three
+`.checkout-promo-input` sites set `background: "var(--cd)"` inline and `.account-field` rides a
+shared inline style. The class already carried a comment explaining that the BORDER lives there so
+`:focus-visible` can recolor it; the background needed the same reasoning and nobody applied it.
+**After changing a class-level paint, grep the call sites for an inline `background`/`color`.**
+
+**An escape hatch with no writer is a claim, not a mechanism.** The `--fx-*` dial is the entire
+justification for lifting a GPU budget that exists because of a production iOS OOM — and nothing in
+the repo set `data-fx`. It was reachable only from a devtools console. If a mitigation is load-
+bearing in an argument, ship the thing that operates it, and say plainly what it does NOT do (core
+count is a poor proxy for a per-tab memory ceiling — a recent iPhone reports 6–8 cores with a tight
+WebKit budget, so tier `high` is not evidence the maximal composition is safe).
+
+**`blur(0px)` still allocates a backdrop buffer; `none` allocates nothing.** So a dial must re-point
+a whole function list, never scale a radius toward zero. Corollary that cost a round: taking the
+FILTER off a translucent pane is not the same as making it opaque — `data-fx="off"` and
+`prefers-reduced-transparency` both left the chrome at 90% with crisp content behind it, and the
+`@supports not (backdrop-filter)` fallback cannot rescue that, because the browser supports
+backdrop-filter fine; the DIAL turned it off. A user who asks the OS for less transparency getting
+more of it than the default user is an inverted accommodation.
+
+**One token serving both themes will eventually paint a surface one theme has already ruled out.**
+`--glass-chrome` tinted Night's chrome with `--sf` (rung 3, so chrome sits below cards) and dragged
+light's header off `--pg` onto the same rung — putting bare `--ac` at 4.2843:1, the exact pair the
+audit carries as a NEGATIVE guard (`plain ac on sf`, asserted UNDER 4.5) to force call sites onto
+`--ac-strong`. The measurement in my own comment ("opaque restores 5.5546 / 4.6729") had been taken
+against `--pg`, the surface the code no longer painted. Fix shape: name the per-theme concept
+(`--glass-chrome-opaque`) and let every fallback read it, so it cannot drift from the pane it
+replaces.
+
+**`aria-pressed` plus a changing accessible name inverts the announcement.** The ambient's pause
+control read "Play the background motion, **pressed**" once paused — a pressed "Play" states that
+motion is playing, on the one control WCAG 2.2.2 requires to be comprehensible. Pick one mechanism:
+a stable name plus the state attribute, or a name that changes with the action. Play/pause is the
+canonical case for the latter.
+
+**Two overlays that feel mutually exclusive may share a page — check the render sites, not your
+intuition.** `.tier-up` and `.merge-beat` are both `position: fixed; inset: 0`, and both are
+rendered by `app/account/page.tsx` (`MergeRedeemer` at :48, `RewardsHub` → `TierUpCelebration` at
+:138) — with MergeRedeemer's own comment saying it refreshes the hub so merged Stars appear, i.e.
+the path that awards a tier. Two full-viewport backdrop-filters is ~29 MB of backing store (one is
+14.4 MB at 430×932 DPR3: 430*932*9\*4). `fullscreen-blur-contract.test.ts` caps it at one.
+
+**`forced-colors: active` forces background-COLOR — not background-IMAGE, and not `filter`.** Every
+gradient, groove, grain tile and `drop-shadow()` bloom this milestone adds would have survived and
+painted over a palette the user asked the OS to control. Decorative layers should DISAPPEAR there,
+not be re-tinted.
+
+**A composite guard that does not round to 8 bits reads ~0.03 TIGHTER than hand arithmetic on hex.**
+Neither is wrong (the framebuffer rounds; the guard doesn't), but they disagree, so name which one
+is authoritative and make every comment quote that one. Writing the guard moved a shipped value:
+light's grain passed at 4.5776 by hand and was inside the methods' own disagreement.
+
+**Finally, three of the fourteen were comments that outlived their code** — a header carrying "NO
+backdrop-filter — mobile GPU budget" three thousand lines above the rule that frosts it, two
+pointers to `ambient-contrast.test.ts` (a file that does not exist), and a bevel figure that did not
+reproduce. A milestone that spends a commit fixing that class will introduce more of it than it
+thinks; grep your own diff for the claims it makes.

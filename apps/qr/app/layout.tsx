@@ -6,6 +6,7 @@ import { Fraunces, Hanken_Grotesk, Padauk } from "next/font/google";
 import { ViewTransitions } from "next-view-transitions";
 import { AnonAuthGate } from "@/components/AnonAuthGate";
 import { ThemeSync } from "@/components/ThemeSync";
+import { FxDial } from "@/components/FxDial";
 import { SoundPrimer } from "@/components/SoundPrimer";
 import { MotionProvider } from "@/components/MotionProvider";
 import { ActiveOrderProvider } from "@/components/ActiveOrderProvider";
@@ -63,12 +64,12 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 // Next 16 split themeColor/viewport out of metadata into its own export. These MUST match the real page
-// background `--pg` (tokens.css: #faf9f5 light / #171221 Night) — the old #fffaf2/#0f1115 left a visible
+// background `--pg` (tokens.css: #faf9f5 light / #100c19 Night) — the old #fffaf2/#0f1115 left a visible
 // address-bar/status-bar seam over the Night purple (audit U-Q5).
 export const viewport: Viewport = {
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#faf9f5" },
-    { media: "(prefers-color-scheme: dark)", color: "#171221" },
+    { media: "(prefers-color-scheme: dark)", color: "#100c19" },
   ],
   width: "device-width",
   initialScale: 1,
@@ -120,6 +121,20 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             }}
           />
           <ThemeSync />
+          {/* M126 — the GPU dial, and it MUST be blocking for the same reason the theme above is,
+              only more so (Codex #238 round 2 P1). Applied from a React effect it lands after the
+              first composite has already allocated the full-strength buffers — on precisely the
+              devices the escape hatch exists for, which is where that first composite is the thing
+              that OOM-crashed a WebKit tab. Same shape as the theme script: `try/catch`, no
+              dependencies, one attribute. `FxDial` below still runs — it is the React-side owner of
+              the value and it re-applies on a tier change; this only wins the first paint. */}
+          <script
+            nonce={nonce}
+            dangerouslySetInnerHTML={{
+              __html: `try{var f=localStorage.getItem("mms.fx");if(f!=="full"&&f!=="lite"&&f!=="off")f=(navigator.hardwareConcurrency||0)<4?"lite":null;if(f&&f!=="full")document.documentElement.dataset.fx=f}catch(e){}`,
+            }}
+          />
+          <FxDial />
           <SoundPrimer />
           <AnonAuthGate />
           <NavDirectionSync />

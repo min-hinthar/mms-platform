@@ -1,0 +1,340 @@
+import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+/**
+ * M126 — the contrast the main audit CANNOT see.
+ *
+ * `contrast-audit.test.ts` is rigorous about every pair it can name, and structurally blind to
+ * three things this milestone introduced:
+ *
+ *   1. GLASS. A translucent pane's real background is `--glass-chrome` composited over whatever
+ *      happens to be behind it. The audit reads a hex; a pane has no hex.
+ *   2. THE ROOM. The page ambient is three stacked layers of `color-mix(… , transparent)` over
+ *      `--pg`, with a blended grain on top. The audit reads `--pg` as a flat value and none of it.
+ *   3. THE MOMENTS' LIGHT BANDS. The rake and the print head paint a wash ACROSS a surface that
+ *      carries text, changing the ground under it for the duration.
+ *
+ * All three are "green for the wrong reason" shapes: a wrong-but-plausible alpha passes every gate
+ * in the repo and shows up as unreadable text on a real phone. This file computes the composite and
+ * asserts the floor, so the numbers in the tokens' own comments cannot rot.
+ *
+ * RED-FIRST — five mutations, each watched go red, each restored md5-identical afterwards. The
+ * numbers are this guard's own output, not a hand calculation pasted in:
+ *   --glass-chrome        90% -> 86%          "glass floor · --t3"        4.8309 -> 4.2167  FAIL
+ *   .dark --pa-far-op     0.62 -> 0.80        "room · Night worst pixel"  4.8443 -> 4.3989  FAIL
+ *   --print-head          0.08 -> var(--sheen) (0.11 in Night)  "print head"  4.6172 -> 4.1830  FAIL
+ *   :root --pa-grain-op   0.04 -> 0.10        "room · light worst pixel"  4.6428 -> 4.2601  FAIL
+ *   light --glass-chrome  opaque -> 90%       "light chrome is OPAQUE"    1 -> 0.9         FAIL
+ *
+ * The compositing here is straight-alpha in sRGB, which is what a painted layer does, and it is
+ * the same model `flattenAlpha` in the main audit uses. `color-mix(in oklab, X N%, transparent)`
+ * is premultiplied, so it composites identically to X at alpha N — the main audit's own docblock
+ * records the same equivalence.
+ *
+ * ⚠️ THIS GUARD DOES NOT ROUND TO 8 BITS, and a browser does. So it reports ratios up to ~0.03
+ * TIGHTER than what actually renders, and a hand calculation on hex values will not reproduce it
+ * exactly. That is the safe direction, and it is deliberate — but it means the guard's number, not
+ * the hand one, is the number a token comment should quote.
+ */
+
+const css = readFileSync(fileURLToPath(new URL("../tokens.css", import.meta.url)), "utf8");
+
+function parseBlock(selector: string): Record<string, string> {
+  const re = new RegExp(`(?<![\\w\\]"])${selector.replace(".", "\\.")}\\s*\\{([^}]*)\\}`);
+  const body = (re.exec(css)?.[1] ?? "").replace(/\/\*[\s\S]*?\*\//g, "");
+  const map: Record<string, string> = {};
+  for (const m of body.matchAll(/(--[\w-]+):\s*([^;]+);/g)) {
+    const name = m[1];
+    const val = m[2];
+    if (name && val) map[name] = val.trim();
+  }
+  return map;
+}
+const light = parseBlock(":root");
+// `.dark` OVERRIDES `:root`, it does not replace it — same merge the main audit does.
+const dark = { ...light, ...parseBlock(".dark") };
+
+function raw(map: Record<string, string>, name: string): string {
+  let v = map[name] ?? "";
+  for (let i = 0; i < 5 && v.startsWith("var(") && v.endsWith(")"); i++) {
+    const next = map[v.slice(4, -1).trim()];
+    if (next === undefined) break;
+    v = next.trim();
+  }
+  if (!v) throw new Error(`tokens.css: ${name} is not declared`);
+  return v;
+}
+
+type Rgba = { r: number; g: number; b: number; a: number };
+
+function hexToRgb(hex: string): [number, number, number] {
+  const h = hex.replace("#", "");
+  const full =
+    h.length === 3
+      ? h
+          .split("")
+          .map((ch) => ch + ch)
+          .join("")
+      : h;
+  return [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16)) as [number, number, number];
+}
+
+/**
+ * Resolve a token to a colour + alpha. Handles the three forms the M126 tokens actually use: a
+ * hex, an `rgba(...)`, and `color-mix(in oklab, <colour> N%, transparent)` — the last of which is
+ * PREMULTIPLIED, hence equivalent to the colour at alpha N. Anything else throws rather than
+ * guessing, because a silently-misparsed token is how a decorative layer passes a contrast test it
+ * should fail.
+ */
+function resolve(map: Record<string, string>, name: string): Rgba {
+  const v = raw(map, name);
+  if (/^#[0-9a-fA-F]{3,8}$/.test(v)) {
+    const [r, g, b] = hexToRgb(v);
+    return { r, g, b, a: 1 };
+  }
+  const rgba = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+))?\s*\)$/.exec(
+    v,
+  );
+  if (rgba) {
+    return {
+      r: Number(rgba[1]),
+      g: Number(rgba[2]),
+      b: Number(rgba[3]),
+      a: rgba[4] === undefined ? 1 : Number(rgba[4]),
+    };
+  }
+  const mix = /^color-mix\(\s*in oklab\s*,\s*(.+?)\s+([\d.]+)%\s*,\s*transparent\s*\)$/.exec(v);
+  if (mix) {
+    const inner = mix[1] as string;
+    const pct = Number(mix[2]) / 100;
+    const ref = /^var\((--[\w-]+)\)$/.exec(inner);
+    const base = ref ? resolve(map, ref[1] as string) : { ...toRgba(inner), a: 1 };
+    return { ...base, a: base.a * pct };
+  }
+  throw new Error(`tokens.css: ${name} = "${v}" is not a form this guard can composite`);
+}
+function toRgba(hex: string): Rgba {
+  const [r, g, b] = hexToRgb(hex);
+  return { r, g, b, a: 1 };
+}
+
+/** Paint `src` over `dst`. Straight alpha, sRGB — what a background layer does. */
+function over(src: Rgba, dst: Rgba): Rgba {
+  const a = src.a + dst.a * (1 - src.a);
+  const f = (s: number, d: number) => (s * src.a + d * dst.a * (1 - src.a)) / (a || 1);
+  return { r: f(src.r, dst.r), g: f(src.g, dst.g), b: f(src.b, dst.b), a };
+}
+/** Paint a stack, FIRST entry topmost — CSS `background-image` order. */
+function stack(layers: Rgba[], ground: Rgba): Rgba {
+  return layers.reduceRight((acc, l) => over(l, acc), ground);
+}
+/** A whole layer's `opacity`, applied to an already-composited group. */
+function fade(c: Rgba, opacity: number): Rgba {
+  return { ...c, a: c.a * opacity };
+}
+
+const OVERLAY = (b: number, s: number) => (b < 0.5 ? 2 * b * s : 1 - 2 * (1 - b) * (1 - s));
+/**
+ * The grain plane. Its tile is clamped to [0.34, 0.66] around mid-grey by the feComponentTransfer
+ * in globals.css, so `s` is the peak excursion in whichever direction hurts the theme's text.
+ */
+function grain(bg: Rgba, s: number, opacity: number, blend: "normal" | "overlay"): Rgba {
+  const ch = (v: number) => {
+    const b = v / 255;
+    const out = blend === "overlay" ? OVERLAY(b, s) : s;
+    return 255 * (opacity * out + (1 - opacity) * b);
+  };
+  return { r: ch(bg.r), g: ch(bg.g), b: ch(bg.b), a: 1 };
+}
+
+function luminance(c: Rgba): number {
+  const [r, g, b] = [c.r, c.g, c.b].map((v) => {
+    const s = v / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  }) as [number, number, number];
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+function ratio(fg: Rgba, bg: Rgba): number {
+  const [a, b] = [luminance(fg), luminance(bg)];
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+const AA = 4.5;
+
+const WHITE: Rgba = { r: 255, g: 255, b: 255, a: 1 };
+const t = (map: Record<string, string>, n: string) => resolve(map, n);
+
+describe("glass floor — the frosted chrome over its worst possible backdrop", () => {
+  /**
+   * `saturate()` preserves luma and clamps at 255, so no backdrop can composite BRIGHTER than
+   * white. That is what makes this a bound and not a sample: white is the worst case that
+   * physically exists (a blown highlight in a dish photo), and every Night text token has to clear
+   * AA on it. The pane is deliberately tinted with --sf, not --pg, so chrome sits below cards.
+   * ⚠️ This bound dies the moment anything adds `brightness()` above 1 to a text-bearing pane.
+   */
+  const pane = over(t(dark, "--glass-chrome"), WHITE);
+  for (const token of ["--tx", "--t2", "--ac", "--jade-strong", "--ruby-strong", "--t3"]) {
+    it(`glass floor · ${token} on frosted chrome over white`, () => {
+      expect(ratio(t(dark, token), pane)).toBeGreaterThanOrEqual(AA);
+    });
+  }
+  it("light chrome is OPAQUE — no alpha rescues dark-on-light glass", () => {
+    // The measurement that made light's chrome opaque: at 0.90 over black, --t3 lands 3.806. This
+    // asserts the DECISION, so a future edit cannot quietly reintroduce a translucent light pane.
+    expect(t(light, "--glass-chrome").a).toBe(1);
+  });
+});
+
+describe("the room — the worst pixel of the page ambient, both themes", () => {
+  /**
+   * Night's worst pixel is its BRIGHTEST: all four far-plane blob cores coincident, the warm pool,
+   * a lit grid lip, and the grain's peak overlay excursion. Light's worst is its DARKEST — and the
+   * first version of this file got that composition WRONG in a way that hid two live AA failures.
+   *
+   * It excluded the blobs and the pool "because both lighten, which helps dark text". That is
+   * FALSE. Every light ambient source is darker than light `--pg` #faf9f5: `--sf` Y 0.86380,
+   * `--warnb` 0.83472, `--gold` 0.45487, `--jade` 0.12344, `--ruby` 0.12598, against the ground's
+   * 0.94668. So the model excluded precisely the layers that darken, reported 4.6056, and the real
+   * worst pixel was 4.4813 with motion and 4.3764 under reduced motion. Light's `--pa-far-op` and
+   * all four `--pa-blob-*` were asserted by nothing at all, in either direction.
+   *
+   * The light model below stacks what actually darkens — four blob cores, the warm pool, a groove
+   * crossing — and omits only `--pa-lip`, which lightens and so cannot be the worst case. Both
+   * motion states are computed, because `--pa-groove-still` is a different alpha and reduced motion
+   * is the TIGHTER of the two in this theme, not the looser one.
+   */
+  function nightWorst(): Rgba {
+    const far = fade(
+      stack(
+        (["--pa-blob-1", "--pa-blob-2", "--pa-blob-3", "--pa-blob-4"] as const).map((n) =>
+          t(dark, n),
+        ),
+        { r: 0, g: 0, b: 0, a: 0 },
+      ),
+      Number(raw(dark, "--pa-far-op")),
+    );
+    const ground = over(far, t(dark, "--pg"));
+    const mid = fade(
+      stack([t(dark, "--pa-pool"), t(dark, "--pa-lip")], { r: 0, g: 0, b: 0, a: 0 }),
+      Number(raw(dark, "--pa-mid-op")),
+    );
+    return grain(over(mid, ground), 0.66, Number(raw(dark, "--pa-grain-op")), "overlay");
+  }
+  /** @param grooveToken `--pa-groove` (motion) or `--pa-groove-still` (reduced motion). */
+  function lightWorst(grooveToken: "--pa-groove" | "--pa-groove-still"): Rgba {
+    const pg = t(light, "--pg");
+    const far = fade(
+      stack(
+        (["--pa-blob-1", "--pa-blob-2", "--pa-blob-3", "--pa-blob-4"] as const).map((n) =>
+          t(light, n),
+        ),
+        { r: 0, g: 0, b: 0, a: 0 },
+      ),
+      Number(raw(light, "--pa-far-op")),
+    );
+    const ground = over(far, pg);
+    const groove = t(light, grooveToken);
+    // The pool and a groove CROSSING (both grid axes paint at an intersection). No `--pa-lip`: it
+    // lightens, so including it would model something easier than the worst case.
+    const mid = fade(
+      stack([t(light, "--pa-pool"), groove, groove], { r: 0, g: 0, b: 0, a: 0 }),
+      Number(raw(light, "--pa-mid-op")),
+    );
+    return grain(over(mid, ground), 0.34, Number(raw(light, "--pa-grain-op")), "normal");
+  }
+  it("room · Night worst pixel keeps --t3 above AA", () => {
+    expect(ratio(t(dark, "--t3"), nightWorst())).toBeGreaterThanOrEqual(AA);
+  });
+  it("room · Night worst pixel keeps --t2 above AA", () => {
+    expect(ratio(t(dark, "--t2"), nightWorst())).toBeGreaterThanOrEqual(AA);
+  });
+  it("room · light worst pixel keeps --t3 above AA", () => {
+    expect(ratio(t(light, "--t3"), lightWorst("--pa-groove"))).toBeGreaterThanOrEqual(AA);
+  });
+  it("room · light REDUCED-MOTION worst pixel keeps --t3 above AA", () => {
+    // `--pa-groove-still` deepens the cut, and the token's comment calls that "the safer
+    // composition". It is — in NIGHT, where a darker groove darkens the ground under LIGHT text.
+    // Light is dark-on-light, so the same move spends contrast instead of buying it, which makes
+    // this the TIGHTER of the theme's two states rather than the looser one.
+    expect(ratio(t(light, "--t3"), lightWorst("--pa-groove-still"))).toBeGreaterThanOrEqual(AA);
+  });
+});
+
+describe("--grad — the one ornament gradient nothing else pins", () => {
+  /**
+   * M127 records that four tokens this milestone moves are held by review alone: nothing in the
+   * repo compares `--grad`'s stops to anything, and the contrast audit only ever asserts `>= 4.5`,
+   * which a wrong-but-legible value satisfies. That is how M126 nearly shipped a real inversion —
+   * raising `--surface-elevated` put the chrome ABOVE `--grad`'s light stop, so the brightest small
+   * ornament in the app would have rendered DIMMER than the chrome behind it, and no gate could
+   * have said so. This closes the half of M127 that this PR actually touched.
+   *
+   * RED-FIRST: restoring the pre-fix `#3a2a4d` light stop fails with 0.0207 vs 0.0386. Restored.
+   */
+  function stops(map: Record<string, string>): Rgba[] {
+    const decl = raw(map, "--grad");
+    const hexes = decl.match(/#[0-9a-fA-F]{6}/g) ?? [];
+    expect(hexes.length).toBe(2); // a floor: a re-authored --grad must not pass by matching nothing
+    return hexes.map((h) => {
+      const [r, g, b] = hexToRgb(h);
+      return { r, g, b, a: 1 };
+    });
+  }
+  it("Night's light stop stays ABOVE the chrome it ornaments", () => {
+    const [lit] = stops(dark) as [Rgba, Rgba];
+    expect(luminance(lit)).toBeGreaterThan(luminance(t(dark, "--surface-elevated")));
+  });
+  it("each theme's gradient actually runs in its own direction", () => {
+    // Night lights UP from its ground, light darkens DOWN from its paper. A stop pair that lost its
+    // direction would still be legible and still pass every other gate in the repo.
+    const [dLit, dDark] = stops(dark) as [Rgba, Rgba];
+    expect(luminance(dLit)).toBeGreaterThan(luminance(dDark));
+    const [lDark, lLit] = stops(light) as [Rgba, Rgba];
+    expect(luminance(lLit)).toBeGreaterThan(luminance(lDark));
+  });
+});
+
+describe("chrome — the surface the header's own text sits on", () => {
+  /**
+   * `.app-header-rewards` renders BARE `--ac`, which is legible on a narrow set of surfaces: the
+   * main audit's `plain ac on sf` is a NEGATIVE guard asserting that pair sits UNDER 4.5, precisely
+   * so call sites take `--ac-strong` instead. Pointing light's chrome at `--sf` put the header on
+   * that forbidden ground at 4.2843, and nothing in the repo could see it — the surface is a token
+   * indirection (`--glass-chrome`) that a hex-reading audit never follows.
+   */
+  it("light chrome carries bare --ac at AA", () => {
+    expect(ratio(t(light, "--ac"), t(light, "--glass-chrome"))).toBeGreaterThanOrEqual(AA);
+  });
+  it("light chrome carries --t2 at AA", () => {
+    expect(ratio(t(light, "--t2"), t(light, "--glass-chrome"))).toBeGreaterThanOrEqual(AA);
+  });
+  it("the opaque fallback every filter-off path reads is legible in both themes", () => {
+    for (const map of [light, dark]) {
+      expect(ratio(t(map, "--t2"), t(map, "--glass-chrome-opaque"))).toBeGreaterThanOrEqual(AA);
+    }
+    // Light's is the one that carries bare --ac; Night's is covered by the glass floor above.
+    expect(ratio(t(light, "--ac"), t(light, "--glass-chrome-opaque"))).toBeGreaterThanOrEqual(AA);
+  });
+});
+
+describe("the moments' light bands — a wash across a surface that carries text", () => {
+  /**
+   * --print-head is NOT --sheen, and this pair of assertions is why the token exists: at --sheen's
+   * 0.11 the head's core strip drops --t3 on --cd to 4.2088, an AA failure on a receipt that the
+   * main audit cannot see. A bevel value and a light-band value are different budgets.
+   */
+  for (const [name, band, surface] of [
+    ["print head", "--print-head", "--cd"],
+    ["print cast", "--print-cast", "--cd"],
+    ["sheet rake", "--rake-peak", "--cd-raised"],
+  ] as const) {
+    for (const theme of ["light", "dark"] as const) {
+      const map = theme === "dark" ? dark : light;
+      it(`${name} · ${theme} · --t3 survives the band`, () => {
+        expect(ratio(t(map, "--t3"), over(t(map, band), t(map, surface)))).toBeGreaterThanOrEqual(
+          AA,
+        );
+      });
+    }
+  }
+});
