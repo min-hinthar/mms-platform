@@ -307,8 +307,12 @@ that no longer ships (registry **M84**).
 
 ## 9. Suggested sequencing
 
-1. ~~**PR A — dark only.**~~ **DONE (2026-08-26).** Nine values, OKLCH +14° (HSL 259° → 277°), lever
-   B for the jade-hover trap. It proved the guard workflow and found a gap in it: the two translucent
+1. ~~**PR A — dark only.**~~ **DONE (2026-08-26), then REVERTED (2026-08-27).** Nine values, OKLCH
+   +14° (HSL 259° → 277°), lever B for the jade-hover trap. The owner rejected the shipped result
+   and every ground value is back to the pre-#235 original; **the dark half is superseded by M126,
+   which enriches Night rather than re-hueing it.** Lever B (`--jade-strong` off its alias) was
+   KEPT — its justification was the width of the measurement noise, not the hue — and so was the
+   guard below, which is the durable part of this entry: It proved the guard workflow and found a gap in it: the two translucent
    surfaces hand-copy `--cd`/`--sf`'s channels because `rgba(var(--cd), 0.9)` is not expressible, and
    nothing checked that. `check-theme-parity.mjs` surface 7 now does — a guard **PRs B and C
    inherit**, since the light ground moves under them too. ⚠️ **It covers 2 of the 9 values PR A
