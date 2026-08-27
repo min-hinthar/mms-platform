@@ -8,10 +8,23 @@ _Original status, kept for the record: decided, build deferred, no code changed 
 > constant HSL S/L, which raises luminance and costs the tightest combo up to 0.14 by +25°. PR A
 > rotated in **OKLCH with L and C held fixed**, which keeps every ground token's relative luminance
 > within a thousandth of where it was — so the trap fires far more gently than the table predicts
-> (4.5012 at the shipped hue, not 4.384). It still fires: 4.5012 is green by 0.0012, one 8-bit step,
-> which is not headroom. **Lever B was taken** — `--jade-strong` lifted off its alias to `#62b380`
-> (OKLab L 0.6919 → 0.6999, hue and chroma unchanged), worst case now 4.6594. The table stands as
-> measured for the parameterisation it names; it should not be read as the cost of any rotation.
+> (4.5012 at the shipped hue, not 4.384). It still fires — but the margin is smaller than the
+> measurement's own precision, and that is the real reason to act. `mixOklab` quantizes the blended
+> background to 8-bit before computing luminance; carrying floats moves this combo ~0.03 (larger than
+> the rotation's own effect) and **reverses its sign** — 8-bit reads 4.5237 → 4.5012 (a cost), float
+> reads 4.5112 → 4.5313 (a gain). What holds on both: the alias sits within ~0.03 of the 4.5 line.
+> Registry **M122**. **Lever B was taken** — `--jade-strong` lifted off its alias to `#62b380`, which
+> clears on both methods (4.6594 quantized, 4.6906 float).
+>
+> ⚠️ **The search target and the shipped token are different numbers, and only the second is a fact
+> about the CSS.** The search held hue and chroma and moved OKLab L 0.6919 → **0.6999**; rounding to
+> 8-bit sRGB lands the shipped `#62b380` at OKLCH **(0.7012, 0.1102, 154.73)** against `--jade`'s
+> (0.6919, 0.1094, 155.14) — so hue and chroma are near-identical, not identical. Quote the shipped
+> coordinates for any later palette work; this note previously gave the target as though it were the
+> token, which is two incompatible premises for the next reader.
+>
+> The §5 table stands as measured for the parameterisation it names; it should not be read as the
+> cost of any rotation.
 
 Owner, 2026-08-20, verbatim:
 

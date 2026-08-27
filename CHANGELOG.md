@@ -59,10 +59,28 @@ four values in lockstep by hand and trusting the author to notice. Three of the 
 light `--surface-vellum` is a hand-authored warm `#faf7ef` matching neither `--sf` nor `--pg`, so it
 is listed as a **named exemption rather than a silent skip** — and the exemption is itself checked
 against both bases its rationale names, and **fails closed**: a value it cannot parse is a failure,
-never a pass. (Codex caught that the first version did the opposite — it short-circuited to green
-whenever the exempt declaration would not parse as `rgba()`, so rewriting it as `#f2efe7`, i.e.
-exactly `--sf` and the stale condition itself, or as `var(--sf)`, left the guard green. The commit
-message claimed a non-`rgba()` value had been falsified when only the NON-exempt path had been.)
+never a pass, and `var()` aliases are **resolved** before any comparison.
+
+Three rounds of the same fail-open shape were needed to get there, each found by Codex, each one read
+further out — worth listing, because the pattern is the lesson:
+
+1. The exempt value not parsing as `rgba()` short-circuited to green — so rewriting it as `#f2efe7`
+   (exactly `--sf`, the stale condition itself) or `var(--sf)` left the guard green. The commit
+   message claimed a non-`rgba()` value had been falsified when only the NON-exempt path had been.
+2. The channel matcher accepted a **prefix**, so `rgba(250, 247, 239, nope)` yielded three happy
+   channels and reported clean. A custom property takes an arbitrary token stream at parse time and
+   fails only at substitution, so the vellum consumers would have lost their fill with every gate
+   green. Both paths had the hole; they now share one anchored reader that validates the closing
+   delimiter and the alpha, and rejects out-of-range channels.
+3. An **unresolvable base** was read as "not stale". Alias `--sf: var(--vellum-ground)`, mirror that
+   alias in the print re-pin, and the whole script reported clean while the exemption was genuinely
+   stale — two reads failing at once, since `expectHex` was also comparing the alias string to
+   itself and calling it a match. Aliases are not hypothetical: `.dark` ships
+   `--ac-strong: var(--ac)` and `--gold-strong: var(--gold)` today.
+
+Every one of the three is the same error: **absence of evidence read as evidence of absence.** A
+guard that cannot evaluate its subject must fail, not pass. Re-falsified six ways, including two
+negative controls (a syntax-only change must still pass; a whitespace variant must still match).
 
 ⚠️ **An earlier revision of this entry claimed a live AA failure on the order-ready wall board, and
 a new CI guard justified by it. Both were wrong and both are gone — the record is kept because the

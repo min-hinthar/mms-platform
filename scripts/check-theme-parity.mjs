@@ -69,6 +69,30 @@ function parseBlock(selector) {
 const light = parseBlock(":root");
 const dark = parseBlock(".dark");
 
+/**
+ * Follow `var(--x)` chains inside a block, the way `contrast-audit.test.ts`'s `tok()` does and the
+ * way a browser does — so a token's VALUE is compared, never the alias text that stands for it.
+ *
+ * ⚠️ Codex round 2 on #235 supplied the scenario and it reproduces exactly: define
+ * `--vellum-ground: #faf7ef`, alias `--sf: var(--vellum-ground)`, mirror that alias in the print
+ * re-pin, and the whole script reports CLEAN — while light `--surface-vellum` now renders identical
+ * to `--sf`, i.e. the staleness the exemption exists to catch. Two separate reads went wrong at
+ * once: the staleness comparison read `--sf` as unparseable and treated that as "not stale", and
+ * the print re-pin compared the alias STRING to itself and called it a match. Aliases are not
+ * hypothetical here — `.dark` already ships `--ac-strong: var(--ac)`, `--gold-strong: var(--gold)`.
+ *
+ * `.dark` overrides `:root` rather than replacing it, so a chain may cross blocks; the fallback map
+ * models that. Non-`var()` values pass through untouched (`--bd` is an rgba in both blocks).
+ */
+function resolve(map, value, fallback = light, depth = 0) {
+  const v = (value ?? "").trim();
+  if (depth > 5 || !v.startsWith("var(")) return v;
+  const ref = v.slice(4, -1).trim().split(",")[0].trim();
+  const next = map[ref] ?? fallback[ref];
+  if (next === undefined) return v;
+  return resolve(map, next, fallback, depth + 1);
+}
+
 const failures = [];
 const checked = [];
 
@@ -76,7 +100,13 @@ function expectHex(label, actual, expected, where) {
   // Normalised so `rgba(58, 35, 23, 0.1)` and `rgba(58,35,23,.1)` compare equal — `--bd` is an rgba
   // in both blocks, so this cannot be hex-only. Whitespace is the only thing collapsed; a real value
   // difference still fails.
-  const norm = (v) => (v ?? "").toLowerCase().replace(/\s+/g, "");
+  // ⚠️ RESOLVED before comparison. Comparing the raw text let `var(--x)` match `var(--x)` and call
+  // it agreement without either side ever being reduced to a colour (Codex round 2) — so a mirrored
+  // alias satisfied the print re-pin while saying nothing about what actually prints.
+  const norm = (v) =>
+    resolve(light, v ?? "", light)
+      .toLowerCase()
+      .replace(/\s+/g, "");
   const a = norm(actual);
   const e = norm(expected);
   if (!e) {
@@ -350,10 +380,20 @@ for (const file of readdirSync(path.join(ROOT, EMAIL_DIR), { recursive: true }))
  * more importantly, so "cannot be read" is a single answer both paths must handle rather than
  * something one of them silently treats as agreement.
  */
-function channels(value) {
-  const v = (value ?? "").trim();
-  const rgba = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(v);
-  if (rgba) return [1, 2, 3].map((i) => Number(rgba[i]));
+function channels(value, map = light) {
+  const v = resolve(map, value, light);
+  // ⚠️ ANCHORED AT BOTH ENDS, closing paren and alpha included. The first version matched a PREFIX,
+  // so `rgba(250, 247, 239, nope)` yielded three happy channels and `check:theme` reported clean —
+  // Codex round 2 on #235. A custom property accepts an arbitrary token stream at parse time and
+  // only fails when it is substituted into `background`, so the vellum consumers would have lost
+  // their fill with every gate green. A guard that accepts a prefix is reporting on a value that
+  // does not exist.
+  const rgba =
+    /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(?:,\s*(?:\d*\.?\d+%?)\s*)?\)$/.exec(v);
+  if (rgba) {
+    const ch = [1, 2, 3].map((i) => Number(rgba[i]));
+    return ch.every((n) => n <= 255) ? ch : null;
+  }
   const hex = /^#([0-9a-fA-F]{6})$/.exec(v);
   if (hex) return [0, 2, 4].map((i) => parseInt(hex[1].slice(i, i + 2), 16));
   return null;
@@ -401,8 +441,22 @@ for (const { theme, block: blk, surface, base, why, staleIfMatches } of SURFACE_
       );
       continue;
     }
+    // ⚠️ An unevaluable base is a FAILURE, never "not stale" — the same fail-open shape as the
+    // unparseable exempt value above, one read further out (Codex round 2). If `--sf` cannot be
+    // reduced to channels there is no evidence either way, and a guard must not read absence of
+    // evidence as evidence of absence.
+    const unresolved = staleIfMatches.filter((b) => !channels(blk[b] ?? "", blk));
+    if (unresolved.length) {
+      failures.push(
+        `translucent surface · ${theme} ${surface}: exempt, but its rationale names ` +
+          `${unresolved.join(" and ")}, which cannot be reduced to channels ` +
+          `(${unresolved.map((b) => `${b}: ${blk[b] ?? "(absent)"}`).join(", ")}). The exemption ` +
+          `cannot be shown to still hold, so it is not one.`,
+      );
+      continue;
+    }
     const stale = staleIfMatches.filter((b) => {
-      const want = channels(blk[b] ?? "");
+      const want = channels(blk[b] ?? "", blk);
       return want && want.join() === mine.join();
     });
     if (stale.length)
@@ -414,20 +468,24 @@ for (const { theme, block: blk, surface, base, why, staleIfMatches } of SURFACE_
     else checked.push(`${theme} ${surface} — exempt: ${why}`);
     continue;
   }
-  const got = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(decl);
-  if (!got) {
+  // Same reader as the exempt path, so both inherit the anchoring and the alias resolution — the
+  // duplicate prefix-matcher that used to live here had the identical `rgba(…, nope)` hole.
+  const mine = channels(decl, blk);
+  if (!mine) {
     failures.push(
-      `translucent surface · ${theme} ${surface}: expected an \`rgba(r, g, b, a)\`, got ${decl}`,
+      `translucent surface · ${theme} ${surface}: expected a complete \`rgba(r, g, b, a)\` or ` +
+        `6-digit hex, got \`${decl}\``,
     );
     continue;
   }
-  const hex = /^#([0-9a-fA-F]{6})$/.exec((blk[base] ?? "").trim());
-  if (!hex) {
-    failures.push(`translucent surface · ${theme} ${surface}: ${base} is not a 6-digit hex`);
+  const want = channels(blk[base] ?? "", blk);
+  if (!want) {
+    failures.push(
+      `translucent surface · ${theme} ${surface}: ${base} (\`${blk[base] ?? "(absent)"}\`) cannot ` +
+        `be reduced to channels, so there is nothing to compare against`,
+    );
     continue;
   }
-  const want = [0, 2, 4].map((i) => parseInt(hex[1].slice(i, i + 2), 16));
-  const mine = [1, 2, 3].map((i) => Number(got[i]));
   if (want.join() !== mine.join())
     failures.push(
       `translucent surface · ${theme} ${surface}: rgb(${mine.join(", ")}) but ${base} is ` +
