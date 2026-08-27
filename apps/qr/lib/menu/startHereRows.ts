@@ -11,6 +11,15 @@
  *
  * Both rows keep the ≥3 floor (a 1–2 card "row" reads as broken); row B missing simply renders
  * row A alone — exactly the pre-W22 band.
+ *
+ * M131 (owner: "a little bit of everything … should mostly be selected from the top 50 of popular,
+ * customer most ordered items") — row B now ORDERS ITS BUCKETS by that ranking, and that is a
+ * deliberately smaller change than filtering to it. "A little of everything" is a claim about
+ * COVERAGE: one dish from each category, then a second lap. Filtering the candidates to the top 50
+ * would silently drop any category with nothing in the top 50 — the row would quietly stop being a
+ * little of everything while still saying it was. Sorting inside each bucket keeps every category
+ * represented and makes the dish that represents it the one tables actually order. Categories with
+ * no ranked dish still appear, led by their menu-order first item, which is the honest fallback.
  */
 
 export type StartHereRowItem = {
@@ -27,6 +36,14 @@ export function buildStartHereRows<T extends StartHereRowItem>(
   items: readonly T[],
   /** Paid-order ranking (competitionRanks order) — empty while history is thin. */
   favorites: readonly { id: string; rank: number }[],
+  /**
+   * M131 — the WIDER popularity ranking (`LOVED_POOL_MAX`), most-ordered first. A selection
+   * preference, never a displayed claim: it decides which dish represents its category in row B,
+   * and nothing about it reaches the diner as words. Empty (the default) restores the pre-M131
+   * behaviour exactly — menu order inside every bucket — so a thin history or a failed aggregate
+   * degrades to the row that shipped before, not to an empty one.
+   */
+  popularIds: readonly string[] = [],
 ): { rowA: { item: T; rank: number }[]; rowB: T[]; dataBacked: boolean } {
   const byId = new Map(items.map((i) => [i.id, i]));
   // The rank is taken BEFORE the sold-out filter (W20 review): a sold-out dish keeps its numeral
@@ -53,7 +70,11 @@ export function buildStartHereRows<T extends StartHereRowItem>(
     if (bucket) bucket.push(i);
     else byCat.set(i.category, [i]);
   }
-  const buckets = [...byCat.values()];
+  // Order INSIDE each bucket by the popularity ranking, menu order for anything unranked. A stable
+  // sort keeps the server's sort_order among equals, so an empty `popularIds` is a no-op.
+  const popRank = new Map(popularIds.map((id, i) => [id, i]));
+  const rankOf = (i: T) => popRank.get(i.id) ?? Number.MAX_SAFE_INTEGER;
+  const buckets = [...byCat.values()].map((b) => [...b].sort((x, y) => rankOf(x) - rankOf(y)));
   const rowB: T[] = [];
   for (let lap = 0; rowB.length < START_HERE_ROW_CAP; lap++) {
     const lapPicks = buckets.filter((b) => lap < b.length).map((b) => b[lap]!);

@@ -78,14 +78,69 @@ describe("surpriseMe — random picks that respect the exclusions, deterministic
   const catalog = Array.from({ length: 6 }, (_, i) => ({ id: `i${i}` }));
 
   it("never offers an excluded (already-hearted) item", () => {
-    const picks = surpriseMe(catalog, new Set(["i0", "i2", "i4"]), 3, () => 0);
+    const picks = surpriseMe(catalog, new Set(["i0", "i2", "i4"]), 3, [], () => 0);
     expect(picks.map((p) => p.id).some((id) => ["i0", "i2", "i4"].includes(id))).toBe(false);
     expect(picks).toHaveLength(3);
   });
 
   it("asks for more than exists → returns what exists, no repeats", () => {
-    const picks = surpriseMe(catalog, new Set(["i0", "i1", "i2", "i3"]), 3, () => 0.99);
+    const picks = surpriseMe(catalog, new Set(["i0", "i1", "i2", "i3"]), 3, [], () => 0.99);
     expect(new Set(picks.map((p) => p.id)).size).toBe(picks.length);
     expect(picks).toHaveLength(2);
+  });
+});
+
+describe("M131 — the ranking prefers what tables order, and never outranks the match itself", () => {
+  const catalog = [
+    item("Curries (A la Carte)", [], "cold"),
+    item("Curries (A la Carte)", [], "hot"),
+    item("Curries (A la Carte)", ["spicy"], "both"),
+  ];
+
+  it("breaks TIES toward the most-ordered dish", () => {
+    const r = recommendByTaste(catalog, ["curry"], ["hot", "cold"]);
+    expect(r.map((e) => e.item.id)).toEqual(["hot", "cold", "both"]);
+  });
+
+  it("but the MATCH COUNT still wins — a stronger reason outranks a more popular dish", () => {
+    // `both` matches two cravings and is ranked LAST; it must still lead, because the card's own
+    // "why" line reads out the reason that earned it the place.
+    const r = recommendByTaste(catalog, ["curry", "spicy"], ["hot", "cold"]);
+    expect(r[0]!.item.id).toBe("both");
+    expect(r[0]!.matched).toHaveLength(2);
+  });
+
+  it("an empty ranking leaves the pre-M131 order untouched", () => {
+    expect(recommendByTaste(catalog, ["curry"], []).map((e) => e.item.id)).toEqual(
+      recommendByTaste(catalog, ["curry"]).map((e) => e.item.id),
+    );
+  });
+});
+
+describe("M131 — the surprise draw comes from the ranked tier first", () => {
+  const catalog = Array.from({ length: 6 }, (_, k) => item("Curries", [], `i${k}`));
+
+  it("fills entirely from the ranked tier when it can", () => {
+    const picks = surpriseMe(catalog, new Set(), 3, ["i3", "i4", "i5"], () => 0);
+    expect(picks.map((p) => p.id).sort()).toEqual(["i3", "i4", "i5"]);
+  });
+
+  it("tops up from the rest rather than returning a short row", () => {
+    // The ranked tier holds one eligible dish; the row still fills, from the unranked remainder.
+    const picks = surpriseMe(catalog, new Set(["i1", "i2"]), 3, ["i0"], () => 0);
+    expect(picks).toHaveLength(3);
+    expect(picks[0]!.id).toBe("i0");
+    expect(picks.slice(1).every((p) => !["i0", "i1", "i2"].includes(p.id))).toBe(true);
+  });
+
+  it("never offers a hearted dish, ranked or not", () => {
+    const picks = surpriseMe(catalog, new Set(["i0", "i1", "i2"]), 3, ["i0", "i1"], () => 0);
+    expect(picks.some((p) => ["i0", "i1", "i2"].includes(p.id))).toBe(false);
+  });
+
+  it("no ranking is a NO-OP — one uniform shuffle over everything, as before", () => {
+    expect(surpriseMe(catalog, new Set(), 3, [], () => 0).map((p) => p.id)).toEqual(
+      surpriseMe(catalog, new Set(), 3, undefined, () => 0).map((p) => p.id),
+    );
   });
 });

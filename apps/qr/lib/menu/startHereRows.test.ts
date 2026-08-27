@@ -118,3 +118,46 @@ describe("buildStartHereRows", () => {
     expect(rowB).toEqual([]); // only Noodles-5 remains — below the floor
   });
 });
+
+describe("M131 — row B leads each category with what tables actually order", () => {
+  // Row A must FILL, or the function returns early and there is no row B to assert about — the
+  // first draft of these fixtures missed that and failed for a reason that had nothing to do with
+  // the rule under test. Starters are the loved row; everything else is row B's to arrange.
+  const loved = [
+    { id: "Starters-1", rank: 1 },
+    { id: "Starters-2", rank: 2 },
+    { id: "Starters-3", rank: 3 },
+  ];
+
+  it("orders INSIDE each bucket by the popularity ranking, not menu order", () => {
+    const items = catalog({ Starters: 3, Noodles: 3, Curries: 3 });
+    const { rowB } = buildStartHereRows(items, loved, ["Curries-3", "Noodles-2"]);
+    // Lap 1 takes each category's HIGHEST-RANKED remaining dish rather than its first in menu order.
+    expect(rowB.slice(0, 2).map((i) => i.id)).toEqual(["Noodles-2", "Curries-3"]);
+  });
+
+  it("a category with NOTHING ranked still appears, led by its menu-order first item", () => {
+    // The whole point of not FILTERING to the top 50: "a little of everything" is a coverage claim,
+    // and a filter would silently drop a category while the caption still promised it.
+    const items = catalog({ Starters: 3, Noodles: 2, Curries: 2, Desserts: 2 });
+    const { rowB } = buildStartHereRows(items, loved, ["Curries-2"]);
+    expect(new Set(rowB.map((i) => i.category))).toEqual(
+      new Set(["Noodles", "Curries", "Desserts"]),
+    );
+    expect(rowB.slice(0, 3).map((i) => i.id)).toEqual(["Noodles-1", "Curries-2", "Desserts-1"]);
+  });
+
+  it("no ranking at all is a NO-OP — the pre-M131 menu order, exactly", () => {
+    // The degraded shape: a thin history, or an aggregate that failed and returned []. Row B must
+    // still be the row that shipped before, never an empty or re-ordered one.
+    const items = catalog({ Starters: 3, Noodles: 3, Curries: 3 });
+    expect(buildStartHereRows(items, loved, []).rowB.map((i) => i.id)).toEqual(
+      buildStartHereRows(items, loved).rowB.map((i) => i.id),
+    );
+    expect(
+      buildStartHereRows(items, loved)
+        .rowB.slice(0, 2)
+        .map((i) => i.id),
+    ).toEqual(["Noodles-1", "Curries-1"]);
+  });
+});

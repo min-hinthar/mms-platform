@@ -31,13 +31,17 @@ const TASTE_KEY = "mms.taste";
  */
 export function TasteBand({
   items,
+  popularIds = [],
   heartedIds,
   diets,
   onToggleDiet,
   onSelect,
 }: {
   items: MenuItem[];
-  /** The diner's own hearts — "Surprise me" never offers what they already love. */
+  /** M131 — the wider most-ordered ranking, most-ordered first. A selection preference for what
+   *  gets OFFERED; it never becomes copy, and an empty list restores the pre-M131 ordering. */
+  popularIds?: string[];
+  /** The diner's own hearts — the surprise draw never offers what they already love. */
   heartedIds: ReadonlySet<string>;
   /** The menu-wide dietary filters — state lives in MenuBrowser (they filter the sections below). */
   diets: Diet[];
@@ -98,7 +102,7 @@ export function TasteBand({
     () => items.filter((i) => !i.is_sold_out && passesDiets(i, diets)),
     [items, diets],
   );
-  const recs = useMemo(() => recommendByTaste(pool, picks), [pool, picks]);
+  const recs = useMemo(() => recommendByTaste(pool, picks, popularIds), [pool, picks, popularIds]);
   // The surprise row, when asked for, replaces the craving matches until the next pick.
   // W21 review — re-derived BY ID against the live pool each render: the tapped snapshot could go
   // stale across a refresh (a card still offering a since-sold-out dish at its old price), and a
@@ -126,6 +130,33 @@ export function TasteBand({
         <span className="start-here-sub">pick a craving — or let us surprise you</span>
       </h2>
       <Rail role="group" aria-label="Pick your cravings" className="taste-rail">
+        {/* M131 (owner: "surprise your tastebuds should be first option") — the zero-effort door
+            comes FIRST. Every other chip in this rail asks the diner to know what they want; this
+            one asks nothing, which makes it the right opening move for the first-timer the whole
+            band exists for. It is an ACTION, not a toggle: no `aria-pressed`, a dashed affordance,
+            and its own accessible description, so being first among filters can't make it read as
+            one. Its draw prefers the most-ordered dishes (M131) but stays a suggestion — the cards
+            say "How about this?", never a claim. */}
+        <button
+          type="button"
+          className="taste-chip taste-chip-surprise"
+          aria-describedby="taste-surprise-hint"
+          onClick={() => {
+            setSurpriseAsked(true);
+            setSurprise(surpriseMe(pool, heartedIds, 3, popularIds));
+          }}
+        >
+          <span aria-hidden className="taste-emoji">
+            ✨
+          </span>
+          Surprise your taste buds
+          <span lang="my" className="taste-chip-my">
+            အံ့ဩစရာလေး
+          </span>
+        </button>
+        <span id="taste-surprise-hint" className="sr-only">
+          Picks a few dishes for you at random. Not a filter.
+        </span>
         {CRAVINGS.map((c) => {
           const on = picks.includes(c.id);
           return (
@@ -147,22 +178,6 @@ export function TasteBand({
             </button>
           );
         })}
-        <button
-          type="button"
-          className="taste-chip taste-chip-surprise"
-          onClick={() => {
-            setSurpriseAsked(true);
-            setSurprise(surpriseMe(pool, heartedIds));
-          }}
-        >
-          <span aria-hidden className="taste-emoji">
-            ✨
-          </span>
-          Surprise me
-          <span lang="my" className="taste-chip-my">
-            အံ့ဩစရာလေး
-          </span>
-        </button>
       </Rail>
       {/* W22 — the dietary pills (the old toolbar bar, absorbed): same pill vocabulary, DIFFERENT
           verb — these filter the whole menu, and the caption owns saying so before any pill is lit. */}

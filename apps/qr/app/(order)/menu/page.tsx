@@ -3,7 +3,7 @@ import { TableCartProvider } from "@/components/TableCartProvider";
 import { CartPublisher } from "@/components/CartPublisher";
 import { MenuBrowser, type MenuItem } from "@/components/menu/MenuBrowser";
 import { requiredChoiceUnavailable, shapeModifierGroups } from "@/lib/menu/modifiers";
-import { getMostLoved } from "@/lib/menu/mostLoved";
+import { getMostLoved, LOVED_BADGE_MAX } from "@/lib/menu/mostLoved";
 import { competitionRanks } from "@/lib/menu/rank";
 import { getWelcomeBack } from "@/lib/rewards";
 import { getFavoriteIds } from "@/lib/favorites";
@@ -110,12 +110,20 @@ export default async function Menu({
   const items: MenuItem[] = catalogStale ? (readLastGoodCatalog() ?? []) : shaped;
   if (!catalogStale) storeLastGoodCatalog(shaped);
 
+  const mostLoved = await mostLovedP;
+  // M131 — TWO consumers of one ranking, at two different bounds, and the split is the honesty rule
+  // (see LOVED_BADGE_MAX / LOVED_POOL_MAX). `favorites` is everything the diner READS as a claim:
+  // the "Table favorite" badge on every row and the Start-here rank seals, so it stays at the badge
+  // bound. `popularIds` is the wider pool, used only to decide which honest option gets offered
+  // first — it reaches no copy at all. Ranks are computed on the SLICED list so a numeral can never
+  // exceed the set it ranks within.
+  const badgeLoved = mostLoved.slice(0, LOVED_BADGE_MAX);
   // W21 (Codex P2 on #191) — the seals' ordinals are computed from the COUNTS, tie-aware: two
   // dishes the comparator left tied (same distinct orders AND qty) share a numeral instead of one
   // being invented "No. 2" by insertion order.
-  const mostLoved = await mostLovedP;
-  const ranks = competitionRanks(mostLoved, (a, b) => a.orders === b.orders && a.qty === b.qty);
-  const favorites = mostLoved.map((m, i) => ({ id: m.menuItemId, rank: ranks[i]! }));
+  const ranks = competitionRanks(badgeLoved, (a, b) => a.orders === b.orders && a.qty === b.qty);
+  const favorites = badgeLoved.map((m, i) => ({ id: m.menuItemId, rank: ranks[i]! }));
+  const popularIds = mostLoved.map((m) => m.menuItemId);
   const welcome = await welcomeP;
   const heartedIds = await heartedP;
   // W22e — recognition, decided server-side against TODAY's catalog so a sold-out or discontinued
@@ -150,6 +158,7 @@ export default async function Menu({
         items={items}
         mode={mode}
         favorites={favorites}
+        popularIds={popularIds}
         heartedIds={heartedIds}
         welcome={welcome}
         usual={usual}

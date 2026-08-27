@@ -75,6 +75,7 @@ export function MenuBrowser({
   items,
   mode,
   favorites = [],
+  popularIds = [],
   heartedIds = [],
   welcome = null,
   usual,
@@ -90,6 +91,10 @@ export function MenuBrowser({
    *  + the data-backed "Table favorite" badge. Empty while order history is thin → the band falls
    *  back to `popular`-tagged items, badges to the manual tag. */
   favorites?: { id: string; rank: number }[];
+  /** M131 — the wider most-ordered ranking (`LOVED_POOL_MAX`), most-ordered first. A SELECTION
+   *  preference for the guided rows and the taste suggestions; it never becomes copy, so it is
+   *  deliberately broader than `favorites`, which backs the visible "Table favorite" claim. */
+  popularIds?: string[];
   /** J5: the CALLER's own hearted item ids (qr_favorites, RLS-scoped, newest first) — drives the
    *  "Your favorites" rail + the sheet's heart state. Distinct from `favorites` (the crowd). */
   heartedIds?: string[];
@@ -135,7 +140,10 @@ export function MenuBrowser({
   // rule, not a ranking, so no seals). All the honesty rules live in lib/menu/startHereRows.ts
   // where a test can watch them fail.
   const favSet = useMemo(() => new Set(favorites.map((f) => f.id)), [favorites]);
-  const startHere = useMemo(() => buildStartHereRows(items, favorites), [items, favorites]);
+  const startHere = useMemo(
+    () => buildStartHereRows(items, favorites, popularIds),
+    [items, favorites, popularIds],
+  );
 
   // J5 — the diner's own hearts: optimistic local set over the server-fetched ids. A toggle flips the
   // heart instantly and reverts if the RLS-scoped write fails (toggleFavorite returns null) — the
@@ -613,6 +621,7 @@ export function MenuBrowser({
         <div style={{ padding: "0 20px" }}>
           <TasteBand
             items={items}
+            popularIds={popularIds}
             heartedIds={hearts}
             diets={diets}
             onToggleDiet={toggleDiet}

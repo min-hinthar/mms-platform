@@ -17,11 +17,34 @@ import { serviceClient } from "@mms/db/server";
  *
  * Honesty bounds: last 60 days, paid orders only (refunded/failed excluded), and an item needs ≥2
  * DISTINCT orders before it can claim "table favorite" — one party's bulk order can't crown a dish.
+ * The list is returned RANKED and `LOVED_POOL_MAX` long; the caller takes `LOVED_BADGE_MAX` off the
+ * front for anything the diner reads as a claim (see the note on those two constants below).
  * Grocery barcode lines are excluded (menu_item_id is a soft text ref; only uuid-shaped ids are menu
  * dishes). The row read is capped generously (~5k line rows ≫ a single teahouse's 60-day volume); if
  * the cap is ever hit the newest rows win, which only recency-biases the ranking — never fabricates.
  */
 export type MostLoved = { menuItemId: string; orders: number; qty: number };
+
+/**
+ * ⚠️ TWO BOUNDS, AND THE DIFFERENCE BETWEEN THEM IS A HONESTY RULE, not a tuning knob.
+ *
+ * `LOVED_BADGE_MAX` is how many dishes may wear a VISIBLE CLAIM — the "Table favorite" badge on
+ * every menu row and in the item sheet (`itemBadges`), and the rank seals on the Start-here row.
+ * It stays at 12. On a menu this size, a badge worn by fifty dishes is not a badge; it is a
+ * decoration that says "most of the menu", and `badges.ts`'s founding rule is that a claim must be
+ * true in the sense the diner reads it.
+ *
+ * `LOVED_POOL_MAX` is how far the same ranking is consulted as a SELECTION PREFERENCE — which
+ * dishes get offered first in "a little of everything" and in the taste suggestions. Nothing about
+ * that is shown to the diner as a claim; it only decides what gets surfaced, and surfacing a dish
+ * that 40 tables ordered ahead of one nobody has is a better guess, not a statement.
+ *
+ * Both are exported so the two call sites read the bound by name rather than re-deriving it, and so
+ * a future edit has to argue with this comment. Widening the badge bound is a product decision
+ * about a claim; widening the pool bound is not.
+ */
+export const LOVED_BADGE_MAX = 12;
+export const LOVED_POOL_MAX = 50;
 
 // Strict canonical uuid (8-4-4-4-12) — matches the SQL discriminator in 20260623100000_s4_unified_basket,
 // so the TS and SQL notions of "a menu dish vs a barcode line" can never drift.
@@ -69,7 +92,7 @@ const getMostLovedCached = unstable_cache(
         .map(([menuItemId, a]) => ({ menuItemId, orders: a.orders.size, qty: a.qty }))
         .filter((x) => x.orders >= MIN_DISTINCT_ORDERS)
         .sort((a, b) => b.orders - a.orders || b.qty - a.qty)
-        .slice(0, 12);
+        .slice(0, LOVED_POOL_MAX);
     } catch (e) {
       // Config-shaped failures (missing service key) still swallow INSIDE the boundary: they are
       // stable for the process lifetime, so caching their [] is accurate, and serviceClient() throws
