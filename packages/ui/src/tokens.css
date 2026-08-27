@@ -180,18 +180,21 @@
      `blur(0px)` still allocates a backdrop buffer while `none` allocates nothing. Declared here in
      :root so both themes inherit it; the values are theme-agnostic by construction. */
   --fx-glass-mid: blur(var(--glass-blur-mid)) saturate(var(--glass-sat-mid));
-  --fx-glass-near: blur(var(--glass-blur-near)) saturate(var(--glass-sat-near));
   --fx-glass-far: blur(var(--glass-blur-far)) saturate(var(--glass-sat-far));
   --fx-plane-blur: blur(var(--pa-blur));
   --fx-promote: transform, translate;
 
   /* ── GLASS ────────────────────────────────────────────────────────────────────────────────────
-     Blur radius encodes DISTANCE from the backdrop, never importance: `near` = a pane a hair above
-     its own scroller, `mid` = sticky chrome over the page, `far` = the whole page seen from sheet
-     elevation. Saturation RISES with nearness and drops BELOW 1 at distance — aerial perspective.
+     Blur radius encodes DISTANCE from the backdrop, never importance: `mid` = sticky chrome sitting
+     over the page, `far` = the whole page seen from sheet elevation. Saturation RISES with nearness
+     and drops BELOW 1 at distance — aerial perspective, the same reason a far ridge reads grey.
      CSS blur(R) takes R as the Gaussian STANDARD DEVIATION, so blur(28px) smears a 2px glyph stem
      across ~56px: the defocus scrim DESTROYS page text rather than softening it, which is what
      lets its veil drop. Radii and saturations are theme-agnostic, so they live here only.
+     There is deliberately NO `near` rung. It existed for a frosted sheet head, and the sheet head
+     is not glass: at 0.90 over a white backdrop a --cd-raised pane puts --t3 at 3.8679, and tinting
+     it with --sf instead would put the app's highest plane back on rung 3. Three tokens describing
+     a surface that does not exist is the same defect as a comment describing code that does not.
 
      ⚠️ CHROME GLASS IS OPAQUE IN LIGHT, AND THAT IS A MEASUREMENT, NOT A PREFERENCE. Light-on-dark
      glass can only be LIGHTENED by its backdrop, and the brightest possible backdrop is white,
@@ -201,10 +204,8 @@
      light has none. This also retires a LIVE defect — the md:+ light frost this replaces put
      .app-header-cart (--t2, 13px) at 3.8320:1 over a dark backdrop and .app-header-rewards (--ac)
      at 3.2238:1; opaque restores 5.5546 / 4.6729. */
-  --glass-blur-near: 14px;
   --glass-blur-mid: 20px;
   --glass-blur-far: 28px;
-  --glass-sat-near: 1.35;
   --glass-sat-mid: 1.5;
   --glass-sat-far: 0.85;
   --glass-chrome: var(--sf);
@@ -539,7 +540,6 @@ html[data-fx="lite"] {
 }
 html[data-fx="off"] {
   --fx-glass-mid: none;
-  --fx-glass-near: none;
   --fx-glass-far: none;
   --fx-plane-blur: none;
   --fx-promote: auto;
@@ -563,7 +563,6 @@ html[data-fx="off"].dark {
   :root,
   html[data-fx] {
     --fx-glass-mid: none;
-    --fx-glass-near: none;
     --fx-glass-far: none;
   }
 }

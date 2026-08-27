@@ -30,6 +30,11 @@ import path from "node:path";
  * something this file proves.
  */
 const CSS = readFileSync(path.join(__dirname, "..", "app", "globals.css"), "utf8");
+/** The dial's own declarations live one package over — the same seam `check-theme-parity` crosses. */
+const TOKENS = readFileSync(
+  path.join(__dirname, "..", "..", "..", "packages", "ui", "src", "tokens.css"),
+  "utf8",
+);
 /** Comments name these selectors in prose; a guard a comment can satisfy reads the wrong thing. */
 const CODE = CSS.replace(/\/\*[\s\S]*?\*\//g, "");
 
@@ -86,5 +91,16 @@ describe("the full-viewport blur contract", () => {
     // list, so a rule that hard-codes its filter silently opts out of the escape hatch.
     const raw = [...filtered.entries()].filter(([, v]) => !v.startsWith("var(--fx-"));
     expect(raw).toEqual([]);
+  });
+
+  it("declares no --fx-glass-* rung that nothing consumes", () => {
+    // The other direction, and it caught a real one: `--fx-glass-near` (plus --glass-blur-near and
+    // --glass-sat-near behind it) survived the decision NOT to frost the sheet head, leaving three
+    // tokens documenting a surface that does not exist. That is the same defect as a comment
+    // describing code that does not — it just fails silently instead of misleading a reader once.
+    const declared = [...TOKENS.matchAll(/(--fx-glass-[\w-]+)\s*:/g)].map((m) => m[1] as string);
+    expect(declared.length).toBeGreaterThan(0); // floor: a renamed prefix must not pass vacuously
+    const unused = [...new Set(declared)].filter((t) => !CSS.includes(`var(${t})`)).sort();
+    expect(unused).toEqual([]);
   });
 });
