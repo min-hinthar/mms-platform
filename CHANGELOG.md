@@ -40,7 +40,16 @@ Also kept from #235, because neither depended on the hue: `check-theme-parity`'s
 translucent surfaces pinned to the opaque tokens whose channels they hand-copy) and the contrast
 audit's added dark combo. Coverage has no hue.
 
-<!--GATE-->
+Gate, run and watched to completion rather than assumed: **`pnpm verify:slice` green** — 227 mutants
+caught, no orphans, exit 0 · **`pnpm turbo lint typecheck build test`** 8/8, with `test` force-run
+rather than taken from cache (92 files, 1044 tests) · **`pnpm check:docs`** clean · **contrast audit**
+71 pass · **`check-theme-parity`** exit 0, confirming dark `--surface-glass` = `--cd` rgb(39, 31, 56)
+and `--surface-vellum` = `--sf` rgb(32, 26, 46) on the restored values.
+
+⚠️ The first version of this line claimed only `turbo lint typecheck build` · audit · parity, and the
+blind audit caught that it silently dropped the two gates `CLAUDE.md` makes blocking (`verify:slice`,
+`check:docs`) **and** the `test` task. A gate line that omits gates is worse than no gate line, since
+it reads as a complete account.
 
 **Next, and the actual ask:** Night is not just being put back, it is being deepened — _"make Night
 more enriched, enhanced, layered, shades, effects."_ Four independent directions (depth · light ·
