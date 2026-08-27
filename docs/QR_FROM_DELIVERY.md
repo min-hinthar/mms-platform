@@ -118,9 +118,14 @@ avatars.test.ts` (seat-hue×`#fff` AA + `seatColor`/`seatInitial` logic). **Find
 > two LIGHT call sites were failing worse than ruby ever did: `.lend-banner-back` at **3.53** and
 > `.wb-method` at **3.70**, both rendering plain `--ac` on an accent tint over `--sf` — the exact
 > pairing the audit's own negative guard already declared illegal. Tightest now: light `ac-strong` on
-> the accent tint over `sf` **4.63**; dark **4.52** (`jade-strong` on the wallet chip's hover blend, a
-> combo W22d-1 itself added — which is why the "4.61" this line briefly claimed was stale on arrival) — and the P5.4b-1
-> "seat hues sub-AA" worry was a **phantom**: all five `PCOL` hues clear 4.5:1 (lightest `#A65F10` = 4.92);
+> the accent tint over `sf` **4.63**; dark **4.66** (`ruby-strong` on the wallet chip's hover blend).
+> ⚠️ **Re-measured 2026-08-27:** this line said `jade-strong` at **4.52** until M86/PR A lifted
+> `--jade-strong` off its alias to `#62b380` — a lift KEPT through that PR's revert — which moved jade
+> to **4.6827** and left `ruby-strong` binding first at **4.6561**. The lift falsified the very line
+> that justified it, and this line has now been stale twice (it also briefly claimed "4.61"), so
+> MEASURE this pairing rather than quoting it.
+>
+> Separately, the P5.4b-1 "seat hues sub-AA" worry was a **phantom**: all five `PCOL` hues clear 4.5:1 (lightest `#A65F10` = 4.92);
 > the `avatar.tsx` comment was corrected. (`esbuild` had to be added to `pnpm-workspace.yaml allowBuilds`.)
 > _Deferred fast-follow:_ pure money-math tests (`tax.ts`, `split-math.ts`); component tests (need jsdom +
 > `@vitejs/plugin-react` + `@testing-library`).

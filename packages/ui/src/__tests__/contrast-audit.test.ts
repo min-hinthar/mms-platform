@@ -308,7 +308,7 @@ function combos(map: Record<string, string>, theme: "light" | "dark") {
     //
     // Every `.orb-root` wrapper is Night-forced (`<div className="orb-root dark">`,
     // `ReadyBoard.tsx:164/187/208`) and `.orb-col-ready` renders nowhere else, so this heading's
-    // `color: var(--gold)` always resolves through `.dark` — #f4c879 on #171221, 11.70:1. Asserting
+    // `color: var(--gold)` always resolves through `.dark` — #f4c879 on #171221, 11.69:1. Asserting
     // it in LIGHT would be asserting a pairing the app never renders, and it would fail: light
     // `--gold` on light `--pg` is 1.97.
     //

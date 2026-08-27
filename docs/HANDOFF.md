@@ -186,10 +186,13 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >   block or from `docs/W22D_HUE_DECISION.md` — both describe a rejected direction.
 >
 >   - **DARK → registry M126 · Night ENRICHED, not re-hued.** The hue was never the problem. Measured
->     on the restored ground, the ladder is four steps whose top three sit 1.0717 / 1.0727 / 1.0951
->     apart, `--pg`→`--oa` is 1.0176 (not a step at all), and the hairline `--bd` reads 1.40–1.45
->     against its own surface — so the flatness lives on the LIGHTNESS axis, and the rotation held
->     OKLab L fixed on all four ground values at once. Four directions (depth · light · material ·
+>     on the restored ground, the ladder is **four surfaces and three gaps** — `--pg` → `--sf` → `--cd`
+>     → `--surface-elevated`, contrast **1.0906 / 1.0727 / 1.0951** (Y ratios 1.716× / 1.365× / 1.375×)
+>     — every one under 1.10, and the hairline `--bd` reads only 1.40–1.45 against its own surface. So
+>     the flatness lives on the LIGHTNESS axis, and the rotation held OKLab L fixed on all four ground
+>     values at once. ⚠️ **Do not count `--oa` as a rung** — an earlier draft here did, quoting
+>     1.0717 / 1.0727 / 1.0951 and a "dead step" of 1.0176. `--oa` is on-accent INK (29 `color:` uses
+>     against one `background:`), never a plane behind content. Four directions (depth · light · material ·
 >     atmosphere) go to the owner as a rendered prototype board **before any token moves** (standing
 >     directive: _"always show me my decisions and prototypes so I can pick and choose"_). The hard
 >     limits are measured: `--cd` may lighten by only ΔL 0.0103 before the ruby/jade tint combos

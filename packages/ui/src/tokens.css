@@ -188,8 +188,12 @@
      --ac-strong, so components can use *-strong unconditionally). Jade no longer can — see below. */
   --gold-strong: var(--gold);
   /* `--jade-strong` is NOT an alias, unlike --ac-strong and --gold-strong, and the reason outlives
-     the aubergine rotation that first exposed it. `jade-strong on chip tint HOVER /cd` is the
-     tightest combo in the whole dark audit, and the chip's background is
+     the aubergine rotation that first exposed it. `jade-strong on chip tint HOVER /cd` is among the
+     tightest combos in the dark audit — though NOT the tightest, and the lift below is what changed
+     that: `ruby-strong on chip tint HOVER /cd` now binds first at 4.6561 against this token's 4.6827.
+     (The text here previously said "the tightest", which was true of the ALIAS at 4.5237 and was
+     falsified by the very lift it was justifying. Budget headroom against ruby, not against this.)
+     The chip's background is
      `color-mix(in oklab, --jade 18%, var(--cd))` — a blend against an OPAQUE second colour, so it
      moves whenever --cd moves. Measured against the Night --cd restored above, the ALIAS would
      score 4.5237 — green by 0.0237, on the line.

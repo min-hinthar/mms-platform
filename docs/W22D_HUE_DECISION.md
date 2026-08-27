@@ -24,7 +24,12 @@ _Original status, kept for the record: decided, build deferred, no code changed 
 > the rotation's own effect) and **reverses its sign** — 8-bit reads 4.5237 → 4.5012 (a cost), float
 > reads 4.5112 → 4.5313 (a gain). What holds on both: the alias sits within ~0.03 of the 4.5 line.
 > Registry **M122**. **Lever B was taken** — `--jade-strong` lifted off its alias to `#62b380`, which
-> clears on both methods (4.6594 quantized, 4.6906 float).
+> clears on both methods. ⚠️ **The two numbers this line used to give — 4.6594 quantized, 4.6906
+> float — were measured on the AUBERGINE `--cd`, which no longer exists.** Against the restored
+> Night `--cd` the same token reads **4.6827 quantized, 4.6698 float**, and note that the ORDER
+> reverses between the two grounds (aubergine: quantized below float; Night: quantized above) —
+> which is M122's whole point, and the reason this callout is corrected rather than deleted. The
+> lift itself is KEPT; only the ground it was measured against changed.
 >
 > ⚠️ **The search target and the shipped token are different numbers, and only the second is a fact
 > about the CSS.** The search held hue and chroma and moved OKLab L 0.6919 → **0.6999**; rounding to
@@ -270,7 +275,10 @@ for QR's aubergine must be derived fresh; nothing transfers.**
 
 ## 7. What must move in lockstep — the 36 pinned values
 
-`scripts/check-theme-parity.mjs` pins **36 values across five surfaces** that cannot read a CSS
+`scripts/check-theme-parity.mjs` pins **56 values across seven surfaces** that cannot read a CSS
+(⚠️ this section was written at **36 values / five surfaces** and is corrected in place — surface 6
+is the email palette and surface 7 the translucent surfaces, which §9 below leans on; a
+point-in-time count in a live-state sentence goes stale silently)
 variable. Any token change must update these in the same commit or CI goes red (by design).
 
 | surface                                    | pins   | tokens tracked                                                                                                       |
@@ -312,7 +320,8 @@ that no longer ships (registry **M84**).
    and every ground value is back to the pre-#235 original; **the dark half is superseded by M126,
    which enriches Night rather than re-hueing it.** Lever B (`--jade-strong` off its alias) was
    KEPT — its justification was the width of the measurement noise, not the hue — and so was the
-   guard below, which is the durable part of this entry: It proved the guard workflow and found a gap in it: the two translucent
+   guard below, which is the durable part of this entry. PR A proved the guard workflow and found a
+   gap in it: the two translucent
    surfaces hand-copy `--cd`/`--sf`'s channels because `rgba(var(--cd), 0.9)` is not expressible, and
    nothing checked that. `check-theme-parity.mjs` surface 7 now does — a guard **PRs B and C
    inherit**, since the light ground moves under them too. ⚠️ **It covers 2 of the 9 values PR A
