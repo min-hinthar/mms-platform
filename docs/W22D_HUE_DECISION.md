@@ -1,6 +1,30 @@
 # W22d · Hue direction — DECISION NOTE (2026-08-20)
 
-**Status: decided, build DEFERRED to a future session. No code changed in this pass.**
+**Status (2026-08-26): PR A — the dark half — is BUILT. PRs B and C remain blocked on Q1–Q3 below.**
+
+_Original status, kept for the record: decided, build deferred, no code changed in that pass._
+
+> ⚠️ **§5's trap table is HSL, and PR A did not ship an HSL rotation.** The table below rotates at
+> constant HSL S/L, which raises luminance and costs the tightest combo up to 0.14 by +25°. PR A
+> rotated in **OKLCH with L and C held fixed**, which keeps every ground token's relative luminance
+> within a thousandth of where it was — so the trap fires far more gently than the table predicts
+> (4.5012 at the shipped hue, not 4.384). It still fires — but the margin is smaller than the
+> measurement's own precision, and that is the real reason to act. `mixOklab` quantizes the blended
+> background to 8-bit before computing luminance; carrying floats moves this combo ~0.03 (larger than
+> the rotation's own effect) and **reverses its sign** — 8-bit reads 4.5237 → 4.5012 (a cost), float
+> reads 4.5112 → 4.5313 (a gain). What holds on both: the alias sits within ~0.03 of the 4.5 line.
+> Registry **M122**. **Lever B was taken** — `--jade-strong` lifted off its alias to `#62b380`, which
+> clears on both methods (4.6594 quantized, 4.6906 float).
+>
+> ⚠️ **The search target and the shipped token are different numbers, and only the second is a fact
+> about the CSS.** The search held hue and chroma and moved OKLab L 0.6919 → **0.6999**; rounding to
+> 8-bit sRGB lands the shipped `#62b380` at OKLCH **(0.7012, 0.1102, 154.73)** against `--jade`'s
+> (0.6919, 0.1094, 155.14) — so hue and chroma are near-identical, not identical. Quote the shipped
+> coordinates for any later palette work; this note previously gave the target as though it were the
+> token, which is two incompatible premises for the next reader.
+>
+> The §5 table stands as measured for the parameterisation it names; it should not be read as the
+> cost of any rotation.
 
 Owner, 2026-08-20, verbatim:
 
@@ -273,8 +297,23 @@ that no longer ships (registry **M84**).
 
 ## 9. Suggested sequencing
 
-1. **PR A — dark only.** ~10 tokens, +10–25° hue, plus one measured lever for the jade-hover trap.
-   Small, self-contained, proves the guard workflow.
+1. ~~**PR A — dark only.**~~ **DONE (2026-08-26).** Nine values, OKLCH +14° (HSL 259° → 277°), lever
+   B for the jade-hover trap. It proved the guard workflow and found a gap in it: the two translucent
+   surfaces hand-copy `--cd`/`--sf`'s channels because `rgba(var(--cd), 0.9)` is not expressible, and
+   nothing checked that. `check-theme-parity.mjs` surface 7 now does — a guard **PRs B and C
+   inherit**, since the light ground moves under them too. ⚠️ **It covers 2 of the 9 values PR A
+   moved**: `--surface-elevated`, `--oa` and both `--grad` stops are independent hand-authored values
+   with nothing to pin them to, and **light `--surface-vellum` is the exempted pair** — so the light
+   value most likely to be forgotten in PR C is precisely the one not asserted. Budget for that.
+
+   ⚠️ **PR A also produced a false defect report, and PRs B and C inherit the lesson more than the
+   guard.** It claimed a live 1.97:1 AA failure on the order-ready wall board and shipped a "fix"
+   that was a byte-identical no-op, because that heading renders only inside a Night-forced wrapper
+   where the real ratio is 11.70:1. **A contrast ratio is meaningless until you know which theme the
+   surface renders in**, and this repo has theme-forced subtrees (`.orb-root dark`, `.kds-root dark`)
+   that make the two grounds non-interchangeable. The light re-hue is where that bites hardest: a
+   token moving in `:root` does _not_ reach anything under a `dark` ancestor. Registry **M120**.
+
 2. **Owner picks the maroon** from real swatches (Q1–Q3).
 3. **PR B — the light guard rewrite, BEFORE any token moves.** Replace the flipped negative guards
    with the assertions that are then true, red-first. Decide `--ac-strong`'s fate; delete `--ac2`.

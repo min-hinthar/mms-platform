@@ -4,6 +4,139 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M86 · PR A — Night turns aubergine (2026-08-26)
+
+The owner asked (2026-08-20) for a _"slightly-purple-aubergine-hue theme for dark mode"_.
+[`docs/W22D_HUE_DECISION.md`](docs/W22D_HUE_DECISION.md) §5 quantified that as the **ground** hue
+rotating off its old 260°, named the ~10 values that carry it, and warned that one contrast combo
+would have to be paid for. This is that half — dark only. The light/maroon half (PRs B and C) stays
+blocked on three owner questions and is untouched here.
+
+**Rotated in OKLCH with L and C held fixed — hue only.** The decision note measured an HSL rotation
+at constant S/L, which raises luminance (its table watched the tightest combo fall to 4.384 by +25°).
+Holding OKLab L instead keeps every ground token's relative luminance where it was to within a
+thousandth — `--pg` 0.00725 → 0.00719, `--sf` 0.01243 → 0.01245, `--cd` 0.01697 → 0.01671,
+`--surface-elevated` 0.02334 → 0.02314 — so the ladder a diner reads as depth is unchanged and only
+the hue moves: **HSL 259° → 277°**, squarely inside the note's 270–285 band. Nine values move
+(`--pg` `--sf` `--cd` `--surface-elevated` `--oa`, both `--grad` stops, `--surface-glass`,
+`--surface-vellum`); the accent/status hues sit across the wheel and do not.
+
+**`--jade-strong` loses its alias, and the reason is worth stating precisely — the precise version is
+not the one first written.** The wallet chip's hover background is
+`color-mix(in oklab, --jade 18%, var(--cd))` — an OKLab mix against an **opaque** second colour, so
+re-hueing `--cd` moves the blend's a/b and its luminance even though `--cd`'s own lightness barely
+moved. `jade-strong on chip tint HOVER /cd` was already the tightest combo in the audit at 4.5237;
+after the rotation the suite scores it **4.5012**. So jade gets ruby's W22d-1 treatment, smaller:
+hold OKLab hue and chroma, move L 0.6919 → 0.6999 as searched; 8-bit rounding lands the shipped
+`#62b380` at OKLCH(0.7012, 0.1102, 154.73) against `--jade`'s (0.6919, 0.1094, 155.14), so the values
+are stated as measured rather than as "identical hue and chroma".
+
+⚠️ **The margin that motivated this is smaller than the measurement's own precision, and an earlier
+revision built a story on the difference.** `mixOklab` quantizes the blended background to 8-bit
+before computing luminance; carrying floats instead moves this combo ~0.03 — larger than the
+rotation's own effect (~0.02) — and reverses its sign:
+
+| method                         | pre-rotation `--cd` | post-rotation `--cd` | rotation's effect |
+| ------------------------------ | ------------------- | -------------------- | ----------------- |
+| 8-bit (what the suite asserts) | 4.5237              | 4.5012               | −0.0225 — a cost  |
+| float                          | 4.5112              | 4.5313               | +0.0201 — a gain  |
+
+So _"the rotation cost this combo"_ is a fact about where rounding happens, not about the palette.
+What holds on **both** methods: the alias sits within ~0.03 of the 4.5 line — on it, inside the
+noise — and `#62b380` clears on both (4.6594 quantized, 4.6906 float). That is the justification, and
+it no longer depends on which method is right. Which one models a real screen is a genuine question,
+filed as **M122** rather than settled here.
+
+All **28** dark combos clear AA — measured from the suite, not counted by eye; an earlier revision
+said 27, which was the count _before_ this diff added one.
+
+**New guard — surface 7 of `check-theme-parity.mjs`: the translucent surfaces that cannot reference
+the token they ARE.** `--surface-glass` and `--surface-vellum` are the frosted forms of `--cd` and
+`--sf`, and CSS gives no way to say so (`rgba()` takes raw channels; there is no
+`rgba(var(--cd), 0.9)`), so each hand-copies three numbers out of another token in the same file.
+That is this script's subject exactly and it had no coverage — which is why this re-hue meant editing
+four values in lockstep by hand and trusting the author to notice. Three of the four pairs track;
+light `--surface-vellum` is a hand-authored warm `#faf7ef` matching neither `--sf` nor `--pg`, so it
+is listed as a **named exemption rather than a silent skip** — and the exemption is itself checked
+against both bases its rationale names, and **fails closed**: a value it cannot parse is a failure,
+never a pass, and `var()` aliases are **resolved** before any comparison.
+
+Three rounds of the same fail-open shape were needed to get there, each found by Codex, each one read
+further out — worth listing, because the pattern is the lesson:
+
+1. The exempt value not parsing as `rgba()` short-circuited to green — so rewriting it as `#f2efe7`
+   (exactly `--sf`, the stale condition itself) or `var(--sf)` left the guard green. The commit
+   message claimed a non-`rgba()` value had been falsified when only the NON-exempt path had been.
+2. The channel matcher accepted a **prefix**, so `rgba(250, 247, 239, nope)` yielded three happy
+   channels and reported clean. A custom property takes an arbitrary token stream at parse time and
+   fails only at substitution, so the vellum consumers would have lost their fill with every gate
+   green. Both paths had the hole; they now share one anchored reader that validates the closing
+   delimiter and the alpha, and rejects out-of-range channels.
+3. An **unresolvable base** was read as "not stale". Alias `--sf: var(--vellum-ground)`, mirror that
+   alias in the print re-pin, and the whole script reported clean while the exemption was genuinely
+   stale — two reads failing at once, since `expectHex` was also comparing the alias string to
+   itself and calling it a match. Aliases are not hypothetical: `.dark` ships
+   `--ac-strong: var(--ac)` and `--gold-strong: var(--gold)` today.
+
+Every one of the three is the same error: **absence of evidence read as evidence of absence.** A
+guard that cannot evaluate its subject must fail, not pass. Re-falsified six ways, including two
+negative controls (a syntax-only change must still pass; a whitespace variant must still match).
+
+⚠️ **An earlier revision of this entry claimed a live AA failure on the order-ready wall board, and
+a new CI guard justified by it. Both were wrong and both are gone — the record is kept because the
+mistake is more instructive than the change would have been.**
+
+The claim was that `.orb-col-ready h2` shipped `color: var(--gold)` on `--pg` at **1.97:1**. That
+ratio is correct for the LIGHT ground, and that heading never renders on the light ground: every
+`.orb-root` wrapper is Night-forced (`<div className="orb-root dark">`, `ReadyBoard.tsx:164/187/208`)
+and `.orb-col-ready` exists nowhere else, so it always resolved to dark `--gold` `#f4c879` on dark
+`--pg` — **11.70:1**. `globals.css` said so in the same block that was edited ("Same Night-forced
+wrapper as the KDS"). The "fix" to `--gold-strong` was a **byte-identical no-op**, since
+`--gold-strong: var(--gold)` in `.dark`. A number computed correctly, attributed to a surface that
+renders in the other theme, then written into six places as fact.
+
+The guard built on it — `scripts/check-text-tokens.mjs`, a grep banning `--gold`/`--ac2` as `color:`
+— is **removed rather than repaired**, for a reason that outlives it: _a grep cannot know which theme
+a rule renders in, and that is the fact deciding the rule._ `--gold` as text is illegitimate on the
+light ground and perfectly legitimate inside this repo's Night-forced subtrees (`.orb-root dark`,
+`.kds-root dark`). As a blocking CI step it would have rejected correct code with an untrue
+diagnosis. Its scope table also carried two invented values — a `2.10` contrast **no colour can
+produce** (`#e8a83c`'s maximum against pure white is 2.0797; the real figure is 1.8100, the tightest
+of the three and quoted as the loosest) and a hex `#f6d9a8` found nowhere in the repo (light `--ac2`
+is `#c8772a`) — in a file whose own header congratulated itself for catching a fabricated
+reassurance.
+
+**What survives is the assertion that was missing all along.** The board's real pairing — dark
+`--gold` on dark `--pg` — had **no coverage**, while a defect that never existed collected six
+citations. It is now asserted, dark-only, with the theme restriction as the point rather than a
+convenience.
+
+The wider gap is filed as **M120**, re-scoped by all of this: a text×surface sweep must resolve the
+_rendered_ theme per call site, because this repo has theme-forced subtrees — which is exactly why it
+is not a regex. **M121** (the homepage brand star at 1.97:1 on cream — genuinely light-rendered, and
+WCAG 1.4.11 exempts logotypes, so a brand question rather than a defect) stands for the owner.
+
+Red-first throughout: the parity guard was watched failing on all three mirrors before they were
+updated; the contrast audit was watched failing at 4.492473 (matching the predicted 4.4925 to four
+decimals) on a deliberately under-paid rotation, and the surviving wall-board combo at 2.0659 on a
+darkened dark `--gold`; surface 7 was falsified five ways (drifted channel, re-hued base with the
+frosted surface left behind, undeclared surface, non-`rgba()` value, stale exemption).
+
+**Red-first was necessary and not sufficient here, which is the lesson worth keeping.** The removed
+guard was falsified five ways and every one passed, because falsification proves an assertion _can_
+fail — never that what it asserts is _true of the app_. Its headline catch was watched going red on a
+real call site and was still a non-defect, because nothing in the loop asked which theme that call
+site renders in. The same gap made the old audit combo's own red-first (1.9741, on the light map)
+evidence for the wrong claim. A guard needs both halves: a falsification, and a check that its
+subject is real.
+
+Two further self-inflicted bugs were caught during construction and are recorded because both are
+house failure modes: the sweep first matched **its own documentation** — the fix's comment quoted the
+banned `color: var(--gold)` verbatim — reporting prose nobody renders; and its failure message
+**fabricated a reassurance**, claiming the suggested `--ac-strong` "aliases `--ac2` in dark so Night
+is unchanged" when `--ac-strong` aliases `--ac` and that swap does move Night. Every ratio in this
+entry was computed against `tokens.css`, never transcribed.
+
 ### M72a — the settlement derives availability instead of being told it (2026-08-26)
 
 **The registry said closing M72 needed a reservation. The widest of its three windows did not.**
