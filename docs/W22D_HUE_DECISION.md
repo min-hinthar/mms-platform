@@ -273,23 +273,34 @@ for QR's aubergine must be derived fresh; nothing transfers.**
 
 ---
 
-## 7. What must move in lockstep — the 36 pinned values
+## 7. What must move in lockstep — the 56 pinned values
 
 `scripts/check-theme-parity.mjs` pins **56 values across seven surfaces** that cannot read a CSS
-(⚠️ this section was written at **36 values / five surfaces** and is corrected in place — surface 6
-is the email palette and surface 7 the translucent surfaces, which §9 below leans on; a
-point-in-time count in a live-state sentence goes stale silently)
 variable. Any token change must update these in the same commit or CI goes red (by design).
 
-| surface                                    | pins   | tokens tracked                                                                                                       |
-| ------------------------------------------ | ------ | -------------------------------------------------------------------------------------------------------------------- |
-| `sw/sw.ts` — offline shell                 | 4      | light+dark `--pg`, `--tx`                                                                                            |
-| `app/layout.tsx` — `viewport.themeColor`   | 2      | light+dark `--pg`                                                                                                    |
-| `globals.css` — `@media print`             | **15** | `--tx --t2 --t3 --bd --ac-strong --sf --cd --ok --okb --warn --warnb --ac --gold-strong --jade-strong --ruby-strong` |
-| `lib/stripe-client.ts` — Payment Element   | 10     | `ac cd tx t2 warn` × light + dark                                                                                    |
-| `app/opengraph-image.tsx` — Satori palette | 5      | `--pg --tx --gold --ac --t2` (light only)                                                                            |
+⚠️ **This section was written at 36 values / five surfaces and is corrected in place (2026-08-27).**
+Surfaces 6 (the email palette, M83) and 7 (the translucent surfaces, W22d/PR A) were added later, and
+§9 below leans on surface 7 while this table did not list it. The counts below are taken from the
+script's own run output, not hand-tallied.
 
-Per-token cost: light `--ac` → 3 edits · light `--tx` → 4 · light `--pg` → 4.
+| surface                                         | pins   | tokens tracked                                                                                                                              |
+| ----------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sw/sw.ts` — offline shell                      | 4      | light+dark `--pg`, `--tx`                                                                                                                   |
+| `app/layout.tsx` — `viewport.themeColor`        | 2      | light+dark `--pg`                                                                                                                           |
+| `globals.css` — `@media print`                  | **15** | `--tx --t2 --t3 --bd --ac-strong --sf --cd --ok --okb --warn --warnb --ac --gold-strong --jade-strong --ruby-strong`                        |
+| `lib/stripe-client.ts` — Payment Element        | 10     | `ac cd tx t2 warn` × light + dark                                                                                                           |
+| `app/opengraph-image.tsx` — Satori palette      | 5      | `--pg --tx --gold --ac --t2` (light only)                                                                                                   |
+| `emails/palette.ts` — the email table (M83)     | 11     | light `--pg --cd --tx --t2 --t3 --ac --oa --ink --gold --warn` + `bd` derived as `--bd` over `--cd`                                         |
+| `emails/*.tsx` — raw-colour sweep (M83, b)      | 5      | no token: asserts **zero** raw hex/rgba in each shipped template                                                                            |
+| `tokens.css` — translucent surfaces (W22d/PR A) | 4      | light+dark `--surface-glass` = `--cd`; dark `--surface-vellum` = `--sf`; light `--surface-vellum` **exempt** (hand-authored, stale-checked) |
+
+Total **56** — 51 pinned values plus the 5 per-template sweep confirmations, matching the script's own
+reported count.
+
+Per-token cost: light `--ac` → **4** edits · light `--tx` → **5** · light `--pg` → 4. (The first two
+were 3 and 4 before the email mirror existed. `--ac-strong` is a distinct token and does not count
+toward `--ac`; the email `ink` key is pinned to `--ink`, which merely shares `--tx`'s value, so it is
+not a fifth `--tx` edit.)
 
 **Two more pinned facts will go red on purpose:** `manifest.test.ts:51-52` asserts
 `theme_color === background_color === --pg`; and the recipe percentages (`.lend-banner-back` 16%,

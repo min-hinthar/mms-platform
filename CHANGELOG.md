@@ -51,6 +51,43 @@ blind audit caught that it silently dropped the two gates `CLAUDE.md` makes bloc
 `check:docs`) **and** the `test` task. A gate line that omits gates is worse than no gate line, since
 it reads as a complete account.
 
+### A finding I filed at HIGH, and then measured out of existence (2026-08-27)
+
+**M128 claimed shipped Night had a live sub-AA pixel from the page grain, and that the composited
+ground out-glowed the cards sitting on it. Both claims are withdrawn.** The row is rewritten from
+measurement and downgraded to **low**.
+
+Codex round 2 refused it on method rather than on conclusion, and was right. The number rested on a
+grain pixel assumed to be alpha 1 **and** rgb 255 simultaneously — a claim about how `feTurbulence`
+distributes RGBA that had never been measured. I had reported it as "reproducing exactly on both
+models"; both models shared that assumption, so the agreement was worth nothing.
+
+Three independent measurements settled it: the SVG 1.1 §15.7.15 reference algorithm transcribed and
+self-validated against the spec's own test vector (the 10,000th number from seed 1 must be
+1043618065 — it is), plus two headless-Chromium renders of the real CSS, one decoding the PNGs with a
+hand-written zlib inflater. They agree on mean RGB to **0.05/255**, which is the load-bearing
+cross-check: it proves the from-spec model reproduces Skia rather than merely agreeing with itself.
+
+| claim                                       | filed                      | measured                                                    |
+| ------------------------------------------- | -------------------------- | ----------------------------------------------------------- |
+| worst grain pixel                           | `#39333c` → 4.2610         | **no pixel produces it**                                    |
+| max grain alpha                             | assumed 1.0                | **0.894** — alpha 255 occurs zero times                     |
+| whitest channel                             | assumed 255                | **242** — white never occurs                                |
+| pixels with alpha > 0.85 AND all rgb > 0.85 | assumed to exist           | **zero**                                                    |
+| ground vs card                              | ground ≥ `--cd` (inverted) | **`--cd` is 1.762× its page**, 1.079× in the brightest tile |
+| the culprit                                 | the grain                  | **`--tex-line` grid crossings**, 100% of them               |
+
+A sub-AA region does exist — 170 of 1,260,000 viewport px, worst `#3c373d` → 4.0410 — but every
+instance is a 1px grid hairline inside the top gold lobe, and **neither layer breaches alone** (bare
+crossing 4.5897, grain-only max 5.0101). No text-sized region is near the floor: the worst 44×44
+patch means 5.4667. **So the row's own prescription was inert** — dimming `--tex-grain-opacity`, which
+is what it told you to do, would have moved nothing.
+
+What is still unverified is what decides whether even **low** is warranted: nobody has measured a real
+page with real text over those pixels, and the app header covers y=0 where the effect is strongest.
+Two of the three renders also share Chromium — WebKit and Gecko are unmeasured, and iOS Safari is a
+primary target here.
+
 **Next, and the actual ask:** Night is not just being put back, it is being deepened — _"make Night
 more enriched, enhanced, layered, shades, effects."_ Four independent directions (depth · light ·
 material · atmosphere) are being designed against measured ground truth and will be shown as a
