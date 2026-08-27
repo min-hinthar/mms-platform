@@ -5,7 +5,7 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-08-21 — the M-registry backlog is being worked in severity order; W22d proper remains and is OWNER-BLOCKED)
+> ## ⏭️ NEXT SESSION — start here (2026-08-21 — the M-registry backlog is being worked in severity order; W22d proper SPLITS — its **dark half is UNBLOCKED and in progress as M126** (Night enriched, not re-hued; the aubergine direction was built, rejected and reverted), its **light/maroon half stays OWNER-BLOCKED on M86**)
 >
 > ### ⏭️ Pick up here — M116 closed; M111 · M112 are the next open rows, plus the new M119 class
 >
