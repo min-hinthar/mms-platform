@@ -136,7 +136,14 @@ h3 {
   max-height: 90vh;
   max-height: calc(var(--sheet-max-h) - var(--kb-inset, 0px));
   overflow-y: auto;
-  background: var(--pg);
+  /* M126 — was var(--pg), the app's LOWEST tone on its HIGHEST plane. Against the defocus scrim the
+     sheet separated by only 1.0385:1; on --cd it reads 1.3216, and the head one rung above it
+     (--cd-raised) then reads as pinned chrome over its own body rather than a seam. Deliberately
+     --cd and not --cd-raised: `.item-opt` fills with --sf, so a --cd sheet leaves the option row
+     recessed by exactly one rung (1.1039) while a --cd-raised sheet would recess it by two and
+     invert the whole in-sheet ladder. Every text token on --cd is long-asserted in
+     contrast-audit.test.ts. */
+  background: var(--cd);
   border-radius: var(--r-sheet) var(--r-sheet) 0 0;
   /* W9e — the sheet was the ONE overlay with no width bound in an app whose every page column caps
      at 440 (J13): on tablet/desktop it stretched edge to edge over a 440px page. Centered with AUTO
@@ -715,18 +722,6 @@ html[data-ambient="paused"] .pa-mid {
   .paper-ambient,
   .pa-pause {
     display: none;
-  }
-}
-
-/* Sticky chrome frost — desktop only (the mobile GPU budget forbids backdrop-filter below md:).
-   With the ambient now scrolling underneath, the header/toolbar read as frosted glass shelves
-   instead of hard --pg slabs. Mobile keeps today's exact opaque paint. */
-@media (min-width: 768px) {
-  .app-header,
-  .menu-toolbar {
-    background: color-mix(in oklab, var(--pg) 84%, transparent);
-    -webkit-backdrop-filter: blur(12px) saturate(1.12);
-    backdrop-filter: blur(12px) saturate(1.12);
   }
 }
 
@@ -7847,5 +7842,193 @@ html[data-seen-surface] .mms-stagger {
   .sound-switch,
   .sound-knob {
     transition: none;
+  }
+}
+
+/* ══ M126 · THE GLASS ═════════════════════════════════════════════════════════════════════════
+   Replaces W22a's md:+-only frost. Three rules decide membership, and each is a measurement:
+
+   1. GLASS IS CHROME YOU LOOK THROUGH; IT IS NEVER A SURFACE YOU READ. Cards, sheets, the header
+      disclosure panel, the toast and the cart bar stay opaque — see the opaque register below.
+   2. NEVER NEST GLASS IN GLASS. A backdrop-filter element's child samples the parent's ALREADY
+      filtered output: double the buffer, near-zero visual delta. `.menu-search` keeps its opaque
+      --sf fill inside the frosted toolbar.
+   3. A SELECTED ELEMENT NEVER GETS GLASS. The lit gold cap needs --oa ink on an OPAQUE fill; a
+      translucent cap leaks backdrop through the ink and reads as disabled. Selection is the one
+      vocabulary glass may not touch (docs/DESIGN-LANGUAGE.md §2).
+
+   AND THE SHEET HEAD IS NOT GLASS EITHER, which is where this design and its own first draft part
+   company. Frosting it needs a tint, and both candidates fail: --cd-raised at 0.90 over a white
+   backdrop puts --t3 at 3.8679 and --t2 at 4.7972, while tinting it with --sf instead would put the
+   app's HIGHEST plane back on rung 3 — reopening the exact inversion the head was just moved off.
+   It stays opaque and gets the lacquer rake instead.
+
+   THE LIGHT THEME LOSES ITS DESKTOP FROST, AND THAT IS A FIX, NOT A REGRESSION. The block this
+   replaces frosted the LIGHT header at md:+ with `--pg 84%`: .app-header-cart (--t2, 13px)
+   measured 3.8320:1 over a dark backdrop and 4.1859 over a merely mid-dark photo, and
+   .app-header-rewards (--ac) 3.2238 / 3.5215. Opaque restores 5.5546 / 4.6729. If light glass is
+   ever wanted back, the ONLY safe route is removing small text from the pane — not tuning the
+   alpha, because even 0.94 lands --t3 at 4.172. ── */
+
+/* The pane. Opaque paint in BOTH themes — the frost is added only under .dark below, so light never
+   allocates a backdrop buffer at all (a `blur(0px)` would still allocate one; `none` does not). */
+.app-header,
+.menu-toolbar {
+  background-color: var(--glass-chrome);
+  /* The frost EDGE, all on ONE element: a lit top lip plus the light-piping band inside the lower
+     cut edge. Painted as a BACKGROUND-IMAGE, never a ::after — a positioned pseudo would paint
+     above the pane's own inline text, and giving `.app-header > *` a z-index would make
+     .app-header-actions a containing block and break .app-header-panel's left/right offsets
+     (AppHeader.tsx documents that it must stay `position: static`). A background layer paints
+     under all content, so there is no stacking game to lose. */
+  background-image: linear-gradient(to top, var(--frost-pipe), transparent 22px);
+  background-repeat: no-repeat;
+  border-bottom: 1px solid var(--frost-rim);
+  box-shadow:
+    inset 0 1px 0 var(--frost-edge),
+    inset 0 -1px 0 var(--edge-lo),
+    var(--sh);
+}
+/* The frost itself — NIGHT ONLY, at every viewport. `saturate()` preserves luma and clamps at 255,
+   so no backdrop can composite brighter than white: that is what makes the 0.90 alpha floor a
+   rigorous bound rather than a hopeful one. NEVER add `brightness()` above 1 to a text-bearing
+   pane — it breaks the bound. The saturation boost is the actual glass tell: the eye reads
+   chromatic variation, not the mean, so a gold chip or a curry photo passing underneath is what
+   makes 10% of backdrop read as glass at all. */
+.dark .app-header,
+.dark .menu-toolbar {
+  -webkit-backdrop-filter: var(--fx-glass-mid);
+  backdrop-filter: var(--fx-glass-mid);
+}
+/* Without backdrop-filter a 0.90 pane is just a translucent slab: content shows through UNBLURRED
+   and the AA bound above no longer holds. Opaque is the correct fallback, not a degraded one. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .dark .app-header,
+  .dark .menu-toolbar {
+    background-color: var(--sf);
+  }
+}
+
+/* ── THE DEFOCUS SCRIM ────────────────────────────────────────────────────────────────────────
+   The scrim was a flat veil: it dimmed the page and threw away its structure, so an open sheet read
+   as a slab on a void. Defocused instead, the diner keeps the spatial memory of the page they came
+   from while nothing on it stays legible. The veil drops 0.62 → 0.44, so the backdrop passes at
+   0.56× instead of 0.38× — 47% brighter — and that is safe because blur(28px) is a Gaussian with
+   σ 28px: a 16px glyph's ~2px stem spreads over ~56px, below noise. Once defocused, the alpha's
+   only remaining job is separation.
+   Deliberately NOT `brightness()` in the filter: a black veil and brightness() are mathematically
+   identical (both multiply), and a paint is cheaper than an extra filter op on a ~13.8 MB buffer.
+   saturate(0.85) is aerial perspective — the page is far away now, and distance drains chroma.
+   ⚠️ THIS IS THE ENTIRE GLASS BUDGET. A full-viewport backdrop buffer scales with the pane's AREA,
+   not the blur radius, so lowering the radius would save nothing and this one layer is ~80% of the
+   total. That is why `.mms-sheet` gets no filter of its own: a second large blur stacked directly
+   on this already-blurred output is the exact pattern that OOM-crashed iOS WebKit. Never set
+   `will-change: backdrop-filter` on any of these — it keeps the buffer resident after close. */
+.mms-scrim,
+.tier-up,
+.merge-beat {
+  background: var(--scrim-glass);
+  -webkit-backdrop-filter: var(--fx-glass-far);
+  backdrop-filter: var(--fx-glass-far);
+}
+/* No backdrop-filter can be assumed to exist — and here the fallback matters more than usual,
+   because without it the LOWERED veil would leave the page crisp and readable behind an open
+   sheet, which is worse than what shipped. Fall back to the original dim. The same rule covers the
+   `off` dial: it re-points --fx-glass-far to `none`, so the veil must come back with it. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .mms-scrim,
+  .tier-up,
+  .merge-beat {
+    background: var(--scrim);
+  }
+}
+html[data-fx="off"] .mms-scrim,
+html[data-fx="off"] .tier-up,
+html[data-fx="off"] .merge-beat,
+html[data-fx="lite"] .mms-scrim,
+html[data-fx="lite"] .tier-up,
+html[data-fx="lite"] .merge-beat {
+  background: var(--scrim);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .mms-scrim,
+  .tier-up,
+  .merge-beat {
+    background: var(--scrim);
+  }
+}
+/* The entrance animates OPACITY only, never the blur radius: animating `blur(0→28px)` re-derives
+   the downsample pyramid every frame on the largest buffer in the app, while element opacity
+   composites the filtered result at a FIXED radius, which the compositor can cache. */
+.tier-up,
+.merge-beat {
+  animation: fade 0.24s var(--ease-out);
+}
+
+/* Windows High Contrast: the OS owns the palette, and a backdrop-filter there produces an
+   unreadable smear the user cannot override. Print: a frosted shelf must never reach paper. */
+@media (forced-colors: active) {
+  .app-header,
+  .menu-toolbar,
+  .mms-scrim,
+  .tier-up,
+  .merge-beat {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background-image: none;
+    box-shadow: none;
+  }
+}
+@media print {
+  .app-header,
+  .menu-toolbar {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background-image: none;
+    box-shadow: none;
+  }
+}
+
+/* ── THE OPAQUE REGISTER — what glass may NOT touch, written as code ───────────────────────────
+   These are not omissions. Each is a surface where the backdrop moves contrast in the direction the
+   palette has no headroom for, or a surface whose whole job is to be read.
+
+   ── .app-header-panel — a dl of --t3/--t2 rows, i.e. a reading surface; it is the second-largest
+      candidate buffer in the app; and it hangs DIRECTLY beneath the frosted header, so frosting it
+      would nest one blur under another. Opaque --cd, unchanged.
+   ── .mms-toast — an INVERTED pill (`background: var(--tx)`, `color: var(--pg)`). An inverted
+      surface has zero headroom in the direction a backdrop moves it: a translucent cream pill over
+      dark content greys out and the dark ink collapses with it. The clearest case of rule 1.
+   ── .cartbar — a solid --ac primary CTA. Gold is the colour of action AND of selection; a
+      translucent CTA reads as disabled, and --oa ink on a leaky gold fill is the same failure as a
+      glass selection cap.
+   ── .menu-search — lives INSIDE the frosted toolbar. Nested glass doubles the buffer for a delta
+      the eye cannot resolve, because the child samples the parent's already-filtered output.
+   ── `.surface-glass` / `.surface-paper` (above) have zero call sites in apps/ or packages/. Do NOT
+      revive them into a second glass vocabulary. Note what the TOKEN measures: --surface-glass is
+      --cd at 0.9, which puts --t3 at 4.3328 over a white backdrop — a FAIL. It is safe for
+      text-free overlays only, which is why the chrome got its own --glass-chrome (--sf at 0.90).
+
+   Belt and brace on selection, so a future `.something-on` inherits the ban rather than having to
+   re-derive it: */
+.menu-tab-active,
+.checkout-pill-on,
+.checkout-tip-on,
+.slot-time-on,
+.slot-day-on,
+.taste-chip-on,
+[aria-selected="true"],
+[aria-pressed="true"] {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* The scrim's own fade is already killed above; these two were never covered — and the FROST is
+     deliberately not removed with it. A defocused page is a static property of the rendering, not
+     motion, so under RM the overlay simply appears already-defocused, which is the better of the
+     two designs anyway (the transition was never carrying information). */
+  .tier-up,
+  .merge-beat {
+    animation: none;
   }
 }
