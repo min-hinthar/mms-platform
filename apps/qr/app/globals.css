@@ -7922,14 +7922,25 @@ html[data-seen-surface] .mms-stagger {
    Deliberately NOT `brightness()` in the filter: a black veil and brightness() are mathematically
    identical (both multiply), and a paint is cheaper than an extra filter op on a ~13.8 MB buffer.
    saturate(0.85) is aerial perspective — the page is far away now, and distance drains chroma.
-   ⚠️ THIS IS THE ENTIRE GLASS BUDGET. A full-viewport backdrop buffer scales with the pane's AREA,
-   not the blur radius, so lowering the radius would save nothing and this one layer is ~80% of the
-   total. That is why `.mms-sheet` gets no filter of its own: a second large blur stacked directly
-   on this already-blurred output is the exact pattern that OOM-crashed iOS WebKit. Never set
-   `will-change: backdrop-filter` on any of these — it keeps the buffer resident after close. */
-.mms-scrim,
-.tier-up,
-.merge-beat {
+   ⚠️ THIS IS THE ENTIRE GLASS BUDGET, AND IT BELONGS TO `.mms-scrim` ALONE. A full-viewport backdrop
+   buffer scales with the pane's AREA, not the blur radius, so lowering the radius would save
+   nothing and this one layer is ~80% of the total.
+
+   `.tier-up` and `.merge-beat` are the same shape — fixed, inset:0 — and they are DELIBERATELY not
+   here. They can co-mount: `MergeRedeemer` and `RewardsHub`→`TierUpCelebration` are BOTH rendered
+   by apps/qr/app/account/page.tsx (lines 48 and 138), and MergeRedeemer's own comment says it
+   refreshes the hub so the merged Stars appear — which is exactly the path that awards a tier. Two
+   of these alive at once is ~41 MB of backing store on a phone, squarely the pattern that
+   OOM-crashed an iOS WebKit tab in production. A celebration card is also the wrong place to spend
+   it: the page behind it is not something the diner is trying to keep hold of, which is the entire
+   argument FOR defocusing a sheet's scrim. They keep the plain deep veil they already had.
+   Pinned by `apps/qr/lib/fullscreen-blur-contract.test.ts`, which fails if a second full-viewport
+   selector ever takes a backdrop-filter.
+
+   Same reason `.mms-sheet` gets no filter of its own: a second large blur stacked directly on this
+   already-blurred output is the same stack. Never set `will-change: backdrop-filter` on any of
+   these — it keeps the buffer resident after close. */
+.mms-scrim {
   background: var(--scrim-glass);
   -webkit-backdrop-filter: var(--fx-glass-far);
   backdrop-filter: var(--fx-glass-far);
@@ -7939,24 +7950,16 @@ html[data-seen-surface] .mms-stagger {
    sheet, which is worse than what shipped. Fall back to the original dim. The same rule covers the
    `off` dial: it re-points --fx-glass-far to `none`, so the veil must come back with it. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .mms-scrim,
-  .tier-up,
-  .merge-beat {
+  .mms-scrim {
     background: var(--scrim);
   }
 }
 html[data-fx="off"] .mms-scrim,
-html[data-fx="off"] .tier-up,
-html[data-fx="off"] .merge-beat,
-html[data-fx="lite"] .mms-scrim,
-html[data-fx="lite"] .tier-up,
-html[data-fx="lite"] .merge-beat {
+html[data-fx="lite"] .mms-scrim {
   background: var(--scrim);
 }
 @media (prefers-reduced-transparency: reduce) {
-  .mms-scrim,
-  .tier-up,
-  .merge-beat {
+  .mms-scrim {
     background: var(--scrim);
   }
 }
@@ -7973,9 +7976,7 @@ html[data-fx="lite"] .merge-beat {
 @media (forced-colors: active) {
   .app-header,
   .menu-toolbar,
-  .mms-scrim,
-  .tier-up,
-  .merge-beat {
+  .mms-scrim {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
     background-image: none;

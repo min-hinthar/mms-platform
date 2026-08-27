@@ -64,6 +64,21 @@ to 8 bits and so reads up to ~0.03 tighter than a hand calculation, which put li
 disagreement. It is 0.04 now (4.6428), and the token comments quote the guard rather than the hand
 calculation.
 
+**At most one full-viewport backdrop-filter, and that is now mechanical.** The first draft of the
+glass layer gave the defocus to `.mms-scrim`, `.tier-up` and `.merge-beat` together. Two of those
+can be alive at once — `MergeRedeemer` and `RewardsHub` → `TierUpCelebration` are both rendered by
+`/account`, and MergeRedeemer's own comment says it refreshes the hub so the merged Stars appear,
+which is exactly the path that awards a tier. A backdrop buffer scales with a pane's AREA and not
+with its blur radius, so two viewport-sized panes is ~41 MB on a phone — the shape that OOM-crashed
+an iOS WebKit tab in this product. The defocus belongs to `.mms-scrim` alone now; the celebrations
+keep the plain deep veil they already had, which is also the right call on its own terms, since the
+page behind a celebration card is not something the diner is holding on to.
+`apps/qr/lib/fullscreen-blur-contract.test.ts` fails if a second viewport-sized selector ever takes
+one, and also fails a filter that hard-codes its own value instead of reading the dial — because a
+rule that bypasses `--fx-*` silently opts out of the escape hatch. Three mutations, each watched go
+red. It checks the STYLESHEET and not the DOM, and says so: no two sheets in this app are openable
+at once today, but that is a fact about the components, not something the guard proves.
+
 **Not shipped, and said out loud rather than quietly dropped.** The dish-card photo bleed is deferred
 (M129): it needs `--card-photo` wired at three call sites, and a raw `url()` in CSS bypasses
 `next/image`, so every rail card would fetch a second unoptimized copy of its photo to paint a hover
