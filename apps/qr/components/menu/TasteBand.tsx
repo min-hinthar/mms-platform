@@ -5,6 +5,7 @@ import {
   CRAVINGS,
   recommendByTaste,
   surpriseMe,
+  refillSurprise,
   topUpToFloor,
   TASTE_ROW_MAX,
   type CravingId,
@@ -114,11 +115,23 @@ export function TasteBand({
   // W21 review — re-derived BY ID against the live pool each render: the tapped snapshot could go
   // stale across a refresh (a card still offering a since-sold-out dish at its old price), and a
   // diet toggled after the tap must drop non-passing picks the same way.
+  //
+  // M133 / Codex round 2 P2 — and it TOPS UP when that filtering leaves a partial row. Draw seven,
+  // then switch on a dietary filter: three survive, and the row silently rendered three cards under
+  // an advertised 4–7 bound. A PARTIAL row is not the same thing as an empty one — an empty
+  // surprise is INFORMATION ("nothing new to surprise you with"), which is why the zero case still
+  // falls through to the honest empty states below untouched, but three arbitrary survivors say
+  // nothing at all while other eligible dishes sit right there.
+  //
+  // The rule itself lives in `refillSurprise` (lib/menu/taste.ts) rather than here, because a
+  // decision written in a component cannot be guarded — its docblock carries why the top-up is
+  // deterministic and why the hearted dishes stay excluded.
   const liveSurprise = useMemo(() => {
     if (surprise.length === 0) return [];
     const byId = new Map(pool.map((i) => [i.id, i]));
-    return surprise.map((s) => byId.get(s.id)).filter((i): i is MenuItem => !!i);
-  }, [surprise, pool]);
+    const alive = surprise.map((s) => byId.get(s.id)).filter((i): i is MenuItem => !!i);
+    return refillSurprise(alive, pool, heartedIds, popularIds);
+  }, [surprise, pool, heartedIds, popularIds]);
   // Branch on whether a surprise was REQUESTED, not on what it holds (Codex P2 ×2 on #194): a
   // diet toggled after the tap can empty the row, and an exhausted pool empties it AT the tap —
   // either way, silently showing craving matches would change what the rail MEANS. An empty
@@ -130,9 +143,10 @@ export function TasteBand({
   // heat" must never wear that line, however short the row is — the whole band is built on every
   // card saying the true reason it is there.
   //
-  // The surprise row is deliberately NOT topped up. Its own emptiness is INFORMATION ("your
-  // favorites already cover everything that fits"), and the empty states below say which case it
-  // is; padding it would replace an honest answer with a filler one.
+  // An EMPTY surprise row is still never padded. Its emptiness is INFORMATION ("your favorites
+  // already cover everything that fits"), and the empty states below say which case it is; padding
+  // it would replace an honest answer with a filler one. A partially-filtered row is the different
+  // case, handled at `liveSurprise` above.
   const cravingRow = useMemo(() => {
     const matched: { item: MenuItem; why: string }[] = recs.map(({ item, matched: m }) => ({
       item,

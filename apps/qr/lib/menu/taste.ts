@@ -244,3 +244,35 @@ export function topUpToFloor<T extends { id: string }>(
   // Stable sort: unranked dishes keep the server's menu order among themselves.
   return [...eligible].sort((a, b) => rank(a.id) - rank(b.id)).slice(0, need);
 }
+
+/**
+ * M133 / Codex round 2 P2 — the surprise row after the live pool has filtered it.
+ *
+ * `surpriseMe` draws once; the caller then re-derives that snapshot by id against the current pool
+ * every render, because a diet toggled after the tap (or a dish going sold-out) must drop picks
+ * that no longer qualify. That re-derivation could leave the row BELOW the advertised floor: draw
+ * seven, switch a filter on, render three.
+ *
+ * A PARTIAL row and an EMPTY one are different facts and get different answers:
+ *   · partial → top up from the current pool, so the row keeps the bound it advertises;
+ *   · empty   → return empty, untouched. An empty surprise is INFORMATION ("nothing new to
+ *               surprise you with — your favorites already cover everything that fits"), and the
+ *               caller's empty states say which case it is. Padding that would replace an honest
+ *               answer with a filler one.
+ *
+ * The top-up is DETERMINISTIC rather than a fresh random draw, for two reasons that are easy to get
+ * wrong: the caller runs this inside a `useMemo`, so an `Math.random()` here would reshuffle the
+ * row's tail on every render; and re-drawing the whole row would throw away the cards the diner is
+ * already looking at because a filter moved. `excludeIds` carries `surpriseMe`'s own contract
+ * forward — a top-up may never offer a dish they have already hearted.
+ */
+export function refillSurprise<T extends { id: string }>(
+  alive: readonly T[],
+  pool: readonly T[],
+  excludeIds: ReadonlySet<string>,
+  popularIds: readonly string[] = [],
+): T[] {
+  if (alive.length === 0) return [];
+  const candidates = pool.filter((i) => !excludeIds.has(i.id));
+  return [...alive, ...topUpToFloor(alive, candidates, popularIds)];
+}

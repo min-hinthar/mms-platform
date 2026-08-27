@@ -4,6 +4,7 @@ import {
   recommendByTaste,
   surpriseMe,
   topUpToFloor,
+  refillSurprise,
   TASTE_ROW_MIN,
   TASTE_ROW_MAX,
 } from "./taste";
@@ -219,5 +220,53 @@ describe("M133 — the row bounds, and the honest way to reach the floor", () =>
       const tiny = pool.slice(0, 3);
       expect(topUpToFloor(tiny.slice(0, 1), tiny, [])).toHaveLength(2);
     });
+  });
+});
+
+describe("refillSurprise — Codex round 2, P2: a partial row is topped up, an empty one is not", () => {
+  const pool = Array.from({ length: 10 }, (_, k) => ({ id: `p${k}` }));
+
+  it("THE FINDING — three survivors of a seven-card draw come back at the floor", () => {
+    // "Draw seven surprises and then enable a dietary filter … `liveSurprise` can retain only 1–3
+    // cards even when the filtered pool contains enough other eligible, non-hearted dishes to
+    // satisfy the new four-card minimum." Verified against source before fixing: the branch
+    // rendered that partial snapshot directly and only treated ZERO as empty.
+    const alive = pool.slice(0, 3);
+    expect(refillSurprise(alive, pool, new Set())).toHaveLength(TASTE_ROW_MIN);
+  });
+
+  it("keeps the cards the diner is already looking at, in place", () => {
+    // A fresh draw would be the lazy fix and it throws away the row for a filter toggle.
+    const alive = [pool[4]!, pool[7]!];
+    expect(refillSurprise(alive, pool, new Set()).slice(0, 2)).toEqual(alive);
+  });
+
+  it("an EMPTY row is never padded — its emptiness is the answer", () => {
+    expect(refillSurprise([], pool, new Set())).toEqual([]);
+  });
+
+  it("never tops up with a hearted dish — surpriseMe's contract survives the refill", () => {
+    const hearted = new Set(["p1", "p2", "p3", "p4"]);
+    const out = refillSurprise([pool[0]!], pool, hearted);
+    expect(out.some((i) => hearted.has(i.id))).toBe(false);
+  });
+
+  it("prefers the most-ordered dishes for the top-up", () => {
+    expect(
+      refillSurprise([pool[0]!], pool, new Set(), ["p9", "p8", "p7"]).map((i) => i.id),
+    ).toEqual(["p0", "p9", "p8", "p7"]);
+  });
+
+  it("is DETERMINISTIC — the same inputs give the same row, twice", () => {
+    // It runs inside a useMemo; a random top-up would reshuffle the tail on every render.
+    const alive = [pool[0]!, pool[1]!];
+    expect(refillSurprise(alive, pool, new Set(), ["p6"])).toEqual(
+      refillSurprise(alive, pool, new Set(), ["p6"]),
+    );
+  });
+
+  it("cannot invent dishes: a nearly-exhausted pool returns what exists", () => {
+    const tiny = pool.slice(0, 2);
+    expect(refillSurprise([tiny[0]!], tiny, new Set())).toHaveLength(2);
   });
 });

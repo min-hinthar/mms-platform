@@ -52,7 +52,18 @@ that fits"), and padding it would replace an honest answer with a filler one.
 It is `position: sticky`, so this changes only where it starts — it still pins under the header on
 scroll, and every section's `scrollMarginTop` is measured from its height rather than its position.
 
-Two defects found by the tests during the build, both in code written this session: phase 2
+**Codex round 2 found two more, and both were right.** (1) The ranked round ran unbounded, and
+"least-served" only balances buckets that HAVE an eligible dish — a bucket with nothing ranked is
+skipped rather than waited for, so ten ranked dishes in one category would take the whole ten-card
+cap and leave "a little of everything" showing exactly one. Coverage is bought FIRST now: round 1
+is one dish per category (its best-ranked, since the buckets are rank-sorted), round 2 spends the
+remaining slots on the ranking, round 3 fills anything left. (2) The surprise row could fall below
+its own advertised floor — draw seven, switch a dietary filter on, three survive, and the row
+rendered three cards because only the ZERO case was treated as empty. `refillSurprise` tops a
+PARTIAL row back up (deterministically, ranked-first, hearted dishes still excluded) while an
+EMPTY one is still never padded, because its emptiness is the honest answer.
+
+Two more defects found by the tests during the build, both in code written this session: phase 2
 restarted its own lap counter and bailed on the first pass (row B silently vanished under its
 3-card floor), and before that the ranked category was served twice before an untouched category
 appeared at all. A `TASTE_ROW_MAX` mutant also SURVIVED — the cap test asserted through the

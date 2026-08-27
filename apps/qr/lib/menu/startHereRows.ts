@@ -18,11 +18,15 @@
  * contributed equally on lap 1, so the row could be mostly unranked while claiming to prefer what
  * tables order. Row B now SELECTS in two phases:
  *
- *   Phase 1 — serve only TOP-50 dishes, always to the least-served category.
- *   Phase 2 — if the cap is not met, serve everything else the same way.
+ *   Round 1 — one dish per category, its best-ranked (the buckets are rank-sorted). COVERAGE.
+ *   Round 2 — the remaining slots, top-50 dishes only, always to the least-served category.
+ *   Round 3 — anything still eligible, so a thin ranking never returns a short row.
  *
- * So every ranked dish is offered before any unranked one, and it is still one dish per category
- * per turn rather than a run of dishes from whichever category happens to be popular.
+ * Coverage is bought FIRST and popularity spends what is left. An earlier draft ran the ranked
+ * round unbounded and Codex caught what that costs: "least-served" balances only the buckets that
+ * HAVE an eligible dish, so a category with nothing ranked is skipped rather than waited for, and
+ * ten ranked dishes in one category would take the whole cap — a row captioned "a little of
+ * everything" showing exactly one.
  *
  * ⚠️ Phase 2 is not a nicety, and it is why this is not a FILTER. "A little of everything" is a
  * claim about COVERAGE. Filtering to the top 50 would silently drop every category with nothing in
@@ -100,11 +104,12 @@ export function buildStartHereRows<T extends StartHereRowItem>(
   // ROW_MIN floor, and the whole row silently disappeared. There is no lap number here to get
   // wrong: the invariant ("serve whoever has the least") is stated directly.
   const served = new Map<readonly T[], number>();
-  const laps = (eligible: (i: T) => boolean) => {
+  const laps = (eligible: (i: T) => boolean, maxPerCategory = START_HERE_ROW_CAP) => {
     while (rowB.length < START_HERE_ROW_CAP) {
       let bucket: readonly T[] | null = null;
       let pick: T | null = null;
       for (const b of buckets) {
+        if ((served.get(b) ?? 0) >= maxPerCategory) continue;
         const candidate = b.find((i) => !picked.has(i.id) && eligible(i));
         if (!candidate) continue;
         // Strictly `<` so ties keep the buckets' own order, which is the server's sort_order.
@@ -113,13 +118,25 @@ export function buildStartHereRows<T extends StartHereRowItem>(
           pick = candidate;
         }
       }
-      if (!bucket || !pick) return; // nothing eligible anywhere — this phase is done
+      if (!bucket || !pick) return; // nothing eligible anywhere — this round is done
       rowB.push(pick);
       picked.add(pick.id);
       served.set(bucket, (served.get(bucket) ?? 0) + 1);
     }
   };
-  laps((i) => popRank.has(i.id)); // phase 1 — the top 50 only
-  laps(() => true); // phase 2 — coverage, from whatever is left
+
+  // ROUND 1 — COVERAGE, and it goes first (Codex round 2, P2 on #239, and the finding was right).
+  // "Least-served" only balances buckets that HAVE an eligible candidate: a bucket with no ranked
+  // dish is skipped entirely, not waited for. So a ranked-first round running unbounded could take
+  // the whole ten-card cap out of one popular category — Codex's example, ten ranked Curries —
+  // leaving the coverage round nothing to do and "a little of everything" showing one category.
+  // One dish per category first, ranked-first INSIDE each (the buckets are already rank-sorted),
+  // so the caption's promise is paid for before popularity gets the remaining slots.
+  laps(() => true, 1);
+  // ROUND 2 — the ranking, on what's left. This is the owner's ask: beyond the one-per-category
+  // floor, the dishes that fill the row are the ones tables actually order.
+  laps((i) => popRank.has(i.id));
+  // ROUND 3 — anything still eligible, so a thin ranking never returns a short row.
+  laps(() => true);
   return { rowA, rowB: rowB.length >= ROW_MIN ? rowB : [], dataBacked };
 }
