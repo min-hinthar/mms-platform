@@ -301,11 +301,6 @@
      budgets; do not collapse the two. */
   --print-cast: color-mix(in oklab, var(--shadow-ink) 3%, transparent);
   --print-head: color-mix(in oklab, var(--shadow-ink) 6%, transparent);
-  /* The dish photo's colour bleed. 0.08 is the peak inside the photo band, where no text sits; the
-     layer's mask halves it to 0.04 where the first text row starts, and that halving is what makes
-     even a pathological photo (a plate shot on white marble) clear AA. */
-  --bleed-opacity: 0.08;
-  --bleed-blur: 18px;
   /* z-index scale — SINGLE source of truth (theme-agnostic; defined here only). Ordering intent:
      content < sticky toolbar < scrim < sheet < celebrations. The sheet sits ABOVE the sticky toolbar so
      a bottom sheet is never painted-over by (or has its drag-to-close zone stolen by) the toolbar — the

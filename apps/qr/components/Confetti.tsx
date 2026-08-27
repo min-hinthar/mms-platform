@@ -26,6 +26,10 @@ export function Confetti({ count = 80 }: { count?: number }) {
           ["--cf-rot" as string]: `${(i % 2 ? 1 : -1) * (180 + (i % 5) * 90)}deg`,
           ["--cf-dur" as string]: `${1700 + (i % 7) * 160}ms`,
           ["--cf-delay" as string]: `${(i % 10) * 30}ms`,
+          // M126 — depth of field. z runs 0.55…1.0: nearer pieces are crisp and fully opaque,
+          // farther ones softly out of focus and dimmer, so the field reads as a volume rather
+          // than a plane. Deterministic like everything else here (no Math.random).
+          ["--cf-z" as string]: `${(0.55 + (i % 6) * 0.09).toFixed(2)}`,
         } as CSSProperties;
         return <span key={i} className="mms-confetti-pc" style={style} />;
       })}

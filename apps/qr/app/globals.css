@@ -1958,7 +1958,9 @@ html[data-ambient="paused"] .pa-mid {
 @keyframes mmsConfettiFall {
   0% {
     transform: translate3d(0, -12vh, 0) rotate(0deg);
-    opacity: 1;
+    /* M126 — opacity now rides the particle's depth (--cf-z). The default of 1 reproduces the
+       pre-M126 behaviour exactly, so an unwired caller loses the depth and nothing else. */
+    opacity: calc(0.5 + var(--cf-z, 1) * 0.5);
   }
   100% {
     transform: translate3d(var(--cf-drift, 0), 112vh, 0) rotate(var(--cf-rot, 360deg));
@@ -8030,5 +8032,195 @@ html[data-fx="lite"] .merge-beat {
   .tier-up,
   .merge-beat {
     animation: none;
+  }
+}
+
+/* ══ M126 · THE MOMENTS — six one-shots, none of them ambient ══════════════════════════════════
+   Every effect here is tied to a user action or a confirmed state arrival. Not one loops, not one
+   fires on scroll, not one runs unattended. The new primitive is `filter: drop-shadow()`, which
+   replaces the box-shadow halo the app has been faking glow with: it follows the object's real
+   silhouette instead of its border box and, unlike a box-shadow LIST, it interpolates — so a cap
+   can IGNITE at the instant it is chosen rather than cross-fade a static shadow.
+   ⚠️ Wherever a bloom lands, `--sh-lift` comes OUT of the same element's box-shadow. drop-shadow
+   blurs the element's rendered alpha INCLUDING its outer box-shadows, so leaving it renders a
+   shadow of a shadow and muddies the bloom. If a future edit restores it "for safety", the bloom
+   degrades and nothing fails. ── */
+
+/* ── 1 · The lacquer rake — the sheet coming to rest ──────────────────────────────────────────
+   A band of light crosses the head once as the sheet settles, then never again. Painted as a
+   BACKGROUND LAYER on the head itself, not as a ::after — three reasons, and the third is the one
+   that matters: a background paints under content so it can never tint the title; it needs no
+   `overflow: hidden`, which on this element would clip `.mms-sheet-close`'s focus ring (top: 6px
+   against a 4.5px ring leaves ~1.5px of margin — a WCAG 2.4.7 failure one nudge away, with no test
+   behind it); and animating `background-position` keeps the travel inside the element's own box.
+   Night rakes with LIGHT, light rakes with SHADOW: a white highlight on --cd #fffdf8 is invisible.
+   0.04 in Night is a bound, not a taste — over --cd-raised it puts --t3 at 4.6367, and 0.05 puts
+   it at 4.5003, on the line. */
+.mms-sheet-head {
+  background-image: linear-gradient(100deg, transparent 40%, var(--rake-peak) 50%, transparent 60%);
+  background-repeat: no-repeat;
+  background-size: 260% 100%;
+  background-position: -80% 0;
+  animation: mmsRake var(--rake-dur) var(--ease-out) var(--dur-sheet) both;
+}
+@keyframes mmsRake {
+  from {
+    background-position: -80% 0;
+  }
+  to {
+    background-position: 180% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Not "the rake minus movement": a still band of light resting across the head, which is what
+     the moving one is on its way to being. The composition survives, the travel does not. */
+  .mms-sheet-head {
+    animation: none;
+    background-image: linear-gradient(
+      100deg,
+      transparent 0%,
+      var(--rake-peak) 32%,
+      transparent 72%
+    );
+    background-size: 100% 100%;
+    background-position: 0 0;
+  }
+}
+
+/* ── 2 · Cap ignition — the lit gold cap gets real bloom ───────────────────────────────────────
+   The one selection vocabulary in the app (DESIGN-LANGUAGE §2) stops wearing a static halo and
+   starts LIGHTING UP at the moment of choice. All three --bloom-gold-* lists carry the same
+   function count, which is what lets `filter` interpolate instead of discretely swapping. */
+.checkout-pill-on,
+.checkout-tip-on,
+.taste-chip-on {
+  filter: var(--bloom-gold);
+  animation: mmsIgnite 420ms var(--ease-out);
+}
+.checkout-pill-on,
+.checkout-tip-on {
+  box-shadow: inset 0 1px 0 var(--sheen);
+}
+.taste-chip-on {
+  box-shadow: inset 0 1px 0 var(--sheen);
+  animation:
+    taste-chip-pop 260ms var(--ease-out),
+    mmsIgnite 420ms var(--ease-out);
+}
+.checkout-pill-on:not(:disabled):hover {
+  box-shadow: inset 0 1px 0 var(--sheen);
+  filter: var(--bloom-gold-lit);
+  transition: filter var(--dur-base) var(--ease-out);
+}
+/* The rank seal sits 12px inside its card, so it takes the SHORT recipe — the full 14px halo would
+   run past the card edge. Same precedent as --sh-lift vs --sh-glow. Static: a seal is a statement
+   about the row, not a thing the diner just did. */
+.start-here-rank-top {
+  box-shadow: inset 0 1px 0 var(--sheen);
+  filter: var(--bloom-gold-seal);
+}
+@keyframes mmsIgnite {
+  0% {
+    filter: var(--bloom-gold-off);
+  }
+  36% {
+    filter: var(--bloom-gold-lit);
+  }
+  100% {
+    filter: var(--bloom-gold);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .checkout-pill-on,
+  .checkout-tip-on,
+  .taste-chip-on {
+    animation: none;
+    filter: var(--bloom-gold);
+  }
+  .checkout-pill-on:not(:disabled):hover {
+    transition: none;
+  }
+}
+
+/* ── 3 · The order leaves the table — the send beat gains a trail ──────────────────────────────
+   The departing glyph already rises and fades; now it drags accent light behind it and lets go. */
+.mms-send-beat {
+  animation:
+    mmsSendBeat 760ms var(--ease-out) both,
+    mmsSendTrail 760ms var(--ease-out) both;
+}
+@keyframes mmsSendTrail {
+  0% {
+    filter: drop-shadow(0 0 14px color-mix(in oklab, var(--ac) 62%, transparent));
+  }
+  100% {
+    filter: drop-shadow(0 0 2px transparent);
+  }
+}
+
+/* ── 4 · Pay success — the check blooms, the confetti gains depth ──────────────────────────────
+   The one moment allowed a non-gold bloom: --ok is the colour the ring already wears, so it spends
+   nothing from the gold economy. The confetti gets a z per particle — nearer pieces are crisp and
+   fully opaque, farther ones are softly out of focus and dimmer. Real depth on a field that was
+   flat, at the cost of a sub-kilobyte filter buffer per 6-14px span. */
+.pay-success-check {
+  filter: var(--bloom-ok);
+  animation: mmsCheckBloom 760ms var(--ease-out) 120ms both;
+}
+@keyframes mmsCheckBloom {
+  0% {
+    filter: var(--bloom-ok-off);
+  }
+  44% {
+    filter: var(--bloom-ok-lit);
+  }
+  100% {
+    filter: var(--bloom-ok);
+  }
+}
+.mms-confetti-pc {
+  filter: blur(calc((1 - var(--cf-z, 1)) * 2.6px));
+}
+@media (prefers-reduced-motion: reduce) {
+  .pay-success-check {
+    animation: none;
+    filter: var(--bloom-ok);
+  }
+}
+
+/* ── 5 · The print head becomes real light ─────────────────────────────────────────────────────
+   A print head is a DEFOCUSED line of light, not a hard gradient bar: it casts warmth on the paper
+   ahead of the frontier and burns brightest at the line itself. Sibling of the clipped slip (a
+   child would be clipped away), riding the same duration and ease as the reveal.
+   ⚠️ --print-head is NOT --sheen, and that is the measurement that earned the token: at --sheen's
+   0.11 the core strip drops --t3 on --cd to 4.2088 — an AA failure on a receipt, invisible to the
+   contrast audit. 0.08 measures 4.6028. A bevel value and a light-band value are different
+   budgets; do not collapse them. */
+.receipt-printhead::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  right: -6px;
+  bottom: 11px;
+  height: 150px;
+  pointer-events: none;
+  background: linear-gradient(to top, var(--print-head) 0%, var(--print-cast) 10%, transparent 92%);
+  filter: blur(6px);
+}
+
+/* ── 6 · The dish card takes the press ─────────────────────────────────────────────────────────
+   A tap pushes the card down a rung instead of scaling it — the press cue Night has never had, in
+   the ladder's own vocabulary (the bevel inverts: lit lip to the bottom, shade to the top). */
+.start-here-card:active {
+  transform: scale(0.985);
+  background: var(--sunken);
+  box-shadow:
+    inset 0 1px 0 var(--edge-lo),
+    inset 0 -1px 0 var(--sheen),
+    var(--sh);
+}
+@media (prefers-reduced-motion: reduce) {
+  .start-here-card:active {
+    transform: none;
   }
 }
