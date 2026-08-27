@@ -43,16 +43,25 @@ pnpm check:migration-versions   # one version per migration + the <timestamp>_na
 pnpm check:docs          # tables render in EVERY tracked .md (GFM header/delimiter parity — prettier
                          # INTRODUCES breaks) + live-state counts (README · OPEN-ITEMS · HANDOFF)
                          # measured via `vitest list`, never transcribed + MENU_REFERENCE fresh
-# ⚠️ NEVER `supabase db push` AGAINST THE QR PROD PROJECT (fasnpdhtvqtzjlvruqcu). Measured
-# 2026-08-27: prod's supabase_migrations.schema_migrations holds 97 rows whose version stamps are
-# ALL MCP-generated and share ZERO values with the repo filenames (repo
-# 20260618000000_qr_platform_init.sql vs prod 20260618063513 qr_platform_init). `db push` diffs by
-# VERSION STRING, so it reads all 97 local files as unapplied and starts replaying at
-# 20260618000000_qr_platform_init.sql:42 `create table menu_categories` — against a live database
-# that already has it. Apply ONE FILE AT A TIME with the Supabase MCP `apply_migration`, which is
-# how every migration on this project actually reached prod, then VERIFY (signatures, ACLs,
-# has_function_privilege) before moving to the next.
-supabase db push         # ⚠️ LOCAL / BRANCH STACKS ONLY — see the warning above, never QR prod
+# ⚠️ THE QR PROD MIGRATION HISTORY IS DIVERGENT FROM THIS REPO — read before any apply.
+# Measured 2026-08-27: prod's supabase_migrations.schema_migrations holds 97 rows whose version
+# stamps are ALL MCP-generated and share ZERO values with the repo filenames (repo
+# 20260618000000_qr_platform_init.sql vs prod 20260618063513 qr_platform_init).
+#
+# What plain `db push` does in that state is REFUSE, not replay — the CLI validates divergent
+# remote history and stops; `--include-all` ("Include all migrations not found on remote history
+# table") is the flag that would force the replay. An earlier version of this warning said plain
+# `db push` replays from `create table menu_categories`; that was WRONG and Codex corrected it on
+# #236. It is still not the command to reach for: it cannot apply anything until the histories are
+# reconciled, and `--include-all` on top of this drift is genuinely destructive.
+#
+# So: apply ONE FILE AT A TIME with the Supabase MCP `apply_migration` — the path every migration
+# on this project has actually taken — and VERIFY the objects THAT FILE creates before the next
+# (functions: signature + shape count + has_function_privilege; columns/indexes/policies/data:
+# information_schema or pg_catalog, since a column-only migration leaves no pg_proc row to check).
+# Reconciling the two histories once with `supabase migration repair`, after verifying each body,
+# is the real fix and is filed as M125.
+supabase db push         # ⚠️ LOCAL / BRANCH STACKS ONLY — QR prod history is divergent, see above
 ```
 
 ## Conventions

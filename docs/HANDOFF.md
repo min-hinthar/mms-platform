@@ -26,13 +26,18 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > is pre-launch (14 paid orders, last one 2026-08-17).
 >
 > **The durable fix is a rail, not a checklist**: nothing in the repo tracked "SQL applied?" as
-> distinct from "PR merged", which is exactly how three migrations shipped half-deployed. Until
-> there is one, treat every merged migration as UNAPPLIED until you have queried `pg_proc`.
+> distinct from "PR merged", which is exactly how three migrations shipped half-deployed. Until there
+> is one, treat every merged migration as UNAPPLIED until the catalog says otherwise — checking the
+> objects THAT file creates, not `pg_proc` reflexively (many migrations here add only columns,
+> indexes, policies or data and define no function).
 >
-> ⚠️ **NEVER `supabase db push` on this project** — see the warning now at `CLAUDE.md:46`. Prod's
-> `schema_migrations` versions are MCP-generated and share **zero** values with the repo filenames,
-> so `db push` reads all 97 local files as unapplied and replays from `create table menu_categories`.
-> Apply one file at a time with the MCP `apply_migration`, verifying each before the next.
+> ⚠️ **Prod's migration history is DIVERGENT from this repo** — see `CLAUDE.md:46`. The versions are
+> MCP-generated and share **zero** values with the repo filenames. Plain `db push` REFUSES on that
+> divergence rather than replaying (an earlier draft of this note said it replays from `create table`;
+> Codex corrected that on #236 — `--include-all` is the flag that would force a replay, and on this
+> drift it is destructive). Apply one file at a time with the MCP `apply_migration`, verifying the
+> objects THAT file creates before the next — `pg_proc` is not universal, since column/index/policy
+> migrations leave no function row. Reconciling the histories is filed as **M125**.
 >
 > Two real defects in M70 were found by the pre-apply audit and filed rather than fixed inline —
 > **M123** (a pinned promo grant survives lock-TTL expiry and prices a later basket) and **M124**
