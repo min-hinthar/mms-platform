@@ -1,6 +1,16 @@
 # W22d · Hue direction — DECISION NOTE (2026-08-20)
 
-**Status (2026-08-26): PR A — the dark half — is BUILT. PRs B and C remain blocked on Q1–Q3 below.**
+**Status (2026-08-27): PR A — the dark half — was BUILT (#235) and then REVERTED.** The owner looked
+at the shipped aubergine ground and rejected it: _"I actually prefer the Night than the Aubergine"_.
+All nine ground values are back to the pre-#235 originals; the dark half of this note is therefore a
+**record of a rejected direction, not a description of the live palette**. Read §5's rotation tables as
+history. What survives from PR A is `--jade-strong`'s lift off its alias (kept — its justification was
+the width of the measurement noise, not the hue) and the guard coverage it added.
+
+**The dark half is superseded by M126 — Night enriched, not re-hued.** The hue was never the problem:
+the ladder's flatness lives on the lightness axis, and that rotation held OKLab L fixed on all four
+ground values at once. **PRs B and C — the light/maroon half — are untouched by the revert and remain
+blocked on Q1–Q3 below.**
 
 _Original status, kept for the record: decided, build deferred, no code changed in that pass._
 
