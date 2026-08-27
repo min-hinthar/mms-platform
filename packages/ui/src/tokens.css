@@ -160,6 +160,152 @@
   /* Its hover partner — the SAME two-tier shape, deeper (a hover that swapped back to the flat
      --sh-md read as the shadow flattening mid-lift — adversarial LOW on #195). */
   --sh-paper-hover: 0 2px 6px -2px rgba(35, 24, 16, 0.09), 0 20px 40px -20px rgba(35, 24, 16, 0.34);
+
+  /* ══ M126 · MAXIMAL NIGHT — glass, the room, and the moments ══════════════════════════════════
+     Three material systems land together: GLASS (chrome you look THROUGH), the ROOM (a three-plane
+     page atmosphere with real depth-of-field) and MOMENTS (one-shot blooms tied to user actions).
+     The owner lifted the mobile GPU budget for this work. That budget existed because stacked
+     `backdrop-filter` + large `blur()` OOM-crashed an iOS WebKit tab in production, so every heavy
+     declaration in the app reads the --fx-* dial below and nothing else. ── */
+
+  /* ── THE DIAL — one attribute on <html>, no redesign, no layout change ────────────────────────
+     `document.documentElement.dataset.fx = "lite" | "off"` (absent = full strength).
+       full  (default)  chrome frost + the full-viewport defocus + three promoted ambient planes
+       lite             the defocus goes away (−20.6 MB, the single largest buffer) and the mid
+                        plane un-promotes (−14.4 MB). Chrome frost and every moment stay.
+       off              no backdrop-filter anywhere, no plane blur, nothing promoted. The STATIC
+                        composition survives whole: opaque chrome with its lit lip, a still room,
+                        and every drop-shadow bloom (a 44px chip's filter is rounding error).
+     The dial re-points whole FUNCTION LISTS rather than scaling a radius to 0px, because
+     `blur(0px)` still allocates a backdrop buffer while `none` allocates nothing. Declared here in
+     :root so both themes inherit it; the values are theme-agnostic by construction. */
+  --fx-glass-mid: blur(var(--glass-blur-mid)) saturate(var(--glass-sat-mid));
+  --fx-glass-near: blur(var(--glass-blur-near)) saturate(var(--glass-sat-near));
+  --fx-glass-far: blur(var(--glass-blur-far)) saturate(var(--glass-sat-far));
+  --fx-plane-blur: blur(var(--pa-blur));
+  --fx-promote: transform, translate;
+
+  /* ── GLASS ────────────────────────────────────────────────────────────────────────────────────
+     Blur radius encodes DISTANCE from the backdrop, never importance: `near` = a pane a hair above
+     its own scroller, `mid` = sticky chrome over the page, `far` = the whole page seen from sheet
+     elevation. Saturation RISES with nearness and drops BELOW 1 at distance — aerial perspective.
+     CSS blur(R) takes R as the Gaussian STANDARD DEVIATION, so blur(28px) smears a 2px glyph stem
+     across ~56px: the defocus scrim DESTROYS page text rather than softening it, which is what
+     lets its veil drop. Radii and saturations are theme-agnostic, so they live here only.
+
+     ⚠️ CHROME GLASS IS OPAQUE IN LIGHT, AND THAT IS A MEASUREMENT, NOT A PREFERENCE. Light-on-dark
+     glass can only be LIGHTENED by its backdrop, and the brightest possible backdrop is white,
+     which BOUNDS the failure. Dark-on-light glass is DARKENED by anything darker than the pane —
+     i.e. by most photography — and dark text falls with it. Measured: --t3 on an --sf pane at 0.90
+     over black is 3.806 in light; Night's same pane over WHITE is 4.8273. Night has the headroom,
+     light has none. This also retires a LIVE defect — the md:+ light frost this replaces put
+     .app-header-cart (--t2, 13px) at 3.8320:1 over a dark backdrop and .app-header-rewards (--ac)
+     at 3.2238:1; opaque restores 5.5546 / 4.6729. */
+  --glass-blur-near: 14px;
+  --glass-blur-mid: 20px;
+  --glass-blur-far: 28px;
+  --glass-sat-near: 1.35;
+  --glass-sat-mid: 1.5;
+  --glass-sat-far: 0.85;
+  --glass-chrome: var(--sf);
+  --frost-rim: var(--bd);
+  --frost-edge: rgba(255, 255, 255, 0.66);
+  --frost-pipe: rgba(255, 255, 255, 0.42);
+  /* A SEPARATE token from --scrim on purpose: `.dark` derives --edge-lo from --scrim, so lowering
+     --scrim itself would silently move the bevel's dark foot on every card in the app. */
+  --scrim-glass: rgba(15, 10, 5, 0.3);
+
+  /* ── THE ROOM — the page atmosphere, three planes ─────────────────────────────────────────────
+     Every alpha here was fitted by numeric search against a DERIVED AA floor, not chosen: --t3
+     binds first in both themes, and the audit parses this file but is structurally blind to
+     composited layers, so the worst-pixel measurement lives in `ambient-contrast.test.ts` beside
+     the tokens it reads. Change an alpha here and that guard re-measures it.
+     Measured worst pixel, Night (four blob cores coincident + the pool + a lit lip + the grain's
+     peak overlay excursion): #3a3043 → --t3 4.8386 · --t2 6.0011 · --tx 10.6161. Light's worst is
+     its DARKEST pixel (a groove crossing under the grain's minimum): #edece8 → --t3 4.6263. Both
+     are repairs: the SHIPPED ambient's worst pixels measure 4.4743 (Night) and 3.9670 (light),
+     which is open task M128 — closed here as a side effect of the groove inversion. */
+  --pa-far-op: 0.34;
+  --pa-mid-op: 0.55;
+  /* Light's grain is the binding constraint in that theme and it came down from the design's 0.10:
+     at 0.10 the darkest pixel measures --t3 4.3013 (fail) and at 0.07 it is 4.5016 — ON the line,
+     which this repo treats as undecided, not passing. 0.05 measures 4.6263. */
+  --pa-grain-op: 0.05;
+  --pa-grain-blend: normal;
+  --pa-blur: 64px;
+  /* MUST be a length, not a percentage: `-20%` is 86px on a 430px phone and 288px on a 1440px
+     desktop, so a percentage either leaves a blur rim on mobile or wastes ~60 MB on desktop.
+     1.5× the radius is the minimum that keeps the blur's transparent edge off-screen at any width. */
+  --pa-overscan: calc(-1.5 * var(--pa-blur));
+  --pa-grid: 44px;
+  --pa-grid-far: 132px;
+  --pa-parallax-far: 6px;
+  --pa-parallax-mid: 13px;
+  --pa-drift-far: 96s;
+  --pa-drift-mid: 132s;
+  /* The far wall is built from the LADDER'S OWN RUNGS plus two faint chroma notes. No --ac, no
+     --gold: Night's --ac is gold-adjacent and would read as SELECTION at page scale. */
+  --pa-blob-1: color-mix(in oklab, var(--sf) 18%, transparent);
+  --pa-blob-2: color-mix(in oklab, var(--warnb) 12%, transparent);
+  --pa-blob-3: color-mix(in oklab, var(--jade) 3%, transparent);
+  --pa-blob-4: color-mix(in oklab, var(--ruby) 2%, transparent);
+  /* The only gold in the room, and it is HALF what shipped (was 10%). The glow economy is repaid. */
+  --pa-pool: color-mix(in oklab, var(--gold) 4%, transparent);
+  /* The grid is DEBOSSED: a groove plus a lit lip — the card bevel at page scale. The groove is
+     always the direction that HELPS the theme's text: a dark line darkens a light-text ground and
+     a light-text ground is what Night is. That inversion is what closes M128. */
+  --pa-groove: color-mix(in oklab, var(--bd) 28%, transparent);
+  --pa-lip: rgba(255, 255, 255, 0.45);
+  /* Reduced motion gets a DEEPER cut, not a dimmer one — it trades motion for incision, and it is
+     also the safer composition (a deeper groove darkens, which buys contrast rather than spending). */
+  --pa-groove-still: color-mix(in oklab, var(--bd) 42%, transparent);
+  /* Bottom-dock height, so the ambient's pause coin clears the CartBar. Surfaces with a bottom CTA
+     set it; at the 0px default the coin would sit under the bar. */
+  --cta-dock-h: 0px;
+
+  /* ── MOMENTS — one-shot blooms ────────────────────────────────────────────────────────────────
+     `filter: drop-shadow()` replaces the box-shadow halo the app has been faking glow with: it
+     follows the object's real silhouette and, unlike a box-shadow LIST, interpolates cleanly — so
+     a cap can IGNITE at the instant it is chosen instead of cross-fading a static shadow. All
+     three gold lists carry the SAME function count; a different length makes `filter` fall back to
+     a discrete swap, which is the whole point lost. --sh-lift is folded IN rather than left as an
+     outer box-shadow, because drop-shadow blurs the element's rendered alpha INCLUDING its outer
+     box-shadows — leaving it would render a shadow of a shadow. */
+  --bloom-gold: drop-shadow(0 2px 5px color-mix(in oklab, var(--ac) 40%, transparent))
+    drop-shadow(0 0 5px color-mix(in oklab, var(--gold) 44%, transparent))
+    drop-shadow(0 2px 14px color-mix(in oklab, var(--gold) 26%, transparent));
+  --bloom-gold-lit: drop-shadow(0 2px 7px color-mix(in oklab, var(--ac) 52%, transparent))
+    drop-shadow(0 0 11px color-mix(in oklab, var(--gold) 72%, transparent))
+    drop-shadow(0 3px 28px color-mix(in oklab, var(--gold) 46%, transparent));
+  --bloom-gold-off: drop-shadow(0 2px 5px color-mix(in oklab, var(--ac) 40%, transparent))
+    drop-shadow(0 0 0 transparent) drop-shadow(0 0 0 transparent);
+  /* A shorter reach for a seal that sits 12px inside a card with `overflow: hidden` — the full
+     14px halo would clip. Same precedent as --sh-lift vs --sh-glow. */
+  --bloom-gold-seal: drop-shadow(0 1px 3px color-mix(in oklab, var(--ac) 34%, transparent))
+    drop-shadow(0 0 6px color-mix(in oklab, var(--gold) 50%, transparent));
+  /* Pay success is the ONE moment allowed a non-gold bloom — --ok is the colour its ring already
+     wears, so it spends nothing from the gold economy. */
+  --bloom-ok: drop-shadow(0 0 6px color-mix(in oklab, var(--ok) 45%, transparent))
+    drop-shadow(0 3px 20px color-mix(in oklab, var(--ok) 26%, transparent));
+  --bloom-ok-lit: drop-shadow(0 0 14px color-mix(in oklab, var(--ok) 78%, transparent))
+    drop-shadow(0 4px 40px color-mix(in oklab, var(--ok) 48%, transparent));
+  --bloom-ok-off: drop-shadow(0 0 0 transparent) drop-shadow(0 0 0 transparent);
+  /* Night rakes with LIGHT (a white band on a near-black plane); light rakes with SHADOW, because
+     a white highlight on --cd #fffdf8 is invisible. Measured over --cd-raised in Night: 0.04 puts
+     --t3 at 4.6367, and 0.05 puts it at 4.5003 — on the line, so 0.04 it is. */
+  --rake-peak: color-mix(in oklab, var(--shadow-ink) 5%, transparent);
+  --rake-dur: 900ms;
+  /* NOT --sheen, and this is the measurement that earned the token: at --sheen's 0.11 the print
+     head's core strip drops --t3 on --cd to 4.2088 — an AA failure on a receipt, invisible to the
+     contrast audit. 0.08 measures 4.6028. A bevel value and a light-band value are different
+     budgets; do not collapse the two. */
+  --print-cast: color-mix(in oklab, var(--shadow-ink) 3%, transparent);
+  --print-head: color-mix(in oklab, var(--shadow-ink) 6%, transparent);
+  /* The dish photo's colour bleed. 0.08 is the peak inside the photo band, where no text sits; the
+     layer's mask halves it to 0.04 where the first text row starts, and that halving is what makes
+     even a pathological photo (a plate shot on white marble) clear AA. */
+  --bleed-opacity: 0.08;
+  --bleed-blur: 18px;
   /* z-index scale — SINGLE source of truth (theme-agnostic; defined here only). Ordering intent:
      content < sticky toolbar < scrim < sheet < celebrations. The sheet sits ABOVE the sticky toolbar so
      a bottom sheet is never painted-over by (or has its drag-to-close zone stolen by) the toolbar — the
@@ -300,7 +446,12 @@
   --tex-grain-opacity: 0.55;
   --glow-ac: color-mix(in oklab, var(--ac) 32%, transparent);
   --glow-gold: color-mix(in oklab, var(--gold) 30%, transparent);
-  --surface-glass: rgba(43, 33, 60, 0.9); /* = --cd #2b213c — pinned by check-theme-parity surface 7 */
+  --surface-glass: rgba(
+    43,
+    33,
+    60,
+    0.9
+  ); /* = --cd #2b213c — pinned by check-theme-parity surface 7 */
   --surface-vellum: rgba(33, 26, 48, 0.95); /* = --sf #211a30 — pinned by the same surface */
   --surface-elevated: #413053;
   /* M126 · THE BEVEL. --sheen is the LIT TOP LIP and --edge-lo the object's own SHADE on its
@@ -329,6 +480,83 @@
   --sh-paper-hover: 0 2px 6px -2px rgba(0, 0, 0, 0.55), 0 22px 44px -20px rgba(0, 0, 0, 0.68);
   --scrim: rgba(0, 0, 0, 0.62); /* deeper dim on Night so the lifted sheet still separates */
   --shadow-ink: #080412; /* the ground with the light taken out — see --sh-paper */
+
+  /* ══ M126 · MAXIMAL NIGHT — the Night half ════════════════════════════════════════════════════ */
+
+  /* GLASS. 0.90 is a searched FLOOR, not a taste value: it is the lowest alpha at which EVERY
+     Night text token clears 4.5:1 against the brightest physically possible backdrop (#ffffff) —
+     tx 10.5911 · t2 5.9870 · ac 5.8310 · jade-strong 5.0209 · ruby-strong 4.9577 · t3 4.8273. At
+     0.88 --t3 is 4.5322 (on the line) and at 0.86 it is 4.2204 (a fail). The bound is rigorous
+     because `saturate()` preserves luma and clamps at 255, so nothing can composite brighter than
+     white — which is exactly why NO text-bearing pane may ever carry `brightness()` above 1.
+     Tinted with --sf (rung 3), NOT --pg (rung 1), so chrome sits BELOW cards (--cd, rung 4) and a
+     card scrolling under produces a brightening smear — the only motion a frost has.
+     Guarded, red-first, by `glass-floor` in contrast-audit.test.ts. */
+  --glass-chrome: color-mix(in oklab, var(--sf) 90%, transparent);
+  --frost-rim: rgba(255, 255, 255, 0.09);
+  /* Brighter than --sheen's 0.11: a glass edge catches more light than a paper one. NEUTRAL WHITE,
+     never gold — a gold hairline on every pane would read as SELECTION (DESIGN-LANGUAGE §2). */
+  --frost-edge: rgba(255, 255, 255, 0.16);
+  --frost-pipe: rgba(255, 255, 255, 0.055);
+  /* Was --scrim's 0.62: the backdrop now passes at 0.56× instead of 0.38× — 47% brighter — and
+     blur(28px) leaves nothing on it legible at any alpha, so the veil's only remaining job is
+     separation. A black veil and `brightness()` are mathematically identical (both multiply), so
+     the veil stays a PAINT: cheaper than a second filter op on a 13.76 MB buffer. */
+  --scrim-glass: rgba(0, 0, 0, 0.44);
+
+  /* THE ROOM. Night carries 7.484:1 of --t3 headroom on the bare ground against light's 5.191, so
+     every alpha here is larger than its light counterpart and the worst pixel still measures
+     --t3 4.8386. `overlay` is self-limiting on a dark ground — its excursion scales with what is
+     already lit, which is precisely where banding lives — so it dithers the ramp without hazing
+     the deep ground. */
+  --pa-far-op: 0.62;
+  --pa-grain-op: 0.35;
+  --pa-grain-blend: overlay;
+  --pa-blob-1: color-mix(in oklab, var(--surface-elevated) 50%, transparent);
+  --pa-blob-2: color-mix(in oklab, var(--cd-raised) 42%, transparent);
+  --pa-blob-3: color-mix(in oklab, var(--jade) 10%, transparent);
+  --pa-blob-4: color-mix(in oklab, var(--ruby) 8%, transparent);
+  --pa-pool: color-mix(in oklab, var(--gold) 5%, transparent);
+  /* Raw rgba, as --sh already is in this block: a groove IS a shadow. */
+  --pa-groove: rgba(0, 0, 0, 0.34);
+  --pa-groove-still: rgba(0, 0, 0, 0.5);
+  --pa-lip: rgba(255, 255, 255, 0.06);
+
+  /* MOMENTS. Night rakes and prints with LIGHT; light does both with shadow. */
+  --rake-peak: rgba(255, 255, 255, 0.04);
+  --print-cast: rgba(255, 255, 255, 0.04);
+  --print-head: rgba(255, 255, 255, 0.08);
+}
+/* ══ M126 · THE DIAL ═══════════════════════════════════════════════════════════════════════════
+   `html[data-fx]` outranks both `:root` and `.dark` (0,1,1 vs 0,1,0), so one attribute re-points
+   every expensive function list in the app without touching a colour, a selector or a layout box.
+   Full strength is the DEFAULT — the attribute is absent until someone sets it. */
+html[data-fx="lite"] {
+  /* Give back the two largest buffers and keep everything a diner actually looks at. The
+     full-viewport defocus (~20.6 MB with a sheet open) is 80% of the glass budget on its own,
+     because a backdrop buffer scales with the pane's AREA and not with the blur radius. */
+  --fx-glass-far: none;
+  --fx-promote: auto;
+}
+html[data-fx="off"] {
+  --fx-glass-mid: none;
+  --fx-glass-near: none;
+  --fx-glass-far: none;
+  --fx-plane-blur: none;
+  --fx-promote: auto;
+}
+/* A user asking their OS for less transparency is asking for exactly the `off` glass, and it is a
+   stated preference rather than a device budget — so it wins over an explicitly-set dial too.
+   Declared last and at the dial's own specificity so `html[data-fx="full"]` cannot silently
+   override someone's accessibility setting. The ROOM is untouched here: it is opaque paint and
+   depth of field, not transparency. */
+@media (prefers-reduced-transparency: reduce) {
+  :root,
+  html[data-fx] {
+    --fx-glass-mid: none;
+    --fx-glass-near: none;
+    --fx-glass-far: none;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   :root {
