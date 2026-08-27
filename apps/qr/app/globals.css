@@ -645,6 +645,25 @@ html[data-ambient="paused"] .pa-far,
 html[data-ambient="paused"] .pa-mid {
   animation-play-state: paused;
 }
+/* `off` stills the room (Codex #238 P2). The dial's own comment promises "a still room", and the
+   coarse-pointer drift rule above is unconditional, so without this it kept running and `off` was
+   telling the truth about blur and a lie about motion. It also genuinely costs: a running transform
+   animation self-promotes its layer whatever `will-change` says, so a drifting plane keeps a
+   full-viewport backing store alive that `off` exists to give back.
+   The pause coin goes with it — a stop control for content that is not moving is noise, which is
+   the same rule that keeps it off desktop. `display: none` (not `visibility`) so it leaves the
+   accessibility tree and the tab order too, and it tracks the attribute live rather than depending
+   on a React read of `dataset` that nothing would re-run. */
+html[data-fx="off"] .pa-far,
+html[data-fx="off"] .pa-mid {
+  animation: none;
+}
+html[data-fx="off"] .pa-far {
+  transform: var(--pa-still);
+}
+html[data-fx="off"] .pa-pause {
+  display: none;
+}
 /* WCAG 2.2.2 for the coarse-pointer drift, and a VISIBLE one — hover luck is not a stop mechanism.
    A SIBLING of .paper-ambient, never a child: a child of a z:-1 layer paints behind every pixel of
    content and cannot be clicked. It reuses `.start-here-pause`'s vellum-coin vocabulary rather than
@@ -709,7 +728,7 @@ html[data-ambient="paused"] .pa-mid {
     will-change: auto;
   }
   .pa-far {
-    transform: translate3d(0.8%, -0.4%, 0) scale(1.06);
+    transform: var(--pa-still);
   }
   .pa-mid {
     transform: none;

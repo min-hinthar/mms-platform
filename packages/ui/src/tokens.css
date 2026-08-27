@@ -244,6 +244,10 @@
   --pa-overscan: calc(-1.5 * var(--pa-blur));
   --pa-grid: 44px;
   --pa-grid-far: 132px;
+  /* The far plane's REST frame — the most asymmetric moment of its cycle, where the two large blobs
+     sit furthest off-centre against each other. A room photographed at its best angle rather than
+     caught mid-move. Named once because TWO stills consume it: reduced motion, and the `off` dial. */
+  --pa-still: translate3d(0.8%, -0.4%, 0) scale(1.06);
   --pa-parallax-far: 6px;
   --pa-parallax-mid: 13px;
   --pa-drift-far: 96s;
@@ -543,6 +547,13 @@ html[data-fx="off"] {
   --fx-glass-far: none;
   --fx-plane-blur: none;
   --fx-promote: auto;
+  /* ⚠️ TAKING THE FILTER OFF IS NOT ENOUGH — the pane must go OPAQUE with it (Codex #238 P2). A
+     0.90 pane with no blur is a translucent slab: page content shows through CRISP, and the
+     `@supports not (backdrop-filter)` fallback does NOT rescue it, because the browser supports
+     backdrop-filter perfectly well — it is this dial that turned it off. The AA floor was searched
+     against the worst BLURRED backdrop; an unblurred one is a different question and not one the
+     glass floor answers. */
+  --glass-chrome: var(--sf);
 }
 /* NIGHT ONLY. `mix-blend-mode: overlay` forces a group buffer whether or not the layer is promoted
    (~14 MB at 430x932 DPR3), so `off` has to drop the blend too — and it cannot simply keep the
@@ -564,6 +575,9 @@ html[data-fx="off"].dark {
   html[data-fx] {
     --fx-glass-mid: none;
     --fx-glass-far: none;
+    /* Same reason as the `off` dial, and it matters more here: a user who asked their OS for LESS
+       transparency must not be handed a 90% translucent pane with the blur removed. */
+    --glass-chrome: var(--sf);
   }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { TransitionLink, useJourneyRouter } from "@/components/nav/TransitionNav"; // J1 journey grammar
 import { PaperAmbient } from "@/components/PaperAmbient";
+import { useCtaDock } from "@/lib/hooks/useCtaDock";
 import posthog from "posthog-js";
 import { Icon, NumberFlow } from "@mms/ui";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
@@ -133,6 +134,11 @@ export default function Grocery() {
   // The basket sheet's close-restore target (see onCloseAutoFocus) — Radix can't restore here
   // itself because the Sheet primitive renders no Dialog.Trigger.
   const basketBtnRef = useRef<HTMLButtonElement>(null);
+  // M126 (Codex #238 P1) — the grocery dock publishes its height too. Without this the ambient's
+  // pause coin sits UNDER this bar on a coarse pointer: same lower-left band, same --z-toolbar,
+  // and this rule is later in globals.css, so it paints over the coin AND swallows its taps —
+  // removing the only way to stop the drift on the grocery flow (WCAG 2.2.2).
+  const ctaBarRef = useRef<HTMLDivElement | null>(null);
   // One in-flight browse add at a time (the stepper's one-op discipline, extended to the Add
   // buttons — a scan can stay rapid-fire, but a double-tapped card must not double-add).
   const [addingBarcode, setAddingBarcode] = useState<string | null>(null);
@@ -636,6 +642,7 @@ export default function Grocery() {
 
   const itemCount = lines.reduce((a, l) => a + l.qty, 0);
   const totalCents = lines.reduce((a, l) => a + l.unitPriceCents * l.qty, 0);
+  useCtaDock(ctaBarRef, lines.length > 0 && Boolean(cartId));
   // W9d — ONE checkout path for the CTA pill and the basket sheet's button (same capture, same
   // journey cut) so the sheet can never drift into a second, differently-instrumented exit.
   const checkout = useCallback(() => {
@@ -1138,7 +1145,7 @@ export default function Grocery() {
         // W9d — the pinned bar: basket-review trigger + checkout CTA. The Browse door (the DEFAULT)
         // had no basket view at all — the CTA's rolling figure was the only evidence anything was in
         // the cart, and the only way to see the items was to switch tabs or walk into checkout.
-        <div className="grocery-cta-bar">
+        <div className="grocery-cta-bar" ref={ctaBarRef}>
           <button
             type="button"
             ref={basketBtnRef}

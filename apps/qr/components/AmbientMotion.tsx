@@ -56,11 +56,21 @@ export function AmbientMotion() {
     };
 
     apply();
-    rm.addEventListener("change", apply);
-    fine.addEventListener("change", apply);
+    // Legacy MediaQueryList (Safari/iOS <14, still targeted here — cf. the <15.4 dvh sheet
+    // fallback) lacks addEventListener, and calling it would THROW at mount and trip the page's
+    // error boundary over a decorative layer. The repo already holds this line in three places
+    // (ThemeSync, StartHereBand, packages/ui motion.ts); this is the same shape, not a new one.
+    const listen = (mq: MediaQueryList) => {
+      if (mq.addEventListener) {
+        mq.addEventListener("change", apply);
+        return () => mq.removeEventListener("change", apply);
+      }
+      mq.addListener(apply);
+      return () => mq.removeListener(apply);
+    };
+    const unlisten = [listen(rm), listen(fine)];
     return () => {
-      rm.removeEventListener("change", apply);
-      fine.removeEventListener("change", apply);
+      for (const off of unlisten) off();
       window.removeEventListener("pointermove", onPointer);
       if (raf) cancelAnimationFrame(raf);
       root.style.removeProperty("--pa-px");

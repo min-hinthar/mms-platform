@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { NumberFlow } from "@mms/ui";
 import { useJourneyRouter } from "./nav/TransitionNav";
 import { useCart } from "./TableCartProvider";
+import { useCtaDock } from "@/lib/hooks/useCtaDock";
 
 // W13 review MED — the spring belongs to the bar's FIRST appearance this visit, not every /menu
 // remount (the SurfaceMemory precedent: entrance effects don't replay on revisit). Module-scoped:
@@ -30,29 +31,11 @@ export function CartBar() {
     cartBarSprung = true;
   }, []);
   const href = cartId ? `/cart?cart=${encodeURIComponent(cartId)}` : null;
-  // M126 — the bar OWNS its own dock height. `--cta-dock-h` is what the ambient's pause coin (and
-  // any future bottom-anchored control) offsets by; measuring it here rather than hard-coding a
-  // number is the "name it ONCE" rule applied to a height that changes with the user's base font
-  // size. Cleared on unmount so a page without a cart bar gets its 0px default back.
+  // M126 — the bar publishes its own dock height so the ambient's pause coin clears it. Shared with
+  // the grocery CTA band through `useCtaDock` (Codex #238 P1 found the grocery dock unwired, which
+  // is exactly where a hand-copied second copy would have drifted).
   const barRef = useRef<HTMLButtonElement | null>(null);
-  useEffect(() => {
-    const el = barRef.current;
-    const root = document.documentElement;
-    if (!el) {
-      root.style.removeProperty("--cta-dock-h");
-      return;
-    }
-    const measure = () => {
-      root.style.setProperty("--cta-dock-h", `${el.offsetHeight + 16}px`);
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => {
-      ro.disconnect();
-      root.style.removeProperty("--cta-dock-h");
-    };
-  }, [cartId, href, count]);
+  useCtaDock(barRef, Boolean(cartId && href && count > 0));
   // Warm the /cart route (its RSC payload + code + the new loading skeleton) as soon as the bar can
   // appear, so a tap navigates without a cold server round-trip — the "opening the cart is slow" fix.
   useEffect(() => {
