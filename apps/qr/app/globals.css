@@ -512,7 +512,8 @@ h3 {
    (d) THE GRID IS A GROOVE, NOT A RIDGE, and that is a contrast decision before a taste one. A
        light hairline on a dark ground LIGHTENS the pixel under light text; a dark groove darkens
        it. The shipped ambient's worst pixel measures --t3 4.4743 in Night and 3.9670 in light —
-       both live AA failures, which is open task M128. This composition measures 4.8386 and 4.6263.
+       both live AA failures, which is open task M128. This composition measures 4.8443 and 4.6428
+       through `composite-contrast.test.ts`, which computes the stack without rounding to 8 bits.
        Every --pa-* alpha was fitted by search against that floor and is guarded, red-first, by
        `ambient-contrast.test.ts`. Re-run it if you touch one. ── */
 .paper-ambient {

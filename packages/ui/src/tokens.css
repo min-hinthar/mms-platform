@@ -220,17 +220,21 @@
      binds first in both themes, and the audit parses this file but is structurally blind to
      composited layers, so the worst-pixel measurement lives in `ambient-contrast.test.ts` beside
      the tokens it reads. Change an alpha here and that guard re-measures it.
-     Measured worst pixel, Night (four blob cores coincident + the pool + a lit lip + the grain's
-     peak overlay excursion): #3a3043 → --t3 4.8386 · --t2 6.0011 · --tx 10.6161. Light's worst is
-     its DARKEST pixel (a groove crossing under the grain's minimum): #edece8 → --t3 4.6263. Both
-     are repairs: the SHIPPED ambient's worst pixels measure 4.4743 (Night) and 3.9670 (light),
-     which is open task M128 — closed here as a side effect of the groove inversion. */
+     Worst pixel per that guard, Night (four blob cores coincident + the pool + a lit lip + the
+     grain's peak overlay excursion): --t3 4.8443 · --t2 6.0081. Light's worst is its DARKEST pixel
+     (a groove crossing under the grain's minimum): --t3 4.6428. Both are repairs — the SHIPPED
+     ambient's worst pixels measure 4.4743 (Night) and 3.9670 (light), i.e. two live AA failures,
+     which is open task M128, closed here as a side effect of the groove inversion. */
   --pa-far-op: 0.34;
   --pa-mid-op: 0.55;
-  /* Light's grain is the binding constraint in that theme and it came down from the design's 0.10:
-     at 0.10 the darkest pixel measures --t3 4.3013 (fail) and at 0.07 it is 4.5016 — ON the line,
-     which this repo treats as undecided, not passing. 0.05 measures 4.6263. */
-  --pa-grain-op: 0.05;
+  /* Light's grain is the binding constraint in that theme, and it came down from the design's 0.10
+     in two steps. First to 0.05, by hand: at 0.10 the darkest pixel measures --t3 4.3013 and at
+     0.07 it is 4.5016 — ON the line, which this repo treats as undecided rather than passing. Then
+     to 0.04, because `composite-contrast.test.ts` computes the same stack WITHOUT rounding to 8
+     bits and reported 0.05 as 4.5776 — passing, but with 0.08 of margin against a 0.03 disagreement
+     between the two methods. 0.04 measures 4.6428 there, which is the margin Night and the glass
+     floor both carry. When the guard and a hand calculation disagree, the guard is the number. */
+  --pa-grain-op: 0.04;
   --pa-grain-blend: normal;
   --pa-blur: 64px;
   /* MUST be a length, not a percentage: `-20%` is 86px on a 430px phone and 288px on a 1440px
@@ -501,7 +505,7 @@
 
   /* THE ROOM. Night carries 7.484:1 of --t3 headroom on the bare ground against light's 5.191, so
      every alpha here is larger than its light counterpart and the worst pixel still measures
-     --t3 4.8386. `overlay` is self-limiting on a dark ground — its excursion scales with what is
+     --t3 4.8443. `overlay` is self-limiting on a dark ground — its excursion scales with what is
      already lit, which is precisely where banding lives — so it dithers the ramp without hazing
      the deep ground. */
   --pa-far-op: 0.62;
