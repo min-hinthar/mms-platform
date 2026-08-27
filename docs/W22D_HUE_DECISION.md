@@ -285,10 +285,22 @@ that no longer ships (registry **M84**).
 ## 9. Suggested sequencing
 
 1. ~~**PR A — dark only.**~~ **DONE (2026-08-26).** Nine values, OKLCH +14° (HSL 259° → 277°), lever
-   B for the jade-hover trap. It did prove the guard workflow, and found a gap in it: the two
-   translucent surfaces hand-copy `--cd`/`--sf`'s channels because `rgba(var(--cd), 0.9)` is not
-   expressible, and nothing checked that. `check-theme-parity.mjs` surface 7 now does — which is a
-   guard **PRs B and C inherit**, since the light ground moves under them too.
+   B for the jade-hover trap. It proved the guard workflow and found a gap in it: the two translucent
+   surfaces hand-copy `--cd`/`--sf`'s channels because `rgba(var(--cd), 0.9)` is not expressible, and
+   nothing checked that. `check-theme-parity.mjs` surface 7 now does — a guard **PRs B and C
+   inherit**, since the light ground moves under them too. ⚠️ **It covers 2 of the 9 values PR A
+   moved**: `--surface-elevated`, `--oa` and both `--grad` stops are independent hand-authored values
+   with nothing to pin them to, and **light `--surface-vellum` is the exempted pair** — so the light
+   value most likely to be forgotten in PR C is precisely the one not asserted. Budget for that.
+
+   ⚠️ **PR A also produced a false defect report, and PRs B and C inherit the lesson more than the
+   guard.** It claimed a live 1.97:1 AA failure on the order-ready wall board and shipped a "fix"
+   that was a byte-identical no-op, because that heading renders only inside a Night-forced wrapper
+   where the real ratio is 11.70:1. **A contrast ratio is meaningless until you know which theme the
+   surface renders in**, and this repo has theme-forced subtrees (`.orb-root dark`, `.kds-root dark`)
+   that make the two grounds non-interchangeable. The light re-hue is where that bites hardest: a
+   token moving in `:root` does _not_ reach anything under a `dark` ancestor. Registry **M120**.
+
 2. **Owner picks the maroon** from real swatches (Q1–Q3).
 3. **PR B — the light guard rewrite, BEFORE any token moves.** Replace the flipped negative guards
    with the assertions that are then true, red-first. Decide `--ac-strong`'s fate; delete `--ac2`.

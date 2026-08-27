@@ -36,11 +36,6 @@ jobs:
       # in the first place. A guard with no teeth on the merge path is a guard that documents a rule
       # rather than enforcing it. Same cost profile as check:docs: pure file reads, no build, no DB.
       - run: pnpm check:theme
-      # W22d/PR A — the companion to check:theme, answering the question the contrast audit
-      # structurally cannot: not "did a copied value drift" but "which token is used as TEXT". The
-      # audit asserts token PAIRS and cannot see a call site, so its own negative guards have been
-      # violated by real CSS twice with every test green. Same cost profile: pure file reads.
-      - run: pnpm check:text-tokens
       # M70 — same cost profile, same reason. `database.types.ts` is hand-edited whenever the session
       # has no Docker, and the only thing that checks the edit is the `migrations-check + types-fresh`
       # job below: six image pulls and 120 migrations, ~3 minutes, to reject a misplaced line. And

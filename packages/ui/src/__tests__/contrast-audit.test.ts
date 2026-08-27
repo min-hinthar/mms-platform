@@ -280,17 +280,6 @@ function combos(map: Record<string, string>, theme: "light" | "dark") {
       fg: acStrong,
       bg: flattenAlpha(ac, 0.12, sf),
     },
-    // W22d/PR A — the ORDER-READY wall board's column heading (`.orb-col-ready h2`), which shipped
-    // `color: var(--gold)` on the `--pg` ground and scored **1.97:1 in light** — under even the 3:1
-    // large-text bar, on a display whose entire job is being readable across a room. Nothing here
-    // could have caught it: this file asserts token PAIRS, and the defect was a call site reaching
-    // for the fill hue instead of the text one. `scripts/check-text-tokens.mjs` now asks that second
-    // question; this asserts the token side of the fix, so the pair is covered from both directions.
-    {
-      name: "gold-strong on pg (.orb-col-ready h2, wall board)",
-      fg: tok(map, "--gold-strong"),
-      bg: pg,
-    },
     { name: "oa on solid ac", fg: tok(map, "--oa"), bg: ac },
     { name: "ok on okb", fg: tok(map, "--ok"), bg: tok(map, "--okb") },
     { name: "warn on warnb", fg: tok(map, "--warn"), bg: tok(map, "--warnb") },
@@ -314,6 +303,30 @@ function combos(map: Record<string, string>, theme: "light" | "dark") {
     // dark, because `--ink` is a CONSTANT (never re-declared in `.dark`) while `--oa` flips to a
     // dark ink. That pair is fine in every email and would be near-invisible on a dark screen, which
     // is worth knowing (registry M93) and is not what this block is measuring.
+    // W22d/PR A — the ORDER-READY wall board's column heading (`.orb-col-ready h2`), DARK ONLY, and
+    // the theme restriction is the entire point rather than a convenience.
+    //
+    // Every `.orb-root` wrapper is Night-forced (`<div className="orb-root dark">`,
+    // `ReadyBoard.tsx:164/187/208`) and `.orb-col-ready` renders nowhere else, so this heading's
+    // `color: var(--gold)` always resolves through `.dark` — #f4c879 on #1a111f, 11.70:1. Asserting
+    // it in LIGHT would be asserting a pairing the app never renders, and it would fail: light
+    // `--gold` on light `--pg` is 1.97.
+    //
+    // ⚠️ That 1.97 is exactly what an earlier pass in this PR measured and then reported as a live
+    // AA failure on this heading, "fixed" by swapping to `--gold-strong` — a byte-identical no-op,
+    // since `--gold-strong` aliases `--gold` in `.dark`. The ratio was computed correctly and
+    // attributed to a theme the surface never renders in. This combo exists so the REAL pairing is
+    // an asserted fact rather than something nobody had checked: a board read across a room, whose
+    // legibility had no coverage at all while a defect that never existed collected six citations.
+    ...(theme === "dark"
+      ? [
+          {
+            name: "gold on pg (.orb-col-ready h2, Night-forced wall board)",
+            fg: tok(map, "--gold"),
+            bg: pg,
+          },
+        ]
+      : []),
     ...(theme === "light"
       ? [
           { name: "email · tx body on cd card", fg: tok(map, "--tx"), bg: cd },

@@ -27,8 +27,12 @@ second colour, so re-hueing `--cd` moves the blend's a/b and its luminance even 
 lightness barely moved. `jade-strong on chip tint HOVER /cd` was already the tightest combo in the
 audit at 4.5237; after the rotation it scores **4.5012** — green, by 0.0012, which is one 8-bit step
 and not headroom. So jade gets ruby's W22d-1 treatment, smaller: identical OKLab hue and chroma,
-L 0.6919 → 0.6999 (`#62b380`), worst case now **4.6594**. The fill stays `--jade` exactly as it was;
-only the text variant lifts. All 27 dark combos clear AA, and the tightest rose from 4.5237 to 4.6594.
+L 0.6919 → 0.6999 as searched; rounding to 8-bit sRGB lands the shipped `#62b380` at OKLCH(0.7012,
+0.1102, 154.73) against `--jade`'s (0.6919, 0.1094, 155.14), so the values are stated as measured
+rather than as "identical hue and chroma". Worst case now **4.6594**. The fill stays `--jade` exactly
+as it was; only the text variant lifts. All **28** dark combos clear AA — measured from the suite,
+not counted by eye; an earlier revision said 27, which was the count _before_ this diff added one —
+and the tightest rose from 4.5237 to 4.6594.
 
 **New guard — surface 7 of `check-theme-parity.mjs`: the translucent surfaces that cannot reference
 the token they ARE.** `--surface-glass` and `--surface-vellum` are the frosted forms of `--cd` and
@@ -40,41 +44,60 @@ light `--surface-vellum` is a hand-authored warm `#faf7ef` matching neither `--s
 is listed as a **named exemption rather than a silent skip** — and the exemption is itself checked,
 failing loudly if that value is ever brought onto `--sf` and the skip outlives its reason.
 
-**Fixed while sweeping the diff — a live AA failure on the order-ready wall board.**
-`.orb-col-ready h2`, the READY column's heading, shipped `color: var(--gold)` on the `--pg` ground:
-**1.97:1 in light**, under even the 3:1 large-text bar, on a display whose entire job is being
-readable across a room. `--gold-strong` (`#8a5a00`) takes it to 5.63 and aliases `--gold` in Night,
-so the dark board is byte-identical. This is unrelated to the aubergine rotation and predates it; it
-is fixed here rather than deferred to the light half because it depends on none of the maroon
-questions that block PRs B and C.
+⚠️ **An earlier revision of this entry claimed a live AA failure on the order-ready wall board, and
+a new CI guard justified by it. Both were wrong and both are gone — the record is kept because the
+mistake is more instructive than the change would have been.**
 
-**New guard — `scripts/check-text-tokens.mjs`, wired into CI, `verify:slice` and `pnpm
-check:text-tokens`.** The contrast audit asserts token PAIRS and structurally cannot see a call site,
-so a rule it states correctly can be violated by real CSS with every test green — which has now
-happened twice: W22d-1's two accent pills at 3.53/3.70, and this wall-board heading at 1.97. The
-sweep asks the other question — _which token is used as text_ — and bans only the hues that are never
-legitimate light text on any ground the app paints (`--gold`, `--ac2`). `--ac` is deliberately not
-banned: the audit asserts `ac on pg` and `ac on cd` as passing pairs, so a blanket ban would be false;
-its real rule is surface-dependent and needs each call site's computed background, which is filed as
-**M120** rather than faked with a wider regex. The homepage brand star is the one **named, self-closing
-exemption** (WCAG 1.4.11 exempts logotypes; repainting a brand mark is not a guard's call) and is
-filed for the owner as **M121**.
+The claim was that `.orb-col-ready h2` shipped `color: var(--gold)` on `--pg` at **1.97:1**. That
+ratio is correct for the LIGHT ground, and that heading never renders on the light ground: every
+`.orb-root` wrapper is Night-forced (`<div className="orb-root dark">`, `ReadyBoard.tsx:164/187/208`)
+and `.orb-col-ready` exists nowhere else, so it always resolved to dark `--gold` `#f4c879` on dark
+`--pg` — **11.70:1**. `globals.css` said so in the same block that was edited ("Same Night-forced
+wrapper as the KDS"). The "fix" to `--gold-strong` was a **byte-identical no-op**, since
+`--gold-strong: var(--gold)` in `.dark`. A number computed correctly, attributed to a surface that
+renders in the other theme, then written into six places as fact.
+
+The guard built on it — `scripts/check-text-tokens.mjs`, a grep banning `--gold`/`--ac2` as `color:`
+— is **removed rather than repaired**, for a reason that outlives it: _a grep cannot know which theme
+a rule renders in, and that is the fact deciding the rule._ `--gold` as text is illegitimate on the
+light ground and perfectly legitimate inside this repo's Night-forced subtrees (`.orb-root dark`,
+`.kds-root dark`). As a blocking CI step it would have rejected correct code with an untrue
+diagnosis. Its scope table also carried two invented values — a `2.10` contrast **no colour can
+produce** (`#e8a83c`'s maximum against pure white is 2.0797; the real figure is 1.8100, the tightest
+of the three and quoted as the loosest) and a hex `#f6d9a8` found nowhere in the repo (light `--ac2`
+is `#c8772a`) — in a file whose own header congratulated itself for catching a fabricated
+reassurance.
+
+**What survives is the assertion that was missing all along.** The board's real pairing — dark
+`--gold` on dark `--pg` — had **no coverage**, while a defect that never existed collected six
+citations. It is now asserted, dark-only, with the theme restriction as the point rather than a
+convenience.
+
+The wider gap is filed as **M120**, re-scoped by all of this: a text×surface sweep must resolve the
+_rendered_ theme per call site, because this repo has theme-forced subtrees — which is exactly why it
+is not a regex. **M121** (the homepage brand star at 1.97:1 on cream — genuinely light-rendered, and
+WCAG 1.4.11 exempts logotypes, so a brand question rather than a defect) stands for the owner.
 
 Red-first throughout: the parity guard was watched failing on all three mirrors before they were
 updated; the contrast audit was watched failing at 4.492473 (matching the predicted 4.4925 to four
-decimals) on a deliberately under-paid rotation, and its new wall-board combo at 1.9741 — the same
-number measured by hand on the live defect; surface 7 was falsified five ways (drifted channel,
-re-hued base with the frosted surface left behind, undeclared surface, non-`rgba()` value, stale
-exemption); and the text-token sweep five ways (the real defect, a new `--ac2` text rule, the JSX form
-in `badge.tsx`, a stale exemption, and `border-color`/`background-color` correctly NOT flagged).
+decimals) on a deliberately under-paid rotation, and the surviving wall-board combo at 2.0659 on a
+darkened dark `--gold`; surface 7 was falsified five ways (drifted channel, re-hued base with the
+frosted surface left behind, undeclared surface, non-`rgba()` value, stale exemption).
 
-Two self-inflicted bugs were caught by that discipline and are worth recording, because both are the
-house failure modes: the sweep first matched **its own documentation** — the fix's comment quotes the
-banned `color: var(--gold)` verbatim — reporting prose nobody renders, exactly what
-`check-theme-parity.mjs` had already learned twice; and its failure message **fabricated a
-reassurance**, claiming the suggested `--ac-strong` "aliases `--ac2` in dark so Night is unchanged"
-when `--ac-strong` aliases `--ac` and that swap does move Night. Every ratio in this entry was
-computed against `tokens.css`, never transcribed.
+**Red-first was necessary and not sufficient here, which is the lesson worth keeping.** The removed
+guard was falsified five ways and every one passed, because falsification proves an assertion _can_
+fail — never that what it asserts is _true of the app_. Its headline catch was watched going red on a
+real call site and was still a non-defect, because nothing in the loop asked which theme that call
+site renders in. The same gap made the old audit combo's own red-first (1.9741, on the light map)
+evidence for the wrong claim. A guard needs both halves: a falsification, and a check that its
+subject is real.
+
+Two further self-inflicted bugs were caught during construction and are recorded because both are
+house failure modes: the sweep first matched **its own documentation** — the fix's comment quoted the
+banned `color: var(--gold)` verbatim — reporting prose nobody renders; and its failure message
+**fabricated a reassurance**, claiming the suggested `--ac-strong` "aliases `--ac2` in dark so Night
+is unchanged" when `--ac-strong` aliases `--ac` and that swap does move Night. Every ratio in this
+entry was computed against `tokens.css`, never transcribed.
 
 ### M72a — the settlement derives availability instead of being told it (2026-08-26)
 

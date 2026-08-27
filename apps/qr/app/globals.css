@@ -6991,15 +6991,16 @@ html[data-seen-surface] .mms-stagger {
   letter-spacing: 0.02em;
   text-transform: none;
 }
-/* The READY column's heading. ⚠️ --gold-strong, NOT --gold: this rule shipped `color: var(--gold)`
-   and scored 1.97:1 on the light `--pg` ground — under even the 3:1 large-text bar, on a wall board
-   whose entire job is being readable across a room. --gold-strong (#8a5a00 light) takes it to 5.63,
-   and aliases --gold in Night, so the dark board is byte-identical to what it was. The underline
-   moves with the text so the two still read as one lit heading. Pinned by
-   scripts/check-text-tokens.mjs, which found this. */
+/* The READY column's heading. --gold is CORRECT here and must stay: every `.orb-root` wrapper is
+   Night-forced (`<div className="orb-root dark">`, ReadyBoard.tsx:164/187/208) and `.orb-col-ready`
+   renders nowhere else, so this resolves to the dark `--gold` #f4c879 on the dark `--pg` — 11.70:1,
+   asserted in contrast-audit.test.ts. An earlier pass in this PR "fixed" it to --gold-strong on the
+   strength of a 1.97:1 measurement taken against the LIGHT ground this heading never renders on;
+   the edit was a byte-identical no-op (--gold-strong aliases --gold in .dark) and the defect did not
+   exist. Left as a warning: a ratio is meaningless until you know which theme the surface renders in. */
 .orb-col-ready h2 {
-  color: var(--gold-strong);
-  border-bottom-color: var(--gold-strong);
+  color: var(--gold);
+  border-bottom-color: var(--gold);
 }
 .orb-col ul {
   list-style: none;
