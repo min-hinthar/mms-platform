@@ -39,10 +39,14 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > objects THAT file creates before the next — `pg_proc` is not universal, since column/index/policy
 > migrations leave no function row. Reconciling the histories is filed as **M125**.
 >
-> Two real defects in M70 were found by the pre-apply audit and filed rather than fixed inline —
-> **M123** (a pinned promo grant survives lock-TTL expiry and prices a later basket) and **M124**
-> (`mms_release_promo_grant` lacks the `status = 'open'` gate its sibling has). Applying M70 was
-> still strongly net-positive: it replaced a total promo outage with an edge case.
+> Two real defects in M70 were found by the pre-apply audit and filed rather than fixed inline, both
+> **high**: **M123** (a pinned promo grant survives lock-TTL expiry and prices a later basket) and
+> **M124** (`mms_release_promo_grant_for_holder` matches on `locked_by` alone, so a late unload
+> beacon from one tab clears the pin a second tab's PaymentIntent was derived under). ⚠️ An earlier
+> draft of this note named the wrong function for M124 and prescribed a `status = 'open'` gate; that
+> gate cannot close it, since the cart is still open in the capture→webhook window. **Both rows need
+> an attempt/era discriminator.** Applying M70 was still strongly net-positive: it replaced a total
+> promo outage with an edge case.
 >
 > **M17 AND M109 are both APPLIED to production** (`fasnpdhtvqtzjlvruqcu`; M17 2026-08-23, M109
 > 2026-08-24 — via the Supabase MCP, which is why prod's recorded `schema_migrations` versions differ

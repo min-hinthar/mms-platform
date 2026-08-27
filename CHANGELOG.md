@@ -51,10 +51,18 @@ function this pass touched appears among the SECURITY DEFINER functions `anon` o
 can execute (the seven that do are pre-existing RLS predicates and M87 triggers).
 
 **Two real M70 defects were found by the pre-apply audit and filed rather than fixed inline** —
-**M123**, a promo grant pinned at checkout survives lock-TTL expiry (5 min) and then prices a
-different basket, wrong in both directions; and **M124**, `mms_release_promo_grant` lacks the
-`status = 'open'` gate its sibling `mms_mark_settle_canceled` carries for a documented reason.
-Applying M70 was still strongly net-positive: it replaced a total promo outage with an edge case.
+**M123** (high), a promo grant pinned at checkout survives lock-TTL expiry (5 min) and then prices a
+different basket, wrong in both directions; and **M124** (high),
+`mms_release_promo_grant_for_holder` matches on `locked_by = p_uid` alone, so a late `pagehide`
+beacon from one tab clears the pin a SECOND tab's PaymentIntent was derived under — and if it lands
+between that capture and its webhook, the reconcile disagrees with what was charged.
+
+⚠️ **Both descriptions above are the CORRECTED ones.** This entry originally named the wrong
+function for M124 (`mms_release_promo_grant`), filed it as med/"defence-in-depth", and prescribed a
+`status = 'open'` gate — which cannot close it, because the cart genuinely is open in that window.
+Codex caught the stale wording surviving into this summary after the registry row itself was fixed.
+The remedy for both rows is an attempt/era discriminator, never a status gate. Applying M70 was
+still strongly net-positive: it replaced a total promo outage with an edge case.
 
 **The rail, not the checklist, is the real gap.** Nothing in the repo tracks "SQL applied?"
 separately from "PR merged" — which is precisely how three migrations shipped half-deployed without

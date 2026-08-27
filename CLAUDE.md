@@ -48,12 +48,20 @@ pnpm check:docs          # tables render in EVERY tracked .md (GFM header/delimi
 # stamps are ALL MCP-generated and share ZERO values with the repo filenames (repo
 # 20260618000000_qr_platform_init.sql vs prod 20260618063513 qr_platform_init).
 #
-# What plain `db push` does in that state is REFUSE, not replay — the CLI validates divergent
-# remote history and stops; `--include-all` ("Include all migrations not found on remote history
-# table") is the flag that would force the replay. An earlier version of this warning said plain
-# `db push` replays from `create table menu_categories`; that was WRONG and Codex corrected it on
-# #236. It is still not the command to reach for: it cannot apply anything until the histories are
-# reconciled, and `--include-all` on top of this drift is genuinely destructive.
+# ⚠️ WHAT I HAVE AND HAVE NOT MEASURED, because this warning has now been wrong twice by inferring
+# CLI behaviour instead of observing it. MEASURED: the zero-overlap above, from prod's own history
+# table. NOT MEASURED: what `db push` actually does here — there is no DB connection string in the
+# agent environment, so `--dry-run` could not be executed against prod.
+#
+# Draft 1 said plain `db push` replays from `create table menu_categories`. Wrong — that is the
+# `--include-all` reading of the help text. Draft 2 then said `--include-all` WOULD force that
+# replay and is "genuinely destructive". Also unverified: Codex reports (#236, round 2) that the
+# CLI's `FindPendingMigrations` rejects remote versions absent from the local directory regardless
+# of the flag, and that `includeAll` only admits local migrations preceding the latest remote
+# version — so with 97 remote-only stamps BOTH forms stop before applying anything.
+#
+# What is safe to rely on: `db push` in ANY form cannot be used here until the histories are
+# reconciled. Do not restate a failure mode you have not run.
 #
 # So: apply ONE FILE AT A TIME with the Supabase MCP `apply_migration` — the path every migration
 # on this project has actually taken — and VERIFY the objects THAT FILE creates before the next
