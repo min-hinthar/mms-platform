@@ -8179,7 +8179,11 @@ html[data-fx="lite"] .mms-scrim {
     animation: none;
     filter: var(--bloom-gold);
   }
-  .checkout-pill-on:not(:disabled):hover {
+  .checkout-pill-on:not(:disabled):hover,
+  /* The tip chip's hover rule is the same (0,3,0) form and installs the same filter transition, so
+     it needs the same off-switch — naming only the pill left a reduced-motion diner watching the
+     glow animate on the one surface where every other transition is already off. */
+  .checkout-tip-on:not(:disabled):hover {
     transition: none;
   }
 }
@@ -8265,6 +8269,19 @@ html[data-fx="lite"] .mms-scrim {
   .mms-confetti-pc,
   .receipt-printhead::before {
     filter: none;
+  }
+  /* ⚠️ `filter: none` above CANNOT suppress a filter that a keyframe is currently animating: an
+     animated value sits in a higher cascade origin than a normal author declaration, so while
+     mmsIgnite / mmsSendTrail / mmsCheckBloom run they keep painting their author-chosen gold and
+     jade regardless. Killing the animation is what actually wins (Codex #238 round 2 P2). The
+     static composition is the correct forced-colors rendering anyway — these are one-shots, so
+     there is nothing to lose but the travel. */
+  .checkout-pill-on,
+  .checkout-tip-on,
+  .taste-chip-on,
+  .mms-send-beat,
+  .pay-success-check {
+    animation: none;
   }
 }
 

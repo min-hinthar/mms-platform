@@ -30,10 +30,15 @@ export function useCtaDock(ref: RefObject<HTMLElement | null>, active: boolean, 
     }
     const measure = () => root.style.setProperty("--cta-dock-h", `${el.offsetHeight + gap}px`);
     measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
+    // Feature-detected, matching MenuBrowser.tsx: iOS Safari before 13.4 has no ResizeObserver, and
+    // a bare `new ResizeObserver` there throws a ReferenceError the moment the dock mounts — i.e.
+    // right after an item is added — which would swap the ordering flow for its error boundary. The
+    // initial measurement above is the part that matters; the observer only keeps it true when the
+    // dock reflows, so losing it costs a stale offset and nothing else.
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    ro?.observe(el);
     return () => {
-      ro.disconnect();
+      ro?.disconnect();
       root.style.removeProperty("--cta-dock-h");
     };
   }, [ref, active, gap]);
