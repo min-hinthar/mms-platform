@@ -21,18 +21,34 @@ the hue moves: **HSL 259° → 277°**, squarely inside the note's 270–285 ban
 (`--pg` `--sf` `--cd` `--surface-elevated` `--oa`, both `--grad` stops, `--surface-glass`,
 `--surface-vellum`); the accent/status hues sit across the wheel and do not.
 
-**`--jade-strong` loses its alias, and the reason is worth stating precisely.** The wallet chip's
-hover background is `color-mix(in oklab, --jade 18%, var(--cd))` — an OKLab mix against an **opaque**
-second colour, so re-hueing `--cd` moves the blend's a/b and its luminance even though `--cd`'s own
-lightness barely moved. `jade-strong on chip tint HOVER /cd` was already the tightest combo in the
-audit at 4.5237; after the rotation it scores **4.5012** — green, by 0.0012, which is one 8-bit step
-and not headroom. So jade gets ruby's W22d-1 treatment, smaller: identical OKLab hue and chroma,
-L 0.6919 → 0.6999 as searched; rounding to 8-bit sRGB lands the shipped `#62b380` at OKLCH(0.7012,
-0.1102, 154.73) against `--jade`'s (0.6919, 0.1094, 155.14), so the values are stated as measured
-rather than as "identical hue and chroma". Worst case now **4.6594**. The fill stays `--jade` exactly
-as it was; only the text variant lifts. All **28** dark combos clear AA — measured from the suite,
-not counted by eye; an earlier revision said 27, which was the count _before_ this diff added one —
-and the tightest rose from 4.5237 to 4.6594.
+**`--jade-strong` loses its alias, and the reason is worth stating precisely — the precise version is
+not the one first written.** The wallet chip's hover background is
+`color-mix(in oklab, --jade 18%, var(--cd))` — an OKLab mix against an **opaque** second colour, so
+re-hueing `--cd` moves the blend's a/b and its luminance even though `--cd`'s own lightness barely
+moved. `jade-strong on chip tint HOVER /cd` was already the tightest combo in the audit at 4.5237;
+after the rotation the suite scores it **4.5012**. So jade gets ruby's W22d-1 treatment, smaller:
+hold OKLab hue and chroma, move L 0.6919 → 0.6999 as searched; 8-bit rounding lands the shipped
+`#62b380` at OKLCH(0.7012, 0.1102, 154.73) against `--jade`'s (0.6919, 0.1094, 155.14), so the values
+are stated as measured rather than as "identical hue and chroma".
+
+⚠️ **The margin that motivated this is smaller than the measurement's own precision, and an earlier
+revision built a story on the difference.** `mixOklab` quantizes the blended background to 8-bit
+before computing luminance; carrying floats instead moves this combo ~0.03 — larger than the
+rotation's own effect (~0.02) — and reverses its sign:
+
+| method                         | pre-rotation `--cd` | post-rotation `--cd` | rotation's effect |
+| ------------------------------ | ------------------- | -------------------- | ----------------- |
+| 8-bit (what the suite asserts) | 4.5237              | 4.5012               | −0.0225 — a cost  |
+| float                          | 4.5112              | 4.5313               | +0.0201 — a gain  |
+
+So _"the rotation cost this combo"_ is a fact about where rounding happens, not about the palette.
+What holds on **both** methods: the alias sits within ~0.03 of the 4.5 line — on it, inside the
+noise — and `#62b380` clears on both (4.6594 quantized, 4.6906 float). That is the justification, and
+it no longer depends on which method is right. Which one models a real screen is a genuine question,
+filed as **M122** rather than settled here.
+
+All **28** dark combos clear AA — measured from the suite, not counted by eye; an earlier revision
+said 27, which was the count _before_ this diff added one.
 
 **New guard — surface 7 of `check-theme-parity.mjs`: the translucent surfaces that cannot reference
 the token they ARE.** `--surface-glass` and `--surface-vellum` are the frosted forms of `--cd` and
@@ -41,8 +57,12 @@ the token they ARE.** `--surface-glass` and `--surface-vellum` are the frosted f
 That is this script's subject exactly and it had no coverage — which is why this re-hue meant editing
 four values in lockstep by hand and trusting the author to notice. Three of the four pairs track;
 light `--surface-vellum` is a hand-authored warm `#faf7ef` matching neither `--sf` nor `--pg`, so it
-is listed as a **named exemption rather than a silent skip** — and the exemption is itself checked,
-failing loudly if that value is ever brought onto `--sf` and the skip outlives its reason.
+is listed as a **named exemption rather than a silent skip** — and the exemption is itself checked
+against both bases its rationale names, and **fails closed**: a value it cannot parse is a failure,
+never a pass. (Codex caught that the first version did the opposite — it short-circuited to green
+whenever the exempt declaration would not parse as `rgba()`, so rewriting it as `#f2efe7`, i.e.
+exactly `--sf` and the stale condition itself, or as `var(--sf)`, left the guard green. The commit
+message claimed a non-`rgba()` value had been falsified when only the NON-exempt path had been.)
 
 ⚠️ **An earlier revision of this entry claimed a live AA failure on the order-ready wall board, and
 a new CI guard justified by it. Both were wrong and both are gone — the record is kept because the

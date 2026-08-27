@@ -187,12 +187,32 @@
      OKLab mix against an OPAQUE second colour, so re-hueing --cd moves the blend's a/b and its
      luminance with it, even though the rotation holds --cd's own OKLab L (and its relative
      luminance: 0.01697 → 0.01671) essentially fixed. At the shipped +14° the alias scores 4.5012 —
-     green, by 0.0012, which is one 8-bit step and not headroom. Same fix as ruby's, and smaller: the
-     search held hue and chroma and moved L only, then rounded to 8-bit sRGB — which moves all three
-     slightly, so the shipped values are MEASURED rather than described as identical. --jade
-     #5fb07e is OKLCH(0.6919, 0.1094, 155.14); --jade-strong #62b380 is OKLCH(0.7012, 0.1102,
-     154.73). Worst case now 4.6594. The FILL stays --jade exactly as it was; only the TEXT variant
-     lifts, and ΔC 0.0008 / Δh 0.41° is well inside a single 8-bit step. */
+     green by 0.0012 — a margin the measurement cannot actually resolve, which is the real reason to
+     act rather than the one first written here.
+
+     ⚠️ THE MARGIN IS SMALLER THAN THE METHOD'S OWN PRECISION, and an early draft of this comment
+     built a story on the difference. `mixOklab` in contrast-audit.test.ts quantizes the blended
+     background to 8-bit hex before computing luminance. Keeping the mixed channels as floats
+     instead moves this combo by ~0.03 — larger than the rotation's own effect on it (~0.02) — and
+     REVERSES the sign:
+
+         method   pre-rotation --cd   post-rotation --cd   rotation's effect
+         8-bit    4.5237              4.5012               −0.0225  (a cost)
+         float    4.5112              4.5313               +0.0201  (a gain)
+
+     So "the rotation cost this combo 0.0225" is not a fact about the palette; it is a fact about
+     where rounding happens. What IS true on every method: the alias sits within ~0.03 of the 4.5
+     line, i.e. on it, inside the noise. That is what the lift is for. Which method models a real
+     screen — the browser composites a color-mix and delivers an 8-bit pixel on an sRGB display, so
+     the quantized path is arguably the faithful one — is a genuine question and is filed as M122
+     rather than settled here.
+
+     The fix is ruby's, and smaller: hold hue and chroma, move L, round to 8-bit — which nudges all
+     three, so the shipped values are MEASURED rather than called identical. --jade #5fb07e is
+     OKLCH(0.6919, 0.1094, 155.14); --jade-strong #62b380 is OKLCH(0.7012, 0.1102, 154.73); ΔC
+     0.0008 and Δh 0.41° are inside one 8-bit step. It clears on BOTH methods — 4.6594 quantized,
+     4.6906 float — which is the point: the choice no longer depends on which one is right. The FILL
+     stays --jade exactly as it was; only the TEXT variant lifts. */
   --jade-strong: #62b380;
   /* W22d — ruby is the ONE bright hue that does NOT clear AA as text on its own tint, and the
      comment here used to assert the opposite. Measured against the real call sites: `--ruby` as text

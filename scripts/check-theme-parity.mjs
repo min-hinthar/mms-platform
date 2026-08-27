@@ -343,6 +343,22 @@ for (const file of readdirSync(path.join(ROOT, EMAIL_DIR), { recursive: true }))
 // hand-authored warm vellum that predates this check. Asserting the relationship there would be
 // asserting something false, and quietly omitting it would leave a hole of the kind the header
 // above keeps cataloguing — so it is listed with its reason and deliberately not compared.
+/**
+ * `rgba(r, g, b, a)` or `#rrggbb` → `[r, g, b]`, or null when it is neither.
+ *
+ * Shared by the exempt and asserted paths so a value written in EITHER form compares correctly and,
+ * more importantly, so "cannot be read" is a single answer both paths must handle rather than
+ * something one of them silently treats as agreement.
+ */
+function channels(value) {
+  const v = (value ?? "").trim();
+  const rgba = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(v);
+  if (rgba) return [1, 2, 3].map((i) => Number(rgba[i]));
+  const hex = /^#([0-9a-fA-F]{6})$/.exec(v);
+  if (hex) return [0, 2, 4].map((i) => parseInt(hex[1].slice(i, i + 2), 16));
+  return null;
+}
+
 const SURFACE_BASE = [
   { theme: "light", block: light, surface: "--surface-glass", base: "--cd" },
   {
@@ -351,11 +367,19 @@ const SURFACE_BASE = [
     surface: "--surface-vellum",
     base: null,
     why: "a hand-authored warm vellum (#faf7ef) matching neither --sf nor --pg",
-    // The exemption is itself checked: if light's vellum is ever brought onto `--sf`, the reason
-    // above stops being true and this stops being an exemption — it becomes an unasserted
-    // relationship that LOOKS covered because it is listed here. A skip that outlives its reason is
-    // the quietest hole in this file's whole catalogue, so it fails loudly and asks to be promoted.
-    staleIfMatches: "--sf",
+    // The exemption is itself checked: if light's vellum is ever brought onto one of the bases its
+    // rationale says it does NOT match, the reason stops being true and this stops being an
+    // exemption — it becomes an unasserted relationship that LOOKS covered because it is listed
+    // here. A skip that outlives its reason is the quietest hole in this file's whole catalogue.
+    //
+    // ⚠️ BOTH bases from the rationale, not just one, and the check FAILS CLOSED. The first version
+    // named only `--sf` and short-circuited to the green branch whenever the declaration would not
+    // parse as `rgba()` — so rewriting the exempt value as `#f2efe7` (i.e. exactly `--sf`, the stale
+    // condition itself) or as `var(--sf)` left the guard GREEN, and the commit message claimed a
+    // non-`rgba()` value had been tested when only the NON-exempt path had been. An exemption that
+    // cannot be evaluated must be a failure, never a pass: the whole point of listing it is that
+    // someone checks it.
+    staleIfMatches: ["--sf", "--pg"],
   },
   { theme: "dark", block: dark, surface: "--surface-glass", base: "--cd" },
   { theme: "dark", block: dark, surface: "--surface-vellum", base: "--sf" },
@@ -367,17 +391,25 @@ for (const { theme, block: blk, surface, base, why, staleIfMatches } of SURFACE_
     continue;
   }
   if (!base) {
-    const ch = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(decl);
-    const cmp = /^#([0-9a-fA-F]{6})$/.exec((blk[staleIfMatches] ?? "").trim());
-    if (
-      ch &&
-      cmp &&
-      [0, 2, 4].map((i) => parseInt(cmp[1].slice(i, i + 2), 16)).join() ===
-        [1, 2, 3].map((i) => Number(ch[i])).join()
-    )
+    const mine = channels(decl);
+    if (!mine) {
+      failures.push(
+        `translucent surface · ${theme} ${surface}: exempt, but its value \`${decl}\` is neither ` +
+          `an \`rgba(r, g, b, a)\` nor a 6-digit hex, so the exemption cannot be evaluated at all. ` +
+          `An exemption that cannot be checked is not an exemption — state the value in a form this ` +
+          `can read, or give it a \`base\` and let it be asserted.`,
+      );
+      continue;
+    }
+    const stale = staleIfMatches.filter((b) => {
+      const want = channels(blk[b] ?? "");
+      return want && want.join() === mine.join();
+    });
+    if (stale.length)
       failures.push(
         `translucent surface · ${theme} ${surface}: the exemption is STALE — it now equals ` +
-          `${staleIfMatches}, so give it \`base: "${staleIfMatches}"\` and let it be asserted`,
+          `${stale.join(" and ")}, which its own rationale says it does not. Give it ` +
+          `\`base: "${stale[0]}"\` and let it be asserted.`,
       );
     else checked.push(`${theme} ${surface} — exempt: ${why}`);
     continue;
