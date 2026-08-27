@@ -725,6 +725,17 @@ html[data-ambient="paused"] .pa-mid {
     display: none;
   }
 }
+/* Windows High Contrast: the OS owns the palette, and it forces background-COLOR without forcing
+   background-IMAGE — so every gradient, groove and grain tile in here would survive and paint over
+   a ground the user explicitly asked the system to control. The whole room is decorative; the right
+   answer is to get out of the way, not to tint it differently. The pause control goes with it,
+   because there is then nothing left moving for it to stop. */
+@media (forced-colors: active) {
+  .paper-ambient,
+  .pa-pause {
+    display: none;
+  }
+}
 
 /* ── The thermal-print receipt (pay success, /track) ──────────────────────────────────────────────
    The compact paid-receipt card becomes a printed slip: body + torn foot inside a clip wrapper;
@@ -7973,10 +7984,14 @@ html[data-fx="lite"] .mms-scrim {
 
 /* Windows High Contrast: the OS owns the palette, and a backdrop-filter there produces an
    unreadable smear the user cannot override. Print: a frosted shelf must never reach paper. */
+/* `.mms-sheet-head` is in this list because the lacquer rake is a background-IMAGE, and
+   forced-colors forces background-COLOR only — without it the band survives and paints a light
+   wash over a ground the user asked the system to control. */
 @media (forced-colors: active) {
   .app-header,
   .menu-toolbar,
-  .mms-scrim {
+  .mms-scrim,
+  .mms-sheet-head {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
     background-image: none;
