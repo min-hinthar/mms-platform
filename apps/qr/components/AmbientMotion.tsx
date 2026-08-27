@@ -9,9 +9,14 @@ import { useEffect, useState } from "react";
  *  1. On a FINE pointer, write `--pa-px`/`--pa-py` (unitless −1…1) so the far and mid planes sway
  *     under the cursor. rAF-throttled to one style write per frame, and it writes only custom
  *     properties that drive `translate`, so it never triggers layout or paint.
- *  2. On a COARSE pointer — where there is no cursor and the planes drift on a clock instead —
+ *  2. On a NON-FINE pointer — where there is no cursor and the planes drift on a clock instead —
  *     render the visible pause control WCAG 2.2.2 requires. Desktop never sees it, because there
  *     the ambient moves only under the user's own hand, which is not auto-motion.
+ *     ⚠️ `!fine.matches` is broader than the CSS `@media (pointer: coarse)` that starts the drift:
+ *     `pointer: none` (a TV remote, some assistive setups) satisfies neither, so the control can
+ *     render with nothing to stop. That is the safe direction of the two — an unnecessary stop
+ *     button is noise, a missing one is a WCAG failure — but it is a mismatch, not a match, and
+ *     saying otherwise would be the kind of comment this milestone spent a review round removing.
  *
  * Under reduced motion neither happens: no listener is attached, `--pa-px`/`--pa-py` are never
  * written (so the CSS defaults of 0 hold even if the RM block were somehow missed), and the control
@@ -92,7 +97,11 @@ export function AmbientMotion() {
     <button
       type="button"
       className="pa-pause"
-      aria-pressed={paused}
+      // A CHANGING NAME, and deliberately NO `aria-pressed`. Carrying both inverts the announcement:
+      // once paused it reads "Play the background motion, pressed", and a PRESSED "Play" states that
+      // motion is playing — the opposite of the truth, on the one control WCAG 2.2.2 requires to be
+      // comprehensible. A toggle picks one mechanism: a stable name plus the state attribute, or a
+      // name that changes with the action. Play/pause is the canonical case for the latter.
       aria-label={paused ? "Play the background motion" : "Pause the background motion"}
       onClick={() => setPaused((p) => !p)}
     >

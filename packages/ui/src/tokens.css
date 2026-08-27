@@ -171,8 +171,12 @@
   /* ── THE DIAL — one attribute on <html>, no redesign, no layout change ────────────────────────
      `document.documentElement.dataset.fx = "lite" | "off"` (absent = full strength).
        full  (default)  chrome frost + the full-viewport defocus + three promoted ambient planes
-       lite             the defocus goes away (−20.6 MB, the single largest buffer) and the mid
-                        plane un-promotes (−14.4 MB). Chrome frost and every moment stay.
+       lite             the two full-viewport FILTER surfaces go: the defocus scrim's backdrop and
+                        the far plane's own blur, and both ambient planes un-promote. The chrome
+                        frost stays, and so does every one of the moments. (An earlier draft dialled
+                        only the scrim and documented it as "the mid plane un-promotes" — the token
+                        is read by BOTH planes, and the far plane's blur, the largest filter surface
+                        in the app, was left running. Blind pass, 2026-08-27.)
        off              no backdrop-filter anywhere, no plane blur, nothing promoted. The STATIC
                         composition survives whole: opaque chrome with its lit lip, a still room,
                         and every drop-shadow bloom (a 44px chip's filter is rounding error).
@@ -208,7 +212,16 @@
   --glass-blur-far: 28px;
   --glass-sat-mid: 1.5;
   --glass-sat-far: 0.85;
-  --glass-chrome: var(--sf);
+  /* ⚠️ THE OPAQUE CHROME OF THIS THEME, and it is NOT the same rung in both. Light's header has
+     always painted --pg, and it must keep doing so: `.app-header-rewards` renders BARE --ac, which
+     measures 4.6729 on --pg and 4.2843 on --sf. The audit already asserts that second pair is
+     ILLEGIBLE — `plain ac on sf` is a NEGATIVE guard, asserted toBeLessThan(4.5), and it exists to
+     force call sites onto --ac-strong. Pointing light's chrome at --sf therefore painted the header
+     on a surface this repo had already ruled out for the text it carries. Night tints with --sf on
+     purpose (rung 3, so chrome sits below cards); light cannot follow it there.
+     Every path that turns the frost OFF reads this token, so a fallback cannot drift from it. */
+  --glass-chrome-opaque: var(--pg);
+  --glass-chrome: var(--glass-chrome-opaque);
   --frost-rim: var(--bd);
   --frost-edge: rgba(255, 255, 255, 0.66);
   --frost-pipe: rgba(255, 255, 255, 0.42);
@@ -219,15 +232,23 @@
   /* ── THE ROOM — the page atmosphere, three planes ─────────────────────────────────────────────
      Every alpha here was fitted by numeric search against a DERIVED AA floor, not chosen: --t3
      binds first in both themes, and the audit parses this file but is structurally blind to
-     composited layers, so the worst-pixel measurement lives in `ambient-contrast.test.ts` beside
-     the tokens it reads. Change an alpha here and that guard re-measures it.
+     composited layers, so the worst-pixel measurement lives in
+     `src/__tests__/composite-contrast.test.ts` beside the tokens it reads. Change an alpha here and that guard re-measures it.
      Worst pixel per that guard, Night (four blob cores coincident + the pool + a lit lip + the
      grain's peak overlay excursion): --t3 4.8443 · --t2 6.0081. Light's worst is its DARKEST pixel
      (a groove crossing under the grain's minimum): --t3 4.6428. Both are repairs — the SHIPPED
      ambient's worst pixels measure 4.4743 (Night) and 3.9670 (light), i.e. two live AA failures,
      which is open task M128, closed here as a side effect of the groove inversion. */
-  --pa-far-op: 0.34;
-  --pa-mid-op: 0.55;
+  /* ⚠️ REFITTED after the blind pass. The first fit used a model that excluded the far-plane blobs
+     and the warm pool "because both lighten, which helps dark text". That rationale is FALSE: every
+     light ambient source is DARKER than light --pg #faf9f5 — --sf 0.86380, --warnb 0.83472,
+     --gold 0.45487, --jade 0.12344, --ruby 0.12598 against the ground's 0.94668. So the guard
+     excluded precisely the layers that darken, and the real worst pixel measured 4.4813 with motion
+     and 4.3764 under reduced motion — two live AA failures the suite reported as 4.6056.
+     These values are the search result against the REAL model, worst case 4.6744, and
+     `composite-contrast.test.ts` now computes that model in both motion states. */
+  --pa-far-op: 0.24;
+  --pa-mid-op: 0.42;
   /* Light's grain is the binding constraint in that theme, and it came down from the design's 0.10
      in two steps. First to 0.05, by hand: at 0.10 the darkest pixel measures --t3 4.3013 and at
      0.07 it is 4.5016 — ON the line, which this repo treats as undecided rather than passing. Then
@@ -235,7 +256,7 @@
      bits and reported 0.05 as 4.5776 — passing, but with 0.08 of margin against a 0.03 disagreement
      between the two methods. 0.04 measures 4.6428 there, which is the margin Night and the glass
      floor both carry. When the guard and a hand calculation disagree, the guard is the number. */
-  --pa-grain-op: 0.04;
+  --pa-grain-op: 0.03;
   --pa-grain-blend: normal;
   --pa-blur: 64px;
   /* MUST be a length, not a percentage: `-20%` is 86px on a 430px phone and 288px on a 1440px
@@ -263,11 +284,11 @@
   /* The grid is DEBOSSED: a groove plus a lit lip — the card bevel at page scale. The groove is
      always the direction that HELPS the theme's text: a dark line darkens a light-text ground and
      a light-text ground is what Night is. That inversion is what closes M128. */
-  --pa-groove: color-mix(in oklab, var(--bd) 28%, transparent);
+  --pa-groove: color-mix(in oklab, var(--bd) 16%, transparent);
   --pa-lip: rgba(255, 255, 255, 0.45);
   /* Reduced motion gets a DEEPER cut, not a dimmer one — it trades motion for incision, and it is
      also the safer composition (a deeper groove darkens, which buys contrast rather than spending). */
-  --pa-groove-still: color-mix(in oklab, var(--bd) 42%, transparent);
+  --pa-groove-still: color-mix(in oklab, var(--bd) 24%, transparent);
   /* Bottom-dock height, so the ambient's pause coin clears the CartBar. Surfaces with a bottom CTA
      set it; at the 0px default the coin would sit under the bar. */
   --cta-dock-h: 0px;
@@ -461,8 +482,10 @@
   /* M126 · THE BEVEL. --sheen is the LIT TOP LIP and --edge-lo the object's own SHADE on its
      bottom edge — Night had no bottom or side inner shadow anywhere, so every card was a flat fill
      with a whisper of a highlight. At 0.06 the lip read 1.1869 against its own card; at 0.11 it
-     reads 1.4089, and top-edge-to-bottom-edge across one card goes from exactly 1.0000 (no bottom
-     edge existed) to 1.6025. 0.11 beats a warmer 13%: at 13% the composite hue is 309.8°, i.e.
+     reads 1.3971, and top-edge-to-bottom-edge across one card goes from exactly 1.0000 (no bottom
+     edge existed) to 1.6758 — both recomputed after the blind pass refused the first pair; the
+     1.4089 / 1.6025 originally shipped here do not reproduce, and nothing guards them (they are a
+     design figure, not an AA bound). 0.11 beats a warmer 13%: at 13% the composite hue is 309.8°, i.e.
      brighter rather than warmer — warmth does not survive on a near-black card, so pay for the
      edge, not for a colour that will not show. Side effect, stated up front: `checkoutShine` and
      `.checkout-reward-applied` are both built on --sheen and have effectively not existed in
@@ -496,6 +519,7 @@
      Tinted with --sf (rung 3), NOT --pg (rung 1), so chrome sits BELOW cards (--cd, rung 4) and a
      card scrolling under produces a brightening smear — the only motion a frost has.
      Guarded, red-first, by `glass-floor` in contrast-audit.test.ts. */
+  --glass-chrome-opaque: var(--sf);
   --glass-chrome: color-mix(in oklab, var(--sf) 90%, transparent);
   --frost-rim: rgba(255, 255, 255, 0.09);
   /* Brighter than --sheen's 0.11: a glass edge catches more light than a paper one. NEUTRAL WHITE,
@@ -514,6 +538,10 @@
      already lit, which is precisely where banding lives — so it dithers the ramp without hazing
      the deep ground. */
   --pa-far-op: 0.62;
+  /* Declared here as well as in :root since M126's light refit moved the shared value: Night has
+     7.484:1 of --t3 headroom on its bare ground against light's 5.191, so the two themes cannot
+     share one weight. Night's worst pixel is measured at 0.55. */
+  --pa-mid-op: 0.55;
   --pa-grain-op: 0.35;
   --pa-grain-blend: overlay;
   --pa-blob-1: color-mix(in oklab, var(--surface-elevated) 50%, transparent);
@@ -540,6 +568,7 @@ html[data-fx="lite"] {
      full-viewport defocus (~20.6 MB with a sheet open) is 80% of the glass budget on its own,
      because a backdrop buffer scales with the pane's AREA and not with the blur radius. */
   --fx-glass-far: none;
+  --fx-plane-blur: none;
   --fx-promote: auto;
 }
 html[data-fx="off"] {
@@ -553,14 +582,15 @@ html[data-fx="off"] {
      backdrop-filter perfectly well — it is this dial that turned it off. The AA floor was searched
      against the worst BLURRED backdrop; an unblurred one is a different question and not one the
      glass floor answers. */
-  --glass-chrome: var(--sf);
+  --glass-chrome: var(--glass-chrome-opaque);
 }
 /* NIGHT ONLY. `mix-blend-mode: overlay` forces a group buffer whether or not the layer is promoted
    (~14 MB at 430x932 DPR3), so `off` has to drop the blend too — and it cannot simply keep the
    alpha, because a `normal`-blend grain at Night's 0.35 paints raw grey haze. 0.06 is the measured
    equivalent: the worst pixel lands --t3 4.7342 against 4.8386 for the overlay composition it
    replaces. Light is untouched — its grain is already `normal`, so there is no buffer to give back
-   and its 0.05 is the fitted value (0.07 measures 4.5016, on the line). */
+   and its own value was refitted separately against the corrected light model (see --pa-grain-op
+   in :root). */
 html[data-fx="off"].dark {
   --pa-grain-blend: normal;
   --pa-grain-op: 0.06;
@@ -577,7 +607,7 @@ html[data-fx="off"].dark {
     --fx-glass-far: none;
     /* Same reason as the `off` dial, and it matters more here: a user who asked their OS for LESS
        transparency must not be handed a 90% translucent pane with the blur removed. */
-    --glass-chrome: var(--sf);
+    --glass-chrome: var(--glass-chrome-opaque);
   }
 }
 @media (prefers-reduced-motion: reduce) {

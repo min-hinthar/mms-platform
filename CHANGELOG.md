@@ -79,6 +79,59 @@ rule that bypasses `--fx-*` silently opts out of the escape hatch. Three mutatio
 red. It checks the STYLESHEET and not the DOM, and says so: no two sheets in this app are openable
 at once today, but that is a fact about the components, not something the guard proves.
 
+**The blind adversarial pass returned REJECT, and it was right on the load-bearing ones.** Recorded
+here rather than only in the PR, because three of them were defects this entry had already claimed
+were fixes.
+
+- **Light's header moved off `--pg` onto `--sf`, putting `.app-header-rewards` (bare `--ac`) at
+  4.2843:1.** One `--glass-chrome` token served both themes, and Night tints its chrome with `--sf`
+  on purpose so it sits below cards. Light cannot follow it there: the main audit already carries
+  `plain ac on sf` as a NEGATIVE guard asserted under 4.5, whose whole job is to force call sites
+  onto `--ac-strong`. So the header was painted on a surface this repo had already ruled out for
+  the text it carries — and the "opaque restores 5.5546 / 4.6729" figures in the code comment were
+  measured against `--pg`, the surface the code no longer painted. `--glass-chrome-opaque` is now
+  the one name for "the opaque chrome of this theme" (light `--pg`, Night `--sf`) and every
+  filter-off path reads it, so a fallback cannot drift from the pane it replaces.
+- **The light ambient failed AA in both motion states — and the new guard reported it passing.**
+  `lightWorst()` excluded the far-plane blobs and the warm pool "because both lighten, which helps
+  dark text". That is false: every light ambient source is darker than light `--pg` (`--sf` Y
+  0.86380, `--warnb` 0.83472, `--gold` 0.45487, `--jade` 0.12344, `--ruby` 0.12598 against
+  0.94668). The model therefore omitted exactly the layers that darken, reported 4.6056, and the
+  real worst pixel was **4.4738 with motion and 4.3585 under reduced motion**. Light's
+  `--pa-far-op` and all four `--pa-blob-*` were asserted by nothing whatsoever. The model now
+  stacks what actually darkens and computes BOTH motion states, and light's weights were refitted
+  against it (`--pa-far-op` 0.34 → 0.24, `--pa-mid-op` 0.55 → 0.42 with Night pinned at 0.55,
+  `--pa-grain-op` 0.04 → 0.03, groove 28% → 16%, still-groove 42% → 24%): worst case now 4.6744.
+  Worth stating plainly — reverting any ONE of those five leaves the suite green; only the original
+  combination breaches, which is what a multi-factor bound looks like and why the red-first
+  mutation had to restore all five at once.
+- **`--pa-groove-still` deepens the grid under reduced motion, and its comment called that "the
+  safer composition".** True in Night, where a darker groove darkens the ground under LIGHT text.
+  Light is dark-on-light, so the same move spends contrast instead of buying it, and reduced motion
+  is the tighter of light's two states, not the looser one.
+- **The pause control's name inverted against its own `aria-pressed`.** Once paused it announced
+  "Play the background motion, pressed" — a pressed "Play" states that motion is playing. On the
+  one control WCAG 2.2.2 requires to be comprehensible. It carries a changing name and no
+  `aria-pressed` now.
+- **`lite` did not drop the largest filter surface it claimed to.** It re-pointed only the scrim's
+  backdrop, leaving the far plane's `blur(64px)` — over an overscanned box, the biggest filtered
+  surface in the app — running, while the docs said "~35 MB". It drops `--fx-plane-blur` too now,
+  and the prose names both planes rather than "the mid plane" (one token un-promotes both).
+- **The dial had no writer anywhere in the repo.** An escape hatch that justifies lifting a budget
+  written after a production OOM, reachable only from a devtools console, is a claim and not a
+  mechanism. `FxDial` writes it: `localStorage["mms.fx"]` as a per-device manual override, else
+  `lite` on a low tier (the gate `TierUpCelebration` and `PaySuccess` already use), else absent —
+  full strength, which is the instruction. Its docblock says the part that is easy to leave out:
+  core count is a poor proxy for a per-tab memory ceiling, a recent iPhone reports 6–8 cores with a
+  tight WebKit budget, and the manual lever is therefore the real one.
+- Smaller, all verified in the built CSS: a `(0,3,0)` hover rule reinstated `--sh-lift` underneath
+  an active bloom on the tip chip (the pill had its counterpart, the chip did not); the six new
+  `filter:` effects had no `forced-colors` escape, which the UA does not force away; two comments
+  pointed at `ambient-contrast.test.ts`, a file that does not exist; a comment described the
+  `--pa-grain-op` value the same PR had already changed; the header carried a "NO backdrop-filter —
+  mobile GPU budget" note three thousand lines above the rule that frosts it; and the bevel's
+  1.4089 / 1.6025 did not reproduce (1.3971 / 1.6758 — a design figure, unguarded, now said to be).
+
 **Not shipped, and said out loud rather than quietly dropped.** The dish-card photo bleed is deferred
 (M129): it needs `--card-photo` wired at three call sites, and a raw `url()` in CSS bypasses
 `next/image`, so every rail card would fetch a second unoptimized copy of its photo to paint a hover

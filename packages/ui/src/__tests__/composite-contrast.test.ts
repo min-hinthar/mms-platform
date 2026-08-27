@@ -188,10 +188,20 @@ describe("glass floor — the frosted chrome over its worst possible backdrop", 
 describe("the room — the worst pixel of the page ambient, both themes", () => {
   /**
    * Night's worst pixel is its BRIGHTEST: all four far-plane blob cores coincident, the warm pool,
-   * a lit grid lip, and the grain's peak overlay excursion. Light's worst is its DARKEST: no blobs
-   * and no pool (both lighten, which helps dark text), just a groove crossing under the grain's
-   * minimum. Same composition, opposite binding direction — which is the whole reason the two
-   * themes carry different `--pa-*` alphas rather than one shared set.
+   * a lit grid lip, and the grain's peak overlay excursion. Light's worst is its DARKEST — and the
+   * first version of this file got that composition WRONG in a way that hid two live AA failures.
+   *
+   * It excluded the blobs and the pool "because both lighten, which helps dark text". That is
+   * FALSE. Every light ambient source is darker than light `--pg` #faf9f5: `--sf` Y 0.86380,
+   * `--warnb` 0.83472, `--gold` 0.45487, `--jade` 0.12344, `--ruby` 0.12598, against the ground's
+   * 0.94668. So the model excluded precisely the layers that darken, reported 4.6056, and the real
+   * worst pixel was 4.4813 with motion and 4.3764 under reduced motion. Light's `--pa-far-op` and
+   * all four `--pa-blob-*` were asserted by nothing at all, in either direction.
+   *
+   * The light model below stacks what actually darkens — four blob cores, the warm pool, a groove
+   * crossing — and omits only `--pa-lip`, which lightens and so cannot be the worst case. Both
+   * motion states are computed, because `--pa-groove-still` is a different alpha and reduced motion
+   * is the TIGHTER of the two in this theme, not the looser one.
    */
   function nightWorst(): Rgba {
     const far = fade(
@@ -210,18 +220,27 @@ describe("the room — the worst pixel of the page ambient, both themes", () => 
     );
     return grain(over(mid, ground), 0.66, Number(raw(dark, "--pa-grain-op")), "overlay");
   }
-  function lightWorst(): Rgba {
-    const groove = t(light, "--pa-groove");
-    const crossing = fade(
-      stack([groove, groove], { r: 0, g: 0, b: 0, a: 0 }),
+  /** @param grooveToken `--pa-groove` (motion) or `--pa-groove-still` (reduced motion). */
+  function lightWorst(grooveToken: "--pa-groove" | "--pa-groove-still"): Rgba {
+    const pg = t(light, "--pg");
+    const far = fade(
+      stack(
+        (["--pa-blob-1", "--pa-blob-2", "--pa-blob-3", "--pa-blob-4"] as const).map((n) =>
+          t(light, n),
+        ),
+        { r: 0, g: 0, b: 0, a: 0 },
+      ),
+      Number(raw(light, "--pa-far-op")),
+    );
+    const ground = over(far, pg);
+    const groove = t(light, grooveToken);
+    // The pool and a groove CROSSING (both grid axes paint at an intersection). No `--pa-lip`: it
+    // lightens, so including it would model something easier than the worst case.
+    const mid = fade(
+      stack([t(light, "--pa-pool"), groove, groove], { r: 0, g: 0, b: 0, a: 0 }),
       Number(raw(light, "--pa-mid-op")),
     );
-    return grain(
-      over(crossing, t(light, "--pg")),
-      0.34,
-      Number(raw(light, "--pa-grain-op")),
-      "normal",
-    );
+    return grain(over(mid, ground), 0.34, Number(raw(light, "--pa-grain-op")), "normal");
   }
   it("room · Night worst pixel keeps --t3 above AA", () => {
     expect(ratio(t(dark, "--t3"), nightWorst())).toBeGreaterThanOrEqual(AA);
@@ -230,7 +249,37 @@ describe("the room — the worst pixel of the page ambient, both themes", () => 
     expect(ratio(t(dark, "--t2"), nightWorst())).toBeGreaterThanOrEqual(AA);
   });
   it("room · light worst pixel keeps --t3 above AA", () => {
-    expect(ratio(t(light, "--t3"), lightWorst())).toBeGreaterThanOrEqual(AA);
+    expect(ratio(t(light, "--t3"), lightWorst("--pa-groove"))).toBeGreaterThanOrEqual(AA);
+  });
+  it("room · light REDUCED-MOTION worst pixel keeps --t3 above AA", () => {
+    // `--pa-groove-still` deepens the cut, and the token's comment calls that "the safer
+    // composition". It is — in NIGHT, where a darker groove darkens the ground under LIGHT text.
+    // Light is dark-on-light, so the same move spends contrast instead of buying it, which makes
+    // this the TIGHTER of the theme's two states rather than the looser one.
+    expect(ratio(t(light, "--t3"), lightWorst("--pa-groove-still"))).toBeGreaterThanOrEqual(AA);
+  });
+});
+
+describe("chrome — the surface the header's own text sits on", () => {
+  /**
+   * `.app-header-rewards` renders BARE `--ac`, which is legible on a narrow set of surfaces: the
+   * main audit's `plain ac on sf` is a NEGATIVE guard asserting that pair sits UNDER 4.5, precisely
+   * so call sites take `--ac-strong` instead. Pointing light's chrome at `--sf` put the header on
+   * that forbidden ground at 4.2843, and nothing in the repo could see it — the surface is a token
+   * indirection (`--glass-chrome`) that a hex-reading audit never follows.
+   */
+  it("light chrome carries bare --ac at AA", () => {
+    expect(ratio(t(light, "--ac"), t(light, "--glass-chrome"))).toBeGreaterThanOrEqual(AA);
+  });
+  it("light chrome carries --t2 at AA", () => {
+    expect(ratio(t(light, "--t2"), t(light, "--glass-chrome"))).toBeGreaterThanOrEqual(AA);
+  });
+  it("the opaque fallback every filter-off path reads is legible in both themes", () => {
+    for (const map of [light, dark]) {
+      expect(ratio(t(map, "--t2"), t(map, "--glass-chrome-opaque"))).toBeGreaterThanOrEqual(AA);
+    }
+    // Light's is the one that carries bare --ac; Night's is covered by the glass floor above.
+    expect(ratio(t(light, "--ac"), t(light, "--glass-chrome-opaque"))).toBeGreaterThanOrEqual(AA);
   });
 });
 

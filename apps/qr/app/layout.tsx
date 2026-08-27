@@ -6,6 +6,7 @@ import { Fraunces, Hanken_Grotesk, Padauk } from "next/font/google";
 import { ViewTransitions } from "next-view-transitions";
 import { AnonAuthGate } from "@/components/AnonAuthGate";
 import { ThemeSync } from "@/components/ThemeSync";
+import { FxDial } from "@/components/FxDial";
 import { SoundPrimer } from "@/components/SoundPrimer";
 import { MotionProvider } from "@/components/MotionProvider";
 import { ActiveOrderProvider } from "@/components/ActiveOrderProvider";
@@ -120,6 +121,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             }}
           />
           <ThemeSync />
+          {/* M126 — writes `data-fx` on <html> so the GPU dial is reachable on a real device
+              (localStorage "mms.fx", else `lite` on a low-tier one). Full strength is the default. */}
+          <FxDial />
           <SoundPrimer />
           <AnonAuthGate />
           <NavDirectionSync />
