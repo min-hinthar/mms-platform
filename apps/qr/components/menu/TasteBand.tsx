@@ -127,7 +127,10 @@ export function TasteBand({
     <section aria-labelledby="taste-h" style={{ padding: "10px 0 2px" }}>
       <h2 id="taste-h" className="start-here-h">
         Explore your Burmese taste buds <span aria-hidden>✦</span>
-        <span className="start-here-sub">pick a craving — or let us surprise you</span>
+        {/* M131 — the sub follows the rail's new order: surprise leads, cravings follow. A caption
+            that reads left-to-right against the row beneath it is the small thing that makes a
+            reordering feel deliberate rather than shuffled. */}
+        <span className="start-here-sub">let us surprise you — or pick a craving</span>
       </h2>
       <Rail role="group" aria-label="Pick your cravings" className="taste-rail">
         {/* M131 (owner: "surprise your tastebuds should be first option") — the zero-effort door
@@ -201,16 +204,19 @@ export function TasteBand({
           className={`start-here-rail mms-rise${showing.length > 3 ? " start-here-rail-wall" : ""}`}
           aria-labelledby="taste-h"
         >
-          {showing.map(({ item: i, why }) => (
-            <li key={i.id}>
+          {showing.map(({ item: i, why }, n) => (
+            /* M131 — `--i` drives the wall's per-card cascade (globals.css). The index is a
+               PRESENTATION ordinal only: it never reaches copy and never implies a ranking, which
+               is why it can be the array position rather than anything the data has to back. */
+            <li key={i.id} style={{ ["--i" as string]: n }}>
               <button type="button" className="start-here-card" onClick={() => onSelect(i)}>
                 <span className="start-here-photo" aria-hidden>
                   <BlurUpImage
                     src={i.image_url}
                     alt=""
                     width={160}
-                    height={110}
-                    sizes="160px"
+                    height={120}
+                    sizes="166px"
                     fallback={<PhotoPlaceholder category={i.category} />}
                   />
                 </span>

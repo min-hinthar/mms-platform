@@ -4,6 +4,59 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The first screen, reorganized — the door, the headings and the card wall (M131, 2026-08-27)
+
+The owner: _"arrival-beat contents, start-here-h contents, taste-h contents, for both dine-in and
+to-go modes have to be organized, enhanced, enriched, positioned, organized, styled, reimagined.
+surprise your tastebuds should be first option … a little bit of everything, and explore your
+burmese taste bud menu item suggestions should mostly be selected from the top 50 of popular,
+customer most ordered items. and the card ul display … should be more creative, styled, rendered."_
+
+**The suggestions now draw from the top 50 — and the badge deliberately does not.** `getMostLoved`
+returned twelve rows, and that one list was doing two incompatible jobs: it seeded the Start-here
+rank seals AND it was the set behind every **"Table favorite"** badge on the menu. Widening it to
+fifty would have widened the badge with it, so a claim a diner READS would have quietly gone from
+"one of the twelve most ordered" to "one of the fifty" without a word of copy changing. It is now
+two named bounds — `LOVED_BADGE_MAX` (12, what anyone reads as a claim) and `LOVED_POOL_MAX` (50,
+what gets offered first and never becomes copy). Three consumers take the wider pool as a
+**preference, never a filter**: the taste rail's craving matches break ties toward it (the match
+count still wins, or the card's "why" line would be reading out a weaker reason than the one that
+earned the card its place), "Surprise your taste buds" draws from a ranked tier first and tops up
+from the rest, and _a little of everything_ orders each category's bucket by it. That last one is
+sorted rather than filtered on purpose: filtering to the top 50 would silently drop any category
+with nothing in it, and the row would stop being a little of everything while still saying it was.
+An empty ranking is a no-op everywhere — a thin history degrades to the row that shipped before.
+
+**"Surprise your taste buds" leads the rail.** Every other chip asks the diner to already know what
+they want; this one asks nothing, which makes it the right opening move for the first-timer the
+band exists for. It is an ACTION, not a toggle — no `aria-pressed`, the dashed affordance, and its
+own description — so being first among filters cannot make it read as one.
+
+**The arrival beat says which door you came through.** Dine-in and to-go were typographically
+identical; only the wording differed. There is a mode eyebrow now (At the table · To go · Scan &
+go), the live table number rides it as a gold chip rather than trailing the greeting, the greeting
+takes the display face, and the exit — previously a run-on sentence at the greeting's weight, and
+longer than it — is two door tiles below a hairline, each with its promise on its own line.
+
+**The section headings finally sit between the page title and the cards.** They were 15px body face
+— the same size as the card names beneath them — so a heading read as a label. Display face at
+19px, the sub on its own line, and a hairline closing the header.
+
+**The card wall.** 4:3 photos instead of a 1.45:1 letterbox (the old crop took the top and bottom
+off a plated dish, which is most of what makes food look like food), a price tag floating on the
+photo's corner opposite the rank coin, the taste card's honesty line promoted from grey caption to
+an earned chip, 166px cells, and a per-card cascade in.
+
+**Two contrast defects found while measuring, one of them shipped.** `.start-here-rank-top` — the
+**#1** seal, the most prominent numeral on the band — has worn `color: var(--oa)` since W20. `--oa`
+is on-ACCENT ink, sized for the dark amber `--ac`; on that gold gradient it measures **2.0458:1**
+in the light theme. It is `--ink` now (worst 5.4353 light / 9.6157 Night). The second was caught
+before it shipped: the new exit tile's promise line was `--t3` over a 7% accent tint, **4.3708:1**.
+Both classes were invisible to `contrast-audit.test.ts` for the same structural reason — it asserts
+token PAIRS, and neither a gradient nor a `color-mix` is a token — so `composite-contrast.test.ts`
+now pins the fill across every share it paints, plus both tinted grounds, with the negative guards
+that record WHY each ink was chosen.
+
 ### Night, deepened — the room, the glass and the moments, behind one dial (2026-08-27)
 
 The owner asked twice. First _"Make Night more enriched, enhanced, layered, shades, effects"_, which

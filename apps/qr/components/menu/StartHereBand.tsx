@@ -90,8 +90,8 @@ export function StartHereBand({
           src={i.image_url}
           alt=""
           width={160}
-          height={110}
-          sizes="160px"
+          height={120}
+          sizes="166px"
           fallback={<PhotoPlaceholder category={i.category} />}
         />
       </span>
