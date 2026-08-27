@@ -149,24 +149,30 @@
   --scrim: rgba(15, 10, 5, 0.42);
 }
 .dark {
-  /* v4 Night — AUBERGINE (W22d/PR A, 2026-08-26). The owner asked for a
-     "slightly-purple-aubergine-hue theme for dark mode"; `docs/W22D_HUE_DECISION.md` §5 quantified
-     that as the ground rotating +10–25° of HSL hue off its old 260°, and named the ~10 values that
-     carry it. The rotation is done in OKLCH with L and C HELD FIXED — hue only — rather than in HSL
-     at constant S/L, which is what the decision note measured. That distinction is the whole
-     character of this change: HSL rotation purple-ward RAISES luminance (the note's table watched
-     the tightest combo fall to 4.384 by +25), while holding OKLab L keeps every ground token's
-     relative luminance where it was to within a thousandth — pg 0.00725 → 0.00719, sf 0.01243 →
-     0.01245, cd 0.01697 → 0.01671, surface-elevated 0.02334 → 0.02314. So the pg < sf < cd <
-     elevated ladder a diner reads as depth is untouched, and only the hue moves: HSL 259° → 277°.
-     The accent/status hues (--ac --gold --jade --ruby --warn --ok) sit across the wheel and do NOT
-     rotate; neither do the texture/glow tokens (they key off the accent) or the shadows (neutral
-     black). One combo still had to be paid for — see --jade-strong. Every number here was computed
-     against this file, and `--pg`/`--cd` are mirrored into three surfaces that cannot read a custom
-     property (pinned by scripts/check-theme-parity.mjs). */
-  --pg: #1a111f;
-  --sf: #24192b;
-  --cd: #2c1d35;
+  /* v4 Night. The ground is indigo-purple at HSL 259°, and it STAYS there.
+
+     W22d/PR A (#235, 2026-08-26) rotated these nine values to 277° aubergine on the strength of
+     `docs/W22D_HUE_DECISION.md` §5. The owner looked at the shipped result and rejected it — "I
+     actually prefer the Night than the Aubergine" (2026-08-27) — so every ground value below is
+     restored to its pre-#235 state. That rotation had held OKLab L fixed, which is exactly why
+     undoing it costs nothing in contrast: relative luminance returns to pg 0.00725, sf 0.01243,
+     cd 0.01697, oa 0.00825, surface-elevated 0.02334, because these are the same colours as before.
+     The depth ladder is unchanged in ORDER and in spacing — Y ratios pg→sf 1.716×, sf→cd 1.365×,
+     cd→elevated 1.375× (computed from these hex, not transcribed).
+
+     Two things #235 added are DELIBERATELY KEPT, because neither depended on the hue:
+     · `--jade-strong` stays lifted off its alias — it sat within 0.03 of the 4.5 line at THIS --cd
+       too, which is the reason that survives the revert (see the note on that token below).
+     · `check-theme-parity.mjs` surface 7 and the contrast audit's added dark combo stay. They are
+       coverage, and coverage has no hue.
+
+     `--pg` and `--cd` are mirrored into three surfaces that cannot read a custom property
+     (`viewport.themeColor`, the service worker's offline shell, the Stripe Appearance fallback) —
+     pinned by `scripts/check-theme-parity.mjs`, so a one-sided revert reddens CI rather than
+     shipping a seam. */
+  --pg: #171221;
+  --sf: #201a2e;
+  --cd: #271f38;
   --tx: #f3ecdf;
   --t2: #bcafc8;
   --t3: #9d95a8; /* AA on Night surfaces: 5.84:1 on --sf, 5.45:1 on --cd (was #897e96 → 4.40/4.10) */
@@ -175,44 +181,40 @@
   /* Dark accent already clears 4.5:1 on the tinted fills (~5.6–6.3), so the strong variant is the
      same hue — defined for parity so components can use --ac-strong unconditionally. */
   --ac-strong: var(--ac);
-  --oa: #1e1223;
+  --oa: #1a1326;
   --jade: #5fb07e;
   --gold: #f4c879;
   /* Gold-on-dark clears AA on its tinted fills, so its strong variant is the same hue (parity with
      --ac-strong, so components can use *-strong unconditionally). Jade no longer can — see below. */
   --gold-strong: var(--gold);
-  /* W22d/PR A — jade is the SECOND alias the aubergine rotation broke, for ruby's exact reason one
-     step further out. `jade-strong on chip tint HOVER /cd` was already the tightest combo in the
-     audit at 4.5237, and the chip's background is `color-mix(in oklab, --jade 18%, var(--cd))` — an
-     OKLab mix against an OPAQUE second colour, so re-hueing --cd moves the blend's a/b and its
-     luminance with it, even though the rotation holds --cd's own OKLab L (and its relative
-     luminance: 0.01697 → 0.01671) essentially fixed. At the shipped +14° the alias scores 4.5012 —
-     green by 0.0012 — a margin the measurement cannot actually resolve, which is the real reason to
-     act rather than the one first written here.
+  /* `--jade-strong` is NOT an alias, unlike --ac-strong and --gold-strong, and the reason outlives
+     the aubergine rotation that first exposed it. `jade-strong on chip tint HOVER /cd` is among the
+     tightest combos in the dark audit — though NOT the tightest, and the lift below is what changed
+     that: `ruby-strong on chip tint HOVER /cd` now binds first at 4.6561 against this token's 4.6827.
+     (The text here previously said "the tightest", which was true of the ALIAS at 4.5237 and was
+     falsified by the very lift it was justifying. Budget headroom against ruby, not against this.)
+     The chip's background is
+     `color-mix(in oklab, --jade 18%, var(--cd))` — a blend against an OPAQUE second colour, so it
+     moves whenever --cd moves. Measured against the Night --cd restored above, the ALIAS would
+     score 4.5237 — green by 0.0237, on the line.
 
-     ⚠️ THE MARGIN IS SMALLER THAN THE METHOD'S OWN PRECISION, and an early draft of this comment
-     built a story on the difference. `mixOklab` in contrast-audit.test.ts quantizes the blended
-     background to 8-bit hex before computing luminance. Keeping the mixed channels as floats
-     instead moves this combo by ~0.03 — larger than the rotation's own effect on it (~0.02) — and
-     REVERSES the sign:
+     ⚠️ THAT MARGIN IS SMALLER THAN THE METHOD'S OWN DISAGREEMENT WITH ITSELF, which is the whole
+     point. `mixOklab` in contrast-audit.test.ts quantizes the blended background to 8-bit hex before
+     computing luminance. Keeping the mixed channels as floats instead moves this combo by 0.0124,
+     to 4.5112 — so the alias would clear by 0.0112 at worst, a margin smaller than the gap between
+     two defensible ways of measuring the same pixel. On the aubergine ground that same quantization
+     step was large enough to REVERSE the sign of the rotation's apparent effect. A combo sitting
+     inside its own measurement noise is not passing; it is undecided. That is why the alias is NOT
+     restored just because the ground went back.
 
-         method   pre-rotation --cd   post-rotation --cd   rotation's effect
-         8-bit    4.5237              4.5012               −0.0225  (a cost)
-         float    4.5112              4.5313               +0.0201  (a gain)
-
-     So "the rotation cost this combo 0.0225" is not a fact about the palette; it is a fact about
-     where rounding happens. What IS true on every method: the alias sits within ~0.03 of the 4.5
-     line, i.e. on it, inside the noise. That is what the lift is for. Which method models a real
-     screen — the browser composites a color-mix and delivers an 8-bit pixel on an sRGB display, so
-     the quantized path is arguably the faithful one — is a genuine question and is filed as M122
-     rather than settled here.
-
-     The fix is ruby's, and smaller: hold hue and chroma, move L, round to 8-bit — which nudges all
-     three, so the shipped values are MEASURED rather than called identical. --jade #5fb07e is
-     OKLCH(0.6919, 0.1094, 155.14); --jade-strong #62b380 is OKLCH(0.7012, 0.1102, 154.73); ΔC
-     0.0008 and Δh 0.41° are inside one 8-bit step. It clears on BOTH methods — 4.6594 quantized,
-     4.6906 float — which is the point: the choice no longer depends on which one is right. The FILL
-     stays --jade exactly as it was; only the TEXT variant lifts. */
+     The lift is ruby's fix, held to the minimum: same OKLab hue and chroma, move L, round to 8-bit.
+     --jade #5fb07e is OKLCH(0.6919, 0.1094, 155.14); --jade-strong #62b380 is
+     OKLCH(0.7012, 0.1102, 154.73) — ΔC 0.0008 and Δh 0.41° are inside one 8-bit step. It scores
+     4.6827 quantized and 4.6698 float: clear on BOTH methods, which is the point — the choice no
+     longer depends on which one is right. Which method models a real screen (the browser composites
+     a color-mix and delivers an 8-bit pixel on an sRGB display, so the quantized path is arguably
+     the faithful one) is a genuine open question, filed as M122. The FILL stays --jade exactly as it
+     was; only the TEXT variant lifts. */
   --jade-strong: #62b380;
   /* W22d — ruby is the ONE bright hue that does NOT clear AA as text on its own tint, and the
      comment here used to assert the opposite. Measured against the real call sites: `--ruby` as text
@@ -229,7 +231,7 @@
   --okb: #1f2e26;
   --warn: #e0855f;
   --warnb: #33231d;
-  --grad: linear-gradient(135deg, #402848, #291a31);
+  --grad: linear-gradient(135deg, #3a2a4d, #241c34);
   --sh: 0 1px 3px rgba(0, 0, 0, 0.45);
   --sh-md: 0 8px 22px rgba(0, 0, 0, 0.5);
   --sh-xl: 0 26px 60px rgba(0, 0, 0, 0.65);
@@ -241,9 +243,9 @@
   --tex-grain-opacity: 0.55;
   --glow-ac: color-mix(in oklab, var(--ac) 32%, transparent);
   --glow-gold: color-mix(in oklab, var(--gold) 30%, transparent);
-  --surface-glass: rgba(44, 29, 53, 0.9);
-  --surface-vellum: rgba(36, 25, 43, 0.95);
-  --surface-elevated: #342341;
+  --surface-glass: rgba(39, 31, 56, 0.9);
+  --surface-vellum: rgba(32, 26, 46, 0.95);
+  --surface-elevated: #2e2545;
   --sheen: rgba(255, 255, 255, 0.06);
   --sh-glow: 0 6px 22px color-mix(in oklab, var(--ac) 22%, transparent);
   --sh-lift: 0 2px 8px -1px color-mix(in oklab, var(--ac) 52%, transparent);

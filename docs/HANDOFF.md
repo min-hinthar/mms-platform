@@ -5,7 +5,7 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-08-21 — the M-registry backlog is being worked in severity order; W22d proper remains and is OWNER-BLOCKED)
+> ## ⏭️ NEXT SESSION — start here (2026-08-21 — the M-registry backlog is being worked in severity order; W22d proper SPLITS — its **dark half is UNBLOCKED and in progress as M126** (Night enriched, not re-hued; the aubergine direction was built, rejected and reverted), its **light/maroon half stays OWNER-BLOCKED on M86**)
 >
 > ### ⏭️ Pick up here — M116 closed; M111 · M112 are the next open rows, plus the new M119 class
 >
@@ -179,16 +179,34 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > `docs/W22_DESIGN_PROPOSAL.md` is the plan-of-record and **every slice is marked SHIPPED except
 > W22d**. What remains:
 >
-> - **W22d · Night, designed — BLOCKED ON THE OWNER, not on code.** The direction is decided (owner,
->   2026-08-20: _"brand logo maroon hue theme for light mode and slightly-purple-aubergine-hue theme
->   for dark mode… let's defer visual theme builds"_) and the full note is
->   [`docs/W22D_HUE_DECISION.md`](W22D_HUE_DECISION.md): two candidate maroons (`#a41034` declared
->   canon vs `#a71b1d` measured off the logo), the brand-mark-reservation conflict, and the measured
->   **luminance window** any accent must land in (Y > 0.153066 so the negative guard still holds,
->   Y ≤ 0.171484 so `--ac` on `--pg` clears 4.5) — today's `#a65f10` sits inside it at 0.16329 and
->   **every candidate maroon is outside at 0.085–0.110**, so the hue cannot simply be swapped onto
->   `--ac`. Registry **M86** carries the two open questions. Do not start the build before they are
->   answered. Its correctness floor (**W22d-1**) shipped ahead of it and is independent.
+> - **W22d · Night, designed — the DARK half is UNBLOCKED and in progress; the LIGHT half is still
+>   owner-blocked.** ⚠️ **The aubergine direction was tried and rejected.** It shipped as #235 and was
+>   reverted on 2026-08-27 (owner: _"I actually prefer the Night than the Aubergine. Make Night more
+>   enriched, enhanced, layered, shades, effects."_). Do not resume the aubergine build from this
+>   block or from `docs/W22D_HUE_DECISION.md` — both describe a rejected direction.
+>
+>   - **DARK → registry M126 · Night ENRICHED, not re-hued.** The hue was never the problem. Measured
+>     on the restored ground, the ladder is **four surfaces and three gaps** — `--pg` → `--sf` → `--cd`
+>     → `--surface-elevated`, contrast **1.0906 / 1.0727 / 1.0951** (Y ratios 1.716× / 1.365× / 1.375×)
+>     — every one under 1.10, and the hairline `--bd` reads only 1.40–1.45 against its own surface. So
+>     the flatness lives on the LIGHTNESS axis, and the rotation held OKLab L fixed on all four ground
+>     values at once. ⚠️ **Do not count `--oa` as a rung** — an earlier draft here did, quoting
+>     1.0717 / 1.0727 / 1.0951 and a "dead step" of 1.0176. `--oa` is on-accent INK (29 `color:` uses
+>     against one `background:`), never a plane behind content. Four directions (depth · light · material ·
+>     atmosphere) go to the owner as a rendered prototype board **before any token moves** (standing
+>     directive: _"always show me my decisions and prototypes so I can pick and choose"_). The hard
+>     limits are measured: `--cd` may lighten by only ΔL 0.0103 before the ruby/jade tint combos
+>     break, any surface carrying `--t3` needs Y ≤ 0.031089, darkening is free (all 28 dark combos
+>     improve), and a NEW surface token gets no audit coverage automatically.
+>   - **LIGHT/maroon → registry M86, still BLOCKED ON THE OWNER.** Untouched by the revert. The full
+>     note is [`docs/W22D_HUE_DECISION.md`](W22D_HUE_DECISION.md): two candidate maroons (`#a41034`
+>     declared canon vs `#a71b1d` measured off the logo), the brand-mark-reservation conflict, and the
+>     measured **luminance window** any accent must land in (Y > 0.153066 so the negative guard still
+>     holds, Y ≤ 0.171484 so `--ac` on `--pg` clears 4.5) — today's `#a65f10` sits inside it at
+>     0.16329 and **every candidate maroon is outside at 0.085–0.110**, so the hue cannot simply be
+>     swapped onto `--ac`. Do not start that build before the two questions are answered.
+>
+>   The correctness floor (**W22d-1**) shipped ahead of both and is independent.
 >
 > Shipped since this block was last rewritten: **W22c** (the gesture layer), **W22d-1** (the Night
 > correctness floor + `pnpm check:theme` in CI), **W22e** ("your usual", honestly) and **W22f** (the

@@ -1,6 +1,16 @@
 # W22d · Hue direction — DECISION NOTE (2026-08-20)
 
-**Status (2026-08-26): PR A — the dark half — is BUILT. PRs B and C remain blocked on Q1–Q3 below.**
+**Status (2026-08-27): PR A — the dark half — was BUILT (#235) and then REVERTED.** The owner looked
+at the shipped aubergine ground and rejected it: _"I actually prefer the Night than the Aubergine"_.
+All nine ground values are back to the pre-#235 originals; the dark half of this note is therefore a
+**record of a rejected direction, not a description of the live palette**. Read §5's rotation tables as
+history. What survives from PR A is `--jade-strong`'s lift off its alias (kept — its justification was
+the width of the measurement noise, not the hue) and the guard coverage it added.
+
+**The dark half is superseded by M126 — Night enriched, not re-hued.** The hue was never the problem:
+the ladder's flatness lives on the lightness axis, and that rotation held OKLab L fixed on all four
+ground values at once. **PRs B and C — the light/maroon half — are untouched by the revert and remain
+blocked on Q1–Q3 below.**
 
 _Original status, kept for the record: decided, build deferred, no code changed in that pass._
 
@@ -14,7 +24,12 @@ _Original status, kept for the record: decided, build deferred, no code changed 
 > the rotation's own effect) and **reverses its sign** — 8-bit reads 4.5237 → 4.5012 (a cost), float
 > reads 4.5112 → 4.5313 (a gain). What holds on both: the alias sits within ~0.03 of the 4.5 line.
 > Registry **M122**. **Lever B was taken** — `--jade-strong` lifted off its alias to `#62b380`, which
-> clears on both methods (4.6594 quantized, 4.6906 float).
+> clears on both methods. ⚠️ **The two numbers this line used to give — 4.6594 quantized, 4.6906
+> float — were measured on the AUBERGINE `--cd`, which no longer exists.** Against the restored
+> Night `--cd` the same token reads **4.6827 quantized, 4.6698 float**, and note that the ORDER
+> reverses between the two grounds (aubergine: quantized below float; Night: quantized above) —
+> which is M122's whole point, and the reason this callout is corrected rather than deleted. The
+> lift itself is KEPT; only the ground it was measured against changed.
 >
 > ⚠️ **The search target and the shipped token are different numbers, and only the second is a fact
 > about the CSS.** The search held hue and chroma and moved OKLab L 0.6919 → **0.6999**; rounding to
@@ -258,20 +273,34 @@ for QR's aubergine must be derived fresh; nothing transfers.**
 
 ---
 
-## 7. What must move in lockstep — the 36 pinned values
+## 7. What must move in lockstep — the 56 pinned values
 
-`scripts/check-theme-parity.mjs` pins **36 values across five surfaces** that cannot read a CSS
+`scripts/check-theme-parity.mjs` pins **56 values across seven surfaces** that cannot read a CSS
 variable. Any token change must update these in the same commit or CI goes red (by design).
 
-| surface                                    | pins   | tokens tracked                                                                                                       |
-| ------------------------------------------ | ------ | -------------------------------------------------------------------------------------------------------------------- |
-| `sw/sw.ts` — offline shell                 | 4      | light+dark `--pg`, `--tx`                                                                                            |
-| `app/layout.tsx` — `viewport.themeColor`   | 2      | light+dark `--pg`                                                                                                    |
-| `globals.css` — `@media print`             | **15** | `--tx --t2 --t3 --bd --ac-strong --sf --cd --ok --okb --warn --warnb --ac --gold-strong --jade-strong --ruby-strong` |
-| `lib/stripe-client.ts` — Payment Element   | 10     | `ac cd tx t2 warn` × light + dark                                                                                    |
-| `app/opengraph-image.tsx` — Satori palette | 5      | `--pg --tx --gold --ac --t2` (light only)                                                                            |
+⚠️ **This section was written at 36 values / five surfaces and is corrected in place (2026-08-27).**
+Surfaces 6 (the email palette, M83) and 7 (the translucent surfaces, W22d/PR A) were added later, and
+§9 below leans on surface 7 while this table did not list it. The counts below are taken from the
+script's own run output, not hand-tallied.
 
-Per-token cost: light `--ac` → 3 edits · light `--tx` → 4 · light `--pg` → 4.
+| surface                                         | pins   | tokens tracked                                                                                                                              |
+| ----------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sw/sw.ts` — offline shell                      | 4      | light+dark `--pg`, `--tx`                                                                                                                   |
+| `app/layout.tsx` — `viewport.themeColor`        | 2      | light+dark `--pg`                                                                                                                           |
+| `globals.css` — `@media print`                  | **15** | `--tx --t2 --t3 --bd --ac-strong --sf --cd --ok --okb --warn --warnb --ac --gold-strong --jade-strong --ruby-strong`                        |
+| `lib/stripe-client.ts` — Payment Element        | 10     | `ac cd tx t2 warn` × light + dark                                                                                                           |
+| `app/opengraph-image.tsx` — Satori palette      | 5      | `--pg --tx --gold --ac --t2` (light only)                                                                                                   |
+| `emails/palette.ts` — the email table (M83)     | 11     | light `--pg --cd --tx --t2 --t3 --ac --oa --ink --gold --warn` + `bd` derived as `--bd` over `--cd`                                         |
+| `emails/*.tsx` — raw-colour sweep (M83, b)      | 5      | no token: asserts **zero** raw hex/rgba in each shipped template                                                                            |
+| `tokens.css` — translucent surfaces (W22d/PR A) | 4      | light+dark `--surface-glass` = `--cd`; dark `--surface-vellum` = `--sf`; light `--surface-vellum` **exempt** (hand-authored, stale-checked) |
+
+Total **56** — 51 pinned values plus the 5 per-template sweep confirmations, matching the script's own
+reported count.
+
+Per-token cost: light `--ac` → **4** edits · light `--tx` → **5** · light `--pg` → 4. (The first two
+were 3 and 4 before the email mirror existed. `--ac-strong` is a distinct token and does not count
+toward `--ac`; the email `ink` key is pinned to `--ink`, which merely shares `--tx`'s value, so it is
+not a fifth `--tx` edit.)
 
 **Two more pinned facts will go red on purpose:** `manifest.test.ts:51-52` asserts
 `theme_color === background_color === --pg`; and the recipe percentages (`.lend-banner-back` 16%,
@@ -297,8 +326,13 @@ that no longer ships (registry **M84**).
 
 ## 9. Suggested sequencing
 
-1. ~~**PR A — dark only.**~~ **DONE (2026-08-26).** Nine values, OKLCH +14° (HSL 259° → 277°), lever
-   B for the jade-hover trap. It proved the guard workflow and found a gap in it: the two translucent
+1. ~~**PR A — dark only.**~~ **DONE (2026-08-26), then REVERTED (2026-08-27).** Nine values, OKLCH
+   +14° (HSL 259° → 277°), lever B for the jade-hover trap. The owner rejected the shipped result
+   and every ground value is back to the pre-#235 original; **the dark half is superseded by M126,
+   which enriches Night rather than re-hueing it.** Lever B (`--jade-strong` off its alias) was
+   KEPT — its justification was the width of the measurement noise, not the hue — and so was the
+   guard below, which is the durable part of this entry. PR A proved the guard workflow and found a
+   gap in it: the two translucent
    surfaces hand-copy `--cd`/`--sf`'s channels because `rgba(var(--cd), 0.9)` is not expressible, and
    nothing checked that. `check-theme-parity.mjs` surface 7 now does — a guard **PRs B and C
    inherit**, since the light ground moves under them too. ⚠️ **It covers 2 of the 9 values PR A

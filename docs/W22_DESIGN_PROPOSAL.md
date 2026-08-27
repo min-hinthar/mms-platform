@@ -134,11 +134,16 @@ themes, which a code-only PR cannot do. Filed as an OPEN-ITEMS row naming the pr
 
 ## W22d · Night, designed — the candlelit teahouse
 
-> **⭐ HUE DIRECTION DECIDED 2026-08-20 — see [`docs/W22D_HUE_DECISION.md`](W22D_HUE_DECISION.md).**
-> Owner: _"brand logo maroon hue theme for light mode and slightly-purple-aubergine-hue theme for
-> dark mode."_ **"Deeper espresso ground" below is superseded and retired.** Light rotates out of
-> amber into the brand red; dark stays at its current hue 260° and goes ~+10–25° more purple. Build
-> deferred. The note carries the measured blast radius (308 accent call sites in light, ~10 tokens in
+> **⛔ THE DARK/AUBERGINE HALF WAS BUILT AND REJECTED — do not resume it from this block.**
+> It shipped as #235 and was reverted on 2026-08-27. Owner: _"I actually prefer the Night than the
+> Aubergine. Make Night more enriched, enhanced, layered, shades, effects."_ The dark half is now
+> **registry M126 — Night ENRICHED, not re-hued**: the ladder is four surfaces and three gaps
+> (Y ratios 1.716× / 1.365× / 1.375×, i.e. contrast 1.0906 / 1.0727 / 1.0951), so the flatness lives
+> on the LIGHTNESS axis — which is exactly the axis an OKLCH rotation with L held fixed cannot move.
+>
+> **The LIGHT/maroon half is untouched and still decided-but-unbuilt** (owner, 2026-08-20: _"brand
+> logo maroon hue theme for light mode"_), blocked on M86. **"Deeper espresso ground" below is
+> superseded and retired.** Build deferred. The note carries the measured blast radius (308 accent call sites in light, ~10 tokens in
 > dark), the guard rewrite the light half requires first, and the open owner questions.
 
 Dark mode graduates from inverted tokens to a designed theme: a deeper ground, gold used even more
@@ -214,7 +219,9 @@ of the gold cap. Strictly opt-in, silent by default, never on error paths.
 ## Sequencing & the bar
 
 `W22a → W22b → W22c` is the recommended order (each rides the previous); **a, b and c are
-shipped**, as are **e and f**; **d** (the hue re-theme) is owner-blocked on the maroon/aubergine
-decision recorded in `docs/W22D_HUE_DECISION.md` — its correctness floor (W22d-1) shipped ahead of it. Every slice holds the standing gates: tokens only, RM-escorted motion, one live
+shipped**, as are **e and f**; **d** splits: its dark half was built as the aubergine rotation, **rejected by the owner and
+reverted** (2026-08-27), and is now **M126 — Night enriched rather than re-hued**; its light/maroon
+half stays owner-blocked on the decision recorded in `docs/W22D_HUE_DECISION.md`. Its correctness
+floor (W22d-1) shipped ahead of both. Every slice holds the standing gates: tokens only, RM-escorted motion, one live
 region, 44px, data-backed claims, server-authoritative money, `verify:slice` + `check:docs` +
 the two-reviewer pre-merge pass (in-session adversarial + Codex), K15 for any new MY.

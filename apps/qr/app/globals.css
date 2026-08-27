@@ -6993,7 +6993,7 @@ html[data-seen-surface] .mms-stagger {
 }
 /* The READY column's heading. --gold is CORRECT here and must stay: every `.orb-root` wrapper is
    Night-forced (`<div className="orb-root dark">`, ReadyBoard.tsx:164/187/208) and `.orb-col-ready`
-   renders nowhere else, so this resolves to the dark `--gold` #f4c879 on the dark `--pg` — 11.70:1,
+   renders nowhere else, so this resolves to the dark `--gold` #f4c879 on the dark `--pg` — 11.69:1,
    asserted in contrast-audit.test.ts. An earlier pass in this PR "fixed" it to --gold-strong on the
    strength of a 1.97:1 measurement taken against the LIGHT ground this heading never renders on;
    the edit was a byte-identical no-op (--gold-strong aliases --gold in .dark) and the defect did not

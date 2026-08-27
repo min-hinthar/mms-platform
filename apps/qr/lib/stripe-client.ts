@@ -25,7 +25,7 @@ import type { Appearance } from "@stripe/stripe-js";
  */
 const FALLBACK = {
   light: { ac: "#a65f10", cd: "#fffdf8", tx: "#1b1714", t2: "#6e6358", warn: "#a44b34" },
-  dark: { ac: "#e7a53a", cd: "#2c1d35", tx: "#f3ecdf", t2: "#bcafc8", warn: "#e0855f" },
+  dark: { ac: "#e7a53a", cd: "#271f38", tx: "#f3ecdf", t2: "#bcafc8", warn: "#e0855f" },
 } as const;
 
 export function stripeAppearance(): Appearance {
