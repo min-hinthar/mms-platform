@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { NumberFlow } from "@mms/ui";
 import { useJourneyRouter } from "./nav/TransitionNav";
@@ -30,6 +30,29 @@ export function CartBar() {
     cartBarSprung = true;
   }, []);
   const href = cartId ? `/cart?cart=${encodeURIComponent(cartId)}` : null;
+  // M126 — the bar OWNS its own dock height. `--cta-dock-h` is what the ambient's pause coin (and
+  // any future bottom-anchored control) offsets by; measuring it here rather than hard-coding a
+  // number is the "name it ONCE" rule applied to a height that changes with the user's base font
+  // size. Cleared on unmount so a page without a cart bar gets its 0px default back.
+  const barRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    const el = barRef.current;
+    const root = document.documentElement;
+    if (!el) {
+      root.style.removeProperty("--cta-dock-h");
+      return;
+    }
+    const measure = () => {
+      root.style.setProperty("--cta-dock-h", `${el.offsetHeight + 16}px`);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      root.style.removeProperty("--cta-dock-h");
+    };
+  }, [cartId, href, count]);
   // Warm the /cart route (its RSC payload + code + the new loading skeleton) as soon as the bar can
   // appear, so a tap navigates without a cold server round-trip — the "opening the cart is slow" fix.
   useEffect(() => {
@@ -41,6 +64,7 @@ export function CartBar() {
 
   return (
     <button
+      ref={barRef}
       type="button"
       // W21 (Codex P1 on #191) — drain in-flight adds BEFORE navigating: the optimistic count
       // shows this bar while an add may still be in flight, and /cart's create-intent locks the

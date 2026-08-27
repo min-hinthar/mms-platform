@@ -477,56 +477,243 @@ h3 {
 }
 
 /* ── W22a · Depth & ceremony (docs/W22_DESIGN_PROPOSAL.md, owner go 2026-08-16) ──────────────────
-   The warm-paper pass: the R1 kit finally CONSUMED. A masked paper ambient behind the diner mains,
-   md:+ frost on the sticky chrome, and the two ceremonies (thermal-print receipt on pay success,
-   the send-to-kitchen paper beat). All decorative layers: aria-hidden + pointer-events-none at the
-   call site; no blur()/backdrop-filter below md (mobile GPU budget); every animation RM-escorted
-   in the block at the end of this section. */
+   The warm-paper pass: the R1 kit finally CONSUMED. A paper ambient behind the diner mains, frost
+   on the sticky chrome, and the two ceremonies (thermal-print receipt on pay success, the
+   send-to-kitchen paper beat). All decorative layers: aria-hidden + pointer-events-none at the
+   call site; every animation RM-escorted in the block at the end of this section.
+   ⚠️ M126 SUPERSEDES THIS SECTION'S GPU RULE. W22a forbade blur()/backdrop-filter below md: — the
+   mobile budget written after a production iOS WebKit OOM. The owner lifted that budget for M126
+   (2026-08-27) and the heavy layers now sit behind the --fx-* dial in tokens.css instead, so the
+   limit is a DIAL SETTING rather than a breakpoint. Cards keep the DOTS via .card-textured, so the
+   page's grid and a card's texture still never read identical. */
+/* ══ M126 · THE ROOM — the page atmosphere, rebuilt as three planes ═══════════════════════════
+   Night stops being a flat backdrop and becomes a room: a far wall genuinely out of focus, a lit
+   middle distance in focus, and film on the lens. What changed, and why each change is a repair:
 
-/* The page ambient — a hairline line grid (cards keep the DOTS via .card-textured, so the two
-   textures never read identical) under a soft gold bloom, grain over both, the whole layer
-   gradient-masked to fade before mid-page (a uniform full-bleed grid reads as cheap wallpaper,
-   and the fade means the opaque sticky chrome never hard-cuts a visible texture). Fixed at z:-1
-   with NO host isolation (Codex P2 on #195): the page ground lives on <html> only, so the canvas
-   paints below this layer while every fixed overlay (tier-up, toast, confetti) keeps its place
-   in the root stacking context. Static by design: no motion, nothing to pause. */
+   (a) THE MASK WAS BROKEN. The old `radial-gradient(130% 92% at 50% 0%, #000 30%, transparent 74%)`
+       sat on a `position: fixed` element, so it faded in VIEWPORT coordinates at every scroll
+       position: alpha 1.000 down to ~28%vh and 0.000 from ~68%vh. The bottom third of every screen
+       has never had ambient. The vignette below is FLOORED — it attenuates, it never cuts out.
+   (b) THE GRAIN DIED WITH THE MASK. It was `.paper-ambient::after`, i.e. a child inside the masked
+       group, so it faded out with the grid. It is a sibling plane now, full-bleed and unmasked.
+   (c) THE GROUND MOVED ONTO THIS LAYER. `overlay` needs a real backdrop inside the group; blending
+       against transparent is skipped and would paint raw grey haze. So this div paints --pg itself.
+       <html>'s --pg (above) STAYS — that is the overscroll canvas and the pre-hydration ground.
+       This is NOT the body background #195 banned: that one COVERED negative-z layers; this one IS
+       the negative-z layer. The host still must not isolate; this isolate is the ambient's own, and
+       `z-index:-1` on a positioned element already established the same stacking context.
+   (d) THE GRID IS A GROOVE, NOT A RIDGE, and that is a contrast decision before a taste one. A
+       light hairline on a dark ground LIGHTENS the pixel under light text; a dark groove darkens
+       it. The shipped ambient's worst pixel measures --t3 4.4743 in Night and 3.9670 in light —
+       both live AA failures, which is open task M128. This composition measures 4.8386 and 4.6263.
+       Every --pa-* alpha was fitted by search against that floor and is guarded, red-first, by
+       `ambient-contrast.test.ts`. Re-run it if you touch one. ── */
 .paper-ambient {
   position: fixed;
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  opacity: 0.55;
+  background: var(--pg);
+  isolation: isolate;
+  overflow: hidden;
+}
+/* The far wall. Four soft blobs built from the LADDER'S OWN RUNGS (no gold — at page scale gold
+   reads as selection) plus a DEFOCUSED COPY OF THE GRID at 3× gauge. The same texture at two focal
+   depths is what the eye reads as space; one blurred gradient reads as a gradient.
+   `--fx-plane-blur: none` degrades gracefully — the blobs are soft-stopped radial gradients, so the
+   blur enhances an already-soft field rather than being the thing that makes it work. */
+.pa-far {
+  position: absolute;
+  inset: var(--pa-overscan);
+  opacity: var(--pa-far-op);
+  filter: var(--fx-plane-blur);
   background-image:
-    radial-gradient(
-      120% 60% at 50% -10%,
-      color-mix(in oklab, var(--gold) 10%, transparent),
-      transparent 62%
-    ),
-    linear-gradient(to right, var(--tex-line) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--tex-line) 1px, transparent 1px);
+    radial-gradient(38% 30% at 22% 18%, var(--pa-blob-1), transparent 70%),
+    radial-gradient(44% 34% at 78% 40%, var(--pa-blob-2), transparent 72%),
+    radial-gradient(30% 26% at 62% 82%, var(--pa-blob-3), transparent 68%),
+    radial-gradient(26% 22% at 12% 74%, var(--pa-blob-4), transparent 66%),
+    linear-gradient(to right, var(--pa-groove) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--pa-groove) 1px, transparent 1px);
   background-size:
     100% 100%,
-    44px 44px,
-    44px 44px;
-  -webkit-mask-image: radial-gradient(130% 92% at 50% 0%, #000 30%, transparent 74%);
-  mask-image: radial-gradient(130% 92% at 50% 0%, #000 30%, transparent 74%);
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    var(--pa-grid-far) var(--pa-grid-far),
+    var(--pa-grid-far) var(--pa-grid-far);
+  /* Parallax rides `translate`, the drift rides `transform`. Separate properties applied in order,
+     so they compose instead of overwriting each other — no wrapper element, and each keeps its own
+     reduced-motion off-switch. */
+  translate: calc(var(--pa-px, 0) * var(--pa-parallax-far))
+    calc(var(--pa-py, 0) * var(--pa-parallax-far));
+  transition: translate 600ms var(--ease-out);
+  will-change: var(--fx-promote);
 }
-.paper-ambient::after {
-  content: "";
+/* AUTO-motion only where there is no pointer to drive the parallax — i.e. phones, which is where
+   most diners are. Desktop gets the pointer sway and never auto-animates, so the pause control
+   never renders there (a stop button for still content is noise). */
+@media (pointer: coarse) {
+  .pa-far {
+    animation: paFarDrift var(--pa-drift-far) var(--ease-in-out) infinite alternate;
+  }
+}
+@keyframes paFarDrift {
+  from {
+    transform: translate3d(-1.2%, 0.9%, 0) scale(1.04);
+  }
+  to {
+    transform: translate3d(1.5%, -0.7%, 0) scale(1.09);
+  }
+}
+/* The middle distance: the warm pool (halved from the shipped 10%) and the debossed grid — the only
+   plane in focus. The mask is a floored VIGNETTE: still graded, so it never reads as wallpaper, but
+   it bottoms out around 18-55% instead of reaching zero two-thirds up the screen. */
+.pa-mid {
   position: absolute;
   inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
-  background-size: 140px 140px;
-  /* Plain-value fallback FIRST (Codex P2 on #195): if a UA rejects the calc at computed-value
-     time, opacity would revert to its initial 1 — a full-viewport high-contrast noise layer.
-     The calc then refines it where supported (dark lifts --tex-grain-opacity slightly). */
-  opacity: 0.14;
-  opacity: calc(var(--tex-grain-opacity, 0.4) * 0.35);
+  opacity: var(--pa-mid-op);
+  background-image:
+    radial-gradient(120% 62% at 50% -8%, var(--pa-pool), transparent 62%),
+    linear-gradient(to right, var(--pa-groove) 0 1px, var(--pa-lip) 1px 2px, transparent 2px),
+    linear-gradient(to bottom, var(--pa-groove) 0 1px, var(--pa-lip) 1px 2px, transparent 2px);
+  background-size:
+    100% 100%,
+    var(--pa-grid) var(--pa-grid),
+    var(--pa-grid) var(--pa-grid);
+  -webkit-mask-image: radial-gradient(
+    148% 118% at 50% 8%,
+    #000 0 42%,
+    rgba(0, 0, 0, 0.55) 76%,
+    rgba(0, 0, 0, 0.18) 100%
+  );
+  mask-image: radial-gradient(
+    148% 118% at 50% 8%,
+    #000 0 42%,
+    rgba(0, 0, 0, 0.55) 76%,
+    rgba(0, 0, 0, 0.18) 100%
+  );
+  /* Nearer plane, larger displacement — correct parallax ordering (13px vs the far plane's 6px). */
+  translate: calc(var(--pa-px, 0) * var(--pa-parallax-mid))
+    calc(var(--pa-py, 0) * var(--pa-parallax-mid));
+  transition: translate 520ms var(--ease-out);
+  will-change: var(--fx-promote);
 }
-/* A receipt prints on white paper — the ambient (a fixed layer, which print engines repeat on
-   every page) must never reach the printer. */
+@media (pointer: coarse) {
+  .pa-mid {
+    animation: paMidDrift var(--pa-drift-mid) var(--ease-in-out) infinite alternate;
+  }
+}
+/* Sub-grid amplitude on purpose: the grid must never visibly crawl past the content, only breathe.
+   11px is a quarter of the 44px gauge, so no lattice ever lands where the last one was. */
+@keyframes paMidDrift {
+  from {
+    transform: translate3d(-11px, 6px, 0);
+  }
+  to {
+    transform: translate3d(11px, -6px, 0);
+  }
+}
+/* Film on the lens. Three changes from the `::after` it replaces: it is outside the mask, it is
+   MONOCHROME (the shipped tile is a raw feTurbulence rect — RGBA noise, i.e. coloured confetti;
+   feColorMatrix collapses it to luminance and forces alpha to 1, feComponentTransfer clamps it to
+   [0.34, 0.66] around mid-grey, which is the envelope the contrast numbers were computed from —
+   and `color-interpolation-filters='sRGB'` is REQUIRED, since the SVG default is linearRGB and
+   would silently move every one of them), and it BLENDS. `overlay` in Night: mid-grey is identity,
+   so the grain deviates symmetrically around what is underneath instead of hazing it toward grey,
+   and because overlay compresses into darks its lift scales with what the far plane already lit —
+   which is exactly where the ladder's 8-bit banding lives. Light keeps `normal`, where the
+   lightening direction is capped by white and the darkening direction helps dark text.
+   Never animated: film grain sits on the lens, not in the room, and a still near plane is what
+   sells the other two as moving. */
+.pa-grain {
+  position: absolute;
+  inset: 0;
+  opacity: var(--pa-grain-op);
+  mix-blend-mode: var(--pa-grain-blend);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='.33 .33 .33 0 0 .33 .33 .33 0 0 .33 .33 .33 0 0 0 0 0 0 1'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='.32' intercept='.34'/%3E%3CfeFuncG type='linear' slope='.32' intercept='.34'/%3E%3CfeFuncB type='linear' slope='.32' intercept='.34'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+}
+html[data-ambient="paused"] .pa-far,
+html[data-ambient="paused"] .pa-mid {
+  animation-play-state: paused;
+}
+/* WCAG 2.2.2 for the coarse-pointer drift, and a VISIBLE one — hover luck is not a stop mechanism.
+   A SIBLING of .paper-ambient, never a child: a child of a z:-1 layer paints behind every pixel of
+   content and cannot be clicked. It reuses `.start-here-pause`'s vellum-coin vocabulary rather than
+   inventing a second one, and it is the only element in the whole system that takes a pointer
+   event. AmbientMotion renders it only when the drift can actually run. */
+.pa-pause {
+  position: fixed;
+  left: max(12px, env(safe-area-inset-left, 0px));
+  bottom: calc(env(safe-area-inset-bottom, 0px) + var(--cta-dock-h, 0px) + 12px);
+  z-index: var(--z-toolbar);
+  display: grid;
+  place-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--t2);
+  cursor: pointer;
+}
+.pa-pause > span {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-full);
+  border: 1px solid color-mix(in oklab, var(--gold) 30%, var(--bd));
+  background: var(--cd);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh);
+  font-size: 9px;
+  line-height: 1;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+@media (hover: hover) {
+  .pa-pause:hover {
+    color: var(--tx);
+  }
+  .pa-pause:hover > span {
+    transform: scale(1.1);
+  }
+}
+.pa-pause:active > span {
+  transform: scale(0.94);
+}
+/* The reduced-motion composition is not this one minus movement: it trades motion for CUT. The grid
+   is incised deeper (--pa-groove-still) and the far plane is pinned to the most asymmetric moment
+   of its cycle rather than to a neutral origin — a room photographed at its best angle. Deepening
+   is also the SAFE direction (it darkens, so it buys contrast), which is why it was chosen over the
+   obvious alternative of stepping the grain up. The JS half is in AmbientMotion: under RM no
+   listener is attached and no control is rendered, so --pa-px/--pa-py are never written. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --pa-groove: var(--pa-groove-still);
+  }
+  .pa-far,
+  .pa-mid {
+    animation: none;
+    translate: none;
+    transition: none;
+    will-change: auto;
+  }
+  .pa-far {
+    transform: translate3d(0.8%, -0.4%, 0) scale(1.06);
+  }
+  .pa-mid {
+    transform: none;
+  }
+  .pa-pause > span {
+    transition: none;
+  }
+}
+/* A receipt prints on white paper — a fixed layer repeats on every printed page. */
 @media print {
-  .paper-ambient {
+  .paper-ambient,
+  .pa-pause {
     display: none;
   }
 }

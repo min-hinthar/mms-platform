@@ -545,6 +545,16 @@ html[data-fx="off"] {
   --fx-plane-blur: none;
   --fx-promote: auto;
 }
+/* NIGHT ONLY. `mix-blend-mode: overlay` forces a group buffer whether or not the layer is promoted
+   (~14 MB at 430x932 DPR3), so `off` has to drop the blend too — and it cannot simply keep the
+   alpha, because a `normal`-blend grain at Night's 0.35 paints raw grey haze. 0.06 is the measured
+   equivalent: the worst pixel lands --t3 4.7342 against 4.8386 for the overlay composition it
+   replaces. Light is untouched — its grain is already `normal`, so there is no buffer to give back
+   and its 0.05 is the fitted value (0.07 measures 4.5016, on the line). */
+html[data-fx="off"].dark {
+  --pa-grain-blend: normal;
+  --pa-grain-op: 0.06;
+}
 /* A user asking their OS for less transparency is asking for exactly the `off` glass, and it is a
    stated preference rather than a device budget — so it wins over an explicitly-set dial too.
    Declared last and at the dial's own specificity so `html[data-fx="full"]` cannot silently
