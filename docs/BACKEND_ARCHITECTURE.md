@@ -106,7 +106,14 @@ and are applied with `supabase db push --db-url <staging>`.
 2. `supabase db push` to **staging** → `supabase gen types typescript --linked > packages/db/src/database.types.ts`.
 3. Run `get_advisors` (security + performance) against staging; fix lints.
 4. PR with the migration + regenerated types; gate green; preview points at staging.
-5. On merge: a **manual** `supabase db push` to **prod** (off-peak), then `get_advisors` on prod.
+5. On merge: a **manual** apply to **prod** (off-peak), then `get_advisors` on prod.
+   ⚠️ **NOT `db push`** — prod's `schema_migrations` versions are MCP-generated and share no value
+   with the repo filenames, so `db push` cannot be used in any form until the histories are
+   reconciled. (Two successive drafts of this note asserted a specific failure mode — first that
+   plain `db push` replays from `create table`, then that `--include-all` would; neither was
+   executed, and Codex corrected both on #236. The zero-overlap is measured; the failure mode is
+   not.) Use the MCP `apply_migration` per file, in timestamp order, verifying the objects each file
+   actually creates before the next. Reconciliation is filed as **M125**. See `CLAUDE.md`.
 
 ### CI additions
 

@@ -9,6 +9,45 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ### ⏭️ Pick up here — M116 closed; M111 · M112 are the next open rows, plus the new M119 class
 >
+> ### 🔴 2026-08-27 — M22 · M70 · M72a APPLIED to production, closing a LIVE money-path outage
+>
+> Prod is at **97 migrations**. All nine RPCs the app calls now exist with one shape each and
+> `service_role`-only grants, verified with `has_function_privilege` after each apply.
+>
+> **What had happened, because the shape of it will recur:** the app half of a migration deploys to
+> production automatically on merge to `main` (Vercel), while the SQL half needs a MANUAL apply.
+> M22 · M70 · M72a all merged, all auto-deployed, none applied — so production ran code calling
+> `mms_pin_promo_grant`, `mms_release_promo_grant(p_cart_id, p_attempt)`,
+> `mms_release_promo_grant_for_holder`, `qr_carts.promo_granted_cents`, and both fulfill functions'
+> `p_promo_cents`, **none of which existed in the database**. PostgREST resolves `.rpc()` by argument
+> NAME and rejects a whole query naming an unknown column, so checkout, promo-apply, card
+> fulfillment and cash settle were ALL failing. The webhook correctly 5xx'd, so Stripe held the
+> retry — a card could be captured with no order written. It survived unnoticed only because the app
+> is pre-launch (14 paid orders, last one 2026-08-17).
+>
+> **The durable fix is a rail, not a checklist**: nothing in the repo tracked "SQL applied?" as
+> distinct from "PR merged", which is exactly how three migrations shipped half-deployed. Until there
+> is one, treat every merged migration as UNAPPLIED until the catalog says otherwise — checking the
+> objects THAT file creates, not `pg_proc` reflexively (many migrations here add only columns,
+> indexes, policies or data and define no function).
+>
+> ⚠️ **Prod's migration history is DIVERGENT from this repo** — see `CLAUDE.md:46`. The versions are
+> MCP-generated and share **zero** values with the repo filenames. Plain `db push` REFUSES on that
+> divergence rather than replaying (an earlier draft of this note said it replays from `create table`;
+> Codex corrected that on #236 — `--include-all` is the flag that would force a replay, and on this
+> drift it is destructive). Apply one file at a time with the MCP `apply_migration`, verifying the
+> objects THAT file creates before the next — `pg_proc` is not universal, since column/index/policy
+> migrations leave no function row. Reconciling the histories is filed as **M125**.
+>
+> Two real defects in M70 were found by the pre-apply audit and filed rather than fixed inline, both
+> **high**: **M123** (a pinned promo grant survives lock-TTL expiry and prices a later basket) and
+> **M124** (`mms_release_promo_grant_for_holder` matches on `locked_by` alone, so a late unload
+> beacon from one tab clears the pin a second tab's PaymentIntent was derived under). ⚠️ An earlier
+> draft of this note named the wrong function for M124 and prescribed a `status = 'open'` gate; that
+> gate cannot close it, since the cart is still open in the capture→webhook window. **Both rows need
+> an attempt/era discriminator.** Applying M70 was still strongly net-positive: it replaced a total
+> promo outage with an edge case.
+>
 > **M17 AND M109 are both APPLIED to production** (`fasnpdhtvqtzjlvruqcu`; M17 2026-08-23, M109
 > 2026-08-24 — via the Supabase MCP, which is why prod's recorded `schema_migrations` versions differ
 > from the repo filenames). **Repeat the drift check before every push, because it is what makes the

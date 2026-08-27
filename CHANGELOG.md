@@ -4,6 +4,74 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Production: M22 · M70 · M72a applied — a live money-path outage closed (2026-08-27)
+
+**Not a routine migration push.** Production was running app code that called five database objects
+that did not exist, and had been since #233 merged.
+
+The app half of a migration auto-deploys to production on merge to `main`; the SQL half is a manual
+apply. Three migrations merged, three auto-deployed, none applied. PostgREST resolves `.rpc()` by
+argument NAME and rejects an entire query naming an unknown column, so the live production
+deployment (`fbeb809`, READY) was failing on:
+
+| call site                                  | needed                                          | production had              |
+| ------------------------------------------ | ----------------------------------------------- | --------------------------- |
+| `webhook/route.ts:322`                     | `mms_fulfill_order(…, p_promo_cents)`           | 10 args, no `p_promo_cents` |
+| `staff-cart.ts:294`                        | `mms_fulfill_cash_order(…, p_promo_cents)`      | 7 args, no `p_promo_cents`  |
+| `create-intent/route.ts:283`               | `mms_pin_promo_grant`                           | did not exist               |
+| `create-intent/route.ts:301,421`           | `mms_release_promo_grant(p_cart_id, p_attempt)` | did not exist               |
+| `release-lock/route.ts:57` · `cart.ts:746` | `mms_release_promo_grant_for_holder`            | did not exist               |
+| `cart.ts:412`                              | `qr_carts.promo_granted_cents`                  | column did not exist        |
+
+Checkout, promo-apply, card fulfillment and cash settle were all failing. The webhook correctly
+returned 5xx rather than swallowing it, so Stripe held the retry — meaning a card could be captured
+with no order written. It went unnoticed only because the app is pre-launch: 14 paid orders total,
+the last on 2026-08-17.
+
+⚠️ **Prod's migration history is divergent from this repo**: `supabase_migrations.schema_migrations`
+holds MCP-generated version stamps sharing **zero** values with the repo filenames (repo
+`20260618000000_qr_platform_init.sql` vs prod `20260618063513 qr_platform_init`). Each migration was
+therefore applied individually with the MCP `apply_migration` — the path every migration on this
+project has actually taken — and verified before the next: signature, shape count, and
+`has_function_privilege` for `anon` / `authenticated` / `service_role`.
+
+⚠️ **The first version of this entry said plain `supabase db push` would replay from `create table
+menu_categories`. That was wrong, and Codex corrected it on #236.** The CLI validates divergent
+remote history and REFUSES; `--include-all` ("Include all migrations not found on remote history
+table") is the flag that would force a replay. `db push` is still not the command to reach for here —
+it cannot apply anything until the histories are reconciled, and `--include-all` on this drift is
+genuinely destructive — but "it refuses" and "it replays" are very different facts, and the fence in
+`CLAUDE.md` now states the real one. Codex's deeper point also stands: that fence prescribed
+perpetuating the drift rather than fixing it, so reconciling the histories with
+`supabase migration repair` is filed as **M125** rather than left implicit.
+
+**Result:** prod at 97 migrations; all nine RPCs present with exactly one shape each and
+`service_role`-only execute; `promo_granted_cents` present; no ERROR-level advisories; and no
+function this pass touched appears among the SECURITY DEFINER functions `anon` or `authenticated`
+can execute (the seven that do are pre-existing RLS predicates and M87 triggers).
+
+**Two real M70 defects were found by the pre-apply audit and filed rather than fixed inline** —
+**M123** (high), a promo grant pinned at checkout survives lock-TTL expiry (5 min) and then prices a
+different basket, wrong in both directions; and **M124** (high),
+`mms_release_promo_grant_for_holder` matches on `locked_by = p_uid` alone, so a late `pagehide`
+beacon from one tab clears the pin a SECOND tab's PaymentIntent was derived under — and if it lands
+between that capture and its webhook, the reconcile disagrees with what was charged.
+
+⚠️ **Both descriptions above are the CORRECTED ones.** This entry originally named the wrong
+function for M124 (`mms_release_promo_grant`), filed it as med/"defence-in-depth", and prescribed a
+`status = 'open'` gate — which cannot close it, because the cart genuinely is open in that window.
+Codex caught the stale wording surviving into this summary after the registry row itself was fixed.
+The remedy for both rows is an attempt/era discriminator, never a status gate. Applying M70 was
+still strongly net-positive: it replaced a total promo outage with an edge case.
+
+**The rail, not the checklist, is the real gap.** Nothing in the repo tracks "SQL applied?"
+separately from "PR merged" — which is precisely how three migrations shipped half-deployed without
+anyone noticing. Until that exists, treat a merged migration as UNAPPLIED until the catalog says
+otherwise — and note that `pg_proc` is **not** a universal check (Codex, #236): plenty of migrations
+here create only columns, indexes, policies or data and leave no function row at all
+(`w17c_cash_tip.sql` and `w23a_sold_out.sql` contain zero `create function` statements). Verify the
+objects THAT file actually creates, via `information_schema` / `pg_catalog` as appropriate.
+
 ### M86 · PR A — Night turns aubergine (2026-08-26)
 
 The owner asked (2026-08-20) for a _"slightly-purple-aubergine-hue theme for dark mode"_.
