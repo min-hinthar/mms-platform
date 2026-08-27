@@ -4,6 +4,76 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Night, deepened — the room, the glass and the moments, behind one dial (2026-08-27)
+
+The owner asked twice. First _"Make Night more enriched, enhanced, layered, shades, effects"_, which
+landed as the six-rung ladder, the bevel, the well and the press. Then _"go for more ultra deepen,
+enhance, layered, shades, effects, with no GPU restrictions"_ — this entry.
+
+**The mobile GPU budget is lifted, and it is now a dial rather than a breakpoint.** That budget was
+written after a production iOS WebKit tab OOM-crashed on stacked `backdrop-filter` + large `blur()`,
+so nothing here is free and none of it pretends to be. Every expensive declaration in the app reads
+`--fx-glass-*` / `--fx-plane-blur` / `--fx-promote` from `tokens.css` instead of a raw filter, so
+`document.documentElement.dataset.fx = "lite" | "off"` scales the whole heavy layer back with no
+redesign, no colour change and no layout change. `lite` drops the full-viewport defocus (~20.6 MB,
+80% of the glass budget on its own, because a backdrop buffer scales with a pane's AREA and not with
+its blur radius) and un-promotes the ambient's mid plane (~14.4 MB). `off` leaves no
+`backdrop-filter` and no plane blur anywhere, and the static composition survives whole. The dial
+re-points whole function lists rather than scaling radii to `0px`, because `blur(0px)` still
+allocates a buffer and `none` does not. `prefers-reduced-transparency: reduce` takes the glass off at
+the dial's own specificity, so an explicitly-set `data-fx` cannot override the OS preference.
+
+**The room.** The page ambient is three sibling planes: a far wall genuinely out of focus (ladder-rung
+blobs plus a defocused copy of the grid at 3× gauge — the same texture at two focal depths is what
+the eye reads as space), a lit middle distance in focus, and unmasked film grain on the lens. Two
+shipped defects die on the way. The mask sat on a `position: fixed` element, so it faded in VIEWPORT
+coordinates at every scroll position — solid to ~28%vh, zero from ~68%vh — meaning the bottom third
+of every screen has never had ambient. And the grain was a child inside that mask, so it died with
+it. **M128 closes as a side effect:** the page grid is a groove now, not a ridge. A light hairline on
+a dark ground lightens the pixel under light text; a dark groove darkens it, so the grid buys
+contrast instead of spending it. Worst ambient pixel, shipped → now: **Night 4.4743 → 4.8443, light
+3.9670 → 4.6428** — both shipped values are live AA failures, and the light one was failing harder
+than Night, which M128 never noticed because it only ever looked at Night.
+
+**The glass.** Sticky chrome is frosted at every viewport in Night and opaque in light, and that
+asymmetry is a measurement rather than a preference: light-on-dark glass can only be LIGHTENED and
+the brightest possible backdrop is white, which bounds the failure, while dark-on-light glass is
+DARKENED by most photography and dark text falls with it. It also retires a live defect — the md:+
+light frost this replaces put `.app-header-cart` (`--t2`, 13px) at **3.8320:1** over a dark backdrop
+and `.app-header-rewards` (`--ac`) at **3.2238:1**; opaque restores 5.5546 / 4.6729, and tuning the
+alpha cannot save it (even 0.94 lands `--t3` at 4.172). The scrim stops dimming the page and
+DEFOCUSES it, so a diner keeps the spatial memory of where they came from while nothing on it stays
+legible. `.mms-sheet` finally leaves `--pg`: against the new scrim it separated by 1.0385:1, and on
+`--cd` it reads 1.3216.
+
+**The moments.** Five one-shots on `filter: drop-shadow()`, which follows an object's real silhouette
+and interpolates where a box-shadow list cannot — so the lit gold cap IGNITES at the instant of
+choice instead of cross-fading a static halo. A lacquer rake crosses the sheet head once as it
+settles; the send beat drags accent light behind it; pay success blooms and the confetti gains a
+per-particle depth of field; the print head becomes a defocused line of light. None loop, none fire
+on scroll, none run unattended.
+
+**Three composited bounds are now guarded, red-first.** `contrast-audit.test.ts` reads a hex per
+surface, so it is structurally blind to a translucent pane, a stack of ambient layers, and a light
+band washing across text — all three of which this work introduced, and each of which is a
+"green for the wrong reason" shape where a wrong-but-plausible alpha passes every gate in the repo.
+`composite-contrast.test.ts` computes the composite and asserts the floor; five mutations were each
+watched go red and restored md5-identical. Writing it moved a shipped value: the guard does not round
+to 8 bits and so reads up to ~0.03 tighter than a hand calculation, which put light's
+`--pa-grain-op` at 0.05 on 4.5776 — passing, but with less margin than the two methods' own
+disagreement. It is 0.04 now (4.6428), and the token comments quote the guard rather than the hand
+calculation.
+
+**Not shipped, and said out loud rather than quietly dropped.** The dish-card photo bleed is deferred
+(M129): it needs `--card-photo` wired at three call sites, and a raw `url()` in CSS bypasses
+`next/image`, so every rail card would fetch a second unoptimized copy of its photo to paint a hover
+tint. The scroll-driven specular sweep on the chrome is rejected outright: whether repainting a
+backdrop-filtered element forces its backdrop to be re-blurred could not be measured in this
+environment, and it would ride the app's hottest surface. The design also called for `overflow:
+hidden` on the sheet head; that would clip `.mms-sheet-close`'s focus ring (`top: 6px` against a
+4.5px ring leaves ~1.5px of margin), so the rake is painted as a background layer instead — which
+also means it cannot tint the title.
+
 ### Night stays Night — the aubergine re-hue is reverted (2026-08-27)
 
 The owner looked at the shipped aubergine ground and rejected it: _"I actually prefer the Night than

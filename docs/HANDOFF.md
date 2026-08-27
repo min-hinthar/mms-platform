@@ -228,7 +228,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
 > **Gate today:** 227 `verify:slice` mutants green · `pnpm check:docs` clean (95 files, 1044 qr tests +
-> 88 ui tests) · CI green · then the two reviewers.
+> 119 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
