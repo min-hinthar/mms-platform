@@ -1,6 +1,17 @@
 # W22d · Hue direction — DECISION NOTE (2026-08-20)
 
-**Status: decided, build DEFERRED to a future session. No code changed in this pass.**
+**Status (2026-08-26): PR A — the dark half — is BUILT. PRs B and C remain blocked on Q1–Q3 below.**
+
+_Original status, kept for the record: decided, build deferred, no code changed in that pass._
+
+> ⚠️ **§5's trap table is HSL, and PR A did not ship an HSL rotation.** The table below rotates at
+> constant HSL S/L, which raises luminance and costs the tightest combo up to 0.14 by +25°. PR A
+> rotated in **OKLCH with L and C held fixed**, which keeps every ground token's relative luminance
+> within a thousandth of where it was — so the trap fires far more gently than the table predicts
+> (4.5012 at the shipped hue, not 4.384). It still fires: 4.5012 is green by 0.0012, one 8-bit step,
+> which is not headroom. **Lever B was taken** — `--jade-strong` lifted off its alias to `#62b380`
+> (OKLab L 0.6919 → 0.6999, hue and chroma unchanged), worst case now 4.6594. The table stands as
+> measured for the parameterisation it names; it should not be read as the cost of any rotation.
 
 Owner, 2026-08-20, verbatim:
 
@@ -273,8 +284,11 @@ that no longer ships (registry **M84**).
 
 ## 9. Suggested sequencing
 
-1. **PR A — dark only.** ~10 tokens, +10–25° hue, plus one measured lever for the jade-hover trap.
-   Small, self-contained, proves the guard workflow.
+1. ~~**PR A — dark only.**~~ **DONE (2026-08-26).** Nine values, OKLCH +14° (HSL 259° → 277°), lever
+   B for the jade-hover trap. It did prove the guard workflow, and found a gap in it: the two
+   translucent surfaces hand-copy `--cd`/`--sf`'s channels because `rgba(var(--cd), 0.9)` is not
+   expressible, and nothing checked that. `check-theme-parity.mjs` surface 7 now does — which is a
+   guard **PRs B and C inherit**, since the light ground moves under them too.
 2. **Owner picks the maroon** from real swatches (Q1–Q3).
 3. **PR B — the light guard rewrite, BEFORE any token moves.** Replace the flipped negative guards
    with the assertions that are then true, red-first. Decide `--ac-strong`'s fate; delete `--ac2`.

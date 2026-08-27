@@ -6991,9 +6991,15 @@ html[data-seen-surface] .mms-stagger {
   letter-spacing: 0.02em;
   text-transform: none;
 }
+/* The READY column's heading. ⚠️ --gold-strong, NOT --gold: this rule shipped `color: var(--gold)`
+   and scored 1.97:1 on the light `--pg` ground — under even the 3:1 large-text bar, on a wall board
+   whose entire job is being readable across a room. --gold-strong (#8a5a00 light) takes it to 5.63,
+   and aliases --gold in Night, so the dark board is byte-identical to what it was. The underline
+   moves with the text so the two still read as one lit heading. Pinned by
+   scripts/check-text-tokens.mjs, which found this. */
 .orb-col-ready h2 {
-  color: var(--gold);
-  border-bottom-color: var(--gold);
+  color: var(--gold-strong);
+  border-bottom-color: var(--gold-strong);
 }
 .orb-col ul {
   list-style: none;

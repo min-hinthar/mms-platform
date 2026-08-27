@@ -331,6 +331,79 @@ for (const file of readdirSync(path.join(ROOT, EMAIL_DIR), { recursive: true }))
   if (!failures.length) checked.push(`${rel} — no raw colour`);
 }
 
+// ── 7. The translucent surfaces, which cannot reference the token they ARE (W22d/PR A) ─────────
+// `--surface-glass` and `--surface-vellum` are the frosted forms of `--cd` and `--sf`. CSS gives no
+// way to say so: `rgba()` takes raw channels and there is no `rgba(var(--cd), 0.9)`, so each one
+// hand-copies three numbers out of another token in the SAME file. That is this script's subject
+// exactly — a value that escaped the token system — and it had no coverage, which is why re-hueing
+// the Night ground meant editing four values in lockstep by hand and trusting the author to notice.
+//
+// ⚠️ ONE PAIR DOES NOT TRACK, and it is named rather than skipped. Light `--surface-vellum` is
+// `rgba(250, 247, 239, …)` = #faf7ef, which is neither `--sf` (#f2efe7) nor `--pg` (#faf9f5): a
+// hand-authored warm vellum that predates this check. Asserting the relationship there would be
+// asserting something false, and quietly omitting it would leave a hole of the kind the header
+// above keeps cataloguing — so it is listed with its reason and deliberately not compared.
+const SURFACE_BASE = [
+  { theme: "light", block: light, surface: "--surface-glass", base: "--cd" },
+  {
+    theme: "light",
+    block: light,
+    surface: "--surface-vellum",
+    base: null,
+    why: "a hand-authored warm vellum (#faf7ef) matching neither --sf nor --pg",
+    // The exemption is itself checked: if light's vellum is ever brought onto `--sf`, the reason
+    // above stops being true and this stops being an exemption — it becomes an unasserted
+    // relationship that LOOKS covered because it is listed here. A skip that outlives its reason is
+    // the quietest hole in this file's whole catalogue, so it fails loudly and asks to be promoted.
+    staleIfMatches: "--sf",
+  },
+  { theme: "dark", block: dark, surface: "--surface-glass", base: "--cd" },
+  { theme: "dark", block: dark, surface: "--surface-vellum", base: "--sf" },
+];
+for (const { theme, block: blk, surface, base, why, staleIfMatches } of SURFACE_BASE) {
+  const decl = blk[surface];
+  if (!decl) {
+    failures.push(`translucent surface · ${theme} ${surface}: not declared in ${TOKENS}`);
+    continue;
+  }
+  if (!base) {
+    const ch = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(decl);
+    const cmp = /^#([0-9a-fA-F]{6})$/.exec((blk[staleIfMatches] ?? "").trim());
+    if (
+      ch &&
+      cmp &&
+      [0, 2, 4].map((i) => parseInt(cmp[1].slice(i, i + 2), 16)).join() ===
+        [1, 2, 3].map((i) => Number(ch[i])).join()
+    )
+      failures.push(
+        `translucent surface · ${theme} ${surface}: the exemption is STALE — it now equals ` +
+          `${staleIfMatches}, so give it \`base: "${staleIfMatches}"\` and let it be asserted`,
+      );
+    else checked.push(`${theme} ${surface} — exempt: ${why}`);
+    continue;
+  }
+  const got = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(decl);
+  if (!got) {
+    failures.push(
+      `translucent surface · ${theme} ${surface}: expected an \`rgba(r, g, b, a)\`, got ${decl}`,
+    );
+    continue;
+  }
+  const hex = /^#([0-9a-fA-F]{6})$/.exec((blk[base] ?? "").trim());
+  if (!hex) {
+    failures.push(`translucent surface · ${theme} ${surface}: ${base} is not a 6-digit hex`);
+    continue;
+  }
+  const want = [0, 2, 4].map((i) => parseInt(hex[1].slice(i, i + 2), 16));
+  const mine = [1, 2, 3].map((i) => Number(got[i]));
+  if (want.join() !== mine.join())
+    failures.push(
+      `translucent surface · ${theme} ${surface}: rgb(${mine.join(", ")}) but ${base} is ` +
+        `rgb(${want.join(", ")}) — the frosted surface must BE its opaque base, re-hued with it`,
+    );
+  else checked.push(`${theme} ${surface} = ${base} rgb(${want.join(", ")})`);
+}
+
 // ── Report ──────────────────────────────────────────────────────────────────────────────────────
 if (failures.length === 0) {
   console.log(c.green("clean") + c.dim(` — ${checked.length} out-of-token values match ${TOKENS}`));

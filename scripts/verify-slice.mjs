@@ -2031,6 +2031,17 @@ try {
   process.exit(1);
 }
 
+// W22d/PR A — its companion, and a different question. `check-theme-parity` asks whether a
+// hand-copied value DRIFTED; this asks which token is used as TEXT. The contrast audit asserts token
+// PAIRS and cannot see a call site, so a rule it states correctly can be violated by real CSS with
+// every test green — which has happened twice: W22d-1's two accent pills at 3.53/3.70, and the
+// order-ready wall board's column heading shipping `color: var(--gold)` at 1.97:1 on cream.
+try {
+  execFileSync("node", ["scripts/check-text-tokens.mjs"], { cwd: ROOT, stdio: "inherit" });
+} catch {
+  process.exit(1);
+}
+
 // M70 — the fourth cheap grep: the promo grant is pinned, and pinned BEFORE the amount is derived.
 // `create-intent` has no test file and carries a `verify:slice-exempt` line, so deleting the pin
 // call leaves every other gate in this repo green while M70 silently regresses.

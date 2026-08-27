@@ -4,6 +4,78 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M86 · PR A — Night turns aubergine (2026-08-26)
+
+The owner asked (2026-08-20) for a _"slightly-purple-aubergine-hue theme for dark mode"_.
+[`docs/W22D_HUE_DECISION.md`](docs/W22D_HUE_DECISION.md) §5 quantified that as the **ground** hue
+rotating off its old 260°, named the ~10 values that carry it, and warned that one contrast combo
+would have to be paid for. This is that half — dark only. The light/maroon half (PRs B and C) stays
+blocked on three owner questions and is untouched here.
+
+**Rotated in OKLCH with L and C held fixed — hue only.** The decision note measured an HSL rotation
+at constant S/L, which raises luminance (its table watched the tightest combo fall to 4.384 by +25°).
+Holding OKLab L instead keeps every ground token's relative luminance where it was to within a
+thousandth — `--pg` 0.00725 → 0.00719, `--sf` 0.01243 → 0.01245, `--cd` 0.01697 → 0.01671,
+`--surface-elevated` 0.02334 → 0.02314 — so the ladder a diner reads as depth is unchanged and only
+the hue moves: **HSL 259° → 277°**, squarely inside the note's 270–285 band. Nine values move
+(`--pg` `--sf` `--cd` `--surface-elevated` `--oa`, both `--grad` stops, `--surface-glass`,
+`--surface-vellum`); the accent/status hues sit across the wheel and do not.
+
+**`--jade-strong` loses its alias, and the reason is worth stating precisely.** The wallet chip's
+hover background is `color-mix(in oklab, --jade 18%, var(--cd))` — an OKLab mix against an **opaque**
+second colour, so re-hueing `--cd` moves the blend's a/b and its luminance even though `--cd`'s own
+lightness barely moved. `jade-strong on chip tint HOVER /cd` was already the tightest combo in the
+audit at 4.5237; after the rotation it scores **4.5012** — green, by 0.0012, which is one 8-bit step
+and not headroom. So jade gets ruby's W22d-1 treatment, smaller: identical OKLab hue and chroma,
+L 0.6919 → 0.6999 (`#62b380`), worst case now **4.6594**. The fill stays `--jade` exactly as it was;
+only the text variant lifts. All 27 dark combos clear AA, and the tightest rose from 4.5237 to 4.6594.
+
+**New guard — surface 7 of `check-theme-parity.mjs`: the translucent surfaces that cannot reference
+the token they ARE.** `--surface-glass` and `--surface-vellum` are the frosted forms of `--cd` and
+`--sf`, and CSS gives no way to say so (`rgba()` takes raw channels; there is no
+`rgba(var(--cd), 0.9)`), so each hand-copies three numbers out of another token in the same file.
+That is this script's subject exactly and it had no coverage — which is why this re-hue meant editing
+four values in lockstep by hand and trusting the author to notice. Three of the four pairs track;
+light `--surface-vellum` is a hand-authored warm `#faf7ef` matching neither `--sf` nor `--pg`, so it
+is listed as a **named exemption rather than a silent skip** — and the exemption is itself checked,
+failing loudly if that value is ever brought onto `--sf` and the skip outlives its reason.
+
+**Fixed while sweeping the diff — a live AA failure on the order-ready wall board.**
+`.orb-col-ready h2`, the READY column's heading, shipped `color: var(--gold)` on the `--pg` ground:
+**1.97:1 in light**, under even the 3:1 large-text bar, on a display whose entire job is being
+readable across a room. `--gold-strong` (`#8a5a00`) takes it to 5.63 and aliases `--gold` in Night,
+so the dark board is byte-identical. This is unrelated to the aubergine rotation and predates it; it
+is fixed here rather than deferred to the light half because it depends on none of the maroon
+questions that block PRs B and C.
+
+**New guard — `scripts/check-text-tokens.mjs`, wired into CI, `verify:slice` and `pnpm
+check:text-tokens`.** The contrast audit asserts token PAIRS and structurally cannot see a call site,
+so a rule it states correctly can be violated by real CSS with every test green — which has now
+happened twice: W22d-1's two accent pills at 3.53/3.70, and this wall-board heading at 1.97. The
+sweep asks the other question — _which token is used as text_ — and bans only the hues that are never
+legitimate light text on any ground the app paints (`--gold`, `--ac2`). `--ac` is deliberately not
+banned: the audit asserts `ac on pg` and `ac on cd` as passing pairs, so a blanket ban would be false;
+its real rule is surface-dependent and needs each call site's computed background, which is filed as
+**M120** rather than faked with a wider regex. The homepage brand star is the one **named, self-closing
+exemption** (WCAG 1.4.11 exempts logotypes; repainting a brand mark is not a guard's call) and is
+filed for the owner as **M121**.
+
+Red-first throughout: the parity guard was watched failing on all three mirrors before they were
+updated; the contrast audit was watched failing at 4.492473 (matching the predicted 4.4925 to four
+decimals) on a deliberately under-paid rotation, and its new wall-board combo at 1.9741 — the same
+number measured by hand on the live defect; surface 7 was falsified five ways (drifted channel,
+re-hued base with the frosted surface left behind, undeclared surface, non-`rgba()` value, stale
+exemption); and the text-token sweep five ways (the real defect, a new `--ac2` text rule, the JSX form
+in `badge.tsx`, a stale exemption, and `border-color`/`background-color` correctly NOT flagged).
+
+Two self-inflicted bugs were caught by that discipline and are worth recording, because both are the
+house failure modes: the sweep first matched **its own documentation** — the fix's comment quotes the
+banned `color: var(--gold)` verbatim — reporting prose nobody renders, exactly what
+`check-theme-parity.mjs` had already learned twice; and its failure message **fabricated a
+reassurance**, claiming the suggested `--ac-strong` "aliases `--ac2` in dark so Night is unchanged"
+when `--ac-strong` aliases `--ac` and that swap does move Night. Every ratio in this entry was
+computed against `tokens.css`, never transcribed.
+
 ### M72a — the settlement derives availability instead of being told it (2026-08-26)
 
 **The registry said closing M72 needed a reservation. The widest of its three windows did not.**

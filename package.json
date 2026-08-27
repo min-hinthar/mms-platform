@@ -18,6 +18,7 @@
     "verify:slice": "node scripts/verify-slice.mjs",
     "check:docs": "node scripts/check-docs.mjs && node scripts/gen-menu-reference.mjs --check",
     "check:theme": "node scripts/check-theme-parity.mjs",
+    "check:text-tokens": "node scripts/check-text-tokens.mjs",
     "verify:merge-race": "node scripts/verify-merge-race.mjs",
     "verify:merge-race:mutants": "node scripts/verify-merge-race.mjs --mutants",
     "verify:mode-authority": "node scripts/verify-mode-authority.mjs",

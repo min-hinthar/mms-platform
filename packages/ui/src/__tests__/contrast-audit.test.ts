@@ -280,6 +280,17 @@ function combos(map: Record<string, string>, theme: "light" | "dark") {
       fg: acStrong,
       bg: flattenAlpha(ac, 0.12, sf),
     },
+    // W22d/PR A — the ORDER-READY wall board's column heading (`.orb-col-ready h2`), which shipped
+    // `color: var(--gold)` on the `--pg` ground and scored **1.97:1 in light** — under even the 3:1
+    // large-text bar, on a display whose entire job is being readable across a room. Nothing here
+    // could have caught it: this file asserts token PAIRS, and the defect was a call site reaching
+    // for the fill hue instead of the text one. `scripts/check-text-tokens.mjs` now asks that second
+    // question; this asserts the token side of the fix, so the pair is covered from both directions.
+    {
+      name: "gold-strong on pg (.orb-col-ready h2, wall board)",
+      fg: tok(map, "--gold-strong"),
+      bg: pg,
+    },
     { name: "oa on solid ac", fg: tok(map, "--oa"), bg: ac },
     { name: "ok on okb", fg: tok(map, "--ok"), bg: tok(map, "--okb") },
     { name: "warn on warnb", fg: tok(map, "--warn"), bg: tok(map, "--warnb") },

@@ -42,7 +42,7 @@ const CACHE_VERSION = "v1";
 
 /** The synthetic offline shell — served when a navigation has no network. Inline styles are safe
  *  here: a SW-constructed Response carries no CSP header. Colors mirror the tokens (--pg #faf9f5 /
- *  ink, dark #171221) — the SW has no CSS pipeline to read tokens.css from. */
+ *  ink, dark #1a111f) — the SW has no CSS pipeline to read tokens.css from. */
 const OFFLINE_HTML = `<!doctype html>
 <html lang="en">
 <head>
@@ -56,7 +56,7 @@ const OFFLINE_HTML = `<!doctype html>
      (No backticks in here - the whole shell is a TS template literal.) */
   body { margin: 0; min-height: 100vh; display: grid; place-items: center; text-align: center;
          background: #faf9f5; color: #1b1714; font-family: ui-sans-serif, system-ui, sans-serif; }
-  @media (prefers-color-scheme: dark) { body { background: #171221; color: #f3ecdf; } }
+  @media (prefers-color-scheme: dark) { body { background: #1a111f; color: #f3ecdf; } }
   main { padding: 32px 24px; max-width: 420px; }
   .glyph { font-size: 44px; }
   h1 { font-size: 22px; margin: 12px 0 4px; }

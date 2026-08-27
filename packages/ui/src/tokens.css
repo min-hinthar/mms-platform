@@ -149,10 +149,24 @@
   --scrim: rgba(15, 10, 5, 0.42);
 }
 .dark {
-  /* v4 Night */
-  --pg: #171221;
-  --sf: #201a2e;
-  --cd: #271f38;
+  /* v4 Night — AUBERGINE (W22d/PR A, 2026-08-26). The owner asked for a
+     "slightly-purple-aubergine-hue theme for dark mode"; `docs/W22D_HUE_DECISION.md` §5 quantified
+     that as the ground rotating +10–25° of HSL hue off its old 260°, and named the ~10 values that
+     carry it. The rotation is done in OKLCH with L and C HELD FIXED — hue only — rather than in HSL
+     at constant S/L, which is what the decision note measured. That distinction is the whole
+     character of this change: HSL rotation purple-ward RAISES luminance (the note's table watched
+     the tightest combo fall to 4.384 by +25), while holding OKLab L keeps every ground token's
+     relative luminance where it was to within a thousandth — pg 0.00725 → 0.00719, sf 0.01243 →
+     0.01245, cd 0.01697 → 0.01671, surface-elevated 0.02334 → 0.02314. So the pg < sf < cd <
+     elevated ladder a diner reads as depth is untouched, and only the hue moves: HSL 259° → 277°.
+     The accent/status hues (--ac --gold --jade --ruby --warn --ok) sit across the wheel and do NOT
+     rotate; neither do the texture/glow tokens (they key off the accent) or the shadows (neutral
+     black). One combo still had to be paid for — see --jade-strong. Every number here was computed
+     against this file, and `--pg`/`--cd` are mirrored into three surfaces that cannot read a custom
+     property (pinned by scripts/check-theme-parity.mjs). */
+  --pg: #1a111f;
+  --sf: #24192b;
+  --cd: #2c1d35;
   --tx: #f3ecdf;
   --t2: #bcafc8;
   --t3: #9d95a8; /* AA on Night surfaces: 5.84:1 on --sf, 5.45:1 on --cd (was #897e96 → 4.40/4.10) */
@@ -161,13 +175,22 @@
   /* Dark accent already clears 4.5:1 on the tinted fills (~5.6–6.3), so the strong variant is the
      same hue — defined for parity so components can use --ac-strong unconditionally. */
   --ac-strong: var(--ac);
-  --oa: #1a1326;
+  --oa: #1e1223;
   --jade: #5fb07e;
   --gold: #f4c879;
-  /* Bright-on-dark text already clears AA on the tinted fills, so the strong variants are the same hue
-     (parity with --ac-strong, so components can use *-strong unconditionally). */
+  /* Gold-on-dark clears AA on its tinted fills, so its strong variant is the same hue (parity with
+     --ac-strong, so components can use *-strong unconditionally). Jade no longer can — see below. */
   --gold-strong: var(--gold);
-  --jade-strong: var(--jade);
+  /* W22d/PR A — jade is the SECOND alias the aubergine rotation broke, for ruby's exact reason one
+     step further out. `jade-strong on chip tint HOVER /cd` was already the tightest combo in the
+     audit at 4.5237, and the chip's background is `color-mix(in oklab, --jade 18%, var(--cd))` — an
+     OKLab mix against an OPAQUE second colour, so re-hueing --cd moves the blend's a/b and its
+     luminance with it, even though the rotation holds --cd's own OKLab L (and its relative
+     luminance: 0.01697 → 0.01671) essentially fixed. At the shipped +14° the alias scores 4.5012 —
+     green, by 0.0012, which is one 8-bit step and not headroom. Same fix as ruby's, and smaller:
+     identical OKLab hue (155.14) and chroma (0.1094), L 0.6919 → 0.6999, worst case now 4.6594.
+     The FILL stays --jade exactly as it was; only the TEXT variant lifts. Searched numerically. */
+  --jade-strong: #62b380;
   /* W22d — ruby is the ONE bright hue that does NOT clear AA as text on its own tint, and the
      comment here used to assert the opposite. Measured against the real call sites: `--ruby` as text
      scored 4.47 on the 14% tint and 4.32 on the 16% tint over --cd (AccountStatus' tier row + tier
@@ -183,7 +206,7 @@
   --okb: #1f2e26;
   --warn: #e0855f;
   --warnb: #33231d;
-  --grad: linear-gradient(135deg, #3a2a4d, #241c34);
+  --grad: linear-gradient(135deg, #402848, #291a31);
   --sh: 0 1px 3px rgba(0, 0, 0, 0.45);
   --sh-md: 0 8px 22px rgba(0, 0, 0, 0.5);
   --sh-xl: 0 26px 60px rgba(0, 0, 0, 0.65);
@@ -195,9 +218,9 @@
   --tex-grain-opacity: 0.55;
   --glow-ac: color-mix(in oklab, var(--ac) 32%, transparent);
   --glow-gold: color-mix(in oklab, var(--gold) 30%, transparent);
-  --surface-glass: rgba(39, 31, 56, 0.9);
-  --surface-vellum: rgba(32, 26, 46, 0.95);
-  --surface-elevated: #2e2545;
+  --surface-glass: rgba(44, 29, 53, 0.9);
+  --surface-vellum: rgba(36, 25, 43, 0.95);
+  --surface-elevated: #342341;
   --sheen: rgba(255, 255, 255, 0.06);
   --sh-glow: 0 6px 22px color-mix(in oklab, var(--ac) 22%, transparent);
   --sh-lift: 0 2px 8px -1px color-mix(in oklab, var(--ac) 52%, transparent);
