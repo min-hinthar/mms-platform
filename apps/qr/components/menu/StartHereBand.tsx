@@ -34,7 +34,10 @@ export function StartHereBand({
   rowA: MenuItem[];
   /** The category round-robin — no ranking claim, no seals. Empty below its 3-card floor. */
   rowB: MenuItem[];
-  /** True only when real paid-order counts curated row A — drives the honest sub-heading. */
+  /** True only when the POS export (M135) curated row A — drives the honest sub-heading. NOT a
+   *  statement about diners at THIS app's tables: `posPopular.ts` says in as many words that the
+   *  till export "knows nothing about tables, or about this app", which is why the badge reads
+   *  "Most ordered" and why the sub-heading below had to stop saying "what tables love". */
   dataBacked: boolean;
   onSelect: (i: MenuItem) => void;
 }) {
@@ -106,8 +109,13 @@ export function StartHereBand({
       <div className="start-here-hrow">
         <h2 id="start-here-h" className="start-here-h">
           Start here <span aria-hidden>✦</span>
+          {/* M135 replaced this row's evidence with the owner's PayPal/Zettle till units, and this
+              string did not follow: "what tables love" claims dine-in table behaviour that the
+              export cannot support (it is every counter sale and to-go bag too — `posPopular.ts`
+              spells that out, and the same commit renamed the badge off "Table favorite" for
+              exactly this reason). It now says what the number is. */}
           <span className="start-here-sub">
-            {dataBacked ? "what tables love" : "our picks to start"}
+            {dataBacked ? "the most ordered here" : "our picks to start"}
           </span>
         </h2>
         {/* WCAG 2.2.2 — auto-moving content gets a REAL stop control, not just hover luck. One

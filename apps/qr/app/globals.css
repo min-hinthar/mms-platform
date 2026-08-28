@@ -1235,8 +1235,19 @@ html[data-fx="off"] .pa-pause {
    position. */
 .menu-search-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+/* The free-from disclaimer's row. A full basis so it wraps BELOW the search field and the chip
+   rather than competing with them for the line — see DietFilterButton for what happened without
+   it. `gap` already supplies the vertical rhythm, so the note carries no extra top margin here. */
+.menu-diet-note {
+  flex: 0 0 100%;
+  min-width: 0;
+}
+.menu-diet-note > p {
+  margin-top: 0;
 }
 .menu-search-row .menu-search {
   flex: 1;
@@ -1306,7 +1317,14 @@ html[data-fx="off"] .pa-pause {
   cursor: pointer;
 }
 .menu-diet-clear[aria-disabled="true"] {
-  opacity: 0.45;
+  /* NOT `opacity`. This control deliberately stays in the tab order (see DietFilterButton — a
+     natively-disabled or unmounted button destroys the place of whoever just cleared the last
+     filter, WCAG 2.4.3), so its label is READ by exactly the people the aria-disabled choice
+     exists to protect. At the 0.45 fade this rule used to carry, `--t2` measured 1.8708:1 in light
+     and 2.7052:1 in Night — below even the 3:1 non-text floor. Nothing under opacity 0.94 clears
+     AA in light, so the unavailable state rides the BORDER (non-text chrome, 3:1) and the
+     accessible name, which says it in words. */
+  border-color: color-mix(in oklab, var(--bd) 45%, transparent);
   cursor: default;
 }
 

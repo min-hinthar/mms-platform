@@ -312,15 +312,23 @@ describe("the gold chip's ink — a bright fill needs the CONSTANT ink, not the 
    * in light it is #fffdf8, sized for the dark amber `--ac` fill — and on `--gold` it measures
    * 2.0458:1. Unreadable, in the default theme, since W20.
    *
+   * ⚠️ THAT SELECTOR NO LONGER EXISTS — M135 deleted the rank seals outright (the owner asked for
+   * the sales data "instead of ranking them or numbering"), so do not go looking for it. The rule
+   * stayed because the FILL did: `.arrival-table` (globals.css) is the live consumer today, same
+   * gradient, and it is the one this guard protects. The bound is on the tokens, so it covers the
+   * next chip to reach for that gradient as well as this one.
+   *
    * The whole class is invisible to the main audit for a structural reason worth stating: that
    * audit asserts PAIRS OF TOKENS, and nothing there knows which fill a given ink is painted on.
    * `--oa` on `--ac` is fine and asserted; `--oa` on `--gold` is a different pair that no rule
    * named. So this guards the FILL itself, across every share the gradient actually paints.
    *
    * `.kds-new-pill` has the same pair and is deliberately NOT included: it renders inside
-   * `.kds-root.dark`, a Night-forced wall board, where `--oa` on `--gold` is 12.12:1.
+   * `.kds-root.dark`, a Night-forced wall board, where `--oa` on `--gold` clears comfortably —
+   * 10.2712:1 at the gradient's WORST pixel (12.1235 at its best; quote the worst, it is the one
+   * that has to hold).
    *
-   * RED-FIRST: reverting either chip to `--oa` is a CSS change this file cannot see, so the guard
+   * RED-FIRST: reverting the chip to `--oa` is a CSS change this file cannot see, so the guard
    * is on the TOKENS — putting `--oa` where `--ink` is asserted turns LIGHT red (the first sampled
    * share reports 3.2229, the worst 2.0458) while Night stays green at 10.2712, which is the honest
    * shape of the defect: `--oa` on gold is a light-theme failure only.

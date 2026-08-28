@@ -244,10 +244,6 @@
     "qty": 27
   },
   {
-    "slug": "oil-rice-with-peas",
-    "qty": 26
-  },
-  {
     "slug": "shrimp-crispy-fish-sauce",
     "qty": 26
   },
@@ -294,6 +290,10 @@
   {
     "slug": "kayah-sausages",
     "qty": 7
+  },
+  {
+    "slug": "oil-rice-with-peas",
+    "qty": 6
   },
   {
     "slug": "beef-fried-shredded",

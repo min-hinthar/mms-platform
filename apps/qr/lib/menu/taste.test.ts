@@ -47,9 +47,25 @@ describe("M131 — the surprise draw comes from the ranked tier first", () => {
   });
 
   it("no ranking is a NO-OP — one uniform shuffle over everything, as before", () => {
-    expect(surpriseMe(catalog, new Set(), 3, [], () => 0).map((p) => p.id)).toEqual(
-      surpriseMe(catalog, new Set(), 3, undefined, () => 0).map((p) => p.id),
+    // ⚠️ The pin is the RESULT, not `[]` against `undefined`. That comparison was the whole test
+    // and it could not fail: `popularIds` DEFAULTS to `[]`, so both calls were byte-identical and
+    // what it actually proved was that JS default parameters work. Deleting the ranking tier
+    // entirely would have left it green.
+    //
+    // What can fail: an empty ranking must produce the plain uniform draw (values below computed
+    // from the code, never transcribed), and a NON-empty one must produce a different row — the
+    // second assertion is what keeps the first from being vacuous, since a `popularIds` the
+    // function ignored would satisfy the first on its own.
+    const noRanking = surpriseMe(catalog, new Set(), 3, [], () => 0).map((p) => p.id);
+    expect(noRanking).toEqual(["i0", "i1", "i2"]);
+    expect(surpriseMe(catalog, new Set(), 3, undefined, () => 0).map((p) => p.id)).toEqual(
+      noRanking,
     );
+    expect(surpriseMe(catalog, new Set(), 3, ["i5", "i4"], () => 0).map((p) => p.id)).toEqual([
+      "i4",
+      "i5",
+      "i0",
+    ]);
   });
 });
 

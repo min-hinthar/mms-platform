@@ -7,9 +7,12 @@ import { POS_POPULARITY, POS_BADGE_MAX, posPopularIds } from "./posPopular";
  * export, so these tests guard the CONTRACT the app depends on, not the numbers themselves.
  */
 describe("POS_POPULARITY — the generated sales order", () => {
-  it("is non-empty and strictly descending by units", () => {
+  it("is non-empty and never increases in units", () => {
     // A silently-empty file would degrade every consumer to "no preference" and nothing would fail,
     // which is exactly the shape that makes a broken data pipeline invisible.
+    // NON-INCREASING, not "strictly descending" — this file legitimately carries ties (7 units
+    // values are shared by two dishes each, measured), and a strict assertion would be red on
+    // honest data. The generator breaks those ties by slug so the order is still total and stable.
     expect(POS_POPULARITY.length).toBeGreaterThan(0);
     const qtys = POS_POPULARITY.map((p) => p.qty);
     expect([...qtys].sort((a, b) => b - a)).toEqual(qtys);

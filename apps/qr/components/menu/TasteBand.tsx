@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { MenuItem } from "./MenuBrowser";
 import { surpriseMe, refillSurprise, TASTE_ROW_MAX } from "@/lib/menu/taste";
 import { passesDiets, type Diet } from "@/lib/menu/dietary";
@@ -29,9 +29,13 @@ const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
  * card; and an empty answer stays empty rather than being padded, because WHICH kind of empty it is
  * is information the diner needs.
  *
- * a11y: one button, one accessible name that changes with state, the results rail labelled by its
- * own count. No live region — the menu view keeps its one (the cart provider's); the reveal is
- * self-initiated and sits immediately after the control in DOM order, so it is reached naturally.
+ * a11y: the invitation and the stood-down line are DIFFERENT elements, so the first tap unmounts
+ * the very button that was activated and focus would fall to `<body>` — the repo's focus-on-remove
+ * rule, and the same one `DietFilterButton` cites for its ✕. So the tap MOVES focus to "Shuffle
+ * again", which is the control's continuation, and that button is described by an sr-only line
+ * naming the outcome — so a screen-reader user hears what the tap produced without a second live
+ * region (the menu view keeps its one, the cart provider's). The results rail is labelled by its
+ * own count.
  */
 export function TasteBand({
   items,
@@ -57,6 +61,10 @@ export function TasteBand({
   // requested", so the tap looks like it silently did nothing. The flag routes it to an honest
   // empty state instead.
   const [asked, setAsked] = useState(false);
+  // Focus continuity across the invite → "again" swap. Set only on the tap that CAUSES the swap, so
+  // a later shuffle (focus already on the button) never re-grabs, and a re-render never does.
+  const againRef = useRef<HTMLButtonElement>(null);
+  const wantFocusRef = useRef(false);
 
   const pool = useMemo(
     () => items.filter((i) => !i.is_sold_out && passesDiets(i, diets)),
@@ -75,10 +83,41 @@ export function TasteBand({
     return refillSurprise(alive, pool, heartedIds, popularIds);
   }, [surprise, pool, heartedIds, popularIds]);
 
+  /**
+   * The one sentence BOTH surfaces read — the visible empty line and the sr-only description of the
+   * button focus lands on. Named once so the two can never drift (the repo's "name it ONCE" rule).
+   *
+   * Each case names its OWN truth. Drawn-then-nothing-survived used to read "Those picks don't fit
+   * your dietary filters", which was wrong twice over: `pool` also drops SOLD-OUT dishes, so a dish
+   * selling out between the tap and the render emptied the row with no filter involved at all — and
+   * the sentence rendered verbatim with ZERO filters lit, advising a lever the diner had never
+   * pulled. The cause is genuinely unknowable from here (sold out, delisted by a catalog refresh, or
+   * a filter switched on after the tap all look identical), and W17's rule is that guessing is worse
+   * than saying so — so it states the fact and the remedy, and attributes nothing.
+   */
+  const outcome =
+    picked.length > 0
+      ? `We picked ${picked.length} ${picked.length === 1 ? "dish" : "dishes"} for you.`
+      : surprise.length > 0
+        ? "Those picks aren’t available any more — shuffle again."
+        : pool.length > 0
+          ? "Nothing new to surprise you with — your favorites already cover everything that fits."
+          : diets.length > 0
+            ? "Nothing to surprise you with under those filters — ease one, or browse the menu below."
+            : "Nothing in stock to surprise you with right now.";
+
   const draw = () => {
+    wantFocusRef.current = !asked;
     setAsked(true);
     setSurprise(surpriseMe(pool, heartedIds, TASTE_ROW_MAX, popularIds));
   };
+
+  useEffect(() => {
+    if (!asked || !wantFocusRef.current) return;
+    wantFocusRef.current = false;
+    // preventScroll — a touch tap must not yank the page away from the row that just appeared.
+    againRef.current?.focus({ preventScroll: true });
+  }, [asked]);
 
   return (
     <section aria-labelledby="taste-h" className="taste-band">
@@ -129,9 +168,21 @@ export function TasteBand({
           <span className="taste-again-label">
             <span aria-hidden>✨</span> Here’s what we picked
           </span>
-          <button type="button" className="taste-again-btn" onClick={draw}>
+          <button
+            ref={againRef}
+            type="button"
+            className="taste-again-btn"
+            aria-describedby="taste-outcome"
+            onClick={draw}
+          >
             Shuffle again
           </button>
+          {/* The outcome in words, for the focus this tap just moved here. Not a live region — it
+              is a DESCRIPTION of the control focus lands on, so it is announced by the move itself
+              and never re-announced on an unrelated re-render. */}
+          <span id="taste-outcome" className="sr-only">
+            {outcome}
+          </span>
         </p>
       )}
 
@@ -140,7 +191,7 @@ export function TasteBand({
           as="ul"
           role="list"
           className="start-here-rail mms-rise taste-rail-row"
-          aria-label={`${picked.length} dishes we picked for you`}
+          aria-label={`${picked.length} ${picked.length === 1 ? "dish" : "dishes"} we picked for you`}
         >
           {picked.map((i, n) => (
             /* `--i` drives the per-card cascade (globals.css). A PRESENTATION ordinal only: it never
@@ -172,21 +223,7 @@ export function TasteBand({
         </Rail>
       )}
 
-      {asked && picked.length === 0 && (
-        // Each case names its OWN truth. Drawn-then-filtered means "again" actually works; an
-        // exhausted pool means it will not, so never advise it (Codex round 3 on #194). Blaming a
-        // filter when every remaining dish is hearted advises a lever that would not help either
-        // (Codex round 4).
-        <p className="taste-empty">
-          {surprise.length > 0
-            ? "Those picks don’t fit your dietary filters — shuffle again."
-            : pool.length > 0
-              ? "Nothing new to surprise you with — your favorites already cover everything that fits."
-              : diets.length > 0
-                ? "Nothing to surprise you with under those filters — ease one, or browse the menu below."
-                : "Nothing in stock to surprise you with right now."}
-        </p>
-      )}
+      {asked && picked.length === 0 && <p className="taste-empty">{outcome}</p>}
     </section>
   );
 }

@@ -313,8 +313,20 @@ for (const item of catalog) {
   if (ours.length === 0) continue;
   const exact = pos.filter((p) => keysOf(p.pos).some((t) => ours.includes(t)));
   if (exact.length === 0) continue;
-  const qty = exact.reduce((sum, p) => sum + (p.qty ?? 0), 0);
+  // THE SAME price-agreement rule the units column above applies, and for the same reason (W21d,
+  // Codex P2 on #187): summing every exact-name hit attributes a $100 catering tray's units to the
+  // $10 dish. Summing them here too shipped `oil-rice-with-peas` at 26 while the doc's own units
+  // cell — generated one loop earlier, from the same rows — read 6. Two generated outputs, one
+  // join, two different numbers for one dish. When at least one exact row rings OUR price only the
+  // agreeing rows count; when none does (a price we deliberately diverge on) all exact rows still
+  // count, because zero would misread as "never sold".
+  const agrees = (p) => Math.round((p.price ?? 0) * 100) === item.base_price_cents;
+  const agreeing = exact.filter((p) => agrees(p));
+  const counted = agreeing.length > 0 ? agreeing : exact;
+  const qty = counted.reduce((sum, p) => sum + (p.qty ?? 0), 0);
   if (qty <= 0) continue; // a matched row with no sales is not a popularity signal
+  // Claimed on the EXACT set, not the counted one: two dishes matching the same POS row is a broken
+  // join whether or not the price filter would later drop it, and that is what this assert is for.
   for (const p of exact) claimedBy.set(p.pos, [...(claimedBy.get(p.pos) ?? []), item.slug]);
   popularity.push({ slug: item.slug, qty });
 }
@@ -326,8 +338,11 @@ if (doubleClaimed.length) {
   );
   process.exit(1);
 }
-// Most-sold first; slug breaks a tie so the file is byte-stable across runs.
-popularity.sort((a, b) => b.qty - a.qty || a.slug.localeCompare(b.slug));
+// Most-sold first; slug breaks a tie so the file is byte-stable across runs. Plain code-unit order,
+// NOT `localeCompare` — with no locale argument that resolves against the runtime's default, so two
+// machines could order a tie differently and `--check` would fail on a file nobody changed. Slugs
+// are ASCII, so `<` is the total order this needs.
+popularity.sort((a, b) => b.qty - a.qty || (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));
 const popDoc = JSON.stringify(popularity, null, 2) + "\n";
 
 const outputs = [

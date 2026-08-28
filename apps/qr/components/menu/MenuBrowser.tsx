@@ -136,12 +136,11 @@ export function MenuBrowser({
   // Category order as fetched (the server sorted by sort_order); first occurrence wins.
   const allCats = useMemo(() => [...new Set(items.map((i) => i.category))], [items]);
 
-  // J2 guided start → W22 twin rows: the data-backed favorite set (badges) + the "Start here"
-  // rows. Row A claims table behavior ("what tables love") ONLY when counts back it (tie-aware
-  // ranks carried in from the page; sold-out keeps its numeral off-screen), honest `popular`
-  // fallback otherwise; row B is the category round-robin ("a little of everything" — a curation
-  // rule, not a ranking, so no seals). All the honesty rules live in lib/menu/startHereRows.ts
-  // where a test can watch them fail.
+  // J2 guided start → W22 twin rows → M135: the POS-backed most-ordered set (badges) + the "Start
+  // here" rows. Row A says "the most ordered here" ONLY when the till export backs it, honest
+  // `popular` fallback otherwise; no rank travels with either row (M135 deleted the seals). Row B
+  // is the category round-robin ("a little of everything" — a curation rule, not a ranking). All
+  // the honesty rules live in lib/menu/startHereRows.ts where a test can watch them fail.
   const favSet = useMemo(() => new Set(favorites.map((f) => f.id)), [favorites]);
   const startHere = useMemo(
     () => buildStartHereRows(items, favorites, popularIds),
@@ -447,7 +446,12 @@ export function MenuBrowser({
     if (!empty) return;
     const active = document.activeElement;
     const typing = active instanceof HTMLInputElement && active.type === "search";
-    if (!typing) clearBtnRef.current?.focus();
+    // M137 — the dietary pills moved INTO a modal sheet, so toggling one can empty the list while
+    // focus is inside an open dialog. `clearBtnRef` is on the page behind it: focusing it either
+    // escapes Radix's focus trap or is yanked straight back by it, and either way the diner loses
+    // their place on the pill they just pressed. The live region still announces the empty result.
+    const inDialog = active instanceof Element && !!active.closest('[role="dialog"]');
+    if (!typing && !inDialog) clearBtnRef.current?.focus();
   }, [empty]);
 
   function jumpTo(cat: string) {
@@ -566,10 +570,11 @@ export function MenuBrowser({
           </div>
         ))}
 
-      {/* W21 → W22 — "Explore your Burmese taste buds": craving pills → an honest "here's why"
-          rail + Surprise-me, and now the HOME of the dietary pills (they filter this whole view,
-          so the band must stay visible while a diet is active — the search gate alone hides it,
-          since a typed query means the diner is FINDING, not exploring). */}
+      {/* W21 → W22 → M137 — "Explore your Burmese taste buds", now ONE feature: Surprise. The
+          dietary pills are NOT here any more (M137 moved them into the toolbar's sheet), but the
+          band still renders while a diet is active, because the draw respects those filters and a
+          diner who has narrowed the menu is exactly who wants a pick from what is left. Only a
+          typed query hides it — that means the diner is FINDING, not exploring. */}
       {!q.trim() && (
         <div style={{ padding: "0 20px" }}>
           <TasteBand
@@ -586,8 +591,11 @@ export function MenuBrowser({
           customers can view the start-here and taste-h contents first"). It is `position: sticky`,
           so moving it DOWN the document changes only where it starts: it still pins under the app
           header the moment the diner scrolls past the bands, and every section's `scrollMarginTop`
-          is measured from its real height rather than its position, so the jump-nav still lands
-          headings clear of it. When a search or a diet hides the bands above, the toolbar simply
+          is measured from the toolbar's real height rather than its position, so moving it does not
+          change the jump-nav offset. (That offset is the toolbar height ALONE — it does not add
+          `--header-height`, which the toolbar's own sticky `top` does. Unchanged by this move and
+          filed as M139; whether it under-shoots depends on whether the app header is retracted at
+          the moment of the tap, which needs a browser to settle, not a re-read.) When a search or a diet hides the bands above, the toolbar simply
           becomes the first thing under the header again — which is the right place for it exactly
           when the diner is FINDING rather than exploring. */}
       <div className="menu-toolbar" ref={toolbarRef}>

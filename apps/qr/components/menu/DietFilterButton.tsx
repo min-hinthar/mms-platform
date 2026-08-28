@@ -63,8 +63,19 @@ export function DietFilterButton({
       </button>
 
       {/* The disclaimer's toolbar home — see the ⚠️ above. One line, only while a free-from filter
-          is actually lit. */}
-      {hasFreeFrom(diets) && <FreeFromDisclaimer />}
+          is actually lit.
+
+          WRAPPED, and the wrapper is load-bearing: this component returns a FRAGMENT, so without it
+          the disclaimer's `<p>` becomes a direct flex item of `.menu-search-row` beside the search
+          field and the chip. Its own `flex: 0 1 auto` then eats the row's width and `.menu-search`
+          (`flex: 1; min-width: 0`) is the item that collapses — the search box shrinks toward
+          nothing on a phone, exactly when an allergy filter is lit. `.menu-diet-note` takes a full
+          basis so it wraps onto its own line under the row instead. */}
+      {hasFreeFrom(diets) && (
+        <div className="menu-diet-note">
+          <FreeFromDisclaimer />
+        </div>
+      )}
 
       <Sheet open={open} onOpenChange={setOpen} title="Dietary needs">
         <div className="menu-diet-sheet">

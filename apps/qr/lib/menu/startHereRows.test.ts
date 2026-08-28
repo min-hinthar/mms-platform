@@ -173,9 +173,18 @@ describe("M133 — row B SELECTS from the ranking, it no longer merely orders by
     // holds two ranked dishes; Curries and Salads hold none. Round 1 gives all three one dish.
     // Round 2 then spends the rest on the ranking, so Noodles' SECOND (ranked) dish lands ahead of
     // any other category's second — which ordering-only could never do, because it would simply
-    // lap the categories again and hand Curries its second first.
-    const { rowB } = buildStartHereRows(items, loved, ["Noodles-3", "Noodles-2"]);
-    expect(rowB.slice(0, 3).map((i) => i.id)).toEqual(["Noodles-3", "Curries-1", "Salads-1"]);
+    // lap the categories again and hand the first category its second.
+    //
+    // ⚠️ ITS OWN FIXTURE, and the category ORDER is the whole point. On the shared `items` (Noodles
+    // first) this assertion was decorative: deleting ROUND 2 outright left it GREEN, because the
+    // buckets are rank-sorted internally and round 3's tie-break — "least-served, ties keep bucket
+    // order" — reaches for the same Noodles-2 anyway. Both code paths produce one number on that
+    // fixture, which is the definition of a degenerate one. Putting an UNRANKED category first
+    // separates them: with round 2, position 3 is the ranked Noodles-2; without it, round 3's tie
+    // goes to the first bucket and hands out Curries-2. Verified by mutation, both directions.
+    const ordered = [...catalog({ Seed: 3 }), ...catalog({ Curries: 3, Noodles: 3, Salads: 3 })];
+    const { rowB } = buildStartHereRows(ordered, loved, ["Noodles-3", "Noodles-2"]);
+    expect(rowB.slice(0, 3).map((i) => i.id)).toEqual(["Curries-1", "Noodles-3", "Salads-1"]);
     expect(rowB[3]!.id).toBe("Noodles-2");
   });
 

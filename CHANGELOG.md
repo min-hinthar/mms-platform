@@ -4,6 +4,68 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The blind adversarial pass on #239 — six defects, and three guards that could not fail (2026-08-28)
+
+Three blind auditors read `.review-bundle/` and nothing else — product truth, a11y/interaction, and
+algorithmic correctness + guard integrity — then one skeptic per finding was pointed at the source
+and told to refute it. 27 filed, 6 survived refutation, and hand-triage of the rest found 5 more that
+were real. Every finding was re-verified against source before it was acted on; three were refuted
+outright and are recorded below so nobody re-files them.
+
+**Two false statements a diner could read.** The Start-here sub-heading still said _"what tables
+love"_ after M135 replaced its evidence with the owner's till export — the same commit that renamed
+the badge off "Table favorite" for exactly that reason, since the export is every counter sale and
+to-go bag too and `posPopular.ts` says so in as many words. It reads **"the most ordered here"**. And
+the taste band's empty line blamed the diner's dietary filters for picks lost to a **sold-out** flag,
+rendering that sentence verbatim with **zero filters lit** — the cause is genuinely unknowable from
+there, so it now states the fact and the remedy and attributes nothing (W17's rule).
+
+**The first tap destroyed the button that was tapped.** The invitation panel and the stood-down
+"Shuffle again" line are different elements at the same position, so activating Surprise unmounted
+the activated control and focus fell to `<body>` — the repo's own focus-on-remove rule, cited three
+files away in `DietFilterButton`. Focus now moves to the shuffle button, which is described by an
+sr-only line naming the outcome, so the tap announces what it produced without a second live region.
+Two more in the same family: the menu's empty-state effect reached **out of the open dietary dialog**
+to focus a button behind it (it now stands down while focus is inside a `role="dialog"`), and the
+free-from disclaimer was a bare flex item of the new one-line search row, so `.menu-search` — the
+`flex: 1; min-width: 0` item — collapsed to absorb it whenever an allergy filter was lit.
+
+**The Clear-all label measured 1.8708:1.** It stays in the tab order on purpose (`aria-disabled`,
+never native `disabled`, so clearing the last filter cannot destroy anyone's place), which means its
+label is read by exactly the people that choice protects — and `opacity: .45` put it below even the
+3:1 non-text floor. Nothing under opacity 0.94 clears AA in light, so the unavailable state rides the
+border and the accessible name.
+
+**`pos-popularity.json` skipped the price-agreement correction its own script applies one loop
+earlier.** W21d added that filter because a $100 catering tray's units were being attributed to the
+$10 dish; the new generated output summed every exact-name row instead, so `oil-rice-with-peas`
+shipped at **26** while the doc's units cell — same join, same run — read **6**. One dish differs and
+the badge top-12 is byte-identical either way, which is why this is filed as real but not critical.
+The tie-break also moved off `localeCompare` (no locale argument resolves against the runtime's
+default, so two machines could order a tie differently and `--check` would fail on a file nobody
+touched).
+
+**Three guards were green for the wrong reason, and all three now fail red-first.** The assertion
+labelled `THE DISCRIMINATOR` did not discriminate: deleting ROUND 2 outright left it green, because
+the buckets are rank-sorted internally and round 3's tie-break reaches for the same dish. It has its
+own fixture now with an **unranked category first**, and the mutation reports
+`expected 'Curries-2' to be 'Noodles-2'`. `"no ranking is a NO-OP"` compared `[]` against `undefined`
+— and `undefined` resolves to that same `[]` default, so it proved that JS default parameters work;
+it pins the computed draw instead, plus a ranked draw that must differ, and ignoring `popularIds`
+now turns it red. And `"strictly descending by units"` asserted only non-increasing on data that
+carries 7 tied values — the title said something the shipped file violates.
+
+**Refuted, so nobody re-files them:** `PullToRefresh` is not live under the dietary sheet (`.ptr`
+carries no z-index and the sheet paints over it); `menu_items.slug` exists in `database.types.ts` and
+the select is uncast, so `tsc` validates it; and `check:docs` _does_ re-check the generated outputs —
+it is `check-docs.mjs && gen-menu-reference.mjs --check`, and `package.json` was not in the bundle.
+
+Deferred to `docs/OPEN-ITEMS.md` rather than widened into this PR: **M139** (the jump-nav offset
+omits `--header-height` — pre-dates M133, needs a browser to settle, and the comment that asserted
+otherwise has been corrected), **M140** (the full 76-dish sales order reaches the public RSC payload
+— the owner's business data, and their call), **M141** (neither new component has a behavioural test;
+every defect above was found by reading, not by a red one).
+
 ### One tap, not eight — the taste band rebuilt, the filters folded away (M137, 2026-08-28)
 
 The owner: _"dietary filters take too much space. make surprise your taste buds the one and only
