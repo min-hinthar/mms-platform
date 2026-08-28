@@ -17,9 +17,14 @@ import { fileURLToPath } from "node:url";
  * written in the same commit. It lives HERE rather than beside the policy because a `packages/ui`
  * test reading `apps/qr` off disk would invert the one-way dependency rule.
  *
- * An ALLOWLIST, not a sweep. Eight of the eleven `Sheet` callers must NOT pass `busy` — they write
+ * An ALLOWLIST, not a sweep. Nine of the twelve `Sheet` callers must NOT pass `busy` — they write
  * nothing irreversible, and a lock a user cannot predict is worse than no lock — so "every Sheet has
  * busy" would be the wrong assertion and would pressure a future author into adding it everywhere.
+ *
+ * M137 added the twelfth (`menu/DietFilterButton.tsx`) and this guard is why it was a decision
+ * rather than an oversight: its sheet toggles CLIENT-SIDE dietary filters and writes nothing at
+ * all, so it belongs in the unguarded list. Locking a filter picker mid-tap would be the "lock with
+ * no reason" the prop's own doc forbids.
  */
 
 const COMPONENTS = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "components");
@@ -68,6 +73,7 @@ const UNGUARDED = [
   "TablePicker.tsx",
   "grocery/GroceryBasketSheet.tsx",
   "grocery/GroceryItemSheet.tsx",
+  "menu/DietFilterButton.tsx",
   "menu/ItemSheet.tsx",
 ];
 

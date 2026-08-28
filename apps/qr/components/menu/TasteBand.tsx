@@ -1,15 +1,7 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { MenuItem } from "./MenuBrowser";
-import {
-  CRAVINGS,
-  recommendByTaste,
-  surpriseMe,
-  refillSurprise,
-  topUpToFloor,
-  TASTE_ROW_MAX,
-  type CravingId,
-} from "@/lib/menu/taste";
+import { surpriseMe, refillSurprise, TASTE_ROW_MAX } from "@/lib/menu/taste";
 import { passesDiets, type Diet } from "@/lib/menu/dietary";
 import { BlurUpImage } from "./BlurUpImage";
 import { PhotoPlaceholder } from "./PhotoPlaceholder";
@@ -17,23 +9,29 @@ import { Rail } from "../Rail";
 
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
-/** The device's saved cravings — the "personalizable" half: picks persist and are editable any time. */
-const TASTE_KEY = "mms.taste";
-
 /**
- * W21 → W22 → M135 — "Explore your Burmese taste buds". W22 pulled the dietary pills IN here
- * alongside the cravings; M135 put them back in the sticky toolbar (owner: "taste-diet-cap should
- * be moved back inside menu-toolbar"), which is the right home for them: cravings RECOMMEND and
- * diets FILTER, and a filter that scrolls away is one you cannot turn off. This band is now purely
- * the recommender. It still READS the active diets, so a vegan pill lit in the toolbar can never
- * sit above a shrimp recommendation here.
+ * W21 → W22 → M135 → M137 — "Explore your Burmese taste buds", rebuilt around ONE feature.
  *
- * HONEST by construction (unchanged): every card SAYS why it's here (the literal rule it matched),
- * surprise picks are framed as "how about…", and the fail-safe free-from disclaimer travels with
- * the pills it belongs to.
+ * Owner: "make surprise your taste buds the one and only main feature for explore your burmese
+ * taste buds section so let's reimagine it."
  *
- * a11y: pills are true toggles (aria-pressed) in labelled groups; the rail reuses the start-here
- * card vocabulary. No live region — the menu view keeps its one (the cart provider's).
+ * WHAT WENT, AND WHY IT WAS RIGHT TO GO. The section used to carry eight craving pills (🍜 noodles,
+ * 🌶 heat, 🧁 sweet …) beside the surprise chip, and W22 briefly parked the dietary pills here too.
+ * Three pill vocabularies on one band, two of which asked the diner to already know what they
+ * wanted — which is the opposite of what a section for first-timers is for. The cravings also
+ * competed with the thing that actually helps someone who cannot read the menu yet: a single tap
+ * that answers. Surprise is now the whole feature, and the section is shaped like one invitation
+ * instead of a shelf of controls.
+ *
+ * HONEST by construction, unchanged where it counts: the draw prefers the most-ordered dishes
+ * (M135's POS units) but every card still says "How about this?" and never a claim; the pool
+ * respects the dietary filters the toolbar owns, so a lit vegan filter can never sit above a shrimp
+ * card; and an empty answer stays empty rather than being padded, because WHICH kind of empty it is
+ * is information the diner needs.
+ *
+ * a11y: one button, one accessible name that changes with state, the results rail labelled by its
+ * own count. No live region — the menu view keeps its one (the cart provider's); the reveal is
+ * self-initiated and sits immediately after the control in DOM order, so it is reached naturally.
  */
 export function TasteBand({
   items,
@@ -43,211 +41,111 @@ export function TasteBand({
   onSelect,
 }: {
   items: MenuItem[];
-  /** M131 — the wider most-ordered ranking, most-ordered first. A selection preference for what
-   *  gets OFFERED; it never becomes copy, and an empty list restores the pre-M131 ordering. */
+  /** M135 — the POS sales order, most-sold first. A selection preference for what gets OFFERED;
+   *  it never becomes copy, and an empty list restores a plain uniform shuffle. */
   popularIds?: string[];
   /** The diner's own hearts — the surprise draw never offers what they already love. */
   heartedIds: ReadonlySet<string>;
-  /** The menu-wide dietary filters — state lives in MenuBrowser (they filter the sections below). */
-  /** The menu-wide dietary filters — OWNED by MenuBrowser's toolbar (M135). Read-only here: the
-   *  recommendation pool must clear the same bar the rest of the menu does, or a lit vegan pill in
-   *  the toolbar could sit above a shrimp recommendation in this band. */
+  /** The menu-wide dietary filters — OWNED by MenuBrowser's toolbar. Read-only here: this pool must
+   *  clear the same bar the rest of the menu does. */
   diets: Diet[];
   onSelect: (i: MenuItem) => void;
 }) {
-  const [picks, setPicks] = useState<CravingId[]>([]);
   const [surprise, setSurprise] = useState<MenuItem[]>([]);
-  // Whether Surprise me was ASKED — distinct from whether it returned anything (Codex round 3 on
+  // Whether Surprise was ASKED — distinct from whether it returned anything (Codex round 3 on
   // #194): an exhausted pool answers [] at tap time, and length checks alone read that as "never
-  // requested" — the tap silently did nothing. The flag routes it to an honest empty state.
-  const [surpriseAsked, setSurpriseAsked] = useState(false);
+  // requested", so the tap looks like it silently did nothing. The flag routes it to an honest
+  // empty state instead.
+  const [asked, setAsked] = useState(false);
 
-  // Hydrate the saved cravings AFTER mount (the repo's microtask pattern — SSR and the first client
-  // render agree; setState only in the async callback). A corrupt entry just starts fresh.
-  useEffect(() => {
-    let active = true;
-    void Promise.resolve()
-      .then(() => localStorage.getItem(TASTE_KEY))
-      .then((raw) => {
-        if (!active || !raw) return;
-        try {
-          const arr: unknown = JSON.parse(raw);
-          if (Array.isArray(arr)) {
-            const valid = arr.filter((x): x is CravingId => CRAVINGS.some((c) => c.id === x));
-            if (valid.length > 0) setPicks(valid);
-          }
-        } catch {
-          /* deliberate: corrupt storage only loses saved picks, never function */
-        }
-      })
-      .catch(() => {
-        /* private mode — the picker just starts empty */
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  function toggle(id: CravingId) {
-    setSurprise([]); // a deliberate craving replaces the surprise row
-    setSurpriseAsked(false);
-    setPicks((prev) => {
-      const next = prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id];
-      try {
-        localStorage.setItem(TASTE_KEY, JSON.stringify(next));
-      } catch {
-        /* private mode — picks still work for this visit */
-      }
-      return next;
-    });
-  }
-
-  // W22 — the recommendation pool honors the active diets: these pills filter the whole menu, and
-  // a rail this section itself offers must clear the same bar (a lit vegan pill beside a shrimp
-  // card would be the exact dishonesty the fail-safe rule exists to prevent).
   const pool = useMemo(
     () => items.filter((i) => !i.is_sold_out && passesDiets(i, diets)),
     [items, diets],
   );
-  const recs = useMemo(() => recommendByTaste(pool, picks, popularIds), [pool, picks, popularIds]);
-  // The surprise row, when asked for, replaces the craving matches until the next pick.
-  // W21 review — re-derived BY ID against the live pool each render: the tapped snapshot could go
-  // stale across a refresh (a card still offering a since-sold-out dish at its old price), and a
-  // diet toggled after the tap must drop non-passing picks the same way.
-  //
-  // M133 / Codex round 2 P2 — and it TOPS UP when that filtering leaves a partial row. Draw seven,
-  // then switch on a dietary filter: three survive, and the row silently rendered three cards under
-  // an advertised 4–7 bound. A PARTIAL row is not the same thing as an empty one — an empty
-  // surprise is INFORMATION ("nothing new to surprise you with"), which is why the zero case still
-  // falls through to the honest empty states below untouched, but three arbitrary survivors say
-  // nothing at all while other eligible dishes sit right there.
-  //
-  // The rule itself lives in `refillSurprise` (lib/menu/taste.ts) rather than here, because a
-  // decision written in a component cannot be guarded — its docblock carries why the top-up is
-  // deterministic and why the hearted dishes stay excluded.
-  const liveSurprise = useMemo(() => {
+
+  // Re-derived BY ID against the live pool every render (W21 review): the tapped snapshot goes stale
+  // across a catalog refresh (a card still offering a since-sold-out dish at its old price), and a
+  // diet switched on after the tap must drop the picks that no longer qualify. `refillSurprise`
+  // (lib/menu/taste.ts) then tops a PARTIAL row back up while leaving an EMPTY one empty — the two
+  // are different facts and its docblock carries why.
+  const picked = useMemo(() => {
     if (surprise.length === 0) return [];
     const byId = new Map(pool.map((i) => [i.id, i]));
     const alive = surprise.map((s) => byId.get(s.id)).filter((i): i is MenuItem => !!i);
     return refillSurprise(alive, pool, heartedIds, popularIds);
   }, [surprise, pool, heartedIds, popularIds]);
-  // Branch on whether a surprise was REQUESTED, not on what it holds (Codex P2 ×2 on #194): a
-  // diet toggled after the tap can empty the row, and an exhausted pool empties it AT the tap —
-  // either way, silently showing craving matches would change what the rail MEANS. An empty
-  // requested surprise falls through to the honest empty state instead.
-  // M133 (owner: every suggestion row "should offer at least 4 and at most 7 menu items"). The MAX
-  // is enforced in lib/menu/taste.ts, on both the craving slice and the surprise draw. The MIN is
-  // reached HERE, and only in the honest direction: the matches keep the craving line they earned,
-  // and the top-up cards say something plainly weaker. A dish that did not match "🌶 Bring the
-  // heat" must never wear that line, however short the row is — the whole band is built on every
-  // card saying the true reason it is there.
-  //
-  // An EMPTY surprise row is still never padded. Its emptiness is INFORMATION ("your favorites
-  // already cover everything that fits"), and the empty states below say which case it is; padding
-  // it would replace an honest answer with a filler one. A partially-filtered row is the different
-  // case, handled at `liveSurprise` above.
-  const cravingRow = useMemo(() => {
-    const matched: { item: MenuItem; why: string }[] = recs.map(({ item, matched: m }) => ({
-      item,
-      why: m.map((c) => `${c.emoji} ${c.en}`).join(" · "),
-    }));
-    if (matched.length === 0) return matched; // no picks, or nothing matched — an honest empty row
-    const extra = topUpToFloor(
-      matched.map((e) => e.item),
-      pool,
-      popularIds,
-    );
-    return [...matched, ...extra.map((item) => ({ item, why: "Something else to try" }))];
-  }, [recs, pool, popularIds]);
 
-  const showing: { item: MenuItem; why: string }[] = surpriseAsked
-    ? liveSurprise.map((item) => ({ item, why: "How about this?" }))
-    : cravingRow;
+  const draw = () => {
+    setAsked(true);
+    setSurprise(surpriseMe(pool, heartedIds, TASTE_ROW_MAX, popularIds));
+  };
 
   return (
-    <section aria-labelledby="taste-h" style={{ padding: "10px 0 2px" }}>
+    <section aria-labelledby="taste-h" className="taste-band">
       <h2 id="taste-h" className="start-here-h">
         Explore your Burmese taste buds <span aria-hidden>✦</span>
-        {/* M131 — the sub follows the rail's new order: surprise leads, cravings follow. A caption
-            that reads left-to-right against the row beneath it is the small thing that makes a
-            reordering feel deliberate rather than shuffled. */}
-        <span className="start-here-sub">let us surprise you — or pick a craving</span>
+        <span className="start-here-sub">one tap, a few dishes, no menu-reading required</span>
       </h2>
-      <Rail role="group" aria-label="Pick your cravings" className="taste-rail">
-        {/* M131 (owner: "surprise your tastebuds should be first option") — the zero-effort door
-            comes FIRST. Every other chip in this rail asks the diner to know what they want; this
-            one asks nothing, which makes it the right opening move for the first-timer the whole
-            band exists for. It is an ACTION, not a toggle: no `aria-pressed`, a dashed affordance,
-            and its own accessible description, so being first among filters can't make it read as
-            one. Its draw prefers the most-ordered dishes (M131) but stays a suggestion — the cards
-            say "How about this?", never a claim. */}
-        <button
-          type="button"
-          className="taste-chip taste-chip-surprise"
-          aria-describedby="taste-surprise-hint"
-          onClick={() => {
-            setSurpriseAsked(true);
-            setSurprise(surpriseMe(pool, heartedIds, TASTE_ROW_MAX, popularIds));
-          }}
-        >
-          <span aria-hidden className="taste-emoji">
+
+      {!asked ? (
+        /* THE INVITATION — the section's whole first state. It is a real panel on the shipped paper
+           surface rather than a chip in a rail, because it is now the only thing here: a control
+           that has to carry a section cannot look like one option among eight. */
+        <div className="card card-textured taste-invite mms-rise">
+          <span aria-hidden className="taste-invite-glyph">
             ✨
           </span>
-          Surprise your taste buds
-          <span lang="my" className="taste-chip-my">
-            အံ့ဩစရာလေး
+          <p className="taste-invite-title">
+            Surprise your taste buds
+            <span lang="my" className="taste-invite-my">
+              အံ့ဩစရာလေး
+            </span>
+          </p>
+          {/* No claim in this copy on purpose. The draw PREFERS the most-ordered dishes, but it tops
+              up from the rest when it must, so "what people order most" would be true of the
+              algorithm and not of every card. The cards say "How about this?" and mean it. */}
+          <p className="taste-invite-line">
+            Not sure where to start? Tap once and we’ll pick a few.
+          </p>
+          <button
+            type="button"
+            className="taste-invite-btn"
+            aria-describedby="taste-surprise-hint"
+            onClick={draw}
+          >
+            Surprise me
+            <span aria-hidden className="nav-arrow nav-arrow-fwd">
+              →
+            </span>
+          </button>
+          <span id="taste-surprise-hint" className="sr-only">
+            Picks a few dishes for you at random, and never one you have already hearted.
           </span>
-        </button>
-        <span id="taste-surprise-hint" className="sr-only">
-          Picks a few dishes for you at random. Not a filter.
-        </span>
-        {CRAVINGS.map((c) => {
-          const on = picks.includes(c.id);
-          return (
-            <button
-              key={c.id}
-              type="button"
-              aria-pressed={on}
-              className={`taste-chip${on ? " taste-chip-on" : ""}`}
-              onClick={() => toggle(c.id)}
-            >
-              <span aria-hidden className="taste-emoji">
-                {c.emoji}
-              </span>
-              {c.en}
-              {/* K15 — Claude-authored MY accents, pending the native check like every batch. */}
-              <span lang="my" className="taste-chip-my">
-                {c.my}
-              </span>
-            </button>
-          );
-        })}
-      </Rail>
-      {/* W22 — the dietary pills (the old toolbar bar, absorbed): same pill vocabulary, DIFFERENT
-          verb — these filter the whole menu, and the caption owns saying so before any pill is lit. */}
-      {/* M135 (owner: "taste-diet-cap should be moved back inside menu-toolbar") — the dietary
-          caption and its pills now live in MenuBrowser's sticky toolbar, where the verb matches the
-          surface: these FILTER the whole menu, and a filter you can't reach once you have scrolled
-          past this band is a filter you can't turn off. This band keeps only the RECOMMENDER
-          vocabulary (the craving pills above), which is the distinction its own caption was written
-          to make. The recommendation pool still honours the active diets — a lit vegan pill beside
-          a shrimp card would be the exact dishonesty the fail-safe rule exists to prevent. */}
-      {showing.length > 0 && (
+        </div>
+      ) : (
+        /* AFTER THE TAP — the invitation stands down to a single line so the dishes get the room.
+           The control keeps its place in the reading order directly above the row it produces. */
+        <p className="taste-again">
+          <span className="taste-again-label">
+            <span aria-hidden>✨</span> Here’s what we picked
+          </span>
+          <button type="button" className="taste-again-btn" onClick={draw}>
+            Shuffle again
+          </button>
+        </p>
+      )}
+
+      {picked.length > 0 && (
         <Rail
           as="ul"
           role="list"
-          /* M135 (owner: "at most 8 menu items and displayed as one row") — ONE row, always. The
-             two-row `start-here-rail-wall` grid is gone from this band: at up to 8 cards it made
-             the rail twice as tall as the craving pills above it and buried the menu below the
-             fold, and an odd count left a hole in the last column. A single snapping scroller is
-             also the same shape as the pill rails either side of it. */
           className="start-here-rail mms-rise taste-rail-row"
-          aria-labelledby="taste-h"
+          aria-label={`${picked.length} dishes we picked for you`}
         >
-          {showing.map(({ item: i, why }, n) => (
-            /* M131 — `--i` drives the per-card cascade (globals.css). The index is a PRESENTATION
-               ordinal only: it never reaches copy and never implies a ranking, which is why it can
-               be the array position rather than anything the data has to back. */
+          {picked.map((i, n) => (
+            /* `--i` drives the per-card cascade (globals.css). A PRESENTATION ordinal only: it never
+               reaches copy and never implies a ranking, which is why it can be the array position
+               rather than anything the data has to back. */
             <li key={i.id} style={{ ["--i" as string]: n }}>
               <button type="button" className="start-here-card" onClick={() => onSelect(i)}>
                 <span className="start-here-photo" aria-hidden>
@@ -267,34 +165,26 @@ export function TasteBand({
                   </span>
                 )}
                 <span className="start-here-price">{dollars(i.base_price_cents)}</span>
-                {/* The honesty line — the literal rule this dish matched (or the surprise frame). */}
-                <span className="taste-why">{why}</span>
+                <span className="taste-why">How about this?</span>
               </button>
             </li>
           ))}
         </Rail>
       )}
-      {showing.length === 0 && (picks.length > 0 || surpriseAsked) && (
-        // An honest empty answer beats a filler recommendation the picks don't back. Review MED:
-        // matching is OR, so "fewer cravings" could only shrink the answer — DIFFERENT is the
-        // advice that can actually help (and with diets active, loosening those is the other
-        // lever). The surprise cases each name their own truth: drawn-then-filtered means "again"
-        // works; an exhausted pool means it won't, so never advise it (Codex round 3).
-        <p style={{ margin: "4px 0 8px", fontSize: "var(--fs-sm)", color: "var(--t3)" }}>
-          {surpriseAsked && surprise.length > 0
-            ? "Those surprise picks don’t fit your dietary filters — tap Surprise me again."
-            : surpriseAsked && pool.length > 0
-              ? // The pool has dishes — every one is hearted (surpriseMe excludes hearts), with
-                // or without diets active (Codex round 4: blaming a filter here advised a lever
-                // that wouldn't help).
-                "Nothing new to surprise you with — your favorites already cover everything that fits."
-              : surpriseAsked && diets.length > 0
+
+      {asked && picked.length === 0 && (
+        // Each case names its OWN truth. Drawn-then-filtered means "again" actually works; an
+        // exhausted pool means it will not, so never advise it (Codex round 3 on #194). Blaming a
+        // filter when every remaining dish is hearted advises a lever that would not help either
+        // (Codex round 4).
+        <p className="taste-empty">
+          {surprise.length > 0
+            ? "Those picks don’t fit your dietary filters — shuffle again."
+            : pool.length > 0
+              ? "Nothing new to surprise you with — your favorites already cover everything that fits."
+              : diets.length > 0
                 ? "Nothing to surprise you with under those filters — ease one, or browse the menu below."
-                : surpriseAsked
-                  ? "Nothing in stock to surprise you with right now."
-                  : diets.length > 0
-                    ? "Nothing matches those right now — try different cravings, or ease a dietary filter."
-                    : "Nothing matches those right now — try different cravings."}
+                : "Nothing in stock to surprise you with right now."}
         </p>
       )}
     </section>

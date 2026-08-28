@@ -9,7 +9,7 @@ import { BlurUpImage } from "./BlurUpImage";
 import { PhotoPlaceholder } from "./PhotoPlaceholder";
 import { hasFreeFrom, passesDiets, type Diet } from "@/lib/menu/dietary";
 import { buildStartHereRows } from "@/lib/menu/startHereRows";
-import { DietPills, FreeFromDisclaimer } from "./DietPills";
+import { DietFilterButton } from "./DietFilterButton";
 import type { ModGroup } from "@/lib/menu/modifiers";
 import { itemBadges } from "@/lib/menu/badges";
 import { ItemSheet } from "./ItemSheet";
@@ -591,17 +591,26 @@ export function MenuBrowser({
           becomes the first thing under the header again — which is the right place for it exactly
           when the diner is FINDING rather than exploring. */}
       <div className="menu-toolbar" ref={toolbarRef}>
-        <div className="menu-search">
-          <Icon name="search" size={18} />
-          <input
-            ref={searchRef}
-            type="search"
-            inputMode="search"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search dishes, drinks…"
-            aria-label="Search the menu"
-          />
+        {/* M137 (owner: "dietary filters take too much space") — search and the dietary control share
+            ONE 44px row. The toolbar is `position: sticky`, so every row it carries is a row the
+            diner loses at EVERY scroll position, not just at the top; it was carrying a search
+            field, a category nav, a two-line caption and a five-pill rail. The pills now live in a
+            sheet behind `DietFilterButton`, whose chip keeps the count visible and the filter one
+            tap away. */}
+        <div className="menu-search-row">
+          <div className="menu-search">
+            <Icon name="search" size={18} />
+            <input
+              ref={searchRef}
+              type="search"
+              inputMode="search"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search dishes, drinks…"
+              aria-label="Search the menu"
+            />
+          </div>
+          <DietFilterButton diets={diets} onToggle={toggleDiet} onClear={() => setDiets([])} />
         </div>
 
         {cats.length > 1 && (
@@ -624,29 +633,6 @@ export function MenuBrowser({
             })}
           </nav>
         )}
-
-        {/* M135 (owner: "taste-diet-cap should be moved back inside menu-toolbar") — the dietary
-            caption and pills live HERE again, and UNCONDITIONALLY. W22 moved them into the taste
-            band and left this toolbar mirroring them only while a search was typed or a diet was
-            already lit; that made the one control which narrows the whole menu reachable only from
-            a band the diner scrolls past, and the mirror existed precisely because that was already
-            uncomfortable (Codex P1+P2 + review MED on #194 all pushed at the same seam). A filter
-            belongs on the surface that persists — so it is one rail, on the sticky bar, always.
-
-            The caption carries the VERB, because that is the whole difference between these pills
-            and the craving pills in the band: cravings RECOMMEND, these FILTER. And an active
-            free-from filter is never on screen without its safety disclaimer — a free-from claim
-            from absent data is the one thing the dietary model refuses to make silently. */}
-        <p id="taste-diet-cap" className="taste-caption">
-          Dietary needs
-          <span className="taste-caption-note">— filters the whole menu</span>
-          {/* K15 — Claude-authored MY accent, pending the native check like every batch. */}
-          <span lang="my" className="taste-caption-my">
-            မီနူးတစ်ခုလုံး စစ်ထုတ်ပေးမယ်
-          </span>
-        </p>
-        <DietPills diets={diets} onToggle={toggleDiet} labelledBy="taste-diet-cap" />
-        {hasFreeFrom(diets) && <FreeFromDisclaimer />}
       </div>
 
       {cats.map((c) => (

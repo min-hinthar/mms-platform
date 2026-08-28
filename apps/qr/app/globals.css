@@ -1230,6 +1230,86 @@ html[data-fx="off"] .pa-pause {
 }
 
 /* Search field — 16px text (no iOS focus-zoom), pill, leading 🔍 set by the wrapper. */
+/* M137 — search and the dietary chip share one 44px row (owner: "dietary filters take too much
+   space"). The toolbar is sticky, so a row saved here is a row the diner keeps at every scroll
+   position. */
+.menu-search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.menu-search-row .menu-search {
+  flex: 1;
+  min-width: 0;
+}
+/* The dietary chip. Same 44px height and pill radius as the search field beside it, so the row
+   reads as one control strip rather than a field with something bolted on. Lit state is the
+   count — never colour alone, and the accessible name carries it too. */
+.menu-diet-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 44px;
+  padding: 0 14px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: var(--sf);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--t2);
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+.menu-diet-btn-on {
+  border-color: color-mix(in oklab, var(--ac) 45%, var(--bd));
+  color: var(--tx);
+}
+.menu-diet-count {
+  display: grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: var(--r-full);
+  background: var(--ac);
+  color: var(--oa);
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+  .menu-diet-btn {
+    transition: none;
+  }
+}
+/* The sheet body — `Sheet` renders children straight after its head, with no padding of its own. */
+.menu-diet-sheet {
+  display: grid;
+  gap: 10px;
+  padding: 4px 20px 20px;
+}
+.menu-diet-clear {
+  justify-self: start;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: transparent;
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--t2);
+  cursor: pointer;
+}
+.menu-diet-clear[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .menu-search {
   display: flex;
   align-items: center;
@@ -5258,12 +5338,10 @@ html[data-seen-surface] .mms-stagger {
   color: inherit;
   opacity: 0.85;
 }
-/* Surprise-me is an ACTION, not a toggle — the dashed affordance the reward field taught. */
-.taste-chip-surprise {
-  border-style: dashed;
-  border-color: color-mix(in oklab, var(--ac) 40%, var(--bd));
-  color: var(--ac);
-}
+/* M137 — `.taste-chip-surprise` is deleted with the chip it styled. Surprise is no longer one
+   option in a rail; it is the section, and it wears `.taste-invite-btn` above. The dashed
+   action-not-a-toggle affordance is still the right idea and still lives in the reward field that
+   taught it — this band simply has no rail left to distinguish itself inside of. */
 /* The dietary rail's caption — the pills below filter the WHOLE menu, and this line owns saying
    so before any pill is lit (a filter that looks like a recommender would be a trap). */
 /* M135 — this caption's ONE call site is now the sticky toolbar (it moved back out of the taste
@@ -5290,6 +5368,147 @@ html[data-seen-surface] .mms-stagger {
   font-weight: 600;
   color: var(--t3);
 }
+/* ── M137 · the taste band, reimagined around ONE feature ─────────────────────────────────────
+   Owner: "make surprise your taste buds the one and only main feature for explore your burmese
+   taste buds section so let's reimagine it."
+
+   The eight craving pills are gone, so the surprise control is no longer a chip competing in a
+   rail — it is the section. It gets a real panel on the shipped paper surface: the glyph, the
+   bilingual title, one honest line, and a single action. Nothing here invents a surface; `card
+   card-textured` is the same paper every other card on this page is made of. */
+.taste-band {
+  padding: 10px 0 2px;
+}
+.taste-invite {
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+  padding: 14px 16px 15px;
+}
+.taste-invite-glyph {
+  font-size: 22px;
+  line-height: 1;
+  margin-bottom: 2px;
+}
+.taste-invite-title {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 8px;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--tx);
+}
+.taste-invite-my {
+  font-family: var(--font-my);
+  /* 13px — the Burmese floor (W12/W16e). */
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ac-strong);
+}
+.taste-invite-line {
+  margin: 2px 0 0;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--t2);
+}
+/* The one action. It takes the ACCENT fill, not the lit-gold cap: gold is the selection vocabulary
+   (DESIGN-LANGUAGE §2) and nothing here is selected — this is a thing you DO. `--oa` is the
+   on-accent ink and correct by construction on an `--ac` fill. */
+.taste-invite-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  margin-top: 10px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: var(--r-full);
+  background: var(--ac);
+  color: var(--oa);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 var(--sheen);
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    filter var(--dur-base) var(--ease-out);
+}
+@media (hover: hover) {
+  .taste-invite-btn:hover {
+    filter: var(--bloom-gold);
+  }
+  .taste-invite-btn:hover .nav-arrow-fwd {
+    transform: translateX(3px);
+  }
+}
+.taste-invite-btn:active {
+  transform: scale(0.98);
+}
+/* After the tap the invitation stands down to one line, so the dishes get the room. */
+.taste-again {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin: 0 2px 8px;
+}
+.taste-again-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--t2);
+}
+.taste-again-btn {
+  min-height: 44px;
+  /* The visible chip stays small; the 44px target is padding plus a negative margin, so the row
+     does not grow. Safe here because this control is ALONE on its line (the label flexes) — the
+     M131 lesson about a wrapping row of chips does not apply. */
+  margin: -11px 0;
+  padding: 0 12px;
+  border: 1px solid var(--bd);
+  border-radius: var(--r-full);
+  background: var(--sf);
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--tx);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+@media (hover: hover) {
+  .taste-again-btn:hover {
+    border-color: color-mix(in oklab, var(--ac) 40%, var(--bd));
+  }
+}
+.taste-empty {
+  margin: 4px 2px 8px;
+  font-size: var(--fs-sm);
+  color: var(--t3);
+}
+@media (prefers-reduced-motion: reduce) {
+  .taste-invite-btn,
+  .taste-again-btn {
+    transition: none;
+  }
+  .taste-invite-btn:active {
+    transform: none;
+  }
+  .taste-invite-btn:hover .nav-arrow-fwd {
+    transform: none;
+  }
+}
+
 /* The card's honesty line — why this dish is being offered. */
 /* M131 — the honesty line becomes a CHIP. It was plain grey text at the card's foot, reading as a
    caption the eye skips; it is the whole point of the card (the literal rule this dish matched), so

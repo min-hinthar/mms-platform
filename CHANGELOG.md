@@ -4,6 +4,45 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### One tap, not eight — the taste band rebuilt, the filters folded away (M137, 2026-08-28)
+
+The owner: _"dietary filters take too much space. make surprise your taste buds the one and only
+main feature for explore your burmese taste buds section so let's reimagine it."_
+
+**Surprise is the section now, so it stopped being a chip.** W21 built the band as a craving picker:
+eight pills (🍜 noodles, 🌶 heat, 🧁 sweet …) with the surprise chip beside them, and W22 briefly
+parked the dietary pills here too — three pill vocabularies on one band, two of which asked the
+diner to already know what they wanted. That is the opposite of what a first-timer's section is for.
+The pills are **deleted**, along with `CRAVINGS`, `recommendByTaste`, their types and the saved-picks
+`localStorage` read; the section is now one invitation panel on the shipped paper surface — glyph,
+bilingual title, one honest line, one action — which after the tap stands down to a single
+"✨ Here's what we picked / Shuffle again" line so up to eight dishes get the room.
+
+The invitation copy makes **no claim on purpose**: "Not sure where to start? Tap once and we'll pick
+a few." The draw prefers the most-ordered dishes, but it tops up from the rest when it must, so
+"what people order most" would be true of the algorithm and not of every card. The cards say
+"How about this?" and mean it.
+
+**The dietary filters cost the sticky toolbar three rows and now cost one.** The toolbar was
+carrying a search field, a category nav, a two-line caption and a five-pill rail — and it is
+`position: sticky`, so that was its height at _every_ scroll position, not just at the top. Search
+and a new 44px **Dietary** chip share one row; the pills live in a `Sheet` behind it. The chip keeps
+the count visible when a filter is lit, and the count is in the accessible name too, so it is never
+a colour-only signal.
+
+⚠️ **The free-from disclaimer renders in BOTH places.** The standing rule is that an active
+free-from filter is never on screen without its warning (Codex P1 on #194 caught the search state
+dropping it) — and a sheet the diner has closed is not on screen, which is exactly when it matters.
+It is in the sheet beside the pills, and in the toolbar whenever such a filter is lit.
+
+**A guard nobody had to remember caught the new `Sheet` caller.** `sheet-busy-callers.test.ts`
+discovers every `Sheet` on disk and asserts an allowlist, so adding the twelfth turned it red until
+`DietFilterButton` was placed deliberately: its sheet toggles client-side filters and writes nothing,
+so it belongs in the **unguarded** list — locking a filter picker mid-tap would be the "lock with no
+reason" the `busy` prop's own doc forbids. Its "Clear all" is `aria-disabled` rather than
+conditionally unmounted, for the WCAG 2.4.3 reason §16 states about the sheet's own ✕: clearing the
+last filter is precisely when that button has focus.
+
 ### The till, not our own history — POS units replace the ranking, and the seals come off (M135, 2026-08-27)
 
 The owner: _"you can refer to the actual paypal pos data insights for the menu items for most

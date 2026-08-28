@@ -1,119 +1,29 @@
 /**
- * W21 (owner: "a personalizble/customizable recommendations section for first time customers or
- * wants something new for anyone") — the taste picker's matching rules, pure.
+ * W21 → M137 — the taste band's rules, pure.
  *
- * HONEST by construction: every craving chip maps to REAL item data — the category the kitchen
- * filed the dish under, or a tag the menu already declares (the same tags the dietary filters
- * trust). Nothing here invents an affinity, a rating, or a "people like you" claim; the "why"
- * a card shows is the literal rule it matched. Category matching is by KEYWORD (not the exact
- * DB string) so a category rename doesn't silently kill a chip.
+ * W21 built this as a CRAVING PICKER: eight chips (🍜 noodles, 🌶 heat, 🧁 sweet …), each mapping to
+ * a real category keyword or a tag the menu already declares, plus a surprise draw beside them. The
+ * owner has since made surprise the section's only feature ("make surprise your taste buds the one
+ * and only main feature … so let's reimagine it"), so `CRAVINGS`, `recommendByTaste` and their
+ * types are DELETED rather than left exported for nobody — the same call M135 made on `mostLoved`.
+ * The matching rules are in git if the picker ever comes back.
+ *
+ * HONEST by construction, and that survives the narrowing intact: nothing here invents an affinity,
+ * a rating or a "people like you" claim. The draw PREFERS the dishes the restaurant actually sells
+ * most (M135's POS units) and says nothing about it — the cards read "How about this?", which is
+ * the whole claim.
  */
-
-export type CravingId =
-  | "noodles"
-  | "curry"
-  | "seafood"
-  | "fresh"
-  | "spicy"
-  | "plant"
-  | "breakfast"
-  | "sweet";
-
-export type TasteItem = {
-  category: string;
-  tags: string[];
-};
-
-export type Craving = {
-  id: CravingId;
-  /** Chip label — EN + the Padauk accent (W16b: always bilingual). */
-  en: string;
-  my: string;
-  emoji: string;
-  matches: (item: TasteItem) => boolean;
-};
-
-const cat = (item: TasteItem, re: RegExp) => re.test(item.category);
-const tag = (item: TasteItem, ...ts: string[]) => ts.some((t) => item.tags.includes(t));
-
-export const CRAVINGS: readonly Craving[] = [
-  {
-    id: "noodles",
-    // Named for the RULE it runs (review LOW: "Noodles & soups" put its chip on a pure rice dish).
-    en: "Noodles, rice & soups",
-    my: "ခေါက်ဆွဲ၊ ထမင်းနဲ့ ဟင်းချို",
-    emoji: "🍜",
-    matches: (i) => cat(i, /noodle|soup|rice/i),
-  },
-  {
-    id: "curry",
-    en: "Rich curries",
-    my: "ဟင်းရည်စုံ",
-    emoji: "🍛",
-    matches: (i) => cat(i, /curr/i),
-  },
-  {
-    id: "seafood",
-    en: "Seafood",
-    my: "ပင်လယ်စာ",
-    emoji: "🦐",
-    matches: (i) => cat(i, /seafood/i),
-  },
-  {
-    id: "fresh",
-    // Named for the RULE it runs (review LOW: "Fresh & light" claimed lightness for a whole
-    // category that includes fritters — the category name is the honest claim).
-    en: "Salads & veggies",
-    my: "အသုပ်နဲ့ ဟင်းသီးဟင်းရွက်",
-    emoji: "🥗",
-    matches: (i) => cat(i, /salad|appetizer|vegetable/i),
-  },
-  {
-    id: "spicy",
-    en: "Bring the heat",
-    my: "စပ်စပ်လေး",
-    emoji: "🌶",
-    // `spicy_optional` counts — the kitchen will turn the heat up on request.
-    matches: (i) => tag(i, "spicy", "spicy_optional"),
-  },
-  {
-    id: "plant",
-    en: "Plant-based",
-    my: "သက်သတ်လွတ်",
-    emoji: "🌱",
-    // The dietary predicate's own FAIL-SAFE rule (lib/menu/dietary.ts, mirrored — Codex P1):
-    // `vegan-optional` means a vegan VARIANT can be made; the DEFAULT prep is NOT plant-based
-    // (Everything Salad ships with shrimp powder), and a 🌱 card would steer a diner into animal
-    // products under a plant-based claim. Only declared vegan/vegetarian defaults qualify.
-    matches: (i) => tag(i, "vegan", "vegetarian"),
-  },
-  {
-    id: "breakfast",
-    en: "Breakfast all day",
-    my: "မနက်စာ",
-    emoji: "🍳",
-    matches: (i) => cat(i, /breakfast/i),
-  },
-  {
-    id: "sweet",
-    en: "Something sweet",
-    my: "ချိုချိုလေး",
-    emoji: "🧁",
-    matches: (i) => cat(i, /dessert/i),
-  },
-] as const;
 
 /**
  * M133 → M135 (owner: "at least 4 and at most 7", then "at most 8 menu items and displayed as one
- * row"). ONE pair of bounds every row in the
- * band reads, so the craving rail, the surprise draw and the top-up can never disagree about how
- * long a row is — the "name it ONCE" rule applied to a count.
+ * row"). ONE pair of bounds the whole band reads, so the surprise draw and the refill can never
+ * disagree about how long a row is — the "name it ONCE" rule applied to a count.
  *
- * The MAX is a hard slice. The MIN is a TARGET, not a promise the data can always keep: a craving
- * with two matching dishes on the whole menu has two matching dishes, and inventing a third match
- * is the exact fabrication this file exists to prevent. `TasteBand` reaches the floor the only
- * honest way — by topping up with dishes that carry a DIFFERENT, weaker line ("Something else to
- * try"), never a craving match they didn't earn.
+ * The MAX is a hard slice. The MIN is a TARGET, not a promise the data can always keep: a menu with
+ * three eligible dishes left has three, and inventing a fourth is the exact fabrication this file
+ * exists to prevent. `refillSurprise` reaches the floor the only honest way — from dishes that are
+ * genuinely eligible, and never by padding a row that came back EMPTY, because an empty answer is
+ * itself information the diner needs.
  */
 export const TASTE_ROW_MIN = 4;
 export const TASTE_ROW_MAX = 8;
@@ -131,39 +41,6 @@ export const TASTE_ROW_MAX = 8;
 function rankLookup(popularIds: readonly string[]) {
   const m = new Map(popularIds.map((id, i) => [id, i]));
   return (id: string) => m.get(id) ?? Number.MAX_SAFE_INTEGER;
-}
-
-/**
- * Rank the catalog against the diner's picked cravings. An item scores one per matched craving;
- * only matches are recommended (never a filler the picks don't back), ties break toward what tables
- * actually order (M131), then the hand-set `popular` tag, then menu order. Capped at 8 — a
- * recommendation row, not a second menu. Returns the matched cravings per item so the card can SAY
- * why it's here.
- *
- * ⚠️ The craving match stays the PRIMARY key and popularity only breaks its ties. Sorting by
- * popularity first would put a well-ordered one-craving dish above a dish that matched all three
- * of the diner's picks, and the card's "why" line would then be reading out a weaker reason than
- * the one that earned a stronger card its place — the row would be ordered by something other than
- * what it says it is ordered by.
- */
-export function recommendByTaste<T extends TasteItem & { id: string }>(
-  items: readonly T[],
-  picks: readonly CravingId[],
-  popularIds: readonly string[] = [],
-): { item: T; matched: Craving[] }[] {
-  if (picks.length === 0) return [];
-  const active = CRAVINGS.filter((c) => picks.includes(c.id));
-  const rank = rankLookup(popularIds);
-  return items
-    .map((item) => ({ item, matched: active.filter((c) => c.matches(item)) }))
-    .filter((e) => e.matched.length > 0)
-    .sort(
-      (a, b) =>
-        b.matched.length - a.matched.length ||
-        rank(a.item.id) - rank(b.item.id) ||
-        Number(b.item.tags.includes("popular")) - Number(a.item.tags.includes("popular")),
-    )
-    .slice(0, TASTE_ROW_MAX);
 }
 
 /**
