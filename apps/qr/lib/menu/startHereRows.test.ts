@@ -22,51 +22,41 @@ const catalog = (spec: Record<string, number>): Item[] =>
   );
 
 describe("buildStartHereRows", () => {
-  it("row A = the paid-order ranking with its ranks preserved, capped at 10", () => {
+  it("row A = the most-ordered dishes in the caller's sales order, capped at 10", () => {
     const items = catalog({ Noodles: 8, Curries: 8 });
-    const favorites = items.slice(0, 12).map((i, k) => ({ id: i.id, rank: k + 1 }));
+    const favorites = items.slice(0, 12).map((i) => ({ id: i.id }));
     const { rowA, dataBacked } = buildStartHereRows(items, favorites);
     expect(dataBacked).toBe(true);
     expect(rowA).toHaveLength(10);
-    expect(rowA.map((e) => e.item.id)).toEqual(favorites.slice(0, 10).map((f) => f.id));
-    expect(rowA.map((e) => e.rank)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    // The ORDER is the caller's, carried verbatim — this function never re-sorts a sales ranking.
+    expect(rowA.map((i) => i.id)).toEqual(favorites.slice(0, 10).map((f) => f.id));
   });
 
-  it("a sold-out loved dish keeps its numeral out of the row without re-numbering survivors", () => {
+  it("a sold-out most-ordered dish drops out, and the survivors keep their order", () => {
     const items = [
       item("a", "Noodles"),
       item("b", "Noodles", [], true),
       item("c", "Curries"),
       item("d", "Curries"),
     ];
-    const favorites = [
-      { id: "a", rank: 1 },
-      { id: "b", rank: 2 },
-      { id: "c", rank: 3 },
-      { id: "d", rank: 4 },
-    ];
+    const favorites = [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }];
     const { rowA } = buildStartHereRows(items, favorites);
-    // b is sold out: its card is gone but c/d keep the ranks the data gave them.
-    expect(rowA.map((e) => [e.item.id, e.rank])).toEqual([
-      ["a", 1],
-      ["c", 3],
-      ["d", 4],
-    ]);
+    // M135 — no numerals to preserve any more; what must survive is the SEQUENCE. A sold-out dish
+    // leaves a gap in the sales order and the row simply closes up, which is honest precisely
+    // because nothing on the card ever said which position it held.
+    expect(rowA.map((i) => i.id)).toEqual(["a", "c", "d"]);
   });
 
-  it("falls back to the popular tag (rank null, not data-backed) when history is thin", () => {
+  it("falls back to the hand-set `popular` tag when the export matches nothing here", () => {
     const items = [
       item("a", "Noodles", ["popular"]),
       item("b", "Noodles", ["popular"]),
       item("c", "Curries", ["popular"]),
       item("d", "Curries"),
     ];
-    const { rowA, dataBacked } = buildStartHereRows(items, [{ id: "a", rank: 1 }]);
+    const { rowA, dataBacked } = buildStartHereRows(items, [{ id: "a" }]);
     expect(dataBacked).toBe(false);
-    expect(rowA.map((e) => e.item.id)).toEqual(["a", "b", "c"]);
-    // M133 — `null`, not the old `0` sentinel. StartHereBand seals on `rank != null`, so a magic
-    // 0 was one careless `!== undefined` away from printing a "0" coin on every fallback card.
-    expect(rowA.every((e) => e.rank === null)).toBe(true);
+    expect(rowA.map((i) => i.id)).toEqual(["a", "b", "c"]);
   });
 
   it("returns no rows at all below the 3-card floor", () => {
@@ -79,11 +69,7 @@ describe("buildStartHereRows", () => {
   it("row B round-robins the categories over what row A left, in menu order", () => {
     const items = catalog({ Noodles: 4, Curries: 4, Desserts: 4 });
     // Row A takes the first 3 noodles (data-backed).
-    const favorites = [
-      { id: "Noodles-1", rank: 1 },
-      { id: "Noodles-2", rank: 2 },
-      { id: "Noodles-3", rank: 3 },
-    ];
+    const favorites = [{ id: "Noodles-1" }, { id: "Noodles-2" }, { id: "Noodles-3" }];
     const { rowB } = buildStartHereRows(items, favorites);
     // Lap 1: first remaining of each category; lap 2: second remaining; …
     expect(rowB.map((i) => i.id)).toEqual([
@@ -104,17 +90,17 @@ describe("buildStartHereRows", () => {
     // the fixture must put the dish where only the filter keeps it out (a sold-out card past the
     // 10-cap would let the mutation survive; watched happen red-first).
     const items = [item("dead", "Curries", [], true), ...catalog({ Noodles: 8, Curries: 8 })];
-    const favorites = items.slice(1, 5).map((i, k) => ({ id: i.id, rank: k + 1 }));
+    const favorites = items.slice(1, 5).map((i) => ({ id: i.id }));
     const { rowA, rowB } = buildStartHereRows(items, favorites);
     expect(rowB).toHaveLength(10);
-    const aIds = new Set(rowA.map((e) => e.item.id));
+    const aIds = new Set(rowA.map((i) => i.id));
     expect(rowB.some((i) => aIds.has(i.id))).toBe(false);
     expect(rowB.some((i) => i.id === "dead")).toBe(false);
   });
 
   it("row B below its own 3-card floor renders row A alone", () => {
     const items = catalog({ Noodles: 5 });
-    const favorites = items.slice(0, 4).map((i, k) => ({ id: i.id, rank: k + 1 }));
+    const favorites = items.slice(0, 4).map((i) => ({ id: i.id }));
     const { rowA, rowB } = buildStartHereRows(items, favorites);
     expect(rowA).toHaveLength(4);
     expect(rowB).toEqual([]); // only Noodles-5 remains — below the floor
@@ -125,11 +111,7 @@ describe("M131 — row B leads each category with what tables actually order", (
   // Row A must FILL, or the function returns early and there is no row B to assert about — the
   // first draft of these fixtures missed that and failed for a reason that had nothing to do with
   // the rule under test. Starters are the loved row; everything else is row B's to arrange.
-  const loved = [
-    { id: "Starters-1", rank: 1 },
-    { id: "Starters-2", rank: 2 },
-    { id: "Starters-3", rank: 3 },
-  ];
+  const loved = [{ id: "Starters-1" }, { id: "Starters-2" }, { id: "Starters-3" }];
 
   it("orders INSIDE each bucket by the popularity ranking, not menu order", () => {
     const items = catalog({ Starters: 3, Noodles: 3, Curries: 3 });
@@ -174,7 +156,7 @@ describe("M133 — row B SELECTS from the ranking, it no longer merely orders by
   // Three categories, three dishes each. Row A is fed from a fourth category so it never competes
   // for these — the ROW_MIN=3 floor means row A must be non-empty or the function returns early.
   const items = [...catalog({ Seed: 3 }), ...catalog({ Noodles: 3, Curries: 3, Salads: 3 })];
-  const loved = catalog({ Seed: 3 }).map((i, k) => ({ id: i.id, rank: k + 1 }));
+  const loved = catalog({ Seed: 3 }).map((i) => ({ id: i.id }));
 
   it("takes a ranked dish from EVERY category before any unranked one", () => {
     // One ranked dish per category, and each is that category's LAST in menu order — so if the
@@ -215,18 +197,20 @@ describe("M133 — row B SELECTS from the ranking, it no longer merely orders by
     expect(new Set(rowB.map((i) => i.category)).size).toBe(3);
   });
 
-  it("row A's ranks pass through untouched, nulls included", () => {
-    // soleRanks nulls a shared numeral upstream; this function must carry that decision, never
-    // re-derive or repair it — a rank invented here would be a claim no data backs.
-    const tied = catalog({ Seed: 3 }).map((i, k) => ({ id: i.id, rank: k === 0 ? 1 : null }));
-    const { rowA } = buildStartHereRows(items, tied);
-    expect(rowA.map((e) => e.rank)).toEqual([1, null, null]);
+  it("row A carries the caller's sales order verbatim — it is never re-sorted here", () => {
+    // The order is a fact about the POS export; re-deriving it in this module would be a second
+    // place for it to live, and the two would drift. Feed it BACKWARDS and it must come back
+    // backwards, which no accidental sort can fake.
+    const seed = catalog({ Seed: 3 });
+    const reversed = [...seed].reverse().map((i) => ({ id: i.id }));
+    const { rowA } = buildStartHereRows(items, reversed);
+    expect(rowA.map((i) => i.id)).toEqual(["Seed-3", "Seed-2", "Seed-1"]);
   });
 });
 
 describe("M133 — the ranking may not eat the 'everything' (the balance the two phases share)", () => {
   const items = [...catalog({ Seed: 3 }), ...catalog({ Noodles: 2, Curries: 2, Desserts: 2 })];
-  const loved = catalog({ Seed: 3 }).map((i, k) => ({ id: i.id, rank: k + 1 }));
+  const loved = catalog({ Seed: 3 }).map((i) => ({ id: i.id }));
 
   it("no category gets a SECOND dish until every category has a first", () => {
     // The defect this pins, found by probing the first draft: phase 2 restarted its own lap count

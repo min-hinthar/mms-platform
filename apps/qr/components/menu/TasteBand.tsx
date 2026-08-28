@@ -13,7 +13,6 @@ import {
 import { passesDiets, type Diet } from "@/lib/menu/dietary";
 import { BlurUpImage } from "./BlurUpImage";
 import { PhotoPlaceholder } from "./PhotoPlaceholder";
-import { DietPills } from "./DietPills";
 import { Rail } from "../Rail";
 
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -22,13 +21,12 @@ const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const TASTE_KEY = "mms.taste";
 
 /**
- * W21 → W22 — "Explore your Burmese taste buds" (owner: the taste section "should be like the
- * allergen pills bar … incorporating some allergens pills into it"). One section now owns BOTH
- * vocabularies as matching single-line pill rails: the craving pills (recommenders — light one and
- * a rail of honest "here's why" cards appears) and the dietary pills (filters — the toolbar bar
- * they replace; they narrow the WHOLE menu below, and the caption says exactly that). The
- * recommendation pool respects the active diets, so a vegan pill can never sit lit beside a
- * shrimp recommendation.
+ * W21 → W22 → M135 — "Explore your Burmese taste buds". W22 pulled the dietary pills IN here
+ * alongside the cravings; M135 put them back in the sticky toolbar (owner: "taste-diet-cap should
+ * be moved back inside menu-toolbar"), which is the right home for them: cravings RECOMMEND and
+ * diets FILTER, and a filter that scrolls away is one you cannot turn off. This band is now purely
+ * the recommender. It still READS the active diets, so a vegan pill lit in the toolbar can never
+ * sit above a shrimp recommendation here.
  *
  * HONEST by construction (unchanged): every card SAYS why it's here (the literal rule it matched),
  * surprise picks are framed as "how about…", and the fail-safe free-from disclaimer travels with
@@ -42,7 +40,6 @@ export function TasteBand({
   popularIds = [],
   heartedIds,
   diets,
-  onToggleDiet,
   onSelect,
 }: {
   items: MenuItem[];
@@ -52,8 +49,10 @@ export function TasteBand({
   /** The diner's own hearts — the surprise draw never offers what they already love. */
   heartedIds: ReadonlySet<string>;
   /** The menu-wide dietary filters — state lives in MenuBrowser (they filter the sections below). */
+  /** The menu-wide dietary filters — OWNED by MenuBrowser's toolbar (M135). Read-only here: the
+   *  recommendation pool must clear the same bar the rest of the menu does, or a lit vegan pill in
+   *  the toolbar could sit above a shrimp recommendation in this band. */
   diets: Diet[];
-  onToggleDiet: (d: Diet) => void;
   onSelect: (i: MenuItem) => void;
 }) {
   const [picks, setPicks] = useState<CravingId[]>([]);
@@ -226,30 +225,29 @@ export function TasteBand({
       </Rail>
       {/* W22 — the dietary pills (the old toolbar bar, absorbed): same pill vocabulary, DIFFERENT
           verb — these filter the whole menu, and the caption owns saying so before any pill is lit. */}
-      <p id="taste-diet-cap" className="taste-caption">
-        Dietary needs
-        <span className="taste-caption-note">— filters the whole menu</span>
-        {/* K15 — Claude-authored MY accent, pending the native check like every batch. */}
-        <span lang="my" className="taste-caption-my">
-          မီနူးတစ်ခုလုံး စစ်ထုတ်ပေးမယ်
-        </span>
-      </p>
-      {/* The fail-safe free-from DISCLAIMER deliberately does not render here: the moment any
-          diet pill is active the sticky toolbar mirrors this rail and carries the disclaimer
-          (MenuBrowser) — always on screen, every scroll position, searching or not. A second
-          copy right below it would just be noise. */}
-      <DietPills diets={diets} onToggle={onToggleDiet} labelledBy="taste-diet-cap" />
+      {/* M135 (owner: "taste-diet-cap should be moved back inside menu-toolbar") — the dietary
+          caption and its pills now live in MenuBrowser's sticky toolbar, where the verb matches the
+          surface: these FILTER the whole menu, and a filter you can't reach once you have scrolled
+          past this band is a filter you can't turn off. This band keeps only the RECOMMENDER
+          vocabulary (the craving pills above), which is the distinction its own caption was written
+          to make. The recommendation pool still honours the active diets — a lit vegan pill beside
+          a shrimp card would be the exact dishonesty the fail-safe rule exists to prevent. */}
       {showing.length > 0 && (
         <Rail
           as="ul"
           role="list"
-          className={`start-here-rail mms-rise${showing.length > 3 ? " start-here-rail-wall" : ""}`}
+          /* M135 (owner: "at most 8 menu items and displayed as one row") — ONE row, always. The
+             two-row `start-here-rail-wall` grid is gone from this band: at up to 8 cards it made
+             the rail twice as tall as the craving pills above it and buried the menu below the
+             fold, and an odd count left a hole in the last column. A single snapping scroller is
+             also the same shape as the pill rails either side of it. */
+          className="start-here-rail mms-rise taste-rail-row"
           aria-labelledby="taste-h"
         >
           {showing.map(({ item: i, why }, n) => (
-            /* M131 — `--i` drives the wall's per-card cascade (globals.css). The index is a
-               PRESENTATION ordinal only: it never reaches copy and never implies a ranking, which
-               is why it can be the array position rather than anything the data has to back. */
+            /* M131 — `--i` drives the per-card cascade (globals.css). The index is a PRESENTATION
+               ordinal only: it never reaches copy and never implies a ranking, which is why it can
+               be the array position rather than anything the data has to back. */
             <li key={i.id} style={{ ["--i" as string]: n }}>
               <button type="button" className="start-here-card" onClick={() => onSelect(i)}>
                 <span className="start-here-photo" aria-hidden>

@@ -104,8 +104,8 @@ export const CRAVINGS: readonly Craving[] = [
 ] as const;
 
 /**
- * M133 (owner: "all explore your burmese taste buds suggestions (including surprise your taste
- * buds) should offer at least 4 and at most 7 menu items"). ONE pair of bounds every row in the
+ * M133 → M135 (owner: "at least 4 and at most 7", then "at most 8 menu items and displayed as one
+ * row"). ONE pair of bounds every row in the
  * band reads, so the craving rail, the surprise draw and the top-up can never disagree about how
  * long a row is — the "name it ONCE" rule applied to a count.
  *
@@ -116,15 +116,15 @@ export const CRAVINGS: readonly Craving[] = [
  * try"), never a craving match they didn't earn.
  */
 export const TASTE_ROW_MIN = 4;
-export const TASTE_ROW_MAX = 7;
+export const TASTE_ROW_MAX = 8;
 
 /**
  * A popularity ranking as a LOOKUP — most-ordered first, so position 0 is the most ordered dish.
  * Anything unranked sorts last rather than being excluded: a preference, never a filter.
  *
  * M131 (owner: "menu item suggestions should mostly be selected from the top 50 of popular,
- * customer most ordered items"). The list comes from `mostLoved`'s wider `LOVED_POOL_MAX` pool,
- * which is deliberately NOT the bound that backs the visible "Table favorite" badge — see the note
+ * customer most ordered items"). The list is the owner's PayPal/Zettle POS order (M135),
+ * which is deliberately NOT the bound that backs the visible "Most ordered" badge — see the note
  * on those two constants. Nothing here reaches the diner as a claim; it only decides which honest
  * match gets offered first, so it can prefer a broader ranking than a badge is allowed to.
  */
@@ -224,7 +224,8 @@ export function surpriseMe<T extends { id: string }>(
  * differently, because they are NOT what the row's own rule found. A craving row that matched two
  * dishes matched two dishes — padding it to four with cards that wear the same "🌶 Bring the heat"
  * line would put a matched-the-craving claim on dishes that didn't. They carry a plainly weaker
- * line instead, which is also why this can prefer the wider `LOVED_POOL_MAX` ranking: preferring a
+ * line instead, which is also why this can prefer the FULL sales order rather than the badge's
+ * top twelve: preferring a
  * dish tables order is a better guess, and the card never states it as a fact.
  *
  * Deterministic, unlike `surpriseMe` — a row that reshuffles its own tail on every render reads as

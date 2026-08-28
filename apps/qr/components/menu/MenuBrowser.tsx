@@ -36,6 +36,9 @@ import type { WelcomeBack } from "@/lib/rewards";
 
 export type MenuItem = {
   id: string;
+  /** M135 — the join key to the owner's PayPal/Zettle POS export (lib/menu/posPopular.ts). Prod and
+   *  the catalog snapshot agree on 97/97 distinct slugs; ids would rot when an item is recreated. */
+  slug: string | null;
   name_en: string;
   name_my: string | null;
   description_en: string | null;
@@ -85,15 +88,15 @@ export function MenuBrowser({
 }: {
   items: MenuItem[];
   mode: string;
-  /** J2: menu-item ids ranked by REAL paid-order counts (lib/menu/mostLoved.ts, server-computed,
-   *  counts-only), each with its tie-aware competition rank (W21 — competitionRanks: tied dishes
+  /** M135: menu-item ids ordered by REAL units sold, from the owner's PayPal/Zettle till export
+   *  (lib/menu/posPopular.ts), top `POS_BADGE_MAX` only. No rank travels with them (
    *  share a numeral, so a seal never orders what the data left tied). Drives the "Start here" band
-   *  + the data-backed "Table favorite" badge. Empty while order history is thin → the band falls
+   *  + the data-backed "Most ordered" badge. Empty when the POS export matches nothing → the band falls
    *  back to `popular`-tagged items, badges to the manual tag. */
-  favorites?: { id: string; rank: number | null }[];
-  /** M131 — the wider most-ordered ranking (`LOVED_POOL_MAX`), most-ordered first. A SELECTION
+  favorites?: { id: string }[];
+  /** M131 — the FULL most-ordered order (all 76 matched dishes), most-sold first. A SELECTION
    *  preference for the guided rows and the taste suggestions; it never becomes copy, so it is
-   *  deliberately broader than `favorites`, which backs the visible "Table favorite" claim. */
+   *  deliberately broader than `favorites`, which backs the visible "Most ordered" claim. */
   popularIds?: string[];
   /** J5: the CALLER's own hearted item ids (qr_favorites, RLS-scoped, newest first) — drives the
    *  "Your favorites" rail + the sheet's heart state. Distinct from `favorites` (the crowd). */
@@ -574,7 +577,6 @@ export function MenuBrowser({
             popularIds={popularIds}
             heartedIds={hearts}
             diets={diets}
-            onToggleDiet={toggleDiet}
             onSelect={setSheetItem}
           />
         </div>
@@ -623,19 +625,28 @@ export function MenuBrowser({
           </nav>
         )}
 
-        {/* W22 — the dietary pills moved into the taste band below ("Explore your Burmese taste
-            buds"); the state stays here (they filter this whole view). The STICKY toolbar renders
-            the same shared rail whenever the band can't speak for it (Codex P1+P2 + review MED on
-            #194): while a typed search hides the band (a search-first diner still needs the
-            filters), and while any diet is ACTIVE (a filter that silently empties categories deep
-            in the scroll needs a persistent lit indicator and a way out) — and an active
-            free-from filter is never on screen without its safety disclaimer. */}
-        {(q.trim() !== "" || diets.length > 0) && (
-          <>
-            <DietPills diets={diets} onToggle={toggleDiet} />
-            {hasFreeFrom(diets) && <FreeFromDisclaimer />}
-          </>
-        )}
+        {/* M135 (owner: "taste-diet-cap should be moved back inside menu-toolbar") — the dietary
+            caption and pills live HERE again, and UNCONDITIONALLY. W22 moved them into the taste
+            band and left this toolbar mirroring them only while a search was typed or a diet was
+            already lit; that made the one control which narrows the whole menu reachable only from
+            a band the diner scrolls past, and the mirror existed precisely because that was already
+            uncomfortable (Codex P1+P2 + review MED on #194 all pushed at the same seam). A filter
+            belongs on the surface that persists — so it is one rail, on the sticky bar, always.
+
+            The caption carries the VERB, because that is the whole difference between these pills
+            and the craving pills in the band: cravings RECOMMEND, these FILTER. And an active
+            free-from filter is never on screen without its safety disclaimer — a free-from claim
+            from absent data is the one thing the dietary model refuses to make silently. */}
+        <p id="taste-diet-cap" className="taste-caption">
+          Dietary needs
+          <span className="taste-caption-note">— filters the whole menu</span>
+          {/* K15 — Claude-authored MY accent, pending the native check like every batch. */}
+          <span lang="my" className="taste-caption-my">
+            မီနူးတစ်ခုလုံး စစ်ထုတ်ပေးမယ်
+          </span>
+        </p>
+        <DietPills diets={diets} onToggle={toggleDiet} labelledBy="taste-diet-cap" />
+        {hasFreeFrom(diets) && <FreeFromDisclaimer />}
       </div>
 
       {cats.map((c) => (

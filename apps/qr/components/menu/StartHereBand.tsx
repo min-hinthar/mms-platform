@@ -28,10 +28,10 @@ export function StartHereBand({
   dataBacked,
   onSelect,
 }: {
-  /** W20 review — each entry carries its TRUE pre-filter rank (competitionRanks order; a sold-out
-   *  dish keeps its number and simply doesn't render). M133: `null` where the numeral is SHARED
-   *  with another dish, and on the whole `popular` fallback row — no seal, no ordinal claim. */
-  rowA: { item: MenuItem; rank: number | null }[];
+  /** The most-ordered dishes, in sales order (M135 — the owner's PayPal/Zettle export). No rank
+   *  travels with them: the owner asked for the sales data "instead of ranking them or numbering",
+   *  so this row is a SET, and no card makes an ordinal claim. */
+  rowA: MenuItem[];
   /** The category round-robin — no ranking claim, no seals. Empty below its 3-card floor. */
   rowB: MenuItem[];
   /** True only when real paid-order counts curated row A — drives the honest sub-heading. */
@@ -62,7 +62,7 @@ export function StartHereBand({
 
   // `dupe` = the marquee's loop copy: aria-hidden by the rail, out of the tab order here, but
   // still clickable — a visibly on-screen copy must open the same sheet as its original.
-  const card = (i: MenuItem, dupe: boolean, rank?: number | null) => (
+  const card = (i: MenuItem, dupe: boolean) => (
     <button
       type="button"
       className="start-here-card"
@@ -71,24 +71,6 @@ export function StartHereBand({
     >
       {/* W20 — the rank seal, ONLY when real paid-order counts curated this row: a numeral this
           prominent is a claim. #1 wears the gold cap. The sr-only twin says it in words. */}
-      {/* M133 — a seal needs an UNAMBIGUOUS numeral. `soleRanks` nulls every rank two or more
-          dishes share, and on the live menu that is most of them (1, 2, 2, 4, 5, 5, 5, 8×5): five
-          identical "8" coins are each true and together unreadable, which is what the owner saw as
-          "numbering duplicates". A tied dish keeps its place in the row and simply makes no ordinal
-          claim — nothing is downgraded, the illegible claims are withheld. */}
-      {dataBacked && rank != null && (
-        <>
-          <span
-            className={`start-here-rank${rank === 1 ? " start-here-rank-top" : ""}`}
-            aria-hidden
-          >
-            {rank}
-          </span>
-          <span className="sr-only">
-            {rank === 1 ? "Most loved at tables. " : `No. ${rank} at tables. `}
-          </span>
-        </>
-      )}
       {/* W16e — NO truthiness gate on the slot: BlurUpImage renders the designed placeholder for a
           null src; gating the <span> away made photo-less dishes render as ragged short cards. */}
       <span className="start-here-photo" aria-hidden>
@@ -144,8 +126,8 @@ export function StartHereBand({
       </div>
       <MarqueeRail
         items={rowA}
-        itemKey={(e) => e.item.id}
-        renderItem={(e, dupe) => card(e.item, dupe, e.rank)}
+        itemKey={(i) => i.id}
+        renderItem={(i, dupe) => card(i, dupe)}
         direction={1}
         speed={30}
         motion={motionOk}

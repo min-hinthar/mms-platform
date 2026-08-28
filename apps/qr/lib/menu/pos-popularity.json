@@ -1,0 +1,306 @@
+[
+  {
+    "slug": "rice",
+    "qty": 2052
+  },
+  {
+    "slug": "kyay-o",
+    "qty": 1975
+  },
+  {
+    "slug": "burmese-milk-tea",
+    "qty": 1791
+  },
+  {
+    "slug": "mohinga",
+    "qty": 1068
+  },
+  {
+    "slug": "mee-shay",
+    "qty": 794
+  },
+  {
+    "slug": "roselle-with-shrimp-curry",
+    "qty": 475
+  },
+  {
+    "slug": "faluda",
+    "qty": 451
+  },
+  {
+    "slug": "coconut-rice",
+    "qty": 434
+  },
+  {
+    "slug": "chicken-curry",
+    "qty": 431
+  },
+  {
+    "slug": "pickled-tea-salad",
+    "qty": 419
+  },
+  {
+    "slug": "beef-curry",
+    "qty": 401
+  },
+  {
+    "slug": "goat-curry",
+    "qty": 380
+  },
+  {
+    "slug": "veggie-fritters",
+    "qty": 355
+  },
+  {
+    "slug": "shan-noodles",
+    "qty": 342
+  },
+  {
+    "slug": "ohno-khao-swe",
+    "qty": 331
+  },
+  {
+    "slug": "boneless-catfish-curry",
+    "qty": 318
+  },
+  {
+    "slug": "river-prawns-curry",
+    "qty": 313
+  },
+  {
+    "slug": "ngapi-and-veggies",
+    "qty": 275
+  },
+  {
+    "slug": "balachaung",
+    "qty": 269
+  },
+  {
+    "slug": "pork-curry",
+    "qty": 265
+  },
+  {
+    "slug": "fried-fish-cake-curry",
+    "qty": 227
+  },
+  {
+    "slug": "pork-offals-curry",
+    "qty": 217
+  },
+  {
+    "slug": "malar-spicy-beef",
+    "qty": 213
+  },
+  {
+    "slug": "swai-fish-curry",
+    "qty": 189
+  },
+  {
+    "slug": "parata",
+    "qty": 183
+  },
+  {
+    "slug": "white-peas",
+    "qty": 182
+  },
+  {
+    "slug": "peas-parata",
+    "qty": 168
+  },
+  {
+    "slug": "duck-egg-curry",
+    "qty": 159
+  },
+  {
+    "slug": "pork-tamarind-stew",
+    "qty": 151
+  },
+  {
+    "slug": "pork-horsegram-bean-curry",
+    "qty": 126
+  },
+  {
+    "slug": "rakhine-mont-ti",
+    "qty": 126
+  },
+  {
+    "slug": "ngapi-sambal",
+    "qty": 125
+  },
+  {
+    "slug": "coconut-chicken-and-rice",
+    "qty": 120
+  },
+  {
+    "slug": "bamboo-shoot-with-pork-soup",
+    "qty": 106
+  },
+  {
+    "slug": "sour-water-spinach",
+    "qty": 98
+  },
+  {
+    "slug": "bean-fritters",
+    "qty": 97
+  },
+  {
+    "slug": "fried-catfish-curry",
+    "qty": 97
+  },
+  {
+    "slug": "crab-masala-curry",
+    "qty": 93
+  },
+  {
+    "slug": "beef-jerky",
+    "qty": 91
+  },
+  {
+    "slug": "mohinga-soup-side",
+    "qty": 87
+  },
+  {
+    "slug": "century-egg-salad",
+    "qty": 85
+  },
+  {
+    "slug": "pinto-beans",
+    "qty": 77
+  },
+  {
+    "slug": "catfish-head-mon",
+    "qty": 72
+  },
+  {
+    "slug": "sweet-shrimps-curry",
+    "qty": 72
+  },
+  {
+    "slug": "chicken-gourd-curry",
+    "qty": 68
+  },
+  {
+    "slug": "silurus-dried-fried",
+    "qty": 68
+  },
+  {
+    "slug": "kufee",
+    "qty": 65
+  },
+  {
+    "slug": "salted-fish-pounded",
+    "qty": 64
+  },
+  {
+    "slug": "stir-fry-water-spinach",
+    "qty": 63
+  },
+  {
+    "slug": "chicken-dregea",
+    "qty": 58
+  },
+  {
+    "slug": "chicken-salad",
+    "qty": 55
+  },
+  {
+    "slug": "stir-fry-mixed-veggie",
+    "qty": 53
+  },
+  {
+    "slug": "tom-yum-fried-rice-or-noodles",
+    "qty": 50
+  },
+  {
+    "slug": "sanwin-makin",
+    "qty": 48
+  },
+  {
+    "slug": "pork-fermented-bean",
+    "qty": 45
+  },
+  {
+    "slug": "tomato-salad",
+    "qty": 44
+  },
+  {
+    "slug": "snakehead-dried",
+    "qty": 40
+  },
+  {
+    "slug": "ngapi-rice-salad",
+    "qty": 39
+  },
+  {
+    "slug": "rice-with-pickled-tea-salad",
+    "qty": 36
+  },
+  {
+    "slug": "beef-pounded-deep-fried",
+    "qty": 31
+  },
+  {
+    "slug": "lemon-salad",
+    "qty": 27
+  },
+  {
+    "slug": "oil-rice-with-peas",
+    "qty": 26
+  },
+  {
+    "slug": "shrimp-crispy-fish-sauce",
+    "qty": 26
+  },
+  {
+    "slug": "goat-brains",
+    "qty": 22
+  },
+  {
+    "slug": "salted-fish-eggplant",
+    "qty": 20
+  },
+  {
+    "slug": "coconut-sago",
+    "qty": 17
+  },
+  {
+    "slug": "balachaung-side",
+    "qty": 14
+  },
+  {
+    "slug": "fermented-sesame-salad",
+    "qty": 13
+  },
+  {
+    "slug": "grilled-fish",
+    "qty": 13
+  },
+  {
+    "slug": "bombay-duck-grilled",
+    "qty": 12
+  },
+  {
+    "slug": "dried-goat",
+    "qty": 12
+  },
+  {
+    "slug": "fresh-fruits",
+    "qty": 12
+  },
+  {
+    "slug": "acacia-with-shrimp-curry",
+    "qty": 11
+  },
+  {
+    "slug": "kayah-sausages",
+    "qty": 7
+  },
+  {
+    "slug": "beef-fried-shredded",
+    "qty": 5
+  },
+  {
+    "slug": "bottled-water",
+    "qty": 1
+  }
+]

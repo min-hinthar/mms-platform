@@ -3,8 +3,7 @@ import { TableCartProvider } from "@/components/TableCartProvider";
 import { CartPublisher } from "@/components/CartPublisher";
 import { MenuBrowser, type MenuItem } from "@/components/menu/MenuBrowser";
 import { requiredChoiceUnavailable, shapeModifierGroups } from "@/lib/menu/modifiers";
-import { getMostLoved, LOVED_BADGE_MAX } from "@/lib/menu/mostLoved";
-import { competitionRanks, soleRanks } from "@/lib/menu/rank";
+import { posPopularIds, POS_BADGE_MAX } from "@/lib/menu/posPopular";
 import { getWelcomeBack } from "@/lib/rewards";
 import { getFavoriteIds } from "@/lib/favorites";
 import { OutageRefresh } from "@/components/OutageRefresh";
@@ -47,9 +46,6 @@ export default async function Menu({
   const code = t ?? j;
   const joinOnly = !t && !!j;
   const db = publicClient();
-  // J2: the catalog and the counts-only favorites aggregate load in parallel — the aggregate is cached
-  // (1h) and can never block or break the menu (it resolves [] on failure inside mostLoved).
-  const mostLovedP = getMostLoved();
   // J5 recognition reads (both the caller's OWN, both cookie-scoped, both fail to a quiet default —
   // a broken greeting or missing hearts must never take the menu down).
   const welcomeP = getWelcomeBack();
@@ -57,7 +53,7 @@ export default async function Menu({
   const { data, error: catalogErr } = await db
     .from("menu_items")
     .select(
-      "id,name_en,name_my,description_en,description_my,base_price_cents,image_url,is_sold_out,tags,allergens,menu_categories(name,sort_order),item_modifier_groups(modifier_groups(id,slug,name,name_my,selection_type,min_select,max_select,modifier_options(id,slug,name,name_my,price_delta_cents,sort_order,is_active,allergens)))",
+      "id,slug,name_en,name_my,description_en,description_my,base_price_cents,image_url,is_sold_out,tags,allergens,menu_categories(name,sort_order),item_modifier_groups(modifier_groups(id,slug,name,name_my,selection_type,min_select,max_select,modifier_options(id,slug,name,name_my,price_delta_cents,sort_order,is_active,allergens)))",
     )
     .eq("is_active", true)
     .order("name_en");
@@ -88,6 +84,7 @@ export default async function Menu({
     .sort((a, b) => (a.menu_categories?.sort_order ?? 999) - (b.menu_categories?.sort_order ?? 999))
     .map((i) => ({
       id: i.id,
+      slug: i.slug,
       name_en: i.name_en,
       name_my: i.name_my,
       description_en: i.description_en,
@@ -110,25 +107,23 @@ export default async function Menu({
   const items: MenuItem[] = catalogStale ? (readLastGoodCatalog() ?? []) : shaped;
   if (!catalogStale) storeLastGoodCatalog(shaped);
 
-  const mostLoved = await mostLovedP;
-  // M131 — TWO consumers of one ranking, at two different bounds, and the split is the honesty rule
-  // (see LOVED_BADGE_MAX / LOVED_POOL_MAX). `favorites` is everything the diner READS as a claim:
-  // the "Table favorite" badge on every row and the Start-here rank seals, so it stays at the badge
-  // bound. `popularIds` is the wider pool, used only to decide which honest option gets offered
-  // first — it reaches no copy at all. Ranks are computed on the SLICED list so a numeral can never
-  // exceed the set it ranks within.
-  const badgeLoved = mostLoved.slice(0, LOVED_BADGE_MAX);
-  // W21 (Codex P2 on #191) — the seals' ordinals are computed from the COUNTS, tie-aware: two
-  // dishes the comparator left tied (same distinct orders AND qty) share a numeral instead of one
-  // being invented "No. 2" by insertion order.
-  // M133 — competition ranks first (tied dishes MUST share a numeral), then `soleRanks` withholds
-  // every numeral that is shared. A seal that five cards wear at once is true and unreadable; see
-  // the note on `soleRanks`. `rank: null` means "in the row, makes no ordinal claim".
-  const ranks = soleRanks(
-    competitionRanks(badgeLoved, (a, b) => a.orders === b.orders && a.qty === b.qty),
-  );
-  const favorites = badgeLoved.map((m, i) => ({ id: m.menuItemId, rank: ranks[i] ?? null }));
-  const popularIds = mostLoved.map((m) => m.menuItemId);
+  /**
+   * M135 (owner: "you can refer to the actual paypal pos data insights for the menu items for most
+   * ordered items, instead of ranking them or numbering") — popularity now comes from the owner's
+   * own PayPal/Zettle till export, not from this app's own order history.
+   *
+   * It replaced a service-role aggregate over `qr_orders` that, on 60 days of live data, saw 77 line
+   * rows and could separate only 17 dishes — which is why its rank seals came out 1, 2, 2, 4, 5, 5,
+   * 5, 8, 8, 8, 8, 8. The export ranks 76 of our 97 dishes by real units sold. The seals are gone
+   * with it: the owner asked for the data instead of a ranking, and a numeral was the one thing this
+   * data was never going to carry gracefully.
+   *
+   * Two bounds, same honesty split as before: `favorites` is what a diner READS (the "Most ordered"
+   * badge) and stays at `POS_BADGE_MAX`; `popularIds` is the full order, consulted only to decide
+   * which honest option gets OFFERED first and never rendered as words.
+   */
+  const popularIds = posPopularIds(items);
+  const favorites = popularIds.slice(0, POS_BADGE_MAX).map((id) => ({ id }));
   const welcome = await welcomeP;
   const heartedIds = await heartedP;
   // W22e — recognition, decided server-side against TODAY's catalog so a sold-out or discontinued

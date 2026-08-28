@@ -76,12 +76,12 @@ describe("recommendByTaste — only matches, ranked by match count then populari
     expect(r[0]!.matched.map((c) => c.id).sort()).toEqual(["curry", "spicy"]);
   });
 
-  it("caps at 7 — a row, not a second menu", () => {
+  it("caps at 8 — a row, not a second menu", () => {
     // The LITERAL, not the constant. `toHaveLength(TASTE_ROW_MAX)` is a tautology: the M133 mutant
     // that loosened TASTE_ROW_MAX from 7 to 8 SURVIVED every test in this file, because each one
     // asked the constant what it was and then agreed with the answer.
     const many = Array.from({ length: 20 }, (_, i) => item("Curries", [], `c${i}`));
-    expect(recommendByTaste(many, ["curry"])).toHaveLength(7);
+    expect(recommendByTaste(many, ["curry"])).toHaveLength(8);
   });
 });
 
@@ -157,13 +157,14 @@ describe("M131 — the surprise draw comes from the ranked tier first", () => {
 });
 
 describe("M133 — the row bounds, and the honest way to reach the floor", () => {
-  it("the owner's numbers, pinned as literals — at least 4, at most 7", () => {
+  it("the owner's numbers, pinned as literals — at least 4, at most 8", () => {
     // A product decision, not an implementation detail: "all explore your burmese taste buds
     // suggestions (including surprise your taste buds) should offer at least 4 and at most 7 menu
-    // items". Nothing else in this file can catch a change to either bound, because every other
-    // assertion reads the constant it is trying to verify.
+    // items", then M135: "should offer at most 8 menu items and displayed as one row". Nothing else
+    // in this file can catch a change to either bound, because every other assertion reads the
+    // constant it is trying to verify.
     expect(TASTE_ROW_MIN).toBe(4);
-    expect(TASTE_ROW_MAX).toBe(7);
+    expect(TASTE_ROW_MAX).toBe(8);
   });
 
   it("the bounds are a real range, not a single number", () => {

@@ -2,7 +2,7 @@
  * W22e — "your usual", and the rules that keep it from being flattery.
  *
  * The arrival beat can offer a returning diner the thing they actually order. That is a RECOGNITION
- * claim, and this repo has one standing bar for those (`mostLoved.ts`, the rank seals): counted, paid
+ * claim, and this repo has one standing bar for those (M135's POS units, `posPopular.ts`): counted, paid
  * history, tie-aware, never an invented affinity. This module is the same bar applied to ONE diner
  * instead of the room — harder, because a single person's history is small enough that one
  * coincidence looks like a pattern, and a wrong guess lands on someone who knows the truth.
@@ -97,7 +97,7 @@ export type UsualOutcome =
 export const MIN_DISTINCT_DAYS = 2;
 
 /**
- * How far back history counts. Deliberately LONGER than `mostLoved`'s 60 days: that aggregate sees
+ * How far back history counts. Deliberately LONGER than the retired `mostLoved`'s 60 days: that aggregate saw
  * every diner in the room, while one person's history at the same window might hold two visits total.
  * 90 days is roughly a season — long enough for a fortnightly regular to clear the threshold, short
  * enough that "usual" still describes who they are now rather than who they were last year.

@@ -4893,43 +4893,35 @@ html[data-seen-surface] .mms-stagger {
   scroll-snap-type: x proximity;
   -webkit-overflow-scrolling: touch;
 }
-/* W21 (owner: "same size and larger and maybe two rows?") — the two-row wall is a MODIFIER the
-   component adds only when it has the cards for it (>3): as the base style it gave a 1-heart
-   FavoritesRail a card-sized blank second row (review LOW — an fr row inherits the first row's
-   height). Uniform cells: rows share height, columns the fixed width, so no card runs ragged. */
-.start-here-rail-wall {
-  display: grid;
-  grid-auto-flow: column;
-  grid-template-rows: repeat(2, 1fr);
-  /* M131 — 158 → 166: the card gained a 4:3 photo and a price tag, and at 158 the two-line name
-     clamp collided with the tag on the longest dish names. Uniform cells still: rows share height,
-     columns the fixed width, so no card runs ragged. */
-  grid-auto-columns: 166px;
-}
-/* M131 — the wall CASCADES in rather than appearing as a block (owner: "the card ul display …
+/* M135 — the two-row `start-here-rail-wall` grid is DELETED, not left unused. W21 added it for the
+   taste band ("same size and larger and maybe two rows?") and the taste band was its only caller;
+   the owner has now asked for that band as "one row", so the modifier has nobody left. At up to 8
+   cards it made the rail twice as tall as the pills above it and pushed the menu below the fold,
+   and an odd count left a hole in the last column. Every rail on this surface is one snapping
+   flex row again, which is also the shape of the pill rails either side of them. */
+/* M131 → M135 — the per-card CASCADE survives the wall's removal and moves onto the taste rail,
+   which is the row that has enough cards to make one read (owner, M131: "the card ul display …
    should be more creative, styled, rendered"). `--i` is set per card by the component, which is
-   exactly what mmsRise's own docblock says the caller does: "the caller sets `animation-delay` per
-   item for the stagger". The delay is capped so a ten-card wall never leaves the last one waiting.
+   exactly what mmsRise's docblock says the caller does: "the caller sets `animation-delay` per item
+   for the stagger". The delay is capped so an eight-card row never leaves the last one waiting.
 
    ⚠️ The container's rise is REPLACED, not stacked. The <ul> carries `.mms-rise`, and a parent's
-   transform composes with its children's — leaving both on would translate the wall 16px instead
-   of 8 and still land every card at the same moment, which is the opposite of a cascade. Under
-   reduced motion neither runs: `.mms-rise` is already cancelled by the shared block, and this
-   whole block is gated `no-preference`, so the cards render in their settled state. */
+   transform composes with its children's — leaving both on would translate the row 16px instead of
+   8 and still land every card at the same moment, which is the opposite of a cascade. Under reduced
+   motion neither runs: `.mms-rise` is already cancelled by the shared block, and this whole block is
+   gated `no-preference`, so the cards render in their settled state. */
 @media (prefers-reduced-motion: no-preference) {
-  .start-here-rail-wall.mms-rise {
+  .taste-rail-row.mms-rise {
     animation: none;
   }
-  .start-here-rail-wall > li {
+  .taste-rail-row > li {
     animation: mmsRise var(--dur-base) var(--ease-out) both;
     animation-delay: calc(min(var(--i, 0) * 45ms, 360ms));
   }
 }
-.start-here-rail:not(.start-here-rail-wall) > li {
+.start-here-rail > li {
   flex: none;
   width: 166px;
-}
-.start-here-rail > li {
   scroll-snap-align: start;
   min-width: 0;
 }
@@ -4971,40 +4963,11 @@ html[data-seen-surface] .mms-stagger {
     transform: scale(1.05);
   }
 }
-/* W20 — the rank seal (data-backed rails only; the component gates it). A quiet vellum coin; #1
-   wears the lit-gold cap the selection vocabulary already speaks (.checkout-pill-on's recipe). */
-.start-here-rank {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  z-index: 1;
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 999px;
-  font-size: 11.5px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  color: var(--tx);
-  background: var(--cd);
-  border: 1px solid color-mix(in oklab, var(--gold) 45%, var(--bd));
-  box-shadow: inset 0 1px 0 var(--sheen);
-}
-.start-here-rank-top {
-  /* M131 — was `--oa`, and that was a LIVE AA failure in the light theme, shipped since W20: `--oa`
-     is on-ACCENT ink (#fffdf8 in light, sized for the dark amber `--ac`), and on this GOLD gradient
-     it measures 2.0458:1 — the most prominent numeral on the band, unreadable. `--ink` is the
-     constant deep ink meant for a fill that is bright in both themes: worst 5.4353 (light) /
-     9.6157 (Night) across the range this gradient actually paints. Night was never the failure —
-     `--oa` measures 10.2712 there — so this is a light-theme fix that costs Night nothing. */
-  color: var(--ink);
-  background: linear-gradient(160deg, var(--gold), color-mix(in oklab, var(--gold) 45%, var(--ac)));
-  border-color: transparent;
-  box-shadow:
-    inset 0 1px 0 var(--sheen),
-    0 0 12px -4px var(--glow-gold);
-}
+/* M135 — the rank seal is GONE (`.start-here-rank` / `-top`), not restyled. The owner asked for
+   the PayPal POS sales data "instead of ranking them or numbering", and the numeral was the only
+   thing on this band making an ordinal claim. Row A is now a SET of most-ordered dishes in sales
+   order. `--bloom-gold-seal` existed only for that coin and is deleted with it. Nothing replaced
+   the seal — the price tag already owns a card corner, and it stays unglowed. */
 .start-here-photo {
   display: block;
   position: relative;
@@ -5303,12 +5266,15 @@ html[data-seen-surface] .mms-stagger {
 }
 /* The dietary rail's caption — the pills below filter the WHOLE menu, and this line owns saying
    so before any pill is lit (a filter that looks like a recommender would be a trap). */
+/* M135 — this caption's ONE call site is now the sticky toolbar (it moved back out of the taste
+   band), so it is tuned for that home: a little air above it separating it from the category nav,
+   and a little below before its own pills, rather than the band's asymmetric lead-in. */
 .taste-caption {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
   gap: 6px;
-  margin: 10px 2px 0;
+  margin: 8px 2px 6px;
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.02em;
@@ -8409,13 +8375,10 @@ html[data-fx="lite"] .mms-scrim {
   filter: var(--bloom-gold-lit);
   transition: filter var(--dur-base) var(--ease-out);
 }
-/* The rank seal sits 12px inside its card, so it takes the SHORT recipe — the full 14px halo would
-   run past the card edge. Same precedent as --sh-lift vs --sh-glow. Static: a seal is a statement
-   about the row, not a thing the diner just did. */
-.start-here-rank-top {
-  box-shadow: inset 0 1px 0 var(--sheen);
-  filter: var(--bloom-gold-seal);
-}
+/* M135 — `.start-here-rank-top` retired with the seal, and `--bloom-gold-seal` deleted with it
+   (tokens.css). It was NOT moved onto the price tag: that bloom existed for ONE coin, the #1 seal,
+   and a rail renders ten price tags — ten gold halos is exactly the overspend the glow economy
+   forbids. Nothing else consumed the rung, and no guard required it to be consumed. */
 @keyframes mmsIgnite {
   0% {
     filter: var(--bloom-gold-off);
@@ -8518,7 +8481,6 @@ html[data-fx="lite"] .mms-scrim {
   .checkout-pill-on,
   .checkout-tip-on,
   .taste-chip-on,
-  .start-here-rank-top,
   .mms-send-beat,
   .pay-success-check,
   .mms-confetti-pc,

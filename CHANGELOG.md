@@ -4,6 +4,59 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The till, not our own history — POS units replace the ranking, and the seals come off (M135, 2026-08-27)
+
+The owner: _"you can refer to the actual paypal pos data insights for the menu items for most
+ordered items, instead of ranking them or numbering. also explore your burmese taste buds
+suggestions (including surprise your taste buds) should offer at most 8 menu items and displayed as
+one row. taste-diet-cap should be moved back inside menu-toolbar."_
+
+**The popularity source is the owner's own PayPal/Zettle export, which was already in the repo.**
+`docs/data/pos_2026_prices.json` (Jan–Jul 2026) has been sitting beside `MENU_REFERENCE.md` since
+W17, carrying a units-sold column nothing read. `scripts/gen-menu-reference.mjs` already joins it to
+our catalog on the **Burmese** dish name, so the same join now emits a second generated file —
+`apps/qr/lib/menu/pos-popularity.json`, 76 of our 97 dishes ordered by real units — and
+`pnpm check:docs` fails if either output drifts from its inputs.
+
+|                        | the retired `mostLoved`             | the POS export                      |
+| ---------------------- | ----------------------------------- | ----------------------------------- |
+| source                 | this app's own paid orders, 60 days | the restaurant's till, Jan–Jul 2026 |
+| evidence               | 77 line rows                        | 149 POS rows                        |
+| dishes it can separate | 17                                  | 76                                  |
+| cost per menu render   | a service-role aggregate            | none — a static import              |
+
+**EXACT Burmese matches only, and that is load-bearing.** The generator's own long-standing rule for
+prices — approx matches are "kept for discovery, never used to conclude anything" — applies harder
+to a units count, because this one ORDERS THE MENU. Loosening it was run as a mutation and the new
+double-claim assert named the damage: Coconut Rice's units would have gone to Coconut Chicken &
+Rice, and White Peas' to Oil Rice with Peas.
+
+**The rank seals are gone, not restyled** — `.start-here-rank`, `soleRanks`, `competitionRanks`,
+`--bloom-gold-seal`, all deleted. The numeral was the only thing on the band making an ordinal
+claim, and M133 had already found it unreadable on the old data (five cards wearing "8"). Row A is
+now a SET of most-ordered dishes in sales order. The seal's bloom was **not** moved onto the price
+tag: it existed for one coin, and a rail renders ten tags — ten gold halos is the overspend the glow
+economy forbids.
+
+**The badge is renamed, because the new data cannot support the old words.** "Table favorite"
+claimed something about diners at this app's tables; POS units know nothing about tables or about
+this app. It reads **"Most ordered"**, which is exactly what the number counts.
+
+**Every taste row is one row of at most 8.** The two-row `start-here-rail-wall` grid is deleted —
+the taste band was its only caller, at 8 cards it made the rail twice as tall as the pills above it,
+and an odd count left a hole in the last column. The per-card cascade survives on the single row.
+
+**The dietary caption and pills moved back into the sticky toolbar, unconditionally.** W22 had put
+them in the taste band and left the toolbar mirroring them only during a search or with a filter
+already lit — so the one control that narrows the whole menu was reachable only from a band the
+diner scrolls past. Cravings recommend, diets filter; a filter belongs on the surface that persists.
+
+⚠️ **Worth the owner's eye: the honest reading of units puts sides first.** Plain Rice (2052) and
+Burmese Milk Tea (1791) outrank Mohinga (1068), because they ride along with other orders. That is
+deliberately NOT filtered — a "real dish" rule would be this app deciding what the owner's sales
+mean. The category round-robin already keeps one dish per category, so a side cannot take over a
+row, but the "Most ordered" badge will sit on Rice.
+
 ### The suggestions are SELECTED from the top 50 now, and the rank seals stop repeating (M133, 2026-08-27)
 
 The owner, on the M131 preview: _"menu items for a little of everything and explore your burmese

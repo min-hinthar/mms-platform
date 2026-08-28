@@ -313,10 +313,6 @@
     drop-shadow(0 3px 28px color-mix(in oklab, var(--gold) 46%, transparent));
   --bloom-gold-off: drop-shadow(0 2px 5px color-mix(in oklab, var(--ac) 40%, transparent))
     drop-shadow(0 0 0 transparent) drop-shadow(0 0 0 transparent);
-  /* A shorter reach for a seal that sits 12px inside a card with `overflow: hidden` — the full
-     14px halo would clip. Same precedent as --sh-lift vs --sh-glow. */
-  --bloom-gold-seal: drop-shadow(0 1px 3px color-mix(in oklab, var(--ac) 34%, transparent))
-    drop-shadow(0 0 6px color-mix(in oklab, var(--gold) 50%, transparent));
   /* Pay success is the ONE moment allowed a non-gold bloom — --ok is the colour its ring already
      wears, so it spends nothing from the gold economy. */
   --bloom-ok: drop-shadow(0 0 6px color-mix(in oklab, var(--ok) 45%, transparent))
