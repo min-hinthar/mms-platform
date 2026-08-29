@@ -9,6 +9,16 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 Codex's second round on #242 landed the sharpest finding of the sweep, and it is the same shape as
 the three before it: **a guard that verifies a constant rather than the thing it claims to guard.**
 
+(Round 3 then closed two remaining false-CLEAN doors in the same two guards: the CSS extraction was
+still first-textual-match, so a commented-out copy of the rule above a regressed live one would have
+been measured, and a gradient growing a second `var()` would have silently re-pointed the
+assertions — it now strips CSS comments, identifies the PAINTING rule structurally rather than by
+position (the selector legitimately appears twice, the second being the reduced-motion override),
+and refuses more than one custom property in the declaration. And `isDead` recognised only
+`false &&` while its own comment claimed ternaries, so `{false ? <script/> : null}` and
+`{0 && <script/>}` still read as live; it now covers literal-falsy `&&`, truthy `||` and both
+ternary arms. Four dead-branch shapes and both CSS shapes falsified.)
+
 `composite-contrast.test.ts` measured `--reward-shine` by name and never checked that anything
 CONSUMES it. Swapping `.checkout-reward-applied::after` back to `var(--sheen)` left all 35
 assertions green — **including the negative one asserting `--sheen` fails** — while restoring the

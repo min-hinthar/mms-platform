@@ -517,16 +517,42 @@ describe("the reward shimmer — a light band that crosses TEXT, not an edge", (
       fileURLToPath(new URL("../../../../apps/qr/app/globals.css", import.meta.url)),
       "utf8",
     );
-    const rule = /\.checkout-reward-applied::after\s*\{([^}]*)\}/.exec(globals);
-    if (!rule) throw new Error(".checkout-reward-applied::after not found in globals.css");
-    const band = /background:\s*linear-gradient\([^;]*?var\((--[a-z0-9-]+)\)[^;]*;/i.exec(rule[1]!);
-    if (!band) {
+    // Comments stripped FIRST, and ambiguity refused (Codex P2 on #242 round 3). Matching the first
+    // textual occurrence would pick a commented-out copy of the rule sitting above the live one —
+    // the same "found a string that is not the shipped thing" mistake the fx-boot extraction made
+    // twice. Blanked rather than deleted so nothing shifts under a future offset-based read.
+    const live = globals.replace(/\/\*[\s\S]*?\*\//g, "");
+
+    // The selector legitimately appears TWICE — the rule that paints the band, and the
+    // reduced-motion override that sets `content: none` to remove it. So identify the PAINTING one
+    // structurally (it is the one declaring a `background`) rather than by position, and still
+    // refuse ambiguity if a second painting rule ever appears.
+    const painting = [...live.matchAll(/\.checkout-reward-applied::after\s*\{([^}]*)\}/g)]
+      .map((m) => m[1]!)
+      .filter((body) => /background:\s*[^;]*;/i.test(body));
+    if (painting.length !== 1) {
       throw new Error(
-        ".checkout-reward-applied::after no longer paints a var() light band — this suite measures " +
-          "whatever token that rule uses, so it cannot silently keep passing against the old one.",
+        `globals.css has ${painting.length} live \`.checkout-reward-applied::after\` rules that paint ` +
+          "a background. This suite asserts a contrast floor for that band, so exactly one rule has " +
+          "to own it — zero means the shimmer moved, two means it is ambiguous which one a diner sees.",
       );
     }
-    return band[1]!;
+
+    const decl = /background:\s*([^;]*);/i.exec(painting[0]!)!;
+
+    // EVERY custom property in the declaration, not the first — a gradient that grows a second
+    // `var()` before the centre stop would otherwise silently re-point these assertions at it.
+    const vars = [...decl[1]!.matchAll(/var\((--[a-z0-9-]+)\)/gi)].map((m) => m[1]!);
+    const unique = [...new Set(vars)];
+    if (unique.length !== 1) {
+      throw new Error(
+        `the shimmer's background names ${unique.length} custom properties (${unique.join(", ") || "none"}). ` +
+          "This suite asserts a contrast floor for the BAND, so it must be unambiguous which token " +
+          "paints it — name the band's colour in one property, or teach this extraction which stop " +
+          "carries it.",
+      );
+    }
+    return unique[0]!;
   })();
 
   const stop = (map: Record<string, string>, pct: number) =>

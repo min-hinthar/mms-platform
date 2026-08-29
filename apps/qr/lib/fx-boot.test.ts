@@ -49,15 +49,43 @@ const SCRIPT = (() => {
     ts.ScriptKind.TSX,
   );
 
-  /** Is this node inside a `false && …` / `0 ? … : x` style dead branch? */
+  /**
+   * Is this node inside a statically dead JSX branch?
+   *
+   * The first version recognised only `false &&` while its own comment claimed ternaries too —
+   * Codex P2 on #242 round 3. A good copy under `{false ? <script/> : null}` or `{0 && <script/>}`
+   * therefore still counted as live, and paired with a regressed live script it became the sole
+   * candidate: every assertion would run against a string that never renders.
+   *
+   * The bound is deliberately LITERAL falsiness, not reachability. Proving a `<script>` unreachable
+   * in general needs the type checker and a control-flow analysis this guard has no business
+   * carrying; what it must not do is be fooled by the shapes a person actually writes when they
+   * park a known-good copy next to a broken one.
+   */
+  const FALSY = new Set([ts.SyntaxKind.FalseKeyword, ts.SyntaxKind.NullKeyword]);
+  const isFalsyLiteral = (n: ts.Node): boolean =>
+    FALSY.has(n.kind) ||
+    (ts.isNumericLiteral(n) && Number(n.text) === 0) ||
+    (ts.isStringLiteral(n) && n.text === "") ||
+    (ts.isIdentifier(n) && n.text === "undefined");
+  const isTruthyLiteral = (n: ts.Node): boolean =>
+    n.kind === ts.SyntaxKind.TrueKeyword ||
+    (ts.isNumericLiteral(n) && Number(n.text) !== 0) ||
+    (ts.isStringLiteral(n) && n.text !== "");
+
   const isDead = (node: ts.Node): boolean => {
-    for (let n: ts.Node | undefined = node.parent; n; n = n.parent) {
-      if (
-        ts.isBinaryExpression(n) &&
-        n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
-        n.left.kind === ts.SyntaxKind.FalseKeyword
-      ) {
-        return true;
+    for (let n: ts.Node = node, p = node.parent; p; n = p, p = p.parent) {
+      // `{<falsy> && <script/>}` — and `||` with a truthy left short-circuits past its right too.
+      if (ts.isBinaryExpression(p)) {
+        const and = p.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken;
+        const or = p.operatorToken.kind === ts.SyntaxKind.BarBarToken;
+        if (and && p.right === n && isFalsyLiteral(p.left)) return true;
+        if (or && p.right === n && isTruthyLiteral(p.left)) return true;
+      }
+      // `{<falsy> ? <script/> : null}` and `{<truthy> ? null : <script/>}`
+      if (ts.isConditionalExpression(p)) {
+        if (p.whenTrue === n && isFalsyLiteral(p.condition)) return true;
+        if (p.whenFalse === n && isTruthyLiteral(p.condition)) return true;
       }
     }
     return false;
